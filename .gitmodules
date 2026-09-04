@@ -16,3 +16,4 @@
 [submodule "ext/surfer"]
 	path = ext/surfer
 	url = https://github.com/ripopov/surfer
+	branch = vtr
