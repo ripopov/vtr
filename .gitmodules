@@ -1,0 +1,3 @@
+[submodule "ext/libfstwriter"]
+	path = ext/libfstwriter
+	url = https://github.com/gtkwave/libfstwriter
