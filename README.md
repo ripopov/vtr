@@ -14,6 +14,9 @@ Konata/Kanata pipeline logs and OpenTelemetry traces can express.
 * Streaming writer with a background encoder thread; random-access,
   memory-mapped reader that never needs to read the whole file for a local
   query; crash-recoverable files.
+* Verilator integration: `integrations/verilator` adds `--trace-vtr` to
+  Verilator 5.050 next to `--trace-fst`, so a Verilated model dumps VTR
+  directly (used by the benchmarks on a full openC910 CoreMark run).
 
 ## Documents
 
@@ -97,10 +100,11 @@ if (vtr_writer_close(w) != VTR_OK) fprintf(stderr, "%s\n", vtr_last_error());
 ## Benchmarks
 
 `python3 bench/run.py all` builds the harnesses (GTKWave's original
-`fstapi.c`, libfstwriter, LWTR4SC's FTR writer, wellen/fst-reader), prepares
-the workloads (including a Verilator run of a real RTL design when
-`verilator` is installed) and regenerates `docs/BENCHMARK_RESULTS.md`.
-See `docs/BENCHMARKS.md`.
+`fstapi.c`, libfstwriter, LWTR4SC's FTR writer, wellen/fst-reader) and
+Verilator with the VTR backend, prepares the workloads (including Verilator
+runs of two real RTL designs: the RSA-256 core and the openC910 SoC running
+CoreMark, both traced to FST and to VTR by the simulator itself) and
+regenerates `docs/BENCHMARK_RESULTS.md`. See `docs/BENCHMARKS.md`.
 
 ## Repository layout
 
@@ -109,9 +113,10 @@ crates/vtr         core library: container, codecs, hierarchy, signal blocks, tr
 crates/vtr-capi    C ABI (libvtr) + header + C smoke test
 crates/vtr-cli     `vtr` tool and the converters (FST, VCD, Kanata, OTLP JSON, FTR)
 crates/vtr-bench   workload generation and benchmark drivers
-bench/             C/C++ harnesses (FST, FTR), orchestrator, results
+bench/             C/C++ harnesses (FST, FTR), Verilator workloads (rsa256, c910), orchestrator, results
 docs/              specification, API references, application note, benchmark report, rationale
-ext/               reference submodules (libfstwriter, LWTR4SC, Konata, wavepeek)
+integrations/      Verilator --trace-vtr patch and backend
+ext/               reference submodules (libfstwriter, LWTR4SC, Konata, wavepeek, pulp-c910)
 ```
 
 ## License

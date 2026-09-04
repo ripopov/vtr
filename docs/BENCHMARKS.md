@@ -7,18 +7,22 @@ measured, how, and how to reproduce it.
 ## Reproducing
 
 ```sh
-git submodule update --init          # libfstwriter (contains GTKWave's fstapi.c), LWTR4SC, Konata, wavepeek
-python3 bench/run.py all             # full set (~10 minutes, ~8 GB RAM); needs verilator for the RSA256 workloads
+git submodule update --init          # libfstwriter (contains GTKWave's fstapi.c), LWTR4SC, Konata, wavepeek, pulp-c910
+python3 bench/run.py all             # full set (~1 hour, ~16 GB RAM); the first run also builds Verilator and the C910 models
 python3 bench/run.py all --scale small
 python3 bench/run.py report          # re-render the Markdown from results.json
 ```
 
 `bench/run.py` builds the Rust crates (`cargo build --release`), the C/C++
 harnesses (`bench/cpp`, CMake, needs zlib and liblz4 development files),
-prepares the workloads under `bench/workloads/gen/`, runs every
-measurement best-of-N (default 3) and renders the report. Nothing is
-downloaded; every input is generated from the repository or taken from
-the submodules.
+Verilator 5.050 with the `--trace-vtr` backend (`integrations/verilator`,
+a shallow clone of the pinned upstream tag into `bench/build/verilator/`;
+needs autoconf, flex, bison), prepares the workloads under
+`bench/workloads/gen/`, runs every measurement best-of-N (default 3;
+simulator runs best-of-2) and renders the report. Apart from the Verilator
+source, nothing is downloaded: every input is generated from the
+repository or taken from the submodules. The C910 workload needs a
+`riscv64-unknown-elf-gcc` for the CoreMark image.
 
 ## Competitors
 
@@ -31,6 +35,7 @@ the submodules.
 | FTR (LZ4 / raw) | `ext/LWTR4SC/src/ftr/ftr_writer.h`, `ftr_writer<true>` (LZ4) and `ftr_writer<false>` |
 | uncompressed variants | `fstapi none` = pack type FASTLZ in the vendored build, where fastlz is compiled out so every value chain is stored raw (time tables and frames stay zlib-packed); `libfstwriter none` = its `NO_COMPRESSION` mode; `VTR none` = codec none for every blob. Reads of the uncompressed pair use wellen on the libfstwriter file. |
 | VTR Rust / C API | this repository, default options (zstd level 3, 256-signal groups, 64 KiB runs, 16M-record blocks, 512K-record chunks, background thread on); `inline` variants disable the background thread so the encoder runs on the caller's thread |
+| Verilator FST / **VTR** | the Verilated model writing its own trace: Verilator 5.050's built-in FST backend (bundles libfstwriter, LZ4) versus the `--trace-vtr` backend of `integrations/verilator` (VTR C API, default options); both run the same generated trace code |
 
 ## Workloads
 
@@ -47,6 +52,7 @@ Timing covers hierarchy declaration, the whole replay loop and close.
 | `scr1_axi` | `ext/wavepeek/web/playground/assets/scr1_axi.fst`, an SCR1 RISC-V core with AXI testbench traced by Verilator (real RTL) | 1.4k signals, 21M changes, 376k time steps |
 | `rsa256` | RSA-256 Montgomery multiplier from `ext/libfstwriter` integration tests, driven with continuous pseudo-random operands by `bench/workloads/rsa256/RSA_bench_tb.sv`, Verilated by `bench/workloads/rsa256/build.sh`, 200k cycles (real RTL, 256-bit datapaths) | 113 signals, 1.6M changes, mostly wide vectors |
 | `rsa256_long` | same design and driver, 2M cycles (long simulation) | 16M changes, 4M time steps |
+| `c910_coremark` | pulp-c910 (`ext/pulp-c910`: T-Head's openC910, a 3-wide superscalar out-of-order RV64GC core with L1 caches, MMU and AXI SoC, ~530 modules) running one CoreMark iteration under Verilator, built by `bench/workloads/c910/Makefile` (cacheable main memory, one width fix in `ct_lsu_ctrl.v`, one CoreMark iteration instead of the hard-coded two); every signal of the design is dumped after each clock edge (real RTL, large design) | see the report: hundreds of thousands of signals, ~240k cycles |
 | `scr1_x8` | 8 copies of `scr1_axi` under separate top scopes, multi-bit values XOR-perturbed per copy so copies are not byte-identical; models a multi-core SoC trace | 11.6k signals, 168M changes |
 | `long_sparse` | synthetic: 20k signals in 200 modules, 500k time steps, ~20 signals change per step | long run, few active signals |
 | `many_active` | synthetic: 200k signals, 1000 cycles, 30% change per cycle | short run, many active signals |
@@ -73,7 +79,9 @@ timings include parsing on both sides.
 ## Measurements
 
 Writers: wall-clock seconds and process CPU seconds (user+system, all
-threads) of declare + replay + close, best of N; output size in bytes.
+threads) of declare + replay + close, best of N (a single run for replays
+above 200M changes, where one FST write takes minutes); output size in
+bytes.
 The VTR "cpu" column therefore includes the background encoder; the wall
 column is what a simulator experiences.
 
@@ -103,6 +111,17 @@ The FST input for reads is the file written by `fstapi` with zlib (the
 GTKWave default); for the two simulator-produced workloads the report
 also includes reads of the original simulator file.
 
+Simulator-integrated tracing (`bench/workloads/rsa256/tb.cpp`,
+`bench/workloads/c910/tb/sim_main.cpp`): the same Verilated design is
+built three times, without tracing, with `--trace-fst` and with
+`--trace-vtr`, and each executable is run as a whole process (best of N)
+with the full design dumped after every clock edge. Reported: wall and
+CPU seconds of the whole run including closing the file, the trace cost
+(wall minus the untraced run) and the file size. The two simulator-written
+files are then read with the same query set as above (`vs_sim` in the
+results), which also checks that the VTR backend recorded exactly what
+Verilator's FST backend did.
+
 Transaction navigation (`vtr-bench tx-read`): open, scan all
 transactions, 1000 random lookups by id, 1000 relation queries (from and
 to), a 1% time-window query. FTR has no reader library beyond a Python
@@ -120,6 +139,11 @@ run-to-run variation on this machine is within 5% for everything above
 * Replays exercise the writers' APIs, not Verilator's tracing glue; the
   extra work a simulator does around any writer (value comparison,
   callback dispatch) is the same for all writers and is not measured.
+  The simulator-integrated rows measure exactly that end to end, for the
+  two writers Verilator can drive (its own FST backend and VTR).
+* The Verilated models are single-threaded and the traced ones are built
+  the same way as the untraced one (`-O3`, host `-O2`); Verilator's
+  offloaded/parallel tracing is not used by either backend.
 * libfstwriter has no variable-length values and no blackout; the
   harness skips such changes for it (counted as `skipped`, 0 in all
   workloads here).
@@ -137,19 +161,21 @@ the requirements on every workload of the suite, with the following
 qualifications, which are the honest boundaries of the claims:
 
 * **Size.** VTR is smaller than the smallest FST variant (GTKWave's
-  default zlib packing) on all seven signal workloads: 51% of FST-zlib on
-  the SCR1 core and 47% on its 8-copy replica, 61-69% on the synthetic
-  designs, and 97-98% on the high-entropy RSA-256 datapath and wide-bus
-  workloads, where both formats sit near the entropy floor of the values
-  themselves and the writer's transform trial correctly keeps plain
-  values. Against LZ4-packed FST (what libfstwriter and Verilator
-  produce) the margins are larger still. Transaction files are 3-5x
-  smaller than LZ4-compressed FTR.
+  default zlib packing) on all eight signal workloads: 51% of FST-zlib on
+  the SCR1 core, 47% on its 8-copy replica, 63% on the openC910 CoreMark
+  trace (246 MiB against 389 MiB zlib and 501 MiB LZ4 for 597M changes),
+  61-69% on the synthetic designs, and 97-98% on the high-entropy RSA-256
+  datapath and wide-bus workloads, where both formats sit near the
+  entropy floor of the values themselves and the writer's transform trial
+  correctly keeps plain values. Against LZ4-packed FST (what libfstwriter
+  and Verilator produce) the margins are larger still. Transaction files
+  are 3-5x smaller than LZ4-compressed FTR.
 * **Write speed.** With the default background encoder VTR is faster than
   the fastest FST writer (libfstwriter) on every signal workload, by
   1.13x (wide buses, where copying 256-2048-bit values dominates both
-  writers) to 2.1x (SCR1), and 10-14x faster than GTKWave's own
-  `fstapi.c`. The CPU column shows the price: the background thread adds
+  writers) to 2.1x (SCR1); 1.67x on the C910 trace (9.0 s against 15.0 s
+  for libfstwriter and 63 s for fstapi zlib), and 10-14x faster than
+  GTKWave's own `fstapi.c`. The CPU column shows the price: the background thread adds
   10-60% total CPU. The `inline` variants (encoder on the caller thread)
   are also faster than libfstwriter on every workload (1.12-1.48x), so the
   speed does not depend on a spare core; the per-run transform trial and
@@ -160,8 +186,25 @@ qualifications, which are the honest boundaries of the claims:
   FTR on the TLM workload, the one configuration where FTR writes faster.
   The 4k-instruction Konata sample is dominated by process start-up on
   both sides (parity).
+* **Simulator-integrated.** Inside Verilator, with the whole openC910
+  design dumped after every clock edge, the `--trace-vtr` backend adds
+  50 s to a 36 s CoreMark simulation where Verilator's built-in FST
+  backend (libfstwriter, LZ4) adds 66 s, and writes a file half the size
+  (251 MiB against 501 MiB); on the RSA-256 runs the trace cost is 1.5x
+  lower and the file 4% smaller. Both backends run the same generated
+  trace code, so the difference is the writer alone; the CPU column shows
+  that VTR's background thread costs about 8% extra CPU on the C910 run.
+  The files written by the two backends read back identically (parity
+  in the `vs_sim` rows). Verilator 5.050 itself simulates the C910 2.8x
+  slower than 5.048 with identical flags (36 s against 13 s for the same
+  cycles, checked with and without its DFG optimizer); the trace costs
+  above are absolute and do not depend on that.
 * **Read and navigation.** Against wellen (wavepeek's reader) VTR is
-  faster on every query on every workload. Random value queries are 2-5x
+  faster on every query on every workload. On the C910 trace, opening
+  takes 8.5 ms against 25 ms, walking the 205k-var hierarchy 1 ms against
+  20 ms, loading one signal 7 ms against 80 ms, and streaming all 597M
+  changes 6.4 s against 128 s for fst-reader (15 s for GTKWave's C
+  reader). Random value queries are 2-5x
   faster, single-signal loads 4-11x, windowed change scans 4-11x,
   streaming every change 2.3-76x, and opening a file 2-800x. The two
   former exceptions on the synthetic 200k-signal `many_active` design are
@@ -172,7 +215,8 @@ qualifications, which are the honest boundaries of the claims:
   proportional to the number of signals, not changes.
 * **Uncompressed.** With compression switched off on both sides VTR's
   files are within a few percent of raw-chain `fstapi` on the real
-  designs and smaller on the synthetic ones; both FST variants still
+  designs (4% larger on the C910 trace, where VTR stores more time-index
+  bytes for 67k mostly 1-bit signals) and smaller on the synthetic ones; both FST variants still
   zlib-pack their time tables and frames, so they are not fully raw.
   Uncompressed VTR writes 1.3-2x faster than libfstwriter's
   `NO_COMPRESSION` mode and reads faster on every query shown. The

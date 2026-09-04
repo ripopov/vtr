@@ -1,0 +1,1086 @@
+diff --git a/docs/guide/exe_verilator.rst b/docs/guide/exe_verilator.rst
+index 8072165..aad542e 100644
+--- a/docs/guide/exe_verilator.rst
++++ b/docs/guide/exe_verilator.rst
+@@ -1879,8 +1879,8 @@ Summary:
+ 
+ .. option:: --trace
+ 
+-   Deprecated; use :vlopt:`--trace-fst`, :vlopt:`--trace-saif` or
+-   :vlopt:`--trace-vcd` instead.
++   Deprecated; use :vlopt:`--trace-fst`, :vlopt:`--trace-saif`,
++   :vlopt:`--trace-vcd` or :vlopt:`--trace-vtr` instead.
+ 
+    Using :vlopt:`--trace` without :vlopt:`--trace-fst` nor
+    :vlopt:`--trace-saif` requests VCD traces.
+@@ -1976,6 +1976,13 @@ Summary:
+    Otherwise, these signals are not output during tracing. See also
+    :vlopt:`--coverage-underscore` option.
+ 
++.. option:: --trace-vtr
++
++   Enable VTR waveform tracing in the model. This overrides
++   :vlopt:`--trace`. VTR is a columnar, zstd-compressed trace format;
++   the model links against the VTR C library (see ``VTR_INCLUDE`` and
++   ``VTR_LIBDIR`` in ``verilated.mk``).
++
+ .. option:: --trace-vcd
+ 
+    Adds waveform tracing code to the model using VCD format.
+diff --git a/docs/guide/verilating.rst b/docs/guide/verilating.rst
+index 6a85624..071daf0 100644
+--- a/docs/guide/verilating.rst
++++ b/docs/guide/verilating.rst
+@@ -407,7 +407,7 @@ Verilate in CMake
+ 
+    verilate(target SOURCES source ... [TOP_MODULE top] [PREFIX name]
+             [COVERAGE] [SYSTEMC]
+-            [TRACE_FST] [TRACE_SAIF] [TRACE_VCD] [TRACE_THREADS num]
++            [TRACE_FST] [TRACE_SAIF] [TRACE_VCD] [TRACE_VTR] [TRACE_THREADS num]
+             [INCLUDE_DIRS dir ...] [OPT_SLOW ...] [OPT_FAST ...]
+             [OPT_GLOBAL ..] [DIRECTORY dir] [THREADS num]
+             [VERILATOR_ARGS ...])
+@@ -514,6 +514,11 @@ include directories and link to the SystemC libraries.
+    Optional. Enables VCD tracing if present, equivalent to "VERILATOR_ARGS
+    --trace-vcd".
+ 
++.. describe:: TRACE_VTR
++
++   Optional. Enables VTR tracing if present, equivalent to "VERILATOR_ARGS
++   --trace-vtr".
++
+ .. describe:: VERILATOR_ARGS
+ 
+    Optional. Extra arguments to Verilator. Do not specify :vlopt:`--Mdir`
+diff --git a/include/verilated.mk.in b/include/verilated.mk.in
+index a909077..4dd3a01 100644
+--- a/include/verilated.mk.in
++++ b/include/verilated.mk.in
+@@ -95,6 +95,7 @@ VK_CPPFLAGS_ALWAYS += \
+   -DVM_TRACE=$(VM_TRACE) \
+   -DVM_TRACE_FST=$(VM_TRACE_FST) \
+   -DVM_TRACE_VCD=$(VM_TRACE_VCD) \
++  -DVM_TRACE_VTR=$(VM_TRACE_VTR) \
+   -DVM_TRACE_SAIF=$(VM_TRACE_SAIF) \
+   -DVM_VPI=$(VM_VPI) \
+   $(CFG_CXXFLAGS_NO_UNUSED) \
+@@ -215,6 +216,16 @@ ifneq ($(VM_TRACE_FST),)
+ endif
+ endif
+ 
++# VTR tracing needs the VTR C library (libvtr) and its header (vtr.h).
++# Set VTR_INCLUDE and VTR_LIBDIR (environment or make command line) to where they are installed.
++ifneq ($(VM_TRACE_VTR),0)
++ifneq ($(VM_TRACE_VTR),)
++    CPPFLAGS += $(addprefix -I, $(VTR_INCLUDE))
++    LDFLAGS += $(addprefix -L, $(VTR_LIBDIR))
++    LDLIBS += -lvtr
++endif
++endif
++
+ # Note VM_GLOBAL_FAST and VM_GLOBAL_SLOW holds the files required from the
+ # run-time library. In practice everything is actually in VM_GLOBAL_FAST,
+ # but keeping the distinction for compatibility for now.
+diff --git a/include/verilated_vtr_c.cpp b/include/verilated_vtr_c.cpp
+new file mode 100644
+index 0000000..b01b4b2
+--- /dev/null
++++ b/include/verilated_vtr_c.cpp
+@@ -0,0 +1,415 @@
++// -*- mode: C++; c-file-style: "cc-mode" -*-
++//=============================================================================
++//
++// Code available from: https://verilator.org
++//
++// This program is free software; you can redistribute it and/or modify it
++// under the terms of either the GNU Lesser General Public License Version 3
++// or the Perl Artistic License Version 2.0.
++// SPDX-FileCopyrightText: 2001-2026 Wilson Snyder
++// SPDX-License-Identifier: LGPL-3.0-only OR Artistic-2.0
++//
++//=============================================================================
++///
++/// \file
++/// \brief Verilated C++ tracing in VTR format implementation code
++///
++/// This file must be compiled and linked against all Verilated objects
++/// that use --trace-vtr, together with the VTR C library (libvtr, header
++/// vtr.h). Point VTR_INCLUDE and VTR_LIBDIR at them when running make.
++///
++/// Use "verilator --trace-vtr" to add this to the Makefile for the linker.
++///
++//=============================================================================
++
++// clang-format off
++
++#include "verilated.h"
++#include "verilated_vtr_c.h"
++
++#include "vtr.h"
++
++#include <cmath>
++#include <sstream>
++#include <string>
++
++// clang-format on
++
++//=============================================================================
++// Specialization of the generics for this trace format
++
++#define VL_SUB_T VerilatedVtr
++#define VL_BUF_T VerilatedVtrBuffer
++#include "verilated_trace_imp.h"
++#undef VL_SUB_T
++#undef VL_BUF_T
++
++//=============================================================================
++// VerilatedVtr
++
++VerilatedVtr::VerilatedVtr(void* /*vtr*/) {}
++
++VerilatedVtr::~VerilatedVtr() {
++    if (m_vtr) vtr_writer_close(m_vtr);
++    if (m_signalp) VL_DO_CLEAR(delete[] m_signalp, m_signalp = nullptr);
++}
++
++void VerilatedVtr::open(const char* filename) VL_MT_SAFE_EXCLUDES(m_mutex) {
++    const VerilatedLockGuard lock{m_mutex};
++    vtr_writer_options opts;
++    vtr_writer_options_default(&opts);
++    // Verilator only hands over values that differ from the previous dump,
++    // so the writer's own comparison would be redundant work.
++    opts.dedup = 0;
++    m_vtr = vtr_writer_create(filename, &opts);
++    if (!m_vtr) {
++        VL_PRINTF_MT("%%Error: VTR trace open failed: %s: %s\n", filename, vtr_last_error());
++        return;
++    }
++    // timeRes() is 10^exp seconds; FST time units are the same power of ten.
++    vtr_writer_set_timescale(m_vtr, static_cast<int8_t>(std::lround(std::log10(timeRes()))));
++    vtr_writer_set_writer_name(m_vtr, "Generated by VerilatedVtr");
++    vtr_writer_set_file_type(m_vtr, 0);  // Verilog
++    constDump(true);  // First dump must contain the const signals
++    fullDump(true);  // First dump must be full for VTR
++
++    Super::traceInit();
++
++    // convert m_code2signal into an array for fast lookup
++    if (!m_signalp) {
++        m_signalp = new uint32_t[nextCode()]{0};
++        for (const auto& i : m_code2signal) m_signalp[i.first] = i.second;
++    }
++    m_code2signal.clear();
++}
++
++void VerilatedVtr::close() VL_MT_SAFE_EXCLUDES(m_mutex) {
++    const VerilatedLockGuard lock{m_mutex};
++    Super::closeBase();
++    emitTimeChangeMaybe();
++    if (m_vtr && vtr_writer_close(m_vtr) != VTR_OK) {
++        VL_PRINTF_MT("%%Error: VTR trace close failed: %s\n", vtr_last_error());
++    }
++    m_vtr = nullptr;
++}
++
++void VerilatedVtr::flush() VL_MT_SAFE_EXCLUDES(m_mutex) {
++    const VerilatedLockGuard lock{m_mutex};
++    Super::flushBase();
++    emitTimeChangeMaybe();
++    if (m_vtr) vtr_writer_flush(m_vtr);
++}
++
++void VerilatedVtr::emitTimeChange(uint64_t timeui) {
++    if (!timeui) vtr_writer_set_time(m_vtr, timeui);
++    m_timeui = timeui;
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtr::emitTimeChangeMaybe() {
++    if (VL_UNLIKELY(m_timeui)) {
++        vtr_writer_set_time(m_vtr, m_timeui);
++        m_timeui = 0;
++    }
++}
++
++//=============================================================================
++// Decl
++
++void VerilatedVtr::declDTypeEnum(int dtypenum, const char* name, uint32_t elements,
++                                 unsigned int /*minValbits*/, const char** itemNamesp,
++                                 const char** itemValuesp) {
++    const uint32_t node = vtr_writer_add_enum_table(m_vtr, name, elements, itemNamesp, itemValuesp);
++    const bool newEntry = m_local2vtrEnum[initUserp()].emplace(dtypenum, node).second;
++    assert(newEntry);
++}
++
++void VerilatedVtr::pushPrefix(const char* namep, VerilatedTracePrefixType type, int left,
++                              int right) {
++    assert(!m_prefixStack.empty());  // Constructor makes an empty entry
++    const std::string name{namep};
++    // An empty name means this is the root of a model created with
++    // name()=="".  The tools get upset if we try to pass this as empty, so
++    // we put the signals under a new $rootio scope, but the signals
++    // further down will be peers, not children (as usual for name()!="").
++    const std::string prevPrefix = m_prefixStack.back().first;
++    if (name == "$rootio" && !prevPrefix.empty()) {
++        // Upper has name, we can suppress inserting $rootio, but still push so popPrefix works
++        m_prefixStack.emplace_back(prevPrefix, VerilatedTracePrefixType::ROOTIO_WRAPPER);
++        return;
++    }
++    if (name.empty()) {
++        m_prefixStack.emplace_back(prevPrefix, VerilatedTracePrefixType::ROOTIO_WRAPPER);
++        return;
++    }
++
++    bool isProperScope = true;
++    switch (type) {
++    case VerilatedTracePrefixType::ARRAY_PACKED:
++    case VerilatedTracePrefixType::ARRAY_UNPACKED: isProperScope = false; break;
++    default: break;
++    }
++
++    // This code assumes a signal at a given prefix level is declared before
++    // any pushPrefix are done at that same level.
++    const std::string newPrefix = prevPrefix + name;
++    m_prefixStack.emplace_back(newPrefix + (isProperScope ? " " : ""), type);
++
++    // Scope type codes are the FST ones (VTR reuses them): 0 module, 6 struct,
++    // 7 union, 9 interface, 22 SystemVerilog array.
++    uint16_t scopeType = 0;
++    switch (type) {
++    case VerilatedTracePrefixType::SCOPE_MODULE: scopeType = 0; break;
++    case VerilatedTracePrefixType::SCOPE_INTERFACE: scopeType = 9; break;
++    case VerilatedTracePrefixType::STRUCT_PACKED:
++    case VerilatedTracePrefixType::STRUCT_UNPACKED: scopeType = 6; break;
++    case VerilatedTracePrefixType::UNION_PACKED: scopeType = 7; break;
++    case VerilatedTracePrefixType::ARRAY_PACKED:
++    case VerilatedTracePrefixType::ARRAY_UNPACKED: scopeType = 22; break;
++    default: break;
++    }
++    const uint32_t node = vtr_writer_begin_scope(m_vtr, namep, scopeType, nullptr);
++    switch (type) {
++    case VerilatedTracePrefixType::STRUCT_PACKED:
++    case VerilatedTracePrefixType::UNION_PACKED:
++    case VerilatedTracePrefixType::ARRAY_PACKED: {
++        vtr_value v{};
++        v.tag = VTR_VAL_BOOL;
++        v.b = 1;
++        vtr_writer_node_attr(m_vtr, node, "packed", &v);
++        break;
++    }
++    default: break;
++    }
++    if (type == VerilatedTracePrefixType::ARRAY_PACKED
++        || type == VerilatedTracePrefixType::ARRAY_UNPACKED) {
++        vtr_value v{};
++        v.tag = VTR_VAL_I64;
++        v.i = left;
++        vtr_writer_node_attr(m_vtr, node, "left", &v);
++        v.i = right;
++        vtr_writer_node_attr(m_vtr, node, "right", &v);
++    }
++}
++
++void VerilatedVtr::popPrefix() {
++    assert(!m_prefixStack.empty());
++    if (m_prefixStack.back().second != VerilatedTracePrefixType::ROOTIO_WRAPPER) {
++        vtr_writer_end_scope(m_vtr);
++    }
++    m_prefixStack.pop_back();
++    assert(!m_prefixStack.empty());  // Always one left, the constructor's initial one
++}
++
++void VerilatedVtr::declare(uint32_t code, const char* name, int dtypenum,
++                           VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                           VerilatedTraceSigType type, bool array, int arraynum, bool bussed,
++                           int msb, int lsb) {
++    const int bits = ((msb > lsb) ? (msb - lsb) : (lsb - msb)) + 1;
++
++    const std::string hierarchicalName = m_prefixStack.back().first + name;
++
++    const bool enabled = Super::declCode(code, hierarchicalName, bits);
++    if (!enabled) return;
++
++    // Same naming as the FST backend: "name[index]" for array members and a
++    // trailing " [msb:lsb]" for buses, so files of both formats read alike.
++    assert(hierarchicalName.rfind(' ') != std::string::npos);
++    std::stringstream name_ss;
++    name_ss << lastWord(hierarchicalName);
++    if (array) name_ss << "[" << arraynum << "]";
++    if (bussed) name_ss << " [" << msb << ":" << lsb << "]";
++    const std::string name_str = name_ss.str();
++
++    uint8_t varDir = 0;  // implicit
++    switch (direction) {
++    case VerilatedTraceSigDirection::INOUT: varDir = 3; break;
++    case VerilatedTraceSigDirection::OUTPUT: varDir = 2; break;
++    case VerilatedTraceSigDirection::INPUT: varDir = 1; break;
++    case VerilatedTraceSigDirection::NONE: varDir = 0; break;
++    }
++
++    // Var type codes are the FST ones (VTR reuses them).
++    uint16_t varType;
++    // Doubles have special decoding properties, so must indicate if a double
++    if (type == VerilatedTraceSigType::DOUBLE) {
++        if (kind == VerilatedTraceSigKind::PARAMETER) {
++            varType = 4;  // real_parameter
++        } else {
++            varType = 3;  // real
++        }
++    }
++    // clang-format off
++    else if (kind == VerilatedTraceSigKind::PARAMETER) varType = 2;
++    else if (kind == VerilatedTraceSigKind::SUPPLY0) varType = 6;
++    else if (kind == VerilatedTraceSigKind::SUPPLY1) varType = 7;
++    else if (kind == VerilatedTraceSigKind::TRI) varType = 9;
++    else if (kind == VerilatedTraceSigKind::TRI0) varType = 13;
++    else if (kind == VerilatedTraceSigKind::TRI1) varType = 14;
++    else if (kind == VerilatedTraceSigKind::TRIAND) varType = 10;
++    else if (kind == VerilatedTraceSigKind::TRIOR) varType = 11;
++    else if (kind == VerilatedTraceSigKind::TRIREG) varType = 12;
++    else if (kind == VerilatedTraceSigKind::WIRE) varType = 16;
++    //
++    else if (type == VerilatedTraceSigType::INTEGER) varType = 1;
++    else if (type == VerilatedTraceSigType::BIT) varType = 22;
++    else if (type == VerilatedTraceSigType::LOGIC) varType = 23;
++    else if (type == VerilatedTraceSigType::INT) varType = 24;
++    else if (type == VerilatedTraceSigType::SHORTINT) varType = 25;
++    else if (type == VerilatedTraceSigType::LONGINT) varType = 26;
++    else if (type == VerilatedTraceSigType::BYTE) varType = 27;
++    else if (type == VerilatedTraceSigType::EVENT) varType = 0;
++    else if (type == VerilatedTraceSigType::TIME) varType = 8;
++    else { assert(0); /* Unreachable */ }
++    // clang-format on
++
++    uint32_t node = VTR_NONE;
++    const auto it = vlstd::as_const(m_code2signal).find(code);
++    if (it == m_code2signal.end()) {  // New
++        const uint8_t sigKind = (type == VerilatedTraceSigType::DOUBLE) ? 1 : 0;
++        uint32_t signal = VTR_NONE;
++        // Verilated models are two-state.
++        vtr_writer_add_var(m_vtr, name_str.c_str(), varType, varDir, sigKind,
++                           static_cast<uint32_t>(bits), 2, &node, &signal);
++        m_code2signal[code] = signal;
++    } else {  // Alias
++        vtr_writer_add_alias(m_vtr, name_str.c_str(), varType, varDir, it->second, &node);
++    }
++
++    if (dtypenum > 0) {
++        vtr_value v{};
++        v.tag = VTR_VAL_U64;
++        v.u = m_local2vtrEnum.at(initUserp()).at(dtypenum);
++        vtr_writer_node_attr(m_vtr, node, "enum_table", &v);
++    }
++}
++
++// versions to call when the sig is not array member
++void VerilatedVtr::declEvent(uint32_t code, const char* name, int dtypenum,
++                             VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                             VerilatedTraceSigType type) {
++    declare(code, name, dtypenum, direction, kind, type, false, -1, false, 0, 0);
++}
++void VerilatedVtr::declBit(uint32_t code, const char* name, int dtypenum,
++                           VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                           VerilatedTraceSigType type) {
++    declare(code, name, dtypenum, direction, kind, type, false, -1, false, 0, 0);
++}
++void VerilatedVtr::declBus(uint32_t code, const char* name, int dtypenum,
++                           VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                           VerilatedTraceSigType type, int msb, int lsb) {
++    declare(code, name, dtypenum, direction, kind, type, false, -1, true, msb, lsb);
++}
++void VerilatedVtr::declQuad(uint32_t code, const char* name, int dtypenum,
++                            VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                            VerilatedTraceSigType type, int msb, int lsb) {
++    declare(code, name, dtypenum, direction, kind, type, false, -1, true, msb, lsb);
++}
++void VerilatedVtr::declWide(uint32_t code, const char* name, int dtypenum,
++                            VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                            VerilatedTraceSigType type, int msb, int lsb) {
++    declare(code, name, dtypenum, direction, kind, type, false, -1, true, msb, lsb);
++}
++void VerilatedVtr::declDouble(uint32_t code, const char* name, int dtypenum,
++                              VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                              VerilatedTraceSigType type) {
++    declare(code, name, dtypenum, direction, kind, type, false, -1, false, 63, 0);
++}
++
++// versions to call when the sig is array member
++void VerilatedVtr::declEventArray(uint32_t code, const char* name, int dtypenum,
++                                  VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                                  VerilatedTraceSigType type, int arraynum) {
++    declare(code, name, dtypenum, direction, kind, type, true, arraynum, false, 0, 0);
++}
++void VerilatedVtr::declBitArray(uint32_t code, const char* name, int dtypenum,
++                                VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                                VerilatedTraceSigType type, int arraynum) {
++    declare(code, name, dtypenum, direction, kind, type, true, arraynum, false, 0, 0);
++}
++void VerilatedVtr::declBusArray(uint32_t code, const char* name, int dtypenum,
++                                VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                                VerilatedTraceSigType type, int arraynum, int msb, int lsb) {
++    declare(code, name, dtypenum, direction, kind, type, true, arraynum, true, msb, lsb);
++}
++void VerilatedVtr::declQuadArray(uint32_t code, const char* name, int dtypenum,
++                                 VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                                 VerilatedTraceSigType type, int arraynum, int msb, int lsb) {
++    declare(code, name, dtypenum, direction, kind, type, true, arraynum, true, msb, lsb);
++}
++void VerilatedVtr::declWideArray(uint32_t code, const char* name, int dtypenum,
++                                 VerilatedTraceSigDirection direction, VerilatedTraceSigKind kind,
++                                 VerilatedTraceSigType type, int arraynum, int msb, int lsb) {
++    declare(code, name, dtypenum, direction, kind, type, true, arraynum, true, msb, lsb);
++}
++void VerilatedVtr::declDoubleArray(uint32_t code, const char* name, int dtypenum,
++                                   VerilatedTraceSigDirection direction,
++                                   VerilatedTraceSigKind kind, VerilatedTraceSigType type,
++                                   int arraynum) {
++    declare(code, name, dtypenum, direction, kind, type, true, arraynum, false, 63, 0);
++}
++//=============================================================================
++// Get/commit trace buffer
++
++VerilatedVtr::Buffer* VerilatedVtr::getTraceBuffer(uint32_t /*fidx*/) { return new Buffer{*this}; }
++
++void VerilatedVtr::commitTraceBuffer(VerilatedVtr::Buffer* bufp) { delete bufp; }
++
++//=============================================================================
++// VerilatedVtrBuffer implementation
++
++//=============================================================================
++// Trace rendering primitives
++
++// Note: emit* are only ever called from one place (full* in
++// verilated_trace_imp.h, which is included in this file at the top),
++// so always inline them.
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitEvent(uint32_t code) {
++    m_owner.emitTimeChangeMaybe();
++    vtr_writer_emit_bit(m_vtr, m_signalp[code], 1);
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitBit(uint32_t code, CData newval) {
++    m_owner.emitTimeChangeMaybe();
++    vtr_writer_emit_bit(m_vtr, m_signalp[code], newval ? 1 : 0);
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitCData(uint32_t code, CData newval, int /*bits*/) {
++    m_owner.emitTimeChangeMaybe();
++    vtr_writer_emit_u64(m_vtr, m_signalp[code], newval);
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitSData(uint32_t code, SData newval, int /*bits*/) {
++    m_owner.emitTimeChangeMaybe();
++    vtr_writer_emit_u64(m_vtr, m_signalp[code], newval);
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitIData(uint32_t code, IData newval, int /*bits*/) {
++    m_owner.emitTimeChangeMaybe();
++    vtr_writer_emit_u64(m_vtr, m_signalp[code], newval);
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitQData(uint32_t code, QData newval, int /*bits*/) {
++    m_owner.emitTimeChangeMaybe();
++    vtr_writer_emit_u64(m_vtr, m_signalp[code], newval);
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitWData(uint32_t code, WDataInP newvalp, int bits) {
++    m_owner.emitTimeChangeMaybe();
++    // WData words are little-endian 32-bit words, word 0 = bits 0..31, as VTR expects.
++    vtr_writer_emit_words(m_vtr, m_signalp[code], newvalp.datap(), VL_WORDS_I(bits));
++}
++
++VL_ATTR_ALWINLINE
++void VerilatedVtrBuffer::emitDouble(uint32_t code, double newval) {
++    m_owner.emitTimeChangeMaybe();
++    vtr_writer_emit_real(m_vtr, m_signalp[code], newval);
++}
+diff --git a/include/verilated_vtr_c.h b/include/verilated_vtr_c.h
+new file mode 100644
+index 0000000..e161df4
+--- /dev/null
++++ b/include/verilated_vtr_c.h
+@@ -0,0 +1,299 @@
++// -*- mode: C++; c-file-style: "cc-mode" -*-
++//=============================================================================
++//
++// Code available from: https://verilator.org
++//
++// This program is free software; you can redistribute it and/or modify it
++// under the terms of either the GNU Lesser General Public License Version 3
++// or the Perl Artistic License Version 2.0.
++// SPDX-FileCopyrightText: 2001-2026 Wilson Snyder
++// SPDX-License-Identifier: LGPL-3.0-only OR Artistic-2.0
++//
++//=============================================================================
++///
++/// \file
++/// \brief Verilated tracing in VTR format header
++///
++/// User wrapper code should use this header when creating VTR traces.
++///
++//=============================================================================
++
++#ifndef VERILATOR_VERILATED_VTR_C_H_
++#define VERILATOR_VERILATED_VTR_C_H_
++
++#include "verilated.h"
++#include "verilated_trace.h"
++
++#include <map>
++#include <string>
++#include <utility>
++#include <vector>
++
++struct vtr_writer;
++
++class VerilatedVtrBuffer;
++
++//=============================================================================
++// VerilatedVtr
++// Base class to create a Verilator VTR dump
++// This is an internally used class - see VerilatedVtrC for what to call from applications
++
++class VerilatedVtr final : public VerilatedTrace<VerilatedVtr, VerilatedVtrBuffer> {
++public:
++    using Super = VerilatedTrace<VerilatedVtr, VerilatedVtrBuffer>;
++
++private:
++    friend VerilatedVtrBuffer;  // Give the buffer access to the private bits
++
++    //=========================================================================
++    // VTR-specific internals
++
++    vtr_writer* m_vtr = nullptr;
++    std::map<uint32_t, uint32_t> m_code2signal;  // Verilator trace code -> VTR signal id
++    std::map<void*, std::map<int, uint32_t>> m_local2vtrEnum;  // dtypenum -> enum table node
++    uint32_t* m_signalp = nullptr;  // same as m_code2signal, but as an array
++    uint64_t m_timeui = 0;  // Time to emit, 0 = not needed
++
++    // Prefixes to add to signal names/scope types
++    std::vector<std::pair<std::string, VerilatedTracePrefixType>> m_prefixStack{
++        {"", VerilatedTracePrefixType::SCOPE_MODULE}};
++
++    // CONSTRUCTORS
++    VL_UNCOPYABLE(VerilatedVtr);
++    void declare(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                 VerilatedTraceSigKind, VerilatedTraceSigType, bool array, int arraynum,
++                 bool bussed, int msb, int lsb);
++
++protected:
++    //=========================================================================
++    // Implementation of VerilatedTrace interface
++
++    // Called when the trace moves forward to a new time point
++    void emitTimeChange(uint64_t timeui) override;
++    void emitTimeChangeMaybe();
++
++    // Hooks called from VerilatedTrace
++    bool preFullDump() override { return isOpen(); }
++    bool preChangeDump() override { return isOpen(); }
++
++    // Trace buffer management
++    Buffer* getTraceBuffer(uint32_t fidx) override;
++    void commitTraceBuffer(Buffer*) override;
++
++    // Configure sub-class
++    void configure(const VerilatedTraceConfig&) override {}
++
++public:
++    //=========================================================================
++    // External interface to client code
++
++    // CONSTRUCTOR
++    explicit VerilatedVtr(void* vtr = nullptr);
++    ~VerilatedVtr();
++
++    // METHODS - All must be thread safe
++    // Open the file; call isOpen() to see if errors
++    void open(const char* filename) VL_MT_SAFE_EXCLUDES(m_mutex);
++    // Close the file
++    void close() VL_MT_SAFE_EXCLUDES(m_mutex);
++    // Flush any remaining data to this file
++    void flush() VL_MT_SAFE_EXCLUDES(m_mutex);
++    // Return if file is open
++    bool isOpen() const VL_MT_SAFE { return m_vtr != nullptr; }
++
++    //=========================================================================
++    // Internal interface to Verilator generated code
++
++    void pushPrefix(const char*, VerilatedTracePrefixType, int left = 0, int right = 0);
++    void popPrefix();
++
++    // versions to call when the sig is not array member
++    void declEvent(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                   VerilatedTraceSigKind, VerilatedTraceSigType);
++    void declBit(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                 VerilatedTraceSigKind, VerilatedTraceSigType);
++    void declBus(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                 VerilatedTraceSigKind, VerilatedTraceSigType, int msb, int lsb);
++    void declQuad(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                  VerilatedTraceSigKind, VerilatedTraceSigType, int msb, int lsb);
++    void declWide(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                  VerilatedTraceSigKind, VerilatedTraceSigType, int msb, int lsb);
++    void declDouble(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                    VerilatedTraceSigKind, VerilatedTraceSigType);
++
++    // versions to call when the sig is array member
++    void declEventArray(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                        VerilatedTraceSigKind, VerilatedTraceSigType, int arraynum);
++    void declBitArray(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                      VerilatedTraceSigKind, VerilatedTraceSigType, int arraynum);
++    void declBusArray(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                      VerilatedTraceSigKind, VerilatedTraceSigType, int arraynum, int msb,
++                      int lsb);
++    void declQuadArray(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                       VerilatedTraceSigKind, VerilatedTraceSigType, int arraynum, int msb,
++                       int lsb);
++    void declWideArray(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                       VerilatedTraceSigKind, VerilatedTraceSigType, int arraynum, int msb,
++                       int lsb);
++    void declDoubleArray(uint32_t code, const char* name, int dtypenum, VerilatedTraceSigDirection,
++                         VerilatedTraceSigKind, VerilatedTraceSigType, int arraynum);
++
++    void declDTypeEnum(int dtypenum, const char* name, uint32_t elements, unsigned int minValbits,
++                       const char** itemNamesp, const char** itemValuesp);
++};
++
++// We use macros to drop unused arguments at compile time. This saves code size.
++#define VL_TRACE_PUSH_PREFIX(tracep, name, type, left, right) \
++    tracep->pushPrefix(name, type, left, right);
++#define VL_TRACE_POP_PREFIX(tracep) tracep->popPrefix();
++
++#define VL_TRACE_DECL_EVENT(tracep, code, fidx, name, dtypenum, dir, kind, type) \
++    tracep->declEvent(code, name, dtypenum, dir, kind, type)
++#define VL_TRACE_DECL_BIT(tracep, code, fidx, name, dtypenum, dir, kind, type) \
++    tracep->declBit(code, name, dtypenum, dir, kind, type)
++#define VL_TRACE_DECL_BUS(tracep, code, fidx, name, dtypenum, dir, kind, type, msb, lsb) \
++    tracep->declBus(code, name, dtypenum, dir, kind, type, msb, lsb)
++#define VL_TRACE_DECL_QUAD(tracep, code, fidx, name, dtypenum, dir, kind, type, msb, lsb) \
++    tracep->declQuad(code, name, dtypenum, dir, kind, type, msb, lsb)
++#define VL_TRACE_DECL_WIDE(tracep, code, fidx, name, dtypenum, dir, kind, type, msb, lsb) \
++    tracep->declWide(code, name, dtypenum, dir, kind, type, msb, lsb)
++#define VL_TRACE_DECL_DOUBLE(tracep, code, fidx, name, dtypenum, dir, kind, type) \
++    tracep->declDouble(code, name, dtypenum, dir, kind, type)
++
++#define VL_TRACE_DECL_EVENT_ARRAY(tracep, code, fidx, name, dtypenum, dir, kind, type, arraynum) \
++    tracep->declEventArray(code, name, dtypenum, dir, kind, type, arraynum)
++#define VL_TRACE_DECL_BIT_ARRAY(tracep, code, fidx, name, dtypenum, dir, kind, type, arraynum) \
++    tracep->declBitArray(code, name, dtypenum, dir, kind, type, arraynum)
++#define VL_TRACE_DECL_BUS_ARRAY(tracep, code, fidx, name, dtypenum, dir, kind, type, arraynum, \
++                                msb, lsb) \
++    tracep->declBusArray(code, name, dtypenum, dir, kind, type, arraynum, msb, lsb)
++#define VL_TRACE_DECL_QUAD_ARRAY(tracep, code, fidx, name, dtypenum, dir, kind, type, arraynum, \
++                                 msb, lsb) \
++    tracep->declQuadArray(code, name, dtypenum, dir, kind, type, arraynum, msb, lsb)
++#define VL_TRACE_DECL_WIDE_ARRAY(tracep, code, fidx, name, dtypenum, dir, kind, type, arraynum, \
++                                 msb, lsb) \
++    tracep->declWideArray(code, name, dtypenum, dir, kind, type, arraynum, msb, lsb)
++#define VL_TRACE_DECL_DOUBLE_ARRAY(tracep, code, fidx, name, dtypenum, dir, kind, type, arraynum) \
++    tracep->declDoubleArray(code, name, dtypenum, dir, kind, type, arraynum)
++
++#ifndef DOXYGEN
++// Declare specialization here as it's used in VerilatedVtrC just below
++template <>
++void VerilatedVtr::Super::dump(uint64_t time);
++template <>
++void VerilatedVtr::Super::set_time_unit(const char* unitp);
++template <>
++void VerilatedVtr::Super::set_time_unit(const std::string& unit);
++template <>
++void VerilatedVtr::Super::set_time_resolution(const char* unitp);
++template <>
++void VerilatedVtr::Super::set_time_resolution(const std::string& unit);
++template <>
++void VerilatedVtr::Super::dumpvars(int level, const std::string& hier);
++#endif
++
++//=============================================================================
++// VerilatedVtrBuffer
++
++class VerilatedVtrBuffer VL_NOT_FINAL {
++    // Give the trace file access to the private bits
++    friend VerilatedVtr;
++    friend VerilatedVtr::Super;
++    friend VerilatedVtr::Buffer;
++
++    VerilatedVtr& m_owner;  // Trace file owning this buffer. Required by subclasses.
++
++    // The VTR writer handle
++    vtr_writer* const m_vtr = m_owner.m_vtr;
++    // code to VTR signal map, as an array
++    const uint32_t* const m_signalp = m_owner.m_signalp;
++
++    // CONSTRUCTOR
++    explicit VerilatedVtrBuffer(VerilatedVtr& owner)
++        : m_owner{owner} {}
++    virtual ~VerilatedVtrBuffer() = default;
++
++    //=========================================================================
++    // Implementation of VerilatedTraceBuffer interface
++
++    // Implementations of duck-typed methods for VerilatedTraceBuffer. These are
++    // called from only one place (the full* methods), so always inline them.
++    VL_ATTR_ALWINLINE void emitEvent(uint32_t code);
++    VL_ATTR_ALWINLINE void emitBit(uint32_t code, CData newval);
++    VL_ATTR_ALWINLINE void emitCData(uint32_t code, CData newval, int bits);
++    VL_ATTR_ALWINLINE void emitSData(uint32_t code, SData newval, int bits);
++    VL_ATTR_ALWINLINE void emitIData(uint32_t code, IData newval, int bits);
++    VL_ATTR_ALWINLINE void emitQData(uint32_t code, QData newval, int bits);
++    VL_ATTR_ALWINLINE void emitWData(uint32_t code, WDataInP newvalp, int bits);
++    VL_ATTR_ALWINLINE void emitDouble(uint32_t code, double newval);
++};
++
++//=============================================================================
++// VerilatedVtrC
++/// Create a VTR dump file in C standalone (no SystemC) simulations.
++/// Also derived for use in SystemC simulations.
++
++class VerilatedVtrC VL_NOT_FINAL : public VerilatedTraceBaseC {
++    VerilatedVtr m_sptrace;  // Trace file being created
++
++    // CONSTRUCTORS
++    VL_UNCOPYABLE(VerilatedVtrC);
++
++public:
++    /// Construct the dump. Optional argument is ignored.
++    explicit VerilatedVtrC(void* filep = nullptr)
++        : m_sptrace{filep} {}
++    /// Destruct, flush, and close the dump
++    virtual ~VerilatedVtrC() { close(); }
++
++    // METHODS - User called
++
++    /// Return if file is open
++    bool isOpen() const override VL_MT_SAFE { return m_sptrace.isOpen(); }
++    /// Open a new VTR file
++    virtual void open(const char* filename) VL_MT_SAFE { m_sptrace.open(filename); }
++    /// Close dump
++    void close() VL_MT_SAFE {
++        m_sptrace.close();
++        modelConnected(false);
++    }
++    /// Flush dump
++    void flush() VL_MT_SAFE { m_sptrace.flush(); }
++    /// Write one cycle of dump data
++    /// Call with the current context's time just after eval'ed,
++    /// e.g. ->dump(contextp->time())
++    void dump(uint64_t timeui) { m_sptrace.dump(timeui); }
++    /// Write one cycle of dump data - backward compatible and to reduce
++    /// conversion warnings.  It's better to use a uint64_t time instead.
++    void dump(double timestamp) { dump(static_cast<uint64_t>(timestamp)); }
++    void dump(uint32_t timestamp) { dump(static_cast<uint64_t>(timestamp)); }
++    void dump(int timestamp) { dump(static_cast<uint64_t>(timestamp)); }
++
++    // METHODS - Internal/backward compatible
++    // \protectedsection
++
++    // Set time units (s/ms, defaults to ns)
++    // Users should not need to call this, as for Verilated models, these
++    // propagate from the Verilated default timeunit
++    void set_time_unit(const char* unitp) VL_MT_SAFE { m_sptrace.set_time_unit(unitp); }
++    void set_time_unit(const std::string& unit) VL_MT_SAFE { m_sptrace.set_time_unit(unit); }
++    // Set time resolution (s/ms, defaults to ns)
++    // Users should not need to call this, as for Verilated models, these
++    // propagate from the Verilated default timeprecision
++    void set_time_resolution(const char* unitp) VL_MT_SAFE {
++        m_sptrace.set_time_resolution(unitp);
++    }
++    void set_time_resolution(const std::string& unit) VL_MT_SAFE {
++        m_sptrace.set_time_resolution(unit);
++    }
++    // Set variables to dump, using $dumpvars format
++    // If level = 0, dump everything and hier is then ignored
++    void dumpvars(int level, const std::string& hier) VL_MT_SAFE {
++        m_sptrace.dumpvars(level, hier);
++    }
++
++    // Internal class access
++    VerilatedVtr* spTrace() { return &m_sptrace; }
++};
++
++#endif  // guard
+diff --git a/include/verilated_vtr_sc.h b/include/verilated_vtr_sc.h
+new file mode 100644
+index 0000000..0b3d341
+--- /dev/null
++++ b/include/verilated_vtr_sc.h
+@@ -0,0 +1,60 @@
++// -*- mode: C++; c-file-style: "cc-mode" -*-
++//=============================================================================
++//
++// Code available from: https://verilator.org
++//
++// This program is free software; you can redistribute it and/or modify it
++// under the terms of either the GNU Lesser General Public License Version 3
++// or the Perl Artistic License Version 2.0.
++// SPDX-FileCopyrightText: 2001-2026 Wilson Snyder
++// SPDX-License-Identifier: LGPL-3.0-only OR Artistic-2.0
++//
++//=============================================================================
++///
++/// \file
++/// \brief Verilated tracing in VTR format for SystemC header
++///
++/// User wrapper code should use this header when creating VTR SystemC
++/// traces.
++///
++//=============================================================================
++
++#ifndef VERILATOR_VERILATED_VTR_SC_H_
++#define VERILATOR_VERILATED_VTR_SC_H_
++
++#include "verilatedos.h"
++
++#include "verilated_sc_trace.h"
++#include "verilated_vtr_c.h"
++
++//=============================================================================
++// VerilatedVtrSc
++///
++/// Class representing a Verilator-friendly VTR trace format registered
++/// with the SystemC simulation kernel, just like a SystemC-documented
++/// trace format.
++
++class VerilatedVtrSc final : VerilatedScTraceBase, public VerilatedVtrC {
++    // CONSTRUCTORS
++    VL_UNCOPYABLE(VerilatedVtrSc);
++
++public:
++    /// Construct a SC trace object, and register with the SystemC kernel
++    VerilatedVtrSc() {
++        spTrace()->set_time_unit(VerilatedScTraceBase::getScTimeUnit());
++        spTrace()->set_time_resolution(VerilatedScTraceBase::getScTimeResolution());
++    }
++
++    // METHODS
++    // Override VerilatedVtrC. Must be called after starting simulation.
++    void open(const char* filename) override VL_MT_SAFE {
++        VerilatedScTraceBase::checkScElaborationDone();
++        VerilatedVtrC::open(filename);
++    }
++
++    // METHODS - for SC kernel
++    // Called from SystemC kernel
++    void cycle() override { VerilatedVtrC::dump(sc_core::sc_time_stamp().to_double()); }
++};
++
++#endif  // Guard
+diff --git a/src/V3EmitCImp.cpp b/src/V3EmitCImp.cpp
+index 0f968d4..2305578 100644
+--- a/src/V3EmitCImp.cpp
++++ b/src/V3EmitCImp.cpp
+@@ -728,7 +728,7 @@ class EmitCTrace final : public EmitCFunc {
+ 
+     int emitTraceDeclDType(AstNodeDType* nodep) {
+         // Return enum number or -1 for none
+-        if (v3Global.opt.traceEnabledFst()) {
++        if (v3Global.opt.traceEnabledFst() || v3Global.opt.traceEnabledVtr()) {
+             // Skip over refs-to-refs, but stop before final ref so can get data type name
+             // Alternatively back in V3Width we could push enum names from upper typedefs
+             if (AstEnumDType* const enump = VN_CAST(nodep->skipRefToEnump(), EnumDType)) {
+diff --git a/src/V3EmitCModel.cpp b/src/V3EmitCModel.cpp
+index 034b1e8..9f60af0 100644
+--- a/src/V3EmitCModel.cpp
++++ b/src/V3EmitCModel.cpp
+@@ -605,7 +605,8 @@ class EmitCModel final : public EmitCFunc {
+         puts(/****/ "vl_fatal(__FILE__, __LINE__, __FILE__,\"'" + EmitCUtil::topClassName()
+              + "::trace()' called on non-" + v3Global.opt.traceClassBase() + "C object;\"\n"
+              + "\" use --trace-fst with VerilatedFst object,"
+-             + " and --trace-vcd with VerilatedVcd object\");\n");
++             + " --trace-vcd with VerilatedVcd object,"
++             + " and --trace-vtr with VerilatedVtr object\");\n");
+         puts(/**/ "}\n");
+         puts(/**/ "stfp->spTrace()->addModel(this);\n");
+         puts(/**/ "stfp->spTrace()->addInitCb("s  //
+diff --git a/src/V3EmitMk.cpp b/src/V3EmitMk.cpp
+index a63d328..01058fb 100644
+--- a/src/V3EmitMk.cpp
++++ b/src/V3EmitMk.cpp
+@@ -551,7 +551,7 @@ public:
+         of.puts("VM_PARALLEL_BUILDS = ");
+         of.puts(v3Global.useParallelBuild() ? "1" : "0");
+         of.puts("\n");
+-        of.puts("# Tracing output mode?  0/1 (from --trace-fst/--trace-saif/--trace-vcd)\n");
++        of.puts("# Tracing output mode?  0/1 (from --trace-fst/--trace-saif/--trace-vcd/--trace-vtr)\n");
+         of.puts("VM_TRACE = ");
+         of.puts(v3Global.opt.trace() ? "1" : "0");
+         of.puts("\n");
+@@ -567,6 +567,10 @@ public:
+         of.puts("VM_TRACE_VCD = ");
+         of.puts(v3Global.opt.traceEnabledVcd() ? "1" : "0");
+         of.puts("\n");
++        of.puts("# Tracing output mode in VTR format?  0/1 (from --trace-vtr)\n");
++        of.puts("VM_TRACE_VTR = ");
++        of.puts(v3Global.opt.traceEnabledVtr() ? "1" : "0");
++        of.puts("\n");
+         of.puts("# VPI enabled?  0/1 (from --vpi)\n");
+         of.puts("VM_VPI = ");
+         of.puts(v3Global.opt.vpi() ? "1" : "0");
+diff --git a/src/V3EmitMkJson.cpp b/src/V3EmitMkJson.cpp
+index 042787e..0f67db1 100644
+--- a/src/V3EmitMkJson.cpp
++++ b/src/V3EmitMkJson.cpp
+@@ -100,6 +100,7 @@ class V3EmitMkJsonEmitter final {
+             .put("trace_fst", v3Global.opt.traceEnabledFst())
+             .put("trace_saif", v3Global.opt.traceEnabledSaif())
+             .put("trace_vcd", v3Global.opt.traceEnabledVcd())
++            .put("trace_vtr", v3Global.opt.traceEnabledVtr())
+             .end()
+             .begin("sources")
+             .putList("global", global)
+diff --git a/src/V3Options.cpp b/src/V3Options.cpp
+index 7a85c84..b15e16a 100644
+--- a/src/V3Options.cpp
++++ b/src/V3Options.cpp
+@@ -498,6 +498,7 @@ std::vector<std::string> V3Options::traceClassBases() const VL_MT_SAFE {
+     if (traceEnabledFst()) result.emplace_back("VerilatedFst");
+     if (traceEnabledSaif()) result.emplace_back("VerilatedSaif");
+     if (traceEnabledVcd()) result.emplace_back("VerilatedVcd");
++    if (traceEnabledVtr()) result.emplace_back("VerilatedVtr");
+     return result;
+ }
+ std::vector<std::string> V3Options::traceClassLangs() const VL_MT_SAFE {
+@@ -511,6 +512,7 @@ std::vector<std::string> V3Options::traceSourceBases() const VL_MT_SAFE {
+     if (traceEnabledFst()) result.emplace_back("verilated_fst");
+     if (traceEnabledSaif()) result.emplace_back("verilated_saif");
+     if (traceEnabledVcd()) result.emplace_back("verilated_vcd");
++    if (traceEnabledVtr()) result.emplace_back("verilated_vtr");
+     return result;
+ }
+ std::vector<std::string> V3Options::traceSourceLangs() const VL_MT_SAFE {
+@@ -993,13 +995,17 @@ void V3Options::notify() VL_MT_DISABLED {
+         m_main = false;
+     }
+ 
+-    if (trace() && !traceEnabledFst() && !traceEnabledSaif() && !traceEnabledVcd()) {
++    if (trace() && !traceEnabledFst() && !traceEnabledSaif() && !traceEnabledVcd()
++        && !traceEnabledVtr()) {
+         m_traceEnabledVcd = true;  // No format, with --trace means wanted --trace-vcd
+     }
+-    if (traceEnabledFst() || traceEnabledSaif() || traceEnabledVcd()) m_trace = true;
+-    const int ntraces = traceEnabledFst() + traceEnabledSaif() + traceEnabledVcd();
++    if (traceEnabledFst() || traceEnabledSaif() || traceEnabledVcd() || traceEnabledVtr())
++        m_trace = true;
++    const int ntraces
++        = traceEnabledFst() + traceEnabledSaif() + traceEnabledVcd() + traceEnabledVtr();
+     if (ntraces > 1)  // Issue #5813
+-        cmdfl->v3error("Only one of --trace-fst, --trace-saif or --trace--vcd may be used");
++        cmdfl->v3error(
++            "Only one of --trace-fst, --trace-saif, --trace-vcd or --trace-vtr may be used");
+ 
+     if (protectIds()) {
+         if (allPublic()) {
+@@ -1849,6 +1855,7 @@ void V3Options::parseOptsList(FileLine* fl, const string& optdir, int argc,
+     DECL_OPTION("-no-trace-top", Set, &m_noTraceTop);
+     DECL_OPTION("-trace-underscore", OnOff, &m_traceUnderscore);
+     DECL_OPTION("-trace-vcd", CbCall, [this]() { m_traceEnabledVcd = true; });
++    DECL_OPTION("-trace-vtr", CbCall, [this]() { m_traceEnabledVtr = true; });
+ 
+     DECL_OPTION("-U", CbPartialMatch, &V3PreShell::undef);
+     DECL_OPTION("-underline-zero", OnOff, &m_underlineZero).undocumented();  // Deprecated
+diff --git a/src/V3Options.h b/src/V3Options.h
+index 182379f..afa65c5 100644
+--- a/src/V3Options.h
++++ b/src/V3Options.h
+@@ -302,6 +302,7 @@ private:
+     bool m_traceEnabledFst = false;  // main switch: --trace-fst
+     bool m_traceEnabledSaif = false;  // main switch: --trace-saif
+     bool m_traceEnabledVcd = false;  // main switch: --trace-vcd
++    bool m_traceEnabledVtr = false;  // main switch: --trace-vtr
+     bool m_traceParams = true;      // main switch: --trace-params
+     bool m_traceStructs = false;    // main switch: --trace-structs
+     bool m_noTraceTop = false;      // main switch: --no-trace-top
+@@ -578,6 +579,7 @@ public:
+     bool traceEnabledFst() const { return m_traceEnabledFst; }
+     bool traceEnabledSaif() const { return m_traceEnabledSaif; }
+     bool traceEnabledVcd() const { return m_traceEnabledVcd; }
++    bool traceEnabledVtr() const { return m_traceEnabledVtr; }
+     bool traceParams() const { return m_traceParams; }
+     bool traceStructs() const { return m_traceStructs; }
+     bool traceUnderscore() const { return m_traceUnderscore; }
+diff --git a/verilator-config.cmake.in b/verilator-config.cmake.in
+index 6538b57..eb7451f 100644
+--- a/verilator-config.cmake.in
++++ b/verilator-config.cmake.in
+@@ -181,6 +181,13 @@ define_property(
+     FULL_DOCS "Verilator VCD trace enabled"
+ )
+ 
++define_property(
++    TARGET
++    PROPERTY VERILATOR_TRACE_VTR
++    BRIEF_DOCS "Verilator VTR trace enabled"
++    FULL_DOCS "Verilator VTR trace enabled"
++)
++
+ define_property(
+     TARGET
+     PROPERTY VERILATOR_SYSTEMC
+@@ -259,7 +266,7 @@ endfunction()
+ function(verilate TARGET)
+     cmake_parse_arguments(
+         VERILATE
+-        "COVERAGE;SYSTEMC;TRACE_FST;TRACE_SAIF;TRACE_VCD;TRACE;TRACE_STRUCTS"
++        "COVERAGE;SYSTEMC;TRACE_FST;TRACE_SAIF;TRACE_VCD;TRACE_VTR;TRACE;TRACE_STRUCTS"
+         "PREFIX;TOP_MODULE;THREADS;TRACE_THREADS;DIRECTORY"
+         "SOURCES;VERILATOR_ARGS;INCLUDE_DIRS;OPT_SLOW;OPT_FAST;OPT_GLOBAL"
+         ${ARGN}
+@@ -335,6 +342,10 @@ function(verilate TARGET)
+         list(APPEND VERILATOR_ARGS --trace-vcd)
+     endif()
+ 
++    if(VERILATE_TRACE_VTR)
++        list(APPEND VERILATOR_ARGS --trace-vtr)
++    endif()
++
+     if(VERILATE_TRACE_STRUCTS)
+         list(APPEND VERILATOR_ARGS --trace-structs)
+     endif()
+@@ -466,6 +477,7 @@ function(verilate TARGET)
+         json_get_bool(JOPTIONS_TRACE_FST "${MANIFEST}" options trace_fst)
+         json_get_bool(JOPTIONS_TRACE_SAIF "${MANIFEST}" options trace_saif)
+         json_get_bool(JOPTIONS_TRACE_VCD "${MANIFEST}" options trace_vcd)
++        json_get_bool(JOPTIONS_TRACE_VTR "${MANIFEST}" options trace_vtr)
+ 
+         json_get_list(JSOURCES_GLOBAL "${MANIFEST}" sources global)
+         json_get_list(JSOURCES_CLASSES_SLOW "${MANIFEST}" sources classes_slow)
+@@ -507,7 +519,9 @@ function(verilate TARGET)
+             "# SAIF Tracing output mode? 0/1 (from --trace-saif)\n"
+             "set(${VERILATE_PREFIX}_TRACE_SAIF ${JOPTIONS_TRACE_SAIF})\n\n"
+             "# VCD Tracing output mode?  0/1 (from --trace-vcd)\n"
+-            "set(${VERILATE_PREFIX}_TRACE_VCD ${JOPTIONS_TRACE_VCD})\n"
++            "set(${VERILATE_PREFIX}_TRACE_VCD ${JOPTIONS_TRACE_VCD})\n\n"
++            "# VTR Tracing output mode?  0/1 (from --trace-vtr)\n"
++            "set(${VERILATE_PREFIX}_TRACE_VTR ${JOPTIONS_TRACE_VTR})\n"
+             "### Sources...\n"
+             "# Global classes, need linked once per executable\n"
+             "set(${VERILATE_PREFIX}_GLOBAL ${JSOURCES_GLOBAL})\n"
+@@ -659,6 +673,12 @@ function(verilate TARGET)
+         set_property(TARGET ${TARGET} PROPERTY VERILATOR_TRACE_VCD ON)
+     endif()
+ 
++    if(${VERILATE_PREFIX}_TRACE_VTR)
++        # If any verilate() call specifies TRACE_VTR, define VM_TRACE_VTR in the final build
++        set_property(TARGET ${TARGET} PROPERTY VERILATOR_TRACE ON)
++        set_property(TARGET ${TARGET} PROPERTY VERILATOR_TRACE_VTR ON)
++    endif()
++
+     if(${VERILATE_PREFIX}_TRACE_STRUCTS)
+         set_property(TARGET ${TARGET} PROPERTY VERILATOR_TRACE_STRUCTS ON)
+     endif()
+@@ -731,6 +751,7 @@ function(verilate TARGET)
+             VM_SC=$<BOOL:$<TARGET_PROPERTY:VERILATOR_SYSTEMC>>
+             VM_TRACE=$<BOOL:$<TARGET_PROPERTY:VERILATOR_TRACE>>
+             VM_TRACE_VCD=$<BOOL:$<TARGET_PROPERTY:VERILATOR_TRACE_VCD>>
++            VM_TRACE_VTR=$<BOOL:$<TARGET_PROPERTY:VERILATOR_TRACE_VTR>>
+             VM_TRACE_FST=$<BOOL:$<TARGET_PROPERTY:VERILATOR_TRACE_FST>>
+             VM_TRACE_SAIF=$<BOOL:$<TARGET_PROPERTY:VERILATOR_TRACE_SAIF>>
+     )

@@ -1565,6 +1565,11 @@ Rust-only conveniences with no C equivalent: `Writer::add_var_in` /
 
 ## 7. SystemC / C++ usage
 
+For Verilator, `integrations/verilator` adds `--trace-vtr` (a port of
+Verilator's FST backend onto this API): the model then dumps VTR through
+`VerilatedVtrC` / `VerilatedVtrSc` with no user code beyond what an FST
+dump needs.
+
 The header is C++-clean. Wrap the handle in an RAII class so the file is
 always closed (and therefore always gets a directory), and turn status codes
 into exceptions at the boundary — but never let an exception escape a

@@ -10,7 +10,8 @@ writer/reader comparison and writes raw JSON results plus a Markdown report.
     python3 bench/run.py report           # only re-render docs/BENCHMARK_RESULTS.md
 
 Options: --scale small|full (default full), --out DIR (default bench/results/latest),
-         --workloads NAME[,NAME...] to restrict, --repeat N (default 3, best-of).
+         --workloads NAME[,NAME...] to restrict, --repeat N (default 3, best-of),
+         --sim-repeat N (default 2, best-of for the simulator runs).
 """
 import argparse
 import datetime
@@ -28,6 +29,12 @@ BUILD = os.path.join(ROOT, "bench", "build")
 TARGET = os.path.join(ROOT, "target", "release")
 VTR_BENCH = os.path.join(TARGET, "vtr-bench")
 VTR_CLI = os.path.join(TARGET, "vtr")
+# Verilator with the --trace-vtr backend (integrations/verilator), built by build().
+VERILATOR = os.path.join(BUILD, "verilator", "install", "bin", "verilator")
+VTR_LIBDIR = os.path.join(BUILD, "vtr-lib")
+VTR_INCLUDE = os.path.join(ROOT, "crates", "vtr-capi", "include")
+SIM_ENV = dict(os.environ, VERILATOR=VERILATOR, VTR_INCLUDE=VTR_INCLUDE, VTR_LIBDIR=VTR_LIBDIR)
+SIM_MODES = ["none", "fst", "vtr"]
 
 
 def sh(cmd, cwd=ROOT, capture=False, env=None, check=True):
@@ -60,6 +67,11 @@ def build():
     os.makedirs(BUILD, exist_ok=True)
     sh(["cmake", os.path.join(ROOT, "bench", "cpp"), "-DCMAKE_BUILD_TYPE=Release"], cwd=BUILD)
     sh(["make", "-j8"], cwd=BUILD)
+    # The Verilated models link the static VTR C library from a directory of its own.
+    os.makedirs(VTR_LIBDIR, exist_ok=True)
+    shutil.copy(os.path.join(TARGET, "libvtr.a"), VTR_LIBDIR)
+    if not os.path.exists(VERILATOR):
+        sh([os.path.join(ROOT, "integrations", "verilator", "build.sh"), os.path.dirname(os.path.dirname(VERILATOR))])
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +86,9 @@ RTL_WORKLOADS = {
                "RSA-256 Montgomery multiplier from libfstwriter's integration tests driven with continuous pseudo-random operands (bench/workloads/rsa256/RSA_bench_tb.sv), Verilator, 200k cycles (real RTL, wide datapaths)"),
     "rsa256_long": ("verilator", "2000000",
                     "Same RSA-256 design and driver, 2M cycles (real RTL, long simulation)"),
+    "c910_coremark": ("c910", "1",
+                      "pulp-c910 (T-Head openC910: 3-wide superscalar out-of-order RISC-V core with L1 caches, MMU and AXI SoC from ext/pulp-c910) "
+                      "running one CoreMark iteration under Verilator, every signal of the design traced (real RTL, large design)"),
     "scr1_x8": ("replicate", ("scr1_axi", 8),
                 "8 perturbed copies of the SCR1 trace under separate top scopes (11.6k signals; models a multi-core SoC)"),
     "long_sparse": ("gen", ("long_sparse", "5000"),
@@ -106,18 +121,40 @@ def prepare(names, scale):
                     sh([VTR_BENCH, "prepare-fst", src, rpl])
                 info[name] = {"source_fst": src}
             elif kind == "verilator":
-                if shutil.which("verilator") is None:
-                    print(f"skipping {name}: verilator not found")
-                    continue
-                exe = os.path.join(WORK, "rsa256_build", "verilated", "rsa_tb")
-                if not os.path.exists(exe):
-                    sh([os.path.join(ROOT, "bench", "workloads", "rsa256", "build.sh"), os.path.join(WORK, "rsa256_build")])
+                # RSA256: one Verilated model per trace mode (none / FST / VTR).
+                out = os.path.join(WORK, "rsa256_build")
+                exes = {}
+                for mode in SIM_MODES:
+                    exes[mode] = os.path.join(out, f"obj_{mode}", "rsa_tb")
+                    if not os.path.exists(exes[mode]):
+                        sh([os.path.join(ROOT, "bench", "workloads", "rsa256", "build.sh"), out, mode], env=SIM_ENV)
                 fst = os.path.join(WORK, f"{name}.fst")
                 if not os.path.exists(fst):
-                    sh([exe, fst, arg])
+                    sh([exes["fst"], f"--dump={fst}", f"--cycles={arg}"])
                 if not os.path.exists(rpl):
                     sh([VTR_BENCH, "prepare-fst", fst, rpl])
-                info[name] = {"source_fst": fst, "cycles": int(arg)}
+                info[name] = {"source_fst": fst, "cycles": int(arg),
+                              "sim": {"exe": exes, "args": [f"--cycles={arg}"], "cwd": out}}
+            elif kind == "c910":
+                # pulp-c910 + CoreMark: the models are built by bench/workloads/c910/Makefile.
+                out = os.path.join(WORK, "c910_build")
+                mk = os.path.join(ROOT, "bench", "workloads", "c910")
+                sw = os.path.join(out, "sw", "coremark")
+                if not os.path.exists(os.path.join(sw, "inst.pat")):
+                    sh(["make", "-C", mk, "sw", f"BUILD={out}", f"ITERATIONS={arg}"])
+                exes = {}
+                for mode in SIM_MODES:
+                    exes[mode] = os.path.join(out, f"obj_{mode}", "Vtop")
+                    if not os.path.exists(exes[mode]):
+                        sh(["make", "-C", mk, "model", f"MODE={mode}", f"BUILD={out}", f"VERILATOR={VERILATOR}",
+                            f"VTR_INCLUDE={VTR_INCLUDE}", f"VTR_LIBDIR={VTR_LIBDIR}"])
+                fst = os.path.join(WORK, f"{name}.fst")
+                if not os.path.exists(fst):
+                    sh([exes["fst"], f"--dump={fst}"], cwd=sw)
+                if not os.path.exists(rpl):
+                    sh([VTR_BENCH, "prepare-fst", fst, rpl])
+                info[name] = {"source_fst": fst, "coremark_iterations": int(arg),
+                              "sim": {"exe": exes, "args": [], "cwd": sw}}
             elif kind == "replicate":
                 base, n = arg
                 base_src = os.path.join(ROOT, RTL_WORKLOADS[base][1])
@@ -172,9 +209,27 @@ def best_of(n, fn):
     return best
 
 
-def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None):
+def run_sim(name, sim, repeat, out_dir):
+    """Runs the Verilated model without tracing and with a full FST / VTR dump (best of N)."""
+    res = {}
+    for mode in SIM_MODES:
+        dump = os.path.join(out_dir, f"{name}_sim.{mode}")
+        cmd = [sim["exe"][mode]] + sim["args"] + ([f"--dump={dump}"] if mode != "none" else [])
+        r = best_of(repeat, lambda: json_out(cmd, cwd=sim["cwd"]))
+        res[mode] = r
+        print(f"  {name} sim {mode:5s} {r['wall_s']:.3f}s wall {r['cpu_s']:.3f}s cpu {r['bytes']:>12} bytes", flush=True)
+    return res
+
+
+# Replays above this many changes take minutes per writer; they are measured once.
+SINGLE_RUN_CHANGES = 200_000_000
+
+
+def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_repeat=2):
     rpl = os.path.join(WORK, f"{name}.rpl")
     res = {"workload": name, "info": info, "writers": {}, "readers": {}}
+    if info.get("changes", 0) > SINGLE_RUN_CHANGES:
+        repeat = 1
     files = {}
     fw = os.path.join(BUILD, "fst_write")
     vw = os.path.join(BUILD, "vtr_write")
@@ -204,12 +259,24 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None):
     w("fstapi-none", [fw, rpl, os.path.join(out_dir, f"{name}_fstapi_none.fst"), "fstapi", "none"], os.path.join(out_dir, f"{name}_fstapi_none.fst"))
     w("fstcpp-none", [fw, rpl, os.path.join(out_dir, f"{name}_fstcpp_none.fst"), "fstcpp", "none"], os.path.join(out_dir, f"{name}_fstcpp_none.fst"))
     w("vtr-none", [VTR_BENCH, "write", rpl, os.path.join(out_dir, f"{name}_none.vtr"), "--codec", "none"], os.path.join(out_dir, f"{name}_none.vtr"))
+    # Simulator-integrated: the Verilated model itself writing FST (Verilator's built-in writer)
+    # or VTR (--trace-vtr), against the same model with tracing off.
+    if "sim" in info:
+        if reads_only and previous is not None and "simulator" in previous:
+            res["simulator"] = previous["simulator"]
+        else:
+            res["simulator"] = run_sim(name, info["sim"], sim_repeat, out_dir)
     # Reads: wellen (what wavepeek uses) vs VTR, on the GTKWave-default FST (zlib) and, when the
     # workload came from a simulator, on the original simulator-written FST as well.
     vtr_file = files["vtr-rust"]
     res["readers"]["vs_fstapi_zlib"] = json_out([VTR_BENCH, "read", files["fstapi-zlib"], vtr_file], env=READ_ENV)
     if "source_fst" in info:
         res["readers"]["vs_source_fst"] = json_out([VTR_BENCH, "read", info["source_fst"], vtr_file], env=READ_ENV)
+    sim_fst, sim_vtr = os.path.join(out_dir, f"{name}_sim.fst"), os.path.join(out_dir, f"{name}_sim.vtr")
+    if os.path.exists(sim_fst) and os.path.exists(sim_vtr):
+        # Both files written by the simulator: checks the Verilator backend (parity) and
+        # compares reads of what each simulator run actually produced.
+        res["readers"]["vs_sim"] = json_out([VTR_BENCH, "read", sim_fst, sim_vtr], env=READ_ENV)
     if not reads_only or (os.path.exists(files["fstcpp-none"]) and os.path.exists(files["vtr-none"])):
         res["readers"]["uncompressed"] = json_out([VTR_BENCH, "read", files["fstcpp-none"], files["vtr-none"]], env=READ_ENV)
     plan = os.path.join(out_dir, f"{name}_plan.txt")
@@ -273,7 +340,8 @@ def machine_info():
     ver = lambda cmd: subprocess.run(cmd, capture_output=True, text=True).stdout.strip().splitlines()[0] if shutil.which(cmd[0]) else "n/a"
     return {
         "cpu": cpu, "cores": os.cpu_count(), "memory": mem, "kernel": platform.release(),
-        "rustc": ver(["rustc", "--version"]), "gcc": ver(["gcc", "--version"]), "verilator": ver(["verilator", "--version"]),
+        "rustc": ver(["rustc", "--version"]), "gcc": ver(["gcc", "--version"]),
+        "verilator": ver([VERILATOR if os.path.exists(VERILATOR) else "verilator", "--version"]),
         "date": datetime.datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -331,6 +399,18 @@ def summary(rtl, tx):
                  + ("VTR is slower in: " + "; ".join(losses) + "." if losses else "VTR is faster in every query on every workload."))
         parity = all(r["readers"]["vs_fstapi_zlib"]["parity_errors"] == 0 for r in rtl)
         L.append(f"- **Parity.** Values and change counts identical between wellen and VTR on all workloads: {'yes' if parity else 'NO'}.")
+        sims = [r for r in rtl if "simulator" in r]
+        if sims:
+            parts = []
+            for r in sims:
+                s_ = r["simulator"]
+                base, f, v = s_["none"]["wall_s"], s_["fst"], s_["vtr"]
+                cf, cv = f["wall_s"] - base, v["wall_s"] - base
+                parts.append(f"{r['workload']}: tracing adds {cf:.2f} s with FST and {cv:.2f} s with VTR to a {base:.2f} s simulation "
+                             f"({cf / max(cv, 1e-9):.2f}x less trace cost), VTR file {v['bytes'] / f['bytes'] * 100:.0f}% of Verilator's FST")
+            sim_parity = all(r["readers"].get("vs_sim", {}).get("parity_errors", 0) == 0 for r in sims)
+            L.append("- **Simulator-integrated (Verilator --trace-fst vs --trace-vtr, whole design traced).** " + "; ".join(parts)
+                     + f". Files written by the two Verilator backends read back identically: {'yes' if sim_parity else 'NO'}.")
     if tx:
         parts = []
         for r in tx:
@@ -393,6 +473,31 @@ def render(results, path):
                 bs = f"{b * 1000:.2f}" if b is not None else "-"
                 L.append(f"| {label} | {a * 1000:.2f} | {bs} | **{c * 1000:.2f}** | {a / c:.1f}x |")
             L.append(f"\nParity check (values/counts identical between wellen and VTR): {'OK' if rd['parity_errors'] == 0 else str(rd['parity_errors']) + ' mismatches'}. Warm random-access value query: {rd['value_at_10x100']['vtr_warm'] * 1e6 / rd['value_at_10x100']['queries']:.1f} us per query.\n")
+    sims = [r for r in rtl if "simulator" in r]
+    if sims:
+        L.append("## Simulator-integrated tracing: Verilator with --trace-fst versus --trace-vtr\n")
+        L.append("The Verilated model itself writes the trace (every signal of the design, dumped after each clock edge) through Verilator's built-in FST backend (libfstwriter, LZ4) or through the VTR backend from `integrations/verilator`; the same model built without tracing gives the baseline. Best of N whole-process runs; `cpu` includes VTR's background encoder.\n")
+        L.append("| workload | cycles | no trace | Verilator FST | Verilator **VTR** | trace cost FST / VTR | FST size | **VTR** size | VTR vs FST |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for r in sims:
+            s_ = r["simulator"]
+            n, f, v = s_["none"], s_["fst"], s_["vtr"]
+            cyc = f"{n.get('cycles', 0):,}"
+            L.append(f"| {r['workload']} | {cyc} | {n['wall_s']:.2f}s | {f['wall_s']:.2f}s ({f['cpu_s']:.2f} cpu) | **{v['wall_s']:.2f}s** ({v['cpu_s']:.2f} cpu) | "
+                     f"+{f['wall_s'] - n['wall_s']:.2f}s / **+{v['wall_s'] - n['wall_s']:.2f}s** ({(f['wall_s'] - n['wall_s']) / max(v['wall_s'] - n['wall_s'], 1e-9):.2f}x) | "
+                     f"{fmt_bytes(f['bytes'])} | **{fmt_bytes(v['bytes'])}** | {v['bytes'] / f['bytes'] * 100:.0f}% |")
+        L.append("\nReads of the simulator-written files (wellen on Verilator's FST, VTR on Verilator's VTR; milliseconds):\n")
+        L.append("| workload | open | load 1 | load 100 | load 1000 | value at time 10x100 | window scan | stream all | parity |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for r in sims:
+            rd = r["readers"].get("vs_sim")
+            if not rd:
+                continue
+            def rr(k):
+                base = rd[k].get("fst_wellen", rd[k].get("fst_reader"))
+                return f"{base * 1000:.1f} / **{rd[k]['vtr'] * 1000:.1f}**"
+            L.append(f"| {r['workload']} | {rr('open')} | {rr('load_1')} | {rr('load_100')} | {rr('load_1000')} | {rr('value_at_10x100')} | {rr('changes_window_1pct')} | {rr('stream_all')} | {'OK' if rd['parity_errors'] == 0 else str(rd['parity_errors']) + ' mismatches'} |")
+        L.append("")
     if rtl and any("uncompressed" in r["readers"] for r in rtl):
         L.append("## Uncompressed variants: VTR (codec none) versus FST without value compression\n")
         L.append("`fstapi none` = pack type FASTLZ in the vendored build, where fastlz is disabled and every value chain is stored raw (time tables and frames remain zlib-packed); `libfstwriter none` = `NO_COMPRESSION` (no compression anywhere). VTR `none` stores every blob raw. Reads compare wellen on the libfstwriter file with VTR on the uncompressed VTR file.\n")
@@ -441,6 +546,7 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "bench", "results", "latest"))
     ap.add_argument("--workloads", default=None)
     ap.add_argument("--repeat", type=int, default=3)
+    ap.add_argument("--sim-repeat", type=int, default=2, help="best-of N for the simulator runs (minutes each on c910)")
     ap.add_argument("--reads-only", action="store_true", help="re-run only the read benchmarks on the kept output files")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -468,7 +574,7 @@ def main():
             if n not in info:
                 continue
             t = time.time()
-            done_rtl[n] = run_rtl(n, info[n], a.repeat, a.out, a.reads_only, done_rtl.get(n))
+            done_rtl[n] = run_rtl(n, info[n], a.repeat, a.out, a.reads_only, done_rtl.get(n), a.sim_repeat)
             print(f"{n}: done in {time.time() - t:.0f}s", flush=True)
             results["rtl"] = [done_rtl[k] for k in RTL_WORKLOADS if k in done_rtl]
             json.dump(results, open(res_path, "w"), indent=1)

@@ -283,6 +283,16 @@ local; the contents are stored as 24 columns compressed as one blob.
   the C header has 82 functions. FSDB's public API is several hundred
   functions; fstapi has about 90 with many mode flags.
 
+* **Simulator integration as a port, not a new path** (`integrations/verilator`):
+  the Verilator backend is a line-for-line port of Verilator's own FST
+  backend onto the C API, so the generated trace code, the hierarchy
+  names (`name[index]`, `name [msb:lsb]`), aliases and enum tables are
+  identical between `--trace-fst` and `--trace-vtr`, and a file written by
+  one can be checked against the other (the benchmark's `vs_sim` parity
+  run). The only VTR-specific choice is to switch the writer's own value
+  deduplication off, because Verilator's generated code already emits
+  only changed values.
+
 ## 8. Things deliberately left out of the format
 
 * Presentation and semantics (colours, roles, source locations): the KDB
