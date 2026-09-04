@@ -1,0 +1,19 @@
+[package]
+name = "vtr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "VTR (Vibe Trace Record): an open trace store for hardware simulation traces - waveforms, transactions, hierarchy, relations."
+
+[dependencies]
+zstd = { version = "0.13", default-features = false }
+lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-encode", "safe-decode"] }
+memmap2 = "0.9"
+crc32fast = "1.4"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+rand = "0.8"

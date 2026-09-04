@@ -1,0 +1,63 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout"}},
+          {"key": "service.instance.id", "value": {"intValue": "7"}},
+          {"key": "deployment.tags", "value": {"arrayValue": {"values": [{"stringValue": "eu"}, {"stringValue": "canary"}]}}}
+        ],
+        "droppedAttributesCount": 0
+      },
+      "schemaUrl": "https://opentelemetry.io/schemas/1.21.0",
+      "scopeSpans": [
+        {
+          "scope": {"name": "io.example.http", "version": "2.1", "attributes": [{"key": "lib.lang", "value": {"stringValue": "rust"}}]},
+          "schemaUrl": "https://opentelemetry.io/schemas/1.21.0",
+          "spans": [
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "eee19b7ec3c1b174",
+              "parentSpanId": "",
+              "name": "GET /checkout",
+              "kind": 2,
+              "startTimeUnixNano": "1544712660000000000",
+              "endTimeUnixNano": "1544712661500000000",
+              "attributes": [
+                {"key": "http.method", "value": {"stringValue": "GET"}},
+                {"key": "http.status_code", "value": {"intValue": "200"}},
+                {"key": "net.peer.port", "value": {"doubleValue": 8080.5}},
+                {"key": "http.ok", "value": {"boolValue": true}},
+                {"key": "payload", "value": {"bytesValue": "AQID"}},
+                {"key": "nested", "value": {"kvlistValue": {"values": [{"key": "a", "value": {"intValue": "1"}}]}}}
+              ],
+              "droppedAttributesCount": 2,
+              "events": [
+                {"timeUnixNano": "1544712660300000000", "name": "cache.miss", "attributes": [{"key": "key", "value": {"stringValue": "cart:42"}}], "droppedAttributesCount": 1}
+              ],
+              "links": [],
+              "status": {"code": 2, "message": "upstream timeout"},
+              "flags": 257,
+              "traceState": "vendor=abc"
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "aaaa19b7ec3c1b17",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "SELECT cart",
+              "kind": "SPAN_KIND_CLIENT",
+              "startTimeUnixNano": "1544712660100000000",
+              "endTimeUnixNano": "1544712660400000000",
+              "attributes": [{"key": "db.system", "value": {"stringValue": "postgresql"}}],
+              "links": [
+                {"traceId": "5b8efff798038103d269b633813fc60c", "spanId": "eee19b7ec3c1b174", "attributes": [{"key": "link.kind", "value": {"stringValue": "follows"}}], "flags": 1},
+                {"traceId": "00000000000000000000000000000001", "spanId": "0000000000000001", "attributes": []}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+[package]
+name = "vtr-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Benchmark drivers for VTR versus FST (wellen / fst-reader / fstapi) and FTR"
+
+[[bin]]
+name = "vtr-bench"
+path = "src/main.rs"
+
+[dependencies]
+vtr = { path = "../vtr" }
+vtr-cli = { path = "../vtr-cli" }
+wellen = "0.25"
+fst-reader = "0.17"
+serde_json = "1"
+flate2 = "1"

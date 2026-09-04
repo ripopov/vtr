@@ -1,0 +1,18 @@
+[package]
+name = "vtr-capi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Stable C ABI for the VTR trace library (libvtr)"
+
+[lib]
+name = "vtr"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+vtr = { path = "../vtr" }
+
+[dev-dependencies]
+cc = "1"

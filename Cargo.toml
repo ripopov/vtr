@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vtr",
+    "crates/vtr-capi",
+    "crates/vtr-cli",
+    "crates/vtr-bench",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ripopov/vtr"
+rust-version = "1.80"
+
+[profile.release]
+debug = 1
+lto = "fat"
+codegen-units = 1
+
+[profile.bench]
+inherits = "release"

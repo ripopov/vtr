@@ -7,3 +7,6 @@
 [submodule "ext/Konata"]
 	path = ext/Konata
 	url = https://github.com/shioyadan/Konata
+[submodule "ext/wavepeek"]
+	path = ext/wavepeek
+	url = https://github.com/kleverhq/wavepeek
