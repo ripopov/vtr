@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "vtr"
 path = "src/main.rs"
 
+[[bin]]
+name = "vtr2vcd"
+path = "src/bin/vtr2vcd.rs"
+
 [dependencies]
 vtr = { path = "../vtr" }
 fst-reader = "0.17"

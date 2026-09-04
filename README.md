@@ -52,6 +52,11 @@ vtr convert pipeline.log pipeline.vtr       # Kanata / Konata log (.log, .log.gz
 vtr convert trace.ftr trace.vtr             # FTR (LWTR4SC)
 vtr convert spans.json spans.vtr            # OpenTelemetry OTLP/JSON
 
+# Export and cross-check
+vtr2vcd trace.vtr trace.vcd                       # VTR -> VCD (also: vtr to-vcd)
+vtr fst-to-vcd trace.fst ref.vcd                  # FST -> VCD through fst-reader
+vtr vcd-compare ref.vcd trace.vcd                 # same value changes, in total and per signal?
+
 # Inspect
 vtr info sim.vtr
 vtr hier sim.vtr --vars --depth 3

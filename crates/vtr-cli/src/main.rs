@@ -17,6 +17,9 @@ USAGE:
   vtr convert <input> <output.vtr> [--states 2|4|9] [--codec zstd|lz4|none] [--level L]
               [--group-size N] [--block-records N] [--no-background] [--no-dedup]
               input formats by extension: .fst .vcd .log/.kanata[.gz] .json (OTLP) .ftr
+  vtr to-vcd <file.vtr> <out.vcd>             write the signals as VCD (also: vtr2vcd)
+  vtr fst-to-vcd <file.fst> <out.vcd>         same for an FST file (through fst-reader)
+  vtr vcd-compare <a.vcd> <b.vcd>             compare value-change counts, total and per signal (JSON)
 
 Times are integers in the file's time unit. Paths use '.' as separator.";
 
@@ -238,6 +241,38 @@ fn cmd_dump(args: &[String]) {
     .unwrap_or_else(|e| die(e));
 }
 
+fn cmd_to_vcd(args: &[String], fst: bool) {
+    let p = positional(args);
+    if p.len() < 2 {
+        die(USAGE);
+    }
+    let t = std::time::Instant::now();
+    let n = if fst { vtr_cli::vcdout::fst_to_vcd(&p[0], &p[1]) } else { vtr_cli::vcdout::vtr_to_vcd(&p[0], &p[1]) }.unwrap_or_else(|e| die(e));
+    println!("{{\"changes\": {n}, \"wall_s\": {}}}", t.elapsed().as_secs_f64());
+}
+
+fn cmd_vcd_compare(args: &[String]) {
+    let p = positional(args);
+    if p.len() < 2 {
+        die(USAGE);
+    }
+    let a = vtr_cli::vcdout::vcd_stats(&p[0]).unwrap_or_else(|e| die(format!("{}: {e}", p[0])));
+    let b = vtr_cli::vcdout::vcd_stats(&p[1]).unwrap_or_else(|e| die(format!("{}: {e}", p[1])));
+    let c = vtr_cli::vcdout::compare(&a, &b);
+    let examples: Vec<_> = c.mismatches.iter().take(10).map(|(n, x, y)| serde_json::json!({"signal": n, "a": x, "b": y})).collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "changes_a": c.changes_a, "changes_b": c.changes_b, "signals_a": c.signals_a, "signals_b": c.signals_b,
+            "mismatched_signals": c.mismatches.len(), "examples": examples, "identical": c.identical(),
+        }))
+        .unwrap()
+    );
+    if !c.identical() {
+        exit(1);
+    }
+}
+
 fn cmd_tx(args: &[String]) {
     let p = positional(args);
     let path = p.first().unwrap_or_else(|| die(USAGE));
@@ -371,6 +406,9 @@ fn main() {
         "value" => cmd_value(rest),
         "changes" => cmd_changes(rest),
         "dump" => cmd_dump(rest),
+        "to-vcd" => cmd_to_vcd(rest, false),
+        "fst-to-vcd" => cmd_to_vcd(rest, true),
+        "vcd-compare" => cmd_vcd_compare(rest),
         "tx" => cmd_tx(rest),
         "convert" => cmd_convert(rest),
         "--version" | "-V" => println!("vtr {}", env!("CARGO_PKG_VERSION")),

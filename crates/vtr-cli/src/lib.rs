@@ -5,3 +5,4 @@ pub mod ftr;
 pub mod kanata;
 pub mod otlp;
 pub mod vcd;
+pub mod vcdout;

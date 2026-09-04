@@ -210,3 +210,66 @@ fn cli_end_to_end() {
     let o = std::process::Command::new(exe).args(["info", "/nonexistent.vtr"]).output().unwrap();
     assert_eq!(o.status.code(), Some(2));
 }
+
+#[test]
+fn vcd_export_counts_every_change() {
+    use vtr::{Direction, ScopeType, SignalKind, VarType};
+    let out = tmp("vcdout.vtr");
+    let mut w = writer(&out);
+    w.begin_scope("top", ScopeType::Module, "");
+    // 4-state: a two-state signal starts at 0 in VTR, so an initial 0 would not be a change.
+    let (_, clk) = w.add_var("clk", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 1, states: 4 });
+    let (_, bus) = w.add_var("bus [7:0]", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 4 });
+    let (_, r) = w.add_var("r", VarType::Real, Direction::Implicit, SignalKind::Real);
+    w.add_alias("clk_alias", VarType::Wire, Direction::Implicit, clk).unwrap();
+    w.end_scope().unwrap();
+    let mut n = 0u64;
+    for t in 0..50u64 {
+        w.set_time(t).unwrap();
+        w.emit_bit(clk, (t & 1) as u8).unwrap();
+        n += 1;
+        if t % 3 == 0 {
+            w.emit_u64(bus, t).unwrap();
+            n += 1;
+        }
+        if t % 7 == 0 {
+            w.emit_real(r, (t as f64 + 1.0) / 2.0).unwrap(); // reals start at 0.0 implicitly
+            n += 1;
+        }
+    }
+    w.close().unwrap();
+    let vcd = tmp("vcdout.vcd");
+    let written = vtr_cli::vcdout::vtr_to_vcd(out.to_str().unwrap(), vcd.to_str().unwrap()).unwrap();
+    assert_eq!(written, n);
+    let st = vtr_cli::vcdout::vcd_stats(vcd.to_str().unwrap()).unwrap();
+    assert_eq!(st.changes, n);
+    // Aliases share the signal's id code: three signals, the alias is not a fourth.
+    assert_eq!(st.per_signal.len(), 3);
+    assert_eq!(st.per_signal["top.clk"], 50);
+    assert_eq!(st.per_signal["top.bus[7:0]"], 17);
+    assert_eq!(st.per_signal["top.r"], 8);
+    assert!(vtr_cli::vcdout::compare(&st, &st).identical());
+}
+
+#[test]
+fn vcd_export_matches_fst_source() {
+    // FST -> VTR -> VCD holds exactly the changes of FST -> VCD.
+    let src = root().join("ext/wavepeek/tests/fixtures/hand/verilator_pack_array.fst");
+    if !src.exists() {
+        eprintln!("skipping: submodule ext/wavepeek not checked out");
+        return;
+    }
+    let out = tmp("pack_array_x.vtr");
+    let mut w = writer(&out);
+    vtr_cli::fst::convert_fst(src.to_str().unwrap(), &mut w, &vtr_cli::fst::FstConvertOptions { states: None, progress: false }).unwrap();
+    w.close().unwrap();
+    let (a, b) = (tmp("pack_array_fst.vcd"), tmp("pack_array_vtr.vcd"));
+    let na = vtr_cli::vcdout::fst_to_vcd(src.to_str().unwrap(), a.to_str().unwrap()).unwrap();
+    let nb = vtr_cli::vcdout::vtr_to_vcd(out.to_str().unwrap(), b.to_str().unwrap()).unwrap();
+    assert_eq!(na, nb);
+    let sa = vtr_cli::vcdout::vcd_stats(a.to_str().unwrap()).unwrap();
+    let sb = vtr_cli::vcdout::vcd_stats(b.to_str().unwrap()).unwrap();
+    let c = vtr_cli::vcdout::compare(&sa, &sb);
+    assert!(c.identical(), "mismatches: {:?}", c.mismatches);
+    assert!(sa.changes > 0);
+}

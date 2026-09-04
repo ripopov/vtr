@@ -122,6 +122,16 @@ files are then read with the same query set as above (`vs_sim` in the
 results), which also checks that the VTR backend recorded exactly what
 Verilator's FST backend did.
 
+Information check (`vcd_check` in `bench/run.py`, last step of every
+workload that has a simulator FST): the FST is converted to VCD with
+GTKWave's `fst2vcd` when it is installed (an implementation independent
+of everything in this repository; `vtr fst-to-vcd` otherwise), the
+replay-written VTR and the simulator-written VTR are converted with
+`vtr2vcd`, and `vtr vcd-compare` counts the value changes of the VCDs in
+total and per signal. The counts must be identical: this is the proof
+that the size and speed comparisons are made on the same information
+and that nothing is dropped on the way into VTR.
+
 Transaction navigation (`vtr-bench tx-read`): open, scan all
 transactions, 1000 random lookups by id, 1000 relation queries (from and
 to), a 1% time-window query. FTR has no reader library beyond a Python
@@ -204,6 +214,13 @@ qualifications, which are the honest boundaries of the claims:
   2.4 s for 50k cycles), so the suite builds Verilator, and therefore
   every model, with clang when it is available and the report names the
   compiler used.
+* **Same information.** On every workload that comes from a simulator
+  (SCR1, both RSA-256 runs, C910 CoreMark) the FST converted by GTKWave's
+  `fst2vcd` and the VTR files converted by `vtr2vcd` hold the same number
+  of value changes, in total and per signal: 597M changes on the C910
+  trace for the FST, the replay-written VTR and the Verilator-written VTR
+  alike. The size and speed comparisons are therefore made on identical
+  content; VTR drops nothing.
 * **Read and navigation.** Against wellen (wavepeek's reader) VTR is
   faster on every query on every workload. On the C910 trace, opening
   takes 8.5 ms against 25 ms, walking the 205k-var hierarchy 1 ms against

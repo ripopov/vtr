@@ -225,6 +225,40 @@ def run_sim(name, sim, repeat, out_dir):
 SINGLE_RUN_CHANGES = 200_000_000
 
 
+def vcd_check(name, info, vtr_file, out_dir):
+    """Converts the source FST and the VTR files to VCD and compares the value-change counts.
+
+    The FST side uses GTKWave's own fst2vcd when it is installed (an implementation
+    independent of every library in this repository), else `vtr fst-to-vcd`; the VTR
+    side uses vtr2vcd. Counts must agree in total and per signal for the replay-written
+    VTR and, when present, for the VTR written by the simulator itself."""
+    fst_vcd = os.path.join(out_dir, f"{name}_fst.vcd")
+    tool = shutil.which("fst2vcd")
+    t = time.time()
+    if tool:
+        sh([tool, "-f", info["source_fst"], "-o", fst_vcd])
+    else:
+        sh([VTR_CLI, "fst-to-vcd", info["source_fst"], fst_vcd])
+    res = {"fst_tool": "gtkwave fst2vcd" if tool else "vtr fst-to-vcd", "fst_to_vcd_s": time.time() - t, "files": {}}
+    pairs = [("vtr-rust", vtr_file)]
+    sim_vtr = os.path.join(out_dir, f"{name}_sim.vtr")
+    if os.path.exists(sim_vtr):
+        pairs.append(("verilator-vtr", sim_vtr))
+    for label, path in pairs:
+        vcd = os.path.join(out_dir, f"{name}_{label}.vcd")
+        conv = json_out([os.path.join(TARGET, "vtr2vcd"), path, vcd])
+        r = sh([VTR_CLI, "vcd-compare", fst_vcd, vcd], capture=True, check=False)
+        cmp_ = json.loads(r.stdout[r.stdout.find("{"):])
+        cmp_["vtr2vcd_s"] = conv["wall_s"]
+        res["files"][label] = cmp_
+        print(f"  {name} vcd-check {label:14s} fst {cmp_['changes_a']:,} vtr {cmp_['changes_b']:,} changes, "
+              f"{cmp_['mismatched_signals']} signals differ -> {'identical' if cmp_['identical'] else 'DIFFERENT'}", flush=True)
+        os.remove(vcd)
+    os.remove(fst_vcd)
+    res["identical"] = all(f["identical"] for f in res["files"].values())
+    return res
+
+
 def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_repeat=2):
     rpl = os.path.join(WORK, f"{name}.rpl")
     res = {"workload": name, "info": info, "writers": {}, "readers": {}}
@@ -287,6 +321,8 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_re
     # Sizes of the original simulator FST for reference.
     if "source_fst" in info:
         res["source_fst_bytes"] = os.path.getsize(info["source_fst"])
+        # Information check: FST and VTR converted to VCD must hold the same changes.
+        res["vcd_check"] = vcd_check(name, info, vtr_file, out_dir)
     # Remove bulky outputs but keep one VTR and the zlib FST for inspection (and reads-only reruns).
     for label, path in files.items():
         if label not in ("vtr-rust", "fstapi-zlib", "fstcpp-none", "vtr-none"):
@@ -412,6 +448,12 @@ def summary(rtl, tx):
                  + ("VTR is slower in: " + "; ".join(losses) + "." if losses else "VTR is faster in every query on every workload."))
         parity = all(r["readers"]["vs_fstapi_zlib"]["parity_errors"] == 0 for r in rtl)
         L.append(f"- **Parity.** Values and change counts identical between wellen and VTR on all workloads: {'yes' if parity else 'NO'}.")
+        checks = [r for r in rtl if "vcd_check" in r]
+        if checks:
+            ok = all(r["vcd_check"]["identical"] for r in checks)
+            L.append("- **Information check.** Source FST and VTR files converted to VCD carry the same value changes, in total and per signal, on "
+                     + ", ".join(f"{r['workload']} ({r['vcd_check']['files']['vtr-rust']['changes_a']:,} changes)" for r in checks)
+                     + f": {'yes' if ok else 'NO'}.")
         sims = [r for r in rtl if "simulator" in r]
         if sims:
             parts = []
@@ -510,6 +552,24 @@ def render(results, path):
                 base = rd[k].get("fst_wellen", rd[k].get("fst_reader"))
                 return f"{base * 1000:.1f} / **{rd[k]['vtr'] * 1000:.1f}**"
             L.append(f"| {r['workload']} | {rr('open')} | {rr('load_1')} | {rr('load_100')} | {rr('load_1000')} | {rr('value_at_10x100')} | {rr('changes_window_1pct')} | {rr('stream_all')} | {'OK' if rd['parity_errors'] == 0 else str(rd['parity_errors']) + ' mismatches'} |")
+        L.append("")
+    checks = [r for r in rtl if "vcd_check" in r]
+    if checks:
+        L.append("## Information check: FST and VTR converted to VCD\n")
+        L.append("The simulator's FST is converted to VCD (GTKWave's `fst2vcd` when installed, else `vtr fst-to-vcd`) and so are the VTR files (`vtr2vcd`); `vtr vcd-compare` then counts the value changes of both VCDs in total and per signal. *replay VTR* is the file the benchmark writer produced from the replay of the FST; *Verilator VTR* is the file the simulator wrote through `--trace-vtr`.\n")
+        L.append("| workload | FST changes | replay VTR changes | Verilator VTR changes | signals | per-signal identical | fst2vcd | vtr2vcd |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        for r in checks:
+            c = r["vcd_check"]
+            f = c["files"]
+            a = f["vtr-rust"]
+            sim = f.get("verilator-vtr")
+            ident = all(x["identical"] for x in f.values())
+            L.append(f"| {r['workload']} | {a['changes_a']:,} | {a['changes_b']:,} | {sim['changes_b']:,} | {a['signals_a']:,} | "
+                     f"{'yes' if ident else 'NO (' + str(sum(x['mismatched_signals'] for x in f.values())) + ' signals)'} | "
+                     f"{c['fst_to_vcd_s']:.1f}s ({c['fst_tool']}) | {a['vtr2vcd_s']:.1f}s |" if sim else
+                     f"| {r['workload']} | {a['changes_a']:,} | {a['changes_b']:,} | - | {a['signals_a']:,} | "
+                     f"{'yes' if ident else 'NO (' + str(a['mismatched_signals']) + ' signals)'} | {c['fst_to_vcd_s']:.1f}s ({c['fst_tool']}) | {a['vtr2vcd_s']:.1f}s |")
         L.append("")
     if rtl and any("uncompressed" in r["readers"] for r in rtl):
         L.append("## Uncompressed variants: VTR (codec none) versus FST without value compression\n")
