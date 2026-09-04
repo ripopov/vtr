@@ -13,3 +13,6 @@
 [submodule "ext/pulp-c910"]
 	path = ext/pulp-c910
 	url = https://github.com/pulp-platform/pulp-c910
+[submodule "ext/surfer"]
+	path = ext/surfer
+	url = https://github.com/ripopov/surfer
