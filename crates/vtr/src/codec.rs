@@ -51,29 +51,55 @@ impl Default for Compression {
     }
 }
 
-/// Reusable compressor state (zstd contexts are expensive to create).
+/// Reusable compressor state (zstd contexts are expensive to create): one context
+/// for the configured level and one at level 1 for probes, trials and fast runs.
 pub struct Compressor {
     zstd: Option<zstd::bulk::Compressor<'static>>,
-    probe: Option<zstd::bulk::Compressor<'static>>,
     level: i32,
+    fast: Option<zstd::bulk::Compressor<'static>>,
+    trial_buf: Vec<u8>,
+}
+
+fn new_zstd(level: i32) -> Result<zstd::bulk::Compressor<'static>> {
+    let mut c = zstd::bulk::Compressor::new(level).map_err(|e| Error::Codec(e.to_string()))?;
+    // Content size is known from our own prefix; skip zstd's own
+    // checksum since sections carry CRC32 already.
+    let _ = c.set_parameter(zstd::zstd_safe::CParameter::ChecksumFlag(false));
+    let _ = c.include_contentsize(false);
+    Ok(c)
 }
 
 impl Compressor {
     pub fn new() -> Self {
-        Compressor { zstd: None, probe: None, level: 0 }
+        Compressor { zstd: None, level: 0, fast: None, trial_buf: Vec::new() }
     }
 
     fn zstd_ctx(&mut self, level: i32) -> Result<&mut zstd::bulk::Compressor<'static>> {
+        if level == 1 {
+            return self.fast_ctx();
+        }
         if self.zstd.is_none() || self.level != level {
-            let mut c = zstd::bulk::Compressor::new(level).map_err(|e| Error::Codec(e.to_string()))?;
-            // Content size is known from our own prefix; skip zstd's own
-            // checksum since sections carry CRC32 already.
-            let _ = c.set_parameter(zstd::zstd_safe::CParameter::ChecksumFlag(false));
-            let _ = c.include_contentsize(false);
-            self.zstd = Some(c);
+            self.zstd = Some(new_zstd(level)?);
             self.level = level;
         }
         Ok(self.zstd.as_mut().unwrap())
+    }
+
+    fn fast_ctx(&mut self) -> Result<&mut zstd::bulk::Compressor<'static>> {
+        if self.fast.is_none() {
+            self.fast = Some(new_zstd(1)?);
+        }
+        Ok(self.fast.as_mut().unwrap())
+    }
+
+    /// Compressed size of `input` under fast zstd (level 1), for comparing encodings of a
+    /// sample; nothing is emitted.
+    pub fn trial_size(&mut self, input: &[u8]) -> Result<usize> {
+        let mut buf = std::mem::take(&mut self.trial_buf);
+        buf.resize(zstd::zstd_safe::compress_bound(input.len()), 0);
+        let n = self.fast_ctx()?.compress_to_buffer(input, &mut buf).map_err(|e| Error::Codec(e.to_string()))?;
+        self.trial_buf = buf;
+        Ok(n)
     }
 
     /// Incompressibility probe: zstd level 1 on a 4 KiB sample from the middle of the
@@ -85,24 +111,29 @@ impl Compressor {
             return false;
         }
         let start = (input.len() - SAMPLE) / 2;
-        let sample = &input[start..start + SAMPLE];
-        if self.probe.is_none() {
-            self.probe = zstd::bulk::Compressor::new(1).ok();
+        match self.trial_size(&input[start..start + SAMPLE]) {
+            Ok(c) => Self::sample_incompressible(c, SAMPLE),
+            Err(_) => false,
         }
-        match self.probe.as_mut().and_then(|p| p.compress(sample).ok()) {
-            Some(c) => c.len() * 100 >= sample.len() * 96,
-            None => false,
-        }
+    }
+
+    /// The probe's verdict for a sample of `raw` bytes that fast zstd shrank to `compressed`.
+    pub fn sample_incompressible(compressed: usize, raw: usize) -> bool {
+        compressed * 100 >= raw * 96
     }
 
     /// Compresses `input` with `comp` and appends `[codec:u8][raw_len:varint][payload]` to `out`.
     /// Falls back to `Codec::None` when compression does not shrink the data. High-entropy
     /// inputs (detected by sampling) skip the expensive codec and are stored raw or LZ4-packed.
     pub fn compress_into(&mut self, comp: Compression, input: &[u8], out: &mut Vec<u8>) -> Result<()> {
-        let mut comp = comp;
-        if comp.codec == Codec::Zstd && self.looks_incompressible(input) {
-            comp = Compression::LZ4;
-        }
+        let incompressible = comp.codec == Codec::Zstd && self.looks_incompressible(input);
+        self.compress_into_probed(comp, input, out, incompressible)
+    }
+
+    /// [`compress_into`](Self::compress_into) for a caller that already sampled the input:
+    /// `incompressible` routes zstd requests to LZ4.
+    pub fn compress_into_probed(&mut self, comp: Compression, input: &[u8], out: &mut Vec<u8>, incompressible: bool) -> Result<()> {
+        let comp = if comp.codec == Codec::Zstd && incompressible { Compression::LZ4 } else { comp };
         let header_pos = out.len();
         out.push(comp.codec as u8);
         crate::varint::put_u64(out, input.len() as u64);

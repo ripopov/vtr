@@ -33,6 +33,8 @@ pub struct WriterOptions {
     /// Value changes per signal block (the compression unit).
     pub block_records: usize,
     /// Value changes handed to the background encoder at a time (the pipelining unit).
+    /// A lower bound: the writer raises it to [`CHUNK_RECORDS_PER_SIGNAL`] changes per
+    /// declared signal so that per-signal column fragments do not become tiny.
     pub chunk_records: usize,
     /// Raw bytes per independently compressed column run inside a group.
     /// Bounds how much must be decompressed to read one signal in one block.
@@ -46,6 +48,9 @@ pub struct WriterOptions {
     /// Store a CRC32 for every section.
     pub checksums: bool,
 }
+
+/// Minimum average changes per signal in one chunk (see [`WriterOptions::chunk_records`]).
+pub const CHUNK_RECORDS_PER_SIGNAL: usize = 16;
 
 impl Default for WriterOptions {
     fn default() -> Self {
@@ -1168,9 +1173,14 @@ impl Writer {
         if self.block_pending >= self.opts.block_records {
             self.flush_signals()?;
         } else {
-            self.chunk_limit = self.opts.chunk_records.min(self.opts.block_records - self.block_pending).max(1);
+            self.chunk_limit = self.chunk_target().min(self.opts.block_records - self.block_pending).max(1);
         }
         Ok(())
+    }
+
+    /// Records per chunk: the configured minimum, raised for designs with many signals.
+    fn chunk_target(&self) -> usize {
+        self.opts.chunk_records.max(CHUNK_RECORDS_PER_SIGNAL * self.kinds.len())
     }
 
     fn flush_meta_and_hierarchy(&mut self) -> Result<()> {
@@ -1189,8 +1199,12 @@ impl Writer {
             let mut payload = Vec::new();
             varint::put_u64(&mut payload, first as u64);
             varint::put_u64(&mut payload, self.pending_nodes.len() as u64);
-            for n in &self.pending_nodes {
-                n.encode(&mut payload);
+            // Ids are relative in the encoding: reconstruct the signal count at each node.
+            let declared = self.pending_nodes.iter().filter(|n| n.declares_signal()).count() as u32;
+            let mut next_signal = self.kinds.len() as u32 - declared;
+            for (i, n) in self.pending_nodes.iter().enumerate() {
+                n.encode(first + i as u32, next_signal, &mut payload);
+                next_signal += n.declares_signal() as u32;
             }
             let count = self.pending_nodes.len() as u64;
             self.pending_nodes.clear();
@@ -1324,7 +1338,7 @@ impl Writer {
         input.times.clear();
         input.times.append(&mut self.times);
         self.block_pending = 0;
-        self.chunk_limit = self.opts.chunk_records.min(self.opts.block_records).max(1);
+        self.chunk_limit = self.chunk_target().min(self.opts.block_records).max(1);
         self.sink.send(Msg::Signal(Box::new(input)))?;
         // Reset block state.
         self.frame_heap.clear();

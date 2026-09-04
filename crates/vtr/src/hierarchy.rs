@@ -484,7 +484,8 @@ impl NodeData {
     }
 }
 
-/// One hierarchy node.
+/// One hierarchy node (the value-level description; the reader stores nodes
+/// column-wise, see [`Hierarchy`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     pub parent: Option<NodeId>,
@@ -498,9 +499,16 @@ impl Node {
         self.data.kind()
     }
 
-    pub fn encode(&self, out: &mut Vec<u8>) {
+    /// True for a var that declares a new signal.
+    pub fn declares_signal(&self) -> bool {
+        matches!(self.data, NodeData::Var { declares: Some(_), .. })
+    }
+
+    /// Serialises the node that gets id `index` while `next_signal` signals are declared
+    /// (parent and signal ids are stored relative to these, which keeps them small).
+    pub fn encode(&self, index: u32, next_signal: u32, out: &mut Vec<u8>) {
         out.push(self.kind() as u8);
-        varint::put_u64(out, self.parent.map(|p| p.0 as u64 + 1).unwrap_or(0));
+        varint::put_u64(out, self.parent.map(|p| (index - p.0) as u64).unwrap_or(0));
         varint::put_u64(out, self.name.0 as u64);
         match &self.data {
             NodeData::Scope { scope_type, component } => {
@@ -510,7 +518,7 @@ impl Node {
             NodeData::Var { var_type, direction, signal, declares } => {
                 varint::put_u64(out, var_type.code() as u64);
                 out.push(*direction as u8);
-                varint::put_u64(out, signal.0 as u64);
+                varint::put_u64(out, (next_signal - signal.0) as u64);
                 match declares {
                     Some(k) => {
                         out.push(1);
@@ -532,11 +540,13 @@ impl Node {
         value::encode_attrs(&self.attrs, out);
     }
 
-    pub fn decode(r: &mut Reader) -> Result<Node> {
+    /// Inverse of [`encode`](Self::encode).
+    pub fn decode(r: &mut Reader, index: u32, next_signal: u32) -> Result<Node> {
         let kind = NodeKind::from_u8(r.u8()?)?;
         let parent = match r.u32()? {
             0 => None,
-            p => Some(NodeId(p - 1)),
+            d if d <= index => Some(NodeId(index - d)),
+            _ => return Err(Error::Corrupt("node parent out of range")),
         };
         let name = StrId(r.u32()?);
         let data = match kind {
@@ -547,8 +557,18 @@ impl Node {
             NodeKind::Var => {
                 let var_type = VarType::from_code(r.u32()? as u16);
                 let direction = Direction::from_u8(r.u8()?);
-                let signal = SignalId(r.u32()?);
+                let back = r.u32()?;
+                if back > next_signal {
+                    return Err(Error::Corrupt("alias of unknown signal"));
+                }
+                let signal = SignalId(next_signal - back);
                 let declares = if r.u8()? != 0 { Some(SignalKind::decode(r)?) } else { None };
+                if declares.is_some() && back != 0 {
+                    return Err(Error::Corrupt("signal declared out of order"));
+                }
+                if declares.is_none() && back == 0 {
+                    return Err(Error::Corrupt("alias of unknown signal"));
+                }
                 NodeData::Var { var_type, direction, signal, declares }
             }
             NodeKind::Stream => NodeData::Stream { kind: StrId(r.u32()?) },
@@ -572,10 +592,31 @@ impl Node {
     }
 }
 
-/// Reader-side hierarchy: all nodes plus derived indexes.
+const NO_NODE: u32 = u32::MAX;
+
+/// Reader-side hierarchy: every node's fields in parallel arrays (a few bytes per
+/// node, decoded at a few nanoseconds each) plus derived indexes.
+///
+/// Per node: kind, parent, name and two kind-specific words:
+///
+/// | kind | word 0 | word 1 |
+/// |---|---|---|
+/// | scope | scope type code | component string |
+/// | var | `var_type \| direction << 16 \| declares << 24` | signal |
+/// | stream | kind string | - |
+/// | generator | - | - |
+/// | enum table | index into `enum_tables` | - |
 #[derive(Debug, Default)]
 pub struct Hierarchy {
-    pub nodes: Vec<Node>,
+    kind: Vec<u8>,
+    parent: Vec<u32>,
+    name: Vec<u32>,
+    w0: Vec<u32>,
+    w1: Vec<u32>,
+    enum_tables: Vec<Vec<(StrId, StrId)>>,
+    /// Node attributes: owning node per attribute (ascending) and the attributes themselves.
+    attr_node: Vec<u32>,
+    attr_kv: Vec<(StrId, Value)>,
     /// Signal table, indexed by `SignalId`.
     pub signals: Vec<SignalKind>,
     /// For every signal, the first var that declared it.
@@ -597,32 +638,54 @@ impl Hierarchy {
         let mut r = Reader::new(payload);
         let first = r.usize()?;
         let count = r.usize()?;
-        if first != self.nodes.len() {
+        if first != self.len() {
             return Err(Error::Corrupt("hierarchy chunk out of order"));
         }
-        self.nodes.reserve(count);
+        self.kind.reserve(count);
+        for v in [&mut self.parent, &mut self.name, &mut self.w0, &mut self.w1] {
+            v.reserve(count);
+        }
+        self.signals.reserve(count);
+        self.signal_var.reserve(count);
         for _ in 0..count {
-            let node = Node::decode(&mut r)?;
-            if let NodeData::Var { signal, declares, .. } = &node.data {
-                if let Some(k) = declares {
-                    if signal.0 as usize != self.signals.len() {
-                        return Err(Error::Corrupt("signal declared out of order"));
-                    }
-                    self.signals.push(*k);
-                    self.signal_var.push(NodeId(self.nodes.len() as u32));
-                } else if signal.0 as usize >= self.signals.len() {
-                    return Err(Error::Corrupt("alias of unknown signal"));
-                }
-            }
-            if let Some(p) = node.parent {
-                if p.0 as usize >= self.nodes.len() {
-                    return Err(Error::Corrupt("node parent out of range"));
-                }
-            }
-            self.nodes.push(node);
+            let node = Node::decode(&mut r, self.len() as u32, self.signals.len() as u32)?;
+            self.push(node);
         }
         self.indexed = false;
         Ok(())
+    }
+
+    /// Appends one node (its id is the current length).
+    #[inline]
+    pub fn push(&mut self, node: Node) -> NodeId {
+        let id = NodeId(self.len() as u32);
+        self.kind.push(node.kind() as u8);
+        self.parent.push(node.parent.map(|p| p.0).unwrap_or(NO_NODE));
+        self.name.push(node.name.0);
+        let (w0, w1) = match node.data {
+            NodeData::Scope { scope_type, component } => (scope_type.code() as u32, component.0),
+            NodeData::Var { var_type, direction, signal, declares } => {
+                if let Some(k) = declares {
+                    self.signals.push(k);
+                    self.signal_var.push(id);
+                }
+                (var_type.code() as u32 | (direction as u32) << 16 | (declares.is_some() as u32) << 24, signal.0)
+            }
+            NodeData::Stream { kind } => (kind.0, 0),
+            NodeData::Generator => (0, 0),
+            NodeData::EnumTable { entries } => {
+                self.enum_tables.push(entries);
+                (self.enum_tables.len() as u32 - 1, 0)
+            }
+        };
+        self.w0.push(w0);
+        self.w1.push(w1);
+        if !node.attrs.is_empty() {
+            self.attr_node.resize(self.attr_node.len() + node.attrs.len(), id.0);
+            self.attr_kv.extend(node.attrs);
+        }
+        self.indexed = false;
+        id
     }
 
     /// Builds the children index (idempotent).
@@ -630,13 +693,14 @@ impl Hierarchy {
         if self.indexed {
             return;
         }
-        let n = self.nodes.len();
+        let n = self.len();
         let mut counts = vec![0u32; n + 1];
         let mut nroots = 0;
-        for node in &self.nodes {
-            match node.parent {
-                Some(p) => counts[p.0 as usize + 1] += 1,
-                None => nroots += 1,
+        for &p in &self.parent {
+            if p == NO_NODE {
+                nroots += 1;
+            } else {
+                counts[p as usize + 1] += 1;
             }
         }
         for i in 0..n {
@@ -645,13 +709,12 @@ impl Hierarchy {
         let mut fill = counts.clone();
         let mut children = vec![0u32; n - nroots];
         let mut roots = Vec::with_capacity(nroots);
-        for (i, node) in self.nodes.iter().enumerate() {
-            match node.parent {
-                Some(p) => {
-                    children[fill[p.0 as usize] as usize] = i as u32;
-                    fill[p.0 as usize] += 1;
-                }
-                None => roots.push(i as u32),
+        for (i, &p) in self.parent.iter().enumerate() {
+            if p == NO_NODE {
+                roots.push(i as u32);
+            } else {
+                children[fill[p as usize] as usize] = i as u32;
+                fill[p as usize] += 1;
             }
         }
         self.child_start = counts;
@@ -660,16 +723,68 @@ impl Hierarchy {
         self.indexed = true;
     }
 
-    pub fn node(&self, id: NodeId) -> &Node {
-        &self.nodes[id.0 as usize]
+    /// The node as a value (enum tables and attributes are copied). Panics when out of range.
+    pub fn node(&self, id: NodeId) -> Node {
+        let i = id.0 as usize;
+        let (w0, w1) = (self.w0[i], self.w1[i]);
+        let data = match self.kind(id) {
+            NodeKind::Scope => NodeData::Scope { scope_type: ScopeType::from_code(w0 as u16), component: StrId(w1) },
+            NodeKind::Var => NodeData::Var {
+                var_type: VarType::from_code(w0 as u16),
+                direction: Direction::from_u8((w0 >> 16) as u8),
+                signal: SignalId(w1),
+                declares: if w0 >> 24 != 0 { self.signals.get(w1 as usize).copied() } else { None },
+            },
+            NodeKind::Stream => NodeData::Stream { kind: StrId(w0) },
+            NodeKind::Generator => NodeData::Generator,
+            NodeKind::EnumTable => NodeData::EnumTable { entries: self.enum_tables[w0 as usize].clone() },
+        };
+        Node { parent: self.parent(id), name: self.name(id), data, attrs: self.attrs(id).to_vec() }
+    }
+
+    pub fn kind(&self, id: NodeId) -> NodeKind {
+        NodeKind::from_u8(self.kind[id.0 as usize]).expect("stored node kind is valid")
+    }
+
+    pub fn parent(&self, id: NodeId) -> Option<NodeId> {
+        match self.parent[id.0 as usize] {
+            NO_NODE => None,
+            p => Some(NodeId(p)),
+        }
+    }
+
+    pub fn name(&self, id: NodeId) -> StrId {
+        StrId(self.name[id.0 as usize])
+    }
+
+    /// Signal of a var node (declaration or alias), `None` for other kinds.
+    pub fn signal_of(&self, id: NodeId) -> Option<SignalId> {
+        (self.kind(id) == NodeKind::Var).then(|| SignalId(self.w1[id.0 as usize]))
+    }
+
+    /// Entries of an enum table node.
+    pub fn enum_entries(&self, id: NodeId) -> Option<&[(StrId, StrId)]> {
+        (self.kind(id) == NodeKind::EnumTable).then(|| self.enum_tables[self.w0[id.0 as usize] as usize].as_slice())
+    }
+
+    /// Attributes of a node in declaration order.
+    pub fn attrs(&self, id: NodeId) -> &[(StrId, Value)] {
+        let a = self.attr_node.partition_point(|&n| n < id.0);
+        let b = self.attr_node.partition_point(|&n| n <= id.0);
+        &self.attr_kv[a..b]
+    }
+
+    /// Number of attributes on all nodes.
+    pub fn attr_count(&self) -> usize {
+        self.attr_kv.len()
     }
 
     pub fn len(&self) -> usize {
-        self.nodes.len()
+        self.kind.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+        self.kind.is_empty()
     }
 
     /// Top-level nodes in declaration order. Requires [`build_index`](Self::build_index).
@@ -692,8 +807,13 @@ impl Hierarchy {
         self.signals.get(s.0 as usize).copied()
     }
 
+    /// All node ids in declaration order.
+    pub fn ids(&self) -> impl Iterator<Item = NodeId> {
+        (0..self.len() as u32).map(NodeId)
+    }
+
     /// All nodes of a given kind in declaration order.
     pub fn nodes_of_kind(&self, kind: NodeKind) -> impl Iterator<Item = NodeId> + '_ {
-        self.nodes.iter().enumerate().filter(move |(_, n)| n.kind() == kind).map(|(i, _)| NodeId(i as u32))
+        self.kind.iter().enumerate().filter(move |(_, &k)| k == kind as u8).map(|(i, _)| NodeId(i as u32))
     }
 }

@@ -262,7 +262,7 @@ typedef struct vtr_writer_options {
     int      level;          /* zstd level (default 3) */
     uint32_t group_size;     /* signals per value-change group (default 256) */
     uint64_t block_records;  /* value changes per signal block, the compression unit (default 16M) */
-    uint64_t chunk_records;  /* value changes per hand-off to the background encoder (default 512K) */
+    uint64_t chunk_records;  /* minimum value changes per hand-off to the background encoder (default 512K) */
     uint64_t tx_block_bytes; /* row bytes per transaction block (default 4 MiB) */
     int      background;     /* encode/compress on a background thread (default 1) */
     int      dedup;          /* drop value changes equal to the current value (default 1) */
@@ -285,7 +285,7 @@ struct comments (`codec = 2`, `level = 3`, `group_size = 256`,
 | `level`          | Zstandard level (1..22). Ignored for LZ4 and none. |
 | `group_size`     | Signals per value-change group; rounded up to a power of two (minimum 1). Larger groups compress better, smaller groups make single-signal reads cheaper. Fixed for the whole file. |
 | `block_records`  | Value changes per signal block (the compression unit). A block is a random-access unit for the reader; more records per block = fewer, larger blocks and longer columns for the compressor. |
-| `chunk_records`  | Value changes handed to the background encoder at a time (the pipelining unit, default 524288). Each chunk is sorted and pre-encoded as soon as it arrives; only the final compression waits for the whole block. Bounded by `block_records`. |
+| `chunk_records`  | Lower bound on the value changes handed to the background encoder at a time (the pipelining unit, default 524288); the writer raises it to 16 changes per declared signal so that column fragments stay large in designs with very many signals. Each chunk is sorted and pre-encoded as soon as it arrives; only the final compression waits for the whole block. Bounded by `block_records`. |
 | `tx_block_bytes` | Bytes of transaction/relation rows buffered before a transaction block is written. |
 | `background`     | 1: compress on a helper thread (recommended for simulators). 0: everything happens inline on the caller's thread (deterministic, slightly slower). |
 | `dedup`          | 1: an emitted value equal to the signal's current value is silently dropped (no change record). 0: every emit produces a record. |
@@ -1032,12 +1032,14 @@ temporary list before the callbacks run, so memory is proportional to the
 number of changes in the window. `VTR_ERR_INVALID` for an unknown signal.
 
 **`vtr_reader_for_each_change(r, t0, t1, cb, user)`** streams every change
-of **every** signal with `t0 <= time <= t1`, in time order and, within one
-time step, by increasing signal id (a VCD-style dump). This decodes whole
-blocks at once and is the fastest way to convert or scan a full trace. A
-non-zero callback return suppresses all further callbacks; the function may
-still finish scanning the current block internally before returning
-`VTR_OK`.
+of **every** signal with `t0 <= time <= t1`, in time order (a VCD-style
+dump); several changes of one signal at the same time step keep their order,
+the order of different signals within a step is deterministic but
+unspecified. This decodes whole blocks at once and is the fastest way to
+convert or scan a full trace; memory does not grow with the number of
+changes. A non-zero callback return suppresses all further callbacks; the
+function may still finish scanning the current block internally before
+returning `VTR_OK`.
 
 ### 4.11 Whole-signal loads
 
@@ -1520,8 +1522,8 @@ section 2.1: `Corrupt`→4, `UnsupportedVersion`→5, `Invalid`→1, `State`→2
 | `vtr_reader_str` | `Reader::str` |
 | `vtr_reader_node_count` | `Reader::hierarchy().len()` |
 | `vtr_reader_node` | `Hierarchy::node` (+ `Node::kind`, `NodeData`, `Hierarchy::children(id).count()`) |
-| `vtr_reader_node_attr` | `Hierarchy::node(id).attrs[i]` |
-| `vtr_reader_enum_entry` | `NodeData::EnumTable { entries }[i]` |
+| `vtr_reader_node_attr` | `Hierarchy::attrs(id)[i]` |
+| `vtr_reader_enum_entry` | `Hierarchy::enum_entries(id)[i]` |
 | `vtr_reader_children` | `Hierarchy::children` / `Hierarchy::roots` |
 | `vtr_reader_signal_count` | `Reader::signal_count` |
 | `vtr_reader_signal_kind` | `Hierarchy::signal_kind` |

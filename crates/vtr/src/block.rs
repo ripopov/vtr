@@ -22,24 +22,31 @@
 //! varint frame_clen | frame blob      raw = value of every signal of the group at start_time
 //!                                     in declared packing (VarLen: varint len + bytes)
 //! varint n_runs
-//! n_runs x { varint n_in_run, varint clen }   runs cover the group's signals in order
+//! n_runs x { varint n_in_run, varint xform, varint clen }   runs cover the group's signals in order
 //! run blobs...                        raw = varint column_len[n_in_run] then the columns
 //! ```
 //!
 //! A run holds consecutive signals whose raw columns fit in `run_budget`
 //! bytes (a single larger column forms a run of its own), so reading one
-//! signal decompresses only a bounded amount of data.
+//! signal decompresses only a bounded amount of data. `xform` ([`Xform`])
+//! names the value transform applied to every eligible column of the run
+//! before compression; the writer picks it per run by trial-compressing a
+//! small sample.
 //!
 //! Columns (`dt` = time-index delta from the signal's previous change in the block):
-//! * 1-bit signals: a sequence of entries `varint((dt << 2) | (bit << 1))` for codes 0/1, or
-//!   `varint((dt << 4) | ((code - 2) << 1) | 1)` for the other logic codes (X, Z, U, W, L, H, -);
-//! * every other kind: `varint header_len`, then `header_len` bytes of entry headers, then
-//!   the values concatenated in the same order (headers and values are separate streams so
-//!   that the compressor sees homogeneous data):
+//! * 1-bit signals: a sequence of entries. `varint(dt << 1)` means the value toggled
+//!   (`code = previous code ^ 1`, previous code 0 or 1); `varint((dt << 5) | (code << 1) | 1)`
+//!   gives the logic code explicitly and is used for the first entry of a column and
+//!   whenever the value did not toggle;
+//! * every other kind: `varint((header_len << 2) | (eligible << 1) | full)`, then
+//!   `header_len` bytes of entry headers, then the values concatenated in the same order
+//!   (headers and values are separate streams so that the compressor sees homogeneous data).
+//!   `eligible` marks a column whose entries all have the same length (`full` says which of
+//!   the two packings) and that therefore carries the run's value transform:
 //!   - vectors: header `varint((dt << 1) | compact)`, value `ceil(w/8)` bytes (compact,
 //!     2-state packing) or `packed_len(w, states)` bytes (declared packing);
 //!   - reals: header `varint(dt)`, value 8 bytes little-endian IEEE double;
-//!   - variable length: header `varint(dt)`, value `varint(len)` + bytes.
+//!   - variable length: header `varint(dt)`, value `varint(len)` + bytes (never eligible).
 
 use crate::codec::{Compression, Compressor, Decompressor};
 use crate::error::{Error, Result};
@@ -47,6 +54,7 @@ use crate::hierarchy::SignalKind;
 use crate::signal::SignalValue;
 use crate::value::packed_len;
 use crate::varint::{self, Reader};
+use crate::xform::{self, Xform};
 use std::sync::Arc;
 
 pub const HEADER_LEN: usize = 40;
@@ -129,32 +137,84 @@ pub struct EncoderScratch {
     fill: Vec<u32>,
     sorted: Vec<Record>,
     group_raw: Vec<u8>,
-    col_lens: Vec<u32>,
-    col_counts: Vec<u32>,
     data: Vec<u8>,
     tt: Vec<u8>,
     tt_c: Vec<u8>,
     frame_c: Vec<u8>,
     run_blobs: Vec<u8>,
-    /// Last time index per signal within the current block (delta continuity across chunks).
-    last_tidx: Vec<u32>,
+    /// Per-signal column state within the current block (delta continuity across chunks).
+    last: Vec<ColState>,
     /// Entries per signal within the current block.
     entry_counts: Vec<u32>,
     cursors: Vec<usize>,
     /// Column hash -> first signal with that column (dynamic aliasing), per block.
     dedup: std::collections::HashMap<(u64, u64), u32>,
     alias_of: Vec<u32>,
+    cols: Vec<ColInfo>,
+    /// Eligible value slices of the run being assembled: (offset in raw, len, entry width).
+    segs: Vec<(u32, u32, u32)>,
+    sample: Vec<u8>,
+    sample_segs: Vec<(u32, u32, u32)>,
+    trial_in: Vec<u8>,
+    xf_tmp: Vec<u8>,
+}
+
+/// Delta-coding state of one column at a chunk boundary.
+#[derive(Clone, Copy)]
+struct ColState {
+    tidx: u32,
+    /// Previous logic code of a 1-bit column; `NO_CODE` before its first entry.
+    code: u8,
+}
+
+const NO_CODE: u8 = 0xFF;
+
+impl Default for ColState {
+    fn default() -> Self {
+        ColState { tidx: 0, code: NO_CODE }
+    }
+}
+
+/// Layout of one column inside a run being assembled.
+#[derive(Clone, Copy, Default)]
+struct ColInfo {
+    vlen: u32,
+    /// Header word `(hlen << 2) | (eligible << 1) | full` (unused for 1-bit columns).
+    word: u64,
+    /// Entry width in bytes when the column is eligible for value transforms, else 0.
+    w: u32,
+    /// Total column bytes in the run (0: no changes, or aliased).
+    len: u32,
 }
 
 impl EncoderScratch {
     /// Resets per-block state (call before the first chunk of a block).
     pub fn begin_block(&mut self) {
-        for t in &mut self.last_tidx {
-            *t = 0;
+        for t in &mut self.last {
+            *t = ColState::default();
         }
         for c in &mut self.entry_counts {
             *c = 0;
         }
+    }
+}
+
+/// Entry width of a fixed-width column (`None` for mixed packings, 1-bit and varlen columns).
+fn entry_width(kind: SignalKind, count: u32, vlen: u64) -> Option<(u32, bool)> {
+    match kind {
+        SignalKind::Bits { width, states } if width > 1 => {
+            let compact = (width as u64).div_ceil(8);
+            let full = packed_len(width, states) as u64;
+            if vlen == count as u64 * compact {
+                Some((compact as u32, false))
+            } else if vlen == count as u64 * full {
+                Some((full as u32, true))
+            } else {
+                None
+            }
+        }
+        SignalKind::Real => Some((8, false)),
+        _ => None,
     }
 }
 
@@ -164,8 +224,8 @@ pub fn encode_chunk(input: &ChunkInput, kinds: &[SignalKind], scratch: &mut Enco
     if n_sig > kinds.len() {
         return Err(Error::State("sig_counts exceed signal table"));
     }
-    if scratch.last_tidx.len() < n_sig {
-        scratch.last_tidx.resize(n_sig, 0);
+    if scratch.last.len() < n_sig {
+        scratch.last.resize(n_sig, ColState::default());
         scratch.entry_counts.resize(n_sig, 0);
     }
     let counts = &mut scratch.counts;
@@ -213,9 +273,7 @@ pub fn encode_chunk(input: &ChunkInput, kinds: &[SignalKind], scratch: &mut Enco
             continue;
         }
         let (hoff, voff) = (out.hdr.len(), out.val.len());
-        let prev = scratch.last_tidx[s];
-        encode_column(kinds[s], recs, &input.heap, prev, &mut out.hdr, &mut out.val)?;
-        scratch.last_tidx[s] = recs.last().unwrap().tidx & !COMPACT_FLAG;
+        encode_column(kinds[s], recs, &input.heap, &mut scratch.last[s], &mut out.hdr, &mut out.val)?;
         scratch.entry_counts[s] += recs.len() as u32;
         out.frags.push(Frag { sig: s as u32, hoff: hoff as u32, hlen: (out.hdr.len() - hoff) as u32, voff: voff as u32, vlen: (out.val.len() - voff) as u32 });
     }
@@ -252,7 +310,7 @@ pub fn finish_block(
         for &grp in &input.dirty_groups {
             let first = grp as usize * g;
             let last = ((grp as usize + 1) * g).min(n_sig);
-            for s in first..last {
+            for (s, alias) in alias_of.iter_mut().enumerate().take(last).skip(first) {
                 if scratch.entry_counts[s] == 0 {
                     continue;
                 }
@@ -261,8 +319,12 @@ pub fn finish_block(
                     SignalKind::Real => 1 << 40,
                     SignalKind::VarLen => 2 << 40,
                 };
-                let mut h = kind_tag.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                // Sampled hash: lengths, entry count and the head and tail of both streams.
+                // `columns_equal` verifies candidates byte for byte, so collisions only cost time.
+                let mut h = kind_tag.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ scratch.entry_counts[s] as u64;
                 let mut total = 0usize;
+                let mut parts: [(usize, usize); 2] = [(0, 0); 2]; // (chunk, frag) of the first and last fragment
+                let mut n_parts = 0usize;
                 for (ci, ch) in chunks.iter().enumerate() {
                     let c = &mut cursors[ci];
                     while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
@@ -270,17 +332,29 @@ pub fn finish_block(
                     }
                     if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
                         let f = ch.frags[*c];
-                        h = hash_bytes(h, &ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize]);
-                        h = hash_bytes(h, &ch.val[f.voff as usize..(f.voff + f.vlen) as usize]);
                         total += (f.hlen + f.vlen) as usize;
+                        if n_parts == 0 {
+                            parts[0] = (ci, *c);
+                        }
+                        parts[1] = (ci, *c);
+                        n_parts += 1;
                     }
                 }
                 if total < 32 {
                     continue; // not worth an alias entry
                 }
+                for (ci, fi) in parts {
+                    let (ch, f) = (&chunks[ci], chunks[ci].frags[fi]);
+                    let hd = &ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize];
+                    let vl = &ch.val[f.voff as usize..(f.voff + f.vlen) as usize];
+                    h = hash_bytes(h, &hd[..hd.len().min(HASH_SAMPLE)]);
+                    h = hash_bytes(h, &hd[hd.len() - hd.len().min(HASH_SAMPLE)..]);
+                    h = hash_bytes(h, &vl[..vl.len().min(HASH_SAMPLE)]);
+                    h = hash_bytes(h, &vl[vl.len() - vl.len().min(HASH_SAMPLE)..]);
+                }
                 let key = (h, (kind_tag << 24) ^ total as u64);
                 match scratch.dedup.get(&key) {
-                    Some(&t) if columns_equal(chunks, s as u32, t) => alias_of[s] = t,
+                    Some(&t) if columns_equal(chunks, s as u32, t) => *alias = t,
                     Some(_) => {}
                     None => {
                         scratch.dedup.insert(key, s as u32);
@@ -332,26 +406,22 @@ pub fn finish_block(
         frame_pos += fr.pos;
         let off = data.len() as u64;
         varint::put_u64(data, n as u64);
-        let n_alias = (first..last).filter(|&s| alias_of[s] != NO_BLOCK).count();
-        varint::put_u64(data, n_alias as u64);
-        for s in first..last {
-            if alias_of[s] != NO_BLOCK {
-                varint::put_u64(data, (s - first) as u64);
-                varint::put_u64(data, alias_of[s] as u64);
-            }
+        let aliases = alias_of[first..last].iter().enumerate().filter(|(_, &a)| a != NO_BLOCK);
+        varint::put_u64(data, aliases.clone().count() as u64);
+        for (local, &target) in aliases {
+            varint::put_u64(data, local as u64);
+            varint::put_u64(data, target as u64);
         }
         let frame_c = &mut scratch.frame_c;
         frame_c.clear();
         compressor.compress_into(comp, raw, frame_c)?;
         varint::put_u64(data, frame_c.len() as u64);
         data.extend_from_slice(frame_c);
-        // Column lengths are known from the fragments; decide runs before copying anything.
-        let col_lens = &mut scratch.col_lens;
-        col_lens.clear();
-        let col_counts = &mut scratch.col_counts;
-        col_counts.clear();
+        // Column layouts are known from the fragments; decide runs before copying anything.
+        let cols = &mut scratch.cols;
+        cols.clear();
         let cur_start: Vec<usize> = cursors.clone();
-        for s in first..last {
+        for (s, &alias) in alias_of.iter().enumerate().take(last).skip(first) {
             let (mut hlen, mut vlen) = (0u64, 0u64);
             for (ci, ch) in chunks.iter().enumerate() {
                 let c = &mut cursors[ci];
@@ -364,10 +434,19 @@ pub fn finish_block(
                 }
             }
             let one_bit = matches!(input.kinds[s], SignalKind::Bits { width: 1, .. });
-            let aliased = alias_of[s] != NO_BLOCK;
-            let len = if hlen + vlen == 0 || aliased { 0 } else if one_bit { hlen } else { varint::len_u64(hlen) as u64 + hlen + vlen };
-            col_lens.push(len as u32);
-            col_counts.push(if aliased { 0 } else { scratch.entry_counts[s] });
+            let aliased = alias != NO_BLOCK;
+            let mut info = ColInfo { vlen: vlen as u32, ..Default::default() };
+            if hlen + vlen == 0 || aliased {
+                info.len = 0;
+            } else if one_bit {
+                info.len = hlen as u32;
+            } else {
+                let (w, full) = entry_width(input.kinds[s], scratch.entry_counts[s], vlen).unwrap_or((0, false));
+                info.w = w;
+                info.word = (hlen << 2) | (((w > 0) as u64) << 1) | full as u64;
+                info.len = (varint::len_u64(info.word) as u64 + hlen + vlen) as u32;
+            }
+            cols.push(info);
             total_entries += scratch.entry_counts[s] as usize;
         }
         let budget = input.run_budget.max(1);
@@ -375,12 +454,14 @@ pub fn finish_block(
         {
             let mut i = 0;
             while i < n {
-                let mut bytes = col_lens[i] as usize;
-                let mut entries = col_counts[i] as usize;
+                let mut bytes = cols[i].len as usize;
+                let mut entries = if cols[i].len == 0 { 0 } else { scratch.entry_counts[first + i] as usize };
                 let mut j = i + 1;
-                while j < n && bytes + col_lens[j] as usize <= budget {
-                    bytes += col_lens[j] as usize;
-                    entries += col_counts[j] as usize;
+                while j < n && j - i < MAX_RUN_SIGNALS && bytes + cols[j].len as usize <= budget {
+                    bytes += cols[j].len as usize;
+                    if cols[j].len != 0 {
+                        entries += scratch.entry_counts[first + j] as usize;
+                    }
                     j += 1;
                 }
                 runs.push((i, j - i, bytes >= 16 * entries.max(1)));
@@ -390,47 +471,34 @@ pub fn finish_block(
         varint::put_u64(data, runs.len() as u64);
         let run_blobs = &mut scratch.run_blobs;
         run_blobs.clear();
-        let mut run_sizes: Vec<usize> = Vec::with_capacity(runs.len());
+        let mut run_table: Vec<(usize, Xform, usize)> = Vec::with_capacity(runs.len());
         // Rewind the chunk cursors and build each run's raw bytes directly.
         cursors.copy_from_slice(&cur_start);
         for &(ri, rn, wide) in &runs {
             raw.clear();
-            for &l in &col_lens[ri..ri + rn] {
-                varint::put_u64(raw, l as u64);
+            let segs = &mut scratch.segs;
+            segs.clear();
+            for c in &cols[ri..ri + rn] {
+                varint::put_u64(raw, c.len as u64);
             }
             for s in first + ri..first + ri + rn {
-                if col_lens[s - first] == 0 {
+                let info = cols[s - first];
+                if info.len == 0 {
                     continue; // no changes, or aliased
                 }
                 let one_bit = matches!(input.kinds[s], SignalKind::Bits { width: 1, .. });
+                if !one_bit {
+                    varint::put_u64(raw, info.word);
+                }
                 // Headers of all chunks, then values of all chunks.
                 let save: Vec<usize> = cursors.clone();
-                let mut hlen = 0u64;
-                for (ci, ch) in chunks.iter().enumerate() {
-                    let c = &mut cursors[ci];
-                    while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
-                        *c += 1;
+                for pass in 0..if one_bit { 1 } else { 2 } {
+                    if pass == 1 {
+                        cursors.copy_from_slice(&save);
+                        if info.w > 0 {
+                            segs.push((raw.len() as u32, info.vlen, info.w));
+                        }
                     }
-                    if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
-                        hlen += ch.frags[*c].hlen as u64;
-                    }
-                }
-                if !one_bit {
-                    varint::put_u64(raw, hlen);
-                }
-                cursors.copy_from_slice(&save);
-                for (ci, ch) in chunks.iter().enumerate() {
-                    let c = &mut cursors[ci];
-                    while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
-                        *c += 1;
-                    }
-                    if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
-                        let f = ch.frags[*c];
-                        raw.extend_from_slice(&ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize]);
-                    }
-                }
-                if !one_bit {
-                    cursors.copy_from_slice(&save);
                     for (ci, ch) in chunks.iter().enumerate() {
                         let c = &mut cursors[ci];
                         while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
@@ -438,20 +506,35 @@ pub fn finish_block(
                         }
                         if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
                             let f = ch.frags[*c];
-                            raw.extend_from_slice(&ch.val[f.voff as usize..(f.voff + f.vlen) as usize]);
+                            if pass == 0 {
+                                raw.extend_from_slice(&ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize]);
+                            } else {
+                                raw.extend_from_slice(&ch.val[f.voff as usize..(f.voff + f.vlen) as usize]);
+                            }
                         }
                     }
+                }
+            }
+            let (x, incompressible) = if comp.codec == crate::codec::Codec::None {
+                (Xform::None, false)
+            } else {
+                choose_xform(raw, segs, compressor, &mut scratch.sample, &mut scratch.sample_segs, &mut scratch.trial_in, &mut scratch.xf_tmp)?
+            };
+            if x != Xform::None {
+                for &(off, len, w) in segs.iter() {
+                    xform::forward(x, w as usize, &mut raw[off as usize..(off + len) as usize], &mut scratch.xf_tmp);
                 }
             }
             let before = run_blobs.len();
             // Runs dominated by wide value bytes gain nothing from higher zstd levels.
             let c = if wide && comp.codec == crate::codec::Codec::Zstd && comp.level > 1 { Compression { codec: comp.codec, level: 1 } } else { comp };
-            compressor.compress_into(c, raw, run_blobs)?;
-            run_sizes.push(run_blobs.len() - before);
+            compressor.compress_into_probed(c, raw, run_blobs, incompressible)?;
+            run_table.push((rn, x, run_blobs.len() - before));
         }
-        for (k, &(_, rn, _)) in runs.iter().enumerate() {
+        for &(rn, x, clen) in &run_table {
             varint::put_u64(data, rn as u64);
-            varint::put_u64(data, run_sizes[k] as u64);
+            varint::put_u64(data, x as u64);
+            varint::put_u64(data, clen as u64);
         }
         data.extend_from_slice(run_blobs);
         index.push((grp, (data.len() as u64 - off) as u32, off));
@@ -496,6 +579,73 @@ impl EncoderScratch {
     }
 }
 
+/// Signals per column run at most: bounds the decompression a single-signal read pays in
+/// designs whose columns are tiny (many signals, few changes each).
+const MAX_RUN_SIGNALS: usize = 64;
+
+/// Bytes hashed at each end of a column stream when looking for dynamic aliases.
+const HASH_SAMPLE: usize = 64;
+
+/// Sample bytes per candidate in the transform trial.
+const TRIAL_BYTES: usize = 1024;
+/// Consecutive entries per sampled segment (delta and match structure need neighbours).
+const TRIAL_SEG: usize = 32;
+/// A transform is used only when its sample is at least this much smaller than the plain
+/// sample (percent): marginal gains do not pay for the extra pass when reading.
+const TRIAL_MIN_GAIN: usize = 4;
+
+/// Picks the value transform for a run by compressing a sample of its eligible value
+/// slices (`segs`: offset, len, entry width) with fast zstd under each candidate. Also
+/// reports whether the plain sample looked incompressible (the codec probe's verdict).
+#[allow(clippy::too_many_arguments)]
+fn choose_xform(
+    raw: &[u8],
+    segs: &[(u32, u32, u32)],
+    compressor: &mut Compressor,
+    sample: &mut Vec<u8>,
+    sample_segs: &mut Vec<(u32, u32, u32)>,
+    trial_in: &mut Vec<u8>,
+    tmp: &mut Vec<u8>,
+) -> Result<(Xform, bool)> {
+    let total: u64 = segs.iter().map(|s| s.1 as u64).sum();
+    if total < 64 {
+        return Ok((Xform::None, false));
+    }
+    sample.clear();
+    sample_segs.clear();
+    for &(off, len, w) in segs {
+        let (off, len, w) = (off as usize, len as usize, w as usize);
+        let count = len / w;
+        let want = ((len as u64 * TRIAL_BYTES as u64 / total) as usize).max(w);
+        let m = (want / w).clamp(1, count);
+        let seg = m.min(TRIAL_SEG);
+        let k = m.div_ceil(seg);
+        let step = count / k;
+        for j in 0..k {
+            let i0 = (j * step).min(count - seg);
+            sample_segs.push((sample.len() as u32, (seg * w) as u32, w as u32));
+            sample.extend_from_slice(&raw[off + i0 * w..off + (i0 + seg) * w]);
+        }
+    }
+    let mut best = (Xform::None, usize::MAX);
+    let mut incompressible = false;
+    for x in Xform::ALL {
+        trial_in.clear();
+        trial_in.extend_from_slice(sample);
+        for &(off, len, w) in sample_segs.iter() {
+            xform::forward(x, w as usize, &mut trial_in[off as usize..(off + len) as usize], tmp);
+        }
+        let size = compressor.trial_size(trial_in)?;
+        if x == Xform::None {
+            incompressible = Compressor::sample_incompressible(size, sample.len());
+            best = (x, size * (100 - TRIAL_MIN_GAIN) / 100);
+        } else if size < best.1 {
+            best = (x, size);
+        }
+    }
+    Ok((best.0, incompressible && best.0 == Xform::None))
+}
+
 /// Fast 64-bit hash over `bytes`, continuing from `h` (8 bytes per step, multiply-rotate mix).
 #[inline]
 fn hash_bytes(mut h: u64, bytes: &[u8]) -> u64 {
@@ -532,21 +682,15 @@ fn columns_equal(chunks: &[ChunkEnc], a: u32, b: u32) -> bool {
         let (mut sa, mut sb): (&[u8], &[u8]) = (&[], &[]);
         loop {
             if sa.is_empty() {
-                match ia.next() {
-                    Some(x) => {
-                        sa = x;
-                        continue;
-                    }
-                    None => {}
+                if let Some(x) = ia.next() {
+                    sa = x;
+                    continue;
                 }
             }
             if sb.is_empty() {
-                match ib.next() {
-                    Some(x) => {
-                        sb = x;
-                        continue;
-                    }
-                    None => {}
+                if let Some(x) = ib.next() {
+                    sb = x;
+                    continue;
                 }
             }
             if sa.is_empty() || sb.is_empty() {
@@ -566,21 +710,24 @@ fn columns_equal(chunks: &[ChunkEnc], a: u32, b: u32) -> bool {
     true
 }
 
-fn encode_column(kind: SignalKind, recs: &[Record], heap: &[u8], prev0: u32, hdr: &mut Vec<u8>, val: &mut Vec<u8>) -> Result<()> {
-    let mut prev = prev0;
+fn encode_column(kind: SignalKind, recs: &[Record], heap: &[u8], state: &mut ColState, hdr: &mut Vec<u8>, val: &mut Vec<u8>) -> Result<()> {
+    let mut prev = state.tidx;
     match kind {
         SignalKind::Bits { width: 1, .. } => {
+            let mut code = state.code;
             for r in recs {
                 let t = r.tidx & !COMPACT_FLAG;
                 let dt = t.wrapping_sub(prev) as u64;
                 prev = t;
-                let code = r.payload & 15;
-                if code <= 1 {
-                    varint::put_u64(hdr, (dt << 2) | (code << 1));
+                let c = (r.payload & 15) as u8;
+                if code <= 1 && c == code ^ 1 {
+                    varint::put_u64(hdr, dt << 1);
                 } else {
-                    varint::put_u64(hdr, (dt << 4) | ((code - 2) << 1) | 1);
+                    varint::put_u64(hdr, (dt << 5) | ((c as u64) << 1) | 1);
                 }
+                code = c;
             }
+            state.code = code;
         }
         SignalKind::Bits { width, states } => {
             let narrow = packed_len(width, states) <= 8;
@@ -624,6 +771,7 @@ fn encode_column(kind: SignalKind, recs: &[Record], heap: &[u8], prev0: u32, hdr
             }
         }
     }
+    state.tidx = prev;
     Ok(())
 }
 
@@ -760,10 +908,20 @@ pub struct GroupView<'a> {
     pub n_sigs: usize,
     /// Compressed frame blob.
     pub frame_blob: &'a [u8],
-    /// Runs: (first local signal, count, compressed blob).
-    pub runs: Vec<(u32, u32, &'a [u8])>,
+    pub runs: Vec<Run<'a>>,
     /// Dynamic aliases: (signal, target signal) ascending by signal.
     pub aliases: Vec<(u32, u32)>,
+}
+
+/// One column run of a group.
+#[derive(Clone, Copy, Debug)]
+pub struct Run<'a> {
+    /// First signal of the run, relative to the group.
+    pub first_local: u32,
+    pub count: u32,
+    /// Value transform applied to the run's eligible columns.
+    pub xform: Xform,
+    pub blob: &'a [u8],
 }
 
 impl<'a> GroupView<'a> {
@@ -794,14 +952,15 @@ impl<'a> GroupView<'a> {
         let mut sizes = Vec::with_capacity(n_runs);
         for _ in 0..n_runs {
             let rn = r.u32()?;
+            let x = Xform::from_u8(r.u8()?).ok_or(Error::Corrupt("unknown value transform"))?;
             let clen = r.usize()?;
-            sizes.push((rn, clen));
+            sizes.push((rn, x, clen));
         }
         let mut runs = Vec::with_capacity(n_runs);
         let mut local = 0u32;
-        for (rn, clen) in sizes {
+        for (rn, x, clen) in sizes {
             let blob = r.bytes(clen)?;
-            runs.push((local, rn, blob));
+            runs.push(Run { first_local: local, count: rn, xform: x, blob });
             local += rn;
         }
         if local as usize != n {
@@ -819,7 +978,7 @@ impl<'a> GroupView<'a> {
     pub fn run_of(&self, sig: u32) -> usize {
         let local = sig - self.first_sig;
         // Runs are few (<= n_sigs); binary search on first-local.
-        let i = self.runs.partition_point(|&(f, _, _)| f <= local);
+        let i = self.runs.partition_point(|r| r.first_local <= local);
         i - 1
     }
 
@@ -849,9 +1008,11 @@ impl<'a> GroupView<'a> {
         Ok(frames)
     }
 
-    /// Decompresses run `ri`: returns per-signal column slices (into `out`), indexed by local signal within the run.
+    /// Decompresses run `ri`: returns per-signal column slices (into `out`), indexed by local
+    /// signal within the run. Columns are still in the run's transformed form (see
+    /// [`untransform_column`]).
     pub fn decode_run(&self, ri: usize, d: &mut Decompressor, out: &mut Vec<u8>) -> Result<Vec<(u32, u32)>> {
-        let (_, rn, blob) = self.runs[ri];
+        let Run { count: rn, blob, .. } = self.runs[ri];
         out.clear();
         d.decompress_into(blob, out)?;
         let mut r = Reader::new(out);
@@ -872,6 +1033,44 @@ impl<'a> GroupView<'a> {
     }
 }
 
+/// Splits a non-1-bit column into `(header stream, value stream, entry width if eligible)`.
+fn split_column(col: &[u8], kind: SignalKind) -> Result<(&[u8], &[u8], Option<usize>)> {
+    let mut r = Reader::new(col);
+    let word = r.u64()?;
+    let hlen = (word >> 2) as usize;
+    if r.pos + hlen > col.len() {
+        return Err(Error::Corrupt("column header stream exceeds column"));
+    }
+    let w = if word & 2 == 0 {
+        None
+    } else {
+        match kind {
+            SignalKind::Bits { width, states } => Some(if word & 1 != 0 { packed_len(width, states) } else { (width as usize).div_ceil(8) }),
+            SignalKind::Real => Some(8),
+            SignalKind::VarLen => return Err(Error::Corrupt("variable-length column marked eligible")),
+        }
+    };
+    Ok((&col[r.pos..r.pos + hlen], &col[r.pos + hlen..], w))
+}
+
+/// Undoes the run's value transform on one column in place (no-op for `Xform::None`,
+/// 1-bit columns and columns that were not eligible).
+pub fn untransform_column(col: &mut [u8], kind: SignalKind, x: Xform, tmp: &mut Vec<u8>) -> Result<()> {
+    if x == Xform::None || col.is_empty() || matches!(kind, SignalKind::Bits { width: 1, .. }) {
+        return Ok(());
+    }
+    let (hdr, val, w) = split_column(col, kind)?;
+    if let Some(w) = w {
+        if val.len() % w != 0 {
+            return Err(Error::Corrupt("eligible column length is not a multiple of its entry width"));
+        }
+        let vstart = col.len() - val.len();
+        let _ = hdr;
+        xform::inverse(x, w, &mut col[vstart..], tmp);
+    }
+    Ok(())
+}
+
 /// One decoded column entry, referring into the column bytes.
 #[derive(Clone, Copy, Debug)]
 pub struct RawChange {
@@ -881,7 +1080,8 @@ pub struct RawChange {
     /// Byte range of the value inside the column (vectors and variable-length values).
     pub start: u32,
     pub end: u32,
-    /// Inline value: logic code for 1-bit signals, IEEE bits for reals.
+    /// Inline value: logic code for 1-bit signals, IEEE bits for reals, position of the
+    /// length prefix for variable-length values.
     pub inline: u64,
 }
 
@@ -897,6 +1097,8 @@ pub struct Checkpoint {
     /// Header and value cursor positions of the entry.
     pub hpos: u32,
     pub vpos: u32,
+    /// Logic code of the preceding entry (1-bit columns).
+    pub code_before: u8,
 }
 
 /// Builds a skip index with one checkpoint every `stride` entries.
@@ -906,11 +1108,11 @@ pub fn build_index(col: &[u8], kind: SignalKind, stride: usize) -> Result<Vec<Ch
     let mut i = 0usize;
     loop {
         let (hpos, vpos) = (it.h.pos, it.v.pos);
-        let before = it.tidx;
+        let (before, code_before) = (it.tidx, it.code);
         match it.next_raw()? {
             Some(c) => {
                 if i % stride == 0 {
-                    out.push(Checkpoint { tidx: c.tidx, tidx_before: before, hpos: hpos as u32, vpos: vpos as u32 });
+                    out.push(Checkpoint { tidx: c.tidx, tidx_before: before, hpos: hpos as u32, vpos: vpos as u32, code_before });
                 }
                 i += 1;
             }
@@ -921,6 +1123,7 @@ pub fn build_index(col: &[u8], kind: SignalKind, stride: usize) -> Result<Vec<Ch
 }
 
 /// Iterator over the changes in one column.
+#[derive(Clone, Copy)]
 pub struct ColumnIter<'a> {
     /// Header cursor (entry headers); for 1-bit signals the whole column.
     h: Reader<'a>,
@@ -928,19 +1131,21 @@ pub struct ColumnIter<'a> {
     v: Reader<'a>,
     kind: SignalKind,
     tidx: u32,
+    /// Previous logic code (1-bit columns); `NO_CODE` before the first entry.
+    code: u8,
 }
 
 impl<'a> ColumnIter<'a> {
-    /// Positions the iterator at the first entry of `col`.
+    /// Positions the iterator at the first entry of `col` (a column in plain, untransformed form).
     pub fn new(col: &'a [u8], kind: SignalKind) -> Self {
         if col.is_empty() || matches!(kind, SignalKind::Bits { width: 1, .. }) {
-            return ColumnIter { h: Reader::new(col), v: Reader::new(&[]), kind, tidx: 0 };
+            return ColumnIter { h: Reader::new(col), v: Reader::new(&[]), kind, tidx: 0, code: NO_CODE };
         }
         let mut r = Reader::new(col);
-        let hlen = r.u64().unwrap_or(0) as usize;
+        let hlen = (r.u64().unwrap_or(0) >> 2) as usize;
         let hstart = r.pos;
         let hend = (hstart + hlen).min(col.len());
-        ColumnIter { h: Reader { buf: &col[..hend], pos: hstart }, v: Reader { buf: col, pos: hend }, kind, tidx: 0 }
+        ColumnIter { h: Reader { buf: &col[..hend], pos: hstart }, v: Reader { buf: col, pos: hend }, kind, tidx: 0, code: NO_CODE }
     }
 
     /// Jumps to the last checkpoint whose entry has time index <= `max_tidx`.
@@ -949,6 +1154,7 @@ impl<'a> ColumnIter<'a> {
         if n > 0 {
             let c = index[n - 1];
             self.tidx = c.tidx_before;
+            self.code = c.code_before;
             self.h.pos = c.hpos as usize;
             self.v.pos = c.vpos as usize;
         }
@@ -967,7 +1173,11 @@ impl<'a> ColumnIter<'a> {
         Ok(Some(match self.kind {
             SignalKind::Bits { width: 1, states } => {
                 let x = self.h.u64()?;
-                let (dt, code) = if x & 1 == 0 { (x >> 2, (x >> 1) & 1) } else { (x >> 4, ((x >> 1) & 7) + 2) };
+                let (dt, code) = if x & 1 == 0 { (x >> 1, (self.code ^ 1) as u64) } else { (x >> 5, (x >> 1) & 15) };
+                if code > 8 {
+                    return Err(Error::Corrupt("bad logic code in 1-bit column"));
+                }
+                self.code = code as u8;
                 self.tidx = self.tidx.wrapping_add(dt as u32);
                 let st = if code <= 1 { 2 } else { states };
                 RawChange { tidx: self.tidx, states: st, start: 0, end: 0, inline: code }
@@ -990,12 +1200,52 @@ impl<'a> ColumnIter<'a> {
             SignalKind::VarLen => {
                 let dt = self.h.u64()?;
                 self.tidx = self.tidx.wrapping_add(dt as u32);
+                let lpos = self.v.pos;
                 let len = self.v.usize()?;
                 let s = self.v.pos;
                 self.v.bytes(len)?;
-                RawChange { tidx: self.tidx, states: 255, start: s as u32, end: (s + len) as u32, inline: 0 }
+                RawChange { tidx: self.tidx, states: 255, start: s as u32, end: (s + len) as u32, inline: lpos as u64 }
             }
         }))
+    }
+
+    /// Fast path for 1-bit columns: calls `f(time index, logic code)` for every remaining
+    /// entry. Same decoding as [`next_raw`](Self::next_raw) with the state kept in registers.
+    pub fn for_each_bit(&mut self, mut f: impl FnMut(u32, u8)) -> Result<()> {
+        debug_assert!(matches!(self.kind, SignalKind::Bits { width: 1, .. }));
+        let buf = self.h.buf;
+        let (mut pos, mut tidx, mut code) = (self.h.pos, self.tidx, self.code);
+        while pos < buf.len() {
+            let x = match buf[pos] {
+                b if b < 0x80 => {
+                    pos += 1;
+                    b as u64
+                }
+                _ => {
+                    let mut r = Reader { buf, pos };
+                    let x = r.u64()?;
+                    pos = r.pos;
+                    x
+                }
+            };
+            let (dt, c) = if x & 1 == 0 { (x >> 1, code ^ 1) } else { (x >> 5, ((x >> 1) & 15) as u8) };
+            if c > 8 {
+                return Err(Error::Corrupt("bad logic code in 1-bit column"));
+            }
+            code = c;
+            tidx = tidx.wrapping_add(dt as u32);
+            f(tidx, code);
+        }
+        self.h.pos = pos;
+        self.tidx = tidx;
+        self.code = code;
+        Ok(())
+    }
+
+    /// Value bytes of an entry (vectors and variable-length values).
+    #[inline]
+    pub fn value_bytes(&self, c: &RawChange) -> &'a [u8] {
+        &self.v.buf[c.start as usize..c.end as usize]
     }
 
     /// Materialises a value returned by [`next_raw`](Self::next_raw).
@@ -1024,12 +1274,13 @@ impl<'a> ColumnIter<'a> {
     pub fn last_at_or_before(&mut self, max_tidx: u32) -> Result<Option<RawChange>> {
         let mut found = None;
         while !self.h.is_empty() {
-            let save = (self.h.pos, self.v.pos, self.tidx);
+            let save = (self.h.pos, self.v.pos, self.tidx, self.code);
             let c = self.next_raw()?.unwrap();
             if c.tidx > max_tidx {
                 self.h.pos = save.0;
                 self.v.pos = save.1;
                 self.tidx = save.2;
+                self.code = save.3;
                 break;
             }
             found = Some(c);

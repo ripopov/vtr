@@ -103,8 +103,8 @@ fn cmd_info(args: &[String]) {
     let mut vars = 0;
     let mut streams = 0;
     let mut gens = 0;
-    for n in &h.nodes {
-        match n.kind() {
+    for n in h.ids() {
+        match h.kind(n) {
             vtr::NodeKind::Scope => scopes += 1,
             vtr::NodeKind::Var => vars += 1,
             vtr::NodeKind::Stream => streams += 1,

@@ -93,6 +93,12 @@ model (a new open per measurement, like a one-shot CLI such as wavepeek):
 The same signal/time plan (seeded) is exported to the C harness so that
 `fstapi` numbers use identical queries. Results are cross-checked: value
 strings and change counts must match between wellen and VTR (`parity`).
+Every reader process runs with glibc's dynamic mmap threshold disabled
+(`MALLOC_MMAP_THRESHOLD_=32 MiB`, `MALLOC_TRIM_THRESHOLD_=512 MiB`):
+otherwise the best-of-3 time of a load depends on whether an earlier
+iteration happened to raise the threshold (freed buffers reused without
+page faults) or not, which varies with allocation sizes rather than with
+the work done. The setting applies equally to wellen, fstapi and VTR.
 The FST input for reads is the file written by `fstapi` with zlib (the
 GTKWave default); for the two simulator-produced workloads the report
 also includes reads of the original simulator file.
@@ -131,45 +137,49 @@ the requirements on every workload of the suite, with the following
 qualifications, which are the honest boundaries of the claims:
 
 * **Size.** VTR is smaller than the smallest FST variant (GTKWave's
-  default zlib packing) on all seven signal workloads: 58% of FST-zlib on
-  the SCR1 core and 60% on its 8-copy replica, 76-78% on the synthetic
+  default zlib packing) on all seven signal workloads: 51% of FST-zlib on
+  the SCR1 core and 47% on its 8-copy replica, 61-69% on the synthetic
   designs, and 97-98% on the high-entropy RSA-256 datapath and wide-bus
   workloads, where both formats sit near the entropy floor of the values
-  themselves. Against LZ4-packed FST (what libfstwriter and Verilator
+  themselves and the writer's transform trial correctly keeps plain
+  values. Against LZ4-packed FST (what libfstwriter and Verilator
   produce) the margins are larger still. Transaction files are 3-5x
   smaller than LZ4-compressed FTR.
 * **Write speed.** With the default background encoder VTR is faster than
   the fastest FST writer (libfstwriter) on every signal workload, by
-  1.03x (wide buses, where copying 256-2048-bit values dominates both
-  writers) to 2.1x (SCR1), and 10-13x faster than GTKWave's own
+  1.13x (wide buses, where copying 256-2048-bit values dominates both
+  writers) to 2.1x (SCR1), and 10-14x faster than GTKWave's own
   `fstapi.c`. The CPU column shows the price: the background thread adds
-  20-60% total CPU. The `inline` variants (encoder on the caller thread)
-  are also faster than libfstwriter on every workload (1.04-1.47x), so the
-  speed does not depend on a spare core. For transactions VTR beats
-  LZ4-compressed FTR by 1.8x and uncompressed FTR by 1.3x; the inline
-  variant is slower than uncompressed FTR on the TLM workload, the one
-  configuration where FTR writes faster. The 4k-instruction Konata sample
-  is dominated by process start-up on both sides (parity).
+  10-60% total CPU. The `inline` variants (encoder on the caller thread)
+  are also faster than libfstwriter on every workload (1.12-1.48x), so the
+  speed does not depend on a spare core; the per-run transform trial and
+  the transform pass cost the inline encoder about 2%, paid back by the
+  cheaper column-alias hashing and by chunks that grow with the signal
+  count. For transactions VTR beats LZ4-compressed FTR by 1.7-1.8x and
+  uncompressed FTR by 1.3x; the inline variant is slower than uncompressed
+  FTR on the TLM workload, the one configuration where FTR writes faster.
+  The 4k-instruction Konata sample is dominated by process start-up on
+  both sides (parity).
 * **Read and navigation.** Against wellen (wavepeek's reader) VTR is
-  faster on every query on every workload with one exception on the
-  synthetic 200k-signal `many_active` design: loading 1000 *random*
-  signals (0.70x, because a 64 KiB column run holds ~40 sparse signals and
-  1000 random picks decompress most runs). A 16 KiB `run_bytes` setting
-  brings that case to parity at a 0.5-5% size cost; loading 1000 signals
-  of one *scope* (adjacent ids) is not affected because they share runs.
-  Opening the same file is at parity (10 ms, dominated by the 200k-node
-  hierarchy on both sides). Elsewhere random value queries are 2-6x
-  faster, single-signal loads 2-20x, windowed change scans 2-14x,
-  streaming every change 1.6-78x, and opening a file 5-100x faster.
+  faster on every query on every workload. Random value queries are 2-5x
+  faster, single-signal loads 4-11x, windowed change scans 4-11x,
+  streaming every change 2.3-76x, and opening a file 2-800x. The two
+  former exceptions on the synthetic 200k-signal `many_active` design are
+  gone: opening it takes 5 ms instead of 11 (column-wise hierarchy,
+  relative ids) and loading 1000 random signals 29 ms instead of 54
+  (runs capped at 64 signals), 1.3x faster than wellen. Streaming SCR1
+  takes 0.17 s for 21M changes (0.38 s for fst-reader) with memory
+  proportional to the number of signals, not changes.
 * **Uncompressed.** With compression switched off on both sides VTR's
-  files are within 1-6% of raw-chain `fstapi` on the real designs
-  (larger on SCR1 by 6%, equal on RSA-256) and 3-7% smaller on the
-  synthetic ones; both FST variants still zlib-pack their time tables and
-  frames, so they are not fully raw. Uncompressed VTR writes 1.3-2x faster
-  than libfstwriter's `NO_COMPRESSION` mode and reads faster on every
-  query shown. The comparison isolates the encoding: escape-coded 1-bit
-  entries, packed multi-state vectors, delta-coded time indexes and
-  dynamic aliasing (FST's own ideas, kept) versus FST's per-chain layout.
+  files are within a few percent of raw-chain `fstapi` on the real
+  designs and smaller on the synthetic ones; both FST variants still
+  zlib-pack their time tables and frames, so they are not fully raw.
+  Uncompressed VTR writes 1.3-2x faster than libfstwriter's
+  `NO_COMPRESSION` mode and reads faster on every query shown. The
+  comparison isolates the encoding: implied-toggle 1-bit entries, packed
+  multi-state vectors, delta-coded time indexes and dynamic aliasing
+  versus FST's per-chain layout (value transforms are only applied to
+  compressed runs).
 * GTKWave's C reader (`fstapi`) is included for reference: its streaming
   path is close to VTR on small files but its random-access path
   (`fstReaderGetValueFromHandleAtTime`) is 15-500x slower than

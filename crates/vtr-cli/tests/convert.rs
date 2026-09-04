@@ -187,7 +187,7 @@ fn fst_fixture_parity() {
         assert_eq!(a.2, b.2, "value mismatch for signal {} at {}", a.1, a.0);
     }
     // Hierarchy attributes carried over from FST (pack/array attributes are what this fixture is about).
-    let n_attr: usize = r.hierarchy().nodes.iter().map(|n| n.attrs.len()).sum();
+    let n_attr = r.hierarchy().attr_count();
     assert!(n_attr > 0, "expected FST attributes to be preserved");
 }
 

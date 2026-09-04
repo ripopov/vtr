@@ -22,6 +22,7 @@ pub mod txblock;
 pub mod value;
 pub mod varint;
 pub mod writer;
+pub mod xform;
 
 pub use codec::{Codec, Compression};
 pub use error::{Error, Result};

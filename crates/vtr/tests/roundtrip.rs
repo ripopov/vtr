@@ -10,10 +10,8 @@ fn tmp(name: &str) -> std::path::PathBuf {
 fn signals_roundtrip_multi_block() {
     for background in [false, true] {
         let path = tmp(&format!("sig_{background}.vtr"));
-        let mut opts = WriterOptions::default();
-        opts.block_records = 50; // force many blocks
-        opts.group_size = 3;
-        opts.background = background;
+        // Small blocks and groups exercise many block boundaries.
+        let opts = WriterOptions { block_records: 50, group_size: 3, background, ..Default::default() };
         let mut w = Writer::create_with(&path, opts).unwrap();
         w.set_timescale(-12).unwrap();
         w.set_comment("hello").unwrap();
@@ -198,8 +196,7 @@ fn signals_roundtrip_multi_block() {
 #[test]
 fn transactions_roundtrip() {
     let path = tmp("tx.vtr");
-    let mut opts = WriterOptions::default();
-    opts.tx_block_bytes = 2000;
+    let opts = WriterOptions { tx_block_bytes: 2000, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
     let sc = w.begin_scope("cpu", ScopeType::Core, "");
     let st = w.add_stream(Some(sc), "pipe", "TRANSACTOR");
@@ -285,9 +282,7 @@ fn transactions_roundtrip() {
 #[test]
 fn recovery_without_directory() {
     let path = tmp("crash.vtr");
-    let mut opts = WriterOptions::default();
-    opts.block_records = 10;
-    opts.background = false;
+    let opts = WriterOptions { block_records: 10, background: false, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
     let (_, a) = w.add_bits("a", 8, 2);
     for i in 0..100u64 {
@@ -332,8 +327,7 @@ fn errors() {
 #[test]
 fn long_columns_with_checkpoints() {
     let path = tmp("ckpt.vtr");
-    let mut opts = WriterOptions::default();
-    opts.background = false;
+    let opts = WriterOptions { background: false, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
     let (_, a) = w.add_bits("a", 16, 4);
     let (_, b) = w.add_bits("b", 1, 4);
@@ -342,7 +336,7 @@ fn long_columns_with_checkpoints() {
         w.set_time(i * 3).unwrap();
         w.emit_u64(a, i & 0xffff).unwrap();
         if i % 2 == 0 {
-            w.emit_bit(b, (i / 2 & 1) as u8).unwrap();
+            w.emit_bit(b, ((i / 2) & 1) as u8).unwrap();
         }
         if i % 5 == 0 {
             w.emit_real(c, i as f64).unwrap();
@@ -379,9 +373,7 @@ impl AsciiU64 for OwnedSignalValue {
 #[test]
 fn dynamic_aliasing_of_identical_columns() {
     let path = tmp("alias.vtr");
-    let mut opts = WriterOptions::default();
-    opts.background = false;
-    opts.group_size = 2; // put the copies in different groups too
+    let opts = WriterOptions { background: false, group_size: 2, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
     let (_, a) = w.add_bits("a", 1, 4);
     let (_, b) = w.add_bits("b", 1, 4); // identical to a
@@ -417,8 +409,7 @@ fn dynamic_aliasing_of_identical_columns() {
     assert_eq!(n, [5000, 5000, 5000, 5000, 5000]);
     // The file must actually contain aliases: it should be much smaller than 5 independent columns.
     let size = std::fs::metadata(&path).unwrap().len();
-    let mut opts = WriterOptions::default();
-    opts.background = false;
+    let opts = WriterOptions { background: false, ..Default::default() };
     let path1 = tmp("alias_one.vtr");
     let mut w = Writer::create_with(&path1, opts).unwrap();
     let (_, x) = w.add_bits("x", 16, 4);
@@ -429,4 +420,39 @@ fn dynamic_aliasing_of_identical_columns() {
     w.close().unwrap();
     let _ = size;
     let _ = x;
+}
+
+#[test]
+fn stream_delivers_same_step_repeats_in_order() {
+    // With dedup off, a signal may change several times in one time step; every
+    // streaming path must deliver all of them, in emission order.
+    for n_sigs in [4u32, 40_000] {
+        let path = tmp(&format!("repeat_{n_sigs}.vtr"));
+        let opts = WriterOptions { dedup: false, background: false, ..Default::default() };
+        let mut w = Writer::create_with(&path, opts).unwrap();
+        let sigs: Vec<SignalId> = (0..n_sigs).map(|i| w.add_var(&format!("s{i}"), VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 2 }).1).collect();
+        let mut expected: Vec<(u64, u32, u64)> = Vec::new();
+        for t in 0..20u64 {
+            w.set_time(t * 10).unwrap();
+            for (i, &s) in sigs.iter().enumerate().take(64) {
+                let reps = if (i as u64 + t) % 3 == 0 { 3 } else { 1 };
+                for k in 0..reps {
+                    w.emit_u64(s, (t * 4 + k) & 0xff).unwrap();
+                    expected.push((t * 10, s.0, (t * 4 + k) & 0xff));
+                }
+            }
+        }
+        w.close().unwrap();
+        let rd = Reader::open(&path).unwrap();
+        let mut got: Vec<(u64, u32, u64)> = Vec::new();
+        rd.for_each_change(0, u64::MAX, |t, s, v| got.push((t, s.0, v.as_u64().unwrap()))).unwrap();
+        assert_eq!(got.len(), expected.len(), "n_sigs {n_sigs}");
+        // Same (time, signal) pairs in the same order; signal order within a step is free.
+        let key = |v: &[(u64, u32, u64)]| {
+            let mut k = v.to_vec();
+            k.sort_by_key(|e| (e.0, e.1));
+            k
+        };
+        assert_eq!(key(&got), key(&expected), "n_sigs {n_sigs}");
+    }
 }

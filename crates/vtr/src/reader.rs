@@ -8,12 +8,14 @@ use crate::block::{self, BlockHeader, ColumnIter, GroupView, NO_BLOCK};
 use crate::codec::Decompressor;
 use crate::container::{Container, DirEntry, SectionKind};
 use crate::error::{Error, Result};
-use crate::hierarchy::{Hierarchy, NodeData, NodeId, NodeKind, SignalId, SignalKind};
+use crate::hierarchy::{Hierarchy, NodeId, NodeKind, SignalId, SignalKind};
 use crate::sections::{self, Blackout, Meta};
 use crate::signal::{self, OwnedSignalValue, SignalValue};
 use crate::strings::{StrId, StringTable};
 use crate::txblock::{self, Relation, Transaction, TxBlockData, TxBlockHeader, TxId};
 use crate::value::packed_len;
+use crate::varint;
+use crate::xform::Xform;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -52,18 +54,52 @@ struct TxBlock {
     data: OnceLock<Arc<TxBlockData>>,
 }
 
-/// A decompressed group piece (frames or one column run) with per-signal ranges
-/// and lazily built skip indexes for point queries.
+/// A decompressed group piece (frames or one column run) with per-signal ranges,
+/// lazily untransformed columns and lazily built skip indexes for point queries.
 pub(crate) struct Piece {
     data: Vec<u8>,
     ranges: Vec<(u32, u32)>,
+    /// Value transform of the run; columns are undone on first access.
+    xform: Xform,
+    plain: Vec<OnceLock<Box<[u8]>>>,
     index: Mutex<Vec<Option<Arc<Vec<block::Checkpoint>>>>>,
 }
 
 /// Entries between skip-index checkpoints.
 const INDEX_STRIDE: usize = 256;
 
+/// Runs with at most this many columns are untransformed as a whole when decoded;
+/// larger runs undo the transform per column on first access (a random load of a few
+/// signals then pays only for the columns it touches).
+const EAGER_UNTRANSFORM_COLUMNS: usize = 1;
+
 impl Piece {
+    fn new(mut data: Vec<u8>, ranges: Vec<(u32, u32)>, mut xform: Xform, first_sig: u32, kinds: &[SignalKind]) -> Result<Piece> {
+        if xform != Xform::None && ranges.len() <= EAGER_UNTRANSFORM_COLUMNS {
+            let mut tmp = Vec::new();
+            for (k, &(a, b)) in ranges.iter().enumerate() {
+                block::untransform_column(&mut data[a as usize..b as usize], kinds[first_sig as usize + k], xform, &mut tmp)?;
+            }
+            xform = Xform::None;
+        }
+        let plain = if xform == Xform::None { Vec::new() } else { (0..ranges.len()).map(|_| OnceLock::new()).collect() };
+        Ok(Piece { data, ranges, xform, plain, index: Mutex::new(Vec::new()) })
+    }
+
+    /// Column `local` in plain (untransformed) form.
+    fn col(&self, local: usize, kind: SignalKind) -> Result<&[u8]> {
+        let (a, b) = self.ranges[local];
+        if self.xform == Xform::None {
+            return Ok(&self.data[a as usize..b as usize]);
+        }
+        if let Some(c) = self.plain[local].get() {
+            return Ok(c);
+        }
+        let mut v = self.data[a as usize..b as usize].to_vec();
+        block::untransform_column(&mut v, kind, self.xform, &mut Vec::new())?;
+        Ok(self.plain[local].get_or_init(|| v.into_boxed_slice()))
+    }
+
     fn column_index(&self, local: usize, kind: SignalKind) -> Result<Arc<Vec<block::Checkpoint>>> {
         let mut idx = self.index.lock().unwrap();
         if idx.len() < self.ranges.len() {
@@ -72,8 +108,7 @@ impl Piece {
         if let Some(i) = &idx[local] {
             return Ok(i.clone());
         }
-        let (a, b) = self.ranges[local];
-        let i = Arc::new(block::build_index(&self.data[a as usize..b as usize], kind, INDEX_STRIDE)?);
+        let i = Arc::new(block::build_index(self.col(local, kind)?, kind, INDEX_STRIDE)?);
         idx[local] = Some(i.clone());
         Ok(i)
     }
@@ -188,19 +223,43 @@ impl SignalData {
         }
     }
 
-    fn push(&mut self, t: u64, v: SignalValue) {
-        self.times.push(t);
-        match (self.kind, v) {
-            (SignalKind::Bits { width, states }, SignalValue::Bits { states: st, data, .. }) => {
-                signal::widen(data, width, st, states, &mut self.data);
+    /// Appends every entry of one (plain) column, `times` being its block's time table.
+    fn append_column(&mut self, col: &[u8], times: &[u64]) -> Result<()> {
+        let mut it = ColumnIter::new(col, self.kind);
+        match self.kind {
+            SignalKind::Bits { width: 1, .. } => {
+                let (ts, data) = (&mut self.times, &mut self.data);
+                it.for_each_bit(|tidx, code| {
+                    ts.push(times[tidx as usize]);
+                    data.push(code);
+                })?;
             }
-            (SignalKind::Real, SignalValue::Real(r)) => self.data.extend_from_slice(&r.to_le_bytes()),
-            (SignalKind::VarLen, SignalValue::VarLen(b)) => {
-                self.data.extend_from_slice(b);
-                self.offsets.push(self.data.len() as u32);
+            SignalKind::Bits { width, states } => {
+                while let Some(c) = it.next_raw()? {
+                    self.times.push(times[c.tidx as usize]);
+                    let v = it.value_bytes(&c);
+                    if c.states == states {
+                        self.data.extend_from_slice(v);
+                    } else {
+                        signal::widen(v, width, c.states, states, &mut self.data);
+                    }
+                }
             }
-            _ => {}
+            SignalKind::Real => {
+                while let Some(c) = it.next_raw()? {
+                    self.times.push(times[c.tidx as usize]);
+                    self.data.extend_from_slice(&c.inline.to_le_bytes());
+                }
+            }
+            SignalKind::VarLen => {
+                while let Some(c) = it.next_raw()? {
+                    self.times.push(times[c.tidx as usize]);
+                    self.data.extend_from_slice(it.value_bytes(&c));
+                    self.offsets.push(self.data.len() as u32);
+                }
+            }
         }
+        Ok(())
     }
 }
 
@@ -364,7 +423,7 @@ impl Reader {
 
     /// Name of a node.
     pub fn name(&self, n: NodeId) -> &str {
-        self.str(self.hier.node(n).name)
+        self.str(self.hier.name(n))
     }
 
     /// Full hierarchical path of a node joined with `sep`.
@@ -372,9 +431,8 @@ impl Reader {
         let mut parts = Vec::new();
         let mut cur = Some(n);
         while let Some(c) = cur {
-            let node = self.hier.node(c);
-            parts.push(self.str(node.name));
-            cur = node.parent;
+            parts.push(self.str(self.hier.name(c)));
+            cur = self.hier.parent(c);
         }
         parts.reverse();
         parts.join(sep)
@@ -398,10 +456,7 @@ impl Reader {
     pub fn find_signal(&self, path: &str, sep: char) -> Option<SignalId> {
         let parts: Vec<&str> = path.split(sep).collect();
         let n = self.find_node(&parts)?;
-        match self.hier.node(n).data {
-            NodeData::Var { signal, .. } => Some(signal),
-            _ => None,
-        }
+        self.hier.signal_of(n)
     }
 
     /// Stream nodes.
@@ -503,18 +558,20 @@ impl Reader {
         }
         let mut d = Decompressor::new();
         let mut data = Vec::new();
-        let ranges = if piece == 0 {
-            view.decode_frames(&self.hier.signals, &mut d, &mut data)?
+        let (ranges, xform, first_sig) = if piece == 0 {
+            (view.decode_frames(&self.hier.signals, &mut d, &mut data)?, Xform::None, view.first_sig)
         } else {
-            view.decode_run(piece as usize - 1, &mut d, &mut data)?
+            let run = view.runs[piece as usize - 1];
+            (view.decode_run(piece as usize - 1, &mut d, &mut data)?, run.xform, view.first_sig + run.first_local)
         };
-        let p = Arc::new(Piece { data, ranges, index: Mutex::new(Vec::new()) });
+        let p = Arc::new(Piece::new(data, ranges, xform, first_sig, &self.hier.signals)?);
         self.cache.lock().unwrap().put(bi as u32, g, piece, p.clone());
         Ok(p)
     }
 
-    /// Column bytes of `sig` in block `bi`, following a dynamic alias when present.
-    fn column(&self, bi: usize, g: u32, view: &GroupView<'_>, sig: u32) -> Result<(Arc<Piece>, (u32, u32))> {
+    /// Run piece holding `sig`'s column in block `bi` and the column's index within it,
+    /// following a dynamic alias when present.
+    fn column(&self, bi: usize, g: u32, view: &GroupView<'_>, sig: u32) -> Result<(Arc<Piece>, usize)> {
         if let Some(target) = view.alias_of(sig) {
             let tg = self.group_of(SignalId(target));
             if tg == g {
@@ -526,12 +583,11 @@ impl Reader {
         self.column_direct(bi, g, view, sig)
     }
 
-    fn column_direct(&self, bi: usize, g: u32, view: &GroupView<'_>, sig: u32) -> Result<(Arc<Piece>, (u32, u32))> {
+    fn column_direct(&self, bi: usize, g: u32, view: &GroupView<'_>, sig: u32) -> Result<(Arc<Piece>, usize)> {
         let ri = view.run_of(sig);
         let p = self.piece(bi, g, view, ri as u32 + 1)?;
-        let local = (sig - view.first_sig - view.runs[ri].0) as usize;
-        let range = p.ranges[local];
-        Ok((p, range))
+        let local = (sig - view.first_sig - view.runs[ri].first_local) as usize;
+        Ok((p, local))
     }
 
     fn frame(&self, bi: usize, g: u32, view: &GroupView<'_>, sig: u32) -> Result<(Arc<Piece>, (u32, u32))> {
@@ -587,11 +643,10 @@ impl Reader {
         } else {
             u32::MAX
         };
-        let (cp, cr) = self.column(dbi, g, &view, sig.0)?;
-        let col = &cp.data[cr.0 as usize..cr.1 as usize];
+        let (cp, local) = self.column(dbi, g, &view, sig.0)?;
+        let col = cp.col(local, kind)?;
         let mut it = ColumnIter::new(col, kind);
         if col.len() > 4096 {
-            let local = cp.ranges.iter().position(|r| *r == cr).unwrap_or(0);
             let index = cp.column_index(local, kind)?;
             it.seek(&index, max_tidx);
         }
@@ -622,8 +677,8 @@ impl Reader {
                 Some(v) => v,
                 None => continue,
             };
-            let (cp, cr) = self.column(bi, g, &view, sig.0)?;
-            let col = &cp.data[cr.0 as usize..cr.1 as usize];
+            let (cp, local) = self.column(bi, g, &view, sig.0)?;
+            let col = cp.col(local, kind)?;
             if col.is_empty() {
                 continue;
             }
@@ -684,7 +739,7 @@ impl Reader {
                             out[oi].initial.clear();
                             out[oi].initial.extend_from_slice(&fp.data[fr.0 as usize..fr.1 as usize]);
                         }
-                        let (rp, cr) = if view.alias_of(s.0).is_some() {
+                        let (rp, local) = if view.alias_of(s.0).is_some() {
                             self.column(bi, g, &view, s.0)?
                         } else {
                             let ri = view.run_of(s.0);
@@ -692,23 +747,16 @@ impl Reader {
                                 run = Some((ri, self.piece(bi, g, &view, ri as u32 + 1)?));
                             }
                             let rp = run.as_ref().unwrap().1.clone();
-                            let local = (s.0 - view.first_sig - view.runs[ri].0) as usize;
-                            let cr = rp.ranges[local];
-                            (rp, cr)
+                            (rp, (s.0 - view.first_sig - view.runs[ri].first_local) as usize)
                         };
-                        let col = &rp.data[cr.0 as usize..cr.1 as usize];
+                        let col = rp.col(local, out[oi].kind)?;
                         if col.is_empty() {
                             continue;
                         }
                         if times.is_none() {
                             times = Some(self.block_times(bi)?);
                         }
-                        let tt = times.as_ref().unwrap();
-                        let mut it = ColumnIter::new(col, out[oi].kind);
-                        while let Some(c) = it.next_raw()? {
-                            let v = it.value(&c);
-                            out[oi].push(tt[c.tidx as usize], v);
-                        }
+                        out[oi].append_column(col, times.as_ref().unwrap())?;
                     }
                 }
                 i = j;
@@ -719,33 +767,82 @@ impl Reader {
 
     /// Streams every change of every signal in time order within `[t0, t1]`
     /// (VCD-style dump). The callback receives `(time, signal, value)`.
-    /// Within one time step, changes are ordered by signal id.
+    /// Within one time step the order of signals is deterministic but unspecified.
+    ///
+    /// Per block every run is decompressed once and a cursor is opened on every
+    /// non-empty column. Blocks with few active columns are merged through a
+    /// linked list per time step (GTKWave's block iterator scheme: no sorting,
+    /// no per-change memory). Blocks with many active columns are walked in
+    /// windows of time steps instead, so that every column visit yields many
+    /// entries: each window's entries are counting-sorted by time index and
+    /// delivered. Memory is proportional to the number of columns plus one
+    /// window of entries, never to the length of the trace.
     pub fn for_each_change(&self, t0: u64, t1: u64, mut f: impl FnMut(u64, SignalId, SignalValue<'_>)) -> Result<()> {
-        // Entry tags (top two bits of `b`).
+        const NONE: u32 = u32::MAX;
+        /// Up to this many active columns the cursors stay cache resident and the
+        /// linked-list merge wins; beyond it, windows amortise the cost of visiting a column.
+        const MERGE_MAX_COLUMNS: usize = 1 << 15;
+        /// Window sort buffer: at least this many entries (12 bytes each) ...
+        const MIN_WINDOW_ENTRIES: usize = 1 << 18;
+        /// ... and at least this many per column, so that a visit to a column pays off.
+        const ENTRIES_PER_COLUMN: usize = 16;
+        const MAX_WINDOW_ENTRIES: usize = 1 << 23;
+        const MAX_WINDOW_STEPS: usize = 1 << 12;
+        // Window entry tags (top two bits of `a`).
         const TAG_SHIFT: u32 = 30;
         const MASK: u32 = (1 << TAG_SHIFT) - 1;
-        const TAG_COMPACT: u32 = 0; // bits, 2-state packing, data = col[a..b]
-        const TAG_FULL: u32 = 1; // bits, declared packing
-        const TAG_CODE: u32 = 2; // 1-bit code in `a`
-        const TAG_REAL: u32 = 3; // IEEE bits split over `a` (low) and `b` (high 30 bits + tag)... see below
+        const TAG_COMPACT: u32 = 0; // bits, 2-state packing; `a` = value offset in the piece
+        const TAG_FULL: u32 = 1; // bits, declared packing, or varlen (`a` = offset of its length)
+        const TAG_CODE: u32 = 2; // 1-bit logic code in `a`
+        const TAG_REAL: u32 = 3; // `a` indexes `reals`
         #[derive(Clone, Copy, Default)]
         struct E {
             tidx: u32,
             sig: u32,
             a: u32,
-            b: u32,
+        }
+        /// A column being walked: its iterator, the entry not yet delivered and, for the
+        /// linked-list merge, the next cursor due at the same time step.
+        struct Cursor<'a> {
+            sig: u32,
+            base: u32,
+            it: ColumnIter<'a>,
+            pending: block::RawChange,
+            next: u32,
+        }
+        /// Appends the cursor's entries with time index below `w1`; `next` receives the
+        /// time index of the first entry left (or `NONE`).
+        fn drain(cur: &mut Cursor<'_>, w1: u32, next: &mut u32, entries: &mut Vec<E>, mut tag: impl FnMut(&block::RawChange) -> u32) -> Result<()> {
+            let (mut it, mut c, sig) = (cur.it, cur.pending, cur.sig);
+            let r = loop {
+                entries.push(E { tidx: c.tidx, sig, a: tag(&c) });
+                match it.next_raw()? {
+                    Some(n) if n.tidx < w1 => c = n,
+                    Some(n) => {
+                        c = n;
+                        break n.tidx;
+                    }
+                    None => break NONE,
+                }
+            };
+            cur.it = it;
+            cur.pending = c;
+            *next = r;
+            Ok(())
         }
         let start = self.block_at(t0).unwrap_or(0);
         let kinds = &self.hier.signals;
         let mut d = Decompressor::new();
+        let mut xf_tmp: Vec<u8> = Vec::new();
         // (first signal of the run, decompressed run, per-signal column ranges)
         type RunPiece = (u32, Vec<u8>, Vec<(u32, u32)>);
         let mut pieces: Vec<RunPiece> = Vec::new();
         let mut sig_piece: Vec<u32> = Vec::new();
-        let mut buckets: Vec<Vec<E>> = Vec::new();
-        let mut local: Vec<E> = Vec::new();
+        let mut heads: Vec<u32> = Vec::new();
+        let mut entries: Vec<E> = Vec::new();
+        let mut sorted: Vec<E> = Vec::new();
         let mut reals: Vec<u64> = Vec::new();
-        const COARSE_BITS: u32 = 10;
+        let mut counts: Vec<u32> = Vec::new();
         for bi in start..self.sig_blocks.len() {
             let h = self.sig_blocks[bi].header;
             if h.start_time > t1 {
@@ -758,8 +855,9 @@ impl Reader {
             let times = self.block_times(bi)?;
             pieces.clear();
             sig_piece.clear();
-            sig_piece.resize(h.n_signals as usize, u32::MAX);
+            sig_piece.resize(h.n_signals as usize, NONE);
             let mut aliases: Vec<(u32, u32)> = Vec::new();
+            let mut raw_bytes = 0usize;
             for (g, clen, off) in block::dirty_groups(p, &h) {
                 let c = block::group_container(p, &h, clen, off)?;
                 let view = GroupView::parse(c, self.group_first(g), kinds)?;
@@ -770,140 +868,167 @@ impl Reader {
                     if data.len() > MASK as usize {
                         return Err(Error::Corrupt("column run too large"));
                     }
-                    let first = view.first_sig + view.runs[ri].0;
-                    for k in 0..ranges.len() {
-                        sig_piece[(first + k as u32) as usize] = pieces.len() as u32;
+                    let first = view.first_sig + view.runs[ri].first_local;
+                    let x = view.runs[ri].xform;
+                    for (k, &(a, b)) in ranges.iter().enumerate() {
+                        let sig = first + k as u32;
+                        if x != Xform::None {
+                            block::untransform_column(&mut data[a as usize..b as usize], kinds[sig as usize], x, &mut xf_tmp)?;
+                        }
+                        sig_piece[sig as usize] = pieces.len() as u32;
                     }
+                    raw_bytes += data.len();
                     pieces.push((first, data, ranges));
                 }
             }
-            // Single decode pass producing self-contained entries, bucketed by coarse time.
-            let n_coarse = (h.n_times as usize >> COARSE_BITS) + 1;
-            if buckets.len() < n_coarse {
-                buckets.resize_with(n_coarse, Vec::new);
+            // One cursor per non-empty column, in signal order; aliased signals (whose own
+            // column is empty) walk their target's column and then share its piece.
+            fn column<'p>(pieces: &'p [RunPiece], sig_piece: &[u32], sig: u32) -> Option<(&'p [u8], u32)> {
+                let pi = sig_piece[sig as usize];
+                if pi == NONE {
+                    return None;
+                }
+                let (first, data, ranges) = &pieces[pi as usize];
+                let (a, b) = ranges[(sig - first) as usize];
+                (a != b).then(|| (&data[a as usize..b as usize], a))
             }
-            for b in buckets.iter_mut() {
-                b.clear();
-            }
-            reals.clear();
-            macro_rules! push {
-                ($e:expr) => {{
-                    let e: E = $e;
-                    buckets[(e.tidx >> COARSE_BITS) as usize].push(e);
-                }};
-            }
-            // Aliased signals decode their target's column under their own id.
-            let alias_jobs: Vec<(u32, usize, u32, u32)> = aliases
-                .iter()
-                .filter_map(|&(sig, target)| {
-                    let pi = sig_piece[target as usize];
-                    if pi == u32::MAX {
-                        return None;
-                    }
-                    let (first, _, ranges) = &pieces[pi as usize];
-                    let (a0, b0) = ranges[(target - first) as usize];
-                    Some((sig, pi as usize, a0, b0))
-                })
-                .collect();
+            let own: Vec<(u32, (&[u8], u32))> = (0..h.n_signals).filter_map(|sig| column(&pieces, &sig_piece, sig).map(|c| (sig, c))).collect();
+            let aliased: Vec<(u32, (&[u8], u32))> = aliases.iter().filter_map(|&(sig, target)| column(&pieces, &sig_piece, target).map(|c| (sig, c))).collect();
             for &(sig, target) in &aliases {
                 sig_piece[sig as usize] = sig_piece[target as usize];
             }
-            let own_jobs = pieces.iter().enumerate().flat_map(|(pi, (first, _, ranges))| {
-                ranges.iter().enumerate().map(move |(k, &(a0, b0))| (*first + k as u32, pi, a0, b0))
-            });
-            for (sig, pi, a0, b0) in own_jobs.chain(alias_jobs.into_iter()) {
-                {
-                    if a0 == b0 {
-                        continue;
+            let mut cursors: Vec<Cursor<'_>> = Vec::new();
+            for (sig, (col, base)) in own.into_iter().chain(aliased) {
+                let mut it = ColumnIter::new(col, kinds[sig as usize]);
+                if let Some(pending) = it.next_raw()? {
+                    if pending.tidx >= h.n_times {
+                        return Err(Error::Corrupt("time index beyond block time table"));
                     }
-                    let data = &pieces[pi].1;
-                    let kind = kinds[sig as usize];
-                    let col = &data[a0 as usize..b0 as usize];
-                    let mut it = ColumnIter::new(col, kind);
-                    match kind {
-                        SignalKind::Bits { width: 1, .. } => {
-                            while let Some(c) = it.next_raw()? {
-                                push!(E { tidx: c.tidx, sig, a: c.inline as u32, b: TAG_CODE << TAG_SHIFT });
-                            }
-                        }
-                        SignalKind::Bits { states, .. } => {
-                            while let Some(c) = it.next_raw()? {
-                                let tag = if c.states == 2 && states != 2 { TAG_COMPACT } else { TAG_FULL };
-                                push!(E { tidx: c.tidx, sig, a: a0 + c.start, b: (a0 + c.end) | (tag << TAG_SHIFT) });
-                            }
-                        }
-                        SignalKind::Real => {
-                            // Reals: store the 64 IEEE bits across `a` and the value area position.
-                            while let Some(c) = it.next_raw()? {
-                                reals.push(c.inline);
-                                push!(E { tidx: c.tidx, sig, a: (reals.len() - 1) as u32, b: TAG_REAL << TAG_SHIFT });
-                            }
-                        }
-                        SignalKind::VarLen => {
-                            while let Some(c) = it.next_raw()? {
-                                push!(E { tidx: c.tidx, sig, a: a0 + c.start, b: (a0 + c.end) | (TAG_FULL << TAG_SHIFT) });
-                            }
-                        }
-                    }
+                    cursors.push(Cursor { sig, base, it, pending, next: NONE });
                 }
             }
-            let mut lcount = vec![0u32; (1usize << COARSE_BITS) + 1];
-            for (cb, bucket) in buckets.iter().enumerate().take(n_coarse) {
-                if bucket.is_empty() {
-                    continue;
+            let n_times = h.n_times as usize;
+            if cursors.len() <= MERGE_MAX_COLUMNS {
+                // Linked-list merge: `heads[t]` chains the cursors whose pending entry is at step `t`.
+                heads.clear();
+                heads.resize(n_times, NONE);
+                for (ci, cur) in cursors.iter_mut().enumerate() {
+                    let slot = &mut heads[cur.pending.tidx as usize];
+                    cur.next = *slot;
+                    *slot = ci as u32;
                 }
-                let base_t = (cb as u32) << COARSE_BITS;
-                let lo_mask = (1u32 << COARSE_BITS) - 1;
-                for c in lcount.iter_mut() {
-                    *c = 0;
-                }
-                for e in bucket {
-                    lcount[(e.tidx & lo_mask) as usize + 1] += 1;
-                }
-                for i in 0..(1usize << COARSE_BITS) {
-                    lcount[i + 1] += lcount[i];
-                }
-                local.clear();
-                local.resize(bucket.len(), E::default());
-                {
-                    let mut fill = lcount.clone();
-                    for e in bucket {
-                        let s = &mut fill[(e.tidx & lo_mask) as usize];
-                        local[*s as usize] = *e;
-                        *s += 1;
+                for (ti, &t) in times.iter().enumerate() {
+                    if t > t1 {
+                        break;
+                    }
+                    let mut ci = heads[ti];
+                    while ci != NONE {
+                        let cur = &mut cursors[ci as usize];
+                        let next_in_step = cur.next;
+                        loop {
+                            if t >= t0 {
+                                f(t, SignalId(cur.sig), cur.it.value(&cur.pending));
+                            }
+                            match cur.it.next_raw()? {
+                                // Further changes of this signal at the same step follow right away.
+                                Some(pending) if pending.tidx as usize == ti => cur.pending = pending,
+                                Some(pending) => {
+                                    if pending.tidx >= h.n_times || (pending.tidx as usize) < ti {
+                                        return Err(Error::Corrupt("time index out of order in column"));
+                                    }
+                                    cur.pending = pending;
+                                    let slot = &mut heads[pending.tidx as usize];
+                                    cur.next = *slot;
+                                    *slot = ci;
+                                    break;
+                                }
+                                None => break,
+                            }
+                        }
+                        ci = next_in_step;
                     }
                 }
-                for li in 0..(1usize << COARSE_BITS) {
-                    let (s, e) = (lcount[li] as usize, lcount[li + 1] as usize);
-                    if s == e {
+                continue;
+            }
+            // Windows of time steps, sized from the observed change density.
+            let mut next_tidx: Vec<u32> = cursors.iter().map(|c| c.pending.tidx).collect();
+            let window_entries = (ENTRIES_PER_COLUMN * cursors.len()).clamp(MIN_WINDOW_ENTRIES, MAX_WINDOW_ENTRIES);
+            let mut density = (raw_bytes / 2 / n_times.max(1)).max(1); // entries per step, initial guess
+            let mut w0 = 0usize;
+            while w0 < n_times && times[w0] <= t1 {
+                let steps = (window_entries / density).clamp(1, MAX_WINDOW_STEPS).min(n_times - w0);
+                let w1 = w0 + steps;
+                entries.clear();
+                reals.clear();
+                for (ci, cur) in cursors.iter_mut().enumerate() {
+                    if next_tidx[ci] as usize >= w1 {
                         continue;
                     }
-                    let ti = (base_t as usize) + li;
-                    let t = times[ti];
+                    let base = cur.base;
+                    let next = &mut next_tidx[ci];
+                    match kinds[cur.sig as usize] {
+                        SignalKind::Bits { width: 1, .. } => drain(cur, w1 as u32, next, &mut entries, |c| c.inline as u32 | (TAG_CODE << TAG_SHIFT))?,
+                        SignalKind::Bits { states, .. } => drain(cur, w1 as u32, next, &mut entries, |c| {
+                            let tag = if c.states == 2 && states != 2 { TAG_COMPACT } else { TAG_FULL };
+                            (base + c.start) | (tag << TAG_SHIFT)
+                        })?,
+                        SignalKind::Real => drain(cur, w1 as u32, next, &mut entries, |c| {
+                            reals.push(c.inline);
+                            (reals.len() - 1) as u32 | (TAG_REAL << TAG_SHIFT)
+                        })?,
+                        SignalKind::VarLen => drain(cur, w1 as u32, next, &mut entries, |c| (base + c.inline as u32) | (TAG_FULL << TAG_SHIFT))?,
+                    }
+                }
+                density = (entries.len() / steps).max(1);
+                // Stable counting sort of the window by time index, then delivery.
+                counts.clear();
+                counts.resize(steps + 1, 0);
+                for e in &entries {
+                    if (e.tidx as usize) < w0 || e.tidx as usize >= w1 {
+                        return Err(Error::Corrupt("time index out of order in column"));
+                    }
+                    counts[e.tidx as usize - w0 + 1] += 1;
+                }
+                for i in 0..steps {
+                    counts[i + 1] += counts[i];
+                }
+                if sorted.len() < entries.len() {
+                    sorted.resize(entries.len(), E::default());
+                }
+                for e in &entries {
+                    let slot = &mut counts[e.tidx as usize - w0];
+                    sorted[*slot as usize] = *e;
+                    *slot += 1;
+                }
+                for en in &sorted[..entries.len()] {
+                    let t = times[en.tidx as usize];
                     if t < t0 || t > t1 {
                         continue;
                     }
-                    for en in &local[s..e] {
-                        let sig = en.sig;
-                        let kind = kinds[sig as usize];
-                        let (_, data, _) = &pieces[sig_piece[sig as usize] as usize];
-                        let tag = en.b >> TAG_SHIFT;
-                        let v = match tag {
-                            TAG_CODE => {
-                                let code = (en.a & 15) as usize;
-                                SignalValue::Bits { width: 1, states: if code <= 1 { 2 } else { kind.states() }, data: &block::CODE_BYTES[code..code + 1] }
-                            }
-                            TAG_REAL => SignalValue::Real(f64::from_bits(reals[en.a as usize])),
-                            _ => match kind {
+                    let sig = en.sig;
+                    let kind = kinds[sig as usize];
+                    let (tag, a) = (en.a >> TAG_SHIFT, (en.a & MASK) as usize);
+                    let v = match tag {
+                        TAG_CODE => SignalValue::Bits { width: 1, states: if a <= 1 { 2 } else { kind.states() }, data: &block::CODE_BYTES[a..a + 1] },
+                        TAG_REAL => SignalValue::Real(f64::from_bits(reals[a])),
+                        _ => {
+                            let data = &pieces[sig_piece[sig as usize] as usize].1;
+                            match kind {
                                 SignalKind::Bits { width, states } => {
-                                    SignalValue::Bits { width, states: if tag == TAG_COMPACT { 2 } else { states }, data: &data[en.a as usize..(en.b & MASK) as usize] }
+                                    let (st, len) = if tag == TAG_COMPACT { (2, (width as usize).div_ceil(8)) } else { (states, packed_len(width, states)) };
+                                    SignalValue::Bits { width, states: st, data: &data[a..a + len] }
                                 }
-                                _ => SignalValue::VarLen(&data[en.a as usize..(en.b & MASK) as usize]),
-                            },
-                        };
-                        f(t, SignalId(sig), v);
-                    }
+                                _ => {
+                                    let mut r = varint::Reader::new(data);
+                                    r.pos = a;
+                                    SignalValue::VarLen(r.blob()?)
+                                }
+                            }
+                        }
+                    };
+                    f(t, SignalId(sig), v);
                 }
+                w0 = w1;
             }
         }
         Ok(())
@@ -928,7 +1053,7 @@ impl Reader {
 
     /// Parent stream of a generator node.
     pub fn generator_stream(&self, gen: NodeId) -> Option<NodeId> {
-        self.hier.node(gen).parent
+        self.hier.parent(gen)
     }
 
     /// Visits transactions matching `q` in file order; stop by returning `false`.

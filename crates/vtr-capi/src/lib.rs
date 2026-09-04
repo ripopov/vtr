@@ -826,7 +826,7 @@ pub unsafe extern "C" fn vtr_reader_node_attr(r: *const vtr_reader, id: u32, i: 
     if id as usize >= h.len() {
         return VTR_ERR_NOT_FOUND;
     }
-    match h.node(NodeId(id)).attrs.get(i as usize) {
+    match h.attrs(NodeId(id)).get(i as usize) {
         Some((k, v)) => {
             if let Some(o) = key_out.as_mut() {
                 *o = k.0;
@@ -847,8 +847,8 @@ pub unsafe extern "C" fn vtr_reader_enum_entry(r: *const vtr_reader, id: u32, i:
     if id as usize >= h.len() {
         return VTR_ERR_NOT_FOUND;
     }
-    match &h.node(NodeId(id)).data {
-        NodeData::EnumTable { entries } => match entries.get(i as usize) {
+    match h.enum_entries(NodeId(id)) {
+        Some(entries) => match entries.get(i as usize) {
             Some((l, v)) => {
                 if let Some(o) = literal_out.as_mut() {
                     *o = l.0;
@@ -860,7 +860,7 @@ pub unsafe extern "C" fn vtr_reader_enum_entry(r: *const vtr_reader, id: u32, i:
             }
             None => VTR_ERR_NOT_FOUND,
         },
-        _ => VTR_ERR_INVALID,
+        None => VTR_ERR_INVALID,
     }
 }
 

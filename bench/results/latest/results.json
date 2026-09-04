@@ -7,7 +7,7 @@
   "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
   "gcc": "gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
   "verilator": "Verilator 5.048 2026-04-26 rev v5.048",
-  "date": "2026-09-04T09:21:08"
+  "date": "2026-09-04T11:35:36"
  },
  "rtl": [
   {
@@ -25,109 +25,109 @@
      "writer": "fstapi",
      "records": 20977928,
      "skipped": 0,
-     "wall_s": 2.183578,
-     "cpu_s": 2.183354,
+     "wall_s": 2.286465,
+     "cpu_s": 2.286354,
      "bytes": 3361692,
-     "changes_per_s": 9607135.6
+     "changes_per_s": 9174829.3
     },
     "fstapi-zlib": {
      "writer": "fstapi-zlib",
      "records": 20977928,
      "skipped": 0,
-     "wall_s": 2.387552,
-     "cpu_s": 2.387207,
+     "wall_s": 2.359863,
+     "cpu_s": 2.359664,
      "bytes": 2476849,
-     "changes_per_s": 8786376.9
+     "changes_per_s": 8889468.9
     },
     "fstcpp-lz4": {
      "writer": "fstcpp",
      "records": 20977928,
      "skipped": 0,
-     "wall_s": 0.391852,
-     "cpu_s": 0.391542,
+     "wall_s": 0.412324,
+     "cpu_s": 0.41227,
      "bytes": 3205267,
-     "changes_per_s": 53535351.2
+     "changes_per_s": 50877239.0
     },
     "vtr-c": {
      "writer": "vtr-c",
      "records": 20977928,
-     "wall_s": 0.228179,
-     "cpu_s": 0.362666,
-     "bytes": 1438800,
-     "changes_per_s": 91936332.9
+     "wall_s": 0.225872,
+     "cpu_s": 0.365693,
+     "bytes": 1251658,
+     "changes_per_s": 92875194.3
     },
     "vtr-c-inline": {
      "writer": "vtr-c-inline",
      "records": 20977928,
-     "wall_s": 0.322653,
-     "cpu_s": 0.322603,
-     "bytes": 1438800,
-     "changes_per_s": 65016905.6
+     "wall_s": 0.336427,
+     "cpu_s": 0.336408,
+     "bytes": 1251658,
+     "changes_per_s": 62355027.1
     },
     "vtr-rust": {
      "background": true,
      "blocks": 1,
-     "bytes": 1438800,
-     "changes_per_s": 110697230.14770311,
+     "bytes": 1251658,
+     "changes_per_s": 108425727.15546387,
      "codec": "zstd",
-     "cpu_s": 0.30999999999999994,
+     "cpu_s": 0.31999999999999995,
      "level": 3,
      "records": 20977928,
-     "wall_s": 0.189507253,
+     "wall_s": 0.193477402,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "background": false,
      "blocks": 1,
-     "bytes": 1438800,
-     "changes_per_s": 75154974.79741746,
+     "bytes": 1251658,
+     "changes_per_s": 68878328.10730058,
      "codec": "zstd",
-     "cpu_s": 0.28,
+     "cpu_s": 0.30999999999999994,
      "level": 3,
      "records": 20977928,
-     "wall_s": 0.279128934,
+     "wall_s": 0.304565,
      "writer": "vtr"
     },
     "vtr-lz4": {
      "background": true,
      "blocks": 1,
-     "bytes": 2941683,
-     "changes_per_s": 114086385.38937451,
+     "bytes": 2255883,
+     "changes_per_s": 113174533.02504955,
      "codec": "lz4",
-     "cpu_s": 0.30999999999999994,
+     "cpu_s": 0.31999999999999995,
      "level": 0,
      "records": 20977928,
-     "wall_s": 0.183877576,
+     "wall_s": 0.185359086,
      "writer": "vtr"
     },
     "fstapi-none": {
      "writer": "fstapi-none",
      "records": 20977928,
      "skipped": 0,
-     "wall_s": 2.135288,
-     "cpu_s": 2.126703,
+     "wall_s": 2.28653,
+     "cpu_s": 2.281308,
      "bytes": 42489333,
-     "changes_per_s": 9824402.9
+     "changes_per_s": 9174570.8
     },
     "fstcpp-none": {
      "writer": "fstcpp-none",
      "records": 20977928,
      "skipped": 0,
-     "wall_s": 0.38833,
-     "cpu_s": 0.38825,
+     "wall_s": 0.42681,
+     "cpu_s": 0.414609,
      "bytes": 43140772,
-     "changes_per_s": 54020836.6
+     "changes_per_s": 49150513.1
     },
     "vtr-none": {
      "background": true,
      "blocks": 1,
-     "bytes": 45185473,
-     "changes_per_s": 103661099.44333631,
+     "bytes": 43617832,
+     "changes_per_s": 105523133.8886776,
      "codec": "none",
-     "cpu_s": 0.33999999999999997,
+     "cpu_s": 0.32999999999999996,
      "level": 0,
      "records": 20977928,
-     "wall_s": 0.202370302,
+     "wall_s": 0.198799327,
      "writer": "vtr"
     }
    },
@@ -135,206 +135,206 @@
     "vs_fstapi_zlib": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.003184373,
-      "vtr": 0.000594474
+      "fst_wellen": 0.003189228,
+      "vtr": 0.000533438
      },
      "condition_search": {
-      "fst_wellen": 0.047702827,
+      "fst_wellen": 0.049382332,
       "hits": 84,
-      "vtr": 0.018708296
+      "vtr": 0.017525026
      },
      "hierarchy": {
-      "fst_wellen": 0.000183777,
+      "fst_wellen": 0.000246662,
       "vars": 2803,
-      "vtr": 1.4538e-05
+      "vtr": 2.0084e-05
      },
      "load_1": {
       "changes": 1,
       "changes_wellen": 1,
-      "fst_wellen": 0.005234944,
-      "vtr": 0.000558894
+      "fst_wellen": 0.003468281,
+      "vtr": 0.000615388
      },
      "load_10": {
       "changes": 86226,
       "changes_wellen": 86226,
-      "fst_wellen": 0.008285333,
-      "vtr": 0.001360938
+      "fst_wellen": 0.005954414,
+      "vtr": 0.001273091
      },
      "load_100": {
       "changes": 1676825,
       "changes_wellen": 1676825,
-      "fst_wellen": 0.044552292,
-      "vtr": 0.011984141
+      "fst_wellen": 0.039762151,
+      "vtr": 0.008766057
      },
      "load_1000": {
       "changes": 13730697,
       "changes_wellen": 13730697,
-      "fst_wellen": 0.314320609,
-      "vtr": 0.105245852
+      "fst_wellen": 0.300476436,
+      "vtr": 0.084448771
      },
      "open": {
-      "fst_wellen": 0.002644187,
-      "vtr": 0.000222814
+      "fst_wellen": 0.001883151,
+      "vtr": 0.000195739
      },
      "parity_errors": 0,
      "signals": 1445,
      "stream_all": {
       "changes_fst": 20977928,
       "changes_vtr": 20977928,
-      "fst_reader": 0.368913897,
-      "vtr": 0.225144062
+      "fst_reader": 0.378619019,
+      "vtr": 0.165448101
      },
      "value_at_10x100": {
-      "fst_wellen": 0.00636551,
+      "fst_wellen": 0.006559623,
       "queries": 1000,
-      "vtr": 0.002008528,
-      "vtr_warm": 0.001358378
+      "vtr": 0.002049722,
+      "vtr_warm": 0.001468521
      }
     },
     "vs_source_fst": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.003153772,
-      "vtr": 0.000487418
+      "fst_wellen": 0.00293469,
+      "vtr": 0.000532512
      },
      "condition_search": {
-      "fst_wellen": 0.047496365,
+      "fst_wellen": 0.047721625,
       "hits": 84,
-      "vtr": 0.018071862
+      "vtr": 0.017292673
      },
      "hierarchy": {
-      "fst_wellen": 0.000189303,
+      "fst_wellen": 0.000236229,
       "vars": 2803,
-      "vtr": 1.5452e-05
+      "vtr": 2.031e-05
      },
      "load_1": {
       "changes": 1,
       "changes_wellen": 1,
-      "fst_wellen": 0.0051489,
-      "vtr": 0.000594081
+      "fst_wellen": 0.003416069,
+      "vtr": 0.000488131
      },
      "load_10": {
       "changes": 86226,
       "changes_wellen": 86226,
-      "fst_wellen": 0.008041353,
-      "vtr": 0.001429009
+      "fst_wellen": 0.005746123,
+      "vtr": 0.001160829
      },
      "load_100": {
       "changes": 1676825,
       "changes_wellen": 1676825,
-      "fst_wellen": 0.042427908,
-      "vtr": 0.011787633
+      "fst_wellen": 0.037467117,
+      "vtr": 0.009031217
      },
      "load_1000": {
       "changes": 13730697,
       "changes_wellen": 13730697,
-      "fst_wellen": 0.286209899,
-      "vtr": 0.105302446
+      "fst_wellen": 0.290812956,
+      "vtr": 0.088765476
      },
      "open": {
-      "fst_wellen": 0.002596551,
-      "vtr": 0.000262481
+      "fst_wellen": 0.002419667,
+      "vtr": 0.000190487
      },
      "parity_errors": 0,
      "signals": 1445,
      "stream_all": {
       "changes_fst": 20977928,
       "changes_vtr": 20977928,
-      "fst_reader": 0.329688544,
-      "vtr": 0.228377215
+      "fst_reader": 0.328698432,
+      "vtr": 0.172892832
      },
      "value_at_10x100": {
-      "fst_wellen": 0.005919455,
+      "fst_wellen": 0.00582428,
       "queries": 1000,
-      "vtr": 0.002153654,
-      "vtr_warm": 0.001337998
+      "vtr": 0.002087748,
+      "vtr_warm": 0.001432703
      }
     },
     "uncompressed": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.002761178,
-      "vtr": 0.000472572
+      "fst_wellen": 0.002894813,
+      "vtr": 0.000465373
      },
      "condition_search": {
-      "fst_wellen": 0.048150201,
+      "fst_wellen": 0.04846157,
       "hits": 84,
-      "vtr": 0.018460114
+      "vtr": 0.017767819
      },
      "hierarchy": {
-      "fst_wellen": 0.000243455,
+      "fst_wellen": 0.000249338,
       "vars": 2803,
-      "vtr": 1.9371e-05
+      "vtr": 2.0369e-05
      },
      "load_1": {
       "changes": 1,
       "changes_wellen": 1,
-      "fst_wellen": 0.005980433,
-      "vtr": 0.000493592
+      "fst_wellen": 0.003311993,
+      "vtr": 0.000526566
      },
      "load_10": {
       "changes": 86226,
       "changes_wellen": 86226,
-      "fst_wellen": 0.008920997,
-      "vtr": 0.001229391
+      "fst_wellen": 0.005856848,
+      "vtr": 0.001110397
      },
      "load_100": {
       "changes": 1676825,
       "changes_wellen": 1676825,
-      "fst_wellen": 0.039937949,
-      "vtr": 0.013157655
+      "fst_wellen": 0.037703165,
+      "vtr": 0.007880911
      },
      "load_1000": {
       "changes": 13730697,
       "changes_wellen": 13730697,
-      "fst_wellen": 0.298560546,
-      "vtr": 0.111369689
+      "fst_wellen": 0.290669198,
+      "vtr": 0.081940117
      },
      "open": {
-      "fst_wellen": 0.002789199,
-      "vtr": 0.000184032
+      "fst_wellen": 0.001606037,
+      "vtr": 0.000123887
      },
      "parity_errors": 0,
      "signals": 1445,
      "stream_all": {
       "changes_fst": 20977928,
       "changes_vtr": 20977928,
-      "fst_reader": 0.331135051,
-      "vtr": 0.224749126
+      "fst_reader": 0.320690071,
+      "vtr": 0.156873721
      },
      "value_at_10x100": {
-      "fst_wellen": 0.005641008,
+      "fst_wellen": 0.005887618,
       "queries": 1000,
-      "vtr": 0.001782936,
-      "vtr_warm": 0.001243464
+      "vtr": 0.001868726,
+      "vtr_warm": 0.001404186
      }
     },
     "fstapi_reader_zlib": {
      "reader": "fstapi",
      "open_s": 1.1e-05,
-     "hierarchy_s": 0.000421,
+     "hierarchy_s": 0.000418,
      "vars": 2803,
-     "value_at_s": 0.026414,
+     "value_at_s": 0.027066,
      "queries": 1000,
-     "load_1_s": 0.001412,
-     "load_10_s": 0.002877,
-     "load_100_s": 0.014047,
-     "load_1000_s": 0.101077,
-     "stream_all_s": 0.218703,
+     "load_1_s": 0.001747,
+     "load_10_s": 0.002474,
+     "load_100_s": 0.0134,
+     "load_1000_s": 0.099233,
+     "stream_all_s": 0.212589,
      "changes": 20977928
     },
     "fstapi_reader_lz4": {
      "reader": "fstapi",
      "open_s": 1.1e-05,
-     "hierarchy_s": 0.000245,
+     "hierarchy_s": 0.00026,
      "vars": 2803,
-     "value_at_s": 0.016225,
+     "value_at_s": 0.015829,
      "queries": 1000,
-     "load_1_s": 0.001088,
-     "load_10_s": 0.00289,
-     "load_100_s": 0.014774,
-     "load_1000_s": 0.0803,
-     "stream_all_s": 0.178964,
+     "load_1_s": 0.001737,
+     "load_10_s": 0.002361,
+     "load_100_s": 0.013911,
+     "load_1000_s": 0.085097,
+     "stream_all_s": 0.184543,
      "changes": 20977928
     }
    },
@@ -356,109 +356,109 @@
      "writer": "fstapi",
      "records": 1621415,
      "skipped": 0,
-     "wall_s": 0.443271,
-     "cpu_s": 0.443195,
+     "wall_s": 0.494262,
+     "cpu_s": 0.49424,
      "bytes": 33814239,
-     "changes_per_s": 3657842.0
+     "changes_per_s": 3280475.7
     },
     "fstapi-zlib": {
      "writer": "fstapi-zlib",
      "records": 1621415,
      "skipped": 0,
-     "wall_s": 0.933001,
-     "cpu_s": 0.932837,
+     "wall_s": 1.003338,
+     "cpu_s": 1.003289,
      "bytes": 33197469,
-     "changes_per_s": 1737849.8
+     "changes_per_s": 1616021.1
     },
     "fstcpp-lz4": {
      "writer": "fstcpp",
      "records": 1621415,
      "skipped": 0,
-     "wall_s": 0.161341,
-     "cpu_s": 0.161334,
+     "wall_s": 0.170082,
+     "cpu_s": 0.170076,
      "bytes": 33799711,
-     "changes_per_s": 10049601.6
+     "changes_per_s": 9533118.2
     },
     "vtr-c": {
      "writer": "vtr-c",
      "records": 1621415,
-     "wall_s": 0.102656,
-     "cpu_s": 0.117832,
-     "bytes": 32501943,
-     "changes_per_s": 15794677.0
+     "wall_s": 0.097711,
+     "cpu_s": 0.112819,
+     "bytes": 32493712,
+     "changes_per_s": 16594003.2
     },
     "vtr-c-inline": {
      "writer": "vtr-c-inline",
      "records": 1621415,
-     "wall_s": 0.123016,
-     "cpu_s": 0.122999,
-     "bytes": 32501943,
-     "changes_per_s": 13180561.4
+     "wall_s": 0.122119,
+     "cpu_s": 0.122113,
+     "bytes": 32493712,
+     "changes_per_s": 13277383.6
     },
     "vtr-rust": {
      "background": true,
      "blocks": 0,
-     "bytes": 32501943,
-     "changes_per_s": 15914886.474729193,
+     "bytes": 32493712,
+     "changes_per_s": 16019396.430610355,
      "codec": "zstd",
      "cpu_s": 0.10999999999999999,
      "level": 3,
      "records": 1621415,
-     "wall_s": 0.1018804,
+     "wall_s": 0.101215736,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "background": false,
      "blocks": 0,
-     "bytes": 32501943,
-     "changes_per_s": 13758023.250844195,
+     "bytes": 32493712,
+     "changes_per_s": 13627034.704250151,
      "codec": "zstd",
      "cpu_s": 0.12,
      "level": 3,
      "records": 1621415,
-     "wall_s": 0.117852323,
+     "wall_s": 0.118985167,
      "writer": "vtr"
     },
     "vtr-lz4": {
      "background": true,
      "blocks": 0,
-     "bytes": 32895229,
-     "changes_per_s": 16477413.256632129,
+     "bytes": 32892782,
+     "changes_per_s": 16836921.109505247,
      "codec": "lz4",
      "cpu_s": 0.10999999999999999,
      "level": 0,
      "records": 1621415,
-     "wall_s": 0.098402278,
+     "wall_s": 0.096301158,
      "writer": "vtr"
     },
     "fstapi-none": {
      "writer": "fstapi-none",
      "records": 1621415,
      "skipped": 0,
-     "wall_s": 0.42823,
-     "cpu_s": 0.428162,
+     "wall_s": 0.489889,
+     "cpu_s": 0.486404,
      "bytes": 41168808,
-     "changes_per_s": 3786316.8
+     "changes_per_s": 3309758.5
     },
     "fstcpp-none": {
      "writer": "fstcpp-none",
      "records": 1621415,
      "skipped": 0,
-     "wall_s": 0.144559,
-     "cpu_s": 0.144495,
+     "wall_s": 0.154562,
+     "cpu_s": 0.154556,
      "bytes": 41579181,
-     "changes_per_s": 11216286.2
+     "changes_per_s": 10490378.5
     },
     "vtr-none": {
      "background": true,
      "blocks": 0,
-     "bytes": 41574391,
-     "changes_per_s": 17660715.544926062,
+     "bytes": 41574320,
+     "changes_per_s": 17773481.518117953,
      "codec": "none",
      "cpu_s": 0.11000000000000001,
      "level": 0,
      "records": 1621415,
-     "wall_s": 0.091809134,
+     "wall_s": 0.09122664,
      "writer": "vtr"
     }
    },
@@ -466,178 +466,178 @@
     "vs_fstapi_zlib": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.002753602,
-      "vtr": 0.000491893
+      "fst_wellen": 0.002881759,
+      "vtr": 0.000430671
      },
      "condition_search": {
-      "fst_wellen": 0.021259986,
+      "fst_wellen": 0.021660183,
       "hits": 200010,
-      "vtr": 0.007844714
+      "vtr": 0.007765072
      },
      "hierarchy": {
-      "fst_wellen": 1.4621e-05,
+      "fst_wellen": 1.9455e-05,
       "vars": 207,
-      "vtr": 1.62e-06
+      "vtr": 2.029e-06
      },
      "load_1": {
       "changes": 2,
       "changes_wellen": 2,
-      "fst_wellen": 0.004768648,
-      "vtr": 0.000554476
+      "fst_wellen": 0.00336893,
+      "vtr": 0.000548064
      },
      "load_10": {
       "changes": 2360,
       "changes_wellen": 2360,
-      "fst_wellen": 0.005882926,
-      "vtr": 0.000587619
+      "fst_wellen": 0.003542122,
+      "vtr": 0.00056014
      },
      "load_100": {
       "changes": 625317,
       "changes_wellen": 625317,
-      "fst_wellen": 0.125607707,
-      "vtr": 0.019381991
+      "fst_wellen": 0.114883192,
+      "vtr": 0.011585901
      },
      "load_1000": {
       "changes": 12789848,
       "changes_wellen": 12789848,
-      "fst_wellen": 0.445414647,
-      "vtr": 0.257811377
+      "fst_wellen": 0.430075917,
+      "vtr": 0.223095975
      },
      "open": {
-      "fst_wellen": 0.002458777,
-      "vtr": 2.6292e-05
+      "fst_wellen": 0.001362783,
+      "vtr": 2.2475e-05
      },
      "parity_errors": 0,
      "signals": 113,
      "stream_all": {
       "changes_fst": 1621415,
       "changes_vtr": 1621415,
-      "fst_reader": 0.232891627,
-      "vtr": 0.020166805
+      "fst_reader": 0.241753668,
+      "vtr": 0.018361816
      },
      "value_at_10x100": {
-      "fst_wellen": 0.003507682,
+      "fst_wellen": 0.003784376,
       "queries": 1000,
-      "vtr": 0.001365027,
-      "vtr_warm": 0.000844935
+      "vtr": 0.001573653,
+      "vtr_warm": 0.000974422
      }
     },
     "vs_source_fst": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.002950961,
-      "vtr": 0.000407291
+      "fst_wellen": 0.002855391,
+      "vtr": 0.000507633
      },
      "condition_search": {
-      "fst_wellen": 0.02253433,
+      "fst_wellen": 0.022129204,
       "hits": 200010,
-      "vtr": 0.008621112
+      "vtr": 0.006397631
      },
      "hierarchy": {
-      "fst_wellen": 1.4534e-05,
+      "fst_wellen": 1.6344e-05,
       "vars": 207,
-      "vtr": 1.564e-06
+      "vtr": 1.663e-06
      },
      "load_1": {
       "changes": 2,
       "changes_wellen": 2,
-      "fst_wellen": 0.004954766,
-      "vtr": 0.000557074
+      "fst_wellen": 0.003168529,
+      "vtr": 0.000533945
      },
      "load_10": {
       "changes": 2360,
       "changes_wellen": 2360,
-      "fst_wellen": 0.005519589,
-      "vtr": 0.000636975
+      "fst_wellen": 0.003278353,
+      "vtr": 0.000483421
      },
      "load_100": {
       "changes": 625317,
       "changes_wellen": 625317,
-      "fst_wellen": 0.105906628,
-      "vtr": 0.022525856
+      "fst_wellen": 0.096604332,
+      "vtr": 0.010873497
      },
      "load_1000": {
       "changes": 12789848,
       "changes_wellen": 12789848,
-      "fst_wellen": 0.367399161,
-      "vtr": 0.257468291
+      "fst_wellen": 0.367962896,
+      "vtr": 0.237457568
      },
      "open": {
-      "fst_wellen": 0.002503202,
-      "vtr": 2.7183e-05
+      "fst_wellen": 0.001270422,
+      "vtr": 2.238e-05
      },
      "parity_errors": 0,
      "signals": 113,
      "stream_all": {
       "changes_fst": 1621415,
       "changes_vtr": 1621415,
-      "fst_reader": 0.165557123,
-      "vtr": 0.018916085
+      "fst_reader": 0.169947147,
+      "vtr": 0.01974774
      },
      "value_at_10x100": {
-      "fst_wellen": 0.003604006,
+      "fst_wellen": 0.00359862,
       "queries": 1000,
-      "vtr": 0.001487059,
-      "vtr_warm": 0.000870647
+      "vtr": 0.001440001,
+      "vtr_warm": 0.000903334
      }
     },
     "uncompressed": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.002756293,
-      "vtr": 0.000555272
+      "fst_wellen": 0.002750204,
+      "vtr": 0.000416711
      },
      "condition_search": {
-      "fst_wellen": 0.021315472,
+      "fst_wellen": 0.021081987,
       "hits": 200010,
-      "vtr": 0.008934097
+      "vtr": 0.007375704
      },
      "hierarchy": {
-      "fst_wellen": 1.5359e-05,
+      "fst_wellen": 1.5712e-05,
       "vars": 207,
-      "vtr": 1.645e-06
+      "vtr": 1.445e-06
      },
      "load_1": {
       "changes": 2,
       "changes_wellen": 2,
-      "fst_wellen": 0.004953624,
-      "vtr": 0.000543099
+      "fst_wellen": 0.003945017,
+      "vtr": 0.000551181
      },
      "load_10": {
       "changes": 2360,
       "changes_wellen": 2360,
-      "fst_wellen": 0.005689107,
-      "vtr": 0.000528464
+      "fst_wellen": 0.003478195,
+      "vtr": 0.000549689
      },
      "load_100": {
       "changes": 625317,
       "changes_wellen": 625317,
-      "fst_wellen": 0.106838696,
-      "vtr": 0.020661763
+      "fst_wellen": 0.096967107,
+      "vtr": 0.010084286
      },
      "load_1000": {
       "changes": 12789848,
       "changes_wellen": 12789848,
-      "fst_wellen": 0.398957482,
-      "vtr": 0.254354421
+      "fst_wellen": 0.359594962,
+      "vtr": 0.210533173
      },
      "open": {
-      "fst_wellen": 0.001546869,
-      "vtr": 1.8197e-05
+      "fst_wellen": 0.001472866,
+      "vtr": 1.5272e-05
      },
      "parity_errors": 0,
      "signals": 113,
      "stream_all": {
       "changes_fst": 1621415,
       "changes_vtr": 1621415,
-      "fst_reader": 0.160770483,
-      "vtr": 0.017273273
+      "fst_reader": 0.164243113,
+      "vtr": 0.015953421
      },
      "value_at_10x100": {
-      "fst_wellen": 0.00345354,
+      "fst_wellen": 0.003496923,
       "queries": 1000,
-      "vtr": 0.001361429,
-      "vtr_warm": 0.000873492
+      "vtr": 0.001541619,
+      "vtr_warm": 0.000958818
      }
     },
     "fstapi_reader_zlib": {
@@ -645,27 +645,27 @@
      "open_s": 7e-06,
      "hierarchy_s": 0.000103,
      "vars": 207,
-     "value_at_s": 0.015953,
+     "value_at_s": 0.015436,
      "queries": 1000,
-     "load_1_s": 0.001329,
-     "load_10_s": 0.002325,
-     "load_100_s": 0.05887,
-     "load_1000_s": 0.209486,
-     "stream_all_s": 0.207164,
+     "load_1_s": 0.001934,
+     "load_10_s": 0.001295,
+     "load_100_s": 0.060419,
+     "load_1000_s": 0.213552,
+     "stream_all_s": 0.208123,
      "changes": 1621415
     },
     "fstapi_reader_lz4": {
      "reader": "fstapi",
-     "open_s": 7e-06,
-     "hierarchy_s": 0.000227,
+     "open_s": 1.1e-05,
+     "hierarchy_s": 0.00012,
      "vars": 207,
-     "value_at_s": 0.013652,
+     "value_at_s": 0.0144,
      "queries": 1000,
-     "load_1_s": 0.001351,
-     "load_10_s": 0.001896,
-     "load_100_s": 0.035348,
-     "load_1000_s": 0.114536,
-     "stream_all_s": 0.110734,
+     "load_1_s": 0.001981,
+     "load_10_s": 0.001304,
+     "load_100_s": 0.038952,
+     "load_1000_s": 0.117037,
+     "stream_all_s": 0.113615,
      "changes": 1621415
     }
    },
@@ -687,109 +687,109 @@
      "writer": "fstapi",
      "records": 16212012,
      "skipped": 0,
-     "wall_s": 4.075576,
-     "cpu_s": 4.065028,
+     "wall_s": 4.417409,
+     "cpu_s": 4.407681,
      "bytes": 338398908,
-     "changes_per_s": 3977846.0
+     "changes_per_s": 3670027.4
     },
     "fstapi-zlib": {
      "writer": "fstapi-zlib",
      "records": 16212012,
      "skipped": 0,
-     "wall_s": 9.126198,
-     "cpu_s": 9.124639,
+     "wall_s": 9.618315,
+     "cpu_s": 9.617836,
      "bytes": 332271862,
-     "changes_per_s": 1776425.7
+     "changes_per_s": 1685535.6
     },
     "fstcpp-lz4": {
      "writer": "fstcpp",
      "records": 16212012,
      "skipped": 0,
-     "wall_s": 1.216603,
-     "cpu_s": 1.216439,
+     "wall_s": 1.250823,
+     "cpu_s": 1.243908,
      "bytes": 338245971,
-     "changes_per_s": 13325643.9
+     "changes_per_s": 12961073.6
     },
     "vtr-c": {
      "writer": "vtr-c",
      "records": 16212012,
-     "wall_s": 0.815223,
-     "cpu_s": 0.948715,
-     "bytes": 325376756,
-     "changes_per_s": 19886605.3
+     "wall_s": 0.733276,
+     "cpu_s": 0.874276,
+     "bytes": 325338845,
+     "changes_per_s": 22109010.6
     },
     "vtr-c-inline": {
      "writer": "vtr-c-inline",
      "records": 16212012,
-     "wall_s": 0.918001,
-     "cpu_s": 0.917581,
-     "bytes": 325376756,
-     "changes_per_s": 17660116.5
+     "wall_s": 0.907865,
+     "cpu_s": 0.907819,
+     "bytes": 325338845,
+     "changes_per_s": 17857303.3
     },
     "vtr-rust": {
      "background": true,
      "blocks": 1,
-     "bytes": 325376756,
-     "changes_per_s": 20028044.652737107,
+     "bytes": 325338845,
+     "changes_per_s": 20237378.254431125,
      "codec": "zstd",
-     "cpu_s": 0.96,
+     "cpu_s": 0.9199999999999999,
      "level": 3,
      "records": 16212012,
-     "wall_s": 0.809465541,
+     "wall_s": 0.801092503,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "background": false,
      "blocks": 1,
-     "bytes": 325376756,
-     "changes_per_s": 19561726.125001222,
+     "bytes": 325338845,
+     "changes_per_s": 19197145.035669748,
      "codec": "zstd",
      "cpu_s": 0.8400000000000001,
      "level": 3,
      "records": 16212012,
-     "wall_s": 0.828761833,
+     "wall_s": 0.844501199,
      "writer": "vtr"
     },
     "vtr-lz4": {
      "background": true,
      "blocks": 1,
-     "bytes": 329260119,
-     "changes_per_s": 20611267.390928335,
+     "bytes": 329255491,
+     "changes_per_s": 21506072.42713987,
      "codec": "lz4",
-     "cpu_s": 0.9000000000000001,
+     "cpu_s": 0.8899999999999999,
      "level": 0,
      "records": 16212012,
-     "wall_s": 0.786560656,
+     "wall_s": 0.753834158,
      "writer": "vtr"
     },
     "fstapi-none": {
      "writer": "fstapi-none",
      "records": 16212012,
      "skipped": 0,
-     "wall_s": 4.084884,
-     "cpu_s": 4.084213,
+     "wall_s": 4.3821,
+     "cpu_s": 4.381874,
      "bytes": 411107581,
-     "changes_per_s": 3968782.0
+     "changes_per_s": 3699598.8
     },
     "fstcpp-none": {
      "writer": "fstcpp-none",
      "records": 16212012,
      "skipped": 0,
-     "wall_s": 1.035935,
-     "cpu_s": 1.035717,
+     "wall_s": 1.139902,
+     "cpu_s": 1.096656,
      "bytes": 415129783,
-     "changes_per_s": 15649638.5
+     "changes_per_s": 14222282.5
     },
     "vtr-none": {
      "background": true,
      "blocks": 1,
-     "bytes": 415103562,
-     "changes_per_s": 21693494.576200835,
+     "bytes": 415103556,
+     "changes_per_s": 22020076.02747528,
      "codec": "none",
-     "cpu_s": 0.9000000000000001,
+     "cpu_s": 0.8500000000000001,
      "level": 0,
      "records": 16212012,
-     "wall_s": 0.747321366,
+     "wall_s": 0.736237785,
      "writer": "vtr"
     }
    },
@@ -797,206 +797,206 @@
     "vs_fstapi_zlib": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.030124401,
-      "vtr": 0.002223629
+      "fst_wellen": 0.029072841,
+      "vtr": 0.002720468
      },
      "condition_search": {
-      "fst_wellen": 0.220685389,
+      "fst_wellen": 0.219257361,
       "hits": 2000010,
-      "vtr": 0.081754973
+      "vtr": 0.06777617
      },
      "hierarchy": {
-      "fst_wellen": 1.2116e-05,
+      "fst_wellen": 1.1542e-05,
       "vars": 207,
-      "vtr": 1.026e-06
+      "vtr": 1.597e-06
      },
      "load_1": {
       "changes": 2,
       "changes_wellen": 2,
-      "fst_wellen": 0.058730774,
-      "vtr": 0.002999221
+      "fst_wellen": 0.025344386,
+      "vtr": 0.002285216
      },
      "load_10": {
       "changes": 23456,
       "changes_wellen": 23456,
-      "fst_wellen": 0.065956313,
-      "vtr": 0.006308606
+      "fst_wellen": 0.033727551,
+      "vtr": 0.005433208
      },
      "load_100": {
       "changes": 6230029,
       "changes_wellen": 6230029,
-      "fst_wellen": 1.1590039540000001,
-      "vtr": 0.211641129
+      "fst_wellen": 1.158007373,
+      "vtr": 0.17372044
      },
      "load_1000": {
       "changes": 127835468,
       "changes_wellen": 127835468,
-      "fst_wellen": 4.370318495,
-      "vtr": 3.589571102
+      "fst_wellen": 4.321839078,
+      "vtr": 3.540690877
      },
      "open": {
-      "fst_wellen": 0.027031779,
-      "vtr": 2.7055e-05
+      "fst_wellen": 0.020525756,
+      "vtr": 2.4598e-05
      },
      "parity_errors": 0,
      "signals": 113,
      "stream_all": {
       "changes_fst": 16212012,
       "changes_vtr": 16212012,
-      "fst_reader": 2.313329908,
-      "vtr": 0.181229054
+      "fst_reader": 2.334210105,
+      "vtr": 0.182718493
      },
      "value_at_10x100": {
-      "fst_wellen": 0.037905239,
+      "fst_wellen": 0.037749553,
       "queries": 1000,
-      "vtr": 0.006595112,
-      "vtr_warm": 0.000677072
+      "vtr": 0.006977916,
+      "vtr_warm": 0.000737797
      }
     },
     "vs_source_fst": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.030368771,
-      "vtr": 0.002214872
+      "fst_wellen": 0.026638591,
+      "vtr": 0.002687496
      },
      "condition_search": {
-      "fst_wellen": 0.222052977,
+      "fst_wellen": 0.218937648,
       "hits": 2000010,
-      "vtr": 0.08267913
+      "vtr": 0.066655174
      },
      "hierarchy": {
-      "fst_wellen": 1.3466e-05,
+      "fst_wellen": 1.1702e-05,
       "vars": 207,
-      "vtr": 1.017e-06
+      "vtr": 1.088e-06
      },
      "load_1": {
       "changes": 2,
       "changes_wellen": 2,
-      "fst_wellen": 0.059124543,
-      "vtr": 0.003058441
+      "fst_wellen": 0.026313348,
+      "vtr": 0.002272871
      },
      "load_10": {
       "changes": 23456,
       "changes_wellen": 23456,
-      "fst_wellen": 0.052499849,
-      "vtr": 0.006264521
+      "fst_wellen": 0.03407311,
+      "vtr": 0.005374349
      },
      "load_100": {
       "changes": 6230029,
       "changes_wellen": 6230029,
-      "fst_wellen": 0.993779836,
-      "vtr": 0.213745215
+      "fst_wellen": 0.978895279,
+      "vtr": 0.173895395
      },
      "load_1000": {
       "changes": 127835468,
       "changes_wellen": 127835468,
-      "fst_wellen": 3.6798554169999997,
-      "vtr": 3.6282762650000002
+      "fst_wellen": 3.697012067,
+      "vtr": 3.388822449
      },
      "open": {
-      "fst_wellen": 0.026964141,
-      "vtr": 2.8144e-05
+      "fst_wellen": 0.020397689,
+      "vtr": 2.4159e-05
      },
      "parity_errors": 0,
      "signals": 113,
      "stream_all": {
       "changes_fst": 16212012,
       "changes_vtr": 16212012,
-      "fst_reader": 1.662021099,
-      "vtr": 0.183879886
+      "fst_reader": 1.674126968,
+      "vtr": 0.184475069
      },
      "value_at_10x100": {
-      "fst_wellen": 0.037540351,
+      "fst_wellen": 0.034782643,
       "queries": 1000,
-      "vtr": 0.006660751,
-      "vtr_warm": 0.000698923
+      "vtr": 0.006540506,
+      "vtr_warm": 0.000714432
      }
     },
     "uncompressed": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.030369251,
-      "vtr": 0.002554491
+      "fst_wellen": 0.034004227,
+      "vtr": 0.002873558
      },
      "condition_search": {
-      "fst_wellen": 0.220523611,
+      "fst_wellen": 0.219507231,
       "hits": 2000010,
-      "vtr": 0.08116132
+      "vtr": 0.068605402
      },
      "hierarchy": {
-      "fst_wellen": 1.1666e-05,
+      "fst_wellen": 1.1761e-05,
       "vars": 207,
-      "vtr": 9.47e-07
+      "vtr": 9.66e-07
      },
      "load_1": {
       "changes": 2,
       "changes_wellen": 2,
-      "fst_wellen": 0.077788171,
-      "vtr": 0.003074714
+      "fst_wellen": 0.031301653,
+      "vtr": 0.003149085
      },
      "load_10": {
       "changes": 23456,
       "changes_wellen": 23456,
-      "fst_wellen": 0.084333859,
-      "vtr": 0.006309214
+      "fst_wellen": 0.038980838,
+      "vtr": 0.007201646
      },
      "load_100": {
       "changes": 6230029,
       "changes_wellen": 6230029,
-      "fst_wellen": 1.003578273,
-      "vtr": 0.204338516
+      "fst_wellen": 0.966306613,
+      "vtr": 0.147353399
      },
      "load_1000": {
       "changes": 127835468,
       "changes_wellen": 127835468,
-      "fst_wellen": 3.815566123,
-      "vtr": 3.535236312
+      "fst_wellen": 3.707096311,
+      "vtr": 3.513958177
      },
      "open": {
-      "fst_wellen": 0.033416199,
-      "vtr": 2.5529e-05
+      "fst_wellen": 0.027127934,
+      "vtr": 1.6457e-05
      },
      "parity_errors": 0,
      "signals": 113,
      "stream_all": {
       "changes_fst": 16212012,
       "changes_vtr": 16212012,
-      "fst_reader": 1.585967307,
-      "vtr": 0.172838783
+      "fst_reader": 1.634085814,
+      "vtr": 0.147248457
      },
      "value_at_10x100": {
-      "fst_wellen": 0.038974965,
+      "fst_wellen": 0.042472834,
       "queries": 1000,
-      "vtr": 0.006738799,
-      "vtr_warm": 0.000679246
+      "vtr": 0.006533911,
+      "vtr_warm": 0.000706892
      }
     },
     "fstapi_reader_zlib": {
      "reader": "fstapi",
-     "open_s": 2.2e-05,
-     "hierarchy_s": 0.000112,
+     "open_s": 1.5e-05,
+     "hierarchy_s": 0.000183,
      "vars": 207,
-     "value_at_s": 0.027146,
+     "value_at_s": 0.026025,
      "queries": 1000,
-     "load_1_s": 0.009895,
-     "load_10_s": 0.01061,
-     "load_100_s": 0.573661,
-     "load_1000_s": 2.090788,
-     "stream_all_s": 2.087922,
+     "load_1_s": 0.007842,
+     "load_10_s": 0.006558,
+     "load_100_s": 0.575689,
+     "load_1000_s": 2.092188,
+     "stream_all_s": 2.09127,
      "changes": 16212012
     },
     "fstapi_reader_lz4": {
      "reader": "fstapi",
-     "open_s": 1.5e-05,
-     "hierarchy_s": 8.3e-05,
+     "open_s": 6.4e-05,
+     "hierarchy_s": 9.8e-05,
      "vars": 207,
-     "value_at_s": 0.02381,
+     "value_at_s": 0.024089,
      "queries": 1000,
-     "load_1_s": 0.012069,
-     "load_10_s": 0.010031,
-     "load_100_s": 0.310028,
-     "load_1000_s": 1.161664,
-     "stream_all_s": 1.162896,
+     "load_1_s": 0.009686,
+     "load_10_s": 0.006114,
+     "load_100_s": 0.302197,
+     "load_1000_s": 1.142415,
+     "stream_all_s": 1.136718,
      "changes": 16212012
     }
    },
@@ -1018,109 +1018,109 @@
      "writer": "fstapi",
      "records": 167823424,
      "skipped": 0,
-     "wall_s": 18.758193,
-     "cpu_s": 18.740696,
+     "wall_s": 19.08838,
+     "cpu_s": 19.060517,
      "bytes": 41606158,
-     "changes_per_s": 8946673.2
+     "changes_per_s": 8791915.6
     },
     "fstapi-zlib": {
      "writer": "fstapi-zlib",
      "records": 167823424,
      "skipped": 0,
-     "wall_s": 20.715452,
-     "cpu_s": 20.703372,
+     "wall_s": 20.95766,
+     "cpu_s": 20.932274,
      "bytes": 26539397,
-     "changes_per_s": 8101364.4
+     "changes_per_s": 8007736.9
     },
     "fstcpp-lz4": {
      "writer": "fstcpp",
      "records": 167823424,
      "skipped": 0,
-     "wall_s": 2.820264,
-     "cpu_s": 2.819762,
+     "wall_s": 2.869421,
+     "cpu_s": 2.869132,
      "bytes": 36631612,
-     "changes_per_s": 59506272.9
+     "changes_per_s": 58486851.2
     },
     "vtr-c": {
      "writer": "vtr-c",
      "records": 167823424,
-     "wall_s": 1.754693,
-     "cpu_s": 2.678669,
-     "bytes": 16016806,
-     "changes_per_s": 95642606.8
+     "wall_s": 1.770904,
+     "cpu_s": 2.739504,
+     "bytes": 12472382,
+     "changes_per_s": 94767111.2
     },
     "vtr-c-inline": {
      "writer": "vtr-c-inline",
      "records": 167823424,
-     "wall_s": 2.536186,
-     "cpu_s": 2.524659,
-     "bytes": 16016806,
-     "changes_per_s": 66171570.5
+     "wall_s": 2.669203,
+     "cpu_s": 2.649024,
+     "bytes": 12472382,
+     "changes_per_s": 62873973.6
     },
     "vtr-rust": {
      "background": true,
      "blocks": 9,
-     "bytes": 16016806,
-     "changes_per_s": 112526545.22442013,
+     "bytes": 12472382,
+     "changes_per_s": 109726220.80225189,
      "codec": "zstd",
-     "cpu_s": 2.38,
+     "cpu_s": 2.43,
      "level": 3,
      "records": 167823424,
-     "wall_s": 1.491411859,
+     "wall_s": 1.5294742019999998,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "background": false,
      "blocks": 9,
-     "bytes": 16016806,
-     "changes_per_s": 75248533.11734848,
+     "bytes": 12472382,
+     "changes_per_s": 71567593.82454988,
      "codec": "zstd",
-     "cpu_s": 2.24,
+     "cpu_s": 2.34,
      "level": 3,
      "records": 167823424,
-     "wall_s": 2.23025509,
+     "wall_s": 2.344963901,
      "writer": "vtr"
     },
     "vtr-lz4": {
      "background": true,
      "blocks": 9,
-     "bytes": 30630639,
-     "changes_per_s": 121635063.0293086,
+     "bytes": 22319765,
+     "changes_per_s": 115102010.56661947,
      "codec": "lz4",
-     "cpu_s": 2.2600000000000002,
+     "cpu_s": 2.44,
      "level": 0,
      "records": 167823424,
-     "wall_s": 1.379729001,
+     "wall_s": 1.4580407690000001,
      "writer": "vtr"
     },
     "fstapi-none": {
      "writer": "fstapi-none",
      "records": 167823424,
      "skipped": 0,
-     "wall_s": 18.8163,
-     "cpu_s": 18.793711,
+     "wall_s": 19.191267,
+     "cpu_s": 19.162582,
      "bytes": 291285523,
-     "changes_per_s": 8919045.0
+     "changes_per_s": 8744780.9
     },
     "fstcpp-none": {
      "writer": "fstcpp-none",
      "records": 167823424,
      "skipped": 0,
-     "wall_s": 2.784152,
-     "cpu_s": 2.783588,
+     "wall_s": 2.866078,
+     "cpu_s": 2.835714,
      "bytes": 294077772,
-     "changes_per_s": 60278119.1
+     "changes_per_s": 58555077.8
     },
     "vtr-none": {
      "background": true,
      "blocks": 9,
-     "bytes": 300369919,
-     "changes_per_s": 119563894.72570685,
+     "bytes": 298627044,
+     "changes_per_s": 117913427.28290363,
      "codec": "none",
-     "cpu_s": 2.3,
+     "cpu_s": 2.31,
      "level": 0,
      "records": 167823424,
-     "wall_s": 1.403629619,
+     "wall_s": 1.423276618,
      "writer": "vtr"
     }
    },
@@ -1128,119 +1128,119 @@
     "vs_fstapi_zlib": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.009213013,
-      "vtr": 0.000924926
+      "fst_wellen": 0.00640458,
+      "vtr": 0.00065767
      },
      "condition_search": {
-      "fst_wellen": 0.046607118,
+      "fst_wellen": 0.044508159,
       "hits": 100,
-      "vtr": 0.018175946
+      "vtr": 0.016877417
      },
      "hierarchy": {
-      "fst_wellen": 0.001456752,
+      "fst_wellen": 0.001435632,
       "vars": 22424,
-      "vtr": 0.000103302
+      "vtr": 9.8996e-05
      },
      "load_1": {
       "changes": 1,
       "changes_wellen": 1,
-      "fst_wellen": 0.009235204,
-      "vtr": 0.001040173
+      "fst_wellen": 0.006135182,
+      "vtr": 0.000850892
      },
      "load_10": {
       "changes": 86226,
       "changes_wellen": 86226,
-      "fst_wellen": 0.012586185,
-      "vtr": 0.003363095
+      "fst_wellen": 0.009321693,
+      "vtr": 0.002709711
      },
      "load_100": {
       "changes": 1676825,
       "changes_wellen": 1676825,
-      "fst_wellen": 0.046430589,
-      "vtr": 0.02742124
+      "fst_wellen": 0.044956798,
+      "vtr": 0.017292739
      },
      "load_1000": {
       "changes": 13730697,
       "changes_wellen": 13730697,
-      "fst_wellen": 0.465203654,
-      "vtr": 0.178026857
+      "fst_wellen": 0.461324127,
+      "vtr": 0.127848101
      },
      "open": {
-      "fst_wellen": 0.005696433,
-      "vtr": 0.001214036
+      "fst_wellen": 0.004377366,
+      "vtr": 0.000673071
      },
      "parity_errors": 0,
      "signals": 11560,
      "stream_all": {
       "changes_fst": 167823424,
       "changes_vtr": 167823424,
-      "fst_reader": 6.666813899,
-      "vtr": 1.5206320679999998
+      "fst_reader": 6.664780971,
+      "vtr": 1.4048443019999999
      },
      "value_at_10x100": {
-      "fst_wellen": 0.012539428,
+      "fst_wellen": 0.009966026,
       "queries": 1000,
-      "vtr": 0.004295738,
-      "vtr_warm": 0.00296447
+      "vtr": 0.004172039,
+      "vtr_warm": 0.002914412
      }
     },
     "uncompressed": {
      "changes_window_1pct": {
       "changes": 0,
-      "fst_wellen": 0.005169971,
-      "vtr": 0.000585951
+      "fst_wellen": 0.005166047,
+      "vtr": 0.000549896
      },
      "condition_search": {
-      "fst_wellen": 0.041279129,
+      "fst_wellen": 0.042006906,
       "hits": 100,
-      "vtr": 0.017838412
+      "vtr": 0.016592226
      },
      "hierarchy": {
-      "fst_wellen": 0.001501616,
+      "fst_wellen": 0.001620469,
       "vars": 22424,
-      "vtr": 0.00010052
+      "vtr": 0.000103174
      },
      "load_1": {
       "changes": 1,
       "changes_wellen": 1,
-      "fst_wellen": 0.008065536,
-      "vtr": 0.000673487
+      "fst_wellen": 0.005074518,
+      "vtr": 0.000622695
      },
      "load_10": {
       "changes": 86226,
       "changes_wellen": 86226,
-      "fst_wellen": 0.010942214,
-      "vtr": 0.003797188
+      "fst_wellen": 0.007911169,
+      "vtr": 0.001734396
      },
      "load_100": {
       "changes": 1676825,
       "changes_wellen": 1676825,
-      "fst_wellen": 0.045944447,
-      "vtr": 0.023077381
+      "fst_wellen": 0.040149629,
+      "vtr": 0.011663151
      },
      "load_1000": {
       "changes": 13730697,
       "changes_wellen": 13730697,
-      "fst_wellen": 0.442407983,
-      "vtr": 0.156157736
+      "fst_wellen": 0.427342301,
+      "vtr": 0.10596556
      },
      "open": {
-      "fst_wellen": 0.00461705,
-      "vtr": 0.000945311
+      "fst_wellen": 0.003388597,
+      "vtr": 0.00080387
      },
      "parity_errors": 0,
      "signals": 11560,
      "stream_all": {
       "changes_fst": 167823424,
       "changes_vtr": 167823424,
-      "fst_reader": 4.4743991229999995,
-      "vtr": 1.488020402
+      "fst_reader": 4.88922337,
+      "vtr": 1.360191015
      },
      "value_at_10x100": {
-      "fst_wellen": 0.008206536,
+      "fst_wellen": 0.00837766,
       "queries": 1000,
-      "vtr": 0.002823386,
-      "vtr_warm": 0.001912035
+      "vtr": 0.002854583,
+      "vtr_warm": 0.00196511
      }
     },
     "fstapi_reader_zlib": {
@@ -1248,27 +1248,27 @@
      "open_s": 3e-05,
      "hierarchy_s": 0.002434,
      "vars": 22424,
-     "value_at_s": 0.031656,
+     "value_at_s": 0.02717,
      "queries": 1000,
-     "load_1_s": 0.001373,
-     "load_10_s": 0.002759,
-     "load_100_s": 0.014478,
-     "load_1000_s": 0.15161,
-     "stream_all_s": 2.057761,
+     "load_1_s": 0.001307,
+     "load_10_s": 0.002279,
+     "load_100_s": 0.014366,
+     "load_1000_s": 0.151329,
+     "stream_all_s": 2.070049,
      "changes": 167823424
     },
     "fstapi_reader_lz4": {
      "reader": "fstapi",
      "open_s": 3e-05,
-     "hierarchy_s": 0.001389,
+     "hierarchy_s": 0.010854,
      "vars": 22424,
-     "value_at_s": 0.025069,
+     "value_at_s": 0.024924,
      "queries": 1000,
-     "load_1_s": 0.001539,
-     "load_10_s": 0.002624,
-     "load_100_s": 0.011915,
-     "load_1000_s": 0.12326,
-     "stream_all_s": 1.757656,
+     "load_1_s": 0.001588,
+     "load_10_s": 0.002563,
+     "load_100_s": 0.0145,
+     "load_1000_s": 0.120857,
+     "stream_all_s": 1.775915,
      "changes": 167823424
     }
    }
@@ -1289,109 +1289,109 @@
      "writer": "fstapi",
      "records": 5500000,
      "skipped": 0,
-     "wall_s": 0.676804,
-     "cpu_s": 0.67669,
+     "wall_s": 0.680114,
+     "cpu_s": 0.680081,
      "bytes": 14912964,
-     "changes_per_s": 8126424.1
+     "changes_per_s": 8086880.7
     },
     "fstapi-zlib": {
      "writer": "fstapi-zlib",
      "records": 5500000,
      "skipped": 0,
-     "wall_s": 1.109666,
-     "cpu_s": 1.109527,
+     "wall_s": 1.132685,
+     "cpu_s": 1.132631,
      "bytes": 13529412,
-     "changes_per_s": 4956448.3
+     "changes_per_s": 4855718.5
     },
     "fstcpp-lz4": {
      "writer": "fstcpp",
      "records": 5500000,
      "skipped": 0,
-     "wall_s": 0.207819,
-     "cpu_s": 0.2078,
+     "wall_s": 0.210071,
+     "cpu_s": 0.210063,
      "bytes": 14912964,
-     "changes_per_s": 26465276.9
+     "changes_per_s": 26181637.5
     },
     "vtr-c": {
      "writer": "vtr-c",
      "records": 5500000,
-     "wall_s": 0.138924,
-     "cpu_s": 0.175935,
-     "bytes": 10530762,
-     "changes_per_s": 39590064.6
+     "wall_s": 0.139819,
+     "cpu_s": 0.173657,
+     "bytes": 8235306,
+     "changes_per_s": 39336522.2
     },
     "vtr-c-inline": {
      "writer": "vtr-c-inline",
      "records": 5500000,
-     "wall_s": 0.171454,
-     "cpu_s": 0.171427,
-     "bytes": 10530762,
-     "changes_per_s": 32078624.4
+     "wall_s": 0.164231,
+     "cpu_s": 0.164212,
+     "bytes": 8235306,
+     "changes_per_s": 33489447.7
     },
     "vtr-rust": {
      "background": true,
      "blocks": 0,
-     "bytes": 10530762,
-     "changes_per_s": 43425066.36475244,
+     "bytes": 8235306,
+     "changes_per_s": 44295410.34394315,
      "codec": "zstd",
-     "cpu_s": 0.16999999999999998,
+     "cpu_s": 0.16,
      "level": 3,
      "records": 5500000,
-     "wall_s": 0.126654959,
+     "wall_s": 0.124166363,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "background": false,
      "blocks": 0,
-     "bytes": 10530762,
-     "changes_per_s": 34882996.27839021,
+     "bytes": 8235306,
+     "changes_per_s": 36358215.68420708,
      "codec": "zstd",
-     "cpu_s": 0.16999999999999998,
+     "cpu_s": 0.15999999999999998,
      "level": 3,
      "records": 5500000,
-     "wall_s": 0.157669942,
+     "wall_s": 0.15127255,
      "writer": "vtr"
     },
     "vtr-lz4": {
      "background": true,
      "blocks": 0,
-     "bytes": 12954422,
-     "changes_per_s": 50332771.457928896,
+     "bytes": 9585377,
+     "changes_per_s": 51808191.6060594,
      "codec": "lz4",
-     "cpu_s": 0.15000000000000002,
+     "cpu_s": 0.14,
      "level": 0,
      "records": 5500000,
-     "wall_s": 0.109272743,
+     "wall_s": 0.106160818,
      "writer": "vtr"
     },
     "fstapi-none": {
      "writer": "fstapi-none",
      "records": 5500000,
      "skipped": 0,
-     "wall_s": 0.655026,
-     "cpu_s": 0.654959,
+     "wall_s": 0.657899,
+     "cpu_s": 0.657866,
      "bytes": 17872425,
-     "changes_per_s": 8396617.9
+     "changes_per_s": 8359948.8
     },
     "fstcpp-none": {
      "writer": "fstcpp-none",
      "records": 5500000,
      "skipped": 0,
-     "wall_s": 0.191035,
-     "cpu_s": 0.191016,
+     "wall_s": 0.196741,
+     "cpu_s": 0.196733,
      "bytes": 19107344,
-     "changes_per_s": 28790485.9
+     "changes_per_s": 27955492.1
     },
     "vtr-none": {
      "background": true,
      "blocks": 0,
-     "bytes": 17347628,
-     "changes_per_s": 54989812.587320074,
+     "bytes": 16911309,
+     "changes_per_s": 56851187.22127543,
      "codec": "none",
      "cpu_s": 0.13,
      "level": 0,
      "records": 5500000,
-     "wall_s": 0.100018526,
+     "wall_s": 0.096743802,
      "writer": "vtr"
     }
    },
@@ -1399,147 +1399,147 @@
     "vs_fstapi_zlib": {
      "changes_window_1pct": {
       "changes": 1,
-      "fst_wellen": 0.010720883,
-      "vtr": 0.00133088
+      "fst_wellen": 0.007399063,
+      "vtr": 0.001257988
      },
      "condition_search": {
-      "fst_wellen": 0.010889314,
+      "fst_wellen": 0.007246101,
       "hits": 60,
-      "vtr": 0.001446721
+      "vtr": 0.001191499
      },
      "hierarchy": {
-      "fst_wellen": 0.000460225,
+      "fst_wellen": 0.0004821,
       "vars": 20001,
-      "vtr": 7.6403e-05
+      "vtr": 9.9671e-05
      },
      "load_1": {
       "changes": 243,
       "changes_wellen": 243,
-      "fst_wellen": 0.014574565,
-      "vtr": 0.001489115
+      "fst_wellen": 0.007547567,
+      "vtr": 0.001155366
      },
      "load_10": {
       "changes": 2105,
       "changes_wellen": 2105,
-      "fst_wellen": 0.014452633,
-      "vtr": 0.001760076
+      "fst_wellen": 0.007348701,
+      "vtr": 0.001388954
      },
      "load_100": {
       "changes": 19967,
       "changes_wellen": 19967,
-      "fst_wellen": 0.015821655,
-      "vtr": 0.005269251
+      "fst_wellen": 0.008915451,
+      "vtr": 0.003516959
      },
      "load_1000": {
       "changes": 199906,
       "changes_wellen": 199906,
-      "fst_wellen": 0.027556155,
-      "vtr": 0.014481441
+      "fst_wellen": 0.022101072,
+      "vtr": 0.010879509
      },
      "open": {
-      "fst_wellen": 0.003804827,
-      "vtr": 0.001000164
+      "fst_wellen": 0.0033379,
+      "vtr": 0.000503214
      },
      "parity_errors": 0,
      "signals": 20001,
      "stream_all": {
       "changes_fst": 5500000,
       "changes_vtr": 4505866,
-      "fst_reader": 0.778596871,
-      "vtr": 0.092610809
+      "fst_reader": 0.771167857,
+      "vtr": 0.078414195
      },
      "value_at_10x100": {
-      "fst_wellen": 0.011099509,
+      "fst_wellen": 0.007643389,
       "queries": 1000,
-      "vtr": 0.002540533,
-      "vtr_warm": 0.000975277
+      "vtr": 0.002444059,
+      "vtr_warm": 0.001087843
      }
     },
     "uncompressed": {
      "changes_window_1pct": {
       "changes": 1,
-      "fst_wellen": 0.009497343,
-      "vtr": 0.001033169
+      "fst_wellen": 0.005497783,
+      "vtr": 0.001163952
      },
      "condition_search": {
-      "fst_wellen": 0.009287716,
+      "fst_wellen": 0.00534061,
       "hits": 60,
-      "vtr": 0.001228111
+      "vtr": 0.001092266
      },
      "hierarchy": {
-      "fst_wellen": 0.000488042,
+      "fst_wellen": 0.000475506,
       "vars": 20001,
-      "vtr": 0.000104772
+      "vtr": 0.000100537
      },
      "load_1": {
       "changes": 243,
       "changes_wellen": 243,
-      "fst_wellen": 0.013292591,
-      "vtr": 0.001254415
+      "fst_wellen": 0.005847638,
+      "vtr": 0.001076434
      },
      "load_10": {
       "changes": 2105,
       "changes_wellen": 2105,
-      "fst_wellen": 0.013147087,
-      "vtr": 0.001268086
+      "fst_wellen": 0.00554856,
+      "vtr": 0.001128269
      },
      "load_100": {
       "changes": 19967,
       "changes_wellen": 19967,
-      "fst_wellen": 0.013579511,
-      "vtr": 0.001792954
+      "fst_wellen": 0.006523701,
+      "vtr": 0.001645691
      },
      "load_1000": {
       "changes": 199906,
       "changes_wellen": 199906,
-      "fst_wellen": 0.022154553,
-      "vtr": 0.004966038
+      "fst_wellen": 0.017701238,
+      "vtr": 0.004259825
      },
      "open": {
-      "fst_wellen": 0.003492934,
-      "vtr": 0.000777417
+      "fst_wellen": 0.002746468,
+      "vtr": 0.000470077
      },
      "parity_errors": 0,
      "signals": 20001,
      "stream_all": {
       "changes_fst": 5500000,
       "changes_vtr": 4505866,
-      "fst_reader": 0.586873544,
-      "vtr": 0.086764206
+      "fst_reader": 0.572782712,
+      "vtr": 0.068054754
      },
      "value_at_10x100": {
-      "fst_wellen": 0.009672507,
+      "fst_wellen": 0.005768684,
       "queries": 1000,
-      "vtr": 0.002123931,
-      "vtr_warm": 0.000985059
+      "vtr": 0.002076845,
+      "vtr_warm": 0.001015253
      }
     },
     "fstapi_reader_zlib": {
      "reader": "fstapi",
      "open_s": 3.1e-05,
-     "hierarchy_s": 0.000525,
+     "hierarchy_s": 0.000522,
      "vars": 20001,
-     "value_at_s": 0.006506,
+     "value_at_s": 0.006882,
      "queries": 1000,
-     "load_1_s": 0.002798,
-     "load_10_s": 0.003623,
-     "load_100_s": 0.003468,
-     "load_1000_s": 0.012802,
-     "stream_all_s": 0.142283,
+     "load_1_s": 0.00323,
+     "load_10_s": 0.002291,
+     "load_100_s": 0.002722,
+     "load_1000_s": 0.011549,
+     "stream_all_s": 0.142556,
      "changes": 5500000
     },
     "fstapi_reader_lz4": {
      "reader": "fstapi",
-     "open_s": 3.6e-05,
-     "hierarchy_s": 0.00054,
+     "open_s": 3.3e-05,
+     "hierarchy_s": 0.00052,
      "vars": 20001,
-     "value_at_s": 0.003795,
+     "value_at_s": 0.003687,
      "queries": 1000,
-     "load_1_s": 0.002716,
-     "load_10_s": 0.003577,
-     "load_100_s": 0.00289,
-     "load_1000_s": 0.010144,
-     "stream_all_s": 0.107178,
+     "load_1_s": 0.003297,
+     "load_10_s": 0.002524,
+     "load_100_s": 0.002645,
+     "load_1000_s": 0.009913,
+     "stream_all_s": 0.106771,
      "changes": 5500000
     }
    }
@@ -1560,109 +1560,109 @@
      "writer": "fstapi",
      "records": 29993396,
      "skipped": 0,
-     "wall_s": 1.509592,
-     "cpu_s": 1.509273,
+     "wall_s": 1.526458,
+     "cpu_s": 1.525327,
      "bytes": 110412723,
-     "changes_per_s": 19868541.5
+     "changes_per_s": 19649015.3
     },
     "fstapi-zlib": {
      "writer": "fstapi-zlib",
      "records": 29993396,
      "skipped": 0,
-     "wall_s": 5.947819,
-     "cpu_s": 5.927737,
+     "wall_s": 6.068686,
+     "cpu_s": 6.058706,
      "bytes": 107301035,
-     "changes_per_s": 5042755.6
+     "changes_per_s": 4942321.5
     },
     "fstcpp-lz4": {
      "writer": "fstcpp",
      "records": 29993396,
      "skipped": 0,
-     "wall_s": 1.891597,
-     "cpu_s": 1.887109,
+     "wall_s": 1.94706,
+     "cpu_s": 1.946945,
      "bytes": 106539568,
-     "changes_per_s": 15856125.8
+     "changes_per_s": 15404452.4
     },
     "vtr-c": {
      "writer": "vtr-c",
      "records": 29993396,
-     "wall_s": 1.211444,
-     "cpu_s": 1.630612,
-     "bytes": 80783601,
-     "changes_per_s": 24758388.9
+     "wall_s": 1.073172,
+     "cpu_s": 1.405784,
+     "bytes": 73052971,
+     "changes_per_s": 27948368.1
     },
     "vtr-c-inline": {
      "writer": "vtr-c-inline",
      "records": 29993396,
-     "wall_s": 1.415554,
-     "cpu_s": 1.398527,
-     "bytes": 80783601,
-     "changes_per_s": 21188454.0
+     "wall_s": 1.37325,
+     "cpu_s": 1.348764,
+     "bytes": 73052971,
+     "changes_per_s": 21841179.8
     },
     "vtr-rust": {
      "background": true,
      "blocks": 1,
-     "bytes": 80783601,
-     "changes_per_s": 26556512.983729944,
+     "bytes": 73052971,
+     "changes_per_s": 29570580.05567422,
      "codec": "zstd",
-     "cpu_s": 1.5299999999999998,
+     "cpu_s": 1.3,
      "level": 3,
      "records": 29993396,
-     "wall_s": 1.129417707,
+     "wall_s": 1.014298534,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "background": false,
      "blocks": 1,
-     "bytes": 80783601,
-     "changes_per_s": 22012463.58398337,
+     "bytes": 73052971,
+     "changes_per_s": 23236493.023529343,
      "codec": "zstd",
-     "cpu_s": 1.36,
+     "cpu_s": 1.28,
      "level": 3,
      "records": 29993396,
-     "wall_s": 1.362564253,
+     "wall_s": 1.290788415,
      "writer": "vtr"
     },
     "vtr-lz4": {
      "background": true,
      "blocks": 1,
-     "bytes": 95922795,
-     "changes_per_s": 32364307.631025746,
+     "bytes": 78498595,
+     "changes_per_s": 34862963.58721199,
      "codec": "lz4",
-     "cpu_s": 1.33,
+     "cpu_s": 1.17,
      "level": 0,
      "records": 29993396,
-     "wall_s": 0.926743014,
+     "wall_s": 0.860322615,
      "writer": "vtr"
     },
     "fstapi-none": {
      "writer": "fstapi-none",
      "records": 29993396,
      "skipped": 0,
-     "wall_s": 1.384411,
-     "cpu_s": 1.384208,
+     "wall_s": 1.398876,
+     "cpu_s": 1.398806,
      "bytes": 119908737,
-     "changes_per_s": 21665091.4
+     "changes_per_s": 21441070.2
     },
     "fstcpp-none": {
      "writer": "fstcpp-none",
      "records": 29993396,
      "skipped": 0,
-     "wall_s": 1.686825,
-     "cpu_s": 1.662705,
+     "wall_s": 1.730186,
+     "cpu_s": 1.703335,
      "bytes": 132504422,
-     "changes_per_s": 17780980.9
+     "changes_per_s": 17335357.9
     },
     "vtr-none": {
      "background": true,
      "blocks": 1,
-     "bytes": 111205857,
-     "changes_per_s": 35031998.124413006,
+     "bytes": 110189484,
+     "changes_per_s": 42289296.832802184,
      "codec": "none",
-     "cpu_s": 1.25,
+     "cpu_s": 1.03,
      "level": 0,
      "records": 29993396,
-     "wall_s": 0.856171432,
+     "wall_s": 0.709243195,
      "writer": "vtr"
     }
    },
@@ -1670,147 +1670,147 @@
     "vs_fstapi_zlib": {
      "changes_window_1pct": {
       "changes": 2,
-      "fst_wellen": 0.01837941,
-      "vtr": 0.008255043
+      "fst_wellen": 0.017891593,
+      "vtr": 0.004616526
      },
      "condition_search": {
-      "fst_wellen": 0.018457088,
+      "fst_wellen": 0.017974103,
       "hits": 33,
-      "vtr": 0.008314827
+      "vtr": 0.00466441
      },
      "hierarchy": {
-      "fst_wellen": 0.004160246,
+      "fst_wellen": 0.004200452,
       "vars": 200001,
-      "vtr": 0.001063542
+      "vtr": 0.000728142
      },
      "load_1": {
       "changes": 80,
       "changes_wellen": 80,
-      "fst_wellen": 0.01818451,
-      "vtr": 0.008131198
+      "fst_wellen": 0.018016696,
+      "vtr": 0.004643051
      },
      "load_10": {
       "changes": 1025,
       "changes_wellen": 1025,
-      "fst_wellen": 0.018318249,
-      "vtr": 0.008683905
+      "fst_wellen": 0.018166663,
+      "vtr": 0.004927719
      },
      "load_100": {
       "changes": 10699,
       "changes_wellen": 10699,
-      "fst_wellen": 0.020318321,
-      "vtr": 0.014716646
+      "fst_wellen": 0.020135751,
+      "vtr": 0.007305465
      },
      "load_1000": {
       "changes": 111590,
       "changes_wellen": 111590,
-      "fst_wellen": 0.037726433,
-      "vtr": 0.053575392
+      "fst_wellen": 0.037476344,
+      "vtr": 0.028909465
      },
      "open": {
-      "fst_wellen": 0.011083847,
-      "vtr": 0.011441366
+      "fst_wellen": 0.010817225,
+      "vtr": 0.005339138
      },
      "parity_errors": 0,
      "signals": 200001,
      "stream_all": {
       "changes_fst": 29993396,
       "changes_vtr": 22017763,
-      "fst_reader": 37.576740255,
-      "vtr": 0.479400053
+      "fst_reader": 38.628483583,
+      "vtr": 0.509874406
      },
      "value_at_10x100": {
-      "fst_wellen": 0.018720454,
+      "fst_wellen": 0.018446974,
       "queries": 1000,
-      "vtr": 0.009182214,
-      "vtr_warm": 0.001000361
+      "vtr": 0.005324606,
+      "vtr_warm": 0.000657487
      }
     },
     "uncompressed": {
      "changes_window_1pct": {
       "changes": 2,
-      "fst_wellen": 0.014708836,
-      "vtr": 0.005544143
+      "fst_wellen": 0.01470985,
+      "vtr": 0.004786044
      },
      "condition_search": {
-      "fst_wellen": 0.01465724,
+      "fst_wellen": 0.014609096,
       "hits": 33,
-      "vtr": 0.005620873
+      "vtr": 0.004648036
      },
      "hierarchy": {
-      "fst_wellen": 0.004243695,
+      "fst_wellen": 0.004137195,
       "vars": 200001,
-      "vtr": 0.001028411
+      "vtr": 0.000714027
      },
      "load_1": {
       "changes": 80,
       "changes_wellen": 80,
-      "fst_wellen": 0.014448089,
-      "vtr": 0.005550551
+      "fst_wellen": 0.014857612,
+      "vtr": 0.004672619
      },
      "load_10": {
       "changes": 1025,
       "changes_wellen": 1025,
-      "fst_wellen": 0.014593154,
-      "vtr": 0.005794407
+      "fst_wellen": 0.014449979,
+      "vtr": 0.004748619
      },
      "load_100": {
       "changes": 10699,
       "changes_wellen": 10699,
-      "fst_wellen": 0.015760234,
-      "vtr": 0.006956875
+      "fst_wellen": 0.015429307,
+      "vtr": 0.00504874
      },
      "load_1000": {
       "changes": 111590,
       "changes_wellen": 111590,
-      "fst_wellen": 0.02650594,
-      "vtr": 0.012876337
+      "fst_wellen": 0.026537187,
+      "vtr": 0.009277872
      },
      "open": {
-      "fst_wellen": 0.010239605,
-      "vtr": 0.010111264
+      "fst_wellen": 0.010968607,
+      "vtr": 0.005343961
      },
      "parity_errors": 0,
      "signals": 200001,
      "stream_all": {
       "changes_fst": 29993396,
       "changes_vtr": 22017763,
-      "fst_reader": 16.718745378,
-      "vtr": 0.404109531
+      "fst_reader": 16.637985263,
+      "vtr": 0.436087093
      },
      "value_at_10x100": {
-      "fst_wellen": 0.014826659,
+      "fst_wellen": 0.014706792,
       "queries": 1000,
-      "vtr": 0.006235713,
-      "vtr_warm": 0.000452688
+      "vtr": 0.005099092,
+      "vtr_warm": 0.000437558
      }
     },
     "fstapi_reader_zlib": {
      "reader": "fstapi",
-     "open_s": 0.000278,
-     "hierarchy_s": 0.003871,
+     "open_s": 0.000271,
+     "hierarchy_s": 0.003798,
      "vars": 200001,
-     "value_at_s": 0.485749,
+     "value_at_s": 0.495812,
      "queries": 1000,
-     "load_1_s": 0.005923,
-     "load_10_s": 0.006808,
-     "load_100_s": 0.00596,
-     "load_1000_s": 0.012916,
-     "stream_all_s": 1.42256,
+     "load_1_s": 0.006171,
+     "load_10_s": 0.005321,
+     "load_100_s": 0.005976,
+     "load_1000_s": 0.012885,
+     "stream_all_s": 1.375562,
      "changes": 29993396
     },
     "fstapi_reader_lz4": {
      "reader": "fstapi",
-     "open_s": 0.000278,
-     "hierarchy_s": 0.003806,
+     "open_s": 0.000279,
+     "hierarchy_s": 0.003643,
      "vars": 200001,
-     "value_at_s": 0.487247,
+     "value_at_s": 0.488802,
      "queries": 1000,
-     "load_1_s": 0.006035,
-     "load_10_s": 0.006975,
-     "load_100_s": 0.005886,
-     "load_1000_s": 0.01178,
-     "stream_all_s": 1.176593,
+     "load_1_s": 0.006124,
+     "load_10_s": 0.005202,
+     "load_100_s": 0.005755,
+     "load_1000_s": 0.011868,
+     "stream_all_s": 1.184535,
      "changes": 29993396
     }
    }
@@ -1831,109 +1831,109 @@
      "writer": "fstapi",
      "records": 569969,
      "skipped": 0,
-     "wall_s": 0.265896,
-     "cpu_s": 0.265861,
+     "wall_s": 0.290886,
+     "cpu_s": 0.29086,
      "bytes": 16884326,
-     "changes_per_s": 2143578.4
+     "changes_per_s": 1959423.3
     },
     "fstapi-zlib": {
      "writer": "fstapi-zlib",
      "records": 569969,
      "skipped": 0,
-     "wall_s": 0.516547,
-     "cpu_s": 0.516493,
+     "wall_s": 0.547681,
+     "cpu_s": 0.547651,
      "bytes": 14803081,
-     "changes_per_s": 1103421.9
+     "changes_per_s": 1040695.6
     },
     "fstcpp-lz4": {
      "writer": "fstcpp",
      "records": 569969,
      "skipped": 0,
-     "wall_s": 0.102094,
-     "cpu_s": 0.102065,
+     "wall_s": 0.105804,
+     "cpu_s": 0.105787,
      "bytes": 16869133,
-     "changes_per_s": 5582778.2
+     "changes_per_s": 5387003.4
     },
     "vtr-c": {
      "writer": "vtr-c",
      "records": 569969,
-     "wall_s": 0.101711,
-     "cpu_s": 0.111063,
-     "bytes": 14339226,
-     "changes_per_s": 5603836.1
+     "wall_s": 0.095055,
+     "cpu_s": 0.104505,
+     "bytes": 14335453,
+     "changes_per_s": 5996208.8
     },
     "vtr-c-inline": {
      "writer": "vtr-c-inline",
      "records": 569969,
-     "wall_s": 0.095699,
-     "cpu_s": 0.095674,
-     "bytes": 14339226,
-     "changes_per_s": 5955826.9
+     "wall_s": 0.098455,
+     "cpu_s": 0.098443,
+     "bytes": 14335453,
+     "changes_per_s": 5789136.2
     },
     "vtr-rust": {
      "background": true,
      "blocks": 0,
-     "bytes": 14339226,
-     "changes_per_s": 5751182.580605366,
+     "bytes": 14335453,
+     "changes_per_s": 6091959.170537854,
      "codec": "zstd",
      "cpu_s": 0.11,
      "level": 3,
      "records": 569969,
-     "wall_s": 0.099104661,
+     "wall_s": 0.09356087,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "background": false,
      "blocks": 0,
-     "bytes": 14339226,
-     "changes_per_s": 5801707.219752122,
+     "bytes": 14335453,
+     "changes_per_s": 6039965.083288125,
      "codec": "zstd",
-     "cpu_s": 0.09999999999999999,
+     "cpu_s": 0.1,
      "level": 3,
      "records": 569969,
-     "wall_s": 0.0982416,
+     "wall_s": 0.094366274,
      "writer": "vtr"
     },
     "vtr-lz4": {
      "background": true,
      "blocks": 0,
-     "bytes": 16291813,
-     "changes_per_s": 6802859.605080638,
+     "bytes": 16290621,
+     "changes_per_s": 7048768.630630494,
      "codec": "lz4",
      "cpu_s": 0.09,
      "level": 0,
      "records": 569969,
-     "wall_s": 0.083783737,
+     "wall_s": 0.08086079,
      "writer": "vtr"
     },
     "fstapi-none": {
      "writer": "fstapi-none",
      "records": 569969,
      "skipped": 0,
-     "wall_s": 0.246945,
-     "cpu_s": 0.246917,
+     "wall_s": 0.264816,
+     "cpu_s": 0.26479,
      "bytes": 29352047,
-     "changes_per_s": 2308080.2
+     "changes_per_s": 2152324.0
     },
     "fstcpp-none": {
      "writer": "fstcpp-none",
      "records": 569969,
      "skipped": 0,
-     "wall_s": 0.072639,
-     "cpu_s": 0.072621,
+     "wall_s": 0.076756,
+     "cpu_s": 0.076726,
      "bytes": 29427398,
-     "changes_per_s": 7846628.2
+     "changes_per_s": 7425715.5
     },
     "vtr-none": {
      "background": true,
      "blocks": 0,
-     "bytes": 29184688,
-     "changes_per_s": 10119837.106503798,
+     "bytes": 29184024,
+     "changes_per_s": 10903507.035966218,
      "codec": "none",
-     "cpu_s": 0.06,
+     "cpu_s": 0.05,
      "level": 0,
      "records": 569969,
-     "wall_s": 0.056321954,
+     "wall_s": 0.052273915,
      "writer": "vtr"
     }
    },
@@ -1941,147 +1941,147 @@
     "vs_fstapi_zlib": {
      "changes_window_1pct": {
       "changes": 38,
-      "fst_wellen": 0.001475879,
-      "vtr": 0.000132241
+      "fst_wellen": 0.001467966,
+      "vtr": 0.000146588
      },
      "condition_search": {
-      "fst_wellen": 0.002789816,
+      "fst_wellen": 0.002807456,
       "hits": 1,
-      "vtr": 0.00106823
+      "vtr": 0.001013411
      },
      "hierarchy": {
-      "fst_wellen": 2.677e-06,
+      "fst_wellen": 2.675e-06,
+      "vars": 129,
+      "vtr": 6.88e-07
+     },
+     "load_1": {
+      "changes": 3803,
+      "changes_wellen": 3803,
+      "fst_wellen": 0.002115099,
+      "vtr": 0.000246992
+     },
+     "load_10": {
+      "changes": 28030,
+      "changes_wellen": 28030,
+      "fst_wellen": 0.024023572,
+      "vtr": 0.002664636
+     },
+     "load_100": {
+      "changes": 296258,
+      "changes_wellen": 296258,
+      "fst_wellen": 0.191896465,
+      "vtr": 0.026718143
+     },
+     "load_1000": {
+      "changes": 2834125,
+      "changes_wellen": 2834125,
+      "fst_wellen": 0.297654623,
+      "vtr": 0.130694128
+     },
+     "open": {
+      "fst_wellen": 9.3449e-05,
+      "vtr": 1.7831e-05
+     },
+     "parity_errors": 0,
+     "signals": 129,
+     "stream_all": {
+      "changes_fst": 569969,
+      "changes_vtr": 369991,
+      "fst_reader": 0.174306363,
+      "vtr": 0.024373924
+     },
+     "value_at_10x100": {
+      "fst_wellen": 0.02460832,
+      "queries": 1000,
+      "vtr": 0.00621564,
+      "vtr_warm": 0.006531995
+     }
+    },
+    "uncompressed": {
+     "changes_window_1pct": {
+      "changes": 38,
+      "fst_wellen": 0.001161815,
+      "vtr": 3.238e-05
+     },
+     "condition_search": {
+      "fst_wellen": 0.002561437,
+      "hits": 1,
+      "vtr": 0.000915839
+     },
+     "hierarchy": {
+      "fst_wellen": 2.968e-06,
       "vars": 129,
       "vtr": 7.01e-07
      },
      "load_1": {
       "changes": 3803,
       "changes_wellen": 3803,
-      "fst_wellen": 0.002075406,
-      "vtr": 0.000317754
+      "fst_wellen": 0.001722995,
+      "vtr": 0.000131348
      },
      "load_10": {
       "changes": 28030,
       "changes_wellen": 28030,
-      "fst_wellen": 0.025282533,
-      "vtr": 0.0041765
+      "fst_wellen": 0.019441141,
+      "vtr": 0.001064516
      },
      "load_100": {
       "changes": 296258,
       "changes_wellen": 296258,
-      "fst_wellen": 0.200635953,
-      "vtr": 0.036918223
+      "fst_wellen": 0.158394832,
+      "vtr": 0.01505234
      },
      "load_1000": {
       "changes": 2834125,
       "changes_wellen": 2834125,
-      "fst_wellen": 0.304449127,
-      "vtr": 0.133795259
+      "fst_wellen": 0.244906072,
+      "vtr": 0.111739023
      },
      "open": {
-      "fst_wellen": 9.8898e-05,
-      "vtr": 1.9538e-05
+      "fst_wellen": 4.4937e-05,
+      "vtr": 1.1377e-05
      },
      "parity_errors": 0,
      "signals": 129,
      "stream_all": {
       "changes_fst": 569969,
       "changes_vtr": 369991,
-      "fst_reader": 0.169525775,
-      "vtr": 0.025008029
+      "fst_reader": 0.116292952,
+      "vtr": 0.005509084
      },
      "value_at_10x100": {
-      "fst_wellen": 0.024162714,
+      "fst_wellen": 0.020249561,
       "queries": 1000,
-      "vtr": 0.00600209,
-      "vtr_warm": 0.005735355
-     }
-    },
-    "uncompressed": {
-     "changes_window_1pct": {
-      "changes": 38,
-      "fst_wellen": 0.001149578,
-      "vtr": 3.313e-05
-     },
-     "condition_search": {
-      "fst_wellen": 0.002494711,
-      "hits": 1,
-      "vtr": 0.000976947
-     },
-     "hierarchy": {
-      "fst_wellen": 2.659e-06,
-      "vars": 129,
-      "vtr": 6.64e-07
-     },
-     "load_1": {
-      "changes": 3803,
-      "changes_wellen": 3803,
-      "fst_wellen": 0.00174774,
-      "vtr": 0.000214055
-     },
-     "load_10": {
-      "changes": 28030,
-      "changes_wellen": 28030,
-      "fst_wellen": 0.021333462,
-      "vtr": 0.001058143
-     },
-     "load_100": {
-      "changes": 296258,
-      "changes_wellen": 296258,
-      "fst_wellen": 0.154692233,
-      "vtr": 0.014814024
-     },
-     "load_1000": {
-      "changes": 2834125,
-      "changes_wellen": 2834125,
-      "fst_wellen": 0.245776178,
-      "vtr": 0.207276438
-     },
-     "open": {
-      "fst_wellen": 7.8339e-05,
-      "vtr": 2.0705e-05
-     },
-     "parity_errors": 0,
-     "signals": 129,
-     "stream_all": {
-      "changes_fst": 569969,
-      "changes_vtr": 369991,
-      "fst_reader": 0.127038054,
-      "vtr": 0.005842723
-     },
-     "value_at_10x100": {
-      "fst_wellen": 0.020293534,
-      "queries": 1000,
-      "vtr": 0.00436985,
-      "vtr_warm": 0.004130062
+      "vtr": 0.004782447,
+      "vtr_warm": 0.004778173
      }
     },
     "fstapi_reader_zlib": {
      "reader": "fstapi",
      "open_s": 5e-06,
-     "hierarchy_s": 9e-05,
+     "hierarchy_s": 9.4e-05,
      "vars": 129,
-     "value_at_s": 0.303845,
+     "value_at_s": 0.29828,
      "queries": 1000,
-     "load_1_s": 0.000848,
-     "load_10_s": 0.012571,
-     "load_100_s": 0.097716,
-     "load_1000_s": 0.151492,
-     "stream_all_s": 0.147432,
+     "load_1_s": 0.000847,
+     "load_10_s": 0.01228,
+     "load_100_s": 0.096412,
+     "load_1000_s": 0.147482,
+     "stream_all_s": 0.14692,
      "changes": 569969
     },
     "fstapi_reader_lz4": {
      "reader": "fstapi",
-     "open_s": 7e-06,
-     "hierarchy_s": 8.3e-05,
+     "open_s": 6e-06,
+     "hierarchy_s": 8.7e-05,
      "vars": 129,
-     "value_at_s": 0.047521,
+     "value_at_s": 0.047638,
      "queries": 1000,
-     "load_1_s": 0.00059,
-     "load_10_s": 0.007401,
-     "load_100_s": 0.059447,
-     "load_1000_s": 0.089848,
-     "stream_all_s": 0.088351,
+     "load_1_s": 0.000528,
+     "load_10_s": 0.007202,
+     "load_100_s": 0.05752,
+     "load_1000_s": 0.088578,
+     "stream_all_s": 0.086433,
      "changes": 569969
     }
    }
@@ -2100,8 +2100,8 @@
      "transactions": 3000000,
      "attributes": 14000000,
      "relations": 2999996,
-     "wall_s": 0.772112,
-     "cpu_s": 0.755157,
+     "wall_s": 0.796755,
+     "cpu_s": 0.780012,
      "bytes": 114045140
     },
     "ftr-raw": {
@@ -2109,41 +2109,41 @@
      "transactions": 3000000,
      "attributes": 14000000,
      "relations": 2999996,
-     "wall_s": 0.5612,
-     "cpu_s": 0.551359,
+     "wall_s": 0.579123,
+     "cpu_s": 0.569485,
      "bytes": 210706348
     },
     "vtr-rust": {
      "attributes": 14000000,
-     "bytes": 38225032,
-     "cpu_s": 0.6399999999999999,
+     "bytes": 38225052,
+     "cpu_s": 0.6699999999999999,
      "relations": 2999996,
      "transactions": 3000000,
-     "wall_s": 0.422566207,
+     "wall_s": 0.444626661,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "attributes": 14000000,
-     "bytes": 38225032,
-     "cpu_s": 0.71,
+     "bytes": 38225052,
+     "cpu_s": 0.76,
      "relations": 2999996,
      "transactions": 3000000,
-     "wall_s": 0.707825597,
+     "wall_s": 0.745884998,
      "writer": "vtr"
     }
    },
    "readers": {
     "vtr": {
      "found": 1000,
-     "lookup_1000_s": 0.128396362,
-     "open_s": 5.6467e-05,
+     "lookup_1000_s": 0.127169363,
+     "open_s": 4.7696e-05,
      "relations": 2999996,
-     "relations_1000_s": 0.223182116,
+     "relations_1000_s": 0.248439435,
      "relations_found": 2009,
-     "scan_all_s": 0.549401576,
+     "scan_all_s": 0.585429232,
      "scanned": 3000000,
      "transactions": 3000000,
-     "window_1pct_s": 0.004360341,
+     "window_1pct_s": 0.005066376,
      "window_tx": 30007
     }
    }
@@ -2160,39 +2160,39 @@
      "transactions": 1000000,
      "stages": 7909131,
      "relations": 8908932,
-     "wall_s": 4.602976,
-     "cpu_s": 4.580696,
+     "wall_s": 4.657208,
+     "cpu_s": 4.643831,
      "bytes": 184862221
     },
     "vtr-rust": {
      "bytes": 33202152,
-     "cpu_s": 3.0,
+     "cpu_s": 3.09,
      "stages": 7909131,
      "transactions": 1000000,
-     "wall_s": 2.6038019009999998,
+     "wall_s": 2.69601134,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
      "bytes": 33202152,
-     "cpu_s": 2.96,
+     "cpu_s": 3.01,
      "stages": 7909131,
      "transactions": 1000000,
-     "wall_s": 2.9681423540000003,
+     "wall_s": 3.013948813,
      "writer": "vtr"
     }
    },
    "readers": {
     "vtr": {
      "found": 1000,
-     "lookup_1000_s": 0.050371048,
-     "open_s": 0.070405544,
+     "lookup_1000_s": 0.046793664,
+     "open_s": 0.070135614,
      "relations": 999801,
-     "relations_1000_s": 0.075155875,
+     "relations_1000_s": 0.078782152,
      "relations_found": 1974,
-     "scan_all_s": 0.51152661,
+     "scan_all_s": 0.52302743,
      "scanned": 1000000,
      "transactions": 1000000,
-     "window_1pct_s": 0.003632519,
+     "window_1pct_s": 0.004880887,
      "window_tx": 10101
     }
    },
@@ -2211,39 +2211,39 @@
      "transactions": 4041,
      "stages": 51961,
      "relations": 51961,
-     "wall_s": 0.03626,
-     "cpu_s": 0.036246,
+     "wall_s": 0.036138,
+     "cpu_s": 0.036124,
      "bytes": 1184028
     },
     "vtr-rust": {
-     "bytes": 216864,
+     "bytes": 216860,
      "cpu_s": 0.03,
      "stages": 51961,
      "transactions": 4000,
-     "wall_s": 0.037320748,
+     "wall_s": 0.036197945,
      "writer": "vtr"
     },
     "vtr-rust-inline": {
-     "bytes": 216848,
-     "cpu_s": 0.02,
+     "bytes": 216872,
+     "cpu_s": 0.03,
      "stages": 51961,
      "transactions": 4000,
-     "wall_s": 0.036084861,
+     "wall_s": 0.03505818,
      "writer": "vtr"
     }
    },
    "readers": {
     "vtr": {
      "found": 1000,
-     "lookup_1000_s": 0.001018213,
-     "open_s": 0.000894386,
+     "lookup_1000_s": 0.001007628,
+     "open_s": 0.000892958,
      "relations": 0,
-     "relations_1000_s": 6.611e-06,
+     "relations_1000_s": 8.05e-06,
      "relations_found": 0,
-     "scan_all_s": 0.002713811,
+     "scan_all_s": 0.002623068,
      "scanned": 4041,
      "transactions": 4041,
-     "window_1pct_s": 6.731e-06,
+     "window_1pct_s": 6.762e-06,
      "window_tx": 10
     }
    },

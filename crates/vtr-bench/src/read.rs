@@ -89,7 +89,7 @@ pub fn run(fst_path: &str, vtr_path: &str, seed: u64) -> serde_json::Value {
                 path.push('.');
             }
             path.push_str(vtr.name(node));
-            if h.node(node).kind() == vtr::NodeKind::Var {
+            if h.kind(node) == vtr::NodeKind::Var {
                 *bytes += path.len();
                 *n += 1;
             }

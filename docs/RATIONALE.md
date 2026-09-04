@@ -81,7 +81,13 @@ explicit parents, kinds and typed attributes.
 * The hierarchy is compressed as one blob per chunk; opening decompresses
   it once (about 30 KB for the SCR1 design). FST's gzip-of-LZ4 hierarchy
   took most of wellen's 2.7 ms open time on the same design; VTR opens in
-  0.25 ms.
+  0.2 ms.
+* Node ids inside the file are relative (distance to the parent, distance
+  from the next signal id), which makes them one byte each, and the reader
+  keeps nodes column-wise (kind, parent, name and two words per node, with
+  attributes and enum tables in side tables) instead of as 72-byte structs.
+  A 200k-variable design now opens in 6 ms instead of 13 ms, a constant
+  that dominated every point query on such designs.
 
 ## 5. Signal values
 
@@ -102,9 +108,28 @@ values), with three changes.
    integers, word arrays, packed bits or ASCII, whichever the simulator
    has.
 
-Rejected: XOR-delta against the previous value (no gain on the RTL traces
-measured, and it doubles the work on the read path); per-value dictionary
-coding (zstd's match finder already captures repeats within a run).
+4. Per-run *value transforms* borrowed from columnar databases (Blosc's
+   byte shuffle, BtrBlocks/DuckDB-style delta coding with sampled scheme
+   selection): before a run is compressed, the writer trial-compresses a
+   1 KiB sample of its fixed-width value streams under none / shuffle /
+   delta / delta+shuffle with fast zstd and applies the winner to every
+   eligible column of the run when it is at least 4% smaller. Measured on
+   the final files: -14% on SCR1, -23% on its 8-copy replica, -21% on
+   `long_sparse`, -10% on `many_active`, 0 on the high-entropy RSA-256
+   and wide-bus data (where the trial keeps plain values). Per-column
+   decisions were only 1-2% better than per-run ones and per-column
+   estimators without trial compression (order-0 entropy, zero counts)
+   lost most of the gain, so the run-level trial is the design. XOR-delta
+   was also tried and rarely won against arithmetic delta.
+5. 1-bit columns encode the *toggle* implicitly: an entry is `dt << 1`
+   when the value flipped (the usual case for a two-state signal), and an
+   escaped form carries an explicit logic code otherwise. This costs
+   nothing to decode and saves 0.5% (SCR1) to 4% (`long_sparse`) over
+   storing the bit.
+
+Rejected: per-value dictionary coding (zstd's match finder already
+captures repeats within a run); bit-packing of narrow values (no gain
+after zstd).
 
 ### 5.2 Blocks, groups and runs
 
@@ -133,7 +158,15 @@ most 64 KiB raw; a per-block dirty index and a prev-dirty table.
   hash) are stored once. On SCR1 this removes another 19% of the
   compressed file and brings the uncompressed file within a few percent
   of uncompressed FST; zstd alone only catches duplicates that land in
-  the same 64 KiB run.
+  the same 64 KiB run. The hash covers only the lengths, entry count and
+  the first and last 64 bytes of each stream: a full hash cost 0.1 s per
+  block on a 200k-signal design, and candidates are verified byte for
+  byte anyway.
+* Runs also hold at most 64 signals. In designs whose columns are tiny
+  (200k signals with a few hundred changes each) a 64 KiB run spans 200
+  columns, and loading 1000 random signals decompressed most of the file;
+  the cap makes that query 1.8x faster at a 1% size cost on that
+  workload and changes nothing elsewhere.
 * In-file skip indexes for long columns were tried and rejected: even
   delta-coded, they cost 10% of the file on SCR1. The reader instead
   builds a sparse index (one checkpoint per 256 entries) the first time
@@ -161,6 +194,11 @@ compressed and written.
   36.5 MiB to 22.2 MiB when the block grew from 4M to 16M records, at a
   5% write-time cost. Fragments are compact, so a 16M-record block costs
   the encoder tens of MiB, not the 256 MiB the raw log would take.
+* The chunk grows with the design: at least 16 changes per declared
+  signal per chunk. With 200k signals a 512K-record chunk held 2-3
+  changes per signal, and assembling a block from 60 chunks of tiny
+  fragments cost more than compressing it (0.16 s of 1.1 s); 16 changes
+  per signal cut the block finish by half.
 * Duplicate suppression is on by default (FST's is a compile-time option
   that GTKWave does not enable). It is cheap because the writer keeps the
   current value of every signal anyway to build frames.
@@ -174,10 +212,18 @@ decompressed pieces; a global time table built on demand.
   one run decompression, skip-index seek, short walk. wellen must load a
   signal from every block first; fstapi's rvat path inflates the block's
   time table, frame and position table.
-* Streaming every change uses a single decode pass into
-  self-describing 16-byte entries bucketed by coarse time, then an exact
-  counting sort per bucket; this replaced a heap merge (0.9 s → 0.19 s on
-  21M changes, versus 0.34 s for fst-reader).
+* Streaming every change uses the scheme of GTKWave's block iterator: a
+  cursor per column and a linked list per time step (each cursor is
+  re-linked at the time index of its next entry), so nothing is sorted
+  and memory is proportional to columns plus time steps. It runs at ~7 ns
+  per change on SCR1 (0.17 s for 21M changes, versus 0.37 s for
+  fst-reader). With very many active columns the cursors no longer fit
+  the cache and every visit misses; blocks with more than 32 Ki active
+  columns are instead walked in windows of time steps sized so that each
+  column visit yields at least 16 entries, and each window's 12-byte
+  entries are counting-sorted by time index. A heap merge (4x slower) and
+  a whole-block radix sort (O(changes) memory, DRAM-bound scatter) were
+  the earlier designs.
 * `load_signals` decompresses each run only once per block for any number
   of requested signals in it, and materialises wellen-style
   (`times`, packed data) results so a wavepeek backend is a thin adapter.

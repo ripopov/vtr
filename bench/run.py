@@ -41,8 +41,15 @@ def sh(cmd, cwd=ROOT, capture=False, env=None, check=True):
     return r
 
 
-def json_out(cmd, cwd=ROOT):
-    r = sh(cmd, cwd=cwd, capture=True)
+# Read benchmarks run with glibc's dynamic mmap threshold disabled: otherwise best-of-N
+# timings of a load depend on whether an earlier iteration happened to raise the threshold
+# (heap reuse, no page faults) or not, which varies with allocation sizes rather than work.
+# The same environment applies to every reader (wellen, fstapi, VTR).
+READ_ENV = dict(os.environ, MALLOC_MMAP_THRESHOLD_="33554432", MALLOC_TRIM_THRESHOLD_="536870912")
+
+
+def json_out(cmd, cwd=ROOT, env=None):
+    r = sh(cmd, cwd=cwd, capture=True, env=env)
     out = r.stdout
     start = out.find("{")
     return json.loads(out[start:])
@@ -200,16 +207,16 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None):
     # Reads: wellen (what wavepeek uses) vs VTR, on the GTKWave-default FST (zlib) and, when the
     # workload came from a simulator, on the original simulator-written FST as well.
     vtr_file = files["vtr-rust"]
-    res["readers"]["vs_fstapi_zlib"] = json_out([VTR_BENCH, "read", files["fstapi-zlib"], vtr_file])
+    res["readers"]["vs_fstapi_zlib"] = json_out([VTR_BENCH, "read", files["fstapi-zlib"], vtr_file], env=READ_ENV)
     if "source_fst" in info:
-        res["readers"]["vs_source_fst"] = json_out([VTR_BENCH, "read", info["source_fst"], vtr_file])
+        res["readers"]["vs_source_fst"] = json_out([VTR_BENCH, "read", info["source_fst"], vtr_file], env=READ_ENV)
     if not reads_only or (os.path.exists(files["fstcpp-none"]) and os.path.exists(files["vtr-none"])):
-        res["readers"]["uncompressed"] = json_out([VTR_BENCH, "read", files["fstcpp-none"], files["vtr-none"]])
+        res["readers"]["uncompressed"] = json_out([VTR_BENCH, "read", files["fstcpp-none"], files["vtr-none"]], env=READ_ENV)
     plan = os.path.join(out_dir, f"{name}_plan.txt")
     with open(plan, "w") as f:
         f.write(sh([VTR_BENCH, "plan", vtr_file], capture=True).stdout)
-    res["readers"]["fstapi_reader_zlib"] = json_out([os.path.join(BUILD, "fst_read"), files["fstapi-zlib"], plan])
-    res["readers"]["fstapi_reader_lz4"] = json_out([os.path.join(BUILD, "fst_read"), files["fstapi-lz4"], plan])
+    res["readers"]["fstapi_reader_zlib"] = json_out([os.path.join(BUILD, "fst_read"), files["fstapi-zlib"], plan], env=READ_ENV)
+    res["readers"]["fstapi_reader_lz4"] = json_out([os.path.join(BUILD, "fst_read"), files["fstapi-lz4"], plan], env=READ_ENV)
     # Sizes of the original simulator FST for reference.
     if "source_fst" in info:
         res["source_fst_bytes"] = os.path.getsize(info["source_fst"])

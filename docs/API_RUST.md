@@ -319,7 +319,7 @@ pub struct WriterOptions {
 | `compression` | `Compression::ZSTD_DEFAULT` (zstd level 3) | Codec and level used for every compressed payload: string and hierarchy chunks, block time tables, group frames, column runs, transaction column blobs. Any payload that does not shrink is stored raw (`Codec::None`) automatically. Note that `Compression::default()` is `ZSTD_FAST`, but `WriterOptions::default()` picks `ZSTD_DEFAULT`. |
 | `group_size` | 256 | Signals per value-change group. **Rounded up to a power of two** (minimum 1) by `create_with`; the rounded value is stored in `Meta::group_size` and reflected by `options()`. Larger groups compress better; smaller groups make single-signal reads decompress less. Fixed for the file's lifetime. |
 | `block_records` | `1 << 24` (16 Mi) | Value changes per signal block, the compression unit: a block is finished (columns concatenated, compressed, written) once this many changes were logged since the previous block. Larger blocks give the compressor longer columns; smaller blocks make random access touch less data. A block cannot hold more than `2^31` time steps. |
-| `chunk_records` | `1 << 19` (512 Ki) | Value changes handed to the background encoder at a time, the pipelining unit. Each chunk is counting-sorted by signal and pre-encoded into column fragments as soon as it arrives, so the work overlaps with the simulator; only the final concatenation and compression wait for the block to complete. Wide vectors (declared packing wider than 8 bytes) bypass the record log and travel as pre-encoded fragments with the same chunks. Bounded by `block_records`. |
+| `chunk_records` | `1 << 19` (512 Ki) | Lower bound on the value changes handed to the background encoder at a time, the pipelining unit; the writer raises it to `CHUNK_RECORDS_PER_SIGNAL` (16) changes per declared signal so that per-signal column fragments stay large in designs with hundreds of thousands of signals. Each chunk is counting-sorted by signal and pre-encoded into column fragments as soon as it arrives, so the work overlaps with the simulator; only the final concatenation and compression wait for the block to complete. Wide vectors (declared packing wider than 8 bytes) bypass the record log and travel as pre-encoded fragments with the same chunks. Bounded by `block_records`. |
 | `run_bytes` | `64 << 10` (64 KiB) | Raw bytes per independently compressed column run inside a group. Consecutive signal columns are packed into a run while they fit; a single column larger than the budget forms a run of its own. Bounds how much a reader must decompress to reach one signal in one block. |
 | `tx_block_bytes` | `4 << 20` (4 MiB) | Size of the buffered transaction and relation rows (in the writer's row encoding) that triggers a transaction block flush. Checked on every `end_tx` and `relate`. |
 | `background` | `true` | Encode and compress on a background thread named `vtr-writer`. The caller thread only buffers records; a bounded channel (4 messages) applies back-pressure, and chunk/block buffers are recycled to avoid reallocation. With `false`, chunk encoding and block finishing happen inline in the calling thread at the same points. |
@@ -892,29 +892,41 @@ resulting node if it is a `Var` (alias or declaration), else `None`. Both are
 O(path length x fan-out); for repeated lookups build your own map from
 `full_path`.
 
-`Hierarchy` (`vtr::hierarchy`):
+`Hierarchy` (`vtr::hierarchy`) stores the nodes column-wise (a few bytes per
+node: kind, parent, name, two kind-specific words; enum tables and attributes
+in side tables), so opening a file with hundreds of thousands of variables
+costs a few milliseconds. Fields are reached through accessors; `node` builds
+a `Node` value on demand:
 
 ```rust
 pub struct Hierarchy {
-    pub nodes: Vec<Node>,          // indexed by NodeId
     pub signals: Vec<SignalKind>,  // indexed by SignalId
     pub signal_var: Vec<NodeId>,   // for every signal, the Var node that declared it
-    /* private children index */
+    /* private node columns and children index */
 }
 impl Hierarchy {
-    pub fn node(&self, id: NodeId) -> &Node                          // panics when out of range
+    pub fn node(&self, id: NodeId) -> Node                           // by value; panics when out of range
+    pub fn kind(&self, id: NodeId) -> NodeKind
+    pub fn parent(&self, id: NodeId) -> Option<NodeId>
+    pub fn name(&self, id: NodeId) -> StrId
+    pub fn signal_of(&self, id: NodeId) -> Option<SignalId>          // vars only
+    pub fn enum_entries(&self, id: NodeId) -> Option<&[(StrId, StrId)]>
+    pub fn attrs(&self, id: NodeId) -> &[(StrId, Value)]
+    pub fn attr_count(&self) -> usize
     pub fn len(&self) -> usize
     pub fn is_empty(&self) -> bool
+    pub fn ids(&self) -> impl Iterator<Item = NodeId>                 // all nodes, declaration order
     pub fn roots(&self) -> impl Iterator<Item = NodeId> + '_          // top-level nodes, declaration order
     pub fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ // declaration order
     pub fn signal_kind(&self, s: SignalId) -> Option<SignalKind>
     pub fn nodes_of_kind(&self, kind: NodeKind) -> impl Iterator<Item = NodeId> + '_
-    // construction (used by the reader): new(), add_chunk(&[u8]), build_index()
+    // construction (used by the reader): new(), add_chunk(&[u8]), push(Node), build_index()
 }
 ```
 
 A `Reader` always returns an indexed hierarchy; `roots`/`children` are O(1)
-per item (CSR layout).
+per item (CSR layout). `node(id)` copies enum-table entries and attributes,
+so prefer the accessors in tight loops.
 
 ```rust
 pub struct Node {
@@ -1099,20 +1111,24 @@ pub fn for_each_change(&self, t0: u64, t1: u64, f: impl FnMut(u64, SignalId, Sig
 
 Streams every change of every signal with `t0 <= time <= t1`, VCD-dump
 style. Per block it decompresses all runs of all dirty groups (bypassing the
-group cache), builds a radix-sorted list of `(time index, signal)` entries and
-invokes `f` in that order. **Ordering guarantees:**
+group cache) and opens a cursor on every non-empty column. Blocks with up to
+32 Ki active columns are merged through a linked list per time step (the
+scheme of GTKWave's block iterator: no sorting, no per-change memory); larger
+blocks are walked in windows of time steps whose entries are counting-sorted
+by time index. **Ordering guarantees:**
 
 * times are non-decreasing across the whole call;
-* within one block and one time step, entries are ordered by ascending
-  `SignalId`, and multiple changes of the same signal at the same time step
-  keep emission order;
+* multiple changes of the same signal at the same time step keep emission
+  order;
+* within one time step the order of *different* signals is deterministic for
+  a given file but otherwise unspecified;
 * a time step that closes one block and opens the next delivers the first
-  block's entries before the second's (so signal-id ordering is per block, not
-  global, at block boundaries).
+  block's entries before the second's.
 
 Values passed to `f` borrow a per-block buffer; call `to_owned()` to keep one.
 Bit vectors are reported with `states: 2` when stored compact. Peak memory is
-the decompressed size of the largest block.
+the decompressed size of the largest block plus a few dozen bytes per active
+column; it does not grow with the number of changes.
 
 ```rust
 pub fn packed_len(&self, s: SignalId) -> Option<usize>
@@ -1443,9 +1459,10 @@ reader needs no configuration.
   frame piece. Loading every signal of a group is one decompression per run
   per block, i.e. the same work as decompressing the group once.
 * **`for_each_change`** is the sequential path: it decompresses whole blocks
-  (all runs, bypassing the cache) and sorts by time with a two-level counting
-  sort. Use it for VCD export and full-trace statistics, not for random
-  access.
+  (all runs, bypassing the cache) and merges the columns by time (linked
+  list per time step, or windowed counting sort for blocks with very many
+  active columns). Use it for VCD export and full-trace statistics, not for
+  random access.
 * **Group cache.** Keyed by `(block, group, piece)` where piece 0 is the
   frames and piece `k+1` is run `k`; LRU with a linear scan over at most
   `group_cache` entries (default 256). Memory is bounded by roughly

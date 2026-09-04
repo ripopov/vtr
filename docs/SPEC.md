@@ -217,26 +217,30 @@ number of nodes in all earlier chunks). A node:
 
 ```
 u8      kind        1 scope, 2 var, 3 stream, 4 generator, 5 enum table
-varint  parent+1    0 = top level; otherwise the parent's node id + 1 (parent id < this id)
+varint  parent      0 = top level; otherwise `this id - parent id` (the parent precedes the node)
 varint  name        string id
 ...kind specific fields...
 attrs               section 5.3
 ```
+
+Ids inside a node are stored relative to the node's own position so that
+they stay small: the parent as a backward distance, the signal of a var
+(below) as a backward distance from the next unassigned signal id.
 
 Kind specific fields:
 
 | kind | fields |
 |---|---|
 | scope | `varint scope_type` (5.1), `varint component` string id (module/entity type; 0 = unknown) |
-| var | `varint var_type` (5.2), `u8 direction` (0 implicit, 1 input, 2 output, 3 inout, 4 buffer, 5 linkage), `varint signal` id, `u8 declares` then, if `declares = 1`, a signal kind: `u8 code` (0 bits/2-state, 1 bits/4-state, 2 bits/9-state, 3 real, 4 variable-length) followed by `varint width` for codes 0..2 |
+| var | `varint var_type` (5.2), `u8 direction` (0 implicit, 1 input, 2 output, 3 inout, 4 buffer, 5 linkage), `varint signal_back` = `next_signal - signal` where `next_signal` is the number of signals declared before this node (0 for a var that declares the next signal, `>= 1` for an alias of an earlier one), `u8 declares` then, if `declares = 1`, a signal kind: `u8 code` (0 bits/2-state, 1 bits/4-state, 2 bits/9-state, 3 real, 4 variable-length) followed by `varint width` for codes 0..2 |
 | stream | `varint kind` string id (free form, e.g. FTR's "TRANSACTOR") |
 | generator | none; the parent must be a stream |
 | enum table | `varint n`, `n x { varint literal string id, varint value string id }` |
 
 **Signals.** Signal ids are dense `u32`. The var with `declares = 1` for
-signal *s* is the *s*-th declaring var in file order (so signal ids are
-implied by order and must match); a var with `declares = 0` is an *alias*
-of an earlier signal and must reference an already declared id. The
+signal *s* is the *s*-th declaring var in file order (so `signal_back`
+must be 0 for it); a var with `declares = 0` is an *alias* of an earlier
+signal and `signal_back` must be at least 1 and at most `next_signal`. The
 signal kind gives the value encoding used everywhere else:
 
 | code | kind | value representation |
@@ -350,17 +354,19 @@ varint n_alias                    dynamic aliases (6.6)
 n_alias x { varint local_sig, varint target_sig }
 blob   frame                      compressed blob: the *frame* (6.3)
 varint n_runs
-n_runs x { varint n_in_run, varint clen }   runs cover the n_sigs signals in order
+n_runs x { varint n_in_run, varint xform, varint clen }   runs cover the n_sigs signals in order
 run blobs                         n_runs compressed blobs of `clen` bytes each
 ```
 
 Decompressed run: `n_in_run x varint column_length` followed by the
 columns in the same order. A column of length 0 means the signal did not
-change in this block. Writers split a group's columns into runs whose raw
-size does not exceed a budget (64 KiB in the reference implementation; a
-single larger column forms a run of its own) so that reading one signal
-decompresses a bounded amount of data. The raw size of a run must be
-below 2^30 bytes.
+change in this block. `xform` names the value transform (6.5) applied to
+every eligible column of the run before compression: 0 none, 1 shuffle,
+2 delta, 3 delta then shuffle; other values are reserved. Writers split a
+group's columns into runs whose raw size does not exceed a budget (64 KiB
+and at most 64 signals in the reference implementation; a single larger
+column forms a run of its own) so that reading one signal decompresses a
+bounded amount of data. The raw size of a run must be below 2^30 bytes.
 
 ### 6.3 Frame
 
@@ -382,14 +388,24 @@ Several entries may share one index (same-time updates); they are kept in
 emission order.
 
 *1-bit signals*: the column is a sequence of varint entries. Bit 0 is an
-escape flag: `(dt << 2) | (bit << 1)` encodes a 0 or 1; `(dt << 4) |
-((code - 2) << 1) | 1` encodes the other logic codes (X=2 ... -=8), so
-the common two-state case stays in one byte for deltas up to 31.
+escape flag. `dt << 1` (flag 0) means the value *toggled*: the new logic
+code is the previous entry's code XOR 1, which is only valid when the
+previous code was 0 or 1. `(dt << 5) | (code << 1) | 1` (flag 1) carries
+the logic code (0 ... 8) explicitly; it is used for the first entry of a
+column and whenever the value did not simply toggle (repeated value with
+duplicate suppression off, X/Z/U/W/L/H/- codes, or a previous code above
+1). A two-state signal in a running simulation therefore costs one byte
+per change for deltas up to 63.
 
-*All other kinds*: the column is `varint header_len`, then `header_len`
-bytes of entry headers, then the values concatenated in the same order.
+*All other kinds*: the column is `varint header_word`, then `header_len`
+bytes of entry headers, then the values concatenated in the same order,
+where `header_word = (header_len << 2) | (eligible << 1) | full`.
 Keeping headers and values in separate streams lets the compressor see
-homogeneous data.
+homogeneous data. `eligible = 1` marks a column whose entries all have the
+same value length (a *fixed-width* column: every entry compact, or every
+entry in the declared packing, `full` telling which; reals always) and
+whose value stream therefore carries the run's transform (6.5); a
+variable-length column is never eligible.
 
 | signal kind | header | value |
 |---|---|---|
@@ -400,7 +416,29 @@ homogeneous data.
 The number of entries is implied by the header stream; a reader decodes
 headers and values with two cursors that advance together.
 
-### 6.5 Dynamic aliases
+### 6.5 Value transforms
+
+Before compression a writer may apply one transform to the value streams
+of all eligible columns of a run (the run's `xform`, 6.2). With `n`
+entries of `w` bytes each (`w` = `ceil(width/8)` for compact entries,
+`packed_len(width, states)` for full ones, 8 for reals), viewed as
+little-endian integers:
+
+| xform | encoding |
+|---:|---|
+| 1 shuffle | byte transposition: output byte `b * n + i` is input byte `i * w + b` (all first bytes, then all second bytes, ...) |
+| 2 delta | entry `i` (i >= 1) replaced by `entry[i] - entry[i-1]` modulo `2^(8w)`; entry 0 unchanged |
+| 3 delta + shuffle | delta, then shuffle |
+
+Transforms are inverted in the opposite order (unshuffle, then prefix sum)
+after decompression and before the column is decoded. They exist because
+general-purpose compressors see counters, addresses and slowly changing
+high-order bytes far better after such a pass: the reference writer picks
+the transform per run by trial-compressing a small sample of the run's
+value streams with each candidate and keeps plain values unless a
+candidate is at least 4% smaller. Header streams are never transformed.
+
+### 6.6 Dynamic aliases
 
 When two signals of the same kind have byte-identical columns in a block
 (typical for clock trees and fan-out nets that the simulator did not
@@ -412,12 +450,12 @@ length 0. Aliases are per block; frames are never aliased. A reader must
 resolve an alias before decoding the column (the target may live in
 another dirty group of the same block).
 
-### 6.6 Reading
+### 6.7 Reading
 
 *Value of signal s at time t*: find the last block whose `start_time <= t`
 (binary search over directory `aux0`); let `g = s / group_size`; if `g` is
 in the block's dirty index decode its run for `s` (following an alias,
-6.5) and take the last entry
+6.6, and undoing the run's transform, 6.5) and take the last entry
 whose time-table index maps to a time `<= t`, else take the frame value;
 if `g` is not dirty there, follow the prev-dirty table to the previous
 block in which it is dirty and take the last entry of its column (or the
