@@ -29,6 +29,7 @@ Konata/Kanata pipeline logs and OpenTelemetry traces can express.
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | benchmark methodology; results in [docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md) |
 | [docs/RATIONALE.md](docs/RATIONALE.md) | design rationale: alternatives researched, what was borrowed and rejected |
 | [docs/COVERAGE.md](docs/COVERAGE.md) | feature-by-feature coverage of FST, FTR, Kanata and OpenTelemetry |
+| [docs/SOTA_REVIEW_2026.md](docs/SOTA_REVIEW_2026.md) | 2025-2026 literature on trace/columnar compression checked against measurements; ranked ideas for further gains |
 
 ## Building
 

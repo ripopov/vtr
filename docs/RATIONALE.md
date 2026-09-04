@@ -317,3 +317,6 @@ local; the contents are stored as 24 columns compressed as one blob.
 * Multi-writer merging (several simulators into one file) is not
   addressed; separate files plus a KDB that references both is the
   intended pattern.
+* `docs/SOTA_REVIEW_2026.md` ranks the remaining ideas from the 2025-2026
+  literature against measurements on the benchmark files (dictionary
+  transform, second encoder thread, narrowest-packing loads).
