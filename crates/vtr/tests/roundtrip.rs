@@ -456,3 +456,66 @@ fn stream_delivers_same_step_repeats_in_order() {
         assert_eq!(key(&got), key(&expected), "n_sigs {n_sigs}");
     }
 }
+
+#[test]
+fn dictionary_coded_columns_roundtrip() {
+    // Signals whose values come from small sets (FSM states, opcodes, handshake
+    // codes) are dictionary-coded (transform 4); a bus that never repeats is not.
+    // Both must read back exactly through every reader path.
+    let path = tmp("dict.vtr");
+    let opts = WriterOptions { background: false, ..Default::default() };
+    let mut w = Writer::create_with(&path, opts).unwrap();
+    let (_, st) = w.add_bits("state", 16, 2);
+    let (_, op) = w.add_bits("opcode", 32, 2);
+    let (_, wide) = w.add_bits("tag", 184, 2); // 23-byte entries, 9 distinct values
+    let (_, bus) = w.add_bits("bus", 32, 2);
+    let states = [0x0001u64, 0x0010, 0x0100, 0x1000, 0x8000];
+    let mut lcg = 0x1234_5678_9abc_def0u64;
+    let mut expect: Vec<(u64, u64, u64, u64)> = Vec::new();
+    for i in 0..40_000u64 {
+        w.set_time(i * 5).unwrap();
+        lcg = lcg.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let s = states[((lcg >> 50) % 5) as usize];
+        let o = 0xdead_0000 + (lcg >> 60); // 16 distinct values
+        let t = ((lcg >> 40) % 9) * 0x0101_0101;
+        let b = lcg >> 32;
+        w.emit_u64(st, s).unwrap();
+        w.emit_u64(op, o).unwrap();
+        let mut words = [0u32; 6];
+        words[0] = t as u32;
+        words[5] = (t as u32) ^ 0xff;
+        w.emit_words(wide, &words).unwrap();
+        w.emit_u64(bus, b).unwrap();
+        expect.push((s, o, t, b));
+    }
+    w.close().unwrap();
+    let rd = Reader::open(&path).unwrap();
+    let v = rd.load_signals(&[st, op, wide, bus]).unwrap();
+    // Duplicate suppression drops repeated values, so compare against the deduplicated stream.
+    let mut prev = (u64::MAX, u64::MAX, u64::MAX, u64::MAX);
+    let mut n = [0usize; 4];
+    for (i, &(s, o, t, b)) in expect.iter().enumerate() {
+        let time = i as u64 * 5;
+        for (k, (val, was)) in [(s, prev.0), (o, prev.1), (t, prev.2), (b, prev.3)].into_iter().enumerate() {
+            if val != was {
+                assert_eq!(v[k].times[n[k]], time, "signal {k} change {}", n[k]);
+                let a = v[k].get(n[k]).to_ascii();
+                let low = u64::from_str_radix(&a[a.len().saturating_sub(64)..], 2).unwrap();
+                assert_eq!(low, val, "signal {k} at {time}"); // the 184-bit tag's low word is `t`
+                n[k] += 1;
+            }
+        }
+        prev = (s, o, t, b);
+    }
+    for k in 0..4 {
+        assert_eq!(v[k].len(), n[k]);
+    }
+    assert_eq!(rd.value_at(st, 5 * 12).unwrap().as_ascii_u64(), expect[12].0);
+    assert_eq!(rd.changes(op, 1000, 1200).unwrap().len(), v[1].times.iter().filter(|&&t| (1000..=1200).contains(&t)).count());
+    let mut streamed = [0usize; 4];
+    rd.for_each_change(0, u64::MAX, |_, s, _| streamed[s.0 as usize] += 1).unwrap();
+    assert_eq!(streamed, n);
+    // The low-cardinality columns must actually have been dictionary-coded.
+    let st = rd.run_stats().unwrap();
+    assert!(st[4].0 > 0, "no dictionary-coded run: {st:?}");
+}

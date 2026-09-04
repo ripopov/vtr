@@ -118,6 +118,11 @@ fn cmd_info(args: &[String]) {
     println!("hierarchy:   {scopes} scopes, {vars} vars ({} signals), {streams} streams, {gens} generators", r.signal_count());
     println!("strings:     {}", r.strings().len());
     println!("signal blocks: {}", r.block_count());
+    if let Ok(st) = r.run_stats() {
+        let names = ["plain", "shuffle", "delta", "delta+shuffle", "dictionary"];
+        let parts: Vec<String> = st.iter().zip(names).filter(|(s, _)| s.0 > 0).map(|(s, n)| format!("{n} {} ({} bytes)", s.0, s.1)).collect();
+        println!("column runs: {}", parts.join(", "));
+    }
     let (ntx, nrel) = r.tx_counts();
     println!("tx blocks:   {} ({ntx} transactions, {nrel} relations)", r.tx_block_count());
     println!("blackout:    {} transitions", r.blackout().len());

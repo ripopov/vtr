@@ -19,10 +19,16 @@ pub enum Xform {
     Delta = 2,
     /// Delta, then shuffle.
     DeltaShuffle = 3,
+    /// Per-column dictionary: the value stream becomes `varint n_dict` (0: the plain
+    /// values follow), `n_dict * w` dictionary bytes in first-occurrence order, then one
+    /// code byte per entry. Unlike the others this changes the column length, so it is
+    /// applied and undone at run level ([`dict_encode`], [`dict_decode`]).
+    Dict = 4,
 }
 
 impl Xform {
-    pub const ALL: [Xform; 4] = [Xform::None, Xform::Shuffle, Xform::Delta, Xform::DeltaShuffle];
+    /// The in-place transforms ([`forward`] / [`inverse`]), in trial order.
+    pub const IN_PLACE: [Xform; 4] = [Xform::None, Xform::Shuffle, Xform::Delta, Xform::DeltaShuffle];
 
     pub fn from_u8(v: u8) -> Option<Xform> {
         match v {
@@ -30,8 +36,171 @@ impl Xform {
             1 => Some(Xform::Shuffle),
             2 => Some(Xform::Delta),
             3 => Some(Xform::DeltaShuffle),
+            4 => Some(Xform::Dict),
             _ => None,
         }
+    }
+}
+
+/// Most distinct entries a dictionary-coded column may have (codes are one byte).
+pub const DICT_MAX: usize = 256;
+
+/// Scratch state for [`dict_encode`]: an open-addressing table of `DICT_SLOTS` slots
+/// holding `code + 1` (0 = empty), plus the dictionary and code buffers.
+pub struct DictTable {
+    slots: Vec<u16>,
+    /// (key, code + 1) slots for entries of up to 8 bytes.
+    narrow: Vec<(u64, u16)>,
+    dict: Vec<u8>,
+    codes: Vec<u8>,
+    /// Occurrences of every code in the last encoded stream.
+    counts: Vec<u32>,
+}
+
+impl DictTable {
+    /// Occurrences of each dictionary code in the stream last passed to [`dict_encode`].
+    pub fn counts(&self) -> &[u32] {
+        &self.counts
+    }
+}
+
+#[inline]
+fn load_le(e: &[u8]) -> u64 {
+    let mut b = [0u8; 8];
+    b[..e.len()].copy_from_slice(e);
+    u64::from_le_bytes(b)
+}
+
+const DICT_SLOTS: usize = 1024;
+
+impl Default for DictTable {
+    fn default() -> Self {
+        DictTable { slots: vec![0; DICT_SLOTS], narrow: vec![(0, 0); DICT_SLOTS], dict: Vec::new(), codes: Vec::new(), counts: Vec::new() }
+    }
+}
+
+#[inline]
+fn hash_entry(e: &[u8]) -> u64 {
+    let mut h = 0x9E37_79B9_7F4A_7C15u64;
+    let mut chunks = e.chunks_exact(8);
+    for c in &mut chunks {
+        h = (h ^ u64::from_le_bytes(c.try_into().unwrap())).wrapping_mul(0xD6E8_FEB8_6659_FD93).rotate_left(31);
+    }
+    let rest = chunks.remainder();
+    if !rest.is_empty() {
+        let mut b = [0u8; 8];
+        b[..rest.len()].copy_from_slice(rest);
+        h = (h ^ u64::from_le_bytes(b)).wrapping_mul(0xD6E8_FEB8_6659_FD93).rotate_left(31);
+    }
+    h ^ (h >> 29)
+}
+
+/// Dictionary-codes `v` (a whole number of `w`-byte entries) and appends the coded
+/// stream to `out`, returning the dictionary size. Returns `None` and leaves `out`
+/// untouched when the entries have more than `max` distinct values (`max <= DICT_MAX`).
+pub fn dict_encode(w: usize, v: &[u8], out: &mut Vec<u8>, t: &mut DictTable, max: usize) -> Option<usize> {
+    debug_assert!(w > 0 && v.len() % w == 0 && max <= DICT_MAX);
+    t.dict.clear();
+    t.codes.clear();
+    t.codes.reserve(v.len() / w);
+    t.counts.clear();
+    let mut nd = 0usize;
+    if w <= 8 {
+        // Narrow entries: the slot holds the key itself next to the code, so a hit costs
+        // one load and one compare.
+        t.narrow.fill((0, 0));
+        for e in v.chunks_exact(w) {
+            let key = load_le(e);
+            let mut h = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - 10)) as usize;
+            loop {
+                let (k, c) = t.narrow[h];
+                if c == 0 {
+                    if nd == max {
+                        return None;
+                    }
+                    t.dict.extend_from_slice(e);
+                    nd += 1;
+                    t.narrow[h] = (key, nd as u16);
+                    t.codes.push((nd - 1) as u8);
+                    t.counts.push(1);
+                    break;
+                }
+                if k == key {
+                    t.codes.push((c - 1) as u8);
+                    t.counts[c as usize - 1] += 1;
+                    break;
+                }
+                h = (h + 1) & (DICT_SLOTS - 1);
+            }
+        }
+    } else {
+        t.slots.fill(0);
+        for e in v.chunks_exact(w) {
+            let mut h = hash_entry(e) as usize & (DICT_SLOTS - 1);
+            loop {
+                let s = t.slots[h] as usize;
+                if s == 0 {
+                    if nd == max {
+                        return None;
+                    }
+                    t.dict.extend_from_slice(e);
+                    nd += 1;
+                    t.slots[h] = nd as u16;
+                    t.codes.push((nd - 1) as u8);
+                    t.counts.push(1);
+                    break;
+                }
+                if &t.dict[(s - 1) * w..s * w] == e {
+                    t.codes.push((s - 1) as u8);
+                    t.counts[s - 1] += 1;
+                    break;
+                }
+                h = (h + 1) & (DICT_SLOTS - 1);
+            }
+        }
+    }
+    crate::varint::put_u64(out, nd as u64);
+    out.extend_from_slice(&t.dict);
+    out.extend_from_slice(&t.codes);
+    Some(nd)
+}
+
+/// Undoes [`dict_encode`]: appends the plain `w`-byte entries of a coded stream to `out`.
+pub fn dict_decode(w: usize, input: &[u8], out: &mut Vec<u8>) -> crate::error::Result<()> {
+    use crate::error::Error;
+    let mut r = crate::varint::Reader::new(input);
+    let nd = r.u64()? as usize;
+    let rest = &input[r.pos..];
+    if nd == 0 {
+        out.extend_from_slice(rest);
+        return Ok(());
+    }
+    if nd > DICT_MAX || rest.len() < nd * w {
+        return Err(Error::Corrupt("dictionary-coded column is truncated"));
+    }
+    let (dict, codes) = rest.split_at(nd * w);
+    if codes.iter().any(|&c| c as usize >= nd) {
+        return Err(Error::Corrupt("dictionary code out of range"));
+    }
+    out.reserve(codes.len() * w);
+    match w {
+        2 => dict_expand::<2>(dict, codes, out),
+        4 => dict_expand::<4>(dict, codes, out),
+        8 => dict_expand::<8>(dict, codes, out),
+        _ => {
+            for &c in codes {
+                let c = c as usize;
+                out.extend_from_slice(&dict[c * w..c * w + w]);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dict_expand<const W: usize>(dict: &[u8], codes: &[u8], out: &mut Vec<u8>) {
+    for &c in codes {
+        let c = c as usize;
+        out.extend_from_slice(&dict[c * W..c * W + W]);
     }
 }
 
@@ -46,6 +215,7 @@ pub fn forward(x: Xform, w: usize, v: &mut [u8], tmp: &mut Vec<u8>) {
             delta_encode(w, v);
             shuffle(w, v, tmp);
         }
+        Xform::Dict => debug_assert!(false, "dictionary coding is applied at run level"),
     }
 }
 
@@ -60,6 +230,7 @@ pub fn inverse(x: Xform, w: usize, v: &mut [u8], tmp: &mut Vec<u8>) {
             unshuffle(w, v, tmp);
             delta_decode(w, v);
         }
+        Xform::Dict => debug_assert!(false, "dictionary coding is undone at run level"),
     }
 }
 
@@ -251,7 +422,7 @@ mod tests {
         for w in [1usize, 2, 3, 4, 5, 7, 8, 9, 12, 16, 33, 256] {
             for n in [0usize, 1, 2, 3, 63, 64, 65, 200] {
                 let orig: Vec<u8> = (0..n * w).map(|_| lcg(&mut seed)).collect();
-                for x in Xform::ALL {
+                for x in Xform::IN_PLACE {
                     let mut v = orig.clone();
                     forward(x, w, &mut v, &mut tmp);
                     if x != Xform::None && n > 1 && w > 1 {
@@ -287,6 +458,35 @@ mod tests {
         forward(Xform::DeltaShuffle, 12, &mut v, &mut tmp);
         inverse(Xform::DeltaShuffle, 12, &mut v, &mut tmp);
         assert_eq!(v, keep);
+    }
+
+    #[test]
+    fn dict_roundtrip_and_limits() {
+        let mut t = DictTable::default();
+        let mut out = Vec::new();
+        for w in [2usize, 3, 4, 8, 23] {
+            // 300 entries cycling through 7 values, then a stream with 300 distinct values.
+            let v: Vec<u8> = (0..300).flat_map(|i| (0..w).map(move |b| ((i % 7) * 37 + b) as u8)).collect();
+            out.clear();
+            assert_eq!(dict_encode(w, &v, &mut out, &mut t, DICT_MAX), Some(7));
+            assert_eq!(out.len(), 1 + 7 * w + 300);
+            let mut back = Vec::new();
+            dict_decode(w, &out, &mut back).unwrap();
+            assert_eq!(back, v);
+            let v: Vec<u8> = (0..300u32).flat_map(|i| (0..w).map(move |b| if b == 0 { i as u8 } else { (i >> 8) as u8 })).collect();
+            out.clear();
+            assert_eq!(dict_encode(w, &v, &mut out, &mut t, DICT_MAX), None);
+            assert!(out.is_empty());
+            assert_eq!(dict_encode(w, &v[..256 * w], &mut out, &mut t, DICT_MAX), Some(256));
+            let mut back = Vec::new();
+            dict_decode(w, &out, &mut back).unwrap();
+            assert_eq!(back, v[..256 * w]);
+        }
+        // A plain (count 0) stream passes through; a code past the dictionary is corrupt.
+        let mut back = Vec::new();
+        dict_decode(4, &[0, 1, 2, 3, 4], &mut back).unwrap();
+        assert_eq!(back, [1, 2, 3, 4]);
+        assert!(dict_decode(2, &[1, 9, 9, 0, 1], &mut Vec::new()).is_err());
     }
 
     #[test]

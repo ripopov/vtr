@@ -1,4 +1,52 @@
 {
+  "scr1_axi": {
+    "source_fst": "/home/ripopov/work/vtr/ext/wavepeek/web/playground/assets/scr1_axi.fst",
+    "changes": 20977928,
+    "end_time": 1880182,
+    "signals": 1445,
+    "time_steps": 376038,
+    "description": "SCR1 RISC-V core with AXI testbench, Verilator FST fixture from the wavepeek repository (real RTL, small design)"
+  },
+  "rsa256": {
+    "source_fst": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256.fst",
+    "cycles": 200000,
+    "sim": {
+      "exe": {
+        "none": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build/obj_none/rsa_tb",
+        "fst": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build/obj_fst/rsa_tb",
+        "vtr": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build/obj_vtr/rsa_tb"
+      },
+      "args": [
+        "--cycles=200000"
+      ],
+      "cwd": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build"
+    },
+    "changes": 1621415,
+    "end_time": 400019,
+    "signals": 113,
+    "time_steps": 400020,
+    "description": "RSA-256 Montgomery multiplier from libfstwriter's integration tests driven with continuous pseudo-random operands (bench/workloads/rsa256/RSA_bench_tb.sv), Verilator, 200k cycles (real RTL, wide datapaths)"
+  },
+  "rsa256_long": {
+    "source_fst": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_long.fst",
+    "cycles": 2000000,
+    "sim": {
+      "exe": {
+        "none": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build/obj_none/rsa_tb",
+        "fst": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build/obj_fst/rsa_tb",
+        "vtr": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build/obj_vtr/rsa_tb"
+      },
+      "args": [
+        "--cycles=2000000"
+      ],
+      "cwd": "/home/ripopov/work/vtr/bench/workloads/gen/rsa256_build"
+    },
+    "changes": 16212012,
+    "end_time": 4000019,
+    "signals": 113,
+    "time_steps": 4000020,
+    "description": "Same RSA-256 design and driver, 2M cycles (real RTL, long simulation)"
+  },
   "c910_coremark": {
     "source_fst": "/home/ripopov/work/vtr/bench/workloads/gen/c910_coremark.fst",
     "coremark_iterations": 1,
@@ -16,5 +64,54 @@
     "signals": 67144,
     "time_steps": 504139,
     "description": "pulp-c910 (T-Head openC910: 3-wide superscalar out-of-order RISC-V core with L1 caches, MMU and AXI SoC from ext/pulp-c910) running one CoreMark iteration under Verilator, every signal of the design traced (real RTL, large design)"
+  },
+  "scr1_x8": {
+    "replicate": 8,
+    "base": "scr1_axi",
+    "changes": 167823424,
+    "end_time": 1880182,
+    "signals": 11560,
+    "time_steps": 376038,
+    "description": "8 perturbed copies of the SCR1 trace under separate top scopes (11.6k signals; models a multi-core SoC)"
+  },
+  "long_sparse": {
+    "generator": "long_sparse",
+    "scale": "5000",
+    "changes": 5500000,
+    "end_time": 2499995000,
+    "signals": 20001,
+    "time_steps": 500000,
+    "description": "synthetic: 20k signals, 500k time steps, ~0.1% of signals change per step (long run, few active signals)"
+  },
+  "many_active": {
+    "generator": "many_active",
+    "scale": "50",
+    "changes": 29993396,
+    "end_time": 999000,
+    "signals": 200001,
+    "time_steps": 1000,
+    "description": "synthetic: 200k signals, 1000 cycles, 30% of signals change each cycle (short run, many active signals)"
+  },
+  "wide_bus": {
+    "generator": "wide_bus",
+    "scale": "20",
+    "changes": 569969,
+    "end_time": 9999000,
+    "signals": 129,
+    "time_steps": 10000,
+    "description": "synthetic: 64 buses of 256..2048 bits toggling most cycles (wide vectors)"
+  },
+  "tlm_1m": {
+    "file": "/home/ripopov/work/vtr/bench/workloads/gen/tlm_1m.txr",
+    "description": "synthetic TLM: 1M CPU instructions -> NoC packets -> slave accesses (3M transactions, ~2.3M relations, 14 attributes per chain)"
+  },
+  "ooo_1m": {
+    "file": "/home/ripopov/work/vtr/bench/workloads/gen/ooo_1m.log",
+    "description": "synthetic Kanata pipeline log of a 4-wide out-of-order core, 1M instructions (~8M stages, ~9M relations)"
+  },
+  "kanata_sample2": {
+    "file": "/home/ripopov/work/vtr/bench/workloads/gen/kanata_sample2.log",
+    "source": "/home/ripopov/work/vtr/ext/Konata/docs/kanata-sample-2.log.gz",
+    "description": "Konata's bundled sample trace (4k instructions)"
   }
 }

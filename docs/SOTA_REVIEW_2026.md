@@ -269,7 +269,8 @@ expected effect on the three axes (size / write / read).
 
 ### Do (measured headroom, no trade-off)
 
-1. **Dictionary transform for value streams** (`xform` 4: sorted
+1. **Dictionary transform for value streams** (implemented as transform 4,
+   see the outcome below) (`xform` 4: sorted
    dictionary of ≤256 distinct entries + 1-byte codes, then zstd; decided
    by the existing sample trial). Evidence: section 2.4, -6.8% on C910
    multi-bit value streams (~-4% of the file), 0% where it does not apply.
@@ -300,6 +301,23 @@ expected effect on the three axes (size / write / read).
    start. Cost: two more trial compressions of 1 KiB per run (~2% of
    encoder time); gain: correct choices on runs whose behaviour changes
    mid-run. Expected small (≤1%) but strictly non-negative on size.
+
+   *Outcome (implemented 2026-09-04, full suite rerun):* the sample trial
+   over-predicts the dictionary's gain (32-entry segments favour codes over
+   the long-range matches zstd finds in plain or shuffled values): at a 0%
+   margin it lost on 625 of 839 runs of scr1_x8 (+0.9% file). With a 20%
+   margin, an order-0 pre-estimate on the sample's codes (so runs that
+   cannot win pay no extra trial) and whole-column hashing only after that
+   pre-estimate passes, the suite shows C910 -1.1% (245.94 -> 243.13 MiB;
+   Verilator-written file 263.2 -> 260.3 MB), scr1_axi -0.5%, scr1_x8
+   -0.1%, every other workload byte-identical; write times within noise
+   (-4% to +2% across the 24 writer measurements), reads unchanged,
+   parity and the VCD information check clean. The chunk-level -6.8%
+   headroom does not survive the run-level decision: real runs mix up to 64
+   signals, and the plain sample already compresses most low-cardinality
+   columns well. The remaining gap is a better decision, not a better
+   coder; compressing both candidates in full for marginal runs would
+   recover it at ~5% encoder time.
 
 ### Try (plausible, needs an experiment)
 

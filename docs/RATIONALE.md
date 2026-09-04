@@ -127,9 +127,24 @@ values), with three changes.
    nothing to decode and saves 0.5% (SCR1) to 4% (`long_sparse`) over
    storing the bit.
 
-Rejected: per-value dictionary coding (zstd's match finder already
-captures repeats within a run); bit-packing of narrow values (no gain
-after zstd).
+6. Per-column *dictionary coding* (transform 4, added after the 2026
+   literature review in `docs/SOTA_REVIEW_2026.md`): a column with at
+   most 256 distinct values is stored as its dictionary plus one code byte
+   per entry. It was first rejected on the assumption that zstd's match
+   finder captures repeats within a run; a trial over the C910 value
+   streams showed one-byte codes compress 3x better than the matches zstd
+   finds in 2-23 byte entries. The sample trial is optimistic for it (the
+   32-entry segments favour codes over the long-range matches zstd finds in
+   plain or shuffled values), so the dictionary must win the trial by 20%:
+   at that margin the file shrinks on every workload (C910 -2.6%, SCR1
+   -0.6%, its 8-copy replica -0.2%). Columns are hashed whole only after a
+   dictionary built from the sample alone already wins, which keeps the
+   encoder cost within noise on designs where it does not apply. Decoding
+   is a table lookup per entry, cheaper than undoing delta.
+
+Rejected: bit-packing of narrow values (no gain after zstd); bit-plane
+reorganisation, frame-of-reference and XOR/mask delta (measured on C910,
+`docs/SOTA_REVIEW_2026.md`).
 
 ### 5.2 Blocks, groups and runs
 

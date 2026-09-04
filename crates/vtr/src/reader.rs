@@ -74,12 +74,9 @@ const INDEX_STRIDE: usize = 256;
 const EAGER_UNTRANSFORM_COLUMNS: usize = 1;
 
 impl Piece {
-    fn new(mut data: Vec<u8>, ranges: Vec<(u32, u32)>, mut xform: Xform, first_sig: u32, kinds: &[SignalKind]) -> Result<Piece> {
+    fn new(mut data: Vec<u8>, mut ranges: Vec<(u32, u32)>, mut xform: Xform, first_sig: u32, kinds: &[SignalKind]) -> Result<Piece> {
         if xform != Xform::None && ranges.len() <= EAGER_UNTRANSFORM_COLUMNS {
-            let mut tmp = Vec::new();
-            for (k, &(a, b)) in ranges.iter().enumerate() {
-                block::untransform_column(&mut data[a as usize..b as usize], kinds[first_sig as usize + k], xform, &mut tmp)?;
-            }
+            block::untransform_run(&mut data, &mut ranges, first_sig, kinds, xform)?;
             xform = Xform::None;
         }
         let plain = if xform == Xform::None { Vec::new() } else { (0..ranges.len()).map(|_| OnceLock::new()).collect() };
@@ -96,7 +93,7 @@ impl Piece {
             return Ok(c);
         }
         let mut v = self.data[a as usize..b as usize].to_vec();
-        block::untransform_column(&mut v, kind, self.xform, &mut Vec::new())?;
+        block::untransform_column_vec(&mut v, kind, self.xform, &mut Vec::new())?;
         Ok(self.plain[local].get_or_init(|| v.into_boxed_slice()))
     }
 
@@ -698,6 +695,27 @@ impl Reader {
         Ok(out)
     }
 
+    /// Column runs per value transform: `(runs, compressed bytes)` indexed by the
+    /// transform code (0 none, 1 shuffle, 2 delta, 3 delta+shuffle, 4 dictionary).
+    /// Reads only the group headers, not the runs.
+    pub fn run_stats(&self) -> Result<[(u64, u64); 5]> {
+        let mut out = [(0u64, 0u64); 5];
+        let kinds = &self.hier.signals;
+        for b in &self.sig_blocks {
+            let p = self.block_payload(b)?;
+            for (g, clen, off) in block::dirty_groups(p, &b.header) {
+                let c = block::group_container(p, &b.header, clen, off)?;
+                let view = GroupView::parse(c, self.group_first(g), kinds)?;
+                for r in &view.runs {
+                    let e = &mut out[(r.xform as u8 as usize).min(4)];
+                    e.0 += 1;
+                    e.1 += r.blob.len() as u64;
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Loads all changes of one signal.
     pub fn load_signal(&self, sig: SignalId) -> Result<SignalData> {
         Ok(self.load_signals(&[sig])?.pop().unwrap())
@@ -833,7 +851,6 @@ impl Reader {
         let start = self.block_at(t0).unwrap_or(0);
         let kinds = &self.hier.signals;
         let mut d = Decompressor::new();
-        let mut xf_tmp: Vec<u8> = Vec::new();
         // (first signal of the run, decompressed run, per-signal column ranges)
         type RunPiece = (u32, Vec<u8>, Vec<(u32, u32)>);
         let mut pieces: Vec<RunPiece> = Vec::new();
@@ -864,18 +881,14 @@ impl Reader {
                 aliases.extend_from_slice(&view.aliases);
                 for ri in 0..view.runs.len() {
                     let mut data = Vec::new();
-                    let ranges = view.decode_run(ri, &mut d, &mut data)?;
+                    let mut ranges = view.decode_run(ri, &mut d, &mut data)?;
+                    let first = view.first_sig + view.runs[ri].first_local;
+                    block::untransform_run(&mut data, &mut ranges, first, kinds, view.runs[ri].xform)?;
                     if data.len() > MASK as usize {
                         return Err(Error::Corrupt("column run too large"));
                     }
-                    let first = view.first_sig + view.runs[ri].first_local;
-                    let x = view.runs[ri].xform;
-                    for (k, &(a, b)) in ranges.iter().enumerate() {
-                        let sig = first + k as u32;
-                        if x != Xform::None {
-                            block::untransform_column(&mut data[a as usize..b as usize], kinds[sig as usize], x, &mut xf_tmp)?;
-                        }
-                        sig_piece[sig as usize] = pieces.len() as u32;
+                    for k in 0..ranges.len() {
+                        sig_piece[first as usize + k] = pieces.len() as u32;
                     }
                     raw_bytes += data.len();
                     pieces.push((first, data, ranges));

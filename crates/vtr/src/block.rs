@@ -155,8 +155,18 @@ pub struct EncoderScratch {
     segs: Vec<(u32, u32, u32)>,
     sample: Vec<u8>,
     sample_segs: Vec<(u32, u32, u32)>,
+    /// Per sample segment: (index into `segs`, first entry index, entry count).
+    sample_meta: Vec<(u32, u32, u32)>,
     trial_in: Vec<u8>,
     xf_tmp: Vec<u8>,
+    /// Dictionary-coded value streams of the run being decided, one range per `segs` entry
+    /// ((0, 0): not coded).
+    dict_out: Vec<u8>,
+    dict_ranges: Vec<(u32, u32)>,
+    dict_table: xform::DictTable,
+    dict_sample: Vec<u8>,
+    /// The run rebuilt with dictionary-coded columns (`Xform::Dict`).
+    raw2: Vec<u8>,
 }
 
 /// Delta-coding state of one column at a chunk boundary.
@@ -518,17 +528,34 @@ pub fn finish_block(
             let (x, incompressible) = if comp.codec == crate::codec::Codec::None {
                 (Xform::None, false)
             } else {
-                choose_xform(raw, segs, compressor, &mut scratch.sample, &mut scratch.sample_segs, &mut scratch.trial_in, &mut scratch.xf_tmp)?
+                let t = TrialScratch {
+                    sample: &mut scratch.sample,
+                    sample_segs: &mut scratch.sample_segs,
+                    sample_meta: &mut scratch.sample_meta,
+                    trial_in: &mut scratch.trial_in,
+                    tmp: &mut scratch.xf_tmp,
+                    dict_out: &mut scratch.dict_out,
+                    dict_ranges: &mut scratch.dict_ranges,
+                    dict_table: &mut scratch.dict_table,
+                    dict_sample: &mut scratch.dict_sample,
+                };
+                choose_xform(raw, segs, compressor, t)?
             };
-            if x != Xform::None {
-                for &(off, len, w) in segs.iter() {
-                    xform::forward(x, w as usize, &mut raw[off as usize..(off + len) as usize], &mut scratch.xf_tmp);
+            let run_input: &[u8] = if x == Xform::Dict {
+                apply_dict(raw, &cols[ri..ri + rn], segs, &scratch.dict_out, &scratch.dict_ranges, &mut scratch.raw2);
+                &scratch.raw2
+            } else {
+                if x != Xform::None {
+                    for &(off, len, w) in segs.iter() {
+                        xform::forward(x, w as usize, &mut raw[off as usize..(off + len) as usize], &mut scratch.xf_tmp);
+                    }
                 }
-            }
+                raw
+            };
             let before = run_blobs.len();
             // Runs dominated by wide value bytes gain nothing from higher zstd levels.
             let c = if wide && comp.codec == crate::codec::Codec::Zstd && comp.level > 1 { Compression { codec: comp.codec, level: 1 } } else { comp };
-            compressor.compress_into_probed(c, raw, run_blobs, incompressible)?;
+            compressor.compress_into_probed(c, run_input, run_blobs, incompressible)?;
             run_table.push((rn, x, run_blobs.len() - before));
         }
         for &(rn, x, clen) in &run_table {
@@ -594,26 +621,32 @@ const TRIAL_SEG: usize = 32;
 /// sample (percent): marginal gains do not pay for the extra pass when reading.
 const TRIAL_MIN_GAIN: usize = 4;
 
+/// Scratch buffers of the transform trial (fields of [`EncoderScratch`]).
+struct TrialScratch<'a> {
+    sample: &'a mut Vec<u8>,
+    sample_segs: &'a mut Vec<(u32, u32, u32)>,
+    sample_meta: &'a mut Vec<(u32, u32, u32)>,
+    trial_in: &'a mut Vec<u8>,
+    tmp: &'a mut Vec<u8>,
+    dict_out: &'a mut Vec<u8>,
+    dict_ranges: &'a mut Vec<(u32, u32)>,
+    dict_table: &'a mut xform::DictTable,
+    dict_sample: &'a mut Vec<u8>,
+}
+
 /// Picks the value transform for a run by compressing a sample of its eligible value
 /// slices (`segs`: offset, len, entry width) with fast zstd under each candidate. Also
 /// reports whether the plain sample looked incompressible (the codec probe's verdict).
-#[allow(clippy::too_many_arguments)]
-fn choose_xform(
-    raw: &[u8],
-    segs: &[(u32, u32, u32)],
-    compressor: &mut Compressor,
-    sample: &mut Vec<u8>,
-    sample_segs: &mut Vec<(u32, u32, u32)>,
-    trial_in: &mut Vec<u8>,
-    tmp: &mut Vec<u8>,
-) -> Result<(Xform, bool)> {
+fn choose_xform(raw: &[u8], segs: &[(u32, u32, u32)], compressor: &mut Compressor, t: TrialScratch<'_>) -> Result<(Xform, bool)> {
+    let TrialScratch { sample, sample_segs, sample_meta, trial_in, tmp, dict_out, dict_ranges, dict_table, dict_sample } = t;
     let total: u64 = segs.iter().map(|s| s.1 as u64).sum();
     if total < 64 {
         return Ok((Xform::None, false));
     }
     sample.clear();
     sample_segs.clear();
-    for &(off, len, w) in segs {
+    sample_meta.clear();
+    for (si, &(off, len, w)) in segs.iter().enumerate() {
         let (off, len, w) = (off as usize, len as usize, w as usize);
         let count = len / w;
         let want = ((len as u64 * TRIAL_BYTES as u64 / total) as usize).max(w);
@@ -624,12 +657,13 @@ fn choose_xform(
         for j in 0..k {
             let i0 = (j * step).min(count - seg);
             sample_segs.push((sample.len() as u32, (seg * w) as u32, w as u32));
+            sample_meta.push((si as u32, i0 as u32, seg as u32));
             sample.extend_from_slice(&raw[off + i0 * w..off + (i0 + seg) * w]);
         }
     }
     let mut best = (Xform::None, usize::MAX);
     let mut incompressible = false;
-    for x in Xform::ALL {
+    for x in Xform::IN_PLACE {
         trial_in.clear();
         trial_in.extend_from_slice(sample);
         for &(off, len, w) in sample_segs.iter() {
@@ -643,7 +677,160 @@ fn choose_xform(
             best = (x, size);
         }
     }
+    // Dictionary candidate. A sample cannot tell how many distinct values a column has,
+    // so it is used twice: first, dictionaries built from the sample alone estimate
+    // whether codes beat the best in-place transform at all (columns whose sample
+    // already shows too many distinct entries stay plain); only then are the promising
+    // columns coded whole, and the trial is repeated with their real codes and the
+    // dictionaries' share of the bytes.
+    dict_out.clear();
+    dict_ranges.clear();
+    dict_ranges.resize(segs.len(), (0, 0));
+    trial_in.clear();
+    let mut est_dict = 0usize;
+    let mut est_codes = 0.0f64; // order-0 entropy of the sampled codes, in bytes
+    let mut plain_bytes = 0usize; // sample bytes of the columns that stay plain
+    let mut any = false;
+    let mut k = 0usize; // sample segments come in `segs` order
+    for (si, &(_, len, w)) in segs.iter().enumerate() {
+        let (len, w) = (len as usize, w as usize);
+        dict_sample.clear();
+        let mut m = 0usize;
+        while k < sample_segs.len() && sample_meta[k].0 as usize == si {
+            let (soff, slen, _) = sample_segs[k];
+            dict_sample.extend_from_slice(&sample[soff as usize..(soff + slen) as usize]);
+            m += sample_meta[k].2 as usize;
+            k += 1;
+        }
+        let count = len / w;
+        tmp.clear();
+        // Worth a look only when the sampled values recur (a column with 256 distinct
+        // values spread evenly shows about 70% distinct entries in a 200-entry sample).
+        let coded = if w < 2 || m < 8 {
+            None
+        } else {
+            xform::dict_encode(w, dict_sample, tmp, dict_table, (m / 2).min(xform::DICT_MAX)).filter(|&d| d <= DICT_SAMPLE_MAX || d * count <= xform::DICT_MAX * m)
+        };
+        match coded {
+            Some(d) => {
+                trial_in.extend_from_slice(&tmp[tmp.len() - m..]);
+                let mf = m as f64;
+                est_codes += dict_table.counts().iter().map(|&c| c as f64 * (mf / c as f64).log2()).sum::<f64>() / 8.0;
+                let nd = (d * count).div_ceil(m).clamp(d, xform::DICT_MAX);
+                est_dict += varint::len_u64(nd as u64) + nd * w;
+                dict_ranges[si] = (1, 0); // marked: worth coding whole
+                any = true;
+            }
+            None => {
+                trial_in.extend_from_slice(dict_sample);
+                plain_bytes += dict_sample.len();
+            }
+        }
+    }
+    let mut dict_bytes = 0usize;
+    let est_dict = (est_dict as u64 * sample.len() as u64 / total) as usize;
+    // Order-0 coding of the codes is a pessimistic stand-in for zstd (which also finds
+    // repeats); the plain columns are assumed to compress as in the best candidate.
+    // Only a run that passes this free estimate pays for a trial compression.
+    let est_h0 = est_codes as usize + est_dict + best.1 * plain_bytes / sample.len().max(1);
+    let est_total = if any && est_h0 * 100 < best.1 * (100 - DICT_MIN_GAIN) { compressor.trial_size(trial_in)? + est_dict } else { usize::MAX };
+    if est_total != usize::MAX && est_total * 100 < best.1 * (100 - DICT_MIN_GAIN) {
+        for (si, &(off, len, w)) in segs.iter().enumerate() {
+            if dict_ranges[si] != (1, 0) {
+                continue;
+            }
+            dict_ranges[si] = (0, 0);
+            let (off, len, w) = (off as usize, len as usize, w as usize);
+            let start = dict_out.len();
+            if let Some(nd) = xform::dict_encode(w, &raw[off..off + len], dict_out, dict_table, xform::DICT_MAX) {
+                dict_ranges[si] = (start as u32, dict_out.len() as u32);
+                dict_bytes += varint::len_u64(nd as u64) + nd * w;
+            }
+        }
+    } else {
+        dict_ranges.iter_mut().for_each(|r| *r = (0, 0));
+    }
+    if dict_bytes > 0 {
+        trial_in.clear();
+        for (k, &(soff, slen, w)) in sample_segs.iter().enumerate() {
+            let (si, i0, cnt) = sample_meta[k];
+            let (a, b) = dict_ranges[si as usize];
+            if a == b {
+                trial_in.extend_from_slice(&sample[soff as usize..(soff + slen) as usize]);
+            } else {
+                let coded = &dict_out[a as usize..b as usize];
+                let mut r = Reader::new(coded);
+                let nd = r.u64()? as usize;
+                let codes = r.pos + nd * w as usize;
+                trial_in.extend_from_slice(&coded[codes + i0 as usize..codes + (i0 + cnt) as usize]);
+            }
+        }
+        let size = compressor.trial_size(trial_in)? + (dict_bytes as u64 * sample.len() as u64 / total) as usize;
+        if size * 100 < best.1 * (100 - DICT_MIN_GAIN) {
+            best = (Xform::Dict, size);
+        }
+    }
     Ok((best.0, incompressible && best.0 == Xform::None))
+}
+
+/// The dictionary candidate must beat the best in-place candidate by this much (percent)
+/// on the sample. Its sample estimate is optimistic (32-entry segments favour codes over
+/// the long-range matches zstd finds in plain or shuffled values): at 0% it lost on
+/// three of four dictionary runs of the scr1_x8 workload (+0.9% file), at 20% the file
+/// shrinks on every workload measured (scr1_x8 -0.2%, scr1_axi -0.6%, C910 -2.6%).
+const DICT_MIN_GAIN: usize = 20;
+
+/// A column whose sample shows more distinct entries than this is dictionary-coded only
+/// when the sample's rate of distinct values, scaled to the column, still fits `DICT_MAX`.
+const DICT_SAMPLE_MAX: usize = 64;
+
+/// Rewrites a run's raw bytes with dictionary-coded value streams (`Xform::Dict`): the
+/// value stream of every eligible column becomes its entry of `dict_out` when it was
+/// coded, else a zero count followed by the plain values; column lengths follow.
+fn apply_dict(raw: &[u8], cols: &[ColInfo], segs: &[(u32, u32, u32)], dict_out: &[u8], dict_ranges: &[(u32, u32)], out: &mut Vec<u8>) {
+    out.clear();
+    let mut r = Reader::new(raw);
+    for _ in cols {
+        let _ = r.u64();
+    }
+    // (column start in raw, new length, seg index or NONE)
+    let mut plan: Vec<(usize, usize, usize)> = Vec::with_capacity(cols.len());
+    let mut pos = r.pos;
+    let mut si = 0usize;
+    for c in cols {
+        let len = c.len as usize;
+        let mut new_len = len;
+        let mut seg = usize::MAX;
+        if len > 0 && c.w > 0 {
+            let (off, slen, _) = segs[si];
+            let (a, b) = dict_ranges[si];
+            let vals = if a == b { 1 + slen as usize } else { (b - a) as usize };
+            new_len = (off as usize - pos) + vals;
+            seg = si;
+            si += 1;
+        }
+        plan.push((pos, new_len, seg));
+        pos += len;
+    }
+    for &(_, new_len, _) in &plan {
+        varint::put_u64(out, new_len as u64);
+    }
+    for (k, &(start, _, seg)) in plan.iter().enumerate() {
+        let len = cols[k].len as usize;
+        if seg == usize::MAX {
+            out.extend_from_slice(&raw[start..start + len]);
+            continue;
+        }
+        let (off, slen, _) = segs[seg];
+        out.extend_from_slice(&raw[start..off as usize]);
+        let (a, b) = dict_ranges[seg];
+        if a == b {
+            out.push(0);
+            out.extend_from_slice(&raw[off as usize..(off + slen) as usize]);
+        } else {
+            out.extend_from_slice(&dict_out[a as usize..b as usize]);
+        }
+    }
 }
 
 /// Fast 64-bit hash over `bytes`, continuing from `h` (8 bytes per step, multiply-rotate mix).
@@ -1053,9 +1240,56 @@ fn split_column(col: &[u8], kind: SignalKind) -> Result<(&[u8], &[u8], Option<us
     Ok((&col[r.pos..r.pos + hlen], &col[r.pos + hlen..], w))
 }
 
-/// Undoes the run's value transform on one column in place (no-op for `Xform::None`,
+/// Undoes the run's value transform on one column, which may change its length
+/// (`Xform::Dict`); no-op for `Xform::None`, 1-bit columns and ineligible columns.
+pub fn untransform_column_vec(col: &mut Vec<u8>, kind: SignalKind, x: Xform, tmp: &mut Vec<u8>) -> Result<()> {
+    if x != Xform::Dict {
+        return untransform_column(col, kind, x, tmp);
+    }
+    if col.is_empty() || matches!(kind, SignalKind::Bits { width: 1, .. }) {
+        return Ok(());
+    }
+    let (_, val, w) = split_column(col, kind)?;
+    let Some(w) = w else { return Ok(()) };
+    let vstart = col.len() - val.len();
+    tmp.clear();
+    xform::dict_decode(w, val, tmp)?;
+    col.truncate(vstart);
+    col.extend_from_slice(tmp);
+    Ok(())
+}
+
+/// Undoes the run's value transform on every column of a decoded run (`data`, with the
+/// columns' byte ranges in `ranges`); rewrites both for `Xform::Dict`.
+pub fn untransform_run(data: &mut Vec<u8>, ranges: &mut [(u32, u32)], first_sig: u32, kinds: &[SignalKind], x: Xform) -> Result<()> {
+    if x == Xform::None {
+        return Ok(());
+    }
+    let mut tmp = Vec::new();
+    if x != Xform::Dict {
+        for (k, &(a, b)) in ranges.iter().enumerate() {
+            untransform_column(&mut data[a as usize..b as usize], kinds[first_sig as usize + k], x, &mut tmp)?;
+        }
+        return Ok(());
+    }
+    let mut out = Vec::with_capacity(data.len() * 2);
+    let mut col = Vec::new();
+    for (k, r) in ranges.iter_mut().enumerate() {
+        col.clear();
+        col.extend_from_slice(&data[r.0 as usize..r.1 as usize]);
+        untransform_column_vec(&mut col, kinds[first_sig as usize + k], x, &mut tmp)?;
+        let a = out.len();
+        out.extend_from_slice(&col);
+        *r = (a as u32, out.len() as u32);
+    }
+    *data = out;
+    Ok(())
+}
+
+/// Undoes an in-place value transform on one column (no-op for `Xform::None`,
 /// 1-bit columns and columns that were not eligible).
 pub fn untransform_column(col: &mut [u8], kind: SignalKind, x: Xform, tmp: &mut Vec<u8>) -> Result<()> {
+    debug_assert!(x != Xform::Dict);
     if x == Xform::None || col.is_empty() || matches!(kind, SignalKind::Bits { width: 1, .. }) {
         return Ok(());
     }

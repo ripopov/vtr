@@ -429,14 +429,19 @@ little-endian integers:
 | 1 shuffle | byte transposition: output byte `b * n + i` is input byte `i * w + b` (all first bytes, then all second bytes, ...) |
 | 2 delta | entry `i` (i >= 1) replaced by `entry[i] - entry[i-1]` modulo `2^(8w)`; entry 0 unchanged |
 | 3 delta + shuffle | delta, then shuffle |
+| 4 dictionary | per column: `varint n_dict`, then `n_dict * w` bytes of distinct entries in order of first occurrence (`1 <= n_dict <= 256`), then one code byte per entry (index into the dictionary). `n_dict = 0` means the column's `n * w` plain value bytes follow instead (the column had more than 256 distinct entries). |
 
-Transforms are inverted in the opposite order (unshuffle, then prefix sum)
+Transforms 1-3 keep the value stream's length; transform 4 changes it, so
+the column lengths of the run (6.2) describe the transformed columns.
+Transforms are inverted (unshuffle, then prefix sum; dictionary lookup)
 after decompression and before the column is decoded. They exist because
-general-purpose compressors see counters, addresses and slowly changing
-high-order bytes far better after such a pass: the reference writer picks
-the transform per run by trial-compressing a small sample of the run's
-value streams with each candidate and keeps plain values unless a
-candidate is at least 4% smaller. Header streams are never transformed.
+general-purpose compressors see counters, addresses, slowly changing
+high-order bytes and small value sets far better after such a pass: the
+reference writer picks the transform per run by trial-compressing a small
+sample of the run's value streams with each candidate and keeps plain
+values unless a candidate is at least 4% smaller (20% for the dictionary,
+whose sample estimate is optimistic). Header streams are never
+transformed.
 
 ### 6.6 Dynamic aliases
 
