@@ -21,8 +21,9 @@ if ! grep -q "trace-vtr" src/V3Options.cpp; then
 fi
 autoconf
 # Host compiler for Verilator itself and, through verilated.mk, for every model it
-# generates. clang is preferred: on the C910 model of the benchmark suite, g++ 15
-# produces code that runs 3x slower than clang 19 from the same generated sources.
+# generates. clang is preferred: on the C910 model of the benchmark suite, gcc 15/16
+# produce code that runs 3x slower than clang 19-22 from the same generated sources
+# unless profile-guided optimisation is used (docs/BENCHMARKS.md, host compiler).
 CXX=${CXX:-$(command -v clang++ || echo g++)}
 export CXX
 ./configure --prefix="$PREFIX"

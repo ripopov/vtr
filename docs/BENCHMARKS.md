@@ -11,6 +11,7 @@ git submodule update --init          # libfstwriter (contains GTKWave's fstapi.c
 python3 bench/run.py all             # full set (~1 hour, ~16 GB RAM); the first run also builds Verilator and the C910 models
 python3 bench/run.py all --scale small
 python3 bench/run.py report          # re-render the Markdown from results.json
+python3 bench/run.py compilers       # host-compiler study on the C910 model (~1.5 hours)
 ```
 
 `bench/run.py` builds the Rust crates (`cargo build --release`), the C/C++
@@ -132,6 +133,17 @@ total and per signal. The counts must be identical: this is the proof
 that the size and speed comparisons are made on the same information
 and that nothing is dropped on the way into VTR.
 
+Host-compiler study (`bench/compilers.py`, rendered as its own section):
+the Verilated sources of the untraced C910 model are compiled with the
+latest installed gcc and clang at `-O2`, `-O3`, `-O3 -march=native`, each
+with and without profile-guided optimisation (trained on the first 60k
+cycles of the same run) and with link-time optimisation, plus older
+compiler versions and a few single-optimisation probes for gcc; every
+binary runs the same CoreMark iteration pinned to one performance core,
+best of N. The table also lists text size and the share of instructions
+with a memory operand, which is where the two compilers differ most on
+this code.
+
 Transaction navigation (`vtr-bench tx-read`): open, scan all
 transactions, 1000 random lookups by id, 1000 relation queries (from and
 to), a 1% time-window query. FTR has no reader library beyond a Python
@@ -209,11 +221,29 @@ qualifications, which are the honest boundaries of the claims:
   C910 run.
   The files written by the two backends read back identically (parity
   in the `vs_sim` rows). The host C++ compiler matters more than the
-  Verilator version here: from the same 5.050-generated sources, g++ 15
-  produces a C910 model that runs 3x slower than clang 19 (7.4 s against
-  2.4 s for 50k cycles), so the suite builds Verilator, and therefore
-  every model, with clang when it is available and the report names the
-  compiler used.
+  Verilator version here (see the host-compiler section below): the same
+  sources compiled by gcc run 3x slower than compiled by clang, so the
+  suite builds Verilator, and therefore every model, with clang when it
+  is available and the report names the compiler used.
+* **Host compiler.** On the untraced C910 model, every gcc 15/16 build
+  without profile feedback runs the CoreMark iteration in about 36 s,
+  whatever the flags (`-O2`, `-O3`, `-march=native`, `-Os`, LTO, Ubuntu's
+  hardening off, and the vectorizer, second scheduling pass, PRE/GCSE,
+  branch guessing, block and function ordering, if-conversion, inlining
+  limits and alignment each switched individually); every clang 19/21/22 build runs
+  it in 10.4-12.1 s. With profile-guided optimisation both compilers
+  land at about 7 s (clang `-O3 -march=native` PGO: 6.8 s), so PGO is
+  worth 5x for gcc and 1.7x even for clang on this code, and the choice
+  of compiler stops mattering. Where the plain gcc code goes: Verilator
+  turns `case` statements and priority muxes into nested `?:` trees
+  thousands of lines long, and gcc emits about 7.5x more instructions
+  than clang for them (8,619 against 1,148 for one 18,000-line decoder
+  function, at `-O1` as at `-O2`), 21% more code for the whole model;
+  with a profile it moves the rarely taken leaves into `.cold` sections
+  (0.67 MB of them, against 151 bytes without a profile). Which gcc pass
+  expands these trees was not identified: none of the sixteen passes and
+  parameters tried changes the count. The benchmark models are built
+  without PGO, the way simulator users build them.
 * **Same information.** On every workload that comes from a simulator
   (SCR1, both RSA-256 runs, C910 CoreMark) the FST converted by GTKWave's
   `fst2vcd` and the VTR files converted by `vtr2vcd` hold the same number

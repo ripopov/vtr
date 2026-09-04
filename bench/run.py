@@ -8,6 +8,7 @@ writer/reader comparison and writes raw JSON results plus a Markdown report.
     python3 bench/run.py prepare          # only workload preparation
     python3 bench/run.py run              # only measurements (workloads must exist)
     python3 bench/run.py report           # only re-render docs/BENCHMARK_RESULTS.md
+    python3 bench/run.py compilers        # host-compiler study on the C910 model (bench/compilers.py)
 
 Options: --scale small|full (default full), --out DIR (default bench/results/latest),
          --workloads NAME[,NAME...] to restrict, --repeat N (default 3, best-of),
@@ -605,6 +606,9 @@ def render(results, path):
         for r in tx:
             d = r["readers"]["vtr"]
             L.append(f"| {r['workload']} | {d['open_s'] * 1000:.2f} ms | {d['scan_all_s']:.3f} s ({d['scanned']:,}) | {d['lookup_1000_s'] * 1000:.1f} ms | {d['relations_1000_s'] * 1000:.1f} ms ({d['relations_found']} found) | {d['window_1pct_s'] * 1000:.2f} ms ({d['window_tx']} tx) |")
+    comp = os.path.join(ROOT, "bench", "results", "latest", "compilers.json")
+    if os.path.exists(comp):
+        L.extend(render_compilers(json.load(open(comp))))
     L.append("\n## Workload descriptions\n")
     for r in rtl + tx:
         L.append(f"- **{r['workload']}**: {r['info'].get('description', '')}")
@@ -612,9 +616,32 @@ def render(results, path):
         f.write("\n".join(L) + "\n")
 
 
+def render_compilers(c):
+    """Section for the host-compiler study (bench/compilers.py)."""
+    L = ["## Host compiler: gcc versus clang on the Verilated C910 model\n"]
+    L.append("The Verilated sources of the untraced C910 CoreMark model, compiled by `bench/compilers.py` with different compilers and options, each binary running the same CoreMark iteration pinned to one performance core (best of N). "
+             "`OPT_FAST` is the flag shown, `OPT_SLOW` is `-O1`, the runtime (`verilated.cpp`) keeps Verilator's default; PGO trains on the first 60k cycles of the same run; LTO is `-flto=thin` (clang) / `-flto=auto` (gcc). "
+             "`memory ops` is the share of instructions in the executable with a memory operand.\n")
+    L.append("Compilers: " + "; ".join(f"`{k}` = {v}" for k, v in c["compilers"].items()) + f". Run on {c['date']}.\n")
+    L.append("| variant | CoreMark run | vs fastest | text size | instructions | memory ops | build |")
+    L.append("|---|---:|---:|---:|---:|---:|---:|")
+    ok = [v for v in c["variants"] if "wall_s" in v]
+    best = min(v["wall_s"] for v in ok) if ok else 1.0
+    for v in c["variants"]:
+        if "wall_s" not in v:
+            L.append(f"| {v['label']} | build failed | | | | | |")
+            continue
+        L.append(f"| {v['label']}{' (probe)' if v.get('note') == 'probe' else ''} | {v['wall_s']:.2f} s | {v['wall_s'] / best:.2f}x | {v['text_bytes'] / 1e6:.1f} MB | "
+                 f"{v['instructions'] / 1e6:.2f} M | {v['memory_operand_insns'] / max(v['instructions'], 1) * 100:.0f}% | {v['build_s']:.0f} s |")
+    if c.get("skipped"):
+        L.append(f"\nSkipped (compiler not installed): {', '.join(c['skipped'])}.")
+    L.append("")
+    return L
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=["all", "prepare", "run", "report"])
+    ap.add_argument("what", choices=["all", "prepare", "run", "report", "compilers"])
     ap.add_argument("--scale", choices=["small", "full"], default="full")
     ap.add_argument("--out", default=os.path.join(ROOT, "bench", "results", "latest"))
     ap.add_argument("--workloads", default=None)
@@ -630,6 +657,12 @@ def main():
         sel = a.workloads.split(",")
         rtl_names = [n for n in rtl_names if n in sel]
         tx_names = [n for n in tx_names if n in sel]
+    if a.what == "compilers":
+        import compilers
+        sys.argv = [sys.argv[0]]
+        compilers.main()
+        render(json.load(open(res_path)), os.path.join(ROOT, "docs", "BENCHMARK_RESULTS.md"))
+        return
     if a.what in ("all", "prepare", "run"):
         build()
     results = {"machine": machine_info(), "rtl": [], "tx": []}

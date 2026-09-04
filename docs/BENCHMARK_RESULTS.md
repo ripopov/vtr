@@ -246,6 +246,46 @@ For the Kanata workloads FTR represents each pipeline stage as a child transacti
 | tlm_1m | 0.05 ms | 0.585 s (3,000,000) | 127.2 ms | 248.4 ms (2009 found) | 5.07 ms (30007 tx) |
 | ooo_1m | 70.14 ms | 0.523 s (1,000,000) | 46.8 ms | 78.8 ms (1974 found) | 4.88 ms (10101 tx) |
 | kanata_sample2 | 0.89 ms | 0.003 s (4,041) | 1.0 ms | 0.0 ms (0 found) | 0.01 ms (10 tx) |
+## Host compiler: gcc versus clang on the Verilated C910 model
+
+The Verilated sources of the untraced C910 CoreMark model, compiled by `bench/compilers.py` with different compilers and options, each binary running the same CoreMark iteration pinned to one performance core (best of N). `OPT_FAST` is the flag shown, `OPT_SLOW` is `-O1`, the runtime (`verilated.cpp`) keeps Verilator's default; PGO trains on the first 60k cycles of the same run; LTO is `-flto=thin` (clang) / `-flto=auto` (gcc). `memory ops` is the share of instructions in the executable with a memory operand.
+
+Compilers: `g++-16` = g++-16 (Ubuntu 16-20260322-1ubuntu1) 16.0.1 20260322 (experimental) [trunk r16-8246-g569ace1fa50]; `clang++-22` = Ubuntu clang version 22.1.2 (1ubuntu1); `g++-15` = g++-15 (Ubuntu 15.2.0-16ubuntu1) 15.2.0; `clang++-21` = Ubuntu clang version 21.1.8 (6ubuntu1); `clang++-19` = Ubuntu clang version 19.1.7 (20ubuntu4). Run on 2026-09-04T15:59:31.
+
+| variant | CoreMark run | vs fastest | text size | instructions | memory ops | build |
+|---|---:|---:|---:|---:|---:|---:|
+| gcc-16 -O2 | 35.96 s | 5.26x | 5.9 MB | 1.26 M | 33% | 20 s |
+| gcc-16 -O3 | 35.55 s | 5.20x | 5.9 MB | 1.26 M | 33% | 19 s |
+| gcc-16 -O3 -march=native | 35.91 s | 5.25x | 5.9 MB | 1.24 M | 33% | 20 s |
+| gcc-16 -O2 PGO | 7.25 s | 1.06x | 5.8 MB | 1.24 M | 31% | 53 s |
+| gcc-16 -O3 PGO | 7.18 s | 1.05x | 5.8 MB | 1.24 M | 31% | 54 s |
+| gcc-16 -O3 -march=native PGO | 7.20 s | 1.05x | 5.9 MB | 1.22 M | 31% | 55 s |
+| gcc-16 -O2 LTO | 35.98 s | 5.26x | 5.8 MB | 1.25 M | 33% | 27 s |
+| clang-22 -O2 | 11.64 s | 1.70x | 5.0 MB | 1.10 M | 31% | 16 s |
+| clang-22 -O3 | 10.83 s | 1.58x | 5.1 MB | 1.12 M | 31% | 16 s |
+| clang-22 -O3 -march=native | 10.41 s | 1.52x | 5.1 MB | 1.09 M | 32% | 16 s |
+| clang-22 -O2 PGO | 7.07 s | 1.03x | 5.2 MB | 1.11 M | 31% | 55 s |
+| clang-22 -O3 PGO | 7.07 s | 1.03x | 5.3 MB | 1.13 M | 31% | 52 s |
+| clang-22 -O3 -march=native PGO | 6.84 s | 1.00x | 5.2 MB | 1.09 M | 31% | 52 s |
+| clang-22 -O2 LTO | 11.56 s | 1.69x | 5.0 MB | 1.08 M | 31% | 18 s |
+| gcc-15 -O2 | 35.83 s | 5.24x | 5.9 MB | 1.27 M | 32% | 15 s |
+| clang-21 -O2 | 12.10 s | 1.77x | 5.1 MB | 1.11 M | 31% | 16 s |
+| clang-19 -O2 | 11.68 s | 1.71x | 5.1 MB | 1.11 M | 31% | 18 s |
+| gcc-16 -O2 no hardening (probe) | 35.78 s | 5.23x | 5.9 MB | 1.26 M | 33% | 17 s |
+| clang-22 -O2 no hardening (probe) | 11.90 s | 1.74x | 5.0 MB | 1.10 M | 31% | 17 s |
+| gcc-16 -O2 no vectorizer (probe) | 35.66 s | 5.21x | 5.9 MB | 1.27 M | 33% | 18 s |
+| gcc-16 -O2 no 2nd scheduling (probe) | 36.23 s | 5.30x | 5.9 MB | 1.26 M | 33% | 18 s |
+| gcc-16 -O2 no PRE/GCSE (probe) | 36.58 s | 5.35x | 5.9 MB | 1.26 M | 33% | 18 s |
+| gcc-16 -O2 no branch guessing (probe) | 35.49 s | 5.19x | 5.9 MB | 1.28 M | 32% | 19 s |
+| gcc-16 -O2 simple block order (probe) | 38.12 s | 5.57x | 5.8 MB | 1.26 M | 32% | 19 s |
+| gcc-16 -O2 no if-conversion (probe) | 37.30 s | 5.45x | 6.0 MB | 1.28 M | 32% | 19 s |
+| gcc-16 -O2 no inlining (probe) | 35.76 s | 5.23x | 5.9 MB | 1.26 M | 33% | 19 s |
+| gcc-16 -O2 big inlining (probe) | 35.59 s | 5.20x | 5.9 MB | 1.26 M | 33% | 15 s |
+| gcc-16 -Os (probe) | 37.05 s | 5.42x | 5.4 MB | 1.22 M | 31% | 17 s |
+| gcc-16 -O2 no alignment (probe) | 36.69 s | 5.36x | 5.8 MB | 1.24 M | 32% | 18 s |
+| clang-22 -Os (probe) | 13.17 s | 1.93x | 4.9 MB | 1.09 M | 31% | 19 s |
+| gcc-16 -O2 source function order (probe) | 35.84 s | 5.24x | 5.9 MB | 1.26 M | 33% | 11 s |
+
 
 ## Workload descriptions
 

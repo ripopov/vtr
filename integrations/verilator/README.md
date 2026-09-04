@@ -22,8 +22,9 @@ needed. CMake users get `TRACE_VTR` on `verilate()`.
 
 `build.sh` configures Verilator with clang++ when one is installed (set
 `CXX` to override): the host compiler is inherited by every model through
-`verilated.mk`, and on the benchmark's C910 model g++ 15 generates code
-that runs 3x slower than clang 19 from identical sources.
+`verilated.mk`, and on the benchmark's C910 model gcc generates code that
+runs 3x slower than clang's from identical sources unless PGO is used
+(`docs/BENCHMARKS.md`, host compiler section).
 
 What the patch changes:
 
