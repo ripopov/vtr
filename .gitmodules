@@ -4,3 +4,6 @@
 [submodule "ext/LWTR4SC"]
 	path = ext/LWTR4SC
 	url = https://github.com/ripopov/LWTR4SC
+[submodule "ext/Konata"]
+	path = ext/Konata
+	url = https://github.com/shioyadan/Konata
