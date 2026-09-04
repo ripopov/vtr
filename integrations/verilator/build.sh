@@ -20,6 +20,11 @@ if ! grep -q "trace-vtr" src/V3Options.cpp; then
   git apply "$HERE/trace-vtr.patch"
 fi
 autoconf
+# Host compiler for Verilator itself and, through verilated.mk, for every model it
+# generates. clang is preferred: on the C910 model of the benchmark suite, g++ 15
+# produces code that runs 3x slower than clang 19 from the same generated sources.
+CXX=${CXX:-$(command -v clang++ || echo g++)}
+export CXX
 ./configure --prefix="$PREFIX"
 make -j"$(nproc)"
 make install

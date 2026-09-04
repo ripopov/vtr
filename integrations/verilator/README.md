@@ -20,6 +20,11 @@ wrapper). `verilated.mk` adds `-I$(VTR_INCLUDE)`, `-L$(VTR_LIBDIR)` and
 `-lvtr` when `VM_TRACE_VTR=1`; with a static `libvtr.a` no runtime path is
 needed. CMake users get `TRACE_VTR` on `verilate()`.
 
+`build.sh` configures Verilator with clang++ when one is installed (set
+`CXX` to override): the host compiler is inherited by every model through
+`verilated.mk`, and on the benchmark's C910 model g++ 15 generates code
+that runs 3x slower than clang 19 from identical sources.
+
 What the patch changes:
 
 * `src/V3Options.{h,cpp}`: the `--trace-vtr` switch, class base

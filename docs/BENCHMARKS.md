@@ -142,7 +142,8 @@ run-to-run variation on this machine is within 5% for everything above
   The simulator-integrated rows measure exactly that end to end, for the
   two writers Verilator can drive (its own FST backend and VTR).
 * The Verilated models are single-threaded and the traced ones are built
-  the same way as the untraced one (`-O3`, host `-O2`); Verilator's
+  the same way as the untraced one (`-O3`, host `-O2`, clang when
+  available: g++ 15 makes the C910 model 3x slower); Verilator's
   offloaded/parallel tracing is not used by either backend.
 * libfstwriter has no variable-length values and no blackout; the
   harness skips such changes for it (counted as `skipped`, 0 in all
@@ -188,17 +189,21 @@ qualifications, which are the honest boundaries of the claims:
   both sides (parity).
 * **Simulator-integrated.** Inside Verilator, with the whole openC910
   design dumped after every clock edge, the `--trace-vtr` backend adds
-  50 s to a 36 s CoreMark simulation where Verilator's built-in FST
-  backend (libfstwriter, LZ4) adds 66 s, and writes a file half the size
-  (251 MiB against 501 MiB); on the RSA-256 runs the trace cost is 1.5x
+  44 s to a 12 s CoreMark simulation where Verilator's built-in FST
+  backend (libfstwriter, LZ4) adds 52 s, and writes a file half the size
+  (251 MiB against 501 MiB); on the RSA-256 runs the trace cost is 1.4x
   lower and the file 4% smaller. Both backends run the same generated
-  trace code, so the difference is the writer alone; the CPU column shows
-  that VTR's background thread costs about 8% extra CPU on the C910 run.
+  trace code (Verilator's change detection dominates the trace cost on
+  this design), so the difference is the writer alone; the CPU column
+  shows that VTR's background thread costs about 14% extra CPU on the
+  C910 run.
   The files written by the two backends read back identically (parity
-  in the `vs_sim` rows). Verilator 5.050 itself simulates the C910 2.8x
-  slower than 5.048 with identical flags (36 s against 13 s for the same
-  cycles, checked with and without its DFG optimizer); the trace costs
-  above are absolute and do not depend on that.
+  in the `vs_sim` rows). The host C++ compiler matters more than the
+  Verilator version here: from the same 5.050-generated sources, g++ 15
+  produces a C910 model that runs 3x slower than clang 19 (7.4 s against
+  2.4 s for 50k cycles), so the suite builds Verilator, and therefore
+  every model, with clang when it is available and the report names the
+  compiler used.
 * **Read and navigation.** Against wellen (wavepeek's reader) VTR is
   faster on every query on every workload. On the C910 trace, opening
   takes 8.5 ms against 25 ms, walking the 205k-var hierarchy 1 ms against
