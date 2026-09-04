@@ -513,8 +513,20 @@ impl Reader {
         Ok(p)
     }
 
-    /// Column bytes of `sig` in block `bi` (`None` when the group is not dirty there).
+    /// Column bytes of `sig` in block `bi`, following a dynamic alias when present.
     fn column(&self, bi: usize, g: u32, view: &GroupView<'_>, sig: u32) -> Result<(Arc<Piece>, (u32, u32))> {
+        if let Some(target) = view.alias_of(sig) {
+            let tg = self.group_of(SignalId(target));
+            if tg == g {
+                return self.column_direct(bi, g, view, target);
+            }
+            let tv = self.group_view(bi, tg)?.ok_or(Error::Corrupt("alias target group missing"))?;
+            return self.column_direct(bi, tg, &tv, target);
+        }
+        self.column_direct(bi, g, view, sig)
+    }
+
+    fn column_direct(&self, bi: usize, g: u32, view: &GroupView<'_>, sig: u32) -> Result<(Arc<Piece>, (u32, u32))> {
         let ri = view.run_of(sig);
         let p = self.piece(bi, g, view, ri as u32 + 1)?;
         let local = (sig - view.first_sig - view.runs[ri].0) as usize;
@@ -579,8 +591,7 @@ impl Reader {
         let col = &cp.data[cr.0 as usize..cr.1 as usize];
         let mut it = ColumnIter::new(col, kind);
         if col.len() > 4096 {
-            let ri = view.run_of(sig.0);
-            let local = (sig.0 - view.first_sig - view.runs[ri].0) as usize;
+            let local = cp.ranges.iter().position(|r| *r == cr).unwrap_or(0);
             let index = cp.column_index(local, kind)?;
             it.seek(&index, max_tidx);
         }
@@ -673,13 +684,18 @@ impl Reader {
                             out[oi].initial.clear();
                             out[oi].initial.extend_from_slice(&fp.data[fr.0 as usize..fr.1 as usize]);
                         }
-                        let ri = view.run_of(s.0);
-                        if run.as_ref().map(|(r, _)| *r) != Some(ri) {
-                            run = Some((ri, self.piece(bi, g, &view, ri as u32 + 1)?));
-                        }
-                        let rp = &run.as_ref().unwrap().1;
-                        let local = (s.0 - view.first_sig - view.runs[ri].0) as usize;
-                        let cr = rp.ranges[local];
+                        let (rp, cr) = if view.alias_of(s.0).is_some() {
+                            self.column(bi, g, &view, s.0)?
+                        } else {
+                            let ri = view.run_of(s.0);
+                            if run.as_ref().map(|(r, _)| *r) != Some(ri) {
+                                run = Some((ri, self.piece(bi, g, &view, ri as u32 + 1)?));
+                            }
+                            let rp = run.as_ref().unwrap().1.clone();
+                            let local = (s.0 - view.first_sig - view.runs[ri].0) as usize;
+                            let cr = rp.ranges[local];
+                            (rp, cr)
+                        };
                         let col = &rp.data[cr.0 as usize..cr.1 as usize];
                         if col.is_empty() {
                             continue;
@@ -743,9 +759,11 @@ impl Reader {
             pieces.clear();
             sig_piece.clear();
             sig_piece.resize(h.n_signals as usize, u32::MAX);
+            let mut aliases: Vec<(u32, u32)> = Vec::new();
             for (g, clen, off) in block::dirty_groups(p, &h) {
                 let c = block::group_container(p, &h, clen, off)?;
                 let view = GroupView::parse(c, self.group_first(g), kinds)?;
+                aliases.extend_from_slice(&view.aliases);
                 for ri in 0..view.runs.len() {
                     let mut data = Vec::new();
                     let ranges = view.decode_run(ri, &mut d, &mut data)?;
@@ -774,12 +792,31 @@ impl Reader {
                     buckets[(e.tidx >> COARSE_BITS) as usize].push(e);
                 }};
             }
-            for (first, data, ranges) in &pieces {
-                for (k, &(a0, b0)) in ranges.iter().enumerate() {
+            // Aliased signals decode their target's column under their own id.
+            let alias_jobs: Vec<(u32, usize, u32, u32)> = aliases
+                .iter()
+                .filter_map(|&(sig, target)| {
+                    let pi = sig_piece[target as usize];
+                    if pi == u32::MAX {
+                        return None;
+                    }
+                    let (first, _, ranges) = &pieces[pi as usize];
+                    let (a0, b0) = ranges[(target - first) as usize];
+                    Some((sig, pi as usize, a0, b0))
+                })
+                .collect();
+            for &(sig, target) in &aliases {
+                sig_piece[sig as usize] = sig_piece[target as usize];
+            }
+            let own_jobs = pieces.iter().enumerate().flat_map(|(pi, (first, _, ranges))| {
+                ranges.iter().enumerate().map(move |(k, &(a0, b0))| (*first + k as u32, pi, a0, b0))
+            });
+            for (sig, pi, a0, b0) in own_jobs.chain(alias_jobs.into_iter()) {
+                {
                     if a0 == b0 {
                         continue;
                     }
-                    let sig = *first + k as u32;
+                    let data = &pieces[pi].1;
                     let kind = kinds[sig as usize];
                     let col = &data[a0 as usize..b0 as usize];
                     let mut it = ColumnIter::new(col, kind);

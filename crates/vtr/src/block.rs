@@ -16,6 +16,9 @@
 //!
 //! ```text
 //! varint n_sigs
+//! varint n_alias | n_alias x { varint local_sig, varint target_sig }
+//!                                     signals whose column in this block is byte-identical to
+//!                                     `target_sig`'s (same kind); their own column is empty
 //! varint frame_clen | frame blob      raw = value of every signal of the group at start_time
 //!                                     in declared packing (VarLen: varint len + bytes)
 //! varint n_runs
@@ -28,7 +31,8 @@
 //! signal decompresses only a bounded amount of data.
 //!
 //! Columns (`dt` = time-index delta from the signal's previous change in the block):
-//! * 1-bit signals: a sequence of `varint((dt << 4) | code)` entries;
+//! * 1-bit signals: a sequence of entries `varint((dt << 2) | (bit << 1))` for codes 0/1, or
+//!   `varint((dt << 4) | ((code - 2) << 1) | 1)` for the other logic codes (X, Z, U, W, L, H, -);
 //! * every other kind: `varint header_len`, then `header_len` bytes of entry headers, then
 //!   the values concatenated in the same order (headers and values are separate streams so
 //!   that the compressor sees homogeneous data):
@@ -137,6 +141,9 @@ pub struct EncoderScratch {
     /// Entries per signal within the current block.
     entry_counts: Vec<u32>,
     cursors: Vec<usize>,
+    /// Column hash -> first signal with that column (dynamic aliasing), per block.
+    dedup: std::collections::HashMap<(u64, u64), u32>,
+    alias_of: Vec<u32>,
 }
 
 impl EncoderScratch {
@@ -233,6 +240,55 @@ pub fn finish_block(
     if scratch.entry_counts.len() < n_sig {
         scratch.entry_counts.resize(n_sig, 0);
     }
+    // --- dynamic aliasing: signals whose column bytes equal an earlier signal's ---
+    let mut alias_of = std::mem::take(&mut scratch.alias_of);
+    alias_of.clear();
+    alias_of.resize(n_sig, NO_BLOCK);
+    scratch.dedup.clear();
+    {
+        let cursors = &mut scratch.cursors;
+        cursors.clear();
+        cursors.resize(chunks.len(), 0);
+        for &grp in &input.dirty_groups {
+            let first = grp as usize * g;
+            let last = ((grp as usize + 1) * g).min(n_sig);
+            for s in first..last {
+                if scratch.entry_counts[s] == 0 {
+                    continue;
+                }
+                let kind_tag = match input.kinds[s] {
+                    SignalKind::Bits { width, states } => (width as u64) << 8 | states as u64,
+                    SignalKind::Real => 1 << 40,
+                    SignalKind::VarLen => 2 << 40,
+                };
+                let mut h = kind_tag.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                let mut total = 0usize;
+                for (ci, ch) in chunks.iter().enumerate() {
+                    let c = &mut cursors[ci];
+                    while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
+                        *c += 1;
+                    }
+                    if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
+                        let f = ch.frags[*c];
+                        h = hash_bytes(h, &ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize]);
+                        h = hash_bytes(h, &ch.val[f.voff as usize..(f.voff + f.vlen) as usize]);
+                        total += (f.hlen + f.vlen) as usize;
+                    }
+                }
+                if total < 32 {
+                    continue; // not worth an alias entry
+                }
+                let key = (h, (kind_tag << 24) ^ total as u64);
+                match scratch.dedup.get(&key) {
+                    Some(&t) if columns_equal(chunks, s as u32, t) => alias_of[s] = t,
+                    Some(_) => {}
+                    None => {
+                        scratch.dedup.insert(key, s as u32);
+                    }
+                }
+            }
+        }
+    }
     // --- time table ---
     let tt = &mut scratch.tt;
     tt.clear();
@@ -276,6 +332,14 @@ pub fn finish_block(
         frame_pos += fr.pos;
         let off = data.len() as u64;
         varint::put_u64(data, n as u64);
+        let n_alias = (first..last).filter(|&s| alias_of[s] != NO_BLOCK).count();
+        varint::put_u64(data, n_alias as u64);
+        for s in first..last {
+            if alias_of[s] != NO_BLOCK {
+                varint::put_u64(data, (s - first) as u64);
+                varint::put_u64(data, alias_of[s] as u64);
+            }
+        }
         let frame_c = &mut scratch.frame_c;
         frame_c.clear();
         compressor.compress_into(comp, raw, frame_c)?;
@@ -300,9 +364,10 @@ pub fn finish_block(
                 }
             }
             let one_bit = matches!(input.kinds[s], SignalKind::Bits { width: 1, .. });
-            let len = if hlen + vlen == 0 { 0 } else if one_bit { hlen } else { varint::len_u64(hlen) as u64 + hlen + vlen };
+            let aliased = alias_of[s] != NO_BLOCK;
+            let len = if hlen + vlen == 0 || aliased { 0 } else if one_bit { hlen } else { varint::len_u64(hlen) as u64 + hlen + vlen };
             col_lens.push(len as u32);
-            col_counts.push(scratch.entry_counts[s]);
+            col_counts.push(if aliased { 0 } else { scratch.entry_counts[s] });
             total_entries += scratch.entry_counts[s] as usize;
         }
         let budget = input.run_budget.max(1);
@@ -335,7 +400,7 @@ pub fn finish_block(
             }
             for s in first + ri..first + ri + rn {
                 if col_lens[s - first] == 0 {
-                    continue;
+                    continue; // no changes, or aliased
                 }
                 let one_bit = matches!(input.kinds[s], SignalKind::Bits { width: 1, .. });
                 // Headers of all chunks, then values of all chunks.
@@ -414,6 +479,7 @@ pub fn finish_block(
     for &p in &input.prev_dirty {
         out.extend_from_slice(&p.to_le_bytes());
     }
+    scratch.alias_of = alias_of;
     // The group data stays in `scratch.data()`; the caller writes it after `out`.
     Ok(total_entries)
 }
@@ -430,6 +496,76 @@ impl EncoderScratch {
     }
 }
 
+/// Fast 64-bit hash over `bytes`, continuing from `h` (8 bytes per step, multiply-rotate mix).
+#[inline]
+fn hash_bytes(mut h: u64, bytes: &[u8]) -> u64 {
+    let mut chunks = bytes.chunks_exact(8);
+    for c in &mut chunks {
+        let w = u64::from_le_bytes(c.try_into().unwrap());
+        h = (h ^ w).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+    }
+    let rest = chunks.remainder();
+    if !rest.is_empty() {
+        let mut b = [0u8; 8];
+        b[..rest.len()].copy_from_slice(rest);
+        h = (h ^ u64::from_le_bytes(b) ^ (rest.len() as u64) << 56).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+    }
+    h
+}
+
+/// Byte-exact comparison of two signals' column streams across the chunks (headers, then values).
+fn columns_equal(chunks: &[ChunkEnc], a: u32, b: u32) -> bool {
+    fn parts<'a>(chunks: &'a [ChunkEnc], s: u32, pass: usize) -> impl Iterator<Item = &'a [u8]> + 'a {
+        chunks.iter().filter_map(move |ch| {
+            ch.frags.binary_search_by_key(&s, |f| f.sig).ok().map(|i| {
+                let f = ch.frags[i];
+                if pass == 0 {
+                    &ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize]
+                } else {
+                    &ch.val[f.voff as usize..(f.voff + f.vlen) as usize]
+                }
+            })
+        })
+    }
+    for pass in 0..2 {
+        let (mut ia, mut ib) = (parts(chunks, a, pass), parts(chunks, b, pass));
+        let (mut sa, mut sb): (&[u8], &[u8]) = (&[], &[]);
+        loop {
+            if sa.is_empty() {
+                match ia.next() {
+                    Some(x) => {
+                        sa = x;
+                        continue;
+                    }
+                    None => {}
+                }
+            }
+            if sb.is_empty() {
+                match ib.next() {
+                    Some(x) => {
+                        sb = x;
+                        continue;
+                    }
+                    None => {}
+                }
+            }
+            if sa.is_empty() || sb.is_empty() {
+                if sa.is_empty() != sb.is_empty() {
+                    return false;
+                }
+                break;
+            }
+            let n = sa.len().min(sb.len());
+            if sa[..n] != sb[..n] {
+                return false;
+            }
+            sa = &sa[n..];
+            sb = &sb[n..];
+        }
+    }
+    true
+}
+
 fn encode_column(kind: SignalKind, recs: &[Record], heap: &[u8], prev0: u32, hdr: &mut Vec<u8>, val: &mut Vec<u8>) -> Result<()> {
     let mut prev = prev0;
     match kind {
@@ -438,7 +574,12 @@ fn encode_column(kind: SignalKind, recs: &[Record], heap: &[u8], prev0: u32, hdr
                 let t = r.tidx & !COMPACT_FLAG;
                 let dt = t.wrapping_sub(prev) as u64;
                 prev = t;
-                varint::put_u64(hdr, (dt << 4) | (r.payload & 15));
+                let code = r.payload & 15;
+                if code <= 1 {
+                    varint::put_u64(hdr, (dt << 2) | (code << 1));
+                } else {
+                    varint::put_u64(hdr, (dt << 4) | ((code - 2) << 1) | 1);
+                }
             }
         }
         SignalKind::Bits { width, states } => {
@@ -621,6 +762,8 @@ pub struct GroupView<'a> {
     pub frame_blob: &'a [u8],
     /// Runs: (first local signal, count, compressed blob).
     pub runs: Vec<(u32, u32, &'a [u8])>,
+    /// Dynamic aliases: (signal, target signal) ascending by signal.
+    pub aliases: Vec<(u32, u32)>,
 }
 
 impl<'a> GroupView<'a> {
@@ -629,6 +772,19 @@ impl<'a> GroupView<'a> {
         let n = r.usize()?;
         if first_sig as usize + n > kinds.len() {
             return Err(Error::Corrupt("group exceeds signal table"));
+        }
+        let n_alias = r.usize()?;
+        if n_alias > n {
+            return Err(Error::Corrupt("too many aliases"));
+        }
+        let mut aliases = Vec::with_capacity(n_alias);
+        for _ in 0..n_alias {
+            let local = r.u32()?;
+            let target = r.u32()?;
+            if local as usize >= n || target as usize >= kinds.len() {
+                return Err(Error::Corrupt("alias out of range"));
+            }
+            aliases.push((first_sig + local, target));
         }
         let frame_blob = r.blob()?;
         let n_runs = r.usize()?;
@@ -651,7 +807,12 @@ impl<'a> GroupView<'a> {
         if local as usize != n {
             return Err(Error::Corrupt("runs do not cover the group"));
         }
-        Ok(GroupView { container, first_sig, n_sigs: n, frame_blob, runs })
+        Ok(GroupView { container, first_sig, n_sigs: n, frame_blob, runs, aliases })
+    }
+
+    /// Target signal when `sig`'s column in this block is an alias.
+    pub fn alias_of(&self, sig: u32) -> Option<u32> {
+        self.aliases.binary_search_by_key(&sig, |a| a.0).ok().map(|i| self.aliases[i].1)
     }
 
     /// Index of the run holding `sig`.
@@ -806,8 +967,8 @@ impl<'a> ColumnIter<'a> {
         Ok(Some(match self.kind {
             SignalKind::Bits { width: 1, states } => {
                 let x = self.h.u64()?;
-                self.tidx = self.tidx.wrapping_add((x >> 4) as u32);
-                let code = x & 15;
+                let (dt, code) = if x & 1 == 0 { (x >> 2, (x >> 1) & 1) } else { (x >> 4, ((x >> 1) & 7) + 2) };
+                self.tidx = self.tidx.wrapping_add(dt as u32);
                 let st = if code <= 1 { 2 } else { states };
                 RawChange { tidx: self.tidx, states: st, start: 0, end: 0, inline: code }
             }

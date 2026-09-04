@@ -346,6 +346,8 @@ holds a signal's data without scanning.
 
 ```
 varint n_sigs                     signals in this group (group_size, or fewer for the last group)
+varint n_alias                    dynamic aliases (6.6)
+n_alias x { varint local_sig, varint target_sig }
 blob   frame                      compressed blob: the *frame* (6.3)
 varint n_runs
 n_runs x { varint n_in_run, varint clen }   runs cover the n_sigs signals in order
@@ -379,8 +381,10 @@ index in the same column (the first entry is relative to index 0).
 Several entries may share one index (same-time updates); they are kept in
 emission order.
 
-*1-bit signals*: the column is a sequence of `varint (dt << 4) | code`
-entries with the logic code in the low 4 bits.
+*1-bit signals*: the column is a sequence of varint entries. Bit 0 is an
+escape flag: `(dt << 2) | (bit << 1)` encodes a 0 or 1; `(dt << 4) |
+((code - 2) << 1) | 1` encodes the other logic codes (X=2 ... -=8), so
+the common two-state case stays in one byte for deltas up to 31.
 
 *All other kinds*: the column is `varint header_len`, then `header_len`
 bytes of entry headers, then the values concatenated in the same order.
@@ -396,11 +400,24 @@ homogeneous data.
 The number of entries is implied by the header stream; a reader decodes
 headers and values with two cursors that advance together.
 
-### 6.5 Reading
+### 6.5 Dynamic aliases
+
+When two signals of the same kind have byte-identical columns in a block
+(typical for clock trees and fan-out nets that the simulator did not
+declare as aliases), the producer may store the column once: the later
+signal is listed in its group's alias table with `local_sig` (its index
+within the group) and `target_sig` (the absolute id of the signal whose
+column it shares, which is never itself an alias) and its own column has
+length 0. Aliases are per block; frames are never aliased. A reader must
+resolve an alias before decoding the column (the target may live in
+another dirty group of the same block).
+
+### 6.6 Reading
 
 *Value of signal s at time t*: find the last block whose `start_time <= t`
 (binary search over directory `aux0`); let `g = s / group_size`; if `g` is
-in the block's dirty index decode its run for `s` and take the last entry
+in the block's dirty index decode its run for `s` (following an alias,
+6.5) and take the last entry
 whose time-table index maps to a time `<= t`, else take the frame value;
 if `g` is not dirty there, follow the prev-dirty table to the previous
 block in which it is dirty and take the last entry of its column (or the

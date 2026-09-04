@@ -1,5 +1,7 @@
 // Replays a workload into the original GTKWave fstapi.c writer or the libfstwriter C++ writer.
-// Usage: fst_write <in.rpl> <out.fst> <fstapi|fstcpp> [lz4|zlib]
+// Usage: fst_write <in.rpl> <out.fst> <fstapi|fstcpp> [lz4|zlib|none]
+// "none": libfstwriter NO_COMPRESSION; fstapi FST_WR_PT_FASTLZ, which in the vendored build
+// (fastlz disabled) stores every value chain raw (time tables and frames stay zlib-packed).
 #include "replay.h"
 #include "fstapi.h"
 #include "fstcpp/fstcpp_writer.h"
@@ -12,13 +14,14 @@ int main(int argc, char **argv) {
     if (rp_load(argv[1], &rp)) return 1;
     std::string mode = argv[3];
     bool zlib = argc > 4 && std::string(argv[4]) == "zlib";
+    bool none = argc > 4 && std::string(argv[4]) == "none";
     std::vector<uint32_t> handle(rp.n_sig, 0);
     std::vector<char> ascii(1 << 20);
     double w0 = rp_wall(), c0 = rp_cpu();
     uint64_t n = 0, skipped = 0;
     if (mode == "fstapi") {
         fstWriterContext *ctx = fstWriterCreate(argv[2], 1);
-        fstWriterSetPackType(ctx, zlib ? FST_WR_PT_ZLIB : FST_WR_PT_LZ4);
+        fstWriterSetPackType(ctx, none ? FST_WR_PT_FASTLZ : zlib ? FST_WR_PT_ZLIB : FST_WR_PT_LZ4);
         fstWriterSetTimescale(ctx, rp.timescale);
         fstWriterSetVersion(ctx, "vtr-bench");
         for (uint32_t i = 0; i < rp.n_hier; i++) {
@@ -59,7 +62,7 @@ int main(int argc, char **argv) {
         fstWriterClose(ctx);
     } else {
         fst::Writer w(argv[2]);
-        w.setWriterPackType(fst::WriterPackType::LZ4);
+        w.setWriterPackType(none ? fst::WriterPackType::NO_COMPRESSION : fst::WriterPackType::LZ4);
         w.setTimecale(rp.timescale);
         for (uint32_t i = 0; i < rp.n_hier; i++) {
             rp_hier &h = rp.hier[i];
@@ -99,7 +102,7 @@ int main(int argc, char **argv) {
         w.close();
     }
     double wall = rp_wall() - w0, cpu = rp_cpu() - c0;
-    printf("{\"writer\": \"%s%s\", \"records\": %llu, \"skipped\": %llu, \"wall_s\": %.6f, \"cpu_s\": %.6f, \"bytes\": %ld, \"changes_per_s\": %.1f}\n",
-           mode.c_str(), zlib ? "-zlib" : "", (unsigned long long)n, (unsigned long long)skipped, wall, cpu, rp_file_size(argv[2]), n / wall);
+    printf("{\"writer\": \"%s%s%s\", \"records\": %llu, \"skipped\": %llu, \"wall_s\": %.6f, \"cpu_s\": %.6f, \"bytes\": %ld, \"changes_per_s\": %.1f}\n",
+           mode.c_str(), zlib ? "-zlib" : "", none ? "-none" : "", (unsigned long long)n, (unsigned long long)skipped, wall, cpu, rp_file_size(argv[2]), n / wall);
     return 0;
 }

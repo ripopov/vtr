@@ -29,6 +29,7 @@ the submodules.
 | wellen (FST) | the `wellen` crate (with `fst-reader`) that wavepeek uses; all read timings use its public API the way wavepeek does |
 | fstapi reader | `fstReaderOpen`, `fstReaderIterateHier`, `fstReaderGetValueFromHandleAtTime`, `fstReaderIterBlocks2` |
 | FTR (LZ4 / raw) | `ext/LWTR4SC/src/ftr/ftr_writer.h`, `ftr_writer<true>` (LZ4) and `ftr_writer<false>` |
+| uncompressed variants | `fstapi none` = pack type FASTLZ in the vendored build, where fastlz is compiled out so every value chain is stored raw (time tables and frames stay zlib-packed); `libfstwriter none` = its `NO_COMPRESSION` mode; `VTR none` = codec none for every blob. Reads of the uncompressed pair use wellen on the libfstwriter file. |
 | VTR Rust / C API | this repository, default options (zstd level 3, 256-signal groups, 64 KiB runs, 16M-record blocks, 512K-record chunks, background thread on); `inline` variants disable the background thread so the encoder runs on the caller's thread |
 
 ## Workloads
@@ -130,39 +131,52 @@ the requirements on every workload of the suite, with the following
 qualifications, which are the honest boundaries of the claims:
 
 * **Size.** VTR is smaller than the smallest FST variant (GTKWave's
-  default zlib packing) on all seven signal workloads: 72% of FST-zlib on
-  the SCR1 core, 77-86% on the synthetic and replicated designs, and
-  97-98% on the high-entropy RSA-256 datapath and wide-bus workloads,
-  where both formats are near the entropy floor of the values themselves.
-  Against LZ4-packed FST (what libfstwriter and Verilator produce) the
-  margins are much larger (53% on SCR1). Transaction files are 3-5x
+  default zlib packing) on all seven signal workloads: 58% of FST-zlib on
+  the SCR1 core and 60% on its 8-copy replica, 76-78% on the synthetic
+  designs, and 97-98% on the high-entropy RSA-256 datapath and wide-bus
+  workloads, where both formats sit near the entropy floor of the values
+  themselves. Against LZ4-packed FST (what libfstwriter and Verilator
+  produce) the margins are larger still. Transaction files are 3-5x
   smaller than LZ4-compressed FTR.
 * **Write speed.** With the default background encoder VTR is faster than
   the fastest FST writer (libfstwriter) on every signal workload, by
-  1.1x (wide buses, where copying 256-2048-bit values dominates) to 2.2x
-  (SCR1), and 10-13x faster than GTKWave's own `fstapi.c`. The CPU
-  column shows the price: the background thread adds 20-60% total CPU.
-  The `inline` variants (encoder on the caller thread) are still at or
-  below libfstwriter on every workload, so the speed does not depend on a
-  spare core. For transactions VTR beats LZ4-compressed FTR by 1.7-1.8x
-  and uncompressed FTR by 1.2x; the inline variant is slower than
-  uncompressed FTR on the TLM workload (0.73 s vs 0.53 s), which
-  is the one configuration where FTR writes faster.
+  1.03x (wide buses, where copying 256-2048-bit values dominates both
+  writers) to 2.1x (SCR1), and 10-13x faster than GTKWave's own
+  `fstapi.c`. The CPU column shows the price: the background thread adds
+  20-60% total CPU. The `inline` variants (encoder on the caller thread)
+  are also faster than libfstwriter on every workload (1.04-1.47x), so the
+  speed does not depend on a spare core. For transactions VTR beats
+  LZ4-compressed FTR by 1.8x and uncompressed FTR by 1.3x; the inline
+  variant is slower than uncompressed FTR on the TLM workload, the one
+  configuration where FTR writes faster. The 4k-instruction Konata sample
+  is dominated by process start-up on both sides (parity).
 * **Read and navigation.** Against wellen (wavepeek's reader) VTR is
-  faster on every query on every workload with two exceptions on the
+  faster on every query on every workload with one exception on the
   synthetic 200k-signal `many_active` design: loading 1000 *random*
-  signals (about 0.65x, because a 64 KiB column run holds ~40 sparse signals and
-  1000 random picks decompress most runs) and, before the benchmark's own
-  hierarchy walk was fixed to reuse a path buffer, the hierarchy listing.
-  A 16 KiB `run_bytes` setting brings the random-load case to parity at a
-  0.5-5% size cost; loading 1000 signals of one *scope* (adjacent ids) is
-  not affected because they share runs. Random value queries are 3-36x
-  faster, single-signal loads 6-16x, windowed change scans 17-37x,
-  streaming every change 2-77x, and opening a file 10-100x faster.
+  signals (0.70x, because a 64 KiB column run holds ~40 sparse signals and
+  1000 random picks decompress most runs). A 16 KiB `run_bytes` setting
+  brings that case to parity at a 0.5-5% size cost; loading 1000 signals
+  of one *scope* (adjacent ids) is not affected because they share runs.
+  Opening the same file is at parity (10 ms, dominated by the 200k-node
+  hierarchy on both sides). Elsewhere random value queries are 2-6x
+  faster, single-signal loads 2-20x, windowed change scans 2-14x,
+  streaming every change 1.6-78x, and opening a file 5-100x faster.
+* **Uncompressed.** With compression switched off on both sides VTR's
+  files are within 1-6% of raw-chain `fstapi` on the real designs
+  (larger on SCR1 by 6%, equal on RSA-256) and 3-7% smaller on the
+  synthetic ones; both FST variants still zlib-pack their time tables and
+  frames, so they are not fully raw. Uncompressed VTR writes 1.3-2x faster
+  than libfstwriter's `NO_COMPRESSION` mode and reads faster on every
+  query shown. The comparison isolates the encoding: escape-coded 1-bit
+  entries, packed multi-state vectors, delta-coded time indexes and
+  dynamic aliasing (FST's own ideas, kept) versus FST's per-chain layout.
 * GTKWave's C reader (`fstapi`) is included for reference: its streaming
-  path is close to VTR on small files (SCR1: 213 ms vs 188 ms) but its
-  random-access path (`fstReaderGetValueFromHandleAtTime`) is 15-500x
-  slower than `value_at`.
+  path is close to VTR on small files but its random-access path
+  (`fstReaderGetValueFromHandleAtTime`) is 15-500x slower than
+  `value_at`.
+
+The report's *Summary* section is generated from the same data and lists
+every workload where a claim does not hold.
 
 Reproduce a single workload with `python3 bench/run.py run --workloads
 scr1_axi`, and only the read tables with `--reads-only`.

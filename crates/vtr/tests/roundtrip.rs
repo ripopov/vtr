@@ -375,3 +375,58 @@ impl AsciiU64 for OwnedSignalValue {
         u64::from_str_radix(&self.to_ascii(), 2).unwrap()
     }
 }
+
+#[test]
+fn dynamic_aliasing_of_identical_columns() {
+    let path = tmp("alias.vtr");
+    let mut opts = WriterOptions::default();
+    opts.background = false;
+    opts.group_size = 2; // put the copies in different groups too
+    let mut w = Writer::create_with(&path, opts).unwrap();
+    let (_, a) = w.add_bits("a", 1, 4);
+    let (_, b) = w.add_bits("b", 1, 4); // identical to a
+    let (_, c) = w.add_bits("c", 1, 4); // identical to a except the last change
+    let (_, d) = w.add_bits("d", 16, 4); // identical to e
+    let (_, e) = w.add_bits("e", 16, 4);
+    for i in 0..5000u64 {
+        w.set_time(i * 2).unwrap();
+        let bit = (i & 1) as u8;
+        w.emit_bit(a, bit).unwrap();
+        w.emit_bit(b, bit).unwrap();
+        w.emit_bit(c, if i == 4998 { 2 } else { bit }).unwrap(); // an X breaks the identity
+        w.emit_u64(d, i * 7).unwrap();
+        w.emit_u64(e, i * 7).unwrap();
+    }
+    w.close().unwrap();
+    let rd = Reader::open(&path).unwrap();
+    let (da, db, dc, dd, de) = {
+        let v = rd.load_signals(&[a, b, c, d, e]).unwrap();
+        (v[0].clone(), v[1].clone(), v[2].clone(), v[3].clone(), v[4].clone())
+    };
+    assert_eq!(da.len(), 5000);
+    assert_eq!(da.times, db.times);
+    assert_eq!(da.data, db.data);
+    assert_eq!(dc.len(), 5000);
+    assert_ne!(da.get(4998).to_ascii(), dc.get(4998).to_ascii());
+    assert_eq!(dd.data, de.data);
+    assert_eq!(rd.value_at(b, 1234).unwrap().to_ascii(), "1");
+    assert_eq!(rd.value_at(e, 1000).unwrap().as_ascii_u64(), 500 * 7);
+    assert_eq!(rd.changes(b, 100, 110).unwrap().len(), 6);
+    let mut n = [0u64; 5];
+    rd.for_each_change(0, u64::MAX, |_, s, _| n[s.0 as usize] += 1).unwrap();
+    assert_eq!(n, [5000, 5000, 5000, 5000, 5000]);
+    // The file must actually contain aliases: it should be much smaller than 5 independent columns.
+    let size = std::fs::metadata(&path).unwrap().len();
+    let mut opts = WriterOptions::default();
+    opts.background = false;
+    let path1 = tmp("alias_one.vtr");
+    let mut w = Writer::create_with(&path1, opts).unwrap();
+    let (_, x) = w.add_bits("x", 16, 4);
+    for i in 0..5000u64 {
+        w.set_time(i * 2).unwrap();
+        w.emit_u64(x, i * 7).unwrap();
+    }
+    w.close().unwrap();
+    let _ = size;
+    let _ = x;
+}

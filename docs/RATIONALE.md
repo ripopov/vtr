@@ -128,6 +128,12 @@ most 64 KiB raw; a per-block dirty index and a prev-dirty table.
   out fast on such data): same size, half the encoder time on
   wide-datapath designs. An order-0 entropy probe was tried first and
   misclassified structured-but-high-entropy data.
+* FST's dynamic aliasing is borrowed at block level: columns are hashed
+  at block finish and byte-identical ones (verified, not trusted to the
+  hash) are stored once. On SCR1 this removes another 19% of the
+  compressed file and brings the uncompressed file within a few percent
+  of uncompressed FST; zstd alone only catches duplicates that land in
+  the same 64 KiB run.
 * In-file skip indexes for long columns were tried and rejected: even
   delta-coded, they cost 10% of the file on SCR1. The reader instead
   builds a sparse index (one checkpoint per 256 entries) the first time

@@ -193,12 +193,18 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None):
     w("vtr-rust", [VTR_BENCH, "write", rpl, os.path.join(out_dir, f"{name}.vtr")], os.path.join(out_dir, f"{name}.vtr"))
     w("vtr-rust-inline", [VTR_BENCH, "write", rpl, os.path.join(out_dir, f"{name}_inline.vtr"), "--no-background"], os.path.join(out_dir, f"{name}_inline.vtr"))
     w("vtr-lz4", [VTR_BENCH, "write", rpl, os.path.join(out_dir, f"{name}_lz4.vtr"), "--codec", "lz4"], os.path.join(out_dir, f"{name}_lz4.vtr"))
+    # Uncompressed variants of every writer.
+    w("fstapi-none", [fw, rpl, os.path.join(out_dir, f"{name}_fstapi_none.fst"), "fstapi", "none"], os.path.join(out_dir, f"{name}_fstapi_none.fst"))
+    w("fstcpp-none", [fw, rpl, os.path.join(out_dir, f"{name}_fstcpp_none.fst"), "fstcpp", "none"], os.path.join(out_dir, f"{name}_fstcpp_none.fst"))
+    w("vtr-none", [VTR_BENCH, "write", rpl, os.path.join(out_dir, f"{name}_none.vtr"), "--codec", "none"], os.path.join(out_dir, f"{name}_none.vtr"))
     # Reads: wellen (what wavepeek uses) vs VTR, on the GTKWave-default FST (zlib) and, when the
     # workload came from a simulator, on the original simulator-written FST as well.
     vtr_file = files["vtr-rust"]
     res["readers"]["vs_fstapi_zlib"] = json_out([VTR_BENCH, "read", files["fstapi-zlib"], vtr_file])
     if "source_fst" in info:
         res["readers"]["vs_source_fst"] = json_out([VTR_BENCH, "read", info["source_fst"], vtr_file])
+    if not reads_only or (os.path.exists(files["fstcpp-none"]) and os.path.exists(files["vtr-none"])):
+        res["readers"]["uncompressed"] = json_out([VTR_BENCH, "read", files["fstcpp-none"], files["vtr-none"]])
     plan = os.path.join(out_dir, f"{name}_plan.txt")
     with open(plan, "w") as f:
         f.write(sh([VTR_BENCH, "plan", vtr_file], capture=True).stdout)
@@ -209,7 +215,7 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None):
         res["source_fst_bytes"] = os.path.getsize(info["source_fst"])
     # Remove bulky outputs but keep one VTR and the zlib FST for inspection (and reads-only reruns).
     for label, path in files.items():
-        if label not in ("vtr-rust", "fstapi-zlib"):
+        if label not in ("vtr-rust", "fstapi-zlib", "fstcpp-none", "vtr-none"):
             try:
                 os.remove(path)
             except OSError:
@@ -279,6 +285,57 @@ def fmt_bytes(b):
     return f"{b} B"
 
 
+def summary(rtl, tx):
+    """Claim-by-claim summary computed from the raw results."""
+    L = ["## Summary\n"]
+    if rtl:
+        size_ratios = []
+        write_ratios = []
+        inline_ratios = []
+        for r in rtl:
+            w = r["writers"]
+            best_fst = min(w["fstapi-lz4"]["bytes"], w["fstapi-zlib"]["bytes"], w["fstcpp-lz4"]["bytes"])
+            size_ratios.append((r["workload"], w["vtr-rust"]["bytes"] / best_fst))
+            fastest = min(w["fstapi-lz4"]["wall_s"], w["fstapi-zlib"]["wall_s"], w["fstcpp-lz4"]["wall_s"])
+            write_ratios.append((r["workload"], fastest / w["vtr-rust"]["wall_s"]))
+            inline_ratios.append((r["workload"], fastest / w["vtr-rust-inline"]["wall_s"]))
+        wins = sum(1 for _, x in size_ratios if x < 1)
+        L.append(f"- **Size.** VTR (zstd-3) is smaller than the smallest FST variant on {wins} of {len(rtl)} signal workloads: "
+                 + ", ".join(f"{n} {x * 100:.0f}%" for n, x in size_ratios) + " of the best FST size.")
+        wins = sum(1 for _, x in write_ratios if x > 1)
+        L.append(f"- **Write speed.** VTR (background encoder) is faster than the fastest FST writer on {wins} of {len(rtl)} workloads: "
+                 + ", ".join(f"{n} {x:.2f}x" for n, x in write_ratios) + ". Inline encoder: "
+                 + ", ".join(f"{x:.2f}x" for _, x in inline_ratios) + ".")
+        keys = [("open", "open"), ("load_1", "load 1 signal"), ("load_10", "load 10"), ("load_100", "load 100"), ("load_1000", "load 1000"),
+                ("value_at_10x100", "value at time"), ("changes_window_1pct", "window scan"), ("condition_search", "condition search"), ("stream_all", "stream all")]
+        rows = []
+        losses = []
+        for k, label in keys:
+            ratios = []
+            for r in rtl:
+                rd = r["readers"]["vs_fstapi_zlib"]
+                base = rd[k].get("fst_wellen", rd[k].get("fst_reader"))
+                x = base / rd[k]["vtr"]
+                ratios.append(x)
+                if x < 1:
+                    losses.append(f"{label} on {r['workload']} ({x:.2f}x)")
+            rows.append(f"{label} {min(ratios):.1f}-{max(ratios):.1f}x")
+        L.append("- **Read and navigation** (VTR speed-up over wellen, min-max across workloads; sub-millisecond queries are noisy): " + ", ".join(rows) + ". "
+                 + ("VTR is slower in: " + "; ".join(losses) + "." if losses else "VTR is faster in every query on every workload."))
+        parity = all(r["readers"]["vs_fstapi_zlib"]["parity_errors"] == 0 for r in rtl)
+        L.append(f"- **Parity.** Values and change counts identical between wellen and VTR on all workloads: {'yes' if parity else 'NO'}.")
+    if tx:
+        parts = []
+        for r in tx:
+            w = r["writers"]
+            f, v = w["ftr-lz4"], w["vtr-rust"]
+            parts.append(f"{r['workload']} size {v['bytes'] / f['bytes'] * 100:.0f}% of FTR-LZ4, write speed {f['wall_s'] / v['wall_s']:.2f}x FTR-LZ4"
+                         + (f" and {w['ftr-raw']['wall_s'] / v['wall_s']:.2f}x uncompressed FTR" if "ftr-raw" in w else ""))
+        L.append("- **Transactions.** " + "; ".join(parts) + ".")
+    L.append("")
+    return L
+
+
 def render(results, path):
     m = results["machine"]
     L = []
@@ -287,6 +344,8 @@ def render(results, path):
     L.append(f"Machine: {m['cpu']} ({m['cores']} threads), {m['memory']}, Linux {m['kernel']}; {m['rustc']}; {m['gcc']}; verilator: {m['verilator']}. Run on {m['date']}.\n")
     L.append("All timings are best-of-N wall-clock seconds of the write loop plus close (writers) or of the query (readers); `cpu` is user+system CPU time of the whole process, including VTR's background encoder thread.\n")
     rtl = [r for r in results["rtl"]]
+    tx = results["tx"]
+    L.extend(summary(rtl, tx))
     if rtl:
         L.append("## Signal workloads: file size\n")
         L.append("| workload | signals | changes | time steps | simulator FST | fstapi LZ4 | fstapi zlib | libfstwriter LZ4 | **VTR** (zstd-3) | VTR lz4 | VTR vs best FST |")
@@ -327,7 +386,24 @@ def render(results, path):
                 bs = f"{b * 1000:.2f}" if b is not None else "-"
                 L.append(f"| {label} | {a * 1000:.2f} | {bs} | **{c * 1000:.2f}** | {a / c:.1f}x |")
             L.append(f"\nParity check (values/counts identical between wellen and VTR): {'OK' if rd['parity_errors'] == 0 else str(rd['parity_errors']) + ' mismatches'}. Warm random-access value query: {rd['value_at_10x100']['vtr_warm'] * 1e6 / rd['value_at_10x100']['queries']:.1f} us per query.\n")
-    tx = results["tx"]
+    if rtl and any("uncompressed" in r["readers"] for r in rtl):
+        L.append("## Uncompressed variants: VTR (codec none) versus FST without value compression\n")
+        L.append("`fstapi none` = pack type FASTLZ in the vendored build, where fastlz is disabled and every value chain is stored raw (time tables and frames remain zlib-packed); `libfstwriter none` = `NO_COMPRESSION` (no compression anywhere). VTR `none` stores every blob raw. Reads compare wellen on the libfstwriter file with VTR on the uncompressed VTR file.\n")
+        L.append("| workload | fstapi none | libfstwriter none | **VTR none** | VTR vs smallest | fstapi none write | libfstwriter none write | **VTR none write** | open | load 1000 | value at time 10x100 | stream all |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for r in rtl:
+            w = r["writers"]
+            if "vtr-none" not in w:
+                continue
+            best = min(w["fstapi-none"]["bytes"], w["fstcpp-none"]["bytes"])
+            rd = r["readers"].get("uncompressed")
+            def rr(k):
+                if not rd:
+                    return "-"
+                base = rd[k].get("fst_wellen", rd[k].get("fst_reader"))
+                return f"{base * 1000:.1f} / **{rd[k]['vtr'] * 1000:.1f}** ms"
+            L.append(f"| {r['workload']} | {fmt_bytes(w['fstapi-none']['bytes'])} | {fmt_bytes(w['fstcpp-none']['bytes'])} | **{fmt_bytes(w['vtr-none']['bytes'])}** | {w['vtr-none']['bytes'] / best * 100:.0f}% | {w['fstapi-none']['wall_s']:.3f}s | {w['fstcpp-none']['wall_s']:.3f}s | **{w['vtr-none']['wall_s']:.3f}s** | {rr('open')} | {rr('load_1000')} | {rr('value_at_10x100')} | {rr('stream_all')} |")
+        L.append("\nRead cells are wellen / **VTR** milliseconds.\n")
     if tx:
         L.append("## Transaction workloads\n")
         L.append("| workload | transactions | attributes / stages | relations | FTR (LZ4) size | **VTR** size | FTR write | **VTR write** | VTR inline write |")
