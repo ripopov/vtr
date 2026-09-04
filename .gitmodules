@@ -1,3 +1,6 @@
 [submodule "ext/libfstwriter"]
 	path = ext/libfstwriter
 	url = https://github.com/gtkwave/libfstwriter
+[submodule "ext/LWTR4SC"]
+	path = ext/LWTR4SC
+	url = https://github.com/ripopov/LWTR4SC
