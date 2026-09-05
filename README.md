@@ -122,7 +122,7 @@ crates/vtr-cli     `vtr` tool and the converters (FST, VCD, Kanata, OTLP JSON, F
 crates/vtr-bench   workload generation and benchmark drivers
 bench/             C/C++ harnesses (FST, FTR), Verilator workloads (rsa256, c910), orchestrator, results
 docs/              specification, API references, application note, benchmark report, rationale
-integrations/      Verilator --trace-vtr patch and backend
+integrations/      Verilator submodule build and trace integration tests
 ext/               reference submodules (libfstwriter, LWTR4SC, Konata, wavepeek, pulp-c910)
 ```
 

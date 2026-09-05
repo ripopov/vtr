@@ -20,3 +20,7 @@
 [submodule "ext/elkrs"]
 	path = ext/elkrs
 	url = https://github.com/ripopov/elkrs
+[submodule "ext/verilator"]
+	path = ext/verilator
+	url = https://github.com/ripopov/verilator
+	branch = vtr
