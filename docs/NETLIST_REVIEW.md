@@ -1,11 +1,11 @@
 # Netlist SVG verification — 2026-09-05
 
-The 25 SVG goldens in `crates/vtr-kdb/tests/goldens` were parsed as XML,
+The 25 SVG goldens in `crates/vtr-vdb/tests/goldens` were parsed as XML,
 rasterized with `rsvg-convert` 2.62.3, and visually inspected in five review sheets.
 The review covered every golden: text placement, value visibility, node
 separation, port attachment, child-module boundaries, and missing-data styling.
 The generated review gallery is `target/netlist-svg/review/index.html` and can
-be recreated with `python3 tools/kdb/verify_svg.py`.
+be recreated with `python3 tools/vdb/verify_svg.py`.
 
 | Cases | Review result |
 |---|---|

@@ -6,7 +6,7 @@ members = [
     "crates/vtr-capi",
     "crates/vtr-cli",
     "crates/vtr-bench",
-    "crates/vtr-kdb",
+    "crates/vtr-vdb",
 ]
 
 [workspace.package]

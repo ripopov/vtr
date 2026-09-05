@@ -1,6 +1,6 @@
 //! Kanata (Konata pipeline log) -> VTR conversion.
 //!
-//! Mapping (see docs/KDB_APPNOTE.md for the viewer side):
+//! Mapping (see docs/VDB_APPNOTE.md for the viewer side):
 //! * one stream per thread id, generator "instruction"
 //! * `I`  -> begin transaction; attrs `insn_id_in_sim` (begin phase), `line`
 //! * `L 0/1` -> attrs `label` / `detail` (record phase, appended)

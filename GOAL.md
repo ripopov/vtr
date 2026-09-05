@@ -27,35 +27,35 @@ YAML/JSON/XML configuration. Concretely, three kinds of data:
    is the parent of activity inside a slave device. FTR is the source of
    inspiration here.
 
-## 2. Scope: what VTR does not capture (the VTR/KDB split)
+## 2. Scope: what VTR does not capture (the VTR/VDB split)
 
-Follow the Verdi model of FSDB versus KDB:
+Follow the Verdi model of separate waveform and design databases:
 
 - **VTR (like FSDB)** is the trace dump: data plus hierarchy plus relations.
-- **KDB (Knowledge Database)** is a separate, application-specific layer that
+- **VDB (Vibe Data Base)** is a separate, application-specific layer that
   adds semantics and presentation on top of an unchanged VTR file: colouring of
   signals, transactions or pipeline stages; which attribute marks a squashed
   instruction; source file and line where a signal or module is defined;
   driver/load annotations; and similar.
 
-KDB is CSS-like: the same VTR data can be rendered many different ways by
-different KDBs. Many KDBs will exist for different domains and all reuse the
+VDB is CSS-like: the same VTR data can be rendered many different ways by
+different VDBs. Many VDBs will exist for different domains and all reuse the
 same VTR trace. Therefore:
 
-- No KDB format is part of this deliverable.
+- No VDB format is part of this deliverable.
 - VTR must not embed presentation or source-level semantics, but it must carry
-  enough stable identity and attribute data that a KDB can attach to it
+  enough stable identity and attribute data that a VDB can attach to it
   reliably (for example, name a signal, stream, transaction type, attribute,
   or relation kind and have that reference survive across runs of the same
   design).
 
-Illustrative use cases the VTR + KDB pairing must enable:
+Illustrative use cases the VTR + VDB pairing must enable:
 
 - **Pipeline viewer.** A Konata-style trace is representable as FTR-like
-  transactions with timestamped events and relations. A KDB then defines
+  transactions with timestamped events and relations. A VDB then defines
   stage colouring, which attribute means "flushed", lane assignment, and so
   on, producing a fully featured Konata pipeline view from plain VTR data.
-- **RTL debugger.** For FST-like waveform data, a KDB enables annotated trace
+- **RTL debugger.** For FST-like waveform data, a VDB enables annotated trace
   drivers, reverse debugging (stepping backwards), and a waveform view.
 - **Automated / LLM-driven querying** as done by `ext/wavepeek`.
 
@@ -117,10 +117,10 @@ of out-of-order cores. Synthetic microbenchmarks alone are not sufficient.
    that an independent implementation can be written from it.
 3. **VTR API specifications** for both the Rust and C APIs, as HTML or
    Markdown, generated or hand-written.
-4. **Application note** explaining how to design a KDB-style database that
-   supplements VTR. It must include a worked design of a KDB that implements
+4. **Application note** explaining how to design a VDB-style database that
+   supplements VTR. It must include a worked design of a VDB that implements
    a fully featured Konata-like pipeline viewer on top of a VTR trace, and
-   should also outline the RTL-debugger KDB case.
+   should also outline the RTL-debugger VDB case.
 5. **Benchmark suite and results report** covering section 4 against FST and
    FTR: methodology, workloads, hardware, raw numbers, and analysis. The
    benchmarks must be reproducible from the repository.
@@ -142,7 +142,7 @@ Local submodules under `ext/`:
 External:
 
 - GTKWave FST format and API (`fstapi.h`, `fstapi.c`) and its documentation.
-- Synopsys Verdi FSDB and KDB concepts (public documentation only).
+- Synopsys Verdi waveform and design database concepts (public documentation only).
 - OpenTelemetry Tracing specification:
   https://opentelemetry.io/docs/specs/otel/trace/api/
 - Konata / Kanata trace format documentation:
@@ -157,7 +157,7 @@ External:
 
 - Research the references first; do not reinvent what they already solve
   well, and document what you borrowed and what you rejected.
-- Do not embed KDB or presentation data in VTR.
+- Do not embed VDB or presentation data in VTR.
 - Keep the format versioned and extensible from the first release.
 - Measure before claiming any efficiency win; every claim in section 4 must
   be backed by the benchmark report.

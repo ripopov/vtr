@@ -1507,23 +1507,23 @@ reader needs no configuration.
   `crates/vtr/tests/roundtrip.rs` (round-trip tests covering every emit path,
   transactions, crash recovery, error cases and skip-index checkpoints).
 
-## RTL KDB companion API
+## RTL VDB companion API
 
-The separate `vtr-kdb` crate exports `Database::open(path)`,
+The separate `vtr-vdb` crate exports `Database::open(path)`,
 `Debugger::attach(&database, &reader, prefix)`, and
 `Debugger::trace(symbol, time, depth) -> Result<TraceNode, String>`.
 `TraceNode` exposes values, moments, source locations, reasons, diagnostic notes
 and children; `render()` returns the same plain-text tree used by the CLI.
 The debugger borrows the immutable database and reader and caches loaded
-histories per signal ID. See [KDB_RTL.md](KDB_RTL.md) for its schema and
+histories per signal ID. See [VDB_RTL.md](VDB_RTL.md) for its schema and
 semantic contract. A read-only `SignalData::times()` accessor supports the
 companion; the VTR storage format is unchanged.
 
 
-The companion also exposes `vtr_kdb::netlist`:
+The companion also exposes `vtr_vdb::netlist`:
 
 ```rust,ignore
-let index = vtr_kdb::netlist::NetlistIndex::new(&database)?;
+let index = vtr_vdb::netlist::NetlistIndex::new(&database)?;
 let view = index.module("top.u0")?.layout()?;
 let svg = view.svg(&mut debugger, 26)?;
 std::fs::write("stage.svg", svg)?;
@@ -1535,5 +1535,5 @@ child instance paths, named pins) and `wires` (block/pin endpoints). `layout`
 consumes it and returns a `LaidOutNetlist` with public netlist and ELK geometry.
 `svg` borrows that layout and samples the attached debugger; repeated times
 reuse geometry and cached immutable histories. All operations return
-`Result<_, String>`. KDB v2 requires explicit ownership, ports, and static reads;
+`Result<_, String>`. VDB v2 requires explicit ownership, ports, and static reads;
 v1 exports must be regenerated. The companion requires Rust 1.88+ and is validated with Rust 1.88 and 1.96.

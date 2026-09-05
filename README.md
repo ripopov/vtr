@@ -18,6 +18,9 @@ Konata/Kanata pipeline logs and OpenTelemetry traces can express.
   Verilator 5.050 next to `--trace-fst`, so a Verilated model dumps VTR
   directly (used by the benchmarks on a full openC910 CoreMark run).
 
+VDB (Vibe Data Base) is the separate design and presentation companion.
+The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.
+
 ## Documents
 
 | document | content |
@@ -25,8 +28,8 @@ Konata/Kanata pipeline logs and OpenTelemetry traces can express.
 | [docs/SPEC.md](docs/SPEC.md) | file format specification (normative) |
 | [docs/API_RUST.md](docs/API_RUST.md) | Rust API reference and tour |
 | [docs/API_C.md](docs/API_C.md) | C API reference |
-| [docs/KDB_APPNOTE.md](docs/KDB_APPNOTE.md) | designing a KDB (semantics/presentation layer) on top of VTR, with a worked Konata pipeline viewer and the RTL-debugger outline |
-| [docs/KDB_RTL.md](docs/KDB_RTL.md) | slang RTL KDB exporter, module netlist SVGs with timestamped values, and driver tracing CLI |
+| [docs/VDB_APPNOTE.md](docs/VDB_APPNOTE.md) | designing a VDB (semantics/presentation layer) on top of VTR, with a worked Konata pipeline viewer and the RTL-debugger outline |
+| [docs/VDB_RTL.md](docs/VDB_RTL.md) | slang RTL VDB exporter, module netlist SVGs with timestamped values, and driver tracing CLI |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | benchmark methodology; results in [docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md) |
 | [docs/RATIONALE.md](docs/RATIONALE.md) | design rationale: alternatives researched, what was borrowed and rejected |
 | [docs/COVERAGE.md](docs/COVERAGE.md) | feature-by-feature coverage of FST, FTR, Kanata and OpenTelemetry |

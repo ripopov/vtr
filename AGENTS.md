@@ -9,16 +9,16 @@ read it first and treat its section 8 as binding.
 VTR (Vibe Trace Record): a trace file format and reference library for
 hardware simulation traces (waveforms, transactions, hierarchy, relations).
 Rust workspace with five crates (`crates/vtr` core, `vtr-capi` C ABI,
-`vtr-cli` tools, `vtr-bench` benchmarks, and the `vtr-kdb` RTL companion),
+`vtr-cli` tools, `vtr-bench` benchmarks, and the `vtr-vdb` RTL companion),
 a Verilator backend in the pinned `ext/verilator` submodule with build tools
 in `integrations/verilator`, and a benchmark suite in `bench/`.
 
-## Long-term RTL KDB goal
+## Long-term RTL VDB goal
 
-Generate KDB alongside Verilator builds from elaborated RTL before aggressive
+Generate VDB alongside Verilator builds from elaborated RTL before aggressive
 optimization, preserving module hierarchy, specialized types, and source semantics.
-Export an explicit mapping to traced signals and a shared KDB/VTR build identity
-so debugging reflects the simulated design. Keep KDB separate from VTR, with a
+Export an explicit mapping to traced signals and a shared VDB/VTR build identity
+so debugging reflects the simulated design. Keep VDB separate from VTR, with a
 simulator-independent schema and a slang adapter for standalone design browsing
 and other simulation backends.
 
@@ -77,7 +77,7 @@ python3 bench/run.py all                 # full suite (~1 h), regenerates docs/B
   (`taskset -c 0-7`), run best-of-N, and compare against a baseline binary
   in the same session.
 - Keep the public API small and the C API a one-to-one projection of the
-  Rust one. No presentation or KDB data in the format (GOAL.md section 2).
+  Rust one. No presentation or VDB data in the format (GOAL.md section 2).
 - Docs are part of the deliverable: update `SPEC.md`, `RATIONALE.md` and
   the API references in the same change as the code.
 - Commit messages describe what changed and the measured effect; no

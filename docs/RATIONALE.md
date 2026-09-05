@@ -10,7 +10,7 @@ and the public specifications; the resulting feature matrix is in
 ## 1. Goals that shaped the design
 
 1. One file for waveforms, transactions, hierarchy and relations, with one
-   time base (the FSDB model, without the KDB).
+   time base (the FSDB model, without the VDB).
 2. Beat FST and FTR on size, write speed and read/navigation speed on
    realistic workloads, and prove it with a reproducible benchmark.
 3. Local queries must not read the whole file; opening must be cheap.
@@ -69,7 +69,7 @@ explicit parents, kinds and typed attributes.
 
 * FST stores names inline and binds attributes by position in a byte
   stream; enum tables are escaped space-separated strings. VTR keeps FST's
-  scope/var/direction numbering (so converters are trivial and KDBs can
+  scope/var/direction numbering (so converters are trivial and VDBs can
   reason about HDL types) but replaces positional attributes with typed
   key/value lists on the node they belong to, and enum tables with
   first-class nodes.
@@ -329,8 +329,8 @@ local; the contents are stored as 24 columns compressed as one blob.
 
 ## 8. Things deliberately left out of the format
 
-* Presentation and semantics (colours, roles, source locations): the KDB
-  layer (`docs/KDB_APPNOTE.md`). Producers may record source stems as
+* Presentation and semantics (colours, roles, source locations): the VDB
+  layer (`docs/VDB_APPNOTE.md`). Producers may record source stems as
   attributes when they have them, but nothing depends on it.
 * Whole-file compression wrappers, sidecar files, in-band viewer state.
 * A query language: VTR is a store; queries are code.
@@ -349,15 +349,22 @@ local; the contents are stored as 24 columns compressed as one blob.
 * The VCD converter goes through wellen and is therefore not lossless for
   VHDL/GHW metadata; the FST path is.
 * Multi-writer merging (several simulators into one file) is not
-  addressed; separate files plus a KDB that references both is the
+  addressed; separate files plus a VDB that references both is the
   intended pattern.
 * `docs/SOTA_REVIEW_2026.md` ranks the remaining ideas from the 2025-2026
   literature against measurements on the benchmark files (dictionary
   transform, second encoder thread, narrowest-packing loads).
 
-## 10. RTL KDB companion
+## 10. RTL VDB companion
 
-The independent [RTL KDB](KDB_RTL.md) borrows resolved symbols, context-sized
+VDB means Vibe Data Base. The companion crate and CLI use `vtr-vdb`,
+the exporter emits `vtr-rtl-vdb` version 2 in `.vdb.json` files, and trace
+identity uses `design.vdb_id`. This naming change leaves the VTR binary
+format and the companion schema structure unchanged. Re-export existing
+design databases to use the new identifier and matching design fingerprint;
+the reader rejects other format identifiers explicitly.
+
+The independent [RTL VDB](VDB_RTL.md) borrows resolved symbols, context-sized
 expressions, parameter specialization and port connectivity from slang 11.0.0
 ([manual](https://www.sv-lang.com/user-manual.html),
 [Python bindings](https://www.sv-lang.com/building.html)). A pinned Python
@@ -378,9 +385,9 @@ or benchmark result changes accompany this companion.
 
 ### Hierarchical netlist views
 
-KDB v1 synthesized port assignments for temporal tracing but omitted module
+VDB v1 synthesized port assignments for temporal tracing but omitted module
 ownership and top/unconnected ports. Guessing ownership from targets is wrong
-for child outputs, cross-module references, and generate scopes. KDB v2 records
+for child outputs, cross-module references, and generate scopes. VDB v2 records
 slang's containing module explicitly, complete ordered ports, and separate RTL
 versus connection process origins. Static reads survive unsupported statement
 bodies, so opaque processes retain their input connectivity. Replication stays

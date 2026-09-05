@@ -126,7 +126,7 @@ does today (`crates/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
 | ops never retired (EOF) | status `open` |
 | `W consumer producer type` | relation `wakeup` producer -> consumer, attribute `type` (when non-zero) plus the cycle it was recorded |
 | lane ids as arbitrary strings | lane name strings |
-| hidden conventions (`X` = execute, `f`/`stl` = stall, colours) | not data: expressed in the KDB (`docs/KDB_APPNOTE.md`) |
+| hidden conventions (`X` = execute, `f`/`stl` = stall, colours) | not data: expressed in the VDB (`docs/VDB_APPNOTE.md`) |
 | multiple threads / cores | one stream per thread; scope `cpu` (type core) — native producers can nest scopes per core |
 
 ## 4. OpenTelemetry Tracing (OTLP)

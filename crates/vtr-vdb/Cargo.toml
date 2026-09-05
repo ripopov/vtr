@@ -1,0 +1,16 @@
+[package]
+name = "vtr-vdb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.88"
+description = "Independent slang RTL Vibe Data Base and temporal driver tracing for VTR"
+
+[dependencies]
+elkrs = { path = "../../ext/elkrs" }
+vtr = { path = "../vtr" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,894 @@
+{
+  "connections": [],
+  "design_id": "e26ba991061235a2f04e3b40f877098ce4b5b57a1390368bac769e1629948fce",
+  "format": "vtr-rtl-vdb",
+  "instances": [
+    {
+      "definition": "top",
+      "parent": null,
+      "path": "top",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.clk"
+        },
+        {
+          "direction": "In",
+          "name": "rst",
+          "symbol": "top.rst"
+        },
+        {
+          "direction": "In",
+          "name": "en",
+          "symbol": "top.en"
+        },
+        {
+          "direction": "In",
+          "name": "sel",
+          "symbol": "top.sel"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.a"
+        },
+        {
+          "direction": "In",
+          "name": "b",
+          "symbol": "top.b"
+        },
+        {
+          "direction": "Out",
+          "name": "y",
+          "symbol": "top.y"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.q"
+        },
+        {
+          "direction": "Out",
+          "name": "z",
+          "symbol": "top.z"
+        },
+        {
+          "direction": "Out",
+          "name": "ordered",
+          "symbol": "top.ordered"
+        }
+      ],
+      "source": {
+        "column": 8,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 1
+      }
+    }
+  ],
+  "options": [
+    "--top",
+    "top",
+    "crates/vtr-vdb/tests/rtl/semantics.sv"
+  ],
+  "processes": [
+    {
+      "body": {
+        "kind": "Sequence",
+        "statements": [
+          {
+            "kind": "Assign",
+            "nba": false,
+            "source": {
+              "column": 9,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 6
+            },
+            "target": "top.tmp",
+            "value": {
+              "kind": "BinaryOp",
+              "left": {
+                "kind": "NamedValue",
+                "source": {
+                  "column": 15,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 6
+                },
+                "symbol": "top.a",
+                "type": {
+                  "four_state": true,
+                  "integral": true,
+                  "signed": false,
+                  "text": "logic[7:0]",
+                  "width": 8
+                }
+              },
+              "op": "Add",
+              "right": {
+                "kind": "Conversion",
+                "operand": {
+                  "kind": "Constant",
+                  "source": {
+                    "column": 19,
+                    "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                    "line": 6
+                  },
+                  "type": {
+                    "four_state": false,
+                    "integral": true,
+                    "signed": false,
+                    "text": "bit[7:0]",
+                    "width": 8
+                  },
+                  "value": "8'd1"
+                },
+                "source": {
+                  "column": 19,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 6
+                },
+                "type": {
+                  "four_state": true,
+                  "integral": true,
+                  "signed": false,
+                  "text": "logic[7:0]",
+                  "width": 8
+                }
+              },
+              "source": {
+                "column": 15,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 6
+              },
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            }
+          },
+          {
+            "kind": "Assign",
+            "nba": false,
+            "source": {
+              "column": 9,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 7
+            },
+            "target": "top.y",
+            "value": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 13,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 7
+              },
+              "symbol": "top.tmp",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            }
+          },
+          {
+            "cond": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 13,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 8
+              },
+              "symbol": "top.sel",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic",
+                "width": 1
+              }
+            },
+            "kind": "If",
+            "no": {
+              "kind": "Empty"
+            },
+            "source": {
+              "column": 9,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 8
+            },
+            "yes": {
+              "kind": "Assign",
+              "nba": false,
+              "source": {
+                "column": 18,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 8
+              },
+              "target": "top.y",
+              "value": {
+                "kind": "NamedValue",
+                "source": {
+                  "column": 22,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 8
+                },
+                "symbol": "top.b",
+                "type": {
+                  "four_state": true,
+                  "integral": true,
+                  "signed": false,
+                  "text": "logic[7:0]",
+                  "width": 8
+                }
+              }
+            }
+          }
+        ]
+      },
+      "events": [],
+      "id": 0,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b",
+        "top.sel",
+        "top.tmp"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 5
+      },
+      "targets": [
+        "top.tmp",
+        "top.y"
+      ]
+    },
+    {
+      "body": {
+        "cond": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 13,
+            "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+            "line": 11
+          },
+          "symbol": "top.rst",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        },
+        "kind": "If",
+        "no": {
+          "cond": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 18,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 12
+            },
+            "symbol": "top.en",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "kind": "If",
+          "no": {
+            "kind": "Empty"
+          },
+          "source": {
+            "column": 14,
+            "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+            "line": 12
+          },
+          "yes": {
+            "kind": "Assign",
+            "nba": true,
+            "source": {
+              "column": 22,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 12
+            },
+            "target": "top.q",
+            "value": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 27,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 12
+              },
+              "symbol": "top.y",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            }
+          }
+        },
+        "source": {
+          "column": 9,
+          "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+          "line": 11
+        },
+        "yes": {
+          "kind": "Assign",
+          "nba": true,
+          "source": {
+            "column": 18,
+            "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+            "line": 11
+          },
+          "target": "top.q",
+          "value": {
+            "kind": "Conversion",
+            "operand": {
+              "kind": "Conversion",
+              "operand": {
+                "kind": "Constant",
+                "source": {
+                  "column": 23,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 11
+                },
+                "type": {
+                  "four_state": false,
+                  "integral": true,
+                  "signed": true,
+                  "text": "int",
+                  "width": 32
+                },
+                "value": "0"
+              },
+              "source": {
+                "column": 23,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 11
+              },
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": true,
+                "text": "logic signed[31:0]",
+                "width": 32
+              }
+            },
+            "source": {
+              "column": 23,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 11
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          }
+        }
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 10
+            },
+            "symbol": "top.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+            "line": 10
+          }
+        }
+      ],
+      "id": 1,
+      "mode": "seq",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.clk",
+        "top.en",
+        "top.rst",
+        "top.y"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 10
+      },
+      "targets": [
+        "top.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Sequence",
+        "statements": [
+          {
+            "kind": "Assign",
+            "nba": true,
+            "source": {
+              "column": 9,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 15
+            },
+            "target": "top.ordered",
+            "value": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 20,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 15
+              },
+              "symbol": "top.a",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            }
+          },
+          {
+            "kind": "Assign",
+            "nba": true,
+            "source": {
+              "column": 9,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 16
+            },
+            "target": "top.ordered",
+            "value": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 20,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 16
+              },
+              "symbol": "top.b",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            }
+          }
+        ]
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+              "line": 14
+            },
+            "symbol": "top.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+            "line": 14
+          }
+        }
+      ],
+      "id": 2,
+      "mode": "seq",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b",
+        "top.clk"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 14
+      },
+      "targets": [
+        "top.ordered"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+          "line": 18
+        },
+        "target": "top.z",
+        "value": {
+          "kind": "Concatenation",
+          "operands": [
+            {
+              "kind": "ElementSelect",
+              "range_left": 7,
+              "range_right": 0,
+              "selector": {
+                "kind": "Constant",
+                "source": {
+                  "column": 19,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 18
+                },
+                "type": {
+                  "four_state": false,
+                  "integral": true,
+                  "signed": true,
+                  "text": "int",
+                  "width": 32
+                },
+                "value": "3"
+              },
+              "source": {
+                "column": 17,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 18
+              },
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic",
+                "width": 1
+              },
+              "value": {
+                "kind": "NamedValue",
+                "source": {
+                  "column": 17,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 18
+                },
+                "symbol": "top.a",
+                "type": {
+                  "four_state": true,
+                  "integral": true,
+                  "signed": false,
+                  "text": "logic[7:0]",
+                  "width": 8
+                }
+              }
+            },
+            {
+              "kind": "ElementSelect",
+              "range_left": 7,
+              "range_right": 0,
+              "selector": {
+                "kind": "Constant",
+                "source": {
+                  "column": 25,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 18
+                },
+                "type": {
+                  "four_state": false,
+                  "integral": true,
+                  "signed": true,
+                  "text": "int",
+                  "width": 32
+                },
+                "value": "2"
+              },
+              "source": {
+                "column": 23,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 18
+              },
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic",
+                "width": 1
+              },
+              "value": {
+                "kind": "NamedValue",
+                "source": {
+                  "column": 23,
+                  "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                  "line": 18
+                },
+                "symbol": "top.b",
+                "type": {
+                  "four_state": true,
+                  "integral": true,
+                  "signed": false,
+                  "text": "logic[7:0]",
+                  "width": 8
+                }
+              }
+            },
+            {
+              "kind": "Constant",
+              "source": {
+                "column": 29,
+                "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+                "line": 18
+              },
+              "type": {
+                "four_state": false,
+                "integral": true,
+                "signed": false,
+                "text": "bit[5:0]",
+                "width": 6
+              },
+              "value": "6'b0"
+            }
+          ],
+          "source": {
+            "column": 16,
+            "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+            "line": 18
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 3,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b"
+      ],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 18
+      },
+      "targets": [
+        "top.z"
+      ]
+    }
+  ],
+  "producer": "pyslang 11.0.0",
+  "sources": [
+    {
+      "path": "crates/vtr-vdb/tests/rtl/semantics.sv",
+      "sha256": "ca0432577e88785e033fa16823d6de2bd931beed6d550ad762e2eead63605e5b"
+    }
+  ],
+  "symbols": {
+    "top.a": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.a",
+      "source": {
+        "column": 30,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.b": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.b",
+      "source": {
+        "column": 33,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.clk": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.clk",
+      "source": {
+        "column": 24,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.en": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.en",
+      "source": {
+        "column": 34,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.ordered": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.ordered",
+      "source": {
+        "column": 40,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 3
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.q": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.q",
+      "source": {
+        "column": 34,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 3
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.rst": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.rst",
+      "source": {
+        "column": 29,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.sel": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.sel",
+      "source": {
+        "column": 38,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.tmp": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.tmp",
+      "source": {
+        "column": 17,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 4
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.y": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.y",
+      "source": {
+        "column": 31,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 3
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.z": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.z",
+      "source": {
+        "column": 37,
+        "file": "crates/vtr-vdb/tests/rtl/semantics.sv",
+        "line": 3
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    }
+  },
+  "top": "top",
+  "version": 2
+}
