@@ -335,3 +335,23 @@ local; the contents are stored as 24 columns compressed as one blob.
 * `docs/SOTA_REVIEW_2026.md` ranks the remaining ideas from the 2025-2026
   literature against measurements on the benchmark files (dictionary
   transform, second encoder thread, narrowest-packing loads).
+
+## 10. RTL KDB companion
+
+The independent [RTL KDB](KDB_RTL.md) borrows resolved symbols, context-sized
+expressions, parameter specialization and port connectivity from slang 11.0.0
+([manual](https://www.sv-lang.com/user-manual.html),
+[Python bindings](https://www.sv-lang.com/building.html)). A pinned Python
+exporter keeps the C++ frontend out of the Rust runtime and exports a small,
+versioned semantic IR. A source-text/regex parser was rejected because it would
+lose elaboration and assignment sizing. Directly consuming slang AST JSON was
+rejected in favor of an explicit application schema independent of pointer IDs.
+
+Temporal tracing searches triggering events, not only register value changes:
+an enabled assignment can write the same value, and pipeline stages sample
+pre-edge values. Explicit execution order handles blocking temporaries and
+last-write NBA semantics. Unsupported semantics and missing scheduler detail
+remain diagnostics. Exact paths, widths, optional module names and an optional
+producer design identity prevent speculative suffix-based attachment. No
+reader decode, writer, or encoding changes are needed; no efficiency claims
+or benchmark result changes accompany this companion.

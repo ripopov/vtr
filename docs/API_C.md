@@ -1623,3 +1623,10 @@ SystemC notes:
   generator per transaction type, attributes at phase 0/1/2 for the
   begin/record/end values, and `vtr_writer_relate` for
   parent/child and predecessor/successor links across streams.
+
+## RTL KDB companion
+
+The RTL KDB is a separate application library and `vtr-kdb` executable,
+documented in [KDB_RTL.md](KDB_RTL.md). It adds no functions to the VTR C ABI.
+A producer can set the optional `design.kdb_id` generic string file attribute
+using the existing writer API; source semantics remain in the companion.

@@ -251,3 +251,11 @@ the unresolved selectors are reported and the rest keep working.
   signal is on screen.
 * Keep the KDB in your own format and versioning; VTR's format version
   only constrains the trace.
+
+## 5. Implemented RTL companion
+
+[RTL KDB and temporal tracing](KDB_RTL.md) implements the source/elaboration
+side using slang and provides a Rust CLI for time-aware driver trees. Unlike
+a last-value-change walk, it follows assignment-triggering clock/reset events,
+including unchanged register writes and enable holds. Its JSON schema is
+independent of the illustrative pipeline-viewer configuration above.

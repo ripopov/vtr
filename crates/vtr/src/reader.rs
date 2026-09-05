@@ -174,6 +174,11 @@ pub struct SignalData {
 }
 
 impl SignalData {
+    /// Change timestamps in non-decreasing order.
+    pub fn times(&self) -> &[u64] {
+        &self.times
+    }
+
     fn entry_len(&self) -> usize {
         self.kind.packed_len().unwrap_or(0)
     }

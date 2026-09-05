@@ -1090,6 +1090,7 @@ pub struct SignalData {
     pub offsets: Vec<u32>,  // VarLen: offsets[i]..offsets[i+1] slices data (len + 1 entries)
 }
 impl SignalData {
+    pub fn times(&self) -> &[u64]                      // read-only change timestamps
     pub fn len(&self) -> usize
     pub fn is_empty(&self) -> bool
     pub fn get(&self, i: usize) -> SignalValue<'_>        // change i (panics when i >= len)
@@ -1499,3 +1500,15 @@ reader needs no configuration.
   generators, transactions, stages, events and relations), and
   `crates/vtr/tests/roundtrip.rs` (round-trip tests covering every emit path,
   transactions, crash recovery, error cases and skip-index checkpoints).
+
+## RTL KDB companion API
+
+The separate `vtr-kdb` crate exports `Database::open(path)`,
+`Debugger::attach(&database, &reader, prefix)`, and
+`Debugger::trace(symbol, time, depth) -> Result<TraceNode, String>`.
+`TraceNode` exposes values, moments, source locations, reasons, diagnostic notes
+and children; `render()` returns the same plain-text tree used by the CLI.
+The debugger borrows the immutable database and reader and caches loaded
+histories per signal ID. See [KDB_RTL.md](KDB_RTL.md) for its schema and
+semantic contract. A read-only `SignalData::times()` accessor supports the
+companion; the VTR storage format is unchanged.

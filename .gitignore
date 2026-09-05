@@ -17,3 +17,6 @@
 /bench/results/latest/*.vcd
 /bench/results/latest/*_plan.txt
 /bench/results/*.log
+
+/.venv-kdb/
+/tools/kdb/__pycache__/

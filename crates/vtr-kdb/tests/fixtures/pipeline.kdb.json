@@ -1,0 +1,1479 @@
+{
+  "connections": [
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 19,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 12
+        },
+        "symbol": "top.clk",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "port": "top.u0.clk",
+      "source": {
+        "column": 43,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 32,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 12
+        },
+        "symbol": "top.rst_n",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "port": "top.u0.rst_n",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 44,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 12
+        },
+        "symbol": "top.en",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "port": "top.u0.en",
+      "source": {
+        "column": 55,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 52,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 12
+        },
+        "symbol": "top.mux",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "port": "top.u0.d",
+      "source": {
+        "column": 25,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      }
+    },
+    {
+      "direction": "Out",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 61,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 12
+        },
+        "symbol": "top.first",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "port": "top.u0.q",
+      "source": {
+        "column": 49,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 19,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 13
+        },
+        "symbol": "top.clk",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "port": "top.u1.clk",
+      "source": {
+        "column": 43,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 32,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 13
+        },
+        "symbol": "top.rst_n",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "port": "top.u1.rst_n",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 44,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 13
+        },
+        "symbol": "top.en",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "port": "top.u1.en",
+      "source": {
+        "column": 55,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 52,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 13
+        },
+        "symbol": "top.first",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "port": "top.u1.d",
+      "source": {
+        "column": 25,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      }
+    },
+    {
+      "direction": "Out",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 63,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 13
+        },
+        "symbol": "top.q",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "port": "top.u1.q",
+      "source": {
+        "column": 49,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      }
+    }
+  ],
+  "design_id": "9a85b4bd98eedfe05f56676a37339f2b95238d7ef0618a5f1103370dced6f3dd",
+  "format": "vtr-rtl-kdb",
+  "instances": [
+    {
+      "definition": "top",
+      "path": "top",
+      "source": {
+        "column": 8,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 8
+      }
+    },
+    {
+      "definition": "stage",
+      "path": "top.u0",
+      "source": {
+        "column": 11,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 12
+      }
+    },
+    {
+      "definition": "stage",
+      "path": "top.u1",
+      "source": {
+        "column": 11,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 13
+      }
+    }
+  ],
+  "options": [
+    "--top",
+    "top",
+    "crates/vtr-kdb/tests/rtl/pipeline.sv"
+  ],
+  "processes": [
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 11
+        },
+        "target": "top.mux",
+        "value": {
+          "cond": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 18,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 11
+            },
+            "symbol": "top.sel",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "kind": "ConditionalOp",
+          "no": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 28,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 11
+            },
+            "symbol": "top.b",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "source": {
+            "column": 18,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 11
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          },
+          "yes": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 24,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 11
+            },
+            "symbol": "top.a",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          }
+        }
+      },
+      "events": [],
+      "id": 0,
+      "mode": "comb",
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 11
+      },
+      "targets": [
+        "top.mux"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 43,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 1
+        },
+        "target": "top.u0.clk",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 19,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 12
+          },
+          "symbol": "top.clk",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 1,
+      "mode": "comb",
+      "source": {
+        "column": 43,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.u0.clk"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 48,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 1
+        },
+        "target": "top.u0.rst_n",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 32,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 12
+          },
+          "symbol": "top.rst_n",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 2,
+      "mode": "comb",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.u0.rst_n"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 55,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 1
+        },
+        "target": "top.u0.en",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 44,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 12
+          },
+          "symbol": "top.en",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 3,
+      "mode": "comb",
+      "source": {
+        "column": 55,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.u0.en"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 25,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 2
+        },
+        "target": "top.u0.d",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 52,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 12
+          },
+          "symbol": "top.mux",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 4,
+      "mode": "comb",
+      "source": {
+        "column": 25,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.u0.d"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 49,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 2
+        },
+        "target": "top.first",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 49,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 2
+          },
+          "symbol": "top.u0.q",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 5,
+      "mode": "comb",
+      "source": {
+        "column": 49,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.first"
+      ]
+    },
+    {
+      "body": {
+        "cond": {
+          "kind": "UnaryOp",
+          "op": "LogicalNot",
+          "operand": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 14,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 4
+            },
+            "symbol": "top.u0.rst_n",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 13,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 4
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        },
+        "kind": "If",
+        "no": {
+          "cond": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 18,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 5
+            },
+            "symbol": "top.u0.en",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "kind": "If",
+          "no": {
+            "kind": "Empty"
+          },
+          "source": {
+            "column": 14,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 5
+          },
+          "yes": {
+            "kind": "Assign",
+            "nba": true,
+            "source": {
+              "column": 22,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 5
+            },
+            "target": "top.u0.q",
+            "value": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 27,
+                "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+                "line": 5
+              },
+              "symbol": "top.u0.d",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            }
+          }
+        },
+        "source": {
+          "column": 9,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 4
+        },
+        "yes": {
+          "kind": "Assign",
+          "nba": true,
+          "source": {
+            "column": 21,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 4
+          },
+          "target": "top.u0.q",
+          "value": {
+            "kind": "Constant",
+            "source": {
+              "column": 26,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 4
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            },
+            "value": "8'd0"
+          }
+        }
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 3
+            },
+            "symbol": "top.u0.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 3
+          }
+        },
+        {
+          "edge": "NegEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 40,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 3
+            },
+            "symbol": "top.u0.rst_n",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 32,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 3
+          }
+        }
+      ],
+      "id": 6,
+      "mode": "seq",
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 3
+      },
+      "targets": [
+        "top.u0.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 43,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 1
+        },
+        "target": "top.u1.clk",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 19,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 13
+          },
+          "symbol": "top.clk",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 7,
+      "mode": "comb",
+      "source": {
+        "column": 43,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.u1.clk"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 48,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 1
+        },
+        "target": "top.u1.rst_n",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 32,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 13
+          },
+          "symbol": "top.rst_n",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 8,
+      "mode": "comb",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.u1.rst_n"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 55,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 1
+        },
+        "target": "top.u1.en",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 44,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 13
+          },
+          "symbol": "top.en",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 9,
+      "mode": "comb",
+      "source": {
+        "column": 55,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.u1.en"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 25,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 2
+        },
+        "target": "top.u1.d",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 52,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 13
+          },
+          "symbol": "top.first",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 10,
+      "mode": "comb",
+      "source": {
+        "column": 25,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.u1.d"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 49,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 2
+        },
+        "target": "top.q",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 49,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 2
+          },
+          "symbol": "top.u1.q",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 11,
+      "mode": "comb",
+      "source": {
+        "column": 49,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.q"
+      ]
+    },
+    {
+      "body": {
+        "cond": {
+          "kind": "UnaryOp",
+          "op": "LogicalNot",
+          "operand": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 14,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 4
+            },
+            "symbol": "top.u1.rst_n",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 13,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 4
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        },
+        "kind": "If",
+        "no": {
+          "cond": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 18,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 5
+            },
+            "symbol": "top.u1.en",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "kind": "If",
+          "no": {
+            "kind": "Empty"
+          },
+          "source": {
+            "column": 14,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 5
+          },
+          "yes": {
+            "kind": "Assign",
+            "nba": true,
+            "source": {
+              "column": 22,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 5
+            },
+            "target": "top.u1.q",
+            "value": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 27,
+                "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+                "line": 5
+              },
+              "symbol": "top.u1.d",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            }
+          }
+        },
+        "source": {
+          "column": 9,
+          "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+          "line": 4
+        },
+        "yes": {
+          "kind": "Assign",
+          "nba": true,
+          "source": {
+            "column": 21,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 4
+          },
+          "target": "top.u1.q",
+          "value": {
+            "kind": "Constant",
+            "source": {
+              "column": 26,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 4
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            },
+            "value": "8'd0"
+          }
+        }
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 3
+            },
+            "symbol": "top.u1.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 3
+          }
+        },
+        {
+          "edge": "NegEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 40,
+              "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+              "line": 3
+            },
+            "symbol": "top.u1.rst_n",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 32,
+            "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+            "line": 3
+          }
+        }
+      ],
+      "id": 12,
+      "mode": "seq",
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 3
+      },
+      "targets": [
+        "top.u1.q"
+      ]
+    }
+  ],
+  "producer": "pyslang 11.0.0",
+  "sources": [
+    {
+      "path": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+      "sha256": "f2c0cc1234ae20bc9bcbabc4cbf3b1e2471333dbac0da47946054eac5bb71c26"
+    }
+  ],
+  "symbols": {
+    "top.a": {
+      "kind": "Variable",
+      "path": "top.a",
+      "source": {
+        "column": 23,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 9
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.b": {
+      "kind": "Variable",
+      "path": "top.b",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 9
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.clk": {
+      "kind": "Variable",
+      "path": "top.clk",
+      "source": {
+        "column": 24,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.en": {
+      "kind": "Variable",
+      "path": "top.en",
+      "source": {
+        "column": 36,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.first": {
+      "kind": "Variable",
+      "path": "top.first",
+      "source": {
+        "column": 22,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 10
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.mux": {
+      "kind": "Variable",
+      "path": "top.mux",
+      "source": {
+        "column": 17,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 10
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.q": {
+      "kind": "Variable",
+      "path": "top.q",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 9
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.rst_n": {
+      "kind": "Variable",
+      "path": "top.rst_n",
+      "source": {
+        "column": 29,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.sel": {
+      "kind": "Variable",
+      "path": "top.sel",
+      "source": {
+        "column": 40,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u0.W": {
+      "kind": "Parameter",
+      "path": "top.u0.W",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "logic signed[31:0]",
+        "width": 32
+      },
+      "value": "8"
+    },
+    "top.u0.clk": {
+      "kind": "Variable",
+      "path": "top.u0.clk",
+      "source": {
+        "column": 43,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u0.d": {
+      "kind": "Variable",
+      "path": "top.u0.d",
+      "source": {
+        "column": 25,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.u0.en": {
+      "kind": "Variable",
+      "path": "top.u0.en",
+      "source": {
+        "column": 55,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u0.q": {
+      "kind": "Variable",
+      "path": "top.u0.q",
+      "source": {
+        "column": 49,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.u0.rst_n": {
+      "kind": "Variable",
+      "path": "top.u0.rst_n",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u1.W": {
+      "kind": "Parameter",
+      "path": "top.u1.W",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "logic signed[31:0]",
+        "width": 32
+      },
+      "value": "8"
+    },
+    "top.u1.clk": {
+      "kind": "Variable",
+      "path": "top.u1.clk",
+      "source": {
+        "column": 43,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u1.d": {
+      "kind": "Variable",
+      "path": "top.u1.d",
+      "source": {
+        "column": 25,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.u1.en": {
+      "kind": "Variable",
+      "path": "top.u1.en",
+      "source": {
+        "column": 55,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u1.q": {
+      "kind": "Variable",
+      "path": "top.u1.q",
+      "source": {
+        "column": 49,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.u1.rst_n": {
+      "kind": "Variable",
+      "path": "top.u1.rst_n",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/pipeline.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    }
+  },
+  "top": "top",
+  "version": 1
+}

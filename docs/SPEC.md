@@ -581,3 +581,10 @@ time table has at most 2^31 - 1 entries per block; column runs are below
    or 0.
 5. Transaction blocks: `n_tx`/`n_rel` match the columns; attribute
    lists consumed in the specified order.
+
+## Independent RTL KDB companion
+
+The [RTL KDB schema](KDB_RTL.md) is a separate application JSON document.
+It adds no VTR section, source semantics, or format code. An optional producer
+string attribute `design.kdb_id` uses the existing generic metadata mechanism
+to attest which companion design was simulated. VTR readers need no KDB support.
