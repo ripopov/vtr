@@ -105,6 +105,7 @@ test('tutorial covers every feature with working examples and full-size screensh
   await example(page,id);
   if(id==='notes'){await page.getByLabel('Private note for #1012 in this trace').fill('The load waits 18 cycles for a memory response. Follow a0 to see the two delayed consumers.');await page.getByRole('button',{name:'Save note',exact:true}).click();}
   await screenshot(page,id);
+  if(id==='overview'){await page.locator('#choose-signals').click();await screenshot(page,'signals');await page.keyboard.press('Escape');}
   if(id==='search'){await page.getByLabel('Search instructions').fill('no-matching-instruction');await screenshot(page,'search-empty');}
   if(id==='bookmarks'){await page.getByRole('button',{name:'Save view',exact:true}).click();await screenshot(page,'saved-view');}
   if(id==='commands'){await page.keyboard.press('Escape');await page.getByRole('button',{name:'Keyboard shortcuts',exact:true}).click();await screenshot(page,'shortcuts');}
@@ -113,7 +114,7 @@ test('tutorial covers every feature with working examples and full-size screensh
  await page.reload();await page.getByRole('tab',{name:'Field guide'}).click();
  if(process.env.CAPTURE){await page.waitForTimeout(200);await page.screenshot({path:path.join(shots,'tutorial.png'),animations:'disabled'});}
  for (const image of await page.locator('.chapter img').all()){await image.scrollIntoViewIfNeeded();await expect(image).toHaveJSProperty('complete',true);expect(await image.evaluate(e=>e.naturalWidth)).toBeGreaterThan(0);}
- await page.locator('#lesson-overview .screenshot-button').click();await expect(page.locator('#image-dialog')).toBeVisible();await page.getByLabel('Close screenshot').click();await expect(page.locator('#image-dialog')).toBeHidden();
+ await page.locator('#lesson-overview .screenshot-button').first().click();await expect(page.locator('#image-dialog')).toBeVisible();await page.getByLabel('Close screenshot').click();await expect(page.locator('#image-dialog')).toBeHidden();
 });
 
 test('standalone file opens without network or a server', async ({page})=>{
@@ -124,7 +125,7 @@ test('standalone file opens without network or a server', async ({page})=>{
  await page.getByRole('button',{name:'Compare',exact:true}).click();
  await expect(page.locator('.compare-delta')).toContainText('8 cycles earlier');
  await page.getByRole('tab',{name:'Field guide'}).click();
- const image=page.locator('#lesson-overview img');await image.scrollIntoViewIfNeeded();
+ const image=page.locator('#lesson-overview img').first();await image.scrollIntoViewIfNeeded();
  await expect(image).toHaveJSProperty('complete',true);expect(await image.evaluate(e=>e.naturalWidth)).toBeGreaterThan(0);
  expect(errors).toEqual([]);
 });
@@ -187,3 +188,25 @@ test('two-finger pinch zooms the pipeline and never creates a selection range', 
  await client.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  expect(await sc.evaluate(el=>el.scrollLeft)).toBeGreaterThan(left);
 });
+
+ test('waveform catalog and pipeline share cursor, range, navigation and instruction identity', async ({page})=>{
+ await open(page);
+ await expect(page.locator('.wave-track')).toHaveCount(6);
+ await expect(page.locator('[data-signal="vdd"] output')).toContainText('V');
+ await page.locator('[data-signal="lsu"] [data-wave-id="1012"]').first().click();
+ await expect(page.locator('[data-row="1012"]')).toHaveClass(/selected/);
+ const alignment=()=>page.evaluate(()=>Math.abs(document.querySelector('.wave-cursor').getBoundingClientRect().x-document.querySelector('#cursor-line').getBoundingClientRect().x));
+ expect(await alignment()).toBeLessThan(2);
+ await page.locator('#choose-signals').click();
+ await page.getByLabel('Find waveform signals').fill('alu');
+ await page.locator('[data-signal-toggle="alu"]').check();
+ await page.keyboard.press('Escape');
+ await expect(page.locator('[data-signal="alu"]')).toBeVisible();
+ const sc=page.locator('#chart-scroll'),left=await sc.evaluate(e=>e.scrollLeft);
+ await page.locator('[data-signal="rob"] .wave-plot').hover();await page.mouse.wheel(100,0);
+ await expect.poll(()=>sc.evaluate(e=>e.scrollLeft)).toBeGreaterThan(left);
+ expect(await alignment()).toBeLessThan(2);
+ await page.getByLabel('Range start cycle').fill('23');await page.getByLabel('Range end cycle').fill('41');await page.getByRole('button',{name:'Apply',exact:true}).click();
+ const range=await page.locator('#range-overlay').boundingBox(),wave=await page.locator('.wave-range').first().boundingBox();
+ expect(Math.abs(range.x-wave.x)).toBeLessThan(2);expect(Math.abs(range.width-wave.width)).toBeLessThan(2);
+ });

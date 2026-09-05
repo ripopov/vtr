@@ -117,3 +117,24 @@ the same transform. Controls and the inspector remain at their normal size.
 Browser regression checks verify both-axis scaling and pointer anchoring, full-view
 fit, return to detail, restoration of a saved map view, and real two-touch pinch/pan
 input dispatched through Chromium's input system.
+
+## Synchronized waveform and pipeline panes
+
+The upper pane is now a general waveform viewer, with type-based renderers for
+digital bits, unsigned numeric signals, analog values, and instruction IDs. The
+example catalog includes in-flight count, ROB/cache occupancy, ALU issue/execution,
+LSU execution, issue/flush pulses, and supply voltage. The LSU holds an instruction
+until its response arrives. All values are illustrative, derived from the synthetic
+scenario; the demo does not import arbitrary waveform files.
+
+Waveforms and the pipeline share horizontal scale, scroll position, cursor and
+measurement range. Execution-stage IDs link to pipeline selections, including
+instructions hidden by filters. The signal chooser demonstrates configurable
+contents, and saved views preserve the chosen signals. A small time navigator
+retains whole-trace navigation without presenting occupancy as a fixed overview.
+Browser checks cover signal selection, linked identity, and pixel alignment of
+cursors and ranges after scrolling.
+
+In-flight and occupancy signals use filled per-cycle bars for easier comparison
+of magnitude. Their labeled zero-based scale uses the full-dump peak and remains
+fixed during navigation. Digital steps and analog lines retain their own renderers.

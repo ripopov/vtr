@@ -44,3 +44,25 @@ body.dark .cause-card{background:#302f25}
 .map-overview .scale-label .row-id{display:block;position:absolute;top:0;font-size:9px;line-height:12px;background:var(--surface);width:auto;padding-right:4px}
 .map-overview .stage-text{display:none}
 .map-overview .row-timeline{background-image:none}
+/* Synchronized, general-purpose waveform pane. */
+.waveform-pane{flex-shrink:0;border-bottom:1px solid var(--border)}
+.waveform-heading{display:flex;gap:10px;align-items:center;padding:10px 13px;background:var(--surface2)}
+.waveform-heading strong{font-size:12px}.waveform-subtitle{font-size:10px;color:var(--muted);margin-left:10px}.sync-badge{margin-left:auto;color:var(--accent);font-size:10px;white-space:nowrap}
+.waveform-ruler,.wave-track{display:grid;grid-template-columns:var(--label-width) minmax(0,1fr)}
+.waveform-ruler{height:24px;background:var(--surface2);border-bottom:1px solid var(--border);font:9px var(--mono);color:var(--muted)}
+.waveform-ruler>span{padding:5px 10px;border-right:1px solid var(--border);display:flex;justify-content:space-between}
+#wave-ticks{position:relative;overflow:hidden}#wave-ticks span{position:absolute;top:4px;border-left:1px solid var(--border);padding-left:5px}
+#wave-tracks{max-height:210px;overflow-y:auto;scrollbar-width:thin}
+.wave-track{height:30px;border-bottom:1px solid var(--grid)}.wave-track:nth-child(even){background:var(--surface2)}
+.wave-label{display:flex;align-items:center;gap:6px;padding:0 10px;border-right:1px solid var(--border);min-width:0}
+.signal-type{font:9px var(--mono);width:15px;flex-shrink:0}.signal-name{font:10px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wave-label output{font:9px var(--mono);margin-left:auto;color:var(--accent);white-space:nowrap;max-width:70px;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.wave-plot{position:relative;overflow:hidden;cursor:crosshair}.wave-plot svg{width:100%;height:30px;display:block;pointer-events:none}.wave-cursor{position:absolute;top:0;bottom:0;width:1px;background:#438eaa;pointer-events:none;z-index:4}
+.wave-range{position:absolute;top:0;bottom:0;background:#10887312;border-inline:1px dashed var(--accent);pointer-events:none}
+.wave-bus{position:absolute;top:5px;height:20px;min-width:0;border:1px solid var(--signal-color);background:color-mix(in srgb,var(--signal-color) 16%,var(--surface));border-radius:3px;font:9px var(--mono);padding:0 3px;white-space:nowrap;overflow:hidden;color:var(--ink)}.wave-bus.related{box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
+.wave-navigation{display:flex;align-items:center;gap:9px;padding:7px 12px;font:8px var(--mono);color:var(--muted)}.wave-navigation #overview{flex:1;height:16px;margin:0;min-width:20px}.wave-navigation #overview-window span{height:7px;width:2px}.wave-navigation #overview-svg{height:16px}.wave-empty{padding:20px;font-size:11px;color:var(--muted)}
+#signals-dialog{width:440px}.signal-search{display:block;margin:0 22px 12px}.signal-search input{width:100%;border:1px solid var(--border);border-radius:5px;padding:8px;background:var(--surface2);color:var(--ink)}#signal-options{padding:0 22px 20px;max-height:420px;overflow:auto}.signal-option{display:flex;gap:9px;align-items:center;padding:9px 0;font:12px var(--mono);cursor:pointer}.signal-option input{accent-color:var(--accent)}.signal-option small{margin-left:auto;font-size:10px;color:var(--muted)}
+.insight-strip{padding-top:8px;padding-bottom:8px}
+@media(max-width:1200px){.waveform-subtitle{display:none}.wave-label{padding-inline:6px;gap:4px}.signal-name{font-size:9px}.wave-label output{font-size:9px}}
+@media(max-width:650px){.sync-badge{font-size:8px}.waveform-heading{padding-inline:8px;gap:5px}.waveform-heading .button{font-size:10px}.studio-grid{grid-template-rows:auto 740px auto}}
+
+.wave-scale{position:absolute;right:5px;top:1px;font:8px var(--mono);color:var(--muted);background:var(--surface);padding:0 3px;border-radius:2px;pointer-events:none}

@@ -14,11 +14,17 @@ Open <http://127.0.0.1:8765>. A local server gives saved views a stable browser
 origin. With `file://`, storage behavior depends on the browser; the demo still runs.
 
 The viewer includes three deterministic example traces, instruction and stage
-selection, map-style two-axis zoom, pan/focus, an overview, direct dependency links, search and filters,
+selection, map-style two-axis zoom, pan/focus, a synchronized waveform pane, direct dependency links, search and filters,
 flush visibility, cycle-range measurement, baseline comparison, bookmarks, pins,
 notes, JSON export, a command palette, keyboard navigation, and light/dark themes.
 Ctrl/Command + wheel, double-click, and two-finger pinch zoom around the pointer
 or gesture; Fit shows all cycles and rows, and Focus returns to detail.
+The upper Waveforms pane shows configurable digital, numeric, analog, and instruction-ID
+signals: in-flight instructions, ROB/cache occupancy, execution stages, issue/flush
+pulses, and supply voltage. Both panes share the cursor, time scale, and measurement
+range. Click an execution-stage instruction to select it in the pipeline below; use
+Signals + to add or remove traces. In-flight and occupancy signals use per-cycle
+bars with a labeled scale fixed across the full dump. Values are synthetic examples of a general viewer.
 The tutorial's Try it buttons prepare working examples; screenshots open full size.
 
 Data is synthetic and source mapping illustrative. This is a UI prototype, not a
@@ -45,7 +51,7 @@ Tests use an isolated headless Chrome and start a localhost server automatically
 On macOS, the default executable is `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
 Elsewhere set `CHROME_PATH` to a local Chrome/Chromium executable. The pinned
 Playwright dependency is for development only. `npm run screenshots` captures the
-16 feature screenshots across the 12 lessons, plus the tutorial overview into `screenshots/`.
+17 feature screenshots across the 12 lessons, plus the tutorial overview into `screenshots/`.
 
 The browser suite checks real workflows and generated downloads, including range
 validation, persistence, empty states, keyboard/pointer navigation, desktop/narrow
