@@ -1,0 +1,13 @@
+{
+  "name": "vdb-pipeline-viewer-demo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Standalone pipeline UX prototype; no runtime dependencies",
+  "scripts": {
+    "test": "playwright test",
+    "screenshots": "CAPTURE=1 playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>VDB · Pipeline Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e766e'/%3E%3Cpath d='M7 10h7v4h7v4h5M7 18h5v4h8' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+<a class="skip" href="#chart-scroll">Skip to pipeline</a>
+<header class="app-header">
+  <a class="brand" href="#viewer" aria-label="Pipeline Studio home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 9h8v5h8v5h5M6 18h6v5h9"/></svg></span><span>VDB <span class="brand-divider">/</span> <strong>Pipeline Studio</strong></span></a>
+  <nav class="tabs" role="tablist" aria-label="Studio">
+    <button role="tab" id="tab-viewer" aria-controls="viewer" aria-selected="true" tabindex="0">Pipeline viewer</button>
+    <button role="tab" id="tab-tutorial" aria-controls="tutorial" aria-selected="false" tabindex="-1">Field guide <span class="tab-count">12</span></button>
+  </nav>
+  <div class="header-actions"><span class="demo-pill"><i></i> Interactive demo</span><button class="icon-button" id="theme" title="Switch appearance" aria-label="Switch to dark theme"></button><button class="icon-button" id="help" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button></div>
+</header>
+<main id="viewer" role="tabpanel" aria-labelledby="tab-viewer">
+  <div class="workspace-heading"><div><div class="eyebrow">EXAMPLE TRACE <span>RV64 · out-of-order · core 0</span></div><h1>Follow the instruction.<span> Find the bottleneck.</span></h1></div><div class="heading-actions"><button id="reset" class="button subtle" title="Restore the initial view (0)">Reset view</button><button id="export" class="button">Export view <span aria-hidden="true">↗</span></button></div></div>
+  <div class="toolbar">
+    <label class="search-box"><span class="search-icon" aria-hidden="true"></span><input id="search" type="search" placeholder="Find instruction, PC, or label…" aria-label="Search instructions"><kbd>/</kbd></label>
+    <span id="search-count" class="quiet"></span>
+    <div class="toolbar-divider"></div>
+    <button id="pan-mode" class="button tool selected" aria-pressed="true" title="Pan the timeline">Pan</button><button id="measure-mode" class="button tool" aria-pressed="false" title="Measure a cycle range (M)">Measure</button>
+    <div class="toolbar-divider"></div>
+    <button id="zoom-out" class="icon-button" aria-label="Zoom out" title="Zoom out (-)">−</button><output id="zoom-label" class="zoom-label">100%</output><button id="zoom-in" class="icon-button" aria-label="Zoom in" title="Zoom in (+)">+</button><button id="fit" class="button tool" title="Fit the trace (0)">Fit</button>
+    <div class="toolbar-spacer"></div><button id="compare" class="button" aria-pressed="false" title="Compare with the baseline (C)"><span aria-hidden="true">⇄</span> Compare</button><button id="commands" class="button command-button" title="Command palette (⌘/Ctrl K)"><span aria-hidden="true">⌘</span> <span>Commands</span><kbd>K</kbd></button>
+  </div>
+  <div class="studio-grid">
+    <aside class="sidebar" aria-label="Trace navigation">
+      <div class="sidebar-title">WORKSPACE <span class="tiny-dot"></span></div>
+      <label class="select-label" for="scenario">Trace</label><select id="scenario"><option value="memory">Memory-bound loop</option><option value="branch">Branch recovery</option><option value="steady">Steady execution</option></select>
+      <div class="trace-caption">Deterministic example · 72 instructions</div>
+      <div class="sidebar-section"><h2>Investigate</h2><div id="filter-list"></div></div>
+      <div class="sidebar-section"><h2>Display</h2><label class="check-row"><input id="dependencies" type="checkbox" checked><span>Dependency arrows</span></label><label class="check-row"><input id="show-flushed" type="checkbox" checked><span>Show flushed</span></label><label class="check-row"><input id="compact" type="checkbox"><span>Compact rows</span></label></div>
+      <div class="sidebar-section"><h2>Saved views <button id="bookmark" class="icon-button small" title="Bookmark this view (B)" aria-label="Bookmark this view">+</button></h2><div id="bookmarks"></div></div>
+      <div class="sidebar-section"><h2>Pinned instructions</h2><div id="pins"></div></div>
+      <button class="guide-card" id="quick-guide"><span class="guide-icon" aria-hidden="true">↗</span><strong>A small guide to big traces</strong><span>Learn the workflow in 5 minutes</span></button>
+      <div class="sidebar-footer"><span class="status-dot"></span> Local, synthetic trace<br><span>No upload or account needed</span></div>
+    </aside>
+    <section class="timeline-panel" aria-label="Pipeline analysis">
+      <div class="overview-heading"><div><strong>Trace overview</strong><span id="overview-caption">Activity across 160 cycles</span></div><span class="overview-key"><i></i> In flight</span></div>
+      <div id="overview" tabindex="0" role="slider" aria-label="Timeline viewport start" aria-valuemin="0" aria-valuemax="160" aria-valuenow="0"><svg id="overview-svg" viewBox="0 0 1000 52" preserveAspectRatio="none" aria-hidden="true"></svg><div id="overview-window"><span></span><span></span></div></div>
+      <div class="overview-axis"><span>0</span><span>40</span><span>80</span><span>120</span><span>160 cycles</span></div>
+      <div class="insight-strip" id="insight-strip"></div>
+      <div id="comparison-strip" class="comparison-strip" hidden><span><i class="baseline-dot"></i> Baseline <b>longer memory latency</b></span><span><i class="candidate-dot"></i> Candidate <b>current trace</b></span><span class="alignment">Aligned by instruction ID</span></div>
+      <div class="timeline-heading"><strong id="timeline-title">Instruction timeline</strong><div class="legend" id="legend"></div><span id="visible-range" class="mono"></span></div>
+      <div id="chart-scroll" tabindex="0" role="region" aria-label="Instruction timeline. Up and down select instructions; left and right move the cycle cursor; F focuses selection.">
+        <div id="chart-content"><div id="ruler"><div class="label-heading"><span>INSTRUCTION / PC</span><span id="row-count"></span></div><div id="ticks"></div></div><div id="rows"></div><svg id="arrows" aria-hidden="true"></svg><div id="cursor-line"><span id="cursor-tag"></span></div><div id="range-overlay"></div></div>
+        <div class="empty-state" id="empty" hidden><span aria-hidden="true">⌕</span><h2>No instructions match</h2><p>Try an opcode such as “ld”, an ID such as “1012”, or clear the filters.</p><button class="button primary" id="clear-filters">Clear filters</button></div>
+      </div>
+      <div class="range-bar" id="range-bar"><div><span class="range-icon" aria-hidden="true">↔</span><strong>Measure a range</strong><span class="range-hint">Drag on the timeline or enter cycles</span></div><label>From <input id="range-start" type="number" min="0" max="159" value="18" aria-label="Range start cycle"></label><label>to <input id="range-end" type="number" min="1" max="160" value="36" aria-label="Range end cycle"></label><button id="apply-range" class="button small">Apply</button><button id="clear-range" class="icon-button small" aria-label="Clear measurement" title="Clear measurement">×</button></div>
+      <div class="analysis-bar" id="analysis-bar"></div>
+      <div class="timeline-footer"><span><kbd>↑</kbd><kbd>↓</kbd> instruction <kbd>←</kbd><kbd>→</kbd> cycle <kbd>F</kbd> focus</span><span>Drag to pan · Shift + drag to measure</span></div>
+    </section>
+    <aside class="inspector" aria-label="Instruction inspector" id="inspector"></aside>
+  </div>
+  <footer class="app-footer"><span><span class="status-dot"></span> Ready <span class="footer-separator">/</span> <span id="status-text">Select any stage to investigate</span></span><span>VDB design exploration <span class="footer-separator">/</span> UX prototype 01</span></footer>
+</main>
+<section id="tutorial" role="tabpanel" aria-labelledby="tab-tutorial" hidden>
+  <aside class="guide-nav"><div class="eyebrow">THE FIELD GUIDE</div><h2>From a pattern<br>to an explanation.</h2><nav id="guide-links" aria-label="Tutorial chapters"></nav><button class="button primary" id="back-viewer">Open the viewer <span aria-hidden="true">↗</span></button><a class="research-link" href="RESEARCH.md">Research & design decisions ↗</a></aside>
+  <div class="guide-main"><header class="guide-hero"><div class="eyebrow">PIPELINE STUDIO / 5-MINUTE TOUR</div><h1>Every cycle tells<br><em>part of the story.</em></h1><p>Start with the shape of execution. Follow one instruction. Trace what held it back. This guide walks through every control with real screenshots and examples you can open in the viewer.</p><div class="guide-meta"><span>12 practical lessons</span><span>Keyboard + pointer</span><span>All examples included</span></div></header><div id="chapters"></div><section class="guide-closing"><div class="eyebrow">YOUR NEXT INVESTIGATION</div><h2>Find the wait. Follow the cause.</h2><p>Open the memory-bound trace, select instruction #1013, and follow its producer. Measure the memory wait, then compare it with the baseline.</p><button class="button primary" data-lesson="dependencies">Try the complete workflow ↗</button></section></div>
+</section>
+<dialog id="palette" aria-labelledby="palette-title"><div class="dialog-heading"><h2 id="palette-title">Go anywhere. Do anything.</h2><button class="icon-button" data-close="palette" aria-label="Close commands">×</button></div><label class="palette-input"><span class="search-icon" aria-hidden="true"></span><input id="command-search" placeholder="Search commands, or type a cycle / #ID…" aria-label="Search commands" autocomplete="off"></label><div id="command-list" role="listbox" aria-label="Commands"></div><div class="dialog-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navigate <kbd>↵</kbd> run</span><span><kbd>esc</kbd> close</span></div></dialog>
+<dialog id="shortcuts" aria-labelledby="shortcuts-title"><div class="dialog-heading"><h2 id="shortcuts-title">Keep your hands on the keyboard.</h2><button class="icon-button" data-close="shortcuts" aria-label="Close shortcuts">×</button></div><div id="shortcut-list"></div><div class="dialog-footer">Shortcuts pause while you type. Every action also has a visible control.</div></dialog>
+<dialog id="save-dialog" aria-labelledby="save-title"><form id="save-form"><div class="dialog-heading"><h2 id="save-title">Save this view</h2><button type="button" class="icon-button" data-close="save-dialog" aria-label="Cancel bookmark">×</button></div><p class="dialog-copy">Keep the position, zoom, selected instruction, filters, comparison, and measured range together.</p><label class="field-label" for="bookmark-name">View name</label><input id="bookmark-name" maxlength="48" required placeholder="What did you find?"><div class="form-actions"><button type="button" class="button" data-close="save-dialog">Cancel</button><button class="button primary">Save view</button></div></form></dialog>
+<dialog id="image-dialog" aria-label="Tutorial screenshot"><button class="icon-button image-close" data-close="image-dialog" aria-label="Close screenshot">×</button><img id="expanded-image" alt=""></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
