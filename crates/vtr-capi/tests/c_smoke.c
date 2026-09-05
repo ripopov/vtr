@@ -118,6 +118,32 @@ int main(int argc, char **argv) {
     ASSERT(d != NULL && vtr_signal_data_len(d) == 251);
     ASSERT(vtr_signal_data_times(d)[1] == 40);
     ASSERT(vtr_signal_data_index_at(d, 39) == 0);
+    uint32_t requests[] = {s, bus, clk, bus, s};
+    vtr_signal_data *loaded[5] = {NULL};
+    CHECK(vtr_reader_load_signals(rd, requests, 5, loaded));
+    ASSERT(loaded[1] != loaded[3]); /* independent handles, shared storage */
+    ASSERT(vtr_signal_data_times(loaded[1]) == vtr_signal_data_times(loaded[3]));
+    ASSERT(vtr_signal_data_times(loaded[0]) == vtr_signal_data_times(loaded[4]));
+    vtr_signal_value va, vb;
+    CHECK(vtr_signal_data_get(loaded[0], 1, &va));
+    CHECK(vtr_signal_data_get(loaded[4], 1, &vb));
+    ASSERT(va.data == vb.data && va.len == vb.len);
+    CHECK(vtr_signal_data_get(loaded[1], 1, &va));
+    CHECK(vtr_signal_data_get(loaded[3], 1, &vb));
+    ASSERT(va.data == vb.data && va.len == vb.len);
+    vtr_signal_data *survivor = vtr_signal_data_clone(loaded[1]);
+    ASSERT(survivor != NULL);
+    ASSERT(vtr_signal_data_times(survivor) == vtr_signal_data_times(loaded[1]));
+    for (size_t i = 0; i < 5; i++) vtr_signal_data_free(loaded[i]);
+    CHECK(vtr_reader_load_signals(rd, NULL, 0, NULL));
+    ASSERT(vtr_reader_load_signals(rd, NULL, 1, &d) == VTR_ERR_NULL);
+    ASSERT(vtr_reader_load_signals(rd, requests, 1, NULL) == VTR_ERR_NULL);
+    ASSERT(vtr_reader_load_signals(NULL, NULL, 0, NULL) == VTR_ERR_NULL);
+    uint32_t invalid[] = {bus, VTR_NONE};
+    vtr_signal_data *unchanged[] = {d, d};
+    ASSERT(vtr_reader_load_signals(rd, invalid, 2, unchanged) == VTR_ERR_INVALID);
+    ASSERT(unchanged[0] == d && unchanged[1] == d);
+    ASSERT(vtr_signal_data_clone(NULL) == NULL);
     vtr_signal_data_free(d);
     size_t tl; const uint64_t *tt = vtr_reader_time_table(rd, &tl);
     ASSERT(tt != NULL && tl == 1000 && tt[999] == 9990);
@@ -126,6 +152,11 @@ int main(int argc, char **argv) {
     ASSERT(vtr_reader_transaction(rd, 99, tx_cb, rd) == VTR_ERR_NOT_FOUND);
     vtr_value_buf_free(b);
     vtr_reader_close(rd);
+    ASSERT(vtr_signal_data_len(survivor) == 251);
+    ASSERT(vtr_signal_data_times(survivor)[1] == 40);
+    CHECK(vtr_signal_data_get(survivor, 1, &sv));
+    ASSERT(sv.kind == 0 && sv.width == 16);
+    vtr_signal_data_free(survivor);
     /* error paths */
     ASSERT(vtr_reader_open("/nonexistent/file.vtr") == NULL);
     ASSERT(strlen(vtr_last_error()) > 0);

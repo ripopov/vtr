@@ -439,7 +439,7 @@ mod tests {
     fn delta_of_counter_is_constant() {
         let mut v = Vec::new();
         for i in 0u32..100 {
-            v.extend_from_slice(&(i * 4 + 0xFFFF_FF00).to_le_bytes());
+            v.extend_from_slice(&(i * 4).wrapping_add(0xFFFF_FF00).to_le_bytes());
         }
         let mut tmp = Vec::new();
         forward(Xform::Delta, 4, &mut v, &mut tmp);
@@ -450,7 +450,7 @@ mod tests {
         let mut v = Vec::new();
         for i in 0u64..50 {
             let mut e = [0u8; 12];
-            e[..8].copy_from_slice(&(u64::MAX - 3 + i * 5).to_le_bytes());
+            e[..8].copy_from_slice(&(u64::MAX - 3).wrapping_add(i * 5).to_le_bytes());
             e[8..].copy_from_slice(&(i as u32 / 3).to_le_bytes());
             v.extend_from_slice(&e);
         }

@@ -1,5 +1,6 @@
 //! `vtr-bench`: workload preparation and benchmark drivers.
 
+mod load;
 mod read;
 mod replay;
 mod tx;
@@ -14,6 +15,7 @@ vtr-bench commands:
   gen <long_sparse|many_active|wide_bus> <scale> <out.rpl>
   write <in.rpl> <out.vtr> [--codec zstd|lz4|none] [--level L] [--no-background] [--group-size N] [--label S]
   read <in.fst> <in.vtr> [--seed S]                   read/navigation benchmarks vs wellen (JSON)
+  load <in.vtr> <unique|requests> <count> [--seed S]   VTR history loads, without/with replacement (JSON)
   gen-kanata <out.log> <n_insn> [--seed S]
   gen-tlm <out.txr> <n_insn> [--seed S]
   tx-write <in.txr> <out.vtr> [--codec ..] [--no-background]
@@ -82,7 +84,10 @@ fn main() {
         out
     };
     let cmd = pos.first().map(|s| s.as_str()).unwrap_or("");
-    let seed: u64 = flag(&args, "--seed").map(|s| s.parse().unwrap()).unwrap_or(42);
+    let seed: u64 = flag(&args, "--seed").map(|s| s.parse().unwrap_or_else(|e| {
+        eprintln!("error: invalid --seed: {e}");
+        std::process::exit(2);
+    })).unwrap_or(42);
     match cmd {
         "prepare-fst" => {
             let rp = replay::Replay::from_fst(&pos[1]).expect("read fst");
@@ -107,6 +112,18 @@ fn main() {
             let label = flag(&args, "--label").unwrap_or_else(|| "vtr".into());
             let r = write::run(&rp, &pos[2], writer_opts(&args), &label);
             println!("{}", serde_json::to_string_pretty(&r).unwrap());
+        }
+        "load" => {
+            if pos.len() != 4 {
+                eprintln!("usage: vtr-bench load <file.vtr> <unique|requests> <count> [--seed S]");
+                std::process::exit(2);
+            }
+            let result = pos[3].parse::<usize>().map_err(|e| e.to_string())
+                .and_then(|count| load::run(&pos[1], &pos[2], count, seed));
+            match result {
+                Ok(r) => println!("{}", serde_json::to_string_pretty(&r).unwrap()),
+                Err(e) => { eprintln!("error: {e}"); std::process::exit(2); }
+            }
         }
         "read" => {
             let r = read::run(&pos[1], &pos[2], seed);

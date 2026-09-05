@@ -1046,6 +1046,8 @@ returning `VTR_OK`.
 ```c
 typedef struct vtr_signal_data vtr_signal_data;
 vtr_signal_data *vtr_reader_load_signal(const vtr_reader *r, uint32_t sig);
+int              vtr_reader_load_signals(const vtr_reader *r, const uint32_t *sigs, size_t n, vtr_signal_data **out);
+vtr_signal_data *vtr_signal_data_clone(const vtr_signal_data *d);
 void             vtr_signal_data_free(vtr_signal_data *d);
 size_t           vtr_signal_data_len(const vtr_signal_data *d);
 const uint64_t  *vtr_signal_data_times(const vtr_signal_data *d);
@@ -1056,9 +1058,24 @@ size_t           vtr_signal_data_index_at(const vtr_signal_data *d, uint64_t tim
 
 **`vtr_reader_load_signal(r, sig)`** decodes the complete history of one
 signal into a self-contained object (NULL with `vtr_last_error()` set on an
-unknown signal or a decoding error). The object is a copy: it does not
-reference the reader and can outlive it, and it may be moved to another
-thread. Free it with `vtr_signal_data_free` (NULL is ignored).
+unknown signal or a decoding error). The object is an immutable handle: it does not
+reference the reader, can outlive it, and can be read concurrently. Free each
+handle with `vtr_signal_data_free` (NULL is ignored). Borrowed time/value
+pointers remain valid until that handle is freed; they must not be modified.
+
+**`vtr_reader_load_signals(r, sigs, n, out)`** loads a batch into `n`
+caller-allocated output slots. Each slot receives a separately owned handle in
+request order. Repeated signal IDs are decoded once and share all waveform
+storage. Free every returned handle separately. On error, no output slots are
+modified; errors match the single-signal load, plus `VTR_ERR_NULL` for a NULL
+reader or a NULL input/output array when `n > 0`. For `n == 0`, the arrays
+may be NULL and the call succeeds with a valid reader. Sharing is local to
+the call; separate calls do not share a persistent history cache.
+
+**`vtr_signal_data_clone(d)`** creates another handle to the same immutable
+storage without copying buffers. It returns NULL for a NULL input. The clone
+remains valid after the original handle and reader are freed. Storage is
+released when the last handle is freed.
 
 * `vtr_signal_data_len(d)` — number of changes `n` (0 for a NULL `d`).
 * `vtr_signal_data_times(d)` — pointer to `n` change times, non-decreasing
@@ -1537,6 +1554,8 @@ section 2.1: `Corrupt`→4, `UnsupportedVersion`→5, `Invalid`→1, `State`→2
 | `vtr_reader_changes` | `Reader::changes` (collected, then iterated) |
 | `vtr_reader_for_each_change` | `Reader::for_each_change` |
 | `vtr_reader_load_signal` | `Reader::load_signal` |
+| `vtr_reader_load_signals` | `Reader::load_signals` |
+| `vtr_signal_data_clone` | `SignalData::clone` |
 | `vtr_signal_data_free` | drop `SignalData` |
 | `vtr_signal_data_len` | `SignalData::len` |
 | `vtr_signal_data_times` | `SignalData::times` |
@@ -1557,7 +1576,7 @@ Rust-only conveniences with no C equivalent: `Writer::add_var_in` /
 `add_alias_in` (explicit parent), `Writer::blackout_at`,
 `Writer::current_time`, `Writer::stats`, `Reader::from_bytes`,
 `Reader::open_with(ReadOptions)` (checksum verification and cache size),
-`Reader::load_signals` (batch), `Reader::transactions` (collect),
+`Reader::transactions` (collect),
 `Reader::visit_relations`, `Reader::full_path`, `Reader::sections`, and
 `Value::List` / `Value::Map` contents.
 

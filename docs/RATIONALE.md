@@ -242,6 +242,25 @@ decompressed pieces; a global time table built on demand.
 * `load_signals` decompresses each run only once per block for any number
   of requested signals in it, and materialises wellen-style
   (`times`, packed data) results so a wavepeek backend is a thin adapter.
+* Loaded histories are immutable `SignalData` handles over shared storage.
+  The reader sorts and deduplicates requested signal IDs, decodes each unique
+  history into a private builder, then returns handles in request order.
+  Clones and repeated IDs share time, value, initial-value and offset buffers;
+  the last handle releases them, independently of the reader's lifetime.
+  Freezing retains the builder's vector allocations behind the private shared
+  handle; shrinking them into boxed slices can copy entire histories.
+  This targets read-only consumers and avoids decoding and allocating the
+  same waveform repeatedly when several hierarchy names resolve to one ID.
+  Public mutable vectors and cloning entire histories were rejected: they
+  impose copying to support mutation that the reader does not need. A
+  persistent history cache was also left out to avoid retaining unbounded
+  waveform data. Dynamic aliases remain per-block encoding references;
+  distinct signal IDs are not assumed to have identical complete histories.
+  The C API projects batch loading and cheap handle cloning directly.
+  Validation separates unique-signal loads from requests sampled with
+  replacement (the existing load-N benchmark). See the `vtr-bench load`
+  modes in `docs/BENCHMARKS.md`; published results require full-suite
+  confirmation, including the Linux C910 toolchain.
 
 ## 6. Transactions
 

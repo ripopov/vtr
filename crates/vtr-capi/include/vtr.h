@@ -209,8 +209,15 @@ typedef int (*vtr_change_cb)(void *user, uint64_t time, uint32_t sig, const vtr_
 int vtr_reader_changes(const vtr_reader *r, uint32_t sig, uint64_t t0, uint64_t t1, vtr_change_cb cb, void *user);
 int vtr_reader_for_each_change(const vtr_reader *r, uint64_t t0, uint64_t t1, vtr_change_cb cb, void *user);
 
+/* Immutable history; handles may outlive the reader and be read concurrently.
+ * Borrowed time/value pointers are read-only and valid until the handle is freed. */
 typedef struct vtr_signal_data vtr_signal_data;
 vtr_signal_data *vtr_reader_load_signal(const vtr_reader *r, uint32_t sig);
+/* Caller allocates n output slots; free each returned handle separately.
+ * Duplicate IDs share immutable storage. On error, out is unchanged.
+ * For n == 0, sigs and out may be NULL. */
+int              vtr_reader_load_signals(const vtr_reader *r, const uint32_t *sigs, size_t n, vtr_signal_data **out);
+vtr_signal_data *vtr_signal_data_clone(const vtr_signal_data *d); /* shares storage; NULL in -> NULL out */
 void             vtr_signal_data_free(vtr_signal_data *d);
 size_t           vtr_signal_data_len(const vtr_signal_data *d);
 const uint64_t  *vtr_signal_data_times(const vtr_signal_data *d);

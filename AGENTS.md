@@ -8,9 +8,10 @@ read it first and treat its section 8 as binding.
 
 VTR (Vibe Trace Record): a trace file format and reference library for
 hardware simulation traces (waveforms, transactions, hierarchy, relations).
-Rust workspace with four crates (`crates/vtr` core, `vtr-capi` C ABI,
-`vtr-cli` tools, `vtr-bench` benchmarks), a Verilator backend in
-`integrations/verilator`, and a benchmark suite in `bench/`.
+Rust workspace with five crates (`crates/vtr` core, `vtr-capi` C ABI,
+`vtr-cli` tools, `vtr-bench` benchmarks, and the `vtr-kdb` RTL companion),
+a Verilator backend in the pinned `ext/verilator` submodule with build tools
+in `integrations/verilator`, and a benchmark suite in `bench/`.
 
 ## Long-term RTL KDB goal
 
@@ -43,6 +44,18 @@ python3 bench/run.py all                 # full suite (~1 h), regenerates docs/B
 
 ## Rules
 
+- **Research first; design the best API.** This whole project is research.
+  Backward compatibility of the Rust API, C API/ABI, and file format is not
+  a requirement during this phase. Prefer the cleanest, most coherent API
+  over preserving existing signatures, ownership choices, or behavior.
+  Update affected callers, tests, and documentation together; keep the
+  format versioned and extensible as required by GOAL.md section 8.
+- **The reader targets read-only use.** Consumers inspect immutable trace
+  data; modifying reader results is not a target use case. Design reader
+  results for immutable access and shared storage where useful, including
+  repeated requests for the same signal. Do not duplicate buffers merely
+  to preserve independently mutable results. Consumers that need to
+  transform data can explicitly create their own mutable copies.
 - **Measure, don't assume.** Any change to encoding, compression, block or
   run sizes, transforms, or the reader's decode path must be A/B'd against a
   build of the previous commit (a `git worktree` of HEAD is the pattern) on
@@ -53,8 +66,9 @@ python3 bench/run.py all                 # full suite (~1 h), regenerates docs/B
   alternatives have been measured; if you re-test one, record the new
   numbers there.
 - **Format changes** need: a new code in `docs/SPEC.md`, reader support,
-  a round-trip test in `crates/vtr/tests/`, and a rationale entry. Never
-  break reading of existing files.
+  a round-trip test in `crates/vtr/tests/`, and a rationale entry. Breaking
+  changes must use an appropriate format version or code so incompatible
+  files are rejected clearly; regenerate affected fixtures as needed.
 - **Simulator-integrated numbers** depend on the Verilator models linked
   against `libvtr.a`; their Makefiles do not track the library, so delete
   `bench/workloads/gen/*/obj_vtr/{Vtop,rsa_tb}` after changing the writer

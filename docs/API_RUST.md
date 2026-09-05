@@ -212,7 +212,7 @@ fn read_waveform(path: &str) -> vtr::Result<()> {
     let cnt_data = &loaded[1];
     println!("cnt: {} changes, initial {}", cnt_data.len(), cnt_data.initial().to_ascii());
     if let Some(i) = cnt_data.index_at(t1) {
-        println!("last change at {} = {:?}", cnt_data.times[i], cnt_data.get(i).as_u64());
+        println!("last change at {} = {:?}", cnt_data.times()[i], cnt_data.get(i).as_u64());
     }
 
     // Hierarchy walk.
@@ -1072,25 +1072,31 @@ pub fn load_signal(&self, sig: SignalId) -> Result<SignalData>
 pub fn load_signals(&self, sigs: &[SignalId]) -> Result<Vec<SignalData>>   // same order as sigs
 ```
 
-Load the complete change history. `load_signals` sorts the request by
-`(group, signal)` and, for every block, decompresses the frame piece (only for
+Load the complete change history. `load_signals` deduplicates signal IDs and
+sorts them by `(group, signal)`. For every block it decompresses the frame piece (only for
 signals seen for the first time) and each column run holding at least one
 requested signal exactly once, so loading all signals of a group costs one
 decompression per run per block. Signals from groups that are not dirty in a
 block cost only a binary search of that block's dirty index. Duplicate ids in
-`sigs` are allowed and yield duplicate results.
+`sigs` are allowed: output order and multiplicity match the request, but repeated
+IDs share one immutable history. Declared aliases resolve to the same signal ID
+and benefit from the same sharing. Distinct IDs with per-block dynamic aliases
+remain distinct histories. An empty request returns an empty vector; any invalid
+ID or decoding error fails the whole call.
+
+Each unique history is built once in mutable internal buffers and then frozen.
+Cloning a `SignalData` shares all of its storage without copying buffers. Handles
+own that storage independently of the reader, can outlive it, and are `Send + Sync`.
+There is no persistent history cache: separate load calls materialize independently,
+and the last handle releases the storage. Consumers needing mutable data explicitly
+copy it.
 
 ```rust
 #[derive(Clone, Debug)]
-pub struct SignalData {
-    pub kind: SignalKind,
-    pub initial: Vec<u8>,   // value before the first change, declared packing
-    pub times: Vec<u64>,    // non-decreasing; equal times = same-time updates in emission order
-    pub data: Vec<u8>,      // fixed-size kinds: packed_len bytes per change, declared packing
-    pub offsets: Vec<u32>,  // VarLen: offsets[i]..offsets[i+1] slices data (len + 1 entries)
-}
+pub struct SignalData { /* private shared immutable storage */ }
 impl SignalData {
-    pub fn times(&self) -> &[u64]                      // read-only change timestamps
+    pub fn kind(&self) -> SignalKind                   // declared kind and packing
+    pub fn times(&self) -> &[u64]                      // non-decreasing; same-time emission order
     pub fn len(&self) -> usize
     pub fn is_empty(&self) -> bool
     pub fn get(&self, i: usize) -> SignalValue<'_>        // change i (panics when i >= len)
@@ -1102,9 +1108,9 @@ impl SignalData {
 
 Unlike the reader's point queries, `SignalData` always widens compact values
 to the declared packing, so `get(i)` reports `states` equal to
-`kind.states()` and `data` is a uniform array (`packed_len` bytes per entry)
-suitable for direct indexing by viewers. `index_at`/`value_at` are binary
-searches over `times`.
+`kind().states()`. Packed buffers and variable-length offsets are private;
+use `get(i)` for read-only value access. `index_at`/`value_at` are binary
+searches over `times()`.
 
 ```rust
 pub fn for_each_change(&self, t0: u64, t1: u64, f: impl FnMut(u64, SignalId, SignalValue<'_>)) -> Result<()>

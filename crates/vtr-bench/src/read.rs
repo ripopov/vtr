@@ -137,12 +137,11 @@ pub fn run(fst_path: &str, vtr_path: &str, seed: u64) -> serde_json::Value {
             let s = w.get_signal(refs[0]).unwrap();
             let d = vtr.load_signal(vids[0]).unwrap();
             let tt = w.time_table();
-            let mut i = 0;
-            for (tidx, v) in s.iter_changes().take(50) {
+            for (i, (tidx, v)) in s.iter_changes().take(50).enumerate() {
                 let a = v.to_bit_string().unwrap_or_default();
                 if i < d.len() {
                     let b = d.get(i).to_ascii();
-                    let tv = d.times[i];
+                    let tv = d.times()[i];
                     if (a != b && !a.is_empty()) || tt[tidx as usize] != tv {
                         parity_errors += 1;
                         if parity_errors < 5 {
@@ -150,7 +149,6 @@ pub fn run(fst_path: &str, vtr_path: &str, seed: u64) -> serde_json::Value {
                         }
                     }
                 }
-                i += 1;
             }
         }
         out.insert(format!("load_{k}"), json!({"fst_wellen": t_wl, "vtr": t_vtr, "changes": changes_vtr, "changes_wellen": changes_wl}));
@@ -258,7 +256,7 @@ pub fn run(fst_path: &str, vtr_path: &str, seed: u64) -> serde_json::Value {
             let mut hits = 0usize;
             for i in 0..dc.len() {
                 if dc.get(i).as_u64() == Some(1) {
-                    let t = dc.times[i];
+                    let t = dc.times()[i];
                     if db.value_at(t).to_ascii() == target {
                         hits += 1;
                     }

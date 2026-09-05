@@ -159,57 +159,66 @@ pub struct Reader {
     global_times: OnceLock<Vec<u64>>,
 }
 
-/// All value changes of one signal, in time order.
+/// Immutable change history of one signal, in time order.
+///
+/// Cloning shares all storage without copying waveform buffers. The data remains
+/// valid after the reader and other handles are dropped; it is not a reader cache.
 #[derive(Clone, Debug)]
 pub struct SignalData {
-    pub kind: SignalKind,
-    /// Value before the first change (declared packing).
-    pub initial: Vec<u8>,
-    /// Change times (non-decreasing; equal times = same-time updates in emission order).
-    pub times: Vec<u64>,
-    /// For fixed-size kinds: `entry_len` bytes per change in declared packing.
-    pub data: Vec<u8>,
-    /// For `VarLen`: `offsets[i]..offsets[i+1]` slices `data`.
-    pub offsets: Vec<u32>,
+    inner: Arc<SignalDataInner>,
+}
+
+#[derive(Debug)]
+struct SignalDataInner {
+    kind: SignalKind,
+    initial: Vec<u8>,
+    times: Vec<u64>,
+    data: Vec<u8>,
+    offsets: Vec<u32>,
 }
 
 impl SignalData {
-    /// Change timestamps in non-decreasing order.
+    /// Declared signal kind; loaded values use its packing.
+    pub fn kind(&self) -> SignalKind {
+        self.inner.kind
+    }
+
+    /// Change times, in non-decreasing order. Equal times preserve emission order.
     pub fn times(&self) -> &[u64] {
-        &self.times
+        &self.inner.times
     }
 
     fn entry_len(&self) -> usize {
-        self.kind.packed_len().unwrap_or(0)
+        self.inner.kind.packed_len().unwrap_or(0)
     }
 
     pub fn len(&self) -> usize {
-        self.times.len()
+        self.inner.times.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.times.is_empty()
+        self.inner.times.is_empty()
     }
 
     /// Value of change `i`.
     pub fn get(&self, i: usize) -> SignalValue<'_> {
-        match self.kind {
-            SignalKind::VarLen => SignalValue::VarLen(&self.data[self.offsets[i] as usize..self.offsets[i + 1] as usize]),
+        match self.inner.kind {
+            SignalKind::VarLen => SignalValue::VarLen(&self.inner.data[self.inner.offsets[i] as usize..self.inner.offsets[i + 1] as usize]),
             k => {
                 let l = self.entry_len();
-                block::frame_value(k, &self.data[i * l..(i + 1) * l])
+                block::frame_value(k, &self.inner.data[i * l..(i + 1) * l])
             }
         }
     }
 
     /// Initial value.
     pub fn initial(&self) -> SignalValue<'_> {
-        block::frame_value(self.kind, &self.initial)
+        block::frame_value(self.inner.kind, &self.inner.initial)
     }
 
     /// Index of the last change at or before `t`, if any.
     pub fn index_at(&self, t: u64) -> Option<usize> {
-        let n = self.times.partition_point(|&x| x <= t);
+        let n = self.inner.times.partition_point(|&x| x <= t);
         if n == 0 {
             None
         } else {
@@ -222,6 +231,37 @@ impl SignalData {
         match self.index_at(t) {
             Some(i) => self.get(i),
             None => self.initial(),
+        }
+    }
+}
+
+/// Mutable storage used only while loading one unique signal.
+struct SignalDataBuilder {
+    kind: SignalKind,
+    initial: Vec<u8>,
+    times: Vec<u64>,
+    data: Vec<u8>,
+    offsets: Vec<u32>,
+}
+
+impl SignalDataBuilder {
+    fn new(kind: SignalKind) -> Self {
+        let mut initial = Vec::new();
+        signal::default_value(kind, &mut initial);
+        Self { kind, initial, times: Vec::new(), data: Vec::new(), offsets: vec![0] }
+    }
+
+    fn finish(self) -> SignalData {
+        // Keep the allocations: shrinking into boxed slices may copy entire
+        // histories. Private buffers behind Arc expose no mutation to callers.
+        SignalData {
+            inner: Arc::new(SignalDataInner {
+                kind: self.kind,
+                initial: self.initial,
+                times: self.times,
+                data: self.data,
+                offsets: self.offsets,
+            }),
         }
     }
 
@@ -726,31 +766,44 @@ impl Reader {
         Ok(self.load_signals(&[sig])?.pop().unwrap())
     }
 
-    /// Loads several signals, decompressing each run of each block only once.
+    /// Loads histories in request order, decoding each distinct signal only once.
+    /// Repeated IDs share immutable storage, as do clones of the returned handles.
+    /// Sharing is local to this call; separate calls do not retain loaded histories.
     pub fn load_signals(&self, sigs: &[SignalId]) -> Result<Vec<SignalData>> {
-        let mut out = Vec::with_capacity(sigs.len());
-        for &s in sigs {
-            let kind = self.signal_kind(s)?;
-            let mut initial = Vec::new();
-            signal::default_value(kind, &mut initial);
-            out.push(SignalData { kind, initial, times: Vec::new(), data: Vec::new(), offsets: vec![0] });
+        if sigs.is_empty() {
+            return Ok(Vec::new());
         }
+        // Signal IDs are contiguous within groups, so numeric order groups both
+        // duplicate requests and the runs they touch. Restore request order only
+        // after each unique history is complete.
         let mut order: Vec<usize> = (0..sigs.len()).collect();
-        order.sort_by_key(|&i| (self.group_of(sigs[i]), sigs[i].0));
+        order.sort_unstable_by_key(|&i| sigs[i].0);
+        let mut unique = Vec::new();
+        let mut out = Vec::new();
+        let mut request_to_unique = vec![0; sigs.len()];
+        for oi in order {
+            let s = sigs[oi];
+            if unique.last() != Some(&s) {
+                out.push(SignalDataBuilder::new(self.signal_kind(s)?));
+                unique.push(s);
+            }
+            request_to_unique[oi] = unique.len() - 1;
+        }
+        let sigs = unique.as_slice();
         let mut first_seen = vec![false; sigs.len()];
         for bi in 0..self.sig_blocks.len() {
             let mut times: Option<Arc<Vec<u64>>> = None;
             let mut i = 0;
-            while i < order.len() {
-                let g = self.group_of(sigs[order[i]]);
+            while i < sigs.len() {
+                let g = self.group_of(sigs[i]);
                 let mut j = i;
-                while j < order.len() && self.group_of(sigs[order[j]]) == g {
+                while j < sigs.len() && self.group_of(sigs[j]) == g {
                     j += 1;
                 }
                 if let Some(view) = self.group_view(bi, g)? {
                     let mut frames: Option<Arc<Piece>> = None;
                     let mut run: Option<(usize, Arc<Piece>)> = None;
-                    for &oi in &order[i..j] {
+                    for oi in i..j {
                         let s = sigs[oi];
                         if !first_seen[oi] {
                             first_seen[oi] = true;
@@ -785,7 +838,8 @@ impl Reader {
                 i = j;
             }
         }
-        Ok(out)
+        let loaded: Vec<_> = out.into_iter().map(SignalDataBuilder::finish).collect();
+        Ok(request_to_unique.into_iter().map(|i| loaded[i].clone()).collect())
     }
 
     /// Streams every change of every signal in time order within `[t0, t1]`

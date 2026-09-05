@@ -99,6 +99,25 @@ model (a new open per measurement, like a one-shot CLI such as wavepeek):
 | condition search: posedge clk && bus == v over the whole run | load both, iterate | `load_signals` both, iterate |
 | stream every change | `fst-reader::read_signals` (all) | `for_each_change` |
 
+The existing load-N plan samples **with replacement**. Thus "load 1000" means
+1000 requests, potentially for fewer unique signals (especially on RSA's 113
+signals). VTR shares repeated histories within a load call. To separate bulk
+loading from repeated-request handling, use:
+
+```sh
+vtr-bench load trace.vtr unique 1000     # up to 1000 distinct signals
+vtr-bench load trace.vtr requests 1000   # 1000 requests sampled with replacement
+```
+
+Both modes report request and unique-signal counts, logical change counts, and
+best-of-3 wall time including open, load, and destruction. The plan is generated
+outside the timer with seed 42 by default (`--seed` overrides it). Unique
+sampling uses a bounded number of draws, including when requesting every signal
+or using seed zero; requests mode preserves repeated IDs. For an A/B
+comparison, compile the same `load.rs` harness and command dispatch against both
+revisions, keep the baseline library unchanged, and use the same trace file.
+Compare writer size/time separately with the standard `write` command.
+
 The same signal/time plan (seeded) is exported to the C harness so that
 `fstapi` numbers use identical queries. Results are cross-checked: value
 strings and change counts must match between wellen and VTR (`parity`).

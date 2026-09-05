@@ -35,6 +35,11 @@ databases (KDB) comes from names: full hierarchical paths of nodes, stream
 and generator names, attribute keys, event names, stage names, lane names
 and relation kinds are all strings chosen by the producer.
 
+Reader result ownership is an API concern, not an on-disk encoding. The
+reference reader exposes immutable loaded histories and shares their storage
+for repeated requests for one signal ID. This does not change declared alias
+identity or the per-block dynamic alias rules in section 6.6.
+
 ## 2. Container
 
 ```

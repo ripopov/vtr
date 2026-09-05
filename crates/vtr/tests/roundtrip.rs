@@ -7,6 +7,67 @@ fn tmp(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn shared_signal_histories_preserve_order_and_lifetimes() {
+    let path = tmp("shared_histories.vtr");
+    let opts = WriterOptions { block_records: 12, group_size: 2, background: false, dedup: false, ..Default::default() };
+    let mut w = Writer::create_with(&path, opts).unwrap();
+    let (_, bits) = w.add_bits("bits", 8, 4);
+    let (_, quiet) = w.add_bits("quiet", 8, 4);
+    let (_, text) = w.add_var("text", VarType::String, Direction::Implicit, SignalKind::VarLen);
+    let (_, real) = w.add_var("real", VarType::Real, Direction::Implicit, SignalKind::Real);
+    w.add_alias("alias", VarType::Wire, Direction::Implicit, bits).unwrap();
+    for i in 0..40u64 {
+        // Two updates at each time must retain their emission order.
+        w.set_time(10 + i / 2).unwrap();
+        w.emit_u64(bits, i).unwrap();
+        w.emit_varlen(text, format!("value-{i}").as_bytes()).unwrap();
+        w.emit_real(real, i as f64 + 0.5).unwrap();
+    }
+    w.close().unwrap();
+    let rd = Reader::open(&path).unwrap();
+    assert!(rd.block_count() > 1);
+    assert!(rd.load_signals(&[]).unwrap().is_empty());
+    assert!(matches!(rd.load_signals(&[bits, SignalId(u32::MAX), bits]), Err(Error::Invalid(_))));
+    let alias = rd.find_signal("alias", '.').unwrap();
+    let ids = [text, alias, quiet, real, bits, text, quiet, real];
+    let loaded = rd.load_signals(&ids).unwrap();
+    assert_eq!(loaded.len(), ids.len());
+    for (d, id) in loaded.iter().zip(ids) {
+        let expected = rd.load_signal(id).unwrap();
+        assert_eq!(d.kind(), expected.kind());
+        assert_eq!(d.initial(), expected.initial());
+        assert_eq!(d.times(), expected.times());
+        for i in 0..d.len() {
+            assert_eq!(d.get(i), expected.get(i));
+        }
+    }
+    for (a, b) in [(0, 5), (1, 4), (3, 7)] {
+        assert!(std::ptr::eq(loaded[a].times(), loaded[b].times()), "duplicate histories must share time storage");
+    }
+    match (loaded[0].get(17), loaded[5].get(17)) {
+        (SignalValue::VarLen(a), SignalValue::VarLen(b)) => assert!(std::ptr::eq(a, b)),
+        _ => panic!("expected variable-length values"),
+    }
+    match (loaded[1].get(17), loaded[4].get(17)) {
+        (SignalValue::Bits { data: a, .. }, SignalValue::Bits { data: b, .. }) => assert!(std::ptr::eq(a, b)),
+        _ => panic!("expected packed bit values"),
+    }
+    assert!(loaded[2].is_empty());
+    assert_eq!(loaded[2].value_at(100).to_ascii(), "xxxxxxxx");
+    assert_eq!(loaded[1].value_at(9).to_ascii(), "xxxxxxxx");
+    assert_eq!(loaded[1].index_at(10), Some(1));
+    assert_eq!(loaded[1].value_at(10).as_u64(), Some(1));
+    let survivor = loaded[0].clone();
+    assert!(std::ptr::eq(survivor.times(), loaded[0].times()));
+    drop(rd);
+    drop(loaded);
+    std::thread::spawn(move || {
+        assert_eq!(survivor.len(), 40);
+        assert_eq!(survivor.value_at(29), SignalValue::VarLen(b"value-39"));
+    }).join().unwrap();
+}
+
+#[test]
 fn signals_roundtrip_multi_block() {
     for background in [false, true] {
         let path = tmp(&format!("sig_{background}.vtr"));
@@ -122,31 +183,31 @@ fn signals_roundtrip_multi_block() {
         let d = rd.load_signal(cnt).unwrap();
         assert_eq!(d.len(), exp_cnt.len());
         for (i, (t, v)) in exp_cnt.iter().enumerate() {
-            assert_eq!(d.times[i], *t);
+            assert_eq!(d.times()[i], *t);
             assert_eq!(d.get(i).to_ascii(), *v, "cnt change {i}");
         }
         assert_eq!(d.initial().to_ascii(), "xxxxxxxx");
         let d = rd.load_signal(wide).unwrap();
         assert_eq!(d.len(), exp_wide.len());
         for (i, (t, v)) in exp_wide.iter().enumerate() {
-            assert_eq!(d.times[i], *t);
+            assert_eq!(d.times()[i], *t);
             assert_eq!(d.get(i).to_ascii(), *v, "wide change {i}");
         }
         let d = rd.load_signal(r).unwrap();
         for (i, (t, v)) in exp_r.iter().enumerate() {
-            assert_eq!(d.times[i], *t);
+            assert_eq!(d.times()[i], *t);
             assert_eq!(d.get(i), SignalValue::Real(*v));
         }
         assert_eq!(d.len(), exp_r.len());
         let d = rd.load_signal(s).unwrap();
         for (i, (t, v)) in exp_s.iter().enumerate() {
-            assert_eq!(d.times[i], *t);
+            assert_eq!(d.times()[i], *t);
             assert_eq!(d.get(i).to_ascii(), *v);
         }
         let d = rd.load_signal(clk).unwrap();
         assert_eq!(d.len(), exp_clk.len());
         for (i, (t, v)) in exp_clk.iter().enumerate() {
-            assert_eq!(d.times[i], *t);
+            assert_eq!(d.times()[i], *t);
             assert_eq!(d.get(i).to_ascii(), *v);
         }
         let d = rd.load_signal(nine).unwrap();
@@ -392,15 +453,18 @@ fn dynamic_aliasing_of_identical_columns() {
     w.close().unwrap();
     let rd = Reader::open(&path).unwrap();
     let (da, db, dc, dd, de) = {
-        let v = rd.load_signals(&[a, b, c, d, e]).unwrap();
+        let v = rd.load_signals(&[a, b, c, d, e, b, c, e]).unwrap();
+        for (x, y) in [(1, 5), (2, 6), (4, 7)] {
+            assert!(std::ptr::eq(v[x].times(), v[y].times()));
+        }
         (v[0].clone(), v[1].clone(), v[2].clone(), v[3].clone(), v[4].clone())
     };
     assert_eq!(da.len(), 5000);
-    assert_eq!(da.times, db.times);
-    assert_eq!(da.data, db.data);
+    assert_eq!(da.times(), db.times());
+    assert!((0..da.len()).all(|i| da.get(i) == db.get(i)));
     assert_eq!(dc.len(), 5000);
     assert_ne!(da.get(4998).to_ascii(), dc.get(4998).to_ascii());
-    assert_eq!(dd.data, de.data);
+    assert!((0..dd.len()).all(|i| dd.get(i) == de.get(i)));
     assert_eq!(rd.value_at(b, 1234).unwrap().to_ascii(), "1");
     assert_eq!(rd.value_at(e, 1000).unwrap().as_ascii_u64(), 500 * 7);
     assert_eq!(rd.changes(b, 100, 110).unwrap().len(), 6);
@@ -498,7 +562,7 @@ fn dictionary_coded_columns_roundtrip() {
         let time = i as u64 * 5;
         for (k, (val, was)) in [(s, prev.0), (o, prev.1), (t, prev.2), (b, prev.3)].into_iter().enumerate() {
             if val != was {
-                assert_eq!(v[k].times[n[k]], time, "signal {k} change {}", n[k]);
+                assert_eq!(v[k].times()[n[k]], time, "signal {k} change {}", n[k]);
                 let a = v[k].get(n[k]).to_ascii();
                 let low = u64::from_str_radix(&a[a.len().saturating_sub(64)..], 2).unwrap();
                 assert_eq!(low, val, "signal {k} at {time}"); // the 184-bit tag's low word is `t`
@@ -511,7 +575,7 @@ fn dictionary_coded_columns_roundtrip() {
         assert_eq!(v[k].len(), n[k]);
     }
     assert_eq!(rd.value_at(st, 5 * 12).unwrap().as_ascii_u64(), expect[12].0);
-    assert_eq!(rd.changes(op, 1000, 1200).unwrap().len(), v[1].times.iter().filter(|&&t| (1000..=1200).contains(&t)).count());
+    assert_eq!(rd.changes(op, 1000, 1200).unwrap().len(), v[1].times().iter().filter(|&&t| (1000..=1200).contains(&t)).count());
     let mut streamed = [0usize; 4];
     rd.for_each_change(0, u64::MAX, |_, s, _| streamed[s.0 as usize] += 1).unwrap();
     assert_eq!(streamed, n);

@@ -1098,6 +1098,36 @@ pub unsafe extern "C" fn vtr_reader_load_signal(r: *const vtr_reader, sig: u32) 
     }
 }
 
+/// Loads `n` histories in request order into a caller-allocated array of handles.
+/// Repeated signal IDs share immutable storage. On error, `out` is unchanged.
+/// For `n == 0`, `sigs` and `out` may be NULL. Free each handle separately.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_load_signals(r: *const vtr_reader, sigs: *const u32, n: usize, out: *mut *mut vtr_signal_data) -> c_int {
+    let r = need_ref!(r);
+    if n == 0 {
+        return VTR_OK;
+    }
+    if sigs.is_null() || out.is_null() {
+        return VTR_ERR_NULL;
+    }
+    let sigs: Vec<_> = std::slice::from_raw_parts(sigs, n).iter().map(|&s| SignalId(s)).collect();
+    match r.0.load_signals(&sigs) {
+        Ok(loaded) => {
+            for (i, d) in loaded.into_iter().enumerate() {
+                out.add(i).write(Box::into_raw(Box::new(vtr_signal_data(d))));
+            }
+            VTR_OK
+        }
+        Err(e) => status(Err(e)),
+    }
+}
+
+/// Clones a handle without copying its immutable waveform storage. NULL in, NULL out.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_signal_data_clone(d: *const vtr_signal_data) -> *mut vtr_signal_data {
+    d.as_ref().map(|d| Box::into_raw(Box::new(vtr_signal_data(d.0.clone())))).unwrap_or(ptr::null_mut())
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn vtr_signal_data_free(d: *mut vtr_signal_data) {
     if !d.is_null() {
@@ -1113,7 +1143,7 @@ pub unsafe extern "C" fn vtr_signal_data_len(d: *const vtr_signal_data) -> usize
 /// Pointer to the change-time array (`len` entries).
 #[no_mangle]
 pub unsafe extern "C" fn vtr_signal_data_times(d: *const vtr_signal_data) -> *const u64 {
-    d.as_ref().map(|d| d.0.times.as_ptr()).unwrap_or(ptr::null())
+    d.as_ref().map(|d| d.0.times().as_ptr()).unwrap_or(ptr::null())
 }
 
 #[no_mangle]
