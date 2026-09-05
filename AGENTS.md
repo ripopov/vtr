@@ -22,6 +22,14 @@ so debugging reflects the simulated design. Keep VDB separate from VTR, with a
 simulator-independent schema and a slang adapter for standalone design browsing
 and other simulation backends.
 
+## Long-term VDB scope
+
+Evolve VDB beyond RTL debugging to support Konata-like pipeline traces,
+Gantt-chart-like transaction views, and other trace domains and visualizations.
+Keep its format flexible, versioned, and extensible so new domain semantics
+and presentation metadata can be added without forcing them into an RTL-only
+model. VDB remains separate from the runtime trace data in VTR.
+
 ## Where to look
 
 | need | file |
