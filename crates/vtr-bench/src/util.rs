@@ -2,8 +2,12 @@
 
 use std::time::Instant;
 
-/// Process CPU time (user + system) in seconds, from /proc/self/stat.
+/// Process CPU time (user + system) in seconds (all threads), via getrusage.
 pub fn cpu_seconds() -> f64 {
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } == 0 {
+        return ru.ru_utime.tv_sec as f64 + ru.ru_utime.tv_usec as f64 * 1e-6 + ru.ru_stime.tv_sec as f64 + ru.ru_stime.tv_usec as f64 * 1e-6;
+    }
     let s = match std::fs::read_to_string("/proc/self/stat") {
         Ok(s) => s,
         Err(_) => return 0.0,

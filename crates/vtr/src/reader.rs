@@ -9,11 +9,13 @@ use crate::codec::Decompressor;
 use crate::container::{Container, DirEntry, SectionKind};
 use crate::error::{Error, Result};
 use crate::hierarchy::{Hierarchy, NodeId, NodeKind, SignalId, SignalKind};
+use crate::logblock::{self, LogArgType, LogBlockData, LogBlockHeader, LogRecord, LogSite, Severity};
+use crate::logfmt::ParsedFmt;
 use crate::sections::{self, Blackout, Meta};
 use crate::signal::{self, OwnedSignalValue, SignalValue};
 use crate::strings::{StrId, StringTable};
 use crate::txblock::{self, Relation, Transaction, TxBlockData, TxBlockHeader, TxId};
-use crate::value::packed_len;
+use crate::value::{packed_len, Value};
 use crate::varint;
 use crate::xform::Xform;
 use std::path::Path;
@@ -52,6 +54,12 @@ struct TxBlock {
     entry: DirEntry,
     header: TxBlockHeader,
     data: OnceLock<Arc<TxBlockData>>,
+}
+
+struct LogBlock {
+    entry: DirEntry,
+    header: LogBlockHeader,
+    data: OnceLock<Arc<LogBlockData>>,
 }
 
 /// A decompressed group piece (frames or one column run) with per-signal ranges,
@@ -153,6 +161,16 @@ pub struct Reader {
     hier: Hierarchy,
     sig_blocks: Vec<SigBlock>,
     tx_blocks: Vec<TxBlock>,
+    log_blocks: Vec<LogBlock>,
+    /// Log block indexes sorted by first time (then file order): the order `visit_log` uses.
+    log_order: Vec<u32>,
+    /// Transaction and log blocks in file order: (is_log, index into the respective list).
+    tx_order: Vec<(bool, u32)>,
+    log_sites: Vec<LogSite>,
+    /// Format string of each site parsed once.
+    log_fmts: Vec<ParsedFmt>,
+    /// Node id -> index into `log_sites` (`u32::MAX` = not a log site).
+    site_index: Vec<u32>,
     blackout: Vec<Blackout>,
     verify_crc: bool,
     cache: Mutex<GroupCache>,
@@ -316,6 +334,25 @@ pub struct TxQuery {
     pub window: Option<(u64, u64)>,
 }
 
+/// Log record query filter.
+#[derive(Clone, Debug)]
+pub struct LogQuery {
+    /// Only records of sites belonging to this stream.
+    pub stream: Option<NodeId>,
+    /// Only records of this site (generator node).
+    pub generator: Option<NodeId>,
+    /// Only records whose site severity is at least this.
+    pub min_severity: Severity,
+    /// Only records with `t0 <= time <= t1`.
+    pub window: Option<(u64, u64)>,
+}
+
+impl Default for LogQuery {
+    fn default() -> Self {
+        LogQuery { stream: None, generator: None, min_severity: Severity::Trace, window: None }
+    }
+}
+
 impl Reader {
     /// Opens a file with default options.
     pub fn open(path: impl AsRef<Path>) -> Result<Reader> {
@@ -345,6 +382,8 @@ impl Reader {
         let mut hier = Hierarchy::new();
         let mut sig_blocks = Vec::new();
         let mut tx_blocks = Vec::new();
+        let mut log_blocks = Vec::new();
+        let mut tx_order = Vec::new();
         let mut blackout = Vec::new();
         let mut dec = Decompressor::new();
         for e in &container.entries {
@@ -378,12 +417,77 @@ impl Reader {
                 SectionKind::TxBlock => {
                     let p = Container::payload(bytes, e, verify)?;
                     let header = TxBlockHeader::parse(p)?;
+                    tx_order.push((false, tx_blocks.len() as u32));
                     tx_blocks.push(TxBlock { entry: *e, header, data: OnceLock::new() });
+                }
+                SectionKind::LogBlock => {
+                    let p = Container::payload(bytes, e, verify)?;
+                    let header = LogBlockHeader::parse(p)?;
+                    tx_order.push((true, log_blocks.len() as u32));
+                    log_blocks.push(LogBlock { entry: *e, header, data: OnceLock::new() });
                 }
                 SectionKind::Blackout => blackout = sections::decode_blackout(Container::payload(bytes, e, verify)?)?,
             }
         }
         hier.build_index();
+        // Log sites: generators carrying `log.args`. Resolve the key ids with one pass over the strings.
+        const KEYS: [&str; 6] = [logblock::KEY_SEVERITY, logblock::KEY_ARGS, logblock::KEY_NAMES, logblock::KEY_FILE, logblock::KEY_LINE, logblock::KEY_FUNC];
+        let mut keys: [Option<StrId>; 6] = [None; 6];
+        for i in 0..strings.len() {
+            let s = strings.get(StrId(i as u32));
+            if s.starts_with("log.") {
+                for (k, n) in KEYS.iter().enumerate() {
+                    if s == *n {
+                        keys[k] = Some(StrId(i as u32));
+                    }
+                }
+            }
+        }
+        let mut log_sites = Vec::new();
+        let mut site_index = vec![u32::MAX; hier.len()];
+        if let Some(k_args) = keys[1] {
+            for n in hier.nodes_of_kind(NodeKind::Generator) {
+                let attrs = hier.attrs(n);
+                let types = match attrs.iter().find(|(k, _)| *k == k_args) {
+                    Some((_, Value::List(t))) => t,
+                    _ => continue,
+                };
+                let mut args = Vec::with_capacity(types.len());
+                for t in types {
+                    match t {
+                        Value::U64(v) => args.push(LogArgType::from_u8(*v as u8)?),
+                        _ => return Err(Error::Corrupt("log.args entry is not an integer")),
+                    }
+                }
+                let get = |k: Option<StrId>| k.and_then(|k| attrs.iter().find(|(kk, _)| *kk == k).map(|(_, v)| v));
+                let severity = match get(keys[0]) {
+                    Some(Value::U64(v)) => Severity::from_code(*v as u8),
+                    _ => Severity::Info,
+                };
+                let names = match get(keys[2]) {
+                    Some(Value::List(l)) => l.iter().filter_map(|v| if let Value::Str(s) = v { Some(*s) } else { None }).collect(),
+                    _ => Vec::new(),
+                };
+                let file = match get(keys[3]) {
+                    Some(Value::Str(s)) => Some(*s),
+                    _ => None,
+                };
+                let line = match get(keys[4]) {
+                    Some(Value::U64(v)) => Some(*v as u32),
+                    _ => None,
+                };
+                let func = match get(keys[5]) {
+                    Some(Value::Str(s)) => Some(*s),
+                    _ => None,
+                };
+                let stream = hier.parent(n).unwrap_or(n);
+                site_index[n.0 as usize] = log_sites.len() as u32;
+                log_sites.push(LogSite { index: log_sites.len() as u32, node: n, stream, severity, fmt: hier.name(n), file, line, func, args, names });
+            }
+        }
+        let log_fmts: Vec<ParsedFmt> = log_sites.iter().map(|s| ParsedFmt::parse(strings.get(s.fmt))).collect();
+        let mut log_order: Vec<u32> = (0..log_blocks.len() as u32).collect();
+        log_order.sort_by_key(|&i| (log_blocks[i as usize].header.t_min, i));
         let meta = meta.unwrap_or_default();
         let cap = opts.group_cache.unwrap_or(256);
         Ok(Reader {
@@ -394,6 +498,12 @@ impl Reader {
             hier,
             sig_blocks,
             tx_blocks,
+            log_blocks,
+            log_order,
+            tx_order,
+            log_sites,
+            log_fmts,
+            site_index,
             blackout,
             verify_crc: verify,
             cache: Mutex::new(GroupCache { cap, tick: 0, entries: Vec::new() }),
@@ -1129,8 +1239,16 @@ impl Reader {
     }
 
     /// Visits transactions matching `q` in file order; stop by returning `false`.
+    /// Log records are visited too, viewed as zero-duration transactions.
     pub fn visit_transactions(&self, q: &TxQuery, mut f: impl FnMut(&Transaction) -> bool) -> Result<()> {
-        for i in 0..self.tx_blocks.len() {
+        for &(is_log, idx) in &self.tx_order {
+            let i = idx as usize;
+            if is_log {
+                if !self.visit_log_block_as_tx(i, q, &mut f)? {
+                    return Ok(());
+                }
+                continue;
+            }
             let h = &self.tx_blocks[i].header;
             if h.n_tx == 0 {
                 continue;
@@ -1181,7 +1299,7 @@ impl Reader {
         Ok(v)
     }
 
-    /// Looks up one transaction by id.
+    /// Looks up one transaction (or log record) by id.
     pub fn transaction(&self, id: TxId) -> Result<Option<Transaction>> {
         for i in 0..self.tx_blocks.len() {
             let h = &self.tx_blocks[i].header;
@@ -1193,7 +1311,156 @@ impl Reader {
                 return Ok(Some(t.clone()));
             }
         }
+        for i in 0..self.log_blocks.len() {
+            let h = &self.log_blocks[i].header;
+            if h.n_rec == 0 || id < h.min_id || id > h.max_id {
+                continue;
+            }
+            let d = self.log_block(i)?;
+            if let Some(rec) = d.recs.iter().find(|r| r.id == id) {
+                if let Some(site) = self.log_site(NodeId(rec.gen)) {
+                    return Ok(Some(LogRecord::new(site, &self.log_fmts[site.index as usize], rec, &d).to_transaction()));
+                }
+            }
+        }
         Ok(None)
+    }
+
+    // ----- logs -----
+
+    /// All log sites (generators of `LOG` streams carrying `log.args`).
+    pub fn log_sites(&self) -> &[LogSite] {
+        &self.log_sites
+    }
+
+    /// The log site described by generator `gen`, if it is one.
+    pub fn log_site(&self, gen: NodeId) -> Option<&LogSite> {
+        match self.site_index.get(gen.0 as usize) {
+            Some(&i) if i != u32::MAX => Some(&self.log_sites[i as usize]),
+            _ => None,
+        }
+    }
+
+    pub fn log_block_count(&self) -> usize {
+        self.log_blocks.len()
+    }
+
+    /// Total number of log records (from block headers).
+    pub fn log_count(&self) -> u64 {
+        self.log_blocks.iter().map(|b| b.header.n_rec).sum()
+    }
+
+    fn log_block(&self, i: usize) -> Result<Arc<LogBlockData>> {
+        let b = &self.log_blocks[i];
+        if let Some(d) = b.data.get() {
+            return Ok(d.clone());
+        }
+        let p = Container::payload(self.bytes(), &b.entry, self.verify_crc)?;
+        let d = Arc::new(logblock::decode_log_block(p, &mut Decompressor::new(), |g| self.log_site(NodeId(g)).map(|s| s.args.as_slice()))?);
+        let _ = b.data.set(d);
+        Ok(b.data.get().unwrap().clone())
+    }
+
+    /// True when block `i` may hold a record matching the site filters of `q`
+    /// (decided from the block's generator list, without decoding).
+    fn log_block_may_match(&self, i: usize, generator: Option<NodeId>, stream: Option<NodeId>, min: Severity) -> Result<bool> {
+        let b = &self.log_blocks[i];
+        let p = Container::payload(self.bytes(), &b.entry, false)?;
+        for g in logblock::block_generators(p, &b.header) {
+            if generator.is_some_and(|gen| g != gen.0) {
+                continue;
+            }
+            if let Some(s) = self.log_site(NodeId(g)) {
+                if s.severity < min || stream.is_some_and(|st| s.stream != st) {
+                    continue;
+                }
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Visits log records matching `q`, blocks in order of their first time
+    /// (production order for a producer with monotonic time), records in
+    /// production order within a block; stop by returning `false`. Blocks are
+    /// skipped without decoding when their time range or generator list cannot
+    /// match.
+    pub fn visit_log(&self, q: &LogQuery, mut f: impl FnMut(&LogRecord) -> bool) -> Result<()> {
+        for &bi in &self.log_order {
+            let i = bi as usize;
+            let h = &self.log_blocks[i].header;
+            if h.n_rec == 0 {
+                continue;
+            }
+            if let Some((t0, t1)) = q.window {
+                if h.t_max < t0 || h.t_min > t1 {
+                    continue;
+                }
+            }
+            if !self.log_block_may_match(i, q.generator, q.stream, q.min_severity)? {
+                continue;
+            }
+            let d = self.log_block(i)?;
+            for rec in &d.recs {
+                if q.generator.is_some_and(|g| rec.gen != g.0) {
+                    continue;
+                }
+                let site = match self.log_site(NodeId(rec.gen)) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if site.severity < q.min_severity || q.stream.is_some_and(|st| site.stream != st) {
+                    continue;
+                }
+                if let Some((t0, t1)) = q.window {
+                    if rec.time < t0 || rec.time > t1 {
+                        continue;
+                    }
+                }
+                if !f(&LogRecord::new(site, &self.log_fmts[site.index as usize], rec, &d)) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Log block `i` visited as transactions (helper of `visit_transactions`).
+    fn visit_log_block_as_tx(&self, i: usize, q: &TxQuery, f: &mut impl FnMut(&Transaction) -> bool) -> Result<bool> {
+        let h = &self.log_blocks[i].header;
+        if h.n_rec == 0 {
+            return Ok(true);
+        }
+        if let Some((t0, t1)) = q.window {
+            if h.t_max < t0 || h.t_min > t1 {
+                return Ok(true);
+            }
+        }
+        if !self.log_block_may_match(i, q.generator, q.stream, Severity::Trace)? {
+            return Ok(true);
+        }
+        let d = self.log_block(i)?;
+        for rec in &d.recs {
+            if q.generator.is_some_and(|g| rec.gen != g.0) {
+                continue;
+            }
+            let site = match self.log_site(NodeId(rec.gen)) {
+                Some(s) => s,
+                None => continue,
+            };
+            if q.stream.is_some_and(|st| site.stream != st) {
+                continue;
+            }
+            if let Some((t0, t1)) = q.window {
+                if rec.time < t0 || rec.time > t1 {
+                    continue;
+                }
+            }
+            if !f(&LogRecord::new(site, &self.log_fmts[site.index as usize], rec, &d).to_transaction()) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Relations whose source is `id`.
@@ -1240,9 +1507,10 @@ impl Reader {
         Ok(())
     }
 
-    /// Total number of transactions and relations in the file (from block headers).
+    /// Total number of transactions (log records included) and relations in the file (from block headers).
     pub fn tx_counts(&self) -> (u64, u64) {
-        self.tx_blocks.iter().fold((0, 0), |(a, b), t| (a + t.header.n_tx, b + t.header.n_rel))
+        let (a, b) = self.tx_blocks.iter().fold((0, 0), |(a, b), t| (a + t.header.n_tx, b + t.header.n_rel));
+        (a + self.log_count(), b)
     }
 
     /// Directory entries (for tools).

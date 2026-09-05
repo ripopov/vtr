@@ -42,7 +42,8 @@ hierarchy types they share.
 | Re-export | Defined in | Purpose |
 |---|---|---|
 | `Writer`, `WriterOptions`, `WriterStats` | `writer` | Streaming writer |
-| `Reader`, `ReadOptions`, `SignalData`, `TxQuery` | `reader` | Random-access reader |
+| `Reader`, `ReadOptions`, `SignalData`, `TxQuery`, `LogQuery` | `reader` | Random-access reader |
+| `LogSiteSpec`, `LogSiteId`, `LogArgType`, `LogArg`, `Severity`, `LogSite`, `LogRecord` | `logblock` | Log sites and records (`docs/LOGGING.md`) |
 | `Hierarchy`, `Node`, `NodeData`, `NodeId`, `NodeKind`, `ScopeType`, `VarType`, `Direction`, `SignalId`, `SignalKind` | `hierarchy` | Design hierarchy and signal typing |
 | `Value` | `value` | Typed attribute values |
 | `SignalValue`, `OwnedSignalValue` | `signal` | Signal values (borrowed / owned) |
@@ -54,8 +55,8 @@ hierarchy types they share.
 
 The modules themselves are public (`vtr::signal::pack_ascii`,
 `vtr::value::packed_len`, `vtr::strings::StringTable`,
-`vtr::container::DirEntry`, ...). `block`, `container`, `txblock` (encoders)
-and `varint` are format internals; they are public so that tools can inspect
+`vtr::container::DirEntry`, `vtr::logfmt::format_message`, ...). `block`,
+`container`, `txblock`, `logblock` (encoders) and `varint` are format internals; they are public so that tools can inspect
 files, but a simulator or viewer never needs them.
 
 ### 1.2 Design principles
@@ -309,6 +310,7 @@ pub struct WriterOptions {
     pub run_bytes: usize,
     pub tx_block_bytes: usize,
     pub background: bool,
+    pub log_encoders: usize,
     pub dedup: bool,
     pub checksums: bool,
 }
@@ -321,8 +323,9 @@ pub struct WriterOptions {
 | `block_records` | `1 << 24` (16 Mi) | Value changes per signal block, the compression unit: a block is finished (columns concatenated, compressed, written) once this many changes were logged since the previous block. Larger blocks give the compressor longer columns; smaller blocks make random access touch less data. A block cannot hold more than `2^31` time steps. |
 | `chunk_records` | `1 << 19` (512 Ki) | Lower bound on the value changes handed to the background encoder at a time, the pipelining unit; the writer raises it to `CHUNK_RECORDS_PER_SIGNAL` (16) changes per declared signal so that per-signal column fragments stay large in designs with hundreds of thousands of signals. Each chunk is counting-sorted by signal and pre-encoded into column fragments as soon as it arrives, so the work overlaps with the simulator; only the final concatenation and compression wait for the block to complete. Wide vectors (declared packing wider than 8 bytes) bypass the record log and travel as pre-encoded fragments with the same chunks. Bounded by `block_records`. |
 | `run_bytes` | `64 << 10` (64 KiB) | Raw bytes per independently compressed column run inside a group. Consecutive signal columns are packed into a run while they fit; a single column larger than the budget forms a run of its own. Bounds how much a reader must decompress to reach one signal in one block. |
-| `tx_block_bytes` | `4 << 20` (4 MiB) | Size of the buffered transaction and relation rows (in the writer's row encoding) that triggers a transaction block flush. Checked on every `end_tx` and `relate`. |
+| `tx_block_bytes` | `4 << 20` (4 MiB) | Size of the buffered transaction and relation rows (in the writer's row encoding) that triggers a transaction block flush. Checked on every `end_tx` and `relate`. Log rows use the same budget for log blocks (checked on every `log`). |
 | `background` | `true` | Encode and compress on a background thread named `vtr-writer`. The caller thread only buffers records; a bounded channel (4 messages) applies back-pressure, and chunk/block buffers are recycled to avoid reallocation. With `false`, chunk encoding and block finishing happen inline in the calling thread at the same points. |
+| `log_encoders` | 2 | Helper threads (`vtr-logenc`) that split, dictionary-code and compress log blocks, fed by the background thread and started on the first log block; 0 encodes log blocks on the background thread itself. Blocks are written in production order whatever the count. Ignored when `background` is `false`. |
 | `dedup` | `true` | Drop value changes whose value equals the signal's last value (see 3.7). |
 | `checksums` | `true` | Store a CRC32 (`crc32fast`) of every section payload in the section header. Verified by the reader only when `ReadOptions::verify_crc` is set. |
 
@@ -781,6 +784,66 @@ pub struct WriterStats {
 
 ---
 
+### 3.11 Logs
+
+Log records are messages of *log sites* (see `docs/LOGGING.md` and
+`SPEC.md` section 8): the format string, severity, source location and
+argument types are declared once, each message stores the time and the
+argument values.
+
+```rust
+pub fn add_log_stream(&mut self, parent: Option<NodeId>, name: &str) -> NodeId
+pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> LogSiteId
+pub fn log_site_node(&self, site: LogSiteId) -> Option<NodeId>
+pub fn log_site_count(&self) -> u32
+```
+
+`add_log_stream` is `add_stream(parent, name, "LOG")`. `add_log_site`
+creates a generator of `spec.stream` named by the format string and carrying
+`log.severity`, `log.args` (the types), `log.names` (the argument names, or
+`"0"`, `"1"`, ... when `spec.names` is empty), and `log.file` / `log.line` /
+`log.func` when given. It returns a dense `LogSiteId` (the handle `log`
+takes); the generator node is `log_site_node`.
+
+```rust
+pub struct LogSiteSpec<'a> { pub stream: NodeId, pub severity: Severity, pub fmt: &'a str, pub args: &'a [LogArgType],
+                             pub names: &'a [&'a str], pub file: &'a str, pub line: u32, pub func: &'a str }
+impl LogSiteSpec<'_> { pub fn new(stream, severity, fmt, args) -> Self; pub fn names(self, &[&str]) -> Self;
+                       pub fn location(self, file: &str, line: u32) -> Self; pub fn func(self, &str) -> Self }
+pub enum Severity { Trace, Debug, Info, Warn, Error, Fatal, Other(u8) }   // ordered by code(); from_name("warning")
+pub enum LogArgType { Bool, I64, U64, F64, Str, Bytes, Time, Pointer, Text }  // = value tags 1 2 3 4 5 6 10 12 17
+pub enum LogArg<'a> { Bool(bool), I64(i64), U64(u64), F64(f64), Str(StrId), Bytes(&'a [u8]), Time(u64), Pointer(u64), Text(&'a str) }
+```
+
+`LogArg` implements `From` for `i8..i64`/`isize` (as `I64`),
+`u8..u64`/`usize` (as `U64`), `f32`/`f64`, `bool`, `&str` and `&String`
+(as `Text`), `&[u8]` (as `Bytes`) and `StrId` (as `Str`), so
+`&[a.into(), name.into()]` builds an argument list without allocation.
+
+```rust
+pub fn log(&mut self, site: LogSiteId, time: u64, args: &[LogArg]) -> Result<TxId>
+pub fn log_with_parent(&mut self, site: LogSiteId, time: u64, parent: Option<TxId>, args: &[LogArg]) -> Result<TxId>
+pub fn log_raw(&mut self, site: LogSiteId, time: u64, parent: Option<TxId>, args: &[u8]) -> Result<TxId>
+```
+
+`log` records one message. `args` must match the site's declared types in
+number and order (`Error::Invalid` otherwise: `"log site N expects 3
+arguments, got 2"`, `"argument 1 is declared u64 but a i64 was passed"`);
+`time` is the message time in file units and is independent of `set_time`
+and of the previous message. The record gets the next transaction id (log
+records and transactions share the id space) and `parent` links it to the
+transaction being processed. Cost: the argument bytes plus four varints
+appended to the log row buffer, no allocation; a log block is flushed to the
+encoder when the buffer reaches `tx_block_bytes`. `log_raw` takes the
+argument values already in row encoding (bool one byte, i64 zig-zag varint,
+u64/time/pointer varint, f64 8 bytes little-endian, str varint id, text and
+bytes varint length plus bytes); the caller is responsible for the match with
+the site, a mismatch surfaces as `Error::Corrupt` from `flush`/`close`. It
+exists for front ends that encode themselves (`vtr_log.hpp`).
+
+`WriterStats::log_records` counts the records written (they are not included
+in `transactions`).
+
 ## 4. Reader reference
 
 ```rust
@@ -1238,6 +1301,56 @@ payload bytes for inspection.
 
 ---
 
+### 4.9 Logs
+
+```rust
+pub struct LogQuery { pub stream: Option<NodeId>, pub generator: Option<NodeId>, pub min_severity: Severity, pub window: Option<(u64, u64)> }
+pub fn log_sites(&self) -> &[LogSite]
+pub fn log_site(&self, gen: NodeId) -> Option<&LogSite>
+pub fn log_count(&self) -> u64
+pub fn log_block_count(&self) -> usize
+pub fn visit_log(&self, q: &LogQuery, f: impl FnMut(&LogRecord) -> bool) -> Result<()>
+```
+
+`log_sites` lists every generator of a `LOG` stream that carries `log.args`
+(built at open from the hierarchy):
+
+```rust
+pub struct LogSite { pub index: u32, pub node: NodeId, pub stream: NodeId, pub severity: Severity, pub fmt: StrId,
+                     pub file: Option<StrId>, pub line: Option<u32>, pub func: Option<StrId>, pub args: Vec<LogArgType>, pub names: Vec<StrId> }
+```
+
+`visit_log` walks the log blocks in order of their first time (production
+order for a producer with monotonic time) and the records of a block in
+production order. A block is skipped without decompression when its time
+range misses `window` or when none of the sites listed in its header passes
+the `stream`, `generator` and `min_severity` filters; decoded blocks are
+cached like transaction blocks. The callback receives a borrowed record:
+
+```rust
+pub struct LogRecord<'a> { pub id: TxId, pub time: u64, pub parent: Option<TxId>, pub site: &'a LogSite, .. }
+impl LogRecord<'_> {
+    pub fn severity(&self) -> Severity;
+    pub fn arg_count(&self) -> usize;
+    pub fn arg(&self, i: usize) -> Option<LogArg<'_>>;          // typed value, Text/Bytes borrow the block
+    pub fn args(&self) -> impl Iterator<Item = LogArg<'_>>;
+    pub fn format_into(&self, strings: &StringTable, out: &mut String);  // the message text
+    pub fn format(&self, strings: &StringTable) -> String;
+    pub fn to_transaction(&self) -> Transaction;               // zero-duration, attrs keyed by log.names
+}
+```
+
+Formatting uses the site's format string parsed once at open
+(`vtr::logfmt`, the `{}` / `{:spec}` subset shared by Rust and C++
+`std::format`; a placeholder without an argument renders `{?}`). About ten
+million lines per second on the benchmark log.
+
+Log records are also transactions: `visit_transactions`, `transactions` and
+`transaction(id)` return them (`begin == end == time`, status `Unset`, kind
+`Unspecified`, attributes = arguments keyed by `log.names`, `Text` arguments
+as `Value::Text`), interleaved with the transaction blocks in file order;
+`tx_counts().0` includes them and `log_count` gives their number alone.
+
 ## 5. Value model
 
 ### 5.1 `Value` (attributes)
@@ -1267,6 +1380,7 @@ pub enum Value {
     UFixed { raw: u64, scale: i32 },
     List(Vec<Value>),
     Map(Vec<(StrId, Value)>),
+    Text(String),
 }
 impl Value { pub fn tag(&self) -> ValueTag; /* encode/decode helpers */ }
 ```
@@ -1290,6 +1404,7 @@ impl Value { pub fn tag(&self) -> ValueTag; /* encode/decode helpers */ }
 | `UFixed` | 14 | Unsigned fixed point. |
 | `List` | 15 | Ordered list of values (nesting allowed). |
 | `Map` | 16 | Ordered key/value pairs, keys interned. |
+| `Text` | 17 | Inline UTF-8 text, not interned (one-off strings; log arguments of type `Text` appear as this when a record is read as a transaction). Added in format 1.1. |
 
 `F64` participates in `PartialEq` by IEEE comparison (`NaN != NaN`), so
 `Value` is not `Eq`/`Hash`. In transaction blocks the scalar variants are

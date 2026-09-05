@@ -27,7 +27,7 @@ pub const DIR_ENTRY_LEN: usize = 40;
 
 /// Format version written by this library.
 pub const VERSION_MAJOR: u16 = 1;
-pub const VERSION_MINOR: u16 = 0;
+pub const VERSION_MINOR: u16 = 1;
 
 /// Section kinds. Values below 0x1000 are reserved for the specification;
 /// values 0x1000 and above are free for private extensions.
@@ -48,6 +48,8 @@ pub enum SectionKind {
     Blackout = 6,
     /// Directory of all sections.
     Directory = 7,
+    /// Log block (zero-duration transactions of log sites), optional section.
+    LogBlock = 8,
 }
 
 impl SectionKind {
@@ -60,6 +62,7 @@ impl SectionKind {
             5 => SectionKind::TxBlock,
             6 => SectionKind::Blackout,
             7 => SectionKind::Directory,
+            8 => SectionKind::LogBlock,
             _ => return None,
         })
     }

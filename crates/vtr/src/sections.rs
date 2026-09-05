@@ -151,6 +151,10 @@ pub fn recover_aux(kind: u32, payload: &[u8]) -> (u64, u64) {
             Ok(h) => (h.t_min, h.t_max),
             Err(_) => (0, 0),
         },
+        Some(SectionKind::LogBlock) => match crate::logblock::LogBlockHeader::parse(payload) {
+            Ok(h) => (h.t_min, h.t_max),
+            Err(_) => (0, 0),
+        },
         _ => (0, 0),
     }
 }

@@ -37,6 +37,7 @@ model. VDB remains separate from the runtime trace data in VTR.
 | file format (normative) | `docs/SPEC.md` |
 | why things are the way they are, what was tried and rejected | `docs/RATIONALE.md` |
 | APIs | `docs/API_RUST.md`, `docs/API_C.md` |
+| logging (log sites, `LOG_BLOCK`, C++ header, comparison with NanoLog/binlog/Quill/CLP) | `docs/LOGGING.md`, `bench/log/` |
 | benchmark method / current numbers | `docs/BENCHMARKS.md`, `docs/BENCHMARK_RESULTS.md` |
 | open ideas ranked by measured headroom | `docs/SOTA_REVIEW_2026.md` |
 

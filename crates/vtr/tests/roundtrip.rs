@@ -583,3 +583,202 @@ fn dictionary_coded_columns_roundtrip() {
     let st = rd.run_stats().unwrap();
     assert!(st[4].0 > 0, "no dictionary-coded run: {st:?}");
 }
+
+#[test]
+fn logs_roundtrip() {
+    let path = tmp("log.vtr");
+    // Small blocks so that several log blocks and transaction blocks interleave.
+    let opts = WriterOptions { tx_block_bytes: 3000, ..Default::default() };
+    let mut w = Writer::create_with(&path, opts).unwrap();
+    let soc = w.begin_scope("soc", ScopeType::Generic, "");
+    let cpu = w.begin_scope("cpu0", ScopeType::Core, "");
+    let log = w.add_log_stream(Some(cpu), "log");
+    w.end_scope().unwrap();
+    let bus = w.add_stream(Some(soc), "bus", "TRANSACTOR");
+    let gen_rd = w.add_generator(bus, "read");
+    let buslog = w.add_log_stream(Some(soc), "buslog");
+    w.end_scope().unwrap();
+    let s_fetch = w.add_log_site(&LogSiteSpec::new(log, Severity::Debug, "fetch pc={:#x} inst={:#010x}", &[LogArgType::U64, LogArgType::U64]).names(&["pc", "inst"]).location("cpu.cpp", 42).func("fetch"));
+    let s_warn = w.add_log_site(&LogSiteSpec::new(log, Severity::Warn, "{}: stall {} cycles ({:.1}%)", &[LogArgType::Text, LogArgType::I64, LogArgType::F64]));
+    let s_plain = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Info, "bus idle", &[]));
+    let s_err = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Error, "{} bad {} at {} {}", &[LogArgType::Bool, LogArgType::Bytes, LogArgType::Time, LogArgType::Pointer]));
+    let interned = w.intern("slave0");
+    let s_str = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Info, "target {}", &[LogArgType::Str]));
+    let fetch_node = w.log_site_node(s_fetch).unwrap();
+    let mut expect: Vec<(u64, u64, String, u8)> = Vec::new(); // (id, time, text, severity)
+    let mut tx_ids = Vec::new();
+    for i in 0..1000u64 {
+        let t = i * 10;
+        let id = w.log(s_fetch, t, &[LogArg::U64(0x8000_0000 + i * 4), LogArg::U64(0x0040_0093 ^ i)]).unwrap();
+        expect.push((id, t, format!("fetch pc={:#x} inst={:#010x}", 0x8000_0000u64 + i * 4, 0x0040_0093u64 ^ i), 1));
+        if i % 7 == 0 {
+            let unit = if i % 2 == 0 { "lsu" } else { "alu" };
+            let id = w.log(s_warn, t + 1, &[unit.into(), (i as i64 % 5 - 2).into(), (i as f64 / 7.0).into()]).unwrap();
+            expect.push((id, t + 1, format!("{}: stall {} cycles ({:.1}%)", unit, i as i64 % 5 - 2, i as f64 / 7.0), 3));
+        }
+        if i % 100 == 0 {
+            let tx = w.begin_tx(gen_rd, t).unwrap();
+            w.tx_attr(tx, interned, AttrPhase::Begin, &Value::Text(format!("unique text {i}"))).unwrap();
+            let id = w.log_with_parent(s_plain, t + 2, Some(tx), &[]).unwrap();
+            expect.push((id, t + 2, "bus idle".into(), 2));
+            let id = w.log(s_err, t + 3, &[LogArg::Bool(true), LogArg::Bytes(&[0xde, 0xad]), LogArg::Time(t), LogArg::Pointer(0x1000)]).unwrap();
+            expect.push((id, t + 3, format!("true bad dead at {t} 0x1000"), 4));
+            let id = w.log(s_str, t + 4, &[LogArg::Str(interned)]).unwrap();
+            expect.push((id, t + 4, "target slave0".into(), 2));
+            w.end_tx(tx, t + 5, TxStatus::Ok).unwrap();
+            tx_ids.push(tx);
+        }
+    }
+    // Type errors are reported, not silently accepted.
+    assert!(w.log(s_fetch, 0, &[LogArg::U64(1)]).is_err());
+    assert!(w.log(s_fetch, 0, &[LogArg::I64(1), LogArg::U64(1)]).is_err());
+    assert!(w.log(LogSiteId(99), 0, &[]).is_err());
+    let st = w.stats();
+    assert_eq!(st.log_records, expect.len() as u64);
+    assert_eq!(st.transactions, tx_ids.len() as u64);
+    w.close().unwrap();
+
+    let r = Reader::open(&path).unwrap();
+    assert_eq!(r.version(), (1, 1));
+    assert!(r.log_block_count() > 1, "expected several log blocks, got {}", r.log_block_count());
+    assert_eq!(r.log_count(), expect.len() as u64);
+    assert_eq!(r.tx_counts().0, expect.len() as u64 + tx_ids.len() as u64);
+    // Sites.
+    assert_eq!(r.log_sites().len(), 5);
+    let site = r.log_site(fetch_node).unwrap();
+    assert_eq!(r.str(site.fmt), "fetch pc={:#x} inst={:#010x}");
+    assert_eq!(site.severity, Severity::Debug);
+    assert_eq!(site.args, vec![LogArgType::U64, LogArgType::U64]);
+    assert_eq!(site.names.iter().map(|n| r.str(*n)).collect::<Vec<_>>(), vec!["pc", "inst"]);
+    assert_eq!((r.str(site.file.unwrap()), site.line, r.str(site.func.unwrap())), ("cpu.cpp", Some(42), "fetch"));
+    assert_eq!(r.full_path(site.stream, "."), "soc.cpu0.log");
+    let warn_site = r.log_sites().iter().find(|s| s.severity == Severity::Warn).unwrap();
+    assert_eq!(warn_site.names.iter().map(|n| r.str(*n)).collect::<Vec<_>>(), vec!["0", "1", "2"]);
+    // All records, in order, formatted.
+    let mut got = Vec::new();
+    r.visit_log(&LogQuery::default(), |rec| {
+        got.push((rec.id, rec.time, rec.format(r.strings()), rec.severity().code()));
+        true
+    })
+    .unwrap();
+    assert_eq!(got.len(), expect.len());
+    assert_eq!(got, expect);
+    // Severity filter prunes to warnings and errors only.
+    let mut n_warn = 0;
+    let mut n_err = 0;
+    r.visit_log(&LogQuery { min_severity: Severity::Warn, ..Default::default() }, |rec| {
+        match rec.severity() {
+            Severity::Warn => n_warn += 1,
+            Severity::Error => n_err += 1,
+            s => panic!("unexpected severity {s:?}"),
+        }
+        true
+    })
+    .unwrap();
+    assert_eq!((n_warn, n_err), (expect.iter().filter(|e| e.3 == 3).count(), 10));
+    // Stream and window filters.
+    let mut n = 0;
+    r.visit_log(&LogQuery { stream: Some(buslog), window: Some((0, 1005)), ..Default::default() }, |rec| {
+        assert!(rec.time <= 1005);
+        n += 1;
+        true
+    })
+    .unwrap();
+    assert_eq!(n, 6); // t=2,3,4 and t=1002,1003,1004
+    // Parent link and the transaction view.
+    let mut parents = 0;
+    r.visit_log(&LogQuery { generator: Some(r.log_sites()[2].node), ..Default::default() }, |rec| {
+        assert!(tx_ids.contains(&rec.parent.unwrap()));
+        parents += 1;
+        true
+    })
+    .unwrap();
+    assert_eq!(parents, 10);
+    let as_tx = r.transaction(expect[1].0).unwrap().unwrap();
+    assert_eq!((as_tx.begin, as_tx.end, as_tx.generator), (expect[1].1, expect[1].1, warn_site.node));
+    assert_eq!(as_tx.attrs.len(), 3);
+    assert_eq!(r.str(as_tx.attrs[0].key), "0");
+    assert!(matches!(&as_tx.attrs[0].value, Value::Text(s) if s == "lsu"));
+    assert_eq!(as_tx.attrs[1].value, Value::I64(-2));
+    // visit_transactions merges both kinds in file order and sees the Text attribute.
+    let mut n_tx = 0;
+    let mut n_log_as_tx = 0;
+    let mut texts = 0;
+    r.visit_transactions(&TxQuery::default(), |tx| {
+        if r.log_site(tx.generator).is_some() {
+            n_log_as_tx += 1;
+        } else {
+            n_tx += 1;
+            if let Value::Text(s) = &tx.attrs[0].value {
+                assert!(s.starts_with("unique text "));
+                texts += 1;
+            }
+        }
+        true
+    })
+    .unwrap();
+    assert_eq!((n_tx, n_log_as_tx, texts), (10, expect.len(), 10));
+    let mut only_bus = 0;
+    r.visit_transactions(&TxQuery { stream: Some(buslog), ..Default::default() }, |_| {
+        only_bus += 1;
+        true
+    })
+    .unwrap();
+    assert_eq!(only_bus, 30);
+}
+
+
+#[test]
+fn log_raw_matches_log() {
+    // The pre-encoded path (used by the C++ header) must produce the same block bytes as `log`.
+    let a = tmp("log_a.vtr");
+    let b = tmp("log_b.vtr");
+    let opts = WriterOptions { background: false, ..Default::default() };
+    let types = [LogArgType::Text, LogArgType::I64, LogArgType::U64, LogArgType::F64, LogArgType::Bool, LogArgType::Bytes];
+    for (path, raw) in [(&a, false), (&b, true)] {
+        let mut w = Writer::create_with(path, opts.clone()).unwrap();
+        let st = w.add_log_stream(None, "log");
+        let site = w.add_log_site(&LogSiteSpec::new(st, Severity::Info, "{} {} {} {} {} {}", &types));
+        for i in 0..300u64 {
+            let text = if i % 3 == 0 { "alpha" } else { "beta" };
+            let args = [LogArg::Text(text), LogArg::I64(-(i as i64) * 1000), LogArg::U64(i << 40), LogArg::F64(i as f64 * 0.25), LogArg::Bool(i % 2 == 0), LogArg::Bytes(&[i as u8, 7])];
+            if raw {
+                let mut row = Vec::new();
+                row.extend_from_slice(text.as_bytes().len().to_le_bytes().first().map(|_| ()).map(|_| Vec::<u8>::new()).unwrap_or_default().as_slice());
+                // Row encoding: text = varint len + bytes; i64 zig-zag varint; u64 varint; f64 8 bytes; bool 1 byte; bytes = varint len + bytes.
+                let mut put = |out: &mut Vec<u8>, mut v: u64| {
+                    while v >= 0x80 {
+                        out.push((v as u8) | 0x80);
+                        v >>= 7;
+                    }
+                    out.push(v as u8);
+                };
+                put(&mut row, text.len() as u64);
+                row.extend_from_slice(text.as_bytes());
+                let z = -(i as i64) * 1000;
+                put(&mut row, ((z << 1) ^ (z >> 63)) as u64);
+                put(&mut row, i << 40);
+                row.extend_from_slice(&(i as f64 * 0.25).to_le_bytes());
+                row.push((i % 2 == 0) as u8);
+                put(&mut row, 2);
+                row.extend_from_slice(&[i as u8, 7]);
+                w.log_raw(site, i * 3, if i == 5 { Some(2) } else { None }, &row).unwrap();
+            } else {
+                w.log_with_parent(site, i * 3, if i == 5 { Some(2) } else { None }, &args).unwrap();
+            }
+        }
+        w.close().unwrap();
+    }
+    assert_eq!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
+    let r = Reader::open(&b).unwrap();
+    let mut n = 0;
+    r.visit_log(&LogQuery::default(), |rec| {
+        if rec.id == 6 {
+            assert_eq!(rec.parent, Some(2));
+        }
+        n += 1;
+        true
+    })
+    .unwrap();
+    assert_eq!(n, 300);
+}

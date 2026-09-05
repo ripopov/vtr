@@ -149,7 +149,24 @@ does today (`crates/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
 | ResourceSpans / ScopeSpans grouping | hierarchy nesting resource -> scope stream -> generator |
 | SDK limits, sampling decisions, processors | out of scope (not data in the exported trace) |
 
-## 5. Beyond the union
+## 5. Text logging: NanoLog, binlog, Quill, CLP
+
+Log records (`SPEC.md` section 8) cover what the four logging systems
+studied for the design record; the comparison of the resulting files and
+speeds is in `BENCHMARK_RESULTS.md` (*Log workloads*).
+
+| feature | NanoLog | binlog | Quill | CLP | VTR |
+|---|---|---|---|---|---|
+| static call-site facts stored once (format, severity, file, line) | dictionary fragments in the log | `EventSource` entries | in the process only (output is text) | logtype dictionary (recovered by parsing text) | generator of a `LOG` stream with `log.*` attributes |
+| argument values stored raw, formatted later | yes, packed to minimal width | yes, native width | no (formatted by the backend thread) | yes, after parsing the text | yes, variable-length integers, typed columns |
+| repeated strings deduplicated | no | no | no | variable dictionary | per-block text dictionary |
+| general-purpose compression | no | no (external) | no (external) | zstd | file codec (zstd by default) |
+| timestamps | TSC at the call | any 64-bit clock | wall clock or user clock | parsed from the text | simulation time, delta-coded |
+| link to the transaction being processed | - | - | - | - | `parent` |
+| severity filter without decoding | no | no | in the process | yes (search) | per block, from the header |
+| same file as waveforms and transactions | - | - | - | - | yes |
+
+## 6. Beyond the union
 
 VTR adds what none of the four have in one place: signals and
 transactions in one file with one time base; stages *and* events *and*

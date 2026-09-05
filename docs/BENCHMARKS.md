@@ -12,6 +12,8 @@ python3 bench/run.py all             # full set (~1 hour, ~16 GB RAM); the first
 python3 bench/run.py all --scale small
 python3 bench/run.py report          # re-render the Markdown from results.json
 python3 bench/run.py compilers       # host-compiler study on the C910 model (~1.5 hours)
+sh bench/log/fetch_refs.sh           # shallow-clones NanoLog, binlog, Quill and CLP into ext/ (pinned commits; run.py does it when missing)
+python3 bench/run.py log             # log-writer comparison only (a few minutes)
 ```
 
 `bench/run.py` builds the Rust crates (`cargo build --release`), the C/C++
@@ -37,6 +39,11 @@ repository or taken from the submodules. The C910 workload needs a
 | uncompressed variants | `fstapi none` = pack type FASTLZ in the vendored build, where fastlz is compiled out so every value chain is stored raw (time tables and frames stay zlib-packed); `libfstwriter none` = its `NO_COMPRESSION` mode; `VTR none` = codec none for every blob. Reads of the uncompressed pair use wellen on the libfstwriter file. |
 | VTR Rust / C API | this repository, default options (zstd level 3, 256-signal groups, 64 KiB runs, 16M-record blocks, 512K-record chunks, background thread on); `inline` variants disable the background thread so the encoder runs on the caller's thread |
 | Verilator FST / **VTR** | the Verilated model writing its own trace: Verilator 5.050's built-in FST backend (bundles libfstwriter, LZ4) versus the `--trace-vtr` backend of `integrations/verilator` (VTR C API, default options); both run the same generated trace code |
+| NanoLog | `ext/NanoLog`, the C++17 runtime (`NanoLogCpp17.h`, `libNanoLog.a`) and its `decompressor`; upstream supports Linux/x86-64 only, so `bench/log/nanolog_port.py` copies the runtime and patches it for this host (rdtsc/rdpmc/cpuid and lfence/sfence to the arm64 counter, `isb` and `dmb`; `gettid`, thread pinning and `sched_getcpu` to macOS equivalents or no-ops; `O_NOATIME`/`O_DIRECT` absent; `O_DSYNC` dropped so the file goes through the page cache like every other logger; `fdatasync` to `fsync`; a glibc-private header removed; the `long long` `pack` overload renamed for macOS's `int64_t`) |
+| binlog | `ext/binlog`, header-only producer (`BINLOG_CREATE_SOURCE_AND_EVENT`, a 1 MiB queue, a consumer thread calling `Session::consume` every 100 us) and its `bread` reader built from `bin/` and the support sources in `include/binlog` |
+| Quill | `ext/quill`, header-only, default backend options, one `FileSink`, pattern `%(log_level:<5) %(message)` |
+| CLP IR | `ext/clp`'s parser and variable encoders (`clp/ir/parsing.cpp`, `clp/ffi/encoding_methods.cpp`, `string_utils`) compiled into the harness; the four-byte IR stream framing of `ffi/ir_stream/encoding_methods.cpp` is mirrored in `bench/log/log_clp.cpp` and the stream is zstd-compressed (level 3) like CLP's own IR files; a matching decoder renders the text back |
+| text (fprintf) | `bench/log/log_text.cpp`: `fprintf` through a 1 MiB stdio buffer, the baseline every simulator has today and the input CLP compresses |
 
 ## Workloads
 
@@ -76,6 +83,63 @@ consume the same replay (`.txr`). For Kanata both sides parse the same
 text log: `bench/cpp/konata_ftr.cpp` maps stages to child transactions
 with `parent_of` relations (FTR has no stages), VTR uses native stages;
 timings include parsing on both sides.
+
+### Log workloads
+
+The four loggers are fetched by `bench/log/fetch_refs.sh` (shallow clones
+pinned to the measured commits; not submodules) and built by
+`bench/log/CMakeLists.txt`. `bench/log/workload.hpp` generates a deterministic simulator log: N
+timestamped messages from 13 call sites (bus writes and reads with hex
+addresses and 64-bit data, per-core fetch and retire lines, cache hits and
+misses, back-pressure warnings, DMA completions with a floating-point
+duration, parity errors, UART text, scheduler statistics, interrupts,
+checkpoints, FSM transitions; 50% DEBUG, 46% INFO, 3% WARN, 1% ERROR).
+String arguments come from small pools (24 component paths, bus responses,
+channel and state names, 32 UART lines) the way names do in a design;
+simulation time advances 1-50 ns per message with an idle gap every 1024
+messages. `sim_log_1m` is one million messages, `sim_log_10m` ten million.
+
+Every logger receives exactly the same sequence from the same generator,
+through the call style each library is built for (the `SIMLOG_KINDS`
+X-macro carries a printf format for NanoLog and the text baseline, a
+`std::format` string for Quill and VTR, and a plain `{}` string for binlog,
+whose placeholders take no specification, so its text has decimal
+addresses). One producer thread. Simulation time is the message's clock:
+binlog's clock value and VTR's record time carry it natively; NanoLog stamps
+its own TSC time and Quill formats a wall-clock timestamp, so for those two
+(and for the text baseline and CLP) the simulation time is the first
+argument of every message, which is also how a simulator prints it. All
+writers use their defaults: VTR zstd level 3 with the background thread and
+two log encoder threads (`inline` = no background thread), NanoLog its
+1 MiB staging buffer and 64 MiB output buffer, Quill its default queue and
+backend, binlog a 1 MiB queue.
+
+Measured per writer (`bench/log/log_*.cpp`, best of N): `hot path` = wall
+time of the message loop (asynchronous loggers enqueue and return);
+`total` = loop plus the flush or close that puts everything on disk;
+`cpu` = user+system time of the whole process including background
+threads; output size. For binlog, Quill and the text baseline, which write
+uncompressed, `log_zstd` also compresses the file with zstd level 3 in
+4 MiB frames (`+zstd`). `read back` renders every record to text again:
+VTR through `vtr_log_rec_format`, CLP through the harness's IR decoder,
+NanoLog through its `decompressor`, binlog through `bread`. The
+information check requires the text rendered from the VTR file and from
+the CLP stream to be byte-identical to the text log, and the NanoLog and
+bread outputs to have one line per message. VTR additionally reports a
+severity query (all records at WARN or above), which prunes blocks by the
+site list in their headers.
+
+What is compared: five ways of recording the same formatted-print calls.
+The text baseline pays for formatting on the caller's thread and stores
+66 bytes per message; Quill moves the formatting to a backend thread but
+still writes the text; binlog and NanoLog store static call-site facts once
+and the raw arguments per message (NanoLog packs integers to their minimal
+width), without general compression; CLP parses the finished text back into
+a log type and variables and compresses; VTR declares the call site once
+(a generator with typed arguments), stores the raw values in typed columns
+with a per-block string dictionary and compresses. NanoLog's file is the
+only one written with synchronous I/O upstream; that flag is removed in the
+port so the comparison is of encodings, not of durability policies.
 
 ## Measurements
 

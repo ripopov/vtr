@@ -574,6 +574,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "fst-reader",
+ "libc",
  "serde_json",
  "vtr",
  "vtr-cli",

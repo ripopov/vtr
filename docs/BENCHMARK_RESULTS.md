@@ -15,6 +15,7 @@ All timings are best-of-N wall-clock seconds of the write loop plus close (write
 - **Information check.** Source FST and VTR files converted to VCD carry the same value changes, in total and per signal, on scr1_axi (20,977,928 changes), rsa256 (1,621,415 changes), rsa256_long (16,212,012 changes), c910_coremark (596,626,011 changes): yes.
 - **Simulator-integrated (Verilator --trace-fst vs --trace-vtr, whole design traced).** rsa256: tracing adds 0.19 s with FST and 0.13 s with VTR to a 0.00 s simulation (1.42x less trace cost), VTR file 96% of Verilator's FST; rsa256_long: tracing adds 1.57 s with FST and 1.08 s with VTR to a 0.05 s simulation (1.45x less trace cost), VTR file 96% of Verilator's FST; c910_coremark: tracing adds 50.10 s with FST and 41.40 s with VTR to a 13.40 s simulation (1.21x less trace cost), VTR file 50% of Verilator's FST. Files written by the two Verilator backends read back identically: yes.
 - **Transactions.** tlm_1m size 34% of FTR-LZ4, write speed 1.83x FTR-LZ4 and 1.28x uncompressed FTR; ooo_1m size 18% of FTR-LZ4, write speed 1.58x FTR-LZ4; kanata_sample2 size 18% of FTR-LZ4, write speed 1.04x FTR-LZ4.
+- **Logs.** sim_log_1m: VTR file 66% of the smallest other output (clp-ir) and 54% of the zstd-compressed text log; hot path 31.9 M msg/s (fastest other: nanolog 44.0), loop plus flush 25.6 M msg/s (fastest other: nanolog 43.9); read back to text 10.4 M lines/s; sim_log_10m: VTR file 66% of the smallest other output (clp-ir) and 54% of the zstd-compressed text log; hot path 32.8 M msg/s (fastest other: nanolog 44.0), loop plus flush 32.0 M msg/s (fastest other: nanolog 44.0); read back to text 10.2 M lines/s.
 
 ## Signal workloads: file size
 
@@ -246,6 +247,51 @@ For the Kanata workloads FTR represents each pipeline stage as a child transacti
 | tlm_1m | 0.05 ms | 0.556 s (3,000,000) | 128.7 ms | 235.6 ms (2009 found) | 4.55 ms (30007 tx) |
 | ooo_1m | 70.42 ms | 0.516 s (1,000,000) | 53.6 ms | 84.9 ms (1974 found) | 3.74 ms (10101 tx) |
 | kanata_sample2 | 0.90 ms | 0.003 s (4,041) | 1.0 ms | 0.0 ms (0 found) | 0.01 ms (10 tx) |
+
+## Log workloads: VTR versus NanoLog, binlog, Quill and CLP
+
+Every logger receives the same messages (see `docs/BENCHMARKS.md`, *Log workloads*): one producer thread, simulation-time stamps, 13 call sites with integer, hex, float and string arguments. `hot path` is the message loop alone (asynchronous loggers queue and return); `total` includes the flush/close that puts everything on disk; `cpu` is user+system time of the whole process, background threads included. `+zstd` is the size after compressing the output with zstd level 3 in 4 MiB frames, for the loggers that write uncompressed output (VTR, NanoLog and the CLP IR stream are already compressed). `read back` renders every record to text again (VTR: `vtr_log_rec_format`; CLP: IR decoder; NanoLog: its `decompressor`; binlog: `bread`; Quill and the text baseline already are text).
+
+### sim_log_1m (1,000,000 messages)
+
+Run on Apple M5 (10 threads, 32 GiB), Darwin 25.5.0, Apple clang / rustc 1.96.0 (ac68faa20 2026-05-25), 2026-09-06T00:45:00.
+
+| logger | output | hot path | M msg/s | total (loop + flush) | cpu | size | bytes / msg | +zstd | read back to text |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| text (fprintf) | plain text | 0.140s | 7.1 | 0.140s | 0.14s | 63.09 MiB | 66.2 | 16.83 MiB (0.14s) | n/a (text) |
+| Quill | text (async) | 0.028s | 35.6 | 0.190s | 0.28s | 63.14 MiB | 66.2 | 16.56 MiB (0.14s) | n/a (text) |
+| binlog | binary, uncompressed | 0.041s | 24.2 | 0.042s | 0.06s | 49.55 MiB | 52.0 | 14.30 MiB (0.09s) | 0.402s (2.5 M lines/s) |
+| NanoLog | binary, packed | 0.023s | 44.0 | 0.023s | 0.09s | 25.04 MiB | 26.3 | - | 0.734s (1.4 M lines/s) |
+| CLP IR + zstd | logtype + variables, zstd | 0.384s | 2.6 | 0.384s | 0.51s | 13.90 MiB | 14.6 | - | 0.070s (14.2 M lines/s) |
+| **VTR** | LOG blocks, zstd | **0.031s** | 31.9 | **0.039s** | 0.10s | **9.12 MiB** | 9.6 | - | 0.096s (10.4 M lines/s) |
+| VTR inline (no background thread) | LOG blocks, zstd | 0.083s | 12.1 | 0.089s | 0.09s | 9.12 MiB | 9.6 | - | - |
+
+VTR severity query: all records at WARN or above (38,001 of 1,000,000) selected in 34.5 ms without decoding the other blocks' arguments.
+
+Information check: text rendered from the VTR file identical to the text log: yes; from the CLP IR stream: yes; NanoLog decompressor lines 1,000,003 (3 header lines) and bread lines 1,000,000 for 1,000,000 messages.
+
+The CLP row includes producing the text first (0.127s of its hot path is the fprintf-style formatting, the rest is parsing, encoding and zstd).
+
+### sim_log_10m (10,000,000 messages)
+
+Run on Apple M5 (10 threads, 32 GiB), Darwin 25.5.0, Apple clang / rustc 1.96.0 (ac68faa20 2026-05-25), 2026-09-06T00:45:10.
+
+| logger | output | hot path | M msg/s | total (loop + flush) | cpu | size | bytes / msg | +zstd | read back to text |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| text (fprintf) | plain text | 1.380s | 7.2 | 1.380s | 1.38s | 640.63 MiB | 67.2 | 168.24 MiB (1.42s) | n/a (text) |
+| Quill | text (async) | 0.265s | 37.8 | 1.876s | 2.72s | 641.20 MiB | 67.2 | 166.01 MiB (1.42s) | n/a (text) |
+| binlog | binary, uncompressed | 0.322s | 31.0 | 0.323s | 0.48s | 495.52 MiB | 52.0 | 142.90 MiB (0.92s) | 4.028s (2.5 M lines/s) |
+| NanoLog | binary, packed | 0.227s | 44.0 | 0.227s | 0.62s | 254.60 MiB | 26.7 | - | 7.103s (1.4 M lines/s) |
+| CLP IR + zstd | logtype + variables, zstd | 3.931s | 2.5 | 3.931s | 5.21s | 138.98 MiB | 14.6 | - | 0.692s (14.5 M lines/s) |
+| **VTR** | LOG blocks, zstd | **0.305s** | 32.8 | **0.312s** | 0.92s | **91.27 MiB** | 9.6 | - | 0.981s (10.2 M lines/s) |
+| VTR inline (no background thread) | LOG blocks, zstd | 0.897s | 11.1 | 0.901s | 0.90s | 91.27 MiB | 9.6 | - | - |
+
+VTR severity query: all records at WARN or above (380,339 of 10,000,000) selected in 357.5 ms without decoding the other blocks' arguments.
+
+Information check: text rendered from the VTR file identical to the text log: yes; from the CLP IR stream: yes; NanoLog decompressor lines 10,000,003 (3 header lines) and bread lines 10,000,000 for 10,000,000 messages.
+
+The CLP row includes producing the text first (1.281s of its hot path is the fprintf-style formatting, the rest is parsing, encoding and zstd).
+
 ## Host compiler: gcc versus clang on the Verilated C910 model
 
 The Verilated sources of the untraced C910 CoreMark model, compiled by `bench/compilers.py` with different compilers and options, each binary running the same CoreMark iteration pinned to one performance core (best of N). `OPT_FAST` is the flag shown, `OPT_SLOW` is `-O1`, the runtime (`verilated.cpp`) keeps Verilator's default; PGO trains on the first 60k cycles of the same run; LTO is `-flto=thin` (clang) / `-flto=auto` (gcc). `memory ops` is the share of instructions in the executable with a memory operand.
@@ -300,3 +346,5 @@ Compilers: `g++-16` = g++-16 (Ubuntu 16-20260322-1ubuntu1) 16.0.1 20260322 (expe
 - **tlm_1m**: synthetic TLM: 1M CPU instructions -> NoC packets -> slave accesses (3M transactions, ~2.3M relations, 14 attributes per chain)
 - **ooo_1m**: synthetic Kanata pipeline log of a 4-wide out-of-order core, 1M instructions (~8M stages, ~9M relations)
 - **kanata_sample2**: Konata's bundled sample trace (4k instructions)
+- **sim_log_1m**: synthetic SoC simulation log: 1M timestamped messages from 13 call sites (bus transactions with hex addresses, per-core fetch/retire, cache events, warnings, DMA completions, parity errors, UART text, scheduler stats, interrupts, checkpoints, FSM transitions; 50% DEBUG / 46% INFO / 3% WARN / 1% ERROR), generated by bench/log/workload.hpp
+- **sim_log_10m**: the same generator, 10M messages

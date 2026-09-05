@@ -1,6 +1,6 @@
 # VTR file format specification
 
-Version 1.0 of the VTR (Vibe Trace Record) container and encodings.
+Version 1.1 of the VTR (Vibe Trace Record) container and encodings.
 This document is normative: an independent implementation written from it
 must read every file produced by the reference implementation and produce
 files the reference reader accepts.
@@ -29,6 +29,9 @@ A VTR file holds four things:
    attributes (tagged begin/record/end), point *events*, sub-interval
    *stages* on lanes, an optional parent, a status and a kind; and
    *relations* — typed, attributed, directed edges between transactions.
+5. **Log records**: timestamped messages of a *log site* (a generator that
+   declares a format string and argument types), stored as the argument
+   values only (section 8). A log record is a zero-duration transaction.
 
 Nothing in the file describes presentation. Stable identity for external
 databases (VDB) comes from names: full hierarchical paths of nodes, stream
@@ -61,14 +64,17 @@ identity or the per-block dynamic alias rules in section 6.6.
 |---:|---:|---|
 | 0 | 8 | magic `89 56 54 52 0D 0A 1A 0A` (`\x89VTR\r\n\x1a\n`) |
 | 8 | 2 | `u16` major version = 1 |
-| 10 | 2 | `u16` minor version = 0 |
+| 10 | 2 | `u16` minor version = 1 |
 | 12 | 4 | `u32` flags, must be 0 |
 | 16 | 16 | reserved, must be 0 |
 
 A reader must reject a file whose major version is greater than the one it
-implements and must accept any minor version (minor versions only add
-optional sections, attribute keys or value tags that a reader may ignore
-per section 8).
+implements and must accept any minor version: minor versions only add
+optional sections, attribute keys and value tags (section 9). A reader that
+meets a value tag it does not know must report the file as unreadable
+rather than guess. Version 1.1 added value tag 17 (text) and the optional
+LOG_BLOCK section; a 1.0 reader skips log blocks and rejects files that
+use tag 17.
 
 ### 2.2 Section header (24 bytes)
 
@@ -91,6 +97,7 @@ The payload follows immediately. Kinds:
 | 5 | TX_BLOCK | section 7 |
 | 6 | BLACKOUT | section 3.3 |
 | 7 | DIRECTORY | section 2.3 |
+| 8 | LOG_BLOCK | section 8 (written with the optional flag) |
 
 Kinds below 0x1000 are reserved for this specification; a producer may
 write private sections with kind >= 0x1000 and the optional flag set.
@@ -112,7 +119,8 @@ DIRECTORY payload: `u64 count` then `count` entries of 40 bytes:
 `aux0/aux1` are kind specific: STRINGS and HIERARCHY store the first id and
 the count of the chunk; SIGNAL_BLOCK stores the block's start and end time;
 TX_BLOCK stores the minimum begin time and maximum end time of its
-transactions; other kinds store 0. Entries appear in file order.
+transactions; LOG_BLOCK the minimum and maximum time of its records; other
+kinds store 0. Entries appear in file order.
 
 Trailer (last 24 bytes of the file):
 
@@ -142,6 +150,8 @@ that recovery and streaming readers work:
   ranges do not overlap except that the last time of block *k* may equal the
   first time of block *k+1*.
 * Group sizes and the meaning of signal ids never change within a file.
+* TX_BLOCK and LOG_BLOCK sections carry their own id and time ranges and
+  may appear in any order relative to each other and to SIGNAL_BLOCKs.
 
 ## 3. Small sections
 
@@ -314,11 +324,12 @@ value }`. A value is a tag byte followed by a tag-specific payload:
 | 14 | ufixed | `varint raw`, `svarint scale` |
 | 15 | list | `varint n`, `n x value` |
 | 16 | map | `varint n`, `n x { varint key string id, value }` |
+| 17 | text | `blob`, UTF-8; inline text that is not interned (one-off strings such as log arguments; added in 1.1) |
 
-Attribute keys are free form. Keys beginning with `vtr.` are reserved for
-this specification; converters use tool prefixes (`fst.`, `otel.`,
-`kanata.`, `ftr.`) for source-specific data. Readers must preserve unknown
-attributes.
+Attribute keys are free form. Keys beginning with `vtr.` and `log.` are
+reserved for this specification (`log.*` is defined in section 8.1);
+converters use tool prefixes (`fst.`, `otel.`, `kanata.`, `ftr.`) for
+source-specific data. Readers must preserve unknown attributes.
 
 ## 6. SIGNAL_BLOCK (kind 4)
 
@@ -547,6 +558,8 @@ attribute, exactly the columns implied by its tag are read.
 * Relations are directed `from -> to` with a free-form kind string and
   attributes. Structural parent/child nesting uses the `parent` field;
   producers may additionally record a `parent_of` relation.
+* Text logs are streams of kind `LOG`; their records are zero-duration
+  transactions stored in LOG_BLOCKs (section 8), not in TX_BLOCKs.
 
 ### 7.3 Reading
 
@@ -556,7 +569,93 @@ id. *Transactions in a time window*: blocks with `t_min <= window end` and
 `rel_min/max` range contains it. *Transactions of a generator*: blocks
 whose generator list contains it.
 
-## 8. Extensibility and versioning
+## 8. LOG_BLOCK (kind 8)
+
+A log record is a message of a *log site*: one call site of a logging
+macro in the producer (`LOG_INFO("addr={:#x} len={}", a, n)`). The site's
+static facts (format string, severity, source location, argument types)
+are declared once as a generator of a `LOG` stream; a record stores the
+time and the argument values only. This borrows the static/dynamic split of
+NanoLog and binlog and the dictionary of repeated string variables of CLP
+(see `docs/RATIONALE.md`).
+
+### 8.1 Log sites
+
+A log site is a generator node whose parent stream has kind `LOG` and
+whose attributes include `log.args`. Its name is the format string. The
+attributes are:
+
+| key | value | meaning |
+|---|---|---|
+| `log.args` | list of u64 | argument types in placeholder order; each is a value tag from the set 1 bool, 2 i64, 3 u64, 4 f64, 5 str (interned id), 6 bytes, 10 time, 12 pointer, 17 text |
+| `log.names` | list of str | one name per argument (attribute keys when a record is read as a transaction); producers that have no names write `"0"`, `"1"`, ... |
+| `log.severity` | u64 | 0 trace, 1 debug, 2 info, 3 warn, 4 error, 5 fatal; other values rank by number (default 2) |
+| `log.file`, `log.line`, `log.func` | str, u64, str | source location, optional |
+
+Format strings use `{}` placeholders with an optional index and
+specification, `{2}`, `{:#010x}`, `{:>8.3}`, and `{{`/`}}` for literal
+braces (the common subset of Rust `std::fmt` and C++ `std::format`; the
+reference reader's `logfmt` module documents the accepted specification).
+The number of placeholders should equal the number of arguments; a reader
+renders a placeholder without an argument as `{?}`. Other `log.*` keys are
+reserved.
+
+### 8.2 Layout
+
+```
+u64 n_rec
+u64 min_id, u64 max_id            record (transaction) ids present (0 if n_rec = 0)
+u64 t_min, u64 t_max              smallest / largest record time
+u32 n_gens
+u32 blob_len
+n_gens x u32                      generator node ids present, in order of first occurrence
+blob                              compressed blob (3.1) of the column set, blob_len bytes
+```
+
+Decompressed column set: `varint n_cols` (= 9), `n_cols x varint len`,
+then the columns concatenated. A reader decodes record by record, pulling
+one item from each relevant column; the argument columns are consumed in
+the site's declared order.
+
+| # | name | item per | encoding |
+|---:|---|---|---|
+| 0 | gen | record | `varint` index into the block's generator list |
+| 1 | time | record | `svarint` delta from the previous record's time (first relative to 0) |
+| 2 | id | record | `svarint` delta from the previous record's id (first relative to 0) |
+| 3 | parent | record | `varint`: 0 = none, else `(zigzag(id - parent) << 1) \| 1` |
+| 4 | num | argument | bool: `u8`; i64: `svarint`; u64, time, pointer: `varint` |
+| 5 | f64 | argument | 8 bytes binary64 LE |
+| 6 | text | argument | `varint` index into the block dictionary (column 7) |
+| 7 | dict | block | `varint n`, then `n x blob`: the distinct text arguments of the block in order of first occurrence |
+| 8 | misc | argument | str: `varint` string id; bytes: `blob` |
+
+### 8.3 Semantics
+
+* Record ids share the transaction id space (section 7.2): a log record is
+  a zero-duration transaction (`begin = end = time`, status *unset*, kind
+  *unspecified*) whose attributes are its arguments keyed by `log.names`.
+  Relations may reference record ids.
+* `parent`, when present, is the transaction during which the message was
+  produced (for example the bus transfer a driver was handling).
+* Records within a block are stored in production order; times need not
+  be monotonic. Blocks may appear in any order (section 2.4); the reference
+  writer keeps production order even when it encodes on several threads, and
+  the reference reader visits blocks by their first time.
+* Text arguments are deduplicated per block; identical strings share one
+  dictionary entry. Producers should declare repetitive strings (names,
+  states, responses) as text and use `str` only when they intern
+  themselves; `bytes` is for payloads that must not be interpreted.
+
+### 8.4 Reading
+
+*Records of a time window*: blocks with `t_min <= window end` and
+`t_max >= window start`. *Records by severity, stream or site*: the
+generator list in the header names every site present, so a block whose
+sites are all below the wanted severity or outside the wanted stream is
+skipped without decompression. *Record by id*: blocks whose
+`[min_id, max_id]` contains the id, after the TX_BLOCKs.
+
+## 9. Extensibility and versioning
 
 * New section kinds must be marked optional unless the major version is
   bumped.
@@ -568,14 +667,14 @@ whose generator list contains it.
 * Producers should keep `group_size` between 64 and 1024; readers must
   accept any power of two up to 2^20.
 
-## 9. Limits
+## 10. Limits
 
 Signal, node and string ids are `u32`; transaction ids `u64`; times `u64`;
 vector widths up to 2^31 - 1 bits (packed values must fit a run); a
 time table has at most 2^31 - 1 entries per block; column runs are below
 2^30 raw bytes.
 
-## 10. Conformance checklist for producers
+## 11. Conformance checklist for producers
 
 1. Header, META, at least one STRINGS chunk with id 0 = "", HIERARCHY
    chunks before the blocks that use their ids, DIRECTORY, trailer.
@@ -586,6 +685,9 @@ time table has at most 2^31 - 1 entries per block; column runs are below
    or 0.
 5. Transaction blocks: `n_tx`/`n_rel` match the columns; attribute
    lists consumed in the specified order.
+6. Log blocks: written with the optional flag; every generator in the
+   header is a log site (8.1) declared in an earlier HIERARCHY chunk; the
+   argument columns hold exactly the declared values per record.
 
 ## Independent RTL VDB companion
 

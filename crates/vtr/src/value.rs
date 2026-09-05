@@ -40,6 +40,8 @@ pub enum ValueTag {
     List = 15,
     /// Ordered key/value map (keys are interned strings).
     Map = 16,
+    /// Inline UTF-8 text (not interned; for one-off strings such as log arguments).
+    Text = 17,
 }
 
 impl ValueTag {
@@ -63,6 +65,7 @@ impl ValueTag {
             14 => UFixed,
             15 => List,
             16 => Map,
+            17 => Text,
             _ => return Err(Error::Corrupt("unknown value tag")),
         })
     }
@@ -91,6 +94,8 @@ pub enum Value {
     UFixed { raw: u64, scale: i32 },
     List(Vec<Value>),
     Map(Vec<(StrId, Value)>),
+    /// Inline UTF-8 text, stored verbatim (unlike `Str`, which is an interned id).
+    Text(String),
 }
 
 impl Value {
@@ -113,6 +118,7 @@ impl Value {
             Value::UFixed { .. } => ValueTag::UFixed,
             Value::List(_) => ValueTag::List,
             Value::Map(_) => ValueTag::Map,
+            Value::Text(_) => ValueTag::Text,
         }
     }
 
@@ -161,6 +167,7 @@ impl Value {
                     v.encode(out);
                 }
             }
+            Value::Text(s) => varint::put_blob(out, s.as_bytes()),
         }
     }
 
@@ -227,6 +234,10 @@ impl Value {
                     items.push((k, Value::decode(r)?));
                 }
                 Value::Map(items)
+            }
+            ValueTag::Text => {
+                let b = r.blob()?;
+                Value::Text(std::str::from_utf8(b).map_err(|_| Error::Corrupt("text value is not UTF-8"))?.to_string())
             }
         })
     }

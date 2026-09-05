@@ -238,6 +238,7 @@ fields not listed for a tag are ignored on input and zero on output.
 | `VTR_VAL_LOGIC9`  | 9     | `width`, `data`, `len` | 9-state vector, 4 bits per bit (`len >= ceil(width/2)`), codes 0..8 (section 3.6). |
 | `VTR_VAL_TIME`    | 10    | `u`         | Time in file time units. |
 | `VTR_VAL_ENUM`    | 11    | `i`, `str_id` | Enumeration literal: integer value `i` and literal name `str_id`. |
+| `VTR_VAL_TEXT`    | 17    | `data`, `len` | Inline UTF-8 text, not interned (log arguments; one-off strings). Input: `data`/`len`, must be valid UTF-8. |
 | `VTR_VAL_POINTER` | 12    | `u`         | Opaque pointer / handle. |
 | `VTR_VAL_FIXED`   | 13    | `i`, `scale` | Signed fixed point: value = `i * 2^-scale`. |
 | `VTR_VAL_UFIXED`  | 14    | `u`, `scale` | Unsigned fixed point: value = `u * 2^-scale`. |
@@ -267,6 +268,7 @@ typedef struct vtr_writer_options {
     int      background;     /* encode/compress on a background thread (default 1) */
     int      dedup;          /* drop value changes equal to the current value (default 1) */
     int      checksums;      /* store a CRC32 per section (default 1); readers verify on request */
+    uint32_t log_encoders;   /* helper threads encoding log blocks in background mode (default 2; 0 = sink thread) */
 } vtr_writer_options;
 
 void        vtr_writer_options_default(vtr_writer_options *o);
@@ -290,6 +292,7 @@ struct comments (`codec = 2`, `level = 3`, `group_size = 256`,
 | `background`     | 1: compress on a helper thread (recommended for simulators). 0: everything happens inline on the caller's thread (deterministic, slightly slower). |
 | `dedup`          | 1: an emitted value equal to the signal's current value is silently dropped (no change record). 0: every emit produces a record. |
 | `checksums`      | 1: every section carries a CRC32. The Rust reader verifies it when opened with `ReadOptions::verify_crc`; `vtr_reader_open` uses the defaults (no verification). |
+| `log_encoders`   | Helper threads that encode and compress log blocks in background mode (default 2, started on the first log block; 0 = the background thread does it). |
 
 **`vtr_writer_create(path, opts)`** creates (truncates) the file at `path`
 and returns a writer, or NULL with `vtr_last_error()` set. `opts` may be
@@ -725,6 +728,55 @@ the attributes). Relations are stored independently of the transactions and
 are queried by either endpoint (section 4.15).
 
 ---
+
+### 3.8 Logs
+
+Log records (see `docs/LOGGING.md`, `SPEC.md` section 8) are messages of
+*log sites*: a generator of a `LOG` stream that declares the format string,
+severity, source location and argument types once; each message stores the
+time and the argument values.
+
+```c
+uint32_t vtr_writer_add_log_stream(vtr_writer *w, uint32_t parent, const char *name);
+uint32_t vtr_writer_add_log_site(vtr_writer *w, uint32_t stream, uint8_t severity, const char *fmt,
+                                 const char *file, uint32_t line, const char *func,
+                                 size_t n_args, const uint8_t *arg_types, const char *const *names);
+uint32_t vtr_writer_log_site_node(const vtr_writer *w, uint32_t site);
+int      vtr_writer_log(vtr_writer *w, uint32_t site, uint64_t time, uint64_t parent, size_t n, const vtr_value *args, uint64_t *id_out);
+int      vtr_writer_log_raw(vtr_writer *w, uint32_t site, uint64_t time, uint64_t parent, const uint8_t *args, size_t len, uint64_t *id_out);
+```
+
+* `vtr_writer_add_log_stream(w, parent, name)`: `vtr_writer_add_stream` with
+  kind `"LOG"`; `parent` may be `VTR_NONE`.
+* `vtr_writer_add_log_site`: registers a call site and returns a dense
+  **site id** (not a node id; `vtr_writer_log_site_node` gives the generator),
+  or `VTR_NONE` on error (`vtr_last_error`). `severity`: 0 trace, 1 debug,
+  2 info, 3 warn, 4 error, 5 fatal (other values rank by number).
+  `arg_types` holds `n_args` value tags out of `VTR_VAL_BOOL`, `I64`, `U64`,
+  `F64`, `STR` (an id from `vtr_writer_intern`), `BYTES`, `TIME`, `POINTER`,
+  `TEXT`. `file`, `func` and `names` (argument names, `n_args` strings) may
+  be NULL; unnamed arguments are called `"0"`, `"1"`, ... Register each site
+  once and keep the id.
+* `vtr_writer_log`: records a message; `args` are `n` values whose tags must
+  equal the site's declared types in order (`VTR_ERR_INVALID` otherwise;
+  `TEXT`/`BYTES` use `data`/`len`, `STR` uses `str_id`). `parent` is the
+  transaction id the message belongs to, or 0. `id_out` (nullable) receives
+  the record's transaction id (log records and transactions share the id
+  space). `time` is independent of `vtr_writer_set_time`.
+* `vtr_writer_log_raw`: the same with the values already in row encoding
+  (bool: 1 byte; I64: zig-zag LEB128; U64/TIME/POINTER: LEB128; F64: 8 bytes
+  little-endian; STR: LEB128 string id; TEXT/BYTES: LEB128 length then the
+  bytes), in declaration order. The caller guarantees the match with the
+  site; a mismatch is reported by `vtr_writer_flush`/`vtr_writer_close` as
+  `VTR_ERR_CORRUPT`. This is the entry point `vtr_log.hpp` uses.
+
+**C++**: `include/vtr_log.hpp` (header-only, C++17) wraps these into
+`vtr::LogStream` and `VTR_LOG(stream, severity, time, "fmt {}", args...)`
+(plus `VTR_LOG_INFO` etc.): the first execution of a statement registers the
+site with `__FILE__`, `__LINE__`, `__func__` and the argument types deduced
+from the C++ types, later executions encode the arguments on the stack and
+call `vtr_writer_log_raw`. The placeholder count is checked against the
+argument count at compile time. See section 7 and `docs/LOGGING.md`.
 
 ## 4. Reader API
 
@@ -1210,6 +1262,49 @@ lookups are cheap when ids are roughly monotonic.
 
 ---
 
+### 4.16 Logs
+
+```c
+typedef struct vtr_log_site_info { uint32_t node, stream; uint8_t severity; uint32_t fmt; uint32_t file, func; uint32_t line; uint32_t arg_count; } vtr_log_site_info;
+uint32_t vtr_reader_log_site_count(const vtr_reader *r);
+uint64_t vtr_reader_log_count(const vtr_reader *r);
+int      vtr_reader_log_site(const vtr_reader *r, uint32_t i, vtr_log_site_info *out);
+int      vtr_reader_log_site_arg(const vtr_reader *r, uint32_t i, uint32_t j, uint8_t *type_out, uint32_t *name_out);
+uint32_t vtr_reader_log_site_of(const vtr_reader *r, uint32_t generator);
+
+typedef struct vtr_log_rec { uint64_t id, time; uint64_t parent; uint32_t site, generator, stream; uint8_t severity; uint32_t arg_count; const void *inner_; } vtr_log_rec;
+typedef int (*vtr_log_cb)(void *user, const vtr_log_rec *rec);
+int    vtr_reader_visit_log(const vtr_reader *r, uint32_t stream, uint32_t generator, uint8_t min_severity, uint64_t t0, uint64_t t1, vtr_log_cb cb, void *user);
+int    vtr_log_rec_arg(const vtr_log_rec *rec, uint32_t i, vtr_value *v_out);
+size_t vtr_log_rec_format(const vtr_reader *r, const vtr_log_rec *rec, char *buf, size_t cap);
+```
+
+* Sites are indexed `0 .. vtr_reader_log_site_count - 1` in declaration
+  order; `vtr_log_site_info` gives the generator and stream nodes, the
+  severity, the format string id and the source location (`file`/`func`
+  string ids or `VTR_NONE`, `line` 0 when unknown); `vtr_reader_log_site_arg`
+  gives argument `j`'s type tag and name id. `vtr_reader_log_site_of` maps a
+  generator node to its site index (`VTR_NONE` if it is not a log site).
+* `vtr_reader_visit_log` visits records in time order of their blocks and
+  production order within a block; `stream` and `generator` may be
+  `VTR_NONE`, `min_severity` 0 selects everything, `t1 == 0` means no time
+  window. Blocks whose header shows no matching site or time are skipped
+  without decoding. The callback returns non-zero to stop. The `vtr_log_rec`
+  is valid only inside the callback; `parent` is 0 when the record has none.
+* `vtr_log_rec_arg(rec, i, &v)` reads argument `i` as a `vtr_value`
+  (`VTR_ERR_NOT_FOUND` past the end). `VTR_VAL_TEXT` and `VTR_VAL_BYTES` point
+  into the reader's decoded block and stay valid while the reader is alive.
+* `vtr_log_rec_format(r, rec, buf, cap)` renders the message text into `buf`
+  (NUL-terminated when `cap > 0`, truncated if it does not fit) and returns
+  the full length like `snprintf`; `buf` may be NULL with `cap == 0` to
+  measure. `vtr_log.hpp` offers `vtr::format_log(r, rec)` returning a
+  `std::string` and `vtr::for_each_log(r, stream, min_severity, t0, t1, f)`.
+* `vtr_meta.log_count`, `log_block_count` and `log_site_count` report the
+  totals; `tx_count` includes the log records, and
+  `vtr_reader_visit_transactions` / `vtr_reader_transaction` return them as
+  zero-duration transactions whose attributes are the arguments (keys =
+  argument names, `TEXT` values with tag 17).
+
 ## 5. Complete examples
 
 Both programs compile with
@@ -1592,7 +1687,9 @@ dump needs.
 The header is C++-clean. Wrap the handle in an RAII class so the file is
 always closed (and therefore always gets a directory), and turn status codes
 into exceptions at the boundary — but never let an exception escape a
-callback into the library.
+callback into the library. For logging, `include/vtr_log.hpp` provides the
+`VTR_LOG` macros over the C API (section 3.8, `docs/LOGGING.md`,
+`demos/logging/`).
 
 ```cpp
 #include "vtr.h"

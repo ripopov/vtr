@@ -6,9 +6,10 @@
 
 use crate::block::{self, BlockInput, ChunkEnc, ChunkInput, EncoderScratch, Record, COMPACT_FLAG, NO_BLOCK};
 use crate::codec::{Compression, Compressor};
-use crate::container::{self, DirEntry, SectionKind};
+use crate::container::{self, DirEntry, SectionKind, SECTION_FLAG_OPTIONAL};
 use crate::error::{Error, Result};
 use crate::hierarchy::{Direction, Node, NodeData, NodeId, ScopeType, SignalId, SignalKind, VarType};
+use crate::logblock::{self, LogArg, LogBlockInput, LogSiteEnc, LogSiteId, LogSiteSpec};
 use crate::sections::{self, Blackout, FileType, Meta};
 use crate::signal;
 use crate::strings::{Interner, StrId};
@@ -43,6 +44,10 @@ pub struct WriterOptions {
     pub tx_block_bytes: usize,
     /// Encode and compress on a background thread.
     pub background: bool,
+    /// Helper threads that encode and compress log blocks (only with `background`);
+    /// 0 encodes them on the sink thread. Blocks are written in production
+    /// order whatever the number of threads.
+    pub log_encoders: usize,
     /// Drop value changes that do not change the value.
     pub dedup: bool,
     /// Store a CRC32 for every section.
@@ -62,6 +67,7 @@ impl Default for WriterOptions {
             run_bytes: 64 << 10,
             tx_block_bytes: 4 << 20,
             background: true,
+            log_encoders: 2,
             dedup: true,
             checksums: true,
         }
@@ -77,6 +83,7 @@ enum Msg {
     Chunk(Box<ChunkInput>),
     Signal(Box<BlockInput>),
     Tx(Box<TxBlockInput>),
+    Log(Box<LogBlockInput>),
     Close,
 }
 
@@ -86,7 +93,56 @@ enum Recycled {
     Block(Box<BlockInput>),
 }
 
+/// Log blocks encoded on helper threads: inputs go out, finished payloads come back.
+struct LogPool {
+    tx: Option<SyncSender<(u64, Box<LogBlockInput>)>>,
+    rx: Receiver<(u64, Result<Vec<u8>>)>,
+    handles: Vec<std::thread::JoinHandle<()>>,
+    pending: usize,
+    /// Sequence number of the next block to submit / to write: blocks are
+    /// written in production order even though they finish out of order.
+    next_submit: u64,
+    next_write: u64,
+    done: std::collections::BTreeMap<u64, Result<Vec<u8>>>,
+}
+
+impl LogPool {
+    fn start(n: usize, comp: Compression) -> Result<LogPool> {
+        let (in_tx, in_rx) = sync_channel::<(u64, Box<LogBlockInput>)>(n * 2);
+        let (out_tx, out_rx) = std::sync::mpsc::channel::<(u64, Result<Vec<u8>>)>();
+        let in_rx = Arc::new(Mutex::new(in_rx));
+        let mut handles = Vec::new();
+        for _ in 0..n {
+            let rx = in_rx.clone();
+            let tx = out_tx.clone();
+            handles.push(
+                std::thread::Builder::new()
+                    .name("vtr-logenc".into())
+                    .spawn(move || {
+                        let mut compressor = Compressor::new();
+                        loop {
+                            let (seq, input) = match rx.lock().unwrap().recv() {
+                                Ok(i) => i,
+                                Err(_) => return,
+                            };
+                            let mut out = Vec::new();
+                            let r = logblock::encode_log_block(&input, comp, &mut compressor, &mut out).map(|_| out);
+                            if tx.send((seq, r)).is_err() {
+                                return;
+                            }
+                        }
+                    })
+                    .map_err(Error::Io)?,
+            );
+        }
+        Ok(LogPool { tx: Some(in_tx), rx: out_rx, handles, pending: 0, next_submit: 0, next_write: 0, done: Default::default() })
+    }
+}
+
 struct FileSink {
+    /// Created on the first log block (background mode with `log_encoders > 0`).
+    log_pool: Option<LogPool>,
+    log_encoders: usize,
     file: BufWriter<File>,
     offset: u64,
     entries: Vec<DirEntry>,
@@ -102,12 +158,58 @@ struct FileSink {
 }
 
 impl FileSink {
+    fn write_log_payload(&mut self, payload: &[u8]) -> Result<()> {
+        let h = logblock::LogBlockHeader::parse(payload)?;
+        // Optional: a reader without log support skips the block instead of failing.
+        self.write_section_parts(SectionKind::LogBlock, SECTION_FLAG_OPTIONAL, &[payload], h.t_min, h.t_max)
+    }
+
+    /// Writes finished log blocks in submission order; with `wait` blocks until
+    /// every pending one is done.
+    fn drain_logs(&mut self, wait: bool) -> Result<()> {
+        loop {
+            // Write everything that is next in line and already finished.
+            loop {
+                let r = match &mut self.log_pool {
+                    Some(p) if p.pending > 0 => match p.done.remove(&p.next_write) {
+                        Some(r) => {
+                            p.next_write += 1;
+                            p.pending -= 1;
+                            r
+                        }
+                        None => break,
+                    },
+                    _ => return Ok(()),
+                };
+                let payload = r?;
+                self.write_log_payload(&payload)?;
+            }
+            let pool = match &mut self.log_pool {
+                Some(p) if p.pending > 0 => p,
+                _ => return Ok(()),
+            };
+            let (seq, r) = if wait {
+                match pool.rx.recv() {
+                    Ok(p) => p,
+                    Err(_) => return Err(Error::State("log encoder thread stopped")),
+                }
+            } else {
+                match pool.rx.try_recv() {
+                    Ok(p) => p,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(()),
+                    Err(_) => return Err(Error::State("log encoder thread stopped")),
+                }
+            };
+            pool.done.insert(seq, r);
+        }
+    }
+
     fn write_section(&mut self, kind: SectionKind, payload: &[u8], aux0: u64, aux1: u64) -> Result<()> {
-        self.write_section_parts(kind, &[payload], aux0, aux1)
+        self.write_section_parts(kind, 0, &[payload], aux0, aux1)
     }
 
     /// Writes a section whose payload is the concatenation of `parts`.
-    fn write_section_parts(&mut self, kind: SectionKind, parts: &[&[u8]], aux0: u64, aux1: u64) -> Result<()> {
+    fn write_section_parts(&mut self, kind: SectionKind, flags: u32, parts: &[&[u8]], aux0: u64, aux1: u64) -> Result<()> {
         let len: usize = parts.iter().map(|p| p.len()).sum();
         let crc = if self.checksums {
             let mut h = crc32fast::Hasher::new();
@@ -118,17 +220,20 @@ impl FileSink {
         } else {
             0
         };
-        let header = container::encode_section_header(kind as u32, 0, len as u64, crc);
+        let header = container::encode_section_header(kind as u32, flags, len as u64, crc);
         self.file.write_all(&header)?;
         for p in parts {
             self.file.write_all(p)?;
         }
-        self.entries.push(DirEntry { kind: kind as u32, flags: 0, offset: self.offset, len: len as u64, aux0, aux1 });
+        self.entries.push(DirEntry { kind: kind as u32, flags, offset: self.offset, len: len as u64, aux0, aux1 });
         self.offset += (container::SECTION_HEADER_LEN + len) as u64;
         Ok(())
     }
 
     fn handle(&mut self, msg: Msg) -> Result<bool> {
+        if !matches!(msg, Msg::Log(_) | Msg::Close) {
+            self.drain_logs(false)?;
+        }
         match msg {
             Msg::Section { kind, payload, aux0, aux1 } => {
                 if matches!(kind, SectionKind::Strings | SectionKind::Hierarchy) {
@@ -172,7 +277,7 @@ impl FileSink {
                 };
                 let header = std::mem::take(&mut self.buf);
                 let data = std::mem::take(self.scratch.data_mut());
-                self.write_section_parts(SectionKind::SignalBlock, &[&header, &data], a, b)?;
+                self.write_section_parts(SectionKind::SignalBlock, 0, &[&header, &data], a, b)?;
                 *self.scratch.data_mut() = data;
                 self.buf = header;
                 if let Some(r) = &self.recycle {
@@ -187,7 +292,36 @@ impl FileSink {
                 self.write_section(SectionKind::TxBlock, &payload, h.t_min, h.t_max)?;
                 self.buf = payload;
             }
+            Msg::Log(input) => {
+                if self.log_pool.is_none() && self.log_encoders > 0 {
+                    self.log_pool = Some(LogPool::start(self.log_encoders, self.comp)?);
+                }
+                if let Some(pool) = &mut self.log_pool {
+                    if let Some(tx) = &pool.tx {
+                        pool.pending += 1;
+                        let seq = pool.next_submit;
+                        pool.next_submit += 1;
+                        if tx.send((seq, input)).is_err() {
+                            return Err(Error::State("log encoder thread stopped"));
+                        }
+                    }
+                    self.drain_logs(false)?;
+                } else {
+                    self.buf.clear();
+                    logblock::encode_log_block(&input, self.comp, &mut self.compressor, &mut self.buf)?;
+                    let payload = std::mem::take(&mut self.buf);
+                    self.write_log_payload(&payload)?;
+                    self.buf = payload;
+                }
+            }
             Msg::Close => {
+                self.drain_logs(true)?;
+                if let Some(pool) = &mut self.log_pool {
+                    pool.tx = None;
+                    for h in pool.handles.drain(..) {
+                        let _ = h.join();
+                    }
+                }
                 let dir = container::encode_directory(&self.entries);
                 let dir_off = self.offset;
                 let header = container::encode_section_header(SectionKind::Directory as u32, 0, dir.len() as u64, 0);
@@ -470,6 +604,12 @@ pub struct Writer {
     rel_rows: Vec<u8>,
     n_rel_rows: u64,
     total_tx: u64,
+    // logs
+    log_sites: Vec<LogSiteEnc>,
+    log_sites_arc: Option<Arc<Vec<LogSiteEnc>>>,
+    log_rows: Vec<u8>,
+    n_log_rows: u64,
+    total_log: u64,
     blackout: Vec<Blackout>,
     closed: bool,
     scratch: Vec<u8>,
@@ -488,6 +628,8 @@ impl Writer {
         let comp = opts.compression;
         let (recycle_tx, recycle_rx) = sync_channel(16);
         let mut fsink = FileSink {
+            log_pool: None,
+            log_encoders: if opts.background { opts.log_encoders } else { 0 },
             file: BufWriter::with_capacity(1 << 20, file),
             offset,
             entries: Vec::new(),
@@ -587,6 +729,11 @@ impl Writer {
             rel_rows: Vec::new(),
             n_rel_rows: 0,
             total_tx: 0,
+            log_sites: Vec::new(),
+            log_sites_arc: None,
+            log_rows: Vec::new(),
+            n_log_rows: 0,
+            total_log: 0,
             blackout: Vec::new(),
             closed: false,
             scratch: Vec::new(),
@@ -1222,6 +1369,9 @@ impl Writer {
         if self.n_tx_rows > 0 || self.n_rel_rows > 0 {
             self.flush_tx()?;
         }
+        if self.n_log_rows > 0 {
+            self.flush_log()?;
+        }
         Ok(())
     }
 
@@ -1507,6 +1657,140 @@ impl Writer {
         self.sink.send(Msg::Tx(input))
     }
 
+    // ----- logs -----
+
+    /// Declares a log stream (kind `LOG`) under `parent` (`None` = top level).
+    pub fn add_log_stream(&mut self, parent: Option<NodeId>, name: &str) -> NodeId {
+        self.add_stream(parent, name, logblock::STREAM_KIND)
+    }
+
+    /// Registers a log call site: a generator of `spec.stream` named by the
+    /// format string and carrying the severity, argument types and names and
+    /// the source location as attributes (`log.*`). Register each call site
+    /// once and keep the returned handle; `log` then costs a few bytes per call.
+    pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> LogSiteId {
+        let name = self.strings.intern(spec.fmt);
+        let mut attrs: Vec<(StrId, Value)> = Vec::with_capacity(6);
+        let k = self.strings.intern(logblock::KEY_SEVERITY);
+        attrs.push((k, Value::U64(spec.severity.code() as u64)));
+        let k = self.strings.intern(logblock::KEY_ARGS);
+        attrs.push((k, Value::List(spec.args.iter().map(|t| Value::U64(*t as u8 as u64)).collect())));
+        let mut names = Vec::with_capacity(spec.args.len());
+        for i in 0..spec.args.len() {
+            let id = match spec.names.get(i) {
+                Some(n) => self.strings.intern(n),
+                None => self.strings.intern(&i.to_string()),
+            };
+            names.push(Value::Str(id));
+        }
+        let k = self.strings.intern(logblock::KEY_NAMES);
+        attrs.push((k, Value::List(names)));
+        if !spec.file.is_empty() {
+            let k = self.strings.intern(logblock::KEY_FILE);
+            let v = self.strings.intern(spec.file);
+            attrs.push((k, Value::Str(v)));
+        }
+        if spec.line != 0 {
+            let k = self.strings.intern(logblock::KEY_LINE);
+            attrs.push((k, Value::U64(spec.line as u64)));
+        }
+        if !spec.func.is_empty() {
+            let k = self.strings.intern(logblock::KEY_FUNC);
+            let v = self.strings.intern(spec.func);
+            attrs.push((k, Value::Str(v)));
+        }
+        let node = self.push_node(Node { parent: Some(spec.stream), name, data: NodeData::Generator, attrs });
+        self.log_sites.push(LogSiteEnc { node: node.0, args: spec.args.to_vec() });
+        self.log_sites_arc = None;
+        LogSiteId(self.log_sites.len() as u32 - 1)
+    }
+
+    /// Generator node of a registered log site.
+    pub fn log_site_node(&self, site: LogSiteId) -> Option<NodeId> {
+        self.log_sites.get(site.0 as usize).map(|s| NodeId(s.node))
+    }
+
+    /// Number of registered log sites.
+    pub fn log_site_count(&self) -> u32 {
+        self.log_sites.len() as u32
+    }
+
+    /// Records a log message of `site` at `time`. `args` must match the site's
+    /// declared types in number and type. Returns the record's transaction id.
+    #[inline]
+    pub fn log(&mut self, site: LogSiteId, time: u64, args: &[LogArg]) -> Result<TxId> {
+        self.log_with_parent(site, time, None, args)
+    }
+
+    /// Like [`log`](Self::log) with a parent transaction (the transaction being
+    /// processed when the message was produced).
+    pub fn log_with_parent(&mut self, site: LogSiteId, time: u64, parent: Option<TxId>, args: &[LogArg]) -> Result<TxId> {
+        let s = match self.log_sites.get(site.0 as usize) {
+            Some(s) => s,
+            None => return Err(Error::invalid(format!("unknown log site {}", site.0))),
+        };
+        if args.len() != s.args.len() {
+            return Err(Error::invalid(format!("log site {} expects {} arguments, got {}", site.0, s.args.len(), args.len())));
+        }
+        for (i, (a, t)) in args.iter().zip(&s.args).enumerate() {
+            if a.arg_type() != *t {
+                return Err(Error::invalid(format!("log site {} argument {i} is declared {} but a {} was passed", site.0, t.name(), a.arg_type().name())));
+            }
+        }
+        let id = self.next_tx_id;
+        self.next_tx_id += 1;
+        logblock::encode_row(&mut self.log_rows, site.0, time, id, parent.map(|p| p + 1).unwrap_or(0), args);
+        self.n_log_rows += 1;
+        self.total_log += 1;
+        if self.log_rows.len() >= self.opts.tx_block_bytes {
+            self.flush_log()?;
+        }
+        Ok(id)
+    }
+
+    /// Records a log message whose argument values are already in row
+    /// encoding: bool as one byte, i64 as a zig-zag varint, u64/time/pointer as
+    /// a varint, f64 as 8 little-endian bytes, str as the varint string id,
+    /// text and bytes as a varint length followed by the bytes; in the site's
+    /// declared order. The caller guarantees that `args` matches the site's
+    /// types (a mismatch is detected when the block is encoded and reported by
+    /// `flush`/`close`). Used by front ends that encode arguments themselves,
+    /// such as the C++ header; prefer [`log`](Self::log) otherwise.
+    #[inline]
+    pub fn log_raw(&mut self, site: LogSiteId, time: u64, parent: Option<TxId>, args: &[u8]) -> Result<TxId> {
+        if site.0 as usize >= self.log_sites.len() {
+            return Err(Error::invalid(format!("unknown log site {}", site.0)));
+        }
+        let id = self.next_tx_id;
+        self.next_tx_id += 1;
+        let out = &mut self.log_rows;
+        varint::put_u64(out, site.0 as u64);
+        varint::put_u64(out, time);
+        varint::put_u64(out, id);
+        varint::put_u64(out, parent.map(|p| p + 1).unwrap_or(0));
+        out.extend_from_slice(args);
+        self.n_log_rows += 1;
+        self.total_log += 1;
+        if self.log_rows.len() >= self.opts.tx_block_bytes {
+            self.flush_log()?;
+        }
+        Ok(id)
+    }
+
+    fn flush_log(&mut self) -> Result<()> {
+        self.flush_meta_and_hierarchy()?;
+        if self.n_log_rows == 0 {
+            return Ok(());
+        }
+        if self.log_sites_arc.is_none() {
+            self.log_sites_arc = Some(Arc::new(self.log_sites.clone()));
+        }
+        let rows = std::mem::replace(&mut self.log_rows, Vec::with_capacity(self.opts.tx_block_bytes.min(1 << 26) + 1024));
+        let input = Box::new(LogBlockInput { rows, n: self.n_log_rows, sites: self.log_sites_arc.clone().unwrap() });
+        self.n_log_rows = 0;
+        self.sink.send(Msg::Log(input))
+    }
+
     // ----- close -----
 
     /// Finishes the file. Also invoked by `Drop`, but errors are only reported here.
@@ -1530,6 +1814,7 @@ impl Writer {
             self.flush_signals()?;
         }
         self.flush_tx()?;
+        self.flush_log()?;
         if !self.blackout.is_empty() {
             let mut payload = Vec::new();
             sections::encode_blackout(&self.blackout, &mut payload);
@@ -1544,6 +1829,7 @@ impl Writer {
             blocks: self.block_count,
             records: self.total_records + self.records.len() as u64 + self.wide_entries,
             transactions: self.total_tx,
+            log_records: self.total_log,
             signals: self.kinds.len() as u32,
             nodes: self.n_nodes,
         }
@@ -1562,6 +1848,8 @@ pub struct WriterStats {
     pub blocks: u32,
     pub records: u64,
     pub transactions: u64,
+    /// Log records written with `log` (not included in `transactions`).
+    pub log_records: u64,
     pub signals: u32,
     pub nodes: u32,
 }

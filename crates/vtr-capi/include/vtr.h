@@ -58,6 +58,7 @@ const char *vtr_version(void);
 #define VTR_VAL_FIXED    13  /* i = raw, scale */
 #define VTR_VAL_UFIXED   14  /* u = raw, scale */
 #define VTR_VAL_LIST     15  /* read-only: len = element count (contents not exposed) */
+#define VTR_VAL_TEXT     17  /* data, len: inline UTF-8 text (not interned) */
 #define VTR_VAL_MAP      16  /* read-only: len = entry count */
 
 typedef struct vtr_value {
@@ -86,6 +87,7 @@ typedef struct vtr_writer_options {
     int      background;     /* encode/compress on a background thread (default 1) */
     int      dedup;          /* drop value changes equal to the current value (default 1) */
     int      checksums;      /* store a CRC32 per section (default 1); readers verify on request */
+    uint32_t log_encoders;   /* helper threads encoding log blocks in background mode (default 2; 0 = sink thread) */
 } vtr_writer_options;
 
 void        vtr_writer_options_default(vtr_writer_options *o);
@@ -140,6 +142,21 @@ int vtr_writer_tx_stage_attr(vtr_writer *w, uint64_t tx, uint32_t key, const vtr
 int vtr_writer_end_tx(vtr_writer *w, uint64_t tx, uint64_t time, uint8_t status);
 int vtr_writer_relate(vtr_writer *w, uint32_t kind, uint64_t from, uint64_t to, size_t n, const uint32_t *keys, const vtr_value *values);
 
+/* Logs. A log stream (kind "LOG") holds one generator per call site ("log site"): the
+ * format string plus severity, argument types and source location. Each message is a
+ * zero-duration transaction storing only the argument values (see docs/LOGGING.md).
+ * Severity: 0 trace 1 debug 2 info 3 warn 4 error 5 fatal (other values allowed).
+ * arg_types: VTR_VAL_BOOL/I64/U64/F64/STR/BYTES/TIME/POINTER/TEXT. file, func, names nullable. */
+uint32_t vtr_writer_add_log_stream(vtr_writer *w, uint32_t parent /* or VTR_NONE */, const char *name);
+uint32_t vtr_writer_add_log_site(vtr_writer *w, uint32_t stream, uint8_t severity, const char *fmt, const char *file, uint32_t line,
+                                 const char *func, size_t n_args, const uint8_t *arg_types, const char *const *names); /* VTR_NONE on error */
+uint32_t vtr_writer_log_site_node(const vtr_writer *w, uint32_t site);
+int      vtr_writer_log(vtr_writer *w, uint32_t site, uint64_t time, uint64_t parent /* tx id or 0 */, size_t n, const vtr_value *args, uint64_t *id_out /* nullable */);
+/* Same with the argument values already in row encoding (bool: 1 byte; I64: zig-zag LEB128; U64/TIME/POINTER: LEB128;
+ * F64: 8 bytes LE; STR: LEB128 string id; TEXT/BYTES: LEB128 length + bytes), in declaration order. The caller
+ * guarantees the encoding matches the site (vtr_log.hpp does this by construction); a mismatch is reported at flush/close. */
+int      vtr_writer_log_raw(vtr_writer *w, uint32_t site, uint64_t time, uint64_t parent, const uint8_t *args, size_t len, uint64_t *id_out);
+
 /* ---- reader ---------------------------------------------------------- */
 typedef struct vtr_reader vtr_reader;
 
@@ -158,6 +175,9 @@ typedef struct vtr_meta {
     uint32_t signal_count, node_count, string_count, signal_block_count, tx_block_count;
     uint64_t tx_count, relation_count;
     uint32_t blackout_count, file_attr_count;
+    uint32_t log_block_count;
+    uint64_t log_count;           /* log records; also counted in tx_count */
+    uint32_t log_site_count;
 } vtr_meta;
 
 int         vtr_reader_meta(const vtr_reader *r, vtr_meta *out);
@@ -254,6 +274,38 @@ int vtr_reader_transaction(const vtr_reader *r, uint64_t id, vtr_tx_cb cb, void 
 
 typedef int (*vtr_relation_cb)(void *user, uint32_t kind, uint64_t from, uint64_t to, uint32_t n_attrs, const uint32_t *keys, const vtr_value *values);
 int vtr_reader_relations(const vtr_reader *r, uint64_t id, int direction /* 0 from id, 1 to id */, vtr_relation_cb cb, void *user);
+
+/* Logs. Records are also visible through vtr_reader_visit_transactions as zero-duration
+ * transactions whose attribute keys are the argument names. */
+typedef struct vtr_log_site_info {
+    uint32_t node, stream;
+    uint8_t  severity;
+    uint32_t fmt;                 /* string id of the format string */
+    uint32_t file, func;          /* string ids or VTR_NONE */
+    uint32_t line;                /* 0 = unknown */
+    uint32_t arg_count;
+} vtr_log_site_info;
+
+uint32_t vtr_reader_log_site_count(const vtr_reader *r);
+uint64_t vtr_reader_log_count(const vtr_reader *r);
+int      vtr_reader_log_site(const vtr_reader *r, uint32_t i, vtr_log_site_info *out);
+int      vtr_reader_log_site_arg(const vtr_reader *r, uint32_t i, uint32_t j, uint8_t *type_out, uint32_t *name_out);
+uint32_t vtr_reader_log_site_of(const vtr_reader *r, uint32_t generator);   /* site index or VTR_NONE */
+
+typedef struct vtr_log_rec {    /* valid only inside the callback */
+    uint64_t id, time;
+    uint64_t parent;              /* transaction id or 0 */
+    uint32_t site, generator, stream;
+    uint8_t  severity;
+    uint32_t arg_count;
+    const void *inner_;
+} vtr_log_rec;
+
+typedef int (*vtr_log_cb)(void *user, const vtr_log_rec *rec);  /* return non-zero to stop */
+int    vtr_reader_visit_log(const vtr_reader *r, uint32_t stream /* or VTR_NONE */, uint32_t generator /* or VTR_NONE */,
+                            uint8_t min_severity, uint64_t t0, uint64_t t1 /* 0 = no window */, vtr_log_cb cb, void *user);
+int    vtr_log_rec_arg(const vtr_log_rec *rec, uint32_t i, vtr_value *v_out);  /* TEXT/BYTES point into the reader */
+size_t vtr_log_rec_format(const vtr_reader *r, const vtr_log_rec *rec, char *buf, size_t cap); /* snprintf-like: returns full length */
 
 #ifdef __cplusplus
 }

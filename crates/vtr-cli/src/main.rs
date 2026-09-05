@@ -14,6 +14,7 @@ USAGE:
   vtr changes <file.vtr> <path> [--from T] [--to T] [--max N]
   vtr dump <file.vtr> [--from T] [--to T]     all value changes in time order (VCD-like)
   vtr tx <file.vtr> [--stream NAME] [--from T] [--to T] [--max N] [--id ID]
+  vtr log <file.vtr> [--stream NAME] [--severity LEVEL] [--from T] [--to T] [--max N] [--sites]
   vtr convert <input> <output.vtr> [--states 2|4|9] [--codec zstd|lz4|none] [--level L]
               [--group-size N] [--block-records N] [--no-background] [--no-dedup]
               input formats by extension: .fst .vcd .log/.kanata[.gz] .json (OTLP) .ftr
@@ -45,7 +46,7 @@ fn positional(args: &[String]) -> Vec<String> {
             continue;
         }
         if a.starts_with("--") {
-            skip = !matches!(a.as_str(), "--vars" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums");
+            skip = !matches!(a.as_str(), "--vars" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums" | "--sites");
             continue;
         }
         out.push(a.clone());
@@ -76,6 +77,7 @@ fn fmt_value(r: &Reader, v: &Value) -> String {
         Value::UFixed { raw, scale } => format!("{raw}*2^-{scale}"),
         Value::List(l) => format!("[{}]", l.iter().map(|x| fmt_value(r, x)).collect::<Vec<_>>().join(", ")),
         Value::Map(m) => format!("{{{}}}", m.iter().map(|(k, x)| format!("{}: {}", r.str(*k), fmt_value(r, x))).collect::<Vec<_>>().join(", ")),
+        Value::Text(s) => format!("{s:?}"),
     }
 }
 
@@ -124,7 +126,8 @@ fn cmd_info(args: &[String]) {
         println!("column runs: {}", parts.join(", "));
     }
     let (ntx, nrel) = r.tx_counts();
-    println!("tx blocks:   {} ({ntx} transactions, {nrel} relations)", r.tx_block_count());
+    println!("tx blocks:   {} ({} transactions, {nrel} relations)", r.tx_block_count(), ntx - r.log_count());
+    println!("log blocks:  {} ({} records, {} sites)", r.log_block_count(), r.log_count(), r.log_sites().len());
     println!("blackout:    {} transitions", r.blackout().len());
     let mut by_kind: std::collections::BTreeMap<u32, (usize, u64)> = Default::default();
     for e in r.sections() {
@@ -337,6 +340,54 @@ fn cmd_tx(args: &[String]) {
     }
 }
 
+fn cmd_log(args: &[String]) {
+    let p = positional(args);
+    let path = p.first().unwrap_or_else(|| die(USAGE));
+    let r = open(path);
+    if has(args, "--sites") {
+        for (i, s) in r.log_sites().iter().enumerate() {
+            let loc = match (s.file, s.line) {
+                (Some(f), Some(l)) => format!(" ({}:{l})", r.str(f)),
+                (Some(f), None) => format!(" ({})", r.str(f)),
+                _ => String::new(),
+            };
+            let args: Vec<String> = s.args.iter().zip(s.names.iter()).map(|(t, n)| format!("{}:{}", r.str(*n), t.name())).collect();
+            println!("site {i} {} {} {:?}{loc} [{}]", r.full_path(s.stream, "."), s.severity.name(), r.str(s.fmt), args.join(", "));
+        }
+        return;
+    }
+    let max: usize = flag(args, "--max").map(|s| s.parse().unwrap_or_else(|_| die("bad --max"))).unwrap_or(usize::MAX);
+    let mut q = vtr::LogQuery::default();
+    if let (Some(a), Some(b)) = (flag(args, "--from"), flag(args, "--to")) {
+        q.window = Some((parse_time(&a), parse_time(&b)));
+    }
+    if let Some(s) = flag(args, "--severity") {
+        q.min_severity = vtr::Severity::from_name(&s).unwrap_or_else(|| die(format!("bad severity {s}")));
+    }
+    if let Some(name) = flag(args, "--stream") {
+        q.stream = r.streams().find(|&s| r.name(s) == name || r.full_path(s, ".") == name);
+        if q.stream.is_none() {
+            die(format!("stream {name} not found"));
+        }
+    }
+    let mut n = 0usize;
+    let mut line = String::new();
+    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    use std::io::Write;
+    r.visit_log(&q, |rec| {
+        n += 1;
+        if n > max {
+            return false;
+        }
+        line.clear();
+        rec.format_into(r.strings(), &mut line);
+        let _ = writeln!(out, "{} {:<5} {}: {}", rec.time, rec.severity().name(), r.full_path(rec.site.stream, "."), line);
+        true
+    })
+    .unwrap_or_else(|e| die(e));
+    let _ = out.flush();
+}
+
 fn cmd_convert(args: &[String]) {
     let p = positional(args);
     if p.len() < 2 {
@@ -415,6 +466,7 @@ fn main() {
         "fst-to-vcd" => cmd_to_vcd(rest, true),
         "vcd-compare" => cmd_vcd_compare(rest),
         "tx" => cmd_tx(rest),
+        "log" => cmd_log(rest),
         "convert" => cmd_convert(rest),
         "--version" | "-V" => println!("vtr {}", env!("CARGO_PKG_VERSION")),
         _ => {

@@ -20,3 +20,9 @@
 
 /.venv-vdb/
 /tools/vdb/__pycache__/
+
+# Logging systems compared by bench/log (fetched by bench/log/fetch_refs.sh, not submodules)
+/ext/clp/
+/ext/NanoLog/
+/ext/binlog/
+/ext/quill/

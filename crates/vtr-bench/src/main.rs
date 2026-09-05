@@ -1,6 +1,7 @@
 //! `vtr-bench`: workload preparation and benchmark drivers.
 
 mod load;
+mod logw;
 mod read;
 mod replay;
 mod tx;
@@ -21,6 +22,8 @@ vtr-bench commands:
   tx-write <in.txr> <out.vtr> [--codec ..] [--no-background]
   kanata-write <in.log> <out.vtr> [--codec ..]
   tx-read <in.vtr> [--seed S]
+  log-write <n> <out.vtr> [--no-background] [--codec ..] [--level L]   synthetic simulator log through Writer::log (JSON)
+  log-encode <n>                                      log block encoder micro-benchmark per codec (JSON)
   stream <in.vtr>                                     count all changes via for_each_change
   replay-info <in.rpl>";
 
@@ -75,7 +78,7 @@ fn main() {
                 continue;
             }
             if a.starts_with("--") {
-                skip = !matches!(a.as_str(), "--no-background" | "--no-dedup");
+                skip = !matches!(a.as_str(), "--no-background" | "--no-dedup" | "--as-tx");
                 continue;
             }
             out.push(a.clone());
@@ -106,6 +109,19 @@ fn main() {
         "replay-info" => {
             let rp = replay::Replay::load(&pos[1]).unwrap();
             println!("{}", serde_json::json!({"signals": rp.signals.len(), "changes": rp.recs.len(), "time_steps": rp.n_times(), "end_time": rp.end_time}));
+        }
+        "log-write" => {
+            let n: u64 = pos[1].parse().unwrap();
+            let label = if has(&args, "--no-background") { "vtr-rust-inline" } else { "vtr-rust" };
+            if has(&args, "--as-tx") {
+                println!("{}", logw::run_write_as_tx(n, &pos[2], writer_opts(&args)));
+            } else {
+                println!("{}", logw::run_write(n, &pos[2], writer_opts(&args), label));
+            }
+        }
+        "log-encode" => {
+            let n: u64 = pos[1].parse().unwrap();
+            println!("{}", serde_json::to_string_pretty(&logw::run_encode(n)).unwrap());
         }
         "write" => {
             let rp = replay::Replay::load(&pos[1]).unwrap();

@@ -17,8 +17,8 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::ptr;
 use vtr::{
-    AttrPhase, Direction, Error, NodeData, NodeId, Reader, ScopeType, SignalId, SignalKind, StrId, Transaction, TxKind, TxQuery, TxStatus, Value,
-    VarType, Writer, WriterOptions,
+    AttrPhase, Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
+    SignalKind, StrId, Transaction, TxKind, TxQuery, TxStatus, Value, VarType, Writer, WriterOptions,
 };
 
 pub const VTR_OK: c_int = 0;
@@ -157,6 +157,7 @@ pub const VTR_VAL_FIXED: u8 = 13;
 pub const VTR_VAL_UFIXED: u8 = 14;
 pub const VTR_VAL_LIST: u8 = 15;
 pub const VTR_VAL_MAP: u8 = 16;
+pub const VTR_VAL_TEXT: u8 = 17;
 
 impl Default for vtr_value {
     fn default() -> Self {
@@ -188,7 +189,31 @@ unsafe fn to_value(v: &vtr_value) -> Result<Value, Error> {
         VTR_VAL_POINTER => Value::Pointer(v.u),
         VTR_VAL_FIXED => Value::Fixed { raw: v.i, scale: v.scale },
         VTR_VAL_UFIXED => Value::UFixed { raw: v.u, scale: v.scale },
+        VTR_VAL_TEXT => Value::Text(String::from_utf8(bytes(v)).map_err(|_| Error::Invalid("text value is not UTF-8".into()))?),
         _ => return Err(Error::Invalid("unsupported value tag".into())),
+    })
+}
+
+/// Borrowing conversion for log arguments (no allocation).
+unsafe fn to_log_arg<'a>(v: &'a vtr_value) -> Result<LogArg<'a>, Error> {
+    let slice = |v: &'a vtr_value| -> &'a [u8] {
+        if v.data.is_null() || v.len == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(v.data, v.len)
+        }
+    };
+    Ok(match v.tag {
+        VTR_VAL_BOOL => LogArg::Bool(v.b != 0),
+        VTR_VAL_I64 => LogArg::I64(v.i),
+        VTR_VAL_U64 => LogArg::U64(v.u),
+        VTR_VAL_F64 => LogArg::F64(v.f),
+        VTR_VAL_STR => LogArg::Str(StrId(v.str_id)),
+        VTR_VAL_BYTES => LogArg::Bytes(slice(v)),
+        VTR_VAL_TIME => LogArg::Time(v.u),
+        VTR_VAL_POINTER => LogArg::Pointer(v.u),
+        VTR_VAL_TEXT => LogArg::Text(std::str::from_utf8(slice(v)).map_err(|_| Error::Invalid("text argument is not UTF-8".into()))?),
+        _ => return Err(Error::Invalid("unsupported log argument tag".into())),
     })
 }
 
@@ -224,6 +249,10 @@ fn from_value(v: &Value) -> vtr_value {
         }
         Value::List(l) => o.len = l.len(),
         Value::Map(m) => o.len = m.len(),
+        Value::Text(s) => {
+            o.data = s.as_ptr();
+            o.len = s.len();
+        }
     }
     o
 }
@@ -256,6 +285,8 @@ pub struct vtr_writer_options {
     pub background: c_int,
     pub dedup: c_int,
     pub checksums: c_int,
+    /// Helper threads encoding log blocks (background mode); 0 = on the sink thread.
+    pub log_encoders: u32,
 }
 
 #[no_mangle]
@@ -272,6 +303,7 @@ pub unsafe extern "C" fn vtr_writer_options_default(o: *mut vtr_writer_options) 
             background: d.background as c_int,
             dedup: d.dedup as c_int,
             checksums: d.checksums as c_int,
+            log_encoders: d.log_encoders as u32,
         };
     }
 }
@@ -298,6 +330,7 @@ pub unsafe extern "C" fn vtr_writer_create(path: *const c_char, opts: *const vtr
         o.compression.level = c.level;
         o.group_size = c.group_size;
         o.block_records = c.block_records as usize;
+        o.log_encoders = c.log_encoders as usize;
         o.chunk_records = c.chunk_records.max(1) as usize;
         o.tx_block_bytes = c.tx_block_bytes as usize;
         o.background = c.background != 0;
@@ -618,6 +651,157 @@ pub unsafe extern "C" fn vtr_writer_relate(w: *mut vtr_writer, kind: u32, from: 
     status(need!(w).0.relate(StrId(kind), from, to, &attrs))
 }
 
+// ----- logs -----
+
+/// Declares a log stream (kind "LOG"); `parent` may be VTR_NONE.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_add_log_stream(w: *mut vtr_writer, parent: u32, name: *const c_char) -> u32 {
+    let w = match w.as_mut() {
+        Some(w) => w,
+        None => return VTR_NONE,
+    };
+    let name = match cstr(name) {
+        Some(s) => s,
+        None => return VTR_NONE,
+    };
+    let parent = if parent == VTR_NONE { None } else { Some(NodeId(parent)) };
+    w.0.add_log_stream(parent, name).0
+}
+
+/// Registers a log call site. `arg_types` are VTR_VAL_* tags (n_args of them;
+/// allowed: BOOL I64 U64 F64 STR BYTES TIME POINTER TEXT); `file`, `func` and
+/// `names` (n_args argument names) may be NULL. Returns the site id or VTR_NONE.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_add_log_site(
+    w: *mut vtr_writer,
+    stream: u32,
+    severity: u8,
+    fmt: *const c_char,
+    file: *const c_char,
+    line: u32,
+    func: *const c_char,
+    n_args: usize,
+    arg_types: *const u8,
+    names: *const *const c_char,
+) -> u32 {
+    let w = match w.as_mut() {
+        Some(w) => w,
+        None => {
+            set_error("null handle");
+            return VTR_NONE;
+        }
+    };
+    let fmt = match cstr(fmt) {
+        Some(s) => s,
+        None => {
+            set_error("null or non-UTF-8 format string");
+            return VTR_NONE;
+        }
+    };
+    if n_args > 0 && arg_types.is_null() {
+        set_error("null arg_types");
+        return VTR_NONE;
+    }
+    let mut types = Vec::with_capacity(n_args);
+    for i in 0..n_args {
+        match LogArgType::from_u8(*arg_types.add(i)) {
+            Ok(t) => types.push(t),
+            Err(_) => {
+                set_error("unsupported log argument type");
+                return VTR_NONE;
+            }
+        }
+    }
+    let mut name_strs: Vec<&str> = Vec::new();
+    if !names.is_null() {
+        for i in 0..n_args {
+            match cstr(*names.add(i)) {
+                Some(s) => name_strs.push(s),
+                None => break,
+            }
+        }
+    }
+    let mut spec = LogSiteSpec::new(NodeId(stream), Severity::from_code(severity), fmt, &types).names(&name_strs);
+    spec.file = cstr(file).unwrap_or("");
+    spec.line = line;
+    spec.func = cstr(func).unwrap_or("");
+    w.0.add_log_site(&spec).0
+}
+
+/// Generator node of a log site (VTR_NONE if unknown).
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_log_site_node(w: *const vtr_writer, site: u32) -> u32 {
+    match w.as_ref() {
+        Some(w) => w.0.log_site_node(LogSiteId(site)).map(|n| n.0).unwrap_or(VTR_NONE),
+        None => VTR_NONE,
+    }
+}
+
+/// Records a log message: `n` argument values matching the site's declared
+/// types; `parent` is a transaction id or 0. `id_out` (nullable) receives the
+/// record's transaction id.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_log(w: *mut vtr_writer, site: u32, time: u64, parent: u64, n: usize, args: *const vtr_value, id_out: *mut u64) -> c_int {
+    let w = need!(w);
+    if n > 0 && args.is_null() {
+        set_error("null args");
+        return VTR_ERR_NULL;
+    }
+    let mut buf = [LogArg::Bool(false); 16];
+    let mut heap: Vec<LogArg> = Vec::new();
+    let list: &[LogArg] = if n <= 16 {
+        for (i, slot) in buf.iter_mut().enumerate().take(n) {
+            *slot = match to_log_arg(&*args.add(i)) {
+                Ok(a) => a,
+                Err(e) => return status(Err(e)),
+            };
+        }
+        &buf[..n]
+    } else {
+        heap.reserve(n);
+        for i in 0..n {
+            match to_log_arg(&*args.add(i)) {
+                Ok(a) => heap.push(a),
+                Err(e) => return status(Err(e)),
+            }
+        }
+        &heap
+    };
+    let parent = if parent == 0 { None } else { Some(parent) };
+    match w.0.log_with_parent(LogSiteId(site), time, parent, list) {
+        Ok(id) => {
+            if let Some(o) = id_out.as_mut() {
+                *o = id;
+            }
+            VTR_OK
+        }
+        Err(e) => status(Err(e)),
+    }
+}
+
+/// Records a log message from pre-encoded argument values (row encoding, see
+/// `Writer::log_raw`); the caller guarantees they match the site's types.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_log_raw(w: *mut vtr_writer, site: u32, time: u64, parent: u64, args: *const u8, len: usize, id_out: *mut u64) -> c_int {
+    let w = need!(w);
+    let bytes: &[u8] = if len == 0 { &[] } else if args.is_null() {
+        set_error("null args");
+        return VTR_ERR_NULL;
+    } else {
+        std::slice::from_raw_parts(args, len)
+    };
+    let parent = if parent == 0 { None } else { Some(parent) };
+    match w.0.log_raw(LogSiteId(site), time, parent, bytes) {
+        Ok(id) => {
+            if let Some(o) = id_out.as_mut() {
+                *o = id;
+            }
+            VTR_OK
+        }
+        Err(e) => status(Err(e)),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Reader
 // ---------------------------------------------------------------------------
@@ -670,6 +854,10 @@ pub struct vtr_meta {
     pub relation_count: u64,
     pub blackout_count: u32,
     pub file_attr_count: u32,
+    pub log_block_count: u32,
+    /// Log records (also counted in `tx_count`).
+    pub log_count: u64,
+    pub log_site_count: u32,
 }
 
 #[no_mangle]
@@ -699,6 +887,9 @@ pub unsafe extern "C" fn vtr_reader_meta(r: *const vtr_reader, out: *mut vtr_met
         relation_count: nrel,
         blackout_count: r.0.blackout().len() as u32,
         file_attr_count: m.attrs.len() as u32,
+        log_block_count: r.0.log_block_count() as u32,
+        log_count: r.0.log_count(),
+        log_site_count: r.0.log_sites().len() as u32,
     };
     VTR_OK
 }
@@ -1424,4 +1615,199 @@ pub unsafe extern "C" fn vtr_reader_relations(r: *const vtr_reader, id: u64, dir
         }
         Err(e) => status(Err(e)),
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Reader: logs
+// ---------------------------------------------------------------------------
+
+/// Static description of a log site.
+#[repr(C)]
+pub struct vtr_log_site_info {
+    pub node: u32,
+    pub stream: u32,
+    pub severity: u8,
+    /// String id of the format string.
+    pub fmt: u32,
+    /// String ids (VTR_NONE when absent).
+    pub file: u32,
+    pub func: u32,
+    pub line: u32,
+    pub arg_count: u32,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_log_site_count(r: *const vtr_reader) -> u32 {
+    match r.as_ref() {
+        Some(r) => r.0.log_sites().len() as u32,
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_log_count(r: *const vtr_reader) -> u64 {
+    match r.as_ref() {
+        Some(r) => r.0.log_count(),
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_log_site(r: *const vtr_reader, i: u32, out: *mut vtr_log_site_info) -> c_int {
+    let r = need_ref!(r);
+    let out = need!(out);
+    match r.0.log_sites().get(i as usize) {
+        Some(s) => {
+            *out = vtr_log_site_info {
+                node: s.node.0,
+                stream: s.stream.0,
+                severity: s.severity.code(),
+                fmt: s.fmt.0,
+                file: s.file.map(|x| x.0).unwrap_or(VTR_NONE),
+                func: s.func.map(|x| x.0).unwrap_or(VTR_NONE),
+                line: s.line.unwrap_or(0),
+                arg_count: s.args.len() as u32,
+            };
+            VTR_OK
+        }
+        None => VTR_ERR_NOT_FOUND,
+    }
+}
+
+/// Type (VTR_VAL_*) and name (string id) of argument `j` of site `i`.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_log_site_arg(r: *const vtr_reader, i: u32, j: u32, type_out: *mut u8, name_out: *mut u32) -> c_int {
+    let r = need_ref!(r);
+    match r.0.log_sites().get(i as usize) {
+        Some(s) if (j as usize) < s.args.len() => {
+            if let Some(o) = type_out.as_mut() {
+                *o = s.args[j as usize] as u8;
+            }
+            if let Some(o) = name_out.as_mut() {
+                *o = s.names.get(j as usize).map(|n| n.0).unwrap_or(VTR_NONE);
+            }
+            VTR_OK
+        }
+        _ => VTR_ERR_NOT_FOUND,
+    }
+}
+
+/// Site index of generator `gen`, or VTR_NONE when it is not a log site.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_log_site_of(r: *const vtr_reader, gen: u32) -> u32 {
+    match r.as_ref() {
+        Some(r) => r.0.log_site(NodeId(gen)).map(|s| s.index).unwrap_or(VTR_NONE),
+        None => VTR_NONE,
+    }
+}
+
+/// One log record, valid only inside the visit callback.
+#[repr(C)]
+pub struct vtr_log_rec {
+    pub id: u64,
+    pub time: u64,
+    /// Parent transaction id, 0 = none.
+    pub parent: u64,
+    /// Site index (see `vtr_reader_log_site`).
+    pub site: u32,
+    pub generator: u32,
+    pub stream: u32,
+    pub severity: u8,
+    pub arg_count: u32,
+    inner: *const std::ffi::c_void,
+}
+
+pub type vtr_log_cb = Option<unsafe extern "C" fn(user: *mut std::ffi::c_void, rec: *const vtr_log_rec) -> c_int>;
+
+/// Visits log records: `stream` / `generator` may be VTR_NONE, `min_severity`
+/// 0 = all, `t1 == 0` = no time window. The callback returns non-zero to stop.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_visit_log(r: *const vtr_reader, stream: u32, generator: u32, min_severity: u8, t0: u64, t1: u64, cb: vtr_log_cb, user: *mut std::ffi::c_void) -> c_int {
+    let r = need_ref!(r);
+    let cb = match cb {
+        Some(c) => c,
+        None => return VTR_ERR_NULL,
+    };
+    let q = LogQuery {
+        stream: if stream == VTR_NONE { None } else { Some(NodeId(stream)) },
+        generator: if generator == VTR_NONE { None } else { Some(NodeId(generator)) },
+        min_severity: Severity::from_code(min_severity),
+        window: if t1 == 0 { None } else { Some((t0, t1)) },
+    };
+    let res = r.0.visit_log(&q, |rec| {
+        let h = vtr_log_rec {
+            id: rec.id,
+            time: rec.time,
+            parent: rec.parent.unwrap_or(0),
+            site: rec.site.index,
+            generator: rec.site.node.0,
+            stream: rec.site.stream.0,
+            severity: rec.site.severity.code(),
+            arg_count: rec.arg_count() as u32,
+            inner: rec as *const LogRecord as *const std::ffi::c_void,
+        };
+        cb(user, &h) == 0
+    });
+    status(res)
+}
+
+/// Argument `i` of a record. Text arguments come back as VTR_VAL_TEXT with
+/// `data`/`len` pointing into the reader (valid while the reader is alive).
+#[no_mangle]
+pub unsafe extern "C" fn vtr_log_rec_arg(rec: *const vtr_log_rec, i: u32, v_out: *mut vtr_value) -> c_int {
+    let rec = need_ref!(rec);
+    let out = need!(v_out);
+    let inner = &*(rec.inner as *const LogRecord);
+    match inner.arg(i as usize) {
+        Some(a) => {
+            let mut o = vtr_value { tag: a.arg_type() as u8, ..Default::default() };
+            match a {
+                LogArg::Bool(b) => o.b = b as u8,
+                LogArg::I64(x) => o.i = x,
+                LogArg::U64(x) | LogArg::Time(x) | LogArg::Pointer(x) => o.u = x,
+                LogArg::F64(f) => o.f = f,
+                LogArg::Str(s) => o.str_id = s.0,
+                LogArg::Bytes(b) => {
+                    o.data = b.as_ptr();
+                    o.len = b.len();
+                }
+                LogArg::Text(s) => {
+                    o.data = s.as_ptr();
+                    o.len = s.len();
+                }
+            }
+            *out = o;
+            VTR_OK
+        }
+        None => VTR_ERR_NOT_FOUND,
+    }
+}
+
+thread_local! {
+    static FMT_BUF: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Renders the message of `rec` into `buf` (NUL-terminated when `cap > 0`,
+/// truncated if it does not fit). Returns the full message length, like
+/// `snprintf`. `buf` may be NULL with `cap == 0` to query the length.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_log_rec_format(r: *const vtr_reader, rec: *const vtr_log_rec, buf: *mut c_char, cap: usize) -> usize {
+    let (r, rec) = match (r.as_ref(), rec.as_ref()) {
+        (Some(r), Some(rec)) => (r, rec),
+        _ => return 0,
+    };
+    let inner = &*(rec.inner as *const LogRecord);
+    FMT_BUF.with(|s| {
+        let mut s = s.borrow_mut();
+        s.clear();
+        inner.format_into(r.0.strings(), &mut s);
+        let n = s.len();
+        if cap > 0 && !buf.is_null() {
+            let m = n.min(cap - 1);
+            ptr::copy_nonoverlapping(s.as_ptr(), buf as *mut u8, m);
+            *buf.add(m) = 0;
+        }
+        n
+    })
 }

@@ -4,7 +4,8 @@ VTR is an open trace file format and reference library for hardware
 simulation. One file holds signal waveforms, transaction streams, the
 elaborated design hierarchy and the runtime relations between transactions:
 an open FSDB-class trace store that covers everything FST, FTR (LWTR4SC),
-Konata/Kanata pipeline logs and OpenTelemetry traces can express.
+Konata/Kanata pipeline logs and OpenTelemetry traces can express, plus the
+simulator's text log as typed, timestamped records (`docs/LOGGING.md`).
 
 * Rust reference implementation (`crates/vtr`), C ABI (`crates/vtr-capi`,
   header `crates/vtr-capi/include/vtr.h`), command-line tools
@@ -21,6 +22,10 @@ Konata/Kanata pipeline logs and OpenTelemetry traces can express.
 VDB (Vibe Data Base) is the separate design and presentation companion.
 The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.
 
+Explore the [Pipeline Studio UX demo](demos/pipeline-viewer/index.html): an
+interactive pipeline viewer and a screenshot-based tutorial. See its
+[research and run instructions](demos/pipeline-viewer/README.md).
+
 ## Documents
 
 | document | content |
@@ -28,11 +33,12 @@ The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.
 | [docs/SPEC.md](docs/SPEC.md) | file format specification (normative) |
 | [docs/API_RUST.md](docs/API_RUST.md) | Rust API reference and tour |
 | [docs/API_C.md](docs/API_C.md) | C API reference |
+| [docs/LOGGING.md](docs/LOGGING.md) | simulator logging into VTR: log sites and records, the C++ header and Rust API, reading messages back, performance |
 | [docs/VDB_APPNOTE.md](docs/VDB_APPNOTE.md) | designing a VDB (semantics/presentation layer) on top of VTR, with a worked Konata pipeline viewer and the RTL-debugger outline |
 | [docs/VDB_RTL.md](docs/VDB_RTL.md) | slang RTL VDB exporter, module netlist SVGs with timestamped values, and driver tracing CLI |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | benchmark methodology; results in [docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md) |
 | [docs/RATIONALE.md](docs/RATIONALE.md) | design rationale: alternatives researched, what was borrowed and rejected |
-| [docs/COVERAGE.md](docs/COVERAGE.md) | feature-by-feature coverage of FST, FTR, Kanata and OpenTelemetry |
+| [docs/COVERAGE.md](docs/COVERAGE.md) | feature-by-feature coverage of FST, FTR, Kanata and OpenTelemetry, plus the logging comparison with NanoLog, binlog, Quill and CLP |
 | [docs/SOTA_REVIEW_2026.md](docs/SOTA_REVIEW_2026.md) | 2025-2026 literature on trace/columnar compression checked against measurements; ranked ideas for further gains |
 
 ## Building
@@ -68,6 +74,7 @@ vtr hier sim.vtr --vars --depth 3
 vtr value sim.vtr top.cpu.pc 123450
 vtr changes sim.vtr top.cpu.pc --from 100000 --to 200000
 vtr dump sim.vtr --to 5000                  # VCD-like text
+vtr log sim.vtr --severity warn             # log records rendered to text (docs/LOGGING.md)
 vtr tx pipeline.vtr --stream cpu.thread0 --from 100 --to 200
 vtr tx pipeline.vtr --id 42
 ```

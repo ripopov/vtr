@@ -31,6 +31,10 @@ and the public specifications; the resulting feature matrix is in
   flush, dependencies, what the viewer derives versus stores.
 * **OpenTelemetry**: spans, kinds, events, links, status, resources and
   instrumentation scopes, `AnyValue`.
+* **NanoLog**, **binlog**, **Quill**, **CLP** (`ext/`): how binary loggers
+  separate static call-site facts from dynamic values, pack and queue the
+  values, and how CLP decomposes finished text into log types and variable
+  dictionaries; the measurements are in section 7 and `BENCHMARK_RESULTS.md`.
 * **wavepeek** and **wellen**: the query mix of an LLM-driven waveform
   CLI (open, hierarchy listing, sample-at-time, change windows,
   condition scans), how wellen opens FST (all block headers and time
@@ -296,7 +300,142 @@ local; the contents are stored as 24 columns compressed as one blob.
   works the same way; OpenTelemetry's 16+8-byte ids would defeat
   delta coding.
 
-## 7. API
+## 7. Logs
+
+Simulator text logs (UVM reports, `$display`, `LOG_INFO` macros) were the
+last trace domain without a home in VTR. Four systems were studied
+(`ext/NanoLog`, `ext/binlog`, `ext/quill`, `ext/clp`, fetched by
+`bench/log/fetch_refs.sh`); the comparison harness is `bench/log/`, the numbers below are from `sim_log_1m` /
+`sim_log_10m` on an Apple M5 (`docs/BENCHMARK_RESULTS.md`).
+
+**What the references do.**
+
+* *NanoLog* (Yang, Park, Ousterhout; ATC'18) extracts the static part of a
+  log statement (format string, file, line, severity, argument types) at
+  compile time (preprocessor) or first use (C++17 `constexpr` analysis),
+  writes it once to the file as a dictionary fragment, and stores per message
+  a 1-4 byte format id, a packed TSC delta and the arguments packed to their
+  minimal byte width (a 4-bit "nibble" per integer says how many bytes
+  follow). A background thread compacts and writes with POSIX AIO. Hot path
+  ~7 ns; no general compression; strings verbatim. Linux/x86-64 only.
+* *binlog* (Morgan Stanley) generalises the idea without a preprocessor: an
+  `EventSource` entry (severity, category, function, file, line, format,
+  mserialize type tags) is written lazily on first use of each call site, and
+  an event is `u32 size, u64 source id, u64 clock, arguments` copied at
+  native width into a per-thread SPSC queue that a consumer drains to any
+  stream. Self-describing, any clock, no compression (52 bytes per message
+  on the benchmark before zstd), text via `bread`.
+* *Quill* keeps the same static-metadata idea (`MacroMetadata` per call
+  site, arguments encoded by `Codec<T>` into a thread-local SPSC queue) but
+  its backend formats text: the output is a text file. The hot path is the
+  fastest of the four here (27 ns for the whole loop) but the backend then
+  needs 6x longer than the loop to format and write 66 bytes per message.
+* *CLP* (Rodrigues, Luo, Stumm; OSDI'21) starts from finished text: it
+  tokenises each message into a *logtype* (the message with variables
+  replaced by placeholders), *dictionary variables* (tokens that are not
+  plain numbers) and *encoded variables* (integers and decimals kept as
+  64-bit values), stores the dictionaries once and the per-message ids and
+  values in columns compressed with zstd, and searches the compressed
+  archive without decompressing it. Its IR stream is the same decomposition
+  per message plus zstd, used by its logging-library plugins.
+
+The common core is one idea: separate the static call site from the dynamic
+values, store the static part once and the values raw. CLP adds the second
+idea that matters for simulator logs: repeated string variables belong in a
+dictionary and numbers should stay numbers. VTR already had the structures
+for both (generators with attributes, transactions, string tables, columnar
+blocks), so log support is a specialised encoding of a transaction, not a
+new data model.
+
+**Chosen.**
+
+* A *log site* is a generator of a `LOG` stream: name = format string,
+  attributes `log.severity`, `log.args` (types), `log.names`, `log.file`,
+  `log.line`, `log.func`. Registration is lazy on the C++ side (a static per
+  call site, as binlog and Quill do) and explicit on the Rust side; the
+  hierarchy chunk that declares a site is flushed before the first block
+  that uses it, which the existing writer already guaranteed for streams
+  and generators.
+* A *log record* is a zero-duration transaction: it takes the next
+  transaction id, may have a parent transaction and can be a relation
+  endpoint, and every existing consumer (`visit_transactions`, `vtr tx`,
+  VDB viewers) sees it without new code. Its encoding is its own section
+  kind, `LOG_BLOCK`, because a generic transaction row spends most of its
+  bytes on things a log record does not need (attribute keys and tags,
+  duration, status, event and stage counts). Writing the benchmark's
+  messages as ordinary transactions with one attribute per argument costs
+  11.9 MB and 71 ns per message on the caller's thread; the log block costs
+  9.6 MB and 28 ns (`vtr-bench log-write --as-tx`).
+* Columns: site index, time delta, id delta, parent, then one column per
+  value class (integers as LEB128, floats as 8 bytes, text as dictionary
+  indexes, str ids and bytes as they are), the whole set compressed with the
+  file codec. The per-block *text dictionary* is CLP's variable dictionary
+  built at encode time: the hot path copies the string, the encoder hashes
+  it once per block, and a repeated component name costs one byte. Global
+  interning (`Str`) stays available for producers that intern themselves;
+  it was not made the default because it puts a hash lookup on the hot path
+  and grows the string table every reader loads at open.
+* A new value tag, `text` (17), for one-off UTF-8 strings that are not
+  interned: log arguments need it when a record is read as a transaction,
+  and converters can use it for unique attribute strings that today bloat
+  the string table. Format version 1.1; a 1.0 reader skips log blocks
+  (optional flag) and rejects tag 17.
+* The hot path is a memcpy: the C++ header encodes the arguments on the
+  stack from compile-time known types and calls `vtr_writer_log_raw`; the
+  Rust API validates the types against the site and writes the same bytes.
+  27-31 ns per message for three arguments, versus 23 ns for NanoLog, 27 ns
+  for Quill and 40 ns for binlog on the same machine.
+* Log blocks are encoded on helper threads (`log_encoders`, default 2)
+  because splitting rows into columns plus zstd costs about 60 ns per
+  message, twice the hot path; with two encoders the total (loop plus
+  flush) is 38 ms per million messages against 66 ms with one. Blocks are
+  written in production order so a monotonic log reads back in order.
+
+**Measured** (1M / 10M messages, best of 3): file size VTR 9.6 MB / 95.7 MB;
+NanoLog 26.2 / 267 MB; binlog 52 / 520 MB (14.3 MB after zstd at 1M);
+Quill and text 66 / 672 MB (16.8 MB after zstd); CLP IR + zstd 14.6 /
+146 MB. Loop plus flush per million: VTR 0.038 s, NanoLog 0.023 s, binlog
+0.041 s, Quill 0.185 s, text 0.143 s, CLP 0.375 s (of which 0.12 s is the
+text formatting it starts from). Reading back to text: VTR 10 M lines/s,
+CLP 14 M lines/s, bread 2.6 M lines/s, NanoLog's decompressor 1.4 M lines/s.
+The text rendered from the VTR file is byte-identical to the fprintf log.
+So VTR is the smallest by 1.5x over CLP and 2.7x over NanoLog, within 1.7x
+of NanoLog's total time and faster than the rest, and second only to CLP
+when rendering text.
+
+**Rejected or bounded.**
+
+* Formatted text as a `bytes`/`text` attribute (the first proposal): the
+  text log compressed with zstd is 16.8 bytes per message against 9.6 for
+  the decomposed record, and every message would carry a formatting call on
+  the simulator's thread (the text baseline's loop is 143 ms per million,
+  five times the log call).
+* A variable-length string signal (the FST/VCD `$display` idiom): flat text,
+  no severity or per-site structure, and the writer-wide value dedup drops an
+  identical repeated line.
+* Compressing rows without transposition (what CLP's IR stream is, one
+  message after another): 14.6 MB versus 9.6 MB for the same data; the
+  columns are worth 35%.
+* zstd level 1 instead of 3 for log blocks: 40 ms instead of 61 ms of
+  encoder time per million but 10.05 MB instead of 9.52 MB (`vtr-bench
+  log-encode`); LZ4: 34 ms and 12.5 MB. With two encoder threads level 3
+  already keeps up with the producer, so the file codec is used unchanged.
+* A faster dictionary hasher: replacing SipHash by a multiply-rotate hash
+  changed the column split from 32 to 29 ns per message; the cost is in the
+  varint decode/encode and column appends, not the hashing. Kept because
+  it is free.
+* Pre-parsing format strings once per site instead of per record took the
+  read-back from 4.5 to 10 M lines/s.
+
+**Known limitations.** The format-string subset is the intersection of
+Rust and C++ `std::format` (no named arguments, no `%`-style specs; binlog's
+plain `{}` is a subset of it). Records from several producer threads would
+have to be merged by the caller (the writer is single-threaded, as for
+signals and transactions). There is no full-text index; a search is a
+`visit_log` with a filter, which the block headers prune by site and time
+but not by argument value.
+
+## 8. API
 
 * **Rust first, C second, same shape.** The C API is a one-to-one
   projection of the Rust one (`vtr_writer_*`, `vtr_reader_*`) with opaque
@@ -327,7 +466,7 @@ local; the contents are stored as 24 columns compressed as one blob.
   deduplication off, because Verilator's generated code already emits
   only changed values.
 
-## 8. Things deliberately left out of the format
+## 9. Things deliberately left out of the format
 
 * Presentation and semantics (colours, roles, source locations): the VDB
   layer (`docs/VDB_APPNOTE.md`). Producers may record source stems as
@@ -335,7 +474,7 @@ local; the contents are stored as 24 columns compressed as one blob.
 * Whole-file compression wrappers, sidecar files, in-band viewer state.
 * A query language: VTR is a store; queries are code.
 
-## 9. Known limitations and future work
+## 10. Known limitations and future work
 
 * Block time tables cap at 2^31 entries per block; the writer would need
   to split blocks by time as well as by record count for runs with
@@ -355,7 +494,7 @@ local; the contents are stored as 24 columns compressed as one blob.
   literature against measurements on the benchmark files (dictionary
   transform, second encoder thread, narrowest-packing loads).
 
-## 10. RTL VDB companion
+## 11. RTL VDB companion
 
 VDB means Vibe Data Base. The companion crate and CLI use `vtr-vdb`,
 the exporter emits `vtr-rtl-vdb` version 2 in `.vdb.json` files, and trace
