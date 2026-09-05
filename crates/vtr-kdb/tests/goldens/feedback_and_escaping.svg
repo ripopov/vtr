@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2794.0" height="1412.0" viewBox="0 0 2794.0 1412.0">
+<title>top @ 0</title>
+<rect width="100%" height="100%" fill="#f8fafc"/>
+<style>text { font-family: monospace; font-size: 12px; fill: #172b4d; } .title { font-size: 15px; font-weight: bold; } .detail { fill: #52637a; font-size: 10px; } .missing { fill: #b42318; } .value { fill: #075985; }</style>
+<text x="20" y="26" class="title">top @ 0 (1e-9 s ticks)</text>
+<g transform="translate(20 60)">
+<polyline data-edge="e0" points="1802.0,521.0 1812.0,521.0 1812.0,641.0 1892.0,641.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e1" points="1332.0,559.0 1352.0,559.0 1352.0,679.0 1422.0,679.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e2" points="1332.0,717.0 1422.0,717.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e3" points="1802.0,679.0 1892.0,679.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e4" points="2272.0,641.0 2362.0,641.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e5" points="1332.0,559.0 1352.0,559.0 1352.0,875.0 1422.0,875.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e6" points="1332.0,913.0 1422.0,913.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e7" points="1802.0,875.0 1892.0,875.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e8" points="1332.0,559.0 1352.0,559.0 1352.0,287.0 1422.0,287.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e9" points="1332.0,205.0 1362.0,205.0 1362.0,325.0 1422.0,325.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e10" points="1332.0,363.0 1422.0,363.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e11" points="1802.0,287.0 1892.0,287.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e12" points="392.0,1229.0 482.0,1229.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e13" points="1332.0,1229.0 1342.0,1229.0 1342.0,1320.0 402.0,1320.0 402.0,1267.0 482.0,1267.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e14" points="862.0,1229.0 952.0,1229.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e15" points="1332.0,559.0 1352.0,559.0 1352.0,1153.0 1422.0,1153.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e16" points="1332.0,1071.0 1342.0,1071.0 1342.0,1191.0 1422.0,1191.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e17" points="1332.0,1229.0 1422.0,1229.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e18" points="1802.0,1153.0 1892.0,1153.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<g data-node="n0"><title>signal · 1 bits</title><rect x="1892.0" y="810.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1904.0" y="832.0" class="title">\&lt;&amp;name </text><text x="1904.0" y="850.0" class="detail">signal · 1 bits</text>
+<g data-pin="n0p0"><title>in</title><circle cx="1892.0" cy="875.0" r="3" fill="#334155"/><text x="1900.0" y="871.0" text-anchor="start">in</text><text x="1900.0" y="886.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n0p1"><title>top.\&lt;&amp;name  = 1</title><circle cx="2272.0" cy="875.0" r="3" fill="#334155"/><text x="2264.0" y="871.0" text-anchor="end">value</text><text x="2264.0" y="886.0" text-anchor="end" class="value">1</text></g>
+</g>
+<g data-node="n1"><title>In port · 8 bits</title><rect x="952.0" y="494.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="516.0" class="title">a</text><text x="964.0" y="534.0" class="detail">In port · 8 bits</text>
+<g data-pin="n1p0"><title>in</title><circle cx="952.0" cy="559.0" r="3" fill="#334155"/><text x="960.0" y="555.0" text-anchor="start">in</text><text x="960.0" y="570.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n1p1"><title>top.a = 10xz10xz</title><circle cx="1332.0" cy="559.0" r="3" fill="#334155"/><text x="1324.0" y="555.0" text-anchor="end">value</text><text x="1324.0" y="570.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n2"><title>InOut port · 1 bits</title><rect x="1422.0" y="456.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1434.0" y="478.0" class="title">bus</text><text x="1434.0" y="496.0" class="detail">InOut port · 1 bits</text>
+<g data-pin="n2p0"><title>in</title><circle cx="1422.0" cy="521.0" r="3" fill="#334155"/><text x="1430.0" y="517.0" text-anchor="start">in</text><text x="1430.0" y="532.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n2p1"><title>top.bus = 1</title><circle cx="1802.0" cy="521.0" r="3" fill="#334155"/><text x="1794.0" y="517.0" text-anchor="end">value</text><text x="1794.0" y="532.0" text-anchor="end" class="value">1</text></g>
+</g>
+<g data-node="n3"><title>In port · 1 bits</title><rect x="12.0" y="1164.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="24.0" y="1186.0" class="title">clk</text><text x="24.0" y="1204.0" class="detail">In port · 1 bits</text>
+<g data-pin="n3p0"><title>in</title><circle cx="12.0" cy="1229.0" r="3" fill="#334155"/><text x="20.0" y="1225.0" text-anchor="start">in</text><text x="20.0" y="1240.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n3p1"><title>top.clk = 1</title><circle cx="392.0" cy="1229.0" r="3" fill="#334155"/><text x="384.0" y="1225.0" text-anchor="end">value</text><text x="384.0" y="1240.0" text-anchor="end" class="value">1</text></g>
+</g>
+<g data-node="n4"><title>signal · 1 bits</title><rect x="412.0" y="12.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="424.0" y="34.0" class="title">escaped_net</text><text x="424.0" y="52.0" class="detail">signal · 1 bits</text>
+<g data-pin="n4p0"><title>in</title><circle cx="412.0" cy="77.0" r="3" fill="#334155"/><text x="420.0" y="73.0" text-anchor="start">in</text><text x="420.0" y="88.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n4p1"><title>top.escaped_net = 1</title><circle cx="792.0" cy="77.0" r="3" fill="#334155"/><text x="784.0" y="73.0" text-anchor="end">value</text><text x="784.0" y="88.0" text-anchor="end" class="value">1</text></g>
+</g>
+<g data-node="n5"><title>Out port · 1 bits</title><rect x="2362.0" y="576.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="2374.0" y="598.0" class="title">flag</text><text x="2374.0" y="616.0" class="detail">Out port · 1 bits</text>
+<g data-pin="n5p0"><title>in</title><circle cx="2362.0" cy="641.0" r="3" fill="#334155"/><text x="2370.0" y="637.0" text-anchor="start">in</text><text x="2370.0" y="652.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n5p1"><title>top.flag = 1</title><circle cx="2742.0" cy="641.0" r="3" fill="#334155"/><text x="2734.0" y="637.0" text-anchor="end">value</text><text x="2734.0" y="652.0" text-anchor="end" class="value">1</text></g>
+</g>
+<g data-node="n6"><title>Out port · 8 bits</title><rect x="1892.0" y="1088.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1904.0" y="1110.0" class="title">q</text><text x="1904.0" y="1128.0" class="detail">Out port · 8 bits</text>
+<g data-pin="n6p0"><title>in</title><circle cx="1892.0" cy="1153.0" r="3" fill="#334155"/><text x="1900.0" y="1149.0" text-anchor="start">in</text><text x="1900.0" y="1164.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n6p1"><title>top.q = 10xz10xz</title><circle cx="2272.0" cy="1153.0" r="3" fill="#334155"/><text x="2264.0" y="1149.0" text-anchor="end">value</text><text x="2264.0" y="1164.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n7"><title>In port · 2 bits</title><rect x="952.0" y="1006.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="1028.0" class="title">sel</text><text x="964.0" y="1046.0" class="detail">In port · 2 bits</text>
+<g data-pin="n7p0"><title>in</title><circle cx="952.0" cy="1071.0" r="3" fill="#334155"/><text x="960.0" y="1067.0" text-anchor="start">in</text><text x="960.0" y="1082.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n7p1"><title>top.sel = 10</title><circle cx="1332.0" cy="1071.0" r="3" fill="#334155"/><text x="1324.0" y="1067.0" text-anchor="end">value</text><text x="1324.0" y="1082.0" text-anchor="end" class="value">10</text></g>
+</g>
+<g data-node="n8"><title>signal · 4 bits</title><rect x="1892.0" y="222.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1904.0" y="244.0" class="title">slice</text><text x="1904.0" y="262.0" class="detail">signal · 4 bits</text>
+<g data-pin="n8p0"><title>in</title><circle cx="1892.0" cy="287.0" r="3" fill="#334155"/><text x="1900.0" y="283.0" text-anchor="start">in</text><text x="1900.0" y="298.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n8p1"><title>top.slice = 10xz</title><circle cx="2272.0" cy="287.0" r="3" fill="#334155"/><text x="2264.0" y="283.0" text-anchor="end">value</text><text x="2264.0" y="298.0" text-anchor="end" class="value">10xz</text></g>
+</g>
+<g data-node="n9"><title>signal · 8 bits</title><rect x="952.0" y="1164.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="1186.0" class="title">state</text><text x="964.0" y="1204.0" class="detail">signal · 8 bits</text>
+<g data-pin="n9p0"><title>in</title><circle cx="952.0" cy="1229.0" r="3" fill="#334155"/><text x="960.0" y="1225.0" text-anchor="start">in</text><text x="960.0" y="1240.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n9p1"><title>top.state = 10xz10xz</title><circle cx="1332.0" cy="1229.0" r="3" fill="#334155"/><text x="1324.0" y="1225.0" text-anchor="end">value</text><text x="1324.0" y="1240.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n10" data-instance="top.u"><title>module · crates/vtr-kdb/tests/rtl/edge_cases.sv:18:9 · bidirectional/ref connection (not directional logic)</title><rect x="1892.0" y="576.0" width="380.0" height="146.0" rx="6" fill="#e0f2fe" stroke="#334155"/>
+<text x="1904.0" y="598.0" class="title">u : pad</text><text x="1904.0" y="616.0" class="detail">module · crates/vtr-kdb/tests/rtl/edge_cases.sv:18:9 · bid…</text>
+<g data-pin="n10p0"><title>top.u.io = 1</title><circle cx="1892.0" cy="641.0" r="3" fill="#334155"/><text x="1900.0" y="637.0" text-anchor="start">↔ io</text><text x="1900.0" y="652.0" text-anchor="start" class="value">1</text></g>
+<g data-pin="n10p1"><title>top.u.drive = 1</title><circle cx="1892.0" cy="679.0" r="3" fill="#334155"/><text x="1900.0" y="675.0" text-anchor="start">drive</text><text x="1900.0" y="690.0" text-anchor="start" class="value">1</text></g>
+<g data-pin="n10p2"><title>top.u.sample = 1</title><circle cx="2272.0" cy="641.0" r="3" fill="#334155"/><text x="2264.0" y="637.0" text-anchor="end">sample</text><text x="2264.0" y="652.0" text-anchor="end" class="value">1</text></g>
+</g>
+<g data-node="n11" data-instance="top.empty"><title>module · crates/vtr-kdb/tests/rtl/edge_cases.sv:19:12</title><rect x="12.0" y="12.0" width="380.0" height="70.0" rx="6" fill="#e0f2fe" stroke="#334155"/>
+<text x="24.0" y="34.0" class="title">empty : vacant</text><text x="24.0" y="52.0" class="detail">module · crates/vtr-kdb/tests/rtl/edge_cases.sv:19:12</text>
+</g>
+<g data-node="n12"><title>1 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:18:27</title><rect x="1422.0" y="614.0" width="380.0" height="146.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1434.0" y="636.0" class="title">select bit</text><text x="1434.0" y="654.0" class="detail">1 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:18:27</text>
+<g data-pin="n12p0"><title>value[0]</title><circle cx="1422.0" cy="679.0" r="3" fill="#334155"/><text x="1430.0" y="675.0" text-anchor="start">value[0]</text><text x="1430.0" y="690.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n12p1"><title>index[1]</title><circle cx="1422.0" cy="717.0" r="3" fill="#334155"/><text x="1430.0" y="713.0" text-anchor="start">index[1]</text><text x="1430.0" y="728.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n12p2"><title>out</title><circle cx="1802.0" cy="679.0" r="3" fill="#334155"/><text x="1794.0" y="675.0" text-anchor="end">out</text><text x="1794.0" y="690.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n13"><title>32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:18:29</title><rect x="952.0" y="652.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="674.0" class="title">constant 0</text><text x="964.0" y="692.0" class="detail">32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:18:29</text>
+<g data-pin="n13p0"><title>out</title><circle cx="1332.0" cy="717.0" r="3" fill="#334155"/><text x="1324.0" y="713.0" text-anchor="end">out</text><text x="1324.0" y="728.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n14"><title>1 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:10:21</title><rect x="1422.0" y="810.0" width="380.0" height="146.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1434.0" y="832.0" class="title">select bit</text><text x="1434.0" y="850.0" class="detail">1 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:10:21</text>
+<g data-pin="n14p0"><title>value[0]</title><circle cx="1422.0" cy="875.0" r="3" fill="#334155"/><text x="1430.0" y="871.0" text-anchor="start">value[0]</text><text x="1430.0" y="886.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n14p1"><title>index[1]</title><circle cx="1422.0" cy="913.0" r="3" fill="#334155"/><text x="1430.0" y="909.0" text-anchor="start">index[1]</text><text x="1430.0" y="924.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n14p2"><title>out</title><circle cx="1802.0" cy="875.0" r="3" fill="#334155"/><text x="1794.0" y="871.0" text-anchor="end">out</text><text x="1794.0" y="886.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n15"><title>32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:10:23</title><rect x="952.0" y="848.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="870.0" class="title">constant 0</text><text x="964.0" y="888.0" class="detail">32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:10:23</text>
+<g data-pin="n15p0"><title>out</title><circle cx="1332.0" cy="913.0" r="3" fill="#334155"/><text x="1324.0" y="909.0" text-anchor="end">out</text><text x="1324.0" y="924.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n16"><title>4 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:12:24</title><rect x="1422.0" y="222.0" width="380.0" height="184.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1434.0" y="244.0" class="title">slice Simple</text><text x="1434.0" y="262.0" class="detail">4 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:12:24</text>
+<g data-pin="n16p0"><title>value[0]</title><circle cx="1422.0" cy="287.0" r="3" fill="#334155"/><text x="1430.0" y="283.0" text-anchor="start">value[0]</text><text x="1430.0" y="298.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n16p1"><title>left[1]</title><circle cx="1422.0" cy="325.0" r="3" fill="#334155"/><text x="1430.0" y="321.0" text-anchor="start">left[1]</text><text x="1430.0" y="336.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n16p2"><title>right[2]</title><circle cx="1422.0" cy="363.0" r="3" fill="#334155"/><text x="1430.0" y="359.0" text-anchor="start">right[2]</text><text x="1430.0" y="374.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n16p3"><title>out</title><circle cx="1802.0" cy="287.0" r="3" fill="#334155"/><text x="1794.0" y="283.0" text-anchor="end">out</text><text x="1794.0" y="298.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n17"><title>32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:12:26</title><rect x="952.0" y="140.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="162.0" class="title">constant 5</text><text x="964.0" y="180.0" class="detail">32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:12:26</text>
+<g data-pin="n17p0"><title>out</title><circle cx="1332.0" cy="205.0" r="3" fill="#334155"/><text x="1324.0" y="201.0" text-anchor="end">out</text><text x="1324.0" y="216.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n18"><title>32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:12:28</title><rect x="952.0" y="298.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="320.0" class="title">constant 2</text><text x="964.0" y="338.0" class="detail">32 bits · crates/vtr-kdb/tests/rtl/edge_cases.sv:12:28</text>
+<g data-pin="n18p0"><title>out</title><circle cx="1332.0" cy="363.0" r="3" fill="#334155"/><text x="1324.0" y="359.0" text-anchor="end">out</text><text x="1324.0" y="374.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n19"><title>2 · crates/vtr-kdb/tests/rtl/edge_cases.sv:13:5 · PosEdge top.clk</title><rect x="482.0" y="1164.0" width="380.0" height="146.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="494.0" y="1186.0" class="title">clocked process</text><text x="494.0" y="1204.0" class="detail">2 · crates/vtr-kdb/tests/rtl/edge_cases.sv:13:5 · PosEdge …</text>
+<g data-pin="n19p0"><title>top.clk = 1</title><circle cx="482.0" cy="1229.0" r="3" fill="#334155"/><text x="490.0" y="1225.0" text-anchor="start">clk</text><text x="490.0" y="1240.0" text-anchor="start" class="value">1</text></g>
+<g data-pin="n19p1"><title>top.state = 10xz10xz</title><circle cx="482.0" cy="1267.0" r="3" fill="#334155"/><text x="490.0" y="1263.0" text-anchor="start">state</text><text x="490.0" y="1278.0" text-anchor="start" class="value">10xz10xz</text></g>
+<g data-pin="n19p2"><title>top.state = 10xz10xz</title><circle cx="862.0" cy="1229.0" r="3" fill="#334155"/><text x="854.0" y="1225.0" text-anchor="end">state</text><text x="854.0" y="1240.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n20"><title>3 · crates/vtr-kdb/tests/rtl/edge_cases.sv:14:5 · statement Case</title><rect x="1422.0" y="1088.0" width="380.0" height="184.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="1434.0" y="1110.0" class="title">combinational process</text><text x="1434.0" y="1128.0" class="detail">3 · crates/vtr-kdb/tests/rtl/edge_cases.sv:14:5 · statemen…</text>
+<g data-pin="n20p0"><title>top.a = 10xz10xz</title><circle cx="1422.0" cy="1153.0" r="3" fill="#334155"/><text x="1430.0" y="1149.0" text-anchor="start">a</text><text x="1430.0" y="1164.0" text-anchor="start" class="value">10xz10xz</text></g>
+<g data-pin="n20p1"><title>top.sel = 10</title><circle cx="1422.0" cy="1191.0" r="3" fill="#334155"/><text x="1430.0" y="1187.0" text-anchor="start">sel</text><text x="1430.0" y="1202.0" text-anchor="start" class="value">10</text></g>
+<g data-pin="n20p2"><title>top.state = 10xz10xz</title><circle cx="1422.0" cy="1229.0" r="3" fill="#334155"/><text x="1430.0" y="1225.0" text-anchor="start">state</text><text x="1430.0" y="1240.0" text-anchor="start" class="value">10xz10xz</text></g>
+<g data-pin="n20p3"><title>top.q = 10xz10xz</title><circle cx="1802.0" cy="1153.0" r="3" fill="#334155"/><text x="1794.0" y="1149.0" text-anchor="end">q</text><text x="1794.0" y="1164.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+</g>
+</svg>

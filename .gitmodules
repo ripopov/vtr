@@ -17,3 +17,6 @@
 	path = ext/surfer
 	url = https://github.com/ripopov/surfer
 	branch = vtr
+[submodule "ext/elkrs"]
+	path = ext/elkrs
+	url = https://github.com/ripopov/elkrs

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Export the elaborated slang AST into VTR's independent RTL KDB v1."""
+"""Export the elaborated slang AST into VTR's independent RTL KDB v2."""
+from collections import Counter
 import argparse
 import hashlib
 import json
@@ -20,6 +21,11 @@ class Exporter:
         self.instances = []
         self.processes = []
         self.connections = []
+
+    def owner(self, n):
+        scope = n.parentScope
+        instance = scope.containingInstance if scope else None
+        return instance.hierarchicalPath if instance else None
 
     def loc(self, n):
         l = n.location if hasattr(n, 'location') else n.sourceRange.start
@@ -50,12 +56,18 @@ class Exporter:
             d.update(cond=self.expr(e.conditions[0].expr), yes=self.expr(e.left), no=self.expr(e.right))
         elif k == 'Concatenation':
             d['operands'] = [self.expr(x) for x in e.operands]
+        elif k == 'Replication':
+            d.update(count=int(str(e.count.constant)), operand=self.expr(e.concat))
+        elif k == 'RangeSelect':
+            r = e.value.type.getBitVectorRange()
+            d.update(value=self.expr(e.value), left=self.expr(e.left), right=self.expr(e.right),
+                     selection=str(e.selectionKind).split('.')[-1], range_left=r.left, range_right=r.right)
         elif k == 'ElementSelect':
             d.update(value=self.expr(e.value), selector=self.expr(e.selector))
             r = e.value.type.getBitVectorRange()
             d.update(range_left=r.left, range_right=r.right)
         else:
-            d.update(kind='Unsupported', reason=f'expression {k}')
+            d.update(kind='Unsupported', reason=f'expression {k}', reads=self.reads(e))
         return d
 
     def assignment(self, e):
@@ -95,6 +107,26 @@ class Exporter:
         n.visit(visit)
         return sorted(out)
 
+    def reads(self, n):
+        # Count references then subtract assignment LHS references; this preserves
+        # self-feedback and reads hidden inside unsupported statements.
+        refs = Counter()
+        def ref(x, weight=1):
+            if isinstance(x, (slang.ast.NamedValueExpression, slang.ast.HierarchicalValueExpression)):
+                if not isinstance(x.symbol, (slang.ast.ParameterSymbol, slang.ast.EnumValueSymbol)):
+                    refs[x.symbol.hierarchicalPath] += weight
+        def visit(x):
+            ref(x)
+            if isinstance(x, slang.ast.AssignmentExpression):
+                # Keep selectors on partial writes as reads, remove only the base.
+                lhs = x.left
+                while isinstance(lhs, (slang.ast.ElementSelectExpression, slang.ast.RangeSelectExpression)):
+                    lhs = lhs.value
+                if not x.isCompound:
+                    ref(lhs, -1)
+        n.visit(visit)
+        return sorted(k for k, count in refs.items() if count > 0)
+
     def process(self, n):
         events = []
         if tag(n) == 'ContinuousAssign':
@@ -119,20 +151,34 @@ class Exporter:
                         events.append(dict(edge=str(t.edge).split('.')[-1], expr=self.expr(t.expr), source=self.loc(t)))
                 s = s.stmt
             body = self.stmt(s)
-        self.processes.append(dict(id=len(self.processes), mode=mode, targets=self.targets(n),
+        self.processes.append(dict(id=len(self.processes), owner=self.owner(n), origin="rtl", reads=self.reads(n), mode=mode, targets=self.targets(n),
                                    events=events, body=body, source=self.loc(n)))
 
     def visit(self, n):
         k = tag(n)
         if k in ('Variable', 'Net', 'Parameter', 'EnumValue'):
-            d = dict(path=n.hierarchicalPath, kind=k, type=self.typ(n.type), source=self.loc(n))
+            d = dict(path=n.hierarchicalPath, owner=self.owner(n), kind=k, type=self.typ(n.type), source=self.loc(n))
             if k in ('Parameter', 'EnumValue'):
                 d['value'] = str(n.value)
             self.symbols[n.hierarchicalPath] = d
+            if k == 'Net' and n.initializer is not None:
+                body = dict(kind='Assign', target=n.hierarchicalPath, value=self.expr(n.initializer), nba=False, source=self.loc(n))
+                if n.delay is not None:
+                    body = dict(kind='Unsupported', reason='net declaration delay', source=self.loc(n))
+                self.processes.append(dict(id=len(self.processes), owner=self.owner(n), origin='rtl', reads=self.reads(n.initializer),
+                                           mode='comb', targets=[n.hierarchicalPath], events=[], body=body, source=self.loc(n)))
             if k == 'Variable' and n.initializer is not None:
-                self.processes.append(dict(id=len(self.processes), mode='unsupported', targets=[n.hierarchicalPath], events=[], body=dict(kind='Unsupported', reason='variable initializer'), source=self.loc(n)))
+                self.processes.append(dict(id=len(self.processes), owner=self.owner(n), origin='rtl', reads=self.reads(n.initializer), mode='unsupported', targets=[n.hierarchicalPath], events=[], body=dict(kind='Unsupported', reason='variable initializer'), source=self.loc(n)))
         elif k == 'Instance':
-            self.instances.append(dict(path=n.hierarchicalPath, definition=n.definition.name, source=self.loc(n)))
+            ports = []
+            for p in n.body.portList:
+                if hasattr(p, 'internalSymbol') and p.internalSymbol is not None:
+                    ports.append(dict(name=p.name, symbol=p.internalSymbol.hierarchicalPath,
+                                      direction=str(p.direction).split('.')[-1]))
+                else:
+                    raise RuntimeError(f'unsupported module port at {n.hierarchicalPath}.{p.name}')
+            self.instances.append(dict(path=n.hierarchicalPath, parent=self.owner(n),
+                                       ports=ports, definition=n.definition.name, source=self.loc(n)))
             for c in n.portConnections:
                 p = c.port
                 if p.internalSymbol is None or c.expression is None:
@@ -141,7 +187,7 @@ class Exporter:
                 e = self.expr(c.expression)
                 direction = str(p.direction).split('.')[-1]
                 target, value = inside, e
-                if direction == 'Out':
+                if direction in ('Out', 'InOut', 'Ref'):
                     # slang represents output connection as an assignment to the parent.
                     a = c.expression
                     if tag(a) == 'Assignment':
@@ -150,12 +196,12 @@ class Exporter:
                     else:
                         target = e.get('symbol', '')
                     value = dict(kind='NamedValue', symbol=inside, type=self.typ(p.type), source=self.loc(p))
-                self.connections.append(dict(port=inside, direction=direction, expression=e, source=self.loc(p)))
+                self.connections.append(dict(instance=n.hierarchicalPath, port=inside, direction=direction, expression=e, source=self.loc(p)))
                 body = dict(kind='Assign', target=target, value=value, nba=False, source=self.loc(p))
                 if direction not in ('In', 'Out') or not target:
                     body = dict(kind='Unsupported', reason='inout/ref or complex output connection', source=self.loc(p))
                 targets = [target] if target else (self.targets(c.expression) or [inside])
-                self.processes.append(dict(id=len(self.processes), mode='comb', targets=targets, events=[], body=body, source=self.loc(p)))
+                self.processes.append(dict(id=len(self.processes), owner=self.owner(n), origin='connection', reads=[], mode='comb', targets=targets, events=[], body=body, source=self.loc(p)))
         elif k in ('ContinuousAssign', 'ProceduralBlock'):
             self.process(n)
 
@@ -192,7 +238,7 @@ def main():
         if name and Path(name).is_file():
             sources.append(dict(path=str(Path(name).relative_to(Path.cwd())) if Path(name).is_relative_to(Path.cwd()) else name,
                                 sha256=hashlib.sha256(Path(name).read_bytes()).hexdigest()))
-    doc = dict(format='vtr-rtl-kdb', version=1, producer='pyslang '+slang.__version__, top=args.top,
+    doc = dict(format='vtr-rtl-kdb', version=2, producer='pyslang '+slang.__version__, top=args.top,
                sources=sorted(sources, key=lambda x:x['path']), options=cmd[1:],
                instances=ex.instances, symbols=ex.symbols, connections=ex.connections, processes=ex.processes)
     doc['design_id'] = hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()

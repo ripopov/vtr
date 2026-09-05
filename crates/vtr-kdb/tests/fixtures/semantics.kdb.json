@@ -1,11 +1,64 @@
 {
   "connections": [],
-  "design_id": "d149f68cf7b31ba3af580ebeb19ad5aca98b78b42b0baae3d3417d9adf2f2af9",
+  "design_id": "c106167334c68ada00c71f2faf7bcdaaff3634fac3557dc92fb7ec4c99db39ce",
   "format": "vtr-rtl-kdb",
   "instances": [
     {
       "definition": "top",
+      "parent": null,
       "path": "top",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.clk"
+        },
+        {
+          "direction": "In",
+          "name": "rst",
+          "symbol": "top.rst"
+        },
+        {
+          "direction": "In",
+          "name": "en",
+          "symbol": "top.en"
+        },
+        {
+          "direction": "In",
+          "name": "sel",
+          "symbol": "top.sel"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.a"
+        },
+        {
+          "direction": "In",
+          "name": "b",
+          "symbol": "top.b"
+        },
+        {
+          "direction": "Out",
+          "name": "y",
+          "symbol": "top.y"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.q"
+        },
+        {
+          "direction": "Out",
+          "name": "z",
+          "symbol": "top.z"
+        },
+        {
+          "direction": "Out",
+          "name": "ordered",
+          "symbol": "top.ordered"
+        }
+      ],
       "source": {
         "column": 8,
         "file": "crates/vtr-kdb/tests/rtl/semantics.sv",
@@ -180,6 +233,14 @@
       "events": [],
       "id": 0,
       "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b",
+        "top.sel",
+        "top.tmp"
+      ],
       "source": {
         "column": 5,
         "file": "crates/vtr-kdb/tests/rtl/semantics.sv",
@@ -352,6 +413,14 @@
       ],
       "id": 1,
       "mode": "seq",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.clk",
+        "top.en",
+        "top.rst",
+        "top.y"
+      ],
       "source": {
         "column": 5,
         "file": "crates/vtr-kdb/tests/rtl/semantics.sv",
@@ -447,6 +516,13 @@
       ],
       "id": 2,
       "mode": "seq",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b",
+        "top.clk"
+      ],
       "source": {
         "column": 5,
         "file": "crates/vtr-kdb/tests/rtl/semantics.sv",
@@ -601,6 +677,12 @@
       "events": [],
       "id": 3,
       "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b"
+      ],
       "source": {
         "column": 12,
         "file": "crates/vtr-kdb/tests/rtl/semantics.sv",
@@ -621,6 +703,7 @@
   "symbols": {
     "top.a": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.a",
       "source": {
         "column": 30,
@@ -637,6 +720,7 @@
     },
     "top.b": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.b",
       "source": {
         "column": 33,
@@ -653,6 +737,7 @@
     },
     "top.clk": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.clk",
       "source": {
         "column": 24,
@@ -669,6 +754,7 @@
     },
     "top.en": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.en",
       "source": {
         "column": 34,
@@ -685,6 +771,7 @@
     },
     "top.ordered": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.ordered",
       "source": {
         "column": 40,
@@ -701,6 +788,7 @@
     },
     "top.q": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.q",
       "source": {
         "column": 34,
@@ -717,6 +805,7 @@
     },
     "top.rst": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.rst",
       "source": {
         "column": 29,
@@ -733,6 +822,7 @@
     },
     "top.sel": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.sel",
       "source": {
         "column": 38,
@@ -749,6 +839,7 @@
     },
     "top.tmp": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.tmp",
       "source": {
         "column": 17,
@@ -765,6 +856,7 @@
     },
     "top.y": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.y",
       "source": {
         "column": 31,
@@ -781,6 +873,7 @@
     },
     "top.z": {
       "kind": "Variable",
+      "owner": "top",
       "path": "top.z",
       "source": {
         "column": 37,
@@ -797,5 +890,5 @@
     }
   },
   "top": "top",
-  "version": 1
+  "version": 2
 }

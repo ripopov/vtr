@@ -47,9 +47,26 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(d['processes'][0]['targets'], ['top.q'])
         self.assertEqual(d['processes'][0]['body']['kind'], 'Unsupported')
         self.assertIn('Case', d['processes'][0]['body']['reason'])
+        self.assertEqual(d['processes'][0]['reads'], ['top.a'])
+
+    def test_explicit_ownership_ports_and_feedback(self):
+        d = self.export("""module unit1(input logic a, output logic q); assign q=a; endmodule
+          module top(input logic clk); logic state;
+          always_ff @(posedge clk) state <= ~state;
+          for(genvar i=0;i<2;i++) begin: g
+            unit1 u(.a(state),.q());
+          end endmodule""")
+        self.assertEqual(d['version'], 2)
+        self.assertEqual(d['instances'][0]['ports'][0]['direction'], 'In')
+        self.assertTrue(all(i['parent'] == 'top' for i in d['instances'][1:]))
+        self.assertTrue(all(s['owner'] in [i['path'] for i in d['instances']] for s in d['symbols'].values()))
+        p = next(p for p in d['processes'] if p['mode'] == 'seq')
+        self.assertEqual(p['reads'], ['top.clk', 'top.state'])
+        self.assertEqual(p['owner'], 'top')
+        self.assertEqual(len(d['instances'][1]['ports']), 2)  # includes unconnected q
 
     def test_committed_fixtures_match_live_elaboration(self):
-        for name in ('pipeline', 'semantics'):
+        for name in ('pipeline', 'semantics', 'netlist', 'edge_cases'):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
                 out = Path(td)/'out.json'
                 p = subprocess.run([sys.executable, str(EXPORT), '--top', 'top', '-o', str(out),

@@ -1,4 +1,4 @@
-# RTL knowledge database and temporal driver tracing
+# RTL knowledge database, netlists, and temporal driver tracing
 
 The `vtr-kdb` companion uses slang to elaborate SystemVerilog, exports source
 semantics into a separate JSON KDB, and queries immutable runtime waveforms
@@ -8,11 +8,14 @@ encodings, or presentation fields to VTR.
 ## Build and use
 
 Python 3.10+ and the pinned slang Python bindings are required for export.
+The layout dependency uses Rust edition 2024; this companion requires Rust
+1.88+ and is validated on Rust 1.88 and 1.96. The core VTR crate retains its existing toolchain policy.
 The Rust CLI can read an exported KDB without Python or slang installed.
 
 ```sh
 python3 -m venv .venv-kdb
 .venv-kdb/bin/pip install -r tools/kdb/requirements.txt
+git submodule update --init ext/elkrs
 cargo build --release -p vtr-kdb
 .venv-kdb/bin/python tools/kdb/export.py --top top -o design.kdb.json design.sv
 # Also accepts repeated -I include-directory and -D NAME=value, and multiple files.
@@ -43,6 +46,74 @@ compares predicted values to recorded values and reports disagreement.
 Neither structural checks nor agreeing samples alone prove source identity.
 Paths outside the export working directory remain absolute; use the same
 working directory and source arguments for reproducible identities.
+
+## Module netlists with recorded values
+
+```sh
+target/release/vtr-kdb netlist design.kdb.json simulation.vtr top \
+  --time 26 --output top.svg
+target/release/vtr-kdb netlist design.kdb.json simulation.vtr top.u0 \
+  --time 26 --output stage.svg
+```
+
+The instance argument selects exactly one elaborated module. Its local signals,
+operators, processes, and immediate child instances form the graph. Children are
+opaque blue blocks with named ports; open the child's instance path to inspect
+its internals. Generate scopes belong to their enclosing module. Parameterized
+instances keep their elaborated widths and constants. A `NetlistIndex` indexes
+ownership once; making a module view never traverses descendant internals.
+Elaboration still exports the whole design, with per-instance specialization;
+v2 does not deduplicate parameterized definitions or stream JSON on demand.
+
+This is an RTL connectivity view. Single combinational assignments become
+operator nodes (including mux, slice, concatenation, replication, and casts).
+Statement blocks remain process nodes with all statically read signals, outputs,
+clock/reset events, and source locations. It preserves procedural dependencies
+without claiming a synthesized gate implementation. Unsupported statement or
+expression evaluation retains statically known connectivity and a diagnostic.
+Unconnected ports remain visible, and inout/ref pins use `↔`; the view does not
+simulate electrical resolution. Complex output lvalues are explicitly marked
+unsupported. Primitive gates/interfaces are outside the current exporter subset.
+
+Signal nodes and instance/process pins show settled values read from VTR at the
+requested timestamp. X/Z remain literal, buses wider than 64 bits are supported,
+and long names/values have full text in SVG tooltips. `unavailable` appears in red
+for missing recordings, out-of-range times, or invalidated samples across dump
+gaps. Operator intermediate results are not invented. `--prefix TOP` has the
+same exact attachment rules as driver tracing. Sampling is per visible symbol,
+with histories shared by VTR signal ID; it currently loads full histories of
+those signals. Layout can be reused while changing timestamps.
+
+The native Rust [elkrs maintenance fork](https://github.com/ripopov/elkrs) is
+pinned by the `ext/elkrs` gitlink and integrated as a Cargo path dependency.
+Its layered algorithm places fixed-side ports and routes orthogonal wires.
+SVG uses `data-instance` for child navigation by a host UI, plus stable view-local
+`data-node`, `data-pin`, and `data-edge` identities. The standalone SVG is a
+snapshot; CLI selection or a host UI provides drill-down. No layout or KDB data
+is embedded in VTR.
+
+### Netlist regression and visual review
+
+```sh
+cargo test -p vtr-kdb
+.venv-kdb/bin/python tools/kdb/test_export.py
+# Only when intentionally updating reviewed results:
+VTR_UPDATE_GOLDENS=1 cargo test -p vtr-kdb --test netlist
+# Requires librsvg's rsvg-convert; parses every SVG and renders review PNGs:
+python3 tools/kdb/verify_svg.py
+# Then open target/netlist-svg/review/index.html and inspect each diagram.
+```
+
+The suite has 30 netlist tests, 26 of which render annotated SVGs (including CLI
+coverage), with 25 distinct checked-in SVG goldens in
+`crates/vtr-kdb/tests/goldens`. Tests check known pipeline values, missing-data
+behavior, immediate-child boundaries, feedback, port directions, generated and
+nested instances, unsupported-process inputs, XML escaping, wide and four-state
+values, layout determinism, and unchanged parent geometry with 2,000 added
+descendants. Geometry checks verify block separation, orthogonal routes, and
+exact wire-to-port attachment before golden comparison. Four committed KDB
+fixtures are checked against live slang elaboration. Review notes are in
+[NETLIST_REVIEW.md](NETLIST_REVIEW.md).
 
 ## Dependency tree and time model
 
@@ -94,9 +165,10 @@ trees. Truncation is printed explicitly. CLI syntax, file, and attachment
 errors exit 2. A completed tree query exits 0 even if branches contain explicit
 ambiguity, unsupported-semantics, or missing-data diagnostics.
 
-## KDB v1 schema
+## KDB v2 schema
 
-The UTF-8 JSON object is identified by `format: "vtr-rtl-kdb"`, `version: 1`.
+The UTF-8 JSON object is identified by `format: "vtr-rtl-kdb"`, `version: 2`.
+Version 1 must be re-exported from RTL: it lacks ownership and complete ports.
 Unknown format versions are rejected. Unknown object fields are ignored for
 additive metadata evolution; unknown expression/statement tags are rejected.
 This is an application format independent of the VTR container version.
@@ -107,10 +179,10 @@ This is an application format independent of the VTR container version.
 | `producer`, `top`, `options` | pinned slang version, selected root module, elaboration arguments |
 | `sources` | source/include file paths and SHA-256 content hashes |
 | `design_id` | SHA-256 of the canonical sorted-key JSON document before this field is added |
-| `instances` | elaborated instance path, definition name, source location |
-| `symbols` | map keyed by elaborated hierarchical path; each value repeats `path`, and contains `kind`, `type`, `source`, and optional constant `value` |
-| `connections` | child port path, slang direction (`In`, `Out`, etc.), connection expression, source |
-| `processes` | numeric local ID, mode (`comb`, `seq`, `unsupported`), target paths, event controls, body, source |
+| `instances` | elaborated instance `path`, `parent` module instance (null for root), definition name, source location, ordered `ports` (`name`, `symbol`, `direction`) including unconnected and top-level ports |
+| `symbols` | map keyed by elaborated hierarchical path; each value repeats `path`, and contains module `owner`, `kind`, `type`, `source`, and optional constant `value` |
+| `connections` | owning child `instance`, child port path, slang direction (`In`, `Out`, etc.), connection expression, source |
+| `processes` | numeric local ID, module `owner`, `origin` (`rtl` or synthetic `connection`), static `reads`, mode (`comb`, `seq`, `unsupported`), target paths, event controls, body, source |
 
 Every source location contains `file`, one-based `line`, and `column`.
 Types record slang's resolved text, integral bit `width`, `signed`,
@@ -131,13 +203,15 @@ Each expression has `kind`, `type`, and `source`, with these payloads:
 | `ConditionalOp` | `cond`, `yes`, `no` |
 | `Concatenation` | ordered `operands` |
 | `ElementSelect` | `value`, `selector`, declared `range_left`, `range_right` |
-| `Unsupported` | `reason` |
+| `Replication` | constant `count`, `operand` (kept compact, not expanded) |
+| `RangeSelect` | `value`, `left`, `right`, slang `selection`, declared `range_left`, `range_right` |
+| `Unsupported` | `reason`, static symbol `reads` |
 
 Statements are `Empty`; `Sequence {statements}`;
 `Assign {target, value, nba, source}`;
 `If {cond, yes, no, source}`; or `Unsupported {reason, source}`.
 Sequential events contain `edge` (`PosEdge`/`NegEdge`), `expr`, and `source`.
-Unsupported statement bodies still retain their statically discovered targets,
+Unsupported statement bodies still retain their statically discovered reads and targets,
 so they cannot silently become supported assignments. Slang errors abort export.
 
 ## Supported semantics and limits
@@ -153,7 +227,7 @@ source text in the debugger.
 
 Supported expression operations include arithmetic `+ - * / %`, bitwise
 operators, logical short-circuit operators, comparisons, shifts, integer casts,
-ternaries, concatenation, and packed bit selection. Unary reductions AND, OR,
+ternaries, concatenation, replication, and packed bit selection. Unary reductions AND, OR,
 and XOR are supported. X/Z data propagates an unknown numerical result; X/Z
 control produces an explicit ambiguous branch instead of claiming a definite
 provenance. This is conservative provenance analysis, not a four-state simulator.
@@ -163,7 +237,7 @@ incomplete combinational assignment, partial/aggregate lvalues, function/task
 execution, interfaces/inout/ref resolution, strength resolution, force/release,
 procedural delays, event `iff`, complex clock expressions, blocking sequential
 assignments, nonblocking combinational assignments, initialization processes,
-and evaluation of aggregates, real/string values or widths over 64 bits.
+and evaluation of range selections, aggregates, real/string values or widths over 64 bits.
 Declarations and type text can still be exported for unsupported data types.
 Only the documented procedural/continuous and simple port drivers are analyzed;
 primitive gates and other simulation mechanisms are not modeled. A leaf says

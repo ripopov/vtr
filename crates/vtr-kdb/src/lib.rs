@@ -1,5 +1,6 @@
 //! Source semantics remain in KDB. This crate only reads immutable VTR runtime data.
 mod model;
+pub mod netlist;
 pub use model::*;
 use std::collections::{BTreeMap, BTreeSet};
 use vtr::{NodeData, Reader, SignalData, SignalId, SignalKind};
@@ -267,7 +268,7 @@ impl<'a> Debugger<'a> {
                 u64::from_str_radix(&bits, 2).ok()
             }
             ExprOp::Constant { value } => constant(value, e.ty.width)?,
-            ExprOp::Unsupported { reason } => {
+            ExprOp::Unsupported { reason, .. } => {
                 return Err(format!("unsupported {reason} at {}", e.source))
             }
             ExprOp::Conversion { operand } => {
@@ -327,6 +328,28 @@ impl<'a> Debugger<'a> {
                 let branch = self.eval(if b { yes } else { no }, at, events, locals)?;
                 deps.extend(branch.deps);
                 branch.value
+            }
+            ExprOp::RangeSelect { .. } => {
+                return Err(format!(
+                    "unsupported range-select evaluation at {}",
+                    e.source
+                ))
+            }
+            ExprOp::Replication { count, operand } => {
+                let v = self.eval(operand, at, events, locals)?;
+                deps = v.deps;
+                if *count > 64 {
+                    return Err("unsupported replication count above 64 in evaluator".into());
+                }
+                v.value.map(|part| {
+                    (0..*count).fold(0, |acc, _| {
+                        if operand.ty.width == 64 {
+                            part
+                        } else {
+                            (acc << operand.ty.width) | part
+                        }
+                    })
+                })
             }
             ExprOp::Concatenation { operands } => {
                 let mut result = Some(0u64);

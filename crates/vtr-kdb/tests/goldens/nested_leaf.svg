@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1384.0" height="656.0" viewBox="0 0 1384.0 656.0">
+<title>top.group0.u @ 0</title>
+<rect width="100%" height="100%" fill="#f8fafc"/>
+<style>text { font-family: monospace; font-size: 12px; fill: #172b4d; } .title { font-size: 15px; font-weight: bold; } .detail { fill: #52637a; font-size: 10px; } .missing { fill: #b42318; } .value { fill: #075985; }</style>
+<text x="20" y="26" class="title">top.group0.u @ 0 (1e-9 s ticks)</text>
+<g transform="translate(20 60)">
+<polyline data-edge="e0" points="392.0,77.0 482.0,77.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e1" points="392.0,205.0 402.0,205.0 402.0,325.0 482.0,325.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e2" points="392.0,363.0 482.0,363.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e3" points="392.0,521.0 402.0,521.0 402.0,401.0 482.0,401.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<polyline data-edge="e4" points="862.0,325.0 952.0,325.0" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<g data-node="n0"><title>In port · 8 bits</title><rect x="12.0" y="140.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="24.0" y="162.0" class="title">a</text><text x="24.0" y="180.0" class="detail">In port · 8 bits</text>
+<g data-pin="n0p0"><title>in</title><circle cx="12.0" cy="205.0" r="3" fill="#334155"/><text x="20.0" y="201.0" text-anchor="start">in</text><text x="20.0" y="216.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n0p1"><title>top.group0.u.a = 10xz10xz</title><circle cx="392.0" cy="205.0" r="3" fill="#334155"/><text x="384.0" y="201.0" text-anchor="end">value</text><text x="384.0" y="216.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n1"><title>In port · 8 bits</title><rect x="12.0" y="298.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="24.0" y="320.0" class="title">b</text><text x="24.0" y="338.0" class="detail">In port · 8 bits</text>
+<g data-pin="n1p0"><title>in</title><circle cx="12.0" cy="363.0" r="3" fill="#334155"/><text x="20.0" y="359.0" text-anchor="start">in</text><text x="20.0" y="374.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n1p1"><title>top.group0.u.b = 10xz10xz</title><circle cx="392.0" cy="363.0" r="3" fill="#334155"/><text x="384.0" y="359.0" text-anchor="end">value</text><text x="384.0" y="374.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n2"><title>In port · 1 bits</title><rect x="12.0" y="456.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="24.0" y="478.0" class="title">clk</text><text x="24.0" y="496.0" class="detail">In port · 1 bits</text>
+<g data-pin="n2p0"><title>in</title><circle cx="12.0" cy="521.0" r="3" fill="#334155"/><text x="20.0" y="517.0" text-anchor="start">in</text><text x="20.0" y="532.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n2p1"><title>top.group0.u.clk = 1</title><circle cx="392.0" cy="521.0" r="3" fill="#334155"/><text x="384.0" y="517.0" text-anchor="end">value</text><text x="384.0" y="532.0" text-anchor="end" class="value">1</text></g>
+</g>
+<g data-node="n3"><title>Out port · 8 bits</title><rect x="952.0" y="260.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="964.0" y="282.0" class="title">q</text><text x="964.0" y="300.0" class="detail">Out port · 8 bits</text>
+<g data-pin="n3p0"><title>in</title><circle cx="952.0" cy="325.0" r="3" fill="#334155"/><text x="960.0" y="321.0" text-anchor="start">in</text><text x="960.0" y="336.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n3p1"><title>top.group0.u.q = 10xz10xz</title><circle cx="1332.0" cy="325.0" r="3" fill="#334155"/><text x="1324.0" y="321.0" text-anchor="end">value</text><text x="1324.0" y="336.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n4"><title>Out port · 8 bits</title><rect x="482.0" y="12.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="494.0" y="34.0" class="title">spare</text><text x="494.0" y="52.0" class="detail">Out port · 8 bits</text>
+<g data-pin="n4p0"><title>in</title><circle cx="482.0" cy="77.0" r="3" fill="#334155"/><text x="490.0" y="73.0" text-anchor="start">in</text><text x="490.0" y="88.0" text-anchor="start" class="detail"></text></g>
+<g data-pin="n4p1"><title>top.group0.u.spare = 10xz10xz</title><circle cx="862.0" cy="77.0" r="3" fill="#334155"/><text x="854.0" y="73.0" text-anchor="end">value</text><text x="854.0" y="88.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+<g data-node="n5"><title>8 bits · crates/vtr-kdb/tests/rtl/netlist.sv:3:20</title><rect x="12.0" y="12.0" width="380.0" height="108.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="24.0" y="34.0" class="title">constant 8&apos;d0</text><text x="24.0" y="52.0" class="detail">8 bits · crates/vtr-kdb/tests/rtl/netlist.sv:3:20</text>
+<g data-pin="n5p0"><title>out</title><circle cx="392.0" cy="77.0" r="3" fill="#334155"/><text x="384.0" y="73.0" text-anchor="end">out</text><text x="384.0" y="88.0" text-anchor="end" class="detail"></text></g>
+</g>
+<g data-node="n6"><title>8 · crates/vtr-kdb/tests/rtl/netlist.sv:4:5 · PosEdge top.group0.u.clk</title><rect x="482.0" y="260.0" width="380.0" height="184.0" rx="6" fill="#ffffff" stroke="#334155"/>
+<text x="494.0" y="282.0" class="title">clocked process</text><text x="494.0" y="300.0" class="detail">8 · crates/vtr-kdb/tests/rtl/netlist.sv:4:5 · PosEdge top.…</text>
+<g data-pin="n6p0"><title>top.group0.u.a = 10xz10xz</title><circle cx="482.0" cy="325.0" r="3" fill="#334155"/><text x="490.0" y="321.0" text-anchor="start">a</text><text x="490.0" y="336.0" text-anchor="start" class="value">10xz10xz</text></g>
+<g data-pin="n6p1"><title>top.group0.u.b = 10xz10xz</title><circle cx="482.0" cy="363.0" r="3" fill="#334155"/><text x="490.0" y="359.0" text-anchor="start">b</text><text x="490.0" y="374.0" text-anchor="start" class="value">10xz10xz</text></g>
+<g data-pin="n6p2"><title>top.group0.u.clk = 1</title><circle cx="482.0" cy="401.0" r="3" fill="#334155"/><text x="490.0" y="397.0" text-anchor="start">clk</text><text x="490.0" y="412.0" text-anchor="start" class="value">1</text></g>
+<g data-pin="n6p3"><title>top.group0.u.q = 10xz10xz</title><circle cx="862.0" cy="325.0" r="3" fill="#334155"/><text x="854.0" y="321.0" text-anchor="end">q</text><text x="854.0" y="336.0" text-anchor="end" class="value">10xz10xz</text></g>
+</g>
+</g>
+</svg>

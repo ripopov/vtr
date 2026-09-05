@@ -1,0 +1,1047 @@
+{
+  "connections": [
+    {
+      "direction": "InOut",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 15,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 18
+        },
+        "symbol": "top.bus",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "instance": "top.u",
+      "port": "top.u.io",
+      "source": {
+        "column": 23,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "ElementSelect",
+        "range_left": 7,
+        "range_right": 0,
+        "selector": {
+          "kind": "Constant",
+          "source": {
+            "column": 29,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 18
+          },
+          "type": {
+            "four_state": false,
+            "integral": true,
+            "signed": true,
+            "text": "int",
+            "width": 32
+          },
+          "value": "0"
+        },
+        "source": {
+          "column": 27,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 18
+        },
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        },
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 27,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 18
+          },
+          "symbol": "top.a",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "instance": "top.u",
+      "port": "top.u.drive",
+      "source": {
+        "column": 39,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "Out",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 41,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 18
+        },
+        "symbol": "top.flag",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "instance": "top.u",
+      "port": "top.u.sample",
+      "source": {
+        "column": 58,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      }
+    }
+  ],
+  "design_id": "8c5d61f1f45d81b720319b2d7d322a9047c5ea2217dc9c59c81c2efbaaf44276",
+  "format": "vtr-rtl-kdb",
+  "instances": [
+    {
+      "definition": "top",
+      "parent": null,
+      "path": "top",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.clk"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.a"
+        },
+        {
+          "direction": "In",
+          "name": "sel",
+          "symbol": "top.sel"
+        },
+        {
+          "direction": "InOut",
+          "name": "bus",
+          "symbol": "top.bus"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.q"
+        },
+        {
+          "direction": "Out",
+          "name": "flag",
+          "symbol": "top.flag"
+        }
+      ],
+      "source": {
+        "column": 8,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 7
+      }
+    },
+    {
+      "definition": "pad",
+      "parent": "top",
+      "path": "top.u",
+      "ports": [
+        {
+          "direction": "InOut",
+          "name": "io",
+          "symbol": "top.u.io"
+        },
+        {
+          "direction": "In",
+          "name": "drive",
+          "symbol": "top.u.drive"
+        },
+        {
+          "direction": "Out",
+          "name": "sample",
+          "symbol": "top.u.sample"
+        }
+      ],
+      "source": {
+        "column": 9,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 18
+      }
+    },
+    {
+      "definition": "vacant",
+      "parent": "top",
+      "path": "top.empty",
+      "ports": [],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 19
+      }
+    }
+  ],
+  "options": [
+    "--top",
+    "top",
+    "crates/vtr-kdb/tests/rtl/edge_cases.sv"
+  ],
+  "processes": [
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 10,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 10
+        },
+        "target": "top.\\<&name ",
+        "value": {
+          "kind": "ElementSelect",
+          "range_left": 7,
+          "range_right": 0,
+          "selector": {
+            "kind": "Constant",
+            "source": {
+              "column": 23,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 10
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": true,
+              "text": "int",
+              "width": 32
+            },
+            "value": "0"
+          },
+          "source": {
+            "column": 21,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 10
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          },
+          "value": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 21,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 10
+            },
+            "symbol": "top.a",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          }
+        }
+      },
+      "events": [],
+      "id": 0,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a"
+      ],
+      "source": {
+        "column": 10,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 10
+      },
+      "targets": [
+        "top.\\<&name "
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 16,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 12
+        },
+        "target": "top.slice",
+        "value": {
+          "kind": "RangeSelect",
+          "left": {
+            "kind": "Constant",
+            "source": {
+              "column": 26,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 12
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": true,
+              "text": "int",
+              "width": 32
+            },
+            "value": "5"
+          },
+          "range_left": 7,
+          "range_right": 0,
+          "right": {
+            "kind": "Constant",
+            "source": {
+              "column": 28,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 12
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": true,
+              "text": "int",
+              "width": 32
+            },
+            "value": "2"
+          },
+          "selection": "Simple",
+          "source": {
+            "column": 24,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 12
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[5:2]",
+            "width": 4
+          },
+          "value": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 24,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 12
+            },
+            "symbol": "top.a",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          }
+        }
+      },
+      "events": [],
+      "id": 1,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a"
+      ],
+      "source": {
+        "column": 16,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 12
+      },
+      "targets": [
+        "top.slice"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": true,
+        "source": {
+          "column": 30,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 13
+        },
+        "target": "top.state",
+        "value": {
+          "kind": "BinaryOp",
+          "left": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 39,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 13
+            },
+            "symbol": "top.state",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "op": "Add",
+          "right": {
+            "kind": "Conversion",
+            "operand": {
+              "kind": "Constant",
+              "source": {
+                "column": 47,
+                "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+                "line": 13
+              },
+              "type": {
+                "four_state": false,
+                "integral": true,
+                "signed": false,
+                "text": "bit[7:0]",
+                "width": 8
+              },
+              "value": "8'd1"
+            },
+            "source": {
+              "column": 47,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 13
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "source": {
+            "column": 39,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 13
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 13
+            },
+            "symbol": "top.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 13
+          }
+        }
+      ],
+      "id": 2,
+      "mode": "seq",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.clk",
+        "top.state"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 13
+      },
+      "targets": [
+        "top.state"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Unsupported",
+        "reason": "statement Case",
+        "source": {
+          "column": 17,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 14
+        }
+      },
+      "events": [],
+      "id": 3,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.sel",
+        "top.state"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 14
+      },
+      "targets": [
+        "top.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Unsupported",
+        "reason": "inout/ref or complex output connection",
+        "source": {
+          "column": 23,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 1
+        }
+      },
+      "events": [],
+      "id": 4,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 23,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.bus"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 39,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 1
+        },
+        "target": "top.u.drive",
+        "value": {
+          "kind": "ElementSelect",
+          "range_left": 7,
+          "range_right": 0,
+          "selector": {
+            "kind": "Constant",
+            "source": {
+              "column": 29,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 18
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": true,
+              "text": "int",
+              "width": 32
+            },
+            "value": "0"
+          },
+          "source": {
+            "column": 27,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 18
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          },
+          "value": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 27,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 18
+            },
+            "symbol": "top.a",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          }
+        }
+      },
+      "events": [],
+      "id": 5,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 39,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.u.drive"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 58,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 1
+        },
+        "target": "top.flag",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 58,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 1
+          },
+          "symbol": "top.u.sample",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 6,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 58,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.flag"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 2
+        },
+        "target": "top.u.io",
+        "value": {
+          "cond": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 17,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 2
+            },
+            "symbol": "top.u.drive",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "kind": "ConditionalOp",
+          "no": {
+            "kind": "Constant",
+            "source": {
+              "column": 32,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 2
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[0:0]",
+              "width": 1
+            },
+            "value": "1'bz"
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 2
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[0:0]",
+            "width": 1
+          },
+          "yes": {
+            "kind": "Conversion",
+            "operand": {
+              "kind": "Constant",
+              "source": {
+                "column": 25,
+                "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+                "line": 2
+              },
+              "type": {
+                "four_state": false,
+                "integral": true,
+                "signed": false,
+                "text": "bit[0:0]",
+                "width": 1
+              },
+              "value": "1'b1"
+            },
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+              "line": 2
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[0:0]",
+              "width": 1
+            }
+          }
+        }
+      },
+      "events": [],
+      "id": 7,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top.u",
+      "reads": [
+        "top.u.drive"
+      ],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.u.io"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+          "line": 3
+        },
+        "target": "top.u.sample",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 21,
+            "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+            "line": 3
+          },
+          "symbol": "top.u.io",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 8,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top.u",
+      "reads": [
+        "top.u.io"
+      ],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 3
+      },
+      "targets": [
+        "top.u.sample"
+      ]
+    }
+  ],
+  "producer": "pyslang 11.0.0",
+  "sources": [
+    {
+      "path": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+      "sha256": "b6e2de3d86d7a3c74fa425e9bf11d5ad0347abb6d3441ab25ab5631688224f40"
+    }
+  ],
+  "symbols": {
+    "top.\\<&name ": {
+      "kind": "Net",
+      "owner": "top",
+      "path": "top.\\<&name ",
+      "source": {
+        "column": 10,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 10
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.a": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.a",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 7
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.bus": {
+      "kind": "Net",
+      "owner": "top",
+      "path": "top.bus",
+      "source": {
+        "column": 23,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.clk": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.clk",
+      "source": {
+        "column": 24,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 7
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.escaped_net": {
+      "kind": "Net",
+      "owner": "top",
+      "path": "top.escaped_net",
+      "source": {
+        "column": 10,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 9
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.flag": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.flag",
+      "source": {
+        "column": 63,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.q": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.q",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.sel": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.sel",
+      "source": {
+        "column": 68,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 7
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[1:0]",
+        "width": 2
+      }
+    },
+    "top.slice": {
+      "kind": "Net",
+      "owner": "top",
+      "path": "top.slice",
+      "source": {
+        "column": 16,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 12
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.state": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.state",
+      "source": {
+        "column": 17,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 11
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.u.drive": {
+      "kind": "Variable",
+      "owner": "top.u",
+      "path": "top.u.drive",
+      "source": {
+        "column": 39,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u.io": {
+      "kind": "Net",
+      "owner": "top.u",
+      "path": "top.u.io",
+      "source": {
+        "column": 23,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.u.sample": {
+      "kind": "Net",
+      "owner": "top.u",
+      "path": "top.u.sample",
+      "source": {
+        "column": 58,
+        "file": "crates/vtr-kdb/tests/rtl/edge_cases.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    }
+  },
+  "top": "top",
+  "version": 2
+}

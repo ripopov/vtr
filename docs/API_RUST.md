@@ -1512,3 +1512,22 @@ The debugger borrows the immutable database and reader and caches loaded
 histories per signal ID. See [KDB_RTL.md](KDB_RTL.md) for its schema and
 semantic contract. A read-only `SignalData::times()` accessor supports the
 companion; the VTR storage format is unchanged.
+
+
+The companion also exposes `vtr_kdb::netlist`:
+
+```rust,ignore
+let index = vtr_kdb::netlist::NetlistIndex::new(&database)?;
+let view = index.module("top.u0")?.layout()?;
+let svg = view.svg(&mut debugger, 26)?;
+std::fs::write("stage.svg", svg)?;
+```
+
+`NetlistIndex` borrows the database and indexes module ownership. `module`
+returns an owned `Netlist` containing `blocks` (IDs, titles, source details,
+child instance paths, named pins) and `wires` (block/pin endpoints). `layout`
+consumes it and returns a `LaidOutNetlist` with public netlist and ELK geometry.
+`svg` borrows that layout and samples the attached debugger; repeated times
+reuse geometry and cached immutable histories. All operations return
+`Result<_, String>`. KDB v2 requires explicit ownership, ports, and static reads;
+v1 exports must be regenerated. The companion requires Rust 1.88+ and is validated with Rust 1.88 and 1.96.

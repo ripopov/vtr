@@ -1,0 +1,2914 @@
+{
+  "connections": [
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 37,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 16
+        },
+        "symbol": "top.clk",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "instance": "top.group0",
+      "port": "top.group0.clk",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 6
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 46,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 16
+        },
+        "symbol": "top.a",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "instance": "top.group0",
+      "port": "top.group0.a",
+      "source": {
+        "column": 73,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 6
+      }
+    },
+    {
+      "direction": "Out",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 53,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 16
+        },
+        "symbol": "top.g",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "instance": "top.group0",
+      "port": "top.group0.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 7
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 31,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 9
+        },
+        "symbol": "top.group0.clk",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "instance": "top.group0.u",
+      "port": "top.group0.u.clk",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 40,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 9
+        },
+        "symbol": "top.group0.a",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "instance": "top.group0.u",
+      "port": "top.group0.u.a",
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "Conversion",
+        "operand": {
+          "count": 8,
+          "kind": "Replication",
+          "operand": {
+            "kind": "Concatenation",
+            "operands": [
+              {
+                "kind": "Constant",
+                "source": {
+                  "column": 50,
+                  "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                  "line": 9
+                },
+                "type": {
+                  "four_state": false,
+                  "integral": true,
+                  "signed": false,
+                  "text": "bit[0:0]",
+                  "width": 1
+                },
+                "value": "1'b1"
+              }
+            ],
+            "source": {
+              "column": 49,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 9
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": false,
+              "text": "bit[0:0]",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 47,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 9
+          },
+          "type": {
+            "four_state": false,
+            "integral": true,
+            "signed": false,
+            "text": "bit[7:0]",
+            "width": 8
+          }
+        },
+        "source": {
+          "column": 47,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 9
+        },
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "instance": "top.group0.u",
+      "port": "top.group0.u.b",
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "Out",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 62,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 9
+        },
+        "symbol": "top.group0.middle",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[7:0]",
+          "width": 8
+        }
+      },
+      "instance": "top.group0.u",
+      "port": "top.group0.u.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 26,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "symbol": "top.clk",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "instance": "top.lanes[0].u",
+      "port": "top.lanes[0].u.clk",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "Conversion",
+        "operand": {
+          "kind": "Constant",
+          "source": {
+            "column": 34,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": false,
+            "integral": true,
+            "signed": false,
+            "text": "bit[3:0]",
+            "width": 4
+          },
+          "value": "4'b11"
+        },
+        "source": {
+          "column": 34,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[3:0]",
+          "width": 4
+        }
+      },
+      "instance": "top.lanes[0].u",
+      "port": "top.lanes[0].u.a",
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "Conversion",
+        "operand": {
+          "kind": "Constant",
+          "source": {
+            "column": 46,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": false,
+            "integral": true,
+            "signed": false,
+            "text": "bit[3:0]",
+            "width": 4
+          },
+          "value": "4'b101"
+        },
+        "source": {
+          "column": 46,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[3:0]",
+          "width": 4
+        }
+      },
+      "instance": "top.lanes[0].u",
+      "port": "top.lanes[0].u.b",
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "Out",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 58,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "symbol": "top.lanes[0].unused",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[3:0]",
+          "width": 4
+        }
+      },
+      "instance": "top.lanes[0].u",
+      "port": "top.lanes[0].u.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 26,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "symbol": "top.clk",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic",
+          "width": 1
+        }
+      },
+      "instance": "top.lanes[1].u",
+      "port": "top.lanes[1].u.clk",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "Conversion",
+        "operand": {
+          "kind": "Constant",
+          "source": {
+            "column": 34,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": false,
+            "integral": true,
+            "signed": false,
+            "text": "bit[3:0]",
+            "width": 4
+          },
+          "value": "4'b11"
+        },
+        "source": {
+          "column": 34,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[3:0]",
+          "width": 4
+        }
+      },
+      "instance": "top.lanes[1].u",
+      "port": "top.lanes[1].u.a",
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "In",
+      "expression": {
+        "kind": "Conversion",
+        "operand": {
+          "kind": "Constant",
+          "source": {
+            "column": 46,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": false,
+            "integral": true,
+            "signed": false,
+            "text": "bit[3:0]",
+            "width": 4
+          },
+          "value": "4'b101"
+        },
+        "source": {
+          "column": 46,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[3:0]",
+          "width": 4
+        }
+      },
+      "instance": "top.lanes[1].u",
+      "port": "top.lanes[1].u.b",
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      }
+    },
+    {
+      "direction": "Out",
+      "expression": {
+        "kind": "NamedValue",
+        "source": {
+          "column": 58,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 19
+        },
+        "symbol": "top.lanes[1].unused",
+        "type": {
+          "four_state": true,
+          "integral": true,
+          "signed": false,
+          "text": "logic[3:0]",
+          "width": 4
+        }
+      },
+      "instance": "top.lanes[1].u",
+      "port": "top.lanes[1].u.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      }
+    }
+  ],
+  "design_id": "29221d057c3b8a135f5b488fda0db3011c406006df29108d1f5808eb77f11b2e",
+  "format": "vtr-rtl-kdb",
+  "instances": [
+    {
+      "definition": "top",
+      "parent": null,
+      "path": "top",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.clk"
+        },
+        {
+          "direction": "In",
+          "name": "select",
+          "symbol": "top.select"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.a"
+        },
+        {
+          "direction": "In",
+          "name": "b",
+          "symbol": "top.b"
+        },
+        {
+          "direction": "In",
+          "name": "wide",
+          "symbol": "top.wide"
+        },
+        {
+          "direction": "InOut",
+          "name": "bus",
+          "symbol": "top.bus"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.q"
+        },
+        {
+          "direction": "Out",
+          "name": "flag",
+          "symbol": "top.flag"
+        },
+        {
+          "direction": "Out",
+          "name": "wide_q",
+          "symbol": "top.wide_q"
+        }
+      ],
+      "source": {
+        "column": 8,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 12
+      }
+    },
+    {
+      "definition": "group_unit",
+      "parent": "top",
+      "path": "top.group0",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.group0.clk"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.group0.a"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.group0.q"
+        }
+      ],
+      "source": {
+        "column": 25,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 16
+      }
+    },
+    {
+      "definition": "cell_unit",
+      "parent": "top.group0",
+      "path": "top.group0.u",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.group0.u.clk"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.group0.u.a"
+        },
+        {
+          "direction": "In",
+          "name": "b",
+          "symbol": "top.group0.u.b"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.group0.u.q"
+        },
+        {
+          "direction": "Out",
+          "name": "spare",
+          "symbol": "top.group0.u.spare"
+        }
+      ],
+      "source": {
+        "column": 24,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 9
+      }
+    },
+    {
+      "definition": "cell_unit",
+      "parent": "top",
+      "path": "top.lanes[0].u",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.lanes[0].u.clk"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.lanes[0].u.a"
+        },
+        {
+          "direction": "In",
+          "name": "b",
+          "symbol": "top.lanes[0].u.b"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.lanes[0].u.q"
+        },
+        {
+          "direction": "Out",
+          "name": "spare",
+          "symbol": "top.lanes[0].u.spare"
+        }
+      ],
+      "source": {
+        "column": 19,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 19
+      }
+    },
+    {
+      "definition": "cell_unit",
+      "parent": "top",
+      "path": "top.lanes[1].u",
+      "ports": [
+        {
+          "direction": "In",
+          "name": "clk",
+          "symbol": "top.lanes[1].u.clk"
+        },
+        {
+          "direction": "In",
+          "name": "a",
+          "symbol": "top.lanes[1].u.a"
+        },
+        {
+          "direction": "In",
+          "name": "b",
+          "symbol": "top.lanes[1].u.b"
+        },
+        {
+          "direction": "Out",
+          "name": "q",
+          "symbol": "top.lanes[1].u.q"
+        },
+        {
+          "direction": "Out",
+          "name": "spare",
+          "symbol": "top.lanes[1].u.spare"
+        }
+      ],
+      "source": {
+        "column": 19,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 19
+      }
+    }
+  ],
+  "options": [
+    "--top",
+    "top",
+    "crates/vtr-kdb/tests/rtl/netlist.sv"
+  ],
+  "processes": [
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 48,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 6
+        },
+        "target": "top.group0.clk",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 37,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 16
+          },
+          "symbol": "top.clk",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 0,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 6
+      },
+      "targets": [
+        "top.group0.clk"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 73,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 6
+        },
+        "target": "top.group0.a",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 46,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 16
+          },
+          "symbol": "top.a",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 1,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 73,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 6
+      },
+      "targets": [
+        "top.group0.a"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 26,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 7
+        },
+        "target": "top.g",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 26,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 7
+          },
+          "symbol": "top.group0.q",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 2,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 7
+      },
+      "targets": [
+        "top.g"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 47,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.group0.u.clk",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 31,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 9
+          },
+          "symbol": "top.group0.clk",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 3,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top.group0",
+      "reads": [],
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.group0.u.clk"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 72,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.group0.u.a",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 40,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 9
+          },
+          "symbol": "top.group0.a",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 4,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top.group0",
+      "reads": [],
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.group0.u.a"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 75,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.group0.u.b",
+        "value": {
+          "kind": "Conversion",
+          "operand": {
+            "count": 8,
+            "kind": "Replication",
+            "operand": {
+              "kind": "Concatenation",
+              "operands": [
+                {
+                  "kind": "Constant",
+                  "source": {
+                    "column": 50,
+                    "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                    "line": 9
+                  },
+                  "type": {
+                    "four_state": false,
+                    "integral": true,
+                    "signed": false,
+                    "text": "bit[0:0]",
+                    "width": 1
+                  },
+                  "value": "1'b1"
+                }
+              ],
+              "source": {
+                "column": 49,
+                "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                "line": 9
+              },
+              "type": {
+                "four_state": false,
+                "integral": true,
+                "signed": false,
+                "text": "bit[0:0]",
+                "width": 1
+              }
+            },
+            "source": {
+              "column": 47,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 9
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": false,
+              "text": "bit[7:0]",
+              "width": 8
+            }
+          },
+          "source": {
+            "column": 47,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 9
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 5,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top.group0",
+      "reads": [],
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.group0.u.b"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 26,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 2
+        },
+        "target": "top.group0.middle",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 26,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 2
+          },
+          "symbol": "top.group0.u.q",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 6,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top.group0",
+      "reads": [],
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.group0.middle"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 3
+        },
+        "target": "top.group0.u.spare",
+        "value": {
+          "kind": "Constant",
+          "source": {
+            "column": 20,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 3
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          },
+          "value": "8'd0"
+        }
+      },
+      "events": [],
+      "id": 7,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top.group0.u",
+      "reads": [],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 3
+      },
+      "targets": [
+        "top.group0.u.spare"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": true,
+        "source": {
+          "column": 30,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 4
+        },
+        "target": "top.group0.u.q",
+        "value": {
+          "kind": "BinaryOp",
+          "left": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 35,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.group0.u.a",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "op": "BinaryXor",
+          "right": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 39,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.group0.u.b",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "source": {
+            "column": 35,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 4
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.group0.u.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 4
+          }
+        }
+      ],
+      "id": 8,
+      "mode": "seq",
+      "origin": "rtl",
+      "owner": "top.group0.u",
+      "reads": [
+        "top.group0.u.a",
+        "top.group0.u.b",
+        "top.group0.u.clk"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 4
+      },
+      "targets": [
+        "top.group0.u.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 10
+        },
+        "target": "top.group0.q",
+        "value": {
+          "kind": "BinaryOp",
+          "left": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 16,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 10
+            },
+            "symbol": "top.group0.middle",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "op": "Add",
+          "right": {
+            "kind": "Conversion",
+            "operand": {
+              "kind": "Constant",
+              "source": {
+                "column": 25,
+                "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                "line": 10
+              },
+              "type": {
+                "four_state": false,
+                "integral": true,
+                "signed": false,
+                "text": "bit[0:0]",
+                "width": 1
+              },
+              "value": "1'b1"
+            },
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 10
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "source": {
+            "column": 16,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 10
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          }
+        }
+      },
+      "events": [],
+      "id": 9,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top.group0",
+      "reads": [
+        "top.group0.middle"
+      ],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 10
+      },
+      "targets": [
+        "top.group0.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 47,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.lanes[0].u.clk",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 26,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "symbol": "top.clk",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 10,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.lanes[0].u.clk"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 72,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.lanes[0].u.a",
+        "value": {
+          "kind": "Conversion",
+          "operand": {
+            "kind": "Constant",
+            "source": {
+              "column": 34,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 19
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": false,
+              "text": "bit[3:0]",
+              "width": 4
+            },
+            "value": "4'b11"
+          },
+          "source": {
+            "column": 34,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [],
+      "id": 11,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.lanes[0].u.a"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 75,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.lanes[0].u.b",
+        "value": {
+          "kind": "Conversion",
+          "operand": {
+            "kind": "Constant",
+            "source": {
+              "column": 46,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 19
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": false,
+              "text": "bit[3:0]",
+              "width": 4
+            },
+            "value": "4'b101"
+          },
+          "source": {
+            "column": 46,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [],
+      "id": 12,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.lanes[0].u.b"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 26,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 2
+        },
+        "target": "top.lanes[0].unused",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 26,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 2
+          },
+          "symbol": "top.lanes[0].u.q",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [],
+      "id": 13,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.lanes[0].unused"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 3
+        },
+        "target": "top.lanes[0].u.spare",
+        "value": {
+          "kind": "Constant",
+          "source": {
+            "column": 20,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 3
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          },
+          "value": "4'b0"
+        }
+      },
+      "events": [],
+      "id": 14,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top.lanes[0].u",
+      "reads": [],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 3
+      },
+      "targets": [
+        "top.lanes[0].u.spare"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": true,
+        "source": {
+          "column": 30,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 4
+        },
+        "target": "top.lanes[0].u.q",
+        "value": {
+          "kind": "BinaryOp",
+          "left": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 35,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.lanes[0].u.a",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[3:0]",
+              "width": 4
+            }
+          },
+          "op": "BinaryXor",
+          "right": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 39,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.lanes[0].u.b",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[3:0]",
+              "width": 4
+            }
+          },
+          "source": {
+            "column": 35,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 4
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.lanes[0].u.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 4
+          }
+        }
+      ],
+      "id": 15,
+      "mode": "seq",
+      "origin": "rtl",
+      "owner": "top.lanes[0].u",
+      "reads": [
+        "top.lanes[0].u.a",
+        "top.lanes[0].u.b",
+        "top.lanes[0].u.clk"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 4
+      },
+      "targets": [
+        "top.lanes[0].u.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 47,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.lanes[1].u.clk",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 26,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "symbol": "top.clk",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 16,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.lanes[1].u.clk"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 72,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.lanes[1].u.a",
+        "value": {
+          "kind": "Conversion",
+          "operand": {
+            "kind": "Constant",
+            "source": {
+              "column": 34,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 19
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": false,
+              "text": "bit[3:0]",
+              "width": 4
+            },
+            "value": "4'b11"
+          },
+          "source": {
+            "column": 34,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [],
+      "id": 17,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.lanes[1].u.a"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 75,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 1
+        },
+        "target": "top.lanes[1].u.b",
+        "value": {
+          "kind": "Conversion",
+          "operand": {
+            "kind": "Constant",
+            "source": {
+              "column": 46,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 19
+            },
+            "type": {
+              "four_state": false,
+              "integral": true,
+              "signed": false,
+              "text": "bit[3:0]",
+              "width": 4
+            },
+            "value": "4'b101"
+          },
+          "source": {
+            "column": 46,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 19
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [],
+      "id": 18,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "targets": [
+        "top.lanes[1].u.b"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 26,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 2
+        },
+        "target": "top.lanes[1].unused",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 26,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 2
+          },
+          "symbol": "top.lanes[1].u.q",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [],
+      "id": 19,
+      "mode": "comb",
+      "origin": "connection",
+      "owner": "top",
+      "reads": [],
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "targets": [
+        "top.lanes[1].unused"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 3
+        },
+        "target": "top.lanes[1].u.spare",
+        "value": {
+          "kind": "Constant",
+          "source": {
+            "column": 20,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 3
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          },
+          "value": "4'b0"
+        }
+      },
+      "events": [],
+      "id": 20,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top.lanes[1].u",
+      "reads": [],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 3
+      },
+      "targets": [
+        "top.lanes[1].u.spare"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": true,
+        "source": {
+          "column": 30,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 4
+        },
+        "target": "top.lanes[1].u.q",
+        "value": {
+          "kind": "BinaryOp",
+          "left": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 35,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.lanes[1].u.a",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[3:0]",
+              "width": 4
+            }
+          },
+          "op": "BinaryXor",
+          "right": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 39,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.lanes[1].u.b",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[3:0]",
+              "width": 4
+            }
+          },
+          "source": {
+            "column": 35,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 4
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[3:0]",
+            "width": 4
+          }
+        }
+      },
+      "events": [
+        {
+          "edge": "PosEdge",
+          "expr": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 25,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 4
+            },
+            "symbol": "top.lanes[1].u.clk",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 17,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 4
+          }
+        }
+      ],
+      "id": 21,
+      "mode": "seq",
+      "origin": "rtl",
+      "owner": "top.lanes[1].u",
+      "reads": [
+        "top.lanes[1].u.a",
+        "top.lanes[1].u.b",
+        "top.lanes[1].u.clk"
+      ],
+      "source": {
+        "column": 5,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 4
+      },
+      "targets": [
+        "top.lanes[1].u.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 21
+        },
+        "target": "top.q",
+        "value": {
+          "cond": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 16,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 21
+            },
+            "symbol": "top.select",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "kind": "ConditionalOp",
+          "no": {
+            "kind": "UnaryOp",
+            "op": "BitwiseNot",
+            "operand": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 36,
+                "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                "line": 21
+              },
+              "symbol": "top.a",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            },
+            "source": {
+              "column": 35,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 21
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          },
+          "source": {
+            "column": 16,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 21
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[7:0]",
+            "width": 8
+          },
+          "yes": {
+            "kind": "BinaryOp",
+            "left": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 26,
+                "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                "line": 21
+              },
+              "symbol": "top.g",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            },
+            "op": "BinaryAnd",
+            "right": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 30,
+                "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                "line": 21
+              },
+              "symbol": "top.b",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            },
+            "source": {
+              "column": 26,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 21
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic[7:0]",
+              "width": 8
+            }
+          }
+        }
+      },
+      "events": [],
+      "id": 22,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b",
+        "top.g",
+        "top.select"
+      ],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 21
+      },
+      "targets": [
+        "top.q"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 22
+        },
+        "target": "top.flag",
+        "value": {
+          "kind": "BinaryOp",
+          "left": {
+            "kind": "BinaryOp",
+            "left": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 20,
+                "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                "line": 22
+              },
+              "symbol": "top.a",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            },
+            "op": "Equality",
+            "right": {
+              "kind": "NamedValue",
+              "source": {
+                "column": 25,
+                "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+                "line": 22
+              },
+              "symbol": "top.b",
+              "type": {
+                "four_state": true,
+                "integral": true,
+                "signed": false,
+                "text": "logic[7:0]",
+                "width": 8
+              }
+            },
+            "source": {
+              "column": 20,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 22
+            },
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "op": "LogicalOr",
+          "right": {
+            "kind": "NamedValue",
+            "source": {
+              "column": 31,
+              "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+              "line": 22
+            },
+            "symbol": "top.select",
+            "type": {
+              "four_state": true,
+              "integral": true,
+              "signed": false,
+              "text": "logic",
+              "width": 1
+            }
+          },
+          "source": {
+            "column": 19,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 22
+          },
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic",
+            "width": 1
+          }
+        }
+      },
+      "events": [],
+      "id": 23,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.a",
+        "top.b",
+        "top.select"
+      ],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 22
+      },
+      "targets": [
+        "top.flag"
+      ]
+    },
+    {
+      "body": {
+        "kind": "Assign",
+        "nba": false,
+        "source": {
+          "column": 12,
+          "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+          "line": 23
+        },
+        "target": "top.wide_q",
+        "value": {
+          "kind": "NamedValue",
+          "source": {
+            "column": 21,
+            "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+            "line": 23
+          },
+          "symbol": "top.wide",
+          "type": {
+            "four_state": true,
+            "integral": true,
+            "signed": false,
+            "text": "logic[95:0]",
+            "width": 96
+          }
+        }
+      },
+      "events": [],
+      "id": 24,
+      "mode": "comb",
+      "origin": "rtl",
+      "owner": "top",
+      "reads": [
+        "top.wide"
+      ],
+      "source": {
+        "column": 12,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 23
+      },
+      "targets": [
+        "top.wide_q"
+      ]
+    }
+  ],
+  "producer": "pyslang 11.0.0",
+  "sources": [
+    {
+      "path": "crates/vtr-kdb/tests/rtl/netlist.sv",
+      "sha256": "ce37b3d249cc9157963a57bf5b5979fe9964357ec078469b18863b49f2d3a814"
+    }
+  ],
+  "symbols": {
+    "top.a": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.a",
+      "source": {
+        "column": 55,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 12
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.b": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.b",
+      "source": {
+        "column": 58,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 12
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.bus": {
+      "kind": "Net",
+      "owner": "top",
+      "path": "top.bus",
+      "source": {
+        "column": 41,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 13
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.clk": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.clk",
+      "source": {
+        "column": 24,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 12
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.flag": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.flag",
+      "source": {
+        "column": 40,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 14
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.g": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.g",
+      "source": {
+        "column": 17,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 15
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.group0.W": {
+      "kind": "Parameter",
+      "owner": "top.group0",
+      "path": "top.group0.W",
+      "source": {
+        "column": 31,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 6
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "logic signed[31:0]",
+        "width": 32
+      },
+      "value": "8"
+    },
+    "top.group0.a": {
+      "kind": "Variable",
+      "owner": "top.group0",
+      "path": "top.group0.a",
+      "source": {
+        "column": 73,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 6
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.group0.clk": {
+      "kind": "Variable",
+      "owner": "top.group0",
+      "path": "top.group0.clk",
+      "source": {
+        "column": 48,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 6
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.group0.middle": {
+      "kind": "Variable",
+      "owner": "top.group0",
+      "path": "top.group0.middle",
+      "source": {
+        "column": 19,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 8
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.group0.q": {
+      "kind": "Variable",
+      "owner": "top.group0",
+      "path": "top.group0.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 7
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.group0.u.W": {
+      "kind": "Parameter",
+      "owner": "top.group0.u",
+      "path": "top.group0.u.W",
+      "source": {
+        "column": 30,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "logic signed[31:0]",
+        "width": 32
+      },
+      "value": "8"
+    },
+    "top.group0.u.a": {
+      "kind": "Variable",
+      "owner": "top.group0.u",
+      "path": "top.group0.u.a",
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.group0.u.b": {
+      "kind": "Variable",
+      "owner": "top.group0.u",
+      "path": "top.group0.u.b",
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.group0.u.clk": {
+      "kind": "Variable",
+      "owner": "top.group0.u",
+      "path": "top.group0.u.clk",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.group0.u.q": {
+      "kind": "Variable",
+      "owner": "top.group0.u",
+      "path": "top.group0.u.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.group0.u.spare": {
+      "kind": "Variable",
+      "owner": "top.group0.u",
+      "path": "top.group0.u.spare",
+      "source": {
+        "column": 29,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.lanes[0].i": {
+      "kind": "Parameter",
+      "owner": "top",
+      "path": "top.lanes[0].i",
+      "source": {
+        "column": 17,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 17
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "integer",
+        "width": 32
+      },
+      "value": "0"
+    },
+    "top.lanes[0].u.W": {
+      "kind": "Parameter",
+      "owner": "top.lanes[0].u",
+      "path": "top.lanes[0].u.W",
+      "source": {
+        "column": 30,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "logic signed[31:0]",
+        "width": 32
+      },
+      "value": "4"
+    },
+    "top.lanes[0].u.a": {
+      "kind": "Variable",
+      "owner": "top.lanes[0].u",
+      "path": "top.lanes[0].u.a",
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[0].u.b": {
+      "kind": "Variable",
+      "owner": "top.lanes[0].u",
+      "path": "top.lanes[0].u.b",
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[0].u.clk": {
+      "kind": "Variable",
+      "owner": "top.lanes[0].u",
+      "path": "top.lanes[0].u.clk",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.lanes[0].u.q": {
+      "kind": "Variable",
+      "owner": "top.lanes[0].u",
+      "path": "top.lanes[0].u.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[0].u.spare": {
+      "kind": "Variable",
+      "owner": "top.lanes[0].u",
+      "path": "top.lanes[0].u.spare",
+      "source": {
+        "column": 29,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[0].unused": {
+      "kind": "Net",
+      "owner": "top",
+      "path": "top.lanes[0].unused",
+      "source": {
+        "column": 20,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 18
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[1].i": {
+      "kind": "Parameter",
+      "owner": "top",
+      "path": "top.lanes[1].i",
+      "source": {
+        "column": 17,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 17
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "integer",
+        "width": 32
+      },
+      "value": "1"
+    },
+    "top.lanes[1].u.W": {
+      "kind": "Parameter",
+      "owner": "top.lanes[1].u",
+      "path": "top.lanes[1].u.W",
+      "source": {
+        "column": 30,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": true,
+        "text": "logic signed[31:0]",
+        "width": 32
+      },
+      "value": "4"
+    },
+    "top.lanes[1].u.a": {
+      "kind": "Variable",
+      "owner": "top.lanes[1].u",
+      "path": "top.lanes[1].u.a",
+      "source": {
+        "column": 72,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[1].u.b": {
+      "kind": "Variable",
+      "owner": "top.lanes[1].u",
+      "path": "top.lanes[1].u.b",
+      "source": {
+        "column": 75,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[1].u.clk": {
+      "kind": "Variable",
+      "owner": "top.lanes[1].u",
+      "path": "top.lanes[1].u.clk",
+      "source": {
+        "column": 47,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 1
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.lanes[1].u.q": {
+      "kind": "Variable",
+      "owner": "top.lanes[1].u",
+      "path": "top.lanes[1].u.q",
+      "source": {
+        "column": 26,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[1].u.spare": {
+      "kind": "Variable",
+      "owner": "top.lanes[1].u",
+      "path": "top.lanes[1].u.spare",
+      "source": {
+        "column": 29,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 2
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.lanes[1].unused": {
+      "kind": "Net",
+      "owner": "top",
+      "path": "top.lanes[1].unused",
+      "source": {
+        "column": 20,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 18
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[3:0]",
+        "width": 4
+      }
+    },
+    "top.q": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.q",
+      "source": {
+        "column": 24,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 14
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[7:0]",
+        "width": 8
+      }
+    },
+    "top.select": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.select",
+      "source": {
+        "column": 29,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 12
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic",
+        "width": 1
+      }
+    },
+    "top.wide": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.wide",
+      "source": {
+        "column": 24,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 13
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[95:0]",
+        "width": 96
+      }
+    },
+    "top.wide_q": {
+      "kind": "Variable",
+      "owner": "top",
+      "path": "top.wide_q",
+      "source": {
+        "column": 66,
+        "file": "crates/vtr-kdb/tests/rtl/netlist.sv",
+        "line": 14
+      },
+      "type": {
+        "four_state": true,
+        "integral": true,
+        "signed": false,
+        "text": "logic[95:0]",
+        "width": 96
+      }
+    }
+  },
+  "top": "top",
+  "version": 2
+}

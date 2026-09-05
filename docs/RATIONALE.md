@@ -355,3 +355,32 @@ remain diagnostics. Exact paths, widths, optional module names and an optional
 producer design identity prevent speculative suffix-based attachment. No
 reader decode, writer, or encoding changes are needed; no efficiency claims
 or benchmark result changes accompany this companion.
+
+
+### Hierarchical netlist views
+
+KDB v1 synthesized port assignments for temporal tracing but omitted module
+ownership and top/unconnected ports. Guessing ownership from targets is wrong
+for child outputs, cross-module references, and generate scopes. KDB v2 records
+slang's containing module explicitly, complete ordered ports, and separate RTL
+versus connection process origins. Static reads survive unsupported statement
+bodies, so opaque processes retain their input connectivity. Replication stays
+compact. Net declaration initializers are continuous drivers.
+
+A reusable ownership index builds only the selected module's view; immediate
+children stay opaque. A regression adds 2,000 descendants and requires identical
+parent geometry. Per-instance semantics remain in the export; module-definition
+deduplication is not claimed. Single assignments lower to operator graphs while
+procedural blocks retain their ordered RTL semantics rather than approximating
+synthesis. Recorded signal values annotate the resulting graph independently of
+layout; missing samples stay diagnostic.
+
+The [elkrs fork](https://github.com/ripopov/elkrs), pinned as `ext/elkrs`, provides
+native layered layout with fixed ports and orthogonal routes. The local
+`gpui-schem` implementation informed fixed-port placement and preserving
+application metadata outside the layout engine. We keep separate typed netlist
+metadata and ELK coordinates rather than relying on unknown JSON fields surviving
+ELK serialization. SVG snapshots, geometry invariants, and raster review check
+our integration independently of elkrs's unavailable upstream golden corpus.
+No VTR writer, encoding, or decode-path changes or performance claims accompany
+this use case; benchmark results are unchanged by this work.

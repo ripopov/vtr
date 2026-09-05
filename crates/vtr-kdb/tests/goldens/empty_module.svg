@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="501.0" height="130.0" viewBox="0 0 501.0 130.0">
+<title>top.empty @ 0</title>
+<rect width="100%" height="100%" fill="#f8fafc"/>
+<style>text { font-family: monospace; font-size: 12px; fill: #172b4d; } .title { font-size: 15px; font-weight: bold; } .detail { fill: #52637a; font-size: 10px; } .missing { fill: #b42318; } .value { fill: #075985; }</style>
+<text x="20" y="26" class="title">top.empty @ 0 (1e-9 s ticks)</text>
+<g transform="translate(20 60)">
+<text x="0" y="20">No local logic or ports.</text>
+</g>
+</svg>

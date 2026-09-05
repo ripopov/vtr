@@ -22,6 +22,7 @@ pub struct Type {
 }
 #[derive(Clone, Debug, Deserialize)]
 pub struct Symbol {
+    pub owner: String,
     pub path: String,
     pub kind: String,
     #[serde(rename = "type")]
@@ -69,6 +70,18 @@ pub enum ExprOp {
     Concatenation {
         operands: Vec<Expr>,
     },
+    Replication {
+        count: u32,
+        operand: Box<Expr>,
+    },
+    RangeSelect {
+        value: Box<Expr>,
+        left: Box<Expr>,
+        right: Box<Expr>,
+        selection: String,
+        range_left: i64,
+        range_right: i64,
+    },
     ElementSelect {
         value: Box<Expr>,
         selector: Box<Expr>,
@@ -77,6 +90,8 @@ pub enum ExprOp {
     },
     Unsupported {
         reason: String,
+        #[serde(default)]
+        reads: Vec<String>,
     },
 }
 #[derive(Clone, Debug, Deserialize)]
@@ -112,6 +127,9 @@ pub struct Event {
 }
 #[derive(Clone, Debug, Deserialize)]
 pub struct Process {
+    pub owner: String,
+    pub origin: String,
+    pub reads: Vec<String>,
     pub id: u32,
     pub mode: String,
     pub targets: Vec<String>,
@@ -120,13 +138,22 @@ pub struct Process {
     pub source: Source,
 }
 #[derive(Clone, Debug, Deserialize)]
+pub struct Port {
+    pub name: String,
+    pub symbol: String,
+    pub direction: String,
+}
+#[derive(Clone, Debug, Deserialize)]
 pub struct Instance {
+    pub parent: Option<String>,
+    pub ports: Vec<Port>,
     pub path: String,
     pub definition: String,
     pub source: Source,
 }
 #[derive(Clone, Debug, Deserialize)]
 pub struct Connection {
+    pub instance: String,
     pub port: String,
     pub direction: String,
     pub expression: Expr,
@@ -154,8 +181,16 @@ pub struct Database {
 impl Database {
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, String> {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-        let db: Self = serde_json::from_slice(&bytes).map_err(|e| format!("invalid KDB: {e}"))?;
-        if db.format != "vtr-rtl-kdb" || db.version != 1 {
+        let header: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|e| format!("invalid KDB: {e}"))?;
+        if header["format"] != "vtr-rtl-kdb" || header["version"] != 2 {
+            return Err(format!(
+                "unsupported KDB format/version: {} {} (re-export RTL with KDB v2)",
+                header["format"], header["version"]
+            ));
+        }
+        let db: Self = serde_json::from_value(header).map_err(|e| format!("invalid KDB: {e}"))?;
+        if db.format != "vtr-rtl-kdb" || db.version != 2 {
             return Err(format!(
                 "unsupported KDB format/version: {} {}",
                 db.format, db.version
@@ -173,6 +208,7 @@ impl Database {
                 }
             }
         }
+        crate::netlist::NetlistIndex::new(&db)?;
         Ok(db)
     }
 }

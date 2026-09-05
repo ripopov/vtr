@@ -1630,3 +1630,8 @@ The RTL KDB is a separate application library and `vtr-kdb` executable,
 documented in [KDB_RTL.md](KDB_RTL.md). It adds no functions to the VTR C ABI.
 A producer can set the optional `design.kdb_id` generic string file attribute
 using the existing writer API; source semantics remain in the companion.
+
+Module netlist SVG snapshots are provided by the Rust companion API and
+`vtr-kdb netlist DESIGN TRACE INSTANCE --time T --output FILE.svg`. Existing C
+producers supply the same immutable waveform values; the core C ABI gains no
+layout or application presentation functions.
