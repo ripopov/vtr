@@ -31,3 +31,16 @@ body.dark{color-scheme:dark;--bg:#111820;--surface:#19232d;--surface2:#16202a;--
 
 .duration-row .stage-name{width:70px;flex-shrink:0}
 body.dark .cause-card{background:#302f25}
+
+/* Map scale affects data geometry; application controls keep their comfortable size. */
+#chart-scroll{touch-action:none;overflow-anchor:none}
+.instruction-row{border-bottom-width:min(1px,calc(var(--row-height) * .08))}
+.stage,.compact .stage{top:calc(var(--row-height) * .18);height:calc(var(--row-height) * .64);min-height:0;border-radius:min(3px,calc(var(--row-height) * .1));border-width:min(1px,calc(var(--row-height) * .06))}
+.ghost-stage,.compact .ghost-stage{top:calc(var(--row-height) * .08);height:calc(var(--row-height) * .84)}
+.map-middle .instruction-copy small{display:none}
+.map-overview .instruction-copy,.map-overview .row-status,.map-overview .row-id{display:none}
+.map-overview .row-label{overflow:visible;min-height:0;padding-block:0}
+.map-overview .scale-label .row-label{z-index:6}
+.map-overview .scale-label .row-id{display:block;position:absolute;top:0;font-size:9px;line-height:12px;background:var(--surface);width:auto;padding-right:4px}
+.map-overview .stage-text{display:none}
+.map-overview .row-timeline{background-image:none}

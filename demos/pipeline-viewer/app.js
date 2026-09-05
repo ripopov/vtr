@@ -51,9 +51,9 @@ function generate(scenario, extra=0) {
 function persist(){try{localStorage.setItem(storeKey,JSON.stringify({theme:state.theme,notes:state.notes,pins:state.pins,bookmarks:state.bookmarks}));}catch{notify('Storage unavailable. Your changes remain in this session.');}}
 function notify(message){$('toast').textContent=message;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),2600);$('status-text').textContent=message;}
 function selected(){return data.find(o=>o.id===state.selected);}
-function rowHeight(){return state.compact?24:34;}
+function rowHeight(){return Math.round((state.compact?24:34)*state.zoom/24*64)/64;}
 function match(o){const query=state.search.toLowerCase();return (!query||`${o.id} ${o.pc} ${o.text} ${o.label} ${o.cause}`.toLowerCase().includes(query)) && (state.showFlushed||!o.flushed) && (state.filter==='all'||state.filter==='stall'&&o.wait>3||state.filter==='flush'&&o.flushed||state.filter==='load'&&o.kind==='load'||state.filter==='branch'&&o.kind==='branch');}
-function stageHTML(o,s,ghost=false){const width=(s.end-s.start)*state.zoom;return ghost?`<div class="ghost-stage" style="left:${s.start*state.zoom}px;width:${width-1}px"></div>`:`<button class="stage ${s.code==='W'?'wait':''} ${o.flushed?'flushed':''}" data-id="${o.id}" data-cycle="${s.start}" tabindex="-1" style="left:${s.start*state.zoom}px;width:${Math.max(.4,width-1)}px;background-color:${STAGES[s.code].color}" aria-label="Instruction ${o.id}, ${STAGES[s.code].name}, cycles ${s.start} to ${s.end}" title="#${o.id} · ${STAGES[s.code].name} · [${s.start}, ${s.end}) · ${s.end-s.start} cycle${s.end-s.start===1?'':'s'}${o.cause&&s.code==='W'?' · '+esc(o.cause):''}"><span class="stage-text">${width>=16?s.code+(width>87&&s.end-s.start>2?' · '+(s.end-s.start)+' cyc':''):''}</span></button>`;}
+function stageHTML(o,s,ghost=false){const width=(s.end-s.start)*state.zoom;return ghost?`<div class="ghost-stage" style="left:${s.start*state.zoom}px;width:${Math.max(.4,width-1)}px"></div>`:`<button class="stage ${s.code==='W'?'wait':''} ${o.flushed?'flushed':''}" data-id="${o.id}" data-cycle="${s.start}" tabindex="-1" style="left:${s.start*state.zoom}px;width:${Math.max(.4,width-1)}px;background-color:${STAGES[s.code].color}" aria-label="Instruction ${o.id}, ${STAGES[s.code].name}, cycles ${s.start} to ${s.end}" title="#${o.id} · ${STAGES[s.code].name} · [${s.start}, ${s.end}) · ${s.end-s.start} cycle${s.end-s.start===1?'':'s'}${o.cause&&s.code==='W'?' · '+esc(o.cause):''}"><span class="stage-text">${width>=16&&rowHeight()>=14?s.code+(width>87&&s.end-s.start>2?' · '+(s.end-s.start)+' cyc':''):''}</span></button>`;}
 function renderRows(){
   const scroll=$('chart-scroll'), oldTop=scroll.scrollTop, oldLeft=scroll.scrollLeft;
   const restoreRowFocus=!!document.activeElement?.closest('.row-label');
@@ -62,8 +62,11 @@ function renderRows(){
   const newSelectedIndex=visible.findIndex(o=>o.id===state.selected);
   document.body.classList.toggle('compact',state.compact);
   document.documentElement.style.setProperty('--cycle-width',state.zoom+'px');
+  document.body.style.setProperty('--row-height',rowHeight()+'px');
+  document.body.classList.toggle('map-overview',rowHeight()<20);
+  document.body.classList.toggle('map-middle',rowHeight()>=20&&rowHeight()<30);
   $('chart-content').hidden=!visible.length;$('empty').hidden=!!visible.length;
-  $('rows').innerHTML=visible.map(o=>`<div class="instruction-row ${o.id===state.selected?'selected':''}" data-row="${o.id}"><button class="row-label" data-id="${o.id}" aria-label="Select instruction ${o.id}: ${esc(o.text)}${o.flushed?', squashed':''}" aria-pressed="${o.id===state.selected}" tabindex="${o.id===state.selected?'0':'-1'}"><span class="row-id">${o.id}</span><span class="instruction-copy"><strong>${esc(o.text)}</strong><small>${o.pc}</small></span><span class="row-status ${o.flushed?'flushed':''}" title="${o.flushed?'Squashed':o.miss?'Cache miss':state.pins.includes(o.id)?'Pinned':''}">${o.flushed?'×':o.miss?'◇':state.pins.includes(o.id)?'◆':''}</span></button><div class="row-timeline">${state.compare?baseline.find(b=>b.id===o.id).stages.map(s=>stageHTML(o,s,true)).join(''):''}${o.stages.map(s=>stageHTML(o,s)).join('')}</div></div>`).join('');
+  $('rows').innerHTML=visible.map((o,i)=>`<div class="instruction-row ${o.id===state.selected?'selected':''} ${i%Math.ceil(22/rowHeight())===0?'scale-label':''}" data-row="${o.id}"><button class="row-label" data-id="${o.id}" aria-label="Select instruction ${o.id}: ${esc(o.text)}${o.flushed?', squashed':''}" aria-pressed="${o.id===state.selected}" tabindex="${o.id===state.selected?'0':'-1'}"><span class="row-id">${o.id}</span><span class="instruction-copy"><strong>${esc(o.text)}</strong><small>${o.pc}</small></span><span class="row-status ${o.flushed?'flushed':''}" title="${o.flushed?'Squashed':o.miss?'Cache miss':state.pins.includes(o.id)?'Pinned':''}">${o.flushed?'×':o.miss?'◇':state.pins.includes(o.id)?'◆':''}</span></button><div class="row-timeline">${state.compare?baseline.find(b=>b.id===o.id).stages.map(s=>stageHTML(o,s,true)).join(''):''}${o.stages.map(s=>stageHTML(o,s)).join('')}</div></div>`).join('');
   const step=state.zoom<8?16:state.zoom<16?8:state.zoom<32?4:2;
   $('ticks').innerHTML=Array.from({length:Math.floor(TOTAL/step)+1},(_,i)=>`<span style="left:${i*step*state.zoom}px">${i*step}</span>`).join('');
   $('row-count').textContent=`${visible.length} / ${data.length}`;$('search-count').textContent=state.search?`${visible.length} found`:'';
@@ -83,7 +86,7 @@ function renderArrows(){
     const source=data.find(o=>o.id===a),target=data.find(o=>o.id===b);
     const x1=source.ready*state.zoom,x2=(target.stages.find(s=>s.code==='EX')?.start||target.start)*state.zoom;
     const y1=ai*rowHeight()+rowHeight()/2,y2=bi*rowHeight()+rowHeight()/2;
-    return `<path d="M${x1} ${y1} C${x1+13} ${y1},${x2+13} ${y2},${x2} ${y2}" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#arrow-head)"/>`;
+    return `<path d="M${x1} ${y1} C${x1+13} ${y1},${x2+13} ${y2},${x2} ${y2}" fill="none" stroke="var(--accent)" stroke-width="${Math.min(1.6,Math.max(.35,rowHeight()/34*1.6))}" marker-end="url(#arrow-head)"/>`;
   }).join('');
 }
 function renderCursor(){const line=$('cursor-line');line.style.left=LABEL+state.cursor*state.zoom+'px';line.hidden=!visible.length;$('cursor-tag').textContent=state.cursor;}
@@ -118,10 +121,27 @@ function renderInspector(){
 function noteKey(id){return state.scenario+':'+id;}
 function relation(o,label,icon){return `<button class="relation-button" data-jump="${o.id}"><span aria-hidden="true">${icon}</span><div><strong>#${o.id} ${esc(o.text)}</strong><small>${label}</small></div><em aria-hidden="true">→</em></button>`;}
 function selectInstruction(id,cycle,focus=false){if(!data.some(o=>o.id===id))return;const changed=state.selected!==id;state.selected=id;if(Number.isFinite(cycle))state.cursor=clamp(cycle,0,TOTAL-1);renderRows();renderInspector();if(changed)$('inspector').scrollTop=0;if(focus)focusSelection();$('status-text').textContent=`#${id} selected · ${selected().text}`;}
-function focusSelection(){const o=selected();if(!o)return;if(!match(o)){clearFilters(false);}const sc=$('chart-scroll'),available=Math.max(120,sc.clientWidth-LABEL);const end=state.compare?Math.max(o.end,baseline.find(b=>b.id===o.id).end):o.end;if((end-o.start+4)*state.zoom>available)state.zoom=clamp(available/(end-o.start+4),.5,64);renderRows();sc.scrollLeft=Math.max(0,(o.start-2)*state.zoom);const i=visible.findIndex(v=>v.id===o.id);sc.scrollTop=Math.max(0,i*rowHeight()-sc.clientHeight/3);renderOverviewWindow();renderInspector();}
+function focusSelection(){const o=selected();if(!o)return;if(!match(o)){clearFilters(false);}const sc=$('chart-scroll'),available=Math.max(120,sc.clientWidth-LABEL);const end=state.compare?Math.max(o.end,baseline.find(b=>b.id===o.id).end):o.end;state.zoom=Math.max(24,state.zoom);if((end-o.start+4)*state.zoom>available)state.zoom=clamp(available/(end-o.start+4),.5,64);renderRows();sc.scrollLeft=Math.max(0,(o.start-2)*state.zoom);const i=visible.findIndex(v=>v.id===o.id);sc.scrollTop=Math.max(0,i*rowHeight()-sc.clientHeight/3);renderOverviewWindow();renderInspector();}
 function stepInstruction(dir){if(!visible.length)return;let i=visible.findIndex(o=>o.id===state.selected);i=clamp(i+dir,0,visible.length-1);selectInstruction(visible[i].id);const sc=$('chart-scroll'),top=i*rowHeight();if(top<sc.scrollTop||top>sc.scrollTop+sc.clientHeight-rowHeight()-33)sc.scrollTop=Math.max(0,top-sc.clientHeight/2);}
-function zoom(factor,anchor){const sc=$('chart-scroll'),old=state.zoom;const px=anchor===undefined?Math.max(0,sc.clientWidth-LABEL)/2:anchor;const cycle=(sc.scrollLeft+px)/old;state.zoom=clamp(state.zoom*factor,.5,64);renderRows();sc.scrollLeft=cycle*state.zoom-px;renderOverviewWindow();}
-function fit(){const sc=$('chart-scroll');state.zoom=clamp((sc.clientWidth-LABEL)/TOTAL,.5,64);renderRows();sc.scrollLeft=0;renderOverviewWindow();notify('Entire trace fitted to the timeline');}
+// Anchor coordinates are in the scroll viewport, excluding the fixed label column and ruler.
+function mapAnchor(point){
+  const sc=$('chart-scroll');
+  const x=point?.x??Math.max(0,sc.clientWidth-LABEL)/2;
+  const y=point?.y??Math.max(0,sc.clientHeight-33)/2;
+  return {cycle:(sc.scrollLeft+x)/state.zoom,row:(sc.scrollTop+y)/rowHeight(),x,y};
+}
+function zoomTo(value,anchor){
+  const sc=$('chart-scroll');state.zoom=clamp(value,.5,64);renderRows();
+  sc.scrollLeft=anchor.cycle*state.zoom-anchor.x;
+  sc.scrollTop=anchor.row*rowHeight()-anchor.y;
+  renderOverviewWindow();
+}
+function zoom(factor,point){zoomTo(state.zoom*factor,mapAnchor(point));}
+function fit(){
+  const sc=$('chart-scroll');
+  state.zoom=clamp(Math.min((sc.clientWidth-LABEL)/TOTAL,(sc.clientHeight-33)*24/(Math.max(1,visible.length)*(state.compact?24:34))),.5,64);
+  renderRows();sc.scrollLeft=0;sc.scrollTop=0;renderOverviewWindow();notify('Entire pipeline fitted · cycles and instructions');
+}
 function clearFilters(render=true){state.search='';state.filter='all';state.showFlushed=true;$('search').value='';$('show-flushed').checked=true;renderFilters();if(render){renderRows();renderInspector();}}
 function filterBy(value){state.filter=value;if(value==='flush'){state.showFlushed=true;$('show-flushed').checked=true;}renderFilters();renderRows();renderInspector();}
 function toggleCompare(){state.compare=!state.compare;renderRows();renderInspector();if(state.compare)focusSelection();notify(state.compare?'Baseline overlaid · aligned by instruction ID':'Comparison hidden');}
@@ -137,7 +157,7 @@ function bookmark(){openDialog('save-dialog');$('bookmark-name').value=`${select
 function applyRange(){const a=Number($('range-start').value),b=Number($('range-end').value);if(!Number.isInteger(a)||!Number.isInteger(b)||a<0||b>TOTAL||a>=b){notify('Use whole cycles from 0 to 160, with the end after the start.');return;}state.range=[a,b];renderRange();renderMetrics();notify(`Measured ${b-a} cycles · [${a}, ${b})`);}
 function openDialog(id){$(id).showModal();}
 function showTab(name,focus=false){const tutorial=name==='tutorial';$('viewer').hidden=tutorial;$('tutorial').hidden=!tutorial;for(const item of ['viewer','tutorial']){const active=item===name;$('tab-'+item).setAttribute('aria-selected',active);$('tab-'+item).tabIndex=active?0:-1;}if(focus)$('tab-'+name).focus();if(!tutorial)requestAnimationFrame(()=>{renderOverviewWindow();});}
-const shortcuts=[['Search instructions','/'],['Command palette','⌘ / Ctrl','K'],['Previous / next instruction','↑','↓'],['Move cycle cursor','←','→'],['Zoom in / out','+','−'],['Focus selected instruction','F'],['Fit full trace','0'],['Measure mode','M'],['Toggle dependencies','D'],['Compare baseline','C'],['Bookmark view','B'],['Pin selected instruction','P'],['Clear search / range','Esc'],['Show this reference','?']];
+const shortcuts=[['Search instructions','/'],['Command palette','⌘ / Ctrl','K'],['Previous / next instruction','↑','↓'],['Move cycle cursor','←','→'],['Map zoom in / out','+','−'],['Zoom at pointer','Ctrl / ⌘','wheel'],['Zoom at point','Double-click'],['Zoom out at point','Shift','Double-click'],['Touch map zoom','Pinch'],['Focus selected instruction','F'],['Fit full trace','0'],['Measure mode','M'],['Toggle dependencies','D'],['Compare baseline','C'],['Bookmark view','B'],['Pin selected instruction','P'],['Clear search / range','Esc'],['Show this reference','?']];
 $('shortcut-list').innerHTML=shortcuts.map(([label,...keys])=>`<div class="shortcut"><span>${label}</span><span>${keys.map(k=>`<kbd>${k}</kbd>`).join('')}</span></div>`).join('');
 function commandDefinitions(){return [
  ['Focus selected instruction','F',focusSelection],['Fit entire trace','0',fit],['Compare with baseline','C',toggleCompare],['Measure a range','M',()=>{state.mode='measure';renderRange();$('range-start').focus();}],['Save view as bookmark','B',bookmark],['Pin selected instruction','P',()=>togglePin(state.selected)],['Toggle dependency arrows','D',()=>{$('dependencies').click();}],['Show long waits','',()=>filterBy('stall')],['Show all instructions','',()=>clearFilters()],['Open branch recovery example','',()=>{clearFilters(false);loadScenario('branch');selectInstruction(1036,73,true);}],['Switch appearance','',toggleTheme],['Keyboard shortcuts','?',()=>openDialog('shortcuts')],['Open the field guide','',()=>showTab('tutorial')],['Reset view','',reset]
@@ -170,11 +190,47 @@ document.addEventListener('click',e=>{
  if(b.dataset.image){$('expanded-image').src=b.dataset.image;$('expanded-image').alt=b.querySelector('img').alt;openDialog('image-dialog');}
 });
 const sc=$('chart-scroll');sc.addEventListener('scroll',renderOverviewWindow,{passive:true});
-sc.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();const box=sc.getBoundingClientRect();zoom(e.deltaY<0?1.12:1/1.12,Math.max(0,e.clientX-box.left-LABEL));}},{passive:false});
+function pointerPoint(e){const box=sc.getBoundingClientRect();return {x:Math.max(0,e.clientX-box.left-LABEL),y:Math.max(0,e.clientY-box.top-33)};}
+sc.addEventListener('wheel',e=>{
+  if(e.ctrlKey||e.metaKey){
+    e.preventDefault();
+    const pixels=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?sc.clientHeight:1);
+    zoom(Math.exp(clamp(-pixels*.003,-.7,.7)),pointerPoint(e));
+  }
+},{passive:false});
+sc.addEventListener('dblclick',e=>{
+  if(e.target.closest('.row-label')||e.clientX-sc.getBoundingClientRect().left<LABEL)return;
+  e.preventDefault();zoom(e.shiftKey?.5:2,pointerPoint(e));
+});
 function timelineCycle(e){const r=sc.getBoundingClientRect();return clamp(Math.floor((e.clientX-r.left+sc.scrollLeft-LABEL)/state.zoom),0,TOTAL-1);}
-sc.addEventListener('pointerdown',e=>{if(e.button!==0||e.target.closest('.row-label')||e.target.closest('.empty-state'))return;const bounds=sc.getBoundingClientRect();if(e.clientX-bounds.left<LABEL)return;drag={x:e.clientX,y:e.clientY,left:sc.scrollLeft,top:sc.scrollTop,cycle:timelineCycle(e),measure:state.mode==='measure'||e.shiftKey,moved:false,targetId:Number(e.target.closest('.stage')?.dataset.id),stageCycle:Number(e.target.closest('.stage')?.dataset.cycle)};if(e.pointerType==='mouse')sc.setPointerCapture(e.pointerId);});
-sc.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;if(!drag.moved)return;if(drag.measure){const c=timelineCycle(e);state.range=[Math.min(c,drag.cycle),Math.max(c,drag.cycle)+1];renderRange();renderMetrics();}else{sc.scrollLeft=drag.left-dx;sc.scrollTop=drag.top-dy;}});
-sc.addEventListener('pointerup',e=>{if(!drag)return;if(!drag.moved){if(drag.targetId){selectInstruction(drag.targetId,drag.stageCycle);sc.focus({preventScroll:true});}else{state.cursor=timelineCycle(e);renderCursor();}}ignoreClick=drag.moved||!!drag.targetId;drag=null;setTimeout(()=>ignoreClick=false,0);});sc.addEventListener('pointercancel',()=>drag=null);
+const touches=new Map();let pinch=null;
+function touchPair(){const [a,b]=[...touches.values()];return {distance:Math.max(1,Math.hypot(b.x-a.x,b.y-a.y)),x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
+sc.addEventListener('pointerdown',e=>{
+  if(e.button!==0||e.target.closest('.row-label')||e.target.closest('.empty-state'))return;
+  const bounds=sc.getBoundingClientRect();if(e.clientX-bounds.left<LABEL)return;
+  sc.setPointerCapture(e.pointerId);
+  if(e.pointerType==='touch'){
+    touches.set(e.pointerId,pointerPoint(e));
+    if(touches.size>=2){const pair=touchPair();pinch={...pair,zoom:state.zoom,anchor:mapAnchor(pair)};drag=null;return;}
+  }
+  drag={x:e.clientX,y:e.clientY,left:sc.scrollLeft,top:sc.scrollTop,cycle:timelineCycle(e),measure:state.mode==='measure'||e.shiftKey,moved:false,targetId:Number(e.target.closest('.stage')?.dataset.id),stageCycle:Number(e.target.closest('.stage')?.dataset.cycle)};
+});
+sc.addEventListener('pointermove',e=>{
+  if(touches.has(e.pointerId))touches.set(e.pointerId,pointerPoint(e));
+  if(pinch){if(touches.size>=2){const pair=touchPair();zoomTo(pinch.zoom*pair.distance/pinch.distance,{...pinch.anchor,x:pair.x,y:pair.y});}return;}
+  if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+  if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true;if(!drag.moved)return;
+  if(drag.measure){const c=timelineCycle(e);state.range=[Math.min(c,drag.cycle),Math.max(c,drag.cycle)+1];renderRange();renderMetrics();}
+  else{sc.scrollLeft=drag.left-dx;sc.scrollTop=drag.top-dy;}
+});
+sc.addEventListener('pointerup',e=>{
+  touches.delete(e.pointerId);
+  if(pinch){if(!touches.size)pinch=null;drag=null;ignoreClick=true;setTimeout(()=>ignoreClick=false,0);return;}
+  if(!drag)return;
+  if(!drag.moved){if(drag.targetId){selectInstruction(drag.targetId,drag.stageCycle);sc.focus({preventScroll:true});}else{state.cursor=timelineCycle(e);renderCursor();}}
+  ignoreClick=drag.moved||!!drag.targetId;drag=null;setTimeout(()=>ignoreClick=false,0);
+});
+sc.addEventListener('pointercancel',e=>{touches.delete(e.pointerId);if(!touches.size)pinch=null;drag=null;});
 $('overview').addEventListener('pointerdown',e=>{const box=$('overview').getBoundingClientRect();const span=(sc.clientWidth-LABEL)/state.zoom;const move=event=>{const c=(event.clientX-box.left)/box.width*TOTAL;sc.scrollLeft=Math.max(0,(c-span/2)*state.zoom);};move(e);$('overview').setPointerCapture(e.pointerId);const onMove=event=>move(event),end=()=>{$('overview').removeEventListener('pointermove',onMove);$('overview').removeEventListener('pointerup',end);};$('overview').addEventListener('pointermove',onMove);$('overview').addEventListener('pointerup',end);});
 $('overview').onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();sc.scrollLeft=e.key==='Home'?0:e.key==='End'?sc.scrollWidth:sc.scrollLeft+(e.key==='ArrowRight'?8:-8)*state.zoom;}};
 document.addEventListener('keydown',e=>{
@@ -186,7 +242,7 @@ document.addEventListener('keydown',e=>{
 new ResizeObserver(()=>renderOverviewWindow()).observe(sc);
 const lessons=[
  {id:'overview',title:'Read the shape of execution',intro:'Instructions run down the page. Cycles run left to right. Start wide: a long horizontal band often deserves a closer look.',steps:['Use the <strong>Trace</strong> selector to switch between memory-bound, branch-recovery, and steady examples. Each contains 72 illustrative instructions.','The <strong>overview bars</strong> count instructions in flight. The outlined window marks the visible cycles. Click or drag anywhere in the overview to move it.','Select an <strong>event chip</strong> to jump directly to a cache miss or branch recovery. The inspector explains the selected instruction.'],caption:'A memory-bound loop, with the first cache miss selected and the visible time window outlined above.',tip:'Warm overview bars mark a miss in progress; height still encodes in-flight count.'},
- {id:'navigate',title:'Move without losing your place',intro:'The overview preserves context while the timeline gives you cycle-level precision. Instruction labels and the cycle ruler stay in place as you move.',steps:['Choose <strong>Pan</strong> and drag the timeline. Native horizontal scrolling and trackpad gestures work too. Scroll vertically to move through instruction rows.','Use <strong>+ / −</strong> or Ctrl/Command + wheel to zoom around the current view or pointer. Stage labels simplify when cells become small. C is a commit wait: execution is done, but retirement is waiting for older work.','Use <strong>Fit</strong> (0) to see the full trace, <strong>Focus</strong> (F) to frame the selected instruction, and <strong>Reset view</strong> to restore the opening example.'],caption:'A zoomed-out view exposes the trace’s larger timing patterns while preserving instruction identity.',tip:'Focus clears filters only when needed to reveal the selected instruction.'},
+ {id:'navigate',title:'Move without losing your place',intro:'The overview preserves context while the timeline gives you cycle-level precision. Instruction labels and the cycle ruler stay in place as you move.',steps:['Choose <strong>Pan</strong> and drag the timeline. Native horizontal scrolling and trackpad gestures work too. Scroll vertically to move through instruction rows.','Zoom like a map: <strong>Ctrl/Command + wheel</strong> or a <strong>two-finger pinch</strong> scales both cycles and instruction rows around the gesture. <strong>Double-click</strong> zooms in; <strong>Shift + double-click</strong> zooms out. The + / − controls zoom around the center. Labels simplify at small scales. C is a commit wait: execution is done, but retirement is waiting for older work.','Use <strong>Fit</strong> (0) to see all cycles and instruction rows, <strong>Focus</strong> (F) to frame the selected instruction, and <strong>Reset view</strong> to restore the opening example.'],caption:'Map zoom fits the entire pipeline in both dimensions, exposing the shape of cache stalls and recovery.',tip:'Focus clears filters only when needed to reveal the selected instruction.'},
  {id:'inspect',title:'Make one instruction the anchor',intro:'Click a label or stage to select it. The inspector remains beside the trace, so the evidence and explanation stay visible together.',steps:['Select <strong>#1012</strong>. Its inspector shows the disassembly, PC, lifetime, fetch and retire cycles, and exact time spent in each stage.','Hover a stage for its <strong>cycle interval</strong>. Selecting a stage also places the blue cycle cursor at its start. Wait spans carry labels as well as color.','Focus the timeline and use <strong>↑ / ↓</strong> to select neighboring instructions and <strong>← / →</strong> to move the cycle cursor. The inspector’s arrow buttons offer the same instruction navigation.'],caption:'A selected load, its 18-cycle memory wait, and the per-stage breakdown.',tip:'Intervals are half-open: [23, 41) represents 18 cycles.'},
  {id:'dependencies',title:'Follow the wait to its cause',intro:'A waiting instruction is a symptom. Follow its producer to find the cause, then return through the consumer links.',steps:['Select <strong>#1013</strong>, which waits for register a0. The cause card identifies its producer and the cycle when that value becomes available.','Click the <strong>Producer #1012</strong> link. The timeline frames the load, and direct consumers appear in the inspector. Follow either consumer to continue the investigation.','Toggle <strong>Dependency arrows</strong> (D) to show or hide the selected instruction’s direct links. Unrelated arrows stay hidden to keep the graph readable.'],caption:'The dependent add is selected. Its producer link leads directly to the load responsible for the wait.',tip:'Links still work when a producer is off-screen or excluded by a filter.'},
  {id:'search',title:'Find the signal in the noise',intro:'Search and investigation filters narrow the rows immediately. Selection stays available in the inspector even if it falls outside the current results.',steps:['Press <strong>/</strong> and enter an opcode, instruction ID, PC, or label. Search is case-insensitive literal text; try <strong>ld</strong> or <strong>1012</strong>.','Combine search with <strong>Loads</strong>, <strong>Long waits</strong>, <strong>Branches</strong>, or <strong>Squashed</strong>. The result count always shows how many rows remain. Enter focuses the first match.','Use the search field’s clear control or <strong>Escape</strong> to reset filters. If nothing matches, the empty state provides a single <strong>Clear filters</strong> action.'],caption:'Load instructions filtered by “ld”, with the original selection and inspector retained.',tip:'Display filters never change the trace-wide or range metrics.'},
@@ -205,7 +261,7 @@ $('chapters').innerHTML=lessons.map((l,i)=>`<article class="chapter" id="lesson-
 function lesson(id){
  showTab('viewer');reset();state.theme='light';theme();
  switch(id){
- case 'navigate':state.compact=true;syncControls();renderRows();fit();sc.scrollTop=120;break;
+ case 'navigate':fit();break;
  case 'inspect':selectInstruction(1012,23,true);break;
  case 'dependencies':selectInstruction(1013,25,true);break;
  case 'search':state.search='ld';state.filter='load';syncControls();renderFilters();renderRows();renderInspector();break;

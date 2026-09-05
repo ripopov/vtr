@@ -128,3 +128,62 @@ test('standalone file opens without network or a server', async ({page})=>{
  await expect(image).toHaveJSProperty('complete',true);expect(await image.evaluate(e=>e.naturalWidth)).toBeGreaterThan(0);
  expect(errors).toEqual([]);
 });
+
+test('map zoom scales both axes, anchors the pointer, fits all rows and restores detail', async ({page})=>{
+ await open(page);
+ const sc=page.locator('#chart-scroll'), box=await sc.boundingBox();
+ const point={x:box.x+242+(box.width-242)*.45,y:box.y+33+(box.height-33)*.45};
+ const coords=()=>sc.evaluate((el,p)=>{
+   const rect=el.getBoundingClientRect();const zoom=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cycle-width'));
+   const height=document.querySelector('.instruction-row').getBoundingClientRect().height;
+   return {cycle:(el.scrollLeft+p.x-rect.x-242)/zoom,row:(el.scrollTop+p.y-rect.y-33)/height,zoom,height};
+ },point);
+ const before=await coords();
+ await page.mouse.move(point.x,point.y);await page.keyboard.down('Control');await page.mouse.wheel(0,-120);await page.keyboard.up('Control');
+ await expect.poll(async()=>(await coords()).zoom).toBeGreaterThan(before.zoom);
+ const after=await coords();expect(after.height).toBeGreaterThan(before.height);
+ expect(Math.abs(after.cycle-before.cycle)).toBeLessThan(.1);expect(Math.abs(after.row-before.row)).toBeLessThan(.1);
+ await page.keyboard.down('Shift');await page.mouse.dblclick(point.x,point.y);await page.keyboard.up('Shift');
+ const reduced=await coords();expect(reduced.zoom).toBeCloseTo(after.zoom/2,1);expect(reduced.height).toBeLessThan(after.height);
+ // Double-click the same location back in; no fetch-alignment jump should occur.
+ await page.mouse.dblclick(point.x,point.y);
+ expect((await coords()).zoom).toBeCloseTo(after.zoom,1);
+ await page.getByRole('button',{name:'Fit',exact:true}).click();
+ const fit=await sc.evaluate(el=>({w:el.scrollWidth,cw:el.clientWidth,h:el.scrollHeight,ch:el.clientHeight,top:el.scrollTop,left:el.scrollLeft}));
+ expect(fit.w-fit.cw).toBeLessThanOrEqual(2);expect(fit.h-fit.ch).toBeLessThanOrEqual(2);expect(fit.top).toBe(0);expect(fit.left).toBe(0);
+ await expect(page.locator('body')).toHaveClass(/map-overview/);
+ await page.getByLabel('Bookmark this view').click();await page.getByLabel('View name').fill('Pipeline map');await page.getByRole('button',{name:'Save view',exact:true}).click();
+ const fitHeight=await page.locator('.instruction-row').first().evaluate(el=>el.getBoundingClientRect().height);
+ await page.getByRole('button',{name:'⊙ Focus F'}).click();
+ expect(await page.locator('.instruction-row').first().evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThan(20);
+ await page.locator('[data-bookmark="0"]').click();
+ expect(await page.locator('.instruction-row').first().evaluate(el=>el.getBoundingClientRect().height)).toBeCloseTo(fitHeight,1);
+});
+
+test('two-finger pinch zooms the pipeline and never creates a selection range', async ({page,context})=>{
+ await open(page);
+ const client=await context.newCDPSession(page);await client.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:2});
+ const box=await page.locator('#chart-scroll').boundingBox();const x=box.x+242+(box.width-242)/2,y=box.y+33+(box.height-33)/2;
+ const value=()=>page.locator('.instruction-row').first().evaluate(el=>el.getBoundingClientRect().height);
+ const coordinate=()=>page.locator('#chart-scroll').evaluate((el,p)=>{
+   const rect=el.getBoundingClientRect();
+   const width=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cycle-width'));
+   const height=document.querySelector('.instruction-row').getBoundingClientRect().height;
+   return [(el.scrollLeft+p.x-rect.x-242)/width,(el.scrollTop+p.y-rect.y-33)/height];
+ },{x,y});
+ const beforeCoordinate=await coordinate();
+ const before=await value();
+ const point=(id,px,py)=>({id,x:px,y:py,radiusX:3,radiusY:3,force:1});
+ await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point(1,x-50,y),point(2,x+50,y)]});
+ await client.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[point(1,x-85,y-20),point(2,x+85,y+20)]});
+ await client.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await expect.poll(value).toBeGreaterThan(before*1.5);
+ const afterCoordinate=await coordinate();for(let i=0;i<2;i++)expect(Math.abs(afterCoordinate[i]-beforeCoordinate[i])).toBeLessThan(.15);
+ await expect(page.locator('#range-overlay')).toBeHidden();
+ // A fresh one-finger pan works after the pinch ends.
+ const sc=page.locator('#chart-scroll'),left=await sc.evaluate(el=>el.scrollLeft);
+ await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point(1,x,y)]});
+ await client.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[point(1,x-60,y)]});
+ await client.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ expect(await sc.evaluate(el=>el.scrollLeft)).toBeGreaterThan(left);
+});

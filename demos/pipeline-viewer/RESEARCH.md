@@ -98,3 +98,22 @@ wrong-path work, compare two builds, and restore an investigation. Measure succe
 time, wrong turns, and confidence; test screen readers and alternative input devices.
 Tune density and defaults from those results. This prototype makes those tasks
 concrete enough to evaluate.
+
+## Map-style zoom
+
+Following Konata's map interaction, zoom now changes the cycle pitch and instruction
+row height together. Ctrl/Command + wheel and two-pointer touch pinch keep the cycle
+and fractional instruction position beneath the gesture fixed, except at trace
+boundaries where scrolling is clamped. Double-click doubles the scale;
+Shift + double-click halves it. Toolbar and keyboard zoom use the viewport center.
+Unmodified wheel/trackpad scrolling still pans, so ordinary scrolling remains familiar.
+
+Fit considers both the full cycle range and all filtered instruction rows. At small
+scales, sparse instruction IDs replace dense disassembly, stage text disappears,
+and the pipeline's geometry becomes the primary information. Focus returns to a
+readable scale. Comparison outlines, arrows, measurements, and saved views share
+the same transform. Controls and the inspector remain at their normal size.
+
+Browser regression checks verify both-axis scaling and pointer anchoring, full-view
+fit, return to detail, restoration of a saved map view, and real two-touch pinch/pan
+input dispatched through Chromium's input system.

@@ -26,7 +26,7 @@
     <div class="toolbar-divider"></div>
     <button id="pan-mode" class="button tool selected" aria-pressed="true" title="Pan the timeline">Pan</button><button id="measure-mode" class="button tool" aria-pressed="false" title="Measure a cycle range (M)">Measure</button>
     <div class="toolbar-divider"></div>
-    <button id="zoom-out" class="icon-button" aria-label="Zoom out" title="Zoom out (-)">−</button><output id="zoom-label" class="zoom-label">100%</output><button id="zoom-in" class="icon-button" aria-label="Zoom in" title="Zoom in (+)">+</button><button id="fit" class="button tool" title="Fit the trace (0)">Fit</button>
+    <button id="zoom-out" class="icon-button" aria-label="Zoom out" title="Zoom out (-)">−</button><output id="zoom-label" class="zoom-label">100%</output><button id="zoom-in" class="icon-button" aria-label="Zoom in" title="Zoom in (+)">+</button><button id="fit" class="button tool" title="Fit all cycles and instructions (0)">Fit</button>
     <div class="toolbar-spacer"></div><button id="compare" class="button" aria-pressed="false" title="Compare with the baseline (C)"><span aria-hidden="true">⇄</span> Compare</button><button id="commands" class="button command-button" title="Command palette (⌘/Ctrl K)"><span aria-hidden="true">⌘</span> <span>Commands</span><kbd>K</kbd></button>
   </div>
   <div class="studio-grid">
@@ -54,7 +54,7 @@
       </div>
       <div class="range-bar" id="range-bar"><div><span class="range-icon" aria-hidden="true">↔</span><strong>Measure a range</strong><span class="range-hint">Drag on the timeline or enter cycles</span></div><label>From <input id="range-start" type="number" min="0" max="159" value="18" aria-label="Range start cycle"></label><label>to <input id="range-end" type="number" min="1" max="160" value="36" aria-label="Range end cycle"></label><button id="apply-range" class="button small">Apply</button><button id="clear-range" class="icon-button small" aria-label="Clear measurement" title="Clear measurement">×</button></div>
       <div class="analysis-bar" id="analysis-bar"></div>
-      <div class="timeline-footer"><span><kbd>↑</kbd><kbd>↓</kbd> instruction <kbd>←</kbd><kbd>→</kbd> cycle <kbd>F</kbd> focus</span><span>Drag to pan · Shift + drag to measure</span></div>
+      <div class="timeline-footer"><span><kbd>↑</kbd><kbd>↓</kbd> instruction <kbd>←</kbd><kbd>→</kbd> cycle <kbd>F</kbd> focus</span><span>Ctrl/⌘ + wheel or pinch to zoom · Double-click to explore</span></div>
     </section>
     <aside class="inspector" aria-label="Instruction inspector" id="inspector"></aside>
   </div>

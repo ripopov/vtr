@@ -14,9 +14,11 @@ Open <http://127.0.0.1:8765>. A local server gives saved views a stable browser
 origin. With `file://`, storage behavior depends on the browser; the demo still runs.
 
 The viewer includes three deterministic example traces, instruction and stage
-selection, pan/zoom/focus, an overview, direct dependency links, search and filters,
+selection, map-style two-axis zoom, pan/focus, an overview, direct dependency links, search and filters,
 flush visibility, cycle-range measurement, baseline comparison, bookmarks, pins,
 notes, JSON export, a command palette, keyboard navigation, and light/dark themes.
+Ctrl/Command + wheel, double-click, and two-finger pinch zoom around the pointer
+or gesture; Fit shows all cycles and rows, and Focus returns to detail.
 The tutorial's Try it buttons prepare working examples; screenshots open full size.
 
 Data is synthetic and source mapping illustrative. This is a UI prototype, not a
