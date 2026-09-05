@@ -12,6 +12,15 @@ Rust workspace with four crates (`crates/vtr` core, `vtr-capi` C ABI,
 `vtr-cli` tools, `vtr-bench` benchmarks), a Verilator backend in
 `integrations/verilator`, and a benchmark suite in `bench/`.
 
+## Long-term RTL KDB goal
+
+Generate KDB alongside Verilator builds from elaborated RTL before aggressive
+optimization, preserving module hierarchy, specialized types, and source semantics.
+Export an explicit mapping to traced signals and a shared KDB/VTR build identity
+so debugging reflects the simulated design. Keep KDB separate from VTR, with a
+simulator-independent schema and a slang adapter for standalone design browsing
+and other simulation backends.
+
 ## Where to look
 
 | need | file |
