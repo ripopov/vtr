@@ -704,3 +704,33 @@ markers. Endpoint events are included; events outside the containing lifetime
 are omitted. The CHI and mixed waveform snapshots exercise the result, with
 geometry and hover/click regression checks. No VTR decode path or public API
 changes are involved, and no performance claim is made.
+
+
+## Stable Surfer transaction geometry and screen-space sampling
+
+Viewport-local row assignment caused packets to change rows while panning.
+ID-ordered payload vectors also violated the drawing loop’s assumption that
+start times were ordered; binary-searching arbitrary completion times could
+miss long overlapping transactions. Surfer now indexes complete stream and
+generator geometry separately, sorting by start time and ID and assigning rows
+with active-end and free-row heaps. Draw-cache identities include the displayed
+track, and vertical scrolling invalidates sampled geometry. Mixed canvases use
+the transaction row height rather than the signal row height.
+
+Per-row nonoverlap makes interval searches valid. Queries jump over transactions
+within each screen bin, retain aggregate counts and the last member’s end, and
+visit only visible rows. Native payload requests follow individual screen
+samples and inspector selection; panning does not rescan complete-track
+geometry. Keyboard navigation uses indexed chronological neighbors rather than
+enumerating loaded payload IDs, preserving navigation through dense windows. Legacy FTR indexes reuse its loaded streams. Rich details stay outside
+the geometry index. Initial geometry construction and the reference reader’s
+transient decoded-block cache are still linear in recording data; no bounded
+initial-memory or billion-record-file loading claim is made.
+
+The one-million-record, same-process debug-profile timing comparison measured
+91.1 ms to construct geometry, 573.5 ms for the former per-frame row packing
+alone, and 1.6 ms for a 1920-column indexed query (best of three). These are not
+end-to-end GUI or file-I/O measurements. A virtual billion-element row verifies
+query operation/output bounds without allocating a billion payloads. See
+[the rendering chapter](../ext/surfer/docs/html/transaction-rendering.html) and
+its repeatable ignored timing test. No VTR encoding or decoder changes are made.
