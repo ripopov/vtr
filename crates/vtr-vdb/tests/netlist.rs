@@ -390,3 +390,21 @@ fn old_vdb_versions_require_reexport() {
         .unwrap()
         .contains("re-export RTL"));
 }
+
+#[test]
+fn navigation_sources_preserve_declarations_and_expression_locations() {
+    let db = fixture("netlist");
+    let graph = NetlistIndex::new(&db).unwrap().module("top").unwrap();
+    for block in &graph.blocks {
+        if let Some(child) = &block.child {
+            let instance = db.instances.iter().find(|instance| &instance.path == child).unwrap();
+            assert_eq!(block.source.as_ref().map(|s| (&s.file, s.line, s.column)), Some((&instance.source.file, instance.source.line, instance.source.column)));
+        } else if block.detail == "signal" || block.detail.starts_with("port ·") {
+            let symbol = block.pins.iter().find_map(|pin| pin.symbol.as_ref()).unwrap();
+            let expected = &db.symbols[symbol].source;
+            assert_eq!(block.source.as_ref().map(|s| (&s.file, s.line, s.column)), Some((&expected.file, expected.line, expected.column)));
+        } else {
+            assert!(block.source.as_ref().is_some_and(|source| source.line > 0), "{}", block.title);
+        }
+    }
+}

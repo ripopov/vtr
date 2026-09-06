@@ -1,6 +1,8 @@
 //! Module-local RTL connectivity. Children are opaque, navigable blocks.
 use crate::{Database, Debugger, Expr, ExprOp, Instance, Moment, Process, Statement};
-use serde_json::{json, Value};
+use serde_json::Value;
+#[cfg(feature = "layout")]
+use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
@@ -15,6 +17,8 @@ pub struct Block {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// Declaration or expression location for navigation, separate from labels.
+    pub source: Option<crate::Source>,
     /// Instance path to open when drilling into a child module.
     pub child: Option<String>,
     pub pins: Vec<Pin>,
@@ -188,6 +192,7 @@ impl<'a> NetlistIndex<'a> {
                 Some(i.path.clone()),
                 pins,
             );
+            b.graph.blocks[id].source = Some(i.source.clone());
             children.insert(i.path.as_str(), id);
         }
         for c in &m.connections {
@@ -210,6 +215,7 @@ impl<'a> NetlistIndex<'a> {
                             None,
                             vec![pin_named("in", false)],
                         );
+                        b.graph.blocks[dest].source = Some(c.source.clone());
                         b.wire((id, pin), (dest, 0));
                     }
                 }
@@ -259,6 +265,7 @@ impl<'a> NetlistIndex<'a> {
                 write!(detail, " · {reason}").unwrap();
             }
             let id = b.block(title.into(), detail, None, pins);
+            b.graph.blocks[id].source = Some(p.source.clone());
             for (k, s) in refs.iter().enumerate() {
                 let src = b.signal(s);
                 b.wire((src, 1), (id, k));
@@ -301,6 +308,7 @@ impl Builder<'_> {
             id: format!("n{id}"),
             title,
             detail,
+            source: None,
             child,
             pins,
         });
@@ -339,6 +347,7 @@ impl Builder<'_> {
                 },
             ],
         );
+        self.graph.blocks[id].source = self.db.symbols.get(s).map(|symbol| symbol.source.clone());
         self.signals.insert(s.into(), id);
         id
     }
@@ -418,6 +427,7 @@ impl Builder<'_> {
                     None,
                     pins,
                 );
+                self.graph.blocks[id].source = Some(e.source.clone());
                 for (k, s) in reads.iter().enumerate() {
                     let src = self.signal(s);
                     self.wire((src, 1), (id, k));
@@ -438,6 +448,7 @@ impl Builder<'_> {
             None,
             pins,
         );
+        self.graph.blocks[id].source = Some(e.source.clone());
         for (k, (_, arg)) in args.into_iter().enumerate() {
             let source = self.expression(arg);
             self.wire(source, (id, k));
@@ -457,6 +468,7 @@ pub struct LaidOutNetlist {
     pub geometry: Value,
 }
 impl Netlist {
+    #[cfg(feature = "layout")]
     pub fn layout(self) -> Result<LaidOutNetlist, String> {
         let nodes:Vec<_>=self.blocks.iter().map(|b| {
             let width=380.0_f64.max(b.title.chars().count() as f64*8.0+24.0);

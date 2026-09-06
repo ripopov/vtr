@@ -6,8 +6,17 @@ license.workspace = true
 rust-version = "1.88"
 description = "Independent slang RTL Vibe Data Base and temporal driver tracing for VTR"
 
+[features]
+default = ["layout"]
+layout = ["dep:elkrs"]
+
+[[bin]]
+name = "vtr-vdb"
+path = "src/main.rs"
+required-features = ["layout"]
+
 [dependencies]
-elkrs = { path = "../../ext/elkrs" }
+elkrs = { path = "../../ext/elkrs", optional = true }
 vtr = { path = "../vtr" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

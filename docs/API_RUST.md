@@ -1661,7 +1661,7 @@ std::fs::write("stage.svg", svg)?;
 
 `NetlistIndex` borrows the database and indexes module ownership. `module`
 returns an owned `Netlist` containing `blocks` (IDs, titles, source details,
-child instance paths, named pins) and `wires` (block/pin endpoints). `layout`
+optional typed `source: Option<Source>` locations, child instance paths, named pins) and `wires` (block/pin endpoints). `layout`
 consumes it and returns a `LaidOutNetlist` with public netlist and ELK geometry.
 `svg` borrows that layout and samples the attached debugger; repeated times
 reuse geometry and cached immutable histories. All operations return
@@ -1673,3 +1673,8 @@ The pinned Surfer adapter uses these attachment rules to associate a same-stem
 signals to RTL declarations. See [Surfer source navigation](VDB_RTL.md#surfer-source-navigation)
 for user behavior and the example-based verification scope. This introduces no
 new public VTR or VDB library API.
+
+The `vtr-vdb` crate enables its `layout` feature by default. Disable default
+features to use the typed database and netlist without the bundled ELK layout
+dependency or CLI binary. Custom renderers can then size and lay out the same
+netlist themselves; Surfer uses this path with its own elkrs submodule.

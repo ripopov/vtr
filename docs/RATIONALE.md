@@ -625,3 +625,15 @@ without adding synchronization to queries. Owned shared histories and block
 time tables survive eviction. Existing decoding and cache lookup paths are
 unchanged; subsequent queries repopulate caches normally. This is a lifetime
 control API, with no encoding change or measured speedup claim.
+
+### Surfer schematic canvas
+
+Surfer consumes the module-local VDB netlist and runs elkrs in a background
+worker with node sizes chosen for its interactive canvas. The gpui-schem
+prototype informed pointer-centered zoom, panning and object selection; its
+images are not reference snapshots. Surfer's PNG tests use its own renderer
+and committed Verilator examples. Typed optional block source locations keep
+navigation independent of human-readable labels. The default `layout` feature
+in vtr-vdb is optional so consumers can supply their own layout dependency.
+This changes neither the VTR nor the VDB serialized format and makes no
+compression, throughput or memory performance claim.
