@@ -39,6 +39,8 @@ model. VDB remains separate from the runtime trace data in VTR.
 | APIs | `docs/API_RUST.md`, `docs/API_C.md` |
 | logging (log sites, `LOG_BLOCK`, C++ header, comparison with NanoLog/binlog/Quill/CLP) | `docs/LOGGING.md`, `bench/log/` |
 | benchmark method / current numbers | `docs/BENCHMARKS.md`, `docs/BENCHMARK_RESULTS.md` |
+| RTL VDB schema, Verilator/pyslang exporters, Surfer attachment | `docs/VDB_RTL.md` |
+| slang-server fork and Surfer's language-server client | `integrations/slang-server/README.md`, `ext/surfer/docs/html/source-code.html` |
 | open ideas ranked by measured headroom | `docs/SOTA_REVIEW_2026.md` |
 
 ## Build and test

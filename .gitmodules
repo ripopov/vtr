@@ -24,3 +24,7 @@
 	path = ext/verilator
 	url = https://github.com/ripopov/verilator
 	branch = vtr
+[submodule "ext/slang-server"]
+	path = ext/slang-server
+	url = https://github.com/ripopov/slang-server
+	branch = vtr

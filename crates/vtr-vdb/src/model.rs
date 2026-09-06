@@ -164,6 +164,29 @@ pub struct SourceFile {
     pub path: String,
     pub sha256: String,
 }
+/// One command-line preprocessor define.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Define {
+    pub name: String,
+    pub value: String,
+}
+/// Structured elaboration inputs: the design file set and preprocessor environment the
+/// producer elaborated, recorded so another frontend can re-elaborate the same design.
+/// Relative paths resolve against `work_dir`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Elaboration {
+    pub work_dir: String,
+    pub language: String,
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub library_files: Vec<String>,
+    #[serde(default)]
+    pub include_dirs: Vec<String>,
+    #[serde(default)]
+    pub library_exts: Vec<String>,
+    #[serde(default)]
+    pub defines: Vec<Define>,
+}
 /// Exact attachment emitted alongside a simulator recording.
 #[derive(Clone, Debug, Deserialize)]
 pub struct TraceBinding {
@@ -181,6 +204,8 @@ pub struct Database {
     pub trace_binding: Option<TraceBinding>,
     pub sources: Vec<SourceFile>,
     pub options: Vec<String>,
+    #[serde(default)]
+    pub elaboration: Option<Elaboration>,
     pub instances: Vec<Instance>,
     pub symbols: BTreeMap<String, Symbol>,
     pub connections: Vec<Connection>,

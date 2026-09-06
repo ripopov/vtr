@@ -147,6 +147,12 @@ impl<'a> Debugger<'a> {
             };
             let trace_path = if let Some(binding) = &db.trace_binding {
                 let Some(recorded) = binding.signals.get(path) else {
+                    if !s.ty.integral {
+                        // Unpacked arrays are recorded element-wise under the aggregate's
+                        // name; the aggregate itself has no signal to map.
+                        diagnostics.push(format!("unrecorded aggregate: {path} ({})", s.ty.text));
+                        continue;
+                    }
                     diagnostics.push(format!(
                         "missing trace signal: {path} (not recorded in VDB binding)"
                     ));

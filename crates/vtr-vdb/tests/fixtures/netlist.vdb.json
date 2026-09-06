@@ -499,7 +499,18 @@
       }
     }
   ],
-  "design_id": "1643f12b3ee9f75ea8a31a3d191d5e4e92d71b46dcecd94b716e9baa59420e66",
+  "design_id": "a320f6603f32248b3ae1b0de50d033f19255e0694821740e13fe4849bfb9c67f",
+  "elaboration": {
+    "defines": [],
+    "files": [
+      "crates/vtr-vdb/tests/rtl/netlist.sv"
+    ],
+    "include_dirs": [],
+    "language": "1800-2023",
+    "library_exts": [],
+    "library_files": [],
+    "work_dir": "."
+  },
   "format": "vtr-rtl-vdb",
   "instances": [
     {

@@ -261,7 +261,18 @@
       }
     }
   ],
-  "design_id": "08f59cf977c3c284da3b9382b90e91f1a849e16f1a402f9734aab29ed91394fe",
+  "design_id": "2a5f4a144b502b22d0aded0521eead6cf9257bc5b562a7c0a2ed89019b1aaca8",
+  "elaboration": {
+    "defines": [],
+    "files": [
+      "crates/vtr-vdb/tests/rtl/pipeline.sv"
+    ],
+    "include_dirs": [],
+    "language": "1800-2023",
+    "library_exts": [],
+    "library_files": [],
+    "work_dir": "."
+  },
   "format": "vtr-rtl-vdb",
   "instances": [
     {

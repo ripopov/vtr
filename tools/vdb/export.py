@@ -238,8 +238,14 @@ def main():
         if name and Path(name).is_file():
             sources.append(dict(path=str(Path(name).relative_to(Path.cwd())) if Path(name).is_relative_to(Path.cwd()) else name,
                                 sha256=hashlib.sha256(Path(name).read_bytes()).hexdigest()))
+    # Structured elaboration inputs shared with the Verilator producer: paths are as
+    # given on the command line and resolve relative to work_dir.
+    # work_dir '.' means relative paths resolve from the directory holding this VDB.
+    elaboration = dict(work_dir='.', language='1800-2023', files=list(args.sources), library_files=[],
+                       include_dirs=list(args.includes), library_exts=[],
+                       defines=[dict(name=d.partition('=')[0], value=d.partition('=')[2]) for d in args.defines])
     doc = dict(format='vtr-rtl-vdb', version=2, producer='pyslang '+slang.__version__, top=args.top,
-               sources=sorted(sources, key=lambda x:x['path']), options=cmd[1:],
+               sources=sorted(sources, key=lambda x:x['path']), options=cmd[1:], elaboration=elaboration,
                instances=ex.instances, symbols=ex.symbols, connections=ex.connections, processes=ex.processes)
     doc['design_id'] = hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()
     Path(args.output).write_text(json.dumps(doc, indent=2, sort_keys=True)+'\n')

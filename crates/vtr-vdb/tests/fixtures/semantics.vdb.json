@@ -1,6 +1,17 @@
 {
   "connections": [],
-  "design_id": "e26ba991061235a2f04e3b40f877098ce4b5b57a1390368bac769e1629948fce",
+  "design_id": "b91840156155c151e714ba9c94b4c19d576c203c4d8044330824abfbbc535f49",
+  "elaboration": {
+    "defines": [],
+    "files": [
+      "crates/vtr-vdb/tests/rtl/semantics.sv"
+    ],
+    "include_dirs": [],
+    "language": "1800-2023",
+    "library_exts": [],
+    "library_files": [],
+    "work_dir": "."
+  },
   "format": "vtr-rtl-vdb",
   "instances": [
     {

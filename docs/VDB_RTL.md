@@ -118,6 +118,18 @@ source-order assignments, casts, signed arithmetic, bit indexing, hierarchy
 references, enums, wide values, missing mappings, identity mismatch, and model
 prefixes. Unlike the standalone fixture tests, these values come from Verilator.
 
+The `elaboration` record exists so another frontend can re-elaborate the same
+design without user configuration: Surfer turns it into a build file for the
+pinned `slang-server` (`integrations/slang-server`). Verilator records the
+user include directories (`+incdir+`, `-I`, `-y` in order), `+libext+`,
+command-line defines (`+define+`, `-D`, including those from `-f` files), the
+`-v` library files and the design files as given; implicit search paths and
+the `$VERILATOR_ROOT` standard package are not part of the record. Interface
+reference variables are not exported as symbols: they name an instance, which
+appears under `instances`. Unpacked arrays are exported as one non-integral
+symbol while the recording holds their elements; `check` reports them as an
+`unrecorded aggregate` diagnostic that does not fail the attachment.
+
 ## Surfer source navigation
 
 The pinned Surfer integration opens a local `.vtr` together with its same-stem
@@ -136,7 +148,10 @@ all recorded changes and hierarchy metadata and render both formats against
 shared image snapshots. The source-navigation snapshot clicks the actual
 context-menu entry. See the [Surfer chapter](../ext/surfer/docs/html/source-code.html)
 for ownership and limits. Driver tracing and netlist rendering remain in the
-VDB library/CLI; this Surfer change exposes source navigation.
+VDB library/CLI; Surfer exposes source navigation, and, with `slang-server`
+started from the `elaboration` record, accurate highlighting, hover values at
+the cursor, ctrl-click navigation and alt-click adding of signals in the
+context of one elaborated instance.
 
 ## Module netlists with recorded values
 
@@ -267,7 +282,8 @@ This is an application format independent of the VTR container version.
 
 | Field | Meaning |
 |---|---|
-| `producer`, `top`, `options` | frontend version, selected root module, elaboration arguments |
+| `producer`, `top`, `options` | frontend version, selected root module, elaboration arguments as the frontend received them |
+| `elaboration` | structured elaboration inputs shared by both producers: `work_dir`, `language`, design `files`, `library_files`, `include_dirs`, `library_exts`, and `defines` (`name`/`value`); relative paths resolve against `work_dir`, and a relative `work_dir` resolves against the VDB's own directory (pyslang writes `.`, Verilator its absolute working directory) |
 | `sources` | source/include file paths and SHA-256 content hashes |
 | `design_id` | SHA-256 identity of source/options/semantics; see producer serialization rules above |
 | `trace_binding` (optional) | recording wrapper `prefix` and `signals` map from original symbol paths to exact recorded paths; requires matching VTR identity |

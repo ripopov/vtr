@@ -112,7 +112,18 @@
       }
     }
   ],
-  "design_id": "db143dcd651327871a6863f7cba2f368099ee50ce34bfa31f8c961002b07a3f9",
+  "design_id": "d2babb1d7e2a856a8d38d30b88ba2d2c57ab4b41478554fa4d10cf31fd40d129",
+  "elaboration": {
+    "defines": [],
+    "files": [
+      "crates/vtr-vdb/tests/rtl/edge_cases.sv"
+    ],
+    "include_dirs": [],
+    "language": "1800-2023",
+    "library_exts": [],
+    "library_files": [],
+    "work_dir": "."
+  },
   "format": "vtr-rtl-vdb",
   "instances": [
     {

@@ -734,3 +734,48 @@ end-to-end GUI or file-I/O measurements. A virtual billion-element row verifies
 query operation/output bounds without allocating a billion payloads. See
 [the rendering chapter](../ext/surfer/docs/html/transaction-rendering.html) and
 its repeatable ignored timing test. No VTR encoding or decoder changes are made.
+
+## Source tile highlighting from slang-server, not a lexer
+
+Surfer's source tile used a hand-written SystemVerilog lexer (keywords,
+comments, literals, punctuation). It could not tell a port from a parameter, a
+clock from a data input, or which generate branch an instance takes, and every
+SystemVerilog construct it did not know rendered wrong. The lexer is gone.
+Classification now comes from `slang-server` (pinned under `ext/slang-server`
+as a fork with two additions), started per loaded design.
+
+Alternatives measured against the goal of accurate, instance-aware source:
+
+- **syntect with a Sublime grammar**: accurate keywords and comments, still no
+  symbol kinds, directions, clocks or generate elaboration; rejected.
+- **tree-sitter-systemverilog**: no preprocessor, no elaboration; wrong on
+  macro-heavy code and generate branches; rejected.
+- **sv-parser in-process**: full grammar in Rust but no symbol resolution or
+  elaboration, and a large compile-time cost in the WASM build; rejected.
+- **Verible's language server**: does not elaborate, so per-instance parameter
+  values and generate branches are unavailable; rejected.
+- **slang-server unmodified**: has definition, hover and `slang.getInstances`
+  (position to elaborated paths) but no semantic tokens and no per-instance
+  queries; both were added in the fork (`textDocument/semanticTokens/full` and
+  `slang.getInactiveGenerateRanges`) rather than approximated in Surfer from
+  document symbols, because only the compiler knows token kinds, port
+  directions, clocks and uninstantiated blocks.
+
+Two elaborations of one design (the simulator's, recorded in the VDB, and the
+server's) must agree, so the VDB gained a structured `elaboration` record
+(working directory, files, include directories, defines, library settings,
+top). Surfer builds the server's build file from it and never reads user
+project configuration; the flat Verilator argv string kept in `options` loses
+quoting and mixes C++ flags with Verilog ones and was not parsed. The server
+resolves identity by position, the VDB by elaborated path; they are joined on
+`slang.getInstances` results, whose paths are the VDB symbol keys. Declaration
+columns from Verilator and slang were checked to agree, so a location join is
+also possible, but path joins survive struct fields, array elements and
+interface members better.
+
+The server is out of process and native only; the browser build renders plain
+text. Tests do not spawn it: recorded sessions (`examples/verilator/*.slang.json`)
+replay through the production client, with paths normalized to placeholders,
+and an ignored test regenerates them. Snapshot tests therefore run without a
+C++ toolchain while still exercising the real protocol shapes. The server's
+own Catch2 tests cover the additions.
