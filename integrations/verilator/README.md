@@ -1,12 +1,20 @@
-# Verilator `--trace-vtr`
+# Verilator `--trace-vtr`: waveforms and RTL VDB
 
 The `ext/verilator` submodule pins a commit from the
 [`vtr` branch](https://github.com/ripopov/verilator/tree/vtr), based on
 Verilator 5.050. It includes a VTR trace backend next to the existing `--trace-vcd`, `--trace-fst` and `--trace-saif` formats. It is a
-plain port of Verilator's FST backend (`verilated_fst_c.{h,cpp}`) onto the VTR
+port of Verilator's FST backend (`verilated_fst_c.{h,cpp}`) onto the VTR
 C API (`crates/vtr-capi/include/vtr.h`), so a model built with `--trace-vtr`
 runs exactly the same generated trace code as with `--trace-fst`; only the
 sink differs.
+
+`--trace-vtr` also exports the elaborated RTL into `<Mdir>/<prefix>.vdb.json`,
+before optimization removes source structure. The generated model carries this
+companion and writes it beside each recording (`simulation.vtr` becomes
+`simulation.vdb.json`). It records a shared design identity and explicit trace
+mapping, enabling source navigation, annotated netlist SVGs, and temporal driver
+tracing with the existing `vtr-vdb` CLI. No slang/Python dependency is needed for
+native export. See [VDB_RTL.md](../../docs/VDB_RTL.md) for the schema and limits.
 
 Build prerequisites include a C++ compiler, make, autoconf, flex, bison, Perl,
 and help2man.
@@ -75,3 +83,14 @@ It builds the same hierarchical register model using VTR and FST, converts the
 FST recording to VTR, and checks both output and child alias values against
 independent expected samples. Build logs and recordings remain under
 `bench/build/verilator-smoke`.
+
+For VDB integration tests, also build `cargo build -p vtr-vdb`, then run:
+
+```sh
+python3 integrations/verilator/vdb/run.py \
+  --verilator bench/build/verilator/install/bin/verilator
+```
+
+The suite checks source locations and elaborated hierarchy, real-simulator
+pipeline provenance and RTL expressions, automatic attachment and identity
+rejection, partial recordings, and annotated SVGs for every module.

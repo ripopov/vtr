@@ -549,3 +549,32 @@ ELK serialization. SVG snapshots, geometry invariants, and raster review check
 our integration independently of elkrs's unavailable upstream golden corpus.
 No VTR writer, encoding, or decode-path changes or performance claims accompany
 this use case; benchmark results are unchanged by this work.
+
+### Native Verilator VDB export
+
+`--trace-vtr` now exports the same RTL VDB v2 domain directly from Verilator's
+elaborated AST. It reuses resolved parameter/type information and the native
+cell hierarchy instead of re-elaborating with a second frontend, parsing emitted
+C++, or inferring drivers from optimized traces. Export runs immediately after
+`V3Width`, before `V3WidthCommit`: the latter removes `always @*` sensitivity
+information. Exporting after commitment was tested and rejected because such
+processes became indistinguishable from unsupported bare `always` processes.
+Generated-loop localparams are retained explicitly for source browsing.
+
+A module index separates declarations from per-instance export and resolves
+relative/absolute hierarchical references against elaborated symbol paths.
+Unsupported bodies retain static reads and targets. Native normalized selects
+remain explicit; width-generated truncations use the existing conversion IR.
+The runtime writes the embedded document alongside the trace and appends actual
+trace-declaration mappings. This avoids a dependency on build-directory files
+and accommodates aliases, wrapper names and filtering. Both files carry the
+same design hash. Recording bindings require identity rather than accepting
+structural-only attachment. Slang remains an independent standalone adapter.
+
+The integration suite uses actual Verilator waveforms to validate source paths,
+netlists and temporal provenance, including an enabled pipeline with a held
+edge, resets, signed/context-sized operations, generate/instance arrays and
+unsupported-case diagnostics. The pre-existing VTR/FST smoke test still agrees
+with its expected samples. This changes compile/open-time companion metadata;
+VTR encoding and per-dump value emission are unchanged. No performance or size
+improvement is claimed, and benchmark results are not updated.

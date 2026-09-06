@@ -1,7 +1,7 @@
 # RTL Vibe Data Base, netlists, and temporal driver tracing
 
-The `vtr-vdb` companion uses slang to elaborate SystemVerilog, exports source
-semantics into a separate JSON VDB, and queries immutable runtime waveforms
+The `vtr-vdb` companion reads source semantics exported by slang or the pinned
+Verilator integration into a separate JSON VDB, and queries immutable runtime waveforms
 through the existing Rust VTR reader. It does not add source data, sections,
 encodings, or presentation fields to VTR.
 
@@ -46,6 +46,77 @@ compares predicted values to recorded values and reports disagreement.
 Neither structural checks nor agreeing samples alone prove source identity.
 Paths outside the export working directory remain absolute; use the same
 working directory and source arguments for reproducible identities.
+
+## Native Verilator export
+
+The pinned `ext/verilator` produces both files with `--trace-vtr`; no Python or
+slang installation is needed for this path. Build it with
+`integrations/verilator/build.sh` and use the existing `VerilatedVtrC` harness.
+Verilation writes `<Mdir>/<prefix>.vdb.json`. The generated model embeds that
+same document, so it does not depend on the build directory at runtime.
+Opening `simulation.vtr` writes `simulation.vdb.json` beside it; other trace
+filenames have `.vdb.json` appended. Failure to write the companion is fatal.
+
+```sh
+verilator --cc --exe --build --trace-vtr --top-module top top.sv main.cpp
+# The harness opens simulation.vtr using VerilatedVtrC.
+./obj_dir/Vtop
+vtr-vdb check simulation.vdb.json simulation.vtr
+vtr-vdb trace simulation.vdb.json simulation.vtr top.q --time 26 --depth 14
+vtr-vdb netlist simulation.vdb.json simulation.vtr top --time 26 --output top.svg
+```
+
+Set `VTR_INCLUDE` and `VTR_LIBDIR` as described in
+[the integration guide](../integrations/verilator/README.md). The runtime
+companion needs no `--prefix`: it includes `trace_binding`, containing the
+actual model wrapper and an explicit original-symbol-path to recorded-path map.
+The mapping includes enabled declarations and aliases; extra trace entries are
+allowed. Missing entries remain missing, with no fallback to guessed names.
+An explicit conflicting `--prefix` is rejected. The build-directory VDB has
+no recording binding and can still be attached using an explicit prefix.
+
+Both files share `design_id` / `design.vdb_id`. A recording-bound VDB requires
+that VTR identity, and a mismatch is rejected. The native identity is SHA-256
+of the compact UTF-8 export before `design_id` and `trace_binding` are added,
+with the producer's deterministic field order. It covers elaborated semantics,
+source/include content hashes, producer version and invocation options. Slang
+uses its own sorted-key JSON serialization; identities are producer-specific,
+not a cross-frontend equivalence claim. Source paths resolve in the export
+working directory; keep it available or use absolute source paths.
+
+The native exporter runs after parameter and type resolution, before width
+commitment removes implicit event controls and before optimization, inlining,
+or scheduling. It preserves module/generate/instance-array hierarchy, specialized
+widths, local parameters (including generated-loop constants), enum constants,
+source locations, ports, connections, process bodies and static dependencies.
+Compiler-generated truncations remain conversions. Verilator normalizes packed
+select indices to zero-based offsets; VDB expressions preserve that normalization
+with explicit ranges. Distributed instance-array connections are represented as
+slices; partial output connections retain the existing unsupported diagnostic.
+
+The same evaluator limits below apply to both producers. Unsupported source
+constructs retain connectivity and diagnostics. This is an RTL connectivity
+view, not a synthesized gate netlist. Verilator's two-state simulation determines
+the recorded values; VDB does not restore unrecorded X/Z or event-region detail.
+Trace depth/filtering may produce an incomplete recording even though VDB retains
+the design. One recording currently accepts one elaborated model. The companion
+contains source-level design information, including when tracing is combined with
+`--protect-ids` (which already issues Verilator's `INSECURE` warning).
+
+Native end-to-end verification:
+
+```sh
+cargo build --release -p vtr-capi
+cargo build -p vtr-vdb
+python3 integrations/verilator/vdb/run.py --verilator /path/to/verilator
+```
+
+This builds and simulates the existing four RTL fixtures plus an operator
+fixture, checks real recordings with the CLI, and parses an SVG for every module.
+It covers enables/holds, async and sync resets, pre-event pipeline dependencies,
+source-order assignments, casts, signed arithmetic, bit indexing, hierarchy
+references, enums, wide values, missing mappings, identity mismatch, and model
+prefixes. Unlike the standalone fixture tests, these values come from Verilator.
 
 ## Module netlists with recorded values
 
@@ -176,9 +247,10 @@ This is an application format independent of the VTR container version.
 
 | Field | Meaning |
 |---|---|
-| `producer`, `top`, `options` | pinned slang version, selected root module, elaboration arguments |
+| `producer`, `top`, `options` | frontend version, selected root module, elaboration arguments |
 | `sources` | source/include file paths and SHA-256 content hashes |
-| `design_id` | SHA-256 of the canonical sorted-key JSON document before this field is added |
+| `design_id` | SHA-256 identity of source/options/semantics; see producer serialization rules above |
+| `trace_binding` (optional) | recording wrapper `prefix` and `signals` map from original symbol paths to exact recorded paths; requires matching VTR identity |
 | `instances` | elaborated instance `path`, `parent` module instance (null for root), definition name, source location, ordered `ports` (`name`, `symbol`, `direction`) including unconnected and top-level ports |
 | `symbols` | map keyed by elaborated hierarchical path; each value repeats `path`, and contains module `owner`, `kind`, `type`, `source`, and optional constant `value` |
 | `connections` | owning child `instance`, child port path, slang direction (`In`, `Out`, etc.), connection expression, source |

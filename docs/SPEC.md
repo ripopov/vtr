@@ -700,3 +700,8 @@ VDB v2 adds explicit module ownership, complete ports, and static process reads
 for module-scoped netlist views. Its version is independent of VTR 1.0. SVG
 layout, hierarchy navigation, and timestamp annotations remain application
 artifacts derived from that companion and the existing waveform reader.
+
+The native Verilator producer uses `design.vdb_id` for the same attachment
+contract and writes a separate VDB v2 JSON companion with an optional explicit
+`trace_binding`. This adds no VTR section, encoding code, or format version.
+The binding and its identity requirements are specified in [VDB_RTL.md](VDB_RTL.md).

@@ -329,3 +329,54 @@ fn asynchronous_release_at_clock_is_ambiguous() {
         "{out}"
     );
 }
+
+#[test]
+fn explicit_binding_resolves_renamed_signals_and_requires_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = db();
+    db.trace_binding = Some(vtr_vdb::TraceBinding {
+        prefix: "recording".into(),
+        signals: [("top.a".into(), "recording.optimized_a".into())].into(),
+    });
+    for identity in [false, true] {
+        let path = dir.path().join(format!("{identity}.vtr"));
+        let mut w = Writer::create(&path).unwrap();
+        if identity {
+            let id = w.intern(&db.design_id);
+            w.set_file_attr("design.vdb_id", Value::Str(id)).unwrap();
+        }
+        w.begin_scope("recording", ScopeType::Module, "");
+        let (_, signal) = w.add_bits("optimized_a", 8, 2);
+        w.end_scope().unwrap();
+        w.set_time(0).unwrap();
+        w.emit_u64(signal, 42).unwrap();
+        w.close().unwrap();
+        let reader = Reader::open(path).unwrap();
+        if identity {
+            let mut debug = Debugger::attach(&db, &reader, "").unwrap();
+            assert_eq!(debug.trace("top.a", 0, 0).unwrap().value, "00101010");
+            assert!(debug
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("not recorded in VDB binding")));
+            assert!(Debugger::attach(&db, &reader, "wrong")
+                .err()
+                .unwrap()
+                .contains("conflicts"));
+            db.trace_binding
+                .as_mut()
+                .unwrap()
+                .signals
+                .insert("top.a".into(), "absent".into());
+            assert!(Debugger::attach(&db, &reader, "")
+                .err()
+                .unwrap()
+                .contains("no VDB signals match"));
+        } else {
+            assert!(Debugger::attach(&db, &reader, "")
+                .err()
+                .unwrap()
+                .contains("requires VTR design.vdb_id"));
+        }
+    }
+}

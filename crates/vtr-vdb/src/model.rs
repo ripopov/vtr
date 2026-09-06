@@ -164,6 +164,12 @@ pub struct SourceFile {
     pub path: String,
     pub sha256: String,
 }
+/// Exact attachment emitted alongside a simulator recording.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TraceBinding {
+    pub prefix: String,
+    pub signals: BTreeMap<String, String>,
+}
 #[derive(Clone, Debug, Deserialize)]
 pub struct Database {
     pub format: String,
@@ -171,6 +177,8 @@ pub struct Database {
     pub producer: String,
     pub top: String,
     pub design_id: String,
+    #[serde(default)]
+    pub trace_binding: Option<TraceBinding>,
     pub sources: Vec<SourceFile>,
     pub options: Vec<String>,
     pub instances: Vec<Instance>,

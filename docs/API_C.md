@@ -1751,3 +1751,8 @@ Module netlist SVG snapshots are provided by the Rust companion API and
 `vtr-vdb netlist DESIGN TRACE INSTANCE --time T --output FILE.svg`. Existing C
 producers supply the same immutable waveform values; the core C ABI gains no
 layout or application presentation functions.
+
+The Verilator VTR backend now sets `design.vdb_id` automatically using
+`vtr_writer_intern` and `vtr_writer_set_file_attr`. Its separate VDB companion
+contains RTL semantics and recording bindings; those are not added to the VTR C
+ABI or waveform container.

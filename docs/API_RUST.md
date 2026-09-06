@@ -1629,6 +1629,12 @@ The separate `vtr-vdb` crate exports `Database::open(path)`,
 `Debugger::trace(symbol, time, depth) -> Result<TraceNode, String>`.
 `TraceNode` exposes values, moments, source locations, reasons, diagnostic notes
 and children; `render()` returns the same plain-text tree used by the CLI.
+`Database::trace_binding` optionally holds a `TraceBinding { prefix, signals }`
+from a simulator recording. With this binding, pass an empty prefix to
+`Debugger::attach`; it uses the exact recorded paths and requires a matching
+`design.vdb_id`. A conflicting explicit prefix is an error. Unbound standalone
+exports retain structural matching and the existing explicit-prefix behavior.
+
 The debugger borrows the immutable database and reader and caches loaded
 histories per signal ID. See [VDB_RTL.md](VDB_RTL.md) for its schema and
 semantic contract. A read-only `SignalData::times()` accessor supports the

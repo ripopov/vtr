@@ -94,6 +94,14 @@ pub struct Debugger<'a> {
 impl<'a> Debugger<'a> {
     /// `prefix` is an explicit simulator wrapper (e.g. `TOP`), never a suffix guess.
     pub fn attach(db: &'a Database, reader: &'a Reader, prefix: &str) -> Result<Self, String> {
+        let prefix = if let Some(binding) = &db.trace_binding {
+            if !prefix.is_empty() && prefix.trim_end_matches('.') != binding.prefix {
+                return Err("--prefix conflicts with VDB trace binding".into());
+            }
+            binding.prefix.as_str()
+        } else {
+            prefix
+        };
         let mut candidates: BTreeMap<String, BTreeSet<SignalId>> = BTreeMap::new();
         for n in reader.hierarchy().ids() {
             if let NodeData::Var { signal, .. } = reader.hierarchy().node(n).data {
@@ -137,6 +145,17 @@ impl<'a> Debugger<'a> {
             } else {
                 format!("{}.{path}", prefix.trim_end_matches('.'))
             };
+            let trace_path = if let Some(binding) = &db.trace_binding {
+                let Some(recorded) = binding.signals.get(path) else {
+                    diagnostics.push(format!(
+                        "missing trace signal: {path} (not recorded in VDB binding)"
+                    ));
+                    continue;
+                };
+                recorded.clone()
+            } else {
+                trace_path
+            };
             let Some(ids) = candidates.get(&trace_path) else {
                 diagnostics.push(format!("missing trace signal: {trace_path}"));
                 continue;
@@ -169,6 +188,8 @@ impl<'a> Debugger<'a> {
             if !matches!(value, vtr::Value::Str(id) if reader.str(*id) == db.design_id) {
                 return Err("design mismatch: design.vdb_id differs from VDB design_id".into());
             }
+        } else if db.trace_binding.is_some() {
+            return Err("design mismatch: VDB trace binding requires VTR design.vdb_id".into());
         } else {
             diagnostics.push("identity: structural match only; VTR has no design.vdb_id (same-interface RTL revisions cannot be distinguished statically)".into());
         }
