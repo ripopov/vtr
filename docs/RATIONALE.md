@@ -669,3 +669,38 @@ reversible hex string when it is not UTF-8), runtime reporting helpers, trace
 reentry warnings and context ownership. Reentrant trace warnings release the
 trace lock before invoking a log sink. Measurements and validation limits are
 recorded in [the integration notes](../integrations/verilator/logs/README.md).
+
+
+## CHI NoC packet visualization fixture
+
+Surfer's `examples/chi_noc.vtr` reuses the existing transaction and timed-event
+model: one VTR transaction is one single-flit packet; visited routers are events
+on that transaction, rather than duplicate per-router transactions. Controller
+streams and opcode generators follow the existing Surfer transaction canvas
+adapter. Arm's [Introducing AMBA CHI](https://documentation-service.arm.com/static/682600710aae2a5d8f044978)
+informs the channel roles and naming. This is synthetic independent packet
+traffic, not a protocol compliance simulator or a complete coherence exchange.
+The deterministic XY mesh has six controllers, each reaching 64 overlapping
+packets. A sparse burst in the same recording makes a two-stream PNG regression
+readable. Topology and packet metadata contain no presentation attributes.
+See [the fixture notes](../ext/surfer/examples/chi_noc.md) for regeneration,
+validation and modeling boundaries. The fixture exposed overlapping VTR packets
+all drawing at row zero in Surfer. The canvas now derives row assignments per
+displayed stream or generator, sorted by start time and identity, using the first
+available row. This keeps presentation state outside immutable reader results.
+No VTR encoding, decoding, format or public API changes are made, and no
+performance improvement is claimed.
+
+
+## Surfer transaction event markers
+
+Surfer renders existing VTR point events as hollow dots on their containing
+transaction bars. It reuses the viewport timestamp conversion and transaction
+hover/selection path; no event stream, signal, or presentation data is added to
+VTR. Cached positions retain event indices into immutable document details.
+Events sharing a rounded canvas pixel share a marker but retain all hover
+entries. Offscreen events are omitted instead of clamped into misleading edge
+markers. Endpoint events are included; events outside the containing lifetime
+are omitted. The CHI and mixed waveform snapshots exercise the result, with
+geometry and hover/click regression checks. No VTR decode path or public API
+changes are involved, and no performance claim is made.
