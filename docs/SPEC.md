@@ -705,3 +705,11 @@ The native Verilator producer uses `design.vdb_id` for the same attachment
 contract and writes a separate VDB v2 JSON companion with an optional explicit
 `trace_binding`. This adds no VTR section, encoding code, or format version.
 The binding and its identity requirements are specified in [VDB_RTL.md](VDB_RTL.md).
+
+### Consumer companion discovery
+
+The pinned Surfer consumer recognizes a same-stem `.vdb` companion, with
+`.vdb.json` as a fallback filename. This is a consumer convention, not a VTR
+container field or version change. Identity and structural attachment follow
+[the RTL VDB rules](VDB_RTL.md#surfer-source-navigation); source paths and
+presentation state remain outside VTR.

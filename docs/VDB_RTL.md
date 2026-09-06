@@ -118,6 +118,26 @@ source-order assignments, casts, signed arithmetic, bit indexing, hierarchy
 references, enums, wide values, missing mappings, identity mismatch, and model
 prefixes. Unlike the standalone fixture tests, these values come from Verilator.
 
+## Surfer source navigation
+
+The pinned Surfer integration opens a local `.vtr` together with its same-stem
+`.vdb` companion automatically; `.vdb.json` is accepted when `.vdb` is absent.
+The preferred companion must pass the existing VDB/VTR attachment checks.
+Invalid companions are reported in the application log without preventing
+waveform viewing. Relative source paths resolve from the companion directory.
+Right-click a displayed signal and choose **Go to source** to open its RTL
+at the declaration line. Explicit recorded-path mappings and aliases are used;
+no suffix guessing is performed. The source index belongs to the loaded
+waveform document, so replacing a recording also replaces its attachment.
+
+Real paired Verilator examples, matching FST recordings, RTL and regeneration
+instructions live in `ext/surfer/examples/verilator`. Surfer tests compare
+all recorded changes and hierarchy metadata and render both formats against
+shared image snapshots. The source-navigation snapshot clicks the actual
+context-menu entry. See the [Surfer chapter](../ext/surfer/docs/html/source-code.html)
+for ownership and limits. Driver tracing and netlist rendering remain in the
+VDB library/CLI; this Surfer change exposes source navigation.
+
 ## Module netlists with recorded values
 
 ```sh

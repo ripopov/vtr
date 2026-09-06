@@ -1658,3 +1658,9 @@ consumes it and returns a `LaidOutNetlist` with public netlist and ELK geometry.
 reuse geometry and cached immutable histories. All operations return
 `Result<_, String>`. VDB v2 requires explicit ownership, ports, and static reads;
 v1 exports must be regenerated. The companion requires Rust 1.88+ and is validated with Rust 1.88 and 1.96.
+
+The pinned Surfer adapter uses these attachment rules to associate a same-stem
+`.vdb` (or `.vdb.json`) with a local VTR document and navigate from recorded
+signals to RTL declarations. See [Surfer source navigation](VDB_RTL.md#surfer-source-navigation)
+for user behavior and the example-based verification scope. This introduces no
+new public VTR or VDB library API.

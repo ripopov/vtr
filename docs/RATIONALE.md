@@ -578,3 +578,30 @@ unsupported-case diagnostics. The pre-existing VTR/FST smoke test still agrees
 with its expected samples. This changes compile/open-time companion metadata;
 VTR encoding and per-dump value emission are unchanged. No performance or size
 improvement is claimed, and benchmark results are not updated.
+
+### Surfer VTR/VDB attachment
+
+Surfer builds the shared Wellen hierarchy and signal store through its typed
+builder/encoder APIs. The prototype's full VCD text serialization and second
+parse were removed; directions, components, aliases, packed ranges and enum
+translations now enter the same model used by FST directly. Verilator's
+unpadded enum values are extended to the signal width before declaration.
+Waveforms and transactions use a format-independent combined document variant.
+The adapter currently materializes waveform data while loading; it is not a
+native lazy VTR backend, and no performance claim is made.
+
+Companion selection uses the exact trace stem (`.vdb`, then `.vdb.json`). A
+mismatched preferred file is diagnosed rather than bypassed. Validation and
+source indexing happen with the recording's reader on the load worker, and
+the source index is owned by the resulting waveform document. This fixes the
+prototype's separate global index, which could become stale and was populated
+in a loading branch local VTR files did not use. Source resolution follows the
+explicit binding and alias identity, not hierarchical suffix guesses. Tile
+state saves a location; source text and initial-scroll tracking remain a
+disposable cache.
+
+Tests consume committed examples in `ext/surfer/examples`, including two real
+Verilator designs recorded separately as VTR and FST with identical stimulus.
+They compare all transitions and hierarchy metadata, use shared image goldens,
+and exercise context-menu navigation and document replacement. No VTR format,
+writer encoding or core reader decode path changes are involved.
