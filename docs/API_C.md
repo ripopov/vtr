@@ -788,7 +788,14 @@ Reader functions take a `const vtr_reader *r`. A NULL `r` yields
 ```c
 vtr_reader *vtr_reader_open(const char *path);
 void        vtr_reader_close(vtr_reader *r);
+void        vtr_reader_clear_cache(vtr_reader *r);
 ```
+
+**`vtr_reader_clear_cache(r)`** releases all decoded caches while retaining
+the file mapping and metadata. Requires exclusive access: no concurrent
+reader calls are allowed. Previously returned borrowed time-table pointers
+become invalid; metadata pointers and owned `vtr_signal_data` remain valid.
+Later queries decode data again. NULL is ignored.
 
 **`vtr_reader_open(path)`** memory-maps the file and parses its directory,
 metadata, string table and hierarchy; value changes and transactions are
@@ -1151,8 +1158,8 @@ const uint64_t *vtr_reader_time_table(const vtr_reader *r, size_t *len_out);
 Returns the sorted table of every distinct time step recorded by
 `vtr_writer_set_time` (plus 0 if values were emitted before the first
 `set_time`), across all signal blocks, and its length in `*len_out`
-(nullable). Built on first use and cached; the pointer is valid while the
-reader lives. NULL with `vtr_last_error()` set if a block's time table cannot
+(nullable). Built on first use and cached; the pointer is valid until
+`vtr_reader_clear_cache` or reader destruction. NULL with `vtr_last_error()` set if a block's time table cannot
 be decoded, or for a NULL reader. Transaction times are not included.
 
 ### 4.13 Blackout (dump on/off) marks

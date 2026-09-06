@@ -150,6 +150,13 @@ int main(int argc, char **argv) {
     CHECK(vtr_reader_visit_transactions(rd, VTR_NONE, VTR_NONE, 0, 0, tx_cb, rd));
     CHECK(vtr_reader_transaction(rd, 1, tx_cb, rd));
     ASSERT(vtr_reader_transaction(rd, 99, tx_cb, rd) == VTR_ERR_NOT_FOUND);
+    vtr_reader_clear_cache(NULL);
+    vtr_reader_clear_cache(rd);
+    ASSERT(vtr_signal_data_times(survivor)[1] == 40);
+    CHECK(vtr_signal_data_get(survivor, 1, &sv));
+    tt = vtr_reader_time_table(rd, &tl);
+    ASSERT(tt != NULL && tl == 1000 && tt[999] == 9990);
+    CHECK(vtr_reader_transaction(rd, 1, tx_cb, rd));
     vtr_value_buf_free(b);
     vtr_reader_close(rd);
     ASSERT(vtr_signal_data_len(survivor) == 251);

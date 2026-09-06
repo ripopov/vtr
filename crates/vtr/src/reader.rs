@@ -354,6 +354,28 @@ impl Default for LogQuery {
 }
 
 impl Reader {
+    /// Release decoded data cached by this reader, retaining the mapped file
+    /// and its metadata. Subsequent queries decode their data again.
+    ///
+    /// Previously returned owned results, including shared signal histories
+    /// and block time tables, remain valid. Exclusive access ensures that no
+    /// query or borrowed time table can be in use while caches are released.
+    pub fn clear_cache(&mut self) {
+        let cache = self.cache.get_mut().unwrap();
+        cache.entries = Vec::new();
+        cache.tick = 0;
+        for block in &mut self.sig_blocks {
+            block.times.take();
+        }
+        for block in &mut self.tx_blocks {
+            block.data.take();
+        }
+        for block in &mut self.log_blocks {
+            block.data.take();
+        }
+        self.global_times.take();
+    }
+
     /// Opens a file with default options.
     pub fn open(path: impl AsRef<Path>) -> Result<Reader> {
         Self::open_with(path, ReadOptions::default())
@@ -1525,5 +1547,53 @@ impl Reader {
             SignalKind::Real => Some(8),
             SignalKind::VarLen => None,
         })
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use crate::{Writer, WriterOptions, LogSiteSpec, Severity, LogArgType, LogArg, TxStatus};
+
+    #[test]
+    fn eviction_releases_blocks_and_preserves_owned_results() {
+        let path = std::env::temp_dir().join(format!("vtr-cache-{}.vtr", std::process::id()));
+        let mut writer = Writer::create_with(&path, WriterOptions { background: false, ..Default::default() }).unwrap();
+        let (_, signal) = writer.add_bits("counter", 8, 2);
+        let stream = writer.add_stream(None, "requests", "test");
+        let generator = writer.add_generator(stream, "request");
+        let site = writer.add_log_site(&LogSiteSpec::new(stream, Severity::Info, "value={}", &[LogArgType::U64]));
+        writer.set_time(1).unwrap();
+        writer.emit_u64(signal, 42).unwrap();
+        let tx = writer.begin_tx(generator, 1).unwrap();
+        writer.end_tx(tx, 2, TxStatus::Ok).unwrap();
+        writer.log(site, 2, &[LogArg::U64(42)]).unwrap();
+        writer.close().unwrap();
+        let mut reader = Reader::open(&path).unwrap();
+        for _ in 0..2 {
+            let history = reader.load_signal(signal).unwrap();
+            let times = reader.block_times(0).unwrap();
+            reader.time_table().unwrap();
+            reader.value_at(signal, 1).unwrap();
+            let transactions = reader.transactions(&TxQuery::default()).unwrap();
+            reader.visit_log(&LogQuery::default(), |_| true).unwrap();
+            assert!(!reader.cache.lock().unwrap().entries.is_empty());
+            assert!(reader.sig_blocks.iter().any(|b| b.times.get().is_some()));
+            assert!(reader.tx_blocks.iter().any(|b| b.data.get().is_some()));
+            assert!(reader.log_blocks.iter().any(|b| b.data.get().is_some()));
+            assert!(reader.global_times.get().is_some());
+            reader.clear_cache();
+            assert!(reader.cache.lock().unwrap().entries.is_empty());
+            assert!(reader.sig_blocks.iter().all(|b| b.times.get().is_none()));
+            assert!(reader.tx_blocks.iter().all(|b| b.data.get().is_none()));
+            assert!(reader.log_blocks.iter().all(|b| b.data.get().is_none()));
+            assert!(reader.global_times.get().is_none());
+            assert_eq!(history.value_at(1).as_u64(), Some(42));
+            assert!(times.contains(&1));
+            assert!(transactions.iter().any(|t| t.id == tx));
+            assert!(reader.transaction(tx).unwrap().is_some());
+        }
+        drop(reader);
+        std::fs::remove_file(path).unwrap();
     }
 }

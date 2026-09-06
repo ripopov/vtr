@@ -162,6 +162,9 @@ typedef struct vtr_reader vtr_reader;
 
 vtr_reader *vtr_reader_open(const char *path);
 void        vtr_reader_close(vtr_reader *r);
+/* Exclusive access required. Invalidates borrowed time tables; owned signal
+ * data and metadata pointers remain valid. NULL is ignored. */
+void        vtr_reader_clear_cache(vtr_reader *r);
 
 typedef struct vtr_meta {
     int8_t   timescale;

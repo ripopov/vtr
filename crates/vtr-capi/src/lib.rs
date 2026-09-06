@@ -833,6 +833,14 @@ pub unsafe extern "C" fn vtr_reader_close(r: *mut vtr_reader) {
     }
 }
 
+/// Requires exclusive access to the reader. Invalidates borrowed time tables.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_clear_cache(r: *mut vtr_reader) {
+    if let Some(r) = r.as_mut() {
+        r.0.clear_cache();
+    }
+}
+
 #[repr(C)]
 pub struct vtr_meta {
     pub timescale: i8,

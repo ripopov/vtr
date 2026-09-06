@@ -713,3 +713,10 @@ The pinned Surfer consumer recognizes a same-stem `.vdb` companion, with
 container field or version change. Identity and structural attachment follow
 [the RTL VDB rules](VDB_RTL.md#surfer-source-navigation); source paths and
 presentation state remain outside VTR.
+
+### Reference-reader cache lifetime (non-normative)
+
+The Rust reader supports explicit decoded-cache eviction through
+`Reader::clear_cache`; the C projection is `vtr_reader_clear_cache`. This
+changes in-memory ownership only, with no file-format or version change.
+See the API references for exclusive-access requirements and result lifetimes.

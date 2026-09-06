@@ -876,7 +876,16 @@ pub struct ReadOptions {
 pub fn open(path: impl AsRef<Path>) -> Result<Reader>
 pub fn open_with(path: impl AsRef<Path>, opts: ReadOptions) -> Result<Reader>
 pub fn from_bytes(bytes: Vec<u8>) -> Result<Reader>   // in-memory image, default options
+pub fn clear_cache(&mut self)                       // release decoded caches
 ```
+
+`clear_cache` releases decompressed group pieces, block time tables, decoded
+transaction/log blocks, and the combined time table. It keeps metadata and
+the file mapping. Owned results (including `SignalData` and `Arc` block time
+tables) remain valid; their memory is released when their owners drop them.
+Subsequent queries decode data again. Exclusive access prevents concurrent
+queries or borrowed time tables during eviction. This enables viewers to
+release internal decoded storage after extracting their displayed data.
 
 `open` memory-maps the file read-only (with `MADV_RANDOM` on Unix). The file
 must not be modified while mapped; doing so is undefined behaviour at the OS
@@ -1245,8 +1254,8 @@ filter has no block-level index and decodes every candidate block. Return
 relation whose endpoints are far apart in id space makes those ranges wide and
 the pruning weaker. `visit_relations` visits every relation in file order.
 
-Decoded transaction blocks are cached for the reader's lifetime (`OnceLock`
-per block), so repeated lookups are in-memory; a reader that has touched every
+Decoded transaction blocks are cached until `clear_cache` or reader destruction
+(`OnceLock` per block), so repeated lookups are in-memory; a reader that has touched every
 block holds all transactions decoded (`tx_block_bytes` of rows each, expanded
 into `Transaction` structs).
 

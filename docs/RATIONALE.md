@@ -587,8 +587,16 @@ parse were removed; directions, components, aliases, packed ranges and enum
 translations now enter the same model used by FST directly. Verilator's
 unpadded enum values are extended to the signal width before declaration.
 Waveforms and transactions use a format-independent combined document variant.
-The adapter currently materializes waveform data while loading; it is not a
-native lazy VTR backend, and no performance claim is made.
+The initial adapter materialized waveform data while loading. The native
+signal backend now loads only requested immutable signal histories, retaining
+Wellen hierarchy identities and the shared renderer. Canonical demand from
+visible tabs controls eviction; late results are filtered against current
+demand. FST export explicitly converts only selected loaded histories.
+Transactions open as metadata and load on background workers for visible
+generator/time-window requests and selected inspector records. Overlapping
+requests merge, stale results are rejected, and reader caches are released
+after each batch. Hidden waveform items release analog caches; hidden tiles
+release drawing, memory and framebuffer caches. No performance claim is made.
 
 Companion selection uses the exact trace stem (`.vdb`, then `.vdb.json`). A
 mismatched preferred file is diagnosed rather than bypassed. Validation and
@@ -605,3 +613,15 @@ Verilator designs recorded separately as VTR and FST with identical stimulus.
 They compare all transitions and hierarchy metadata, use shared image goldens,
 and exercise context-menu navigation and document replacement. No VTR format,
 writer encoding or core reader decode path changes are involved.
+
+### Explicit reader cache eviction
+
+Surfer's lazy-loading work needs to release decoded transaction blocks as well
+as its own displayed results. Dropping viewer results alone is insufficient:
+the reader's per-block caches retain decoded transactions and logs.
+`Reader::clear_cache(&mut self)` and its C projection release decoded caches,
+keeping the mapping and metadata. Exclusive access allows resetting the locks
+without adding synchronization to queries. Owned shared histories and block
+time tables survive eviction. Existing decoding and cache lookup paths are
+unchanged; subsequent queries repopulate caches normally. This is a lifetime
+control API, with no encoding change or measured speedup claim.
