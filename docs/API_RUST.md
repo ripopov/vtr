@@ -1678,3 +1678,12 @@ The `vtr-vdb` crate enables its `layout` feature by default. Disable default
 features to use the typed database and netlist without the bundled ELK layout
 dependency or CLI binary. Custom renderers can then size and lay out the same
 netlist themselves; Surfer uses this path with its own elkrs submodule.
+
+### Verilator logging adapter
+
+The pinned Verilator `--trace-vtr` integration uses the existing log-stream,
+log-site and record APIs: one `simulation_log` stream, six severity sites with
+format `{}`, and a Text argument named `message`. Time is the simulation
+context's current time at emission. No new Rust or C ABI entry points are needed.
+See [Logging with VTR](LOGGING.md#8-verilator-and-surfer) for lifecycle, examples,
+and the Surfer log viewer.

@@ -637,3 +637,35 @@ navigation independent of human-readable labels. The default `layout` feature
 in vtr-vdb is optional so consumers can supply their own layout dependency.
 This changes neither the VTR nor the VDB serialized format and makes no
 compression, throughput or memory performance claim.
+
+## Verilator log capture and virtualized Surfer browsing
+
+The integration reuses log sites and LOG_BLOCK rather than encoding messages as
+string-valued waveform signals or inventing a second log format. One stream and
+one generator per severity satisfy the simulator grouping requirement. A single
+Text argument preserves Verilator's SystemVerilog-specific formatting and file
+output exactly; extracting typed arguments at every HDL call site would create
+call-site generators rather than severity generators and duplicate its formatter.
+This adapter therefore pays formatting cost on the simulation thread, unlike
+VTR's structured C++ logging macros. No encoding/reader decode path changed.
+
+Severity is carried explicitly through diagnostic lowering, not guessed from
+message prefixes. In VTR mode the compiler preserves reporting-call boundaries
+rather than merging adjacent writes. The context dispatches timestamped records
+on the main evaluation thread to trace-owned sinks. Trace opening/closing owns
+registration, and worker messages capture time before dispatch.
+
+The Surfer tile borrows its fixed-height viewport virtualization from egui and
+case-insensitive fuzzy matching from the existing Skim matcher dependency.
+An immutable per-recording index amortizes decode/format/sort across tiles and
+queries. This retains full formatted text in memory; it is not a bounded-memory
+or lazy log-text reader. A time interval is found by binary search, filtering
+runs in a cancellable worker, and rendering uses only visible matching rows.
+Outdated workers cannot replace newer query or recording results. This is a
+viewer architecture change, with no claims of improved VTR encoding performance.
+
+The simulator regression also exercises binary HDL output (retained as a
+reversible hex string when it is not UTF-8), runtime reporting helpers, trace
+reentry warnings and context ownership. Reentrant trace warnings release the
+trace lock before invoking a log sink. Measurements and validation limits are
+recorded in [the integration notes](../integrations/verilator/logs/README.md).

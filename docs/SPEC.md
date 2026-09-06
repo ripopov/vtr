@@ -720,3 +720,12 @@ The Rust reader supports explicit decoded-cache eviction through
 `Reader::clear_cache`; the C projection is `vtr_reader_clear_cache`. This
 changes in-memory ownership only, with no file-format or version change.
 See the API references for exclusive-access requirements and result lifetimes.
+
+### Producer example: Verilator reporting tasks
+
+The Verilator adapter uses the existing LOG stream and LOG_BLOCK schema: one
+`simulation_log` stream with six standard-severity generators, each with format
+`{}` and one Text argument named `message`. The record's timestamp is in the
+recording's simulation time unit. This producer convention introduces no new
+section, value tag, presentation semantics, or format version. See
+[LOGGING.md](LOGGING.md#8-verilator-and-surfer) for capture behavior.

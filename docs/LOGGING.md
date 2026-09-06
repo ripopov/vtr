@@ -201,3 +201,54 @@ describe the sites. `vtr::for_each_log` and `vtr::format_log` in
 A message that is already a formatted string is stored as a single `text`
 argument of a site whose format is `{}`; repeated messages still cost one
 dictionary index each.
+
+## 8. Verilator and Surfer
+
+The pinned Verilator backend records runtime HDL reporting tasks when a
+`--trace-vtr` trace is open. The `simulation_log` stream has six generators,
+one for each standard severity. Each site has format `{}` and a single Text
+argument named `message`; the severity distinguishes generators. This uses
+the existing LOG_BLOCK format and transaction projection without a new version.
+
+`$display`, `$write`, `$monitor`, `$strobe`, and their file/base variants use
+Info. `$info`, `$warning`, `$error`, and `$fatal` retain their severity.
+`$finish`, `$printtimescale`, and runtime printing-helper diagnostics also appear. The compiler keeps
+severity when lowering diagnostics and does not merge adjacent reporting calls
+in VTR mode. A partial `$write` is a separate record; it need not end in a newline.
+The existing stdout or file output continues. SystemVerilog text is formatted
+by Verilator before capture, unlike the structured C++ macros described above.
+
+Open the trace before `eval()`, and set `context.time(t)` before evaluating the
+model. Capture reads that current simulation time before queueing worker output;
+it does not infer time from a later `trace.dump(t)`. Trace close removes the sink,
+and fatal shutdown closes the recording through Verilator's exit callbacks.
+Compile-time diagnostics and arbitrary C++ printf output are not intercepted.
+
+Surfer's **simulation_logs** tile displays one generator or all generators of
+one stream. It supports asynchronous case-insensitive fuzzy search, inclusive
+time bounds, virtualized fixed-height rows, full-text hover/copy, and timestamp
+clicks that set the shared waveform cursor. Each recording shares one immutable
+index of formatted log text, built off the render thread; each tile owns only
+its query and matching row indices. The initial index retains all log text in
+memory. See [the feature chapter](../ext/surfer/docs/html/simulation-logs.html).
+
+Reproduce the backend checks, examples, and viewer workload:
+
+```sh
+python3 integrations/verilator/logs/run.py --verilator <prefix>/bin/verilator --update-examples
+cargo run --release -p vtr --example simulation_logs -- ext/surfer/examples/simulation_logs.vtr
+cargo run --release -p vtr --example simulation_logs -- /tmp/simulation_logs_million.vtr 1000000
+cargo test --manifest-path ext/surfer/Cargo.toml -p libsurfer --lib simulation_logs
+cargo test --manifest-path ext/surfer/Cargo.toml -p libsurfer --lib simulation_logs_million_benchmark -- --ignored --nocapture
+```
+
+The Verilator check tests normal completion, `$error`, `$fatal` and `$finish`
+with one and two simulation threads, verifies emitted text and timestamps, binary
+output, runtime printing and repeated-dump warnings, and
+reads back traces finalized during fatal shutdown. It requires the release VTR
+library and CLI. Snapshot inputs are committed under Surfer's examples directory.
+
+Non-UTF-8 HDL output is stored as `[non-UTF-8 bytes] ` followed by the
+hexadecimal bytes of the complete original message; existing console/file
+output is unchanged. This avoids aborting a simulation on legal binary `%c`
+output while keeping the original bytes recoverable.

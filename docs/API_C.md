@@ -1763,3 +1763,12 @@ The Verilator VTR backend now sets `design.vdb_id` automatically using
 `vtr_writer_intern` and `vtr_writer_set_file_attr`. Its separate VDB companion
 contains RTL semantics and recording bindings; those are not added to the VTR C
 ABI or waveform container.
+
+### Verilator logging adapter
+
+The pinned Verilator `--trace-vtr` integration uses the existing log-stream,
+log-site and record APIs: one `simulation_log` stream, six severity sites with
+format `{}`, and a Text argument named `message`. Time is the simulation
+context's current time at emission. No new Rust or C ABI entry points are needed.
+See [Logging with VTR](LOGGING.md#8-verilator-and-surfer) for lifecycle, examples,
+and the Surfer log viewer.
