@@ -9,8 +9,13 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
   exit 2
 fi
 SRC=$HERE/../../ext/verilator
-if [ ! -f "$SRC/configure.ac" ]; then
-  echo "Initialize the pinned source with: git submodule update --init ext/verilator" >&2
+if [ ! -f "$SRC/configure.ac" ] || [ ! -f "$SRC/ext/slang/CMakeLists.txt" ]; then
+  echo "Initialize the pinned source and its slang submodule with:" >&2
+  echo "  git submodule update --init --recursive ext/verilator" >&2
+  exit 1
+fi
+if ! command -v cmake >/dev/null; then
+  echo "cmake is required to build verilator_vdb_index (the VDB source indexer)" >&2
   exit 1
 fi
 SRC=$(cd "$SRC" && pwd)

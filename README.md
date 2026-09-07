@@ -49,8 +49,9 @@ interactive pipeline viewer and a screenshot-based tutorial. See its
 
 Requirements: Rust 1.80+, a C compiler (for the vendored zstd and the C
 tests). Everything builds from a clean checkout with submodules
-(`git submodule update --init`); the submodules under `ext/` are only used
-by the converters' tests and by the benchmarks.
+(`git submodule update --init --recursive`; the Verilator fork carries slang
+as a nested submodule); the submodules under `ext/` are only used by the
+converters' tests, the Verilator integration and the benchmarks.
 
 ```sh
 cargo build --release            # library, C library (target/release/libvtr.{a,so}), vtr CLI, vtr-bench

@@ -86,7 +86,8 @@ Build products live in `<prefix>/../build` by default; pass a second argument to
 select another build directory, and set `JOBS` to control build concurrency.
 The script uses the checked-out submodule revision and performs no network clone
 or patch application. To reproduce a VTR checkout, use `git submodule update
---init ext/verilator`; `--remote` intentionally selects a newer branch revision.
+--init --recursive ext/verilator`; `--remote` intentionally selects a newer
+branch revision.
 
 After building the CLI and C library, run the integration smoke test (the FST
 comparison also needs pkg-config and the liblz4 development package):
