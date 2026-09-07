@@ -18,9 +18,10 @@ simulator's text log as typed, timestamped records (`docs/LOGGING.md`).
 * Verilator integration: `integrations/verilator` adds `--trace-vtr` to
   Verilator 5.050 next to `--trace-fst`, so a Verilated model dumps VTR
   directly (used by the benchmarks on a full openC910 CoreMark run).
-* Language-server integration: `integrations/slang-server` pins a slang-server
-  fork with semantic tokens and per-instance generate queries; the Surfer
-  source tile starts it from the VDB's elaboration record.
+* Source index: the pinned Verilator ships `verilator_vdb_index`, a slang-based
+  program that classifies every source token at verilation time into the VDB;
+  the Surfer source tile renders highlighting, hover values and navigation from
+  that static index without starting any process.
 
 VDB (Vibe Data Base) is the separate design and presentation companion.
 The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.

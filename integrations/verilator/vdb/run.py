@@ -50,6 +50,12 @@ def main():
         assert db['symbols']['top.a']['source']['file'].endswith(name+'.sv')
         assert db['symbols']['top.a']['source']['line'] > 0
         assert db['symbols']['top.a']['source']['column'] > 0
+        index = db['source_index']
+        assert index['producer'].startswith('slang ')
+        indexed = next(f for f in index['files'] if f['path'] == db['symbols']['top.a']['source']['file'])
+        assert len(indexed['tokens']) % 5 == 0 and indexed['tokens']
+        assert len(indexed['declarations']) % 4 == 0 and indexed['declarations']
+        assert 'top' in index['definitions']
         result = query('check', dbfile, recording)
         assert 'structural match only' not in result
         for instance in db['instances']:

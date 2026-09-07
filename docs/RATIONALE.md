@@ -735,14 +735,15 @@ query operation/output bounds without allocating a billion payloads. See
 [the rendering chapter](../ext/surfer/docs/html/transaction-rendering.html) and
 its repeatable ignored timing test. No VTR encoding or decoder changes are made.
 
-## Source tile highlighting from slang-server, not a lexer
+## Source tile highlighting from a static index, not a lexer or a server
 
 Surfer's source tile used a hand-written SystemVerilog lexer (keywords,
 comments, literals, punctuation). It could not tell a port from a parameter, a
 clock from a data input, or which generate branch an instance takes, and every
 SystemVerilog construct it did not know rendered wrong. The lexer is gone.
-Classification now comes from `slang-server` (pinned under `ext/slang-server`
-as a fork with two additions), started per loaded design.
+Classification now comes from the `source_index` section of the VDB, written
+when the design is verilated by `verilator_vdb_index`, a slang-based program
+that ships with the pinned Verilator fork. Surfer only reads files.
 
 Alternatives measured against the goal of accurate, instance-aware source:
 
@@ -754,28 +755,38 @@ Alternatives measured against the goal of accurate, instance-aware source:
   elaboration, and a large compile-time cost in the WASM build; rejected.
 - **Verible's language server**: does not elaborate, so per-instance parameter
   values and generate branches are unavailable; rejected.
-- **slang-server unmodified**: has definition, hover and `slang.getInstances`
-  (position to elaborated paths) but no semantic tokens and no per-instance
-  queries; both were added in the fork (`textDocument/semanticTokens/full` and
-  `slang.getInactiveGenerateRanges`) rather than approximated in Surfer from
-  document symbols, because only the compiler knows token kinds, port
-  directions, clocks and uninstantiated blocks.
+- **A live slang-based language server started by Surfer** (the previous
+  design: a fork adding semantic tokens and a per-instance generate query,
+  driven over LSP from the `elaboration` record): accurate, but it made a
+  viewer depend on a C++ binary being installed beside it, spawned a process
+  per loaded design, was native only, and answered questions whose answers
+  never change during a debugging run. Rejected once it worked: the code is
+  fixed at simulation time, so the frontend belongs to the build, not the
+  viewer.
 
-Two elaborations of one design (the simulator's, recorded in the VDB, and the
-server's) must agree, so the VDB gained a structured `elaboration` record
+The index is produced by a separate program rather than by linking slang into
+`verilator_bin`: Verilator's own frontend must not gain a second parser in its
+process, its build stays make-based while slang is a large CMake project, and a
+missing or failing indexer must only cost the index (`VDBINDEX` warning), never
+the model. slang lives as a submodule of the Verilator fork (`ext/slang`,
+pinned to a release) so the fork is self-contained: whoever builds the
+simulator gets the exact frontend the index format was validated against, and
+Verilator finds the indexer beside its own executable rather than on `PATH`.
+
+Two elaborations of one design (the simulator's, recorded in the VDB, and
+slang's) must agree, so the VDB carries a structured `elaboration` record
 (working directory, files, include directories, defines, library settings,
-top). Surfer builds the server's build file from it and never reads user
-project configuration; the flat Verilator argv string kept in `options` loses
-quoting and mixes C++ flags with Verilog ones and was not parsed. The server
-resolves identity by position, the VDB by elaborated path; they are joined on
-`slang.getInstances` results, whose paths are the VDB symbol keys. Declaration
-columns from Verilator and slang were checked to agree, so a location join is
-also possible, but path joins survive struct fields, array elements and
-interface members better.
+top) that the indexer reads; the flat argv string kept in `options` loses
+quoting and mixes C++ flags with Verilog ones and is not parsed. slang
+identifies symbols by source position, the VDB by elaborated path; the index
+stores each identifier's declaration position and the viewer joins it to the
+VDB symbols and instances declared at that position, choosing the one under
+the viewed instance. Declaration columns from Verilator and slang agree
+exactly, which the fixtures check. Storing tokens once per file (not per
+instance) keeps the index linear in source size; only the uninstantiated
+generate ranges are per instance.
 
-The server is out of process and native only; the browser build renders plain
-text. Tests do not spawn it: recorded sessions (`examples/verilator/*.slang.json`)
-replay through the production client, with paths normalized to placeholders,
-and an ignored test regenerates them. Snapshot tests therefore run without a
-C++ toolchain while still exercising the real protocol shapes. The server's
-own Catch2 tests cover the additions.
+The same section is written by the pyslang exporter, and its output is
+identical to the C++ indexer's on every fixture, so both producers stay honest
+against one schema. Surfer's tests open the checked-in examples and click with
+real pointer events; no toolchain runs in the tests.

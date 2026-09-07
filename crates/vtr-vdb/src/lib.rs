@@ -113,6 +113,9 @@ impl<'a> Debugger<'a> {
         }
         let mut mapping = BTreeMap::new();
         let mut diagnostics = Vec::new();
+        if db.source_index.is_none() {
+            diagnostics.push("no source index: VDB written without verilator_vdb_index; sources display as plain text".into());
+        }
         for instance in &db.instances {
             let path = if prefix.is_empty() {
                 instance.path.clone()

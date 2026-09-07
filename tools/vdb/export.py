@@ -206,6 +206,681 @@ class Exporter:
             self.process(n)
 
 
+# --- Source index: classified tokens and declarations per file (docs/VDB_RTL.md, "Source index").
+# A port of ext/verilator/src/vdb_index/SourceIndex.cpp; both producers must agree token for token.
+
+INDEX_CLASSES = ['keyword', 'comment', 'number', 'string', 'operator', 'macro', 'variable', 'parameter',
+                 'enumMember', 'type', 'module', 'interface', 'package', 'instance', 'function', 'property',
+                 'namespace']
+INDEX_MODIFIERS = ['declaration', 'input', 'output', 'inout', 'ref', 'clock', 'readonly', 'defaultLibrary',
+                   'argument']
+CLASS = {name: i for i, name in enumerate(INDEX_CLASSES)}
+MOD = {name: 1 << i for i, name in enumerate(INDEX_MODIFIERS)}
+DIRECTION_MOD = {'In': MOD['input'], 'Out': MOD['output'], 'InOut': MOD['inout'], 'Ref': MOD['ref']}
+VALUE_KINDS = {'Variable', 'Net', 'ClockVar', 'LocalAssertionVar', 'Iterator', 'PatternVar'}
+# Symbol kind -> token class; modifiers beyond `readonly` depend on the symbol and are added in classify_symbol.
+SYMBOL_CLASSES = {}
+SYMBOL_CLASSES.update(dict.fromkeys(['Parameter', 'TypeParameter', 'Genvar', 'Specparam', 'DefParam'], 'parameter'))
+SYMBOL_CLASSES['EnumValue'] = 'enumMember'
+SYMBOL_CLASSES.update(dict.fromkeys(VALUE_KINDS | {'FormalArgument', 'Port', 'MultiPort', 'ModportPort'}, 'variable'))
+SYMBOL_CLASSES.update(dict.fromkeys(['InterfacePort', 'Instance', 'InstanceArray', 'PrimitiveInstance',
+                                     'CheckerInstance'], 'instance'))
+SYMBOL_CLASSES.update(dict.fromkeys(['Modport', 'ModportClocking'], 'interface'))
+SYMBOL_CLASSES['Definition'] = 'module'
+SYMBOL_CLASSES['Package'] = 'package'
+SYMBOL_CLASSES.update(dict.fromkeys(
+    ['TypeAlias', 'ForwardingTypedef', 'NetType', 'GenericClassDef', 'PredefinedIntegerType', 'ScalarType',
+     'FloatingType', 'EnumType', 'PackedArrayType', 'FixedSizeUnpackedArrayType', 'DynamicArrayType',
+     'DPIOpenArrayType', 'AssociativeArrayType', 'QueueType', 'PackedStructType', 'UnpackedStructType',
+     'PackedUnionType', 'UnpackedUnionType', 'ClassType', 'CovergroupType', 'VoidType', 'NullType',
+     'CHandleType', 'StringType', 'EventType', 'VirtualInterfaceType'], 'type'))
+SYMBOL_CLASSES.update(dict.fromkeys(['Subroutine', 'MethodPrototype', 'LetDecl'], 'function'))
+SYMBOL_CLASSES.update(dict.fromkeys(['Field', 'ClassProperty'], 'property'))
+SYMBOL_CLASSES.update(dict.fromkeys(
+    ['GenerateBlock', 'GenerateBlockArray', 'StatementBlock', 'ProceduralBlock', 'ClockingBlock', 'Sequence',
+     'Property', 'Checker', 'CovergroupBody', 'Coverpoint', 'CoverCross', 'ConstraintBlock', 'CompilationUnit'],
+    'namespace'))
+# slang's LexerFacts::isKeyword: every *Keyword token kind plus 1step.
+KEYWORD_TOKENS = {k for k in dir(slang.parsing.TokenKind) if k.endswith('Keyword')} | {'OneStep'}
+LITERAL_TOKENS = {'IntegerLiteral', 'IntegerBase', 'UnbasedUnsizedLiteral', 'RealLiteral', 'TimeLiteral'}
+MACRO_TOKENS = {'Directive', 'MacroUsage', 'MacroQuote', 'MacroTripleQuote', 'MacroEscapedQuote', 'MacroPaste',
+                'EmptyMacroArgument'}
+RAW_TRIVIA = {'Whitespace', 'EndOfLine', 'LineComment', 'BlockComment', 'DisabledText'}
+COMMENT_TRIVIA = {'LineComment', 'BlockComment', 'DisabledText'}
+
+
+def enum_name(value):
+    return str(value).split('.')[-1]
+
+
+def valid(loc):
+    return loc is not None and loc.buffer.id != 0
+
+
+def advance(loc, delta):
+    return slang.SourceLocation(loc.buffer, loc.offset + delta)
+
+
+def blen(text):
+    return len(text.encode())
+
+
+def is_ident_byte(c):
+    return (c < 128 and chr(c).isalnum()) or c in b'_$'
+
+
+def split_hierarchical_path(path):
+    """`top.g[0].u.x` -> [('top', 'top'), ('g', 'top.g[0]'), ...]: (element name, path prefix)."""
+    parts, start, depth = [], 0, 0
+    for i, c in enumerate(path + '.'):
+        depth += (c == '[') - (c == ']')
+        if c == '.' and depth == 0:
+            element = path[start:i]
+            parts.append((element.partition('[')[0], path[:i]))
+            start = i + 1
+    return parts
+
+
+class SourceIndexer:
+    """Builds `source_index` from an elaborated compilation and its syntax trees."""
+
+    def __init__(self, compilation, syntax_trees):
+        self.c = compilation
+        self.sm = compilation.sourceManager
+        self.trees = syntax_trees
+        self.texts = {}          # buffer id -> source bytes
+        self.by_token = {}       # identifier SourceLocation -> [class, modifiers, declaration SourceLocation]
+        self.clocks = set()      # declaration locations of edge-only event signals
+        self.visited_bodies = set()
+        self.files = []          # per file: buffer, previous_end, tokens as [line, column, length, class, modifiers, declaration]
+        self.file_index = {}     # buffer id -> index in files
+        self.expansions = set()
+        self.includes = []       # (include directive location, included buffer)
+
+    # -- Semantics: what the elaborated design says about identifier tokens.
+
+    def text(self, buffer):
+        if buffer.id not in self.texts:
+            self.texts[buffer.id] = self.sm.getSourceText(buffer).encode()
+        return self.texts[buffer.id]
+
+    def in_file(self, loc):
+        return valid(loc) and not self.sm.isMacroLoc(loc)
+
+    def port_direction(self, symbol):
+        # Stands in for ValueSymbol::getFirstPortBackref, which pyslang does not expose:
+        # the port of the enclosing instance whose internal symbol this is.
+        scope = symbol.parentScope
+        body = scope.containingInstance if scope is not None else None
+        port = body.findPort(symbol.name) if body is not None else None
+        internal = getattr(port, 'internalSymbol', None)
+        if internal is not None and internal.location == symbol.location and internal.name == symbol.name:
+            return DIRECTION_MOD.get(enum_name(port.direction), 0)
+        return 0
+
+    def classify_symbol(self, symbol):
+        kind = tag(symbol)
+        cls = SYMBOL_CLASSES.get(kind)
+        if cls is None:
+            return None
+        mods = 0
+        if cls in ('parameter', 'enumMember'):
+            mods = MOD['readonly']
+        elif kind in VALUE_KINDS:
+            mods = self.port_direction(symbol)
+        elif kind == 'FormalArgument':
+            mods = MOD['argument'] | DIRECTION_MOD.get(enum_name(symbol.direction), 0)
+        elif kind in ('Port', 'MultiPort', 'ModportPort'):
+            mods = DIRECTION_MOD.get(enum_name(symbol.direction), 0)
+        elif kind == 'Definition' and enum_name(symbol.definitionKind) == 'Interface':
+            cls = 'interface'
+        return CLASS[cls], mods
+
+    def record(self, token_loc, target, declaration):
+        if not self.in_file(token_loc):
+            return
+        classification = self.classify_symbol(target)
+        if classification is None:
+            return
+        cls, mods = classification
+        if declaration:
+            mods |= MOD['declaration']
+        entry = self.by_token.get(token_loc)
+        if entry is None:
+            self.by_token[token_loc] = [cls, mods, target.location]
+        else:
+            entry[1] |= mods
+
+    def declare(self, symbol):
+        self.record(symbol.location, symbol, True)
+
+    def reference(self, token, target):
+        if token:
+            self.record(token.location, target, target.location == token.location)
+
+    @staticmethod
+    def name_tokens(node, out):
+        """Leaf identifier tokens of a name expression, left to right."""
+        if node is None:
+            return out
+        k = tag(node)
+        if k in ('IdentifierName', 'IdentifierSelectName', 'ClassName'):
+            out.append(node.identifier)
+        elif k == 'ScopedName':
+            SourceIndexer.name_tokens(node.left, out)
+            SourceIndexer.name_tokens(node.right, out)
+        elif k == 'ElementSelectExpression' or k == 'InvocationExpression':
+            SourceIndexer.name_tokens(node.left, out)
+        elif k == 'MemberAccessExpression':
+            SourceIndexer.name_tokens(node.left, out)
+            out.append(node.name)
+        return out
+
+    def package_prefix(self, node):
+        """`pkg::name`: the package prefix, when the name is scoped."""
+        if node is None or tag(node) != 'ScopedName' or tag(node.left) != 'IdentifierName':
+            return
+        token = node.left.identifier
+        package = self.c.getPackage(token.valueText)
+        if package is not None:
+            self.reference(token, package)
+
+    def declared_type(self, declared):
+        """Named type references in a declared type: `my_t x;` or `pkg::my_t x;`."""
+        node = declared.typeSyntax if declared is not None else None
+        if node is None or tag(node) != 'NamedType':
+            return
+        tokens = self.name_tokens(node.name, [])
+        if not tokens:
+            return
+        self.package_prefix(node.name)
+        typ = declared.type
+        if tag(typ) in ('TypeAlias', 'TypeParameter'):
+            self.reference(tokens[-1], typ)
+
+    def name_before(self, end, name):
+        """Sub-expressions of a name chain carry no syntax, only a range ending with the identifier."""
+        if not self.in_file(end) or not name:
+            return None
+        text, offset, name = self.text(end.buffer), end.offset, name.encode()
+        if offset < len(name) or offset > len(text) or text[offset - len(name):offset] != name:
+            return None
+        return slang.SourceLocation(end.buffer, offset - len(name))
+
+    def reference_end(self, source_range, target):
+        loc = self.name_before(source_range.end, target.name)
+        if loc is not None:
+            self.record(loc, target, target.location == loc)
+        return loc
+
+    @staticmethod
+    def skip_blanks(text, pos):
+        while pos > 0 and text[pos - 1] in b' \t':
+            pos -= 1
+        return pos
+
+    @staticmethod
+    def identifier_before(text, pos):
+        """The identifier ending at `pos` after optional blanks: (name bytes, its start)."""
+        pos = SourceIndexer.skip_blanks(text, pos)
+        start = pos
+        while start > 0 and is_ident_byte(text[start - 1]):
+            start -= 1
+        return text[start:pos], start
+
+    def package_prefix_at(self, loc):
+        """`pkg::name` written in the source: the package before the name at `loc`."""
+        text = self.text(loc.buffer)
+        pos = self.skip_blanks(text, loc.offset)
+        if pos < 2 or text[pos - 2:pos] != b'::':
+            return
+        name, pos = self.identifier_before(text, pos - 2)
+        package = self.c.getPackage(name.decode()) if name else None
+        if package is not None:
+            self.record(slang.SourceLocation(loc.buffer, pos), package, False)
+
+    def hierarchical_prefix_at(self, loc, target):
+        """`a.b[i].c` written in the source: the path elements before the name at `loc`, matched
+        by name from the right. pyslang does not expose the resolved HierarchicalReference path,
+        so the elements are the target's elaborated ancestors, looked up by hierarchical path."""
+        text = self.text(loc.buffer)
+        pos = loc.offset
+        path = split_hierarchical_path(target.hierarchicalPath)
+        element = len(path) - 1
+        while element > 0:
+            pos = self.skip_blanks(text, pos)
+            if pos == 0 or text[pos - 1:pos] != b'.':
+                return
+            pos = self.skip_blanks(text, pos - 1)
+            while pos > 0 and text[pos - 1:pos] == b']':
+                depth = 0
+                while True:
+                    pos -= 1
+                    depth += (text[pos:pos + 1] == b']') - (text[pos:pos + 1] == b'[')
+                    if pos == 0 or depth <= 0:
+                        break
+                pos = self.skip_blanks(text, pos)
+            name, pos = self.identifier_before(text, pos)
+            if not name:
+                return
+            matched = False
+            while element > 0:
+                element -= 1
+                if path[element][0] == name.decode():
+                    symbol = self.c.getRoot().lookupName(path[element][1])
+                    if symbol is not None:
+                        self.record(slang.SourceLocation(loc.buffer, pos), symbol, False)
+                    matched = True
+                    break
+            if not matched:
+                return
+
+    # -- Clocks: edge-sensitive event signals a process never reads as data.
+
+    def collect_edges(self, timing, out):
+        k = tag(timing)
+        if k == 'SignalEvent':
+            if timing.edge != slang.ast.EdgeKind.None_:
+                symbol = timing.expr.getSymbolReference()
+                if symbol is not None:
+                    out.add(symbol.location)
+        elif k == 'EventList':
+            for event in timing.events:
+                self.collect_edges(event, out)
+
+    def find_clocks(self, block):
+        body = block.body
+        if tag(body) != 'Timed':
+            return
+        events = set()
+        self.collect_edges(body.timing, events)
+        if not events:
+            return
+        reads = set()
+        def visit(x):
+            if isinstance(x, (slang.ast.NamedValueExpression, slang.ast.HierarchicalValueExpression)):
+                reads.add(x.symbol.location)
+        body.stmt.visit(visit)
+        self.clocks |= events - reads
+
+    # -- Design walk: declarations and references, once per distinct parameterization.
+
+    def body_key(self, inst):
+        d = inst.definition
+        key = [d.name, d.location.buffer.id, d.location.offset]
+        for p in inst.body.parameters:
+            if isinstance(p, slang.ast.ParameterSymbol):
+                key.append(str(p.value))
+            elif isinstance(p, slang.ast.TypeParameterSymbol):
+                key.append(str(p.targetType.type))
+            else:
+                key.append('')
+        return tuple(key)
+
+    def imports(self, symbol):
+        node = symbol.syntax
+        if node is None or tag(node) != 'PackageImportItem':
+            return
+        package = self.c.getPackage(node.package.valueText)
+        if package is not None:
+            self.reference(node.package, package)
+        if isinstance(symbol, slang.ast.ExplicitImportSymbol) and symbol.importedSymbol is not None:
+            self.reference(node.item, symbol.importedSymbol)
+
+    def interface_port(self, port):
+        node = port.syntax
+        if node is None or tag(node) != 'ImplicitAnsiPort':
+            return
+        header = node.header
+        if header is not None and tag(header) == 'InterfacePortHeader' and port.interfaceDef is not None:
+            self.reference(header.nameOrKeyword, port.interfaceDef)
+
+    def instantiation(self, inst):
+        """The module name, parameter overrides and port names of an instantiation."""
+        node = inst.syntax
+        if node is None or tag(node) != 'HierarchicalInstance':
+            return
+        parent = node.parent
+        if parent is None or tag(parent) != 'HierarchyInstantiation':
+            return
+        self.reference(parent.type, inst.definition)
+        if parent.parameters is not None:
+            for assignment in parent.parameters.parameters:
+                if isinstance(assignment, slang.syntax.SyntaxNode) and tag(assignment) == 'NamedParamAssignment':
+                    name = assignment.name
+                    param = next((p for p in inst.body.parameters if p.name == name.valueText), None)
+                    if param is not None:
+                        self.reference(name, param)
+        for connection in node.connections:
+            if isinstance(connection, slang.syntax.SyntaxNode) and tag(connection) == 'NamedPortConnection':
+                name = connection.name
+                port = next((p for p in inst.body.portList if p.name == name.valueText), None)
+                if port is not None:
+                    self.reference(name, port)
+
+    def call(self, expr):
+        if expr.isSystemCall:
+            return
+        subroutine = expr.subroutine
+        if not isinstance(subroutine, slang.ast.Symbol):
+            return
+        tokens = self.name_tokens(expr.syntax, [])
+        if tokens:
+            self.reference(tokens[-1], subroutine)
+        node = expr.syntax
+        self.package_prefix(node.left if node is not None and tag(node) == 'InvocationExpression' else node)
+
+    def visit_design(self, n):
+        if isinstance(n, slang.ast.Symbol):
+            if not isinstance(n, slang.ast.InstanceSymbol):
+                self.declare(n)
+            elif n.syntax is not None and tag(n.syntax) == 'HierarchicalInstance':
+                # Top-level instances share the module name token with the definition.
+                self.declare(n)
+            if isinstance(n, slang.ast.ValueSymbol):
+                self.declared_type(n.declaredType)
+            if isinstance(n, slang.ast.TypeAliasType):
+                self.declared_type(n.targetType)
+            if isinstance(n, slang.ast.ProceduralBlockSymbol):
+                self.find_clocks(n)
+            if isinstance(n, (slang.ast.WildcardImportSymbol, slang.ast.ExplicitImportSymbol)):
+                self.imports(n)
+            if isinstance(n, slang.ast.InterfacePortSymbol):
+                self.interface_port(n)
+            if isinstance(n, slang.ast.InstanceSymbol):
+                self.instantiation(n)
+                key = self.body_key(n)
+                if key in self.visited_bodies:
+                    return slang.ast.VisitAction.Skip
+                self.visited_bodies.add(key)
+        elif isinstance(n, slang.ast.NamedValueExpression):
+            loc = self.reference_end(n.sourceRange, n.symbol)
+            if loc is not None:
+                self.package_prefix_at(loc)
+        elif isinstance(n, slang.ast.HierarchicalValueExpression):
+            loc = self.reference_end(n.sourceRange, n.symbol)
+            if loc is not None:
+                self.hierarchical_prefix_at(loc, n.symbol)
+        elif isinstance(n, slang.ast.ArbitrarySymbolExpression):
+            loc = self.reference_end(n.sourceRange, n.symbol)
+            if loc is not None:
+                self.package_prefix_at(loc)
+        elif isinstance(n, slang.ast.MemberAccessExpression):
+            self.reference_end(n.sourceRange, n.member)
+        elif isinstance(n, slang.ast.CallExpression):
+            self.call(n)
+        return None
+
+    # -- Lexical walk: every token of every buffer, classified.
+
+    def register_buffer(self, buffer):
+        if buffer.id in self.file_index:
+            return
+        self.file_index[buffer.id] = len(self.files)
+        self.files.append(dict(buffer=buffer, tokens=[], previous_end=0))
+        included_from = self.sm.getIncludedFrom(buffer)
+        if valid(included_from):
+            self.includes.append((included_from, buffer))
+
+    def locate(self, loc):
+        if not self.in_file(loc) or loc.buffer.id not in self.file_index:
+            return None
+        return [self.file_index[loc.buffer.id], self.sm.getLineNumber(loc), self.sm.getColumnNumber(loc)]
+
+    def included_buffer(self, start, end):
+        """The buffer an include directive spanning [start, end) pulled in, if any."""
+        for loc, buffer in self.includes:
+            if loc.buffer == start.buffer and start.offset <= loc.offset < end.offset:
+                return buffer
+        return None
+
+    def add(self, loc, text, cls, modifiers, declaration=None, sink=None):
+        """Appends one token per line covered by `text` starting at `loc`."""
+        file = self.file_index.get(loc.buffer.id)
+        if file is None:
+            return
+        start = 0
+        while start < len(text):
+            end = text.find(b'\n', start)
+            if end < 0:
+                end = len(text)
+            length = end - start
+            if length > 0 and text[start + length - 1:start + length] == b'\r':
+                length -= 1
+            if length > 0:
+                at = advance(loc, start)
+                token = [self.sm.getLineNumber(at), self.sm.getColumnNumber(at), length, cls, modifiers, declaration]
+                if sink is not None:
+                    sink.append((file, token))
+                else:
+                    self.files[file]['tokens'].append(token)
+            start = end + 1
+
+    def classify(self, token, loc, directive):
+        text = token.rawText
+        if token.isMissing or not text:
+            return
+        kind = tag(token)
+        cls, mods, declaration = None, 0, None
+        if kind in KEYWORD_TOKENS:
+            cls = CLASS['keyword']
+        elif kind == 'Identifier':
+            if directive:
+                cls = CLASS['macro']
+            elif token.location in self.by_token:
+                cls, mods, declared = self.by_token[token.location]
+                if declared in self.clocks:
+                    mods |= MOD['clock']
+                declaration = self.locate(declared)
+        elif kind == 'SystemIdentifier':
+            cls, mods = CLASS['function'], MOD['defaultLibrary']
+        elif kind in ('StringLiteral', 'IncludeFileName'):
+            cls = CLASS['string']
+        elif kind in LITERAL_TOKENS:
+            cls = CLASS['number']
+        elif kind in MACRO_TOKENS:
+            cls = CLASS['macro']
+        elif kind not in ('EndOfFile', 'Unknown'):
+            cls = CLASS['operator']
+        if cls is not None:
+            self.add(loc, text.encode(), cls, mods, declaration)
+
+    def expansion(self, loc):
+        """A macro expansion is shown as the macro usage the user wrote."""
+        r = self.sm.getExpansionRange(loc)
+        while valid(r.start) and self.sm.isMacroLoc(r.start):
+            r = self.sm.getExpansionRange(r.start)
+        if not valid(r.start) or r.start in self.expansions:
+            return
+        self.expansions.add(r.start)
+        text = self.text(r.start.buffer)
+        start, end = r.start.offset, min(r.end.offset, len(text))
+        if end > start:
+            self.add(r.start, text[start:end], CLASS['macro'], 0)
+
+    def directive_tokens(self, node, start):
+        """Tokens of a preprocessor directive are trivia of the token that follows; the directive's
+        own leading comments are trivia of its first token, laid out from `start` when known."""
+        cursor = start
+        def visit(token):
+            nonlocal cursor
+            if not isinstance(token, slang.parsing.Token):
+                return
+            loc = token.location
+            if not valid(loc) or self.sm.isMacroLoc(loc):
+                return
+            if cursor is not None and cursor.buffer == loc.buffer:
+                self.comments(token, cursor)
+            cursor = advance(loc, blen(token.rawText))
+            self.classify(token, loc, True)
+        node.visit(visit)
+
+    def trivia_end(self, trivia):
+        """Where a directive or skipped-token trivia ends, if that is a file location."""
+        k = tag(trivia)
+        if k == 'Directive':
+            last = trivia.syntax().getLastToken()
+        elif k == 'SkippedTokens':
+            skipped = trivia.getSkippedTokens()
+            if not skipped:
+                return None
+            last = skipped[-1]
+        else:
+            return None
+        loc = last.location
+        if not valid(loc) or self.sm.isMacroLoc(loc):
+            return None
+        return advance(loc, blen(last.rawText))
+
+    def comments(self, token, cursor):
+        """Emits the comments preceding `token`. Plain trivia carry no locations, so they are laid
+        out forward from the previous token's end, following directives and explicit locations
+        into other buffers; when that walk does not arrive exactly at the token, the trailing run
+        of plain trivia is laid out backward from the token instead."""
+        trivia = token.trivia
+        if not trivia:
+            return
+        target = token.location
+        pending, resume, consistent = [], [], True
+        for item in trivia:
+            k = tag(item)
+            explicit = item.getExplicitLocation()
+            if explicit is not None and not self.in_file(explicit):
+                explicit = None
+            if k == 'Directive':
+                self.directive_tokens(item.syntax(), explicit)
+            if explicit is not None:
+                cursor = explicit
+            if k in RAW_TRIVIA:
+                raw = item.getRawText().encode()
+                if k in COMMENT_TRIVIA:
+                    self.add(cursor, raw, CLASS['comment'], 0, None, pending)
+                cursor = advance(cursor, len(raw))
+                if resume and cursor.offset >= len(self.text(cursor.buffer)):
+                    cursor = resume.pop()
+                continue
+            end = self.trivia_end(item)
+            if end is None:
+                consistent = False
+                break
+            cursor = end
+            if tag(item.syntax()) == 'IncludeDirective':
+                included = self.included_buffer(item.syntax().getFirstToken().location, end)
+                if included is not None:
+                    resume.append(cursor)
+                    cursor = slang.SourceLocation(included, 0)
+        if consistent and cursor == target:
+            for file, pending_token in pending:
+                self.files[file]['tokens'].append(pending_token)
+            return
+        end = target.offset
+        for item in reversed(trivia):
+            k = tag(item)
+            if k not in RAW_TRIVIA:
+                break
+            raw = item.getRawText().encode()
+            if len(raw) > end:
+                break
+            end -= len(raw)
+            if k in COMMENT_TRIVIA:
+                self.add(slang.SourceLocation(target.buffer, end), raw, CLASS['comment'], 0)
+
+    def token(self, token):
+        loc = token.location
+        if not valid(loc):
+            return
+        # Macro argument tokens keep the text the user wrote; expansions do not.
+        while self.sm.isMacroArgLoc(loc):
+            loc = self.sm.getOriginalLoc(loc)
+        if self.sm.isMacroLoc(loc):
+            self.expansion(loc)
+            return
+        file = self.file_index.get(loc.buffer.id)
+        if file is None:
+            return
+        if loc == token.location:
+            current = self.files[file]
+            self.comments(token, slang.SourceLocation(current['buffer'], current['previous_end']))
+            current['previous_end'] = loc.offset + blen(token.rawText)
+        self.classify(token, loc, False)
+
+    # -- Per-instance uninstantiated generate blocks, without descending into child instances.
+
+    def inactive_blocks(self, scope, out):
+        for member in scope:
+            if isinstance(member, slang.ast.GenerateBlockArraySymbol):
+                self.inactive_blocks(member, out)
+            elif isinstance(member, slang.ast.GenerateBlockSymbol):
+                if member.isUninstantiated:
+                    out.append(member)
+                else:
+                    self.inactive_blocks(member, out)
+        return out
+
+    def inactive_ranges(self, blocks):
+        ranges = []
+        for block in blocks:
+            node = block.syntax
+            if node is None:
+                continue
+            r = node.sourceRange
+            if not self.in_file(r.start) or r.start.buffer != r.end.buffer:
+                continue
+            file = self.file_index.get(r.start.buffer.id)
+            if file is not None:
+                ranges.append([file, self.sm.getLineNumber(r.start), self.sm.getColumnNumber(r.start),
+                               self.sm.getLineNumber(r.end), self.sm.getColumnNumber(r.end)])
+        return ranges
+
+    def build(self, sources):
+        """The `source_index` document; `sources` are the VDB `sources[].path` spellings."""
+        root = self.c.getRoot()
+        root.visit(self.visit_design)
+        for definition in self.c.getDefinitions():
+            self.declare(definition)
+        for package in self.c.getPackages():
+            self.declare(package)
+        # Files are registered up front, in load order, so declaration locations resolve
+        # regardless of which file is lexed first.
+        for buffer in self.sm.getAllBuffers():
+            path = str(self.sm.getFullPath(buffer))
+            if self.sm.isFileLoc(slang.SourceLocation(buffer, 0)) and path and Path(path).is_file():
+                self.register_buffer(buffer)
+        for tree in self.trees:
+            tree.root.visit(lambda n: self.token(n) if isinstance(n, slang.parsing.Token) else None)
+
+        inactive = {}
+        def visit_instance(n):
+            if isinstance(n, slang.ast.InstanceSymbol):
+                ranges = self.inactive_ranges(self.inactive_blocks(n.body, []))
+                if ranges:
+                    inactive[n.hierarchicalPath] = ranges
+        root.visit(visit_instance)
+        definitions = {}
+        for symbol in list(self.c.getDefinitions()) + list(self.c.getPackages()):
+            loc = self.locate(symbol.location)
+            if loc is not None:
+                definitions[symbol.name] = loc
+
+        # Name files as the VDB does, so declarations join its symbol locations.
+        work_dir = Path.cwd()
+        known = {str((work_dir / source).resolve()): source for source in sources}
+        files = []
+        for file in self.files:
+            full = Path(str(self.sm.getFullPath(file['buffer']))).resolve()
+            path = known.get(str(full)) or (str(full.relative_to(work_dir)) if full.is_relative_to(work_dir) else str(full))
+            tokens, seen = [], set()
+            for token in sorted(file['tokens'], key=lambda t: (t[0], t[1])):
+                if (token[0], token[1]) not in seen:
+                    seen.add((token[0], token[1]))
+                    tokens.append(token)
+            declarations = [[i] + t[5] for i, t in enumerate(tokens) if t[5] is not None]
+            files.append(dict(path=path, tokens=[x for t in tokens for x in t[:5]],
+                              declarations=[x for d in declarations for x in d]))
+        return dict(producer='slang ' + slang.__version__, classes=INDEX_CLASSES, modifiers=INDEX_MODIFIERS,
+                    files=files, definitions=definitions, inactive=inactive)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('-o', '--output', required=True)
@@ -248,6 +923,8 @@ def main():
                sources=sorted(sources, key=lambda x:x['path']), options=cmd[1:], elaboration=elaboration,
                instances=ex.instances, symbols=ex.symbols, connections=ex.connections, processes=ex.processes)
     doc['design_id'] = hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()
+    # Not part of the identity: the index only renders what the hashed document already describes.
+    doc['source_index'] = SourceIndexer(c, driver.syntaxTrees).build([s['path'] for s in sources])
     Path(args.output).write_text(json.dumps(doc, indent=2, sort_keys=True)+'\n')
 
 

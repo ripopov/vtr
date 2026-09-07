@@ -13,14 +13,26 @@ before optimization removes source structure. The generated model carries this
 companion and writes it beside each recording (`simulation.vtr` becomes
 `simulation.vdb.json`). It records a shared design identity and explicit trace
 mapping, enabling source navigation, annotated netlist SVGs, and temporal driver
-tracing with the existing `vtr-vdb` CLI. No slang/Python dependency is needed for
+tracing with the existing `vtr-vdb` CLI. No Python dependency is needed for
 native export. See [VDB_RTL.md](../../docs/VDB_RTL.md) for the schema and limits.
 
-Build prerequisites include a C++ compiler, make, autoconf, flex, bison, Perl,
-and help2man.
+After writing the companion, Verilator runs `verilator_vdb_index` from the
+directory holding `verilator_bin`. That program (`src/vdb_index` in the fork)
+elaborates the same file set with the [slang](https://github.com/MikePopoloski/slang)
+release pinned as the fork's `ext/slang` submodule and appends the VDB
+`source_index`: every token of every source file with its class, modifiers and
+declaration, plus the generate blocks each instance leaves uninstantiated.
+Surfer's source tile renders highlighting, hover values, ctrl-click navigation
+and alt-click adding of signals from that section alone. A missing or failing
+indexer raises Verilator's `VDBINDEX` warning and the VDB ships without the
+section.
+
+Build prerequisites include a C++20 compiler, make, cmake, autoconf, flex,
+bison, Perl, and help2man. Configuring the indexer fetches the `fmt` library
+with CMake's FetchContent unless a system `fmt` (12.1 or newer) is installed.
 
 ```sh
-git submodule update --init ext/verilator
+git submodule update --init --recursive ext/verilator
 integrations/verilator/build.sh bench/build/verilator/install   # build and install pinned source
 cargo build --release -p vtr-capi                                # libvtr.a / libvtr.so + vtr.h
 verilator --cc --exe --trace-vtr top.sv main.cpp
@@ -41,6 +53,12 @@ runs 3x slower than clang's from identical sources unless PGO is used
 
 What the VTR branch adds:
 
+* `src/V3EmitVdb.cpp`: the RTL VDB export; it runs `verilator_vdb_index` on
+  the written companion and embeds the indexed document in the model.
+* `src/vdb_index/`: the indexer, its CMake build against `ext/slang`, and its
+  tests (`make -C <build-dir>/src vdb_index_test`); `src/Makefile.in` builds
+  it through a CMake sub-build when `cmake` is found and installs it beside
+  `verilator_bin`.
 * `src/V3Options.{h,cpp}`: the `--trace-vtr` switch, class base
   `VerilatedVtr`, runtime source `verilated_vtr_c.cpp`; the one-format-only
   check now includes VTR.
@@ -93,4 +111,5 @@ python3 integrations/verilator/vdb/run.py \
 
 The suite checks source locations and elaborated hierarchy, real-simulator
 pipeline provenance and RTL expressions, automatic attachment and identity
-rejection, partial recordings, and annotated SVGs for every module.
+rejection, partial recordings, annotated SVGs for every module, and the
+`source_index` the indexer appended to every companion.

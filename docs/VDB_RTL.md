@@ -119,8 +119,10 @@ references, enums, wide values, missing mappings, identity mismatch, and model
 prefixes. Unlike the standalone fixture tests, these values come from Verilator.
 
 The `elaboration` record exists so another frontend can re-elaborate the same
-design without user configuration: Surfer turns it into a build file for the
-pinned `slang-server` (`integrations/slang-server`). Verilator records the
+design without user configuration: `verilator_vdb_index` (the slang-based
+source indexer shipped with the pinned Verilator fork, see
+[Source index](#source-index)) reads it to produce `source_index`, and
+`tools/vdb/export.py` writes the same record. Verilator records the
 user include directories (`+incdir+`, `-I`, `-y` in order), `+libext+`,
 command-line defines (`+define+`, `-D`, including those from `-f` files), the
 `-v` library files and the design files as given; implicit search paths and
@@ -148,10 +150,10 @@ all recorded changes and hierarchy metadata and render both formats against
 shared image snapshots. The source-navigation snapshot clicks the actual
 context-menu entry. See the [Surfer chapter](../ext/surfer/docs/html/source-code.html)
 for ownership and limits. Driver tracing and netlist rendering remain in the
-VDB library/CLI; Surfer exposes source navigation, and, with `slang-server`
-started from the `elaboration` record, accurate highlighting, hover values at
-the cursor, ctrl-click navigation and alt-click adding of signals in the
-context of one elaborated instance.
+VDB library/CLI; Surfer exposes source navigation and, from the `source_index`
+section, accurate highlighting, hover values at the cursor, ctrl-click
+navigation and alt-click adding of signals in the context of one elaborated
+instance. Surfer only reads the VDB; it starts no process.
 
 ## Module netlists with recorded values
 
@@ -287,17 +289,51 @@ This is an application format independent of the VTR container version.
 | `sources` | source/include file paths and SHA-256 content hashes |
 | `design_id` | SHA-256 identity of source/options/semantics; see producer serialization rules above |
 | `trace_binding` (optional) | recording wrapper `prefix` and `signals` map from original symbol paths to exact recorded paths; requires matching VTR identity |
+| `source_index` (optional) | static rendering index: classified tokens and declarations per source file, module/interface/package declarations and, per instance, the uninstantiated generate blocks; see [Source index](#source-index) |
 | `instances` | elaborated instance `path`, `parent` module instance (null for root), definition name, source location, ordered `ports` (`name`, `symbol`, `direction`) including unconnected and top-level ports |
 | `symbols` | map keyed by elaborated hierarchical path; each value repeats `path`, and contains module `owner`, `kind`, `type`, `source`, and optional constant `value` |
 | `connections` | owning child `instance`, child port path, slang direction (`In`, `Out`, etc.), connection expression, source |
 | `processes` | numeric local ID, module `owner`, `origin` (`rtl` or synthetic `connection`), static `reads`, mode (`comb`, `seq`, `unsupported`), target paths, event controls, body, source |
 
-Every source location contains `file`, one-based `line`, and `column`.
+Every source location contains `file`, one-based `line`, and one-based byte
+`column`.
 Types record slang's resolved text, integral bit `width`, `signed`,
 `four_state`, and `integral` flags. Parameter and enum constants retain slang's
 value spelling. Values in expressions use their elaborated, context-sized
 types, including implicit conversions. Symbol IDs are paths, never VTR IDs.
 Process IDs are local to an export and carry no cross-run identity.
+
+### Source index
+
+`source_index` lets a viewer render design sources without a frontend of its
+own. It is appended after `design_id` and, like `trace_binding`, is not part of
+the identity: `design_id` is the hash of the document before either is added.
+Verilator produces it by running `verilator_vdb_index` after writing the
+companion (the program lives in `src/vdb_index` of the pinned fork and
+elaborates the `elaboration` record with the slang release pinned under
+`ext/slang`); `tools/vdb/export.py` writes the same section from pyslang.
+A VDB without the section is valid; viewers then show plain text.
+
+| Field | Meaning |
+|---|---|
+| `producer` | frontend that classified the tokens, e.g. `slang 11.0.0` |
+| `classes` | token class names in numbering order: `keyword`, `comment`, `number`, `string`, `operator`, `macro`, `variable`, `parameter`, `enumMember`, `type`, `module`, `interface`, `package`, `instance`, `function`, `property`, `namespace` |
+| `modifiers` | modifier bit names in bit order: `declaration`, `input`, `output`, `inout`, `ref`, `clock`, `readonly`, `defaultLibrary`, `argument` |
+| `files` | one entry per parsed file: `path` (the `sources` spelling when the file is listed there, else relative to `work_dir`), `tokens`, a flat array of `[line, column, length, class, modifiers]` groups sorted by position, and `declarations`, a flat array of `[token, file, line, column]` groups: the index of a token in `tokens`, the index of a file in `files`, and the declaration position of the symbol that token denotes |
+| `definitions` | module, interface, program and package name to `[file, line, column]` |
+| `inactive` | instance path to `[file, startLine, startColumn, endLine, endColumn]` ranges (end exclusive) of the generate blocks that instance leaves uninstantiated; instances without any are absent |
+
+Positions are one-based line and byte column, like every other source location.
+A token's declaration therefore equals the `source` of the VDB symbol it
+denotes, and the `source` of an instance for instance names, so a viewer joins
+tokens to elaborated symbols by location and picks the symbol under the viewed
+instance. Tokens never span lines; a multi-line comment is one token per line,
+and preprocessor-disabled text is a comment. A macro expansion is one `macro`
+token covering the usage as written. Identifiers the frontend could not
+resolve carry no token. `clock` marks edge-sensitive event signals that the
+process never reads as data; a reset sampled by `negedge` and tested in the
+body is not a clock. Only the first instance of each module parameterization
+contributes tokens; the index is per file, not per instance.
 
 Each expression has `kind`, `type`, and `source`, with these payloads:
 
@@ -375,8 +411,12 @@ claimed and no VTR decode path is changed.
 cargo test -p vtr-vdb
 # Re-elaborate pipeline fixtures while running temporal and stdout assertions.
 VTR_VDB_PYTHON="$PWD/.venv-vdb/bin/python" cargo test -p vtr-vdb
-# Export errors, parameters, hierarchy, driver retention, fixture reproducibility.
+# Export errors, parameters, hierarchy, driver retention, fixture reproducibility,
+# and the source index on the indexer's reference design.
 .venv-vdb/bin/python tools/vdb/test_export.py
+# The C++ indexer's own tests (token classes, declarations, clocks, generate
+# blocks, in-place splicing) in the Verilator build directory.
+make -C bench/build/verilator-objs/src vdb_index_test
 cargo clippy -p vtr-vdb --all-targets -- -D warnings
 cargo test
 ```
