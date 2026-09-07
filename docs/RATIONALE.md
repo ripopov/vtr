@@ -790,3 +790,66 @@ The same section is written by the pyslang exporter, and its output is
 identical to the C++ indexer's on every fixture, so both producers stay honest
 against one schema. Surfer's tests open the checked-in examples and click with
 real pointer events; no toolchain runs in the tests.
+
+## Cursor values inline in the source tile, hover kept for detail
+
+The first source tile showed a signal's value only in a tooltip. Debugging RTL
+against a waveform is reading which branch fired and what its operands were at
+the cursor, line after line; a value that needs a hover per identifier is a
+value most lines never show. Values are now always visible, the way a JetBrains
+debugger annotates a stopped frame, and the hover keeps what the inline form
+cannot carry: the elaborated type, the owner, and every path the token denotes
+when a module is instantiated more than once.
+
+Four layouts were mocked before choosing: values trailing the code of each
+line, a fixed value column at the right edge, an interlinear row above each
+line with the value over its identifier, and inlay chips after each identifier.
+Two shipped, switched from the tile header and a palette command, defaulted by
+config. **Trailing** is the default because it is the only layout that leaves
+the code where it is: ctrl-click and alt-click targets never move while the
+cursor is dragged, and aligned port lists and case arms stay aligned. It
+borrows the column's one strength: values start at the greater of the end of
+the code plus four blanks and a configured column, so short lines read as a
+column and long lines simply push further right. **Inline** chips are kept as
+an option for dense expressions where the eye should not travel to the end of
+the line; the code reflows, so the tile maps every drawn character back to its
+source byte and clicks keep working. The value column was rejected for
+stealing width and separating a value from its name; the interlinear row for
+uneven line pitch and collisions between neighbouring identifiers, which RTL
+port connections make routine.
+
+Values take one color no token class uses, amber when the signal's last
+transition is at the cursor (the cursor snaps to edges, and stepping edge by
+edge is how the design is watched moving), red for undefined or high-impedance
+bits, a dash when the design has the symbol but the trace did not record it.
+They go through the same translators as the waveform rows and follow the radix
+of a displayed row of the same signal, so the tile never disagrees with the
+waveform beside it. Parameters print the elaborated constant from the VDB, so
+they show even when the simulator did not trace them. A struct prints as a
+brace list and a member access as that member: the translator's fields when it
+has them, otherwise a slice of the recorded aggregate by the elaborated type in
+the VDB, because a two-state simulator flattens packed structs in the trace. An
+array element prints when the index is a constant or a parameter with one
+elaborated value; otherwise the array prints its element count, since guessing
+an index would put a wrong number next to the code.
+
+Two joins had to become tolerant. Verilator counts declaration columns after
+macro expansion while slang counts them before, so a declaration on a line that
+also expands a macro (`parameter bit WRAP` after `` `FEAT_WIDTH ``) did not join
+by position; the tile now falls back to the symbol of the same name declared on
+the same line. Verilator's VTR writer nests the elements of an unpacked array in
+a scope named after the array while its binding spells them as plain elements;
+the attachment and the variable lookup accept both spellings. Both fixes live
+in the viewer because they are tolerances of one producer's spelling, not
+format rules.
+
+The values are computed per line and cached for one file, instance, cursor,
+design and set of waveform formats; a line is recomputed only while one of its
+signals is still loading. The signals a file references are requested from the
+document the way a waveform row requests its signal, so the native reader loads
+them in the background and releases them with the tile. Only the visible rows of
+the file are laid out, which also bounds the cost of long files. Verilator
+records two-state values only, so the undefined-value test writes a four-state
+twin of the features recording with the VTR writer beside copies of its VDB and
+sources; that keeps the case on the same design and the same code path an X
+from a four-state simulator would take.

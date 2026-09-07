@@ -20,8 +20,9 @@ simulator's text log as typed, timestamped records (`docs/LOGGING.md`).
   directly (used by the benchmarks on a full openC910 CoreMark run).
 * Source index: the pinned Verilator ships `verilator_vdb_index`, a slang-based
   program that classifies every source token at verilation time into the VDB;
-  the Surfer source tile renders highlighting, hover values and navigation from
-  that static index without starting any process.
+  the Surfer source tile renders highlighting, the values of every referenced
+  signal at the cursor and navigation from that static index without starting
+  any process.
 
 VDB (Vibe Data Base) is the separate design and presentation companion.
 The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.

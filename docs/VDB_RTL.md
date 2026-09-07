@@ -151,7 +151,7 @@ shared image snapshots. The source-navigation snapshot clicks the actual
 context-menu entry. See the [Surfer chapter](../ext/surfer/docs/html/source-code.html)
 for ownership and limits. Driver tracing and netlist rendering remain in the
 VDB library/CLI; Surfer exposes source navigation and, from the `source_index`
-section, accurate highlighting, hover values at the cursor, ctrl-click
+section, accurate highlighting, inline values at the cursor, ctrl-click
 navigation and alt-click adding of signals in the context of one elaborated
 instance. Surfer only reads the VDB; it starts no process.
 
