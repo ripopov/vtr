@@ -1,0 +1,1110 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<title>Trace Driver для Surfer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --ground:#f6f7f9; --paper:#ffffff; --ink:#151b26; --ink-2:#4b5566; --muted:#7a8494; --line:#dfe3ea; --line-2:#c9d0db;
+  --accent:#2f62c8; --accent-ink:#ffffff; --accent-soft:#e6eefb;
+  --k-data:#2f62c8; --k-ctl:#b7791f; --k-clk:#6b7684; --k-mux:#8a5cc4; --k-sel:#1f8f5f; --bad:#c0392b;
+  --mono:'JetBrains Mono','SFMono-Regular',Menlo,Consolas,monospace;
+  --body:'Source Sans 3','Segoe UI',system-ui,sans-serif;
+  --display:'Familjen Grotesk','Source Sans 3',system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#0d1219; --paper:#141b26; --ink:#e4eaf4; --ink-2:#b4bfcf; --muted:#8894a6; --line:#26303f; --line-2:#344055;
+  --accent:#86b1ff; --accent-ink:#0f1623; --accent-soft:#1c2a42;
+  --k-data:#86b1ff; --k-ctl:#eed49f; --k-clk:#97a8c0; --k-mux:#c8a7ff; --k-sel:#a6da95; --bad:#ff7b86; }}
+:root[data-theme="dark"]{
+  --ground:#0d1219; --paper:#141b26; --ink:#e4eaf4; --ink-2:#b4bfcf; --muted:#8894a6; --line:#26303f; --line-2:#344055;
+  --accent:#86b1ff; --accent-ink:#0f1623; --accent-soft:#1c2a42;
+  --k-data:#86b1ff; --k-ctl:#eed49f; --k-clk:#97a8c0; --k-mux:#c8a7ff; --k-sel:#a6da95; --bad:#ff7b86; }
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5}
+a{color:var(--accent)}
+.page{display:grid;grid-template-columns:230px minmax(0,1fr);gap:0;max-width:1440px;margin:0 auto}
+nav.side{position:sticky;top:0;height:100vh;padding:28px 18px;border-right:1px solid var(--line);font-size:13.5px;overflow:auto}
+nav.side .brand{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.01em;margin-bottom:4px}
+nav.side .brand small{display:block;font-family:var(--body);font-weight:400;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-top:2px}
+nav.side ol{list-style:none;padding:0;margin:18px 0 0}
+nav.side li{margin:0}
+nav.side a{display:block;color:var(--ink-2);text-decoration:none;padding:5px 8px;border-radius:4px;border-left:2px solid transparent}
+nav.side a:hover{background:var(--accent-soft);color:var(--ink)}
+nav.side a.active{border-left-color:var(--accent);color:var(--ink);background:var(--accent-soft)}
+nav.side li.sub a{padding-left:20px;font-size:13px}
+nav.side .legend{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+nav.side .legend .k{margin:2px 4px 2px 0}
+main{padding:36px 48px 120px;min-width:0}
+section.sec{margin-bottom:64px;scroll-margin-top:24px}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1{font-family:var(--display);font-size:38px;line-height:1.1;margin:6px 0 10px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+h2{font-family:var(--display);font-size:27px;line-height:1.15;margin:4px 0 12px;font-weight:700;text-wrap:balance}
+h3{font-family:var(--display);font-size:18px;margin:26px 0 8px;font-weight:600}
+p,li{max-width:70ch}
+.lede{font-size:19px;color:var(--ink-2);max-width:66ch}
+.mono,code,kbd{font-family:var(--mono);font-size:.92em}
+code{background:var(--accent-soft);padding:1px 5px;border-radius:3px}
+kbd{border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:.8em;background:var(--paper)}
+hr{border:0;border-top:1px solid var(--line);margin:28px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px 36px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+@media (max-width:1100px){.grid2,.grid3{grid-template-columns:1fr}.page{grid-template-columns:1fr}nav.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}main{padding:24px}}
+.card{border:1px solid var(--line);border-radius:6px;padding:14px 16px;background:var(--paper)}
+.card h4{margin:0 0 6px;font-family:var(--display);font-size:15px}
+.card p{font-size:14.5px;margin:4px 0;color:var(--ink-2)}
+.card ul{padding-left:18px;margin:4px 0;font-size:14.5px}
+.card li{margin:2px 0}
+.tool{border-left:3px solid var(--accent);padding-left:14px;margin:18px 0}
+.tool h3{margin:0 0 4px}
+.tool .src{font-size:12.5px;color:var(--muted)}
+.tool ul{margin:6px 0 0;padding-left:18px;font-size:15px}
+.tool li{margin:3px 0}
+.cite{font-size:12px;color:var(--muted)}
+.cite a{color:var(--muted)}
+table.tbl{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}
+.tbl th,.tbl td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+.tbl th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.tbl td.n{font-variant-numeric:tabular-nums;text-align:center}
+.tbl .best{color:var(--k-sel);font-weight:600}
+.tbl .worst{color:var(--bad)}
+.tblwrap{overflow-x:auto}
+.k{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:3px;border:1px solid currentColor;line-height:1.5;white-space:nowrap}
+.k-data{color:var(--k-data)}.k-ctl{color:var(--k-ctl)}.k-clk{color:var(--k-clk)}.k-mux{color:var(--k-mux)}.k-sel{color:var(--k-sel)}
+.lineage{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px}
+.lineage span{font-size:12.5px;padding:2px 9px;border-radius:12px;background:var(--accent-soft);color:var(--ink-2)}
+.lineage span b{color:var(--ink)}
+.vhead{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:baseline}
+.vnum{font-family:var(--display);font-size:56px;line-height:1;color:var(--accent);font-weight:700;letter-spacing:-.03em}
+.spec{display:grid;grid-template-columns:1fr 1fr;gap:6px 32px;font-size:15px}
+.spec > div{padding:8px 0;border-bottom:1px dashed var(--line)}
+.spec b{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.spec kbd{margin-right:2px}
+.pro-con{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px}
+.pro-con ul{margin:4px 0;padding-left:18px;font-size:14.5px}
+.pro-con h4{margin:0 0 4px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+.pro-con .pro h4{color:var(--k-sel)}.pro-con .con h4{color:var(--bad)}
+.tryit{font-size:13.5px;color:var(--ink-2);background:var(--accent-soft);border-radius:6px;padding:10px 14px;margin:10px 0 8px}
+.tryit b{color:var(--ink)}
+.caption{font-size:13px;color:var(--muted);margin:8px 0 0}
+.verdict{border:1px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:18px 22px}
+.verdict h3{margin-top:0}
+
+/* ---------------- Mockup: Surfer-like window (Atlas Dark, deliberately single-theme) ---------------- */
+.mock{margin:14px 0 6px;border:1px solid var(--line-2);border-radius:6px;overflow:hidden;background:#0f1623}
+.mock:focus{outline:2px solid var(--accent)}
+.sf-win{--bg:#0f1623;--panel:#172131;--panel2:#1c283a;--line:#314156;--fg:#e2eaf6;--mutedfg:#97a8c0;--acc:#86b1ff;--hl:#2b446c;--green:#a6da95;--amber:#eed49f;--red:#ff7b86;--purple:#c8a7ff;
+  background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:12px;display:grid;gap:2px;min-height:520px}
+.lay-v1{grid-template-columns:minmax(0,1.05fr) minmax(0,1.25fr);grid-template-rows:280px 300px;grid-template-areas:"wave tree" "src tree"}
+.lay-v2{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-rows:330px 260px;grid-template-areas:"flow flow" "wave src"}
+.lay-v3{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);grid-template-rows:540px;grid-template-areas:"src wave"}
+.lay-v4{grid-template-columns:1fr;grid-template-rows:auto 220px;grid-template-areas:"wave" "src"}
+.t-wave{grid-area:wave}.t-tree{grid-area:tree}.t-src{grid-area:src}.t-flow{grid-area:flow}
+.sf-tile{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg)}
+.sf-tab{background:var(--panel);border-bottom:1px solid var(--line);height:24px;display:flex;align-items:center;gap:8px;padding:0 8px;color:var(--fg);flex:none}
+.sf-tabname{background:var(--bg);padding:2px 8px;border-radius:3px 3px 0 0;margin-top:4px;align-self:end;line-height:16px}
+.sf-tabx{color:var(--mutedfg);margin-left:-4px;font-size:10px}.sf-tabplus{margin-left:auto;color:var(--mutedfg)}
+.sf-body{flex:1;min-height:0;overflow:auto;position:relative}
+.sf-bar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--line);font-size:11px;flex-wrap:wrap}
+.sf-bar .grow,.sf-wavehead .grow,.sf-foot .grow{flex:1}
+.crumbs{display:flex;gap:2px;align-items:center}.crumb{padding:1px 6px;border-radius:3px;color:var(--mutedfg)}.crumb.cur{background:var(--hl);color:var(--fg)}.crumb em{font-style:normal;color:var(--acc)}.sep{color:var(--mutedfg)}
+.tg{padding:1px 7px;border:1px solid var(--line);border-radius:3px;color:var(--mutedfg);cursor:pointer;user-select:none}.tg.on{background:var(--hl);color:var(--fg);border-color:var(--hl)}
+.btn{padding:1px 8px;border:1px solid var(--line);border-radius:3px;color:var(--fg);cursor:pointer}
+.depth{color:var(--mutedfg)}.depth b{color:var(--fg)}.stp{display:inline-block;width:16px;text-align:center;border:1px solid var(--line);border-radius:3px;margin-left:2px;cursor:pointer}
+/* waveform */
+.sf-wave{display:flex;flex-direction:column}
+.sf-wavehead{display:flex;gap:8px;align-items:center;padding:3px 8px;background:var(--panel);border-bottom:1px solid var(--line);font-size:11px;flex:none}
+.sf-cursor{color:var(--acc)}
+.sf-wavesvg{flex:1;overflow:auto}
+svg.wv{display:block;font-family:var(--mono);font-size:11px}
+svg.wv .tick{stroke:var(--line);stroke-width:1}
+svg.wv .ticklab{fill:var(--mutedfg);font-size:10px}
+svg.wv .rowbg{fill:transparent}
+svg.wv .row:hover .rowbg{fill:#24354d}
+svg.wv .selrow .rowbg{fill:var(--hl)}
+svg.wv .dimrow{opacity:.45}
+svg.wv .name{fill:var(--fg)}
+svg.wv .grouplab{fill:var(--acc);font-weight:600}
+svg.wv .val{fill:var(--green)}
+svg.wv .bit{fill:none;stroke:var(--green);stroke-width:1.5}
+svg.wv .bus{fill:none;stroke:var(--green);stroke-width:1.2}
+svg.wv .busval{fill:var(--fg);font-size:10px}
+svg.wv .cursor{stroke:var(--acc);stroke-width:1.2}
+svg.wv .cursor.pre{stroke-dasharray:3 2}
+svg.wv .marker{stroke:var(--acc);stroke-width:1;stroke-dasharray:2 3;opacity:.7}
+svg.wv .marker.ev{stroke:var(--amber)}.marker.pre{stroke:var(--mutedfg)}
+svg.wv .marklab{fill:var(--amber);font-size:9.5px}
+svg.wv .span{fill:var(--amber);opacity:.14}
+svg.wv .spanlab{fill:var(--amber);font-size:9.5px}
+svg.wv .arrow{fill:none;stroke-width:1.4;cursor:pointer;opacity:.9}
+svg.wv .arrow.data{stroke:var(--acc)}svg.wv .arrow.ctl{stroke:var(--amber);stroke-dasharray:4 3}svg.wv .arrow.clk{stroke:var(--mutedfg);stroke-dasharray:2 3}svg.wv .arrow.mux{stroke:var(--purple);stroke-dasharray:4 3}
+svg.wv .arrow:hover{stroke-width:2.4}
+.ah.data{fill:#86b1ff}.ah.ctl{fill:#eed49f}.ah.clk{fill:#97a8c0}.ah.mux{fill:#c8a7ff}.ah.sel{fill:#a6da95}
+svg.wv .badge rect{fill:var(--panel2);stroke:currentColor;stroke-width:.6}svg.wv .badge text{font-size:9.5px;fill:currentColor}
+svg.wv .badge.k-data{color:#86b1ff}svg.wv .badge.k-ctl{color:#eed49f}svg.wv .badge.k-clk{color:#97a8c0}svg.wv .badge.k-mux{color:#c8a7ff}svg.wv .badge.k-sel{color:#a6da95}
+/* source */
+.sf-src{display:flex;flex-direction:column}
+.sf-srchead{display:flex;gap:8px;align-items:center;padding:3px 8px;background:var(--panel);border-bottom:1px solid var(--line);font-size:11px;flex:none;flex-wrap:wrap}
+.sf-file{color:var(--fg)}.sf-pos{color:var(--mutedfg)}.sf-inst{padding:0 6px;background:var(--bg);border-radius:3px}.sf-at{color:var(--green)}
+.sf-seg b{background:var(--hl);padding:0 5px;border-radius:2px;font-weight:400}.sf-seg i{font-style:normal;color:var(--mutedfg);padding:0 5px}
+.sf-right{margin-left:auto;color:var(--mutedfg);font-size:10px}
+.sf-code{padding:6px 0;line-height:18px;white-space:pre;flex:1;overflow:auto}
+.ln{display:flex;position:relative;min-width:max-content}
+.ln .g{width:16px;text-align:center;color:var(--amber);flex:none}
+.ln .n{width:34px;text-align:right;color:var(--mutedfg);padding-right:14px;flex:none}
+.ln .c{flex:none;min-width:420px}
+.ln .tvs{padding-left:14px;font-style:italic;color:var(--mutedfg);font-size:11px}
+.tv b{color:var(--green);font-weight:400}.tv.unk b{color:var(--red)}
+.ln.target{background:var(--hl)}
+.ln.dim .c{opacity:.4}
+.ln.active{box-shadow:inset 3px 0 var(--amber)}
+.kw{color:#86b1ff}.num{color:#86b1ff}.cm{color:#97a8c0}.id{cursor:pointer;border-radius:2px}
+.id:hover{background:#24354d}
+.id.hl-decl{outline:1px solid var(--acc)}
+.id.hl-dep{background:#3a4e2e;outline:1px solid var(--green)}
+.id.ctok{text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}
+.id.ctok.data{color:var(--acc)}.id.ctok.ctl{color:var(--amber)}.id.ctok.clk{color:var(--mutedfg)}.id.ctok.mux{color:var(--purple)}
+.gm{font-size:10px}.gm.act{color:var(--amber)}.gm.dep{color:var(--green)}
+/* tree tile */
+.sf-tree{display:flex;flex-direction:column}
+.sf-table{flex:1;overflow:auto;min-width:0}
+.sf-foot{display:flex;gap:8px;padding:3px 8px;border-top:1px solid var(--line);color:var(--mutedfg);font-size:10.5px;flex:none;background:var(--panel)}
+.sf-foot b{color:var(--fg);font-weight:400}
+.tr{display:grid;grid-template-columns:minmax(200px,1.25fr) 44px 58px minmax(120px,.9fr) minmax(200px,1.4fr) 18px;align-items:center;gap:6px;padding:0 6px;height:20px;border-bottom:1px solid #1a2535;cursor:pointer;white-space:nowrap}
+.tr.th{height:20px;color:var(--mutedfg);font-size:10px;letter-spacing:.05em;text-transform:uppercase;background:var(--panel);position:sticky;top:0;cursor:default}
+.tr:not(.th):hover{background:#24354d}.tr.sel{background:var(--hl)}
+.tr.ext .sym{color:var(--mutedfg)}
+.tr.note{height:16px;font-size:10.5px;color:var(--mutedfg);border-bottom:0;cursor:default}
+.tr.note .c-sig{grid-column:1 / -1}
+.notetxt{padding-left:calc(var(--d)*14px + 22px);font-style:italic}.notetxt.hold{color:var(--amber);font-style:normal}
+.c-sig{display:flex;align-items:center;gap:4px;padding-left:calc(var(--d)*14px);overflow:hidden;text-overflow:ellipsis}
+.chev{width:12px;flex:none;color:var(--mutedfg);text-align:center}.chev::before{content:'▸'}.chev.open::before{content:'▾'}.chev.none::before{content:'·';opacity:.4}
+.foldsym{color:var(--mutedfg);text-decoration:none;opacity:.6}.foldsym::after{content:' →'}
+.c-val{color:var(--green)}.c-val.unk{color:var(--red)}
+.c-at{color:var(--fg)}.c-at .pre{font-style:normal;color:var(--mutedfg);font-size:9px;margin-left:3px;border:1px solid var(--line);border-radius:2px;padding:0 2px}
+.c-src{color:var(--mutedfg);overflow:hidden;text-overflow:ellipsis}.stmttxt{color:var(--fg)}.extlab{color:var(--mutedfg);font-style:italic}
+.c-add{color:var(--mutedfg);text-align:center;border:1px solid transparent;border-radius:3px}.c-add:hover{border-color:var(--line);color:var(--fg)}
+.sf-win .k{font-size:10px;padding:0 5px}
+/* flow tile */
+.sf-flow{display:flex;flex-direction:column}
+.sf-flowsvg{flex:1;overflow:auto;position:relative;background:radial-gradient(#1c283a 1px, transparent 1px);background-size:16px 16px}
+svg.flow{font-family:var(--mono);font-size:11px;display:block}
+svg.flow .rail{stroke:var(--line);stroke-dasharray:2 4}svg.flow .rail.cur{stroke:var(--acc);stroke-dasharray:none}
+svg.flow .colhead{fill:var(--fg);font-size:11px;font-weight:600}svg.flow .colhead.cur{fill:var(--acc)}
+svg.flow .evhead{fill:var(--amber);font-size:9.5px}svg.flow .evhead.pre{fill:var(--mutedfg)}
+svg.flow .fedge{fill:none;stroke-width:1.4}
+svg.flow .fedge.data{stroke:#86b1ff}svg.flow .fedge.ctl{stroke:#eed49f;stroke-dasharray:5 3}svg.flow .fedge.clk{stroke:#97a8c0;stroke-dasharray:2 3}svg.flow .fedge.mux{stroke:#c8a7ff;stroke-dasharray:5 3}
+svg.flow .fnode{cursor:pointer}
+svg.flow .fnode rect{fill:#172131;stroke:#314156;stroke-width:1}
+svg.flow .fnode.sel rect{stroke:#86b1ff;stroke-width:1.6;fill:#2b446c}
+svg.flow .fnode.ext rect{stroke-dasharray:3 2}
+svg.flow .fnode.clk rect{fill:#131b28}svg.flow .fnode.clk .fsym{fill:#97a8c0}
+svg.flow .fsym{fill:#e2eaf6;font-weight:600}svg.flow .fval{fill:#a6da95}svg.flow .fext{fill:#97a8c0;font-size:9.5px;font-style:italic}svg.flow .fhold{fill:#eed49f;font-size:9.5px}
+svg.flow .fnode:hover rect{stroke:#86b1ff}
+svg.flow .stmt{cursor:pointer}svg.flow .stmt rect{fill:#0f1623;stroke:#314156}svg.flow .stmt text{fill:#e2eaf6;font-size:9.5px}
+.sf-tip{position:absolute;z-index:3;background:#0f1623;border:1px solid #314156;border-radius:4px;padding:6px 8px;font-size:10.5px;color:#e2eaf6;pointer-events:none;max-width:360px;line-height:1.45;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+/* v3 trail + causes */
+.trail{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:2px 0 0}
+.tchip{padding:1px 6px;border-radius:3px;border:1px solid var(--line);color:var(--mutedfg);cursor:pointer}.tchip em{font-style:normal;color:var(--acc);margin-left:3px}.tchip.cur{background:var(--hl);color:var(--fg);border-color:var(--acc)}
+.tchip.ctl{border-color:#5d4f2b}.tchip.clk{border-color:#3a4556}.tchip.mux{border-color:#4d3f6b}
+.tarrow{color:var(--mutedfg);padding:0 2px}
+.sf-overlay{position:absolute;left:52px;top:100%;z-index:2;margin-top:3px;white-space:normal;min-width:520px;max-width:calc(100% - 60px)}
+.causes{background:#0f1623;border:1px solid var(--acc);border-radius:5px;padding:6px 8px;box-shadow:0 6px 20px rgba(0,0,0,.45);font-size:11px;line-height:1.5}
+.ctitle{color:var(--mutedfg);margin-bottom:4px}.ctitle b{color:var(--fg);font-weight:600}.ctitle .mono{color:var(--fg)}
+.holdnote{color:var(--amber);margin-left:6px}
+.cause{display:grid;grid-template-columns:20px 62px 90px 52px 44px 1fr;gap:6px;align-items:center;padding:2px 4px;border-radius:3px;cursor:pointer}
+.cause:hover{background:#24354d}.cause kbd{border-color:var(--line);background:var(--panel);color:var(--mutedfg);font-size:10px;padding:0 4px}
+.csym{color:var(--fg)}.cval{color:var(--green)}.cval.unk{color:var(--red)}.cat{color:var(--mutedfg)}.cwhy{color:var(--mutedfg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ckeys{color:var(--mutedfg);margin-top:4px;font-size:10px;border-top:1px solid var(--line);padding-top:4px}.ckeys kbd{font-size:9.5px;border-color:var(--line);background:var(--panel);color:var(--fg)}
+.lnk{color:var(--acc);cursor:pointer;text-decoration:underline dotted}
+.sf-win .tv{margin-right:6px}
+.langsw{display:flex;gap:0;margin:0 0 14px;border:1px solid var(--line-2);border-radius:5px;overflow:hidden;width:max-content}
+.langsw button{font:600 12px/1 var(--body);letter-spacing:.08em;padding:6px 12px;border:0;background:var(--paper);color:var(--muted);cursor:pointer}
+.langsw button.on{background:var(--accent);color:var(--accent-ink)}
+.langsw button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.page[hidden]{display:none}
+</style>
+</head><body>
+<div class="page" lang="ru" data-lang="ru"><nav class="side"><div class="langsw" role="group" aria-label="Language"><button type="button" data-setlang="ru" class="on">RU</button><button type="button" data-setlang="en" class="">EN</button></div>
+  <div class="brand">Trace Driver для Surfer<small>VTR · VDB · Surfer</small></div>
+  <ol>
+    <li><a href="#brief-ru">Введение</a></li>
+    <li><a href="#principles-ru">Принципы проектирования интерфейса</a></li>
+    <li><a href="#v1-ru">1 · Панель Driver Trace</a></li>
+    <li><a href="#v2-ru">2 · Панель Temporal Flow</a></li>
+    <li><a href="#v3-ru">3 · Трассировка в исходном коде</a></li>
+    <li><a href="#v4-ru">4 · Связи на временной диаграмме</a></li>
+    <li><a href="#compare-ru">Сравнение</a></li>
+    <li><a href="#industry-ru">Обзор существующих решений</a></li>
+  </ol>
+  <div class="legend">Типы зависимостей, используемые во всём документе<br>
+    <span class="k k-data">data</span><span class="k k-ctl">control</span><span class="k k-clk">clock</span><span class="k k-mux">mux sel</span><span class="k k-sel">selected</span><br>
+    <span class="mono">25⁻</span> = установившееся значение непосредственно перед моментом 25
+  </div>
+</nav>
+<main>
+<section class="sec" id="brief-ru">
+  <div class="eyebrow">Концепция интерфейса · сентябрь 2026</div>
+  <h1>Trace Driver: четыре способа ответить на вопрос «почему у этого сигнала сейчас такое значение?»</h1>
+  <p class="lede">При отладке RTL часто нужно выяснить, почему сигнал принял определённое значение в заданный момент времени. Функция Trace Driver позволяет проследить, как сформировалось это значение: пройти по цепочке зависимостей назад во времени, через регистры и границы модулей, до внешних входов. В документе представлены четыре варианта интерфейса для такого анализа.</p>
+  <div class="grid2">
+    <div class="card"><h4>Проблема</h4>
+      <ul>
+        <li>При ручном поиске причины приходится постоянно переключаться между исходным кодом, временной диаграммой и иерархией проекта. Если цепочка проходит через несколько регистров и модулей, легко потерять ход рассуждений.</li>
+        <li>В коммерческих отладчиках (Verdi, SimVision, Questa) для этого предусмотрена трассировка источников сигнала (драйверов); в просмотрщиках с открытым исходным кодом такой возможности нет.</li>
+        <li>Связка VTR + VDB объединяет значения сигналов со сведениями о структуре и семантике проекта. Это позволяет просмотрщику объяснять происхождение значений.</li>
+      </ul></div>
+    <div class="card"><h4>Возможности функции</h4>
+      <ul>
+        <li><b>Дерево причин</b> для пары «сигнал @ момент времени»: значения, типы зависимостей (данные, условие, выбор входа мультиплексора, тактовый фронт) и соответствующие операторы в исходном коде. Дерево также показывает, когда регистры сохраняли прежние значения и какие внешние входы повлияли на результат. Поиск идёт назад по тактам с явно заданным ограничением глубины.</li>
+        <li><b>Работа в привычных средствах отладки:</b> исходный код со значениями сигналов в момент, указанный временным курсором; временная диаграмма с группами, маркерами и стрелками; палитра команд.</li>
+        <li>Задача этого документа — выбрать, <em>как</em> показать такое дерево в интерфейсе с неперекрывающимися панелями.</li>
+      </ul></div>
+  </div>
+  <p>Все четыре варианта ниже — интерактивные макеты на одних и тех же данных: небольшой конвейер из двух регистров и мультиплексора, трасса <span class="mono">top.q @ 26 пс</span> из 27 узлов, значения, полученные при моделировании, тёмная тема просмотрщика. В макетах работают выбор узлов и строк, переходы по стрелкам и идентификаторам в коде, а также переключатели режимов.</p>
+</section>
+
+
+<section class="sec" id="principles-ru">
+  <div class="eyebrow">Принципы проектирования интерфейса</div>
+  <h2>Десять правил, общих для всех четырёх вариантов</h2>
+  <div class="grid2">
+    <ol style="margin:0;padding-left:20px">
+      <li><b>Узел задаётся сигналом и временем.</b> Каждый узел представляет пару <code>сигнал @ момент</code>; можно указать состояние непосредственно перед событием (<span class="mono">25⁻</span>). Щелчок по узлу устанавливает временной курсор и открывает оператор, сформировавший значение, в контексте нужного экземпляра модуля.</li>
+      <li><b>Каждому типу зависимости соответствует свой цвет.</b> <span class="k k-data">data</span> — синий, <span class="k k-ctl">control</span> — янтарный, <span class="k k-clk">clock</span> — серый, <span class="k k-mux">mux sel</span> — фиолетовый. Цвета берутся из палитры выбранной темы и одинаково используются в дереве, графе, метках на временной диаграмме и подсветке идентификаторов в коде.</li>
+      <li><b>Зависимости по тактовому сигналу скрыты по умолчанию.</b> Их можно показать одним переключателем.</li>
+      <li><b>Сквозные порты свёрнуты по умолчанию.</b> Свёрнутая цепочка показана в виде <span class="mono">u1.d → u0.q</span>: связи между уровнями иерархии показаны в сокращённом виде. В примере это 12 узлов вместо 27.</li>
+      <li><b>Результаты остаются в основном рабочем пространстве.</b> Они отображаются в отдельной панели, в группе на временной диаграмме или во встроенном блоке рядом с исходным кодом, без плавающих окон.</li>
+    </ol>
+    <ol start="6" style="margin:0;padding-left:20px">
+      <li><b>Сначала оператор, потом объявление.</b> Переход ведёт к оператору присваивания, сформировавшему значение; место объявления сигнала получает дополнительную подсветку.</li>
+      <li><b>Сохранение значения регистра и внешние входы отмечаются явно.</b> Пояснение выводится рядом с узлом: «на фронте № 2 значение сохранилось, поскольку en = 0».</li>
+      <li><b>История переходов всегда видна.</b> Пройденный путь отображается в строке навигации; для перемещения по нему служат <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd>. Временной курсор перемещается только по щелчку, но не при наведении указателя.</li>
+      <li><b>Сигнал добавляется на диаграмму одним действием.</b> Достаточно щелчка с зажатой клавишей <kbd>Alt</kbd> или нажатия <kbd>a</kbd>.</li>
+      <li><b>Trace X — режим поиска источника неопределённого значения.</b> Используется тот же механизм трассировки: поиск начинается со значения X и останавливается на первом узле со значением, отличным от X. В интерфейсе появляются красный маркер и сводка «первый источник X».</li>
+    </ol>
+  </div>
+</section>
+<section class="sec" id="v1-ru">
+  <div class="vhead"><div class="vnum">1</div><div><div class="eyebrow">Вариант 1 · дерево причин</div><h2>Панель Driver Trace: дерево причин с фильтрацией и столбцом операторов</h2></div></div>
+  <div class="lineage"><span>Аналоги: <b>SimVision Trace Signals</b></span><span><b>Questa Active Driver Path Details</b></span><span><b>список кандидатов Indago</b></span><span>метки входов <b>D / C / I</b> в Verdi</span></div>
+  <p>В отдельной панели дерево причин представлено таблицей: сигнал, значение, момент времени, тип зависимости и оператор, сформировавший значение. Все сведения видны сразу. События на тактовых фронтах и случаи сохранения значения регистра показаны отдельными строками с пояснениями. Щелчок по строке перемещает временной курсор и открывает соответствующий участок исходного кода. Кнопка <b>+</b> в конце строки или двойной щелчок добавляет сигнал на диаграмму с меткой типа зависимости.</p>
+  <div class="tryit"><b>Попробуйте:</b> щёлкните по <span class="mono">top.u0.q @ 25⁻</span> и посмотрите, как панель исходного кода переходит к строке 5 в экземпляре u0 с курсором на 25⁻; обратите внимание на расположенную ниже янтарную строку с пояснением о сохранении значения. Включите <b>clocks</b>, чтобы увидеть узлы тактовых событий, или <b>fold ports</b>, чтобы свернуть сквозные соединения. Нажмите <b>+</b> у <span class="mono">top.en</span>, чтобы добавить сигнал с меткой типа зависимости.</div>
+  <div class="mock" data-mock="v1" tabindex="0"></div>
+  <p class="caption">Интерактивный макет. Панель Waveform слева сверху, панель Source Code под ней, новая панель Driver Trace справа. В строке состояния указаны число видимых узлов и общее число узлов, а также перечислены первопричины — внешние входы, на которых заканчивается поиск.</p>
+  <div class="spec">
+    <div><b>Размещение результата</b>Новый тип панели <code>DriverTrace</code>; в рабочем пространстве открывается одна такая панель. Строка навигации хранит историю запросов (<span class="mono">top.q @ 26 › top.en @ 15⁻</span>). Выбор узла новым корнем добавляет запрос в историю, а <kbd>Backspace</kbd> возвращает к предыдущему запросу.</div>
+    <div><b>Столбцы</b>Signal — имя сигнала с отступом и значком раскрытия; имя свёрнутого узла зачёркнуто и показано рядом с именем оставшегося узла. Value — значение в цветах темы, X выделяется красным. @ time — момент времени с меткой <span class="mono">pre</span> для состояния перед событием. Reason — цветная метка типа зависимости. Statement — файл, номер строки и текст оператора. В конце строки — кнопка добавления сигнала.</div>
+    <div><b>Строки пояснений</b>«⏱ PosEdge top.u0.clk @ 15, event #2» и «⏸ hold at 15: no active assignment» выводятся мелким курсивом под соответствующим узлом; их видимость задаётся кнопкой <em>notes</em>.</div>
+    <div><b>Связь с панелью исходного кода</b>Переход ведёт к активному оператору присваивания. Идентификатор в объявлении обводится рамкой, а в месте чтения значения выделяется зелёным фоном. На левом поле показаны метки ▶ (активное присваивание) и ↩ (место чтения). Экземпляр модуля определяется по иерархическому пути узла.</div>
+    <div><b>Клавиатура</b><kbd>↑</kbd><kbd>↓</kbd> перемещение, <kbd>→</kbd><kbd>←</kbd> раскрыть/свернуть, <kbd>↵</kbd> сменить корень, <kbd>a</kbd> добавить, <kbd>c</kbd> тактовые зависимости, <kbd>f</kbd> свёртка портов, <kbd>/</kbd> фильтр по имени.</div>
+    <div><b>Масштабирование</b>Отрисовываются только видимые строки, а дочерние узлы загружаются по мере раскрытия дерева. Это позволяет работать с деревом из тысяч узлов, пока загружаются нижние уровни. При достижении предельной глубины появляется строка «… depth limit».</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Сильные стороны</h4><ul><li>Прямое отображение результатов трассировки упрощает реализацию; для каждого диагностического сообщения предусмотрено место.</li><li>Подходит для глубоких деревьев; табличное представление упрощает фильтрацию и сворачивание ветвей.</li><li>Привычно пользователям SimVision и Questa; удобно проверять сравнением содержимого строк с эталоном.</li></ul></div>
+    <div class="con"><h4>Слабые стороны</h4><ul><li>Время указано числом в столбце; последовательность событий приходится восстанавливать мысленно.</li><li>Требует места: третья панель рядом с диаграммой и исходным кодом.</li><li>Сквозные цепочки и повторяющиеся листья <span class="mono">top.clk</span> без свёртки делают таблицу длинной.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="v2-ru">
+  <div class="vhead"><div class="vnum">2</div><div><div class="eyebrow">Вариант 2 · граф во времени</div><h2>Панель Temporal Flow: дерево зависимостей на оси времени</h2></div></div>
+  <div class="lineage"><span>Аналоги: <b>Verdi Temporal Flow View</b></span><span><b>Visualizer Time Cone</b></span><span>окраска <b>Path Times</b> в Questa</span></div>
+  <p>То же дерево представлено графом, в котором горизонтальное положение узла определяется временем. Столбцы соответствуют моментам трассировки и расположены в хронологическом порядке. Состояние перед событием («settled before 25») показано чуть левее самого фронта («posedge clk #3»). Комбинационные цепочки в пределах одного момента занимают дополнительные столбцы: например, связь <span class="mono">sel, a → mux</span> в момент 5⁻ читается слева направо. Цвет рёбер обозначает тип зависимости; на рёбрах данных размещены подписи операторов, а на узлах — пояснения о сохранении значения. На временной диаграмме под графом каждому столбцу соответствует маркер, который помогает сопоставить оба представления.</p>
+  <div class="tryit"><b>Попробуйте:</b> наведите указатель на любой узел, чтобы увидеть пояснения к нему; щёлкните по <span class="mono">u1.d → u0.q</span>, чтобы установить временной курсор на 25⁻ и открыть участок кода, объясняющий сохранение значения; щёлкните по заголовку столбца, чтобы переместить временной курсор, сохранив выбранный узел. Выключите <b>fit</b> для масштаба 1:1 с горизонтальной прокруткой; включите <b>clocks</b>, чтобы увидеть рёбра тактовых зависимостей, идущие от столбцов с фронтами.</div>
+  <div class="mock" data-mock="v2" tabindex="0"></div>
+  <p class="caption">Интерактивный макет. Панель Temporal Flow сверху, панели Waveform и Source Code снизу. Пунктирные прямоугольники — внешние входы, пунктирные рёбра — зависимости по управлению или такту, сплошные синие рёбра обозначают зависимости по данным.</p>
+  <div class="spec">
+    <div><b>Размещение узлов</b>Столбец определяется моментом времени, дополнительный столбец — глубиной комбинационной цепочки в этот момент. Узел занимает первую свободную строку, в которой ребро к родителю не пересекает другие узлы. Алгоритм детерминирован и не использует силовую модель размещения.</div>
+    <div><b>Узел</b>Имя сигнала с указанием свёрнутого соединения, значение, метка <span class="mono">input</span> для внешних входов, пояснение <span class="mono">⏸ held @15</span> при сохранении значения. Тактовые узлы приглушены. Выбранный узел и соответствующая строка исходного кода подсвечиваются одинаковым цветом.</div>
+    <div><b>Рёбра</b>Причина → следствие, от потомка к родителю. Подпись оператора на первом ребре данных, входящем в регистр, показывает активное присваивание (<span class="mono">else if (en) q &lt;= d;</span>) и позволяет перейти к нему щелчком мыши.</div>
+    <div><b>Управление</b>Щелчок выбирает узел и перемещает временной курсор. Двойной щелчок или перетаскивание узла на диаграмму добавляет сигнал. Колесо мыши меняет масштаб; режим <em>fit</em> подбирает масштаб по размеру панели.</div>
+    <div><b>Несколько запросов</b>При трассировке второго сигнала в той же панели общие узлы объединяются, если совпадают сигнал и момент времени. Такой подход используется в Verdi; пользователи отмечали, что он помогает увидеть общую картину.</div>
+    <div><b>Сложность реализации</b>Новая панель с собственной отрисовкой текстовых блоков и рёбер в виде кубических кривых Безье, а также определением объекта под указателем. Сложность размещения — O(число узлов · число столбцов).</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Сильные стороны</h4><ul><li>Расположение узлов показывает последовательность событий; сразу видны случаи сохранения значения и цепочки, охватывающие несколько тактов.</li><li>Маркеры связывают граф с временной диаграммой внизу; щелчок по заголовку столбца устанавливает курсор на соответствующий момент.</li><li>Привычен пользователям Verdi; наиболее наглядно демонстрирует возможности трассировки.</li></ul></div>
+    <div class="con"><h4>Слабые стороны</h4><ul><li>Для просмотра широких деревьев, охватывающих много тактов, нужны масштабирование и прокрутка; в режиме fit текст становится мелким.</li><li>Самый сложный в реализации вариант: требуется точно определять размеры текста и объекты под указателем.</li><li>Равные промежутки между моментами скрывают реальные интервалы времени; ось показывает порядок событий, а не их длительность; это нужно явно обозначить.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="v3-ru">
+  <div class="vhead"><div class="vnum">3</div><div><div class="eyebrow">Вариант 3 · пошаговый анализ</div><h2>Активная трассировка в панели Source Code: пошаговый поиск причин</h2></div></div>
+  <div class="lineage"><span>Аналоги: <b>Verdi Active Trace</b> + Active Annotation</span><span>патент Novas на встроенную панель <b>«Why»</b></span><span>переход к источнику сигнала двойным щелчком в <b>Visualizer</b></span><span>дерево поиска причин <b>Indago</b></span></div>
+  <p>Поиск ведётся непосредственно в панели исходного кода. Выделяется строка активного присваивания, а невыполненная ветвь условия приглушается. Идентификаторы сигналов, повлиявших на значение, подчёркнуты цветом соответствующей зависимости; щелчок по ним продолжает поиск. Под выделенной строкой открывается компактная панель непосредственных причин с цифровыми клавишами для переходов. История переходов отображается в заголовке. На каждом шаге временная диаграмма дополняется сигналом, маркером времени и стрелкой от причины к следствию.</p>
+  <div class="tryit"><b>Попробуйте:</b> всплывающая панель показывает четыре причины <span class="mono">u1.q = 03 @ 26</span>. Нажмите <kbd>2</kbd> или щёлкните по <span class="mono">d</span>, чтобы перейти к источнику данных; продолжайте нажимать <kbd>↵</kbd>, чтобы пройти по зависимостям данных до регистра в u0 и прочитать пояснение о сохранении его значения, затем <kbd>3</kbd>, чтобы перейти к управляющему входу <span class="mono">en</span>. <kbd>Alt</kbd>+<kbd>←</kbd> возвращает назад; элементы истории в заголовке позволяют вернуться к любому шагу. (Щёлкните по макету, чтобы он получил фокус клавиатуры.)</div>
+  <div class="mock" data-mock="v3" tabindex="0"></div>
+  <p class="caption">Интерактивный макет. Основная работа ведётся в панели исходного кода. На временной диаграмме справа постепенно выстраивается цепочка сигналов с метками типов зависимостей, маркерами и стрелками «причина → следствие».</p>
+  <div class="spec">
+    <div><b>Запуск</b>Команда в контекстном меню идентификатора или <kbd>Ctrl</kbd>+<kbd>D</kbd>, когда на нём стоит текстовый курсор. Та же команда для строки диаграммы открывает исходный код на активном присваивании и показывает панель причин. Если временной курсор не установлен, появляется соответствующее сообщение.</div>
+    <div><b>Всплывающая панель</b>В каждой строке указаны цифровая клавиша, метка типа зависимости, сигнал, значение, момент времени и пояснение; внешние входы помечены <span class="mono">input</span>. Пояснения о сохранении значения выводятся в строке заголовка. Панель привязана к выделенной строке, прокручивается вместе с кодом и закрывается по <kbd>Esc</kbd>. Она остаётся внутри панели исходного кода.</div>
+    <div><b>Оформление исходного кода</b>Идентификаторы сигналов, повлиявших на результат, выделяются цветом типа зависимости и пунктирным подчёркиванием. Невыполненная ветвь <em>if</em> приглушается; значок ▶ на левом поле отмечает активное присваивание. Оформление определяется по пояснениям к узлу и его дочерним узлам.</div>
+    <div><b>Цепочка</b>История переходов <span class="mono">u1.q@26 ‹ u1.d@25⁻ ‹ …</span> показана в заголовке панели. Цепочка сохраняется в состоянии панели как список ключей узлов. При восстановлении рабочего пространства запрос можно выполнить повторно и построить цепочку заново.</div>
+    <div><b>Связь с диаграммой</b>Группа «trace: top.q @ 26» содержит сигналы, просмотренные при обходе. Для связей используются стандартные стрелки аннотаций, для тактовых событий — стандартные маркеры с именами <span class="mono">#1 #2 #3</span>.</div>
+    <div><b>Сложность реализации</b>Наименьшая: нужны встроенная панель причин, подсветка кода и хранение истории переходов. Отдельный алгоритм размещения узлов и новый тип панели не требуются.</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Сильные стороны</h4><ul><li>Код, значения и причины видны рядом — такое представление ценят пользователи Active Annotation.</li><li>Проще всего в реализации и освоении; опытные пользователи могут быстро перемещаться по цепочке с клавиатуры.</li><li>Для результатов не требуется отдельное место рядом с диаграммой.</li></ul></div>
+    <div class="con"><h4>Слабые стороны</h4><ul><li>Интерфейс предполагает обход в глубину. В широком дереве, где у одного оператора много входов, приходится многократно возвращаться к развилкам. Это вновь усложняет навигацию — проблему, для решения которой в Verdi появился TFV.</li><li>Всё дерево никогда не видно целиком; трудно сравнить две ветви.</li><li>Нужно тщательно продумать размещение панели причин при прокрутке кода, особенно у нижнего края окна и рядом с длинными строками.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="v4-ru">
+  <div class="vhead"><div class="vnum">4</div><div><div class="eyebrow">Вариант 4 · связи на диаграмме</div><h2>Зависимости в панели Waveform: группа сигналов со стрелками, маркерами и интервалами сохранения значения</h2></div></div>
+  <div class="lineage"><span>Аналоги: Questa <b>Wave (Path Details)</b> с курсорами Trace</span><span>перетаскивание вывода в nWave в Verdi</span><span><b>стрелки аннотаций</b> и группы на диаграмме</span></div>
+  <p>Результат трассировки отображается непосредственно на временной диаграмме. Под выбранным сигналом появляется группа «why top.q = 03 @ 26» со связанными сигналами в порядке обхода дерева причин. Глубина показана отступами, тип зависимости — меткой у каждой строки. Стрелки соединяют моменты причины и следствия на соответствующих строках. Тактовые фронты отмечены именованными маркерами, а интервалы сохранения значения — закрашенными полосами с пояснениями. Щелчок по строке или стрелке перемещает временной курсор и открывает нужный участок исходного кода внизу. Переключатели расположены в заголовке диаграммы; группу можно свернуть обычным способом.</p>
+  <div class="tryit"><b>Попробуйте:</b> наведите указатель на стрелку, чтобы прочитать пояснение; щёлкните по стрелке из <span class="mono">top.mux</span> в <span class="mono">top.u0.q</span>, чтобы установить курсор на 5⁻ и открыть строку 5 в экземпляре u0; выключите <b>arrows</b>, чтобы оставить только сигналы без стрелок; выключите <b>fold ports</b>, чтобы показать каждое сквозное соединение отдельной строкой; <b>clear trace</b> сворачивает группу.</div>
+  <div class="mock" data-mock="v4" tabindex="0"></div>
+  <p class="caption">Интерактивный макет. Одна панель диаграммы с развёрнутой группой трассы и небольшая панель исходного кода под ней. Янтарная полоса на <span class="mono">top.first</span> — сохранение значения на фронте № 2; три янтарных маркера — тактовые события, рассмотренные при трассировке.</p>
+  <div class="spec">
+    <div><b>Модель данных</b>Результат трассировки представлен обычной группой в дереве элементов. Она содержит сигналы с аннотацией <span class="mono">trace</span> (ключ узла и тип зависимости). По результатам трассировки строятся стрелки, маркеры и полосы; все они удаляются командой <em>clear trace</em>.</div>
+    <div><b>Порядок</b>Сигналы расположены в порядке обхода дерева в глубину: причина ниже следствия. Сигнал, который встречается дважды (например, <span class="mono">top.en</span> в моменты 5⁻ и 15⁻), занимает одну строку с двумя стрелками. В дереве для него потребовались бы отдельные узлы.</div>
+    <div><b>Стрелки</b>Кубическая кривая Безье соединяет точку (сигнал причины, момент причины) с точкой (сигнал следствия, момент следствия). Начало стрелки для состояния перед событием расположено чуть левее фронта. Цвет обозначает тип зависимости; подсказка содержит пояснение механизма трассировки: «top.en = 0 @ 15⁻ → top.u0.q (control: if false)».</div>
+    <div><b>Маркеры и полосы</b>Тактовые события становятся маркерами с именами <span class="mono">posedge #1..#3</span>; интервалы сохранения значения — полосами с пояснением причины.</div>
+    <div><b>Связь с исходным кодом</b>Как в варианте 1: переход ведёт к активному присваиванию, объявление обведено рамкой, место чтения выделено фоном. На левом поле показаны метки ▶ / ↩.</div>
+    <div><b>Сложность реализации</b>Средняя: нужны построение группы в дереве элементов, привязка концов стрелок ко времени и переключатели в заголовке. Новый тип панели не требуется.</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Сильные стороны</h4><ul><li>Результат показан на линейной шкале времени вместе с изменениями сигналов. Интервалы сохранения значения и считывание входов перед событием видны непосредственно на диаграмме.</li><li>Используются существующие панели и обычные сигналы в дереве элементов. Доступны все функции диаграммы: цвета, форматы значений, группы и сохранение состояния.</li><li>Сигналы появляются на диаграмме сразу при трассировке; добавлять их отдельно не нужно.</li></ul></div>
+    <div class="con"><h4>Слабые стороны</h4><ul><li>При большом числе связей стрелки загромождают диаграмму. Уже примерно после 20 строк нужны сворачивание ветвей и приглушение стрелок по мере удаления от выбранного узла.</li><li>Пояснения причин и расположение операторов доступны только во всплывающих подсказках: для их просмотра нужно навести указатель.</li><li>Строки упорядочены по причинным связям, а не по иерархии проекта. Это может быть непривычно пользователям, которые вручную задают порядок элементов.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="compare-ru">
+  <div class="eyebrow">Сравнение</div>
+  <h2>Сравнение четырёх вариантов</h2>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Критерий</th><th>1 · Панель Driver Trace</th><th>2 · Панель Temporal Flow</th><th>3 · Трассировка в исходном коде</th><th>4 · Связи на диаграмме</th></tr></thead>
+    <tbody>
+      <tr><td>Показывает всё дерево сразу</td><td class="n best">да</td><td class="n best">да</td><td class="n worst">нет, причины одного узла</td><td class="n">да, строками</td></tr>
+      <tr><td>Отображение времени</td><td class="n worst">число в столбце</td><td class="n best">порядок событий</td><td class="n">через панель диаграммы</td><td class="n best">линейная шкала</td></tr>
+      <tr><td>Причина и оператор на экране</td><td class="n best">оба, всегда</td><td class="n">подписи операторов, пояснения при наведении</td><td class="n best">оба, во всплывающей панели</td><td class="n worst">метки; пояснения при наведении</td></tr>
+      <tr><td>Сохранение значения и события</td><td class="n">строки пояснений</td><td class="n best">пояснение на узле и столбцы времени</td><td class="n">строка заголовка</td><td class="n best">полосы и маркеры</td></tr>
+      <tr><td>Дополнительное место на экране</td><td class="n worst">третья панель</td><td class="n worst">третья панель, широкая</td><td class="n best">не требуется</td><td class="n best">строки в панели диаграммы</td></tr>
+      <tr><td>Глубокие деревья (тысячи узлов)</td><td class="n best">виртуализация строк, загрузка по запросу</td><td class="n">масштабирование, прокрутка, fit</td><td class="n">объём не мешает, но переходов много</td><td class="n worst">нагромождение стрелок</td></tr>
+      <tr><td>Простота освоения</td><td class="n">привычная таблица</td><td class="n">граф, нужна легенда</td><td class="n best">работа в коде, цифровые клавиши</td><td class="n best">выглядит как диаграмма</td></tr>
+      <tr><td>Сложность реализации</td><td class="n">панель + таблица</td><td class="n worst">панель, размещение узлов, отрисовка</td><td class="n best">всплывающая панель + оформление</td><td class="n">построение группы и графические элементы</td></tr>
+      <tr><td>Совместимость с Trace X</td><td class="n best">красные значения + строка сводки</td><td class="n">красные узлы</td><td class="n">красные строки причин</td><td class="n best">маркеры X на строках</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="sec" id="industry-ru">
+  <div class="eyebrow">Краткий обзор существующих решений</div>
+  <h2>Как это решают лидеры рынка</h2>
+  <p>Изучены руководства, патенты, учебные материалы и инженерные блоги по Synopsys Verdi, Cadence SimVision и Indago, Siemens Questa и Visualizer, Aldec Riviera-PRO, Synopsys DVE и средам разработки со статическим анализом кода.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Инструмент</th><th>Ключевая функция</th><th>Как показан результат</th><th>Полезные решения</th></tr></thead>
+    <tbody>
+      <tr><td><b>Synopsys Verdi</b></td><td>Active Trace, Temporal Flow View, Trace X</td><td>Граф операторов над шкалой времени; входы помечены D / C / I (данные, управление, вход схемы), подсвечены только входы, повлиявшие на результат; значения показаны в исходном коде (Active Annotation)</td><td>Ось времени, типы зависимостей, поиск X как режим трассировки</td></tr>
+      <tr><td><b>Cadence SimVision · Indago</b></td><td>Go To Cause, Root Cause Analyzer</td><td>Боковая панель с источниками сигнала, упорядоченными по вероятности влияния; список причинных связей «почему выполнилась строка», сохраняемое дерево поиска причин</td><td>Объяснение причины вместо перечня входных зависимостей, наглядная история переходов</td></tr>
+      <tr><td><b>Siemens Questa · Visualizer</b></td><td>Causality Traceback, Time Cone</td><td>Три уровня поиска в меню: непосредственный источник сигнала, первый регистр, первопричина; дерево «сигнал / время / позиция», курсоры Trace Begin / End на диаграмме, двойной щелчок по фронту открывает строку, формирующую сигнал</td><td>Три уровня поиска в одном дереве, курсоры трассы на диаграмме</td></tr>
+      <tr><td><b>Aldec Riviera-PRO</b></td><td>Advanced Dataflow, X Way</td><td>Схема потока данных с режимом Gray (не относящиеся к выбранному сигналу элементы приглушены); без привязки к курсору времени</td><td>Приглушение элементов, не участвующих в рассматриваемой цепочке</td></tr>
+      <tr><td><b>DVE, DVT, Sigasi, Vivado</b></td><td>Trace Drivers / Loads</td><td>Статические списки источников и потребителей сигнала без учёта времени</td><td>Горячая клавиша <kbd>Ctrl</kbd>+<kbd>D</kbd></td></tr>
+      <tr><td><b>GTKWave, DSim</b></td><td>—</td><td>Трассировка источников сигнала отсутствует</td><td>Свободная ниша</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid2">
+    <div class="card"><h4>Общие подходы</h4>
+      <ul>
+        <li>Трассировка начинается в момент, указанный временным курсором; каждый узел результата — пара «сигнал @ время».</li>
+        <li>Результаты представлены деревом или списком, которые можно дополнить графом. Щелчок по результату открывает и подсвечивает соответствующий участок кода; само дерево остаётся в отдельной панели.</li>
+        <li>Лучшие инструменты различают данные и управление и показывают только реально повлиявшие входы.</li>
+        <li>Время показывают наглядно: с помощью шкалы, курсоров начала и конца трассировки, цветового различения текущих и предшествующих событий.</li>
+        <li>Для поиска источника X используется тот же механизм трассировки с другим условием остановки.</li>
+      </ul></div>
+    <div class="card"><h4>На что жалуются пользователи</h4>
+      <ul>
+        <li>Окна трассировки закрывают диаграмму (Verdi Active Detection).</li>
+        <li>Трассировка в крупном проекте может на несколько минут заблокировать интерфейс.</li>
+        <li>Каждый шаг перемещает временной курсор, хочет того пользователь или нет (SimVision).</li>
+        <li>Переход ведёт к объявлению, а не к оператору, сформировавшему значение.</li>
+        <li>Тактовые зависимости и сквозные порты перегружают представление; после нескольких переходов легко потерять контекст.</li>
+      </ul></div>
+  </div>
+</section>
+
+
+</main>
+</div>
+<div class="page" lang="en" data-lang="en" hidden><nav class="side"><div class="langsw" role="group" aria-label="Language"><button type="button" data-setlang="ru" class="">RU</button><button type="button" data-setlang="en" class="on">EN</button></div>
+  <div class="brand">Trace Driver for Surfer<small>VTR · VDB · Surfer</small></div>
+  <ol>
+    <li><a href="#brief-en">Introduction</a></li>
+    <li><a href="#principles-en">Design principles</a></li>
+    <li><a href="#v1-en">1 · Driver Trace tile</a></li>
+    <li><a href="#v2-en">2 · Temporal Flow tile</a></li>
+    <li><a href="#v3-en">3 · Active trace in source</a></li>
+    <li><a href="#v4-en">4 · Causal overlay in waveform</a></li>
+    <li><a href="#compare-en">Comparison</a></li>
+    <li><a href="#industry-en">Industry overview</a></li>
+  </ol>
+  <div class="legend">Dependency kinds used throughout<br>
+    <span class="k k-data">data</span><span class="k k-ctl">control</span><span class="k k-clk">clock</span><span class="k k-mux">mux sel</span><span class="k k-sel">selected</span><br>
+    <span class="mono">25⁻</span> = settled value strictly before 25
+  </div>
+</nav>
+<main>
+<section class="sec" id="brief-en">
+  <div class="eyebrow">Design proposal · September 2026</div>
+  <h1>Trace Driver: four ways to answer “why does this signal have this value right now?”</h1>
+  <p class="lede">The most frequent question in RTL debugging is not “where is this signal declared” but “where did this value come from at this moment”. Trace Driver answers it in one action: it shows the chain of causes from the selected value backwards in time, across registers and module boundaries, down to the external inputs. This document proposes four interface designs for such a feature.</p>
+  <div class="grid2">
+    <div class="card"><h4>The problem</h4>
+      <ul>
+        <li>Manual root-causing is the “three windows back and forth” loop: source, waveform, hierarchy. A few registers deep and across module boundaries, context is lost.</li>
+        <li>Commercial debuggers (Verdi, SimVision, Questa) cover this scenario with proprietary driver-tracing features; open-source viewers have nothing.</li>
+        <li>The key idea of the VTR + VDB pairing is to keep design semantics next to the values, so that a viewer can explain, not only display.</li>
+      </ul></div>
+    <div class="card"><h4>What the feature must provide</h4>
+      <ul>
+        <li><b>A cause tree</b> for a “signal @ moment” pair: values, typed reasons (data, condition, mux, clock edge), the source statement, register holds, external inputs. The walk goes backwards across clock events with explicit depth limits.</li>
+        <li><b>Presence where the debugger lives:</b> source code with cursor values inline, a waveform with groups, markers and arrows, and a command palette.</li>
+        <li>The purpose of this document is to choose <em>how</em> to present such a tree inside a tiling interface.</li>
+      </ul></div>
+  </div>
+  <p>All four variants below are live mockups on the same data: a small pipeline of two registers and a mux, the 27-node trace of <span class="mono">top.q @ 26 ps</span>, values from a real simulation, and the viewer’s dark theme. Nodes, rows, arrows, tokens and toggles in the mockups are clickable.</p>
+</section>
+
+
+<section class="sec" id="principles-en">
+  <div class="eyebrow">Design principles</div>
+  <h2>Ten rules shared by all four variants</h2>
+  <div class="grid2">
+    <ol style="margin:0;padding-left:20px">
+      <li><b>A node is a pair.</b> Every result is <code>signal @ moment</code>; a moment can be pre-event (<span class="mono">25⁻</span>). Clicking a node moves the cursor to that moment and the source tile to the statement that produced the value, in the right instance context.</li>
+      <li><b>Reason has a color.</b> <span class="k k-data">data</span> blue, <span class="k k-ctl">control</span> amber, <span class="k k-clk">clock</span> grey, <span class="k k-mux">mux sel</span> violet, from the active theme palette. The same colors in the tree, the graph, waveform badges and source tokens.</li>
+      <li><b>Clocks off by default,</b> one switch away.</li>
+      <li><b>Port pass-throughs folded by default.</b> The folded name stays visible as <span class="mono">u1.d → u0.q</span>: hierarchy is compressed, never hidden. In the example that is 12 nodes instead of 27.</li>
+      <li><b>Never leave the tiling model.</b> No floating windows; the result is a tile, a group on the waveform, or an overlay inside the source tile.</li>
+    </ol>
+    <ol start="6" style="margin:0;padding-left:20px">
+      <li><b>Statement first, declaration second.</b> The primary jump target is the active assignment; the declaration is a secondary highlight.</li>
+      <li><b>Holds and external inputs are visible verdicts,</b> not footnotes: “held at posedge #2 because en = 0”.</li>
+      <li><b>A visible trail.</b> The walk so far is shown as breadcrumbs and navigable with <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd>. Only an explicit click moves the cursor, never a hover.</li>
+      <li><b>Adding to the waveform is one gesture.</b> Alt-click or <kbd>a</kbd>.</li>
+      <li><b>Trace X is a mode.</b> Same engine, seed at an X, stop at the first non-X node; the UI only adds a red marker and a “first X source” summary.</li>
+    </ol>
+  </div>
+</section>
+<section class="sec" id="v1-en">
+  <div class="vhead"><div class="vnum">1</div><div><div class="eyebrow">Variant 1 · the record</div><h2>Driver Trace tile: a filterable causality tree with a statement column</h2></div></div>
+  <div class="lineage"><span>lineage: <b>SimVision Trace Signals</b></span><span><b>Questa Active Driver Path Details</b></span><span><b>Indago candidate list</b></span><span>Verdi <b>D / C / I</b> input marks</span></div>
+  <p>A new tile shows the engine’s tree directly, as a table you can read top to bottom: signal, value, moment, reason, and the statement that produced the value. Nothing is hidden behind hover. Engine notes (posedge events, holds) are rows too, so the tree explains itself. Clicking a row moves the cursor and the source tile; the <b>+</b> at the row end, or a double-click, adds the signal to the waveform with a reason badge.</p>
+  <div class="tryit"><b>Try it:</b> click <span class="mono">top.u0.q @ 25⁻</span> and watch the source tile jump to line 5 in instance u0 with the cursor at 25⁻; note the amber hold row below it. Turn <b>clocks</b> on to see the trigger nodes, or <b>fold ports</b> to compress pass-throughs. Press <b>+</b> on <span class="mono">top.en</span> to add it with its badge.</div>
+  <div class="mock" data-mock="v1" tabindex="0"></div>
+  <p class="caption">Live mockup. Waveform tile top-left, Source Code tile below it, the new Driver Trace tile on the right. The footer counts shown versus total nodes and lists root causes: the leaves that are external inputs.</p>
+  <div class="spec">
+    <div><b>Result surface</b>New tile kind <code>DriverTrace</code>, one per workspace; a breadcrumb bar keeps previous queries (<span class="mono">top.q @ 26 › top.en @ 15⁻</span>) so re-rooting on a node is a push, and <kbd>Backspace</kbd> pops.</div>
+    <div><b>Columns</b>Signal (indented, chevron, folded name struck through with the folded-to name), Value (theme value colors, X in red), @ time with a <span class="mono">pre</span> tag, Reason as a colored chip, Statement (file:line and source text), add button.</div>
+    <div><b>Notes rows</b>“⏱ PosEdge top.u0.clk @ 15, event #2” and “⏸ hold at 15: no active assignment” render as small italic rows under their node; toggled by <em>notes</em>.</div>
+    <div><b>Source tile coupling</b>Target line = active assignment; the declaration token gets an outline, the token that read this value gets a green fill; gutter marks ▶ (active assignment) and ↩ (read site). The instance context follows the node path.</div>
+    <div><b>Keyboard</b><kbd>↑</kbd><kbd>↓</kbd> move, <kbd>→</kbd><kbd>←</kbd> expand/collapse, <kbd>↵</kbd> re-root, <kbd>a</kbd> add, <kbd>c</kbd> toggle clocks, <kbd>f</kbd> fold ports, <kbd>/</kbd> filter by name.</div>
+    <div><b>Scaling</b>Rows are virtualized; children load lazily by depth, so even a tree of thousands of nodes is usable while the lower levels are still loading. Truncation shows as a final “… depth limit” row.</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Strengths</h4><ul><li>Direct rendering of the engine model: lowest implementation risk, every diagnostic has a place.</li><li>Scales to deep trees; filters and folding are trivial on a tree table.</li><li>Familiar to SimVision and Questa users; easy to test with snapshot rows.</li></ul></div>
+    <div class="con"><h4>Weaknesses</h4><ul><li>Time is a number in a column; the reader must rebuild the timeline in their head.</li><li>Needs screen space: a third tile next to the waveform and the source.</li><li>Pass-through chains and repeated <span class="mono">top.clk</span> leaves make the table long without folding.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="v2-en">
+  <div class="vhead"><div class="vnum">2</div><div><div class="eyebrow">Variant 2 · the picture</div><h2>Temporal Flow tile: the tree laid out on a time axis</h2></div></div>
+  <div class="lineage"><span>lineage: <b>Verdi Temporal Flow View</b></span><span><b>Visualizer Time Cone</b></span><span>Questa <b>Path Times</b> coloring</span></div>
+  <p>The same tree, drawn as a graph whose x position is the moment. Columns are the distinct moments in the trace, in time order; pre-event columns (“settled before 25”) sit just left of their edge column (“posedge clk #3”). Combinational chains inside one moment become sub-columns, so <span class="mono">sel, a → mux</span> reads left to right at 5⁻. Edges are colored by reason, statement pills sit on data edges, and hold verdicts are printed on the node. The waveform tile below shows one marker per column, so the graph and the waveform share a time scale in the reader’s eye.</p>
+  <div class="tryit"><b>Try it:</b> hover any node for its notes; click <span class="mono">u1.d → u0.q</span> to move the cursor to 25⁻ and the source to the hold; click a column header to move the cursor without changing the selection. Turn <b>fit</b> off for 1:1 scale with horizontal scrolling; turn <b>clocks</b> on to see trigger edges enter from the posedge columns.</div>
+  <div class="mock" data-mock="v2" tabindex="0"></div>
+  <p class="caption">Live mockup. Temporal Flow tile on top, Waveform and Source Code tiles below. Dashed boxes are external inputs, dashed edges are control or clock dependencies, solid blue edges carry data.</p>
+  <div class="spec">
+    <div><b>Layout algorithm</b>Column = moment; sub-column = combinational depth within the moment; lane = first free row that keeps the edge to the parent clear of other nodes. Deterministic, no force layout.</div>
+    <div><b>Node</b>Signal (with folded name), value, an <span class="mono">input</span> tag for external inputs, a <span class="mono">⏸ held @15</span> verdict for holds. Clock nodes are dimmer. Selected node shares the highlight color of the source target line.</div>
+    <div><b>Edges</b>Cause → effect, child to parent. A statement pill on the first data edge into a register shows the active assignment (<span class="mono">else if (en) q &lt;= d;</span>) and jumps to it on click.</div>
+    <div><b>Gestures</b>Click = select and move cursor; double-click = add to waveform; drag node onto the waveform tile = add; scroll = zoom; <em>fit</em> scales the whole graph into the tile.</div>
+    <div><b>Multi-query</b>Tracing a second signal into the same tile merges shared nodes (same signal, same moment), the Verdi behaviour users praised for seeing a high-level picture.</div>
+    <div><b>Cost</b>A new tile with its own painter: text boxes, cubic edges, hit testing. Layout is O(nodes · columns).</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Strengths</h4><ul><li>The only variant where “when” is spatial; holds and multi-cycle chains are obvious at a glance.</li><li>Shared time scale with the waveform tile below; column headers double as cursor targets.</li><li>Matches what Verdi users are trained to expect; strongest demo value.</li></ul></div>
+    <div class="con"><h4>Weaknesses</h4><ul><li>Wide trees over many cycles need zoom and pan; text becomes small in fit mode.</li><li>Highest implementation cost of the four; needs careful hit testing and text measuring.</li><li>Equal spacing between moments hides real time gaps; the ruler is ordinal, not linear, and must say so.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="v3-en">
+  <div class="vhead"><div class="vnum">3</div><div><div class="eyebrow">Variant 3 · the walk</div><h2>Active trace inside the Source Code tile: step from cause to cause</h2></div></div>
+  <div class="lineage"><span>lineage: <b>Verdi Active Trace</b> + Active Annotation</span><span><b>Novas “Why” overlay</b> patent</span><span><b>Visualizer</b> double-click-to-driver</span><span><b>Indago</b> investigation tree</span></div>
+  <p>No new tile. The source tile you already look at becomes the trace surface. The active assignment is the target line; the untaken branch is dimmed; each identifier that contributed to the value is underlined in its reason color and clickable. A compact popover under the target line lists the immediate causes with number keys, and a trail of chips in the tile header records the walk so far. The waveform tile keeps pace: each step adds the signal, a marker at its moment and an arrow from cause to effect.</p>
+  <div class="tryit"><b>Try it:</b> the popover shows the four causes of <span class="mono">u1.q = 03 @ 26</span>. Press <kbd>2</kbd> or click <span class="mono">d</span> to follow the data; keep pressing <kbd>↵</kbd> to follow data to the register in u0 and read its hold note, then <kbd>3</kbd> to walk into the <span class="mono">en</span> control input. <kbd>Alt</kbd>+<kbd>←</kbd> goes back; chips in the header jump anywhere on the trail. (Click the mockup once so it has keyboard focus.)</div>
+  <div class="mock" data-mock="v3" tabindex="0"></div>
+  <p class="caption">Live mockup. The source tile owns the interaction; the waveform tile on the right accumulates the trail with reason badges, markers and cause → effect arrows.</p>
+  <div class="spec">
+    <div><b>Entry</b>Right-click a token or press <kbd>Ctrl</kbd>+<kbd>D</kbd> with the caret on it; from a waveform row the same command opens the source tile at the active assignment and shows the popover. Requires cursor set; otherwise the popover says so.</div>
+    <div><b>Popover</b>Rows: number key, reason chip, signal, value, moment, reason text; external inputs say <span class="mono">input</span>. Hold verdicts appear in the title line. Anchored to the target line, scrolls with the code, dismissed with <kbd>Esc</kbd>; never a separate window.</div>
+    <div><b>Source decoration</b>Token decoration: cause tokens get the reason color and a dotted underline; the untaken <em>if</em> branch is dimmed; ▶ in the gutter marks the active assignment, all computed from the node’s notes and children.</div>
+    <div><b>Trail</b>Chips <span class="mono">u1.q@26 ‹ u1.d@25⁻ ‹ …</span> in the tile header; the trail is the tile’s serialized state (list of node keys), so a restored workspace can re-run the query and rebuild it.</div>
+    <div><b>Waveform coupling</b>A group “trace: top.q @ 26” collects the walked signals; arrows are ordinary annotation arrows; markers are ordinary markers named <span class="mono">#1 #2 #3</span> for clock events.</div>
+    <div><b>Cost</b>Smallest: a popover, a decoration pass, and a state list. No layout engine, no tile kind.</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Strengths</h4><ul><li>Explains in place: the user sees the code, the values and the causes together, which is what Active Annotation users switch on first.</li><li>Cheapest to build and to learn; keyboard-driven walking is fast for experts.</li><li>Nothing competes with the waveform for space.</li></ul></div>
+    <div class="con"><h4>Weaknesses</h4><ul><li>Depth-first by construction: a wide tree (many inputs to one statement) needs repeated back-tracking, exactly the “three windows back and forth” loop Verdi’s TFV was built to remove.</li><li>The whole tree is never visible; hard to compare two branches.</li><li>Popover geometry inside a scrolling code view needs care near the bottom edge and with long lines.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="v4-en">
+  <div class="vhead"><div class="vnum">4</div><div><div class="eyebrow">Variant 4 · the overlay</div><h2>Causal overlay in the Waveform tile: the trace as a group with arrows, markers and hold spans</h2></div></div>
+  <div class="lineage"><span>lineage: Questa <b>Wave (Path Details)</b> with Trace cursors</span><span>Verdi drag-pin-to-nWave</span><span><b>annotation arrows</b> and groups on the waveform</span></div>
+  <p>The trace lives where the debugger already is. Under the queried signal a group “why top.q = 03 @ 26” lists the traced signals in causal order, indented by depth, each with a reason badge. Arrows run from the cause’s moment to the effect’s moment across rows; posedge events become named markers; a hold becomes a shaded span with its verdict written on it. Clicking a row or an arrow moves the cursor and the source tile below. Toggles live in the waveform header and the group collapses like any other.</p>
+  <div class="tryit"><b>Try it:</b> hover an arrow for its sentence, click the arrow into <span class="mono">top.u0.q</span> from <span class="mono">top.mux</span> to land at 5⁻ on line 5 in u0; toggle <b>arrows</b> off to see the plain rows; turn <b>fold ports</b> off to see every pass-through as its own row; <b>clear trace</b> collapses the group.</div>
+  <div class="mock" data-mock="v4" tabindex="0"></div>
+  <p class="caption">Live mockup. One waveform tile with the trace group expanded and a small source tile below. The amber span on <span class="mono">top.first</span> is the hold at posedge #2; the three amber markers are the clock events the engine walked.</p>
+  <div class="spec">
+    <div><b>Data model</b>The trace group is an ordinary item-tree group whose children are ordinary signal items with a <span class="mono">trace</span> annotation (node key, reason). Arrows, markers and spans are derived drawings owned by the trace, removed together by <em>clear trace</em>.</div>
+    <div><b>Ordering</b>Depth-first causal order, cause under effect; a signal that appears twice (e.g. <span class="mono">top.en</span> at 5⁻ and 15⁻) is one row with two arrows, which is exactly what a waveform row can show and a tree cannot.</div>
+    <div><b>Arrows</b>Cubic from (cause signal, cause moment) to (effect signal, effect moment); pre-event moments start a hair left of the edge. Colors by reason; tooltip is the engine’s sentence “top.en = 0 @ 15⁻ → top.u0.q (control: if false)”.</div>
+    <div><b>Markers and spans</b>Clock events become markers named <span class="mono">posedge #1..#3</span>; holds become spans labelled with the reason.</div>
+    <div><b>Source coupling</b>Same as Variant 1: active assignment as target, declaration outlined, read site filled, gutter ▶ / ↩.</div>
+    <div><b>Cost</b>Medium: an item-tree group builder, arrow endpoints in time rather than screen space, header toggles. No new tile kind.</div>
+  </div>
+  <div class="pro-con">
+    <div class="pro"><h4>Strengths</h4><ul><li>The trace is drawn on the real time axis, with real transitions; holds and pre-event sampling become visible instead of textual.</li><li>Zero new tile kinds; the result is just signals in the item tree, so it works with every waveform feature (colors, formats, groups, saved state).</li><li>Adding to the waveform is not a step any more; the trace <em>is</em> the waveform.</li></ul></div>
+    <div class="con"><h4>Weaknesses</h4><ul><li>Arrows crowd quickly; beyond roughly 20 rows the overlay needs per-branch collapse and arrow fading by distance from the selection.</li><li>Reason text and statement locations live in tooltips, so the “why” sentence is one hover away instead of on screen.</li><li>The group’s row order is causal, not hierarchical, which can surprise users who sort the item tree by hand.</li></ul></div>
+  </div>
+</section>
+
+<section class="sec" id="compare-en">
+  <div class="eyebrow">Comparison</div>
+  <h2>Side by side</h2>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Criterion</th><th>1 · Driver Trace tile</th><th>2 · Temporal Flow tile</th><th>3 · Active trace in source</th><th>4 · Causal overlay</th></tr></thead>
+    <tbody>
+      <tr><td>Shows the whole tree at once</td><td class="n best">yes</td><td class="n best">yes</td><td class="n worst">no, one node’s causes</td><td class="n">yes, as rows</td></tr>
+      <tr><td>Time is spatial</td><td class="n worst">no</td><td class="n best">ordinal axis</td><td class="n">via waveform tile</td><td class="n best">real axis</td></tr>
+      <tr><td>Reason and statement on screen</td><td class="n best">both, always</td><td class="n">statement pills, notes on hover</td><td class="n best">both, in the popover</td><td class="n worst">badges; sentence on hover</td></tr>
+      <tr><td>Holds and events</td><td class="n">note rows</td><td class="n best">verdict on node + columns</td><td class="n">title line</td><td class="n best">spans + markers</td></tr>
+      <tr><td>Screen space</td><td class="n worst">third tile</td><td class="n worst">third tile, wide</td><td class="n best">none</td><td class="n best">rows in the waveform tile</td></tr>
+      <tr><td>Deep trees (thousands of nodes)</td><td class="n best">virtualized, lazy</td><td class="n">zoom/pan, fit</td><td class="n">unaffected, but many hops</td><td class="n worst">arrow clutter</td></tr>
+      <tr><td>Learnability</td><td class="n">table, familiar</td><td class="n">graph, needs a legend</td><td class="n best">in place, numbered keys</td><td class="n best">looks like the waveform</td></tr>
+      <tr><td>Implementation cost</td><td class="n">tile + table</td><td class="n worst">tile + layout + painter</td><td class="n best">popover + decoration</td><td class="n">group builder + drawings</td></tr>
+      <tr><td>Trace X fit</td><td class="n best">red values + summary row</td><td class="n">red nodes</td><td class="n">red cause rows</td><td class="n best">X markers on rows</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="sec" id="industry-en">
+  <div class="eyebrow">Brief industry overview</div>
+  <h2>How the market leaders solve it</h2>
+  <p>Manuals, patents, lab guides and engineering blogs were reviewed for Synopsys Verdi, Cadence SimVision and Indago, Siemens Questa and Visualizer, Aldec Riviera-PRO, Synopsys DVE and the static IDEs.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Tool</th><th>Key feature</th><th>How the result is shown</th><th>What we take</th></tr></thead>
+    <tbody>
+      <tr><td><b>Synopsys Verdi</b></td><td>Active Trace, Temporal Flow View, Trace X</td><td>Statement graph over a time ruler; inputs marked D / C / I (data, control, circuit input), only the inputs that mattered are highlighted; values written into the source (Active Annotation)</td><td>Time as an axis, typed dependencies, X as a mode of the same trace</td></tr>
+      <tr><td><b>Cadence SimVision · Indago</b></td><td>Go To Cause, Root Cause Analyzer</td><td>Sidebar with drivers graded by likelihood; a list of causal relations answering “why did this line execute”; a saved investigation tree</td><td>A verdict instead of a fan-in list, a visible history of steps</td></tr>
+      <tr><td><b>Siemens Questa · Visualizer</b></td><td>Causality Traceback, Time Cone</td><td>Three depths in the menu: driver, first register, root cause; a signal / time / location tree; Trace Begin / End cursors on the wave; double-click an edge to reach the driving line</td><td>Three depths as one tree, trace cursors on the waveform</td></tr>
+      <tr><td><b>Aldec Riviera-PRO</b></td><td>Advanced Dataflow, X Way</td><td>Dataflow schematic with a Gray mode (everything irrelevant dimmed); not anchored to a time cursor</td><td>Dimming of the irrelevant</td></tr>
+      <tr><td><b>DVE, DVT, Sigasi, Vivado</b></td><td>Trace Drivers / Loads</td><td>Static driver and load lists without time</td><td>The <kbd>Ctrl</kbd>+<kbd>D</kbd> shortcut</td></tr>
+      <tr><td><b>GTKWave, DSim</b></td><td>—</td><td>No driver tracing</td><td>An open niche</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid2">
+    <div class="card"><h4>What the field converged on</h4>
+      <ul>
+        <li>The trace is anchored at the cursor time; a result is a “signal @ time” pair.</li>
+        <li>Results are a tree or list, optionally with a picture; source highlighting is the destination of a click, not the container of the result.</li>
+        <li>The best tools distinguish data from control and show only the inputs that actually mattered.</li>
+        <li>Time is drawn: a ruler, trace begin and end cursors, “now / earlier” coloring.</li>
+        <li>X hunting is the same trace with a different stop condition.</li>
+      </ul></div>
+    <div class="card"><h4>What users complain about</h4>
+      <ul>
+        <li>Trace windows covering the waveform (Verdi Active Detection).</li>
+        <li>Whole-design traces blocking the UI for minutes.</li>
+        <li>Every step moves the time cursor whether the user wants it or not (SimVision).</li>
+        <li>Jumping to the declaration instead of the statement that produced the value.</li>
+        <li>Noise from clocks and pass-through ports; lost context after a few hops.</li>
+      </ul></div>
+  </div>
+</section>
+
+
+</main>
+</div>
+<script>
+// ---------- Real data from ext/surfer/examples/verilator/pipeline.{sv,vtr,vdb} ----------
+// Trace tree = verbatim output of `vtr-vdb trace pipeline.vdb pipeline.vtr top.q --time 26 --depth 14`
+const SOURCE = [
+"module stage #(parameter W=8)(input logic clk, rst_n, en,",
+"    input logic [W-1:0] d, output logic [W-1:0] q);",
+"    always_ff @(posedge clk or negedge rst_n) begin",
+"        if (!rst_n) q <= '0;",
+"        else if (en) q <= d;",
+"    end",
+"endmodule",
+"module top(input logic clk, rst_n, en, sel,",
+"    input logic [7:0] a, b, output logic [7:0] q);",
+"    logic [7:0] mux, first;",
+"    assign mux = sel ? a : b;",
+"    stage u0(.clk(clk), .rst_n(rst_n), .en(en), .d(mux), .q(first));",
+"    stage u1(.clk(clk), .rst_n(rst_n), .en(en), .d(first), .q(q));",
+"endmodule"];
+
+// Recorded value changes (vtr dump pipeline.vtr), times in ps, hex values.
+const WAVES = {
+  'top.clk':   {w:1, ch:[[0,'0'],[5,'1'],[10,'0'],[15,'1'],[20,'0'],[25,'1'],[30,'0']]},
+  'top.rst_n': {w:1, ch:[[0,'1'],[2,'0'],[4,'1']]},
+  'top.en':    {w:1, ch:[[0,'1'],[12,'0'],[22,'1']]},
+  'top.sel':   {w:1, ch:[[0,'1'],[12,'0']]},
+  'top.a':     {w:8, ch:[[0,'03']]},
+  'top.b':     {w:8, ch:[[0,'09']]},
+  'top.mux':   {w:8, ch:[[0,'03'],[12,'09']]},
+  'top.first': {w:8, ch:[[0,'00'],[5,'03'],[25,'09']]},
+  'top.q':     {w:8, ch:[[0,'00'],[25,'03']]},
+};
+// VDB symbol -> recorded signal (Verilator aliases; port connections share histories)
+const ALIAS = {
+  'top.u0.clk':'top.clk','top.u1.clk':'top.clk','top.u0.rst_n':'top.rst_n','top.u1.rst_n':'top.rst_n',
+  'top.u0.en':'top.en','top.u1.en':'top.en','top.u0.d':'top.mux','top.u0.q':'top.first',
+  'top.u1.d':'top.first','top.u1.q':'top.q',
+};
+const T_END = 30;
+
+// why kinds: sel | data | clk | ctl | mux
+function N(s, v, t, pre, why, whyText, src, notes, kids){ return {s, v, t, pre, why, whyText, src, notes: notes||[], kids: kids||[]}; }
+const EXT = 'external input / no elaborated driver';
+const TRACE = N('top.q','03',26,false,'sel','selected signal','pipeline.sv:9:48',
+  ['active assignment at pipeline.sv:13:61'],[
+  N('top.u1.q','03',26,false,'data','data','pipeline.sv:2:49',
+    ['dependency source: pipeline.sv:13:61','PosEdge top.u1.clk @ 25, event #3','active nonblocking assignment at pipeline.sv:5:24; inputs sampled before 25'],[
+    N('top.u1.clk','1',25,false,'clk','PosEdge trigger, event #3','pipeline.sv:1:43',
+      ['dependency source: pipeline.sv:3:17','active assignment at pipeline.sv:13:15'],[
+      N('top.clk','1',25,false,'data','data','pipeline.sv:8:24',['dependency source: pipeline.sv:13:19',EXT])]),
+    N('top.u1.d','03',25,true,'data','data','pipeline.sv:2:25',
+      ['dependency source: pipeline.sv:5:27','active assignment at pipeline.sv:13:50'],[
+      N('top.first','03',25,true,'data','data','pipeline.sv:10:22',
+        ['dependency source: pipeline.sv:13:52','active assignment at pipeline.sv:12:59'],[
+        N('top.u0.q','03',25,true,'data','data','pipeline.sv:2:49',
+          ['dependency source: pipeline.sv:12:59','PosEdge top.u0.clk @ 15, event #2','hold at 15: no active assignment; searching previous event','PosEdge top.u0.clk @ 5, event #1','active nonblocking assignment at pipeline.sv:5:24; inputs sampled before 5'],[
+          N('top.u0.clk','1',15,false,'clk','PosEdge trigger, event #2','pipeline.sv:1:43',['dependency source: pipeline.sv:3:17','active assignment at pipeline.sv:12:15'],[
+            N('top.clk','1',15,false,'data','data','pipeline.sv:8:24',['dependency source: pipeline.sv:12:19',EXT])]),
+          N('top.u0.rst_n','1',15,false,'ctl','control: if false at pipeline.sv:4:9','pipeline.sv:1:48',['dependency source: pipeline.sv:4:14','active assignment at pipeline.sv:12:26'],[
+            N('top.rst_n','1',15,false,'data','data','pipeline.sv:8:29',['dependency source: pipeline.sv:12:32',EXT])]),
+          N('top.u0.en','0',15,true,'ctl','control: if false at pipeline.sv:5:14','pipeline.sv:1:55',['dependency source: pipeline.sv:5:18','active assignment at pipeline.sv:12:41'],[
+            N('top.en','0',15,true,'data','data','pipeline.sv:8:36',['dependency source: pipeline.sv:12:44',EXT])]),
+          N('top.u0.clk','1',5,false,'clk','PosEdge trigger, event #1','pipeline.sv:1:43',['dependency source: pipeline.sv:3:17','active assignment at pipeline.sv:12:15'],[
+            N('top.clk','1',5,false,'data','data','pipeline.sv:8:24',['dependency source: pipeline.sv:12:19',EXT])]),
+          N('top.u0.d','03',5,true,'data','data','pipeline.sv:2:25',['dependency source: pipeline.sv:5:27','active assignment at pipeline.sv:12:50'],[
+            N('top.mux','03',5,true,'data','data','pipeline.sv:10:17',['dependency source: pipeline.sv:12:52','active assignment at pipeline.sv:11:16'],[
+              N('top.sel','1',5,true,'mux','mux control: true branch','pipeline.sv:8:40',['dependency source: pipeline.sv:11:18',EXT]),
+              N('top.a','03',5,true,'data','data','pipeline.sv:9:23',['dependency source: pipeline.sv:11:24',EXT])])]),
+          N('top.u0.rst_n','1',5,false,'ctl','control: if false at pipeline.sv:4:9','pipeline.sv:1:48',['dependency source: pipeline.sv:4:14','active assignment at pipeline.sv:12:26'],[
+            N('top.rst_n','1',5,false,'data','data','pipeline.sv:8:29',['dependency source: pipeline.sv:12:32',EXT])]),
+          N('top.u0.en','1',5,true,'ctl','control: if true at pipeline.sv:5:14','pipeline.sv:1:55',['dependency source: pipeline.sv:5:18','active assignment at pipeline.sv:12:41'],[
+            N('top.en','1',5,true,'data','data','pipeline.sv:8:36',['dependency source: pipeline.sv:12:44',EXT])]),
+        ])])]),
+    N('top.u1.rst_n','1',25,false,'ctl','control: if false at pipeline.sv:4:9','pipeline.sv:1:48',['dependency source: pipeline.sv:4:14','active assignment at pipeline.sv:13:26'],[
+      N('top.rst_n','1',25,false,'data','data','pipeline.sv:8:29',['dependency source: pipeline.sv:13:32',EXT])]),
+    N('top.u1.en','1',25,true,'ctl','control: if true at pipeline.sv:5:14','pipeline.sv:1:55',['dependency source: pipeline.sv:5:18','active assignment at pipeline.sv:13:41'],[
+      N('top.en','1',25,true,'data','data','pipeline.sv:8:36',['dependency source: pipeline.sv:13:44',EXT])]),
+  ])]);
+
+// Assign stable ids + parent links + depth
+(function index(n, parent, depth, ctr){ n.id = ctr.i++; n.parent = parent; n.depth = depth; n.kids.forEach(k => index(k, n, depth+1, ctr)); })(TRACE, null, 0, {i:0});
+const NODES = []; (function collect(n){ NODES.push(n); n.kids.forEach(collect); })(TRACE);
+const byId = id => NODES[id];
+const isExternal = n => n.notes.includes(EXT);
+const momentText = n => n.t + (n.pre ? '⁻' : '');
+const srcLine = s => parseInt(s.split(':')[1],10);
+const srcCol  = s => parseInt(s.split(':')[2],10);
+const WHY = { sel:{label:'selected', cls:'k-sel'}, data:{label:'data', cls:'k-data'}, clk:{label:'clock', cls:'k-clk'}, ctl:{label:'control', cls:'k-ctl'}, mux:{label:'mux sel', cls:'k-mux'} };
+function valueAt(sym, t){ const w = WAVES[ALIAS[sym]||sym]; if(!w) return '?'; let v=w.ch[0][1]; for(const [tt,vv] of w.ch){ if(tt<=t) v=vv; else break;} return v; }
+// statement line that the node's parent evaluated to reach this node ("dependency source")
+const depSource = n => { const m = n.notes.find(x=>x.startsWith('dependency source: ')); return m ? m.slice(19) : null; };
+const activeAssign = n => { const m = n.notes.find(x=>x.includes('active') && x.includes('assignment at ')); return m ? m.slice(m.indexOf('at ')+3).split(';')[0] : null; };
+// ---------- Shared mock engine: Surfer-like window, waveform tile, source tile ----------
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html!=null) e.innerHTML = html; return e; };
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const svgNS = 'http://www.w3.org/2000/svg';
+const S = (tag, attrs, text) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text!=null) e.textContent = text; return e; };
+
+const KW = /\b(module|endmodule|input|output|logic|parameter|always_ff|begin|end|if|else|posedge|negedge|assign|or)\b/g;
+function tokenizeLine(line){
+  // returns html with classes: kw, num, id, op, str
+  let out = '', i = 0;
+  const re = /(\/\/.*$)|(\b\d+'[bdh][0-9a-fA-F_]+\b|'0|\b\d+\b)|([A-Za-z_][A-Za-z_0-9]*)|(\s+)|(.)/g;
+  let m;
+  while ((m = re.exec(line))) {
+    if (m[1]) out += `<span class="cm">${esc(m[1])}</span>`;
+    else if (m[2]) out += `<span class="num">${esc(m[2])}</span>`;
+    else if (m[3]) { const w = m[3]; KW.lastIndex = 0; out += KW.test(w) ? `<span class="kw">${w}</span>` : `<span class="id" data-id="${w}">${w}</span>`; }
+    else out += esc(m[0]);
+  }
+  return out;
+}
+// identifiers with values, per line, resolved in an instance context
+const STAGE_IDS = ['clk','rst_n','en','d','q'];
+const TOP_IDS = ['clk','rst_n','en','sel','a','b','q','mux','first'];
+function lineValues(lineNo, inst, t){
+  const line = SOURCE[lineNo-1];
+  const ids = lineNo <= 7 ? STAGE_IDS : TOP_IDS;
+  const seen = [];
+  for (const m of line.matchAll(/[A-Za-z_][A-Za-z_0-9]*/g)) {
+    const w = m[0]; if (!ids.includes(w) || seen.some(s=>s[0]===w)) continue;
+    const sym = lineNo <= 7 ? `top.${inst}.${w}` : `top.${w}`;
+    seen.push([w, valueAt(sym, t)]);
+  }
+  if (lineNo === 1) seen.unshift(['W','8']);
+  return seen;
+}
+
+class Mock {
+  constructor(root, opts={}){
+    this.root = root; this.opts = opts;
+    this.state = { t: 26, pre: false, node: TRACE, inst: 'u1', open: new Set([0,1,4,5,6]), rows: [], markers: [], arrows: [], spans: [] , hover:null};
+    this.listeners = [];
+    this.win = el('div','sf-win');
+    root.appendChild(this.win);
+  }
+  on(fn){ this.listeners.push(fn); }
+  set(patch){ Object.assign(this.state, patch); this.render(); }
+  render(){ this.listeners.forEach(fn => fn(this.state)); }
+  goto(node, extra={}){ // move cursor to node moment, select it, choose instance context
+    const inst = (node.s.match(/^top\.(u[01])\./)||[])[1] || this.state.inst;
+    this.set(Object.assign({ node, t: node.t, pre: node.pre, inst }, extra));
+  }
+  tile(title, cls){ const t = el('div', 'sf-tile ' + (cls||'')); t.appendChild(el('div','sf-tab', `<span class="sf-tabname">${title}</span><span class="sf-tabx">✕</span><span class="sf-tabplus">+</span>`)); const body = el('div','sf-body'); t.appendChild(body); this.win.appendChild(t); return body; }
+}
+
+// ---------- Waveform tile ----------
+// rows: [{sym, label, depth, badge, group:boolean, node}]
+function waveTile(mock, body, cfg={}){
+  const NAMEW = cfg.nameWidth || 190, VALW = 46, ROWH = cfg.rowH || 22, TOP = 26;
+  body.classList.add('sf-wave');
+  const head = el('div','sf-wavehead'); body.appendChild(head);
+  const svgWrap = el('div','sf-wavesvg'); body.appendChild(svgWrap);
+  function draw(st){
+    const rows = st.rows;
+    const Wpx = Math.max(560, svgWrap.clientWidth || 700), H = TOP + rows.length*ROWH + 8;
+    const x0 = NAMEW + VALW + 8, x1 = Wpx - 16, tx = t => x0 + (t / T_END) * (x1 - x0);
+    head.innerHTML = `<span class="sf-cursor">▮ ${st.t}${st.pre?'⁻':''} ps</span>${cfg.headExtra ? cfg.headExtra(st) : ''}`;
+    const svg = S('svg',{viewBox:`0 0 ${Wpx} ${H}`, width:'100%', height:H, class:'wv'});
+    // ticks
+    for (let t=0;t<=T_END;t+=5){ svg.appendChild(S('line',{x1:tx(t),y1:TOP-8,x2:tx(t),y2:H,class:'tick'})); svg.appendChild(S('text',{x:tx(t)+3,y:12,class:'ticklab'}, t+' ps')); }
+    // spans (hold shading)
+    for (const sp of st.spans){ const ri = rows.findIndex(r=>r.sym===sp.sym); if(ri<0) continue; const y=TOP+ri*ROWH; svg.appendChild(S('rect',{x:tx(sp.from),y:y+2,width:tx(sp.to)-tx(sp.from),height:ROWH-4,class:'span '+(sp.cls||'')})); if(sp.label) svg.appendChild(S('text',{x:(tx(sp.from)+tx(sp.to))/2,y:y+ROWH/2+4,class:'spanlab','text-anchor':'middle'},sp.label)); }
+    rows.forEach((r, i) => {
+      const y = TOP + i*ROWH, cy = y + ROWH/2;
+      const g = S('g',{class:'row'+(r.node && st.node && r.node.id===st.node.id ? ' selrow':'')+(r.group?' grouprow':'')+(r.dim?' dimrow':'')});
+      g.appendChild(S('rect',{x:0,y,width:Wpx,height:ROWH,class:'rowbg'}));
+      const ind = 8 + (r.depth||0)*12;
+      if (r.group){ g.appendChild(S('text',{x:ind,y:cy+4,class:'grouplab'}, (r.open===false?'▸ ':'▾ ') + r.label)); svg.appendChild(g); g.addEventListener('click',()=>cfg.onRow&&cfg.onRow(r)); return; }
+      g.appendChild(S('text',{x:ind,y:cy+4,class:'name'}, r.label || r.sym));
+      if (r.badge){ const bx = ind + 7*(r.label||r.sym).length + 8; const b=S('g',{class:'badge '+r.badge.cls}); b.appendChild(S('rect',{x:bx,y:cy-7,rx:3,width:r.badge.text.length*6.2+8,height:14})); b.appendChild(S('text',{x:bx+4,y:cy+4},r.badge.text)); g.appendChild(b); }
+      const w = WAVES[ALIAS[r.sym]||r.sym]; if(!w){ svg.appendChild(g); return; }
+      const cv = valueAt(r.sym, st.pre ? st.t-1 : st.t);
+      g.appendChild(S('text',{x:NAMEW+VALW-2,y:cy+4,class:'val','text-anchor':'end'}, cv));
+      // waveform
+      const ch = w.ch;
+      if (w.w === 1){
+        let d=''; for (let k=0;k<ch.length;k++){ const [t,v]=ch[k]; const tn = k+1<ch.length?ch[k+1][0]:T_END; const yy = v==='1'? y+4 : y+ROWH-4; d += (k===0?'M':'L')+tx(t)+' '+yy+' L'+tx(tn)+' '+yy+' '; }
+        g.appendChild(S('path',{d,class:'bit'}));
+      } else {
+        for (let k=0;k<ch.length;k++){ const [t,v]=ch[k]; const tn = k+1<ch.length?ch[k+1][0]:T_END; const xa=tx(t), xb=tx(tn); const p=`M${xa} ${cy} L${xa+3} ${y+4} L${xb-3} ${y+4} L${xb} ${cy} L${xb-3} ${y+ROWH-4} L${xa+3} ${y+ROWH-4} Z`; g.appendChild(S('path',{d:p,class:'bus'})); g.appendChild(S('text',{x:(xa+xb)/2,y:cy+4,class:'busval','text-anchor':'middle'}, v)); }
+      }
+      g.addEventListener('click', e => cfg.onRow && cfg.onRow(r, e));
+      svg.appendChild(g);
+    });
+    // markers
+    for (const m of st.markers){ svg.appendChild(S('line',{x1:tx(m.t),y1:TOP-8,x2:tx(m.t),y2:H,class:'marker '+(m.cls||'')})); if(m.label){ const lab=S('text',{x:tx(m.t)+3,y:TOP-12+8,class:'marklab'},m.label); svg.appendChild(lab);} }
+    // arrows
+    for (const a of st.arrows){ const ri=rows.findIndex(r=>r.sym===a.from.sym), rj=rows.findIndex(r=>r.sym===a.to.sym); if(ri<0||rj<0) continue; const ya=TOP+ri*ROWH+ROWH/2, yb=TOP+rj*ROWH+ROWH/2; const xa=tx(a.from.t), xb=tx(a.to.t); const mid = (xa+xb)/2; const d=`M${xa} ${ya} C ${mid} ${ya}, ${mid} ${yb}, ${xb} ${yb}`; const p=S('path',{d,class:'arrow '+(a.cls||''), 'marker-end':'url(#ah-'+(a.cls||'data')+')'}); if(a.title){ const tt=S('title',{},a.title); p.appendChild(tt);} p.addEventListener('click',()=>cfg.onArrow&&cfg.onArrow(a)); svg.appendChild(p); }
+    // cursor
+    const cx = tx(st.t) - (st.pre ? 3 : 0);
+    svg.appendChild(S('line',{x1:cx,y1:TOP-8,x2:cx,y2:H,class:'cursor'+(st.pre?' pre':'')}));
+    // defs
+    const defs = S('defs',{}); ['data','ctl','clk','mux'].forEach(k=>{ const m=S('marker',{id:'ah-'+k,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'}); m.appendChild(S('path',{d:'M0 0 L10 5 L0 10 z',class:'ah '+k})); defs.appendChild(m); }); svg.appendChild(defs);
+    svgWrap.innerHTML=''; svgWrap.appendChild(svg);
+    // click on canvas to move cursor
+    svg.addEventListener('click', e => { if (e.target.closest('.row')||e.target.closest('.arrow')) return; const pt = svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const p = pt.matrixTransform(svg.getScreenCTM().inverse()); if (p.x < x0) return; const t = Math.max(0, Math.min(T_END, Math.round((p.x-x0)/(x1-x0)*T_END))); mock.set({t, pre:false}); });
+  }
+  mock.on(draw);
+  return { draw };
+}
+
+// ---------- Source tile ----------
+// cfg: {onToken(id,line,e), decorate(st) -> {targetLine, highlights:[{line,col,len,cls}], dimLines:[], gutter:{line: html}, trail:html}}
+function sourceTile(mock, body, cfg={}){
+  body.classList.add('sf-src');
+  const head = el('div','sf-srchead'); body.appendChild(head);
+  const pre = el('div','sf-code'); body.appendChild(pre);
+  function draw(st){
+    const deco = cfg.decorate ? cfg.decorate(st) : {};
+    const t = st.pre ? st.t-1 : st.t;
+    head.innerHTML = `<span class="sf-file">pipeline.sv</span><span class="sf-pos">:${deco.targetLine||st.node&&srcLine(st.node.src)||1}</span><span class="sf-inst">top${st.inst?'.'+st.inst:''}</span><span class="sf-at">@ ${st.t}${st.pre?'⁻':''} ps</span><span class="sf-seg"><b>Trailing</b><i>Inline</i></span>${deco.headExtra||''}<span class="sf-right">186 tokens indexed by slang 11.0.0</span>`;
+    let html = '';
+    SOURCE.forEach((line, i) => {
+      const ln = i+1;
+      let code = tokenizeLine(line);
+      const cls = ['ln']; if (deco.targetLine===ln) cls.push('target'); if (deco.dimLines&&deco.dimLines.includes(ln)) cls.push('dim'); if (deco.activeLines&&deco.activeLines.includes(ln)) cls.push('active');
+      const vals = lineValues(ln, st.inst, t).map(([id,v]) => `<span class="tv ${v==='X'?'unk':''}">${id} <b>${v}</b></span>`).join(' ');
+      const gutter = deco.gutter && deco.gutter[ln] ? deco.gutter[ln] : '';
+      html += `<div class="${cls.join(' ')}" data-line="${ln}"><span class="g">${gutter}</span><span class="n">${ln}</span><span class="c">${code}</span><span class="tvs">${vals}</span></div>`;
+    });
+    pre.innerHTML = html;
+    // token highlights
+    (deco.highlights||[]).forEach(h => {
+      const row = pre.querySelector(`[data-line="${h.line}"] .c`); if(!row) return;
+      // find nth identifier occurrence by column: walk spans and compute columns
+      let col = 1; for (const span of row.childNodes){ const txt = span.textContent; if (col === h.col || (col <= h.col && h.col < col + txt.length && span.nodeType===1)) { if (span.nodeType===1) (h.cls||'hl').split(' ').forEach(c=>span.classList.add(c)); break; } col += txt.length; }
+    });
+    pre.querySelectorAll('.id').forEach(sp => sp.addEventListener('click', e => cfg.onToken && cfg.onToken(sp.dataset.id, +sp.closest('.ln').dataset.line, e, sp)));
+    if (deco.overlay) { const ov = el('div','sf-overlay'); ov.innerHTML = deco.overlay.html; const anchor = pre.querySelector(`[data-line="${deco.overlay.line}"]`); if (anchor) anchor.appendChild(ov); }
+    if (cfg.after) cfg.after(st, pre);
+  }
+  mock.on(draw);
+  return { draw };
+}
+
+// helper: compute the list of (sym, time) marker moments along the ancestors path of a node
+function pathTo(node){ const p=[]; for(let n=node;n;n=n.parent) p.unshift(n); return p; }
+function subtree(node, pred){ const out=[]; (function w(n){ if(!pred||pred(n)) out.push(n); n.kids.forEach(w); })(node); return out; }
+// ======================= Variant 1: Driver Tree tile =======================
+function buildV1(root){
+  const mock = new Mock(root); mock.win.classList.add('lay-v1');
+  const st = mock.state;
+  st.rows = [{sym:'top.clk'},{sym:'top.en'},{sym:'top.first'},{sym:'top.q'}].map(r=>({...r,label:r.sym}));
+  st.filters = { clk:false, ctl:true, notes:true, fold:false };
+  st.history = [{sym:'top.q', t:26}];
+  const waveBody = mock.tile('Waveform','t-wave');
+  const treeBody = mock.tile('Driver Trace','t-tree');
+  const srcBody  = mock.tile('Source Code','t-src');
+  waveTile(mock, waveBody, { onRow:(r)=>{ if(r.node) mock.goto(r.node); } });
+  sourceTile(mock, srcBody, { decorate: v1Decorate });
+  mock.on(s => { s.markers = [{t:s.t, cls:'sel', label:''}]; });
+  // ----- tree tile -----
+  treeBody.classList.add('sf-tree');
+  const bar = el('div','sf-bar'); treeBody.appendChild(bar);
+  const table = el('div','sf-table'); treeBody.appendChild(table);
+  const foot = el('div','sf-foot'); treeBody.appendChild(foot);
+  function visible(n){ if (!st.filters.clk && n.why==='clk') return false; if (!st.filters.ctl && (n.why==='ctl'||n.why==='mux')) return false; return true; }
+  function fold(n){ // fold port pass-through: child with same recorded signal, same moment, single child
+    if (!st.filters.fold) return n; let cur = n; while (cur.kids.length===1 && cur.kids[0].why==='data' && (ALIAS[cur.kids[0].s]||cur.kids[0].s)===(ALIAS[cur.s]||cur.s) && cur.kids[0].t===cur.t && cur.kids[0].pre===cur.pre) cur = cur.kids[0]; return cur; }
+  function draw(s){
+    bar.innerHTML = `
+      <span class="crumbs">${s.history.map((h,i)=>`<span class="crumb ${i===s.history.length-1?'cur':''}">${h.sym} <em>@ ${h.t}</em></span>`).join('<span class="sep">›</span>')}</span>
+      <span class="grow"></span>
+      <label class="tg ${s.filters.fold?'on':''}" data-f="fold" title="Collapse port connections that carry the same recorded signal">fold ports</label>
+      <label class="tg ${s.filters.clk?'on':''}" data-f="clk" title="Show clock/event trigger dependencies">clocks</label>
+      <label class="tg ${s.filters.ctl?'on':''}" data-f="ctl" title="Show if/mux control dependencies">controls</label>
+      <label class="tg ${s.filters.notes?'on':''}" data-f="notes" title="Show engine notes (holds, events, external inputs)">notes</label>
+      <span class="depth">depth <b>14</b> <span class="stp">−</span><span class="stp">+</span></span>`;
+    bar.querySelectorAll('.tg').forEach(b => b.onclick = () => { s.filters[b.dataset.f] = !s.filters[b.dataset.f]; mock.render(); });
+    let html = `<div class="tr th"><span class="c-sig">Signal</span><span class="c-val">Value</span><span class="c-at">@ time</span><span class="c-why">Reason</span><span class="c-src">Statement that produced it</span></div>`;
+    let count = 0;
+    (function walk(n, depth, viaFold){
+      if (!visible(n)) return;
+      const shown = fold(n); const folded = shown !== n;
+      count++;
+      const open = s.open.has(shown.id);
+      const hasKids = shown.kids.some(visible);
+      const stmt = activeAssign(shown) || (isExternal(shown) ? '' : '');
+      const ext = isExternal(shown);
+      const holds = shown.notes.filter(x => x.startsWith('hold at'));
+      html += `<div class="tr ${s.node&&s.node.id===shown.id?'sel':''} ${ext?'ext':''}" data-id="${shown.id}" style="--d:${depth}">
+        <span class="c-sig"><span class="chev ${hasKids?(open?'open':''):'none'}" data-chev="${shown.id}"></span><span class="sym">${folded?`<s class="foldsym">${n.s}</s> `:''}${shown.s}</span></span>
+        <span class="c-val mono ${shown.v==='X'?'unk':''}">${shown.v}</span>
+        <span class="c-at mono">${momentText(shown)}${shown.pre?'<i class="pre" title="settled value strictly before this timestamp">pre</i>':''}</span>
+        <span class="c-why"><span class="k ${WHY[shown.why].cls}">${shown.whyText.replace(/ at pipeline\.sv:\d+:\d+/,'')}</span></span>
+        <span class="c-src mono">${ext?'<span class="extlab">external input · no driver</span>': stmt ? `pipeline.sv:${stmt.split(':').slice(1).join(':')} <span class="stmttxt">${esc(SOURCE[srcLine(stmt)-1].trim())}</span>`:''}</span>
+        <span class="c-add" title="Add to waveform" data-add="${shown.id}">+</span></div>`;
+      if (s.filters.notes) for (const note of shown.notes){ if (note.startsWith('dependency source')||note.startsWith('active ')||note===EXT) continue; html += `<div class="tr note" style="--d:${depth}"><span class="c-sig"><span class="notetxt ${note.startsWith('hold')?'hold':''}">${note.startsWith('hold')?'⏸ ':'⏱ '}${esc(note)}</span></span></div>`; }
+      if (open) shown.kids.forEach(k => walk(k, depth+1));
+    })(TRACE, 0);
+    table.innerHTML = html;
+    foot.innerHTML = `<span>${count} of ${NODES.length} nodes shown</span><span class="grow"></span><span>root causes: <b>a</b>=03 @5⁻ via sel=1 · en=1 @5⁻ · en=0 @15⁻ (hold) · clk #1 #2 #3</span>`;
+    table.querySelectorAll('.tr[data-id]').forEach(row => {
+      row.onclick = e => { const n = byId(+row.dataset.id); if (e.target.dataset.chev){ s.open.has(n.id)? s.open.delete(n.id): s.open.add(n.id); mock.render(); return; } if (e.target.dataset.add){ addRow(n); return; } mock.goto(n); };
+      row.ondblclick = () => addRow(byId(+row.dataset.id));
+    });
+    const selRow = table.querySelector('.tr.sel'); if (selRow){ const top = selRow.offsetTop, h = table.clientHeight; if (top < table.scrollTop || top + 20 > table.scrollTop + h) table.scrollTop = Math.max(0, top - h/2); }
+  }
+  function addRow(n){ const sym = n.s; if (!st.rows.some(r=>r.sym===sym)) { st.rows.push({sym, label:sym, node:n, badge:{text:WHY[n.why].label, cls:WHY[n.why].cls}}); } mock.goto(n); }
+  mock.on(draw);
+  mock.render();
+  return mock;
+}
+function v1Decorate(s){
+  const n = s.node; if (!n) return {};
+  const act = activeAssign(n); const dep = depSource(n);
+  const targetLine = act ? srcLine(act) : srcLine(n.src);
+  const highlights = [{line:srcLine(n.src), col:srcCol(n.src), cls:'hl-decl'}];
+  if (dep) highlights.push({line:srcLine(dep), col:srcCol(dep), cls:'hl-dep'});
+  const gutter = {}; if (act) gutter[srcLine(act)] = '<span class="gm act" title="active assignment at this moment">▶</span>'; if (dep) gutter[srcLine(dep)] = (gutter[srcLine(dep)]||'') + '<span class="gm dep" title="read here by the dependent signal">↩</span>';
+  return { targetLine, highlights, gutter };
+}
+
+// ======================= Variant 2: Temporal Flow tile =======================
+function buildV2(root){
+  const mock = new Mock(root); mock.win.classList.add('lay-v2');
+  const st = mock.state;
+  st.rows = [{sym:'top.clk'},{sym:'top.en'},{sym:'top.sel'},{sym:'top.mux'},{sym:'top.first'},{sym:'top.q'}].map(r=>({...r,label:r.sym}));
+  st.flow = { clk:false, fold:true, ctl:true, fit:true };
+  const flowBody = mock.tile('Temporal Flow','t-flow');
+  const waveBody = mock.tile('Waveform','t-wave');
+  const srcBody  = mock.tile('Source Code','t-src');
+  waveTile(mock, waveBody, { onRow:(r)=>{ const n = NODES.find(x=>x.s===r.sym); if(n) mock.goto(n);} , nameWidth:110});
+  sourceTile(mock, srcBody, { decorate: v1Decorate });
+  flowBody.classList.add('sf-flow');
+  const bar = el('div','sf-bar'); flowBody.appendChild(bar);
+  const wrap = el('div','sf-flowsvg'); flowBody.appendChild(wrap);
+  const tip = el('div','sf-tip'); wrap.appendChild(tip);
+  function keep(n){ if (!st.flow.clk && n.why==='clk') return false; if (!st.flow.ctl && (n.why==='ctl'||n.why==='mux')) return false; return true; }
+  function foldOf(n){ if (!st.flow.fold) return n; let cur=n; while (cur.kids.length===1 && cur.kids[0].why==='data' && (ALIAS[cur.kids[0].s]||cur.kids[0].s)===(ALIAS[cur.s]||cur.s) && cur.kids[0].t===cur.t && cur.kids[0].pre===cur.pre) cur = cur.kids[0]; return cur; }
+  function draw(s){
+    bar.innerHTML = `<span class="crumbs"><span class="crumb cur">top.q <em>@ 26</em></span></span><span class="grow"></span>
+      <label class="tg ${s.flow.fold?'on':''}" data-f="fold">fold ports</label><label class="tg ${s.flow.clk?'on':''}" data-f="clk">clocks</label><label class="tg ${s.flow.ctl?'on':''}" data-f="ctl">controls</label><label class="tg ${s.flow.fit?'on':''}" data-f="fit">fit</label>`;
+    bar.querySelectorAll('.tg').forEach(b => b.onclick = () => { s.flow[b.dataset.f] = !s.flow[b.dataset.f]; mock.render(); });
+    // collect visible nodes with (effect parent) after folding
+    const items = []; // {n, parent(item)}
+    (function walk(n, parentItem){ if (!keep(n)) return; const shown = foldOf(n); const it = {n:shown, orig:n, parent:parentItem, kids:[]}; items.push(it); if (parentItem) parentItem.kids.push(it); shown.kids.forEach(k => walk(k, it)); })(TRACE, null);
+    // columns: distinct moments ascending (pre before post)
+    const momKey = n => n.t*2 + (n.pre?0:1);
+    const moms = [...new Set(items.map(i=>momKey(i.n)))].sort((a,b)=>a-b);
+    const NODEW = 126, NODEH = 30, LEFT = 24, TOPY = 44, LANEH = 40, SUBW = NODEW + 22, COLPAD = 30;
+    const order = []; (function dfs(it){ order.push(it); it.kids.forEach(dfs); })(items[0]);
+    // sub-column: combinational chains inside one moment (cause left of effect)
+    order.forEach(it => { it.col = moms.indexOf(momKey(it.n)); it.sub = (it.parent && it.parent.col===it.col) ? it.parent.sub+1 : 0; });
+    const maxSub = moms.map((_,c) => Math.max(0, ...order.filter(i=>i.col===c).map(i=>i.sub)));
+    const colX = []; let acc = LEFT; moms.forEach((_,c) => { colX[c] = acc; acc += (maxSub[c]+1)*SUBW + COLPAD; });
+    const Wpx = acc + 20;
+    // lanes: a node reserves its lane in its own slot and along every slot its edge crosses to reach its parent
+    const slotOf = it => ({c:it.col, s:maxSub[it.col]-it.sub}); // slot index within column, 0 = leftmost
+    const globalSlot = it => { let g=0; for(let c=0;c<it.col;c++) g += maxSub[c]+1; return g + (maxSub[it.col]-it.sub); };
+    const used = new Map(); const key=(g,l)=>g+':'+l;
+    order.forEach(it => { const g0 = globalSlot(it), g1 = it.parent ? globalSlot(it.parent) : g0; let lane = it.parent ? it.parent.lane : 0;
+      const free = l => { for (let g=g0; g<g1; g++) if (used.has(key(g,l))) return false; return !used.has(key(g0,l)); };
+      while (!free(lane)) lane++; it.lane = lane; for (let g=g0; g<Math.max(g1,g0+1); g++) used.set(key(g,lane), true); });
+    const maxLane = Math.max(...order.map(i=>i.lane));
+    const H = TOPY + (maxLane+1)*LANEH + 30;
+    const X = it => colX[it.col] + (maxSub[it.col]-it.sub)*SUBW + 10, Y = it => TOPY + it.lane*LANEH;
+    const fitW = wrap.clientWidth || 1000; const scale = s.flow.fit ? Math.min(1, fitW / Wpx) : 1; const svg = S('svg',{viewBox:`0 0 ${Wpx} ${H}`, width:Math.round(Wpx*scale), height:Math.round(H*scale), class:'flow'});
+    // column headers & rails
+    moms.forEach((m, ci) => { const x = colX[ci]; const t = Math.floor(m/2), pre = m%2===0; const lab = `${t}${pre?'⁻':''} ps`; svg.appendChild(S('line',{x1:x,y1:TOPY-14,x2:x,y2:H,class:'rail'+(t===s.t&&pre===s.pre?' cur':'')})); const h = S('text',{x:x+6,y:14,class:'colhead'+(t===s.t&&pre===s.pre?' cur':'')},lab); h.style.cursor='pointer'; h.addEventListener('click',()=>mock.set({t,pre})); svg.appendChild(h); const evNote = NODES.find(n=>n.notes.some(x=>x.includes(`@ ${t}, event`))); if (evNote && !pre){ const en = evNote.notes.find(x=>x.includes(`@ ${t}, event`)); svg.appendChild(S('text',{x:x+6,y:28,class:'evhead'},'↑ posedge clk '+en.split('event ')[1])); } else if (pre) svg.appendChild(S('text',{x:x+6,y:28,class:'evhead pre'},'settled before '+t)); });
+    // edges (child -> parent) drawn first
+    order.forEach(it => { if(!it.parent) return; const xa = X(it)+NODEW, ya = Y(it)+NODEH/2, xb = X(it.parent), yb = Y(it.parent)+NODEH/2; const mid=(xa+xb)/2; const d=`M${xa} ${ya} C ${mid} ${ya}, ${mid} ${yb}, ${xb} ${yb}`; const p = S('path',{d, class:'fedge '+it.orig.why, 'marker-end':'url(#fh-'+it.orig.why+')'}); svg.appendChild(p);
+      // statement pill on data edges into a node with an active assignment
+      const act = activeAssign(it.parent.n); if (act && it.orig.why==='data' && it.parent.kids[0]===it){ const txt = SOURCE[srcLine(act)-1].trim().replace(/^else /,''); const pill = S('g',{class:'stmt'}); const px = mid - 4, py=(ya+yb)/2; const w = Math.min(120, txt.length*6.3+10); pill.appendChild(S('rect',{x:px-w/2,y:py-8,width:w,height:16,rx:3})); pill.appendChild(S('text',{x:px,y:py+4,'text-anchor':'middle'},txt.length>18?txt.slice(0,17)+'…':txt)); const tt=S('title',{},`${act}: ${txt}`); pill.appendChild(tt); pill.addEventListener('click',()=>mock.goto(it.parent.n)); svg.appendChild(pill);} });
+    // nodes
+    order.forEach(it => { const n = it.n; const g = S('g',{class:'fnode '+n.why+(s.node&&s.node.id===n.id?' sel':'')+(isExternal(n)?' ext':''), transform:`translate(${X(it)},${Y(it)})`}); g.appendChild(S('rect',{width:NODEW,height:NODEH,rx:4})); g.appendChild(S('text',{x:8,y:13,class:'fsym'}, (it.orig!==n ? it.orig.s.replace(/^top\./,'')+' → ' : '') + n.s.replace(/^top\./,''))); g.appendChild(S('text',{x:8,y:25,class:'fval'}, `= ${n.v}`)); if (isExternal(n)) g.appendChild(S('text',{x:NODEW-6,y:25,class:'fext','text-anchor':'end'},'input')); const hold = n.notes.find(x=>x.startsWith('hold')); if (hold) { g.appendChild(S('text',{x:NODEW-6,y:13,class:'fhold','text-anchor':'end'},'⏸ held @15')); }
+      g.addEventListener('click', ()=>mock.goto(n)); g.addEventListener('dblclick', ()=>{ if(!s.rows.some(r=>r.sym===n.s)) s.rows.push({sym:n.s,label:n.s,node:n}); mock.goto(n); });
+      g.addEventListener('mousemove', e => { tip.hidden=false; tip.innerHTML = `<b>${n.s}</b> = ${n.v} @ ${momentText(n)}<br><span class="k ${WHY[n.why].cls}">${n.whyText}</span> · decl ${n.src}<br>${n.notes.map(x=>'· '+esc(x)).join('<br>')}`; const r = wrap.getBoundingClientRect(); tip.style.left = (e.clientX - r.left + wrap.scrollLeft + 14)+'px'; tip.style.top = (e.clientY - r.top + wrap.scrollTop + 10)+'px'; });
+      g.addEventListener('mouseleave', ()=> tip.hidden = true);
+      svg.appendChild(g); });
+    const defs = S('defs',{}); ['data','ctl','clk','mux','sel'].forEach(k=>{ const m=S('marker',{id:'fh-'+k,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto'}); m.appendChild(S('path',{d:'M0 0 L10 5 L0 10 z',class:'ah '+k})); defs.appendChild(m); }); svg.appendChild(defs);
+    wrap.querySelectorAll('svg').forEach(x=>x.remove()); wrap.appendChild(svg); tip.hidden = true; if (!s.flow.fit) wrap.scrollLeft = wrap.scrollWidth;
+    s.markers = moms.map(m => ({t:Math.floor(m/2), cls: m%2? 'ev':'pre', label:''}));
+  }
+  mock.on(draw); mock.render(); return mock;
+}
+
+// ======================= Variant 3: Active trace in the source tile =======================
+function buildV3(root){
+  const mock = new Mock(root); mock.win.classList.add('lay-v3');
+  const st = mock.state;
+  st.trail = [TRACE, TRACE.kids[0]]; st.tpos = 1;
+  st.rows = [{sym:'top.q', label:'top.q', node:TRACE, badge:{text:'selected', cls:'k-sel'}}];
+  const srcBody  = mock.tile('Source Code','t-src');
+  const waveBody = mock.tile('Waveform','t-wave');
+  const cur = () => st.trail[st.tpos];
+  function walkTo(n){ st.trail = st.trail.slice(0, st.tpos+1); st.trail.push(n); st.tpos = st.trail.length-1; syncRows(); mock.goto(n); }
+  function syncRows(){ st.rows = st.trail.map((n,i)=>({sym:n.s,label:n.s,node:n,depth:0,badge:{text:WHY[n.why].label,cls:WHY[n.why].cls}})); st.markers = st.trail.map(n=>({t:n.t, cls:n.pre?'pre':'ev'})); st.arrows = st.trail.slice(1).map((n,i)=>({from:{sym:n.s,t:n.t}, to:{sym:st.trail[i].s,t:st.trail[i].t}, cls:n.why})); }
+  waveTile(mock, waveBody, { nameWidth:120, onRow:(r)=>{ if(r.node){ st.tpos = st.trail.indexOf(r.node); mock.goto(r.node);} } });
+  sourceTile(mock, srcBody, {
+    decorate(s){
+      const n = cur(); const act = activeAssign(n); const dep = depSource(n);
+      const targetLine = act ? srcLine(act) : srcLine(n.src);
+      const highlights = [{line:srcLine(n.src), col:srcCol(n.src), cls:'hl-decl'}];
+      // mark each immediate cause token in the active statement region
+      n.kids.forEach(k => { const d = depSource(k); if (d) highlights.push({line:srcLine(d), col:srcCol(d), cls:'ctok '+k.why }); });
+      // dim untaken branch inside a stage process when target is line 4/5
+      let dimLines = []; if (targetLine===5) dimLines=[4]; if (targetLine===4) dimLines=[5];
+      const hold = n.notes.find(x=>x.startsWith('hold'));
+      const trail = `<div class="trail">${s.trail.map((x,i)=>`<span class="tchip ${i===s.tpos?'cur':''} ${x.why}" data-i="${i}">${x.s.replace(/^top\./,'')}<em>@${momentText(x)}</em></span>`).join('<span class="tarrow">‹</span>')}</div>`;
+      const causes = isExternal(n) ? `<div class="causes"><div class="ctitle">${n.s} = ${n.v} @ ${momentText(n)} is an <b>external input</b>: no elaborated driver. <span class="lnk" data-act="add">Add to waveform</span> · <span class="lnk" data-act="back">← back</span></div></div>` :
+        `<div class="causes"><div class="ctitle">why <b>${n.s.replace(/^top\./,'')}</b> = <b>${n.v}</b> @ ${momentText(n)}${act?` · <span class="mono">${esc(SOURCE[srcLine(act)-1].trim())}</span> ${hold?`<span class="holdnote">⏸ ${esc(hold)}</span>`:''}`:''}</div>
+          ${n.kids.map((k,i)=>`<div class="cause ${k.why}" data-k="${k.id}"><kbd>${i+1}</kbd><span class="k ${WHY[k.why].cls}">${WHY[k.why].label}</span><span class="csym">${k.s.replace(/^top\./,'')}</span><span class="mono cval ${k.v==='X'?'unk':''}">= ${k.v}</span><span class="cat mono">@ ${momentText(k)}</span><span class="cwhy">${esc(k.whyText.replace(/ at pipeline\.sv:\d+:\d+/,''))}${isExternal(k)?' · input':''}</span></div>`).join('')}
+          <div class="ckeys"><kbd>1–${n.kids.length}</kbd> follow · <kbd>↵</kbd> follow data · <kbd>Alt ←</kbd> back · <kbd>Alt →</kbd> forward · <kbd>a</kbd> add to waveform</div></div>`;
+      const gutter = {}; if (act) gutter[srcLine(act)] = '<span class="gm act">▶</span>';
+      return { targetLine, highlights, dimLines, gutter, headExtra: trail, overlay:{line: targetLine, html: causes} };
+    },
+    after(s, pre){
+      pre.querySelectorAll('.cause[data-k]').forEach(c => c.onclick = () => walkTo(byId(+c.dataset.k)));
+      pre.querySelectorAll('.lnk').forEach(l => l.onclick = () => { if (l.dataset.act==='back') { st.tpos = Math.max(0, st.tpos-1); mock.goto(cur()); } else { mock.render(); } });
+      srcBody.querySelectorAll('.tchip').forEach(c => c.onclick = () => { st.tpos = +c.dataset.i; mock.goto(cur()); });
+      // clicking a cause token in the code walks too
+      pre.querySelectorAll('.id.ctok').forEach(sp => sp.onclick = () => { const ln = +sp.closest('.ln').dataset.line; const k = cur().kids.find(k => { const d = depSource(k); return d && srcLine(d)===ln && SOURCE[ln-1].slice(srcCol(d)-1).startsWith(sp.textContent); }); if (k) walkTo(k); });
+    }
+  });
+  root.tabIndex = 0;
+  mock.state.node = TRACE.kids[0];
+  root.addEventListener('keydown', e => { const n = cur(); if (e.key==='ArrowLeft' && e.altKey){ st.tpos=Math.max(0,st.tpos-1); mock.goto(cur()); e.preventDefault(); } else if (e.key==='ArrowRight' && e.altKey){ st.tpos=Math.min(st.trail.length-1,st.tpos+1); mock.goto(cur()); e.preventDefault(); } else if (e.key==='Enter'){ const k = n.kids.find(k=>k.why==='data'); if(k) walkTo(k); e.preventDefault(); } else if (/^[1-9]$/.test(e.key)){ const k = n.kids[+e.key-1]; if (k) walkTo(k); } });
+  syncRows(); mock.render(); return mock;
+}
+
+// ======================= Variant 4: Waveform-native causal overlay =======================
+function buildV4(root){
+  const mock = new Mock(root); mock.win.classList.add('lay-v4');
+  const st = mock.state;
+  st.ov = { clk:false, ctl:true, fold:true, arrows:true, open:true };
+  const waveBody = mock.tile('Waveform','t-wave');
+  const srcBody  = mock.tile('Source Code','t-src');
+  function keep(n){ if (!st.ov.clk && n.why==='clk') return false; if (!st.ov.ctl && (n.why==='ctl'||n.why==='mux')) return false; return true; }
+  function foldOf(n){ if (!st.ov.fold) return n; let cur=n; while (cur.kids.length===1 && cur.kids[0].why==='data' && (ALIAS[cur.kids[0].s]||cur.kids[0].s)===(ALIAS[cur.s]||cur.s) && cur.kids[0].t===cur.t && cur.kids[0].pre===cur.pre) cur = cur.kids[0]; return cur; }
+  function rebuild(){
+    const rows = [{sym:'top.clk',label:'top.clk'},{sym:'top.rst_n',label:'top.rst_n'},{sym:'top.q',label:'top.q'}];
+    const arrows = [], spans = [], markers = [];
+    rows.push({group:true, label:`why top.q = 03 @ 26   (${st.ov.fold?'ports folded':'all nodes'}${st.ov.clk?'':', clocks hidden'})`, open: st.ov.open, depth:0});
+    if (st.ov.open) (function walk(n, parentShown, depth){
+      if (!keep(n)) return; const shown = foldOf(n);
+      const label = shown.s; const ext = isExternal(shown);
+      const existing = rows.find(r => r.sym===shown.s && r.node);
+      if (!existing) rows.push({sym:shown.s, label, depth, node:shown, badge:{text: WHY[shown.why].label + (ext?' · input':''), cls: WHY[shown.why].cls}});
+      if (parentShown && parentShown.s!==shown.s) arrows.push({from:{sym:shown.s, t: shown.pre? shown.t-0.6 : shown.t}, to:{sym:parentShown.s, t: parentShown.t}, cls: n.why, node: shown, title: `${shown.s} = ${shown.v} @ ${momentText(shown)} → ${parentShown.s} (${n.whyText})`});
+      const hold = shown.notes.find(x=>x.startsWith('hold')); if (hold) spans.push({sym:shown.s, from:15, to:25, cls:'hold', label:'held: en = 0 at posedge #2'});
+      shown.kids.forEach(k => walk(k, shown, depth+1));
+    })(TRACE, null, 1);
+    [[5,'#1'],[15,'#2'],[25,'#3']].forEach(([t,l]) => markers.push({t, cls:'ev', label:'posedge '+l}));
+    st.rows = rows; st.arrows = st.ov.arrows ? arrows : []; st.spans = spans; st.markers = markers;
+  }
+  waveTile(mock, waveBody, { nameWidth: 200, rowH: 24,
+    headExtra: s => `<span class="grow"></span><label class="tg ${s.ov.fold?'on':''}" data-f="fold">fold ports</label><label class="tg ${s.ov.clk?'on':''}" data-f="clk">clocks</label><label class="tg ${s.ov.ctl?'on':''}" data-f="ctl">controls</label><label class="tg ${s.ov.arrows?'on':''}" data-f="arrows">arrows</label><span class="btn" data-f="clear">clear trace</span>`,
+    onRow: (r) => { if (r.group){ st.ov.open = !st.ov.open; rebuild(); mock.render(); return; } if (r.node) mock.goto(r.node); },
+    onArrow: (a) => { mock.goto(a.node); }
+  });
+  sourceTile(mock, srcBody, { decorate: v1Decorate });
+  waveBody.addEventListener('click', e => { const f = e.target.dataset && e.target.dataset.f; if (!f) return; if (f==='clear'){ st.ov.open=false; } else st.ov[f] = !st.ov[f]; rebuild(); mock.render(); });
+  rebuild(); mock.render(); return mock;
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const builders = { v1: buildV1, v2: buildV2, v3: buildV3, v4: buildV4 };
+  const built = [];
+  document.querySelectorAll('[data-mock]').forEach(e => built.push(builders[e.dataset.mock](e)));
+  let raf; window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => built.forEach(m => m.render())); });
+  // language switch: both versions are in the page; only one is shown
+  const pages = [...document.querySelectorAll('.page[data-lang]')];
+  function setLang(lang, remember){
+    pages.forEach(p => { p.hidden = p.dataset.lang !== lang; });
+    document.documentElement.lang = lang;
+    document.title = lang === 'ru' ? 'Trace Driver для Surfer' : 'Trace Driver for Surfer';
+    document.querySelectorAll('[data-setlang]').forEach(b => b.classList.toggle('on', b.dataset.setlang === lang));
+    if (remember) { try { localStorage.setItem('trace-driver-lang', lang); } catch (e) {} }
+    built.forEach(m => m.render());
+  }
+  document.querySelectorAll('[data-setlang]').forEach(b => b.addEventListener('click', () => { const y = window.scrollY; setLang(b.dataset.setlang, true); window.scrollTo(0, y); }));
+  let initial = 'ru';
+  try { const h = location.hash.match(/-(ru|en)$/); initial = h ? h[1] : (localStorage.getItem('trace-driver-lang') || 'ru'); } catch (e) {}
+  setLang(initial, false);
+  // nav highlighting per visible page
+  const links = [...document.querySelectorAll('nav.side a')];
+  const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  const io = new IntersectionObserver(es => { es.forEach(e => { if (e.isIntersecting) links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + e.target.id)); }); }, { rootMargin: '-10% 0px -80% 0px' });
+  secs.forEach(s => io.observe(s));
+});
+</script>
+</body></html>

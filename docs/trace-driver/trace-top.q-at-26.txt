@@ -1,0 +1,85 @@
+time unit: 1e-12 s; timestamps are settled values, '-' means before event
+top.q = 00000011 @ 26 [selected signal] pipeline.sv:9:48
+  ! active assignment at pipeline.sv:13:61
+  top.u1.q = 00000011 @ 26 [data] pipeline.sv:2:49
+    ! dependency source: pipeline.sv:13:61
+    ! PosEdge top.u1.clk @ 25, event #3
+    ! active nonblocking assignment at pipeline.sv:5:24; inputs sampled before 25
+    top.u1.clk = 1 @ 25 [PosEdge trigger, event #3] pipeline.sv:1:43
+      ! dependency source: pipeline.sv:3:17
+      ! active assignment at pipeline.sv:13:15
+      top.clk = 1 @ 25 [data] pipeline.sv:8:24
+        ! dependency source: pipeline.sv:13:19
+        ! external input / no elaborated driver
+    top.u1.d = 00000011 @ 25- (pre-event) [data] pipeline.sv:2:25
+      ! dependency source: pipeline.sv:5:27
+      ! active assignment at pipeline.sv:13:50
+      top.first = 00000011 @ 25- (pre-event) [data] pipeline.sv:10:22
+        ! dependency source: pipeline.sv:13:52
+        ! active assignment at pipeline.sv:12:59
+        top.u0.q = 00000011 @ 25- (pre-event) [data] pipeline.sv:2:49
+          ! dependency source: pipeline.sv:12:59
+          ! PosEdge top.u0.clk @ 15, event #2
+          ! hold at 15: no active assignment; searching previous event
+          ! PosEdge top.u0.clk @ 5, event #1
+          ! active nonblocking assignment at pipeline.sv:5:24; inputs sampled before 5
+          top.u0.clk = 1 @ 15 [PosEdge trigger, event #2] pipeline.sv:1:43
+            ! dependency source: pipeline.sv:3:17
+            ! active assignment at pipeline.sv:12:15
+            top.clk = 1 @ 15 [data] pipeline.sv:8:24
+              ! dependency source: pipeline.sv:12:19
+              ! external input / no elaborated driver
+          top.u0.rst_n = 1 @ 15 [control: if false at pipeline.sv:4:9] pipeline.sv:1:48
+            ! dependency source: pipeline.sv:4:14
+            ! active assignment at pipeline.sv:12:26
+            top.rst_n = 1 @ 15 [data] pipeline.sv:8:29
+              ! dependency source: pipeline.sv:12:32
+              ! external input / no elaborated driver
+          top.u0.en = 0 @ 15- (pre-event) [control: if false at pipeline.sv:5:14] pipeline.sv:1:55
+            ! dependency source: pipeline.sv:5:18
+            ! active assignment at pipeline.sv:12:41
+            top.en = 0 @ 15- (pre-event) [data] pipeline.sv:8:36
+              ! dependency source: pipeline.sv:12:44
+              ! external input / no elaborated driver
+          top.u0.clk = 1 @ 5 [PosEdge trigger, event #1] pipeline.sv:1:43
+            ! dependency source: pipeline.sv:3:17
+            ! active assignment at pipeline.sv:12:15
+            top.clk = 1 @ 5 [data] pipeline.sv:8:24
+              ! dependency source: pipeline.sv:12:19
+              ! external input / no elaborated driver
+          top.u0.d = 00000011 @ 5- (pre-event) [data] pipeline.sv:2:25
+            ! dependency source: pipeline.sv:5:27
+            ! active assignment at pipeline.sv:12:50
+            top.mux = 00000011 @ 5- (pre-event) [data] pipeline.sv:10:17
+              ! dependency source: pipeline.sv:12:52
+              ! active assignment at pipeline.sv:11:16
+              top.sel = 1 @ 5- (pre-event) [mux control: true branch] pipeline.sv:8:40
+                ! dependency source: pipeline.sv:11:18
+                ! external input / no elaborated driver
+              top.a = 00000011 @ 5- (pre-event) [data] pipeline.sv:9:23
+                ! dependency source: pipeline.sv:11:24
+                ! external input / no elaborated driver
+          top.u0.rst_n = 1 @ 5 [control: if false at pipeline.sv:4:9] pipeline.sv:1:48
+            ! dependency source: pipeline.sv:4:14
+            ! active assignment at pipeline.sv:12:26
+            top.rst_n = 1 @ 5 [data] pipeline.sv:8:29
+              ! dependency source: pipeline.sv:12:32
+              ! external input / no elaborated driver
+          top.u0.en = 1 @ 5- (pre-event) [control: if true at pipeline.sv:5:14] pipeline.sv:1:55
+            ! dependency source: pipeline.sv:5:18
+            ! active assignment at pipeline.sv:12:41
+            top.en = 1 @ 5- (pre-event) [data] pipeline.sv:8:36
+              ! dependency source: pipeline.sv:12:44
+              ! external input / no elaborated driver
+    top.u1.rst_n = 1 @ 25 [control: if false at pipeline.sv:4:9] pipeline.sv:1:48
+      ! dependency source: pipeline.sv:4:14
+      ! active assignment at pipeline.sv:13:26
+      top.rst_n = 1 @ 25 [data] pipeline.sv:8:29
+        ! dependency source: pipeline.sv:13:32
+        ! external input / no elaborated driver
+    top.u1.en = 1 @ 25- (pre-event) [control: if true at pipeline.sv:5:14] pipeline.sv:1:55
+      ! dependency source: pipeline.sv:5:18
+      ! active assignment at pipeline.sv:13:41
+      top.en = 1 @ 25- (pre-event) [data] pipeline.sv:8:36
+        ! dependency source: pipeline.sv:13:44
+        ! external input / no elaborated driver
