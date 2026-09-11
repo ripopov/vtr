@@ -1,0 +1,23 @@
+syntax = "proto3";
+package atlas;
+// Each ColumnBlock is a separately checksummed Zstandard frame. Blocks are
+// ordered by row group, then column. File footer contains a zstd Index message.
+message ColumnBlock {
+  repeated string dictionary = 1;
+  repeated uint32 codes = 2 [packed = true];
+}
+message BlockLocation {
+  uint64 offset = 1;
+  uint32 compressed_len = 2;
+  uint32 raw_len = 3;
+}
+message Index {
+  uint32 version = 1;
+  uint32 rows = 2;
+  uint32 group_rows = 3;
+  repeated string columns = 4;
+  repeated BlockLocation blocks = 5;
+}
+// File layout: ATLASPB1 | zstd(ColumnBlock)... | zstd(Index) |
+//              little-endian u64 index size | ATLASEND
+// This is a seekable, framed protobuf/zstd file, not one monolithic zstd stream.

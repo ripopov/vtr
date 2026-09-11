@@ -1,0 +1,33 @@
+[package]
+name = "atlas-table"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+
+[workspace]
+members = ["crates/egui-atlas-table"]
+resolver = "3"
+
+[dependencies]
+egui-atlas-table = { path = "crates/egui-atlas-table" }
+anyhow = "1.0"
+eframe = { version = "0.36.1", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+prost = "0.14"
+zstd = "0.13"
+rayon = "1.12"
+
+# Native decorations are a demo concern; the table crate has no window backend.
+[target.'cfg(target_os = "linux")'.dependencies]
+raw-window-handle = "0.6"
+winit = { version = "0.30.13", default-features = false }
+wayland-client = "0.31.15"
+wayland-backend = { version = "0.3.17", features = ["client_system"] }
+rustix = { version = "1.1", features = ["fs"] }
+x11rb = { version = "0.13", features = ["shape"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
