@@ -1,5 +1,5 @@
 /*
- * vtr.h - C API for VTR (Vibe Trace Record) trace files.
+ * vtr.h - C API for VTR (Volna Trace Record) trace files.
  *
  * Conventions
  *   - Functions that can fail return int: VTR_OK (0) or a VTR_ERR_* code.

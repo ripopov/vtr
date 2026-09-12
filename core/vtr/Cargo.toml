@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "VTR (Vibe Trace Record): an open trace store for hardware simulation traces - waveforms, transactions, hierarchy, relations."
+description = "VTR (Volna Trace Record): an open trace store for hardware simulation traces - waveforms, transactions, hierarchy, relations."
 
 [dependencies]
 zstd = { version = "0.13", default-features = false }

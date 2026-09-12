@@ -1,6 +1,6 @@
 # VTR file format specification
 
-Version 1.1 of the VTR (Vibe Trace Record) container and encodings.
+Version 1.1 of the VTR (Volna Trace Record) container and encodings.
 This document is normative: an independent implementation written from it
 must read every file produced by the reference implementation and produce
 files the reference reader accepts.

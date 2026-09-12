@@ -1,4 +1,4 @@
-//! # VTR: Vibe Trace Record
+//! # VTR: Volna Trace Record
 //!
 //! An open trace store for hardware simulation: signal waveforms, transaction
 //! streams, the elaborated design hierarchy and relations between

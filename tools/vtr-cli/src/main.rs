@@ -5,7 +5,7 @@ use std::process::exit;
 use vtr::{Codec, Compression, NodeData, NodeId, Reader, TxQuery, Value, Writer, WriterOptions};
 
 const USAGE: &str = "\
-vtr - Vibe Trace Record tools
+vtr - Volna Trace Record tools
 
 USAGE:
   vtr info <file.vtr>                         file summary (meta, counts, sections)

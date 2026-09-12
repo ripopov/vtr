@@ -1,6 +1,6 @@
 # VTR C API reference (`libvtr`)
 
-This document is the reference for the C API of VTR (Vibe Trace Record). The
+This document is the reference for the C API of VTR (Volna Trace Record). The
 header `core/vtr-capi/include/vtr.h` is the contract; this document explains
 every function and struct in it, the semantics behind them, and how they map
 onto the Rust implementation in `core/vtr`.

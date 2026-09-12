@@ -21,7 +21,7 @@ Contents
 
 ## 1. Overview and design principles
 
-VTR (Vibe Trace Record) stores four things in one random-access file:
+VTR (Volna Trace Record) stores four things in one random-access file:
 
 * **Waveforms**: value changes of signals (bit vectors with 2, 4 or 9 states
   per bit, IEEE doubles, variable-length byte strings).

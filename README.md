@@ -36,7 +36,7 @@ simulator's text log as typed, timestamped records (`docs/LOGGING.md`).
   signal at the cursor and navigation from that static index without starting
   any process.
 
-VDB (Vibe Data Base) is the separate design and presentation companion.
+VDB (Volna Data Base) is the separate design and presentation companion.
 The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.
 
 [Volna](volna/volna/README.md) (`volna/volna`) is the official VTR/VDB viewer,

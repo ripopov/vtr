@@ -1,7 +1,7 @@
 # Application note: building a VDB on top of VTR
 
 VTR stores what happened in a simulation. It deliberately stores nothing
-about how to *show* it. A VDB (Vibe Data Base) is the separate,
+about how to *show* it. A VDB (Volna Data Base) is the separate,
 application-specific layer that adds meaning and presentation to an
 unchanged VTR file: which attribute marks a squashed instruction, which
 stage is "execute", what colour a lane gets, where in the source a module

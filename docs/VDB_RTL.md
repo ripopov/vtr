@@ -1,4 +1,4 @@
-# RTL Vibe Data Base, netlists, and temporal driver tracing
+# RTL Volna Data Base, netlists, and temporal driver tracing
 
 The `vtr-vdb` companion reads source semantics exported by slang or the pinned
 Verilator integration into a separate JSON VDB, and queries immutable runtime waveforms

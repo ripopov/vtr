@@ -17,7 +17,7 @@ The requirements below define the VTR foundation within that broader goal.
 They continue to govern the trace format and library; planned integrations
 and viewer capabilities are not claims of implemented features.
 
-VTR (Vibe Trace Record) is a new open-source trace file format and reference library for hardware
+VTR (Volna Trace Record) is a new open-source trace file format and reference library for hardware
 simulation traces. Think of it as an open FSDB-class trace store: one file that
 holds signal waveforms, transaction streams, the elaborated design hierarchy,
 and runtime relations between transactions.
@@ -50,7 +50,7 @@ section 2. Concretely, three kinds of data:
 Follow the Verdi model of separate waveform and design databases:
 
 - **VTR (like FSDB)** is the trace dump: data plus hierarchy plus relations.
-- **VDB (Vibe Data Base)** is a separate, application-specific layer that
+- **VDB (Volna Data Base)** is a separate, application-specific layer that
   adds semantics and presentation on top of an unchanged VTR file: colouring of
   signals, transactions or pipeline stages; which attribute marks a squashed
   instruction; source file and line where a signal or module is defined;

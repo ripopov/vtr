@@ -543,7 +543,7 @@ but not by argument value.
 
 ## 11. RTL VDB companion
 
-VDB means Vibe Data Base. The companion crate and CLI use `vtr-vdb`,
+VDB means Volna Data Base. The companion crate and CLI use `vtr-vdb`,
 the exporter emits `vtr-rtl-vdb` version 2 in `.vdb.json` files, and trace
 identity uses `design.vdb_id`. The reader rejects other format identifiers
 explicitly; each design database must carry a matching design fingerprint.
