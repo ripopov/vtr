@@ -12,7 +12,8 @@ use super::value::{Bit, SignalShape, WaveValue};
 use crate::session::Session;
 
 pub struct LocalSession {
-    reader: Reader,
+    pub(super) reader: Reader,
+    pub(super) tracks: Vec<super::transactions::Track>,
     info: TraceInfo,
     hierarchy: Hierarchy,
 }
@@ -43,6 +44,7 @@ impl LocalSession {
             change_count: None,
         };
         Ok(LocalSession {
+            tracks: super::vtr_transactions::tracks(&reader),
             reader,
             info,
             hierarchy,
@@ -143,6 +145,12 @@ fn root_scope(h: &mut Hierarchy) -> usize {
 }
 
 impl Session for LocalSession {
+    fn transactions(&self) -> Option<&dyn super::transactions::TransactionQueries> {
+        Some(self)
+    }
+    fn relations(&self) -> Option<&dyn super::transactions::RelationQueries> {
+        Some(self)
+    }
     fn info(&self) -> &TraceInfo {
         &self.info
     }
@@ -170,7 +178,7 @@ fn to_wave_value(v: SignalValue<'_>) -> WaveValue {
     match v {
         SignalValue::Bits { .. } => WaveValue::Bits(v.to_ascii()),
         SignalValue::Real(r) => WaveValue::Real(r),
-        SignalValue::VarLen(_) => WaveValue::Text(v.to_ascii()),
+        SignalValue::VarLen(bytes) => WaveValue::Bytes(bytes.to_vec()),
     }
 }
 

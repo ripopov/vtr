@@ -8,9 +8,28 @@ native macOS app and, compiled to WebAssembly, inside a VS Code webview. A
 second frontend, `volna-egui`, runs natively on eframe. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the split.
 
-The current implementation displays **VTR waveforms**. VDB attachment, source
+The current implementation displays **VTR and FST waveforms**. VDB attachment, source
 browsing, and transaction/pipeline views are planned. Keep static VDB semantics
 separate from runtime VTR data as these features are developed.
+
+FST opens directly through `fst-reader` in the shared core, including native
+paths and browser/VS Code byte inputs. Selection queues a batch of complete
+signal histories; aliases share the loaded data. Supported values include
+nine-state logic, reals and arbitrary byte strings. Byte strings display quoted
+escapes. Enum signals display recorded numeric bits; enum tables are not used
+as value translators. Event signals remain listed but loading them reports an
+unsupported-operation error. Files containing dump-activity records or a
+nonzero time-zero offset are rejected explicitly: the current viewer cannot
+faithfully display recording gaps or apply that offset. These checks also
+apply inside gzip-wrapped FST files.
+
+FST scope and variable names, types, direction, hierarchy and aliases are used.
+Source stems, component names, comments, enum tables, VHDL type annotations,
+array/pack attributes and other extended hierarchy metadata are not displayed
+or exposed by the current waveform hierarchy. VDB/source browsing is separate
+future work. Incomplete recordings requiring a `.hier` sidecar are unsupported.
+Gzip-wrapped files are decompressed into memory; normal native FST files remain
+buffered on disk. The current web build decodes on its single browser thread.
 
 Panels: a hierarchy browser (scope tree plus a separate, filterable variable
 list) and a waveform panel with three pixel-aligned columns (names, values,
@@ -82,7 +101,7 @@ verification scripts use it.
 code --extensionDevelopmentPath="$PWD/vscode-ext" "$PWD/examples"
 ```
 
-Opening any `*.vtr` file uses the viewer as a custom editor; the command
+Opening any `*.vtr` or `*.fst` file uses the viewer as a custom editor; the command
 "Volna: Open Waveform Viewer" opens an empty viewer whose *Open* button
 goes through VS Code's file dialog. Package with `npx @vscode/vsce package`
 inside `vscode-ext/`.
@@ -109,7 +128,7 @@ Native and standalone web continue to use One Dark.
 | Value format | click the badge in the values column | `T` cycles binary / hex / decimal / signed / float |
 | Rows | click, `shift`/`⌘` multi-select, drag the column dividers | `↑` `↓`, `⌫` remove, `⌘A`, `esc` |
 | Sidebar | drag the dividers | `⌘B` toggle |
-| Files | drag a `.vtr` onto the window | `⌘O` |
+| Files | drag a `.vtr` or `.fst` onto the window | `⌘O` |
 
 The status bar shows the trace range, cursor time, pixel resolution and the
 smoothed paint time of the wave table.

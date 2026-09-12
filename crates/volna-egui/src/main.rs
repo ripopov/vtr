@@ -1,7 +1,7 @@
 //! Native entry point.
 //!
 //! ```text
-//! volna-egui [FILE.vtr]            open a trace
+//! volna-egui [FILE.vtr|FILE.fst]   open a trace
 //! volna-egui --synthetic N         open a synthetic trace with N transitions
 //! ```
 
@@ -20,7 +20,7 @@ fn main() -> eframe::Result {
                     .or(Some(1_000_000))
             }
             "-h" | "--help" => {
-                println!("usage: volna-egui [FILE.vtr] [--synthetic N]");
+                println!("usage: volna-egui [FILE.vtr|FILE.fst] [--synthetic N]");
                 return Ok(());
             }
             _ => file = Some(a.into()),

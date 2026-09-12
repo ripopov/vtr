@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::data::{Hierarchy, SignalHistory, SignalRef, Translators};
+use crate::data::{Hierarchy, SignalRef, Translators};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 
 #[derive(Clone)]
@@ -22,11 +22,8 @@ pub struct Marker {
 
 /// A completed load the document accepted (its generation was current).
 pub enum Delivered {
+    Signals(crate::session::SignalLoads),
     Opened(anyhow::Result<Arc<dyn Session>>),
-    Signal {
-        signal: SignalRef,
-        result: anyhow::Result<Arc<dyn SignalHistory>>,
-    },
 }
 
 pub struct Document {
@@ -145,11 +142,21 @@ impl Document {
         if !self.pending.insert(signal) {
             return false;
         }
-        self.requests.push(LoadRequest::Signal {
-            generation: self.generation,
-            session,
-            signal,
-        });
+        if let Some(LoadRequest::Signals {
+            signals,
+            generation,
+            ..
+        }) = self.requests.last_mut()
+            && *generation == self.generation
+        {
+            signals.push(signal);
+        } else {
+            self.requests.push(LoadRequest::Signals {
+                generation: self.generation,
+                session,
+                signals: vec![signal],
+            });
+        }
         true
     }
 
@@ -169,6 +176,18 @@ impl Document {
     /// Accept a completed load if its generation is still current.
     pub fn deliver(&mut self, result: LoadResult) -> Option<Delivered> {
         match result {
+            LoadResult::Signals {
+                generation,
+                results,
+            } => {
+                if generation != self.generation {
+                    return None;
+                }
+                for (signal, _) in &results {
+                    self.pending.remove(signal);
+                }
+                Some(Delivered::Signals(results))
+            }
             LoadResult::Opened { generation, result } => {
                 if generation != self.generation {
                     return None;
@@ -183,17 +202,6 @@ impl Document {
                         Some(Delivered::Opened(Err(e)))
                     }
                 }
-            }
-            LoadResult::Signal {
-                generation,
-                signal,
-                result,
-            } => {
-                if generation != self.generation {
-                    return None;
-                }
-                self.pending.remove(&signal);
-                Some(Delivered::Signal { signal, result })
             }
         }
     }

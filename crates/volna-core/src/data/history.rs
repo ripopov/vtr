@@ -156,6 +156,7 @@ impl SignalHistory for VecHistory {
     }
     fn bit(&self, i: Option<usize>) -> Bit {
         match self.value(i) {
+            WaveValue::Unavailable => Bit::Unavailable,
             WaveValue::Bits(s) => s.bytes().next().map(Bit::from_ascii).unwrap_or(Bit::Other),
             _ => Bit::Other,
         }

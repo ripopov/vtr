@@ -1687,3 +1687,48 @@ format `{}`, and a Text argument named `message`. Time is the simulation
 context's current time at emission. No new Rust or C ABI entry points are needed.
 See [Logging with VTR](LOGGING.md#8-verilator-and-surfer) for lifecycle, examples,
 and the Surfer log viewer.
+# Volna session query contract
+
+The toolkit-independent `volna-core` crate exposes `session::Session` above
+VTR and FST. This viewer API is separate from the reference `vtr::Reader` API
+documented above; it does not change the VTR file format or C ABI.
+
+`WaveValue::Bytes` is an uninterpreted variable-length signal payload, shared by
+FST strings and VTR VarLen values. The text translator quotes and ASCII-escapes
+it for display, retaining NUL and non-UTF-8 bytes in the raw query result.
+FST event variables are visible in hierarchy but currently return a per-signal
+unsupported load error; no persistent bit level is fabricated for occurrences.
+
+`WaveValue::Unavailable` distinguishes a missing sample from a recorded X,
+NaN real, or empty byte string. FST returns it before the first callback sample;
+VTR retains its format-defined initial values. Built-in translators display
+unavailable values as `?`, and no initial waveform level is drawn. Sampling at
+a change timestamp selects the last change at that timestamp.
+
+`info()` and `hierarchy()` are resident metadata. `load_signal()` and
+`load_signals()` are blocking full-history queries. Batch results retain
+request order and per-signal errors. The document batches queued loads, tags
+them with its generation, and rejects stale completions. VTR histories retain
+their shared immutable `SignalData` buffers behind the history interface.
+
+`capabilities()` reports waveform, transaction and relation operations, not
+whether a particular trace contains records. The optional `transactions()`
+and `relations()` facets are absent for FST and present for VTR, including
+empty VTR files. Their common records are in `data::transactions`:
+
+- `TransactionQueries::tracks()` returns resident stream/generator metadata.
+- `visit_transactions(query, visitor)` filters by optional generator, stream
+  and inclusive overlap `[start, end]`, preserving point transactions at either
+  boundary. A reversed window or invalid track is an error. Returning false
+  stops the visit; source visit order is not necessarily time order.
+- `transaction(id)` returns `None` for a missing record.
+- `RelationQueries::relations_from(id)` and `relations_to(id)` return all
+  matching raw relations, or an empty vector for a missing endpoint.
+
+Common records resolve names and recursively typed attributes, retaining
+attribute phases, transaction parents, statuses, kinds, events, stages and
+cross-stream relations. `TrackRef` and `TransactionRef` belong to the opened
+session; they must not be reused after replacing it. VDB/presentation rules
+are outside these query interfaces. Queries are blocking and must be run off
+native UI frames. No bounded remote transport or transaction view is supplied;
+see `crates/volna/ARCHITECTURE.md` for the future window/summary contract.

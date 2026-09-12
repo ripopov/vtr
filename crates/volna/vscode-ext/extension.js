@@ -1,7 +1,7 @@
 // Volna VS Code extension: hosts the wasm build of the viewer in a webview.
 //
 // Two entry points:
-//  - a read-only custom editor for *.vtr files (the file bytes are sent to the
+//  - a read-only custom editor for *.vtr and *.fst files (bytes are sent to the
 //    webview, which hands them to the wasm module), and
 //  - the "Volna: Open Waveform Viewer" command, which opens an empty viewer.
 //
@@ -78,7 +78,7 @@ function wire(panelWebview, context, initialUri) {
     } else if (msg.type === "pickFile") {
       const picked = await vscode.window.showOpenDialog({
         canSelectMany: false,
-        filters: { "VTR traces": ["vtr"] },
+        filters: { "Waveform traces": ["vtr", "fst"] },
         openLabel: "Open",
       });
       if (picked && picked[0]) {

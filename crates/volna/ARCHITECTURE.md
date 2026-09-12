@@ -12,7 +12,9 @@ VDB layer. VDB attachment is not yet implemented.
 crates/volna-core      the viewer, no GUI toolkit (builds and tests on every platform)
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
   src/document.rs        Document: open trace, cursor, markers, translators, load generations
-  src/session.rs         Session trait; OpenSpec; LocalSession over vtr::Reader
+  src/session.rs         Session trait; OpenSpec; batched load requests/results
+  src/data/fst_source.rs private fst-reader adapter and mutable reader ownership
+  src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
   src/data/              values, histories, translators, hierarchy (unchanged model layer)
   src/wave/              viewport math, timeline, WaveModel, WaveLayout, painter → Scene
   src/sidebar/           ScopeTreeModel, VariableListModel
@@ -110,14 +112,64 @@ see the same cursor without any extra wiring.
 
 ## The session seam
 
-All trace data is reached through the `Session` trait: `info()`, `hierarchy()`
-and `load_signal()`. `LocalSession` implements it over `vtr::Reader`,
-memory-mapped from a path natively and parsed from an in-memory image on wasm;
-`SynthSource` implements it for the procedural stress trace. `OpenSpec` names
-what to open and `OpenSpec::open` produces the session. A remote session that
-answers the same calls over a wire would slot in here; the load loop already
-runs every call off the UI thread and tolerates any completion order. No
-protocol or remote implementation exists yet.
+All trace data is reached through the `Session` trait: resident `info()` and
+`hierarchy()`, and expensive `load_signal()`/`load_signals()` queries.
+`LocalSession` implements it over `vtr::Reader`, memory-mapped from a path
+natively and parsed from an in-memory image on wasm. The private FST adapter
+owns a buffered file or byte cursor and serializes mutable fst-reader access
+inside the backend. `SynthSource` supplies the procedural stress trace.
+`OpenSpec::open` detects the format from the image header.
+
+The document coalesces queued signal loads into `LoadRequest::Signals`; FST
+uses one filtered read for the batch. Results identify each signal and carry
+per-signal success or failure under one document generation. FST aliases and
+repeated requested identities share an immutable history. Frontends execute
+requests without knowing the reader's locking or storage types. Native loads
+run off the UI thread; the current wasm executor is single-threaded and can
+block while decoding. See the [FST support notes](README.md) for extended
+metadata limitations and explicit unsupported cases.
+
+`Session::capabilities()` reports operations, independently of recorded content.
+`transactions()` and `relations()` return optional query facets. VTR provides
+both even for empty recordings; FST and the synthetic waveform source provide
+neither. Thus `None` means unsupported, while an empty visit, a missing record
+or an empty relation list is a supported query returning no data. Facets avoid
+requiring waveform-only backends to implement dummy transaction operations.
+
+Transaction tracks are resident raw metadata with session-local `TrackRef`
+identities and resolved paths, stream kinds and attributes. Expensive queries
+visit transactions by generator, stream and inclusive overlap window, fetch a
+`TransactionRef`, or obtain incoming/outgoing relations. VTR's attribute
+phases, typed values, parent, status, kind, events and stages survive this
+adapter. Strings are resolved at the boundary, so query results outlive the
+session without backend string-table handles. The small semantic status/kind/
+phase enums are shared with VTR; no reader or buffer types cross the boundary.
+The visitor stops on false and does not promise chronological order. These
+facets establish future view extension points; no transaction views or load
+requests are issued by today's wave-only frontends. Callers must execute these
+blocking queries away from native UI frames. Relation vectors and decoded
+transaction block caches are not memory-bounded remote query results.
+
+### Future bounded queries
+
+Full histories are the current implemented waveform query. They do not meet
+the remote-file objective: an expensive history still transfers and retains
+all changes for the selected signal. A remote transport must wait for bounded
+waveform-window and summary queries; no protocol or remote server exists.
+
+Extend the same Session/load-request seam with explicit query identities and
+window results, keeping resident metadata separate. A window contract must
+define a half-open `[start, end)` interval, the value immediately before
+`start`, every change at `start` in source order, and exclusion of changes at
+`end`. It must distinguish unknown boundary data from a known X value, empty
+complete intervals from unavailable data, and complete results from truncated
+ones. A caller-specified change/byte limit and a continuation that preserves
+same-timestamp ordering are needed; never report a clipped result as complete.
+Summary queries must specify bins, transition counts and boundary values and
+must label summaries as aggregates rather than exact transitions. Carry
+generation plus query identity through completions so a stale pan/zoom request
+cannot replace a newer window in the same document. These are requirements for
+the future extension, not implemented window behavior or measured bounds.
 
 ## Frontends
 

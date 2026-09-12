@@ -435,6 +435,7 @@ impl Translator for TextTranslator {
     fn translate(&self, value: &WaveValue) -> Translated {
         match value {
             WaveValue::Text(s) => Translated::normal(s.clone()),
+            WaveValue::Bytes(bytes) => Translated::normal(format!("\"{}\"", bytes.escape_ascii())),
             _ => not_applicable(),
         }
     }
@@ -443,6 +444,15 @@ impl Translator for TextTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_text_bytes_are_unambiguously_escaped() {
+        let translated = Translators::builtin()
+            .get("text")
+            .unwrap()
+            .translate(&WaveValue::Bytes(vec![b'a', 0, 255, b'\\', b'\n', b'"']));
+        assert_eq!(translated.text, "\"a\\x00\\xff\\\\\\n\\\"\"");
+    }
 
     fn tr(id: &str, bits: &str) -> String {
         Translators::builtin()

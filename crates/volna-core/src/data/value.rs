@@ -3,6 +3,8 @@
 /// One logic bit, reduced to what the waveform renderer needs to draw it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Bit {
+    /// No recorded sample, rather than an unknown logic state.
+    Unavailable,
     Zero,
     One,
     /// Unknown (`x`, `u`, `w`).
@@ -28,7 +30,7 @@ impl Bit {
     pub fn kind(self) -> ValueKind {
         match self {
             Bit::Zero | Bit::One => ValueKind::Normal,
-            Bit::X => ValueKind::Undef,
+            Bit::X | Bit::Unavailable => ValueKind::Undef,
             Bit::Z => ValueKind::HighImp,
             Bit::Other => ValueKind::Weak,
         }
@@ -85,17 +87,24 @@ impl SignalShape {
 /// An owned signal value handed to translators.
 #[derive(Clone, PartialEq, Debug)]
 pub enum WaveValue {
+    /// No recorded value is available at this time. Distinct from a recorded
+    /// X, a NaN real, or an empty byte string.
+    Unavailable,
     /// MSB-first logic characters from the alphabet `01xzuwlh-`.
     Bits(String),
     Real(f64),
     Text(String),
+    /// Uninterpreted variable-length bytes. Text presentation may escape them;
+    /// the raw query value never guesses a character encoding.
+    Bytes(Vec<u8>),
 }
 
 impl WaveValue {
     pub fn kind(&self) -> ValueKind {
         match self {
+            WaveValue::Unavailable => ValueKind::Undef,
             WaveValue::Bits(s) => kind_of_bits(s.as_bytes()),
-            WaveValue::Real(_) | WaveValue::Text(_) => ValueKind::Normal,
+            WaveValue::Real(_) | WaveValue::Text(_) | WaveValue::Bytes(_) => ValueKind::Normal,
         }
     }
 }

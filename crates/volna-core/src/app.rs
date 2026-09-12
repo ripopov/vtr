@@ -206,6 +206,12 @@ impl App {
 
     pub fn deliver(&mut self, result: LoadResult) {
         match self.doc.deliver(result) {
+            Some(Delivered::Signals(results)) => {
+                for (signal, result) in results {
+                    self.waves.finish_signal(signal, result);
+                }
+                self.changed();
+            }
             Some(Delivered::Opened(Ok(session))) => {
                 self.on_session_changed();
                 if self.show_all_on_open {
@@ -214,10 +220,6 @@ impl App {
                 }
             }
             Some(Delivered::Opened(Err(_))) => self.changed(),
-            Some(Delivered::Signal { signal, result }) => {
-                self.waves.finish_signal(signal, result);
-                self.changed();
-            }
             None => {}
         }
     }

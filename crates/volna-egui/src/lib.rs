@@ -224,7 +224,7 @@ impl VolnaApp {
 
     fn open_file_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("VTR traces", &["vtr"])
+            .add_filter("Waveform traces", &["vtr", "fst"])
             .pick_file()
         {
             self.app.open_path(path);
@@ -802,7 +802,7 @@ impl VolnaApp {
                     .color(t.editor.text),
             );
             ui.label(
-                RichText::new("Open a VTR waveform file to view its signals")
+                RichText::new("Open a VTR or FST waveform file to view its signals")
                     .color(t.editor.text_muted),
             );
             if let TraceState::Error(e) = state {

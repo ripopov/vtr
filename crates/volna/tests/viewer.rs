@@ -407,6 +407,33 @@ fn run(measure: bool) -> anyhow::Result<()> {
             viewport(&fitted),
             "fit must restore full trace range"
         );
+        // Exercise byte input through the GPUI executor (also used by web hosts).
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../ext/surfer/examples/verilator/features.fst");
+        test.update(|cx| {
+            workspace.update(cx, |ws, cx| {
+                ws.open_bytes("features.fst".into(), std::fs::read(&fixture).unwrap(), cx);
+            })
+        });
+        settle(&mut test, 4);
+        let count = test.update(|cx| workspace.read(cx).app.doc.hierarchy().unwrap().vars.len());
+        assert!(count > 0);
+        test.update(|cx| {
+            workspace.update(cx, |ws, cx| {
+                ws.dispatch(
+                    volna_core::app::Command::AddVars((0..count).collect()),
+                    None,
+                    cx,
+                );
+            })
+        });
+        settle(&mut test, 4);
+        test.update(|cx| {
+            let rows = &workspace.read(cx).app.waves.items;
+            assert_eq!(rows.len(), count);
+            assert!(rows.iter().all(|row| row.history.is_some()));
+        });
+        shot(&mut test, "fst-bytes")?;
         return Ok(());
     }
 

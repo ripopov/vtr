@@ -50,6 +50,24 @@ fn expect(app: &VolnaApp, label: &str, needles: &[&str]) {
 }
 
 #[test]
+fn fst_opens_and_loads_on_frontend_executor() {
+    use volna_core::app::Command;
+    let mut h = Headless::new(W, H);
+    let mut app = VolnaApp::new(&h.ctx);
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../ext/surfer/examples/verilator/features.fst");
+    app.app.open_path(fixture);
+    wait_loads(&mut h, &mut app);
+    let count = app.app.doc.hierarchy().unwrap().vars.len();
+    assert!(count > 0);
+    app.app.handle(Command::AddVars((0..count).collect()));
+    wait_loads(&mut h, &mut app);
+    assert_eq!(app.app.waves.items.len(), count);
+    assert!(app.app.waves.items.iter().all(|row| row.history.is_some()));
+    assert!(h.is_nonblank());
+}
+
+#[test]
 fn viewer_interactions() {
     let mut h = Headless::new(W, H);
     let mut app = VolnaApp::new(&h.ctx);

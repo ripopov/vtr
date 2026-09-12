@@ -1,5 +1,34 @@
 # Design rationale
 
+## Volna FST session integration
+
+Volna extends its existing Session and immutable SignalHistory seam with batched
+loads and a private fst-reader adapter. The converter's numeric FST scope,
+variable and direction mappings are reused through existing type names, without
+depending on the CLI. Wellen's filtered batch reads and shared alias identities
+inform the loading design; its global time table and waveform storage are not
+the common contract. VTR histories keep their existing shared buffers.
+
+Optional transaction and relation query facets preserve VTR's broader model
+without making FST manufacture records. Absence means unsupported; present
+facets with empty results mean supported but empty. VTR adapts its existing
+inclusive transaction-window visitors and endpoint relation queries, preserving
+parents, attribute phases, typed values, events and stages. Resolved names in
+owned query records avoid exporting reader string-table handles. The semantic
+status/kind/phase enums are reused; no toolkit or backend storage is required by
+the facet contract. Track metadata is resident, queries are blocking, and
+frontends do not gain transaction views in this change.
+
+The visitor supports early stopping but does not establish remote pagination;
+relation vectors and VTR decoded transaction caches are not bounded by the
+viewport. Full waveform histories likewise do not satisfy the remote-file
+objective. The architecture records the required future window, summary,
+boundary, completeness and result-limit semantics. No VTR encoding, format or
+decode implementation changed, and no speed or memory improvement is claimed.
+The supported subset and limitations are in the
+[viewer guide](../crates/volna/README.md); test evidence is in the
+[verification record](../crates/volna/VERIFICATION.md).
+
 This document records what was researched, what VTR borrowed, what it
 rejected, and why the format and API look the way they do. The research
 notes behind it (feature inventories of FST, FTR, Kanata, OpenTelemetry and

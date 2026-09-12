@@ -1,5 +1,5 @@
 //! Volna: the official VTR/VDB viewer, built with GPUI.
-//! Currently provides VTR waveforms; VDB integration is planned.
+//! Provides VTR and FST waveforms; VDB integration is planned.
 //!
 //! This crate is the GPUI frontend; every viewer decision lives in
 //! `volna_core`. Module map:
@@ -84,7 +84,7 @@ pub fn open_main_window(cx: &mut App, embedded: bool) -> anyhow::Result<gpui::En
 pub mod web {
     //! Browser entry point and the JS bridge used by the VS Code extension.
     //!
-    //! JS calls `open_trace(name, bytes)` to load a VTR image; the app calls
+    //! JS calls `open_trace(name, bytes)` to load a trace image; the app calls
     //! `window.volnaOpen()` (if the host defines it) to request a file dialog.
 
     use std::cell::RefCell;
@@ -105,7 +105,7 @@ pub mod web {
         static HOST_TX: RefCell<Option<mpsc::UnboundedSender<HostEvent>>> = const { RefCell::new(None) };
     }
 
-    /// Load a VTR file image after the host receives `volnaReady`.
+    /// Load a VTR or FST file image after the host receives `volnaReady`.
     #[wasm_bindgen]
     pub fn open_trace(name: String, bytes: Vec<u8>) {
         HOST_TX.with(|tx| {

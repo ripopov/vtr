@@ -307,14 +307,14 @@ impl Workspace {
 
     // -- trace loading ------------------------------------------------------------
 
-    /// Open a VTR file from disk (native).
+    /// Open a VTR or FST file from disk (native).
     #[cfg(not(target_family = "wasm"))]
     pub fn open_path(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
         self.app.open_path(path);
         self.after(None, cx);
     }
 
-    /// Open a VTR image held in memory (used by the web bridge and drag-drop).
+    /// Open a trace image held in memory (used by the web bridge and drag-drop).
     pub fn open_bytes(&mut self, name: String, bytes: Vec<u8>, cx: &mut Context<Self>) {
         self.app.open_bytes(name, bytes);
         self.after(None, cx);
@@ -716,7 +716,7 @@ impl Workspace {
             .child(
                 div()
                     .text_color(colors.text_muted)
-                    .child("Open a VTR waveform file to view its signals"),
+                    .child("Open a VTR or FST waveform file to view its signals"),
             )
             .when_some(error, |el, e| {
                 el.child(

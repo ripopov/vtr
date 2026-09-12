@@ -6916,9 +6916,12 @@ name = "volna-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flate2",
+ "fst-reader",
  "log",
  "serde",
  "serde_json",
+ "tempfile",
  "vtr",
  "web-time",
 ]

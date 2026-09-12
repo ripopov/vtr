@@ -84,6 +84,53 @@ fn loaded_app(n: usize) -> (App, Arc<Source>) {
 }
 
 #[test]
+fn missing_initial_sample_is_not_painted_as_a_logic_level() {
+    use volna_core::data::history::VecHistory;
+    use volna_core::scene::Scene;
+    use volna_core::wave::paint::paint_bit_row;
+    use volna_core::wave::viewport::Viewport;
+    let mut history = VecHistory {
+        shape: SignalShape::Bit,
+        times: vec![10],
+        values: vec![WaveValue::Bits("1".into())],
+        initial: WaveValue::Unavailable,
+    };
+    let area = Rect::from_xywh(0.0, 0.0, 100.0, 24.0);
+    let viewport = Viewport {
+        start: 0.0,
+        end: 9.0,
+    };
+    let mut scene = Scene::default();
+    paint_bit_row(&history, &viewport, area, &Theme::one_dark(), &mut scene);
+    assert!(scene.prims.is_empty(), "no fabricated initial level");
+    history.initial = WaveValue::Bits("x".into());
+    paint_bit_row(&history, &viewport, area, &Theme::one_dark(), &mut scene);
+    assert!(!scene.prims.is_empty(), "recorded X is still drawn");
+}
+
+#[test]
+fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
+    let (mut app, source) = loaded_app(10);
+    app.handle(Command::AddVars(vec![0, 1, 0]));
+    let mut requests = app.take_requests();
+    assert_eq!(requests.len(), 1);
+    let request = requests.pop().unwrap();
+    let LoadRequest::Signals { signals, .. } = &request else {
+        panic!("expected batch")
+    };
+    assert_eq!(signals.len(), 2);
+    let stale = request.perform();
+    app.set_session(source);
+    app.handle(Command::AddVars(vec![0, 1]));
+    app.deliver(stale);
+    assert_eq!(app.doc.pending_count(), 2);
+    assert!(app.waves.items.iter().all(|row| row.history.is_none()));
+    pump(&mut app);
+    assert_eq!(app.doc.pending_count(), 0);
+    assert!(app.waves.items.iter().all(|row| row.history.is_some()));
+}
+
+#[test]
 fn aliases_share_pending_and_loaded_histories() {
     let (mut app, source) = loaded_app(10);
     let alias = source.hierarchy.vars.len() - 1;
@@ -93,10 +140,9 @@ fn aliases_share_pending_and_loaded_histories() {
     // Rows share one history once it arrives.
     let signal = source.hierarchy.vars[0].signal;
     let history = source.inner.load_signal(signal).unwrap();
-    app.deliver(LoadResult::Signal {
+    app.deliver(LoadResult::Signals {
         generation: app.doc.generation(),
-        signal,
-        result: Ok(history.clone()),
+        results: vec![(signal, Ok(history.clone()))],
     });
     app.handle(Command::AddVars(vec![0]));
     assert!(
@@ -130,15 +176,13 @@ fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
     app.set_session(source.clone());
     app.handle(Command::AddVars(vec![0]));
     let signal = source.hierarchy.vars[0].signal;
-    app.deliver(LoadResult::Signal {
+    app.deliver(LoadResult::Signals {
         generation: old,
-        signal,
-        result: source.inner.load_signal(signal),
+        results: vec![(signal, source.inner.load_signal(signal))],
     });
-    app.deliver(LoadResult::Signal {
+    app.deliver(LoadResult::Signals {
         generation: old,
-        signal,
-        result: Err(anyhow::anyhow!("old failure")),
+        results: vec![(signal, Err(anyhow::anyhow!("old failure")))],
     });
     assert!(app.doc.is_pending(signal));
     assert!(app.waves.items[0].history.is_none());

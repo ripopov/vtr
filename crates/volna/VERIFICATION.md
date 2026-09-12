@@ -236,3 +236,75 @@ matrix of third-party themes were not exercised. Host text choices are preserved
 contrast safeguards are not a complete accessibility audit. Fonts/metrics remain
 Volna's bundled defaults. No Zed integration or native OS-theme following was
 added. The existing `block` dependency still emits its future-Rust warning.
+
+## FST input validation
+
+On 2026-09-12, `crates/volna/check.sh` passed with macOS desktop access:
+formatting, all-target/all-feature Clippy, 53 core tests, three GPUI unit tests,
+the Metal interaction test, two egui tests and three Node adapter tests.
+`crates/volna/web/build.sh` also passed with the FST dependency and regenerated
+the wasm/VS Code bundles. The optional frame-time benchmark remains ignored;
+this verifies compilation and native runtime behavior, not a browser runtime
+matrix. The pre-existing `block` dependency still reports a future-Rust warning.
+
+The headless FST tests include reference-writer fixtures with binary strings,
+reals, nine-state logic and aliases, both plain and gzip wrapped. Wrapped and
+plain histories agree sample-for-sample. Section framing is checked before
+fst-reader takes ownership: truncated section headers/payloads, unfinished
+lengths and arithmetic overflow return errors. This is framing validation,
+not a claim of exhaustive validation of malicious compressed payloads.
+
+Run `cargo test -p volna-core --test fst`. Fixture regeneration commands live
+with `crates/volna-core/tests/fixtures/fst_values.c`; regular tests need only
+the committed fixtures. The adapter decompresses gzip wrappers into memory
+before applying the same metadata checks to their inner recording; normal
+native streaming-file memory expectations do not apply to wrappers.
+
+The FST tests also compare values at every change timestamp in the committed
+Verilator `features`, `operators` and `pipeline` FST/VTR pairs. Tests cover
+path/byte opening, duplicate/alias history sharing, unknown signals, empty
+batches, unavailable initial samples and explicit event/dump-off/time-offset
+errors. Transaction contract tests distinguish unsupported FST operations from
+empty VTR results, and check VTR attributes, events, stages, parents, inclusive
+overlap boundaries, filtering, early stopping and cross-stream relations.
+The egui test opens an FST path and the GPUI test opens FST bytes; both load
+every variable on their production executors and render nonblank frames. These tests extend,
+rather than replace, the existing VTR interaction tests.
+
+### FST loading and VTR regression measurements (2026-09-12)
+
+Apple M5, Rust 1.96, macOS; temporary Cargo harnesses outside the repository,
+release optimization, thin LTO, one codegen unit. Baseline was clean HEAD
+`a1aaf9f`; both harnesses resolved the same shared dependency versions offline.
+Each repetition opened a fresh session, selected 32 evenly spaced unique
+signal identities in sorted order, loaded full histories and dropped the
+session/results. Current used `load_signals`; baseline used its existing
+per-signal loop. Five repetitions per process, no cache flushing or CPU
+affinity; best opening and loading times are reported separately. These are
+warm local measurements, not cold-storage or frame-time guarantees.
+
+| Input | Bytes | Selected changes | Best open ms | Best load ms | Peak process RSS bytes |
+|---|---:|---:|---:|---:|---:|
+| SCR1 FST | 3,648,879 | 916,224 | 0.289 | 25.360 | 75,939,840 |
+| RSA long FST | 338,245,966 | 6,043,117 | 0.337 | 1,754.595 | 1,584,316,416 |
+| SCR1 VTR, HEAD | 1,244,845 | 916,224 | 0.292 | 4.499 | not measured |
+| SCR1 VTR, current | 1,244,845 | 916,224 | 0.336 | 4.397 | not measured |
+| RSA long VTR, HEAD | 325,338,845 | 6,043,117 | 0.089 | 111.458 | not measured |
+| RSA long VTR, current | 325,338,845 | 6,043,117 | 0.101 | 110.150 | not measured |
+
+Inputs: `ext/wavepeek/web/playground/assets/scr1_axi.fst`,
+`bench/workloads/gen/rsa256_long.fst`, and
+`bench/out/shared-loads/{scr1_axi,rsa256_long}_shared.vtr`. Generated benchmark
+files are local artifacts from the existing benchmark suite. Peak RSS comes
+from macOS `/usr/bin/time -l` and includes the reader, allocator and all five
+iterations, not just live history buffers.
+
+FST load times over the five repetitions were 37.267, 27.158, 26.049, 25.360,
+25.882 ms for SCR1 and 1826.575, 1786.478, 1782.329, 1789.205, 1754.595 ms
+for RSA. Whole-history FST storage uses owned values and can consume much more
+memory than the file: about 1.48 GiB RSS for this RSA selection. No bounded-memory
+or remote-viewing claim follows from batched loading. VTR loading showed no
+regression in these selections; opening pays a small additional track-metadata
+cost. The lower RSA VTR timing is not claimed as an improvement. No encoding,
+writer or VTR decoder implementation changed, so these measurements make no
+file-size/write-speed claim and do not replace the format benchmark suite.

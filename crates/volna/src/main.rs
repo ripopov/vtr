@@ -1,7 +1,7 @@
 //! Native entry point.
 //!
 //! ```text
-//! volna [FILE.vtr]            open a trace
+//! volna [FILE.vtr|FILE.fst]   open a trace
 //! volna --synthetic N         open a synthetic trace with N transitions
 //! ```
 
@@ -21,7 +21,7 @@ fn main() {
                     .or(Some(1_000_000))
             }
             "-h" | "--help" => {
-                println!("usage: volna [FILE.vtr] [--synthetic N]");
+                println!("usage: volna [FILE.vtr|FILE.fst] [--synthetic N]");
                 return;
             }
             _ => file = Some(a.into()),

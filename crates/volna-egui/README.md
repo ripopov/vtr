@@ -5,6 +5,10 @@ lives in `volna-core`; this crate owns the window, paints the core's display
 list with `egui::Painter`, hosts egui widgets for the chrome and runs the core's
 loads on threads. There is no wasm build and no VS Code integration.
 
+Open VTR or FST using the command line, file dialog, or drag and drop. Both
+formats use the same core and background load loop. See the
+[FST support notes](../volna/README.md) for supported values and limitations.
+
 ```sh
 cargo run -p volna-egui --profile viewer -- crates/volna/examples/picorv32.vtr
 cargo run -p volna-egui --profile viewer -- --synthetic 100000000

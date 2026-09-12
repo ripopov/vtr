@@ -625,7 +625,7 @@ pub fn paint_bit_row(
     let mut dense_start: Option<usize> = None;
 
     let emit_run = |scene: &mut Scene, xs: usize, xe: usize, b: Bit| {
-        if xe <= xs {
+        if xe <= xs || b == Bit::Unavailable {
             return;
         }
         let x = x0 + xs as f32;
@@ -660,7 +660,7 @@ pub fn paint_bit_row(
         }
         let new_bit = h.bit(idx1);
         emit_run(scene, run_start, x, bit);
-        if n == 1 {
+        if n == 1 && bit != Bit::Unavailable && new_bit != Bit::Unavailable {
             let (ya, yb) = (y_of(bit), y_of(new_bit));
             let (lo, hi) = if ya <= yb { (ya, yb) } else { (yb, ya) };
             let color = t.value_color(if new_bit.kind() != ValueKind::Normal {
@@ -672,7 +672,7 @@ pub fn paint_bit_row(
                 Rect::new(point(x0 + x as f32, lo), size(1.0, hi - lo + 1.0)),
                 color,
             );
-        } else if dense_start.is_none() {
+        } else if n >= 2 && dense_start.is_none() {
             dense_start = Some(x);
         }
         run_start = x + 1;
@@ -803,6 +803,9 @@ fn paint_bus_row(
                 continue;
             }
             let value = h.value(seg.idx);
+            if matches!(value, WaveValue::Unavailable) {
+                continue;
+            }
             let kind = value_kind(&value);
             let color = t.value_color(kind);
             let seg_w = xb - xa;
