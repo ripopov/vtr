@@ -99,16 +99,42 @@ pub mod web {
     use futures::channel::mpsc;
     use wasm_bindgen::prelude::*;
 
-    thread_local! {
-        static OPEN_TX: RefCell<Option<mpsc::UnboundedSender<(String, Vec<u8>)>>> = const { RefCell::new(None) };
+    enum HostEvent {
+        Open(String, Vec<u8>),
+        Theme(Box<crate::theme::Theme>),
     }
 
-    /// Load a VTR file image. Safe to call before the app has finished starting.
+    thread_local! {
+        static PENDING_THEME: RefCell<Option<crate::theme::Theme>> = const { RefCell::new(None) };
+        static HOST_TX: RefCell<Option<mpsc::UnboundedSender<HostEvent>>> = const { RefCell::new(None) };
+    }
+
+    /// Load a VTR file image after the host receives `volnaReady`.
     #[wasm_bindgen]
     pub fn open_trace(name: String, bytes: Vec<u8>) {
-        OPEN_TX.with(|tx| {
+        HOST_TX.with(|tx| {
             if let Some(tx) = tx.borrow().as_ref() {
-                tx.unbounded_send((name, bytes)).ok();
+                tx.unbounded_send(HostEvent::Open(name, bytes)).ok();
+            }
+        });
+    }
+
+    /// Semantic RGBA palette. Before startup, retain the latest snapshot; afterwards,
+    /// enqueue updates on GPUI's executor (never re-enter an application update).
+    #[wasm_bindgen]
+    pub fn set_theme(dark: bool, high_contrast: bool, colors: JsValue) {
+        let theme = crate::theme::Theme::from_host(dark, high_contrast, |name| {
+            let n = js_sys::Reflect::get(&colors, &JsValue::from_str(name))
+                .ok()?
+                .as_f64()?;
+            (n.is_finite() && n.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&n))
+                .then_some(n as u32)
+        });
+        HOST_TX.with(|tx| {
+            if let Some(tx) = tx.borrow().as_ref() {
+                tx.unbounded_send(HostEvent::Theme(Box::new(theme))).ok();
+            } else {
+                PENDING_THEME.with(|slot| *slot.borrow_mut() = Some(theme));
             }
         });
     }
@@ -125,12 +151,11 @@ pub mod web {
         log::warn!("volnaOpen is not defined by the host page");
     }
 
-    #[wasm_bindgen(start)]
+    #[wasm_bindgen]
     pub fn start() {
         console_error_panic_hook::set_once();
         gpui_web::init_logging();
-        let (tx, mut rx) = mpsc::unbounded::<(String, Vec<u8>)>();
-        OPEN_TX.with(|slot| *slot.borrow_mut() = Some(tx));
+        let (tx, mut rx) = mpsc::unbounded::<HostEvent>();
         // Embedded mode when the host page sets `window.volnaEmbedded = true`.
         let embedded = js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("volnaEmbedded"))
             .ok()
@@ -138,11 +163,20 @@ pub mod web {
             .unwrap_or(false);
         let handle = super::application().run_embedded(move |cx| {
             super::init_app(cx);
+            PENDING_THEME.with(|slot| {
+                if let Some(theme) = slot.borrow_mut().take() {
+                    theme.install(cx);
+                }
+            });
+            HOST_TX.with(|slot| *slot.borrow_mut() = Some(tx));
             match super::open_main_window(cx, embedded) {
                 Ok(workspace) => {
                     cx.spawn(async move |cx| {
-                        while let Some((name, bytes)) = rx.next().await {
-                            let _ = workspace.update(cx, |ws, cx| ws.open_bytes(name, bytes, cx));
+                        while let Some(event) = rx.next().await {
+                            let _ = workspace.update(cx, |ws, cx| match event {
+                                HostEvent::Open(name, bytes) => ws.open_bytes(name, bytes, cx),
+                                HostEvent::Theme(theme) => theme.install(cx),
+                            });
                         }
                     })
                     .detach();

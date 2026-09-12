@@ -104,10 +104,14 @@ impl TextInput {
 
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = theme(cx).input();
         let focused = self.focus_handle.is_focused(window);
         let empty = self.text.is_empty();
-        let border = if focused { t.border_focused } else { t.border };
+        let border = if focused {
+            t.border_focused
+        } else {
+            t.input_border
+        };
         let hover_border = t.border_focused;
         div()
             .id("text-input")
@@ -118,7 +122,7 @@ impl Render for TextInput {
             .h(px(24.0))
             .px_2()
             .rounded_md()
-            .bg(t.bg_editor)
+            .bg(t.bg_input)
             .border_1()
             .border_color(border)
             .hover(move |s| s.border_color(hover_border))

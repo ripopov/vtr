@@ -18,6 +18,7 @@ waves), a timeline, a cursor and numbered markers.
 Rust 1.96 or newer is the supported toolchain baseline. Run `./check.sh` from
 this directory (or `./crates/volna/check.sh` from the repository root) to check
 formatting, deny Clippy warnings across all targets/features, and run tests.
+The check script also requires Node.js 22+ for the VS Code adapter tests.
 The native build requires the platform SDK, including Metal tools on macOS.
 On macOS, `check.sh` also runs the feature-gated Metal integration test;
 `cargo test -p volna` runs only the GPU-free tests.
@@ -62,6 +63,13 @@ Opening any `*.vtr` file uses the viewer as a custom editor; the command
 "Volna: Open Waveform Viewer" opens an empty viewer whose *Open* button
 goes through VS Code's file dialog. Package with `npx @vscode/vsce package`
 inside `vscode-ext/`.
+
+VS Code colours follow the current theme, including custom themes, colour
+customizations, light/dark and both high-contrast modes. Changes repaint the
+existing viewer without reopening the trace or resetting interaction/layout
+state. The page background follows VS Code while loading; GPUI starts only after
+receiving its initial palette. Fonts and dimensions remain Volna's bundled ones.
+Native and standalone web continue to use One Dark.
 
 ## Using the viewer
 

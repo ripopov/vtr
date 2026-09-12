@@ -62,3 +62,54 @@ fn closing_invalidates_pending_success_and_error(cx: &mut TestAppContext) {
             .unwrap();
     }
 }
+
+#[gpui::test]
+fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.set_global(crate::theme::Theme::one_dark()));
+    let window = cx.add_window(Workspace::new);
+    let source: Arc<dyn WaveSource> = Arc::new(SynthSource::new(100));
+    window
+        .update(cx, |ws, _, cx| {
+            ws.set_source(source.clone(), cx);
+            ws.sidebar_width = px(355.0);
+            ws.scopes_fraction = 0.61;
+            ws.waves.update(cx, |w, cx| {
+                w.add_vars(&[0; 100], cx);
+                w.cursor = Some(42);
+                w.selected.insert(1);
+                w.anchor = Some(1);
+                w.viewport.start = 20.0;
+                w.viewport.end = 80.0;
+                w.names_width = px(260.0);
+                w.values_width = px(140.0);
+                w.scroll_y = px(24.0);
+                w.markers.push(crate::wave::view::Marker { time: 30 });
+            });
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let (before, history) = window
+        .update(cx, |ws, _, cx| {
+            (
+                ws.debug_state(cx),
+                ws.waves.read(cx).items[0].history.clone().unwrap(),
+            )
+        })
+        .unwrap();
+    for (dark, hc) in [(false, false), (true, false), (true, true), (false, true)] {
+        cx.update(|cx| crate::theme::Theme::from_host(dark, hc, |_| None).install(cx));
+        cx.run_until_parked();
+        window
+            .update(cx, |ws, _, cx| {
+                assert!(matches!(&ws.state, TraceState::Loaded(s) if Arc::ptr_eq(s, &source)));
+                assert_eq!(ws.debug_state(cx), before);
+                let w = ws.waves.read(cx);
+                assert!(Arc::ptr_eq(w.items[0].history.as_ref().unwrap(), &history));
+                assert_eq!(w.names_width, px(260.0));
+                assert_eq!(w.values_width, px(140.0));
+                assert_eq!(w.scroll_y, px(24.0));
+                assert_eq!(w.markers[0].time, 30);
+            })
+            .unwrap();
+    }
+}

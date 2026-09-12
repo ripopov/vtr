@@ -477,6 +477,24 @@ impl Element for WaveTable {
                 if is_selected {
                     window.paint_quad(fill(left_row, t.element_selected));
                     window.paint_quad(fill(wave_row, t.wave_row_selected));
+                    if t.high_contrast {
+                        window.paint_quad(quad(
+                            left_row,
+                            px(0.0),
+                            gpui::transparent_black(),
+                            px(1.0),
+                            t.border_focused,
+                            gpui::BorderStyle::default(),
+                        ));
+                        window.paint_quad(quad(
+                            wave_row,
+                            px(0.0),
+                            gpui::transparent_black(),
+                            px(1.0),
+                            t.border_focused,
+                            gpui::BorderStyle::default(),
+                        ));
+                    }
                 } else if is_hover {
                     window.paint_quad(fill(left_row, t.element_hover));
                     window.paint_quad(fill(wave_row, t.wave_row_hover));
@@ -488,6 +506,7 @@ impl Element for WaveTable {
                         bounds: layout.names,
                     }),
                     |window| {
+                        let t = t.row(is_selected, is_hover);
                         let pad = px(12.0);
                         let avail = layout.names.size.width - pad * 2.0;
                         let dims = item.shape.dims();
@@ -542,6 +561,7 @@ impl Element for WaveTable {
                         bounds: layout.values,
                     }),
                     |window| {
+                        let t = t.row(is_selected, is_hover);
                         let pad = px(8.0);
                         let badge = layout
                             .badges
@@ -731,6 +751,7 @@ impl Element for WaveTable {
         }
 
         // -- header: column titles, tick labels, unit -----------------------------
+        let panel_theme = t.panel();
         let header = layout.header;
         let label_font = ui(&t, FontWeight::SEMIBOLD);
         let title = shape(
@@ -738,7 +759,7 @@ impl Element for WaveTable {
             "SIGNALS",
             label_font.clone(),
             t.ui_size_small,
-            t.text_muted,
+            panel_theme.text_muted,
         );
         window.with_content_mask(
             Some(ContentMask {
@@ -765,9 +786,9 @@ impl Element for WaveTable {
             None => "VALUE".to_string(),
         };
         let (vfont, vcolor) = if cursor.is_some() {
-            (mono_font.clone(), t.text)
+            (mono_font.clone(), panel_theme.text)
         } else {
-            (label_font.clone(), t.text_muted)
+            (label_font.clone(), panel_theme.text_muted)
         };
         let vt = shape(
             window,
@@ -814,7 +835,7 @@ impl Element for WaveTable {
                         unit,
                         mono_font.clone(),
                         t.ui_size_small,
-                        t.text_placeholder,
+                        panel_theme.text_placeholder,
                     )
                 });
                 let unit_x = unit_line
@@ -825,7 +846,7 @@ impl Element for WaveTable {
                     let x = snap(waves.origin.x + px(viewport.x_of(tick.time, wave_wf) as f32));
                     window.paint_quad(fill(
                         Bounds::new(point(x, header.bottom() - px(7.0)), size(px(1.0), px(6.0))),
-                        t.text_placeholder,
+                        panel_theme.text_placeholder,
                     ));
                     let line = shape(
                         window,
@@ -889,7 +910,7 @@ impl Element for WaveTable {
                 format!("M{}", ix + 1),
                 ui(&t, FontWeight::SEMIBOLD),
                 t.ui_size_small,
-                t.wave_cursor_text,
+                t.marker_text(bg),
             );
             label
                 .paint(

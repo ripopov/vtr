@@ -194,7 +194,7 @@ fn direction_label(d: Direction) -> &'static str {
 
 impl Render for VariableList {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = theme(cx).panel();
         let focused = self.focus_handle.is_focused(window);
         let count = self.rows.len();
         let searching = !self.filter.read(cx).text().is_empty();
@@ -228,7 +228,7 @@ impl Render for VariableList {
             "variable-list",
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
-                let t = theme(cx).clone();
+                let t = theme(cx).panel();
                 let Some(src) = this.source.clone() else {
                     return Vec::new();
                 };
@@ -238,6 +238,7 @@ impl Render for VariableList {
                         let var = this.rows[ix];
                         let v = &h.vars[var];
                         let selected = this.selected.contains(&ix);
+                        let t = t.row(selected, false);
                         let hover = t.element_hover;
                         let dims: SharedString = v.shape.dims().into();
                         let name: SharedString = if show_scope {
@@ -268,7 +269,9 @@ impl Render for VariableList {
                                 },
                             ));
                         if selected {
-                            row = row.bg(t.element_selected);
+                            row = row.bg(t.element_selected).when(t.high_contrast, |row| {
+                                row.border_1().border_color(t.border_focused)
+                            });
                         } else {
                             row = row.hover(move |s| s.bg(hover));
                         }

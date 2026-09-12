@@ -42,7 +42,7 @@ impl Tooltip {
 
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx);
+        let t = theme(cx).elevated();
         div()
             .flex()
             .items_center()

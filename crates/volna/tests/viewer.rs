@@ -340,6 +340,42 @@ fn run(measure: bool) -> anyhow::Result<()> {
         settle(&mut test, 2);
         expect(&mut test, "after badge click", &["menu=true"]);
         shot(&mut test, "05-format-menu")?;
+        // Replace only the theme while trace, selection, zoom, cursor, marker and
+        // format menu are active. Cached GPUI children must repaint too.
+        let before_theme = state(&mut test, "before themes");
+        for (name, dark, hc) in [
+            ("06-light", false, false),
+            ("07-dark", true, false),
+            ("08-hc-dark", true, true),
+            ("09-hc-light", false, true),
+            ("10-custom", false, false),
+        ] {
+            test.update(|cx| {
+                volna::theme::Theme::from_host(dark, hc, |token| {
+                    if name == "10-custom" {
+                        match token {
+                            "bg_editor" => Some(0xfff4e6ff),
+                            "text" => Some(0x321800ff),
+                            "bg_panel" => Some(0x203040ff),
+                            "panel_text" => Some(0xf0f8ffff),
+                            "bg_bar" => Some(0x005fb8ff),
+                            "bar_text" => Some(0xffffffff),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .install(cx)
+            });
+            shot(&mut test, name)?;
+            assert_eq!(
+                state(&mut test, name),
+                before_theme,
+                "theme must preserve viewer state"
+            );
+        }
+        test.update(|cx| volna::theme::Theme::one_dark().install(cx));
         key(&mut test, "escape");
         expect(&mut test, "menu dismissed", &["menu=false"]);
         key(&mut test, "f");

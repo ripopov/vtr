@@ -18,7 +18,7 @@ src/
     source.rs      WaveSource trait, Hierarchy / Scope / Variable model
     vtr_source.rs  WaveSource over vtr::Reader (mmap on native, from_bytes on wasm)
     synth.rs       procedural stress source (100 M transitions, zero memory)
-  theme.rs       every colour, font and metric (Zed One Dark), a GPUI Global
+  theme.rs       semantic colours, contrast/fallback rules, fonts and metrics; a GPUI Global
   assets.rs      embedded Lucide icons and IBM Plex Sans / Lilex fonts
   ui/            primitives: IconButton, TextButton, Splitter, PopupMenu, Scrollbar, TextInput, Tooltip
   sidebar/       ScopeTree and VariableList views (uniform_list, keyboard navigation)
@@ -102,3 +102,50 @@ browser thread. The VTR reader, file format, and decode path are unchanged.
   `postMessage` and are parsed with `vtr::Reader::from_bytes`.
 - Native: `vtr::Reader::open` memory-maps the file; signal histories are loaded
   on demand on the background executor when a variable is added.
+
+## Host theming
+
+VS Code uses the existing single webview. `vscode-ext/theme.mjs` is the only
+VS Code colour-token mapping: it reads the resolved `--vscode-*` CSS variables
+from the body and sends semantic RGBA tokens through `web::set_theme`. A
+MutationObserver watches root/body style and theme-class changes, so theme
+customizations and changes within the same light/dark kind also update. Missing
+or malformed tokens are omitted; each snapshot replaces the previous palette,
+so values removed by a new theme do not leak from an old one. HC light is checked
+before the legacy HC class, which VS Code also attaches to HC light webviews.
+
+Web startup is explicit: `await init()` initializes wasm without creating GPUI;
+the VS Code adapter waits for theme metadata and installs the initial palette;
+then `start()` launches GPUI. Until launch completes, Rust retains the latest
+palette. The launch callback installs it before creating the window and starts
+a channel for subsequent themes/file opens. `volnaReady` means file delivery is
+safe, and the extension registers its receiver before assigning webview HTML.
+The standalone page calls `start()` immediately after wasm initialization and
+keeps the existing One Dark default. Live changes never replace webview HTML or
+workspace entities: `Theme::install` replaces the GPUI global and refreshes all
+windows, including cached child views.
+
+`Theme::from_host` is shared Rust with no VS Code, browser or transport types.
+The host supplies optional semantic packed RGBA colours and dark/high-contrast
+flags. Rust resolves mode-aware fallbacks, composites translucent surfaces,
+keeps readable supplied colours, and adjusts insufficient-contrast colours
+toward black or white. Text targets 4.5:1; interactive borders/icons target 3:1
+where contrast is enforced. Waves use chart colours, with low-alpha row overlays
+and separate cursor/marker label foregrounds. HC adds visible selection outlines
+and stronger borders/grid/scrollbars. Panels, inputs, bars and popovers use their
+own foreground/background pairs. These are local contrast safeguards, not a
+claim of complete accessibility conformance or pairwise colour distinguishability.
+
+This small semantic palette/install boundary can also be used by a future
+`embedded_gpui` host. There is no Zed integration, new dependency, or VTR change.
+
+Research: [official webview theming guide](https://code.visualstudio.com/api/extension-guides/webview#theming-webview-content),
+[theme colour reference](https://code.visualstudio.com/api/references/theme-color),
+[ColorTheme API](https://code.visualstudio.com/api/references/vscode-api#ColorTheme),
+[VS Code colour serialization](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/webview/browser/themeing.ts),
+and [VS Code webview style application](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/webview/browser/pre/index.html).
+`activeColorTheme`/`onDidChangeActiveColorTheme` expose a kind, not resolved RGB
+values; they are not a substitute for CSS variables. Theme-name lookup and
+reading theme extension JSON would miss resolved defaults and user overrides.
+An extension-host notification also needlessly races webview style delivery,
+so the adapter observes the actual delivered palette instead.

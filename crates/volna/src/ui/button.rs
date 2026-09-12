@@ -59,7 +59,7 @@ impl IconButton {
 
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let t = theme(cx);
+        let t = theme(cx).panel();
         let icon_color = if self.disabled {
             t.text_placeholder
         } else if self.selected {
@@ -138,9 +138,19 @@ impl TextButton {
 
 impl RenderOnce for TextButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let t = theme(cx);
+        let t = theme(cx).panel();
         let (bg, fg, hover, active, border) = if self.primary {
-            (t.accent, t.bg_editor, t.text_accent, t.accent, t.accent)
+            (
+                t.button_bg,
+                t.button_text,
+                t.button_hover,
+                t.button_bg,
+                if t.high_contrast {
+                    t.border_focused
+                } else {
+                    t.button_bg
+                },
+            )
         } else {
             (
                 t.bg_panel,
@@ -165,8 +175,14 @@ impl RenderOnce for TextButton {
             .text_size(t.ui_size)
             .text_color(fg)
             .cursor(CursorStyle::PointingHand)
-            .hover(move |s| s.bg(hover))
-            .active(move |s| s.bg(active));
+            .hover(move |s| {
+                s.bg(hover)
+                    .text_color(crate::theme::readable(fg, hover, 4.5))
+            })
+            .active(move |s| {
+                s.bg(active)
+                    .text_color(crate::theme::readable(fg, active, 4.5))
+            });
         if let Some(icon) = self.icon {
             el = el.child(Icon::new(icon).color(fg));
         }

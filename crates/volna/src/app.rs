@@ -426,7 +426,7 @@ impl Workspace {
     }
 
     fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = theme(cx).bar();
         let file: Option<SharedString> = match &self.state {
             TraceState::Loaded(s) => Some(s.info().name.clone().into()),
             TraceState::Loading { name } => Some(name.clone()),
@@ -662,7 +662,7 @@ impl Workspace {
     }
 
     fn render_statusbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = theme(cx).bar();
         let waves = self.waves.read(cx);
         let mono = |text: SharedString, color: gpui::Hsla| {
             div()

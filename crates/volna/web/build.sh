@@ -25,6 +25,7 @@ if command -v wasm-opt >/dev/null 2>&1; then
   wasm-opt -Os -o web/dist/volna_bg.wasm web/dist/volna_bg.wasm
 fi
 mkdir -p vscode-ext/media
+cp vscode-ext/theme.mjs vscode-ext/media/
 cp web/dist/volna.js web/dist/volna_bg.wasm vscode-ext/media/
 mkdir -p vscode-ext/media/licenses
 cp assets/fonts/IBMPlexSans-LICENSE.txt assets/fonts/Lilex-OFL.txt vscode-ext/media/licenses/

@@ -46,7 +46,7 @@ impl PopupMenu {
 
 impl Render for PopupMenu {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = theme(cx).elevated();
         let items = self.items.iter().enumerate().map(|(ix, item)| {
             let id = item.id.clone();
             let hover = t.element_hover;

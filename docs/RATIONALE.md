@@ -873,3 +873,15 @@ unit/regression tests. The feature-gated macOS harness runs on the main thread
 for AppKit, reuses the production workspace, and combines interaction assertions
 with optional screenshot artifacts. Timing measurements are explicitly ignored
 by default so machine speed does not determine test success.
+
+Volna's VS Code theming uses resolved webview CSS variables, following the
+[official guide](https://code.visualstudio.com/api/extension-guides/webview#theming-webview-content).
+A small JavaScript adapter maps them to semantic RGBA tokens; shared Rust owns
+fallbacks, contrast and GPUI invalidation. Theme kinds alone cannot reproduce
+custom themes; parsing theme files would duplicate VS Code's resolution rules
+and miss customizations. Explicit wasm startup installs the latest palette
+before window creation. Live updates refresh the same views without resetting
+trace or interaction state. The single-webview layout and native/standalone
+One Dark defaults remain. See Volna's architecture and verification records for
+the boundary and tests. No VTR format, reader/writer API or decode path changes
+are involved, so the VTR specification and API references are unchanged.

@@ -99,7 +99,7 @@ cargo test -p volna --profile viewer --features visual-test --test viewer frame_
 
 ## Acceptance check (look and feel)
 
-All colours are Zed One Dark tokens (`src/theme.rs`); fonts are IBM Plex Sans
+At the pre-host-theming baseline, all colours were Zed One Dark tokens (`src/theme.rs`); fonts are IBM Plex Sans
 and Lilex as shipped by Zed; icons are Lucide at 16 px; every panel header is
 32 px with a 1 px `border_variant` rule; rows are 24 px on a 4 px grid.
 `results/vscode/04-cursor-zoom.png` shows the viewer inside VS Code's chrome at
@@ -116,3 +116,57 @@ step for the reviewer.
   the bundled examples, noticeable for very large files).
 - No `wasm-opt` pass; the bundle is 12.8 MB, mostly fonts and the VTR reader.
 - Marker chips can overlap tick labels at some zoom levels.
+
+## VS Code theme following (2026-09-12)
+
+Validation for the host-theming change:
+
+- `crates/volna/check.sh` passes formatting, strict native Clippy across all
+  targets/features, 24 Rust unit/regression tests, the Metal viewer interaction
+  test, and three Node.js adapter tests. `frame_times` remains intentionally
+  ignored; no performance claim or VTR benchmark update is made.
+- `CARGO_TARGET_DIR=/Users/ripopov/work/vtr/target sh crates/volna/web/build.sh`
+  builds the optimized wasm and extension media bundle. The target-directory
+  override reused local dependencies; it is not required for a clean build.
+- Rust tests cover opaque/alpha tokens, sparse and low-contrast palettes in all
+  four modes, text/wave/marker contrast, and preservation of source/history
+  identity, selection, cursor, zoom, markers, column widths and scroll offset.
+- Adapter tests cover CSS hex and rgb()/rgba() values, missing/malformed values, all four theme
+  classes (including HC light's legacy class), delayed startup metadata,
+  same-kind changes, deduplication and removal of old tokens.
+- The Metal interaction test switches palettes with the format menu open and
+  asserts unchanged viewer diagnostics. Optional captures include `06-light`,
+  `07-dark`, `08-hc-dark`, `09-hc-light` and `10-custom`; HC light and the custom
+  palette with light editor/dark panels were visually inspected.
+
+Live graphical verification used an isolated VS Code development profile and
+Chrome via the DevTools protocol, without changing the user's editor settings.
+With `picorv32.vtr` open and 29 signals added, a signal was selected, the cursor
+placed at about 3.41 µs, a marker added, and the viewport zoomed. Theme changes through
+Dark Modern, Default High Contrast, Default High Contrast Light and Light Modern
+all repainted the viewer. Light Modern colour customizations then set an ivory
+editor (`#fff4e6`), dark panels (`#203040`), blue status bar (`#005fb8`) and teal
+waves (`#006b66`); removing those customizations restored the original colours.
+Every switch retained the identical webview document and canvas objects. After converting the captures' embedded display profile to sRGB, pixel sampling
+also confirmed the actual canvas background in all five palettes. The
+captures retain the trace, selection, cursor, marker and zoom; HC outlines and
+foregrounds were visually inspected. The initial light viewer capture also
+uses the host palette. A standalone Chrome page still loads the sample in
+One Dark. Local artifacts are `/tmp/volna-theme-shots/` (not committed), with
+`vscode-{light,dark,hc-dark,hc-light,light-modern,custom,custom-removed}.png`
+and `web-standalone.png` alongside the Metal captures.
+
+To repeat: build the web bundle, launch `code --user-data-dir=<temporary-dir>
+--extensionDevelopmentPath=<absolute vscode-ext path> <sample.vtr>`, select
+Volna with **Reopen Editor With…** if the first launch selected the binary text
+editor, add signals and interaction state, then change themes and
+`workbench.colorCustomizations` in that temporary profile. Re-run the Metal
+capture command above for reproducible automated state assertions.
+
+Limits: the live run exercised bundled themes and customizations, not a matrix
+of third-party theme extensions, VS Code versions or GPU backends. Screenshots
+are spot checks, not a frame-by-frame startup recording or pixel-baseline test;
+the no-default-flash guarantee comes from installing the palette before GPUI
+window creation. Fonts/metrics remain bundled and do not follow VS Code font
+settings. Contrast safeguards do not constitute a complete accessibility audit.
+The pre-existing dependency `block` reports a future-Rust compatibility warning.

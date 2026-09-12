@@ -19,6 +19,7 @@ function nonce() {
 function html(webview, extensionUri) {
   const media = vscode.Uri.joinPath(extensionUri, "media");
   const js = webview.asWebviewUri(vscode.Uri.joinPath(media, "volna.js"));
+  const themeJs = webview.asWebviewUri(vscode.Uri.joinPath(media, "theme.mjs"));
   const n = nonce();
   const csp = [
     `default-src 'none'`,
@@ -35,13 +36,14 @@ function html(webview, extensionUri) {
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; background: #282c33; overflow: hidden; }
+  html, body { height: 100%; background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); overflow: hidden; }
   canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; user-select: none; }
 </style>
 </head>
 <body>
 <script type="module" nonce="${n}">
-  import init, { open_trace } from "${js}";
+  import init, { open_trace, start, set_theme } from "${js}";
+  import { followTheme } from "${themeJs}";
   const vscode = acquireVsCodeApi();
   window.volnaEmbedded = true;
   window.volnaOpen = () => vscode.postMessage({ type: "pickFile" });
@@ -53,6 +55,8 @@ function html(webview, extensionUri) {
     }
   });
   await init();
+  await followTheme(set_theme);
+  start();
 </script>
 </body>
 </html>`;
@@ -66,7 +70,6 @@ async function sendFile(webview, uri) {
 
 function wire(panelWebview, context, initialUri) {
   panelWebview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")] };
-  panelWebview.html = html(panelWebview, context.extensionUri);
   let current = initialUri;
   panelWebview.onDidReceiveMessage(async (msg) => {
     if (msg.type === "ready" && current) {
@@ -83,6 +86,8 @@ function wire(panelWebview, context, initialUri) {
       }
     }
   });
+  // Register the receiver before loading HTML: ready may arrive immediately.
+  panelWebview.html = html(panelWebview, context.extensionUri);
 }
 
 function activate(context) {
