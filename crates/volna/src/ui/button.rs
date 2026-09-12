@@ -173,7 +173,7 @@ impl RenderOnce for TextButton {
             .border_1()
             .border_color(border)
             .font_family(t.ui_font)
-            .text_size(t.ui_size)
+            .text_size(px(t.ui_size))
             .text_color(normal.text)
             .cursor(CursorStyle::PointingHand)
             .hover(move |s| s.bg(hover.bg).text_color(hover.text))

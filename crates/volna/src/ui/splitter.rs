@@ -52,7 +52,7 @@ impl Splitter {
 impl RenderOnce for Splitter {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = theme(cx);
-        let grab = t.splitter_grab;
+        let grab = px(t.splitter_grab);
         let base_color = t.border;
         let active_color = t.border_focused;
         let cursor = match self.axis {

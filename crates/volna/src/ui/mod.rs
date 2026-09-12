@@ -15,5 +15,3 @@ pub use menu::{PopupMenu, PopupMenuItem};
 pub use splitter::{Splitter, SplitterAxis};
 pub use text_input::TextInput;
 pub use tooltip::Tooltip;
-
-pub(crate) mod selection;

@@ -1,98 +1,105 @@
+//! GPUI adapter tests: the load loop runs on the GPUI executor and theme
+//! changes leave core state alone. Viewer semantics are tested headlessly in
+//! `volna-core`.
+
 use super::*;
-use futures::channel::oneshot;
 use gpui::TestAppContext;
+use std::sync::Arc;
+use volna_core::data::synth::SynthSource;
+use volna_core::session::{LoadRequest, LoadResult, OpenSpec};
+
+fn init(cx: &mut TestAppContext) {
+    cx.update(|cx| crate::theme::set(crate::theme::CoreTheme::one_dark(), cx));
+}
 
 #[gpui::test]
-fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
-    cx.update(|cx| cx.set_global(crate::theme::Theme::one_dark()));
+fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
+    init(cx);
     let window = cx.add_window(Workspace::new);
-    let (tx, rx) = oneshot::channel();
     window
-        .update(cx, |ws, _, cx| {
-            ws.load_source("slow demo", async { rx.await.unwrap() }, true, cx);
-        })
-        .unwrap();
-    cx.run_until_parked();
-    let current: Arc<dyn WaveSource> = Arc::new(SynthSource::new(7));
-    window
-        .update(cx, |ws, _, cx| {
-            let source = current.clone();
-            ws.load_source("new file", async { Ok(source) }, false, cx);
-        })
-        .unwrap();
-    cx.run_until_parked();
-    tx.send(Ok(Arc::new(SynthSource::new(100)) as Arc<dyn WaveSource>))
-        .ok()
+        .update(cx, |ws, _, cx| ws.open_synthetic(1000, cx))
         .unwrap();
     cx.run_until_parked();
     window
-        .update(cx, |ws, _, cx| {
-            assert!(matches!(&ws.state, TraceState::Loaded(s) if Arc::ptr_eq(s, &current)));
-            assert!(ws.waves.read(cx).items.is_empty());
+        .update(cx, |ws, _, _| {
+            assert!(ws.app.doc.is_loaded());
+            assert!(!ws.app.waves.items.is_empty());
+            assert_eq!(ws.app.waves.loaded_count(), ws.app.waves.items.len());
         })
         .unwrap();
 }
 
 #[gpui::test]
-fn closing_invalidates_pending_success_and_error(cx: &mut TestAppContext) {
-    cx.update(|cx| cx.set_global(crate::theme::Theme::one_dark()));
+fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
+    init(cx);
     let window = cx.add_window(Workspace::new);
-    for fail in [false, true] {
-        let (tx, rx) = oneshot::channel();
-        window
-            .update(cx, |ws, _, cx| {
-                ws.load_source("slow file", async { rx.await.unwrap() }, false, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        window
-            .update(cx, |ws, window, cx| ws.close_trace(&CloseTrace, window, cx))
-            .unwrap();
-        let result = if fail {
-            Err(anyhow::anyhow!("late error"))
-        } else {
-            Ok(Arc::new(SynthSource::new(10)) as Arc<dyn WaveSource>)
-        };
-        tx.send(result).ok().unwrap();
-        cx.run_until_parked();
-        window
-            .update(cx, |ws, _, _| {
-                assert!(matches!(ws.state, TraceState::Empty))
-            })
-            .unwrap();
-    }
+    // Take the slow open's request out of the queue so it can complete late.
+    let slow = window
+        .update(cx, |ws, _, cx| {
+            ws.app.open_synthetic(50);
+            let mut reqs = ws.app.take_requests();
+            ws.after(None, cx);
+            reqs.pop().unwrap()
+        })
+        .unwrap();
+    let current: Arc<dyn Session> = Arc::new(SynthSource::new(7));
+    window
+        .update(cx, |ws, _, cx| {
+            ws.app.handle(Command::Open(OpenSpec::Synthetic(7)));
+            let LoadRequest::Open { generation, .. } = ws.app.take_requests().pop().unwrap() else {
+                panic!("expected an open request");
+            };
+            ws.app.deliver(LoadResult::Opened {
+                generation,
+                result: Ok(current.clone()),
+            });
+            ws.after(None, cx);
+        })
+        .unwrap();
+    window.update(cx, |ws, _, cx| ws.queue(slow, cx)).unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, _, _| {
+            assert!(
+                matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current))
+            );
+            assert!(ws.app.waves.items.is_empty());
+        })
+        .unwrap();
 }
 
 #[gpui::test]
 fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
-    cx.update(|cx| cx.set_global(crate::theme::Theme::one_dark()));
+    init(cx);
     let window = cx.add_window(Workspace::new);
-    let source: Arc<dyn WaveSource> = Arc::new(SynthSource::new(100));
+    let source: Arc<dyn Session> = Arc::new(SynthSource::new(100));
     window
         .update(cx, |ws, _, cx| {
-            ws.set_source(source.clone(), cx);
-            ws.sidebar_width = px(355.0);
-            ws.scopes_fraction = 0.61;
-            ws.waves.update(cx, |w, cx| {
-                w.add_vars(&[0; 100], cx);
-                w.cursor = Some(42);
-                w.selected.insert(1);
-                w.anchor = Some(1);
-                w.viewport.start = 20.0;
-                w.viewport.end = 80.0;
-                w.names_width = px(260.0);
-                w.values_width = px(140.0);
-                w.scroll_y = px(24.0);
-                w.markers.push(crate::wave::view::Marker { time: 30 });
-            });
+            ws.set_session(source.clone(), cx);
+            ws.app.handle(Command::SetSidebarWidth(355.0));
+            ws.app.handle(Command::SetScopesFraction(0.61));
+            ws.app.handle(Command::AddVars(vec![0; 100]));
+            ws.after(None, cx);
+            ws.app.doc.cursor = Some(42);
+            ws.app.waves.selected.insert(1);
+            ws.app.waves.anchor = Some(1);
+            ws.app.waves.viewport.start = 20.0;
+            ws.app.waves.viewport.end = 80.0;
+            ws.app.waves.names_width = 260.0;
+            ws.app.waves.values_width = 140.0;
+            ws.app.waves.scroll_y = 24.0;
+            ws.app
+                .doc
+                .markers
+                .push(volna_core::document::Marker { time: 30 });
         })
         .unwrap();
     cx.run_until_parked();
     let (before, history) = window
-        .update(cx, |ws, _, cx| {
+        .update(cx, |ws, _, _| {
             (
-                ws.debug_state(cx),
-                ws.waves.read(cx).items[0].history.clone().unwrap(),
+                ws.debug_state(),
+                ws.app.waves.items[0].history.clone().unwrap(),
             )
         })
         .unwrap();
@@ -103,23 +110,27 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
         crate::theme::Appearance::HighContrastLight,
     ] {
         cx.update(|cx| {
-            crate::theme::Theme::from_host(&crate::theme::HostPalette {
-                appearance,
-                ..Default::default()
-            })
-            .install(cx)
+            crate::theme::install(
+                crate::theme::CoreTheme::from_host(&crate::theme::HostPalette {
+                    appearance,
+                    ..Default::default()
+                }),
+                cx,
+            )
         });
         cx.run_until_parked();
         window
-            .update(cx, |ws, _, cx| {
-                assert!(matches!(&ws.state, TraceState::Loaded(s) if Arc::ptr_eq(s, &source)));
-                assert_eq!(ws.debug_state(cx), before);
-                let w = ws.waves.read(cx);
+            .update(cx, |ws, _, _| {
+                assert!(
+                    matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &source))
+                );
+                assert_eq!(ws.debug_state(), before);
+                let w = &ws.app.waves;
                 assert!(Arc::ptr_eq(w.items[0].history.as_ref().unwrap(), &history));
-                assert_eq!(w.names_width, px(260.0));
-                assert_eq!(w.values_width, px(140.0));
-                assert_eq!(w.scroll_y, px(24.0));
-                assert_eq!(w.markers[0].time, 30);
+                assert_eq!(w.names_width, 260.0);
+                assert_eq!(w.values_width, 140.0);
+                assert_eq!(w.scroll_y, 24.0);
+                assert_eq!(ws.app.doc.markers[0].time, 30);
             })
             .unwrap();
     }

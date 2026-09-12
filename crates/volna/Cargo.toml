@@ -6,7 +6,7 @@ repository.workspace = true
 edition = "2024"
 rust-version = "1.96"
 default-run = "volna"
-description = "Volna: the official VTR/VDB viewer, built with GPUI for native and web"
+description = "Volna: the official VTR/VDB viewer. GPUI frontend for native, web and VS Code over volna-core"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -28,13 +28,10 @@ visual-test = ["gpui_platform/test-support", "dep:image", "dep:libtest-mimic"]
 
 [dependencies]
 gpui = { version = "=0.3.4", package = "gpui-pre", default-features = false }
-vtr = { path = "../vtr" }
+volna-core = { path = "../volna-core" }
 anyhow = "1"
 futures = "0.3"
 log = "0.4"
-web-time = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 gpui_platform = { version = "=0.3.4", package = "gpui-pre-platform", features = ["font-kit"] }

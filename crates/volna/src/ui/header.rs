@@ -1,4 +1,4 @@
-use gpui::{App, Div, ParentElement, SharedString, Styled, div};
+use gpui::{App, Div, ParentElement, SharedString, Styled, div, px};
 
 use crate::theme::theme;
 
@@ -12,7 +12,7 @@ pub fn panel_header(title: impl Into<SharedString>, cx: &App) -> Div {
         .flex_none()
         .items_center()
         .justify_between()
-        .h(t.header_height)
+        .h(px(t.header_height))
         .px_3()
         .bg(t.panel.bg)
         .border_b_1()
@@ -20,7 +20,7 @@ pub fn panel_header(title: impl Into<SharedString>, cx: &App) -> Div {
         .child(
             div()
                 .font_family(t.ui_font)
-                .text_size(t.ui_size_small)
+                .text_size(px(t.ui_size_small))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(colors.text_muted)
                 .child(title.into().to_uppercase()),

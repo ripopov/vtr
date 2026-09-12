@@ -1,12 +1,6 @@
-//! The waveform panel: viewport math, timeline, the displayed-signal model and
-//! the custom `WaveTable` element that paints names, values and waves.
+//! The waveform panel element. All state and painting decisions live in
+//! `volna_core::wave`; this module only hosts them in GPUI.
 
 pub mod table;
-pub mod timeline;
-
-pub mod view;
-pub mod viewport;
 
 pub use table::WaveTable;
-pub use view::{DisplayedSignal, WaveView, WaveViewEvent};
-pub use viewport::Viewport;

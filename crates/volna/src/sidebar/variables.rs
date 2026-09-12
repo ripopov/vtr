@@ -1,210 +1,65 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
+//! The variable list panel: GPUI rows over `VariableListModel`, with the
+//! filter text box.
 
 use gpui::prelude::*;
 use gpui::{
-    Context, CursorStyle, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    Render, SharedString, UniformListScrollHandle, Window, div, px, uniform_list,
+    Context, CursorStyle, Focusable, IntoElement, KeyDownEvent, SharedString, Window, div, px,
+    uniform_list,
 };
+use volna_core::app::Command;
+use volna_core::sidebar::Key;
+use volna_core::sidebar::variables::{direction_label, shape_icon};
 
-use crate::data::{Direction, ScopeId, SignalShape, VarId, WaveSource};
+use crate::app::{Workspace, to_modifiers};
 use crate::theme::theme;
-use crate::ui::{
-    Icon, IconButton, IconName, TextInput, Tooltip, panel_header, text_input::TextInputEvent,
-};
+use crate::ui::{Icon, IconButton, IconName, Tooltip, panel_header};
 
-pub enum VariableListEvent {
-    Add(Vec<VarId>),
-}
-
-pub struct VariableList {
-    source: Option<Arc<dyn WaveSource>>,
-    scope: Option<ScopeId>,
-    filter: Entity<TextInput>,
-    rows: Vec<VarId>,
-    selected: BTreeSet<usize>,
-    anchor: Option<usize>,
-    scroll: UniformListScrollHandle,
-    focus_handle: FocusHandle,
-}
-
-impl EventEmitter<VariableListEvent> for VariableList {}
-
-impl Focusable for VariableList {
-    fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
-
-const MAX_SEARCH_ROWS: usize = 5000;
-
-impl VariableList {
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        let filter = cx.new(|cx| TextInput::new("Filter variables", cx));
-        cx.subscribe(&filter, |this, _, event, cx| match event {
-            TextInputEvent::Changed => this.rebuild(cx),
-            TextInputEvent::Submit => this.add_selected_or_all(cx),
-            TextInputEvent::Cancel => {}
-        })
-        .detach();
-        VariableList {
-            source: None,
-            scope: None,
-            filter,
-            rows: Vec::new(),
-            selected: BTreeSet::new(),
-            anchor: None,
-            scroll: UniformListScrollHandle::new(),
-            focus_handle: cx.focus_handle(),
-        }
-    }
-
-    pub fn set_source(&mut self, source: Option<Arc<dyn WaveSource>>, cx: &mut Context<Self>) {
-        self.source = source;
-        self.scope = None;
-        self.filter.update(cx, |f, cx| f.clear(cx));
-        self.rebuild(cx);
-    }
-
-    pub fn set_scope(&mut self, scope: Option<ScopeId>, cx: &mut Context<Self>) {
-        self.scope = scope;
-        self.rebuild(cx);
-    }
-
-    fn rebuild(&mut self, cx: &mut Context<Self>) {
-        self.rows.clear();
-        self.selected.clear();
-        self.anchor = None;
-        let filter = self.filter.read(cx).text().to_lowercase();
-        if let Some(src) = &self.source {
-            let h = src.hierarchy();
-            let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
-            match self.scope {
-                Some(s) => {
-                    self.rows.extend(
-                        h.scopes[s]
-                            .vars
-                            .iter()
-                            .copied()
-                            .filter(|&v| matches(&h.vars[v].name)),
-                    );
-                }
-                None if !filter.is_empty() => {
-                    self.rows.extend(
-                        (0..h.vars.len())
-                            .filter(|&v| matches(&h.vars[v].name))
-                            .take(MAX_SEARCH_ROWS),
-                    );
-                }
-                None => {}
-            }
-        }
-        cx.notify();
-    }
-
-    fn add_selected_or_all(&mut self, cx: &mut Context<Self>) {
-        let vars: Vec<VarId> = if self.selected.is_empty() {
-            self.rows.clone()
-        } else {
-            self.selected.iter().map(|&i| self.rows[i]).collect()
-        };
-        if !vars.is_empty() {
-            cx.emit(VariableListEvent::Add(vars));
-        }
-    }
-
-    fn add_all(&mut self, cx: &mut Context<Self>) {
-        if !self.rows.is_empty() {
-            cx.emit(VariableListEvent::Add(self.rows.clone()));
-        }
-    }
-
-    fn select(&mut self, ix: usize, modifiers: gpui::Modifiers, cx: &mut Context<Self>) {
-        crate::ui::selection::select(&mut self.selected, &mut self.anchor, ix, modifiers);
-        cx.notify();
-    }
-
-    fn on_key_down(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+impl Workspace {
+    fn variables_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let ks = &ev.keystroke;
-        match ks.key.as_str() {
-            "enter" => self.add_selected_or_all(cx),
-            "down" | "up" => {
-                if self.rows.is_empty() {
-                    return;
-                }
-                let cur = self
-                    .anchor
-                    .unwrap_or(if ks.key == "down" { usize::MAX } else { 0 });
-                let next = if ks.key == "down" {
-                    cur.wrapping_add(1).min(self.rows.len() - 1)
-                } else {
-                    cur.saturating_sub(1)
-                };
-                let next = if cur == usize::MAX { 0 } else { next };
-                if ks.modifiers.shift {
-                    self.selected.insert(next);
-                } else {
-                    self.selected.clear();
-                    self.selected.insert(next);
-                }
-                self.anchor = Some(next);
-                self.scroll
-                    .scroll_to_item(next, gpui::ScrollStrategy::Nearest);
-                cx.notify();
-            }
-            "escape" => {
-                self.selected.clear();
-                cx.notify();
-            }
+        let key = match ks.key.as_str() {
+            "enter" => Key::Enter,
+            "down" => Key::Down,
+            "up" => Key::Up,
+            "escape" => Key::Escape,
             _ => {
-                // Typing starts filtering.
-                if ks.key_char.as_deref().is_some_and(|c| !c.is_empty())
+                // Typing starts filtering: hand the character to the text box.
+                if let Some(c) = ks.key_char.as_deref().filter(|c| !c.is_empty())
                     && !ks.modifiers.platform
                     && !ks.modifiers.control
                 {
                     let handle = self.filter.read(cx).focus_handle(cx);
                     window.focus(&handle, cx);
-                    self.filter.update(cx, |f, cx| {
-                        // Re-dispatch the character to the input.
-                        f.insert(ks.key_char.as_deref().unwrap_or(""), cx);
-                    });
+                    let c = c.to_owned();
+                    self.filter.update(cx, |f, cx| f.insert(&c, cx));
                 }
+                return;
             }
-        }
+        };
+        self.dispatch(
+            Command::VariablesKey(key, to_modifiers(ks.modifiers)),
+            Some(window),
+            cx,
+        );
     }
-}
 
-fn shape_icon(shape: SignalShape) -> IconName {
-    match shape {
-        SignalShape::Bit => IconName::Activity,
-        SignalShape::Vector { .. } => IconName::Binary,
-        SignalShape::Real => IconName::Sigma,
-        SignalShape::Text => IconName::Type,
-    }
-}
-
-fn direction_label(d: Direction) -> &'static str {
-    match d {
-        Direction::None => "",
-        Direction::Input => "in",
-        Direction::Output => "out",
-        Direction::InOut => "io",
-    }
-}
-
-impl Render for VariableList {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_variables(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.panel;
-        let focused = self.focus_handle.is_focused(window);
-        let count = self.rows.len();
-        let searching = !self.filter.read(cx).text().is_empty();
-        let show_scope = self.scope.is_none() && searching;
-        let show_direction = self.source.as_ref().is_some_and(|s| {
-            self.rows
-                .iter()
-                .any(|&v| s.hierarchy().vars[v].direction != Direction::None)
-        });
+        let focused = self.variables_focus.is_focused(window);
+        let vars = &self.app.variables;
+        let count = vars.rows.len();
+        let show_scope = vars.show_scope();
+        let show_direction = self
+            .app
+            .doc
+            .hierarchy()
+            .is_some_and(|h| vars.show_direction(h));
+        let placeholder = vars.placeholder(self.app.doc.is_loaded());
         let header = panel_header("Variables", cx).child(
             div()
                 .flex()
@@ -213,7 +68,7 @@ impl Render for VariableList {
                 .child(
                     div()
                         .font_family(t.mono_font)
-                        .text_size(t.ui_size_small)
+                        .text_size(px(t.ui_size_small))
                         .text_color(colors.text_placeholder)
                         .child(SharedString::from(count.to_string())),
                 )
@@ -221,7 +76,9 @@ impl Render for VariableList {
                     IconButton::new("add-all", IconName::Plus)
                         .disabled(count == 0)
                         .tooltip(Tooltip::with_shortcut("Add all listed variables", "⏎"))
-                        .on_click(cx.listener(|this, _, _, cx| this.add_all(cx))),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.dispatch(Command::AddAllVars, Some(window), cx)
+                        })),
                 ),
         );
 
@@ -230,15 +87,14 @@ impl Render for VariableList {
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
                 let t = *theme(cx);
-                let Some(src) = this.source.clone() else {
+                let Some(h) = this.app.doc.hierarchy() else {
                     return Vec::new();
                 };
-                let h = src.hierarchy();
                 range
                     .map(|ix| {
-                        let var = this.rows[ix];
+                        let var = this.app.variables.rows[ix];
                         let v = &h.vars[var];
-                        let selected = this.selected.contains(&ix);
+                        let selected = this.app.variables.selected.contains(&ix);
                         let colors = t.row(selected, false);
                         let hover = t.hover;
                         let dims: SharedString = v.shape.dims().into();
@@ -252,21 +108,25 @@ impl Render for VariableList {
                             .id(("var", ix))
                             .flex()
                             .items_center()
-                            .h(t.row_height)
+                            .h(px(t.row_height))
                             .px_2()
                             .gap_2()
                             .cursor(CursorStyle::PointingHand)
                             .font_family(t.mono_font)
-                            .text_size(t.mono_size)
+                            .text_size(px(t.mono_size))
                             .text_color(colors.text)
                             .on_click(cx.listener(
                                 move |this, ev: &gpui::ClickEvent, window, cx| {
-                                    window.focus(&this.focus_handle, cx);
-                                    if ev.click_count() == 2 {
-                                        cx.emit(VariableListEvent::Add(vec![var]));
+                                    window.focus(&this.variables_focus, cx);
+                                    let command = if ev.click_count() == 2 {
+                                        Command::AddVars(vec![var])
                                     } else {
-                                        this.select(ix, ev.modifiers(), cx);
-                                    }
+                                        Command::SelectVar {
+                                            ix,
+                                            modifiers: to_modifiers(ev.modifiers()),
+                                        }
+                                    };
+                                    this.dispatch(command, Some(window), cx);
                                 },
                             ));
                         if selected {
@@ -288,7 +148,7 @@ impl Render for VariableList {
                                 div()
                                     .w(px(24.0))
                                     .flex_none()
-                                    .text_size(t.ui_size_small)
+                                    .text_size(px(t.ui_size_small))
                                     .child(SharedString::from(dir)),
                             )
                         })
@@ -305,24 +165,14 @@ impl Render for VariableList {
                     .collect()
             }),
         )
-        .track_scroll(&self.scroll)
+        .track_scroll(&self.variables_scroll)
         .flex_1()
         .size_full();
 
-        let placeholder: Option<&str> = if self.source.is_none() {
-            Some("Open a trace to browse variables")
-        } else if self.scope.is_none() && !searching {
-            Some("Select a scope, or type to search all variables")
-        } else if count == 0 {
-            Some("No variables match")
-        } else {
-            None
-        };
-
         div()
             .id("variables-panel")
-            .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(Self::on_key_down))
+            .track_focus(&self.variables_focus)
+            .on_key_down(cx.listener(Self::variables_key))
             .flex()
             .flex_col()
             .size_full()
@@ -342,7 +192,7 @@ impl Render for VariableList {
                             .justify_center()
                             .px_4()
                             .text_align(gpui::TextAlign::Center)
-                            .text_size(t.ui_size_small)
+                            .text_size(px(t.ui_size_small))
                             .text_color(colors.text_placeholder)
                             .child(text)
                             .into_any_element(),

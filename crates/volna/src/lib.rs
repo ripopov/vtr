@@ -1,23 +1,20 @@
 //! Volna: the official VTR/VDB viewer, built with GPUI.
 //! Currently provides VTR waveforms; VDB integration is planned.
 //!
-//! Module map:
-//! - `data`: toolkit-independent model (values, histories, translators, sources)
-//! - `theme`, `assets`: design tokens and embedded fonts/icons
-//! - `ui`: reusable primitives (buttons, splitter, menu, scrollbar, text input)
-//! - `sidebar`: scope tree and variable list
-//! - `wave`: viewport math, timeline, and the `WaveTable` element
-//! - `app`: the `Workspace` root view and key bindings
+//! This crate is the GPUI frontend; every viewer decision lives in
+//! `volna_core`. Module map:
+//! - `app`: the `Workspace` root view, key bindings, the core command loop
+//! - `theme`, `assets`: the core theme mapped to GPUI colours; fonts and icons
+//! - `ui`: reusable primitives (buttons, splitter, menu, text input)
+//! - `sidebar`: scope tree and variable list rows
+//! - `wave`: the `WaveTable` element that paints the core's display list
 
 pub mod app;
 pub mod assets;
-pub mod data;
 pub mod sidebar;
 pub mod theme;
 pub mod ui;
 pub mod wave;
-
-use std::sync::Arc;
 
 use gpui::{
     App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px,
@@ -28,7 +25,7 @@ pub use app::Workspace;
 
 /// Shared start-up: theme, fonts, key bindings.
 pub fn init_app(cx: &mut App) {
-    cx.set_global(theme::Theme::one_dark());
+    theme::set(theme::CoreTheme::one_dark(), cx);
     if let Err(e) = assets::load_fonts(cx) {
         log::warn!("failed to load bundled fonts: {e:#}");
     }
@@ -83,9 +80,6 @@ pub fn open_main_window(cx: &mut App, embedded: bool) -> anyhow::Result<gpui::En
     workspace.ok_or_else(|| anyhow::anyhow!("window did not build a workspace"))
 }
 
-#[allow(dead_code)]
-fn _assert_source_object_safe(_: Arc<dyn data::WaveSource>) {}
-
 #[cfg(target_family = "wasm")]
 pub mod web {
     //! Browser entry point and the JS bridge used by the VS Code extension.
@@ -101,11 +95,13 @@ pub mod web {
 
     enum HostEvent {
         Open(String, Vec<u8>),
-        Theme(Box<crate::theme::Theme>),
+        Theme(Box<crate::theme::CoreTheme>),
+        /// Log the viewer state to the console (browser-driven verification).
+        DebugState,
     }
 
     thread_local! {
-        static PENDING_THEME: RefCell<Option<crate::theme::Theme>> = const { RefCell::new(None) };
+        static PENDING_THEME: RefCell<Option<crate::theme::CoreTheme>> = const { RefCell::new(None) };
         static HOST_TX: RefCell<Option<mpsc::UnboundedSender<HostEvent>>> = const { RefCell::new(None) };
     }
 
@@ -119,25 +115,35 @@ pub mod web {
         });
     }
 
+    /// Print the one-line viewer state (`Workspace::debug_state`) to the console.
+    #[wasm_bindgen]
+    pub fn debug_state() {
+        HOST_TX.with(|tx| {
+            if let Some(tx) = tx.borrow().as_ref() {
+                tx.unbounded_send(HostEvent::DebugState).ok();
+            }
+        });
+    }
+
     /// Host-neutral JSON palette; malformed input leaves the current theme intact.
     #[wasm_bindgen]
     pub fn set_theme(json: &str) -> Result<(), JsValue> {
         let palette = crate::theme::HostPalette::from_json(json)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        install_theme(crate::theme::Theme::from_host(&palette));
+        install_theme(crate::theme::CoreTheme::from_host(&palette));
         Ok(())
     }
 
     /// Resolved VS Code CSS snapshot, parsed entirely by shared Rust code.
     #[wasm_bindgen]
     pub fn set_vscode_theme(snapshot: &str) {
-        install_theme(crate::theme::Theme::from_host(
+        install_theme(crate::theme::CoreTheme::from_host(
             &crate::theme::vscode::host_palette(snapshot),
         ));
     }
 
     // Keep the latest update while startup is pending; never re-enter GPUI.
-    fn install_theme(theme: crate::theme::Theme) {
+    fn install_theme(theme: crate::theme::CoreTheme) {
         HOST_TX.with(|tx| {
             if let Some(tx) = tx.borrow().as_ref() {
                 tx.unbounded_send(HostEvent::Theme(Box::new(theme))).ok();
@@ -190,7 +196,7 @@ pub mod web {
             super::init_app(cx);
             PENDING_THEME.with(|slot| {
                 if let Some(theme) = slot.borrow_mut().take() {
-                    theme.install(cx);
+                    crate::theme::install(theme, cx);
                 }
             });
             HOST_TX.with(|slot| *slot.borrow_mut() = Some(tx));
@@ -200,7 +206,8 @@ pub mod web {
                         while let Some(event) = rx.next().await {
                             workspace.update(cx, |ws, cx| match event {
                                 HostEvent::Open(name, bytes) => ws.open_bytes(name, bytes, cx),
-                                HostEvent::Theme(theme) => theme.install(cx),
+                                HostEvent::Theme(theme) => crate::theme::install(*theme, cx),
+                                HostEvent::DebugState => log::info!("STATE {}", ws.debug_state()),
                             });
                         }
                     })

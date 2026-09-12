@@ -56,7 +56,7 @@ impl Render for Tooltip {
             .border_color(t.border)
             .shadow_md()
             .font_family(t.ui_font)
-            .text_size(t.ui_size_small)
+            .text_size(px(t.ui_size_small))
             .text_color(colors.text)
             .child(self.text.clone())
             .when_some(self.shortcut.clone(), |el, s| {

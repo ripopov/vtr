@@ -87,7 +87,7 @@ impl Render for PopupMenu {
                     el.child(
                         div()
                             .font_family(t.mono_font)
-                            .text_size(t.ui_size_small)
+                            .text_size(px(t.ui_size_small))
                             .child(b),
                     )
                 })
@@ -111,7 +111,7 @@ impl Render for PopupMenu {
                         .border_color(t.border)
                         .shadow_lg()
                         .font_family(t.ui_font)
-                        .text_size(t.ui_size)
+                        .text_size(px(t.ui_size))
                         .on_mouse_down_out(
                             cx.listener(|_, _, _, cx| cx.emit(PopupMenuEvent::Dismissed)),
                         )

@@ -28,6 +28,6 @@ mkdir -p vscode-ext/media
 cp vscode-ext/theme.mjs vscode-ext/media/
 cp web/dist/volna.js web/dist/volna_bg.wasm vscode-ext/media/
 mkdir -p vscode-ext/media/licenses
-cp assets/fonts/IBMPlexSans-LICENSE.txt assets/fonts/Lilex-OFL.txt vscode-ext/media/licenses/
-cp assets/icons/LICENSE vscode-ext/media/licenses/Lucide-LICENSE.txt
+cp ../volna-core/assets/fonts/IBMPlexSans-LICENSE.txt ../volna-core/assets/fonts/Lilex-OFL.txt vscode-ext/media/licenses/
+cp ../volna-core/assets/icons/LICENSE vscode-ext/media/licenses/Lucide-LICENSE.txt
 ls -la web/dist

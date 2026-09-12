@@ -1,7 +1,4 @@
-//! Hierarchy browser: a scope tree and a separate, filterable variable list.
+//! Hierarchy browser panels: GPUI rows over the core sidebar models.
 
-pub mod scopes;
-pub mod variables;
-
-pub use scopes::{ScopeTree, ScopeTreeEvent};
-pub use variables::{VariableList, VariableListEvent};
+mod scopes;
+mod variables;

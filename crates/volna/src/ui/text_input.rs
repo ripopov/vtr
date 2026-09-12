@@ -54,6 +54,14 @@ impl TextInput {
         }
     }
 
+    /// Replace the text without emitting `Changed` (the model already knows).
+    pub fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
+        if self.text != text {
+            self.text = text;
+            cx.notify();
+        }
+    }
+
     /// Append text (used when another view forwards a typed character).
     pub fn insert(&mut self, text: &str, cx: &mut Context<Self>) {
         if text.is_empty() || text.chars().any(|c| c.is_control()) {
@@ -129,7 +137,7 @@ impl Render for TextInput {
             .hover(move |s| s.border_color(hover_border))
             .cursor(CursorStyle::IBeam)
             .font_family(t.ui_font)
-            .text_size(t.ui_size)
+            .text_size(px(t.ui_size))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_click(cx.listener(|this, _, window, cx| window.focus(&this.focus_handle, cx)))
             .child(

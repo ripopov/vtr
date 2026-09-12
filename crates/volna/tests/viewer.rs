@@ -9,7 +9,7 @@
 #[cfg(target_os = "macos")]
 mod theme_fixtures {
     use volna::theme::{HostPalette, vscode};
-    include!("fixtures/themes.rs");
+    include!("../../volna-core/tests/fixtures/themes.rs");
     pub fn all() -> [HostPalette; 4] {
         real_palettes()
     }
@@ -71,7 +71,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
     let any = handle.into();
 
     let state = |test: &mut HeadlessAppContext, label: &str| {
-        let s = test.update(|cx| workspace.read(cx).debug_state(cx));
+        let s = test.update(|cx| workspace.read(cx).debug_state());
         println!("STATE {label}: {s}");
         s
     };
@@ -275,11 +275,12 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update(|cx| workspace.update(cx, |ws, cx| ws.open_path(example, cx)));
         settle(&mut test, 3);
         shot(&mut test, "02-loaded")?;
-        let custom =
-            volna::theme::HostPalette::from_json(include_str!("fixtures/custom-palette.json"))?;
-        test.update(|cx| volna::theme::Theme::from_host(&custom).install(cx));
+        let custom = volna::theme::HostPalette::from_json(include_str!(
+            "../../volna-core/tests/fixtures/custom-palette.json"
+        ))?;
+        test.update(|cx| volna::theme::install(volna::theme::CoreTheme::from_host(&custom), cx));
         shot(&mut test, "02b-custom-empty")?;
-        test.update(|cx| volna::theme::Theme::one_dark().install(cx));
+        test.update(|cx| volna::theme::install(volna::theme::CoreTheme::one_dark(), cx));
         // Click the second scope row (row height 24, header 32, titlebar 32, list padding 4).
         click(
             &mut test,
@@ -357,7 +358,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         // Replace only the theme while trace, selection, zoom, cursor, marker and
         // format menu are active. Cached GPUI children must repaint too.
         let before_theme = state(&mut test, "before themes");
-        use volna::theme::{Appearance::*, HostPalette, Theme};
+        use volna::theme::{Appearance::*, CoreTheme, HostPalette, install};
         for (name, appearance) in [
             ("06-light", Light),
             ("07-dark", Dark),
@@ -370,9 +371,11 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 ..Default::default()
             };
             if name == "10-custom" {
-                palette = HostPalette::from_json(include_str!("fixtures/custom-palette.json"))?;
+                palette = HostPalette::from_json(include_str!(
+                    "../../volna-core/tests/fixtures/custom-palette.json"
+                ))?;
             }
-            test.update(|cx| Theme::from_host(&palette).install(cx));
+            test.update(|cx| install(CoreTheme::from_host(&palette), cx));
             shot(&mut test, name)?;
             assert_eq!(
                 state(&mut test, name),
@@ -389,11 +392,11 @@ fn run(measure: bool) -> anyhow::Result<()> {
         .into_iter()
         .zip(theme_fixtures::all())
         {
-            test.update(|cx| Theme::from_host(&palette).install(cx));
+            test.update(|cx| install(CoreTheme::from_host(&palette), cx));
             shot(&mut test, name)?;
             assert_eq!(state(&mut test, name), before_theme);
         }
-        test.update(|cx| volna::theme::Theme::one_dark().install(cx));
+        test.update(|cx| volna::theme::install(volna::theme::CoreTheme::one_dark(), cx));
         key(&mut test, "escape");
         expect(&mut test, "menu dismissed", &["menu=false"]);
         key(&mut test, "f");
@@ -427,7 +430,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let median = samples[samples.len() / 2];
         let p90 = samples[samples.len() * 9 / 10];
-        let paint_ms = test.update(|cx| workspace.read(cx).waves_frame_ms(cx));
+        let paint_ms = test.update(|cx| workspace.read(cx).waves_frame_ms());
         println!(
             "PERF transitions={n} frame_median_ms={median:.2} frame_p90_ms={p90:.2} table_paint_ms={paint_ms:.2}"
         );

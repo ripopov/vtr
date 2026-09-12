@@ -1,68 +1,88 @@
-//! `Workspace`: the root view. Owns the trace state, the sidebar panels and
-//! the waveform view, and lays them out with draggable splitters.
+//! `Workspace`: the GPUI root view, a thin adapter over [`volna_core::App`].
+//! It hosts the chrome with GPUI widgets, forwards input as commands, drains
+//! the core's events and runs the loads it asks for on the background executor.
 
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "app_tests.rs"]
 mod tests;
 
-const SIDEBAR_FRACTION_MIN: f32 = 0.15;
-
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
     Animation, AnimationExt, App, Context, CursorStyle, Entity, FocusHandle, Focusable,
     IntoElement, KeyBinding, Menu, MenuItem, MouseButton, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Render, SharedString, Styled, Transformation, Window, actions, div,
-    percentage, point, px,
+    ParentElement, Pixels, Render, ShapedLine, SharedString, Styled, Transformation,
+    UniformListScrollHandle, Window, actions, div, percentage, point, px,
 };
+use volna_core::app::{Action, ChromeDrag, Command, Event};
+use volna_core::document::TraceState;
+use volna_core::session::Session;
+use volna_core::{App as CoreApp, FontRole, Instant, Scene};
 
-use crate::data::synth::SynthSource;
-use crate::data::{WaveSource, vtr_source::VtrSource};
-use crate::sidebar::{ScopeTree, ScopeTreeEvent, VariableList, VariableListEvent};
 use crate::theme::theme;
 use crate::ui::icon::icon_svg;
 use crate::ui::menu::PopupMenuEvent;
+use crate::ui::text_input::TextInputEvent;
 use crate::ui::{
     Icon, IconButton, IconName, PopupMenu, PopupMenuItem, Splitter, SplitterAxis, TextButton,
-    Tooltip,
+    TextInput, Tooltip,
 };
-use crate::wave::timeline::format_time;
-use crate::wave::view::{self as wave_actions, WaveView, WaveViewEvent};
 
 actions!(
     workspace,
     [OpenFile, ToggleSidebar, CloseTrace, OpenStressMenu, Quit]
 );
 
-pub enum TraceState {
-    Empty,
-    Loading { name: SharedString },
-    Loaded(Arc<dyn WaveSource>),
-    Error(SharedString),
-}
+actions!(
+    waves,
+    [
+        ZoomIn,
+        ZoomOut,
+        ZoomFit,
+        GoToStart,
+        GoToEnd,
+        GoToCursor,
+        PanLeft,
+        PanRight,
+        NextEdge,
+        PrevEdge,
+        AddMarker,
+        ClearMarkers,
+        RemoveSelected,
+        SelectAll,
+        ClearSelection,
+        CycleFormat,
+        MoveSelectionUp,
+        MoveSelectionDown,
+    ]
+);
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum WorkspaceDrag {
-    Sidebar,
-    ScopesSplit,
+/// Key of the shaped-text cache used by the wave painter.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(crate) struct TextKey {
+    pub text: String,
+    pub font: FontRole,
+    pub size: u32,
+    pub color: [u32; 4],
 }
 
 pub struct Workspace {
-    state: TraceState,
-    // A newer open, explicit source replacement, or close invalidates old results.
-    load_generation: u64,
-    scopes: Entity<ScopeTree>,
-    variables: Entity<VariableList>,
-    waves: Entity<WaveView>,
-    sidebar_width: Pixels,
-    sidebar_visible: bool,
-    /// Height of the scope tree as a fraction of the sidebar.
-    scopes_fraction: f32,
-    drag: Option<WorkspaceDrag>,
+    pub app: CoreApp,
     focus_handle: FocusHandle,
+    pub(crate) waves_focus: FocusHandle,
+    pub(crate) scopes_focus: FocusHandle,
+    pub(crate) variables_focus: FocusHandle,
+    pub(crate) filter: Entity<TextInput>,
+    pub(crate) scopes_scroll: UniformListScrollHandle,
+    pub(crate) variables_scroll: UniformListScrollHandle,
     stress_menu: Option<Entity<PopupMenu>>,
+    /// Mirrors `app.waves.menu`: (row, popup).
+    format_menu: Option<(usize, Entity<PopupMenu>)>,
+    /// Display list buffer and shaped-text cache, reused across frames.
+    pub(crate) scene: Scene,
+    pub(crate) shaped: HashMap<TextKey, ShapedLine>,
     /// Hide the native-style title bar (used inside the VS Code webview).
     pub embedded: bool,
 }
@@ -75,7 +95,6 @@ impl Focusable for Workspace {
 
 /// Register key bindings and the application menu.
 pub fn init(cx: &mut App) {
-    use wave_actions::*;
     cx.bind_keys([
         KeyBinding::new("cmd-o", OpenFile, None),
         KeyBinding::new("ctrl-o", OpenFile, None),
@@ -128,154 +147,210 @@ pub fn init(cx: &mut App) {
             items: vec![
                 MenuItem::action("Toggle Sidebar", ToggleSidebar),
                 MenuItem::separator(),
-                MenuItem::action("Zoom In", wave_actions::ZoomIn),
-                MenuItem::action("Zoom Out", wave_actions::ZoomOut),
-                MenuItem::action("Zoom to Fit", wave_actions::ZoomFit),
+                MenuItem::action("Zoom In", ZoomIn),
+                MenuItem::action("Zoom Out", ZoomOut),
+                MenuItem::action("Zoom to Fit", ZoomFit),
             ],
             disabled: false,
         },
     ]);
 }
 
+/// Wire every wave action to its core action on an element.
+macro_rules! wave_actions {
+    ($el:expr, $cx:expr, [$($name:ident),* $(,)?]) => {
+        $el $(.on_action($cx.listener(|this: &mut Workspace, _: &$name, window, cx| {
+            this.dispatch(Command::Action(Action::$name), Some(window), cx)
+        })))*
+    };
+}
+
+pub(crate) fn to_modifiers(m: gpui::Modifiers) -> volna_core::geometry::Modifiers {
+    volna_core::geometry::Modifiers {
+        shift: m.shift,
+        control: m.control,
+        alt: m.alt,
+        platform: m.platform,
+    }
+}
+
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let scopes = cx.new(ScopeTree::new);
-        let variables = cx.new(VariableList::new);
-        let waves = cx.new(WaveView::new);
-
-        cx.subscribe(&scopes, |this, _, event, cx| match event {
-            ScopeTreeEvent::Selected(scope) => {
-                let scope = *scope;
-                this.variables.update(cx, |v, cx| v.set_scope(scope, cx));
+        let filter = cx.new(|cx| TextInput::new("Filter variables", cx));
+        cx.subscribe(&filter, |this, filter, event, cx| match event {
+            TextInputEvent::Changed => {
+                let text = filter.read(cx).text().to_owned();
+                this.dispatch(Command::SetFilter(text), None, cx);
             }
+            TextInputEvent::Submit => this.dispatch(Command::AddSelectedOrAllVars, None, cx),
+            TextInputEvent::Cancel => {}
         })
         .detach();
-        cx.subscribe(&variables, |this, _, event, cx| match event {
-            VariableListEvent::Add(vars) => {
-                let vars = vars.clone();
-                this.waves.update(cx, |w, cx| w.add_vars(&vars, cx));
-            }
-        })
-        .detach();
-        cx.subscribe(&waves, |_, _, WaveViewEvent::Changed, cx| cx.notify())
-            .detach();
-
-        let focus_handle = cx.focus_handle();
-        let wave_focus = waves.read(cx).focus_handle.clone();
-        window.focus(&wave_focus, cx);
-
+        let waves_focus = cx.focus_handle();
+        window.focus(&waves_focus, cx);
         Workspace {
-            state: TraceState::Empty,
-            load_generation: 0,
-            scopes,
-            variables,
-            waves,
-            sidebar_width: px(280.0),
-            sidebar_visible: true,
-            scopes_fraction: 0.42,
-            drag: None,
-            focus_handle,
+            app: CoreApp::new(),
+            focus_handle: cx.focus_handle(),
+            waves_focus,
+            scopes_focus: cx.focus_handle(),
+            variables_focus: cx.focus_handle(),
+            filter,
+            scopes_scroll: UniformListScrollHandle::new(),
+            variables_scroll: UniformListScrollHandle::new(),
             stress_menu: None,
+            format_menu: None,
+            scene: Scene::default(),
+            shaped: HashMap::new(),
             embedded: false,
+        }
+    }
+
+    // -- the core loop ----------------------------------------------------------------
+
+    /// Send a command to the core and act on what it asks for.
+    pub fn dispatch(
+        &mut self,
+        command: Command,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        self.app.handle(command);
+        self.after(window, cx);
+    }
+
+    fn after(&mut self, mut window: Option<&mut Window>, cx: &mut Context<Self>) {
+        for event in self.app.take_events() {
+            match event {
+                Event::Changed => cx.notify(),
+                Event::OpenFileDialog => self.open_file_dialog(cx),
+                Event::RevealScopeRow(ix) => self
+                    .scopes_scroll
+                    .scroll_to_item(ix, gpui::ScrollStrategy::Nearest),
+                Event::RevealVarRow(ix) => self
+                    .variables_scroll
+                    .scroll_to_item(ix, gpui::ScrollStrategy::Nearest),
+                Event::FocusFilter => {
+                    if let Some(window) = window.as_deref_mut() {
+                        let handle = self.filter.read(cx).focus_handle(cx);
+                        window.focus(&handle, cx);
+                    }
+                }
+            }
+        }
+        self.sync_format_menu(window, cx);
+        self.sync_filter(cx);
+        self.run_requests(cx);
+    }
+
+    /// Perform queued loads on the background executor and deliver the results.
+    fn run_requests(&mut self, cx: &mut Context<Self>) {
+        for request in self.app.take_requests() {
+            cx.spawn(async move |this, cx| {
+                let result = cx.background_spawn(async move { request.perform() }).await;
+                this.update(cx, |this, cx| {
+                    this.app.deliver(result);
+                    this.after(None, cx);
+                })
+                .ok();
+            })
+            .detach();
+        }
+    }
+
+    /// Keep the GPUI popup in step with the core's format menu.
+    fn sync_format_menu(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
+        match (&self.app.waves.menu, &self.format_menu) {
+            (Some(m), current) if current.as_ref().map(|(row, _)| *row) != Some(m.row) => {
+                let items = m
+                    .items
+                    .iter()
+                    .map(|i| PopupMenuItem {
+                        id: i.id.clone().into(),
+                        label: i.label.clone().into(),
+                        badge: i.badge.clone().map(Into::into),
+                        checked: i.checked,
+                    })
+                    .collect();
+                let position = point(px(m.position.x), px(m.position.y));
+                let row = m.row;
+                let menu = cx.new(|cx| PopupMenu::new(position, items, cx));
+                if let Some(window) = window {
+                    let handle = menu.read(cx).focus_handle().clone();
+                    window.focus(&handle, cx);
+                }
+                cx.subscribe(&menu, |this, _, event, cx| {
+                    let command = match event {
+                        PopupMenuEvent::Selected(id) => Command::MenuSelect(id.to_string()),
+                        PopupMenuEvent::Dismissed => Command::MenuDismiss,
+                    };
+                    this.dispatch(command, None, cx);
+                })
+                .detach();
+                self.format_menu = Some((row, menu));
+                cx.notify();
+            }
+            (None, Some(_)) => {
+                self.format_menu = None;
+                cx.notify();
+            }
+            _ => {}
+        }
+    }
+
+    /// The core owns the filter text; the text box shows it.
+    fn sync_filter(&mut self, cx: &mut Context<Self>) {
+        let text = self.app.variables.filter.clone();
+        if self.filter.read(cx).text() != text {
+            self.filter.update(cx, |f, cx| f.set_text(text, cx));
         }
     }
 
     // -- trace loading ------------------------------------------------------------
 
-    pub fn set_source(&mut self, source: Arc<dyn WaveSource>, cx: &mut Context<Self>) {
-        self.load_generation += 1;
-        self.state = TraceState::Loaded(source.clone());
-        self.scopes
-            .update(cx, |s, cx| s.set_source(Some(source.clone()), cx));
-        self.variables
-            .update(cx, |v, cx| v.set_source(Some(source.clone()), cx));
-        self.waves
-            .update(cx, |w, cx| w.set_source(Some(source), cx));
-        cx.notify();
-    }
-
-    pub fn close_trace(&mut self, _: &CloseTrace, _w: &mut Window, cx: &mut Context<Self>) {
-        self.load_generation += 1;
-        self.state = TraceState::Empty;
-        self.scopes.update(cx, |s, cx| s.set_source(None, cx));
-        self.variables.update(cx, |v, cx| v.set_source(None, cx));
-        self.waves.update(cx, |w, cx| w.set_source(None, cx));
-        cx.notify();
-    }
-
-    fn load_source(
-        &mut self,
-        name: impl Into<SharedString>,
-        load: impl std::future::Future<Output = anyhow::Result<Arc<dyn WaveSource>>> + Send + 'static,
-        show_all: bool,
-        cx: &mut Context<Self>,
-    ) {
-        self.load_generation += 1;
-        let generation = self.load_generation;
-        self.state = TraceState::Loading { name: name.into() };
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(load).await;
-            this.update(cx, |this, cx| {
-                if this.load_generation != generation {
-                    return;
-                }
-                match result {
-                    Ok(source) => {
-                        let count = source.hierarchy().vars.len();
-                        this.set_source(source, cx);
-                        if show_all {
-                            this.waves.update(cx, |w, cx| {
-                                w.add_vars(&(0..count).collect::<Vec<_>>(), cx)
-                            });
-                        }
-                    }
-                    Err(e) => this.state = TraceState::Error(format!("{e:#}").into()),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-        cx.notify();
-    }
-
     /// Open a VTR file from disk (native).
     #[cfg(not(target_family = "wasm"))]
     pub fn open_path(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        self.load_source(
-            name,
-            async move { VtrSource::open(&path).map(|s| Arc::new(s) as Arc<dyn WaveSource>) },
-            false,
-            cx,
-        );
+        self.app.open_path(path);
+        self.after(None, cx);
     }
 
     /// Open a VTR image held in memory (used by the web bridge and drag-drop).
     pub fn open_bytes(&mut self, name: String, bytes: Vec<u8>, cx: &mut Context<Self>) {
-        self.load_source(
-            name.clone(),
-            async move {
-                VtrSource::from_bytes(name, bytes).map(|s| Arc::new(s) as Arc<dyn WaveSource>)
-            },
-            false,
-            cx,
-        );
+        self.app.open_bytes(name, bytes);
+        self.after(None, cx);
     }
 
     pub fn open_synthetic(&mut self, transitions: usize, cx: &mut Context<Self>) {
-        self.load_source(
-            format!("synthetic {transitions}"),
-            async move { Ok(Arc::new(SynthSource::new(transitions)) as Arc<dyn WaveSource>) },
-            true,
-            cx,
-        );
+        self.app.open_synthetic(transitions);
+        self.after(None, cx);
     }
 
-    fn open_file(&mut self, _: &OpenFile, _window: &mut Window, cx: &mut Context<Self>) {
+    /// Replace the session immediately (tests and hosts that already hold one).
+    pub fn set_session(&mut self, session: std::sync::Arc<dyn Session>, cx: &mut Context<Self>) {
+        self.app.set_session(session);
+        self.after(None, cx);
+    }
+
+    /// Run a request the way the load loop would, for tests that need to
+    /// control completion order.
+    #[cfg(test)]
+    pub(crate) fn queue(
+        &mut self,
+        request: volna_core::session::LoadRequest,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move { request.perform() }).await;
+            this.update(cx, |this, cx| {
+                this.app.deliver(result);
+                this.after(None, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn open_file_dialog(&mut self, cx: &mut Context<Self>) {
         #[cfg(not(target_family = "wasm"))]
         {
             let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
@@ -300,9 +375,16 @@ impl Workspace {
         }
     }
 
-    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _w: &mut Window, cx: &mut Context<Self>) {
-        self.sidebar_visible = !self.sidebar_visible;
-        cx.notify();
+    fn open_file(&mut self, _: &OpenFile, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch(Command::RequestOpenDialog, Some(window), cx);
+    }
+
+    fn toggle_sidebar(&mut self, _: &ToggleSidebar, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch(Command::ToggleSidebar, Some(window), cx);
+    }
+
+    fn close_trace(&mut self, _: &CloseTrace, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch(Command::CloseTrace, Some(window), cx);
     }
 
     fn open_stress_menu(
@@ -344,29 +426,14 @@ impl Workspace {
         cx.notify();
     }
 
-    /// One-line summary of the wave view state, for diagnostics.
-    pub fn debug_state(&self, cx: &App) -> String {
-        let w = self.waves.read(cx);
-        format!(
-            "items={} loaded={} selected={:?} anchor={:?} cursor={:?} markers={} viewport=({:.0},{:.0}) menu={} drag={:?} sidebar_w={:?} scopes_frac={:.2}",
-            w.items.len(),
-            w.items.iter().filter(|i| i.history.is_some()).count(),
-            w.selected,
-            w.anchor,
-            w.cursor,
-            w.markers.len(),
-            w.viewport.start,
-            w.viewport.end,
-            w.menu.is_some(),
-            self.drag,
-            self.sidebar_width,
-            self.scopes_fraction
-        )
+    /// One-line summary of the viewer state, for diagnostics.
+    pub fn debug_state(&self) -> String {
+        self.app.debug_state()
     }
 
     /// Smoothed paint time of the wave table, for diagnostics.
-    pub fn waves_frame_ms(&self, cx: &App) -> f32 {
-        self.waves.read(cx).frame_ms_avg
+    pub fn waves_frame_ms(&self) -> f32 {
+        self.app.waves.frame_ms_avg
     }
 
     // -- rendering ----------------------------------------------------------------
@@ -374,10 +441,10 @@ impl Workspace {
     /// While a splitter is being dragged, a transparent surface covers the
     /// whole window so the pointer is tracked and released no matter which
     /// element is under it (the way VS Code's sash overlay works).
-    fn render_drag_surface(&self, drag: WorkspaceDrag, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_drag_surface(&self, drag: ChromeDrag, cx: &mut Context<Self>) -> impl IntoElement {
         let cursor = match drag {
-            WorkspaceDrag::Sidebar => CursorStyle::ResizeLeftRight,
-            WorkspaceDrag::ScopesSplit => CursorStyle::ResizeUpDown,
+            ChromeDrag::Sidebar => CursorStyle::ResizeLeftRight,
+            ChromeDrag::ScopesSplit => CursorStyle::ResizeUpDown,
         };
         gpui::deferred(
             div()
@@ -387,38 +454,34 @@ impl Workspace {
                 .occlude()
                 .cursor(cursor)
                 .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| {
-                    match drag {
-                        WorkspaceDrag::Sidebar => {
-                            this.sidebar_width = px(f32::from(ev.position.x).clamp(160.0, 640.0));
-                        }
-                        WorkspaceDrag::ScopesSplit => {
+                    let command = match drag {
+                        ChromeDrag::Sidebar => Command::SetSidebarWidth(f32::from(ev.position.x)),
+                        ChromeDrag::ScopesSplit => {
                             let t = theme(cx);
                             let top = if this.embedded {
-                                px(0.0)
+                                0.0
                             } else {
                                 t.titlebar_height
                             };
-                            let total =
-                                f32::from(window.viewport_size().height - top - t.statusbar_height)
-                                    .max(1.0);
-                            this.scopes_fraction = (f32::from(ev.position.y - top) / total)
-                                .clamp(SIDEBAR_FRACTION_MIN, 1.0 - SIDEBAR_FRACTION_MIN);
+                            let total = (f32::from(window.viewport_size().height)
+                                - top
+                                - t.statusbar_height)
+                                .max(1.0);
+                            Command::SetScopesFraction((f32::from(ev.position.y) - top) / total)
                         }
-                    }
-                    cx.notify();
+                    };
+                    this.dispatch(command, Some(window), cx);
                 }))
                 .on_mouse_up(
                     MouseButton::Left,
-                    cx.listener(|this, _: &MouseUpEvent, _, cx| {
-                        this.drag = None;
-                        cx.notify();
+                    cx.listener(|this, _: &MouseUpEvent, window, cx| {
+                        this.dispatch(Command::ChromeDragEnd, Some(window), cx);
                     }),
                 )
                 .on_mouse_up_out(
                     MouseButton::Left,
-                    cx.listener(|this, _: &MouseUpEvent, _, cx| {
-                        this.drag = None;
-                        cx.notify();
+                    cx.listener(|this, _: &MouseUpEvent, window, cx| {
+                        this.dispatch(Command::ChromeDragEnd, Some(window), cx);
                     }),
                 ),
         )
@@ -428,17 +491,13 @@ impl Workspace {
     fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.bar;
-        let file: Option<SharedString> = match &self.state {
-            TraceState::Loaded(s) => Some(s.info().name.clone().into()),
-            TraceState::Loading { name } => Some(name.clone()),
-            _ => None,
-        };
+        let file: Option<SharedString> = self.app.doc.name().map(Into::into);
         div()
             .id("titlebar")
             .flex()
             .flex_none()
             .items_center()
-            .h(t.titlebar_height)
+            .h(px(t.titlebar_height))
             .w_full()
             .pl(px(80.0))
             .pr_2()
@@ -447,7 +506,7 @@ impl Workspace {
             .border_b_1()
             .border_color(t.border)
             .font_family(t.ui_font)
-            .text_size(t.ui_size)
+            .text_size(px(t.ui_size))
             .child(
                 // Everything left of the buttons drags the window; double-click zooms it.
                 div()
@@ -479,7 +538,7 @@ impl Workspace {
             .child(
                 IconButton::new("toggle-sidebar", IconName::PanelLeft)
                     .surfaces(t.bar, t.bar_hover, t.bar_hover)
-                    .selected(self.sidebar_visible)
+                    .selected(self.app.sidebar_visible)
                     .tooltip(Tooltip::with_shortcut("Toggle sidebar", "⌘B"))
                     .on_click(
                         cx.listener(|this, _, w, cx| this.toggle_sidebar(&ToggleSidebar, w, cx)),
@@ -493,18 +552,18 @@ impl Workspace {
             )
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
-        let frac = self
-            .scopes_fraction
-            .clamp(SIDEBAR_FRACTION_MIN, 1.0 - SIDEBAR_FRACTION_MIN);
+        let frac = self.app.scopes_fraction;
+        let scopes = self.render_scopes(window, cx).into_any_element();
+        let variables = self.render_variables(window, cx).into_any_element();
         div()
             .id("sidebar")
             .flex()
             .flex_col()
             .flex_none()
             .h_full()
-            .w(self.sidebar_width)
+            .w(px(self.app.sidebar_width))
             .bg(t.panel.bg)
             .child(
                 div()
@@ -512,14 +571,17 @@ impl Workspace {
                     .h(gpui::relative(frac))
                     .min_h(px(96.0))
                     .overflow_hidden()
-                    .child(self.scopes.clone()),
+                    .child(scopes),
             )
             .child(
                 Splitter::new("scopes-split", SplitterAxis::Horizontal)
-                    .dragging(self.drag == Some(WorkspaceDrag::ScopesSplit))
-                    .on_drag_start(cx.listener(|this, _, _, cx| {
-                        this.drag = Some(WorkspaceDrag::ScopesSplit);
-                        cx.notify();
+                    .dragging(self.app.drag == Some(ChromeDrag::ScopesSplit))
+                    .on_drag_start(cx.listener(|this, _, window, cx| {
+                        this.dispatch(
+                            Command::ChromeDragStart(ChromeDrag::ScopesSplit),
+                            Some(window),
+                            cx,
+                        );
                     })),
             )
             .child(
@@ -527,15 +589,15 @@ impl Workspace {
                     .flex_1()
                     .min_h(px(96.0))
                     .overflow_hidden()
-                    .child(self.variables.clone()),
+                    .child(variables),
             )
     }
 
-    fn render_center(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_center(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = *theme(cx);
         let colors = t.editor;
-        match &self.state {
-            TraceState::Loaded(_) => self.waves.clone().into_any_element(),
+        match self.app.trace_state() {
+            TraceState::Loaded(_) => self.render_waves(cx).into_any_element(),
             TraceState::Loading { name } => div()
                 .size_full()
                 .flex()
@@ -556,7 +618,7 @@ impl Workspace {
                 .child(
                     div()
                         .font_family(t.ui_font)
-                        .text_size(t.ui_size)
+                        .text_size(px(t.ui_size))
                         .text_color(colors.text_muted)
                         .child(SharedString::from(format!("Loading {name}…"))),
                 )
@@ -565,11 +627,47 @@ impl Workspace {
         }
     }
 
+    /// The wave panel: the focusable, action-handling host of the `WaveTable` element.
+    fn render_waves(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let el = div()
+            .id("wave-view")
+            .track_focus(&self.waves_focus)
+            .key_context("Waves")
+            .size_full()
+            .relative();
+        let el = wave_actions!(
+            el,
+            cx,
+            [
+                ZoomIn,
+                ZoomOut,
+                ZoomFit,
+                GoToStart,
+                GoToEnd,
+                GoToCursor,
+                PanLeft,
+                PanRight,
+                NextEdge,
+                PrevEdge,
+                AddMarker,
+                ClearMarkers,
+                RemoveSelected,
+                SelectAll,
+                ClearSelection,
+                CycleFormat,
+                MoveSelectionUp,
+                MoveSelectionDown,
+            ]
+        );
+        el.child(crate::wave::WaveTable::new(cx.entity()))
+            .children(self.format_menu.as_ref().map(|(_, m)| m.clone()))
+    }
+
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.editor;
-        let error = match &self.state {
-            TraceState::Error(e) => Some(e.clone()),
+        let error: Option<SharedString> = match self.app.trace_state() {
+            TraceState::Error(e) => Some(e.clone().into()),
             _ => None,
         };
         let hint = |keys: &'static str, label: &'static str| {
@@ -587,7 +685,7 @@ impl Workspace {
                         .rounded_sm()
                         .bg(t.badge_hover.bg)
                         .font_family(t.mono_font)
-                        .text_size(t.ui_size_small)
+                        .text_size(px(t.ui_size_small))
                         .text_color(t.badge_hover.text)
                         .child(keys),
                 )
@@ -601,7 +699,7 @@ impl Workspace {
             .gap_2()
             .bg(t.editor.bg)
             .font_family(t.ui_font)
-            .text_size(t.ui_size)
+            .text_size(px(t.ui_size))
             .child(
                 Icon::new(IconName::AudioWaveform)
                     .size(px(40.0))
@@ -656,7 +754,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap_1p5()
-                    .text_size(t.ui_size_small)
+                    .text_size(px(t.ui_size_small))
                     .child(hint("⌘O", "Open a trace"))
                     .child(hint("⏎", "Add selected variables"))
                     .child(hint("= / -", "Zoom in / out"))
@@ -669,70 +767,46 @@ impl Workspace {
     fn render_statusbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.bar;
-        let waves = self.waves.read(cx);
-        let mono = |text: SharedString, color: gpui::Hsla| {
+        let status = self.app.status();
+        let mono = |text: String, color: gpui::Hsla| {
             div()
                 .font_family(t.mono_font)
-                .text_size(t.ui_size_small)
+                .text_size(px(t.ui_size_small))
                 .text_color(color)
-                .child(text)
+                .child(SharedString::from(text))
         };
         let mut left = div().flex().items_center().gap_3();
         let mut right = div().flex().items_center().gap_3();
-        if let TraceState::Loaded(src) = &self.state {
-            let info = src.info();
-            let (a, b) = info.time_range;
-            left = left
-                .child(mono(
-                    format!(
-                        "{} – {}",
-                        format_time(a as f64, info.timescale),
-                        format_time(b as f64, info.timescale)
-                    )
-                    .into(),
-                    colors.text_muted,
-                ))
-                .child(mono(
-                    format!("{} signals", info.signal_count).into(),
-                    colors.text_placeholder,
-                ));
-            if let Some(n) = info.change_count {
-                left = left.child(mono(format!("{n} changes").into(), colors.text_placeholder));
-            }
-            let vp = waves.viewport;
-            let px_per = vp.width() / f64::from(f32::from(waves.wave_width)).max(1.0);
-            right = right.child(mono(
-                format!("1 px = {}", format_time(px_per, info.timescale)).into(),
-                colors.text_placeholder,
-            ));
-            if let Some(c) = waves.cursor {
-                left = left.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .child(
-                            Icon::new(IconName::Locate)
-                                .size(px(12.0))
-                                .color(colors.icon_accent),
-                        )
-                        .child(mono(
-                            format_time(c as f64, info.timescale).into(),
-                            colors.text,
-                        )),
-                );
-            }
-            if !waves.markers.is_empty() {
-                left = left.child(mono(
-                    format!("{} markers", waves.markers.len()).into(),
-                    colors.text_placeholder,
-                ));
-            }
+        if let Some(range) = status.time_range {
+            left = left.child(mono(range, colors.text_muted));
         }
-        right = right.child(mono(
-            format!("{:.1} ms", waves.frame_ms_avg).into(),
-            colors.text_placeholder,
-        ));
+        if let Some(s) = status.signals {
+            left = left.child(mono(s, colors.text_placeholder));
+        }
+        if let Some(s) = status.changes {
+            left = left.child(mono(s, colors.text_placeholder));
+        }
+        if let Some(s) = status.px_per {
+            right = right.child(mono(s, colors.text_placeholder));
+        }
+        if let Some(c) = status.cursor {
+            left = left.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        Icon::new(IconName::Locate)
+                            .size(px(12.0))
+                            .color(colors.icon_accent),
+                    )
+                    .child(mono(c, colors.text)),
+            );
+        }
+        if let Some(m) = status.markers {
+            left = left.child(mono(m, colors.text_placeholder));
+        }
+        right = right.child(mono(status.frame_ms, colors.text_placeholder));
         right = right.child(
             div()
                 .id("stress")
@@ -751,14 +825,14 @@ impl Workspace {
                     this.open_stress_menu(point(p.x - px(160.0), p.y - px(120.0)), window, cx);
                 }))
                 .child(Icon::new(IconName::Activity).size(px(12.0)).inherit_color())
-                .child(div().text_size(t.ui_size_small).child("Stress")),
+                .child(div().text_size(px(t.ui_size_small)).child("Stress")),
         );
         div()
             .flex()
             .flex_none()
             .items_center()
             .justify_between()
-            .h(t.statusbar_height)
+            .h(px(t.statusbar_height))
             .w_full()
             .px_2()
             .bg(t.bar.bg)
@@ -771,11 +845,14 @@ impl Workspace {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.app.tick(Instant::now()) {
+            window.request_animation_frame();
+        }
         let t = *theme(cx);
         let colors = t.editor;
-        let drag = self.drag;
-        let sidebar_visible = self.sidebar_visible;
+        let drag = self.app.drag;
+        let sidebar_visible = self.app.sidebar_visible;
         let mut root = div()
             .id("workspace")
             .key_context("Workspace")
@@ -786,7 +863,7 @@ impl Render for Workspace {
             .bg(t.editor.bg)
             .text_color(colors.text)
             .font_family(t.ui_font)
-            .text_size(t.ui_size)
+            .text_size(px(t.ui_size))
             .on_action(cx.listener(Self::open_file))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::close_trace));
@@ -801,19 +878,24 @@ impl Render for Workspace {
         if !self.embedded {
             root = root.child(self.render_titlebar(cx));
         }
+        let sidebar = sidebar_visible.then(|| self.render_sidebar(window, cx).into_any_element());
+        let center = self.render_center(cx);
         root.child(
             div()
                 .flex()
                 .flex_1()
                 .min_h_0()
                 .w_full()
-                .when(sidebar_visible, |el| {
-                    el.child(self.render_sidebar(cx)).child(
+                .when_some(sidebar, |el, sidebar| {
+                    el.child(sidebar).child(
                         Splitter::new("sidebar-split", SplitterAxis::Vertical)
-                            .dragging(drag == Some(WorkspaceDrag::Sidebar))
-                            .on_drag_start(cx.listener(|this, _, _, cx| {
-                                this.drag = Some(WorkspaceDrag::Sidebar);
-                                cx.notify();
+                            .dragging(drag == Some(ChromeDrag::Sidebar))
+                            .on_drag_start(cx.listener(|this, _, window, cx| {
+                                this.dispatch(
+                                    Command::ChromeDragStart(ChromeDrag::Sidebar),
+                                    Some(window),
+                                    cx,
+                                );
                             })),
                     )
                 })
@@ -823,7 +905,7 @@ impl Render for Workspace {
                         .min_w_0()
                         .h_full()
                         .overflow_hidden()
-                        .child(self.render_center(cx)),
+                        .child(center),
                 ),
         )
         .child(self.render_statusbar(cx))

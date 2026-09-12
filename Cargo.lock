@@ -5997,11 +5997,8 @@ dependencies = [
  "js-sys",
  "libtest-mimic",
  "log",
- "serde",
- "serde_json",
- "vtr",
+ "volna-core",
  "wasm-bindgen",
- "web-time",
 ]
 
 [[package]]
