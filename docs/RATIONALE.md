@@ -512,9 +512,12 @@ but not by argument value.
 
 ## 9. Things deliberately left out of the format
 
-* Presentation and semantics (colours, roles, source locations): the VDB
-  layer (`docs/VDB_APPNOTE.md`). Producers may record source stems as
-  attributes when they have them, but nothing depends on it.
+* Presentation and design semantics (colours, roles, design source mappings,
+  specialized types and driver/load relationships): the VDB layer
+  (`docs/VDB_APPNOTE.md`). Log-site provenance (`log.file`, `log.line`,
+  `log.func`) belongs in VTR so runtime messages retain their origin.
+  Producers may also preserve raw source-stem attributes; the VDB interprets
+  them as design source mappings.
 * Whole-file compression wrappers, sidecar files, in-band viewer state.
 * A query language: VTR is a store; queries are code.
 

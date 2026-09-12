@@ -17,8 +17,10 @@ to support interactive and AI-assisted debugging.
 | Integrations | `integrations/` | Simulator/consumer build glue and end-to-end integration checks |
 | External projects | `ext/` | Pinned simulator forks, consumers and format references |
 
-VTR must contain no presentation rules or source-level semantics. A VDB may
-attach those to trace identities without modifying the trace. VDB is intended
+VTR must contain no presentation rules or design source-level semantics.
+Log-site provenance (`log.file`, `log.line`, `log.func`) is allowed in VTR;
+design source mappings, specialized types and driver/load relationships belong
+in VDB, attached to trace identities without modifying the trace. VDB is intended
 to cover pipeline and transaction domains as well as RTL; its current library
 and exporters implement the RTL companion. The existing `vtr-vdb` package name
 does not make VDB part of the VTR file format.

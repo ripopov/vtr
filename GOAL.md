@@ -29,8 +29,9 @@ format and APIs yourself, and justify your choices in the deliverables.
 
 ## 1. Scope: what VTR captures
 
-VTR captures only what cannot be derived statically from source code or from
-YAML/JSON/XML configuration. Concretely, three kinds of data:
+VTR captures what cannot be derived statically from source code or from
+YAML/JSON/XML configuration, with the log-site provenance exception in
+section 2. Concretely, three kinds of data:
 
 1. **Runtime simulation trace.** Signal value changes and transaction streams
    with timestamped events and attributes.
@@ -61,11 +62,15 @@ same VTR trace. Therefore:
 
 - No VDB format is part of the VTR format deliverable. The separate VDB
   implementation lives in `core/vtr-vdb/` and must preserve this boundary.
-- VTR must not embed presentation or source-level semantics, but it must carry
+- VTR must not embed presentation or design source-level semantics, but it must carry
   enough stable identity and attribute data that a VDB can attach to it
   reliably (for example, name a signal, stream, transaction type, attribute,
   or relation kind and have that reference survive across runs of the same
   design).
+- Log-site provenance (`log.file`, `log.line`, `log.func`) is explicitly
+  allowed in VTR to identify where a runtime message originated. Design
+  source mappings for signals and modules, specialized types, and driver/load
+  relationships belong in VDB.
 
 Illustrative use cases the VTR + VDB pairing must enable:
 

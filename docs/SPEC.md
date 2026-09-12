@@ -594,7 +594,11 @@ attributes are:
 | `log.args` | list of u64 | argument types in placeholder order; each is a value tag from the set 1 bool, 2 i64, 3 u64, 4 f64, 5 str (interned id), 6 bytes, 10 time, 12 pointer, 17 text |
 | `log.names` | list of str | one name per argument (attribute keys when a record is read as a transaction); producers that have no names write `"0"`, `"1"`, ... |
 | `log.severity` | u64 | 0 trace, 1 debug, 2 info, 3 warn, 4 error, 5 fatal; other values rank by number (default 2) |
-| `log.file`, `log.line`, `log.func` | str, u64, str | source location, optional |
+| `log.file`, `log.line`, `log.func` | str, u64, str | producer log-site source location, optional |
+
+These source-location attributes identify where a runtime message originated.
+They are permitted log-site provenance under GOAL.md section 2; design source
+mappings, specialized types and driver/load relationships remain in VDB.
 
 Format strings use `{}` placeholders with an optional index and
 specification, `{2}`, `{:#010x}`, `{:>8.3}`, and `{{`/`}}` for literal
