@@ -130,6 +130,17 @@ away from, the intents in "Volna direction" above.
   clearest solution, and update affected implementations, callers, tests,
   and documentation together. Version formats to reject incompatible files
   clearly; support for older versions is not required (GOAL.md section 8).
+- **Fix missing abstractions at their owning layer.** Before adding a cache,
+  side table, flag, or adapter workaround, check whether it duplicates
+  information already owned elsewhere. If a consumer needs a missing query
+  over that information, prefer adding a small, coherent API at the owning
+  layer and updating callers. Keep derived caches only when they serve a
+  demonstrated performance need, with clear ownership and consistency rules.
+- **Reassess design when scope changes.** When a task expands across
+  components, revisit earlier implementation choices. Do not preserve a local
+  workaround merely because it was already implemented or committed.
+  Minimizing the diff is secondary to achieving the simplest coherent design
+  across the affected components.
 - **The reader targets read-only use.** Consumers inspect immutable trace
   data; modifying reader results is not a target use case. Design reader
   results for immutable access and shared storage where useful, including
