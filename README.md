@@ -168,7 +168,6 @@ regenerates `docs/BENCHMARK_RESULTS.md`. See `docs/BENCHMARKS.md`.
 | `demos/` | Logging examples and pipeline-viewer UX prototype |
 | `docs/` | Architecture, specifications, API references, research and benchmark reports |
 | `ext/` | Pinned external projects and reference implementations |
-| [crates/](crates/README.md) | Compatibility links required by the pinned Surfer submodule |
 
 All eight Rust packages share the root `Cargo.toml`, `Cargo.lock` and `target/`.
 Use `cargo -p <package>` to select a package. The standalone VDB exporter

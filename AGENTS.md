@@ -18,7 +18,7 @@ and `volna-egui`. Standalone Python exporters live in `integrations/slang`.
 The Verilator backend is in the pinned `ext/verilator` submodule, with build
 tools in `integrations/verilator`.
 Shared benchmarks remain in `bench/`. Add first-party code under its owning
-component; `crates/` contains only compatibility links for pinned Surfer.
+component.
 
 ## Long-term RTL VDB goal
 

@@ -8,11 +8,9 @@ Standalone pyslang export and simulator/consumer glue belong under
 `integrations/`. One workspace and lockfile keep dependencies consistent;
 non-GUI default members keep platform SDKs out of the default build.
 
-VTR and VDB are sibling crates because the pinned Surfer checkout depends on
-sibling paths under `crates/`. Relative symlinks resolve those paths to `core/`
-without duplicating source. Cargo distinguishes dependency paths even when they
-resolve to the same source, so the sibling relationship keeps the consumer's
-dependency graph consistent. First-party commands use canonical component paths.
+Libraries are grouped under `core/` by their shared role as foundations for
+tools, viewers and integrations. Consumers, including Surfer, reference these
+canonical paths directly.
 See the [architecture guide](ARCHITECTURE.md) for boundaries and integration status.
 
 ## Volna FST session integration

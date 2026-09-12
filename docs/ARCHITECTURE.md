@@ -59,7 +59,5 @@ and results. `docs/` contains the normative specification, API references,
 research and benchmark reports.
 `demos/` contains examples and UI prototypes, not additional production viewers.
 
-The pinned Surfer submodule depends on `crates/vtr`, `crates/vtr-capi` and
-`crates/vtr-vdb`. Relative symlinks resolve these paths to the libraries in
-`core/`. They contain no duplicate code and are not extra workspace members.
-Use the canonical component paths for first-party development.
+The Surfer submodule uses the VTR and VDB libraries and C headers directly
+from their canonical paths under `core/`.
