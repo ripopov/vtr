@@ -46,14 +46,21 @@ guide its evolution; they describe direction, not a fixed object tree, and
    headless on every platform. Frontends paint and host native widgets;
    they do not hold viewer logic. `crates/volna-core` is that core; keep
    new viewer behaviour there, not in a frontend.
-2. **Several frontends over one core.** GPUI (native and wasm) is the
-   current frontend. Others (a Tauri/web frontend, egui, ...) should be
+2. **Several frontends over one core.** `volna` (GPUI, native and wasm) is
+   the main viewer and the target for new features. `volna-egui` exists to
+   prove that `volna-core` is toolkit-independent, not to provide a second
+   feature-complete viewer. Do not add new features to `volna-egui` or
+   require feature parity with `volna`. As the core and main viewer evolve,
+   keep `volna-egui` building and working with its current minimal feature
+   set, making only the compatibility fixes and maintenance needed to
+   preserve that functionality. Other frontends should be
    thin adapters of the same core, not forks of the viewer. Shared code is
    the dense data canvases (waves, tables, pipeline timelines); the chrome
    (trees, lists, menus, dialogs) uses each toolkit's own widgets. Saved
    viewer state (open trace, tabs, displayed signals, cursor, markers,
    layout) is core data in a frontend-neutral format, so a session saved
-   in one frontend reopens in any other.
+   in one frontend can be read by another without requiring that frontend
+   to implement every view or feature in the session.
 3. **Client-server split for remote files.** The main use case is VS Code
    in remote mode (`vscode-server` over SSH, tunnels, containers) opening
    very large VTR files that live on the remote host, without transferring
