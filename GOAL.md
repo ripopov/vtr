@@ -119,7 +119,7 @@ of out-of-order cores. Synthetic microbenchmarks alone are not sufficient.
 ## 5. API requirements
 
 1. Reference implementation in **Rust**.
-2. A **C wrapper with a stable C ABI** over the Rust implementation, usable
+2. A **C wrapper with a C ABI** over the Rust implementation, usable
    from C, C++, and SystemC without Rust toolchain knowledge.
 3. The APIs must match or beat FSDB, FST, and FTR on clarity: small surface,
    obvious lifetimes and ownership, no hidden global state, clear error

@@ -68,25 +68,19 @@ Compression codecs (LZ4, Zstandard) and the CRC32 implementation are compiled
 into the library; there are no runtime dependencies beyond libc, libpthread,
 libdl and libm.
 
-### 1.3 ABI stability policy
+### 1.3 API and format versioning
 
-* The **header is the contract**. Every exported symbol, struct layout and
-  numeric code in `vtr.h` is stable for a given *file format major version*.
-  The library currently writes and reads format version **1.0**
-  (`vtr_meta.version_major == 1`).
-* Functions are versioned by the file-format major version: an incompatible
-  change to a function or struct is only made together with a major version
-  bump of the file format, at which point the old symbols are kept where
-  practical and the new behaviour gets new names.
-* Adding new functions, new `VTR_VAL_*` tags, new scope/var type codes or new
-  fields *at the end* of `vtr_writer_options` is a minor change. Callers must
-  therefore initialise `vtr_writer_options` with
-  `vtr_writer_options_default()` rather than by aggregate initialisation, and
-  must not assume `sizeof` of any struct.
+* During research, favor breaking API/ABI changes when they simplify the
+  design. Preserving old symbols, struct layouts or behavior is not required.
+  Update callers together and compile against the header matching the library.
+* API/ABI changes are independent of file-format versions. Version formats
+  to reject incompatible files clearly; support for older versions is not
+  required (see [GOAL.md section 8](../GOAL.md#8-ground-rules-for-the-agent)).
+* Initialise `vtr_writer_options` with `vtr_writer_options_default()` to
+  obtain the library's default settings.
 * `vtr_version()` returns the library (crate) version string, e.g. `"0.1.0"`.
-  It is informational; compatibility is decided by the format version stored
-  in the file (`vtr_meta.version_major/minor`), and a reader refuses files
-  written by a newer major version with `VTR_ERR_VERSION`.
+  The file-format version is reported separately in
+  `vtr_meta.version_major/minor`; the current format is **1.1**.
 
 ### 1.4 Threading model
 
