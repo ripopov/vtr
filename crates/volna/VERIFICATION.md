@@ -1,5 +1,75 @@
 # Verification record
 
+## Core/frontend split and egui frontend (2026-09-12)
+
+The viewer was restructured into `volna-core` (no GUI toolkit), the GPUI
+frontend in this crate, and a new native egui frontend (`volna-egui`). Every
+check below ran on the same Apple Silicon Mac (macOS 25.6, Rust 1.96 stable,
+`gpui-pre` 0.3.4, egui/eframe 0.36.2, Chrome 153, VS Code 1.137).
+
+Automated:
+
+- `crates/volna/check.sh` passes: formatting and strict Clippy for the three
+  viewer crates; 42 `volna-core` tests (27 unit tests including the theme
+  suite, 15 headless viewer tests in `tests/headless.rs`); 3 GPUI adapter tests
+  plus the Metal viewer integration test with its unchanged interaction
+  assertions; the egui headless screenshot test; the three JavaScript
+  extension tests.
+- Headless core tests cover: alias rows sharing one pending/loaded history,
+  stale results by generation, retry after failure, latest open wins, close
+  invalidating late success and error, open errors, cursor/marker/selection
+  through the document, deterministic zoom/pan/fit with an explicit clock,
+  wheel zoom and drag pan, dense-column collapse (one band for a 1000-change
+  burst, twenty edges when zoomed in), the format menu and translator cycle,
+  sidebar keys and filtering, layout hit regions and scene cursors, hover
+  repaint coalescing, and the `debug_state` format.
+- `cargo check -p volna-core --target wasm32-unknown-unknown` and
+  `cargo clippy -p volna --target wasm32-unknown-unknown --lib --all-features
+  -- -D warnings` pass with Homebrew LLVM 20 for zstd-sys.
+- `web/build.sh` rebuilds the wasm bundle and the extension media (fonts and
+  icon licences now come from `volna-core/assets`).
+
+Visual, GPUI native (`VOLNA_SCREENSHOTS=results crates/volna/check.sh`): the
+fourteen captures of the previous record were regenerated with identical state
+strings at every step. The empty-state "list-tree" icon now paints; before the
+split its SVG was missing from the asset table and failed silently.
+
+Visual, standalone web and VS Code: headless Chrome and the Extension
+Development Host were driven with `tools/cdp.mjs` on the rebuilt bundle. The
+new `debug_state()` export confirms the core state from the browser console.
+Web: load, scope select, `+`, cursor click, row select, `=` twice, marker,
+ctrl+wheel zoom, badge menu (`menu=true`, `Escape` → `menu=false`), `End`
+(`results/web/01-loaded.png` … `06-end.png`). VS Code: the custom editor opened
+`picorv32.vtr` under the host theme; scope select, `+`, cursor, row select,
+zoom, marker, next edge, badge menu and fit (`results/vscode/02-viewer.png` …
+`06-fit.png`).
+
+Visual, egui (`cargo test -p volna-egui --test screenshots`, software
+rasterized at 1440×900): empty state, loaded trace, 29 signals added with `+`,
+cursor and marker after zoom, the format menu, and the variable filter
+(`crates/volna-egui/results/egui/01-empty.png` … `06-filter.png`). The test
+also asserts the sidebar sash drag, the names-divider drag, pinch zoom, fit,
+right-drag pan and typing into the variable list.
+
+Frame time before and after the split, same machine, same harness (see
+"Performance" below for the method): the after column is the current build.
+
+| transitions (busiest signal) | before: fit median / p90 | after: fit median / p90 | before: zoomed 64× | after: zoomed 64× | table paint before / after |
+|---|---|---|---|---|---|
+| 10 K | 1.67 / 1.78 ms | 0.85 / 0.91 ms | 1.73 / 1.76 ms | 0.87 / 0.88 ms | 0.63 / 0.63 ms |
+| 1 M | 1.10 / 1.13 ms | 0.55 / 0.56 ms | 1.10 / 1.12 ms | 0.54 / 0.56 ms | 0.36 / 0.36 ms |
+| 100 M | 1.76 / 1.82 ms | 0.87 / 0.89 ms | 1.76 / 1.79 ms | 0.87 / 0.89 ms | 0.69 / 0.69 ms |
+
+The wave painter's own time is unchanged (same algorithm, now emitting a
+display list). Whole-frame time roughly halved because the GPUI adapter caches
+shaped text per string and colour across frames, where the previous element
+reshaped every label on every paint.
+
+Limits: the egui captures are software rasterized (no GPU feathering
+differences are checked), the egui frontend was not exercised in a real window
+by this record, Linux/Windows were not run, and browser checks remain spot
+checks rather than pixel baselines.
+
 ## Automated checks (2026-09-12)
 
 - `crates/volna/check.sh`: formatting, strict Clippy across all targets/features,
@@ -82,14 +152,15 @@ submission.
 
 | transitions (busiest signal) | fit-to-view median / p90 | zoomed 64× median / p90 | table paint |
 |---|---|---|---|
-| 10 K | 1.78 / 1.98 ms | 1.88 / 1.90 ms | 0.70 ms |
-| 1 M | 1.10 / 1.13 ms | 1.10 / 1.14 ms | 0.36 ms |
-| 100 M | 3.33 / 9.94 ms | 3.86 / 6.55 ms | 1.23 ms |
+| 10 K | 0.85 / 0.91 ms | 0.87 / 0.88 ms | 0.63 ms |
+| 1 M | 0.55 / 0.56 ms | 0.54 / 0.56 ms | 0.36 ms |
+| 100 M | 0.87 / 0.89 ms | 0.87 / 0.89 ms | 0.69 ms |
 
 Frame time is flat with respect to trace length. The 100 M row is slightly
 higher only because the procedural history hashes each probe; every viewport
 costs O(columns × log n) searches. A 4K viewport (≈ 1.3× the columns) stays far
-below the 16.7 ms budget.
+below the 16.7 ms budget. Measured after the core/frontend split; the previous
+numbers are in the section at the top of this file.
 
 Reproduce with:
 

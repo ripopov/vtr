@@ -8,9 +8,10 @@ read it first and treat its section 8 as binding.
 
 VTR (Vibe Trace Record): a trace file format and reference library for
 hardware simulation traces (waveforms, transactions, hierarchy, relations).
-Rust workspace with six crates (`crates/vtr` core, `vtr-capi` C ABI,
-`vtr-cli` tools, `vtr-bench` benchmarks, the `vtr-vdb` RTL companion, and
-`volna`, the official VTR/VDB viewer),
+Rust workspace with eight crates (`crates/vtr` core, `vtr-capi` C ABI,
+`vtr-cli` tools, `vtr-bench` benchmarks, the `vtr-vdb` RTL companion, and the
+official VTR/VDB viewer as `volna-core` plus its `volna` (GPUI) and
+`volna-egui` frontends),
 a Verilator backend in the pinned `ext/verilator` submodule with build tools
 in `integrations/verilator`, and a benchmark suite in `bench/`.
 
@@ -43,8 +44,8 @@ guide its evolution; they describe direction, not a fixed object tree, and
    and selection, load scheduling, painting into a toolkit-neutral display
    list) belongs in a core that imports no GUI toolkit and is testable
    headless on every platform. Frontends paint and host native widgets;
-   they do not hold viewer logic. Today `crates/volna/src/data/` already
-   follows this rule; the intent is to extend it to the rest of the viewer.
+   they do not hold viewer logic. `crates/volna-core` is that core; keep
+   new viewer behaviour there, not in a frontend.
 2. **Several frontends over one core.** GPUI (native and wasm) is the
    current frontend. Others (a Tauri/web frontend, egui, ...) should be
    thin adapters of the same core, not forks of the viewer. Shared code is
@@ -78,7 +79,7 @@ local session, with no second code path.
 | file format (normative) | `docs/SPEC.md` |
 | why things are the way they are, what was tried and rejected | `docs/RATIONALE.md` |
 | APIs | `docs/API_RUST.md`, `docs/API_C.md` |
-| Volna viewer (GPUI, native/web/VS Code) | `crates/volna/README.md`, `crates/volna/ARCHITECTURE.md` |
+| Volna viewer: toolkit-free core, GPUI frontend (native/web/VS Code), egui frontend (native) | `crates/volna/ARCHITECTURE.md`, `crates/volna/README.md`, `crates/volna-egui/README.md`, `crates/volna/VERIFICATION.md` |
 | logging (log sites, `LOG_BLOCK`, C++ header, comparison with NanoLog/binlog/Quill/CLP) | `docs/LOGGING.md`, `bench/log/` |
 | benchmark method / current numbers | `docs/BENCHMARKS.md`, `docs/BENCHMARK_RESULTS.md` |
 | RTL VDB schema, Verilator/pyslang exporters, Surfer attachment | `docs/VDB_RTL.md` |
@@ -91,17 +92,19 @@ local session, with no second code path.
 cargo build --release          # library, libvtr.{a,so}, vtr CLI, vtr-bench
 cargo test                     # unit, round-trip, converter and C-ABI tests
 cargo clippy --release
-crates/volna/check.sh           # viewer only; requires Rust 1.96+ and platform SDK
+crates/volna/check.sh           # viewer crates (core, GPUI, egui); requires Rust 1.96+ and platform SDK
 python3 bench/run.py all --scale small   # quick benchmark (minutes)
 python3 bench/run.py all                 # full suite (~1 h), regenerates docs/BENCHMARK_RESULTS.md
 ```
 
-Volna is an explicit workspace member, excluded from `default-members` to keep
-the core build independent of GUI dependencies. Run it with
-`cargo run -p volna --profile viewer -- trace.vtr`. It currently displays VTR
-waveforms; VDB integration is planned and must preserve the VTR/VDB split.
-Changes to the viewer should move it toward, not away from, the intents in
-"Volna direction" above.
+The viewer crates (`volna-core`, `volna`, `volna-egui`) are explicit workspace
+members, excluded from `default-members` to keep the core build independent of
+GUI dependencies. Run a frontend with `cargo run -p volna --profile viewer --
+trace.vtr` or `cargo run -p volna-egui --profile viewer -- trace.vtr`;
+`cargo test -p volna-core` runs the headless viewer tests on any platform. The
+viewer currently displays VTR waveforms; VDB integration is planned and must
+preserve the VTR/VDB split. Changes to the viewer should move it toward, not
+away from, the intents in "Volna direction" above.
 
 ## Rules
 

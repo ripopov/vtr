@@ -1,9 +1,12 @@
 # Volna — the VTR/VDB viewer
 
 Volna is the official viewer for VTR and its separate VDB design/presentation
-companion, built with [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui)
-(the `gpui-pre` crates.io snapshot, version 0.3.4). It runs as a native macOS
-app and, compiled to WebAssembly, inside a VS Code webview.
+companion. The viewer itself is `volna-core`, a crate with no GUI toolkit; this
+crate is its [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui)
+frontend (the `gpui-pre` crates.io snapshot, version 0.3.4), which runs as a
+native macOS app and, compiled to WebAssembly, inside a VS Code webview. A
+second frontend, `volna-egui`, runs natively on eframe. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the split.
 
 The current implementation displays **VTR waveforms**. VDB attachment, source
 browsing, and transaction/pipeline views are planned. Keep static VDB semantics
@@ -17,16 +20,21 @@ waves), a timeline, a cursor and numbered markers.
 
 Rust 1.96 or newer is the supported toolchain baseline. Run `./check.sh` from
 this directory (or `./crates/volna/check.sh` from the repository root) to check
-formatting, deny Clippy warnings across all targets/features, and run tests.
-The check script also requires Node.js 22+ for the VS Code adapter tests.
-The native build requires the platform SDK, including Metal tools on macOS.
-On macOS, `check.sh` also runs the feature-gated Metal integration test;
-`cargo test -p volna` runs only the GPU-free tests.
-Run `cargo fmt -p volna` to apply the committed formatting policy.
-Volna uses the root workspace lockfile. Root commands without `-p` build the core
-crates; use `-p volna` for the viewer or `--workspace` to include everything.
+formatting, deny Clippy warnings across all targets/features, and run the tests
+of `volna-core`, `volna` and `volna-egui`. The check script also requires
+Node.js 22+ for the VS Code adapter tests. The native build requires the
+platform SDK, including Metal tools on macOS. On macOS, `check.sh` also runs the
+feature-gated Metal integration test; `cargo test -p volna` runs only the
+GPU-free tests. Run `cargo fmt -p volna-core -p volna -p volna-egui` to apply
+the committed formatting policy. The viewer crates use the root workspace
+lockfile. Root commands without `-p` build the core crates; use `-p volna`,
+`-p volna-core` or `-p volna-egui` for the viewer, or `--workspace` to include
+everything.
 
-## Build and run (native)
+`cargo test -p volna-core` runs the headless viewer tests: they feed commands,
+assert on model state and on the display list, and run on every platform.
+
+## Build and run (native, GPUI)
 
 ```sh
 cd crates/volna
@@ -34,6 +42,19 @@ cargo run -p volna --profile viewer -- examples/picorv32.vtr
 cargo run -p volna --profile viewer -- --synthetic 100000000
 cargo test -p volna
 ```
+
+## Build and run (native, egui)
+
+```sh
+cargo run -p volna-egui --profile viewer -- crates/volna/examples/picorv32.vtr
+cargo run -p volna-egui --profile viewer -- --synthetic 100000000
+cargo test -p volna-egui       # headless interaction test; PNGs under crates/volna-egui/results/egui/
+```
+
+The egui frontend has no wasm build and no VS Code integration. It uses the
+OS title bar and egui widgets for the chrome; the wave panel is the same core
+painter. Keyboard shortcuts match the table below with the Command key on
+macOS.
 
 ## Build and run (WebAssembly)
 
@@ -50,7 +71,9 @@ open "http://localhost:8080/web/?file=../examples/picorv32.vtr"
 
 The page uses WebGPU when available and falls back to WebGL2. It is a
 single-threaded build (no SharedArrayBuffer requirement), so it also runs where
-cross-origin isolation is unavailable, such as VS Code webviews.
+cross-origin isolation is unavailable, such as VS Code webviews. The module
+exports `debug_state()`, which logs the viewer state to the console; browser
+verification scripts use it.
 
 ## VS Code extension
 
@@ -94,11 +117,13 @@ smoothed paint time of the wave table.
 ## Verification and performance
 
 ```sh
-cargo test -p volna --features visual-test --test viewer
+cargo test -p volna-core                                   # headless core tests, every platform
+cargo test -p volna --features visual-test --test viewer   # macOS Metal harness
 # Optional PNG artifacts (from crates/volna/):
 VOLNA_SCREENSHOTS=results cargo test -p volna --features visual-test --test viewer
 # Optional timing measurements, excluded from the regular test run:
 cargo test -p volna --profile viewer --features visual-test --test viewer frame_times -- --ignored
+cargo test -p volna-egui --test screenshots                # egui headless screenshots
 ```
 
 The integration test in `tests/viewer.rs` renders the production workspace
@@ -106,8 +131,8 @@ offscreen and asserts splitter, signal-loading, selection, cursor, zoom, marker,
 and menu behaviour after real input events. It checks captures are nonblank;
 PNG saving is optional and there is no baseline image comparison. The harness
 runs on the macOS main thread using `libtest-mimic` (normal test filters and
-`--list` work); other platforms report a skip. Internal unit/regression tests
-remain beside their source in `src/`.
+`--list` work); other platforms report a skip. The same interactions are
+asserted headlessly in `volna-core/tests/headless.rs` on every platform.
 
 The separate ignored `frame_times` test measures synthetic traces of 10 K,
 1 M and 100 M transitions without pass/fail timing thresholds. See
@@ -115,4 +140,5 @@ The separate ignored `frame_times` test measures synthetic traces of 10 K,
 to the viewport width, and [VERIFICATION.md](VERIFICATION.md) for the recorded
 results.
 
-Bundled fonts and icons retain their [third-party licenses](THIRD_PARTY.md).
+Bundled fonts and icons live in `volna-core/assets` and retain their
+[third-party licenses](THIRD_PARTY.md).
