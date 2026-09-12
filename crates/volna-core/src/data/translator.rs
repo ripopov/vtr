@@ -74,7 +74,7 @@ impl Translators {
     /// The translator a freshly added signal starts with.
     pub fn default_for(&self, shape: SignalShape) -> Arc<dyn Translator> {
         let id = match shape {
-            SignalShape::Bit => "bit",
+            SignalShape::Bit | SignalShape::Event => "bit",
             SignalShape::Vector { .. } => "hex",
             SignalShape::Real => "real",
             SignalShape::Text => "text",
@@ -128,7 +128,7 @@ impl Translator for BitTranslator {
         "bit"
     }
     fn applies(&self, shape: SignalShape) -> bool {
-        shape == SignalShape::Bit
+        matches!(shape, SignalShape::Bit | SignalShape::Event)
     }
     fn translate(&self, value: &WaveValue) -> Translated {
         let Some(bits) = bits_of(value) else {

@@ -50,6 +50,8 @@ pub enum ValueKind {
 /// The storage shape of a signal, independent of the HDL variable type.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum SignalShape {
+    /// Timestamped occurrences, not a held logic level.
+    Event,
     /// A single logic bit.
     Bit,
     /// A vector of `width` logic bits (`width >= 2`).
@@ -67,6 +69,7 @@ impl SignalShape {
             Self::Real => "real".into(),
             Self::Text => "str".into(),
             Self::Bit => String::new(),
+            Self::Event => "event".into(),
         }
     }
 
@@ -75,7 +78,7 @@ impl SignalShape {
             SignalShape::Bit => 1,
             SignalShape::Vector { width } => width,
             SignalShape::Real => 64,
-            SignalShape::Text => 0,
+            SignalShape::Text | SignalShape::Event => 0,
         }
     }
 

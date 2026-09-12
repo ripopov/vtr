@@ -1,5 +1,5 @@
 //! FST's mutable reader is owned by this adapter, never by a frontend.
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::{BufRead, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 
@@ -21,7 +21,6 @@ pub(crate) struct FstSession {
     info: TraceInfo,
     hierarchy: Hierarchy,
     shapes: BTreeMap<SignalRef, SignalShape>,
-    events: BTreeSet<SignalRef>,
 }
 
 impl FstSession {
@@ -58,7 +57,6 @@ impl FstSession {
         let mut hierarchy = Hierarchy::default();
         let mut scopes = Vec::new();
         let mut shapes = BTreeMap::new();
-        let mut events = BTreeSet::new();
         let mut error = None;
         let mut top = None;
         reader
@@ -94,12 +92,16 @@ impl FstSession {
                     ..
                 } => {
                     let signal = SignalRef(handle.get_index() as u32);
-                    if tpe == fst_reader::FstVarType::Event {
-                        events.insert(signal);
-                    }
-                    let shape = if tpe.is_real() {
+                    let shape = if tpe == fst_reader::FstVarType::Event {
+                        SignalShape::Event
+                    } else if tpe.is_real() {
                         SignalShape::Real
-                    } else if tpe == fst_reader::FstVarType::GenericString {
+                    } else if matches!(
+                        tpe,
+                        fst_reader::FstVarType::GenericString | fst_reader::FstVarType::Port
+                    ) {
+                        // EVCD ports carry values and strength fields. Keep the
+                        // complete payload rather than interpreting it as bits.
                         SignalShape::Text
                     } else if length <= 1 {
                         SignalShape::Bit
@@ -160,7 +162,6 @@ impl FstSession {
             info,
             hierarchy,
             shapes,
-            events,
         })
     }
 
@@ -170,9 +171,6 @@ impl FstSession {
     ) -> anyhow::Result<BTreeMap<SignalRef, Arc<dyn SignalHistory>>> {
         let mut histories = BTreeMap::new();
         for signal in signals {
-            if self.events.contains(signal) {
-                continue;
-            }
             let Some(&shape) = self.shapes.get(signal) else {
                 continue;
             };
@@ -216,7 +214,8 @@ impl FstSession {
                                 .context("FST logic value is not ASCII")?
                                 .to_owned();
                             ensure!(
-                                text.len() == history.shape.width() as usize,
+                                text.len() == history.shape.width() as usize
+                                    || history.shape == SignalShape::Event,
                                 "FST logic value width differs from its declaration"
                             );
                             ensure!(
@@ -310,14 +309,10 @@ impl Session for FstSession {
                 .map(|&s| {
                     (
                         s,
-                        if self.events.contains(&s) {
-                            Err(anyhow!("FST event occurrences are not yet supported by the waveform renderer"))
-                        } else {
-                            histories
-                                .get(&s)
-                                .cloned()
-                                .ok_or_else(|| anyhow!("unknown FST signal {}", s.0))
-                        },
+                        histories
+                            .get(&s)
+                            .cloned()
+                            .ok_or_else(|| anyhow!("unknown FST signal {}", s.0)),
                     )
                 })
                 .collect(),

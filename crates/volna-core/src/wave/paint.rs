@@ -211,7 +211,19 @@ pub fn paint(
             let avail = text_right - layout.values.left() - pad;
             let (value_text, color) = match (&item.history, cursor) {
                 (Some(h), Some(c)) => {
-                    let value = h.value(h.index_at(c));
+                    let index = h.index_at(c);
+                    let value = if item.shape == SignalShape::Event {
+                        WaveValue::Bits(
+                            if index.is_some_and(|i| h.time(i) == c) {
+                                "1"
+                            } else {
+                                "0"
+                            }
+                            .into(),
+                        )
+                    } else {
+                        h.value(index)
+                    };
                     let tr = item.translator.translate(&value);
                     let color = if tr.kind == ValueKind::Normal {
                         colors.text
@@ -274,6 +286,9 @@ pub fn paint(
         // Waves column.
         match (&item.history, &item.error) {
             (Some(h), _) => match item.shape {
+                SignalShape::Event => p.scene.clipped(waves, |scene| {
+                    paint_event_row(h.as_ref(), &viewport, wave_row, t, scene)
+                }),
                 SignalShape::Bit => p.scene.clipped(waves, |scene| {
                     paint_bit_row(h.as_ref(), &viewport, wave_row, t, scene)
                 }),
@@ -589,6 +604,48 @@ pub fn paint(
 // ---------------------------------------------------------------------------
 // Waveform painting
 // ---------------------------------------------------------------------------
+
+/// Paint occurrences, coalescing timestamps that occupy the same pixel.
+pub fn paint_event_row(
+    h: &dyn SignalHistory,
+    vp: &Viewport,
+    area: Rect,
+    t: &Theme,
+    scene: &mut Scene,
+) {
+    if area.width() <= 0.0 || vp.width() <= 0.0 {
+        return;
+    }
+    let mut i = if vp.start <= 0.0 {
+        0
+    } else {
+        h.index_at(vp.start.ceil() as u64).map_or(0, |i| {
+            if (h.time(i) as f64) < vp.start {
+                i + 1
+            } else {
+                i
+            }
+        })
+    };
+    while i < h.len() && h.time(i) as f64 <= vp.end {
+        let x = vp.x_of(h.time(i) as f64, area.width() as f64).floor();
+        scene.fill(
+            Rect::new(
+                point(area.left() + x as f32, area.top() + TRACE_PAD),
+                size(1.0, (area.height() - 2.0 * TRACE_PAD).max(0.0)),
+            ),
+            t.wave_dense,
+        );
+        // Skip all occurrences in this pixel, keeping frame work bounded.
+        let next = vp.time_at(x + 1.0, area.width() as f64).ceil();
+        i = if next > 0.0 {
+            h.index_at((next as u64).saturating_sub(1))
+                .map_or(i + 1, |last| (last + 1).max(i + 1))
+        } else {
+            i + 1
+        };
+    }
+}
 
 /// Paint a 1-bit trace by sampling one pixel column at a time.
 pub fn paint_bit_row(

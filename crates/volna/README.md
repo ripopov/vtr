@@ -17,8 +17,9 @@ paths and browser/VS Code byte inputs. Selection queues a batch of complete
 signal histories; aliases share the loaded data. Supported values include
 nine-state logic, reals and arbitrary byte strings. Byte strings display quoted
 escapes. Enum signals display recorded numeric bits; enum tables are not used
-as value translators. Event signals remain listed but loading them reports an
-unsupported-operation error. Files containing dump-activity records or a
+as value translators. Event signals display point markers at recorded timestamps,
+not held levels. EVCD port payloads display as escaped raw bytes, preserving
+strength fields without treating them as logic bits. Files containing dump-activity records or a
 nonzero time-zero offset are rejected explicitly: the current viewer cannot
 faithfully display recording gaps or apply that offset. These checks also
 apply inside gzip-wrapped FST files.

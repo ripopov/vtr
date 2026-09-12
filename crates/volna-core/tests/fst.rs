@@ -11,6 +11,26 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 #[test]
+fn surfer_fst_types_loads() {
+    let session = OpenSpec::Path(fixture("../fst_types.fst")).open().unwrap();
+    let signals: Vec<_> = session.hierarchy().vars.iter().map(|v| v.signal).collect();
+    assert_eq!(signals.len(), 76);
+    for (signal, result) in session.load_signals(&signals) {
+        let history = result.unwrap_or_else(|error| panic!("{signal:?}: {error:#}"));
+        assert!(!history.is_empty(), "{signal:?}");
+        let variable = session
+            .hierarchy()
+            .vars
+            .iter()
+            .find(|v| v.signal == signal)
+            .unwrap();
+        if variable.var_type == "port" {
+            assert!(matches!(history.value(Some(0)), WaveValue::Bytes(bytes) if bytes.len() == 8));
+        }
+    }
+}
+
+#[test]
 fn equivalent_verilator_traces_agree_at_every_change() {
     for design in ["features", "operators", "pipeline"] {
         let fst = OpenSpec::Path(fixture(&format!("{design}.fst")))
@@ -195,15 +215,42 @@ fn raw_bytes_reals_nine_states_and_time_boundaries() {
     assert!(Arc::ptr_eq(logic, loaded[3].1.as_ref().unwrap()));
     assert!(fst.load_signal(SignalRef(u32::MAX)).is_err());
     assert!(fst.load_signals(&[]).is_empty());
-    assert!(
-        loaded[4]
-            .1
-            .as_ref()
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("event occurrences")
+    let event = loaded[4].1.as_ref().unwrap();
+    assert_eq!(event.shape(), volna_core::data::SignalShape::Event);
+    assert_eq!(
+        (0..event.len()).map(|i| event.time(i)).collect::<Vec<_>>(),
+        vec![5, 10]
     );
+    use volna_core::{
+        scene::Scene,
+        theme::Theme,
+        wave::{paint::paint_event_row, viewport::Viewport},
+    };
+    let mut scene = Scene::default();
+    let area = volna_core::geometry::Rect::from_xywh(0.0, 0.0, 100.0, 24.0);
+    paint_event_row(
+        event.as_ref(),
+        &Viewport {
+            start: 0.0,
+            end: 20.0,
+        },
+        area,
+        &Theme::one_dark(),
+        &mut scene,
+    );
+    assert_eq!(scene.prims.len(), 2, "one marker per occurrence");
+    scene.prims.clear();
+    paint_event_row(
+        event.as_ref(),
+        &Viewport {
+            start: 6.0,
+            end: 9.0,
+        },
+        area,
+        &Theme::one_dark(),
+        &mut scene,
+    );
+    assert!(scene.prims.is_empty(), "no held event level");
 
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();

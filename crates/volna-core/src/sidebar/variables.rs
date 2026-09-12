@@ -181,7 +181,7 @@ pub fn shape_icon(shape: SignalShape) -> IconName {
         SignalShape::Bit => IconName::Activity,
         SignalShape::Vector { .. } => IconName::Binary,
         SignalShape::Real => IconName::Sigma,
-        SignalShape::Text => IconName::Type,
+        SignalShape::Text | SignalShape::Event => IconName::Type,
     }
 }
 

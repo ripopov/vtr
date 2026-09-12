@@ -9,6 +9,13 @@ depending on the CLI. Wellen's filtered batch reads and shared alias identities
 inform the loading design; its global time table and waveform storage are not
 the common contract. VTR histories keep their existing shared buffers.
 
+The `fst_types.fst` regression exposed that FST ports are EVCD payloads, not
+ordinary bit vectors: the reference reader reports logical width after removing
+strength fields, while callbacks retain the full payload. Preserve those bytes
+and display escaped text rather than guessing a width from names or dropping
+strengths. Event histories use a distinct shape and pixel-bounded point-marker
+painting, without synthesizing pulse durations or held values.
+
 Optional transaction and relation query facets preserve VTR's broader model
 without making FST manufacture records. Absence means unsupported; present
 facets with empty results mean supported but empty. VTR adapts its existing

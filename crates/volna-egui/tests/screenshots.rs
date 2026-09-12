@@ -55,7 +55,7 @@ fn fst_opens_and_loads_on_frontend_executor() {
     let mut h = Headless::new(W, H);
     let mut app = VolnaApp::new(&h.ctx);
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../ext/surfer/examples/verilator/features.fst");
+        .join("../../ext/surfer/examples/fst_types.fst");
     app.app.open_path(fixture);
     wait_loads(&mut h, &mut app);
     let count = app.app.doc.hierarchy().unwrap().vars.len();

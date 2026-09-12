@@ -240,7 +240,7 @@ added. The existing `block` dependency still emits its future-Rust warning.
 ## FST input validation
 
 On 2026-09-12, `crates/volna/check.sh` passed with macOS desktop access:
-formatting, all-target/all-feature Clippy, 53 core tests, three GPUI unit tests,
+formatting, all-target/all-feature Clippy, 54 core tests, three GPUI unit tests,
 the Metal interaction test, two egui tests and three Node adapter tests.
 `crates/volna/web/build.sh` also passed with the FST dependency and regenerated
 the wasm/VS Code bundles. The optional frame-time benchmark remains ignored;
@@ -253,6 +253,11 @@ plain histories agree sample-for-sample. Section framing is checked before
 fst-reader takes ownership: truncated section headers/payloads, unfinished
 lengths and arithmetic overflow return errors. This is framing validation,
 not a claim of exhaustive validation of malicious compressed payloads.
+
+The `fst_types.fst` regression loads all 76 variables, including raw EVCD port
+payloads and event occurrences; the egui loading smoke test uses this file.
+The reference-writer event test checks repeated occurrences and marker-only
+painting, including an empty viewport between occurrences.
 
 Run `cargo test -p volna-core --test fst`. Fixture regeneration commands live
 with `crates/volna-core/tests/fixtures/fst_values.c`; regular tests need only

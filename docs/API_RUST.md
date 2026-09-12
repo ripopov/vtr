@@ -1696,8 +1696,10 @@ documented above; it does not change the VTR file format or C ABI.
 `WaveValue::Bytes` is an uninterpreted variable-length signal payload, shared by
 FST strings and VTR VarLen values. The text translator quotes and ASCII-escapes
 it for display, retaining NUL and non-UTF-8 bytes in the raw query result.
-FST event variables are visible in hierarchy but currently return a per-signal
-unsupported load error; no persistent bit level is fabricated for occurrences.
+FST ports also retain their complete payload as `WaveValue::Bytes`, displayed
+as escaped text rather than discarding EVCD strength fields. FST event variables
+use `SignalShape::Event`: history timestamps are occurrences, rendered as point
+markers rather than held levels. The cursor shows 1 at an occurrence and 0 otherwise.
 
 `WaveValue::Unavailable` distinguishes a missing sample from a recorded X,
 NaN real, or empty byte string. FST returns it before the first callback sample;
