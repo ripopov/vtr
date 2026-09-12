@@ -1,17 +1,31 @@
 # Design rationale
 
+## Repository organization
+
+The shared VTR and VDB libraries live under `core/`, the trace CLI under
+`tools/`, Rust benchmark drivers under `bench/`, and the viewer under `volna/`.
+Standalone pyslang export and simulator/consumer glue belong under
+`integrations/`. One workspace and lockfile keep dependencies consistent;
+non-GUI default members keep platform SDKs out of the default build.
+
+VTR and VDB are sibling crates because the pinned Surfer checkout depends on
+sibling paths under `crates/`. Relative symlinks resolve those paths to `core/`
+without duplicating source. Cargo distinguishes dependency paths even when they
+resolve to the same source, so the sibling relationship keeps the consumer's
+dependency graph consistent. First-party commands use canonical component paths.
+See the [architecture guide](ARCHITECTURE.md) for boundaries and integration status.
+
 ## Volna FST session integration
 
-Volna extends its existing Session and immutable SignalHistory seam with batched
-loads and a private fst-reader adapter. The converter's numeric FST scope,
+Volna uses Session and immutable SignalHistory interfaces with batched loads
+and a private fst-reader adapter. The converter's numeric FST scope,
 variable and direction mappings are reused through existing type names, without
 depending on the CLI. Wellen's filtered batch reads and shared alias identities
 inform the loading design; its global time table and waveform storage are not
 the common contract. VTR histories keep their existing shared buffers.
 
-The `fst_types.fst` regression exposed that FST ports are EVCD payloads, not
-ordinary bit vectors: the reference reader reports logical width after removing
-strength fields, while callbacks retain the full payload. Preserve those bytes
+FST ports are EVCD payloads, not ordinary bit vectors: the reference reader
+reports logical width after removing strength fields, while callbacks retain the full payload. Preserve those bytes
 and display escaped text rather than guessing a width from names or dropping
 strengths. Event histories use a distinct shape and pixel-bounded point-marker
 painting, without synthesizing pulse durations or held values.
@@ -24,26 +38,23 @@ parents, attribute phases, typed values, events and stages. Resolved names in
 owned query records avoid exporting reader string-table handles. The semantic
 status/kind/phase enums are reused; no toolkit or backend storage is required by
 the facet contract. Track metadata is resident, queries are blocking, and
-frontends do not gain transaction views in this change.
+frontends do not expose transaction views.
 
 The visitor supports early stopping but does not establish remote pagination;
 relation vectors and VTR decoded transaction caches are not bounded by the
 viewport. Full waveform histories likewise do not satisfy the remote-file
 objective. The architecture records the required future window, summary,
-boundary, completeness and result-limit semantics. No VTR encoding, format or
-decode implementation changed, and no speed or memory improvement is claimed.
+boundary, completeness and result-limit semantics.
 The supported subset and limitations are in the
-[viewer guide](../crates/volna/README.md); test evidence is in the
-[verification record](../crates/volna/VERIFICATION.md).
+[viewer guide](../volna/volna/README.md); test coverage and commands are in the
+[verification guide](../volna/volna/VERIFICATION.md).
 
-This document records what was researched, what VTR borrowed, what it
-rejected, and why the format and API look the way they do. The research
-notes behind it (feature inventories of FST, FTR, Kanata, OpenTelemetry and
-of wavepeek's reader usage) were produced from the sources under `ext/`
-and the public specifications; the resulting feature matrix is in
-`docs/COVERAGE.md`.
+This document explains the format and API decisions, their supporting
+measurements, and the tradeoffs of alternative designs. It draws on FST, FTR,
+Kanata, OpenTelemetry and wavepeek's reader usage through the sources under
+`ext/` and public specifications. See `docs/COVERAGE.md` for the feature matrix.
 
-## 1. Goals that shaped the design
+## 1. Design goals
 
 1. One file for waveforms, transactions, hierarchy and relations, with one
    time base (the FSDB model, without the VDB).
@@ -54,7 +65,7 @@ and the public specifications; the resulting feature matrix is in
    simulator can call at tens of millions of changes per second.
 5. Versioned and extensible from day one; readable after a crash.
 
-## 2. What was studied
+## 2. Design references
 
 * **FST** (`fstapi.c`, libfstwriter, fst-reader): block structure,
   per-signal chains with delta-coded time indexes, frames, dynamic alias
@@ -126,8 +137,8 @@ explicit parents, kinds and typed attributes.
   from the next signal id), which makes them one byte each, and the reader
   keeps nodes column-wise (kind, parent, name and two words per node, with
   attributes and enum tables in side tables) instead of as 72-byte structs.
-  A 200k-variable design now opens in 6 ms instead of 13 ms, a constant
-  that dominated every point query on such designs.
+  Measurements on a 200k-variable design give 6 ms opening time for column
+  storage versus 13 ms for structs; opening contributes to every point query.
 
 ## 5. Signal values
 
@@ -167,12 +178,11 @@ values), with three changes.
    nothing to decode and saves 0.5% (SCR1) to 4% (`long_sparse`) over
    storing the bit.
 
-6. Per-column *dictionary coding* (transform 4, added after the 2026
-   literature review in `docs/SOTA_REVIEW_2026.md`): a column with at
+6. Per-column *dictionary coding* (transform 4; see the analysis in
+   `docs/SOTA_REVIEW_2026.md`): a column with at
    most 256 distinct values is stored as its dictionary plus one code byte
-   per entry. It was first rejected on the assumption that zstd's match
-   finder captures repeats within a run; a trial over the C910 value
-   streams showed one-byte codes compress 3x better than the matches zstd
+   per entry. Although zstd's match finder captures repeats within a run,
+   trials over the C910 value streams show one-byte codes compress 3x better than the matches zstd
    finds in 2-23 byte entries. The sample trial is optimistic for it (the
    32-entry segments favour codes over the long-range matches zstd finds in
    plain or shuffled values), so the dictionary must win the trial by 20%:
@@ -534,10 +544,8 @@ but not by argument value.
 
 VDB means Vibe Data Base. The companion crate and CLI use `vtr-vdb`,
 the exporter emits `vtr-rtl-vdb` version 2 in `.vdb.json` files, and trace
-identity uses `design.vdb_id`. This naming change leaves the VTR binary
-format and the companion schema structure unchanged. Re-export existing
-design databases to use the new identifier and matching design fingerprint;
-the reader rejects other format identifiers explicitly.
+identity uses `design.vdb_id`. The reader rejects other format identifiers
+explicitly; each design database must carry a matching design fingerprint.
 
 The independent [RTL VDB](VDB_RTL.md) borrows resolved symbols, context-sized
 expressions, parameter specialization and port connectivity from slang 11.0.0
@@ -553,16 +561,12 @@ an enabled assignment can write the same value, and pipeline stages sample
 pre-edge values. Explicit execution order handles blocking temporaries and
 last-write NBA semantics. Unsupported semantics and missing scheduler detail
 remain diagnostics. Exact paths, widths, optional module names and an optional
-producer design identity prevent speculative suffix-based attachment. No
-reader decode, writer, or encoding changes are needed; no efficiency claims
-or benchmark result changes accompany this companion.
-
+producer design identity prevent speculative suffix-based attachment.
 
 ### Hierarchical netlist views
 
-VDB v1 synthesized port assignments for temporal tracing but omitted module
-ownership and top/unconnected ports. Guessing ownership from targets is wrong
-for child outputs, cross-module references, and generate scopes. VDB v2 records
+Guessing ownership from targets is wrong for child outputs, cross-module
+references, and generate scopes. VDB v2 records
 slang's containing module explicitly, complete ordered ports, and separate RTL
 versus connection process origins. Static reads survive unsupported statement
 bodies, so opaque processes retain their input connectivity. Replication stays
@@ -583,12 +587,10 @@ application metadata outside the layout engine. We keep separate typed netlist
 metadata and ELK coordinates rather than relying on unknown JSON fields surviving
 ELK serialization. SVG snapshots, geometry invariants, and raster review check
 our integration independently of elkrs's unavailable upstream golden corpus.
-No VTR writer, encoding, or decode-path changes or performance claims accompany
-this use case; benchmark results are unchanged by this work.
 
 ### Native Verilator VDB export
 
-`--trace-vtr` now exports the same RTL VDB v2 domain directly from Verilator's
+`--trace-vtr` exports the same RTL VDB v2 domain directly from Verilator's
 elaborated AST. It reuses resolved parameter/type information and the native
 cell hierarchy instead of re-elaborating with a second frontend, parsing emitted
 C++, or inferring drivers from optimized traces. Export runs immediately after
@@ -610,21 +612,18 @@ structural-only attachment. Slang remains an independent standalone adapter.
 The integration suite uses actual Verilator waveforms to validate source paths,
 netlists and temporal provenance, including an enabled pipeline with a held
 edge, resets, signed/context-sized operations, generate/instance arrays and
-unsupported-case diagnostics. The pre-existing VTR/FST smoke test still agrees
-with its expected samples. This changes compile/open-time companion metadata;
-VTR encoding and per-dump value emission are unchanged. No performance or size
-improvement is claimed, and benchmark results are not updated.
+unsupported-case diagnostics. The VTR/FST smoke test independently checks
+recorded samples against expected values.
 
 ### Surfer VTR/VDB attachment
 
 Surfer builds the shared Wellen hierarchy and signal store through its typed
-builder/encoder APIs. The prototype's full VCD text serialization and second
-parse were removed; directions, components, aliases, packed ranges and enum
-translations now enter the same model used by FST directly. Verilator's
+builder/encoder APIs. Directions, components, aliases, packed ranges and enum
+translations enter the same model used by FST directly, avoiding full VCD text
+serialization and a second parse. Verilator's
 unpadded enum values are extended to the signal width before declaration.
 Waveforms and transactions use a format-independent combined document variant.
-The initial adapter materialized waveform data while loading. The native
-signal backend now loads only requested immutable signal histories, retaining
+The native signal backend loads only requested immutable signal histories, retaining
 Wellen hierarchy identities and the shared renderer. Canonical demand from
 visible tabs controls eviction; late results are filtered against current
 demand. FST export explicitly converts only selected loaded histories.
@@ -637,9 +636,8 @@ release drawing, memory and framebuffer caches. No performance claim is made.
 Companion selection uses the exact trace stem (`.vdb`, then `.vdb.json`). A
 mismatched preferred file is diagnosed rather than bypassed. Validation and
 source indexing happen with the recording's reader on the load worker, and
-the source index is owned by the resulting waveform document. This fixes the
-prototype's separate global index, which could become stale and was populated
-in a loading branch local VTR files did not use. Source resolution follows the
+the source index is owned by the resulting waveform document, preventing a
+global index from becoming stale when a recording is replaced. Source resolution follows the
 explicit binding and alias identity, not hierarchical suffix guesses. Tile
 state saves a location; source text and initial-scroll tracking remain a
 disposable cache.
@@ -647,8 +645,7 @@ disposable cache.
 Tests consume committed examples in `ext/surfer/examples`, including two real
 Verilator designs recorded separately as VTR and FST with identical stimulus.
 They compare all transitions and hierarchy metadata, use shared image goldens,
-and exercise context-menu navigation and document replacement. No VTR format,
-writer encoding or core reader decode path changes are involved.
+and exercise context-menu navigation and document replacement.
 
 ### Explicit reader cache eviction
 
@@ -658,9 +655,7 @@ the reader's per-block caches retain decoded transactions and logs.
 `Reader::clear_cache(&mut self)` and its C projection release decoded caches,
 keeping the mapping and metadata. Exclusive access allows resetting the locks
 without adding synchronization to queries. Owned shared histories and block
-time tables survive eviction. Existing decoding and cache lookup paths are
-unchanged; subsequent queries repopulate caches normally. This is a lifetime
-control API, with no encoding change or measured speedup claim.
+time tables survive eviction; subsequent queries repopulate caches normally.
 
 ### Surfer schematic canvas
 
@@ -671,8 +666,6 @@ images are not reference snapshots. Surfer's PNG tests use its own renderer
 and committed Verilator examples. Typed optional block source locations keep
 navigation independent of human-readable labels. The default `layout` feature
 in vtr-vdb is optional so consumers can supply their own layout dependency.
-This changes neither the VTR nor the VDB serialized format and makes no
-compression, throughput or memory performance claim.
 
 ## Verilator log capture and virtualized Surfer browsing
 
@@ -683,7 +676,7 @@ Text argument preserves Verilator's SystemVerilog-specific formatting and file
 output exactly; extracting typed arguments at every HDL call site would create
 call-site generators rather than severity generators and duplicate its formatter.
 This adapter therefore pays formatting cost on the simulation thread, unlike
-VTR's structured C++ logging macros. No encoding/reader decode path changed.
+VTR's structured C++ logging macros.
 
 Severity is carried explicitly through diagnostic lowering, not guessed from
 message prefixes. In VTR mode the compiler preserves reporting-call boundaries
@@ -697,15 +690,13 @@ An immutable per-recording index amortizes decode/format/sort across tiles and
 queries. This retains full formatted text in memory; it is not a bounded-memory
 or lazy log-text reader. A time interval is found by binary search, filtering
 runs in a cancellable worker, and rendering uses only visible matching rows.
-Outdated workers cannot replace newer query or recording results. This is a
-viewer architecture change, with no claims of improved VTR encoding performance.
+Outdated workers cannot replace newer query or recording results.
 
 The simulator regression also exercises binary HDL output (retained as a
 reversible hex string when it is not UTF-8), runtime reporting helpers, trace
 reentry warnings and context ownership. Reentrant trace warnings release the
-trace lock before invoking a log sink. Measurements and validation limits are
-recorded in [the integration notes](../integrations/verilator/logs/README.md).
-
+trace lock before invoking a log sink. Coverage and verification commands are
+in [the integration guide](../integrations/verilator/logs/README.md).
 
 ## CHI NoC packet visualization fixture
 
@@ -720,13 +711,9 @@ The deterministic XY mesh has six controllers, each reaching 64 overlapping
 packets. A sparse burst in the same recording makes a two-stream PNG regression
 readable. Topology and packet metadata contain no presentation attributes.
 See [the fixture notes](../ext/surfer/examples/chi_noc.md) for regeneration,
-validation and modeling boundaries. The fixture exposed overlapping VTR packets
-all drawing at row zero in Surfer. The canvas now derives row assignments per
+validation and modeling boundaries. The canvas derives row assignments per
 displayed stream or generator, sorted by start time and identity, using the first
 available row. This keeps presentation state outside immutable reader results.
-No VTR encoding, decoding, format or public API changes are made, and no
-performance improvement is claimed.
-
 
 ## Surfer transaction event markers
 
@@ -738,16 +725,13 @@ Events sharing a rounded canvas pixel share a marker but retain all hover
 entries. Offscreen events are omitted instead of clamped into misleading edge
 markers. Endpoint events are included; events outside the containing lifetime
 are omitted. The CHI and mixed waveform snapshots exercise the result, with
-geometry and hover/click regression checks. No VTR decode path or public API
-changes are involved, and no performance claim is made.
-
+geometry and hover/click regression checks.
 
 ## Stable Surfer transaction geometry and screen-space sampling
 
-Viewport-local row assignment caused packets to change rows while panning.
-ID-ordered payload vectors also violated the drawing loop’s assumption that
-start times were ordered; binary-searching arbitrary completion times could
-miss long overlapping transactions. Surfer now indexes complete stream and
+Viewport-local row assignment would move packets while panning, and binary
+search over arbitrary completion times can miss long overlapping transactions.
+Surfer indexes complete stream and
 generator geometry separately, sorting by start time and ID and assigning rows
 with active-end and free-row heaps. Draw-cache identities include the displayed
 track, and vertical scrolling invalidates sampled geometry. Mixed canvases use
@@ -764,20 +748,18 @@ transient decoded-block cache are still linear in recording data; no bounded
 initial-memory or billion-record-file loading claim is made.
 
 The one-million-record, same-process debug-profile timing comparison measured
-91.1 ms to construct geometry, 573.5 ms for the former per-frame row packing
+91.1 ms to construct geometry, 573.5 ms for per-frame row packing
 alone, and 1.6 ms for a 1920-column indexed query (best of three). These are not
 end-to-end GUI or file-I/O measurements. A virtual billion-element row verifies
 query operation/output bounds without allocating a billion payloads. See
 [the rendering chapter](../ext/surfer/docs/html/transaction-rendering.html) and
-its repeatable ignored timing test. No VTR encoding or decoder changes are made.
+its repeatable ignored timing test.
 
 ## Source tile highlighting from a static index, not a lexer or a server
 
-Surfer's source tile used a hand-written SystemVerilog lexer (keywords,
-comments, literals, punctuation). It could not tell a port from a parameter, a
-clock from a data input, or which generate branch an instance takes, and every
-SystemVerilog construct it did not know rendered wrong. The lexer is gone.
-Classification now comes from the `source_index` section of the VDB, written
+Lexical highlighting cannot distinguish ports from parameters, clocks from
+data inputs, or the generate branch an instance takes. Surfer's source tile
+gets classification from the `source_index` section of the VDB, written
 when the design is verilated by `verilator_vdb_index`, a slang-based program
 that ships with the pinned Verilator fork. Surfer only reads files.
 
@@ -791,14 +773,11 @@ Alternatives measured against the goal of accurate, instance-aware source:
   elaboration, and a large compile-time cost in the WASM build; rejected.
 - **Verible's language server**: does not elaborate, so per-instance parameter
   values and generate branches are unavailable; rejected.
-- **A live slang-based language server started by Surfer** (the previous
-  design: a fork adding semantic tokens and a per-instance generate query,
-  driven over LSP from the `elaboration` record): accurate, but it made a
-  viewer depend on a C++ binary being installed beside it, spawned a process
-  per loaded design, was native only, and answered questions whose answers
-  never change during a debugging run. Rejected once it worked: the code is
-  fixed at simulation time, so the frontend belongs to the build, not the
-  viewer.
+- **A live slang-based language server started by Surfer**: semantic tokens
+  and per-instance generate queries over LSP are accurate, but require an
+  installed C++ binary and a process per design, exclude WASM, and answer
+  questions whose answers are fixed during a debugging run. The compiler
+  frontend belongs in the build rather than the viewer.
 
 The index is produced by a separate program rather than by linking slang into
 `verilator_bin`: Verilator's own frontend must not gain a second parser in its
@@ -829,19 +808,19 @@ real pointer events; no toolchain runs in the tests.
 
 ## Cursor values inline in the source tile, hover kept for detail
 
-The first source tile showed a signal's value only in a tooltip. Debugging RTL
+Debugging RTL
 against a waveform is reading which branch fired and what its operands were at
 the cursor, line after line; a value that needs a hover per identifier is a
-value most lines never show. Values are now always visible, the way a JetBrains
+value most lines never show. Values are always visible, the way a JetBrains
 debugger annotates a stopped frame, and the hover keeps what the inline form
 cannot carry: the elaborated type, the owner, and every path the token denotes
 when a module is instantiated more than once.
 
-Four layouts were mocked before choosing: values trailing the code of each
+The layout alternatives are: values trailing the code of each
 line, a fixed value column at the right edge, an interlinear row above each
 line with the value over its identifier, and inlay chips after each identifier.
-Two shipped, switched from the tile header and a palette command, defaulted by
-config. **Trailing** is the default because it is the only layout that leaves
+Trailing values and inline chips are selectable from the tile header and a
+palette command, with a configurable default. **Trailing** is the default because it is the only layout that leaves
 the code where it is: ctrl-click and alt-click targets never move while the
 cursor is dragged, and aligned port lists and case arms stay aligned. It
 borrows the column's one strength: values start at the greater of the end of
@@ -869,13 +848,13 @@ array element prints when the index is a constant or a parameter with one
 elaborated value; otherwise the array prints its element count, since guessing
 an index would put a wrong number next to the code.
 
-Two joins had to become tolerant. Verilator counts declaration columns after
+Producer spelling differences require tolerant joins. Verilator counts declaration columns after
 macro expansion while slang counts them before, so a declaration on a line that
-also expands a macro (`parameter bit WRAP` after `` `FEAT_WIDTH ``) did not join
-by position; the tile now falls back to the symbol of the same name declared on
+also expands a macro (`parameter bit WRAP` after `` `FEAT_WIDTH ``) may not join
+by position; the tile falls back to the symbol of the same name declared on
 the same line. Verilator's VTR writer nests the elements of an unpacked array in
 a scope named after the array while its binding spells them as plain elements;
-the attachment and the variable lookup accept both spellings. Both fixes live
+the attachment and the variable lookup accept both spellings. These rules live
 in the viewer because they are tolerances of one producer's spelling, not
 format rules.
 
@@ -892,19 +871,19 @@ from a four-state simulator would take.
 
 ## Volna viewer
 
-`crates/volna` is the official VTR/VDB viewer, built with GPUI. Source/history
+`volna/volna` is the official VTR/VDB viewer, built with GPUI. Source/history
 interfaces separate runtime trace access from presentation; asynchronous-load
 regression tests guard against stale results. It currently provides VTR
-waveforms; VDB attachment and other trace domains remain future viewer work.
+and FST waveforms; VDB attachment and other trace domains remain future viewer work.
 Presentation and static design semantics stay outside the VTR format.
 
 Volna shares the workspace lockfile and local VTR crate, but is excluded from
 default members so GUI dependencies and platform SDK requirements do not enter
-the default core build. Workspace development uses Rust 1.96; individual core
-crate minimum versions are unchanged. A separate `viewer` profile uses thin LTO
-without changing the release/benchmark profiles.
+the default core build. Workspace development requires Rust 1.96+. Individual
+crate minimum versions are declared in their manifests. A separate `viewer`
+profile uses thin LTO; the release/benchmark profiles use fat LTO.
 
-Whole-viewer workflows live in `crates/volna/tests/`, separate from internal
+Whole-viewer workflows live in `volna/volna/tests/`, separate from internal
 unit/regression tests. The feature-gated macOS harness runs on the main thread
 for AppKit, reuses the production workspace, and combines interaction assertions
 with optional screenshot artifacts. Timing measurements are explicitly ignored
@@ -926,6 +905,5 @@ production Rust adapter in unit and visual tests. A small serde-derived JSON
 interface also accepts host-neutral CSS colours, using the same parser; this
 avoids duplicating role names in a separate JS wire decoder. Live updates refresh
 the same views without resetting trace or interaction state. The single-webview layout and native/standalone
-One Dark defaults remain. See Volna's architecture and verification records for
-the boundary and tests. No VTR format, reader/writer API or decode path changes
-are involved, so the VTR specification and API references are unchanged.
+One Dark defaults remain. See Volna's architecture and verification guide for
+the boundary and tests.

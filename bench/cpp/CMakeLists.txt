@@ -34,7 +34,7 @@ target_link_libraries(fst_read PRIVATE fstapi)
 target_compile_options(fst_read PRIVATE -O2)
 
 add_executable(vtr_write vtr_write.c)
-target_include_directories(vtr_write PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/vtr-capi/include)
+target_include_directories(vtr_write PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../core/vtr-capi/include)
 target_link_libraries(vtr_write PRIVATE ${VTR_TARGET}/libvtr.a pthread dl m)
 target_compile_options(vtr_write PRIVATE -O2)
 

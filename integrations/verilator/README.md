@@ -4,7 +4,7 @@ The `ext/verilator` submodule pins a commit from the
 [`vtr` branch](https://github.com/ripopov/verilator/tree/vtr), based on
 Verilator 5.050. It includes a VTR trace backend next to the existing `--trace-vcd`, `--trace-fst` and `--trace-saif` formats. It is a
 port of Verilator's FST backend (`verilated_fst_c.{h,cpp}`) onto the VTR
-C API (`crates/vtr-capi/include/vtr.h`), so a model built with `--trace-vtr`
+C API (`core/vtr-capi/include/vtr.h`), so a model built with `--trace-vtr`
 runs exactly the same generated trace code as with `--trace-fst`; only the
 sink differs.
 
@@ -36,7 +36,7 @@ git submodule update --init --recursive ext/verilator
 integrations/verilator/build.sh bench/build/verilator/install   # build and install pinned source
 cargo build --release -p vtr-capi                                # libvtr.a / libvtr.so + vtr.h
 verilator --cc --exe --trace-vtr top.sv main.cpp
-make -C obj_dir -f Vtop.mk VTR_INCLUDE=$VTR/crates/vtr-capi/include VTR_LIBDIR=$VTR/target/release
+make -C obj_dir -f Vtop.mk VTR_INCLUDE=$VTR/core/vtr-capi/include VTR_LIBDIR=$VTR/target/release
 ```
 
 In the harness, use `VerilatedVtrC` where you would use `VerilatedFstC`
@@ -61,7 +61,7 @@ What the VTR branch adds:
   `verilator_bin`.
 * `src/V3Options.{h,cpp}`: the `--trace-vtr` switch, class base
   `VerilatedVtr`, runtime source `verilated_vtr_c.cpp`; the one-format-only
-  check now includes VTR.
+  check includes VTR.
 * `src/V3EmitMk.cpp`, `src/V3EmitMkJson.cpp`, `include/verilated.mk.in`,
   `verilator-config.cmake.in`: `VM_TRACE_VTR` plumbing and link flags.
 * `src/V3EmitCImp.cpp`: enum data types are emitted for VTR like for FST

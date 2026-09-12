@@ -1,4 +1,16 @@
-# VTR: Vibe Trace Record
+# VTR hardware debugging environment
+
+Our goal is a unified hardware debugging environment spanning RTL and
+electronic system-level (ESL) models, including SystemC and gem5. VTR and VDB
+provide runtime trace data and separate design metadata. Simulator integrations
+connect these foundations to Verilator and, in future, gem5 and other
+simulators. Planned integration with wavepeek will enable AI agents to assist
+with debugging; Volna is the primary user interface.
+
+The [architecture guide](docs/ARCHITECTURE.md) describes the component
+boundaries, repository layout and implemented versus planned capabilities.
+
+## VTR trace foundation
 
 VTR is an open trace file format and reference library for hardware
 simulation. One file holds signal waveforms, transaction streams, the
@@ -7,9 +19,9 @@ an open FSDB-class trace store that covers everything FST, FTR (LWTR4SC),
 Konata/Kanata pipeline logs and OpenTelemetry traces can express, plus the
 simulator's text log as typed, timestamped records (`docs/LOGGING.md`).
 
-* Rust reference implementation (`crates/vtr`), C ABI (`crates/vtr-capi`,
-  header `crates/vtr-capi/include/vtr.h`), command-line tools
-  (`crates/vtr-cli`) and a benchmark suite (`crates/vtr-bench`, `bench/`).
+* Rust reference implementation (`core/vtr`), C ABI (`core/vtr-capi`,
+  header `core/vtr-capi/include/vtr.h`), command-line tools
+  (`tools/vtr-cli`) and a benchmark suite (`bench/vtr-bench`, `bench/`).
 * Smaller files, faster writing and faster reading than FST and FTR on the
   workloads in the benchmark report.
 * Streaming writer with a background encoder thread; random-access,
@@ -27,9 +39,9 @@ simulator's text log as typed, timestamped records (`docs/LOGGING.md`).
 VDB (Vibe Data Base) is the separate design and presentation companion.
 The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.
 
-[Volna](crates/volna/README.md) (`crates/volna`) is the official VTR/VDB viewer,
+[Volna](volna/volna/README.md) (`volna/volna`) is the official VTR/VDB viewer,
 built with GPUI for native macOS and the web/VS Code. It currently displays VTR
-waveforms; VDB attachment and source/transaction views are planned.
+and FST waveforms; VDB attachment and source/transaction views are planned.
 
 Explore the [Pipeline Studio UX demo](demos/pipeline-viewer/index.html): an
 interactive pipeline viewer and a screenshot-based tutorial. See its
@@ -70,8 +82,8 @@ macOS). It is a workspace member but is built explicitly so core commands do not
 require the GUI toolchain:
 
 ```sh
-cargo run -p volna --profile viewer -- crates/volna/examples/picorv32.vtr
-crates/volna/check.sh             # viewer formatting, Clippy, and regression tests
+cargo run -p volna --profile viewer -- volna/volna/examples/picorv32.vtr
+volna/volna/check.sh             # viewer formatting, Clippy, and regression tests
 ```
 
 ## Quick start
@@ -146,20 +158,23 @@ regenerates `docs/BENCHMARK_RESULTS.md`. See `docs/BENCHMARKS.md`.
 
 ## Repository layout
 
-```
-crates/vtr         core library: container, codecs, hierarchy, signal blocks, transaction blocks, writer, reader
-crates/vtr-capi    C ABI (libvtr) + header + C smoke test
-crates/vtr-cli     `vtr` tool and the converters (FST, VCD, Kanata, OTLP JSON, FTR)
-crates/vtr-bench   workload generation and benchmark drivers
-crates/vtr-vdb     separate design database and temporal driver tracing
-crates/volna       official VTR/VDB viewer (currently VTR waveforms)
-bench/             C/C++ harnesses (FST, FTR), Verilator workloads (rsa256, c910), orchestrator, results
-docs/              specification, API references, application note, benchmark report, rationale
-integrations/      Verilator submodule build and trace integration tests
-ext/               reference submodules (libfstwriter, LWTR4SC, Konata, wavepeek, pulp-c910)
-```
+| Directory | Responsibility |
+|---|---|
+| [core/](core/README.md) | VTR trace library and C ABI; separate VDB design library and RTL debugging |
+| [tools/](tools/README.md) | Trace CLI, inspection and converters |
+| [volna/](volna/README.md) | Official UI: toolkit-independent core, GPUI frontend and minimal egui frontend |
+| [integrations/](integrations/README.md) | Verilator build/tests, standalone slang exporter and integration direction |
+| `bench/` | Rust benchmark drivers, shared orchestration, C/C++ harnesses, workloads and results |
+| `demos/` | Logging examples and pipeline-viewer UX prototype |
+| `docs/` | Architecture, specifications, API references, research and benchmark reports |
+| `ext/` | Pinned external projects and reference implementations |
+| [crates/](crates/README.md) | Compatibility links required by the pinned Surfer submodule |
+
+All eight Rust packages share the root `Cargo.toml`, `Cargo.lock` and `target/`.
+Use `cargo -p <package>` to select a package. The standalone VDB exporter
+lives in `integrations/slang/`.
 
 ## License
 
 MIT OR Apache-2.0 for project code. Submodules and bundled third-party assets
-keep their own licenses; see [Volna's asset notices](crates/volna/THIRD_PARTY.md).
+keep their own licenses; see [Volna's asset notices](volna/volna/THIRD_PARTY.md).

@@ -35,8 +35,7 @@ explicit research/documentation links.
 ## Research
 
 [RESEARCH.md](RESEARCH.md) records the Konata presentation review, comparable tools,
-UI/UX guidance, design decisions, and limitations. The repository's trace format and
-API implementation are unchanged.
+UI/UX guidance, design decisions, and limitations.
 
 ## Browser checks and tutorial screenshots
 

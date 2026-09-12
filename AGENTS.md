@@ -6,14 +6,19 @@ read it first and treat its section 8 as binding.
 
 ## What this is
 
-VTR (Vibe Trace Record): a trace file format and reference library for
-hardware simulation traces (waveforms, transactions, hierarchy, relations).
-Rust workspace with eight crates (`crates/vtr` core, `vtr-capi` C ABI,
-`vtr-cli` tools, `vtr-bench` benchmarks, the `vtr-vdb` RTL companion, and the
-official VTR/VDB viewer as `volna-core` plus its `volna` (GPUI) and
-`volna-egui` frontends),
-a Verilator backend in the pinned `ext/verilator` submodule with build tools
-in `integrations/verilator`, and a benchmark suite in `bench/`.
+A unified hardware debugging environment for RTL and ESL models, built around
+VTR runtime traces, separate VDB design metadata, and the Volna UI. SystemC,
+gem5 and wavepeek integration are part of the direction; see
+`docs/ARCHITECTURE.md` for current support and planned work.
+
+One Rust workspace with eight crates grouped by responsibility:
+`core/` contains `vtr`, `vtr-capi` and `vtr-vdb`; `tools/` contains `vtr-cli`;
+`bench/` contains `vtr-bench`; `volna/` contains `volna-core`, `volna` (GPUI)
+and `volna-egui`. Standalone Python exporters live in `integrations/slang`.
+The Verilator backend is in the pinned `ext/verilator` submodule, with build
+tools in `integrations/verilator`.
+Shared benchmarks remain in `bench/`. Add first-party code under its owning
+component; `crates/` contains only compatibility links for pinned Surfer.
 
 ## Long-term RTL VDB goal
 
@@ -37,14 +42,14 @@ model. VDB remains separate from the runtime trace data in VTR.
 Volna is the official viewer and is expected to outgrow its current shape
 (one GPUI wave view over an in-memory or memory-mapped file). Three intents
 guide its evolution; they describe direction, not a fixed object tree, and
-`crates/volna/ARCHITECTURE.md` records the current state.
+`volna/volna/ARCHITECTURE.md` records the current state.
 
 1. **Toolkit-independent core.** Everything that decides what is shown and
    what an input does (document state, view models, viewport math, cursor
    and selection, load scheduling, painting into a toolkit-neutral display
    list) belongs in a core that imports no GUI toolkit and is testable
    headless on every platform. Frontends paint and host native widgets;
-   they do not hold viewer logic. `crates/volna-core` is that core; keep
+   they do not hold viewer logic. `volna/volna-core` is that core; keep
    new viewer behaviour there, not in a frontend.
 2. **Several frontends over one core.** `volna` (GPUI, native and wasm) is
    the main viewer and the target for new features. `volna-egui` exists to
@@ -83,10 +88,11 @@ local session, with no second code path.
 
 | need | file |
 |---|---|
+| repository boundaries, layout and integration status | `docs/ARCHITECTURE.md`, `integrations/README.md` |
 | file format (normative) | `docs/SPEC.md` |
 | why things are the way they are, what was tried and rejected | `docs/RATIONALE.md` |
 | APIs | `docs/API_RUST.md`, `docs/API_C.md` |
-| Volna viewer: toolkit-free core, GPUI frontend (native/web/VS Code), egui frontend (native) | `crates/volna/ARCHITECTURE.md`, `crates/volna/README.md`, `crates/volna-egui/README.md`, `crates/volna/VERIFICATION.md` |
+| Volna viewer: toolkit-free core, GPUI frontend (native/web/VS Code), egui frontend (native) | `volna/volna/ARCHITECTURE.md`, `volna/volna/README.md`, `volna/volna-egui/README.md`, `volna/volna/VERIFICATION.md` |
 | logging (log sites, `LOG_BLOCK`, C++ header, comparison with NanoLog/binlog/Quill/CLP) | `docs/LOGGING.md`, `bench/log/` |
 | benchmark method / current numbers | `docs/BENCHMARKS.md`, `docs/BENCHMARK_RESULTS.md` |
 | RTL VDB schema, Verilator/pyslang exporters, Surfer attachment | `docs/VDB_RTL.md` |
@@ -99,7 +105,7 @@ local session, with no second code path.
 cargo build --release          # library, libvtr.{a,so}, vtr CLI, vtr-bench
 cargo test                     # unit, round-trip, converter and C-ABI tests
 cargo clippy --release
-crates/volna/check.sh           # viewer crates (core, GPUI, egui); requires Rust 1.96+ and platform SDK
+volna/volna/check.sh           # viewer crates (core, GPUI, egui); requires Rust 1.96+ and platform SDK
 python3 bench/run.py all --scale small   # quick benchmark (minutes)
 python3 bench/run.py all                 # full suite (~1 h), regenerates docs/BENCHMARK_RESULTS.md
 ```
@@ -109,18 +115,21 @@ members, excluded from `default-members` to keep the core build independent of
 GUI dependencies. Run a frontend with `cargo run -p volna --profile viewer --
 trace.vtr` or `cargo run -p volna-egui --profile viewer -- trace.vtr`;
 `cargo test -p volna-core` runs the headless viewer tests on any platform. The
-viewer currently displays VTR waveforms; VDB integration is planned and must
+viewer currently displays VTR and FST waveforms; VDB integration is planned and must
 preserve the VTR/VDB split. Changes to the viewer should move it toward, not
 away from, the intents in "Volna direction" above.
 
 ## Rules
 
-- **Research first; design the best API.** This whole project is research.
-  Backward compatibility of the Rust API, C API/ABI, and file format is not
-  a requirement during this phase. Prefer the cleanest, most coherent API
-  over preserving existing signatures, ownership choices, or behavior.
-  Update affected callers, tests, and documentation together; keep the
-  format versioned and extensible as required by GOAL.md section 8.
+- **Research first; prioritize clean formats and APIs.** We are currently
+  in the research phase, so backward compatibility of the Rust API, C API/ABI,
+  and file format is not a requirement. Prioritize clean, coherent formats
+  and APIs over preserving existing interfaces or behavior. Favor breaking
+  changes over compatibility workarounds when they simplify the design.
+  Refactor directly rather than adding unnecessary indirection. Aim for the simplest,
+  clearest solution, and update affected implementations, callers, tests,
+  and documentation together. Version formats to reject incompatible files
+  clearly; support for older versions is not required (GOAL.md section 8).
 - **The reader targets read-only use.** Consumers inspect immutable trace
   data; modifying reader results is not a target use case. Design reader
   results for immutable access and shared storage where useful, including
@@ -137,7 +146,7 @@ away from, the intents in "Volna direction" above.
   alternatives have been measured; if you re-test one, record the new
   numbers there.
 - **Format changes** need: a new code in `docs/SPEC.md`, reader support,
-  a round-trip test in `crates/vtr/tests/`, and a rationale entry. Breaking
+  a round-trip test in `core/vtr/tests/`, and a rationale entry. Breaking
   changes must use an appropriate format version or code so incompatible
   files are rejected clearly; regenerate affected fixtures as needed.
 - **Simulator-integrated numbers** depend on the Verilator models linked
@@ -149,6 +158,9 @@ away from, the intents in "Volna direction" above.
   in the same session.
 - Keep the public API small and the C API a one-to-one projection of the
   Rust one. No presentation or VDB data in the format (GOAL.md section 2).
+- Keep documentation focused on current architecture, behavior, requirements
+  and reproducible workflows. Use Git for history; do not append dated progress
+  reports, migration diaries or per-change verification records.
 - Docs are part of the deliverable: update `SPEC.md`, `RATIONALE.md` and
   the API references in the same change as the code.
 - Commit messages describe what changed and the measured effect; no

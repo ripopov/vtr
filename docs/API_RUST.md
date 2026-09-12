@@ -1,6 +1,6 @@
 # VTR Rust API reference (`vtr` crate)
 
-This document is a reference and tour of the `vtr` crate at `crates/vtr`
+This document is a reference and tour of the `vtr` crate at `core/vtr`
 (workspace version 0.1.0, edition 2021, MSRV 1.80). It describes the public
 API as implemented in the sources; where behaviour is subtle the exact rule
 is spelled out. The on-disk format is specified in
@@ -129,7 +129,7 @@ section payload.
 
 ## 2. Quick start
 
-Add the dependency (`vtr = { path = "crates/vtr" }` inside the workspace, or
+Add the dependency (`vtr = { path = "core/vtr" }` inside the workspace, or
 by version once published). Both examples below were compiled and run against
 the crate as-is.
 
@@ -1413,7 +1413,7 @@ impl Value { pub fn tag(&self) -> ValueTag; /* encode/decode helpers */ }
 | `UFixed` | 14 | Unsigned fixed point. |
 | `List` | 15 | Ordered list of values (nesting allowed). |
 | `Map` | 16 | Ordered key/value pairs, keys interned. |
-| `Text` | 17 | Inline UTF-8 text, not interned (one-off strings; log arguments of type `Text` appear as this when a record is read as a transaction). Added in format 1.1. |
+| `Text` | 17 | Inline UTF-8 text, not interned (one-off strings; log arguments of type `Text` appear as this when a record is read as a transaction). Requires format 1.1. |
 
 `F64` participates in `PartialEq` by IEEE comparison (`NaN != NaN`), so
 `Value` is not `Eq`/`Hash`. In transaction blocks the scalar variants are
@@ -1618,17 +1618,17 @@ reader needs no configuration.
   encoding, LEB128/zig-zag, CRC and recovery rules. The `block`, `container`,
   `txblock`, `sections`, `strings`, `value` and `varint` modules of this crate
   are its reference implementation.
-* [`docs/API_C.md`](API_C.md) - the C API in `crates/vtr-capi`
-  (`vtr_*` functions, header `crates/vtr-capi/include/vtr.h`), a thin wrapper
+* [`docs/API_C.md`](API_C.md) - the C API in `core/vtr-capi`
+  (`vtr_*` functions, header `core/vtr-capi/include/vtr.h`), a thin wrapper
   over the `Writer` and `Reader` described here with the same semantics:
   identical option fields, error categories (reported through
   `vtr_last_error`), logic codes, packing rules and query behaviour.
-* Real-world usage inside this repository: `crates/vtr-bench/src/write.rs`
+* Real-world usage inside this repository: `bench/vtr-bench/src/write.rs`
   (replaying a VCD/FST workload into the writer with `emit_u64`,
   `emit_packed`, `emit_logic_str`, `emit_real`, `emit_varlen`),
-  `crates/vtr-cli/src/kanata.rs` (Konata pipeline logs to streams,
+  `tools/vtr-cli/src/kanata.rs` (Konata pipeline logs to streams,
   generators, transactions, stages, events and relations), and
-  `crates/vtr/tests/roundtrip.rs` (round-trip tests covering every emit path,
+  `core/vtr/tests/roundtrip.rs` (round-trip tests covering every emit path,
   transactions, crash recovery, error cases and skip-index checkpoints).
 
 ## RTL VDB companion API
@@ -1647,8 +1647,7 @@ exports retain structural matching and the existing explicit-prefix behavior.
 The debugger borrows the immutable database and reader and caches loaded
 histories per signal ID. See [VDB_RTL.md](VDB_RTL.md) for its schema and
 semantic contract. A read-only `SignalData::times()` accessor supports the
-companion; the VTR storage format is unchanged.
-
+companion, separate from the VTR storage format.
 
 The companion also exposes `vtr_vdb::netlist`:
 
@@ -1733,4 +1732,4 @@ cross-stream relations. `TrackRef` and `TransactionRef` belong to the opened
 session; they must not be reused after replacing it. VDB/presentation rules
 are outside these query interfaces. Queries are blocking and must be run off
 native UI frames. No bounded remote transport or transaction view is supplied;
-see `crates/volna/ARCHITECTURE.md` for the future window/summary contract.
+see `volna/volna/ARCHITECTURE.md` for the future window/summary contract.

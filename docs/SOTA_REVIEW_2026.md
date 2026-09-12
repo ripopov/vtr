@@ -2,7 +2,7 @@
 
 A survey of 2025-2026 work on trace, time-series and columnar compression,
 checked against measurements on the benchmark files of
-`docs/BENCHMARK_RESULTS.md`. The question was: which published ideas would
+`docs/BENCHMARK_RESULTS.md`. The question is which published ideas would
 improve VTR's size *and* keep or improve its write and read speed. Ideas that
 trade speed for size are listed only to record why they are rejected.
 
@@ -22,15 +22,15 @@ both built on the public `vtr` reader API) against the files in
   of per-module trace functions; PR #5806 (draft) splits tracing across
   `--threads` workers into one file per thread, 2.04x geomean faster. A
   VTR-side change cannot recover this cost; a Verilator-side one could.
-* **Inside VTR's writer the encoder thread has become the critical path on
+* **Inside VTR's writer the encoder thread is the critical path on
   large designs.** On C910 the simulator-side append costs 7.25 s (none/
   background), the encoder 4.75 s of column assembly plus 2.5 s of zstd; the
   caller waits ~1.7 s on it (9.0 s wall). Splitting the encoder over two
   threads (assembly on one, compression on another, or two block halves)
   would bring C910 to ~7.5 s (-17%) without touching the format.
-* **Size: one transform is missing from the pool.** Trial-compressing the
+* **Size: dictionary coding complements the other transforms.** Trial-compressing the
   multi-bit value streams of C910 (2-state, 37,497 chunks of 64 KiB) with
-  the current four candidates against seven more shows that per-chunk
+  the four non-dictionary candidates against seven more shows that per-chunk
   **dictionary coding** (≤256 distinct values, 1-byte codes, then zstd) wins
   on 10,414 chunks and takes the best-of-pool total from 159.0 MB to
   148.2 MB (-6.8% on those streams, about -4% of the file); every other
@@ -146,7 +146,7 @@ number of chunks a candidate wins outright.
 | frame-of-reference + bit-plane | 320.9 MB | 34 |
 | dictionary (≤256 values, 1-byte codes) | 53.0 MB on the 10,663 chunks where applicable | 10,414 |
 | dictionary + delta of codes | 62.2 MB (same chunks) | 249 |
-| **best of the current four** | **159.0 MB** | |
+| **best of the four non-dictionary candidates** | **159.0 MB** | |
 | **best of all eleven** | **148.2 MB (-6.8%)** | |
 
 By entry width the gain concentrates on 2-6 byte values (5-25%), 12-byte
@@ -180,7 +180,7 @@ trial mechanism correctly keeps plain values there.
   emitter. **PR #5806** (draft): one FST file per `--threads` worker,
   2.04x geomean speed-up, 1.13x smaller dumps, blocked on viewer support
   for multi-file traces. **PR #6992 / release 5.050**: Verilator's FST
-  backend now uses libfstwriter ("2x faster than fstapi"); multi-threaded
+  backend uses libfstwriter ("2x faster than fstapi"); multi-threaded
   FST tracing was removed (#7443) as incompatible with it. These frame the
   44 s: the writer is 20% of the trace cost, Verilator's generated code 80%.
 * **Synopsys, "2x faster waveform dumping in Verdi with VCS"**: dynamic
@@ -267,78 +267,62 @@ trial mechanism correctly keeps plain values there.
 Each entry says what the evidence is, what it would change, and the
 expected effect on the three axes (size / write / read).
 
-### Do (measured headroom, no trade-off)
+### Current transform design
 
-1. **Dictionary transform for value streams** (implemented as transform 4,
-   see the outcome below) (`xform` 4: sorted
-   dictionary of ≤256 distinct entries + 1-byte codes, then zstd; decided
-   by the existing sample trial). Evidence: section 2.4, -6.8% on C910
-   multi-bit value streams (~-4% of the file), 0% where it does not apply.
-   Write: one hash pass on the sample and, when chosen, on the run
-   (cheaper than delta with carries). Read: a table lookup per value, faster
-   than undoing delta. `docs/RATIONALE.md` records dictionary coding as
-   rejected because zstd finds repeats within a run; the C910 trial says
-   otherwise for 2-6 byte and 12-23 byte values, where a one-byte code
-   stream compresses 3x better than the matches zstd finds in 2-23 byte
-   entries. Caveat: the trial compresses one signal per chunk while real
-   runs mix up to 64 signals, which gives zstd more context; the writer
-   experiment must confirm the gain on whole files before the format
-   gains a transform code.
-2. **Second encoder thread.** Evidence: section 2.1, encoder 7.2 s versus
+Dictionary coding is transform 4: a dictionary of at most 256 distinct entries
+in first-occurrence order plus one-byte codes, followed by compression. The
+encoder samples value slices across each column, estimates dictionary costs,
+and hashes whole columns only when the sample qualifies. Dictionary selection
+requires a 20% estimated gain because short sample segments favor codes over
+the long-range matches zstd finds in plain or shuffled values.
+
+The chunk trial in section 2.4 measures -6.8% on C910 multi-bit value streams.
+Whole-file measurements show a smaller effect: C910 -1.1% (245.94 to 243.13 MiB;
+Verilator-written file 263.2 to 260.3 MB), scr1_axi -0.5%, scr1_x8 -0.1%, and
+other workloads byte-identical. Write-time differences are within noise
+(-4% to +2% across 24 measurements), with no measured read-time change.
+A zero-margin decision loses on 625 of 839 scr1_x8 runs (+0.9% file size).
+
+Real runs mix up to 64 signals, so the plain sample already compresses most
+low-cardinality columns well. The remaining headroom is in candidate selection;
+compressing both candidates in full for marginal runs would cost about 5%
+encoder time. See [RATIONALE.md](RATIONALE.md) for the format decision.
+
+### Candidate improvements
+
+1. **Second encoder thread.** Evidence: section 2.1, encoder 7.2 s versus
    caller 7.25 s on C910, 1.7 s of waiting; on wide-value workloads the
    compression share is larger. Pipeline assembly (sort + column encode)
    and compression (transform trial + zstd) on separate threads, or encode
    two blocks concurrently. Size unchanged; write -15-20% wall on C910,
    more on wide_bus/rsa256; read unchanged. CPU time rises slightly (two
    threads' cache footprint). Inline mode is unaffected.
-3. **Return loaded values in the packing actually stored.** Evidence:
+2. **Return loaded values in the packing actually stored.** Evidence:
    section 2.2, 1.6x load cost from widening compact 2-state entries to a
    declared 4-state packing. Add the packing to `SignalData` and widen
    only on request. Size and write unchanged; `load N signals` on the
    FST-replayed workloads (four of eight) 1.3-1.6x faster.
-4. **Three-point sampling for the transform trial** (FastLanes). Take the
-   1 KiB sample from the start, middle and end of the run instead of the
-   start. Cost: two more trial compressions of 1 KiB per run (~2% of
-   encoder time); gain: correct choices on runs whose behaviour changes
-   mid-run. Expected small (≤1%) but strictly non-negative on size.
-
-   *Outcome (implemented 2026-09-04, full suite rerun):* the sample trial
-   over-predicts the dictionary's gain (32-entry segments favour codes over
-   the long-range matches zstd finds in plain or shuffled values): at a 0%
-   margin it lost on 625 of 839 runs of scr1_x8 (+0.9% file). With a 20%
-   margin, an order-0 pre-estimate on the sample's codes (so runs that
-   cannot win pay no extra trial) and whole-column hashing only after that
-   pre-estimate passes, the suite shows C910 -1.1% (245.94 -> 243.13 MiB;
-   Verilator-written file 263.2 -> 260.3 MB), scr1_axi -0.5%, scr1_x8
-   -0.1%, every other workload byte-identical; write times within noise
-   (-4% to +2% across the 24 writer measurements), reads unchanged,
-   parity and the VCD information check clean. The chunk-level -6.8%
-   headroom does not survive the run-level decision: real runs mix up to 64
-   signals, and the plain sample already compresses most low-cardinality
-   columns well. The remaining gap is a better decision, not a better
-   coder; compressing both candidates in full for marginal runs would
-   recover it at ~5% encoder time.
 
 ### Try (plausible, needs an experiment)
 
-5. **Entropy-only coding (FSE or Huffman) for runs whose sample shows no LZ
+3. **Entropy-only coding (FSE or Huffman) for runs whose sample shows no LZ
    gain** (OpenZL's final stage). Today such runs go to LZ4 and stay
    nearly raw (rsa256 98% of FST, wide_bus 97%). Order-0 coding of shuffled
    byte lanes could take 5-10% off high-entropy wide values at higher speed
    than zstd-1. Risk: order-0 on true random data gains nothing and the
    probe must stay cheap; FSE tables cost 256 bytes per lane per run.
-6. **Header-stream sharing across signals with identical change times**
+4. **Header-stream sharing across signals with identical change times**
    (FastLanes EQUALITY on the time column). Evidence: 8.8% of C910's and
    40% of scr1_x8's changes belong to signals whose change-time sets equal
    another signal's; zstd already removes most of that when the signals
    share a run. Worth measuring the compressed header share first (the
    writer can report header vs value bytes per run); expected ≤2% size,
    read-neutral.
-7. **Aliases modulo the first entry** (delayed and inverted copies): 1-2%
+5. **Aliases modulo the first entry** (delayed and inverted copies): 1-2%
    of changes on real RTL. Only worth it if it fits the existing alias
    hash (hash the streams from the second entry and store the first entry
    in the alias record); otherwise skip.
-8. **Verilator side: reduce the generated trace code's cost.** Not a VTR
+6. **Verilator side: reduce the generated trace code's cost.** Not a VTR
    change, but the only route to a materially lower simulator-integrated
    number (44 s -> the writer's 9 s is the floor for the current Verilator
    code). Options in order of realism: (a) `--trace-vtr` with PR #5806's

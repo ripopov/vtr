@@ -1,4 +1,4 @@
-// Loader for transaction replay files (crates/vtr-bench/src/tx.rs, "VTRTXR01").
+// Loader for transaction replay files (bench/vtr-bench/src/tx.rs, "VTRTXR01").
 #pragma once
 #include <cstdint>
 #include <cstdio>

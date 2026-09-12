@@ -20,7 +20,7 @@ def main():
     lib = out/'lib'
     lib.mkdir(exist_ok=True)
     shutil.copy2(ROOT/'target/release/libvtr.a', lib/'libvtr.a')
-    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'crates/vtr-capi/include'), VTR_LIBDIR=str(lib))
+    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'core/vtr-capi/include'), VTR_LIBDIR=str(lib))
     cli = ROOT/'target/release/vtr'
     for mode in ('vtr', 'fst'):
         obj = out/f'obj_{mode}'

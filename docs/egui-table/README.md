@@ -2,10 +2,6 @@
 
 A native, read-only data explorer built with **egui/eframe 0.36.1**. The demo stores **10,000,000 rows × 30 columns** in a seekable protobuf/zstd file and opens with the first six columns visible.
 
-![Atlas viewer](docs/viewer.png)
-
-[**Inside Atlas: interactive developer tutorial**](docs/developer/index.html) — a conceptual guide to the architecture and algorithms, with SVG diagrams. Open the HTML file directly in a browser; no server or build step is needed.
-
 ## Run
 
 Requires Rust **1.95+**, a desktop display, and an OpenGL-capable driver. The lockfile is included.
@@ -123,7 +119,7 @@ cargo clippy --workspace --locked --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-Tests cover docked-panel persistence, viewport resizing, full cell-value inspection, inline filter focus during loading, stable input geometry, keyboard traversal and clearing, hidden-column filter access, file round trips, checksum corruption, and truncation, final partial row groups, invalid accesses, dense/sparse/empty rank/select, Unicode fuzzy matching, combined filters, cancellation, search constrained to a filtered view, row/column viewport culling, last-row access, query generations, and first/second/third/previous match navigation. Native interaction checks were also performed on an isolated X11 display.
+Tests cover docked-panel persistence, viewport resizing, full cell-value inspection, inline filter focus during loading, stable input geometry, keyboard traversal and clearing, hidden-column filter access, file round trips, checksum corruption, and truncation, final partial row groups, invalid accesses, dense/sparse/empty rank/select, Unicode fuzzy matching, combined filters, cancellation, search constrained to a filtered view, row/column viewport culling, last-row access, query generations, and first/second/third/previous match navigation.
 
 ## Scope
 
@@ -131,15 +127,11 @@ This is a focused viewer demo, not a claim of QTableView feature parity. It does
 
 ## Filtering interaction design
 
-![Inline column filters](docs/inline-filters.png)
-
 The default uses a persistent row of inputs aligned with the data columns, following the quick-access patterns documented by [AG Grid floating filters](https://www.ag-grid.com/javascript-data-grid/floating-filters/) and [MUI header filters](https://mui.com/x/react-data-grid/filtering/header-filters/) (reviewed September 2026). This makes fuzzy filtering a direct action and lets several column conditions stay visible together. The summary strip keeps a constant height so adding a condition does not move the input being edited.
 
 Categorical value pickers and numeric/date ranges could complement these inputs if typed operators are added later. The current dataset viewer retains its consistent fuzzy-text semantics for every column.
 
 ## Popup-free interaction design
-
-![Docked column controls](docs/columns-panel.png)
 
 Reviewed September 2026: [NN/g tooltip guidance](https://www.nngroup.com/articles/tooltip-guidelines/) discourages redundant tooltip text, hiding essential instructions, and obscuring related content. [Carbon data-table guidance](https://carbondesignsystem.com/components/data-table/usage/) places table-wide actions in the toolbar. These are established principles, not a claim that a particular pattern was invented in 2026.
 
@@ -147,15 +139,13 @@ Atlas applies these principles with direct header filters and search, a delibera
 
 ## Selection and clipboard
 
-![Rectangular cell selection](docs/selection.png)
-
 Selection stores row-range or rectangle endpoints, or a dynamic column mask, independent of dataset size. Only visible cells are checked and painted. Copy snapshots the immutable filtered row map and loads one row group of the selected columns at a time. It does not depend on the viewport cache, so offscreen and previously unloaded cells are included. Only one copy job is active; cancellation is checked between rows and block reads.
 
-Tests cover reversed rectangles, Shift/Ctrl column selection, hidden-column exclusion, native-style pointer events, clipboard commands and text-input focus, filtered TSV order across three row groups, escaping, size limits, and cancellation. Native X11 verification also checks the actual clipboard text for a dragged rectangle.
+Tests cover reversed rectangles, Shift/Ctrl column selection, hidden-column exclusion, native-style pointer events, clipboard commands and text-input focus, filtered TSV order across three row groups, escaping, size limits, and cancellation. For native X11 verification, check the actual clipboard text for a dragged rectangle.
 
 ## Reuse in another egui app
 
-The table is now the standalone [egui-atlas-table crate](crates/egui-atlas-table/README.md). The root binary only handles startup, the demo file adapter/generator, branding, and custom cell formatting. The library has no protobuf, zstd, filesystem, or eframe dependency.
+The table is the standalone [egui-atlas-table crate](crates/egui-atlas-table/README.md). The root binary only handles startup, the demo file adapter/generator, branding, and custom cell formatting. The library has no protobuf, zstd, filesystem, or eframe dependency.
 
 ```toml
 [dependencies]
@@ -165,5 +155,3 @@ egui-atlas-table = { path = "/path/to/egui-table/crates/egui-atlas-table" }
 Implement `DataSource`, construct `Table::new` once with a unique ID, and call `table.show(ui)` each frame. `show_grid(ui, rect)` supports application-owned controls. Schema sizes, initial visible columns, column groups/widths/formatting, colors, query threads, and debounce intervals are configurable. See the crate README for the source contract and a minimal embedding example.
 
 Run `cargo run --release --example reuse` for two independent tables backed by ordinary Rust vectors. This example uses neither the demo file nor its generator.
-
-[Refactor performance comparison and raw measurements](docs/refactor-performance.md).

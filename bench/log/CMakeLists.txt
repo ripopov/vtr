@@ -31,7 +31,7 @@ target_compile_options(log_zstd PRIVATE ${OPT})
 
 # ---- VTR (C API + vtr_log.hpp) ----
 add_executable(log_vtr log_vtr.cpp)
-target_include_directories(log_vtr PRIVATE ${ROOT}/crates/vtr-capi/include)
+target_include_directories(log_vtr PRIVATE ${ROOT}/core/vtr-capi/include)
 target_link_libraries(log_vtr PRIVATE ${VTR_TARGET}/libvtr.a Threads::Threads ${CMAKE_DL_LIBS} m)
 target_compile_options(log_vtr PRIVATE ${OPT})
 

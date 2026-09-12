@@ -22,7 +22,7 @@ def main():
     lib = out/'lib'
     lib.mkdir(exist_ok=True)
     shutil.copy2(ROOT/'target/release/libvtr.a', lib/'libvtr.a')
-    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'crates/vtr-capi/include'), VTR_LIBDIR=str(lib))
+    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'core/vtr-capi/include'), VTR_LIBDIR=str(lib))
     cli = ROOT/'target/debug/vtr-vdb'
 
     def query(command, db, trace, *options, success=True):
@@ -38,7 +38,7 @@ def main():
             subprocess.run([str(args.verilator.resolve()), '--cc', '--exe', '--build', '-j', '2',
                             '--top-module', 'top', '--prefix', 'Vtop', '--Mdir', str(obj),
                             '--trace-vtr', '-Wno-fatal', '-CFLAGS', '-DVDB_'+name.upper(),
-                            str(HERE/'operators.sv' if name == 'operators' else ROOT/f'crates/vtr-vdb/tests/rtl/{name}.sv'), str(HERE/'main.cpp'), '-o', 'sim'],
+                            str(HERE/'operators.sv' if name == 'operators' else ROOT/f'core/vtr-vdb/tests/rtl/{name}.sv'), str(HERE/'main.cpp'), '-o', 'sim'],
                            env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         recording = obj/'trace.vtr'
         subprocess.run([str(obj/'sim'), str(recording)], check=True)
@@ -85,7 +85,7 @@ def main():
                 subprocess.run([str(args.verilator.resolve()), '--cc', '--exe', '--build', '-j', '2',
                                 '--top-module', 'top', '--prefix', 'Vtop', '--Mdir', str(partial),
                                 '--trace-vtr', '--trace-depth', '1', '-CFLAGS', '-DVDB_PIPELINE',
-                                str(ROOT/'crates/vtr-vdb/tests/rtl/pipeline.sv'), str(HERE/'main.cpp'), '-o', 'sim'],
+                                str(ROOT/'core/vtr-vdb/tests/rtl/pipeline.sv'), str(HERE/'main.cpp'), '-o', 'sim'],
                                env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
             subprocess.run([str(partial/'sim'), str(partial/'trace.vtr')], check=True)
             missing = query('check', partial/'trace.vdb.json', partial/'trace.vtr', success=False)

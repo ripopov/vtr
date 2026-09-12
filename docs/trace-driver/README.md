@@ -56,9 +56,9 @@ use fixed tile layouts, with scrolling inside the panels on small screens.
 
 ## Validation
 
-The presentation was checked in headless Chrome with networking disabled,
-including both languages, all four demos, keyboard navigation, filtering,
-depth limits, clear/reset, language persistence, and layouts at 390, 768,
-and 1440 pixels. The embedded source and values were compared with the
-repository example and the CLI trace. These checks validate the fixed demos;
-they do not establish performance on large designs.
+Check the presentation in a browser with networking disabled. Exercise both
+languages, all four demos, keyboard navigation, filtering, depth limits,
+clear/reset, language persistence, and layouts at 390, 768 and 1440 pixels.
+Compare the embedded source and values with the repository example and the CLI
+trace. These checks cover the fixed demos; they do not establish performance
+on large designs.

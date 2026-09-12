@@ -1,9 +1,9 @@
 # VTR C API reference (`libvtr`)
 
 This document is the reference for the C API of VTR (Vibe Trace Record). The
-header `crates/vtr-capi/include/vtr.h` is the contract; this document explains
+header `core/vtr-capi/include/vtr.h` is the contract; this document explains
 every function and struct in it, the semantics behind them, and how they map
-onto the Rust implementation in `crates/vtr`.
+onto the Rust implementation in `core/vtr`.
 
 Contents
 
@@ -53,14 +53,14 @@ Compile against the header and link with the library plus the system
 libraries the Rust runtime needs:
 
 ```sh
-cc -std=c99 -I crates/vtr-capi/include my_tool.c target/release/libvtr.a -lpthread -ldl -lm -o my_tool
+cc -std=c99 -I core/vtr-capi/include my_tool.c target/release/libvtr.a -lpthread -ldl -lm -o my_tool
 # or, with the shared library:
-cc -std=c99 -I crates/vtr-capi/include my_tool.c -L target/release -lvtr -lpthread -ldl -lm -o my_tool
+cc -std=c99 -I core/vtr-capi/include my_tool.c -L target/release -lvtr -lpthread -ldl -lm -o my_tool
 ```
 
 The header is C99 (`<stdint.h>`, `<stddef.h>`) and has an `extern "C"` guard,
 so it can be included from C++ unchanged. `cargo test -p vtr-capi` compiles
-and runs `crates/vtr-capi/tests/c_smoke.c` exactly this way, with
+and runs `core/vtr-capi/tests/c_smoke.c` exactly this way, with
 `-Wall -Wextra -Werror`. A CMake example is in `bench/cpp/CMakeLists.txt`
 (target `vtr_write`).
 
@@ -1315,7 +1315,7 @@ size_t vtr_log_rec_format(const vtr_reader *r, const vtr_log_rec *rec, char *buf
 ## 5. Complete examples
 
 Both programs compile with
-`cc -std=c99 -Wall -Wextra -Werror -I crates/vtr-capi/include X.c target/release/libvtr.a -lpthread -ldl -lm`.
+`cc -std=c99 -Wall -Wextra -Werror -I core/vtr-capi/include X.c target/release/libvtr.a -lpthread -ldl -lm`.
 
 ### 5.1 Simulator-side writer
 
@@ -1759,7 +1759,7 @@ Module netlist SVG snapshots are provided by the Rust companion API and
 producers supply the same immutable waveform values; the core C ABI gains no
 layout or application presentation functions.
 
-The Verilator VTR backend now sets `design.vdb_id` automatically using
+The Verilator VTR backend sets `design.vdb_id` automatically using
 `vtr_writer_intern` and `vtr_writer_set_file_attr`. Its separate VDB companion
 contains RTL semantics and recording bindings; those are not added to the VTR C
 ABI or waveform container.

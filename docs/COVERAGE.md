@@ -3,7 +3,7 @@
 This document enumerates every feature of the four reference formats and
 shows how VTR represents it without loss. "VTR" columns name the
 construct in `docs/SPEC.md`; converter columns name what `vtr convert`
-does today (`crates/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
+does today (`tools/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
 
 ## 1. FST (GTKWave)
 

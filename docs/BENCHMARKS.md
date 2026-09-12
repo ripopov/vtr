@@ -48,7 +48,7 @@ repository or taken from the submodules. The C910 workload needs a
 ## Workloads
 
 Signal workloads are *replays*: the writer-neutral change stream
-(`bench/workloads/gen/*.rpl`, format in `crates/vtr-bench/src/replay.rs`)
+(`bench/workloads/gen/*.rpl`, format in `bench/vtr-bench/src/replay.rs`)
 is decoded into memory once, and every writer consumes exactly the same
 sequence of (time, signal, value) with the API call that suits its
 interface (`fstWriterEmitValueChange64/Vec32`, ASCII strings for x/z
@@ -66,7 +66,7 @@ Timing covers hierarchy declaration, the whole replay loop and close.
 | `many_active` | synthetic: 200k signals, 1000 cycles, 30% change per cycle | short run, many active signals |
 | `wide_bus` | synthetic: 64 buses of 256..2048 bits with valid strobes, 10k cycles | wide buses |
 
-Synthetic generators are deterministic (`crates/vtr-bench/src/replay.rs`,
+Synthetic generators are deterministic (`bench/vtr-bench/src/replay.rs`,
 fixed seeds). They exist to cover shapes the two real designs do not;
 claims are made per workload and the report labels each one.
 
@@ -150,7 +150,7 @@ bytes.
 The VTR "cpu" column therefore includes the background encoder; the wall
 column is what a simulator experiences.
 
-Readers (`crates/vtr-bench/src/read.rs`), each best of 3, fresh process
+Readers (`bench/vtr-bench/src/read.rs`), each best of 3, fresh process
 model (a new open per measurement, like a one-shot CLI such as wavepeek):
 
 | query | wellen | VTR |

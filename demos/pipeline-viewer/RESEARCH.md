@@ -1,15 +1,15 @@
 # Pipeline Studio: research and design decisions
 
-Research reviewed September 5, 2026. This is a focused survey of established
+This is a focused survey of established
 visualization research, current interaction/accessibility guidance, and directly
 comparable tools. “Best in class” is the design ambition, not a proven usability
 ranking: this prototype has not undergone comparative studies with CPU designers.
 
 ## Konata presentation
 
-Reviewed all 39 pages of Ryota Shioya's **Visualizing the out-of-order CPU model**,
+The design draws on Ryota Shioya's **Visualizing the out-of-order CPU model**,
 linked by Konata as its ASPLOS 2018 gem5 tutorial. The currently linked PDF includes
-later appendix updates (2022 note; PDF metadata dated January 2023).
+appendices on stage lanes and per-cycle details.
 [Presentation](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf).
 
 - Pages 6–14: move from a limited text listing to spatial pan/zoom; retain PC and
@@ -101,7 +101,7 @@ concrete enough to evaluate.
 
 ## Map-style zoom
 
-Following Konata's map interaction, zoom now changes the cycle pitch and instruction
+Following Konata's map interaction, zoom changes the cycle pitch and instruction
 row height together. Ctrl/Command + wheel and two-pointer touch pinch keep the cycle
 and fractional instruction position beneath the gesture fixed, except at trace
 boundaries where scrolling is clamped. Double-click doubles the scale;
@@ -120,7 +120,7 @@ input dispatched through Chromium's input system.
 
 ## Synchronized waveform and pipeline panes
 
-The upper pane is now a general waveform viewer, with type-based renderers for
+The upper pane is a general waveform viewer, with type-based renderers for
 digital bits, unsigned numeric signals, analog values, and instruction IDs. The
 example catalog includes in-flight count, ROB/cache occupancy, ALU issue/execution,
 LSU execution, issue/flush pulses, and supply voltage. The LSU holds an instruction

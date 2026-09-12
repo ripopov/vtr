@@ -1,13 +1,19 @@
-# Netlist SVG verification — 2026-09-05
+# Netlist SVG verification
 
-The 25 SVG goldens in `crates/vtr-vdb/tests/goldens` were parsed as XML,
-rasterized with `rsvg-convert` 2.62.3, and visually inspected in five review sheets.
-The review covered every golden: text placement, value visibility, node
-separation, port attachment, child-module boundaries, and missing-data styling.
-The generated review gallery is `target/netlist-svg/review/index.html` and can
-be recreated with `python3 tools/vdb/verify_svg.py`.
+The SVG goldens in `core/vtr-vdb/tests/goldens` cover text placement, value
+visibility, node separation, port attachment, child-module boundaries and
+missing-data styling. Run the Rust checks, then generate a visual review gallery:
 
-| Cases | Review result |
+```sh
+cargo test -p vtr-vdb --test netlist
+python3 integrations/slang/verify_svg.py
+```
+
+The rendering step requires `rsvg-convert`. Open
+`target/netlist-svg/review/index.html` and inspect each diagram against the
+expectations below.
+
+| Cases | Expected behavior |
 |---|---|
 | `pipeline_initial`, `pipeline_reset`, `pipeline_first_edge`, `pipeline_hold`, `pipeline_late` | Two stage instances remain closed blue blocks. Mux inputs and interstage signals are visible; values change while geometry stays fixed. |
 | `stage_reset`, `stage_first`, `stage_hold`, `stage_late`, `stage_second` | A single stage shows its clocked process and local ports. Recorded output values agree with the independent pipeline snapshots, including reset and enable hold. |

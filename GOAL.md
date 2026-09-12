@@ -1,4 +1,21 @@
-# GOAL: Design and implement VTR
+# GOAL: A unified hardware debugging environment
+
+Build a unified hardware debugging environment spanning RTL and electronic
+system-level (ESL) models, including SystemC and gem5. VTR supplies runtime
+trace data; VDB supplies separate design metadata, semantics and presentation.
+Integrations connect these foundations to Verilator, gem5 and other simulators.
+Planned wavepeek integration enables AI agents to assist with debugging, and
+Volna is the primary user interface.
+
+The repository is organized around these responsibilities: `core/` for the
+VTR and VDB libraries, `tools/` for trace tools, `volna/` for the viewer core
+and frontends, and `integrations/` for simulator, exporter and consumer
+integration. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
+the component boundaries and current implementation status.
+
+The requirements below define the VTR foundation within that broader goal.
+They continue to govern the trace format and library; planned integrations
+and viewer capabilities are not claims of implemented features.
 
 VTR (Vibe Trace Record) is a new open-source trace file format and reference library for hardware
 simulation traces. Think of it as an open FSDB-class trace store: one file that
@@ -42,7 +59,8 @@ VDB is CSS-like: the same VTR data can be rendered many different ways by
 different VDBs. Many VDBs will exist for different domains and all reuse the
 same VTR trace. Therefore:
 
-- No VDB format is part of this deliverable.
+- No VDB format is part of the VTR format deliverable. The separate VDB
+  implementation lives in `core/vtr-vdb/` and must preserve this boundary.
 - VTR must not embed presentation or source-level semantics, but it must carry
   enough stable identity and attribute data that a VDB can attach to it
   reliably (for example, name a signal, stream, transaction type, attribute,
@@ -158,7 +176,9 @@ External:
 - Research the references first; do not reinvent what they already solve
   well, and document what you borrowed and what you rejected.
 - Do not embed VDB or presentation data in VTR.
-- Keep the format versioned and extensible from the first release.
+- During research, favor breaking changes over compatibility workarounds when
+  they simplify the design. Version formats to reject incompatible files
+  clearly; support for older versions is not required.
 - Measure before claiming any efficiency win; every claim in section 4 must
   be backed by the benchmark report.
 - Prefer a clean, small API over feature breadth in the wrapper layers.

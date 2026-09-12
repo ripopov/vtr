@@ -21,7 +21,7 @@
 /bench/results/*.log
 
 /.venv-vdb/
-/tools/vdb/__pycache__/
+/integrations/slang/__pycache__/
 
 # Logging systems compared by bench/log (fetched by bench/log/fetch_refs.sh, not submodules)
 /ext/clp/

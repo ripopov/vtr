@@ -2,22 +2,22 @@
 resolver = "2"
 exclude = ["ext/elkrs"]
 members = [
-    "crates/vtr",
-    "crates/vtr-capi",
-    "crates/vtr-cli",
-    "crates/vtr-bench",
-    "crates/vtr-vdb",
-    "crates/volna-core",
-    "crates/volna",
-    "crates/volna-egui",
+    "core/vtr",
+    "core/vtr-capi",
+    "tools/vtr-cli",
+    "bench/vtr-bench",
+    "core/vtr-vdb",
+    "volna/volna-core",
+    "volna/volna",
+    "volna/volna-egui",
 ]
 # Keep the default core build independent of the viewer's platform SDK.
 default-members = [
-    "crates/vtr",
-    "crates/vtr-capi",
-    "crates/vtr-cli",
-    "crates/vtr-bench",
-    "crates/vtr-vdb",
+    "core/vtr",
+    "core/vtr-capi",
+    "tools/vtr-cli",
+    "bench/vtr-bench",
+    "core/vtr-vdb",
 ]
 
 [workspace.package]

@@ -1,4 +1,4 @@
-/* Loader for VTR benchmark replay files (see crates/vtr-bench/src/replay.rs). C99. */
+/* Loader for VTR benchmark replay files (see bench/vtr-bench/src/replay.rs). C99. */
 #ifndef VTR_BENCH_REPLAY_H
 #define VTR_BENCH_REPLAY_H
 #include <stdint.h>

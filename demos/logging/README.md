@@ -2,7 +2,7 @@
 
 Two small programs show simulator-style logging into a VTR file and reading it
 back: `sim_log_demo.cpp` uses the C++ header `vtr_log.hpp` over the C API, and
-`crates/vtr/examples/logging.rs` uses the Rust API. Both model a SoC with a CPU
+`core/vtr/examples/logging.rs` uses the Rust API. Both model a SoC with a CPU
 and a DMA engine; each component owns a `LOG` stream, the DMA transfers are
 transactions, and the DMA messages are linked to the transfer they belong to.
 

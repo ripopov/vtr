@@ -14,10 +14,10 @@ The Rust CLI can read an exported VDB without Python or slang installed.
 
 ```sh
 python3 -m venv .venv-vdb
-.venv-vdb/bin/pip install -r tools/vdb/requirements.txt
+.venv-vdb/bin/pip install -r integrations/slang/requirements.txt
 git submodule update --init ext/elkrs
 cargo build --release -p vtr-vdb
-.venv-vdb/bin/python tools/vdb/export.py --top top -o design.vdb.json design.sv
+.venv-vdb/bin/python integrations/slang/export.py --top top -o design.vdb.json design.sv
 # Also accepts repeated -I include-directory and -D NAME=value, and multiple files.
 target/release/vtr-vdb check design.vdb.json simulation.vtr
 target/release/vtr-vdb trace design.vdb.json simulation.vtr top.q --time 26 --depth 14
@@ -122,7 +122,7 @@ The `elaboration` record exists so another frontend can re-elaborate the same
 design without user configuration: `verilator_vdb_index` (the slang-based
 source indexer shipped with the pinned Verilator fork, see
 [Source index](#source-index)) reads it to produce `source_index`, and
-`tools/vdb/export.py` writes the same record. Verilator records the
+`integrations/slang/export.py` writes the same record. Verilator records the
 user include directories (`+incdir+`, `-I`, `-y` in order), `+libext+`,
 command-line defines (`+define+`, `-D`, including those from `-f` files), the
 `-v` library files and the design files as given; implicit search paths and
@@ -204,17 +204,17 @@ is embedded in VTR.
 
 ```sh
 cargo test -p vtr-vdb
-.venv-vdb/bin/python tools/vdb/test_export.py
+.venv-vdb/bin/python integrations/slang/test_export.py
 # Only when intentionally updating reviewed results:
 VTR_UPDATE_GOLDENS=1 cargo test -p vtr-vdb --test netlist
 # Requires librsvg's rsvg-convert; parses every SVG and renders review PNGs:
-python3 tools/vdb/verify_svg.py
+python3 integrations/slang/verify_svg.py
 # Then open target/netlist-svg/review/index.html and inspect each diagram.
 ```
 
 The suite has 30 netlist tests, 26 of which render annotated SVGs (including CLI
 coverage), with 25 distinct checked-in SVG goldens in
-`crates/vtr-vdb/tests/goldens`. Tests check known pipeline values, missing-data
+`core/vtr-vdb/tests/goldens`. Tests check known pipeline values, missing-data
 behavior, immediate-child boundaries, feedback, port directions, generated and
 nested instances, unsupported-process inputs, XML escaping, wide and four-state
 values, layout determinism, and unchanged parent geometry with 2,000 added
@@ -280,7 +280,7 @@ Version 1 must be re-exported from RTL: it lacks ownership and complete ports.
 Unknown format versions are rejected. Unknown object fields are ignored for
 additive metadata evolution; unknown expression/statement tags are rejected.
 This is an application format independent of the VTR container version.
-`crates/vtr-vdb/tests/fixtures/*.vdb.json` are complete, reproducible examples.
+`core/vtr-vdb/tests/fixtures/*.vdb.json` are complete, reproducible examples.
 
 | Field | Meaning |
 |---|---|
@@ -311,7 +311,7 @@ the identity: `design_id` is the hash of the document before either is added.
 Verilator produces it by running `verilator_vdb_index` after writing the
 companion (the program lives in `src/vdb_index` of the pinned fork and
 elaborates the `elaboration` record with the slang release pinned under
-`ext/slang`); `tools/vdb/export.py` writes the same section from pyslang.
+`ext/slang`); `integrations/slang/export.py` writes the same section from pyslang.
 A VDB without the section is valid; viewers then show plain text.
 
 | Field | Meaning |
@@ -400,9 +400,8 @@ intervals, stale samples following dump resumption, and unavailable prior
 assignment events are explicit. An initial value suppressed by trace writer
 deduplication may be indistinguishable from a missing initial sample. Event
 search across a recorded dump gap is refused. Full signal histories are loaded
-lazily and cached per VTR ID for the query; this first implementation favors
-clear semantics over bounded-window scanning. No performance improvement is
-claimed and no VTR decode path is changed.
+lazily and cached per VTR ID for the query; the engine uses full histories
+rather than bounded-window scanning.
 
 ## Validation
 
@@ -413,7 +412,7 @@ cargo test -p vtr-vdb
 VTR_VDB_PYTHON="$PWD/.venv-vdb/bin/python" cargo test -p vtr-vdb
 # Export errors, parameters, hierarchy, driver retention, fixture reproducibility,
 # and the source index on the indexer's reference design.
-.venv-vdb/bin/python tools/vdb/test_export.py
+.venv-vdb/bin/python integrations/slang/test_export.py
 # The C++ indexer's own tests (token classes, declarations, clocks, generate
 # blocks, in-place splicing) in the Verilator build directory.
 make -C bench/build/verilator-objs/src vdb_index_test

@@ -1,7 +1,5 @@
 # egui-atlas-table
 
-[**Visual developer tutorial**](../../docs/developer/index.html): an offline HTML guide to the architecture, algorithms, and integration boundaries.
-
 A reusable, read-only table for egui 0.36. It renders only visible cells, supports asynchronous per-column fuzzy filtering and search, and copies rectangular, row, or column selections with headers. This is a local workspace crate; it has not been published to crates.io.
 
 The library depends on egui, anyhow, rayon, and nucleo-matcher. It does **not** depend on eframe, a windowing backend, protobuf, zstd, or the Atlas dataset.

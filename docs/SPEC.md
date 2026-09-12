@@ -5,6 +5,10 @@ This document is normative: an independent implementation written from it
 must read every file produced by the reference implementation and produce
 files the reference reader accepts.
 
+The reference implementation lives in [`core/vtr`](../core/vtr/); the separate
+design companion lives in [`core/vtr-vdb/`](../core/vtr-vdb/).
+Design and presentation metadata belong to the separate VDB.
+
 Notation: `u8/u16/u32/u64` are unsigned little-endian fixed-width integers;
 `i8`/`i64` signed likewise. `varint` is an unsigned LEB128 integer
 (7 payload bits per byte, least-significant group first, high bit set on
@@ -72,7 +76,7 @@ A reader must reject a file whose major version is greater than the one it
 implements and must accept any minor version: minor versions only add
 optional sections, attribute keys and value tags (section 9). A reader that
 meets a value tag it does not know must report the file as unreadable
-rather than guess. Version 1.1 added value tag 17 (text) and the optional
+rather than guess. Version 1.1 defines value tag 17 (text) and the optional
 LOG_BLOCK section; a 1.0 reader skips log blocks and rejects files that
 use tag 17.
 
@@ -324,7 +328,7 @@ value }`. A value is a tag byte followed by a tag-specific payload:
 | 14 | ufixed | `varint raw`, `svarint scale` |
 | 15 | list | `varint n`, `n x value` |
 | 16 | map | `varint n`, `n x { varint key string id, value }` |
-| 17 | text | `blob`, UTF-8; inline text that is not interned (one-off strings such as log arguments; added in 1.1) |
+| 17 | text | `blob`, UTF-8; inline text that is not interned (one-off strings such as log arguments; requires 1.1) |
 
 Attribute keys are free form. Keys beginning with `vtr.` and `log.` are
 reserved for this specification (`log.*` is defined in section 8.1);

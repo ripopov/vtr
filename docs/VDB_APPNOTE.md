@@ -181,7 +181,7 @@ by that attribute, not by transaction id.
 count of `status == aborted`; instruction classes by the label regexes.
 All computed from data, none stored.
 
-### 2.5 What changed versus a Kanata log
+### 2.5 Representation compared with a Kanata log
 
 | Kanata feature | VTR data | VDB semantic |
 |---|---|---|
@@ -195,8 +195,8 @@ All computed from data, none stored.
 | stage names `f`/`stl` are stalls | nothing | `role: stall` |
 | hue from lane/stage order | nothing | explicit colours or `auto` |
 
-The Konata-specific name conventions (`X`, `stl`) have moved out of the
-data and into the VDB, where they can differ per core generation.
+The Konata-specific name conventions (`X`, `stl`) belong to the VDB, where
+they can differ per core generation independently of trace data.
 
 ### 2.6 Extending the viewer without touching the trace
 

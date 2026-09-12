@@ -28,7 +28,7 @@ def main():
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    env = dict(os.environ, VTR_INCLUDE=str(ROOT / 'crates/vtr-capi/include'), VTR_LIBDIR=str(ROOT / 'target/release'))
+    env = dict(os.environ, VTR_INCLUDE=str(ROOT / 'core/vtr-capi/include'), VTR_LIBDIR=str(ROOT / 'target/release'))
     cli = ROOT / 'target/release/vtr'
     for threads in [1, 2]:
         obj = out / f'obj_{threads}'
