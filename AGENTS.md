@@ -49,7 +49,10 @@ guide its evolution; they describe direction, not a fixed object tree, and
    current frontend. Others (a Tauri/web frontend, egui, ...) should be
    thin adapters of the same core, not forks of the viewer. Shared code is
    the dense data canvases (waves, tables, pipeline timelines); the chrome
-   (trees, lists, menus, dialogs) uses each toolkit's own widgets.
+   (trees, lists, menus, dialogs) uses each toolkit's own widgets. Saved
+   viewer state (open trace, tabs, displayed signals, cursor, markers,
+   layout) is core data in a frontend-neutral format, so a session saved
+   in one frontend reopens in any other.
 3. **Client-server split for remote files.** The main use case is VS Code
    in remote mode (`vscode-server` over SSH, tunnels, containers) opening
    very large VTR files that live on the remote host, without transferring
