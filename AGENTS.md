@@ -31,6 +31,43 @@ Keep its format flexible, versioned, and extensible so new domain semantics
 and presentation metadata can be added without forcing them into an RTL-only
 model. VDB remains separate from the runtime trace data in VTR.
 
+## Volna direction
+
+Volna is the official viewer and is expected to outgrow its current shape
+(one GPUI wave view over an in-memory or memory-mapped file). Three intents
+guide its evolution; they describe direction, not a fixed object tree, and
+`crates/volna/ARCHITECTURE.md` records the current state.
+
+1. **Toolkit-independent core.** Everything that decides what is shown and
+   what an input does (document state, view models, viewport math, cursor
+   and selection, load scheduling, painting into a toolkit-neutral display
+   list) belongs in a core that imports no GUI toolkit and is testable
+   headless on every platform. Frontends paint and host native widgets;
+   they do not hold viewer logic. Today `crates/volna/src/data/` already
+   follows this rule; the intent is to extend it to the rest of the viewer.
+2. **Several frontends over one core.** GPUI (native and wasm) is the
+   current frontend. Others (a Tauri/web frontend, egui, ...) should be
+   thin adapters of the same core, not forks of the viewer. Shared code is
+   the dense data canvases (waves, tables, pipeline timelines); the chrome
+   (trees, lists, menus, dialogs) uses each toolkit's own widgets.
+3. **Client-server split for remote files.** The main use case is VS Code
+   in remote mode (`vscode-server` over SSH, tunnels, containers) opening
+   very large VTR files that live on the remote host, without transferring
+   the file to the client. The reader and all query work (hierarchy,
+   histories, level-of-detail summaries, row and transaction windows,
+   search) run next to the file as a query library; the viewer talks to it
+   through a session interface that has a local in-process implementation
+   and a remote one over a compact binary protocol. Transfer must scale
+   with what is on screen, not with file size, so the viewer must never
+   block a frame on the network. The same split serves any webview-hosted
+   frontend, where the sandbox cannot memory-map files.
+
+Constraints that follow: the query library and the protocol carry raw
+trace data only; presentation rules, VDB profiles and user annotations stay
+on the client (GOAL.md section 2 applies to the wire as much as to the
+file). The native app keeps working over a memory-mapped file through the
+local session, with no second code path.
+
 ## Where to look
 
 | need | file |
@@ -60,6 +97,8 @@ Volna is an explicit workspace member, excluded from `default-members` to keep
 the core build independent of GUI dependencies. Run it with
 `cargo run -p volna --profile viewer -- trace.vtr`. It currently displays VTR
 waveforms; VDB integration is planned and must preserve the VTR/VDB split.
+Changes to the viewer should move it toward, not away from, the intents in
+"Volna direction" above.
 
 ## Rules
 
