@@ -19,6 +19,8 @@ Rust 1.96 or newer is the supported toolchain baseline. Run `./check.sh` from
 this directory (or `./crates/volna/check.sh` from the repository root) to check
 formatting, deny Clippy warnings across all targets/features, and run tests.
 The native build requires the platform SDK, including Metal tools on macOS.
+On macOS, `check.sh` also runs the feature-gated Metal integration test;
+`cargo test -p volna` runs only the GPU-free tests.
 Run `cargo fmt -p volna` to apply the committed formatting policy.
 Volna uses the root workspace lockfile. Root commands without `-p` build the core
 crates; use `-p volna` for the viewer or `--workspace` to include everything.
@@ -82,12 +84,23 @@ smoothed paint time of the wave table.
 ## Verification and performance
 
 ```sh
-cargo run -p volna --profile viewer --features visual-test --bin volna-visual -- --out results
+cargo test -p volna --features visual-test --test viewer
+# Optional PNG artifacts (from crates/volna/):
+VOLNA_SCREENSHOTS=results cargo test -p volna --features visual-test --test viewer
+# Optional timing measurements, excluded from the regular test run:
+cargo test -p volna --profile viewer --features visual-test --test viewer frame_times -- --ignored
 ```
 
-renders the app offscreen with GPUI's Metal headless renderer, drives it with
-real input events, saves screenshots to `results/` and prints frame times for
-synthetic traces of 10 K, 1 M and 100 M transitions. See
+The integration test in `tests/viewer.rs` renders the production workspace
+offscreen and asserts splitter, signal-loading, selection, cursor, zoom, marker,
+and menu behaviour after real input events. It checks captures are nonblank;
+PNG saving is optional and there is no baseline image comparison. The harness
+runs on the macOS main thread using `libtest-mimic` (normal test filters and
+`--list` work); other platforms report a skip. Internal unit/regression tests
+remain beside their source in `src/`.
+
+The separate ignored `frame_times` test measures synthetic traces of 10 K,
+1 M and 100 M transitions without pass/fail timing thresholds. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for how rendering cost is kept proportional
 to the viewport width, and [VERIFICATION.md](VERIFICATION.md) for the recorded
 results.

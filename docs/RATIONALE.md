@@ -867,3 +867,9 @@ default members so GUI dependencies and platform SDK requirements do not enter
 the default core build. Workspace development uses Rust 1.96; individual core
 crate minimum versions are unchanged. A separate `viewer` profile uses thin LTO
 without changing the release/benchmark profiles.
+
+Whole-viewer workflows live in `crates/volna/tests/`, separate from internal
+unit/regression tests. The feature-gated macOS harness runs on the main thread
+for AppKit, reuses the production workspace, and combines interaction assertions
+with optional screenshot artifacts. Timing measurements are explicitly ignored
+by default so machine speed does not determine test success.

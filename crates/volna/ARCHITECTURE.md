@@ -30,8 +30,14 @@ src/
   app.rs         Workspace root view: title bar, sidebar + splitters, status bar, states, key bindings
   lib.rs         start-up shared by native and web; `web` module = wasm-bindgen bridge
   main.rs        native CLI entry
-  bin/visual.rs  offscreen screenshots + frame-time benchmark (feature `visual-test`)
+tests/
+  viewer.rs      whole-viewer interaction assertions, optional PNGs, ignored timing measurements
 ```
+
+`tests/viewer.rs` is a macOS-only Cargo integration harness gated by
+`visual-test`. It runs on the main thread for AppKit initialization. It uses
+the public workspace diagnostics without exposing private state for tests;
+internal regression tests remain alongside their source modules.
 
 ## Rendering cost is O(pixels), not O(transitions)
 

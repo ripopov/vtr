@@ -15,15 +15,16 @@ crate-type = ["cdylib", "rlib"]
 name = "volna"
 path = "src/main.rs"
 
-[[bin]]
-name = "volna-visual"
-path = "src/bin/visual.rs"
+[[test]]
+name = "viewer"
+path = "tests/viewer.rs"
+harness = false
 required-features = ["visual-test"]
 
 [features]
 default = []
 # Offscreen Metal rendering for screenshots and frame-time measurement (macOS).
-visual-test = ["gpui/test-support", "gpui_platform/test-support", "dep:image"]
+visual-test = ["gpui_platform/test-support", "dep:image", "dep:libtest-mimic"]
 
 [dependencies]
 gpui = { version = "=0.3.4", package = "gpui-pre", default-features = false }
@@ -36,7 +37,10 @@ web-time = "1"
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 gpui_platform = { version = "=0.3.4", package = "gpui-pre-platform", features = ["font-kit"] }
 env_logger = "0.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+libtest-mimic = { version = "0.8", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 gpui = { version = "=0.3.4", package = "gpui-pre", default-features = false, features = ["test-support"] }

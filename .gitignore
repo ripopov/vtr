@@ -1,5 +1,5 @@
 /target
-# Default output of volna-visual when run from the workspace root.
+# Local viewer screenshot output.
 /results
 /bench/build
 /bench/out

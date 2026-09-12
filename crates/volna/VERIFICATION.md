@@ -3,7 +3,13 @@
 ## Automated checks (2026-09-12)
 
 - `crates/volna/check.sh`: formatting, strict Clippy across all targets/features,
-  and all 21 tests pass against the main workspace's VTR crate.
+  all 21 unit/regression tests, and the macOS viewer integration test pass.
+- `tests/viewer.rs`: interaction assertions and nonblank Metal captures pass;
+  optional PNG output was checked, including the format menu. `--list` and the
+  separate ignored `frame_times` test also pass. Captures are not compared to
+  pixel baselines; timing output is diagnostic, not a performance assertion.
+- The WebAssembly library also passes `cargo check --all-features`; native
+  test dependencies are not enabled on that target.
 - `cargo run --locked -p volna --all-features -- --help`: the native executable
   starts and reports `usage: volna [FILE.vtr] [--synthetic N]`.
 - `sh crates/volna/web/build.sh`: optimized wasm build and wasm-bindgen generation
@@ -36,7 +42,7 @@ Screen recording is not granted to the terminal on this machine, so no
 screenshots were taken of live windows. Every image below was produced by the
 application itself or by the hosting browser through its debugging protocol:
 
-- native: GPUI's Metal headless renderer (`cargo run -p volna --profile viewer --features visual-test --bin volna-visual`),
+- native: GPUI's Metal headless renderer (`VOLNA_SCREENSHOTS=results cargo test -p volna --features visual-test --test viewer`),
   driven with real `MouseDown`/`MouseUp`/`KeyDown` platform events;
 - web: headless Chrome with `--remote-debugging-port`, driven with
   `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` and captured with
@@ -88,7 +94,7 @@ below the 16.7 ms budget.
 Reproduce with:
 
 ```sh
-cargo run -p volna --profile viewer --features visual-test --bin volna-visual -- --out results
+cargo test -p volna --profile viewer --features visual-test --test viewer frame_times -- --ignored
 ```
 
 ## Acceptance check (look and feel)
