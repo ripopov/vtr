@@ -923,11 +923,19 @@ so multiplicity remains visible even when timestamps are identical. No held
 level is drawn. Pixel grouping counts only visible occurrences and includes
 all duplicates at both viewport boundaries. Colours remain client presentation.
 
-The writer caches the effective deduplication flag in the existing per-signal
-last-value state. Event declarations and event aliases disable it, so repeated
-payloads, default-valued payloads and same-timestamp emits survive every writer
-path without requiring a global dedup override. Ordinary aliases never undo
-this rule. Range readers start at the first block whose end overlaps the lower
-bound, rather than the last block starting before it: several blocks may contain
-occurrences at the same timestamp. Existing column encodings and APIs already
-represent these records; no format version change is needed.
+The original variable declaration owns each signal's type. The hierarchy's
+`signal_var_type` query follows its existing signal-to-declaration index;
+Volna uses this query for both variable shapes and loaded histories without
+keeping an event set. Payload storage remains `SignalKind`, separate from the
+variable type that identifies occurrence semantics. The C API exposes the same
+query. The writer retains the declaration type in its per-signal metadata and
+uses it for both deduplication and alias validation. Event/non-event alias
+mismatches are rejected by writers and readers: an alias cannot retroactively
+change the meaning of already-recorded values. Other alias type differences,
+such as wire versus reg, remain valid.
+
+Repeated payloads, default-valued payloads and same-timestamp emits survive
+every event writer path without requiring a global dedup override. Range readers
+start at the first block whose end overlaps the lower bound, rather than the
+last block starting before it: several blocks may contain occurrences at the
+same timestamp. Existing column encodings represent these records.

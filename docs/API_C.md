@@ -530,8 +530,9 @@ Common rules:
 
 * **Events.** Variables declared with event type code 0 record every emit,
   including identical payloads at the same timestamp, in emission order,
-  regardless of `dedup`. An event alias disables deduplication for its shared
-  signal from that declaration onward; ordinary aliases do not re-enable it.
+  regardless of `dedup`. The original declaration owns the signal's type;
+  aliases must agree on event versus non-event status. Alias declaration
+  returns `VTR_ERR_INVALID` for a mismatch, regardless of `dedup`.
 * **Dedup.** With `dedup = 1` (default) a value equal to a non-event signal's current
   value is dropped and `VTR_OK` is returned. The initial value of every signal
   is: all `0` for 2-state vectors, all `X` for 4/9-state vectors, `0.0` for
@@ -926,6 +927,7 @@ allocate `child_count` from `vtr_reader_node`. An unknown `id` returns 0.
 ```c
 uint32_t vtr_reader_signal_count(const vtr_reader *r);
 int      vtr_reader_signal_kind(const vtr_reader *r, uint32_t sig, uint8_t *kind_out, uint32_t *width_out, uint8_t *states_out);
+int      vtr_reader_signal_var_type(const vtr_reader *r, uint32_t sig, uint16_t *type_out);
 uint32_t vtr_reader_signal_var(const vtr_reader *r, uint32_t sig);
 ```
 
@@ -941,6 +943,12 @@ an unknown id:
 | 0 | bit vector | bits | 2, 4 or 9 (declared packing) |
 | 1 | real | 64 | 0 |
 | 2 | variable length | 0 | 0 |
+
+**`vtr_reader_signal_var_type(r, sig, &type)`** returns the original
+variable declaration's type code (0 for event). The reader and output pointers
+are required (`VTR_ERR_NULL`); an unknown signal returns `VTR_ERR_NOT_FOUND`.
+The lookup uses the existing declaration index. Aliases do not change the
+result; files containing event/non-event alias mismatches are rejected.
 
 **`vtr_reader_signal_var(r, sig)`** returns the node id of the variable that
 *declared* the signal (the first non-alias var), or `VTR_NONE`.
@@ -1644,6 +1652,7 @@ section 2.1: `Corrupt`→4, `UnsupportedVersion`→5, `Invalid`→1, `State`→2
 | `vtr_reader_children` | `Hierarchy::children` / `Hierarchy::roots` |
 | `vtr_reader_signal_count` | `Reader::signal_count` |
 | `vtr_reader_signal_kind` | `Hierarchy::signal_kind` |
+| `vtr_reader_signal_var_type` | `Hierarchy::signal_var_type` |
 | `vtr_reader_signal_var` | `Hierarchy::signal_var[sig]` |
 | `vtr_reader_find_signal` | `Reader::find_signal(path, sep)` |
 | `vtr_reader_find_node` | `Reader::find_node(&path.split(sep))` |

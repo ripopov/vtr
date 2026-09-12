@@ -1121,6 +1121,17 @@ pub unsafe extern "C" fn vtr_reader_signal_kind(r: *const vtr_reader, sig: u32, 
     }
 }
 
+/// Variable type code of the signal's original declaration.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_signal_var_type(r: *const vtr_reader, sig: u32, type_out: *mut u16) -> c_int {
+    let r = need_ref!(r);
+    let out = need!(type_out);
+    match r.0.hierarchy().signal_var_type(SignalId(sig)) {
+        Some(var_type) => { *out = var_type.code(); VTR_OK }
+        None => VTR_ERR_NOT_FOUND,
+    }
+}
+
 /// Node that first declared `sig`.
 #[no_mangle]
 pub unsafe extern "C" fn vtr_reader_signal_var(r: *const vtr_reader, sig: u32) -> u32 {

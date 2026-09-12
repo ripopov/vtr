@@ -207,6 +207,8 @@ int      vtr_reader_enum_entry(const vtr_reader *r, uint32_t id, uint32_t i, uin
 size_t   vtr_reader_children(const vtr_reader *r, uint32_t id /* or VTR_NONE for roots */, uint32_t *out, size_t cap); /* returns total count */
 uint32_t vtr_reader_signal_count(const vtr_reader *r);
 int      vtr_reader_signal_kind(const vtr_reader *r, uint32_t sig, uint8_t *kind_out, uint32_t *width_out, uint8_t *states_out);
+/* Variable type code of the original declaration; type_out is required. */
+int vtr_reader_signal_var_type(const vtr_reader *r, uint32_t sig, uint16_t *type_out);
 uint32_t vtr_reader_signal_var(const vtr_reader *r, uint32_t sig);
 int      vtr_reader_find_signal(const vtr_reader *r, const char *path, char sep, uint32_t *sig_out);
 int      vtr_reader_find_node(const vtr_reader *r, const char *path, char sep, uint32_t *node_out);

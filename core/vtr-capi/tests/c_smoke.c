@@ -117,6 +117,14 @@ int main(int argc, char **argv) {
     int n = 0;
     CHECK(vtr_reader_changes(rd, clk, 0, 95, count_changes, &n));
     ASSERT(n == 10);
+    uint16_t declared_type = 0xffff;
+    CHECK(vtr_reader_signal_var_type(rd, event, &declared_type));
+    ASSERT(declared_type == 0);
+    CHECK(vtr_reader_signal_var_type(rd, clk, &declared_type));
+    ASSERT(declared_type == 16);
+    ASSERT(vtr_reader_signal_var_type(rd, VTR_NONE, &declared_type) == VTR_ERR_NOT_FOUND);
+    ASSERT(vtr_reader_signal_var_type(rd, event, NULL) == VTR_ERR_NULL);
+    ASSERT(vtr_reader_signal_var_type(NULL, event, &declared_type) == VTR_ERR_NULL);
     vtr_signal_data *events = vtr_reader_load_signal(rd, event);
     ASSERT(events != NULL && vtr_signal_data_len(events) == 2000);
     for (size_t i = 0; i < 2000; ++i) ASSERT(vtr_signal_data_times(events)[i] == (i / 2) * 10);

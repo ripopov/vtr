@@ -91,7 +91,7 @@ Every option is a field of `WriterOptions` / `ReadOptions`.
 |---|---|
 | `Error::Corrupt(&'static str)` | Reader: the bytes are not a VTR file (bad magic), or a structural invariant is violated: truncated header/section/directory, unknown section kind that is not marked optional, unknown codec/node kind/value tag/signal kind, string or hierarchy chunk out of order, signal declared out of order, alias of unknown signal, parent out of range, LZ4/zstd length mismatch, column/run/blob bounds exceeded, `for_each_change` on a column run larger than 1 GiB. |
 | `Error::UnsupportedVersion { major, minor, supported }` | Reader: the file's major version is greater than the library's (`container::VERSION_MAJOR` = 1). Minor versions are always accepted. |
-| `Error::Invalid(String)` | A caller argument is wrong. Writer: unknown `SignalId` (emit/alias), `set_time` going backwards, a logic value not representable in the signal's states, an emit method called on the wrong `SignalKind`, unparsable real text, packed value too short or with the wrong `states`, unknown generator node id, `TxId` that is not open (`set_tx_parent`, `set_tx_kind`, `tx_attr`, `tx_event`, `tx_stage*`, `end_tx`). Reader: unknown `SignalId` in `signal_kind`, `value_at`, `changes`, `load_signal(s)`, `packed_len` returns `None` instead. |
+| `Error::Invalid(String)` | A caller argument is wrong. Writer: unknown `SignalId` (emit/alias), event/non-event alias mismatch, `set_time` going backwards, a logic value not representable in the signal's states, an emit method called on the wrong `SignalKind`, unparsable real text, packed value too short or with the wrong `states`, unknown generator node id, `TxId` that is not open (`set_tx_parent`, `set_tx_kind`, `tx_attr`, `tx_event`, `tx_stage*`, `end_tx`). Reader: unknown `SignalId` in `signal_kind`, `signal_var_type`, `value_at`, `changes`, `load_signal(s)`, `packed_len` returns `None` instead. |
 | `Error::State(&'static str)` | Writer operation not allowed now: metadata setter after the first flush, `end_scope` without an open scope, `node_attr` on a node already flushed, `tx_stage_attr` on a transaction with no stage, background thread failed / stopped / panicked, internal consistency failures in the encoder. |
 | `Error::Io(std::io::Error)` | File create/open/mmap/write/flush failures, thread spawn failure. Converts with `?` from `std::io::Error`. |
 | `Error::Checksum { offset }` | Reader with `ReadOptions::verify_crc = true`: a section's CRC32 does not match. Sections written with `checksums: false` carry CRC 0 and are never checked. |
@@ -595,9 +595,10 @@ signal")`); `bytes` may be any length including 0 and need not be UTF-8.
 
 **Deduplication (`dedup: true`).** Event signals (`VarType::Event`) bypass
 deduplication: every emit records an occurrence, including identical payloads
-at the same timestamp, in emission order. An event alias disables deduplication
-for its shared signal from that declaration onward. Ordinary aliases do not
-re-enable it. This applies to every payload kind and emit method.
+at the same timestamp, in emission order. The original variable declaration
+owns the signal's type. Aliases must agree on event versus non-event status;
+`add_alias`/`add_alias_in` return `Error::Invalid` for a mismatch, even with
+deduplication disabled. This applies to every payload kind and emit method.
 
 Each non-event signal remembers its last value and
 the form it was stored in (compact or declared packing). An emit whose value
@@ -951,6 +952,7 @@ validated UTF-8 at open.
 pub fn hierarchy(&self) -> &Hierarchy
 pub fn signal_count(&self) -> u32
 pub fn signal_kind(&self, s: SignalId) -> Result<SignalKind>   // Error::Invalid for unknown ids
+pub fn signal_var_type(&self, s: SignalId) -> Result<VarType> // original declaration; Error::Invalid for unknown ids
 pub fn name(&self, n: NodeId) -> &str                          // panics on an out-of-range NodeId
 pub fn full_path(&self, n: NodeId, sep: &str) -> String        // names from the root, joined with sep
 pub fn find_node(&self, path: &[&str]) -> Option<NodeId>
@@ -995,10 +997,19 @@ impl Hierarchy {
     pub fn roots(&self) -> impl Iterator<Item = NodeId> + '_          // top-level nodes, declaration order
     pub fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ // declaration order
     pub fn signal_kind(&self, s: SignalId) -> Option<SignalKind>
+    pub fn signal_var_type(&self, s: SignalId) -> Option<VarType>
     pub fn nodes_of_kind(&self, kind: NodeKind) -> impl Iterator<Item = NodeId> + '_
     // construction (used by the reader): new(), add_chunk(&[u8]), push(Node), build_index()
 }
 ```
+
+`signal_var_type` returns the original declaration's `VarType` through the
+existing signal-to-declaration index in O(1), without scanning aliases or
+maintaining a separate event table. `SignalKind` describes payload storage;
+`VarType::Event` identifies occurrence semantics. Alias variable types may
+differ (for example wire/reg), but event/non-event mismatches are rejected
+when reading hierarchy chunks with `Error::Corrupt`. Aliases never change
+the original declaration's type.
 
 A `Reader` always returns an indexed hierarchy; `roots`/`children` are O(1)
 per item (CSR layout). `node(id)` copies enum-table entries and attributes,

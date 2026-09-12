@@ -573,6 +573,11 @@ impl Reader {
         self.hier.signal_kind(s).ok_or_else(|| Error::invalid(format!("unknown signal {}", s.0)))
     }
 
+    /// Variable type of the signal's original declaration, independent of aliases.
+    pub fn signal_var_type(&self, s: SignalId) -> Result<crate::hierarchy::VarType> {
+        self.hier.signal_var_type(s).ok_or_else(|| Error::invalid(format!("unknown signal {}", s.0)))
+    }
+
     /// Time span covered by signal and transaction data.
     pub fn time_range(&self) -> Option<(u64, u64)> {
         let mut r: Option<(u64, u64)> = None;

@@ -813,13 +813,12 @@ fn events_bypass_dedup_in_all_payload_paths() {
                     .1
             })
             .collect();
-        let (_, alias) = w.add_bits("alias_target", 1, 2);
+        let (_, alias) = w.add_var("alias_target", VarType::Event, Direction::Implicit, kinds[0]);
         w.add_alias("event_alias", VarType::Event, Direction::Implicit, alias)
             .unwrap();
-        // An ordinary alias must never re-enable dedup for an event.
-        w.add_alias("wire_alias", VarType::Wire, Direction::Implicit, events[0])
-            .unwrap();
+        assert!(w.add_alias("wire_alias", VarType::Wire, Direction::Implicit, events[0]).is_err());
         let (_, wire) = w.add_bits("wire", 1, 2);
+        assert!(w.add_alias("bad_event", VarType::Event, Direction::Implicit, wire).is_err());
         for time in [0, 0, 5, 5, 10] {
             w.set_time(time).unwrap();
             w.emit_bit(events[0], 1).unwrap();
@@ -831,7 +830,11 @@ fn events_bypass_dedup_in_all_payload_paths() {
         }
         w.close().unwrap();
         let reader = Reader::open(&path).unwrap();
+        assert_eq!(reader.signal_var_type(wire).unwrap(), VarType::Wire);
+        assert!(reader.signal_var_type(SignalId(u32::MAX)).is_err());
+        assert_eq!(reader.hierarchy().signal_var_type(SignalId(u32::MAX)), None);
         for signal in events.into_iter().chain([alias]) {
+            assert_eq!(reader.signal_var_type(signal).unwrap(), VarType::Event);
             let history = reader.load_signal(signal).unwrap();
             assert_eq!(history.times(), &[0, 0, 5, 5, 10], "signal {signal:?}");
             let mut streamed = Vec::new();
@@ -853,5 +856,33 @@ fn events_bypass_dedup_in_all_payload_paths() {
             }
         }
         assert_eq!(reader.load_signal(wire).unwrap().times(), &[0]);
+    }
+}
+
+#[test]
+fn event_alias_classification_is_validated_across_hierarchy_chunks() {
+    for (declared, alias, valid) in [
+        (VarType::Event, VarType::Event, true),
+        (VarType::Wire, VarType::Reg, true),
+        (VarType::Event, VarType::Wire, false),
+        (VarType::Wire, VarType::Event, false),
+    ] {
+        let mut hierarchy = Hierarchy::new();
+        for (index, var_type) in [declared, alias].into_iter().enumerate() {
+            let mut chunk = vec![index as u8, 1]; // first node, node count
+            let node = Node {
+                parent: None, name: StrId(0), attrs: vec![],
+                data: NodeData::Var {
+                    var_type, direction: Direction::Implicit, signal: SignalId(0),
+                    declares: (index == 0).then_some(SignalKind::Bits { width: 1, states: 2 }),
+                },
+            };
+            node.encode(index as u32, index as u32, &mut chunk);
+            let result = hierarchy.add_chunk(&chunk);
+            if index == 1 && !valid {
+                assert!(matches!(result, Err(Error::Corrupt("alias event type differs from signal declaration"))));
+            } else { result.unwrap(); }
+            assert_eq!(hierarchy.signal_var_type(SignalId(0)), Some(declared));
+        }
     }
 }

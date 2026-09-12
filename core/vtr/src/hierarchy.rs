@@ -649,6 +649,12 @@ impl Hierarchy {
         self.signal_var.reserve(count);
         for _ in 0..count {
             let node = Node::decode(&mut r, self.len() as u32, self.signals.len() as u32)?;
+            if let NodeData::Var { var_type, signal, declares: None, .. } = node.data {
+                let declared = self.signal_var_type(signal).ok_or(Error::Corrupt("alias references unknown signal"))?;
+                if (var_type == VarType::Event) != (declared == VarType::Event) {
+                    return Err(Error::Corrupt("alias event type differs from signal declaration"));
+                }
+            }
             self.push(node);
         }
         self.indexed = false;
@@ -805,6 +811,13 @@ impl Hierarchy {
 
     pub fn signal_kind(&self, s: SignalId) -> Option<SignalKind> {
         self.signals.get(s.0 as usize).copied()
+    }
+
+    /// Variable type of the signal's original declaration, independent of aliases.
+    /// Event and non-event aliases cannot refer to the same signal.
+    pub fn signal_var_type(&self, s: SignalId) -> Option<VarType> {
+        let node = self.signal_var.get(s.0 as usize)?;
+        Some(VarType::from_code(self.w0[node.0 as usize] as u16))
     }
 
     /// All node ids in declaration order.

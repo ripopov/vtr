@@ -299,8 +299,10 @@ Codes 0..22 are the FST/VCD scope types with identical numbering:
 For event variables (code 0), each signal record denotes an occurrence, not a
 held level. Identical payloads and repeated timestamps remain distinct records
 in emission order. Writers must preserve every emitted occurrence; value
-deduplication does not apply to event signals. An event alias gives its shared
-signal this rule for subsequent writes. These occurrences use the existing
+deduplication does not apply to event signals. The signal's original variable
+declaration determines whether it is an event. Every alias must agree on event
+versus non-event status; readers reject conflicting declarations. Other variable
+types may differ between aliases. These occurrences use the existing
 signal column encodings, including zero time deltas; no separate event payload
 encoding is required.
 

@@ -112,6 +112,9 @@ see the same cursor without any extra wiring.
 
 All trace data is reached through the `Session` trait: resident `info()` and
 `hierarchy()`, and expensive `load_signal()`/`load_signals()` queries.
+`LocalSession` derives event shapes from `Reader::signal_var_type`, using the
+VTR hierarchy's existing declaration index. It keeps no separate event registry;
+variable rows and loaded histories follow the same declaration.
 `LocalSession` implements it over `vtr::Reader`, memory-mapped from a path
 natively and parsed from an in-memory image on wasm. The private FST adapter
 owns a buffered file or byte cursor and serializes mutable fst-reader access

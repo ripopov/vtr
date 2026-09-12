@@ -537,7 +537,6 @@ struct LastVal {
     payload: u64,
     epoch: u32,
     compact: bool,
-    dedup: bool,
 }
 
 /// Hot per-signal facts (kept small and separate from `kinds`).
@@ -546,6 +545,7 @@ struct SigInfo {
     /// 0 bits, 1 real, 2 varlen
     kind: u8,
     narrow: bool,
+    var_type: VarType,
     width: u32,
 }
 
@@ -847,8 +847,8 @@ impl Writer {
         if signal.0 as usize >= self.kinds.len() {
             return Err(Error::invalid(format!("unknown signal {}", signal.0)));
         }
-        if var_type == VarType::Event {
-            self.last[signal.0 as usize].dedup = false;
+        if (var_type == VarType::Event) != (self.info[signal.0 as usize].var_type == VarType::Event) {
+            return Err(Error::invalid("alias event type differs from signal declaration"));
         }
         let name = self.strings.intern(name);
         Ok(self.push_node(Node { parent, name, data: NodeData::Var { var_type, direction, signal, declares: None }, attrs: Vec::new() }))
@@ -891,12 +891,12 @@ impl Writer {
         self.kinds.push(kind);
         self.kinds_arc = None;
         self.info.push(match kind {
-            SignalKind::Bits { width, states } => SigInfo { kind: 0, narrow: packed_len(width, states) <= 8, width },
-            SignalKind::Real => SigInfo { kind: 1, narrow: true, width: 64 },
-            SignalKind::VarLen => SigInfo { kind: 2, narrow: false, width: 0 },
+            SignalKind::Bits { width, states } => SigInfo { kind: 0, var_type, narrow: packed_len(width, states) <= 8, width },
+            SignalKind::Real => SigInfo { kind: 1, var_type, narrow: true, width: 64 },
+            SignalKind::VarLen => SigInfo { kind: 2, var_type, narrow: false, width: 0 },
         });
         self.sig_counts.push(0);
-        let mut lv = LastVal { dedup: self.opts.dedup && var_type != VarType::Event, ..LastVal::default() };
+        let mut lv = LastVal::default();
         match kind {
             SignalKind::Bits { width, states } if packed_len(width, states) <= 8 => {
                 // Default X for multi-state, 0 for two-state.
@@ -998,7 +998,7 @@ impl Writer {
         debug_assert!(s < self.last.len() && s < self.frame_cap.len() && s < self.sig_counts.len());
         // Safety: see above; `s < kinds.len()` was checked by the caller.
         let lv = unsafe { *self.last.get_unchecked(s) };
-        if lv.payload == payload && lv.compact == compact && lv.dedup {
+        if lv.payload == payload && lv.compact == compact && self.opts.dedup && self.info[s].var_type != VarType::Event {
             return Ok(());
         }
         if lv.epoch != self.epoch {
@@ -1036,7 +1036,7 @@ impl Writer {
         let len = if compact { (width as usize).div_ceil(8) } else { decl_len };
         let old_compact = self.wide_last[slot] != 0;
         let old_len = if old_compact { (width as usize).div_ceil(8) } else { decl_len };
-        if self.last[s].dedup && old_compact == compact && self.wide_last[slot + 1..slot + 1 + len] == data[..len] {
+        if self.opts.dedup && self.info[s].var_type != VarType::Event && old_compact == compact && self.wide_last[slot + 1..slot + 1 + len] == data[..len] {
             return Ok(());
         }
         if self.last[s].epoch != self.epoch {
@@ -1255,7 +1255,7 @@ impl Writer {
             return Err(Error::invalid("emit_varlen on a fixed-width signal"));
         }
         let slot = self.last[s].payload as usize;
-        if self.last[s].dedup && self.varlen_last[slot] == bytes {
+        if self.opts.dedup && self.info[s].var_type != VarType::Event && self.varlen_last[slot] == bytes {
             return Ok(());
         }
         if self.last[s].epoch != self.epoch {

@@ -321,6 +321,14 @@ fn vtr_events_preserve_repeated_occurrences_and_render_arrows() {
             states: 2,
         },
     );
+    writer
+        .add_alias(
+            "event_alias",
+            vtr::VarType::Event,
+            vtr::Direction::Implicit,
+            signal,
+        )
+        .unwrap();
     for time in [5, 5, 10, 11, 20, 20] {
         writer.set_time(time).unwrap();
         writer.emit_bit(signal, 1).unwrap();
@@ -329,6 +337,14 @@ fn vtr_events_preserve_repeated_occurrences_and_render_arrows() {
     let session = OpenSpec::Path(file.path().into()).open().unwrap();
     let var = &session.hierarchy().vars[0];
     assert_eq!(var.shape, SignalShape::Event);
+    let alias = &session.hierarchy().vars[1];
+    assert_eq!(alias.shape, SignalShape::Event);
+    assert_eq!(alias.signal, var.signal);
+    let histories = session.load_signals(&[var.signal, alias.signal]);
+    assert!(Arc::ptr_eq(
+        histories[0].1.as_ref().unwrap(),
+        histories[1].1.as_ref().unwrap()
+    ));
     let history = session.load_signal(var.signal).unwrap();
     assert_eq!(history.shape(), SignalShape::Event);
     assert_eq!(
