@@ -616,34 +616,47 @@ pub fn paint_event_row(
     if area.width() <= 0.0 || vp.width() <= 0.0 {
         return;
     }
+    // Search strictly before the viewport so duplicate timestamps at its
+    // left edge are all included in the first marker's count.
     let mut i = if vp.start <= 0.0 {
         0
     } else {
-        h.index_at(vp.start.ceil() as u64).map_or(0, |i| {
-            if (h.time(i) as f64) < vp.start {
-                i + 1
-            } else {
-                i
-            }
-        })
+        h.index_at((vp.start.ceil() as u64).saturating_sub(1))
+            .map_or(0, |last| last + 1)
     };
     while i < h.len() && h.time(i) as f64 <= vp.end {
         let x = vp.x_of(h.time(i) as f64, area.width() as f64).floor();
-        scene.fill(
-            Rect::new(
-                point(area.left() + x as f32, area.top() + TRACE_PAD),
-                size(1.0, (area.height() - 2.0 * TRACE_PAD).max(0.0)),
-            ),
-            t.wave_dense,
-        );
-        // Skip all occurrences in this pixel, keeping frame work bounded.
+        let screen_x = area.left() + x as f32;
+        let top = area.top() + TRACE_PAD;
+        let bottom = (area.bottom() - TRACE_PAD).max(top);
+        // Surfer's event glyph: a full-height stem with a filled upward
+        // arrowhead, 5 px wide and one fifth of the trace height.
+        let head_height = (bottom - top) * 0.2;
+        let mut segments = vec![[point(screen_x, top), point(screen_x, bottom)]];
+        if head_height > 0.0 {
+            for row in 1..=head_height.ceil() as usize {
+                let y = (row as f32).min(head_height);
+                let half_width = 2.5 * y / head_height;
+                segments.push([
+                    point(screen_x - half_width, top + y),
+                    point(screen_x + half_width, top + y),
+                ]);
+            }
+        }
+        // Count all occurrences in this pixel, but exclude those beyond the
+        // inclusive viewport end. Binary search keeps dense rows bounded.
         let next = vp.time_at(x + 1.0, area.width() as f64).ceil();
-        i = if next > 0.0 {
-            h.index_at((next as u64).saturating_sub(1))
-                .map_or(i + 1, |last| (last + 1).max(i + 1))
+        let last_time = ((next as u64).saturating_sub(1)).min(vp.end.floor() as u64);
+        let end = h
+            .index_at(last_time)
+            .map_or(i + 1, |last| (last + 1).max(i + 1));
+        let color = if end - i > 1 {
+            t.wave_event_coalesced
         } else {
-            i + 1
+            t.wave_signal
         };
+        scene.lines(segments, color, 1.0);
+        i = end;
     }
 }
 

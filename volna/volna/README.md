@@ -24,6 +24,13 @@ nonzero time-zero offset are rejected explicitly: the current viewer cannot
 faithfully display recording gaps or apply that offset. These checks also
 apply inside gzip-wrapped FST files.
 
+Event variables in VTR and FST render as upward arrows at each recorded
+occurrence, following Surfer. Occurrences in the same pixel share one arrow
+in a distinct coalesced-event colour (amber in the default theme). Zooming in
+separates nearby occurrences; duplicates at the same timestamp keep that colour.
+Events do not hold a level between timestamps. The VTR writer preserves event
+occurrences automatically, independently of its value deduplication setting.
+
 FST scope and variable names, types, direction, hierarchy and aliases are used.
 Source stems, component names, comments, enum tables, VHDL type annotations,
 array/pack attributes and other extended hierarchy metadata are not displayed

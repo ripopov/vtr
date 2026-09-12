@@ -326,7 +326,7 @@ pub struct WriterOptions {
 | `tx_block_bytes` | `4 << 20` (4 MiB) | Size of the buffered transaction and relation rows (in the writer's row encoding) that triggers a transaction block flush. Checked on every `end_tx` and `relate`. Log rows use the same budget for log blocks (checked on every `log`). |
 | `background` | `true` | Encode and compress on a background thread named `vtr-writer`. The caller thread only buffers records; a bounded channel (4 messages) applies back-pressure, and chunk/block buffers are recycled to avoid reallocation. With `false`, chunk encoding and block finishing happen inline in the calling thread at the same points. |
 | `log_encoders` | 2 | Helper threads (`vtr-logenc`) that split, dictionary-code and compress log blocks, fed by the background thread and started on the first log block; 0 encodes log blocks on the background thread itself. Blocks are written in production order whatever the count. Ignored when `background` is `false`. |
-| `dedup` | `true` | Drop value changes whose value equals the signal's last value (see 3.7). |
+| `dedup` | `true` | Drop unchanged non-event values (see 3.7); event occurrences are never dropped. |
 | `checksums` | `true` | Store a CRC32 (`crc32fast`) of every section payload in the section header. Verified by the reader only when `ReadOptions::verify_crc` is set. |
 
 ### 3.2 Construction
@@ -593,7 +593,13 @@ its IEEE bits (NaN payloads and -0.0 survive). `emit_varlen` accepts only
 `SignalKind::VarLen` (`Error::Invalid("emit_varlen on a fixed-width
 signal")`); `bytes` may be any length including 0 and need not be UTF-8.
 
-**Deduplication (`dedup: true`).** Each signal remembers its last value and
+**Deduplication (`dedup: true`).** Event signals (`VarType::Event`) bypass
+deduplication: every emit records an occurrence, including identical payloads
+at the same timestamp, in emission order. An event alias disables deduplication
+for its shared signal from that declaration onward. Ordinary aliases do not
+re-enable it. This applies to every payload kind and emit method.
+
+Each non-event signal remembers its last value and
 the form it was stored in (compact or declared packing). An emit whose value
 *and* form equal the last one is dropped without producing a record. The
 initial "last value" is the signal's default initial value in **declared**
@@ -612,9 +618,7 @@ Consequently the reader's `SignalData::initial()` / `value_at` before the first
 change equals the value the writer would have deduplicated, so readers see a
 consistent waveform either way. Two emits of *different* values at the same
 time step are both recorded (in emission order). Set `dedup: false` to record
-every emit verbatim (for example to preserve event-like pulses: with dedup on,
-a 1-bit event signal receiving `1` twice without an intervening `0` records
-only the first pulse).
+every emit verbatim on non-event signals too.
 
 Reals compare by bit pattern, so `-0.0` after `0.0` is recorded and NaN after
 the same NaN is dropped.
@@ -1696,9 +1700,11 @@ documented above; it does not change the VTR file format or C ABI.
 FST strings and VTR VarLen values. The text translator quotes and ASCII-escapes
 it for display, retaining NUL and non-UTF-8 bytes in the raw query result.
 FST ports also retain their complete payload as `WaveValue::Bytes`, displayed
-as escaped text rather than discarding EVCD strength fields. FST event variables
-use `SignalShape::Event`: history timestamps are occurrences, rendered as point
-markers rather than held levels. The cursor shows 1 at an occurrence and 0 otherwise.
+as escaped text rather than discarding EVCD strength fields. VTR and FST event variables
+use `SignalShape::Event`: history timestamps are occurrences, rendered as upward
+arrows without held levels. Two or more visible occurrences in one pixel use
+`Theme::wave_event_coalesced`; isolated occurrences use `Theme::wave_signal`.
+Same-timestamp duplicates retain the coalesced colour at every zoom level. The cursor shows 1 at an occurrence and 0 otherwise.
 
 `WaveValue::Unavailable` distinguishes a missing sample from a recorded X,
 NaN real, or empty byte string. FST returns it before the first callback sample;

@@ -88,6 +88,7 @@ fn missing_and_invisible_values_fall_back_in_every_appearance() {
             }
             for wave in [
                 t.wave_signal,
+                t.wave_event_coalesced,
                 t.wave_undef,
                 t.wave_highimp,
                 t.wave_dontcare,
@@ -292,4 +293,23 @@ fn translucent_surfaces_and_foregrounds_use_actual_composited_contrast() {
         over(p.selection.background.unwrap(), t.panel.bg)
     );
     assert!(contrast(over(t.selection.text, t.selection.bg), t.selection.bg) >= 4.49);
+}
+
+#[test]
+fn coalesced_events_remain_distinct_with_identical_host_chart_colors() {
+    for appearance in [
+        Appearance::Dark,
+        Appearance::Light,
+        Appearance::HighContrastDark,
+        Appearance::HighContrastLight,
+    ] {
+        let palette = HostPalette {
+            appearance,
+            charts: [Some(c(0xa1c181)); 6],
+            ..Default::default()
+        };
+        let theme = Theme::from_host(&palette);
+        assert_ne!(theme.wave_signal, theme.wave_event_coalesced);
+        assert!(contrast(theme.wave_event_coalesced, theme.editor.bg) >= 2.99);
+    }
 }

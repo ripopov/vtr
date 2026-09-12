@@ -260,7 +260,7 @@ typedef struct vtr_writer_options {
     uint64_t chunk_records;  /* minimum value changes per hand-off to the background encoder (default 512K) */
     uint64_t tx_block_bytes; /* row bytes per transaction block (default 4 MiB) */
     int      background;     /* encode/compress on a background thread (default 1) */
-    int      dedup;          /* drop value changes equal to the current value (default 1) */
+    int      dedup;          /* drop unchanged non-event values (default 1); events are never dropped */
     int      checksums;      /* store a CRC32 per section (default 1); readers verify on request */
     uint32_t log_encoders;   /* helper threads encoding log blocks in background mode (default 2; 0 = sink thread) */
 } vtr_writer_options;
@@ -284,7 +284,7 @@ struct comments (`codec = 2`, `level = 3`, `group_size = 256`,
 | `chunk_records`  | Lower bound on the value changes handed to the background encoder at a time (the pipelining unit, default 524288); the writer raises it to 16 changes per declared signal so that column fragments stay large in designs with very many signals. Each chunk is sorted and pre-encoded as soon as it arrives; only the final compression waits for the whole block. Bounded by `block_records`. |
 | `tx_block_bytes` | Bytes of transaction/relation rows buffered before a transaction block is written. |
 | `background`     | 1: compress on a helper thread (recommended for simulators). 0: everything happens inline on the caller's thread (deterministic, slightly slower). |
-| `dedup`          | 1: an emitted value equal to the signal's current value is silently dropped (no change record). 0: every emit produces a record. |
+| `dedup`          | 1: unchanged non-event values are dropped. 0: every emit produces a record. Event signals always record every emit. |
 | `checksums`      | 1: every section carries a CRC32. The Rust reader verifies it when opened with `ReadOptions::verify_crc`; `vtr_reader_open` uses the defaults (no verification). |
 | `log_encoders`   | Helper threads that encode and compress log blocks in background mode (default 2, started on the first log block; 0 = the background thread does it). |
 
@@ -528,7 +528,11 @@ fit the signal kind returns `VTR_ERR_INVALID` (see the per-function notes).
 
 Common rules:
 
-* **Dedup.** With `dedup = 1` (default) a value equal to the signal's current
+* **Events.** Variables declared with event type code 0 record every emit,
+  including identical payloads at the same timestamp, in emission order,
+  regardless of `dedup`. An event alias disables deduplication for its shared
+  signal from that declaration onward; ordinary aliases do not re-enable it.
+* **Dedup.** With `dedup = 1` (default) a value equal to a non-event signal's current
   value is dropped and `VTR_OK` is returned. The initial value of every signal
   is: all `0` for 2-state vectors, all `X` for 4/9-state vectors, `0.0` for
   reals, the empty byte string for variable-length signals. Emitting that

@@ -36,12 +36,13 @@ int main(int argc, char **argv) {
     CHECK(vtr_writer_set_timescale(w, -12));
     uint32_t top = vtr_writer_begin_scope(w, "top", 0, "top");
     ASSERT(top != VTR_NONE);
-    uint32_t clk, clk_n, bus, bus_n, r, r_n, s, s_n, wide, wide_n;
+    uint32_t clk, clk_n, bus, bus_n, r, r_n, s, s_n, wide, wide_n, event, event_n;
     CHECK(vtr_writer_add_var(w, "clk", 16, 1, 0, 1, 4, &clk_n, &clk));
     CHECK(vtr_writer_add_var(w, "bus", 5, 0, 0, 16, 4, &bus_n, &bus));
     CHECK(vtr_writer_add_var(w, "r", 3, 0, 1, 0, 0, &r_n, &r));
     CHECK(vtr_writer_add_var(w, "s", 21, 0, 2, 0, 0, &s_n, &s));
     CHECK(vtr_writer_add_var(w, "wide", 23, 0, 0, 96, 4, &wide_n, &wide));
+    CHECK(vtr_writer_add_var(w, "event", 0, 0, 0, 1, 2, &event_n, &event));
     vtr_value av; memset(&av, 0, sizeof av); av.tag = VTR_VAL_I64; av.i = -42;
     CHECK(vtr_writer_node_attr(w, bus_n, "msb", &av));
     CHECK(vtr_writer_end_scope(w));
@@ -56,6 +57,8 @@ int main(int argc, char **argv) {
     for (uint64_t i = 0; i < 1000; i++) {
         CHECK(vtr_writer_set_time(w, i * 10));
         CHECK(vtr_writer_emit_bit(w, clk, (uint8_t)(i & 1)));
+        CHECK(vtr_writer_emit_bit(w, event, 1));
+        CHECK(vtr_writer_emit_bit(w, event, 1));
         if (i % 4 == 0) CHECK(vtr_writer_emit_u64(w, bus, i * 3));
         if (i % 10 == 0) CHECK(vtr_writer_emit_real(w, r, (double)i / 4.0));
         if (i % 50 == 0) { char buf[32]; snprintf(buf, sizeof buf, "s%llu", (unsigned long long)i); CHECK(vtr_writer_emit_varlen(w, s, (const uint8_t *)buf, strlen(buf))); }
@@ -80,7 +83,7 @@ int main(int argc, char **argv) {
     vtr_meta m;
     CHECK(vtr_reader_meta(rd, &m));
     ASSERT(m.timescale == -12);
-    ASSERT(m.signal_count == 5);
+    ASSERT(m.signal_count == 6);
     ASSERT(m.tx_count == 10);
     ASSERT(m.relation_count == 9);
     ASSERT(m.has_time_range && m.time_end == 9990);
@@ -96,7 +99,7 @@ int main(int argc, char **argv) {
     ASSERT(klen == 3 && memcmp(ks, "msb", 3) == 0 && v.tag == VTR_VAL_I64 && v.i == -42);
     uint32_t kids[16];
     ASSERT(vtr_reader_children(rd, VTR_NONE, kids, 16) == 2);
-    ASSERT(vtr_reader_children(rd, top, kids, 16) == 5);
+    ASSERT(vtr_reader_children(rd, top, kids, 16) == 6);
     vtr_value_buf *b = vtr_value_buf_new();
     CHECK(vtr_reader_value_at(rd, bus, 45, b));
     ASSERT(strcmp(vtr_value_buf_ascii(b), "0000000000001100") == 0); /* i=4 -> 12 */
@@ -114,6 +117,13 @@ int main(int argc, char **argv) {
     int n = 0;
     CHECK(vtr_reader_changes(rd, clk, 0, 95, count_changes, &n));
     ASSERT(n == 10);
+    vtr_signal_data *events = vtr_reader_load_signal(rd, event);
+    ASSERT(events != NULL && vtr_signal_data_len(events) == 2000);
+    for (size_t i = 0; i < 2000; ++i) ASSERT(vtr_signal_data_times(events)[i] == (i / 2) * 10);
+    vtr_signal_data_free(events);
+    n = 0;
+    CHECK(vtr_reader_changes(rd, event, 0, 0, count_changes, &n));
+    ASSERT(n == 2);
     vtr_signal_data *d = vtr_reader_load_signal(rd, bus);
     ASSERT(d != NULL && vtr_signal_data_len(d) == 251);
     ASSERT(vtr_signal_data_times(d)[1] == 40);

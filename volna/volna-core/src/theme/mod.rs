@@ -100,6 +100,8 @@ pub struct Theme<C = Color> {
     pub wave_dontcare: C,
     pub wave_weak: C,
     pub wave_dense: C,
+    /// Arrow colour when multiple event occurrences share a pixel.
+    pub wave_event_coalesced: C,
     pub wave_bus_text: C,
     pub wave_tick: C,
     pub wave_tick_text: C,
@@ -202,6 +204,7 @@ impl<C: Copy> Theme<C> {
             wave_dontcare: f(self.wave_dontcare),
             wave_weak: f(self.wave_weak),
             wave_dense: f(self.wave_dense),
+            wave_event_coalesced: f(self.wave_event_coalesced),
             wave_bus_text: f(self.wave_bus_text),
             wave_tick: f(self.wave_tick),
             wave_tick_text: f(self.wave_tick_text),
@@ -281,6 +284,7 @@ impl Theme<Color> {
             wave_dontcare: c(0x74ade8),
             wave_weak: c(0x878a98),
             wave_dense: ca(0xa1c181, 0.55),
+            wave_event_coalesced: c(0xe5c07b),
             wave_bus_text: c(0xdce0e5),
             wave_tick: ca(0xc8ccd4, 0.08),
             wave_tick_text: c(0xa9afbc),
@@ -416,6 +420,21 @@ impl Theme<Color> {
         t.wave_weak = stroke(opaque(p.muted, t.editor.text), &backgrounds);
         t.wave_high_fill = alpha(t.wave_signal, 0.10);
         t.wave_dense = alpha(t.wave_signal, if hc { 0.8 } else { 0.55 });
+        t.wave_event_coalesced = stroke(charts[3], &backgrounds);
+        let hue_gap = (t.wave_event_coalesced.h - t.wave_signal.h).abs();
+        if hue_gap.min(1.0 - hue_gap) < 0.08
+            && (t.wave_event_coalesced.l - t.wave_signal.l).abs() < 0.15
+        {
+            t.wave_event_coalesced = stroke(
+                Color {
+                    h: (t.wave_signal.h + 0.5) % 1.0,
+                    s: 0.75,
+                    l: 0.5,
+                    a: 1.0,
+                },
+                &backgrounds,
+            );
+        }
         t.wave_bus_text = t.editor.text;
         t.wave_tick = alpha(t.editor.text, if hc { 0.4 } else { 0.12 });
         t.wave_tick_text = t.panel.text_muted;

@@ -48,7 +48,7 @@ pub struct WriterOptions {
     /// 0 encodes them on the sink thread. Blocks are written in production
     /// order whatever the number of threads.
     pub log_encoders: usize,
-    /// Drop value changes that do not change the value.
+    /// Drop unchanged values on non-event signals. Event occurrences are never dropped.
     pub dedup: bool,
     /// Store a CRC32 for every section.
     pub checksums: bool,
@@ -537,6 +537,7 @@ struct LastVal {
     payload: u64,
     epoch: u32,
     compact: bool,
+    dedup: bool,
 }
 
 /// Hot per-signal facts (kept small and separate from `kinds`).
@@ -831,7 +832,7 @@ impl Writer {
     /// Declares a variable with a new signal under an explicit parent.
     pub fn add_var_in(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> (NodeId, SignalId) {
         let name = self.strings.intern(name);
-        let sig = self.new_signal(kind);
+        let sig = self.new_signal(kind, var_type);
         let id = self.push_node(Node { parent, name, data: NodeData::Var { var_type, direction, signal: sig, declares: Some(kind) }, attrs: Vec::new() });
         (id, sig)
     }
@@ -845,6 +846,9 @@ impl Writer {
     pub fn add_alias_in(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId> {
         if signal.0 as usize >= self.kinds.len() {
             return Err(Error::invalid(format!("unknown signal {}", signal.0)));
+        }
+        if var_type == VarType::Event {
+            self.last[signal.0 as usize].dedup = false;
         }
         let name = self.strings.intern(name);
         Ok(self.push_node(Node { parent, name, data: NodeData::Var { var_type, direction, signal, declares: None }, attrs: Vec::new() }))
@@ -882,7 +886,7 @@ impl Writer {
         Ok(())
     }
 
-    fn new_signal(&mut self, kind: SignalKind) -> SignalId {
+    fn new_signal(&mut self, kind: SignalKind, var_type: VarType) -> SignalId {
         let id = SignalId(self.kinds.len() as u32);
         self.kinds.push(kind);
         self.kinds_arc = None;
@@ -892,7 +896,7 @@ impl Writer {
             SignalKind::VarLen => SigInfo { kind: 2, narrow: false, width: 0 },
         });
         self.sig_counts.push(0);
-        let mut lv = LastVal::default();
+        let mut lv = LastVal { dedup: self.opts.dedup && var_type != VarType::Event, ..LastVal::default() };
         match kind {
             SignalKind::Bits { width, states } if packed_len(width, states) <= 8 => {
                 // Default X for multi-state, 0 for two-state.
@@ -994,7 +998,7 @@ impl Writer {
         debug_assert!(s < self.last.len() && s < self.frame_cap.len() && s < self.sig_counts.len());
         // Safety: see above; `s < kinds.len()` was checked by the caller.
         let lv = unsafe { *self.last.get_unchecked(s) };
-        if lv.payload == payload && lv.compact == compact && self.opts.dedup {
+        if lv.payload == payload && lv.compact == compact && lv.dedup {
             return Ok(());
         }
         if lv.epoch != self.epoch {
@@ -1032,7 +1036,7 @@ impl Writer {
         let len = if compact { (width as usize).div_ceil(8) } else { decl_len };
         let old_compact = self.wide_last[slot] != 0;
         let old_len = if old_compact { (width as usize).div_ceil(8) } else { decl_len };
-        if self.opts.dedup && old_compact == compact && self.wide_last[slot + 1..slot + 1 + len] == data[..len] {
+        if self.last[s].dedup && old_compact == compact && self.wide_last[slot + 1..slot + 1 + len] == data[..len] {
             return Ok(());
         }
         if self.last[s].epoch != self.epoch {
@@ -1251,7 +1255,7 @@ impl Writer {
             return Err(Error::invalid("emit_varlen on a fixed-width signal"));
         }
         let slot = self.last[s].payload as usize;
-        if self.opts.dedup && self.varlen_last[slot] == bytes {
+        if self.last[s].dedup && self.varlen_last[slot] == bytes {
             return Ok(());
         }
         if self.last[s].epoch != self.epoch {

@@ -782,3 +782,76 @@ fn log_raw_matches_log() {
     .unwrap();
     assert_eq!(n, 300);
 }
+
+#[test]
+fn events_bypass_dedup_in_all_payload_paths() {
+    for background in [false, true] {
+        let path = tmp(&format!("events_{background}.vtr"));
+        let opts = WriterOptions {
+            background,
+            block_records: 4,
+            ..Default::default()
+        };
+        assert!(opts.dedup);
+        let mut w = Writer::create_with(&path, opts).unwrap();
+        let kinds = [
+            SignalKind::Bits {
+                width: 1,
+                states: 2,
+            },
+            SignalKind::Bits {
+                width: 128,
+                states: 4,
+            },
+            SignalKind::Real,
+            SignalKind::VarLen,
+        ];
+        let events: Vec<_> = kinds
+            .iter()
+            .map(|&kind| {
+                w.add_var("event", VarType::Event, Direction::Implicit, kind)
+                    .1
+            })
+            .collect();
+        let (_, alias) = w.add_bits("alias_target", 1, 2);
+        w.add_alias("event_alias", VarType::Event, Direction::Implicit, alias)
+            .unwrap();
+        // An ordinary alias must never re-enable dedup for an event.
+        w.add_alias("wire_alias", VarType::Wire, Direction::Implicit, events[0])
+            .unwrap();
+        let (_, wire) = w.add_bits("wire", 1, 2);
+        for time in [0, 0, 5, 5, 10] {
+            w.set_time(time).unwrap();
+            w.emit_bit(events[0], 1).unwrap();
+            w.emit_logic_str(events[1], &[b'x'; 128]).unwrap();
+            w.emit_real(events[2], 0.0).unwrap();
+            w.emit_varlen(events[3], b"").unwrap();
+            w.emit_bit(alias, 1).unwrap();
+            w.emit_bit(wire, 1).unwrap();
+        }
+        w.close().unwrap();
+        let reader = Reader::open(&path).unwrap();
+        for signal in events.into_iter().chain([alias]) {
+            let history = reader.load_signal(signal).unwrap();
+            assert_eq!(history.times(), &[0, 0, 5, 5, 10], "signal {signal:?}");
+            let mut streamed = Vec::new();
+            reader
+                .for_each_change(0, 10, |time, sig, _| {
+                    if sig == signal {
+                        streamed.push(time);
+                    }
+                })
+                .unwrap();
+            assert_eq!(streamed, [0, 0, 5, 5, 10]);
+            for (start, end, expected) in [(0, 0, vec![0, 0]), (5, 5, vec![5, 5]), (1, 10, vec![5, 5, 10])] {
+                assert_eq!(reader.changes(signal, start, end).unwrap().iter().map(|(t, _)| *t).collect::<Vec<_>>(), expected);
+                let mut window = Vec::new();
+                reader.for_each_change(start, end, |t, sig, _| {
+                    if sig == signal { window.push(t); }
+                }).unwrap();
+                assert_eq!(window, expected);
+            }
+        }
+        assert_eq!(reader.load_signal(wire).unwrap().times(), &[0]);
+    }
+}

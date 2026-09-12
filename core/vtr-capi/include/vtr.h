@@ -85,7 +85,7 @@ typedef struct vtr_writer_options {
     uint64_t chunk_records;  /* value changes per hand-off to the background encoder (default 512K) */
     uint64_t tx_block_bytes; /* row bytes per transaction block (default 4 MiB) */
     int      background;     /* encode/compress on a background thread (default 1) */
-    int      dedup;          /* drop value changes equal to the current value (default 1) */
+    int      dedup;          /* drop unchanged non-event values (default 1); events are never dropped */
     int      checksums;      /* store a CRC32 per section (default 1); readers verify on request */
     uint32_t log_encoders;   /* helper threads encoding log blocks in background mode (default 2; 0 = sink thread) */
 } vtr_writer_options;

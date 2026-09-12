@@ -239,6 +239,23 @@ fn raw_bytes_reals_nine_states_and_time_boundaries() {
         &mut scene,
     );
     assert_eq!(scene.prims.len(), 2, "one marker per occurrence");
+    for (marker, x) in scene.prims.iter().zip([25.0, 50.0]) {
+        let volna_core::scene::Prim::Lines {
+            segments, color, ..
+        } = marker
+        else {
+            panic!("event must be an arrow");
+        };
+        assert_eq!(*color, Theme::one_dark().wave_signal);
+        assert_eq!(segments[0][0].x, x);
+        assert_eq!(segments[0][1].x, x);
+        assert!(segments[0][0].y < segments[0][1].y);
+        assert!(
+            segments[1..]
+                .iter()
+                .all(|[left, right]| { left.x < x && right.x > x && left.y == right.y })
+        );
+    }
     scene.prims.clear();
     paint_event_row(
         event.as_ref(),
@@ -281,5 +298,78 @@ fn raw_bytes_reals_nine_states_and_time_boundaries() {
             bytes.value(bytes.index_at(time)),
             twin.value(twin.index_at(time))
         );
+    }
+}
+
+#[test]
+fn vtr_events_preserve_repeated_occurrences_and_render_arrows() {
+    use volna_core::{
+        data::SignalShape,
+        geometry::Rect,
+        scene::Scene,
+        theme::Theme,
+        wave::{paint::paint_event_row, viewport::Viewport},
+    };
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let mut writer = vtr::Writer::create(file.path()).unwrap();
+    let (_, signal) = writer.add_var(
+        "event",
+        vtr::VarType::Event,
+        vtr::Direction::Implicit,
+        vtr::SignalKind::Bits {
+            width: 1,
+            states: 2,
+        },
+    );
+    for time in [5, 5, 10, 11, 20, 20] {
+        writer.set_time(time).unwrap();
+        writer.emit_bit(signal, 1).unwrap();
+    }
+    writer.close().unwrap();
+    let session = OpenSpec::Path(file.path().into()).open().unwrap();
+    let var = &session.hierarchy().vars[0];
+    assert_eq!(var.shape, SignalShape::Event);
+    let history = session.load_signal(var.signal).unwrap();
+    assert_eq!(history.shape(), SignalShape::Event);
+    assert_eq!(
+        (0..history.len())
+            .map(|i| history.time(i))
+            .collect::<Vec<_>>(),
+        [5, 5, 10, 11, 20, 20]
+    );
+    let theme = Theme::one_dark();
+    let single = theme.wave_signal;
+    let multiple = theme.wave_event_coalesced;
+    assert_ne!(single, multiple);
+    for (start, end, width, colors) in [
+        (0.0, 20.0, 100.0, vec![multiple, single, single, multiple]),
+        (5.0, 10.0, 100.0, vec![multiple, single]),
+        (5.1, 9.9, 100.0, vec![]),
+        (0.0, 100.0, 2.0, vec![multiple]),
+        (10.0, 11.0, 100.0, vec![single, single]),
+        (10.0, 100.0, 2.0, vec![multiple]),
+        // A neighbouring event outside the viewport must not affect colour.
+        (10.0, 10.5, 0.1, vec![single]),
+        (20.0, 21.0, 100.0, vec![multiple]),
+    ] {
+        let mut scene = Scene::default();
+        paint_event_row(
+            history.as_ref(),
+            &Viewport { start, end },
+            Rect::from_xywh(30.0, 10.0, width, 24.0),
+            &theme,
+            &mut scene,
+        );
+        let actual: Vec<_> = scene
+            .prims
+            .iter()
+            .map(|prim| {
+                let volna_core::scene::Prim::Lines { color, .. } = prim else {
+                    panic!("expected event arrow");
+                };
+                *color
+            })
+            .collect();
+        assert_eq!(actual, colors, "viewport {start}..{end} width {width}");
     }
 }

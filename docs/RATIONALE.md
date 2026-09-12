@@ -908,3 +908,26 @@ avoids duplicating role names in a separate JS wire decoder. Live updates refres
 the same views without resetting trace or interaction state. The single-webview layout and native/standalone
 One Dark defaults remain. See Volna's architecture and verification guide for
 the boundary and tests.
+
+## Volna event waveforms
+
+Volna uses Surfer’s event glyph (`libsurfer/src/drawing_canvas.rs`,
+`draw_event`): a vertical stem with a filled upward arrowhead, 5 logical
+pixels wide and one fifth of the trace height. The toolkit-independent
+painter emits ordinary line segments, including scanlines for the filled head,
+so frontend adapters need no event-specific rendering. VTR `VarType::Event`
+and FST event declarations select this rendering; recorded timestamps are
+occurrences even when consecutive payloads are identical. Same-pixel
+occurrences coalesce and use a distinct theme token, `wave_event_coalesced`,
+so multiplicity remains visible even when timestamps are identical. No held
+level is drawn. Pixel grouping counts only visible occurrences and includes
+all duplicates at both viewport boundaries. Colours remain client presentation.
+
+The writer caches the effective deduplication flag in the existing per-signal
+last-value state. Event declarations and event aliases disable it, so repeated
+payloads, default-valued payloads and same-timestamp emits survive every writer
+path without requiring a global dedup override. Ordinary aliases never undo
+this rule. Range readers start at the first block whose end overlaps the lower
+bound, rather than the last block starting before it: several blocks may contain
+occurrences at the same timestamp. Existing column encodings and APIs already
+represent these records; no format version change is needed.

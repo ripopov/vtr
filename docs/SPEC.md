@@ -296,6 +296,14 @@ Codes 0..22 are the FST/VCD scope types with identical numbering:
 
 ### 5.2 Var types
 
+For event variables (code 0), each signal record denotes an occurrence, not a
+held level. Identical payloads and repeated timestamps remain distinct records
+in emission order. Writers must preserve every emitted occurrence; value
+deduplication does not apply to event signals. An event alias gives its shared
+signal this rule for subsequent writes. These occurrences use the existing
+signal column encodings, including zero time deltas; no separate event payload
+encoding is required.
+
 Codes 0..29 are the FST var types with identical numbering:
 0 event, 1 integer, 2 parameter, 3 real, 4 real_parameter, 5 reg, 6 supply0,
 7 supply1, 8 time, 9 tri, 10 triand, 11 trior, 12 trireg, 13 tri0, 14 tri1,

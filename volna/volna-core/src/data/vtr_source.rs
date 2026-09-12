@@ -16,6 +16,7 @@ pub struct LocalSession {
     pub(super) tracks: Vec<super::transactions::Track>,
     info: TraceInfo,
     hierarchy: Hierarchy,
+    event_signals: std::collections::HashSet<SignalRef>,
 }
 
 impl LocalSession {
@@ -43,7 +44,14 @@ impl LocalSession {
             signal_count: reader.signal_count() as usize,
             change_count: None,
         };
+        let event_signals = hierarchy
+            .vars
+            .iter()
+            .filter(|var| var.shape == SignalShape::Event)
+            .map(|var| var.signal)
+            .collect();
         Ok(LocalSession {
+            event_signals,
             tracks: super::vtr_transactions::tracks(&reader),
             reader,
             info,
@@ -109,7 +117,11 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
                 out.vars.push(Variable {
                     name: reader.str(node.name).to_string(),
                     scope: sid,
-                    shape: shape_of(kind),
+                    shape: if var_type == vtr::VarType::Event {
+                        SignalShape::Event
+                    } else {
+                        shape_of(kind)
+                    },
                     var_type: var_type.name().to_string(),
                     direction: match direction {
                         vtr::Direction::Input => Direction::Input,
@@ -163,7 +175,11 @@ impl Session for LocalSession {
             .load_signal(vtr::SignalId(signal.0))
             .with_context(|| format!("load signal {}", signal.0))?;
         Ok(Arc::new(VtrHistory {
-            shape: shape_of(data.kind()),
+            shape: if self.event_signals.contains(&signal) {
+                SignalShape::Event
+            } else {
+                shape_of(data.kind())
+            },
             data,
         }))
     }

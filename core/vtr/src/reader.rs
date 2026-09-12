@@ -838,7 +838,9 @@ impl Reader {
         let kind = self.signal_kind(sig)?;
         let g = self.group_of(sig);
         let mut out = Vec::new();
-        let start = self.block_at(t0).unwrap_or(0);
+        // Several blocks can contain the same timestamp; include every
+        // block overlapping the inclusive lower bound.
+        let start = self.sig_blocks.partition_point(|b| b.header.end_time < t0);
         for bi in start..self.sig_blocks.len() {
             let h = &self.sig_blocks[bi].header;
             if h.start_time > t1 {
@@ -1039,7 +1041,9 @@ impl Reader {
             *next = r;
             Ok(())
         }
-        let start = self.block_at(t0).unwrap_or(0);
+        // Several blocks can contain the same timestamp; include every
+        // block overlapping the inclusive lower bound.
+        let start = self.sig_blocks.partition_point(|b| b.header.end_time < t0);
         let kinds = &self.hier.signals;
         let mut d = Decompressor::new();
         // (first signal of the run, decompressed run, per-signal column ranges)
