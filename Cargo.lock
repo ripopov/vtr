@@ -6005,6 +6005,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "volna-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "serde",
+ "serde_json",
+ "vtr",
+ "web-time",
+]
+
+[[package]]
 name = "vswhom"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

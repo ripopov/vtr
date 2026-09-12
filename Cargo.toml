@@ -7,6 +7,7 @@ members = [
     "crates/vtr-cli",
     "crates/vtr-bench",
     "crates/vtr-vdb",
+    "crates/volna-core",
     "crates/volna",
 ]
 # Keep the default core build independent of the viewer's platform SDK.
@@ -32,6 +33,7 @@ codegen-units = 1
 
 [profile.bench]
 inherits = "release"
+
 
 # Preserve the viewer's build settings without changing core benchmark profiles.
 [profile.viewer]

@@ -1,0 +1,826 @@
+//! `WaveModel`: the state of the waveform panel (displayed signals, selection,
+//! viewport, scroll, hover, drags, the format menu) and every input rule that
+//! mutates it. The cursor and markers live in the [`Document`] so other views
+//! share them; the model reads and writes them through it.
+
+use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
+
+use web_time::Instant;
+
+use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
+use super::viewport::Viewport;
+use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
+use crate::document::Document;
+use crate::geometry::{Modifiers, MouseButton, Point, point};
+use crate::selection;
+use crate::theme::Theme;
+
+const SNAP_PX: f64 = 6.0;
+
+pub struct DisplayedSignal {
+    pub var: VarId,
+    pub signal: SignalRef,
+    pub name: String,
+    pub scope: String,
+    pub shape: SignalShape,
+    pub translator: Arc<dyn Translator>,
+    pub history: Option<Arc<dyn SignalHistory>>,
+    pub error: Option<String>,
+}
+
+pub struct ViewportAnimation {
+    from: Viewport,
+    to: Viewport,
+    start: Instant,
+    duration_ms: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Drag {
+    Cursor,
+    Pan { last_x: f32 },
+    NamesSplit,
+    ValuesSplit,
+    Scroll { grab: f32 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MenuItem {
+    pub id: String,
+    pub label: String,
+    pub badge: Option<String>,
+    pub checked: bool,
+}
+
+/// The value-format menu, open for one row at a panel position. The frontend
+/// shows it with its own popup widget and reports the choice back.
+#[derive(Clone, Debug)]
+pub struct FormatMenu {
+    pub row: usize,
+    pub position: Point,
+    pub items: Vec<MenuItem>,
+}
+
+/// Pointer input over the wave panel, in the same coordinate space as the
+/// bounds passed to [`WaveModel::layout`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PointerEvent {
+    Down {
+        position: Point,
+        button: MouseButton,
+        modifiers: Modifiers,
+    },
+    Move {
+        position: Point,
+    },
+    Up,
+    /// The pointer left the panel (or the window).
+    Leave,
+    /// Wheel or trackpad scroll in logical pixels.
+    Wheel {
+        position: Point,
+        dx: f32,
+        dy: f32,
+        modifiers: Modifiers,
+    },
+    /// Trackpad pinch; `delta` is the scale change of this event.
+    Pinch {
+        position: Point,
+        delta: f32,
+    },
+}
+
+pub struct WaveModel {
+    pub items: Vec<DisplayedSignal>,
+    pub selected: BTreeSet<usize>,
+    pub anchor: Option<usize>,
+    pub viewport: Viewport,
+    anim: Option<ViewportAnimation>,
+    pub scroll_y: f32,
+    pub names_width: f32,
+    pub values_width: f32,
+    pub hover_row: Option<usize>,
+    pub badge_hover: Option<usize>,
+    /// Pointer is over a column divider / a marker chip (drives repaints).
+    pub split_hover: bool,
+    pub chip_hover: bool,
+    pub drag: Option<Drag>,
+    /// Width of the waves column at the last layout, for keyboard zoom.
+    pub wave_width: f32,
+    /// Duration of the last panel paint, and a smoothed average.
+    pub frame_ms: f32,
+    pub frame_ms_avg: f32,
+    pub menu: Option<FormatMenu>,
+    /// Last known pointer position over the panel.
+    pub pointer: Option<Point>,
+    layout: WaveLayout,
+}
+
+impl Default for WaveModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WaveModel {
+    pub fn new() -> Self {
+        WaveModel {
+            items: Vec::new(),
+            selected: BTreeSet::new(),
+            anchor: None,
+            viewport: Viewport::fit((0, 1000)),
+            anim: None,
+            scroll_y: 0.0,
+            names_width: 220.0,
+            values_width: 120.0,
+            hover_row: None,
+            badge_hover: None,
+            split_hover: false,
+            chip_hover: false,
+            drag: None,
+            wave_width: 800.0,
+            frame_ms: 0.0,
+            frame_ms_avg: 0.0,
+            menu: None,
+            pointer: None,
+            layout: WaveLayout::default(),
+        }
+    }
+
+    /// Forget every row and interaction; called when the document's session changes.
+    pub fn reset(&mut self, limits: Option<(u64, u64)>) {
+        self.items.clear();
+        self.selected.clear();
+        self.anchor = None;
+        self.scroll_y = 0.0;
+        self.anim = None;
+        self.menu = None;
+        self.drag = None;
+        self.hover_row = None;
+        self.badge_hover = None;
+        if let Some(limits) = limits {
+            self.viewport = Viewport::fit(limits);
+        }
+    }
+
+    /// The layout of the last frame (see [`WaveModel::layout`]).
+    pub fn last_layout(&self) -> &WaveLayout {
+        &self.layout
+    }
+
+    pub fn is_animating(&self) -> bool {
+        self.anim.is_some()
+    }
+
+    pub fn loaded_count(&self) -> usize {
+        self.items.iter().filter(|i| i.history.is_some()).count()
+    }
+
+    // -- items ---------------------------------------------------------------
+
+    /// Append rows for `vars`, sharing histories already loaded for the same
+    /// signal and queuing a load for the rest. Returns the histories that must
+    /// be loaded (deduplicated).
+    pub fn add_vars(&mut self, doc: &mut Document, vars: &[VarId]) {
+        let Some(session) = doc.session().cloned() else {
+            return;
+        };
+        let h = session.hierarchy();
+        let first_new = self.items.len();
+        let loaded: HashMap<_, _> = self
+            .items
+            .iter()
+            .filter_map(|i| i.history.as_ref().map(|h| (i.signal, h.clone())))
+            .collect();
+        for &var in vars {
+            let v = &h.vars[var];
+            let translator = doc.translators.default_for(v.shape);
+            // Variable identity/format stay per row; aliases share immutable data.
+            let history = loaded.get(&v.signal).cloned();
+            let needs_load = history.is_none();
+            self.items.push(DisplayedSignal {
+                var,
+                signal: v.signal,
+                name: v.name.clone(),
+                scope: h.scope_path(v.scope).join("."),
+                shape: v.shape,
+                translator,
+                history,
+                error: None,
+            });
+            if needs_load {
+                doc.request_signal(v.signal);
+            }
+        }
+        if !vars.is_empty() {
+            self.selected.clear();
+            self.selected.extend(first_new..self.items.len());
+            self.anchor = Some(first_new);
+        }
+    }
+
+    /// A history load finished (the document already checked its generation).
+    pub fn finish_signal(
+        &mut self,
+        signal: SignalRef,
+        result: anyhow::Result<Arc<dyn SignalHistory>>,
+    ) {
+        let result = result.map_err(|e| e.to_string());
+        for item in self.items.iter_mut().filter(|i| i.signal == signal) {
+            item.history = result.as_ref().ok().cloned();
+            item.error = result.as_ref().err().cloned();
+        }
+    }
+
+    pub fn remove_selected(&mut self) {
+        if self.selected.is_empty() {
+            return;
+        }
+        let mut ix = 0;
+        let selected = std::mem::take(&mut self.selected);
+        self.items.retain(|_| {
+            let keep = !selected.contains(&ix);
+            ix += 1;
+            keep
+        });
+        self.anchor = None;
+    }
+
+    pub fn select_all(&mut self) {
+        self.selected = (0..self.items.len()).collect();
+    }
+
+    /// Escape: close the menu, else clear the selection, else clear the cursor.
+    pub fn clear_selection(&mut self, doc: &mut Document) {
+        if self.menu.is_some() {
+            self.menu = None;
+        } else if !self.selected.is_empty() {
+            self.selected.clear();
+        } else {
+            doc.set_cursor(None);
+        }
+    }
+
+    /// Click selection with platform conventions: plain = single, cmd/ctrl =
+    /// toggle, shift = range from the anchor.
+    pub fn select_row(&mut self, row: usize, modifiers: Modifiers) {
+        if row >= self.items.len() {
+            return;
+        }
+        selection::select(&mut self.selected, &mut self.anchor, row, modifiers);
+    }
+
+    pub fn move_selection(&mut self, delta: isize) {
+        if self.items.is_empty() {
+            return;
+        }
+        let current = self
+            .anchor
+            .or_else(|| self.selected.iter().next().copied())
+            .unwrap_or(0) as isize;
+        let next = (current + delta).clamp(0, self.items.len() as isize - 1) as usize;
+        self.selected.clear();
+        self.selected.insert(next);
+        self.anchor = Some(next);
+    }
+
+    // -- translators -----------------------------------------------------------
+
+    pub fn set_translator(&mut self, doc: &Document, rows: &[usize], id: &str) {
+        let Some(t) = doc.translators.get(id) else {
+            return;
+        };
+        for &row in rows {
+            if let Some(item) = self.items.get_mut(row)
+                && t.applies(item.shape)
+            {
+                item.translator = t.clone();
+            }
+        }
+    }
+
+    pub fn cycle_format(&mut self, doc: &Document) {
+        let rows: Vec<usize> = self.selected.iter().copied().collect();
+        for row in rows {
+            let Some(item) = self.items.get(row) else {
+                continue;
+            };
+            let options = doc.translators.applicable(item.shape);
+            if options.is_empty() {
+                continue;
+            }
+            let pos = options
+                .iter()
+                .position(|t| t.id() == item.translator.id())
+                .unwrap_or(0);
+            let next = options[(pos + 1) % options.len()].clone();
+            self.items[row].translator = next;
+        }
+    }
+
+    /// Open the format menu for `row` at a panel position.
+    pub fn open_format_menu(&mut self, doc: &Document, row: usize, position: Point) {
+        let Some(item) = self.items.get(row) else {
+            return;
+        };
+        let current = item.translator.id();
+        let items = doc
+            .translators
+            .applicable(item.shape)
+            .into_iter()
+            .map(|t| MenuItem {
+                id: t.id().into(),
+                label: t.name().into(),
+                badge: Some(t.badge().into()),
+                checked: t.id() == current,
+            })
+            .collect();
+        self.menu = Some(FormatMenu {
+            row,
+            position,
+            items,
+        });
+    }
+
+    /// The frontend's popup reported a choice.
+    pub fn menu_select(&mut self, doc: &Document, id: &str) {
+        let Some(menu) = self.menu.take() else { return };
+        let rows: Vec<usize> = if self.selected.contains(&menu.row) {
+            self.selected.iter().copied().collect()
+        } else {
+            vec![menu.row]
+        };
+        self.set_translator(doc, &rows, id);
+    }
+
+    pub fn menu_dismiss(&mut self) {
+        self.menu = None;
+    }
+
+    // -- navigation ------------------------------------------------------------
+
+    fn animate_to(&mut self, target: Viewport, limits: (u64, u64), now: Instant) {
+        let mut target = target;
+        target.clamp(limits);
+        if self.viewport.approx_eq(&target) {
+            return;
+        }
+        self.anim = Some(ViewportAnimation {
+            from: self.viewport,
+            to: target,
+            start: now,
+            duration_ms: 140.0,
+        });
+    }
+
+    /// Advance the viewport animation; returns true while it is still running.
+    pub fn tick(&mut self, now: Instant) -> bool {
+        let Some(anim) = &self.anim else { return false };
+        let elapsed = now.saturating_duration_since(anim.start).as_secs_f64() * 1000.0;
+        let t = (elapsed / anim.duration_ms).min(1.0);
+        // ease-out cubic
+        let e = 1.0 - (1.0 - t).powi(3);
+        self.viewport = Viewport::lerp(&anim.from, &anim.to, e);
+        if t >= 1.0 {
+            self.viewport = anim.to;
+            self.anim = None;
+            return false;
+        }
+        true
+    }
+
+    /// Finish any running animation immediately.
+    pub fn settle(&mut self) {
+        if let Some(anim) = self.anim.take() {
+            self.viewport = anim.to;
+        }
+    }
+
+    fn wave_w(&self) -> f64 {
+        f64::from(self.wave_width).max(1.0)
+    }
+
+    /// Immediate zoom (mouse wheel) around a pixel position in the waves column.
+    pub fn zoom_at(&mut self, doc: &Document, x_px: f32, factor: f64) {
+        self.anim = None;
+        let w = self.wave_w();
+        self.viewport
+            .zoom_about(f64::from(x_px), w, factor, doc.limits());
+    }
+
+    fn zoom_center(&mut self, doc: &Document, factor: f64, now: Instant) {
+        let w = self.wave_w();
+        let anchor_x = match doc.cursor {
+            Some(c) => {
+                let x = self.viewport.x_of(c as f64, w);
+                if (0.0..=w).contains(&x) { x } else { w / 2.0 }
+            }
+            None => w / 2.0,
+        };
+        let mut target = self.viewport;
+        target.zoom_about(anchor_x, w, factor, doc.limits());
+        self.animate_to(target, doc.limits(), now);
+    }
+
+    pub fn zoom_in(&mut self, doc: &Document, now: Instant) {
+        self.zoom_center(doc, 2.0, now);
+    }
+
+    pub fn zoom_out(&mut self, doc: &Document, now: Instant) {
+        self.zoom_center(doc, 0.5, now);
+    }
+
+    pub fn zoom_fit(&mut self, doc: &Document, now: Instant) {
+        self.animate_to(Viewport::fit(doc.limits()), doc.limits(), now);
+    }
+
+    pub fn go_to_start(&mut self, doc: &Document, now: Instant) {
+        let mut target = self.viewport;
+        target.go_to_start(doc.limits());
+        self.animate_to(target, doc.limits(), now);
+    }
+
+    pub fn go_to_end(&mut self, doc: &Document, now: Instant) {
+        let mut target = self.viewport;
+        target.go_to_end(doc.limits());
+        self.animate_to(target, doc.limits(), now);
+    }
+
+    pub fn go_to_cursor(&mut self, doc: &Document, now: Instant) {
+        let Some(c) = doc.cursor else { return };
+        let mut target = self.viewport;
+        target.center_on(c as f64, doc.limits());
+        self.animate_to(target, doc.limits(), now);
+    }
+
+    pub fn pan_fraction(&mut self, doc: &Document, frac: f64, now: Instant) {
+        let mut target = self.viewport;
+        let w = target.width();
+        target.start += w * frac;
+        target.end += w * frac;
+        self.animate_to(target, doc.limits(), now);
+    }
+
+    /// Immediate pan by pixels (mouse drag / wheel).
+    pub fn pan_px(&mut self, doc: &Document, dx: f32) {
+        self.anim = None;
+        let w = self.wave_w();
+        self.viewport.pan_px(f64::from(dx), w, doc.limits());
+    }
+
+    fn edge_history(&self) -> Option<Arc<dyn SignalHistory>> {
+        let row = self
+            .anchor
+            .filter(|r| self.selected.contains(r))
+            .or_else(|| self.selected.iter().next().copied())?;
+        self.items.get(row)?.history.clone()
+    }
+
+    fn reveal_cursor(&mut self, doc: &Document, now: Instant) {
+        let Some(c) = doc.cursor else { return };
+        let c = c as f64;
+        if c < self.viewport.start || c > self.viewport.end {
+            let mut target = self.viewport;
+            target.center_on(c, doc.limits());
+            self.animate_to(target, doc.limits(), now);
+        }
+    }
+
+    pub fn next_edge(&mut self, doc: &mut Document, now: Instant) {
+        let Some(h) = self.edge_history() else { return };
+        let from = doc.cursor.unwrap_or(self.viewport.start.max(0.0) as u64);
+        if let Some(t) = h.next_change_after(from) {
+            doc.set_cursor(Some(t));
+            self.reveal_cursor(doc, now);
+        }
+    }
+
+    pub fn prev_edge(&mut self, doc: &mut Document, now: Instant) {
+        let Some(h) = self.edge_history() else { return };
+        let from = doc.cursor.unwrap_or(self.viewport.end.max(0.0) as u64);
+        if let Some(t) = h.prev_change_before(from) {
+            doc.set_cursor(Some(t));
+            self.reveal_cursor(doc, now);
+        }
+    }
+
+    /// Record the paint time of the last frame.
+    pub fn record_frame(&mut self, ms: f32) {
+        self.frame_ms = ms;
+        self.frame_ms_avg = if self.frame_ms_avg == 0.0 {
+            ms
+        } else {
+            self.frame_ms_avg * 0.9 + ms * 0.1
+        };
+    }
+
+    // -- layout ------------------------------------------------------------------
+
+    /// Lay the panel out in `bounds` for this frame. Clamps the scroll, records
+    /// the waves width used by keyboard zoom, and derives hover state from the
+    /// last pointer position. The result is kept for input handling.
+    pub fn layout(
+        &mut self,
+        bounds: crate::geometry::Rect,
+        doc: &Document,
+        theme: &Theme,
+    ) -> &WaveLayout {
+        let layout = WaveLayout::compute(LayoutInput {
+            bounds,
+            row_h: theme.row_height,
+            header_h: theme.timeline_height,
+            names_width: self.names_width,
+            values_width: self.values_width,
+            item_count: self.items.len(),
+            scroll_y: self.scroll_y,
+            markers: &doc.markers,
+            viewport: self.viewport,
+        });
+        self.scroll_y = layout.scroll_y;
+        self.wave_width = layout.waves.width();
+        self.layout = layout;
+        self.update_hover();
+        &self.layout
+    }
+
+    fn update_hover(&mut self) {
+        let (hover_row, badge_hover) = match self.pointer {
+            Some(p) if self.layout.bounds.contains(p) && p.y >= self.layout.names.top() => {
+                let row = self.layout.row_at(p.y).filter(|r| *r < self.items.len());
+                let badge = self.layout.badge_at(p).map(|(ix, _)| ix);
+                (row, badge)
+            }
+            _ => (None, None),
+        };
+        self.hover_row = hover_row;
+        self.badge_hover = badge_hover;
+    }
+
+    // -- pointer input -------------------------------------------------------------
+
+    /// Handle pointer input. Returns true when something visible changed.
+    pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent) -> bool {
+        match event {
+            PointerEvent::Down {
+                position,
+                button,
+                modifiers,
+            } => {
+                self.pointer_down(doc, position, button, modifiers);
+                true
+            }
+            PointerEvent::Move { position } => self.pointer_move(doc, position),
+            PointerEvent::Up => {
+                let had = self.drag.is_some();
+                self.drag = None;
+                had
+            }
+            PointerEvent::Leave => {
+                self.pointer = None;
+                let had = self.hover_row.is_some()
+                    || self.badge_hover.is_some()
+                    || self.split_hover
+                    || self.chip_hover;
+                self.hover_row = None;
+                self.badge_hover = None;
+                self.split_hover = false;
+                self.chip_hover = false;
+                had
+            }
+            PointerEvent::Wheel {
+                position,
+                dx,
+                dy,
+                modifiers,
+            } => {
+                self.wheel(doc, position, dx, dy, modifiers);
+                true
+            }
+            PointerEvent::Pinch { position, delta } => {
+                let factor = f64::from(1.0 + delta).clamp(0.2, 5.0);
+                let x = (position.x - self.layout.waves.left()).max(0.0);
+                self.zoom_at(doc, x, factor);
+                true
+            }
+        }
+    }
+
+    fn pointer_down(
+        &mut self,
+        doc: &mut Document,
+        p: Point,
+        button: MouseButton,
+        modifiers: Modifiers,
+    ) {
+        let layout = self.layout.clone();
+        self.pointer = Some(p);
+        self.menu = None;
+        if button == MouseButton::Left {
+            if layout.names_split.contains(p) {
+                self.drag = Some(Drag::NamesSplit);
+                return;
+            }
+            if layout.values_split.contains(p) {
+                self.drag = Some(Drag::ValuesSplit);
+                return;
+            }
+            if let Some((track, thumb)) = layout.scrollbar {
+                if thumb.contains(p) {
+                    self.drag = Some(Drag::Scroll {
+                        grab: p.y - thumb.top(),
+                    });
+                    return;
+                }
+                if track.contains(p) {
+                    let travel = track.height() - thumb.height();
+                    let frac =
+                        ((p.y - track.top() - thumb.height() / 2.0) / travel).clamp(0.0, 1.0);
+                    self.scroll_y = layout.max_scroll * frac;
+                    self.drag = Some(Drag::Scroll {
+                        grab: thumb.height() / 2.0,
+                    });
+                    return;
+                }
+            }
+            if let Some(ix) = layout.chip_at(p) {
+                if modifiers.shift {
+                    doc.remove_marker(ix);
+                } else {
+                    let t = doc.markers[ix].time;
+                    doc.set_cursor(Some(t));
+                }
+                return;
+            }
+        }
+        let in_waves_x = p.x >= layout.waves.left() && p.x < layout.waves.right();
+        let wave_wf = layout.wave_width_f64();
+        if layout.header.contains(p) {
+            if in_waves_x && button == MouseButton::Left {
+                let x = f64::from(p.x - layout.waves.left());
+                let t = snapped_time(&self.viewport, None, x, wave_wf);
+                doc.set_cursor(Some(t));
+                self.drag = Some(Drag::Cursor);
+            }
+            return;
+        }
+        let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
+        if in_waves_x {
+            match button {
+                MouseButton::Left => {
+                    let x = f64::from(p.x - layout.waves.left());
+                    let hist = row.and_then(|r| self.items[r].history.clone());
+                    let t = snapped_time(&self.viewport, hist.as_deref(), x, wave_wf);
+                    doc.set_cursor(Some(t));
+                    self.drag = Some(Drag::Cursor);
+                    if let Some(r) = row
+                        && (!self.selected.contains(&r) || modifiers.shift || modifiers.secondary())
+                    {
+                        self.select_row(r, modifiers);
+                    }
+                }
+                MouseButton::Middle | MouseButton::Right => {
+                    self.drag = Some(Drag::Pan { last_x: p.x });
+                }
+            }
+            return;
+        }
+        // Names / values columns.
+        if button != MouseButton::Left {
+            return;
+        }
+        if let Some((ix, b)) = layout.badge_at(p) {
+            let pos = point(b.left(), b.bottom() + 4.0);
+            if !self.selected.contains(&ix) {
+                self.select_row(ix, modifiers);
+            }
+            self.open_format_menu(doc, ix, pos);
+            return;
+        }
+        match row {
+            Some(r) => self.select_row(r, modifiers),
+            None => self.selected.clear(),
+        }
+    }
+
+    fn pointer_move(&mut self, doc: &mut Document, p: Point) -> bool {
+        self.pointer = Some(p);
+        let layout = &self.layout;
+        let wave_wf = layout.wave_width_f64();
+        match self.drag {
+            Some(Drag::Cursor) => {
+                let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
+                let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
+                let hist = row.and_then(|r| self.items[r].history.clone());
+                let t = snapped_time(&self.viewport, hist.as_deref(), x, wave_wf);
+                doc.set_cursor(Some(t));
+                true
+            }
+            Some(Drag::Pan { last_x }) => {
+                let dx = last_x - p.x;
+                self.drag = Some(Drag::Pan { last_x: p.x });
+                self.pan_px(doc, dx);
+                true
+            }
+            Some(Drag::NamesSplit) => {
+                self.names_width = (p.x - layout.bounds.left()).max(MIN_COLUMN);
+                true
+            }
+            Some(Drag::ValuesSplit) => {
+                self.values_width = (p.x - layout.names.right()).max(MIN_COLUMN);
+                true
+            }
+            Some(Drag::Scroll { grab }) => {
+                if let Some((track, thumb)) = layout.scrollbar {
+                    let travel = track.height() - thumb.height();
+                    if travel > 0.0 {
+                        let frac = ((p.y - grab - track.top()) / travel).clamp(0.0, 1.0);
+                        self.scroll_y = layout.max_scroll * frac;
+                        return true;
+                    }
+                }
+                false
+            }
+            None => {
+                // Hover feedback only needs a repaint when the hovered row or
+                // badge changes, when we enter/leave splitter zones, or when
+                // the pointer leaves the table while something was hovered.
+                let (prev_row, prev_badge, prev_split, prev_chip) = (
+                    self.hover_row,
+                    self.badge_hover,
+                    self.split_hover,
+                    self.chip_hover,
+                );
+                if layout.bounds.contains(p) {
+                    let near_split = layout.near_split(p);
+                    let chip = layout.chip_at(p).is_some();
+                    self.split_hover = near_split;
+                    self.chip_hover = chip;
+                    self.update_hover();
+                } else {
+                    self.hover_row = None;
+                    self.badge_hover = None;
+                    self.split_hover = false;
+                    self.chip_hover = false;
+                }
+                self.hover_row != prev_row
+                    || self.badge_hover != prev_badge
+                    || self.split_hover != prev_split
+                    || self.chip_hover != prev_chip
+            }
+        }
+    }
+
+    /// Wheel: zoom with cmd/ctrl, pan horizontally, scroll rows vertically.
+    fn wheel(&mut self, doc: &Document, p: Point, dx: f32, dy: f32, modifiers: Modifiers) {
+        if modifiers.secondary() || modifiers.control {
+            let factor = 2f64.powf(f64::from(dy) / 120.0);
+            let x = (p.x - self.layout.waves.left()).max(0.0);
+            self.zoom_at(doc, x, factor);
+        } else if modifiers.shift {
+            self.pan_px(doc, -dy);
+        } else {
+            if dx.abs() > 0.0 {
+                self.pan_px(doc, -dx);
+            }
+            if dy.abs() > 0.0 {
+                self.scroll_y = (self.scroll_y - dy).clamp(0.0, self.layout.max_scroll);
+            }
+        }
+    }
+}
+
+/// Where a click on the waves at `x_px` lands after snapping to the nearest
+/// transition of `history` within `SNAP_PX`.
+pub fn snapped_time(
+    vp: &Viewport,
+    history: Option<&dyn SignalHistory>,
+    x_px: f64,
+    width_px: f64,
+) -> u64 {
+    let raw = vp.time_at(x_px, width_px).round().max(0.0);
+    let Some(h) = history else { return raw as u64 };
+    let tol = SNAP_PX / vp.px_per_unit(width_px);
+    let t = raw as u64;
+    let mut best: Option<(f64, u64)> = None;
+    let mut consider = |cand: u64| {
+        let d = (cand as f64 - raw).abs();
+        if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, cand));
+        }
+    };
+    match h.index_at(t) {
+        Some(i) => {
+            consider(h.time(i));
+            if i + 1 < h.len() {
+                consider(h.time(i + 1));
+            }
+        }
+        None => {
+            if !h.is_empty() {
+                consider(h.time(0));
+            }
+        }
+    }
+    best.map(|(_, c)| c).unwrap_or(t)
+}
