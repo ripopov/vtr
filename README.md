@@ -27,6 +27,10 @@ simulator's text log as typed, timestamped records (`docs/LOGGING.md`).
 VDB (Vibe Data Base) is the separate design and presentation companion.
 The `vtr-vdb` crate and CLI provide RTL netlists and temporal driver tracing.
 
+[Volna](crates/volna/README.md) (`crates/volna`) is the official VTR/VDB viewer,
+built with GPUI for native macOS and the web/VS Code. It currently displays VTR
+waveforms; VDB attachment and source/transaction views are planned.
+
 Explore the [Pipeline Studio UX demo](demos/pipeline-viewer/index.html): an
 interactive pipeline viewer and a screenshot-based tutorial. See its
 [research and run instructions](demos/pipeline-viewer/README.md).
@@ -48,8 +52,10 @@ interactive pipeline viewer and a screenshot-based tutorial. See its
 
 ## Building
 
-Requirements: Rust 1.80+, a C compiler (for the vendored zstd and the C
-tests). Everything builds from a clean checkout with submodules
+Requirements: Rust 1.96+ for workspace development, and a C compiler (for the
+vendored zstd and the C tests). Core crates retain their declared lower minimum
+Rust versions, but the workspace includes Volna's edition-2024 manifest.
+Everything builds from a clean checkout with submodules
 (`git submodule update --init --recursive`; the Verilator fork carries slang
 as a nested submodule); the submodules under `ext/` are only used by the
 converters' tests, the Verilator integration and the benchmarks.
@@ -57,6 +63,15 @@ converters' tests, the Verilator integration and the benchmarks.
 ```sh
 cargo build --release            # library, C library (target/release/libvtr.{a,so}), vtr CLI, vtr-bench
 cargo test                       # unit, round-trip, converter and C-ABI tests
+```
+
+Volna requires Rust 1.96+ and the native platform SDK (including Metal tools on
+macOS). It is a workspace member but is built explicitly so core commands do not
+require the GUI toolchain:
+
+```sh
+cargo run -p volna --profile viewer -- crates/volna/examples/picorv32.vtr
+crates/volna/check.sh             # viewer formatting, Clippy, and regression tests
 ```
 
 ## Quick start
@@ -136,6 +151,8 @@ crates/vtr         core library: container, codecs, hierarchy, signal blocks, tr
 crates/vtr-capi    C ABI (libvtr) + header + C smoke test
 crates/vtr-cli     `vtr` tool and the converters (FST, VCD, Kanata, OTLP JSON, FTR)
 crates/vtr-bench   workload generation and benchmark drivers
+crates/vtr-vdb     separate design database and temporal driver tracing
+crates/volna       official VTR/VDB viewer (currently VTR waveforms)
 bench/             C/C++ harnesses (FST, FTR), Verilator workloads (rsa256, c910), orchestrator, results
 docs/              specification, API references, application note, benchmark report, rationale
 integrations/      Verilator submodule build and trace integration tests
@@ -144,5 +161,5 @@ ext/               reference submodules (libfstwriter, LWTR4SC, Konata, wavepeek
 
 ## License
 
-MIT OR Apache-2.0 for everything in this repository. The submodules keep
-their own licenses.
+MIT OR Apache-2.0 for project code. Submodules and bundled third-party assets
+keep their own licenses; see [Volna's asset notices](crates/volna/THIRD_PARTY.md).

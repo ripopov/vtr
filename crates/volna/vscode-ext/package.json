@@ -1,0 +1,25 @@
+{
+  "name": "volna",
+  "displayName": "Volna Waveform Viewer",
+  "description": "Volna, the official VTR/VDB viewer. Currently displays VTR waveforms using GPUI and WebAssembly.",
+  "version": "0.1.0",
+  "publisher": "vtr",
+  "license": "MIT OR Apache-2.0",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Visualization"],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "volna.open", "title": "Volna: Open Waveform Viewer" }
+    ],
+    "customEditors": [
+      {
+        "viewType": "volna.waveform",
+        "displayName": "Volna Waveform Viewer",
+        "selector": [{ "filenamePattern": "*.vtr" }],
+        "priority": "default"
+      }
+    ]
+  }
+}

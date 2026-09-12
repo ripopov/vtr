@@ -8,8 +8,9 @@ read it first and treat its section 8 as binding.
 
 VTR (Vibe Trace Record): a trace file format and reference library for
 hardware simulation traces (waveforms, transactions, hierarchy, relations).
-Rust workspace with five crates (`crates/vtr` core, `vtr-capi` C ABI,
-`vtr-cli` tools, `vtr-bench` benchmarks, and the `vtr-vdb` RTL companion),
+Rust workspace with six crates (`crates/vtr` core, `vtr-capi` C ABI,
+`vtr-cli` tools, `vtr-bench` benchmarks, the `vtr-vdb` RTL companion, and
+`volna`, the official VTR/VDB viewer),
 a Verilator backend in the pinned `ext/verilator` submodule with build tools
 in `integrations/verilator`, and a benchmark suite in `bench/`.
 
@@ -37,6 +38,7 @@ model. VDB remains separate from the runtime trace data in VTR.
 | file format (normative) | `docs/SPEC.md` |
 | why things are the way they are, what was tried and rejected | `docs/RATIONALE.md` |
 | APIs | `docs/API_RUST.md`, `docs/API_C.md` |
+| Volna viewer (GPUI, native/web/VS Code) | `crates/volna/README.md`, `crates/volna/ARCHITECTURE.md` |
 | logging (log sites, `LOG_BLOCK`, C++ header, comparison with NanoLog/binlog/Quill/CLP) | `docs/LOGGING.md`, `bench/log/` |
 | benchmark method / current numbers | `docs/BENCHMARKS.md`, `docs/BENCHMARK_RESULTS.md` |
 | RTL VDB schema, Verilator/pyslang exporters, Surfer attachment | `docs/VDB_RTL.md` |
@@ -49,9 +51,15 @@ model. VDB remains separate from the runtime trace data in VTR.
 cargo build --release          # library, libvtr.{a,so}, vtr CLI, vtr-bench
 cargo test                     # unit, round-trip, converter and C-ABI tests
 cargo clippy --release
+crates/volna/check.sh           # viewer only; requires Rust 1.96+ and platform SDK
 python3 bench/run.py all --scale small   # quick benchmark (minutes)
 python3 bench/run.py all                 # full suite (~1 h), regenerates docs/BENCHMARK_RESULTS.md
 ```
+
+Volna is an explicit workspace member, excluded from `default-members` to keep
+the core build independent of GUI dependencies. Run it with
+`cargo run -p volna --profile viewer -- trace.vtr`. It currently displays VTR
+waveforms; VDB integration is planned and must preserve the VTR/VDB split.
 
 ## Rules
 

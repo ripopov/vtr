@@ -1,0 +1,6 @@
+/target
+/results
+/web/dist
+/vscode-ext/media
+/vscode-ext/*.vsix
+node_modules/

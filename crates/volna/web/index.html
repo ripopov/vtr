@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Volna</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { height: 100%; background: #282c33; overflow: hidden; }
+      canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; user-select: none; -webkit-user-select: none; }
+      #picker { display: none; }
+    </style>
+  </head>
+  <body>
+    <input id="picker" type="file" accept=".vtr" />
+    <script type="module">
+      import init, { open_trace } from "./dist/volna.js";
+      const picker = document.getElementById("picker");
+      // The app calls this to ask for a file.
+      window.volnaOpen = () => picker.click();
+      picker.addEventListener("change", async () => {
+        const file = picker.files[0];
+        if (!file) return;
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        open_trace(file.name, bytes);
+        picker.value = "";
+      });
+      // Optional: ?file=examples/picorv32.vtr loads a trace on start.
+      window.volnaReady = async () => {
+        const url = new URLSearchParams(location.search).get("file");
+        if (!url) return;
+        const res = await fetch(url);
+        if (res.ok) open_trace(url.split("/").pop(), new Uint8Array(await res.arrayBuffer()));
+      };
+      await init();
+    </script>
+  </body>
+</html>

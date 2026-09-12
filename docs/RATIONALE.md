@@ -853,3 +853,17 @@ records two-state values only, so the undefined-value test writes a four-state
 twin of the features recording with the VTR writer beside copies of its VDB and
 sources; that keeps the case on the same design and the same code path an X
 from a four-state simulator would take.
+
+## Volna viewer
+
+`crates/volna` is the official VTR/VDB viewer, built with GPUI. Source/history
+interfaces separate runtime trace access from presentation; asynchronous-load
+regression tests guard against stale results. It currently provides VTR
+waveforms; VDB attachment and other trace domains remain future viewer work.
+Presentation and static design semantics stay outside the VTR format.
+
+Volna shares the workspace lockfile and local VTR crate, but is excluded from
+default members so GUI dependencies and platform SDK requirements do not enter
+the default core build. Workspace development uses Rust 1.96; individual core
+crate minimum versions are unchanged. A separate `viewer` profile uses thin LTO
+without changing the release/benchmark profiles.

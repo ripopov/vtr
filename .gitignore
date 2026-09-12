@@ -1,4 +1,6 @@
 /target
+# Default output of volna-visual when run from the workspace root.
+/results
 /bench/build
 /bench/out
 /bench/workloads/*.fst

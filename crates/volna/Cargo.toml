@@ -1,0 +1,48 @@
+[package]
+name = "volna"
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+edition = "2024"
+rust-version = "1.96"
+default-run = "volna"
+description = "Volna: the official VTR/VDB viewer, built with GPUI for native and web"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "volna"
+path = "src/main.rs"
+
+[[bin]]
+name = "volna-visual"
+path = "src/bin/visual.rs"
+required-features = ["visual-test"]
+
+[features]
+default = []
+# Offscreen Metal rendering for screenshots and frame-time measurement (macOS).
+visual-test = ["gpui/test-support", "gpui_platform/test-support", "dep:image"]
+
+[dependencies]
+gpui = { version = "=0.3.4", package = "gpui-pre", default-features = false }
+vtr = { path = "../vtr" }
+anyhow = "1"
+futures = "0.3"
+log = "0.4"
+web-time = "1"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+gpui_platform = { version = "=0.3.4", package = "gpui-pre-platform", features = ["font-kit"] }
+env_logger = "0.11"
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+gpui = { version = "=0.3.4", package = "gpui-pre", default-features = false, features = ["test-support"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gpui_web = { version = "=0.3.4", package = "gpui-pre-web", default-features = false }
+console_error_panic_hook = "0.1.7"
+wasm-bindgen = "0.2"
+js-sys = "0.3"

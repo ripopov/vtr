@@ -1,0 +1,98 @@
+# Architecture
+
+Volna is the official VTR/VDB viewer, maintained as a workspace crate. Its current
+source adapter displays VTR waveforms. Future VDB attachment belongs above this
+runtime-data interface: source semantics, annotations, and presentation remain
+in the separate VDB layer. VDB attachment is not yet implemented.
+
+The crate is split so that the parts most likely to grow (signal types,
+translators, panels, sources) sit behind small traits and can be added without
+touching the rendering core.
+
+```
+src/
+  data/          toolkit-independent model (no GPUI)
+    value.rs       Bit, ValueKind, SignalShape, WaveValue
+    history.rs     SignalHistory trait: index_at / index_at_hint / value / bit
+    translator.rs  Translator trait + Translators registry (bit, bin, hex, udec, sdec, float, real, text)
+    source.rs      WaveSource trait, Hierarchy / Scope / Variable model
+    vtr_source.rs  WaveSource over vtr::Reader (mmap on native, from_bytes on wasm)
+    synth.rs       procedural stress source (100 M transitions, zero memory)
+  theme.rs       every colour, font and metric (Zed One Dark), a GPUI Global
+  assets.rs      embedded Lucide icons and IBM Plex Sans / Lilex fonts
+  ui/            primitives: IconButton, TextButton, Splitter, PopupMenu, Scrollbar, TextInput, Tooltip
+  sidebar/       ScopeTree and VariableList views (uniform_list, keyboard navigation)
+  wave/
+    viewport.rs    time window ↔ pixels, zoom about a point, clamping
+    timeline.rs    tick placement and SI time formatting
+    view.rs        WaveView entity: items, selection, cursor, markers, actions, animation
+    table.rs       WaveTable element: paints names/values/waves, header, cursor, markers, scrollbar; mouse input
+  app.rs         Workspace root view: title bar, sidebar + splitters, status bar, states, key bindings
+  lib.rs         start-up shared by native and web; `web` module = wasm-bindgen bridge
+  main.rs        native CLI entry
+  bin/visual.rs  offscreen screenshots + frame-time benchmark (feature `visual-test`)
+```
+
+## Rendering cost is O(pixels), not O(transitions)
+
+`WaveTable::paint` never iterates a signal's changes. For each pixel column it
+asks the history for the index of the last change at the column's right edge.
+`SignalHistory::index_at_hint` performs an exponential ("galloping") search
+from the previous column's index, so a sweep across `W` columns costs
+`O(W · log(changes per column))`. A column with no change extends the current
+run; one change draws an edge; two or more changes collapse into a "dense"
+column drawn as a filled band. Bus rows are built the same way into segments,
+then each wide-enough segment shapes and paints its translated value once.
+
+Consequences:
+
+- frame time is flat from 10 K to 100 M transitions for a given viewport (see
+  `VERIFICATION.md`), and
+- a history only needs `len`, `time(i)`, `value(i)`; VTR's `SignalData` gives
+  this directly from its shared immutable buffers, and the synthetic source
+  computes it procedurally.
+
+Text runs and 1 px lines are snapped to whole logical pixels, so they are crisp
+at 1× and 2× DPI.
+
+## Extension points
+
+### Loading ownership
+
+All file/demo opens use one completion path in `Workspace`. A generation changes
+on open, close, or explicit source replacement; late successes and failures are
+ignored. `WaveView` independently advances its signal-load generation on source changes.
+It coalesces pending requests by `SignalRef` and shares loaded `Arc` histories
+across duplicate/alias rows, while retaining each variable's name and translator.
+Rows own loaded histories; removing the last row releases the viewer's ownership.
+There is no permanent history cache. A pending load may finish after removal and
+can serve a re-added row in the same generation. Failed loads can be retried by
+adding the signal again, updating all its rows together.
+
+This deliberately uses existing source/history interfaces and two small generation
+counters rather than adding a loader framework. It does not interrupt decoding
+already in progress, bound distinct concurrent loads, or move wasm work off the
+browser thread. The VTR reader, file format, and decode path are unchanged.
+
+### Adding functionality
+
+| Add a… | Do this |
+|---|---|
+| value translator | implement `data::Translator`, register it in `Translators::builtin` (or at run time with `register`) |
+| signal type | add a `SignalShape` variant, teach `VtrSource::shape_of` to produce it, add a `paint_*_row` branch in `table.rs` |
+| trace format | implement `data::WaveSource` (hierarchy + `load_signal`) and call `Workspace::set_source` |
+| panel | create an entity with `Render`, add it to `Workspace::render` next to the sidebar or centre |
+| colour or metric | add a token to `theme::Theme`; components only read tokens |
+| icon | drop the Lucide SVG into `assets/icons`, list it in `assets.rs` and `ui::IconName` |
+| key binding | add an action with `actions!` and a `KeyBinding` in `app::init` |
+
+## Platform notes
+
+- Fonts: GPUI's web text system has no system fonts, so IBM Plex Sans (UI) and
+  Lilex (mono) are embedded and used on every platform for identical output.
+- Web: `gpui_web` single-threaded (`default-features = false` avoids the
+  nightly-only `wasm_thread`); the VS Code webview cannot be cross-origin
+  isolated, so no `SharedArrayBuffer` is needed. Files arrive as bytes over
+  `postMessage` and are parsed with `vtr::Reader::from_bytes`.
+- Native: `vtr::Reader::open` memory-maps the file; signal histories are loaded
+  on demand on the background executor when a variable is added.
