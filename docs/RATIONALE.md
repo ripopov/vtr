@@ -877,7 +877,12 @@ by default so machine speed does not determine test success.
 Volna's VS Code theming uses resolved webview CSS variables, following the
 [official guide](https://code.visualstudio.com/api/extension-guides/webview#theming-webview-content).
 A small JavaScript adapter maps them to semantic RGBA tokens; shared Rust owns
-fallbacks, contrast and GPUI invalidation. Theme kinds alone cannot reproduce
+a typed semantic palette, an appearance enum, precomputed surface/selection
+colours, fallbacks and GPUI invalidation. Supplied foreground/background pairs
+are preserved; thin chart strokes promote alpha to full coverage and adjust
+only lightness when needed. Marker chips retain chart RGB with separate readable
+labels. Missing startup metadata has a 250 ms fallback while observation continues.
+Theme kinds alone cannot reproduce
 custom themes; parsing theme files would duplicate VS Code's resolution rules
 and miss customizations. Explicit wasm startup installs the latest palette
 before window creation. Live updates refresh the same views without resetting

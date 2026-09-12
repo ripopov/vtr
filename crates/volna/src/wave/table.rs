@@ -80,7 +80,7 @@ impl IntoElement for WaveTable {
 
 fn mono(t: &Theme) -> Font {
     Font {
-        family: t.mono_font.clone(),
+        family: t.mono_font.into(),
         features: Default::default(),
         fallbacks: None,
         weight: FontWeight::NORMAL,
@@ -90,7 +90,7 @@ fn mono(t: &Theme) -> Font {
 
 fn ui(t: &Theme, weight: FontWeight) -> Font {
     Font {
-        family: t.ui_font.clone(),
+        family: t.ui_font.into(),
         features: Default::default(),
         fallbacks: None,
         weight,
@@ -222,7 +222,7 @@ impl Element for WaveTable {
         window: &mut Window,
         cx: &mut App,
     ) -> TableLayout {
-        let t = theme(cx).clone();
+        let t = *theme(cx);
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let row_h = t.row_height;
         let header_h = t.timeline_height;
@@ -379,10 +379,10 @@ impl Element for WaveTable {
         cx: &mut App,
     ) {
         let started = Instant::now();
-        let t = theme(cx).clone();
+        let t = *theme(cx);
         let view = self.view.clone();
         let mono_font = mono(&t);
-        let char_w = shape(window, "0", mono_font.clone(), t.mono_size, t.text).width();
+        let char_w = shape(window, "0", mono_font.clone(), t.mono_size, t.editor.text).width();
 
         // Snapshot the state we paint from.
         let (
@@ -413,7 +413,7 @@ impl Element for WaveTable {
         let wave_wf = f64::from(f32::from(waves.size.width)).max(1.0);
 
         // -- backgrounds and chrome ------------------------------------------
-        window.paint_quad(fill(bounds, t.bg_editor));
+        window.paint_quad(fill(bounds, t.editor.bg));
         window.paint_quad(fill(
             Bounds::new(
                 layout.names.origin,
@@ -422,9 +422,9 @@ impl Element for WaveTable {
                     layout.names.size.height,
                 ),
             ),
-            t.bg_panel,
+            t.panel.bg,
         ));
-        window.paint_quad(fill(layout.header, t.bg_panel));
+        window.paint_quad(fill(layout.header, t.panel.bg));
 
         // -- tick grid in the waves area ---------------------------------------
         let (tick_list, unit) = ticks(&viewport, wave_wf, timescale, TICK_SPACING_PX);
@@ -475,9 +475,9 @@ impl Element for WaveTable {
                 );
                 let wave_row = Bounds::new(point(waves.origin.x, y), size(waves.size.width, row_h));
                 if is_selected {
-                    window.paint_quad(fill(left_row, t.element_selected));
+                    window.paint_quad(fill(left_row, t.selection.bg));
                     window.paint_quad(fill(wave_row, t.wave_row_selected));
-                    if t.high_contrast {
+                    if t.appearance.is_high_contrast() {
                         window.paint_quad(quad(
                             left_row,
                             px(0.0),
@@ -496,7 +496,7 @@ impl Element for WaveTable {
                         ));
                     }
                 } else if is_hover {
-                    window.paint_quad(fill(left_row, t.element_hover));
+                    window.paint_quad(fill(left_row, t.hover.bg));
                     window.paint_quad(fill(wave_row, t.wave_row_hover));
                 }
 
@@ -506,11 +506,11 @@ impl Element for WaveTable {
                         bounds: layout.names,
                     }),
                     |window| {
-                        let t = t.row(is_selected, is_hover);
+                        let colors = t.row(is_selected, is_hover);
                         let pad = px(12.0);
                         let avail = layout.names.size.width - pad * 2.0;
                         let dims = item.shape.dims();
-                        let name_color = t.text;
+                        let name_color = colors.text;
                         let max_chars =
                             (f32::from(avail) / f32::from(char_w)).floor().max(0.0) as usize;
                         let dims_chars = if dims.is_empty() {
@@ -538,7 +538,7 @@ impl Element for WaveTable {
                                         d,
                                         mono_font.clone(),
                                         t.mono_size,
-                                        t.text_placeholder,
+                                        colors.text_placeholder,
                                     );
                                     dl.paint(
                                         point(origin.x + line.width() + char_w, y),
@@ -561,7 +561,7 @@ impl Element for WaveTable {
                         bounds: layout.values,
                     }),
                     |window| {
-                        let t = t.row(is_selected, is_hover);
+                        let colors = t.row(is_selected, is_hover);
                         let pad = px(8.0);
                         let badge = layout
                             .badges
@@ -577,16 +577,16 @@ impl Element for WaveTable {
                                 let value = h.value(h.index_at(c));
                                 let tr = item.translator.translate(&value);
                                 let color = if tr.kind == ValueKind::Normal {
-                                    t.text
+                                    colors.text
                                 } else {
-                                    t.value_color(tr.kind)
+                                    colors.value_color(tr.kind)
                                 };
                                 (tr.text, color)
                             }
                             (None, _) if item.error.is_none() => {
-                                ("loading…".to_string(), t.text_placeholder)
+                                ("loading…".to_string(), colors.text_placeholder)
                             }
-                            _ => ("–".to_string(), t.text_placeholder),
+                            _ => ("–".to_string(), colors.text_placeholder),
                         };
                         let max_chars =
                             (f32::from(avail) / f32::from(char_w)).floor().max(0.0) as usize;
@@ -607,9 +607,9 @@ impl Element for WaveTable {
                             let show = hovered || is_selected || is_hover;
                             if show {
                                 let bg = if hovered {
-                                    t.element_active
+                                    t.badge_hover.bg
                                 } else {
-                                    t.bg_editor
+                                    t.badge.bg
                                 };
                                 window.paint_quad(quad(
                                     b,
@@ -620,7 +620,11 @@ impl Element for WaveTable {
                                     gpui::BorderStyle::default(),
                                 ));
                                 let label = item.translator.badge();
-                                let color = if hovered { t.text } else { t.text_muted };
+                                let color = if hovered {
+                                    t.badge_hover.text
+                                } else {
+                                    t.badge.text_muted
+                                };
                                 let line = shape(
                                     window,
                                     label,
@@ -668,7 +672,7 @@ impl Element for WaveTable {
                                 err.clone(),
                                 ui(&t, FontWeight::NORMAL),
                                 t.ui_size_small,
-                                t.error,
+                                t.editor.error,
                             );
                             line.paint(
                                 point(waves.origin.x + px(8.0), y),
@@ -711,7 +715,7 @@ impl Element for WaveTable {
                     "icons/list-tree.svg".into(),
                     None,
                     gpui::TransformationMatrix::unit(),
-                    t.text_placeholder,
+                    t.editor.text_placeholder,
                     cx,
                 )
                 .ok();
@@ -720,7 +724,7 @@ impl Element for WaveTable {
                 "No signals displayed",
                 ui(&t, FontWeight::MEDIUM),
                 t.ui_size,
-                t.text_muted,
+                t.editor.text_muted,
             );
             title
                 .paint(
@@ -737,7 +741,7 @@ impl Element for WaveTable {
                 "Double-click a variable in the sidebar, or select variables and press Enter",
                 ui(&t, FontWeight::NORMAL),
                 t.ui_size_small,
-                t.text_placeholder,
+                t.editor.text_placeholder,
             );
             hint.paint(
                 point(snap(cx_ - hint.width() / 2.0), cy + px(18.0)),
@@ -751,7 +755,7 @@ impl Element for WaveTable {
         }
 
         // -- header: column titles, tick labels, unit -----------------------------
-        let panel_theme = t.panel();
+        let panel_theme = t.panel;
         let header = layout.header;
         let label_font = ui(&t, FontWeight::SEMIBOLD);
         let title = shape(
@@ -885,7 +889,8 @@ impl Element for WaveTable {
         for (ix, chip) in &layout.marker_chips {
             let m = markers[*ix];
             let x = snap(waves.origin.x + px(viewport.x_of(m.time as f64, wave_wf) as f32));
-            let color = t.marker_color(*ix);
+            let marker = t.marker(*ix);
+            let color = marker.stroke;
             window.with_content_mask(Some(ContentMask { bounds: waves }), |window| {
                 window.paint_quad(fill(
                     Bounds::new(point(x, waves.origin.y), size(px(1.0), waves.size.height)),
@@ -893,10 +898,11 @@ impl Element for WaveTable {
                 ));
             });
             let hovered = chip.contains(&mouse);
-            let mut bg = color;
-            if !hovered {
-                bg.a = 0.85;
-            }
+            let bg = if hovered {
+                marker.hover
+            } else {
+                marker.background
+            };
             window.paint_quad(quad(
                 *chip,
                 px(3.0),
@@ -910,7 +916,11 @@ impl Element for WaveTable {
                 format!("M{}", ix + 1),
                 ui(&t, FontWeight::SEMIBOLD),
                 t.ui_size_small,
-                t.marker_text(bg),
+                if hovered {
+                    marker.hover_text
+                } else {
+                    marker.text
+                },
             );
             label
                 .paint(

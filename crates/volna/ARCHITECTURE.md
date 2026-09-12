@@ -115,8 +115,10 @@ so values removed by a new theme do not leak from an old one. HC light is checke
 before the legacy HC class, which VS Code also attaches to HC light webviews.
 
 Web startup is explicit: `await init()` initializes wasm without creating GPUI;
-the VS Code adapter waits for theme metadata and installs the initial palette;
-then `start()` launches GPUI. Until launch completes, Rust retains the latest
+the VS Code adapter installs the initial palette as soon as metadata is available;
+after at most 250 ms without metadata it infers appearance from the editor background
+(or the OS preference), resolves available colours, and proceeds. Late metadata
+still updates the viewer. Then `start()` launches GPUI. Until launch completes, Rust retains the latest
 palette. The launch callback installs it before creating the window and starts
 a channel for subsequent themes/file opens. `volnaReady` means file delivery is
 safe, and the extension registers its receiver before assigning webview HTML.
@@ -126,14 +128,25 @@ workspace entities: `Theme::install` replaces the GPUI global and refreshes all
 windows, including cached child views.
 
 `Theme::from_host` is shared Rust with no VS Code, browser or transport types.
-The host supplies optional semantic packed RGBA colours and dark/high-contrast
-flags. Rust resolves mode-aware fallbacks, composites translucent surfaces,
-keeps readable supplied colours, and adjusts insufficient-contrast colours
-toward black or white. Text targets 4.5:1; interactive borders/icons target 3:1
-where contrast is enforced. Waves use chart colours, with low-alpha row overlays
-and separate cursor/marker label foregrounds. HC adds visible selection outlines
-and stronger borders/grid/scrollbars. Panels, inputs, bars and popovers use their
-own foreground/background pairs. These are local contrast safeguards, not a
+The host supplies a typed `HostPalette`: optional `Hsla` colours, foreground/background
+pairs, and an `Appearance` enum covering all four modes. Only the WASM decoder
+handles JavaScript field names; only the JavaScript adapter knows VS Code tokens.
+Rust resolves the complete `Theme` once per update, including each `Surface`,
+selection/hover state, waveform colour and marker chip. Row rendering copies a
+resolved surface; it performs no theme cloning or contrast searches.
+
+Supplied foreground/background pairs retain their colours, including subdued
+host text. Missing or effectively invisible foregrounds use a readable fallback
+(target 4.5:1). Translucent surfaces composite over their parent. Shared adornment
+colours fall back to the local foreground if unsuitable for that surface. Menus,
+tooltips, inputs, buttons, bars and badges use their own pairs; hover labels and
+icons inherit the hover foreground. HC retains selection outlines and stronger
+borders/grid/scrollbars.
+
+Chart RGB is used at full opacity for thin waveform strokes and marker chips;
+fully transparent chart tokens use a fallback. Strokes below 3:1 contrast change
+only HSL lightness, retaining hue and saturation. Marker chips keep the chart RGB
+and choose readable label text independently. These local safeguards are not a
 claim of complete accessibility conformance or pairwise colour distinguishability.
 
 This small semantic palette/install boundary can also be used by a future

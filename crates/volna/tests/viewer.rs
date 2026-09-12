@@ -7,6 +7,15 @@
 //! are a separate ignored test; no machine-dependent performance thresholds.
 
 #[cfg(target_os = "macos")]
+mod theme_fixtures {
+    use volna::theme::{Appearance, ColorPair, HostPalette};
+    include!("fixtures/vscode/palettes.rs");
+    pub fn all() -> [HostPalette; 4] {
+        real_palettes()
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn main() {
     use libtest_mimic::{Arguments, Trial};
     let mut args = Arguments::from_args();
@@ -343,37 +352,47 @@ fn run(measure: bool) -> anyhow::Result<()> {
         // Replace only the theme while trace, selection, zoom, cursor, marker and
         // format menu are active. Cached GPUI children must repaint too.
         let before_theme = state(&mut test, "before themes");
-        for (name, dark, hc) in [
-            ("06-light", false, false),
-            ("07-dark", true, false),
-            ("08-hc-dark", true, true),
-            ("09-hc-light", false, true),
-            ("10-custom", false, false),
+        use volna::theme::{Appearance::*, ColorPair, HostPalette, Theme};
+        for (name, appearance) in [
+            ("06-light", Light),
+            ("07-dark", Dark),
+            ("08-hc-dark", HighContrastDark),
+            ("09-hc-light", HighContrastLight),
+            ("10-custom", Light),
         ] {
-            test.update(|cx| {
-                volna::theme::Theme::from_host(dark, hc, |token| {
-                    if name == "10-custom" {
-                        match token {
-                            "bg_editor" => Some(0xfff4e6ff),
-                            "text" => Some(0x321800ff),
-                            "bg_panel" => Some(0x203040ff),
-                            "panel_text" => Some(0xf0f8ffff),
-                            "bg_bar" => Some(0x005fb8ff),
-                            "bar_text" => Some(0xffffffff),
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .install(cx)
-            });
+            let mut palette = HostPalette {
+                appearance,
+                ..Default::default()
+            };
+            if name == "10-custom" {
+                let pair = |bg, fg| ColorPair {
+                    background: Some(gpui::rgb(bg).into()),
+                    foreground: Some(gpui::rgb(fg).into()),
+                };
+                palette.editor = pair(0xfff4e6, 0x321800);
+                palette.panel = pair(0x203040, 0xf0f8ff);
+                palette.bar = pair(0x005fb8, 0xffffff);
+            }
+            test.update(|cx| Theme::from_host(&palette).install(cx));
             shot(&mut test, name)?;
             assert_eq!(
                 state(&mut test, name),
                 before_theme,
                 "theme must preserve viewer state"
             );
+        }
+        for (name, palette) in [
+            "11-vscode-dark",
+            "12-vscode-light",
+            "13-vscode-hc-dark",
+            "14-vscode-hc-light",
+        ]
+        .into_iter()
+        .zip(theme_fixtures::all())
+        {
+            test.update(|cx| Theme::from_host(&palette).install(cx));
+            shot(&mut test, name)?;
+            assert_eq!(state(&mut test, name), before_theme);
         }
         test.update(|cx| volna::theme::Theme::one_dark().install(cx));
         key(&mut test, "escape");

@@ -170,3 +170,43 @@ the no-default-flash guarantee comes from installing the palette before GPUI
 window creation. Fonts/metrics remain bundled and do not follow VS Code font
 settings. Contrast safeguards do not constitute a complete accessibility audit.
 The pre-existing dependency `block` reports a future-Rust compatibility warning.
+
+## Typed palette refinement (2026-09-12)
+
+- `check.sh` passes strict native Clippy, formatting, 27 Rust tests, the Metal
+  interaction test, and five JavaScript tests. The ignored timing test remains
+  excluded. Four real VS Code 1.137 palettes now accompany synthetic and lifecycle
+  tests; JavaScript verifies that generated Rust fixtures match the host mapping.
+- Strict WASM Clippy passes with `cargo clippy -p volna --locked --target
+  wasm32-unknown-unknown --lib --all-features -- -D warnings` (Homebrew LLVM 20
+  configured for zstd-sys). The three new WASM warnings were fixed.
+- `web/build.sh` builds the optimized WASM and extension media. No dependencies,
+  VTR APIs, file format or decode paths changed.
+- Tests cover supplied surface/state pairs, missing/invisible foregrounds,
+  translucent chart RGB preservation, lightness-only stroke repair, opaque marker
+  chips and labels, synchronous initial metadata, bounded 250 ms fallback and
+  late metadata. State tests retain source/history identity and interaction state.
+- Native captures under `/tmp/volna-refined-shots/` include the open format menu
+  through all synthetic and four real palettes. Light, HC light and mixed-surface
+  captures were inspected. Live VS Code 1.137 switches through both ordinary and
+  both HC modes, custom colours and removal retained identical canvas/document
+  objects and visible trace, selection, cursor, marker and zoom. Captures are in
+  `/tmp/volna-theme-shots/`. Standalone Chrome still loads in One Dark.
+
+The visual pass caught SVGs disappearing when their explicit colour was omitted:
+GPUI SVGs do not inherit unset colour. The icon wrapper now explicitly reads the
+inherited text colour, preserving icons while sharing row/button foregrounds.
+
+Limits: missing metadata and alpha-chart edge cases have automated coverage, not
+an exhaustive live host/browser matrix. Startup ordering is tested, but no
+frame-by-frame recording proves absence of every startup flash. Third-party
+extensions, other VS Code versions, Linux/Windows and other GPU backends were
+not checked. The existing dependency `block` still emits its future-Rust warning.
+
+After the final icon fix, a fresh isolated VS Code profile loaded the rebuilt
+bundle and repeated all six switches successfully with the same document/canvas,
+29 signals, a selected row, cursor at 7.835 µs, marker and zoom. The older reused
+development profile failed to load a cached module (`tokens` redeclaration);
+this did not reproduce in the fresh profile. Rebuilding files under a running
+development host therefore remains a verification caveat. Standalone was also
+reloaded against the final bundle and its icons visually checked.

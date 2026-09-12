@@ -96,8 +96,19 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
             )
         })
         .unwrap();
-    for (dark, hc) in [(false, false), (true, false), (true, true), (false, true)] {
-        cx.update(|cx| crate::theme::Theme::from_host(dark, hc, |_| None).install(cx));
+    for appearance in [
+        crate::theme::Appearance::Light,
+        crate::theme::Appearance::Dark,
+        crate::theme::Appearance::HighContrastDark,
+        crate::theme::Appearance::HighContrastLight,
+    ] {
+        cx.update(|cx| {
+            crate::theme::Theme::from_host(&crate::theme::HostPalette {
+                appearance,
+                ..Default::default()
+            })
+            .install(cx)
+        });
         cx.run_until_parked();
         window
             .update(cx, |ws, _, cx| {

@@ -1,50 +1,63 @@
-//! Design tokens. Every colour, font and metric used by the viewer lives here,
-//! Native/web defaults use One Dark; embedded hosts supply semantic colours.
+//! Resolved design tokens. Host colours are resolved once, never while painting a row.
+mod palette;
+pub use palette::{Appearance, ColorPair, HostPalette};
+#[cfg(target_family = "wasm")]
+pub(crate) mod web;
 
-use gpui::{App, Global, Hsla, Pixels, Rgba, SharedString, px, rgb, rgba};
+use gpui::{App, Global, Hsla, Pixels, Rgba, px, rgb};
 
-#[derive(Clone)]
-pub struct Theme {
-    // Surfaces
-    /// Waveform canvas and editor-like areas.
-    pub bg_editor: Hsla,
-    /// Side panels, headers, name/value columns.
-    pub bg_panel: Hsla,
-    /// Title bar and status bar.
-    pub bg_bar: Hsla,
-    /// Popovers, tooltips, menus.
-    pub bg_elevated: Hsla,
-
-    // Borders
-    pub border: Hsla,
-    pub border_variant: Hsla,
-    pub border_focused: Hsla,
-
-    // Interactive elements
-    pub element_hover: Hsla,
-    pub element_active: Hsla,
-    pub element_selected: Hsla,
-    pub ghost_element_hover: Hsla,
-
-    // Text and icons
+/// A resolved surface or interaction state. Cheap to copy into GPUI closures.
+#[derive(Clone, Copy, Debug)]
+pub struct Surface {
+    pub bg: Hsla,
     pub text: Hsla,
     pub text_muted: Hsla,
     pub text_placeholder: Hsla,
-    pub text_accent: Hsla,
     pub icon: Hsla,
     pub icon_muted: Hsla,
     pub icon_accent: Hsla,
-
-    // Status
-    pub accent: Hsla,
     pub error: Hsla,
-    pub warning: Hsla,
-    pub success: Hsla,
+    values: [Hsla; 5],
+}
 
-    // Scrollbars
+impl Surface {
+    pub fn value_color(self, kind: crate::data::ValueKind) -> Hsla {
+        self.values[value_index(kind)]
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MarkerColors {
+    pub stroke: Hsla,
+    pub background: Hsla,
+    pub hover: Hsla,
+    pub text: Hsla,
+    pub hover_text: Hsla,
+}
+
+#[derive(Clone, Copy)]
+pub struct Theme {
+    pub appearance: Appearance,
+    pub editor: Surface,
+    pub panel: Surface,
+    pub bar: Surface,
+    pub bar_hover: Surface,
+    pub elevated: Surface,
+    pub tooltip: Surface,
+    pub input: Surface,
+    pub selection: Surface,
+    pub hover: Surface,
+    pub menu_hover: Surface,
+    pub button: Surface,
+    pub button_hover: Surface,
+    pub badge: Surface,
+    pub badge_hover: Surface,
+    pub border: Hsla,
+    pub border_variant: Hsla,
+    pub border_focused: Hsla,
+    pub input_border: Hsla,
     pub scrollbar_thumb: Hsla,
     pub scrollbar_thumb_hover: Hsla,
-
     // Waveforms
     pub wave_signal: Hsla,
     pub wave_high_fill: Hsla,
@@ -60,24 +73,11 @@ pub struct Theme {
     pub wave_row_hover: Hsla,
     pub wave_cursor: Hsla,
     pub wave_cursor_text: Hsla,
-    pub wave_marker_palette: [Hsla; 6],
-
-    pub bg_input: Hsla,
-    pub input_text: Hsla,
-    pub input_border: Hsla,
-    pub panel_text: Hsla,
-    pub bar_text: Hsla,
-    pub elevated_text: Hsla,
-    pub selected_text: Hsla,
-    pub button_bg: Hsla,
-    pub button_text: Hsla,
-    pub button_hover: Hsla,
-    pub high_contrast: bool,
-    host_colors: bool,
+    pub markers: [MarkerColors; 6],
 
     // Typography
-    pub ui_font: SharedString,
-    pub mono_font: SharedString,
+    pub ui_font: &'static str,
+    pub mono_font: &'static str,
     pub ui_size: Pixels,
     pub ui_size_small: Pixels,
     pub mono_size: Pixels,
@@ -91,59 +91,66 @@ pub struct Theme {
     pub icon_size: Pixels,
     pub splitter_grab: Pixels,
 }
-
 impl Global for Theme {}
-
 fn c(hex: u32) -> Hsla {
     rgb(hex).into()
 }
-
-fn ca(hex: u32, alpha: f32) -> Hsla {
-    let mut h: Hsla = rgb(hex).into();
-    h.a = alpha;
-    h
+fn ca(hex: u32, a: f32) -> Hsla {
+    alpha(c(hex), a)
 }
-
-#[allow(dead_code)]
-fn c_rgba(hex_with_alpha: u32) -> Hsla {
-    let v: Rgba = rgba(hex_with_alpha);
-    v.into()
+fn alpha(mut color: Hsla, a: f32) -> Hsla {
+    color.a = a;
+    color
 }
 
 impl Theme {
-    /// Zed "One Dark".
+    /// Native and standalone-web defaults, unchanged by host theming.
     pub fn one_dark() -> Self {
-        Theme {
-            bg_editor: c(0x282c33),
-            bg_panel: c(0x2f343e),
-            bg_bar: c(0x3b414d),
-            bg_elevated: c(0x2f343e),
-
-            border: c(0x464b57),
-            border_variant: c(0x363c46),
-            border_focused: c(0x47679e),
-
-            element_hover: c(0x363c46),
-            element_active: c(0x454a56),
-            element_selected: c(0x454a56),
-            ghost_element_hover: c(0x363c46),
-
+        let surface = |bg| Surface {
+            bg: c(bg),
             text: c(0xdce0e5),
             text_muted: c(0xa9afbc),
             text_placeholder: c(0x878a98),
-            text_accent: c(0x74ade8),
             icon: c(0xdce0e5),
             icon_muted: c(0xa9afbc),
             icon_accent: c(0x74ade8),
-
-            accent: c(0x74ade8),
             error: c(0xd07277),
-            warning: c(0xdec184),
-            success: c(0xa1c181),
-
+            values: [
+                c(0xdce0e5),
+                c(0xd07277),
+                c(0xdec184),
+                c(0x74ade8),
+                c(0x878a98),
+            ],
+        };
+        Self {
+            appearance: Appearance::Dark,
+            editor: surface(0x282c33),
+            panel: surface(0x2f343e),
+            bar: surface(0x3b414d),
+            bar_hover: surface(0x363c46),
+            elevated: surface(0x2f343e),
+            tooltip: surface(0x2f343e),
+            input: surface(0x282c33),
+            selection: surface(0x454a56),
+            hover: surface(0x363c46),
+            menu_hover: surface(0x363c46),
+            button: Surface {
+                text: c(0x282c33),
+                ..surface(0x74ade8)
+            },
+            button_hover: Surface {
+                text: c(0x282c33),
+                ..surface(0x74ade8)
+            },
+            badge: surface(0x282c33),
+            badge_hover: surface(0x454a56),
+            border: c(0x464b57),
+            border_variant: c(0x363c46),
+            border_focused: c(0x47679e),
+            input_border: c(0x464b57),
             scrollbar_thumb: ca(0xc8ccd4, 0.30),
             scrollbar_thumb_hover: ca(0xc8ccd4, 0.50),
-
             wave_signal: c(0xa1c181),
             wave_high_fill: ca(0xa1c181, 0.10),
             wave_undef: c(0xd07277),
@@ -158,30 +165,17 @@ impl Theme {
             wave_row_hover: ca(0xc8ccd4, 0.04),
             wave_cursor: c(0x74ade8),
             wave_cursor_text: c(0x282c33),
-            wave_marker_palette: [
-                c(0xbf956a),
-                c(0xb477cf),
-                c(0x6eb4bf),
-                c(0xd07277),
-                c(0xdec184),
-                c(0xa1c181),
-            ],
-
-            bg_input: c(0x282c33),
-            input_text: c(0xdce0e5),
-            input_border: c(0x464b57),
-            panel_text: c(0xdce0e5),
-            bar_text: c(0xdce0e5),
-            elevated_text: c(0xdce0e5),
-            selected_text: c(0xdce0e5),
-            button_bg: c(0x74ade8),
-            button_text: c(0x282c33),
-            button_hover: c(0x74ade8),
-            high_contrast: false,
-            host_colors: false,
-
-            ui_font: "IBM Plex Sans".into(),
-            mono_font: "Lilex".into(),
+            markers: [0xbf956a, 0xb477cf, 0x6eb4bf, 0xd07277, 0xdec184, 0xa1c181].map(|hex| {
+                MarkerColors {
+                    stroke: c(hex),
+                    background: ca(hex, 0.85),
+                    hover: c(hex),
+                    text: c(0x282c33),
+                    hover_text: c(0x282c33),
+                }
+            }),
+            ui_font: "IBM Plex Sans",
+            mono_font: "Lilex",
             ui_size: px(13.0),
             ui_size_small: px(11.0),
             mono_size: px(12.0),
@@ -196,223 +190,219 @@ impl Theme {
         }
     }
 
-    /// Resolve semantic host colours, independent of any editor or transport.
-    /// Packed colours are RGBA (including alpha); absent tokens use mode-aware fallbacks.
-    pub fn from_host(dark: bool, high_contrast: bool, color: impl Fn(&str) -> Option<u32>) -> Self {
+    pub fn from_host(p: &HostPalette) -> Self {
         let mut t = Self::one_dark();
+        let dark = p.appearance.is_dark();
+        let hc = p.appearance.is_high_contrast();
         let bg = if dark {
-            if high_contrast { c(0) } else { c(0x1e1e1e) }
+            if hc { c(0) } else { c(0x1e1e1e) }
         } else {
             c(0xffffff)
         };
         let fg = if dark { c(0xcccccc) } else { c(0x333333) };
-        let get =
-            |name: &str, fallback: Hsla| color(name).map(|v| rgba(v).into()).unwrap_or(fallback);
-        t.high_contrast = high_contrast;
-        t.host_colors = true;
-        t.bg_editor = over(get("bg_editor", bg), bg);
-        t.bg_panel = over(get("bg_panel", t.bg_editor), t.bg_editor);
-        t.bg_bar = over(get("bg_bar", t.bg_panel), t.bg_panel);
-        t.bg_elevated = over(get("bg_elevated", t.bg_panel), t.bg_panel);
-        t.text = readable(get("text", fg), t.bg_editor, 4.5);
-        t.panel_text = readable(get("panel_text", t.text), t.bg_panel, 4.5);
-        t.bar_text = readable(get("bar_text", t.text), t.bg_bar, 4.5);
-        t.elevated_text = readable(get("elevated_text", t.text), t.bg_elevated, 4.5);
-        t.text_muted = readable(get("text_muted", t.text), t.bg_editor, 4.5);
-        t.text_placeholder = readable(get("text_placeholder", t.text_muted), t.bg_editor, 4.5);
-        let accent = if dark { c(0x75beff) } else { c(0x005fb8) };
-        t.accent = readable(get("accent", accent), t.bg_editor, 3.0);
-        t.text_accent = readable(get("text_accent", t.accent), t.bg_editor, 4.5);
-        t.icon = readable(get("icon", t.panel_text), t.bg_panel, 3.0);
-        t.icon_muted = readable(t.text_muted, t.bg_panel, 3.0);
-        t.icon_accent = readable(t.accent, t.bg_panel, 3.0);
-        t.border = get("border", over(alpha(t.text, 0.25), t.bg_panel));
-        t.border_variant = get("border_variant", t.border);
-        t.border_focused = get("border_focused", t.accent);
-        if high_contrast {
-            t.border = readable(get("contrast_border", t.border), t.bg_panel, 3.0);
-            t.border_variant = t.border;
-            t.border_focused = readable(t.border_focused, t.bg_panel, 3.0);
-        }
-        t.element_hover = over(get("element_hover", alpha(t.panel_text, 0.08)), t.bg_panel);
-        t.element_active = over(get("element_active", alpha(t.panel_text, 0.15)), t.bg_panel);
-        t.element_selected = over(get("element_selected", alpha(t.accent, 0.25)), t.bg_panel);
-        t.selected_text = readable(get("selected_text", t.panel_text), t.element_selected, 4.5);
-        t.ghost_element_hover = t.element_hover;
-        t.bg_input = over(get("bg_input", t.bg_editor), t.bg_editor);
-        t.input_text = readable(get("input_text", t.text), t.bg_input, 4.5);
-        t.input_border = get("input_border", t.border);
-        if high_contrast {
-            t.input_border = readable(t.input_border, t.bg_input, 3.0);
-        }
-        t.button_bg = over(get("button_bg", t.accent), t.bg_panel);
-        t.button_text = readable(get("button_text", c(0xffffff)), t.button_bg, 4.5);
-        t.button_hover = over(get("button_hover", t.button_bg), t.bg_panel);
-        t.error = readable(
-            get("error", if dark { c(0xf48771) } else { c(0xa1260d) }),
-            t.bg_editor,
-            4.5,
-        );
-        t.warning = readable(
-            get("warning", if dark { c(0xcca700) } else { c(0x895503) }),
-            t.bg_editor,
-            4.5,
-        );
-        t.success = readable(
-            get("success", if dark { c(0x89d185) } else { c(0x287b38) }),
-            t.bg_editor,
-            4.5,
-        );
-        t.scrollbar_thumb = get("scrollbar_thumb", alpha(t.panel_text, 0.4));
-        t.scrollbar_thumb_hover = get("scrollbar_thumb_hover", alpha(t.panel_text, 0.7));
-        if high_contrast {
-            t.scrollbar_thumb = readable(t.scrollbar_thumb, t.bg_panel, 3.0);
-            t.scrollbar_thumb_hover = readable(t.scrollbar_thumb_hover, t.bg_panel, 3.0);
-        }
-        // Low-alpha row overlays keep wave colours readable on the actual canvas.
-        t.wave_row_selected = alpha(t.accent, if high_contrast { 0.08 } else { 0.10 });
-        t.wave_row_hover = alpha(t.text, 0.04);
-        let wave_bg = over(t.wave_row_selected, t.bg_editor);
-        let wave = |name, fallback| {
-            readable(
-                readable(get(name, fallback), t.bg_editor, 4.5),
-                wave_bg,
-                4.5,
-            )
-        };
-        t.wave_signal = wave("wave_signal", t.success);
-        t.wave_undef = wave("wave_undef", t.error);
-        t.wave_highimp = wave("wave_highimp", t.warning);
-        t.wave_dontcare = wave("wave_dontcare", t.accent);
-        t.wave_weak = wave("wave_weak", t.text_muted);
-        t.wave_high_fill = alpha(t.wave_signal, 0.10);
-        t.wave_dense = alpha(t.wave_signal, if high_contrast { 0.8 } else { 0.55 });
-        t.wave_bus_text = t.text;
-        t.wave_tick = if high_contrast {
-            alpha(t.text, 0.4)
+        let accent = p
+            .accent
+            .or(p.focus)
+            .unwrap_or(if dark { c(0x75beff) } else { c(0x005fb8) });
+        let fallback = if dark {
+            [0x89d185, 0xf48771, 0xcca700, 0x75beff, 0xd18616, 0xb180d7]
         } else {
-            alpha(t.text, 0.12)
+            [0x287b38, 0xa1260d, 0x895503, 0x005fb8, 0xb05b00, 0x8040a0]
         };
-        t.wave_tick_text = readable(t.text_muted, t.bg_panel, 4.5);
-        t.wave_cursor = wave("wave_cursor", t.accent);
-        t.wave_cursor_text = readable(t.bg_editor, t.wave_cursor, 4.5);
-        for (i, name) in [
-            "marker_orange",
-            "marker_purple",
-            "marker_blue",
-            "wave_undef",
-            "wave_highimp",
-            "wave_signal",
-        ]
-        .iter()
-        .enumerate()
-        {
-            t.wave_marker_palette[i] = wave(name, t.wave_marker_palette[i]);
+        // Charts are fills in the host. For thin strokes/chips use their RGB at full
+        // coverage rather than flattening alpha into a desaturated background tint.
+        // Fully transparent entries carry no visible colour and use the fallback.
+        let charts: [Hsla; 6] = std::array::from_fn(|i| opaque(p.charts[i], c(fallback[i])));
+        let resolve = |pair, bg, fg| Surface::resolve(pair, bg, fg, p, accent, charts);
+        t.appearance = p.appearance;
+        t.editor = resolve(p.editor, bg, fg);
+        t.panel = resolve(p.panel, t.editor.bg, t.editor.text);
+        t.bar = resolve(p.bar, t.panel.bg, t.panel.text);
+        t.bar_hover = resolve(
+            ColorPair::default(),
+            over(alpha(t.bar.text, 0.1), t.bar.bg),
+            t.bar.text,
+        );
+        t.elevated = resolve(p.elevated, t.panel.bg, t.panel.text);
+        t.tooltip = resolve(p.tooltip, t.elevated.bg, t.elevated.text);
+        t.input = resolve(p.input, t.editor.bg, t.editor.text);
+        t.selection = resolve(
+            p.selection,
+            over(alpha(accent, 0.25), t.panel.bg),
+            t.panel.text,
+        );
+        t.hover = resolve(
+            p.hover,
+            over(alpha(t.panel.text, 0.08), t.panel.bg),
+            t.panel.text,
+        );
+        t.menu_hover = resolve(p.menu_hover, t.hover.bg, t.elevated.text);
+        t.button = resolve(p.button, over(accent, t.panel.bg), c(0xffffff));
+        t.button_hover = resolve(
+            ColorPair {
+                background: p.button_hover,
+                foreground: p.button.foreground,
+            },
+            t.button.bg,
+            t.button.text,
+        );
+        t.badge = t.input;
+        t.badge_hover = resolve(
+            ColorPair::default(),
+            over(alpha(t.input.text, 0.15), t.input.bg),
+            t.input.text,
+        );
+        t.border = p
+            .border
+            .unwrap_or(over(alpha(t.panel.text, 0.25), t.panel.bg));
+        t.border_variant = p.panel_border.unwrap_or(t.border);
+        t.border_focused = p.focus.unwrap_or(accent);
+        t.input_border = p.input_border.unwrap_or(t.border);
+        if hc {
+            t.border = stroke(p.contrast_border.unwrap_or(t.border), &[t.panel.bg]);
+            t.border_variant = t.border;
+            t.border_focused = stroke(t.border_focused, &[t.panel.bg]);
+            t.input_border = stroke(p.contrast_border.unwrap_or(t.input_border), &[t.input.bg]);
         }
+        t.scrollbar_thumb = p.scrollbar.unwrap_or(alpha(t.panel.text, 0.4));
+        t.scrollbar_thumb_hover = p.scrollbar_hover.unwrap_or(alpha(t.panel.text, 0.7));
+        if hc {
+            t.scrollbar_thumb = stroke(over(t.scrollbar_thumb, t.panel.bg), &[t.panel.bg]);
+            t.scrollbar_thumb_hover =
+                stroke(over(t.scrollbar_thumb_hover, t.panel.bg), &[t.panel.bg]);
+        }
+        t.wave_row_selected = alpha(accent, if hc { 0.08 } else { 0.10 });
+        t.wave_row_hover = alpha(t.editor.text, 0.04);
+        let backgrounds = [
+            t.editor.bg,
+            over(t.wave_row_selected, t.editor.bg),
+            over(t.wave_row_hover, t.editor.bg),
+        ];
+        t.wave_signal = stroke(charts[0], &backgrounds);
+        t.wave_undef = stroke(charts[1], &backgrounds);
+        t.wave_highimp = stroke(charts[2], &backgrounds);
+        t.wave_dontcare = stroke(charts[3], &backgrounds);
+        t.wave_weak = stroke(opaque(p.muted, t.editor.text), &backgrounds);
+        t.wave_high_fill = alpha(t.wave_signal, 0.10);
+        t.wave_dense = alpha(t.wave_signal, if hc { 0.8 } else { 0.55 });
+        t.wave_bus_text = t.editor.text;
+        t.wave_tick = alpha(t.editor.text, if hc { 0.4 } else { 0.12 });
+        t.wave_tick_text = t.panel.text_muted;
+        t.wave_cursor = stroke(opaque(p.cursor, accent), &backgrounds);
+        t.wave_cursor_text = fallback_text(t.editor.text, t.wave_cursor);
+        t.markers = [4, 5, 3, 1, 2, 0].map(|i| MarkerColors {
+            stroke: stroke(charts[i], &backgrounds),
+            background: charts[i],
+            hover: charts[i],
+            text: fallback_text(t.panel.text, charts[i]),
+            hover_text: fallback_text(t.panel.text, charts[i]),
+        });
         t
     }
 
-    /// Replace presentation only and invalidate every view, including cached children.
+    /// Presentation only; invalidate cached children without rebuilding viewer state.
     pub fn install(self, cx: &mut App) {
         cx.set_global(self);
         cx.refresh_windows();
     }
-
-    pub fn input(&self) -> Self {
-        self.on_surface(self.bg_input, self.input_text)
-    }
-
-    pub fn panel(&self) -> Self {
-        self.on_surface(self.bg_panel, self.panel_text)
-    }
-
-    pub fn bar(&self) -> Self {
-        self.on_surface(self.bg_bar, self.bar_text)
-    }
-
-    pub fn elevated(&self) -> Self {
-        self.on_surface(self.bg_elevated, self.elevated_text)
-    }
-
-    pub fn row(&self, selected: bool, hovered: bool) -> Self {
-        let bg = if selected {
-            self.element_selected
+    pub fn row(&self, selected: bool, hovered: bool) -> Surface {
+        if selected {
+            self.selection
         } else if hovered {
-            self.element_hover
+            self.hover
         } else {
-            self.bg_panel
-        };
-        let fg = if selected {
-            self.selected_text
-        } else {
-            self.panel_text
-        };
-        let mut t = self.on_surface(bg, fg);
-        if self.host_colors {
-            t.text = readable(fg, bg, 4.5);
-            t.wave_undef = readable(t.wave_undef, bg, 4.5);
-            t.wave_highimp = readable(t.wave_highimp, bg, 4.5);
-            t.wave_dontcare = readable(t.wave_dontcare, bg, 4.5);
-            t.wave_weak = readable(t.wave_weak, bg, 4.5);
-            t.icon = readable(t.icon, bg, 3.0);
-            t.icon_muted = readable(t.icon_muted, bg, 3.0);
-            t.icon_accent = readable(t.icon_accent, bg, 3.0);
-        }
-        t
-    }
-
-    pub fn marker_text(&self, background: Hsla) -> Hsla {
-        if self.host_colors {
-            readable(self.wave_cursor_text, over(background, self.bg_panel), 4.5)
-        } else {
-            self.wave_cursor_text
+            self.panel
         }
     }
-
-    fn on_surface(&self, bg: Hsla, text: Hsla) -> Self {
-        let mut t = self.clone();
-        t.text = text;
-        if self.host_colors {
-            t.text_muted = readable(t.text_muted, bg, 4.5);
-            t.text_placeholder = readable(t.text_placeholder, bg, 4.5);
-            t.icon_accent = readable(t.icon_accent, bg, 3.0);
-        }
-        t
-    }
-
-    pub fn get(cx: &App) -> &Theme {
-        cx.global::<Theme>()
-    }
-
-    /// Colour for a value classification.
     pub fn value_color(&self, kind: crate::data::ValueKind) -> Hsla {
-        use crate::data::ValueKind::*;
-        match kind {
-            Normal => self.wave_signal,
-            Undef => self.wave_undef,
-            HighImp => self.wave_highimp,
-            DontCare => self.wave_dontcare,
-            Weak => self.wave_weak,
+        [
+            self.wave_signal,
+            self.wave_undef,
+            self.wave_highimp,
+            self.wave_dontcare,
+            self.wave_weak,
+        ][value_index(kind)]
+    }
+    pub fn marker(&self, index: usize) -> MarkerColors {
+        self.markers[index % self.markers.len()]
+    }
+}
+
+pub fn theme(cx: &App) -> &Theme {
+    cx.global::<Theme>()
+}
+
+impl Surface {
+    fn resolve(
+        pair: ColorPair,
+        parent: Hsla,
+        fallback: Hsla,
+        p: &HostPalette,
+        accent: Hsla,
+        charts: [Hsla; 6],
+    ) -> Self {
+        let bg = over(pair.background.unwrap_or(parent), parent);
+        let text = foreground(pair.foreground, fallback, bg);
+        // Shared adornment colours are not a supplied foreground/background pair.
+        // Fall back to the surface text if they disappear on a different surface.
+        let secondary = |color: Option<Hsla>, fallback| {
+            color
+                .filter(|c| contrast(over(*c, bg), bg) >= 3.0)
+                .unwrap_or(fallback)
+        };
+        let muted = secondary(p.muted, text);
+        Self {
+            bg,
+            text,
+            text_muted: muted,
+            text_placeholder: secondary(p.placeholder, muted),
+            icon: secondary(p.icon, text),
+            icon_muted: muted,
+            icon_accent: secondary(Some(accent), text),
+            error: secondary(p.error, stroke(charts[1], &[bg])),
+            values: [
+                text,
+                stroke(charts[1], &[bg]),
+                stroke(charts[2], &[bg]),
+                stroke(charts[3], &[bg]),
+                foreground(p.muted, text, bg),
+            ],
         }
     }
+}
 
-    pub fn marker_color(&self, index: usize) -> Hsla {
-        self.wave_marker_palette[index % self.wave_marker_palette.len()]
+fn value_index(kind: crate::data::ValueKind) -> usize {
+    use crate::data::ValueKind::*;
+    match kind {
+        Normal => 0,
+        Undef => 1,
+        HighImp => 2,
+        DontCare => 3,
+        Weak => 4,
+    }
+}
+fn opaque(color: Option<Hsla>, fallback: Hsla) -> Hsla {
+    alpha(color.filter(|c| c.a > 0.0).unwrap_or(fallback), 1.0)
+}
+// Respect the host's chosen contrast (including subdued text). Only invisible
+// supplied foregrounds and missing tokens need fallback repair.
+fn foreground(color: Option<Hsla>, fallback: Hsla, bg: Hsla) -> Hsla {
+    color
+        .filter(|c| contrast(over(*c, bg), bg) > 1.05)
+        .unwrap_or_else(|| fallback_text(fallback, bg))
+}
+fn fallback_text(color: Hsla, bg: Hsla) -> Hsla {
+    if contrast(over(color, bg), bg) >= 4.5 {
+        return color;
+    }
+    if contrast(c(0), bg) > contrast(c(0xffffff), bg) {
+        c(0)
+    } else {
+        c(0xffffff)
     }
 }
 
-/// Convenience accessor: `theme(cx).text`.
-pub fn theme(cx: &App) -> &Theme {
-    Theme::get(cx)
-}
-
-fn alpha(mut color: Hsla, a: f32) -> Hsla {
-    color.a = a;
-    color
-}
-
-/// Composite translucent tokens before evaluating contrast.
-pub fn over(fg: Hsla, bg: Hsla) -> Hsla {
+fn over(fg: Hsla, bg: Hsla) -> Hsla {
     if fg.a == 1.0 {
         return fg;
     }
@@ -426,7 +416,6 @@ pub fn over(fg: Hsla, bg: Hsla) -> Hsla {
     }
     .into()
 }
-
 fn luminance(color: Hsla) -> f32 {
     let c: Rgba = color.into();
     let linear = |v: f32| {
@@ -438,101 +427,42 @@ fn luminance(color: Hsla) -> f32 {
     };
     0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
 }
-
 fn contrast(a: Hsla, b: Hsla) -> f32 {
     let a = luminance(a);
     let b = luminance(b);
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
-
-/// Keep host colours when legible; move toward black/white only as necessary.
-pub fn readable(color: Hsla, bg: Hsla, ratio: f32) -> Hsla {
-    let color = over(color, bg);
-    if contrast(color, bg) >= ratio {
+/// Only thin graphics need a contrast floor. Change HSL lightness alone, preserving
+/// hue/saturation, and choose the nearest passing lightness. Called at resolution.
+fn stroke(color: Hsla, backgrounds: &[Hsla]) -> Hsla {
+    let passes = |color| backgrounds.iter().all(|bg| contrast(color, *bg) >= 3.0);
+    if passes(color) {
         return color;
     }
-    let target = if contrast(c(0xffffff), bg) > contrast(c(0), bg) {
-        c(0xffffff)
-    } else {
-        c(0)
-    };
-    let mut lo = 0.0;
-    let mut hi = 1.0;
-    for _ in 0..16 {
-        let mid = (lo + hi) / 2.0;
-        if contrast(over(alpha(target, mid), color), bg) >= ratio {
-            hi = mid;
-        } else {
-            lo = mid;
-        }
-    }
-    over(alpha(target, hi), color)
+    [0.0, 1.0]
+        .into_iter()
+        .filter_map(|end| {
+            let mut target = color;
+            target.l = end;
+            if !passes(target) {
+                return None;
+            }
+            let (mut lo, mut hi) = (0.0, 1.0);
+            for _ in 0..16 {
+                let mid = (lo + hi) / 2.0;
+                target.l = color.l + (end - color.l) * mid;
+                if passes(target) {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                }
+            }
+            target.l = color.l + (end - color.l) * hi;
+            Some(target)
+        })
+        .min_by(|a, b| (a.l - color.l).abs().total_cmp(&(b.l - color.l).abs()))
+        .unwrap_or(color)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolved_custom_colors_and_alpha_are_preserved() {
-        let t = Theme::from_host(false, false, |name| match name {
-            "bg_editor" => Some(0xfff4e6ff),
-            "text" => Some(0x321800ff),
-            "bg_panel" => Some(0x00000080),
-            "scrollbar_thumb" => Some(0x12345678),
-            _ => None,
-        });
-        assert_eq!(t.bg_editor, c(0xfff4e6));
-        assert!(contrast(t.text, t.bg_editor) > 4.5);
-        assert_eq!(t.text, c(0x321800));
-        assert_eq!(t.bg_panel, over(rgba(0x00000080).into(), t.bg_editor));
-        assert_eq!(t.scrollbar_thumb, Hsla::from(rgba(0x12345678)));
-    }
-
-    #[test]
-    fn missing_and_low_contrast_colors_work_in_all_modes() {
-        for dark in [false, true] {
-            for hc in [false, true] {
-                for supplied in [false, true] {
-                    let t = Theme::from_host(dark, hc, |_| supplied.then_some(0x80808030));
-                    for (fg, bg) in [
-                        (t.text, t.bg_editor),
-                        (t.panel_text, t.bg_panel),
-                        (t.bar_text, t.bg_bar),
-                        (t.elevated_text, t.bg_elevated),
-                        (t.input_text, t.bg_input),
-                        (t.selected_text, t.element_selected),
-                        (t.button_text, t.button_bg),
-                    ] {
-                        assert!(contrast(fg, bg) >= 4.49);
-                    }
-                    for wave in [
-                        t.wave_signal,
-                        t.wave_undef,
-                        t.wave_highimp,
-                        t.wave_dontcare,
-                        t.wave_weak,
-                        t.wave_cursor,
-                    ] {
-                        for bg in [
-                            t.bg_editor,
-                            over(t.wave_row_selected, t.bg_editor),
-                            over(t.wave_row_hover, t.bg_editor),
-                        ] {
-                            assert!(
-                                contrast(wave, bg) >= 3.0,
-                                "wave contrast in dark={dark} hc={hc}"
-                            );
-                        }
-                    }
-                    for marker in t.wave_marker_palette {
-                        assert!(contrast(t.marker_text(marker), marker) >= 4.49);
-                    }
-                    if hc {
-                        assert!(contrast(t.border, t.bg_panel) >= 2.99);
-                    }
-                }
-            }
-        }
-    }
-}
+mod tests;

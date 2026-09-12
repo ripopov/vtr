@@ -68,7 +68,8 @@ VS Code colours follow the current theme, including custom themes, colour
 customizations, light/dark and both high-contrast modes. Changes repaint the
 existing viewer without reopening the trace or resetting interaction/layout
 state. The page background follows VS Code while loading; GPUI starts only after
-receiving its initial palette. Fonts and dimensions remain Volna's bundled ones.
+receiving its initial palette. If theme metadata is missing, startup proceeds
+after 250 ms using available colours and inferred appearance; late metadata still applies. Fonts and dimensions remain Volna's bundled ones.
 Native and standalone web continue to use One Dark.
 
 ## Using the viewer

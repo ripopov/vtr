@@ -122,14 +122,8 @@ pub mod web {
     /// Semantic RGBA palette. Before startup, retain the latest snapshot; afterwards,
     /// enqueue updates on GPUI's executor (never re-enter an application update).
     #[wasm_bindgen]
-    pub fn set_theme(dark: bool, high_contrast: bool, colors: JsValue) {
-        let theme = crate::theme::Theme::from_host(dark, high_contrast, |name| {
-            let n = js_sys::Reflect::get(&colors, &JsValue::from_str(name))
-                .ok()?
-                .as_f64()?;
-            (n.is_finite() && n.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&n))
-                .then_some(n as u32)
-        });
+    pub fn set_theme(appearance: crate::theme::Appearance, colors: JsValue) {
+        let theme = crate::theme::Theme::from_host(&crate::theme::web::decode(appearance, &colors));
         HOST_TX.with(|tx| {
             if let Some(tx) = tx.borrow().as_ref() {
                 tx.unbounded_send(HostEvent::Theme(Box::new(theme))).ok();
@@ -142,11 +136,11 @@ pub mod web {
     /// Ask the host page for a file. The host defines `window.volnaOpen`.
     pub fn request_open_dialog() {
         let global = js_sys::global();
-        if let Ok(f) = js_sys::Reflect::get(&global, &JsValue::from_str("volnaOpen")) {
-            if let Some(f) = f.dyn_ref::<js_sys::Function>() {
-                f.call0(&global).ok();
-                return;
-            }
+        if let Ok(f) = js_sys::Reflect::get(&global, &JsValue::from_str("volnaOpen"))
+            && let Some(f) = f.dyn_ref::<js_sys::Function>()
+        {
+            f.call0(&global).ok();
+            return;
         }
         log::warn!("volnaOpen is not defined by the host page");
     }
@@ -173,7 +167,7 @@ pub mod web {
                 Ok(workspace) => {
                     cx.spawn(async move |cx| {
                         while let Some(event) = rx.next().await {
-                            let _ = workspace.update(cx, |ws, cx| match event {
+                            workspace.update(cx, |ws, cx| match event {
                                 HostEvent::Open(name, bytes) => ws.open_bytes(name, bytes, cx),
                                 HostEvent::Theme(theme) => theme.install(cx),
                             });
@@ -183,10 +177,9 @@ pub mod web {
                     // Tell the host we are ready to receive files.
                     if let Ok(f) =
                         js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("volnaReady"))
+                        && let Some(f) = f.dyn_ref::<js_sys::Function>()
                     {
-                        if let Some(f) = f.dyn_ref::<js_sys::Function>() {
-                            f.call0(&js_sys::global()).ok();
-                        }
+                        f.call0(&js_sys::global()).ok();
                     }
                 }
                 Err(e) => log::error!("failed to open window: {e:#}"),

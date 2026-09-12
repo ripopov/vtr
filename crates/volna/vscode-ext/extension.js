@@ -42,7 +42,7 @@ function html(webview, extensionUri) {
 </head>
 <body>
 <script type="module" nonce="${n}">
-  import init, { open_trace, start, set_theme } from "${js}";
+  import init, { open_trace, start, set_theme, Appearance } from "${js}";
   import { followTheme } from "${themeJs}";
   const vscode = acquireVsCodeApi();
   window.volnaEmbedded = true;
@@ -55,7 +55,7 @@ function html(webview, extensionUri) {
     }
   });
   await init();
-  await followTheme(set_theme);
+  await followTheme((appearance, colors) => set_theme(Appearance[appearance], colors));
   start();
 </script>
 </body>

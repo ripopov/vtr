@@ -104,7 +104,8 @@ impl TextInput {
 
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).input();
+        let t = *theme(cx);
+        let colors = t.input;
         let focused = self.focus_handle.is_focused(window);
         let empty = self.text.is_empty();
         let border = if focused {
@@ -122,16 +123,20 @@ impl Render for TextInput {
             .h(px(24.0))
             .px_2()
             .rounded_md()
-            .bg(t.bg_input)
+            .bg(t.input.bg)
             .border_1()
             .border_color(border)
             .hover(move |s| s.border_color(hover_border))
             .cursor(CursorStyle::IBeam)
-            .font_family(t.ui_font.clone())
+            .font_family(t.ui_font)
             .text_size(t.ui_size)
             .on_key_down(cx.listener(Self::on_key_down))
             .on_click(cx.listener(|this, _, window, cx| window.focus(&this.focus_handle, cx)))
-            .child(Icon::new(IconName::Search).size(px(14.0)))
+            .child(
+                Icon::new(IconName::Search)
+                    .size(px(14.0))
+                    .color(colors.icon_muted),
+            )
             .child(
                 div()
                     .flex_1()
@@ -141,15 +146,15 @@ impl Render for TextInput {
                     .whitespace_nowrap()
                     .child(if empty {
                         div()
-                            .text_color(t.text_placeholder)
+                            .text_color(colors.text_placeholder)
                             .child(self.placeholder.clone())
                     } else {
                         div()
-                            .text_color(t.text)
+                            .text_color(colors.text)
                             .child(SharedString::from(self.text.clone()))
                     })
                     .when(focused, |el| {
-                        el.child(div().w(px(1.0)).h(px(14.0)).bg(t.text))
+                        el.child(div().w(px(1.0)).h(px(14.0)).bg(colors.text))
                     }),
             )
             .when(!empty, |el| {
@@ -162,9 +167,13 @@ impl Render for TextInput {
                         .size(px(16.0))
                         .rounded_sm()
                         .cursor(CursorStyle::PointingHand)
-                        .hover(move |s| s.bg(t.element_hover))
+                        .hover(move |s| s.bg(colors.bg).border_1().border_color(hover_border))
                         .on_click(cx.listener(|this, _, _, cx| this.clear(cx)))
-                        .child(Icon::new(IconName::X).size(px(12.0))),
+                        .child(
+                            Icon::new(IconName::X)
+                                .size(px(12.0))
+                                .color(colors.icon_muted),
+                        ),
                 )
             })
     }

@@ -46,11 +46,12 @@ impl PopupMenu {
 
 impl Render for PopupMenu {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).elevated();
+        let t = *theme(cx);
+        let colors = t.elevated;
         let items = self.items.iter().enumerate().map(|(ix, item)| {
             let id = item.id.clone();
-            let hover = t.element_hover;
-            let active = t.element_active;
+            let hover = t.menu_hover;
+            let active = t.menu_hover;
             div()
                 .id(("menu-item", ix))
                 .flex()
@@ -60,9 +61,10 @@ impl Render for PopupMenu {
                 .px_2()
                 .mx_1()
                 .rounded_sm()
+                .text_color(colors.text)
                 .cursor(CursorStyle::PointingHand)
-                .hover(move |s| s.bg(hover))
-                .active(move |s| s.bg(active))
+                .hover(move |s| s.bg(hover.bg).text_color(hover.text))
+                .active(move |s| s.bg(active.bg).text_color(active.text))
                 .on_click(
                     cx.listener(move |_, _, _, cx| cx.emit(PopupMenuEvent::Selected(id.clone()))),
                 )
@@ -76,17 +78,16 @@ impl Render for PopupMenu {
                             el.child(
                                 Icon::new(IconName::CircleDot)
                                     .size(px(12.0))
-                                    .color(t.icon_accent),
+                                    .inherit_color(),
                             )
                         }),
                 )
-                .child(div().flex_1().text_color(t.text).child(item.label.clone()))
+                .child(div().flex_1().child(item.label.clone()))
                 .when_some(item.badge.clone(), |el, b| {
                     el.child(
                         div()
-                            .font_family(t.mono_font.clone())
+                            .font_family(t.mono_font)
                             .text_size(t.ui_size_small)
-                            .text_color(t.text_muted)
                             .child(b),
                     )
                 })
@@ -105,11 +106,11 @@ impl Render for PopupMenu {
                         .py_1()
                         .min_w(px(180.0))
                         .rounded_md()
-                        .bg(t.bg_elevated)
+                        .bg(t.elevated.bg)
                         .border_1()
                         .border_color(t.border)
                         .shadow_lg()
-                        .font_family(t.ui_font.clone())
+                        .font_family(t.ui_font)
                         .text_size(t.ui_size)
                         .on_mouse_down_out(
                             cx.listener(|_, _, _, cx| cx.emit(PopupMenuEvent::Dismissed)),

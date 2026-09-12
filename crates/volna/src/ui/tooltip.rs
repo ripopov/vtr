@@ -42,7 +42,8 @@ impl Tooltip {
 
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).elevated();
+        let t = *theme(cx);
+        let colors = t.tooltip;
         div()
             .flex()
             .items_center()
@@ -50,22 +51,22 @@ impl Render for Tooltip {
             .px_2()
             .h(px(24.0))
             .rounded_md()
-            .bg(t.bg_elevated)
+            .bg(colors.bg)
             .border_1()
             .border_color(t.border)
             .shadow_md()
-            .font_family(t.ui_font.clone())
+            .font_family(t.ui_font)
             .text_size(t.ui_size_small)
-            .text_color(t.text)
+            .text_color(colors.text)
             .child(self.text.clone())
             .when_some(self.shortcut.clone(), |el, s| {
                 el.child(
                     div()
                         .px_1()
                         .rounded_sm()
-                        .bg(t.element_active)
-                        .text_color(t.text_muted)
-                        .font_family(t.mono_font.clone())
+                        .bg(t.badge_hover.bg)
+                        .text_color(t.badge_hover.text_muted)
+                        .font_family(t.mono_font)
                         .child(s),
                 )
             })

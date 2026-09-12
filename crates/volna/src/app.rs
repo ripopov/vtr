@@ -426,7 +426,8 @@ impl Workspace {
     }
 
     fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).bar();
+        let t = *theme(cx);
+        let colors = t.bar;
         let file: Option<SharedString> = match &self.state {
             TraceState::Loaded(s) => Some(s.info().name.clone().into()),
             TraceState::Loading { name } => Some(name.clone()),
@@ -442,10 +443,10 @@ impl Workspace {
             .pl(px(80.0))
             .pr_2()
             .gap_2()
-            .bg(t.bg_bar)
+            .bg(t.bar.bg)
             .border_b_1()
             .border_color(t.border)
-            .font_family(t.ui_font.clone())
+            .font_family(t.ui_font)
             .text_size(t.ui_size)
             .child(
                 // Everything left of the buttons drags the window; double-click zooms it.
@@ -463,20 +464,21 @@ impl Workspace {
                             window.start_window_move();
                         }
                     })
-                    .child(Icon::new(IconName::AudioWaveform).color(t.icon_accent))
+                    .child(Icon::new(IconName::AudioWaveform).color(colors.icon_accent))
                     .child(
                         div()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(t.text)
+                            .text_color(colors.text)
                             .child("Volna"),
                     )
                     .when_some(file, |el, name| {
-                        el.child(div().text_color(t.text_placeholder).child("—"))
-                            .child(div().text_color(t.text_muted).child(name))
+                        el.child(div().text_color(colors.text_placeholder).child("—"))
+                            .child(div().text_color(colors.text_muted).child(name))
                     }),
             )
             .child(
                 IconButton::new("toggle-sidebar", IconName::PanelLeft)
+                    .surface(t.bar)
                     .selected(self.sidebar_visible)
                     .tooltip(Tooltip::with_shortcut("Toggle sidebar", "⌘B"))
                     .on_click(
@@ -485,13 +487,14 @@ impl Workspace {
             )
             .child(
                 IconButton::new("open-file", IconName::FolderOpen)
+                    .surface(t.bar)
                     .tooltip(Tooltip::with_shortcut("Open trace", "⌘O"))
                     .on_click(cx.listener(|this, _, w, cx| this.open_file(&OpenFile, w, cx))),
             )
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = *theme(cx);
         let frac = self
             .scopes_fraction
             .clamp(SIDEBAR_FRACTION_MIN, 1.0 - SIDEBAR_FRACTION_MIN);
@@ -502,7 +505,7 @@ impl Workspace {
             .flex_none()
             .h_full()
             .w(self.sidebar_width)
-            .bg(t.bg_panel)
+            .bg(t.panel.bg)
             .child(
                 div()
                     .flex_none()
@@ -529,7 +532,8 @@ impl Workspace {
     }
 
     fn render_center(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let t = theme(cx).clone();
+        let t = *theme(cx);
+        let colors = t.editor;
         match &self.state {
             TraceState::Loaded(_) => self.waves.clone().into_any_element(),
             TraceState::Loading { name } => div()
@@ -539,9 +543,9 @@ impl Workspace {
                 .items_center()
                 .justify_center()
                 .gap_3()
-                .bg(t.bg_editor)
+                .bg(t.editor.bg)
                 .child(
-                    icon_svg(IconName::LoaderCircle, px(28.0), t.icon_accent).with_animation(
+                    icon_svg(IconName::LoaderCircle, px(28.0), colors.icon_accent).with_animation(
                         "spinner",
                         Animation::new(Duration::from_millis(900)).repeat(),
                         |svg, delta| {
@@ -551,9 +555,9 @@ impl Workspace {
                 )
                 .child(
                     div()
-                        .font_family(t.ui_font.clone())
+                        .font_family(t.ui_font)
                         .text_size(t.ui_size)
-                        .text_color(t.text_muted)
+                        .text_color(colors.text_muted)
                         .child(SharedString::from(format!("Loading {name}…"))),
                 )
                 .into_any_element(),
@@ -562,7 +566,8 @@ impl Workspace {
     }
 
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = *theme(cx);
+        let colors = t.editor;
         let error = match &self.state {
             TraceState::Error(e) => Some(e.clone()),
             _ => None,
@@ -574,16 +579,16 @@ impl Workspace {
                 .justify_between()
                 .gap_4()
                 .w(px(260.0))
-                .child(div().text_color(t.text_muted).child(label))
+                .child(div().text_color(colors.text_muted).child(label))
                 .child(
                     div()
                         .px_1p5()
                         .py_0p5()
                         .rounded_sm()
-                        .bg(t.element_active)
-                        .font_family(t.mono_font.clone())
+                        .bg(t.badge_hover.bg)
+                        .font_family(t.mono_font)
                         .text_size(t.ui_size_small)
-                        .text_color(t.text)
+                        .text_color(t.badge_hover.text)
                         .child(keys),
                 )
         };
@@ -594,25 +599,25 @@ impl Workspace {
             .items_center()
             .justify_center()
             .gap_2()
-            .bg(t.bg_editor)
-            .font_family(t.ui_font.clone())
+            .bg(t.editor.bg)
+            .font_family(t.ui_font)
             .text_size(t.ui_size)
             .child(
                 Icon::new(IconName::AudioWaveform)
                     .size(px(40.0))
-                    .color(t.text_placeholder),
+                    .color(colors.text_placeholder),
             )
             .child(
                 div()
                     .mt_2()
                     .text_size(px(16.0))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(t.text)
+                    .text_color(colors.text)
                     .child("No trace open"),
             )
             .child(
                 div()
-                    .text_color(t.text_muted)
+                    .text_color(colors.text_muted)
                     .child("Open a VTR waveform file to view its signals"),
             )
             .when_some(error, |el, e| {
@@ -625,14 +630,14 @@ impl Workspace {
                         .px_3()
                         .py_1()
                         .rounded_md()
-                        .bg(t.bg_panel)
+                        .bg(t.panel.bg)
                         .border_1()
-                        .border_color(t.error)
-                        .text_color(t.error)
+                        .border_color(t.panel.error)
+                        .text_color(t.panel.error)
                         .child(
                             Icon::new(IconName::TriangleAlert)
                                 .size(px(14.0))
-                                .color(t.error),
+                                .color(t.panel.error),
                         )
                         .child(e),
                 )
@@ -662,11 +667,12 @@ impl Workspace {
     }
 
     fn render_statusbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).bar();
+        let t = *theme(cx);
+        let colors = t.bar;
         let waves = self.waves.read(cx);
         let mono = |text: SharedString, color: gpui::Hsla| {
             div()
-                .font_family(t.mono_font.clone())
+                .font_family(t.mono_font)
                 .text_size(t.ui_size_small)
                 .text_color(color)
                 .child(text)
@@ -684,20 +690,20 @@ impl Workspace {
                         format_time(b as f64, info.timescale)
                     )
                     .into(),
-                    t.text_muted,
+                    colors.text_muted,
                 ))
                 .child(mono(
                     format!("{} signals", info.signal_count).into(),
-                    t.text_placeholder,
+                    colors.text_placeholder,
                 ));
             if let Some(n) = info.change_count {
-                left = left.child(mono(format!("{n} changes").into(), t.text_placeholder));
+                left = left.child(mono(format!("{n} changes").into(), colors.text_placeholder));
             }
             let vp = waves.viewport;
             let px_per = vp.width() / f64::from(f32::from(waves.wave_width)).max(1.0);
             right = right.child(mono(
                 format!("1 px = {}", format_time(px_per, info.timescale)).into(),
-                t.text_placeholder,
+                colors.text_placeholder,
             ));
             if let Some(c) = waves.cursor {
                 left = left.child(
@@ -708,21 +714,24 @@ impl Workspace {
                         .child(
                             Icon::new(IconName::Locate)
                                 .size(px(12.0))
-                                .color(t.icon_accent),
+                                .color(colors.icon_accent),
                         )
-                        .child(mono(format_time(c as f64, info.timescale).into(), t.text)),
+                        .child(mono(
+                            format_time(c as f64, info.timescale).into(),
+                            colors.text,
+                        )),
                 );
             }
             if !waves.markers.is_empty() {
                 left = left.child(mono(
                     format!("{} markers", waves.markers.len()).into(),
-                    t.text_placeholder,
+                    colors.text_placeholder,
                 ));
             }
         }
         right = right.child(mono(
             format!("{:.1} ms", waves.frame_ms_avg).into(),
-            t.text_placeholder,
+            colors.text_placeholder,
         ));
         right = right.child(
             div()
@@ -734,19 +743,15 @@ impl Workspace {
                 .h(px(18.0))
                 .rounded_sm()
                 .cursor(CursorStyle::PointingHand)
-                .hover(move |s| s.bg(t.element_hover))
+                .text_color(colors.text_muted)
+                .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
                 .tooltip(Tooltip::text("Open a synthetic stress trace"))
                 .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
                     let p = ev.position();
                     this.open_stress_menu(point(p.x - px(160.0), p.y - px(120.0)), window, cx);
                 }))
-                .child(Icon::new(IconName::Activity).size(px(12.0)))
-                .child(
-                    div()
-                        .text_size(t.ui_size_small)
-                        .text_color(t.text_muted)
-                        .child("Stress"),
-                ),
+                .child(Icon::new(IconName::Activity).size(px(12.0)).inherit_color())
+                .child(div().text_size(t.ui_size_small).child("Stress")),
         );
         div()
             .flex()
@@ -756,10 +761,10 @@ impl Workspace {
             .h(t.statusbar_height)
             .w_full()
             .px_2()
-            .bg(t.bg_bar)
+            .bg(t.bar.bg)
             .border_t_1()
             .border_color(t.border)
-            .font_family(t.ui_font.clone())
+            .font_family(t.ui_font)
             .child(left)
             .child(right)
     }
@@ -767,7 +772,8 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).clone();
+        let t = *theme(cx);
+        let colors = t.editor;
         let drag = self.drag;
         let sidebar_visible = self.sidebar_visible;
         let mut root = div()
@@ -777,9 +783,9 @@ impl Render for Workspace {
             .flex()
             .flex_col()
             .size_full()
-            .bg(t.bg_editor)
-            .text_color(t.text)
-            .font_family(t.ui_font.clone())
+            .bg(t.editor.bg)
+            .text_color(colors.text)
+            .font_family(t.ui_font)
             .text_size(t.ui_size)
             .on_action(cx.listener(Self::open_file))
             .on_action(cx.listener(Self::toggle_sidebar))

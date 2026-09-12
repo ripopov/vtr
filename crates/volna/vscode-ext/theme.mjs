@@ -1,22 +1,22 @@
 // This is the only VS Code-to-Volna colour mapping. Rust owns palette derivation.
 export const tokens = {
-  bg_editor: 'editor.background', text: 'editor.foreground',
-  bg_input: 'input.background', input_text: 'input.foreground', input_border: 'input.border',
-  bg_panel: 'sideBar.background', panel_text: 'sideBar.foreground',
-  bg_bar: 'statusBar.background', bar_text: 'statusBar.foreground',
-  bg_elevated: 'editorWidget.background', elevated_text: 'editorWidget.foreground',
-  border: 'panel.border', border_variant: 'sideBar.border',
-  border_focused: 'focusBorder', contrast_border: 'contrastBorder',
-  element_hover: 'list.hoverBackground', element_active: 'toolbar.activeBackground',
-  element_selected: 'list.activeSelectionBackground', selected_text: 'list.activeSelectionForeground',
-  text_muted: 'descriptionForeground', text_placeholder: 'input.placeholderForeground',
-  text_accent: 'textLink.foreground', accent: 'focusBorder', icon: 'icon.foreground',
-  button_bg: 'button.background', button_text: 'button.foreground', button_hover: 'button.hoverBackground',
-  error: 'errorForeground', warning: 'editorWarning.foreground', success: 'charts.green',
-  scrollbar_thumb: 'scrollbarSlider.background', scrollbar_thumb_hover: 'scrollbarSlider.hoverBackground',
-  wave_signal: 'charts.green', wave_undef: 'charts.red', wave_highimp: 'charts.yellow',
-  wave_dontcare: 'charts.blue', wave_weak: 'descriptionForeground', wave_cursor: 'editorCursor.foreground',
-  marker_orange: 'charts.orange', marker_purple: 'charts.purple', marker_blue: 'charts.blue',
+  editor: { background: 'editor.background', foreground: 'editor.foreground' },
+  panel: { background: 'sideBar.background', foreground: 'sideBar.foreground' },
+  bar: { background: 'statusBar.background', foreground: 'statusBar.foreground' },
+  elevated: { background: 'menu.background', foreground: 'menu.foreground' },
+  tooltip: { background: 'editorHoverWidget.background', foreground: 'editorHoverWidget.foreground' },
+  input: { background: 'input.background', foreground: 'input.foreground' },
+  selection: { background: 'list.activeSelectionBackground', foreground: 'list.activeSelectionForeground' },
+  hover: { background: 'list.hoverBackground', foreground: 'list.hoverForeground' },
+  button: { background: 'button.background', foreground: 'button.foreground' },
+  menu_hover: { background: 'menu.selectionBackground', foreground: 'menu.selectionForeground' },
+  button_hover: 'button.hoverBackground', border: 'panel.border', panel_border: 'sideBar.border',
+  input_border: 'input.border', focus: 'focusBorder', contrast_border: 'contrastBorder',
+  muted: 'descriptionForeground', placeholder: 'input.placeholderForeground', icon: 'icon.foreground',
+  accent: 'textLink.foreground', error: 'errorForeground',
+  scrollbar: 'scrollbarSlider.background', scrollbar_hover: 'scrollbarSlider.hoverBackground',
+  charts: { green: 'charts.green', red: 'charts.red', yellow: 'charts.yellow', blue: 'charts.blue', orange: 'charts.orange', purple: 'charts.purple' },
+  cursor: 'editorCursor.foreground',
 };
 
 // VS Code serializes opaque colours as hex and translucent colours as rgba().
@@ -37,42 +37,54 @@ export function rgba(value) {
   return channels.reduce((packed, c) => packed * 256 + Math.round(c), 0) * 256 + Math.round(alpha * 255);
 }
 
-export function snapshot(document, getStyle = getComputedStyle) {
+/** @typedef {'Light' | 'Dark' | 'HighContrastDark' | 'HighContrastLight'} Appearance */
+export function snapshot(document, getStyle = getComputedStyle, fallback = false) {
   const classes = document.body.classList;
-  // HC light also carries the legacy high-contrast class. Check it first.
-  const light = classes.contains('vscode-high-contrast-light') || classes.contains('vscode-light');
-  const hc = classes.contains('vscode-high-contrast') || classes.contains('vscode-high-contrast-light');
-  if (!light && !hc && !classes.contains('vscode-dark')) return undefined;
+  // HC light also carries the legacy HC class. Prefer authoritative metadata.
+  const kind = document.body.dataset?.vscodeThemeKind;
+  const kinds = { 'vscode-light': 'Light', 'vscode-dark': 'Dark',
+    'vscode-high-contrast-light': 'HighContrastLight', 'vscode-high-contrast': 'HighContrastDark' };
+  let appearance = kinds[kind] ?? kinds[Object.keys(kinds).find(k => classes.contains(k))];
   const style = getStyle(document.body);
-  const colors = {};
-  for (const [name, token] of Object.entries(tokens)) {
-    const value = rgba(style.getPropertyValue(`--vscode-${token.replaceAll('.', '-')}`));
-    if (value !== undefined) colors[name] = value;
+  const read = token => rgba(style.getPropertyValue(`--vscode-${token.replaceAll('.', '-')}`));
+  const colors = Object.fromEntries(Object.entries(tokens).map(([name, token]) => [name,
+    typeof token === 'string' ? read(token) : Object.fromEntries(Object.entries(token).map(([k, v]) => [k, read(v)]))]));
+  if (!appearance) {
+    if (!fallback) return undefined;
+    // Keep delivered colours even without class metadata. Use the editor background
+    // to pick fallback colours, then the OS preference only if no colour arrived.
+    const bg = colors.editor.background;
+    const dark = (bg === undefined || (bg & 255) === 0) ? (document.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
+      : (0.2126 * (bg >>> 24) + 0.7152 * ((bg >>> 16) & 255) + 0.0722 * ((bg >>> 8) & 255)) < 128;
+    appearance = dark ? 'Dark' : 'Light';
   }
-  return { dark: !light, hc, colors };
+  return { appearance, colors };
 }
 
-// Observe before sampling, and sample again after wasm initialization. VS Code
-// updates root styles and body classes in one task; MutationObserver batches them.
-// Watching styles also catches customizations and switches within the same kind.
+// Observe before sampling. A bounded wait accommodates delayed host metadata;
+// late arrival still updates the running viewer after fallback startup.
 export function followTheme(setTheme, document = globalThis.document, Observer = MutationObserver, getStyle = getComputedStyle) {
   return new Promise(resolve => {
     let previous;
+    let fallback = false;
     const update = () => {
-      const theme = snapshot(document, getStyle);
-      if (!theme) return; // Wait for host theme metadata, never start with One Dark.
+      const theme = snapshot(document, getStyle, fallback);
+      if (!theme) return;
       const serialized = JSON.stringify(theme);
       if (serialized !== previous) {
-        setTheme(theme.dark, theme.hc, theme.colors);
+        setTheme(theme.appearance, theme.colors);
         previous = serialized;
       }
+      fallback = true;
+      clearTimeout(timer);
       resolve();
     };
+    const timer = setTimeout(() => { fallback = true; update(); }, 250);
     const observer = new Observer(update);
     for (const element of [document.documentElement, document.body]) {
       observer.observe(element, { attributes: true, attributeFilter: ['style', 'class', 'data-vscode-theme-kind', 'data-vscode-theme-id'] });
     }
-    document.defaultView?.addEventListener('pagehide', () => observer.disconnect(), { once: true });
+    document.defaultView?.addEventListener('pagehide', () => { clearTimeout(timer); observer.disconnect(); }, { once: true });
     update();
   });
 }

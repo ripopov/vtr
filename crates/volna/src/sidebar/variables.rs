@@ -194,7 +194,8 @@ fn direction_label(d: Direction) -> &'static str {
 
 impl Render for VariableList {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).panel();
+        let t = *theme(cx);
+        let colors = t.panel;
         let focused = self.focus_handle.is_focused(window);
         let count = self.rows.len();
         let searching = !self.filter.read(cx).text().is_empty();
@@ -211,9 +212,9 @@ impl Render for VariableList {
                 .gap_2()
                 .child(
                     div()
-                        .font_family(t.mono_font.clone())
+                        .font_family(t.mono_font)
                         .text_size(t.ui_size_small)
-                        .text_color(t.text_placeholder)
+                        .text_color(colors.text_placeholder)
                         .child(SharedString::from(count.to_string())),
                 )
                 .child(
@@ -228,7 +229,7 @@ impl Render for VariableList {
             "variable-list",
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
-                let t = theme(cx).panel();
+                let t = *theme(cx);
                 let Some(src) = this.source.clone() else {
                     return Vec::new();
                 };
@@ -238,8 +239,8 @@ impl Render for VariableList {
                         let var = this.rows[ix];
                         let v = &h.vars[var];
                         let selected = this.selected.contains(&ix);
-                        let t = t.row(selected, false);
-                        let hover = t.element_hover;
+                        let colors = t.row(selected, false);
+                        let hover = t.hover;
                         let dims: SharedString = v.shape.dims().into();
                         let name: SharedString = if show_scope {
                             h.full_name(var).into()
@@ -255,9 +256,9 @@ impl Render for VariableList {
                             .px_2()
                             .gap_2()
                             .cursor(CursorStyle::PointingHand)
-                            .font_family(t.mono_font.clone())
+                            .font_family(t.mono_font)
                             .text_size(t.mono_size)
-                            .text_color(t.text)
+                            .text_color(colors.text)
                             .on_click(cx.listener(
                                 move |this, ev: &gpui::ClickEvent, window, cx| {
                                     window.focus(&this.focus_handle, cx);
@@ -269,26 +270,25 @@ impl Render for VariableList {
                                 },
                             ));
                         if selected {
-                            row = row.bg(t.element_selected).when(t.high_contrast, |row| {
-                                row.border_1().border_color(t.border_focused)
-                            });
+                            row = row
+                                .bg(t.selection.bg)
+                                .when(t.appearance.is_high_contrast(), |row| {
+                                    row.border_1().border_color(t.border_focused)
+                                });
                         } else {
-                            row = row.hover(move |s| s.bg(hover));
+                            row = row.hover(move |s| s.bg(hover.bg).text_color(hover.text));
                         }
-                        row.child(Icon::new(shape_icon(v.shape)).size(px(14.0)).color(
-                            if selected {
-                                t.icon_accent
-                            } else {
-                                t.icon_muted
-                            },
-                        ))
+                        row.child(
+                            Icon::new(shape_icon(v.shape))
+                                .size(px(14.0))
+                                .inherit_color(),
+                        )
                         .when(show_direction, |row| {
                             row.child(
                                 div()
                                     .w(px(24.0))
                                     .flex_none()
                                     .text_size(t.ui_size_small)
-                                    .text_color(t.text_placeholder)
                                     .child(SharedString::from(dir)),
                             )
                         })
@@ -300,7 +300,7 @@ impl Render for VariableList {
                                 .text_ellipsis()
                                 .child(name),
                         )
-                        .child(div().flex_none().text_color(t.text_placeholder).child(dims))
+                        .child(div().flex_none().child(dims))
                     })
                     .collect()
             }),
@@ -326,7 +326,7 @@ impl Render for VariableList {
             .flex()
             .flex_col()
             .size_full()
-            .bg(t.bg_panel)
+            .bg(t.panel.bg)
             .child(header)
             .child(div().flex_none().px_2().py_1().child(self.filter.clone()))
             .child(
@@ -343,7 +343,7 @@ impl Render for VariableList {
                             .px_4()
                             .text_align(gpui::TextAlign::Center)
                             .text_size(t.ui_size_small)
-                            .text_color(t.text_placeholder)
+                            .text_color(colors.text_placeholder)
                             .child(text)
                             .into_any_element(),
                         None => list.into_any_element(),

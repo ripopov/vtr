@@ -174,7 +174,8 @@ fn scope_icon(kind: &str) -> IconName {
 
 impl Render for ScopeTree {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx).panel();
+        let t = *theme(cx);
+        let colors = t.panel;
         let focused = self.focus_handle.is_focused(window);
         let count = self.visible.len();
         let header = panel_header("Scopes", cx).child(
@@ -197,7 +198,7 @@ impl Render for ScopeTree {
             "scope-tree",
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
-                let t = theme(cx).panel();
+                let t = *theme(cx);
                 let Some(src) = this.source.clone() else {
                     return Vec::new();
                 };
@@ -209,8 +210,8 @@ impl Render for ScopeTree {
                         let has_children = !scope.children.is_empty();
                         let expanded = this.expanded.contains(&id);
                         let selected = this.selected == Some(id);
-                        let t = t.row(selected, false);
-                        let hover = t.element_hover;
+                        let colors = t.row(selected, false);
+                        let hover = t.hover;
                         let name: SharedString = scope.name.clone().into();
                         let mut row = div()
                             .id(("scope", ix))
@@ -221,9 +222,9 @@ impl Render for ScopeTree {
                             .pr_2()
                             .gap_1()
                             .cursor(CursorStyle::PointingHand)
-                            .font_family(t.ui_font.clone())
+                            .font_family(t.ui_font)
                             .text_size(t.ui_size)
-                            .text_color(t.text)
+                            .text_color(colors.text)
                             .on_click(cx.listener(
                                 move |this, ev: &gpui::ClickEvent, window, cx| {
                                     window.focus(&this.focus_handle, cx);
@@ -234,11 +235,13 @@ impl Render for ScopeTree {
                                 },
                             ));
                         if selected {
-                            row = row.bg(t.element_selected).when(t.high_contrast, |row| {
-                                row.border_1().border_color(t.border_focused)
-                            });
+                            row = row
+                                .bg(t.selection.bg)
+                                .when(t.appearance.is_high_contrast(), |row| {
+                                    row.border_1().border_color(t.border_focused)
+                                });
                         } else {
-                            row = row.hover(move |s| s.bg(hover));
+                            row = row.hover(move |s| s.bg(hover.bg).text_color(hover.text));
                         }
                         let chevron = div()
                             .id(("chevron", ix))
@@ -249,7 +252,7 @@ impl Render for ScopeTree {
                             .rounded_sm()
                             .when(has_children, |el| {
                                 el.cursor(CursorStyle::PointingHand)
-                                    .hover(move |s| s.bg(t.element_active))
+                                    .hover(move |s| s.bg(t.badge_hover.bg))
                                     .on_click(
                                         cx.listener(move |this, _, _, cx| this.toggle(id, cx)),
                                     )
@@ -259,17 +262,16 @@ impl Render for ScopeTree {
                                         } else {
                                             IconName::ChevronRight
                                         })
-                                        .size(px(14.0)),
+                                        .size(px(14.0))
+                                        .inherit_color(),
                                     )
                             });
                         row.child(chevron)
-                            .child(Icon::new(scope_icon(&scope.kind)).size(px(14.0)).color(
-                                if selected {
-                                    t.icon_accent
-                                } else {
-                                    t.icon_muted
-                                },
-                            ))
+                            .child(
+                                Icon::new(scope_icon(&scope.kind))
+                                    .size(px(14.0))
+                                    .inherit_color(),
+                            )
                             .child(
                                 div()
                                     .flex_1()
@@ -293,7 +295,7 @@ impl Render for ScopeTree {
             .flex()
             .flex_col()
             .size_full()
-            .bg(t.bg_panel)
+            .bg(t.panel.bg)
             .child(header)
             .child(
                 div()
@@ -308,7 +310,7 @@ impl Render for ScopeTree {
                             .items_center()
                             .justify_center()
                             .text_size(t.ui_size_small)
-                            .text_color(t.text_placeholder)
+                            .text_color(colors.text_placeholder)
                             .child("No scopes")
                             .into_any_element()
                     } else {

@@ -4,7 +4,7 @@ use gpui::{
 };
 
 use super::icon::{Icon, IconName};
-use crate::theme::theme;
+use crate::theme::{Surface, theme};
 
 /// A square ghost icon button with hover, active, selected and disabled states.
 #[derive(IntoElement)]
@@ -14,6 +14,7 @@ pub struct IconButton {
     selected: bool,
     disabled: bool,
     color: Option<Hsla>,
+    surface: Option<Surface>,
     tooltip: Option<Box<TooltipBuilder>>,
     on_click: Option<Box<ClickHandler>>,
 }
@@ -26,9 +27,15 @@ impl IconButton {
             selected: false,
             disabled: false,
             color: None,
+            surface: None,
             tooltip: None,
             on_click: None,
         }
+    }
+
+    pub fn surface(mut self, surface: Surface) -> Self {
+        self.surface = Some(surface);
+        self
     }
 
     pub fn selected(mut self, selected: bool) -> Self {
@@ -59,13 +66,15 @@ impl IconButton {
 
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let t = theme(cx).panel();
+        let t = theme(cx);
+        let colors = self.surface.unwrap_or(t.panel);
+        let selected = t.selection;
         let icon_color = if self.disabled {
-            t.text_placeholder
+            colors.text_placeholder
         } else if self.selected {
-            t.icon_accent
+            selected.icon_accent
         } else {
-            self.color.unwrap_or(t.icon_muted)
+            self.color.unwrap_or(colors.icon_muted)
         };
         let size = px(24.0);
         let mut el = div()
@@ -76,18 +85,19 @@ impl RenderOnce for IconButton {
             .justify_center()
             .size(size)
             .rounded_md()
-            .child(Icon::new(self.icon).color(icon_color));
+            .text_color(icon_color)
+            .child(Icon::new(self.icon).inherit_color());
         if self.selected {
-            el = el.bg(t.element_selected);
+            el = el.bg(selected.bg);
         }
         if !self.disabled {
-            let hover = t.ghost_element_hover;
-            let active = t.element_active;
-            let text = t.icon;
+            let hover = t.hover;
+            let active = t.selection;
+
             el = el
                 .cursor(CursorStyle::PointingHand)
-                .hover(move |s| s.bg(hover).text_color(text))
-                .active(move |s| s.bg(active));
+                .hover(move |s| s.bg(hover.bg).text_color(hover.icon))
+                .active(move |s| s.bg(active.bg).text_color(active.icon));
             if let Some(f) = self.on_click {
                 el = el.on_click(f);
             }
@@ -138,27 +148,20 @@ impl TextButton {
 
 impl RenderOnce for TextButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let t = theme(cx).panel();
-        let (bg, fg, hover, active, border) = if self.primary {
-            (
-                t.button_bg,
-                t.button_text,
-                t.button_hover,
-                t.button_bg,
-                if t.high_contrast {
-                    t.border_focused
-                } else {
-                    t.button_bg
-                },
-            )
+        let t = theme(cx);
+        let normal = if self.primary { t.button } else { t.panel };
+        let hover = if self.primary {
+            t.button_hover
         } else {
-            (
-                t.bg_panel,
-                t.text,
-                t.element_hover,
-                t.element_active,
-                t.border,
-            )
+            t.hover
+        };
+        let active = if self.primary { t.button } else { t.selection };
+        let border = if self.primary && !t.appearance.is_high_contrast() {
+            normal.bg
+        } else if t.appearance.is_high_contrast() {
+            t.border_focused
+        } else {
+            t.border
         };
         let mut el = div()
             .id(self.id)
@@ -168,23 +171,17 @@ impl RenderOnce for TextButton {
             .h(px(28.0))
             .px_3()
             .rounded_md()
-            .bg(bg)
+            .bg(normal.bg)
             .border_1()
             .border_color(border)
-            .font_family(t.ui_font.clone())
+            .font_family(t.ui_font)
             .text_size(t.ui_size)
-            .text_color(fg)
+            .text_color(normal.text)
             .cursor(CursorStyle::PointingHand)
-            .hover(move |s| {
-                s.bg(hover)
-                    .text_color(crate::theme::readable(fg, hover, 4.5))
-            })
-            .active(move |s| {
-                s.bg(active)
-                    .text_color(crate::theme::readable(fg, active, 4.5))
-            });
+            .hover(move |s| s.bg(hover.bg).text_color(hover.text))
+            .active(move |s| s.bg(active.bg).text_color(active.text));
         if let Some(icon) = self.icon {
-            el = el.child(Icon::new(icon).color(fg));
+            el = el.child(Icon::new(icon).inherit_color());
         }
         el = el.child(self.label);
         if let Some(f) = self.on_click {
