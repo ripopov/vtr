@@ -1,0 +1,24 @@
+[package]
+name = "volna-egui"
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+edition = "2024"
+rust-version = "1.96"
+description = "Volna egui frontend: a native desktop viewer over volna-core"
+
+[[bin]]
+name = "volna-egui"
+path = "src/main.rs"
+
+[dependencies]
+volna-core = { path = "../volna-core" }
+egui = "0.36.1"
+eframe = { version = "0.36.1", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+rfd = "0.17"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

@@ -9,6 +9,7 @@ members = [
     "crates/vtr-vdb",
     "crates/volna-core",
     "crates/volna",
+    "crates/volna-egui",
 ]
 # Keep the default core build independent of the viewer's platform SDK.
 default-members = [
@@ -34,6 +35,10 @@ codegen-units = 1
 [profile.bench]
 inherits = "release"
 
+# The egui frontend's headless rasterizer is far too slow unoptimized; its
+# tests build the crate with optimizations even in the dev/test profiles.
+[profile.dev.package.volna-egui]
+opt-level = 2
 
 # Preserve the viewer's build settings without changing core benchmark profiles.
 [profile.viewer]
