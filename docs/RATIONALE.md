@@ -876,17 +876,20 @@ by default so machine speed does not determine test success.
 
 Volna's VS Code theming uses resolved webview CSS variables, following the
 [official guide](https://code.visualstudio.com/api/extension-guides/webview#theming-webview-content).
-A small JavaScript adapter maps them to semantic RGBA tokens; shared Rust owns
-a typed semantic palette, an appearance enum, precomputed surface/selection
-colours, fallbacks and GPUI invalidation. Supplied foreground/background pairs
+JavaScript only snapshots and observes the delivered CSS. Shared Rust owns the
+VS Code mapping, CSS parser, typed semantic palette, appearance enum, precomputed
+surface/selection colours, fallbacks and GPUI invalidation. Supplied foreground/background pairs
 are preserved; thin chart strokes promote alpha to full coverage and adjust
 only lightness when needed. Marker chips retain chart RGB with separate readable
-labels. Missing startup metadata has a 250 ms fallback while observation continues.
-Theme kinds alone cannot reproduce
-custom themes; parsing theme files would duplicate VS Code's resolution rules
-and miss customizations. Explicit wasm startup installs the latest palette
-before window creation. Live updates refresh the same views without resetting
-trace or interaction state. The single-webview layout and native/standalone
+labels. Automatic WASM startup reads an optional synchronous host snapshot before
+creating its first window; missing metadata uses Rust fallbacks and never gates
+startup. Observation continues for late updates. Theme kinds alone cannot
+reproduce custom themes; parsing theme files would duplicate VS Code's resolution rules
+and miss customizations. Raw real VS Code snapshots run directly through the
+production Rust adapter in unit and visual tests. A small serde-derived JSON
+interface also accepts host-neutral CSS colours, using the same parser; this
+avoids duplicating role names in a separate JS wire decoder. Live updates refresh
+the same views without resetting trace or interaction state. The single-webview layout and native/standalone
 One Dark defaults remain. See Volna's architecture and verification records for
 the boundary and tests. No VTR format, reader/writer API or decode path changes
 are involved, so the VTR specification and API references are unchanged.

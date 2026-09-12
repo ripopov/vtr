@@ -5997,6 +5997,8 @@ dependencies = [
  "js-sys",
  "libtest-mimic",
  "log",
+ "serde",
+ "serde_json",
  "vtr",
  "wasm-bindgen",
  "web-time",

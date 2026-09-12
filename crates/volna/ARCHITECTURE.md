@@ -105,35 +105,46 @@ browser thread. The VTR reader, file format, and decode path are unchanged.
 
 ## Host theming
 
-VS Code uses the existing single webview. `vscode-ext/theme.mjs` is the only
-VS Code colour-token mapping: it reads the resolved `--vscode-*` CSS variables
-from the body and sends semantic RGBA tokens through `web::set_theme`. A
-MutationObserver watches root/body style and theme-class changes, so theme
-customizations and changes within the same light/dark kind also update. Missing
-or malformed tokens are omitted; each snapshot replaces the previous palette,
-so values removed by a new theme do not leak from an old one. HC light is checked
-before the legacy HC class, which VS Code also attaches to HC light webviews.
+VS Code uses the existing single webview. `vscode-ext/theme.mjs` only captures
+resolved `--vscode-*` CSS variables and the body theme kind. It observes root/body
+style and theme metadata changes, including same-kind customizations, and sends
+a complete text snapshot. `theme/vscode.rs` owns every VS Code colour ID,
+fallback chain and appearance inference. `theme/color.rs` parses CSS colours for
+both this adapter and host-neutral JSON. Raw snapshots captured from real VS Code
+webviews feed this production Rust path directly in unit and visual tests; no
+JavaScript mapping, generated palette fixtures or JS object decoder is needed.
 
-Web startup is explicit: `await init()` initializes wasm without creating GPUI;
-the VS Code adapter installs the initial palette as soon as metadata is available;
-after at most 250 ms without metadata it infers appearance from the editor background
-(or the OS preference), resolves available colours, and proceeds. Late metadata
-still updates the viewer. Then `start()` launches GPUI. Until launch completes, Rust retains the latest
-palette. The launch callback installs it before creating the window and starts
-a channel for subsequent themes/file opens. `volnaReady` means file delivery is
-safe, and the extension registers its receiver before assigning webview HTML.
-The standalone page calls `start()` immediately after wasm initialization and
-keeps the existing One Dark default. Live changes never replace webview HTML or
-workspace entities: `Theme::install` replaces the GPUI global and refreshes all
-windows, including cached child views.
+WASM retains automatic startup. Before `init()`, the extension defines
+`window.volnaVscodeTheme()` to return the current raw snapshot. Rust reads it
+synchronously and installs the palette before creating any window. Missing
+metadata never delays startup: Rust infers appearance from an available editor
+background, otherwise defaults to dark. The observer starts before initialization
+and flushes any intervening changes after it, so late metadata still applies.
+The standalone page defines neither theme hook and keeps One Dark. `volnaReady`
+means file delivery is safe; the extension registers its receiver before setting
+webview HTML. Subsequent themes run on GPUI's executor and only replace its global
+and refresh windows, preserving the trace, rows and interaction state.
 
-`Theme::from_host` is shared Rust with no VS Code, browser or transport types.
-The host supplies a typed `HostPalette`: optional `Hsla` colours, foreground/background
-pairs, and an `Appearance` enum covering all four modes. Only the WASM decoder
-handles JavaScript field names; only the JavaScript adapter knows VS Code tokens.
-Rust resolves the complete `Theme` once per update, including each `Surface`,
-selection/hover state, waveform colour and marker chip. Row rendering copies a
-resolved surface; it performs no theme cloning or contrast searches.
+`Theme::from_host(&HostPalette)` is the shared Rust entry point for native and
+embedded hosts. The typed palette pairs foreground/background colours and uses
+an `Appearance` enum for all four modes. Resolution precomputes each `Surface`,
+interaction state, waveform stroke and marker chip once. Row rendering copies
+resolved colours; it does no theme cloning or contrast searches. Icon buttons
+receive normal/hover/selected surfaces together, including the title-bar buttons.
+
+Other web hosts can define `window.volnaHostTheme()` returning host-neutral JSON
+before initialization, and call `set_theme(json)` for live updates. This hook has
+precedence over the VS Code hook when both exist. Native hosts can parse the same
+JSON with `HostPalette::from_json` or construct the typed palette directly.
+Malformed JSON is rejected without changing the active theme. Serde derives the
+JSON field names from the palette itself; custom colour deserializers accept CSS
+strings rather than GPUI's internal colour representation. Omitted roles use
+fallbacks, explicit null colours mean absent, and unknown fields are ignored.
+See [the palette example](tests/fixtures/custom-palette.json). Appearance defaults
+to `dark`; the other values are `light`, `high-contrast-dark` and
+`high-contrast-light`. `charts`, if supplied, contains six nullable CSS strings in
+green/red/yellow/blue/orange/purple order. This is a presentation interface, with
+no dependency on trace data or file-format versions.
 
 Supplied foreground/background pairs retain their colours, including subdued
 host text. Missing or effectively invisible foregrounds use a readable fallback
@@ -150,7 +161,8 @@ and choose readable label text independently. These local safeguards are not a
 claim of complete accessibility conformance or pairwise colour distinguishability.
 
 This small semantic palette/install boundary can also be used by a future
-`embedded_gpui` host. There is no Zed integration, new dependency, or VTR change.
+`embedded_gpui` host. There is no Zed integration or VTR change. Serde/serde_json,
+already in the workspace dependency graph, provide the host JSON interface.
 
 Research: [official webview theming guide](https://code.visualstudio.com/api/extension-guides/webview#theming-webview-content),
 [theme colour reference](https://code.visualstudio.com/api/references/theme-color),

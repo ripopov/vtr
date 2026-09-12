@@ -478,7 +478,7 @@ impl Workspace {
             )
             .child(
                 IconButton::new("toggle-sidebar", IconName::PanelLeft)
-                    .surface(t.bar)
+                    .surfaces(t.bar, t.bar_hover, t.bar_hover)
                     .selected(self.sidebar_visible)
                     .tooltip(Tooltip::with_shortcut("Toggle sidebar", "⌘B"))
                     .on_click(
@@ -487,7 +487,7 @@ impl Workspace {
             )
             .child(
                 IconButton::new("open-file", IconName::FolderOpen)
-                    .surface(t.bar)
+                    .surfaces(t.bar, t.bar_hover, t.bar_hover)
                     .tooltip(Tooltip::with_shortcut("Open trace", "⌘O"))
                     .on_click(cx.listener(|this, _, w, cx| this.open_file(&OpenFile, w, cx))),
             )

@@ -1,13 +1,6 @@
 use super::*;
 
-include!("../../tests/fixtures/vscode/palettes.rs");
-
-fn pair(bg: u32, fg: u32) -> ColorPair {
-    ColorPair {
-        background: Some(c(bg)),
-        foreground: Some(c(fg)),
-    }
-}
+include!("../../tests/fixtures/themes.rs");
 
 #[test]
 fn real_host_pairs_and_state_colors_are_preserved() {
@@ -117,20 +110,8 @@ fn missing_and_invisible_values_fall_back_in_every_appearance() {
 
 #[test]
 fn each_surface_resolves_against_its_own_background() {
-    let p = HostPalette {
-        appearance: Appearance::Light,
-        editor: pair(0xfff4e6, 0x321800),
-        panel: pair(0x203040, 0xf0f8ff),
-        bar: pair(0x005fb8, 0xffffff),
-        input: pair(0xffffff, 0x333333),
-        elevated: pair(0x502000, 0xffffff),
-        tooltip: pair(0xe0ffe0, 0x002200),
-        selection: pair(0x0060c0, 0xffffff),
-        hover: pair(0xeeeeee, 0x333333),
-        button: pair(0x0078d4, 0xffffff),
-        menu_hover: pair(0xffff00, 0x000000),
-        ..Default::default()
-    };
+    let p =
+        HostPalette::from_json(include_str!("../../tests/fixtures/custom-palette.json")).unwrap();
     let t = Theme::from_host(&p);
     assert_eq!(t.panel.text, c(0xf0f8ff));
     assert_eq!(t.selection.text, c(0xffffff));
@@ -175,4 +156,142 @@ fn native_defaults_remain_one_dark() {
     assert_eq!(t.panel.text_muted, c(0xa9afbc));
     assert_eq!(t.wave_signal, c(0xa1c181));
     assert_eq!(t.marker(0).background.a, 0.85);
+}
+
+#[test]
+fn css_syntax_is_shared_and_invalid_numbers_never_reach_gpui() {
+    for (css, expected) in [
+        ("#abc", 0xaabbccff),
+        ("#abcd", 0xaabbccdd),
+        (" #ABCDef ", 0xabcdefff),
+        ("#12345678", 0x12345678),
+        ("rgb(17, 34, 51)", 0x112233ff),
+        ("rgba(17, 34, 51, 0.4)", 0x11223366),
+        ("rgb(100% 0% 20% / 40%)", 0xff003366),
+        ("transparent", 0),
+        ("rgb(300, -10, 0)", 0xff0000ff),
+    ] {
+        let actual: Rgba = parse_css_color(css).unwrap().into();
+        let expected = gpui::rgba(expected);
+        for (a, b) in [actual.r, actual.g, actual.b, actual.a]
+            .into_iter()
+            .zip([expected.r, expected.g, expected.b, expected.a])
+        {
+            assert!((a - b).abs() < 0.0001, "{css}");
+        }
+    }
+    for invalid in [
+        "",
+        "inherit",
+        "#ggg",
+        "#12",
+        "rgb(NaN, 0, 0)",
+        "rgb(inf, 0, 0)",
+        "rgba(0, 0, 0, -inf)",
+        "rgb(1,,2,3)",
+        "rgb(1 2 3 / / .5)",
+        "rgb(1 2 3 .5)",
+        "#ééé",
+        "rgb(1,2)",
+    ] {
+        assert!(parse_css_color(invalid).is_none(), "{invalid}");
+    }
+}
+
+#[test]
+fn json_interface_defaults_and_validation() {
+    let p = HostPalette::from_json(r##"{"appearance":"high-contrast-light","editor":{"background":"#fff","foreground":null},"unknown":true}"##).unwrap();
+    assert_eq!(p.appearance, Appearance::HighContrastLight);
+    assert_eq!(p.editor.background, Some(c(0xffffff)));
+    assert!(p.editor.foreground.is_none());
+    assert_eq!(
+        HostPalette::from_json("{}").unwrap().appearance,
+        Appearance::Dark
+    );
+    for invalid in [
+        "[]",
+        "null",
+        r#"{"appearance":"sepia"}"#,
+        r#"{"editor":{"foreground":"rgb(NaN, 0, 0)"}}"#,
+        r#"{"editor":{"foreground":123}}"#,
+        r##"{"charts":["#fff"]}"##,
+    ] {
+        assert!(HostPalette::from_json(invalid).is_err(), "{invalid}");
+    }
+}
+
+#[test]
+fn vscode_precedence_fallbacks_and_appearance_are_resolved_in_rust() {
+    let p = vscode::host_palette(
+        "kind=vscode-high-contrast-light\n--vscode-editor-background=#111\n--vscode-editor-foreground=#123456\n--vscode-foreground=#fff\n--vscode-charts-green=broken\n--vscode-terminal-ansiGreen=rgb(0 50% 0)\n--vscode-focusBorder=#00f\n--vscode-contrastActiveBorder=#f00",
+    );
+    assert_eq!(p.appearance, Appearance::HighContrastLight);
+    assert_eq!(p.editor.foreground, Some(c(0x123456)));
+    assert_eq!(p.panel.foreground, Some(c(0xffffff)));
+    assert_eq!(p.charts[0], parse_css_color("rgb(0 50% 0)"));
+    assert_eq!(p.focus, Some(c(0xff0000)));
+    for (bg, expected) in [
+        ("#fff", Appearance::Light),
+        ("#111", Appearance::Dark),
+        ("broken", Appearance::Dark),
+    ] {
+        assert_eq!(
+            vscode::host_palette(&format!("--vscode-editor-background={bg}")).appearance,
+            expected
+        );
+    }
+    // A later snapshot starts fresh; omitted host roles cannot retain stale colours.
+    assert!(vscode::host_palette("kind=vscode-light").charts[0].is_none());
+}
+
+#[test]
+fn real_and_mixed_palettes_keep_surface_text_visible() {
+    let custom =
+        HostPalette::from_json(include_str!("../../tests/fixtures/custom-palette.json")).unwrap();
+    for p in real_palettes().into_iter().chain([custom]) {
+        let t = Theme::from_host(&p);
+        for surface in [
+            t.editor,
+            t.panel,
+            t.bar,
+            t.bar_hover,
+            t.elevated,
+            t.tooltip,
+            t.input,
+            t.selection,
+            t.hover,
+            t.menu_hover,
+            t.button,
+            t.button_hover,
+            t.badge,
+            t.badge_hover,
+        ] {
+            // Preserve the host's choices (some supplied text pairs are below 4.5).
+            assert!(contrast(over(surface.text, surface.bg), surface.bg) >= 3.0);
+            for text in [
+                surface.text_muted,
+                surface.text_placeholder,
+                surface.icon,
+                surface.icon_accent,
+                surface.error,
+            ] {
+                assert!(contrast(over(text, surface.bg), surface.bg) >= 2.99);
+            }
+        }
+        for marker in t.markers {
+            assert!(contrast(over(marker.text, marker.background), marker.background) >= 4.49);
+        }
+    }
+}
+
+#[test]
+fn translucent_surfaces_and_foregrounds_use_actual_composited_contrast() {
+    let p = HostPalette::from_json(r##"{"editor":{"background":"#000"},"panel":{"background":"#fff8","foreground":"#000"},"selection":{"background":"#fff8","foreground":"#fff0"}}"##).unwrap();
+    let t = Theme::from_host(&p);
+    assert_eq!(t.panel.bg, over(p.panel.background.unwrap(), t.editor.bg));
+    assert_eq!(
+        t.selection.bg,
+        over(p.selection.background.unwrap(), t.panel.bg)
+    );
+    assert!(contrast(over(t.selection.text, t.selection.bg), t.selection.bg) >= 4.49);
 }

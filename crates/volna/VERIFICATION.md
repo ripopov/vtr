@@ -117,96 +117,51 @@ step for the reviewer.
 - No `wasm-opt` pass; the bundle is 12.8 MB, mostly fonts and the VTR reader.
 - Marker chips can overlap tick labels at some zoom levels.
 
-## VS Code theme following (2026-09-12)
+## Unified host theming (2026-09-12)
 
-Validation for the host-theming change:
+The final implementation combines precomputed surfaces with one shared Rust CSS
+parser and VS Code mapping. All four raw VS Code 1.137 snapshots and the mixed
+JSON palette run through the production adapters, not a generated intermediary.
 
-- `crates/volna/check.sh` passes formatting, strict native Clippy across all
-  targets/features, 24 Rust unit/regression tests, the Metal viewer interaction
-  test, and three Node.js adapter tests. `frame_times` remains intentionally
-  ignored; no performance claim or VTR benchmark update is made.
-- `CARGO_TARGET_DIR=/Users/ripopov/work/vtr/target sh crates/volna/web/build.sh`
-  builds the optimized wasm and extension media bundle. The target-directory
-  override reused local dependencies; it is not required for a clean build.
-- Rust tests cover opaque/alpha tokens, sparse and low-contrast palettes in all
-  four modes, text/wave/marker contrast, and preservation of source/history
-  identity, selection, cursor, zoom, markers, column widths and scroll offset.
-- Adapter tests cover CSS hex and rgb()/rgba() values, missing/malformed values, all four theme
-  classes (including HC light's legacy class), delayed startup metadata,
-  same-kind changes, deduplication and removal of old tokens.
-- The Metal interaction test switches palettes with the format menu open and
-  asserts unchanged viewer diagnostics. Optional captures include `06-light`,
-  `07-dark`, `08-hc-dark`, `09-hc-light` and `10-custom`; HC light and the custom
-  palette with light editor/dark panels were visually inspected.
+Validation:
 
-Live graphical verification used an isolated VS Code development profile and
-Chrome via the DevTools protocol, without changing the user's editor settings.
-With `picorv32.vtr` open and 29 signals added, a signal was selected, the cursor
-placed at about 3.41 µs, a marker added, and the viewport zoomed. Theme changes through
-Dark Modern, Default High Contrast, Default High Contrast Light and Light Modern
-all repainted the viewer. Light Modern colour customizations then set an ivory
-editor (`#fff4e6`), dark panels (`#203040`), blue status bar (`#005fb8`) and teal
-waves (`#006b66`); removing those customizations restored the original colours.
-Every switch retained the identical webview document and canvas objects. After converting the captures' embedded display profile to sRGB, pixel sampling
-also confirmed the actual canvas background in all five palettes. The
-captures retain the trace, selection, cursor, marker and zoom; HC outlines and
-foregrounds were visually inspected. The initial light viewer capture also
-uses the host palette. A standalone Chrome page still loads the sample in
-One Dark. Local artifacts are `/tmp/volna-theme-shots/` (not committed), with
-`vscode-{light,dark,hc-dark,hc-light,light-modern,custom,custom-removed}.png`
-and `web-standalone.png` alongside the Metal captures.
+- `crates/volna/check.sh`: formatting, strict native Clippy, 32 Rust unit tests,
+  the Metal interaction test and three JavaScript transport/lifecycle tests.
+  The timing test is deliberately ignored. On macOS the visual test needs access
+  to GUI services; it cannot run inside a sandbox that denies those services.
+- Strict WASM Clippy: `cargo clippy --locked -p volna --target
+  wasm32-unknown-unknown --lib --all-features -- -D warnings`, with Homebrew LLVM
+  20 configured for zstd-sys. `web/build.sh` rebuilds the optimized WASM and
+  extension media from this branch.
+- The Metal harness verifies unchanged source/interaction diagnostics through
+  sparse, mixed, and all four real palettes with an open format menu. Captures
+  include the mixed-theme empty-table state, which now has a single background
+  under its hint. Mixed surfaces, menu text, HC outlines and value colours were
+  visually inspected.
+- A fresh isolated VS Code profile loaded the rebuilt extension and bundled
+  `examples/picorv32.vtr`. Live switches covered Dark Modern, Light Modern,
+  Default High Contrast, Default High Contrast Light, a light editor with dark
+  sidebar and blue status bar, and removal of those customizations. All six
+  switches kept the identical document and canvas. Captures retain eight signals,
+  selection, cursor at 3.371 µs, zoom and a marker.
+- Standalone Chrome loaded the same trace automatically with One Dark. Actual
+  browser checks also exercised `volnaHostTheme()` with the mixed JSON fixture,
+  a live `set_theme(json)` update, rejection of malformed JSON, and startup with
+  a VS Code snapshot missing its kind but containing a light editor background.
+  Each produced a canvas without an explicit `start()` call or metadata timer.
 
-To repeat: build the web bundle, launch `code --user-data-dir=<temporary-dir>
---extensionDevelopmentPath=<absolute vscode-ext path> <sample.vtr>`, select
-Volna with **Reopen Editor With…** if the first launch selected the binary text
-editor, add signals and interaction state, then change themes and
-`workbench.colorCustomizations` in that temporary profile. Re-run the Metal
-capture command above for reproducible automated state assertions.
+Local captures are in `/tmp/volna-unified-shots/` (not committed). Repeat the
+native captures with `VOLNA_SCREENSHOTS=<directory> crates/volna/check.sh`.
+For live checks, build the web bundle, start VS Code with a temporary
+`--user-data-dir` and `--extensionDevelopmentPath=<absolute vscode-ext path>`,
+open `examples/picorv32.vtr`, add signals/cursor/marker/zoom, then switch themes
+and `workbench.colorCustomizations` in that temporary profile. Reopen with Volna
+if the file initially uses another editor. Serve `crates/volna` locally and open
+`web/?file=../examples/picorv32.vtr` for the standalone check.
 
-Limits: the live run exercised bundled themes and customizations, not a matrix
-of third-party theme extensions, VS Code versions or GPU backends. Screenshots
-are spot checks, not a frame-by-frame startup recording or pixel-baseline test;
-the no-default-flash guarantee comes from installing the palette before GPUI
-window creation. Fonts/metrics remain bundled and do not follow VS Code font
-settings. Contrast safeguards do not constitute a complete accessibility audit.
-The pre-existing dependency `block` reports a future-Rust compatibility warning.
-
-## Typed palette refinement (2026-09-12)
-
-- `check.sh` passes strict native Clippy, formatting, 27 Rust tests, the Metal
-  interaction test, and five JavaScript tests. The ignored timing test remains
-  excluded. Four real VS Code 1.137 palettes now accompany synthetic and lifecycle
-  tests; JavaScript verifies that generated Rust fixtures match the host mapping.
-- Strict WASM Clippy passes with `cargo clippy -p volna --locked --target
-  wasm32-unknown-unknown --lib --all-features -- -D warnings` (Homebrew LLVM 20
-  configured for zstd-sys). The three new WASM warnings were fixed.
-- `web/build.sh` builds the optimized WASM and extension media. No dependencies,
-  VTR APIs, file format or decode paths changed.
-- Tests cover supplied surface/state pairs, missing/invisible foregrounds,
-  translucent chart RGB preservation, lightness-only stroke repair, opaque marker
-  chips and labels, synchronous initial metadata, bounded 250 ms fallback and
-  late metadata. State tests retain source/history identity and interaction state.
-- Native captures under `/tmp/volna-refined-shots/` include the open format menu
-  through all synthetic and four real palettes. Light, HC light and mixed-surface
-  captures were inspected. Live VS Code 1.137 switches through both ordinary and
-  both HC modes, custom colours and removal retained identical canvas/document
-  objects and visible trace, selection, cursor, marker and zoom. Captures are in
-  `/tmp/volna-theme-shots/`. Standalone Chrome still loads in One Dark.
-
-The visual pass caught SVGs disappearing when their explicit colour was omitted:
-GPUI SVGs do not inherit unset colour. The icon wrapper now explicitly reads the
-inherited text colour, preserving icons while sharing row/button foregrounds.
-
-Limits: missing metadata and alpha-chart edge cases have automated coverage, not
-an exhaustive live host/browser matrix. Startup ordering is tested, but no
-frame-by-frame recording proves absence of every startup flash. Third-party
-extensions, other VS Code versions, Linux/Windows and other GPU backends were
-not checked. The existing dependency `block` still emits its future-Rust warning.
-
-After the final icon fix, a fresh isolated VS Code profile loaded the rebuilt
-bundle and repeated all six switches successfully with the same document/canvas,
-29 signals, a selected row, cursor at 7.835 µs, marker and zoom. The older reused
-development profile failed to load a cached module (`tokens` redeclaration);
-this did not reproduce in the fresh profile. Rebuilding files under a running
-development host therefore remains a verification caveat. Standalone was also
-reloaded against the final bundle and its icons visually checked.
+Limits: browser and visual checks are spot checks, not pixel-baseline tests or a
+frame-by-frame proof of no startup flash. Linux/Windows, other GPU backends and a
+matrix of third-party themes were not exercised. Host text choices are preserved;
+contrast safeguards are not a complete accessibility audit. Fonts/metrics remain
+Volna's bundled defaults. No Zed integration or native OS-theme following was
+added. The existing `block` dependency still emits its future-Rust warning.

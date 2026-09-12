@@ -42,8 +42,8 @@ function html(webview, extensionUri) {
 </head>
 <body>
 <script type="module" nonce="${n}">
-  import init, { open_trace, start, set_theme, Appearance } from "${js}";
-  import { followTheme } from "${themeJs}";
+  import init, { open_trace, set_vscode_theme } from "${js}";
+  import { watchTheme } from "${themeJs}";
   const vscode = acquireVsCodeApi();
   window.volnaEmbedded = true;
   window.volnaOpen = () => vscode.postMessage({ type: "pickFile" });
@@ -54,9 +54,10 @@ function html(webview, extensionUri) {
       open_trace(msg.name, new Uint8Array(msg.bytes));
     }
   });
+  const themes = watchTheme(set_vscode_theme);
+  window.volnaVscodeTheme = themes.current;
   await init();
-  await followTheme((appearance, colors) => set_theme(Appearance[appearance], colors));
-  start();
+  themes.start();
 </script>
 </body>
 </html>`;

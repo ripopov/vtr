@@ -8,8 +8,8 @@
 
 #[cfg(target_os = "macos")]
 mod theme_fixtures {
-    use volna::theme::{Appearance, ColorPair, HostPalette};
-    include!("fixtures/vscode/palettes.rs");
+    use volna::theme::{HostPalette, vscode};
+    include!("fixtures/themes.rs");
     pub fn all() -> [HostPalette; 4] {
         real_palettes()
     }
@@ -275,6 +275,11 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update(|cx| workspace.update(cx, |ws, cx| ws.open_path(example, cx)));
         settle(&mut test, 3);
         shot(&mut test, "02-loaded")?;
+        let custom =
+            volna::theme::HostPalette::from_json(include_str!("fixtures/custom-palette.json"))?;
+        test.update(|cx| volna::theme::Theme::from_host(&custom).install(cx));
+        shot(&mut test, "02b-custom-empty")?;
+        test.update(|cx| volna::theme::Theme::one_dark().install(cx));
         // Click the second scope row (row height 24, header 32, titlebar 32, list padding 4).
         click(
             &mut test,
@@ -352,7 +357,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         // Replace only the theme while trace, selection, zoom, cursor, marker and
         // format menu are active. Cached GPUI children must repaint too.
         let before_theme = state(&mut test, "before themes");
-        use volna::theme::{Appearance::*, ColorPair, HostPalette, Theme};
+        use volna::theme::{Appearance::*, HostPalette, Theme};
         for (name, appearance) in [
             ("06-light", Light),
             ("07-dark", Dark),
@@ -365,13 +370,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 ..Default::default()
             };
             if name == "10-custom" {
-                let pair = |bg, fg| ColorPair {
-                    background: Some(gpui::rgb(bg).into()),
-                    foreground: Some(gpui::rgb(fg).into()),
-                };
-                palette.editor = pair(0xfff4e6, 0x321800);
-                palette.panel = pair(0x203040, 0xf0f8ff);
-                palette.bar = pair(0x005fb8, 0xffffff);
+                palette = HostPalette::from_json(include_str!("fixtures/custom-palette.json"))?;
             }
             test.update(|cx| Theme::from_host(&palette).install(cx));
             shot(&mut test, name)?;

@@ -14,7 +14,7 @@ pub struct IconButton {
     selected: bool,
     disabled: bool,
     color: Option<Hsla>,
-    surface: Option<Surface>,
+    surfaces: Option<(Surface, Surface, Surface)>,
     tooltip: Option<Box<TooltipBuilder>>,
     on_click: Option<Box<ClickHandler>>,
 }
@@ -27,14 +27,14 @@ impl IconButton {
             selected: false,
             disabled: false,
             color: None,
-            surface: None,
+            surfaces: None,
             tooltip: None,
             on_click: None,
         }
     }
 
-    pub fn surface(mut self, surface: Surface) -> Self {
-        self.surface = Some(surface);
+    pub fn surfaces(mut self, normal: Surface, hover: Surface, selected: Surface) -> Self {
+        self.surfaces = Some((normal, hover, selected));
         self
     }
 
@@ -67,8 +67,7 @@ impl IconButton {
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = theme(cx);
-        let colors = self.surface.unwrap_or(t.panel);
-        let selected = t.selection;
+        let (colors, hover, selected) = self.surfaces.unwrap_or((t.panel, t.hover, t.selection));
         let icon_color = if self.disabled {
             colors.text_placeholder
         } else if self.selected {
@@ -91,8 +90,7 @@ impl RenderOnce for IconButton {
             el = el.bg(selected.bg);
         }
         if !self.disabled {
-            let hover = t.hover;
-            let active = t.selection;
+            let active = selected;
 
             el = el
                 .cursor(CursorStyle::PointingHand)

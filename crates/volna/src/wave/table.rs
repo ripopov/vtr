@@ -703,6 +703,9 @@ impl Element for WaveTable {
                 point(bounds.origin.x, layout.names.origin.y),
                 size(bounds.size.width, layout.names.size.height),
             );
+            // The empty-state message spans the table, so give it one surface
+            // instead of crossing differently themed name/value columns.
+            window.paint_quad(fill(area, t.editor.bg));
             let cx_ = area.origin.x + area.size.width / 2.0;
             let cy = area.origin.y + area.size.height / 2.0;
             let icon = Bounds::new(

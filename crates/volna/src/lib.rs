@@ -119,11 +119,25 @@ pub mod web {
         });
     }
 
-    /// Semantic RGBA palette. Before startup, retain the latest snapshot; afterwards,
-    /// enqueue updates on GPUI's executor (never re-enter an application update).
+    /// Host-neutral JSON palette; malformed input leaves the current theme intact.
     #[wasm_bindgen]
-    pub fn set_theme(appearance: crate::theme::Appearance, colors: JsValue) {
-        let theme = crate::theme::Theme::from_host(&crate::theme::web::decode(appearance, &colors));
+    pub fn set_theme(json: &str) -> Result<(), JsValue> {
+        let palette = crate::theme::HostPalette::from_json(json)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        install_theme(crate::theme::Theme::from_host(&palette));
+        Ok(())
+    }
+
+    /// Resolved VS Code CSS snapshot, parsed entirely by shared Rust code.
+    #[wasm_bindgen]
+    pub fn set_vscode_theme(snapshot: &str) {
+        install_theme(crate::theme::Theme::from_host(
+            &crate::theme::vscode::host_palette(snapshot),
+        ));
+    }
+
+    // Keep the latest update while startup is pending; never re-enter GPUI.
+    fn install_theme(theme: crate::theme::Theme) {
         HOST_TX.with(|tx| {
             if let Some(tx) = tx.borrow().as_ref() {
                 tx.unbounded_send(HostEvent::Theme(Box::new(theme))).ok();
@@ -145,10 +159,27 @@ pub mod web {
         log::warn!("volnaOpen is not defined by the host page");
     }
 
-    #[wasm_bindgen]
+    fn host_snapshot(name: &str) -> Option<String> {
+        let global = js_sys::global();
+        js_sys::Reflect::get(&global, &name.into())
+            .ok()?
+            .dyn_ref::<js_sys::Function>()?
+            .call0(&global)
+            .ok()?
+            .as_string()
+    }
+
+    #[wasm_bindgen(start)]
     pub fn start() {
         console_error_panic_hook::set_once();
         gpui_web::init_logging();
+        if let Some(json) = host_snapshot("volnaHostTheme") {
+            if let Err(error) = set_theme(&json) {
+                log::warn!("invalid initial host theme: {error:?}");
+            }
+        } else if let Some(snapshot) = host_snapshot("volnaVscodeTheme") {
+            set_vscode_theme(&snapshot);
+        }
         let (tx, mut rx) = mpsc::unbounded::<HostEvent>();
         // Embedded mode when the host page sets `window.volnaEmbedded = true`.
         let embedded = js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("volnaEmbedded"))

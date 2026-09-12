@@ -1,8 +1,9 @@
 //! Resolved design tokens. Host colours are resolved once, never while painting a row.
 mod palette;
 pub use palette::{Appearance, ColorPair, HostPalette};
-#[cfg(target_family = "wasm")]
-pub(crate) mod web;
+mod color;
+pub use color::parse_css_color;
+pub mod vscode;
 
 use gpui::{App, Global, Hsla, Pixels, Rgba, px, rgb};
 
@@ -225,19 +226,27 @@ impl Theme {
         );
         t.elevated = resolve(p.elevated, t.panel.bg, t.panel.text);
         t.tooltip = resolve(p.tooltip, t.elevated.bg, t.elevated.text);
-        t.input = resolve(p.input, t.editor.bg, t.editor.text);
+        let with_bg = |pair: ColorPair, fallback| ColorPair {
+            background: Some(pair.background.unwrap_or(fallback)),
+            ..pair
+        };
+        t.input = resolve(with_bg(p.input, t.editor.bg), t.panel.bg, t.editor.text);
         t.selection = resolve(
-            p.selection,
-            over(alpha(accent, 0.25), t.panel.bg),
+            with_bg(p.selection, over(alpha(accent, 0.25), t.panel.bg)),
+            t.panel.bg,
             t.panel.text,
         );
         t.hover = resolve(
-            p.hover,
-            over(alpha(t.panel.text, 0.08), t.panel.bg),
+            with_bg(p.hover, over(alpha(t.panel.text, 0.08), t.panel.bg)),
+            t.panel.bg,
             t.panel.text,
         );
-        t.menu_hover = resolve(p.menu_hover, t.hover.bg, t.elevated.text);
-        t.button = resolve(p.button, over(accent, t.panel.bg), c(0xffffff));
+        t.menu_hover = resolve(
+            with_bg(p.menu_hover, t.hover.bg),
+            t.elevated.bg,
+            t.elevated.text,
+        );
+        t.button = resolve(with_bg(p.button, accent), t.panel.bg, c(0xffffff));
         t.button_hover = resolve(
             ColorPair {
                 background: p.button_hover,
@@ -350,7 +359,15 @@ impl Surface {
                 .filter(|c| contrast(over(*c, bg), bg) >= 3.0)
                 .unwrap_or(fallback)
         };
-        let muted = secondary(p.muted, text);
+        // Keep muted labels on the main text's side of the surface: a blue bar
+        // with white labels must not acquire dark muted text from a light editor.
+        let muted = secondary(
+            p.muted.filter(|c| {
+                (luminance(over(*c, bg)) >= luminance(bg))
+                    == (luminance(over(text, bg)) >= luminance(bg))
+            }),
+            text,
+        );
         Self {
             bg,
             text,

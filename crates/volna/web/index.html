@@ -14,7 +14,7 @@
   <body>
     <input id="picker" type="file" accept=".vtr" />
     <script type="module">
-      import init, { open_trace, start } from "./dist/volna.js";
+      import init, { open_trace } from "./dist/volna.js";
       const picker = document.getElementById("picker");
       // The app calls this to ask for a file.
       window.volnaOpen = () => picker.click();
@@ -33,7 +33,6 @@
         if (res.ok) open_trace(url.split("/").pop(), new Uint8Array(await res.arrayBuffer()));
       };
       await init();
-      start();
     </script>
   </body>
 </html>
