@@ -73,12 +73,12 @@ identity or the per-block dynamic alias rules in section 6.6.
 | 16 | 16 | reserved, must be 0 |
 
 A reader must reject a file whose major version is greater than the one it
-implements and must accept any minor version: minor versions only add
-optional sections, attribute keys and value tags (section 9). A reader that
-meets a value tag it does not know must report the file as unreadable
-rather than guess. Version 1.1 defines value tag 17 (text) and the optional
-LOG_BLOCK section; a 1.0 reader skips log blocks and rejects files that
-use tag 17.
+implements and must accept any minor version within a supported major version.
+Minor versions may only add optional sections or metadata that readers can
+safely skip. New value tags require a major version bump (section 9).
+A reader that encounters an unknown value tag must report the file as
+unreadable rather than guess. The current format defines value tag 17 (text)
+and the optional LOG_BLOCK section.
 
 ### 2.2 Section header (24 bytes)
 
@@ -661,6 +661,8 @@ skipped without decompression. *Record by id*: blocks whose
 
 ## 9. Extensibility and versioning
 
+* Minor versions may only add optional sections or metadata that readers can
+  safely skip.
 * New section kinds must be marked optional unless the major version is
   bumped.
 * New attribute keys never require a version change.
