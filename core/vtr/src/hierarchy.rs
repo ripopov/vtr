@@ -484,6 +484,48 @@ impl NodeData {
     }
 }
 
+/// Borrowed node payload for inspection without copying enum tables.
+#[derive(Clone, Copy, Debug)]
+pub enum NodeDataRef<'a> {
+    Scope { scope_type: ScopeType, component: StrId },
+    Var { var_type: VarType, direction: Direction, signal: SignalId, declares: Option<SignalKind> },
+    Stream { kind: StrId },
+    Generator,
+    EnumTable { entries: &'a [(StrId, StrId)] },
+}
+impl NodeDataRef<'_> {
+    pub fn kind(self) -> NodeKind {
+        match self { Self::Scope { .. } => NodeKind::Scope, Self::Var { .. } => NodeKind::Var,
+            Self::Stream { .. } => NodeKind::Stream, Self::Generator => NodeKind::Generator,
+            Self::EnumTable { .. } => NodeKind::EnumTable }
+    }
+    pub fn to_owned(self) -> NodeData {
+        match self {
+            Self::Scope { scope_type, component } => NodeData::Scope { scope_type, component },
+            Self::Var { var_type, direction, signal, declares } => NodeData::Var { var_type, direction, signal, declares },
+            Self::Stream { kind } => NodeData::Stream { kind },
+            Self::Generator => NodeData::Generator,
+            Self::EnumTable { entries } => NodeData::EnumTable { entries: entries.to_vec() },
+        }
+    }
+}
+
+/// A borrowed node view. Large attribute values and enum entries stay in their
+/// owning hierarchy until the caller explicitly requests an owned copy.
+#[derive(Clone, Copy, Debug)]
+pub struct NodeRef<'a> {
+    pub parent: Option<NodeId>,
+    pub name: StrId,
+    pub data: NodeDataRef<'a>,
+    pub attrs: &'a [(StrId, Value)],
+}
+impl NodeRef<'_> {
+    pub fn kind(self) -> NodeKind { self.data.kind() }
+    pub fn to_owned(self) -> Node {
+        Node { parent: self.parent, name: self.name, data: self.data.to_owned(), attrs: self.attrs.to_vec() }
+    }
+}
+
 /// One hierarchy node (the value-level description; the reader stores nodes
 /// column-wise, see [`Hierarchy`]).
 #[derive(Clone, Debug, PartialEq)]
@@ -730,22 +772,25 @@ impl Hierarchy {
     }
 
     /// The node as a value (enum tables and attributes are copied). Panics when out of range.
-    pub fn node(&self, id: NodeId) -> Node {
+    pub fn node(&self, id: NodeId) -> Node { self.node_ref(id).to_owned() }
+
+    /// Borrow a node without copying attributes or enum entries. Panics when out of range.
+    pub fn node_ref(&self, id: NodeId) -> NodeRef<'_> {
         let i = id.0 as usize;
         let (w0, w1) = (self.w0[i], self.w1[i]);
         let data = match self.kind(id) {
-            NodeKind::Scope => NodeData::Scope { scope_type: ScopeType::from_code(w0 as u16), component: StrId(w1) },
-            NodeKind::Var => NodeData::Var {
+            NodeKind::Scope => NodeDataRef::Scope { scope_type: ScopeType::from_code(w0 as u16), component: StrId(w1) },
+            NodeKind::Var => NodeDataRef::Var {
                 var_type: VarType::from_code(w0 as u16),
                 direction: Direction::from_u8((w0 >> 16) as u8),
                 signal: SignalId(w1),
                 declares: if w0 >> 24 != 0 { self.signals.get(w1 as usize).copied() } else { None },
             },
-            NodeKind::Stream => NodeData::Stream { kind: StrId(w0) },
-            NodeKind::Generator => NodeData::Generator,
-            NodeKind::EnumTable => NodeData::EnumTable { entries: self.enum_tables[w0 as usize].clone() },
+            NodeKind::Stream => NodeDataRef::Stream { kind: StrId(w0) },
+            NodeKind::Generator => NodeDataRef::Generator,
+            NodeKind::EnumTable => NodeDataRef::EnumTable { entries: &self.enum_tables[w0 as usize] },
         };
-        Node { parent: self.parent(id), name: self.name(id), data, attrs: self.attrs(id).to_vec() }
+        NodeRef { parent: self.parent(id), name: self.name(id), data, attrs: self.attrs(id) }
     }
 
     pub fn kind(&self, id: NodeId) -> NodeKind {

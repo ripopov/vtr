@@ -15,6 +15,56 @@ See the [architecture guide](ARCHITECTURE.md) for boundaries and integration sta
 
 ## Volna FST session integration
 
+The bounded-query foundation in `core/vtr-query` follows the
+[client-server design](client-server.md): half-open time intervals include an
+explicit endpoint beyond `u64::MAX`, and aggregation grids align to tick zero
+using checked `u128` arithmetic. This keeps coverage and cache identity stable
+across pans without float rounding. Empty demand produces no grid.
+
+Shared allocation reservations remain charged until the last pin is released;
+cache eviction alone cannot release memory retained by a reply or a panel.
+The optional stdio framing module admits one length-checked payload at a time
+and leaves coalesced subsequent frames with the caller until delivery capacity
+is available. It does not parse query semantics or establish decoder/reader
+memory bounds. Native in-process execution does not need the framing feature.
+The existing viewer sessions below have not yet moved to these contracts.
+
+`Reader::change_scan` supplies resumable borrowed-value traversal at the reader
+layer. It retains the two column byte cursors, delta-time state and prior logic
+code, rather than using a timestamp as a continuation. This preserves repeated
+same-time events across blocks and avoids collecting or rescanning a whole
+window to produce a page. Work slices count both block preparations and decoded
+entries, including entries skipped before the lower bound. Decoder allocation
+admission and wire continuation validation remain separate work; no bounded
+reader-memory or latency claim follows from this cursor alone.
+
+The raw waveform reducer keeps a constant number of shared values per bin,
+instead of producing an exact history and reducing it afterward. Source-event
+counts compose across aligned bins. Real extrema include only held values with
+nonzero duration inside the bin; multiple changes at one timestamp still count
+as occurrences but their intermediate values do not acquire duration. Nonfinite
+counters classify source changes, excluding the entry sample, which prevents
+double-counting a held boundary value when bins merge. This composition applies
+to waveform reductions, never to distinct transaction-overlap counts.
+
+Metadata queries reuse the hierarchy's existing adjacency and string tables.
+`Hierarchy::node_ref` exposes borrowed attributes and enum entries, fixing the
+missing inspection API at the owner instead of copying whole records into a
+query-side cache. Child pages admit header/name allocations before returning
+them; large names are explicit string references with byte-range retrieval.
+Search retains only a lowercase pattern, its KMP prefix table and a resumable
+cursor through names and ancestry. Literal path batches preserve duplicate-name
+ambiguity while avoiding one client round trip for each hierarchy level.
+
+The typed native query session owns a fixed number of operation slots and one
+retryable delivery per slot. Fresh snapshot identities and monotonically
+assigned operation IDs prevent old continuations from addressing replacement
+operations. Requesting the next page acknowledges the previous delivery, so
+retry support does not require a growing reply history. The shared response
+budget includes slot storage and retained deliveries; host workers execute the
+native operations without a codec. Asynchronous viewer and relay adapters are
+separate integration work, as are reader cache and scratch limits.
+
 Volna uses Session and immutable SignalHistory interfaces with batched loads
 and a private fst-reader adapter. The converter's numeric FST scope,
 variable and direction mappings are reused through existing type names, without

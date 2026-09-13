@@ -7,6 +7,11 @@ is spelled out. The on-disk format is specified in
 [`docs/SPEC.md`](SPEC.md); the C binding is documented in
 [`docs/API_C.md`](API_C.md).
 
+The separate [`vtr-query` foundation](../core/vtr-query/README.md) supplies
+validated half-open intervals, canonical grids, shared byte reservations,
+cancellation and optional stdio framing for the planned bounded session API.
+It does not change the reader operations documented here or their C projection.
+
 Contents
 
 1. [Overview and design principles](#1-overview-and-design-principles)
@@ -984,6 +989,7 @@ pub struct Hierarchy {
 }
 impl Hierarchy {
     pub fn node(&self, id: NodeId) -> Node                           // by value; panics when out of range
+    pub fn node_ref(&self, id: NodeId) -> NodeRef<'_>                // borrowed; panics when out of range
     pub fn kind(&self, id: NodeId) -> NodeKind
     pub fn parent(&self, id: NodeId) -> Option<NodeId>
     pub fn name(&self, id: NodeId) -> StrId
@@ -1013,7 +1019,12 @@ the original declaration's type.
 
 A `Reader` always returns an indexed hierarchy; `roots`/`children` are O(1)
 per item (CSR layout). `node(id)` copies enum-table entries and attributes,
-so prefer the accessors in tight loops.
+so prefer `node_ref` or the individual accessors in tight loops. `NodeRef`
+contains the same parent/name fields, a `NodeDataRef` payload and a borrowed
+attribute slice. `NodeDataRef` mirrors `NodeData`, with a borrowed slice for
+enum-table entries. `NodeRef::to_owned` and `NodeDataRef::to_owned` make copying
+explicit. The C `vtr_reader_node` header query uses this borrowed view and reads
+attribute/enum counts without copying their contents.
 
 ```rust
 pub struct Node {
@@ -1153,6 +1164,31 @@ pub fn changes(&self, sig: SignalId, t0: u64, t1: u64) -> Result<Vec<(u64, Owned
 All changes of `sig` with `t0 <= time <= t1` (both inclusive), in time order,
 same-time updates in emission order. Visits only blocks whose range
 intersects `[t0, t1]` and only the run containing `sig` in each.
+
+```rust
+pub fn change_scan(&self, sig: SignalId, t0: u64, t1: u64) -> Result<ChangeScan<'_>>
+impl ChangeScan<'_> {
+    pub fn scan(&mut self, work: usize,
+        visit: impl FnMut(u64, SignalValue<'_>) -> ScanAction) -> Result<bool>
+}
+```
+
+Start an inclusive scan without decoding data. Each `scan` call consumes at
+most `work` units, where one unit prepares a block or visits one column entry
+(including entries before `t0`). `ScanAction::StopAfter` stops after consuming that event;
+`StopBefore` leaves it unconsumed for the next call. `Continue` accepts the event
+and requests further work. The decoder position survives across calls, preserving
+same-time events across pages and blocks without rescanning previous entries.
+Values are borrowed only for the callback; no history vector is collected.
+The return value is `true` only when exhaustion has been proven. A call can
+return `false` without delivering any events; continue to establish complete
+coverage. Repeated calls after completion return `true` without callbacks.
+
+The reader must outlive the scan. Unknown signals, reversed intervals and zero
+work budgets return `Error::Invalid`. Decode errors make the scan terminal.
+Cancellation can be checked between calls. Preparing a block still uses the
+existing decoder and caches: the work-unit count does not establish a bound on
+decompression time or memory. This cursor is local state, not a wire continuation.
 
 ```rust
 pub fn load_signal(&self, sig: SignalId) -> Result<SignalData>

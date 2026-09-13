@@ -744,9 +744,8 @@ fn log_raw_matches_log() {
             let args = [LogArg::Text(text), LogArg::I64(-(i as i64) * 1000), LogArg::U64(i << 40), LogArg::F64(i as f64 * 0.25), LogArg::Bool(i % 2 == 0), LogArg::Bytes(&[i as u8, 7])];
             if raw {
                 let mut row = Vec::new();
-                row.extend_from_slice(text.as_bytes().len().to_le_bytes().first().map(|_| ()).map(|_| Vec::<u8>::new()).unwrap_or_default().as_slice());
                 // Row encoding: text = varint len + bytes; i64 zig-zag varint; u64 varint; f64 8 bytes; bool 1 byte; bytes = varint len + bytes.
-                let mut put = |out: &mut Vec<u8>, mut v: u64| {
+                let put = |out: &mut Vec<u8>, mut v: u64| {
                     while v >= 0x80 {
                         out.push((v as u8) | 0x80);
                         v >>= 7;

@@ -28,9 +28,9 @@ pub mod xform;
 
 pub use codec::{Codec, Compression};
 pub use error::{Error, Result};
-pub use hierarchy::{Direction, Hierarchy, Node, NodeData, NodeId, NodeKind, ScopeType, SignalId, SignalKind, VarType};
+pub use hierarchy::{Direction, Hierarchy, Node, NodeData, NodeDataRef, NodeRef, NodeId, NodeKind, ScopeType, SignalId, SignalKind, VarType};
 pub use logblock::{LogArg, LogArgType, LogRecord, LogSite, LogSiteId, LogSiteSpec, Severity};
-pub use reader::{LogQuery, ReadOptions, Reader, SignalData, TxQuery};
+pub use reader::{ChangeScan, LogQuery, ReadOptions, Reader, ScanAction, SignalData, TxQuery};
 pub use sections::{Blackout, FileType, Meta};
 pub use signal::{OwnedSignalValue, SignalValue};
 pub use strings::StrId;

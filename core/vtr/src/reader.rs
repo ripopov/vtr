@@ -323,6 +323,112 @@ impl SignalDataBuilder {
     }
 }
 
+/// Resumable traversal of one signal's inclusive window. Values are borrowed
+/// only during each callback; no response history is collected by the reader.
+pub struct ChangeScan<'a> {
+    reader: &'a Reader,
+    signal: SignalId,
+    kind: SignalKind,
+    start: u64,
+    end: u64,
+    block: usize,
+    column: Option<ScanColumn>,
+    complete: bool,
+    failed: bool,
+}
+
+/// Whether a scan callback accepted the current event and wants more work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScanAction {
+    Continue,
+    StopAfter,
+    /// Leave this event unconsumed so a full page can be delivered first.
+    StopBefore,
+}
+
+struct ScanColumn {
+    piece: Arc<Piece>,
+    local: usize,
+    times: Arc<Vec<u64>>,
+    position: block::ColumnPosition,
+}
+
+impl ChangeScan<'_> {
+    /// Scan at most `work` units: a block preparation or one column entry.
+    /// Return `true` only after proving the window exhausted. A callback's
+    /// `StopAfter` stops after consuming that event; the next call resumes after it,
+    /// even if subsequent events have the same timestamp. `StopBefore` leaves the
+    /// current event unconsumed. `work` must be nonzero.
+    ///
+    /// Callers check cancellation between calls. Block decompression remains a
+    /// single unit; this API alone does not bound decode memory or wall time.
+    pub fn scan(&mut self, work: usize, mut visit: impl FnMut(u64, SignalValue<'_>) -> ScanAction) -> Result<bool> {
+        if work == 0 {
+            return Err(Error::Invalid("scan work budget must be nonzero".into()));
+        }
+        if self.failed {
+            return Err(Error::Invalid("scan cannot resume after a decode error".into()));
+        }
+        let result = self.scan_inner(work, &mut visit);
+        if result.is_err() {
+            self.failed = true;
+            self.column = None;
+        }
+        result
+    }
+
+    fn scan_inner(&mut self, mut work: usize, visit: &mut impl FnMut(u64, SignalValue<'_>) -> ScanAction) -> Result<bool> {
+        while !self.complete && work > 0 {
+            work -= 1;
+            if self.column.is_none() {
+                let Some(block) = self.reader.sig_blocks.get(self.block) else {
+                    self.complete = true;
+                    break;
+                };
+                if block.header.start_time > self.end {
+                    self.complete = true;
+                    break;
+                }
+                let group = self.reader.group_of(self.signal);
+                let Some(view) = self.reader.group_view(self.block, group)? else {
+                    self.block += 1;
+                    continue;
+                };
+                let (piece, local) = self.reader.column(self.block, group, &view, self.signal.0)?;
+                let col = piece.col(local, self.kind)?;
+                let position = ColumnIter::new(col, self.kind).position();
+                let times = self.reader.block_times(self.block)?;
+                self.column = Some(ScanColumn { piece, local, times, position });
+                continue;
+            }
+            let column = self.column.as_mut().unwrap();
+            let col = column.piece.col(column.local, self.kind)?;
+            let mut iter = ColumnIter::new(col, self.kind);
+            iter.resume(column.position);
+            let Some(change) = iter.next_raw()? else {
+                self.column = None;
+                self.block += 1;
+                continue;
+            };
+            let time = *column.times.get(change.tidx as usize).ok_or(Error::Corrupt("change time index exceeds block time table"))?;
+            if time > self.end {
+                self.column = None;
+                self.complete = true;
+                break;
+            }
+            if time >= self.start {
+                match visit(time, iter.value(&change)) {
+                    ScanAction::StopBefore => break,
+                    ScanAction::StopAfter => { column.position = iter.position(); break; }
+                    ScanAction::Continue => {}
+                }
+            }
+            column.position = iter.position();
+        }
+        Ok(self.complete)
+    }
+}
+
 /// Transaction query filter.
 #[derive(Clone, Debug, Default)]
 pub struct TxQuery {
@@ -836,6 +942,19 @@ impl Reader {
                 Ok(block::frame_value(kind, &fp.data[fr.0 as usize..fr.1 as usize]).to_owned())
             }
         }
+    }
+
+    /// Start a resumable scan of `sig` over the inclusive window `[t0, t1]`.
+    pub fn change_scan(&self, sig: SignalId, t0: u64, t1: u64) -> Result<ChangeScan<'_>> {
+        if t0 > t1 {
+            return Err(Error::Invalid("scan end precedes start".into()));
+        }
+        let kind = self.signal_kind(sig)?;
+        Ok(ChangeScan {
+            reader: self, signal: sig, kind, start: t0, end: t1,
+            block: self.sig_blocks.partition_point(|b| b.header.end_time < t0),
+            column: None, complete: false, failed: false,
+        })
     }
 
     /// All changes of `sig` with time in `[t0, t1]`.

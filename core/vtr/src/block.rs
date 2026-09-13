@@ -1358,6 +1358,15 @@ pub fn build_index(col: &[u8], kind: SignalKind, stride: usize) -> Result<Vec<Ch
 
 /// Iterator over the changes in one column.
 #[derive(Clone, Copy)]
+pub(crate) struct ColumnPosition {
+    hpos: usize,
+    vpos: usize,
+    tidx: u32,
+    code: u8,
+}
+
+/// Iterator over the changes in one column.
+#[derive(Clone, Copy)]
 pub struct ColumnIter<'a> {
     /// Header cursor (entry headers); for 1-bit signals the whole column.
     h: Reader<'a>,
@@ -1370,6 +1379,18 @@ pub struct ColumnIter<'a> {
 }
 
 impl<'a> ColumnIter<'a> {
+    pub(crate) fn position(&self) -> ColumnPosition {
+        ColumnPosition { hpos: self.h.pos, vpos: self.v.pos, tidx: self.tidx, code: self.code }
+    }
+
+    // Positions are private and can only come from this same immutable column.
+    pub(crate) fn resume(&mut self, position: ColumnPosition) {
+        self.h.pos = position.hpos;
+        self.v.pos = position.vpos;
+        self.tidx = position.tidx;
+        self.code = position.code;
+    }
+
     /// Positions the iterator at the first entry of `col` (a column in plain, untransformed form).
     pub fn new(col: &'a [u8], kind: SignalKind) -> Self {
         if col.is_empty() || matches!(kind, SignalKind::Bits { width: 1, .. }) {

@@ -11,6 +11,7 @@ to support interactive and AI-assisted debugging.
 | Component | Code | Responsibility |
 |---|---|---|
 | VTR | `core/vtr`, `core/vtr-capi` | Trace format, reader/writer, runtime hierarchy, waveforms, transactions, relations and logs; Rust and C APIs |
+| Query contracts | `core/vtr-query` | Exact time grids, shared allocation reservations, native exact waveform pages and cold-path summaries, cooperative cancellation and optional bounded stdio framing; remaining query families and viewer integration remain under implementation |
 | VTR tools | `tools/vtr-cli`, `bench/vtr-bench` | Trace inspection/conversion and Rust benchmark drivers |
 | VDB | `core/vtr-vdb`, `integrations/slang` | Separate design metadata, source index, semantics, RTL netlists and temporal driver tracing; standalone pyslang export |
 | Volna | `volna/volna-core`, `volna/volna`, `volna/volna-egui` | Toolkit-independent viewer logic, main GPUI UI and minimal egui adapter |
@@ -54,9 +55,10 @@ See [integrations/README.md](../integrations/README.md) for entry points and
 
 ## Workspace and supporting material
 
-The eight Rust packages share one root Cargo workspace and lockfile.
-`cargo test` exercises the five default packages;
+The nine Rust packages share one root Cargo workspace and lockfile.
+`cargo test` exercises the six default packages;
 `volna/volna/check.sh` checks the three viewer packages and the VS Code adapter.
+Run `cargo test -p vtr-query --all-features` to include the optional framing tests.
 Native viewer checks still require the platform SDK and desktop services.
 
 `bench/` contains the shared orchestrator, C/C++ harnesses, simulator workloads

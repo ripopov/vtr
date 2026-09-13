@@ -1,0 +1,163 @@
+syntax = "proto3";
+package vtr.query.v1;
+
+// Stdio framing is u32 little-endian payload length followed by Envelope.
+// The extension relays these bytes without interpreting integer fields.
+message Envelope {
+  uint32 version = 1;
+  uint64 request_id = 2;
+  bytes snapshot = 3; // exactly 16 bytes once a snapshot has been opened
+  oneof body {
+    Empty hello = 10;
+    Welcome welcome = 11;
+    Empty open = 12;
+    SessionInfo opened = 13;
+    Query query = 14;
+    Continuation next = 15;
+    Delivery reply = 16;
+    Cancel cancel = 17;
+    Continuation release = 18;
+    Empty close = 19;
+    Failure failure = 20;
+    Empty acknowledged = 21;
+  }
+}
+message Empty {}
+message Welcome {
+  uint32 max_request_bytes = 1;
+  uint32 max_reply_bytes = 2;
+  uint32 max_decoded_bytes = 3;
+  uint32 max_records = 4;
+  uint32 max_outstanding = 5;
+}
+message SessionInfo {
+  bytes snapshot = 1;
+  sint32 timescale = 2;
+  Interval time_range = 3;
+  uint32 signals = 4;
+  uint64 declarations = 5;
+  repeated Operation operations = 6;
+}
+enum Operation {
+  OPERATION_UNSPECIFIED = 0;
+  WAVE_WINDOW = 1;
+  WAVE_SUMMARY = 2;
+  CHILDREN = 3;
+  SEARCH = 4;
+  RESOLVE_PATHS = 5;
+  TEXT_PART = 6;
+}
+message Continuation {
+  bytes snapshot = 1;
+  uint64 operation = 2;
+  uint64 step = 3;
+}
+message Cancel { uint64 request_id = 1; }
+message Failure {
+  enum Code {
+    UNSPECIFIED = 0;
+    INVALID = 1;
+    RESOURCE_LIMIT = 2;
+    CANCELLED = 3;
+    UNSUPPORTED = 4;
+    BACKEND = 5;
+    VERSION = 6;
+    STALE = 7;
+  }
+  Code code = 1;
+  string message = 2;
+}
+message Bound {
+  oneof value { uint64 tick = 1; Empty after_max = 2; }
+}
+message Interval { uint64 start = 1; Bound end = 2; }
+message Grid { uint64 start = 1; uint32 level = 2; uint32 count = 3; }
+message Limits { uint64 bytes = 1; uint32 records = 2; uint64 work = 3; }
+message Query {
+  Limits limits = 1;
+  oneof operation {
+    WaveWindow window = 10;
+    WaveSummary summary = 11;
+    Children children = 12;
+    Search search = 13;
+    Resolve resolve = 14;
+    TextRequest text = 15;
+  }
+}
+message WaveWindow { uint32 signal = 1; Interval interval = 2; }
+message WaveSummary { uint32 signal = 1; Grid grid = 2; }
+message Children { optional uint32 parent = 1; }
+message Search { optional uint32 scope = 1; string needle = 2; }
+message Path {
+  repeated string segments = 1;
+  optional uint32 occurrence = 2;
+  optional uint32 kind = 3;
+}
+message Resolve { repeated Path paths = 1; }
+message TextRequest { uint32 id = 1; uint64 offset = 2; uint64 length = 3; }
+message Delivery {
+  Continuation request = 1;
+  Continuation next = 2;
+  oneof page {
+    WindowPage window = 10;
+    SummaryPage summary = 11;
+    DeclarationPage children = 12;
+    SearchPage search = 13;
+    ResolvePage resolve = 14;
+    TextPart text = 15;
+  }
+}
+message Bits { uint32 width = 1; uint32 states = 2; bytes data = 3; }
+message BitKind { uint32 width = 1; uint32 states = 2; }
+message Kind {
+  oneof value { BitKind bits = 1; Empty real = 2; Empty bytes = 3; }
+}
+message Value {
+  oneof value { Bits bits = 1; fixed64 real = 2; bytes bytes = 3; }
+}
+message Sample {
+  oneof value { Value known = 1; Kind backend_default = 2; Empty event = 3; }
+}
+message Change { uint64 time = 1; Value value = 2; }
+message WindowPage {
+  Interval interval = 1;
+  Sample predecessor = 2;
+  repeated Change changes = 3;
+  bool complete = 4;
+}
+message RealSummary {
+  optional fixed64 finite_min = 1;
+  optional fixed64 finite_max = 2;
+  uint64 nan_changes = 3;
+  uint64 positive_infinite_changes = 4;
+  uint64 negative_infinite_changes = 5;
+}
+message WaveBin {
+  Interval interval = 1;
+  Sample entry = 2;
+  Sample exit = 3;
+  uint64 changes = 4;
+  Change first = 5;
+  Change last = 6;
+  RealSummary real = 7;
+}
+message SummaryPage { Grid grid = 1; uint32 offset = 2; bool complete = 3; repeated WaveBin bins = 4; }
+message TextReference { uint32 id = 1; uint64 bytes = 2; }
+message Text { oneof value { string inline = 1; TextReference reference = 2; } }
+message Scope { uint32 type_code = 1; Text component = 2; }
+message Variable { uint32 type_code = 1; uint32 direction = 2; uint32 signal = 3; Kind kind = 4; bool alias = 5; }
+message Stream { Text kind = 1; }
+message EnumTable { uint64 entries = 1; }
+message Declaration {
+  uint32 id = 1;
+  optional uint32 parent = 2;
+  Text name = 3;
+  uint64 children = 4;
+  uint64 attributes = 5;
+  oneof data { Scope scope = 10; Variable variable = 11; Stream stream = 12; Empty generator = 13; EnumTable enum_table = 14; }
+}
+message DeclarationPage { optional uint32 parent = 1; uint64 offset = 2; bool complete = 3; repeated Declaration declarations = 4; }
+message SearchPage { uint32 start_node = 1; bool complete = 2; repeated Declaration declarations = 3; }
+message Resolution { oneof result { uint32 found = 1; Empty missing = 2; Empty ambiguous = 3; } }
+message ResolvePage { uint64 offset = 1; bool complete = 2; repeated Resolution results = 3; }
+message TextPart { uint32 id = 1; uint64 offset = 2; uint64 total_bytes = 3; bytes bytes = 4; }

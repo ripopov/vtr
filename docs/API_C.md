@@ -873,6 +873,9 @@ kind, `VTR_VAL_STR` and `VTR_VAL_ENUM` name in the reader API is such an id.
 
 ### 4.4 Nodes
 
+The `vtr_reader_node` metadata header accessor borrows its Rust node view;
+obtaining attribute and enum-entry counts does not copy their payloads.
+
 ```c
 typedef struct vtr_node_info {
     uint8_t  kind;         /* 1 scope 2 var 3 stream 4 generator 5 enum table */
@@ -1107,6 +1110,27 @@ convert or scan a full trace; memory does not grow with the number of
 changes. A non-zero callback return suppresses all further callbacks; the
 function may still finish scanning the current block internally before
 returning `VTR_OK`.
+
+#### Resumable window scans
+
+Resumable single-signal traversal is also available:
+
+```c
+typedef struct vtr_change_scan vtr_change_scan;
+vtr_change_scan *vtr_reader_change_scan(const vtr_reader *r, uint32_t sig, uint64_t t0, uint64_t t1);
+int vtr_change_scan_next(vtr_change_scan *scan, size_t work, vtr_change_cb cb, void *user, int *complete);
+void vtr_change_scan_free(vtr_change_scan *scan);
+```
+
+The interval is inclusive. Create returns NULL on error. Free the scan before
+closing or clearing its reader; NULL free is harmless. `next` consumes at most
+`work` block-preparation/column-entry units, with borrowed callback values and
+callback results of zero to continue, positive to stop after consuming the
+event, or negative to stop before consuming it. After a positive return, another call resumes immediately after it, including at the same time.
+`complete` is set only when exhaustion is proven, so a successful call can
+deliver nothing and still be incomplete. Zero work is invalid; NULL required
+pointers/callbacks return `VTR_ERR_NULL`. Decode errors are terminal. Block
+decompression and existing caches are not bounded by this work-unit count.
 
 ### 4.11 Whole-signal loads
 
@@ -1663,6 +1687,9 @@ section 2.1: `Corrupt`→4, `UnsupportedVersion`→5, `Invalid`→1, `State`→2
 | `vtr_value_buf_ascii` | `OwnedSignalValue::to_ascii` |
 | `vtr_reader_value_at` | `Reader::value_at` |
 | `vtr_reader_changes` | `Reader::changes` (collected, then iterated) |
+| `vtr_reader_change_scan` | `Reader::change_scan` |
+| `vtr_change_scan_next` | `ChangeScan::scan` |
+| `vtr_change_scan_free` | Drop `ChangeScan` |
 | `vtr_reader_for_each_change` | `Reader::for_each_change` |
 | `vtr_reader_load_signal` | `Reader::load_signal` |
 | `vtr_reader_load_signals` | `Reader::load_signals` |

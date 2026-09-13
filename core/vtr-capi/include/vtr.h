@@ -231,6 +231,15 @@ const char    *vtr_value_buf_ascii(vtr_value_buf *b);   /* "0101xz" MSB first / 
 int vtr_reader_value_at(const vtr_reader *r, uint32_t sig, uint64_t time, vtr_value_buf *buf);
 
 typedef int (*vtr_change_cb)(void *user, uint64_t time, uint32_t sig, const vtr_signal_value *value); /* return non-zero to stop */
+/* Resumable inclusive scan. Free before closing/clearing the reader. A work
+ * unit is one block preparation or column entry; decoding a block is not
+ * interruptible through this interface. Callback values are borrowed. For
+ * scan_next, return 0 to continue, positive to stop after consuming the event,
+ * or negative to stop before consuming it (retry on the next call). */
+typedef struct vtr_change_scan vtr_change_scan;
+vtr_change_scan *vtr_reader_change_scan(const vtr_reader *r, uint32_t sig, uint64_t t0, uint64_t t1);
+int vtr_change_scan_next(vtr_change_scan *scan, size_t work, vtr_change_cb cb, void *user, int *complete);
+void vtr_change_scan_free(vtr_change_scan *scan);
 int vtr_reader_changes(const vtr_reader *r, uint32_t sig, uint64_t t0, uint64_t t1, vtr_change_cb cb, void *user);
 int vtr_reader_for_each_change(const vtr_reader *r, uint64_t t0, uint64_t t1, vtr_change_cb cb, void *user);
 

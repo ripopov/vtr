@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::ptr;
 use vtr::{
-    AttrPhase, Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
+    AttrPhase, Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeDataRef, NodeId, Reader, ScopeType, Severity, SignalId,
     SignalKind, StrId, Transaction, TxKind, TxQuery, TxStatus, Value, VarType, Writer, WriterOptions,
 };
 
@@ -985,7 +985,7 @@ pub unsafe extern "C" fn vtr_reader_node(r: *const vtr_reader, id: u32, out: *mu
     if id as usize >= h.len() {
         return VTR_ERR_NOT_FOUND;
     }
-    let n = h.node(NodeId(id));
+    let n = h.node_ref(NodeId(id));
     let mut info = vtr_node_info {
         kind: n.kind() as u8,
         parent: n.parent.map(|p| p.0).unwrap_or(VTR_NONE),
@@ -1000,19 +1000,19 @@ pub unsafe extern "C" fn vtr_reader_node(r: *const vtr_reader, id: u32, out: *mu
         child_count: h.children(NodeId(id)).count() as u32,
     };
     match &n.data {
-        NodeData::Scope { scope_type, component } => {
+        NodeDataRef::Scope { scope_type, component } => {
             info.type_code = scope_type.code();
             info.aux_str = component.0;
         }
-        NodeData::Var { var_type, direction, signal, declares } => {
+        NodeDataRef::Var { var_type, direction, signal, declares } => {
             info.type_code = var_type.code();
             info.direction = *direction as u8;
             info.signal = signal.0;
             info.is_alias = declares.is_none() as c_int;
         }
-        NodeData::Stream { kind } => info.aux_str = kind.0,
-        NodeData::Generator => {}
-        NodeData::EnumTable { entries } => info.entry_count = entries.len() as u32,
+        NodeDataRef::Stream { kind } => info.aux_str = kind.0,
+        NodeDataRef::Generator => {}
+        NodeDataRef::EnumTable { entries } => info.entry_count = entries.len() as u32,
     }
     *out = info;
     VTR_OK
@@ -1246,6 +1246,53 @@ pub unsafe extern "C" fn vtr_reader_value_at(r: *const vtr_reader, sig: u32, tim
 }
 
 pub type vtr_change_cb = Option<unsafe extern "C" fn(user: *mut std::ffi::c_void, time: u64, sig: u32, value: *const vtr_signal_value) -> c_int>;
+
+/// The reader must outlive this scan, as for other borrowed reader results.
+pub struct vtr_change_scan {
+    scan: vtr::ChangeScan<'static>,
+    signal: u32,
+}
+
+/// Start an inclusive resumable window scan. Free the scan before its reader.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_change_scan(r: *const vtr_reader, sig: u32, t0: u64, t1: u64) -> *mut vtr_change_scan {
+    if r.is_null() {
+        set_error("NULL reader");
+        return std::ptr::null_mut();
+    }
+    match (*r).0.change_scan(SignalId(sig), t0, t1) {
+        Ok(scan) => Box::into_raw(Box::new(vtr_change_scan { scan, signal: sig })),
+        Err(error) => {
+            status(Err(error));
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Advance by at most `work` units. Nonzero callbacks stop after that event.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_change_scan_next(scan: *mut vtr_change_scan, work: usize, cb: vtr_change_cb, user: *mut std::ffi::c_void, complete: *mut c_int) -> c_int {
+    let scan = need!(scan);
+    let complete = need!(complete);
+    *complete = 0;
+    let Some(cb) = cb else { return VTR_ERR_NULL; };
+    match scan.scan.scan(work, |time, value| {
+        let value = sv_from(value);
+        match cb(user, time, scan.signal, &value) {
+            0 => vtr::ScanAction::Continue,
+            n if n < 0 => vtr::ScanAction::StopBefore,
+            _ => vtr::ScanAction::StopAfter,
+        }
+    }) {
+        Ok(done) => { *complete = done as c_int; VTR_OK }
+        Err(error) => status(Err(error)),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_change_scan_free(scan: *mut vtr_change_scan) {
+    if !scan.is_null() { drop(Box::from_raw(scan)); }
+}
 
 /// Calls `cb` for every change of `sig` in `[t0, t1]`; a non-zero return stops iteration.
 #[no_mangle]

@@ -7,6 +7,7 @@ members = [
     "tools/vtr-cli",
     "bench/vtr-bench",
     "core/vtr-vdb",
+    "core/vtr-query",
     "volna/volna-core",
     "volna/volna",
     "volna/volna-egui",
@@ -18,6 +19,7 @@ default-members = [
     "tools/vtr-cli",
     "bench/vtr-bench",
     "core/vtr-vdb",
+    "core/vtr-query",
 ]
 
 [workspace.package]

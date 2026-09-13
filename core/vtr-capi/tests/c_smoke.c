@@ -26,6 +26,14 @@ static int tx_cb(void *user, const vtr_tx *tx) {
     return 0;
 }
 
+static int scan_one(void *user, uint64_t time, uint32_t sig, const vtr_signal_value *v) {
+    (void)sig; (void)v;
+    int *n = user;
+    if (time != (uint64_t)(*n / 2) * 10) abort();
+    ++*n;
+    return 1;
+}
+
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : "c_smoke.vtr";
     vtr_writer_options o;
@@ -132,6 +140,21 @@ int main(int argc, char **argv) {
     n = 0;
     CHECK(vtr_reader_changes(rd, event, 0, 0, count_changes, &n));
     ASSERT(n == 2);
+    vtr_change_scan *scan = vtr_reader_change_scan(rd, event, 0, 20);
+    ASSERT(scan != NULL);
+    int complete = 0;
+    n = 0;
+    ASSERT(vtr_change_scan_next(scan, 0, scan_one, &n, &complete) == VTR_ERR_INVALID);
+    ASSERT(vtr_change_scan_next(scan, 1, NULL, &n, &complete) == VTR_ERR_NULL);
+    for (int calls = 0; calls < 100 && !complete; ++calls)
+        CHECK(vtr_change_scan_next(scan, 1, scan_one, &n, &complete));
+    ASSERT(complete && n == 6);
+    CHECK(vtr_change_scan_next(scan, 1, scan_one, &n, &complete));
+    ASSERT(complete && n == 6);
+    vtr_change_scan_free(scan);
+    vtr_change_scan_free(NULL);
+    ASSERT(vtr_reader_change_scan(rd, VTR_NONE, 0, 1) == NULL);
+    ASSERT(vtr_reader_change_scan(NULL, event, 0, 1) == NULL);
     vtr_signal_data *d = vtr_reader_load_signal(rd, bus);
     ASSERT(d != NULL && vtr_signal_data_len(d) == 251);
     ASSERT(vtr_signal_data_times(d)[1] == 40);

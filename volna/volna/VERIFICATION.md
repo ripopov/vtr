@@ -4,6 +4,8 @@ Run checks from the repository root unless a command specifies otherwise.
 Workspace development uses the dated nightly in `rust-toolchain.toml`, including
 the WASM target, rustfmt and Clippy. Native GPUI builds require the
 platform SDK; the macOS Metal interaction test also requires desktop services.
+The `vtr-query` wire checks require the Protocol Buffers compiler (`protoc` on
+PATH, or `PROTOC` pointing to it); native-only query builds do not use it.
 
 ## Automated checks
 
@@ -11,13 +13,15 @@ platform SDK; the macOS Metal interaction test also requires desktop services.
 volna/volna/check.sh
 ```
 
-The script checks formatting and strict Clippy for `volna-core`, `volna` and
-`volna-egui`, runs their Rust tests, and runs the Node tests for the VS Code
+The script checks formatting and strict Clippy for `vtr-query`, `volna-core`,
+`volna` and `volna-egui`, runs their Rust tests, and runs the Node tests for the VS Code
 adapter. The frame-time benchmark is excluded from the regular test run.
 
 For focused checks:
 
 ```sh
+cargo test --locked -p vtr-query --all-features
+cargo check --locked -p vtr-query --all-features --target wasm32-unknown-unknown
 cargo test --locked -p volna-core
 cargo test --locked -p volna-core --test fst
 cargo test --locked -p volna-core --test transactions
@@ -28,6 +32,7 @@ node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspa
 
 | Area | Coverage |
 |---|---|
+| Bounded-query foundation | Exact maximum-time endpoints, canonical grids across pans, half-open transaction/point boundaries, concurrent allocation admission and shared pins, fragmented/coalesced stdio frames, truncation, invalid lengths and terminal parser failures; this does not verify query execution or a live relay |
 | Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry, and duplicate/alias rows share histories |
 | Panel model | Literal hierarchy paths and duplicate-name ambiguity; split/close/focus/layout validation; 5,000 generated command sequences; shared and independent navigation; cross-panel load reuse and stale pointer rejection |
 | Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, format menu, sidebar filtering/keys, layout hit regions and repaint coalescing |
