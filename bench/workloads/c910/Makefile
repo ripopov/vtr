@@ -57,7 +57,7 @@ $(SYSMAP_INCDIR)/sysmap.h: $(CODE_BASE_PATH)/gen_rtl/mmu/rtl/sysmap.h
 export C910_FILELIST := $(BUILD)/C910_asic_rtl.fl
 $(BUILD)/rtl/ct_lsu_ctrl.v: $(CODE_BASE_PATH)/gen_rtl/lsu/rtl/ct_lsu_ctrl.v
 	@mkdir -p $(dir $@)
-	sed -e 's/^input   \[1  :0\]  lsu_had_lfb_data_entry_\(last\|vld\);/input   [LFB_DATA_ENTRY-1:0]  lsu_had_lfb_data_entry_\1;/' $< > $@
+	sed -E -e 's/^input   \[1  :0\]  lsu_had_lfb_data_entry_(last|vld);/input   [LFB_DATA_ENTRY-1:0]  lsu_had_lfb_data_entry_\1;/' $< > $@
 $(C910_FILELIST): $(CODE_BASE_PATH)/gen_rtl/filelists/C910_asic_rtl.fl $(BUILD)/rtl/ct_lsu_ctrl.v
 	sed -e 's|^.*/lsu/rtl/ct_lsu_ctrl.v$$|$(BUILD)/rtl/ct_lsu_ctrl.v|' $< > $@
 

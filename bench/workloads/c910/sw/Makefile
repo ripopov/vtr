@@ -7,7 +7,10 @@ C910    ?= $(realpath $(CURDIR)/../../../..)/ext/pulp-c910
 SMART     := $(C910)/vendor/thead_openc910/smart_run
 LIB       := $(SMART)/tests/lib
 CASES     := $(SMART)/tests/cases
-SREC2VMEM := $(SMART)/tests/bin/Srec2vmem
+SREC2VMEM_BIN := $(SMART)/tests/bin/Srec2vmem
+# T-Head's converter is a static Linux x86-64 binary; fall back to the portable
+# Python converter (../Srec2vmem.py) when it cannot execute on this host.
+SREC2VMEM ?= $(shell $(SREC2VMEM_BIN) >/dev/null 2>&1 && echo $(SREC2VMEM_BIN) || echo python3 $(CURDIR)/../Srec2vmem.py)
 
 BUILD   ?= build
 CROSS   ?= riscv64-unknown-elf-
@@ -38,9 +41,9 @@ $(BUILD)/link.ld: $(LIB)/linker.lcf
 # protection) and MCCR2 (0x7c3, L2 cache control - pulp-c910 has no internal L2).
 $(BUILD)/crt0.S: $(LIB)/crt0.s
 	@mkdir -p $(dir $@)
-	sed -e 's/\bmxstatus\b/0x7c0/g'  -e 's/\bmhcr\b/0x7c1/g' \
-	    -e 's/\bmcor\b/0x7c2/g'      -e 's/\bmccr2\b/0x7c3/g' \
-	    -e 's/\bmhint\b/0x7c5/g'     -e 's/\bmsmpr\b/0x7f3/g' \
+	sed -e 's/[[:<:]]mxstatus[[:>:]]/0x7c0/g'  -e 's/[[:<:]]mhcr[[:>:]]/0x7c1/g' \
+	    -e 's/[[:<:]]mcor[[:>:]]/0x7c2/g'      -e 's/[[:<:]]mccr2[[:>:]]/0x7c3/g' \
+	    -e 's/[[:<:]]mhint[[:>:]]/0x7c5/g'     -e 's/[[:<:]]msmpr[[:>:]]/0x7f3/g' \
 	    -e 's/^\( *\)sync *$$/\1fence/' \
 	    -e '/csrsi 0x7f3/d' -e '/csrs *0x7c3/d' \
 	    -e '/\.include "core_init.h"/d' $< > $@
@@ -50,10 +53,10 @@ $(BUILD)/coremark/inst.pat: $(BUILD)/crt0.S $(BUILD)/link.ld
 	@cp $(CASES)/coremark/* $(BUILD)/coremark/
 	@rm -f $(BUILD)/coremark/cvt.c
 	@# The vendor port hard-codes two iterations in core_main.c (its ITERATIONS define is unused).
-	@sed -i 's/^\tresults\[0\].iterations= 2;$$/\tresults[0].iterations= $(ITERATIONS);/' $(BUILD)/coremark/core_main.c
+	@sed -i.bak 's/^\tresults\[0\].iterations= 2;$$/\tresults[0].iterations= $(ITERATIONS);/' $(BUILD)/coremark/core_main.c && rm -f $(BUILD)/coremark/core_main.c.bak
 	@grep -q 'iterations= $(ITERATIONS);' $(BUILD)/coremark/core_main.c
 	@# RV64: the pointer-sized integer type must be 64 bit; the port ships a 32 bit one.
-	@sed -i 's/^typedef ee_u32 ee_ptr_int;$$/typedef unsigned long ee_ptr_int;/' $(BUILD)/coremark/core_portme.h
+	@sed -i.bak 's/^typedef ee_u32 ee_ptr_int;$$/typedef unsigned long ee_ptr_int;/' $(BUILD)/coremark/core_portme.h && rm -f $(BUILD)/coremark/core_portme.h.bak
 	@cp $(LIB)/clib/fputc.c $(LIB)/newlib_wrap/printf.c src/libc_stub.c src/bench_support.c $(BUILD)/coremark/
 	@cp $(LIB)/clib/config.h $(LIB)/clib/datatype.h $(LIB)/clib/uart.h $(LIB)/clib/timer.h $(BUILD)/coremark/
 	@cp $(BUILD)/crt0.S $(BUILD)/coremark/
