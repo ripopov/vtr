@@ -31,3 +31,6 @@
 
 # Viewer workspaces beside bundled example traces.
 /volna/volna/examples/*.volna.json
+
+# macOS Finder folder metadata.
+.DS_Store
