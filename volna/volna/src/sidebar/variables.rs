@@ -1,8 +1,9 @@
 //! The variable list panel: GPUI rows over `VariableListModel`, with the
 //! filter text box.
 
-use gpui::prelude::*;
-use gpui::{
+use gpui_kit::component::Disableable;
+use gpui_kit::prelude::*;
+use gpui_kit::{
     Context, CursorStyle, Focusable, IntoElement, KeyDownEvent, SharedString, Window, div, px,
     uniform_list,
 };
@@ -12,10 +13,18 @@ use volna_core::sidebar::variables::{direction_label, shape_icon};
 
 use crate::app::{Workspace, to_modifiers};
 use crate::theme::theme;
-use crate::ui::{Icon, IconButton, IconName, Tooltip, panel_header};
+use crate::ui::{Icon, IconName, icon_button, panel_header};
 
 impl Workspace {
     fn variables_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .filter
+            .read(cx)
+            .focus_handle(cx)
+            .contains_focused(window, cx)
+        {
+            return;
+        }
         let ks = &ev.keystroke;
         let key = match ks.key.as_str() {
             "enter" => Key::Enter,
@@ -32,6 +41,7 @@ impl Workspace {
                     window.focus(&handle, cx);
                     let c = c.to_owned();
                     self.filter.update(cx, |f, cx| f.insert(&c, cx));
+                    cx.stop_propagation();
                 }
                 return;
             }
@@ -73,9 +83,9 @@ impl Workspace {
                         .child(SharedString::from(count.to_string())),
                 )
                 .child(
-                    IconButton::new("add-all", IconName::Plus)
+                    icon_button("add-all", IconName::Plus, t.panel, t.hover, cx)
                         .disabled(count == 0)
-                        .tooltip(Tooltip::with_shortcut("Add all listed variables", "⏎"))
+                        .tooltip("Add all listed variables (⏎)")
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.dispatch(Command::AddAllVars, Some(window), cx)
                         })),
@@ -116,7 +126,7 @@ impl Workspace {
                             .text_size(px(t.mono_size))
                             .text_color(colors.text)
                             .on_click(cx.listener(
-                                move |this, ev: &gpui::ClickEvent, window, cx| {
+                                move |this, ev: &gpui_kit::ClickEvent, window, cx| {
                                     window.focus(&this.variables_focus, cx);
                                     let command = if ev.click_count() == 2 {
                                         Command::AddVars(vec![var])
@@ -191,7 +201,7 @@ impl Workspace {
                             .items_center()
                             .justify_center()
                             .px_4()
-                            .text_align(gpui::TextAlign::Center)
+                            .text_align(gpui_kit::TextAlign::Center)
                             .text_size(px(t.ui_size_small))
                             .text_color(colors.text_placeholder)
                             .child(text)

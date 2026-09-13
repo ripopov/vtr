@@ -105,7 +105,7 @@ local session, with no second code path.
 cargo build --release          # library, libvtr.{a,so}, vtr CLI, vtr-bench
 cargo test                     # unit, round-trip, converter and C-ABI tests
 cargo clippy --release
-volna/volna/check.sh           # viewer crates (core, GPUI, egui); requires Rust 1.96+ and platform SDK
+volna/volna/check.sh           # viewer crates (core, GPUI, egui); uses pinned nightly and platform SDK
 python3 bench/run.py all --scale small   # quick benchmark (minutes)
 python3 bench/run.py all                 # full suite (~1 h), regenerates docs/BENCHMARK_RESULTS.md
 ```

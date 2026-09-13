@@ -1,4 +1,4 @@
-use gpui::{App, Div, ParentElement, SharedString, Styled, div, px};
+use gpui_kit::{App, Div, ParentElement, SharedString, Styled, div, px};
 
 use crate::theme::theme;
 
@@ -21,7 +21,7 @@ pub fn panel_header(title: impl Into<SharedString>, cx: &App) -> Div {
             div()
                 .font_family(t.ui_font)
                 .text_size(px(t.ui_size_small))
-                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                 .text_color(colors.text_muted)
                 .child(title.into().to_uppercase()),
         )

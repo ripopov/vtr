@@ -3,16 +3,16 @@
 //! `volna-core`.
 
 use super::*;
-use gpui::TestAppContext;
+use gpui_kit::TestAppContext;
 use std::sync::Arc;
 use volna_core::data::synth::SynthSource;
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec};
 
 fn init(cx: &mut TestAppContext) {
-    cx.update(|cx| crate::theme::set(crate::theme::CoreTheme::one_dark(), cx));
+    cx.update(crate::init_app);
 }
 
-#[gpui::test]
+#[gpui_kit::test]
 fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);
@@ -29,7 +29,7 @@ fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
         .unwrap();
 }
 
-#[gpui::test]
+#[gpui_kit::test]
 fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);
@@ -68,7 +68,7 @@ fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
         .unwrap();
 }
 
-#[gpui::test]
+#[gpui_kit::test]
 fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);

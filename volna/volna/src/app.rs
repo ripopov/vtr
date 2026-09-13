@@ -9,8 +9,8 @@ mod tests;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use gpui::prelude::*;
-use gpui::{
+use gpui_kit::prelude::*;
+use gpui_kit::{
     Animation, AnimationExt, App, Context, CursorStyle, Entity, FocusHandle, Focusable,
     IntoElement, KeyBinding, Menu, MenuItem, MouseButton, MouseMoveEvent, MouseUpEvent,
     ParentElement, Pixels, Render, ShapedLine, SharedString, Styled, Transformation,
@@ -23,11 +23,13 @@ use volna_core::{App as CoreApp, FontRole, Instant, Scene};
 
 use crate::theme::theme;
 use crate::ui::icon::icon_svg;
-use crate::ui::menu::PopupMenuEvent;
 use crate::ui::text_input::TextInputEvent;
-use crate::ui::{
-    Icon, IconButton, IconName, PopupMenu, PopupMenuItem, Splitter, SplitterAxis, TextButton,
-    TextInput, Tooltip,
+use crate::ui::{Icon, IconName, Splitter, SplitterAxis, TextInput, icon_button, popup_at};
+use gpui_kit::component::{
+    Selectable,
+    button::{Button, ButtonVariants},
+    menu::{PopupMenu, PopupMenuItem},
+    tooltip::Tooltip,
 };
 
 actions!(
@@ -77,9 +79,9 @@ pub struct Workspace {
     pub(crate) filter: Entity<TextInput>,
     pub(crate) scopes_scroll: UniformListScrollHandle,
     pub(crate) variables_scroll: UniformListScrollHandle,
-    stress_menu: Option<Entity<PopupMenu>>,
-    /// Mirrors `app.waves.menu`: (row, popup).
-    format_menu: Option<(usize, Entity<PopupMenu>)>,
+    stress_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
+    /// Mirrors `app.waves.menu`: (row, position, popup).
+    format_menu: Option<(usize, gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
     /// Display list buffer and shaped-text cache, reused across frames.
     pub(crate) scene: Scene,
     pub(crate) shaped: HashMap<TextKey, ShapedLine>,
@@ -165,7 +167,7 @@ macro_rules! wave_actions {
     };
 }
 
-pub(crate) fn to_modifiers(m: gpui::Modifiers) -> volna_core::geometry::Modifiers {
+pub(crate) fn to_modifiers(m: gpui_kit::Modifiers) -> volna_core::geometry::Modifiers {
     volna_core::geometry::Modifiers {
         shift: m.shift,
         control: m.control,
@@ -225,10 +227,10 @@ impl Workspace {
                 Event::OpenFileDialog => self.open_file_dialog(cx),
                 Event::RevealScopeRow(ix) => self
                     .scopes_scroll
-                    .scroll_to_item(ix, gpui::ScrollStrategy::Nearest),
+                    .scroll_to_item(ix, gpui_kit::ScrollStrategy::Nearest),
                 Event::RevealVarRow(ix) => self
                     .variables_scroll
-                    .scroll_to_item(ix, gpui::ScrollStrategy::Nearest),
+                    .scroll_to_item(ix, gpui_kit::ScrollStrategy::Nearest),
                 Event::FocusFilter => {
                     if let Some(window) = window.as_deref_mut() {
                         let handle = self.filter.read(cx).focus_handle(cx);
@@ -259,42 +261,49 @@ impl Workspace {
 
     /// Keep the GPUI popup in step with the core's format menu.
     fn sync_format_menu(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
-        match (&self.app.waves.menu, &self.format_menu) {
-            (Some(m), current) if current.as_ref().map(|(row, _)| *row) != Some(m.row) => {
-                let items = m
-                    .items
-                    .iter()
-                    .map(|i| PopupMenuItem {
-                        id: i.id.clone().into(),
-                        label: i.label.clone().into(),
-                        badge: i.badge.clone().map(Into::into),
-                        checked: i.checked,
-                    })
-                    .collect();
-                let position = point(px(m.position.x), px(m.position.y));
-                let row = m.row;
-                let menu = cx.new(|cx| PopupMenu::new(position, items, cx));
-                if let Some(window) = window {
-                    let handle = menu.read(cx).focus_handle().clone();
-                    window.focus(&handle, cx);
-                }
-                cx.subscribe(&menu, |this, _, event, cx| {
-                    let command = match event {
-                        PopupMenuEvent::Selected(id) => Command::MenuSelect(id.to_string()),
-                        PopupMenuEvent::Dismissed => Command::MenuDismiss,
-                    };
-                    this.dispatch(command, None, cx);
-                })
-                .detach();
-                self.format_menu = Some((row, menu));
-                cx.notify();
-            }
-            (None, Some(_)) => {
-                self.format_menu = None;
-                cx.notify();
-            }
-            _ => {}
+        let Some(m) = &self.app.waves.menu else {
+            self.format_menu = None;
+            return;
+        };
+        if self
+            .format_menu
+            .as_ref()
+            .is_some_and(|(row, _, _)| *row == m.row)
+        {
+            return;
         }
+        let Some(window) = window else { return };
+        let row = m.row;
+        let position = point(px(m.position.x), px(m.position.y));
+        let items: Vec<_> = m
+            .items
+            .iter()
+            .map(|item| {
+                let id = item.id.clone();
+                let label = match &item.badge {
+                    Some(badge) => format!("{} ({badge})", item.label),
+                    None => item.label.clone(),
+                };
+                PopupMenuItem::new(label)
+                    .checked(item.checked)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.dispatch(Command::MenuSelect(id.clone()), Some(window), cx);
+                    }))
+            })
+            .collect();
+        let focus = self.waves_focus.clone();
+        let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
+            for item in items {
+                menu = menu.item(item);
+            }
+            menu.min_w(px(200.0)).action_context(focus)
+        });
+        cx.subscribe(&menu, |this, _, _: &gpui_kit::DismissEvent, cx| {
+            this.dispatch(Command::MenuDismiss, None, cx);
+        })
+        .detach();
+        self.format_menu = Some((row, position, menu));
+        cx.notify();
     }
 
     /// The core owns the filter text; the text box shows it.
@@ -353,7 +362,7 @@ impl Workspace {
     fn open_file_dialog(&mut self, cx: &mut Context<Self>) {
         #[cfg(not(target_family = "wasm"))]
         {
-            let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
                 files: true,
                 directories: false,
                 multiple: false,
@@ -389,40 +398,36 @@ impl Workspace {
 
     fn open_stress_menu(
         &mut self,
-        position: gpui::Point<Pixels>,
+        position: gpui_kit::Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let items = [
+        let items: Vec<_> = [
             (10_000usize, "10 K transitions"),
             (1_000_000, "1 M transitions"),
             (100_000_000, "100 M transitions"),
         ]
-        .iter()
-        .map(|(n, label)| PopupMenuItem {
-            id: n.to_string().into(),
-            label: (*label).into(),
-            badge: None,
-            checked: false,
+        .into_iter()
+        .map(|(n, label)| {
+            PopupMenuItem::new(label).on_click(cx.listener(move |this, _, _, cx| {
+                this.open_synthetic(n, cx);
+                this.stress_menu = None;
+            }))
         })
         .collect();
-        let menu = cx.new(|cx| PopupMenu::new(position, items, cx));
-        let handle = menu.read(cx).focus_handle().clone();
-        window.focus(&handle, cx);
-        cx.subscribe(&menu, |this, _, event, cx| {
-            match event {
-                PopupMenuEvent::Selected(id) => {
-                    if let Ok(n) = id.parse::<usize>() {
-                        this.open_synthetic(n, cx);
-                    }
-                }
-                PopupMenuEvent::Dismissed => {}
+        let focus = self.focus_handle.clone();
+        let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
+            for item in items {
+                menu = menu.item(item);
             }
+            menu.min_w(px(200.0)).action_context(focus)
+        });
+        cx.subscribe(&menu, |this, _, _: &gpui_kit::DismissEvent, cx| {
             this.stress_menu = None;
             cx.notify();
         })
         .detach();
-        self.stress_menu = Some(menu);
+        self.stress_menu = Some((position, menu));
         cx.notify();
     }
 
@@ -446,7 +451,7 @@ impl Workspace {
             ChromeDrag::Sidebar => CursorStyle::ResizeLeftRight,
             ChromeDrag::ScopesSplit => CursorStyle::ResizeUpDown,
         };
-        gpui::deferred(
+        gpui_kit::deferred(
             div()
                 .id("drag-surface")
                 .absolute()
@@ -526,7 +531,7 @@ impl Workspace {
                     .child(Icon::new(IconName::AudioWaveform).color(colors.icon_accent))
                     .child(
                         div()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                             .text_color(colors.text)
                             .child("Volna"),
                     )
@@ -536,18 +541,20 @@ impl Workspace {
                     }),
             )
             .child(
-                IconButton::new("toggle-sidebar", IconName::PanelLeft)
-                    .surfaces(t.bar, t.bar_hover, t.bar_hover)
-                    .selected(self.app.sidebar_visible)
-                    .tooltip(Tooltip::with_shortcut("Toggle sidebar", "⌘B"))
-                    .on_click(
-                        cx.listener(|this, _, w, cx| this.toggle_sidebar(&ToggleSidebar, w, cx)),
-                    ),
+                icon_button(
+                    "toggle-sidebar",
+                    IconName::PanelLeft,
+                    t.bar,
+                    t.bar_hover,
+                    cx,
+                )
+                .selected(self.app.sidebar_visible)
+                .tooltip("Toggle sidebar (⌘B)")
+                .on_click(cx.listener(|this, _, w, cx| this.toggle_sidebar(&ToggleSidebar, w, cx))),
             )
             .child(
-                IconButton::new("open-file", IconName::FolderOpen)
-                    .surfaces(t.bar, t.bar_hover, t.bar_hover)
-                    .tooltip(Tooltip::with_shortcut("Open trace", "⌘O"))
+                icon_button("open-file", IconName::FolderOpen, t.bar, t.bar_hover, cx)
+                    .tooltip("Open trace (⌘O)")
                     .on_click(cx.listener(|this, _, w, cx| this.open_file(&OpenFile, w, cx))),
             )
     }
@@ -568,7 +575,7 @@ impl Workspace {
             .child(
                 div()
                     .flex_none()
-                    .h(gpui::relative(frac))
+                    .h(gpui_kit::relative(frac))
                     .min_h(px(96.0))
                     .overflow_hidden()
                     .child(scopes),
@@ -593,7 +600,7 @@ impl Workspace {
             )
     }
 
-    fn render_center(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_center(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let t = *theme(cx);
         let colors = t.editor;
         match self.app.trace_state() {
@@ -660,7 +667,6 @@ impl Workspace {
             ]
         );
         el.child(crate::wave::WaveTable::new(cx.entity()))
-            .children(self.format_menu.as_ref().map(|(_, m)| m.clone()))
     }
 
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -709,7 +715,7 @@ impl Workspace {
                 div()
                     .mt_2()
                     .text_size(px(16.0))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                     .text_color(colors.text)
                     .child("No trace open"),
             )
@@ -742,9 +748,10 @@ impl Workspace {
             })
             .child(
                 div().mt_3().flex().gap_2().child(
-                    TextButton::new("open", "Open File…")
-                        .icon(IconName::FolderOpen)
-                        .primary(true)
+                    Button::new("open")
+                        .label("Open File…")
+                        .icon(gpui_kit::component::Icon::empty().path(IconName::FolderOpen.path()))
+                        .primary()
                         .on_click(cx.listener(|this, _, w, cx| this.open_file(&OpenFile, w, cx))),
                 ),
             )
@@ -768,7 +775,7 @@ impl Workspace {
         let t = *theme(cx);
         let colors = t.bar;
         let status = self.app.status();
-        let mono = |text: String, color: gpui::Hsla| {
+        let mono = |text: String, color: gpui_kit::Hsla| {
             div()
                 .font_family(t.mono_font)
                 .text_size(px(t.ui_size_small))
@@ -819,8 +826,8 @@ impl Workspace {
                 .cursor(CursorStyle::PointingHand)
                 .text_color(colors.text_muted)
                 .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
-                .tooltip(Tooltip::text("Open a synthetic stress trace"))
-                .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
+                .tooltip(|w, cx| Tooltip::new("Open a synthetic stress trace").build(w, cx))
+                .on_click(cx.listener(|this, ev: &gpui_kit::ClickEvent, window, cx| {
                     let p = ev.position();
                     this.open_stress_menu(point(p.x - px(160.0), p.y - px(120.0)), window, cx);
                 }))
@@ -846,6 +853,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_format_menu(Some(window), cx);
         if self.app.tick(Instant::now()) {
             window.request_animation_frame();
         }
@@ -869,7 +877,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::close_trace));
         #[cfg(not(target_family = "wasm"))]
         {
-            root = root.on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+            root = root.on_drop(cx.listener(|this, paths: &gpui_kit::ExternalPaths, _, cx| {
                 if let Some(p) = paths.paths().first() {
                     this.open_path(p.clone(), cx);
                 }
@@ -909,7 +917,16 @@ impl Render for Workspace {
                 ),
         )
         .child(self.render_statusbar(cx))
-        .children(self.stress_menu.clone())
+        .children(
+            self.format_menu
+                .as_ref()
+                .map(|(_, p, m)| popup_at(*p, m.clone(), window, cx)),
+        )
+        .children(
+            self.stress_menu
+                .as_ref()
+                .map(|(p, m)| popup_at(*p, m.clone(), window, cx)),
+        )
         .children(drag.map(|d| self.render_drag_surface(d, cx)))
     }
 }

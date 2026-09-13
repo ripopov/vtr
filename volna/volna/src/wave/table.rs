@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use gpui::{
+use gpui_kit::{
     App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, Font,
     FontStyle, FontWeight, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId,
     IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder,
@@ -60,7 +60,7 @@ fn cbounds(b: Bounds<Pixels>) -> CRect {
     )
 }
 
-fn cpoint(p: gpui::Point<Pixels>) -> CPoint {
+fn cpoint(p: gpui_kit::Point<Pixels>) -> CPoint {
     CPoint {
         x: f32::from(p.x),
         y: f32::from(p.y),
@@ -157,7 +157,7 @@ fn paint_prims(
                         hsla(*color),
                         px(*border_width),
                         hsla(*border_color),
-                        gpui::BorderStyle::default(),
+                        gpui_kit::BorderStyle::default(),
                     ));
                 }
             }
@@ -212,7 +212,7 @@ fn paint_prims(
                         gbounds(*rect),
                         name.path().into(),
                         None,
-                        gpui::TransformationMatrix::unit(),
+                        gpui_kit::TransformationMatrix::unit(),
                         hsla(*color),
                         cx,
                     )
@@ -251,8 +251,8 @@ impl Element for WaveTable {
         cx: &mut App,
     ) -> (LayoutId, ()) {
         let mut style = Style::default();
-        style.size.width = gpui::relative(1.0).into();
-        style.size.height = gpui::relative(1.0).into();
+        style.size.width = gpui_kit::relative(1.0).into();
+        style.size.height = gpui_kit::relative(1.0).into();
         (window.request_layout(style, [], cx), ())
     }
 

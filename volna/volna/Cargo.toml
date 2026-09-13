@@ -24,17 +24,16 @@ required-features = ["visual-test"]
 [features]
 default = []
 # Offscreen Metal rendering for screenshots and frame-time measurement (macOS).
-visual-test = ["gpui_platform/test-support", "dep:image", "dep:libtest-mimic"]
+visual-test = ["dep:image", "dep:libtest-mimic"]
 
 [dependencies]
-gpui = { version = "=0.3.4", package = "gpui-pre", default-features = false }
+gpui-kit = "=0.6.1"
 volna-core = { path = "../volna-core" }
 anyhow = "1"
 futures = "0.3"
 log = "0.4"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-gpui_platform = { version = "=0.3.4", package = "gpui-pre-platform", features = ["font-kit"] }
 env_logger = "0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -42,10 +41,9 @@ image = { version = "0.25", optional = true, default-features = false, features 
 libtest-mimic = { version = "0.8", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-gpui = { version = "=0.3.4", package = "gpui-pre", default-features = false, features = ["test-support"] }
+gpui-kit = { version = "=0.6.1", features = ["test-support"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-gpui_web = { version = "=0.3.4", package = "gpui-pre-web", default-features = false }
 console_error_panic_hook = "0.1.7"
 wasm-bindgen = "0.2"
 js-sys = "0.3"

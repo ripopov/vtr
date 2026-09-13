@@ -2,7 +2,8 @@
 //! when a theme is installed. All resolution (One Dark, host palettes, VS Code
 //! snapshots) lives in `volna_core::theme`; this module only converts.
 
-use gpui::{App, Global, Hsla};
+use gpui_kit::component::{Theme as ComponentTheme, ThemeMode};
+use gpui_kit::{App, Global, Hsla, px};
 
 pub use volna_core::theme::{Appearance, HostPalette, vscode};
 
@@ -34,10 +35,36 @@ pub fn hsla(c: volna_core::Color) -> Hsla {
 
 /// Make `core` the current theme without repainting (start-up).
 pub fn set(core: CoreTheme, cx: &mut App) {
-    cx.set_global(ThemeGlobal {
-        gpui: core.map(hsla),
-        core,
-    });
+    let t = core.map(hsla);
+    let kit = ComponentTheme::global_mut(cx);
+    kit.mode = if t.appearance.is_dark() {
+        ThemeMode::Dark
+    } else {
+        ThemeMode::Light
+    };
+    kit.font_family = t.ui_font.into();
+    kit.font_size = px(t.ui_size);
+    kit.mono_font_family = t.mono_font.into();
+    kit.mono_font_size = px(t.ui_size);
+    kit.radius = px(4.0);
+    kit.focus_ring = false;
+    kit.background = t.panel.bg;
+    kit.foreground = t.panel.text;
+    kit.muted_foreground = t.panel.text_muted;
+    kit.border = t.border;
+    kit.ring = t.border_focused;
+    kit.selection = t.selection.bg;
+    kit.popover = t.elevated.bg;
+    kit.popover_foreground = t.elevated.text;
+    kit.accent = t.menu_hover.bg;
+    kit.accent_foreground = t.menu_hover.text;
+    kit.button_primary = t.button.bg;
+    kit.button_primary_foreground = t.button.text;
+    kit.button_primary_hover = t.button_hover.bg;
+    kit.button_primary_active = t.button.bg;
+    kit.tokens = kit.colors.into();
+    ComponentTheme::sync_base(cx);
+    cx.set_global(ThemeGlobal { gpui: t, core });
 }
 
 /// Presentation only; invalidate cached children without rebuilding viewer state.

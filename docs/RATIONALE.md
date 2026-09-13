@@ -878,11 +878,40 @@ regression tests guard against stale results. It currently provides VTR
 and FST waveforms; VDB attachment and other trace domains remain future viewer work.
 Presentation and static design semantics stay outside the VTR format.
 
+Standard controls use [GPUI Kit](https://github.com/longbridge/gpui-kit)'s
+`gpui-component` 0.6.1: buttons, tooltips and popup-menu interaction replace
+local implementations. The frontend retains component styling, popup placement,
+the filter input and its core-driven splitter and data canvases. Filter values
+and menu commands stay in `volna-core`. This reduces local interaction code without introducing toolkit
+types into the shared viewer. Component theme tokens are projected from the
+existing core palette, and selected Lucide assets are embedded on every target.
+
+The frontend imports GPUI, components, assets and platform APIs through the
+`gpui-kit` 0.6.1 umbrella. Its web dependencies enable compiled-in threading
+support and pull in `wasm_thread`'s nightly-only feature, so the workspace pins
+a dated nightly toolchain. This compiler requirement does not require runtime
+threads: `gpui_kit::platform::single_threaded_web()` disables worker dispatch,
+and the WASM build uses ordinary unshared memory without atomics/shared-memory
+linker flags or a threaded standard library. The same bundle runs in standalone
+browsers and default VS Code without cross-origin isolation or extra startup
+flags. Keep this explicit configuration when updating the framework.
+
+The filter deliberately retains the same custom widget on native and web.
+With the component `InputState`, `gpui-pre-web` 0.3.4 handles
+`TextInputStateChange::FocusLost` by blurring its hidden textarea. Keyboard
+listeners are attached to that textarea, so opening a format menu after filtering
+leaves shortcuts without a receiver in the browser/VS Code webview. Keeping the
+small existing input avoids a DOM-focus workaround or a fork of the web runtime;
+revisit it when upstream supports this focus transition. The component menus
+are focused as they join the rendered tree and sit outside the waveform key
+context, so their arrow/Enter/Escape bindings route to the menu.
+
 Volna shares the workspace lockfile and local VTR crate, but is excluded from
 default members so GUI dependencies and platform SDK requirements do not enter
-the default core build. Workspace development requires Rust 1.96+. Individual
-crate minimum versions are declared in their manifests. A separate `viewer`
-profile uses thin LTO; the release/benchmark profiles use fat LTO.
+the default core build. Workspace development uses the nightly selected by
+`rust-toolchain.toml`; individual crate minimum versions remain declared in
+their manifests. A separate `viewer` profile uses thin LTO; the
+release/benchmark profiles use fat LTO.
 
 Whole-viewer workflows live in `volna/volna/tests/`, separate from internal
 unit/regression tests. The feature-gated macOS harness runs on the main thread

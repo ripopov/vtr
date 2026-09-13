@@ -109,24 +109,18 @@ impl ScopeTreeModel {
         let has_children = !h.scopes[sel].children.is_empty();
         let mut out = ScopeKeyOutcome::default();
         match key {
-            Key::Down => {
-                if pos + 1 < self.visible.len() {
-                    let id = self.visible[pos + 1].0;
-                    out.changed = self.select(id);
-                    out.reveal = Some(pos + 1);
-                }
+            Key::Down if pos + 1 < self.visible.len() => {
+                let id = self.visible[pos + 1].0;
+                out.changed = self.select(id);
+                out.reveal = Some(pos + 1);
             }
-            Key::Up => {
-                if pos > 0 {
-                    let id = self.visible[pos - 1].0;
-                    out.changed = self.select(id);
-                    out.reveal = Some(pos - 1);
-                }
+            Key::Up if pos > 0 => {
+                let id = self.visible[pos - 1].0;
+                out.changed = self.select(id);
+                out.reveal = Some(pos - 1);
             }
-            Key::Right => {
-                if has_children && !self.expanded.contains(&sel) {
-                    self.toggle(h, sel);
-                }
+            Key::Right if has_children && !self.expanded.contains(&sel) => {
+                self.toggle(h, sel);
             }
             Key::Left => {
                 if self.expanded.contains(&sel) {

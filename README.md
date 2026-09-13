@@ -64,9 +64,11 @@ interactive pipeline viewer and a screenshot-based tutorial. See its
 
 ## Building
 
-Requirements: Rust 1.96+ for workspace development, and a C compiler (for the
-vendored zstd and the C tests). Core crates retain their declared lower minimum
-Rust versions, but the workspace includes Volna's edition-2024 manifest.
+Requirements: rustup and the dated nightly selected by `rust-toolchain.toml`,
+plus a C compiler (for the vendored zstd and the C tests). Nightly is needed
+by Volna's GPUI Kit WASM dependencies. Core crates retain their declared lower
+minimum Rust versions; workspace commands using an explicit stable toolchain
+require Rust 1.96+ to include Volna's manifest.
 Everything builds from a clean checkout with submodules
 (`git submodule update --init --recursive`; the Verilator fork carries slang
 as a nested submodule); the submodules under `ext/` are only used by the
@@ -77,9 +79,9 @@ cargo build --release            # library, C library (target/release/libvtr.{a,
 cargo test                       # unit, round-trip, converter and C-ABI tests
 ```
 
-Volna requires Rust 1.96+ and the native platform SDK (including Metal tools on
-macOS). It is a workspace member but is built explicitly so core commands do not
-require the GUI toolchain:
+Volna uses the pinned toolchain and requires the native platform SDK (including
+Metal tools on macOS). It is a workspace member but is built explicitly so
+core commands do not require the GUI toolchain:
 
 ```sh
 cargo run -p volna --profile viewer -- volna/volna/examples/picorv32.vtr

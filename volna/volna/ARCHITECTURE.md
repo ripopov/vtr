@@ -29,7 +29,7 @@ volna/volna           GPUI frontend: native macOS app, wasm page, VS Code extens
   src/wave/table.rs      WaveTable element: hitboxes from the layout, paints the Scene
   src/sidebar/           uniform_list rows over the core models
   src/theme.rs           core theme mapped to Hsla once per install
-  src/ui/                buttons, splitter, popup menu, text input, tooltip
+  src/ui/                button styling, popup placement, text input, splitter, icons, headers
   web/, vscode-ext/      wasm bundle and the extension host bridge
   tests/viewer.rs        macOS Metal harness: real input events, screenshots, frame times
 
@@ -176,9 +176,15 @@ the future extension, not implemented window behavior or measured bounds.
 
 The GPUI crate keeps the native app, the wasm page and the VS Code extension.
 `Workspace` owns one `App` and is the only GPUI entity that holds viewer state.
-It renders the chrome with GPUI elements, registers GPUI actions that dispatch
-core `Action`s, keeps its popup menu and filter text box in step with the core's
-menu and filter, and spawns each `LoadRequest` on the background executor.
+It renders the chrome with GPUI elements and GPUI Kit's `gpui-component`
+controls, registers GPUI actions that dispatch core `Action`s, keeps the popup
+menu and filter input in step with the core's menu and filter, and spawns each
+`LoadRequest` on the background executor. The window hosts `Workspace` inside
+the component `Root` for overlays and focus routing. Buttons, tooltips and menus
+use library interactions; `src/ui` adds Volna styling/placement and retains the
+custom filter input, splitter, icons and headers. The filter stays custom on
+both targets because the component input's focus-loss path in `gpui-pre-web`
+0.3.4 blurs the browser's keyboard receiver; see the [rationale](../../docs/RATIONALE.md#volna-viewer).
 `WaveTable` is a custom element: `prepaint` asks the core for the layout and
 inserts hitboxes for the dividers, badges and marker chips; `paint` builds the
 `Scene` with GPUI's text system as the measurer, walks it into `paint_quad`,
@@ -220,6 +226,12 @@ reading the same field names; the painter emits resolved colours into the
 `Scene`, so frontends convert but never choose colours. Metrics are logical
 pixels.
 
+The GPUI adapter also projects these tokens into `gpui-component::Theme` and
+synchronizes its base theme on installation. Button surfaces receive the
+corresponding core colours at their call sites.
+Shared waveform rendering and the minimal egui frontend have no component-library
+dependency.
+
 Host palettes: `theme/vscode.rs` owns every VS Code colour ID, fallback chain
 and appearance inference from the webview's resolved `--vscode-*` snapshot;
 `theme/color.rs` parses CSS colours; `HostPalette::from_json` accepts the
@@ -250,9 +262,16 @@ refresh windows, preserving the trace, rows and interaction state.
 
 - Fonts: IBM Plex Sans (UI) and Lilex (mono) are embedded in `volna-core` and
   used by every frontend, so text widths and looks agree across them.
-- Web: `gpui_web` single-threaded (`default-features = false` avoids the
-  nightly-only `wasm_thread`); the VS Code webview cannot be cross-origin
-  isolated, so no `SharedArrayBuffer` is needed. Files arrive as bytes over
+- Components: pin the `gpui-kit` umbrella to 0.6.1 and use its runtime,
+  component and asset modules. Its web dependencies compile threading support,
+  so the workspace pins a nightly Rust toolchain.
+  Required component icons are embedded with `icon_assets!` on both native and
+  web; assets do not require a CDN or network access.
+- Web: select `gpui_kit::platform::single_threaded_web()` and compile ordinary
+  unshared WASM memory; do not enable atomics/shared-memory linker flags or
+  rebuild a threaded standard library. Compiled-in threading support does not
+  start workers or require `SharedArrayBuffer`. Default VS Code needs no
+  cross-origin isolation or extra startup flags. Files arrive as bytes over
   `postMessage` and open through `OpenSpec::Bytes`. `debug_state()` on the wasm
   module logs the core state to the console for browser-driven verification.
 - Native: `OpenSpec::Path` memory-maps the file; signal histories are loaded on

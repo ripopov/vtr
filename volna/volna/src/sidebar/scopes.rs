@@ -1,7 +1,7 @@
 //! The scope tree panel: GPUI rows over `ScopeTreeModel`.
 
-use gpui::prelude::*;
-use gpui::{
+use gpui_kit::prelude::*;
+use gpui_kit::{
     Context, CursorStyle, IntoElement, KeyDownEvent, SharedString, Window, div, px, uniform_list,
 };
 use volna_core::app::Command;
@@ -10,7 +10,7 @@ use volna_core::sidebar::scopes::scope_icon;
 
 use crate::app::Workspace;
 use crate::theme::theme;
-use crate::ui::{Icon, IconButton, IconName, Tooltip, panel_header};
+use crate::ui::{Icon, IconName, icon_button, panel_header};
 
 impl Workspace {
     fn scopes_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -40,15 +40,15 @@ impl Workspace {
                 .flex()
                 .gap_1()
                 .child(
-                    IconButton::new("expand-all", IconName::ChevronsRight)
-                        .tooltip(Tooltip::text("Expand all"))
+                    icon_button("expand-all", IconName::ChevronsRight, t.panel, t.hover, cx)
+                        .tooltip("Expand all")
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.dispatch(Command::ExpandAllScopes(true), Some(window), cx)
                         })),
                 )
                 .child(
-                    IconButton::new("collapse-all", IconName::ChevronsLeft)
-                        .tooltip(Tooltip::text("Collapse all"))
+                    icon_button("collapse-all", IconName::ChevronsLeft, t.panel, t.hover, cx)
+                        .tooltip("Collapse all")
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.dispatch(Command::ExpandAllScopes(false), Some(window), cx)
                         })),
@@ -86,7 +86,7 @@ impl Workspace {
                             .text_size(px(t.ui_size))
                             .text_color(colors.text)
                             .on_click(cx.listener(
-                                move |this, ev: &gpui::ClickEvent, window, cx| {
+                                move |this, ev: &gpui_kit::ClickEvent, window, cx| {
                                     window.focus(&this.scopes_focus, cx);
                                     this.dispatch(Command::SelectScope(id), Some(window), cx);
                                     if ev.click_count() == 2 && has_children {

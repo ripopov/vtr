@@ -41,7 +41,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
     use std::sync::Arc;
     use std::time::Instant;
 
-    use gpui::{
+    use gpui_kit::{
         AppContext, HeadlessAppContext, Keystroke, Modifiers, MouseButton, Pixels, Point, px, size,
     };
     use volna::app::Workspace;
@@ -52,20 +52,20 @@ fn run(measure: bool) -> anyhow::Result<()> {
         std::fs::create_dir_all(out)?;
     }
 
-    let platform = gpui_platform::current_platform(true);
+    let platform = gpui_kit::platform::current_platform(true);
     let mut test = HeadlessAppContext::with_platform(
         platform.text_system(),
         Arc::new(Assets),
-        gpui_platform::current_headless_renderer,
+        gpui_kit::platform::current_headless_renderer,
     );
     test.update(volna::init_app);
 
     let win_size = size(px(1440.0), px(900.0));
-    let mut workspace: Option<gpui::Entity<Workspace>> = None;
+    let mut workspace: Option<gpui_kit::Entity<Workspace>> = None;
     let handle = test.open_window(win_size, |window, cx| {
         let ws = cx.new(|cx| Workspace::new(window, cx));
         workspace = Some(ws.clone());
-        ws
+        cx.new(|cx| gpui_kit::component::Root::new(ws, window, cx))
     })?;
     let workspace = workspace.unwrap();
     let any = handle.into();
@@ -112,7 +112,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
     let click = |test: &mut HeadlessAppContext, p: Point<Pixels>, mods: Modifiers| {
         test.update_window(any, |_, w, cx| {
             w.dispatch_event(
-                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
                     position: p,
                     pressed_button: None,
                     modifiers: mods,
@@ -120,7 +120,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 cx,
             );
             w.dispatch_event(
-                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                     button: MouseButton::Left,
                     position: p,
                     modifiers: mods,
@@ -130,7 +130,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 cx,
             );
             w.dispatch_event(
-                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
                     button: MouseButton::Left,
                     position: p,
                     modifiers: mods,
@@ -154,7 +154,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update_window(any, |_, w, cx| {
             let mods = Modifiers::default();
             w.dispatch_event(
-                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
                     position: from,
                     pressed_button: None,
                     modifiers: mods,
@@ -162,7 +162,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 cx,
             );
             w.dispatch_event(
-                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                     button: MouseButton::Left,
                     position: from,
                     modifiers: mods,
@@ -178,7 +178,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         for p in [mid, to] {
             test.update_window(any, |_, w, cx| {
                 w.dispatch_event(
-                    gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                    gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
                         position: p,
                         pressed_button: Some(MouseButton::Left),
                         modifiers: Modifiers::default(),
@@ -192,7 +192,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         }
         test.update_window(any, |_, w, cx| {
             w.dispatch_event(
-                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
                     button: MouseButton::Left,
                     position: to,
                     modifiers: Modifiers::default(),
@@ -288,6 +288,30 @@ fn run(measure: bool) -> anyhow::Result<()> {
             Modifiers::default(),
         );
         settle(&mut test, 2);
+        // Filtering remains custom on both native and web. Each character
+        // must reach the core once, even with the variable-list key handler.
+        let filter_y = 32.0 + (900.0 - 32.0 - 24.0) * 0.42 + 32.0 + 16.0;
+        click(
+            &mut test,
+            Point::new(px(100.0), px(filter_y)),
+            Modifiers::default(),
+        );
+        settle(&mut test, 2);
+        for k in ["c", "l", "k"] {
+            key(&mut test, k);
+        }
+        settle(&mut test, 2);
+        assert_eq!(
+            test.update(|cx| workspace.read(cx).app.variables.filter.clone()),
+            "clk"
+        );
+        shot(&mut test, "02c-filter")?;
+        key(&mut test, "escape");
+        settle(&mut test, 2);
+        assert_eq!(
+            test.update(|cx| workspace.read(cx).app.variables.filter.clone()),
+            ""
+        );
         // Add all variables of the selected scope with the header "+" button.
         let sidebar_h = 900.0 - 32.0 - 24.0;
         let scopes_h = sidebar_h * 0.42;
@@ -397,6 +421,30 @@ fn run(measure: bool) -> anyhow::Result<()> {
             assert_eq!(state(&mut test, name), before_theme);
         }
         test.update(|cx| volna::theme::install(volna::theme::CoreTheme::one_dark(), cx));
+        // Navigate and choose a translator through the component menu.
+        let (menu_row, translator) = test.update(|cx| {
+            let menu = workspace.read(cx).app.waves.menu.as_ref().unwrap();
+            (menu.row, menu.items[1].id.clone())
+        });
+        key(&mut test, "down");
+        key(&mut test, "down");
+        key(&mut test, "enter");
+        settle(&mut test, 2);
+        expect(&mut test, "menu selection", &["menu=false"]);
+        assert_eq!(
+            test.update(|cx| workspace.read(cx).app.waves.items[menu_row]
+                .translator
+                .id()
+                .to_owned()),
+            translator
+        );
+        click(
+            &mut test,
+            Point::new(px(596.0), px(64.0 + 24.0 * 3.0 + 12.0)),
+            Modifiers::default(),
+        );
+        settle(&mut test, 2);
+        expect(&mut test, "menu reopened", &["menu=true"]);
         key(&mut test, "escape");
         expect(&mut test, "menu dismissed", &["menu=false"]);
         key(&mut test, "f");

@@ -1,4 +1,4 @@
-use gpui::{
+use gpui_kit::{
     App, CursorStyle, ElementId, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, RenderOnce, Styled, Window, deferred, div, px,
 };

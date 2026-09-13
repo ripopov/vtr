@@ -78,10 +78,8 @@ impl FstSession {
                     }
                     scopes.push(id);
                 }
-                FstHierarchyEntry::UpScope => {
-                    if scopes.pop().is_none() {
-                        error = Some(anyhow!("FST hierarchy scope underflow"));
-                    }
+                FstHierarchyEntry::UpScope if scopes.pop().is_none() => {
+                    error = Some(anyhow!("FST hierarchy scope underflow"));
                 }
                 FstHierarchyEntry::Var {
                     tpe,

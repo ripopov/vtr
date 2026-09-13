@@ -3,7 +3,7 @@
 Volna is the official viewer for VTR and its separate VDB design/presentation
 companion. The viewer itself is `volna-core`, a crate with no GUI toolkit; this
 crate is its [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui)
-frontend (the `gpui-pre` crates.io snapshot, version 0.3.4), which runs as a
+frontend (GPUI Kit 0.6.1, with the `gpui-pre` 0.3.4 snapshot in the lockfile), which runs as a
 native macOS app and, compiled to WebAssembly, inside a VS Code webview. A
 second frontend, `volna-egui`, runs natively on eframe. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the split.
@@ -43,9 +43,18 @@ Panels: a hierarchy browser (scope tree plus a separate, filterable variable
 list) and a waveform panel with three pixel-aligned columns (names, values,
 waves), a timeline, a cursor and numbered markers.
 
+The `gpui-kit` 0.6.1 umbrella supplies the runtime, assets and components.
+Standard buttons, tooltips and popup menus use its component module.
+Menus support arrow-key navigation, Enter to choose and Escape to dismiss.
+The filter retains the existing custom widget on native and web. Viewer state
+and waveform rendering remain in `volna-core`; see [Architecture](ARCHITECTURE.md)
+for the component boundary and single-threaded web configuration.
+
 ## Development checks
 
-Rust 1.96 or newer is the supported toolchain baseline. Run `./check.sh` from
+Use rustup with the dated nightly in the root `rust-toolchain.toml`. The WASM
+dependency graph includes `wasm_thread`, which requires a nightly compiler even
+though Volna selects a single-threaded runtime. Run `./check.sh` from
 this directory (or `./volna/volna/check.sh` from the repository root) to check
 formatting, deny Clippy warnings across all targets/features, and run the tests
 of `volna-core`, `volna` and `volna-egui`. The check script also requires
@@ -96,9 +105,11 @@ python3 -m http.server 8080                        # from volna/volna/
 open "http://localhost:8080/web/?file=../examples/picorv32.vtr"
 ```
 
-The page uses WebGPU when available and falls back to WebGL2. It is a
-single-threaded build (no SharedArrayBuffer requirement), so it also runs where
-cross-origin isolation is unavailable, such as VS Code webviews. The module
+The page uses WebGPU when available and falls back to WebGL2. Volna selects
+`gpui_kit::platform::single_threaded_web()` and builds ordinary, unshared WASM
+memory, without atomics/shared-memory linker flags or a threaded standard
+library. It does not require `SharedArrayBuffer` or cross-origin isolation,
+including in default VS Code without `--enable-coi`. The module
 exports `debug_state()`, which logs the viewer state to the console; browser
 verification scripts use it.
 

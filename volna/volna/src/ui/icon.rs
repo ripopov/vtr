@@ -1,4 +1,4 @@
-use gpui::{App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Svg, Window, svg};
+use gpui_kit::{App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Svg, Window, svg};
 
 pub use volna_core::icons::IconName;
 
@@ -41,7 +41,7 @@ impl Icon {
 impl RenderOnce for Icon {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = theme(cx);
-        let size = self.size.unwrap_or(gpui::px(t.icon_size));
+        let size = self.size.unwrap_or(gpui_kit::px(t.icon_size));
         // GPUI SVGs require an explicit colour; an unset SVG colour does not
         // inherit and suppresses painting entirely.
         let color = self.color.unwrap_or_else(|| {

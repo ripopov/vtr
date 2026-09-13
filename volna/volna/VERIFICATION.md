@@ -1,7 +1,8 @@
 # Volna verification guide
 
 Run checks from the repository root unless a command specifies otherwise.
-Workspace development requires Rust 1.96+. Native GPUI builds require the
+Workspace development uses the dated nightly in `rust-toolchain.toml`, including
+the WASM target, rustfmt and Clippy. Native GPUI builds require the
 platform SDK; the macOS Metal interaction test also requires desktop services.
 
 ## Automated checks
@@ -32,7 +33,7 @@ node --test volna/volna/vscode-ext/theme.test.mjs
 | FST input | Plain/gzip fixtures, raw bytes, reals, nine-state values, aliases, EVCD payloads, event occurrences, unavailable samples and explicit unsupported metadata errors |
 | FST/VTR parity | Values at every change timestamp in the committed Verilator features, operators and pipeline recordings |
 | Transactions | Unsupported versus empty capabilities, typed attributes and phases, events, stages, parents, inclusive overlap boundaries, filtering, early stopping and cross-stream relations |
-| GPUI adapter | Production loading executor, input events, theme changes and nonblank Metal frames |
+| GPUI adapter | Production loading executor, input filtering/Escape, keyboard popup selection/dismissal, theme changes and nonblank Metal frames |
 | egui adapter | Production loading executor, VTR/FST opening, sidebar/divider dragging, filtering, selection, zoom/pan/fit and software-rendered screenshots |
 | Host theme | Raw VS Code palettes, host-neutral CSS parsing, synchronous initial snapshot and subsequent theme updates |
 
@@ -80,6 +81,14 @@ Host with a temporary `--user-data-dir` and
 `--extensionDevelopmentPath=<absolute vscode-ext path>`, then open the bundled
 trace with Volna. [`tools/cdp.mjs`](tools/cdp.mjs) supports browser input and
 capture through the debugging protocol; `debug_state()` exposes viewer state.
+
+For the default-host compatibility check, do not pass `--enable-coi` or other
+shared-memory flags to VS Code. In the Volna content frame, verify
+`crossOriginIsolated === false` and `typeof SharedArrayBuffer === "undefined"`,
+then load a trace and exercise filtering, signal loading, keyboard menus,
+cursor and zoom. Use a fresh profile or clear cached webview resources so the
+check runs the newly built bundle. Compilation alone does not establish that
+the umbrella's compiled-in threading support is compatible with this host.
 
 Exercise the following in each target frontend:
 

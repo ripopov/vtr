@@ -1,8 +1,8 @@
 //! A minimal single-line text field (filter box). Handles printable input,
 //! backspace, word delete and escape. No IME or selection; enough for a filter.
 
-use gpui::prelude::*;
-use gpui::{
+use gpui_kit::prelude::*;
+use gpui_kit::{
     App, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, SharedString, StatefulInteractiveElement,
     Styled, Window, div, px,

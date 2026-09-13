@@ -5,7 +5,7 @@
 //! `volna_core`. Module map:
 //! - `app`: the `Workspace` root view, key bindings, the core command loop
 //! - `theme`, `assets`: the core theme mapped to GPUI colours; fonts and icons
-//! - `ui`: reusable primitives (buttons, splitter, menu, text input)
+//! - `ui`: component styling/placement, text input, splitter, icons and headers
 //! - `sidebar`: scope tree and variable list rows
 //! - `wave`: the `WaveTable` element that paints the core's display list
 
@@ -16,7 +16,7 @@ pub mod theme;
 pub mod ui;
 pub mod wave;
 
-use gpui::{
+use gpui_kit::{
     App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px,
     size,
 };
@@ -25,6 +25,7 @@ pub use app::Workspace;
 
 /// Shared start-up: theme, fonts, key bindings.
 pub fn init_app(cx: &mut App) {
+    gpui_kit::init(cx);
     theme::set(theme::CoreTheme::one_dark(), cx);
     if let Err(e) = assets::load_fonts(cx) {
         log::warn!("failed to load bundled fonts: {e:#}");
@@ -51,17 +52,20 @@ pub fn window_options(cx: &mut App) -> WindowOptions {
 pub fn application() -> Application {
     #[cfg(not(target_family = "wasm"))]
     {
-        gpui_platform::application().with_assets(assets::Assets)
+        gpui_kit::application().with_assets(assets::Assets)
     }
     #[cfg(target_family = "wasm")]
     {
-        let platform = std::rc::Rc::new(gpui_web::WebPlatform::new(false));
-        Application::with_platform(platform).with_assets(assets::Assets)
+        // Keep the same bundle usable in webviews without shared memory.
+        gpui_kit::platform::single_threaded_web().with_assets(assets::Assets)
     }
 }
 
 /// Open the main window and return the workspace entity.
-pub fn open_main_window(cx: &mut App, embedded: bool) -> anyhow::Result<gpui::Entity<Workspace>> {
+pub fn open_main_window(
+    cx: &mut App,
+    embedded: bool,
+) -> anyhow::Result<gpui_kit::Entity<Workspace>> {
     let options = if embedded {
         WindowOptions::default()
     } else {
@@ -75,7 +79,7 @@ pub fn open_main_window(cx: &mut App, embedded: bool) -> anyhow::Result<gpui::En
             w
         });
         workspace = Some(ws.clone());
-        ws
+        cx.new(|cx| gpui_kit::component::Root::new(ws, window, cx))
     })?;
     workspace.ok_or_else(|| anyhow::anyhow!("window did not build a workspace"))
 }
@@ -178,7 +182,7 @@ pub mod web {
     #[wasm_bindgen(start)]
     pub fn start() {
         console_error_panic_hook::set_once();
-        gpui_web::init_logging();
+        gpui_kit::web::init_logging();
         if let Some(json) = host_snapshot("volnaHostTheme") {
             if let Err(error) = set_theme(&json) {
                 log::warn!("invalid initial host theme: {error:?}");
@@ -228,6 +232,6 @@ pub mod web {
     }
 
     thread_local! {
-        static APP: RefCell<Option<gpui::ApplicationHandle>> = const { RefCell::new(None) };
+        static APP: RefCell<Option<gpui_kit::ApplicationHandle>> = const { RefCell::new(None) };
     }
 }

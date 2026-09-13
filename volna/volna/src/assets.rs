@@ -2,23 +2,31 @@
 
 use std::borrow::Cow;
 
-use gpui::{App, AssetSource, Result, SharedString};
+use gpui_kit::{App, AssetSource, Result, SharedString};
 use volna_core::icons::{FONTS, IconName};
+
+gpui_kit::assets::icon_assets!(ComponentAssets, [Check]);
 
 pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        Ok(IconName::from_path(path).map(|icon| Cow::Borrowed(icon.svg())))
+        match IconName::from_path(path) {
+            Some(icon) => Ok(Some(Cow::Borrowed(icon.svg()))),
+            None => ComponentAssets.load(path),
+        }
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        Ok(IconName::ALL
-            .iter()
-            .map(|icon| icon.path())
-            .filter(|p| p.starts_with(path))
-            .map(SharedString::from)
-            .collect())
+        let mut paths = ComponentAssets.list(path)?;
+        paths.extend(
+            IconName::ALL
+                .iter()
+                .map(|icon| icon.path())
+                .filter(|p| p.starts_with(path))
+                .map(SharedString::from),
+        );
+        Ok(paths)
     }
 }
 
