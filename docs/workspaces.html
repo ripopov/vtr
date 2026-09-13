@@ -200,11 +200,11 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     <div class="card"><h4 style="margin-top:0">Panels live in the core</h4>
       <p><span class="badge prop">proposed</span> <code>volna-core</code> gains a <code>Panels</code> model: a toolkit-neutral layout tree of splits and tab groups, a map of panels keyed by a never-recycled <code>PanelId</code>, and a focused panel. Each waveform panel owns a <code>WaveModel</code> (rows, viewport, cursor, selection). The <code>Document</code> keeps what every panel shares: the session, markers, translators and load bookkeeping. Keyboard actions go to the focused panel; pointer events name their panel.</p></div>
     <div class="card"><h4 style="margin-top:0">Two link flags per panel, no groups</h4>
-      <p><span class="badge prop">proposed</span> Synchronisation is two toggles per panel, <em>follow viewport</em> and <em>follow cursor</em>, shown as icon buttons in the panel header. Linked panels share one viewport and one cursor stored on the document; an unlinked panel keeps its own. With a single panel the header is hidden and the same toggles sit in the View menu and status bar, where they are also reachable by keyboard.</p></div>
+      <p><span class="badge prop">proposed</span> Synchronisation is two toggles per panel, <em>follow viewport</em> and <em>follow cursor</em>, shown as icon buttons in the panel header. A linked panel reads the one shared viewport and cursor stored on the document; an unlinked panel keeps its own. Nothing is copied between panels, so linked panels cannot disagree. With a single panel the header is hidden and the same toggles sit in the View menu and status bar, where they are also reachable by keyboard.</p></div>
     <div class="card"><h4 style="margin-top:0">Reuse gpui-kit's dock engine</h4>
       <p><span class="badge lib">library</span> The GPUI frontend hosts the central area in gpui-kit's <code>DockArea</code>, which already provides nested splits, tab groups, drag-to-reorder, drag-to-split, zoom and a serde round trip. <span class="badge prop">proposed</span> A thin adapter mirrors the core layout into the dock and translates dock edits back; a wrapper renderer hides the tab bar when the centre holds one panel, so today's viewer looks unchanged.</p></div>
     <div class="card"><h4 style="margin-top:0">One workspace format, thin hosts</h4>
-      <p><span class="badge prop">proposed</span> <code>volna-core::workspace</code> defines a versioned JSON document, captures it from <code>App</code>, restores it by resolving signal paths against the open hierarchy, and schedules autosaves. Hosts only move bytes: the native app writes <code>trace.vtr.volna.json</code> beside the trace, the VS Code extension writes the same file through <code>workspace.fs</code> so remote files work, and both fall back to per-user storage when the trace directory is read-only.</p></div>
+      <p><span class="badge prop">proposed</span> <code>volna-core::workspace</code> defines a versioned JSON document, captures it from <code>App</code>, restores it in two steps (prepare and validate without touching live state, then commit), and schedules autosaves. Hosts only move bytes and never parse them: the native app writes <code>trace.vtr.volna.json</code> beside the trace, the VS Code extension writes the same file through <code>workspace.fs</code> so remote files work, and both fall back to per-user storage when the trace directory is read-only.</p></div>
   </div>
   <div class="callout"><p><strong>What stays out.</strong> Nothing presentational enters VTR, VDB or the future raw-data query protocol; workspace files are a client-side annotation beside the trace. The egui frontend keeps rendering exactly one panel, the focused one, and gains no persistence. No new panel kinds ship in this scope, but the panel model, workspace format and dock registry are keyed by kind so transaction, source and pipeline panels slot in later.</p></div>
 </div></section>
@@ -313,12 +313,12 @@ pub struct Panels {
       <ul>
         <li><span class="badge exist">existing</span> session, translators, hierarchy access, load generations and pending set</li>
         <li><span class="badge exist">existing</span> markers, now with an <code>id</code> and optional <code>label</code> so chips are addressable and a workspace can name them (<code>Marker{id, time, label}</code>)</li>
-        <li><span class="badge prop">proposed</span> <code>linked: Linked { viewport: Viewport, cursor: Option&lt;u64&gt; }</code>, the values every linked panel displays</li>
+        <li><span class="badge prop">proposed</span> <code>shared: Shared { viewport: Viewport, cursor: Option&lt;u64&gt; }</code>, the values every linked panel reads. Always present, even while no panel is linked, so re-linking has a value to adopt.</li>
       </ul></div>
     <div class="card"><h4 style="margin-top:0">Per panel on <code>WaveModel</code></h4>
       <ul>
         <li><span class="badge exist">existing</span> rows (<code>DisplayedSignal</code>), selection, viewport and animation, scroll, column widths, hover and drag state, format menu</li>
-        <li><span class="badge prop">proposed</span> <code>cursor: Option&lt;u64&gt;</code> moves here from <code>Document</code></li>
+        <li><span class="badge prop">proposed</span> <code>cursor: Option&lt;u64&gt;</code> moves here from <code>Document</code>; the panel's own viewport and cursor are used only while the corresponding link is off</li>
         <li><span class="badge prop">proposed</span> <code>missing: bool</code> on a row that could not be resolved on restore (placeholder)</li>
       </ul></div>
   </div>
@@ -327,9 +327,9 @@ pub struct Panels {
   <h3>Synchronisation semantics <span class="badge prop">proposed</span></h3>
   <ul>
     <li><strong>Two flags per panel.</strong> <code>link.viewport</code> and <code>link.cursor</code>, both on by default. New panels inherit the flags of the panel they were split from.</li>
-    <li><strong>Linked means "displays the document value".</strong> When a linked panel pans, zooms, fits, animates or sets the cursor, the core writes the new value into <code>doc.linked</code> and copies it into every other linked panel, animation target included (<code>WaveModel::follow(&amp;source)</code>). Unlinked panels are untouched.</li>
-    <li><strong>Toggling on snaps.</strong> Turning a flag on copies the document value into the panel. Turning it off leaves the panel where it is; it now moves alone.</li>
-    <li><strong>Edge stepping and "centre on cursor"</strong> operate on the focused panel's own cursor and viewport and then propagate through the same rule, so linked panels follow.</li>
+    <li><strong>Linked means "reads the document value".</strong> A panel's effective viewport is <code>doc.shared.viewport</code> when <code>link.viewport</code> is on and its own <code>WaveModel::viewport</code> otherwise; the same for the cursor. When a linked panel pans, zooms, fits, animates or sets the cursor, the core writes <code>doc.shared</code> once; every linked panel paints from it. There is one copy of each shared value and no reconciliation pass. Unlinked panels are untouched.</li>
+    <li><strong>Toggling.</strong> Turning a flag off copies the shared value into the panel's own field, so the panel stays where it is and now moves alone. Turning it on discards the panel's own value and adopts the shared one, which is retained even after every panel has been independent.</li>
+    <li><strong>Edge stepping and "centre on cursor"</strong> read and write the focused panel's effective cursor and viewport, so linked panels follow through the shared value.</li>
     <li><strong>Markers are always shared</strong>; <kbd>M</kbd> adds a marker at the focused panel's cursor.</li>
     <li><strong>One panel:</strong> the flags exist but have no visible effect. They are kept so a later split starts in the expected state.</li>
   </ul>
@@ -397,14 +397,14 @@ pub struct Panels {
   <div class="own">
     <div class="box exist-b"><div class="t">volna-core <small>no GUI toolkit · tested headless</small></div>
       <div class="box exist-b"><div class="t">App <span class="badge exist">existing</span></div>
-        <div class="box exist-b"><div class="t">Document <span class="badge exist">existing</span></div><small>session · hierarchy · translators · load generations · markers · <span class="badge prop">proposed</span> linked viewport &amp; cursor</small></div>
+        <div class="box exist-b"><div class="t">Document <span class="badge exist">existing</span></div><small>session · hierarchy · translators · load generations · markers · <span class="badge prop">proposed</span> shared viewport &amp; cursor</small></div>
         <div class="box prop-b"><div class="t">Panels <span class="badge prop">proposed</span></div><small>Layout tree · focused · Panel{id, title, link, kind}</small>
           <div class="box exist-b"><div class="t">WaveModel ×N <span class="badge exist">existing</span></div><small>rows · selection · viewport · <span class="badge prop">proposed</span> cursor · placeholders</small></div>
         </div>
         <div class="box exist-b"><div class="t">Sidebar models <span class="badge exist">existing</span></div><small>ScopeTreeModel · VariableListModel · add-to-focused-panel</small></div>
-        <div class="box prop-b"><div class="t">workspace <span class="badge prop">proposed</span></div><small>Workspace (serde) · capture · restore → RestoreReport · Persistence policy · autosave scheduler (dirty + idle via tick) · preferences model</small></div>
+        <div class="box prop-b"><div class="t">workspace <span class="badge prop">proposed</span></div><small>Workspace (serde) · capture · prepare → RestorePlan → commit → RestoreReport · Persistence policy · autosave scheduler (revision + idle via tick, save tickets) · preferences model</small></div>
       </div>
-      <div class="arrows"><span>Command in: <code>Panels(..)</code>, <code>Pointer(PanelId, ..)</code>, <code>RestoreWorkspace(json)</code></span><span>Event out: <code>LayoutChanged</code>, <code>PersistWorkspace{target, json}</code>, <code>LoadWorkspace{key}</code>, <code>SaveWorkspaceDialog</code>, <code>Notice(..)</code></span></div>
+      <div class="arrows"><span>Command in: <code>Panels(..)</code>, <code>Pointer(PanelId, ..)</code>, <code>RestoreWorkspace(json)</code>, <code>WorkspaceSaved{ticket, result}</code></span><span>Event out: <code>LayoutChanged</code>, <code>PersistWorkspace{ticket, json}</code>, <code>LoadWorkspace{key}</code>, <code>SaveWorkspaceDialog</code>, <code>Notice(..)</code></span></div>
     </div>
     <div>
       <div class="box exist-b"><div class="t">volna (GPUI) <small>native · wasm · VS Code webview</small></div>
@@ -442,15 +442,16 @@ pub struct Panels {
     <li><strong>Guard.</strong> <code>LayoutChanged</code> raised by the adapter's own <code>set_center</code> is ignored by comparing the dumped tree with the tree installed at that revision. This is the same idea as Surfer's <code>LayoutAdapter</code> revision check.</li>
   </ol>
   <h3>Hiding the header for one panel</h3>
-  <p><code>PanelStyle::Auto</code> still draws a 30 px title row. Volna installs <code>VolnaDockRenderer</code>, a <code>DockAreaRenderer</code> that forwards every hook to the stock <code>DockSkin</code> and wraps its <code>tab_group_renderer()</code>: when the centre tree has exactly one panel, <code>render_tab_bar</code> returns an empty element and <code>frame</code> drops the group border, so the panel body starts at the same y-offset as today's <code>WaveTable</code>. <code>TabGroupSkin</code> is crate-private but reachable through the trait, so this is composition, not a fork. If the wrapper proves brittle, the fallback is to bypass the dock entirely while one panel exists and render the cached <code>WavePanelView</code> directly; the entity and its state are the same in both hosts.</p>
+  <p><code>PanelStyle::Auto</code> still draws a 30 px title row. Volna installs <code>VolnaDockRenderer</code>, a <code>DockAreaRenderer</code> that forwards every hook to the stock <code>DockSkin</code> and wraps its <code>tab_group_renderer()</code>: when the centre tree has exactly one panel, <code>render_tab_bar</code> returns an empty element and <code>frame</code> drops the group border, so the panel body starts at the same y-offset as today's <code>WaveTable</code>. <code>TabGroupSkin</code> is crate-private but reachable through the trait, so this is composition, not a fork. The phase 0 spike must show that the wrapper leaves no reserved height. If it cannot, the fix is a small header-visibility hook in the renderer seam, not a second single-panel rendering path that bypasses the dock: one path for one and N panels is the point of the design.</p>
   <h3>Limitations to accept or work around</h3>
   <ul>
     <li>No per-tab close button in the skin: provided through the toolbar and <kbd>⌘W</kbd>; a custom <code>TabGroupRenderer</code> could add it later.</li>
     <li>No next/previous tab action: the core implements <code>FocusNext/FocusPrev</code> over its own tree.</li>
-    <li>Sizes are pixels in the dock and written back only when a drag ends; fractions in the core, converted both ways.</li>
+    <li>Sizes are pixels in the dock and written back only when a drag ends; fractions in the core, converted both ways. Only a user sash drag may change the fractions; a window resize reflows pixels and must not be read back as an edit.</li>
+    <li><code>Panel::on_removed</code> also fires for every panel during a wholesale <code>set_center</code>, and a move between groups is not a removal. The adapter treats these callbacks as widget detachment only; only <code>PanelsCommand::Close</code> deletes a panel from the model.</li>
     <li>Zoom is per container and not persisted; acceptable.</li>
     <li>Single global minimum of 100 px; fine for waveform panels.</li>
-    <li>wasm is not gated out but is unverified; the phase-1 acceptance test runs the dock in the browser build.</li>
+    <li>wasm is not gated out but is unverified; the phase 0 spike runs the dock in the browser build before anything depends on it.</li>
   </ul>
   <h3>Alternatives considered</h3>
   <div class="tablewrap"><table><thead><tr><th>Option</th><th>Assessment</th></tr></thead><tbody>
@@ -465,7 +466,7 @@ pub struct Panels {
 <section id="model"><div class="wrap">
   <div class="eyebrow">Workspace data model</div>
   <h2>The workspace file</h2>
-  <p>A JSON document owned by <code>volna-core::workspace</code>, written with serde_json, human-readable and diffable so colleagues can share and review it. Times are integers in the trace's own timescale units, matching <code>SignalHistory</code> and <code>Marker</code>. Signals are referenced by full hierarchical name, the identity VTR guarantees to external databases and the one <code>Hierarchy::full_name</code> produces today.</p>
+  <p>A JSON document owned by <code>volna-core::workspace</code>, written with serde_json, human-readable and diffable so colleagues can share and review it. Times are integers in the trace's own timescale units, matching <code>SignalHistory</code> and <code>Marker</code>. Signals are referenced by their hierarchy path as an array of segments, the same segments <code>scope_path</code> and the variable name produce today. A dot-joined string is deliberately not used: escaped HDL identifiers can contain dots, and the segment form needs no escaping contract.</p>
   <pre><code>{
   "format": "volna-workspace",
   "version": 1,
@@ -476,22 +477,23 @@ pub struct Panels {
     "time_range": [0, 1234567],
     "design_id": null                          <span class="c">// VTR file attribute design.vdb_id when present</span>
   },
+  "supersedes": null,                          <span class="c">// per-user fallback files only: {size, mtime_ms} of the sidecar present when written</span>
   "layout": { "split": "horizontal", "sizes": [0.62, 0.38],
-              "children": [ { "tabs": [1, 2], "active": 1 }, { "tabs": [3], "active": 3 } ] },
-  "focused": 1,
+              "children": [ { "tabs": [1], "active": 1 }, { "tabs": [3], "active": 3 } ] },
+  "focused": 1,                                <span class="c">// panel 2 was closed; ids are never reused</span>
   "panels": [
     { "id": 1, "kind": "waves", "version": 1, "title": null,
       "link": { "viewport": true, "cursor": true },
       "viewport": { "start": 0.0, "end": 5000.0 }, "cursor": 640, "scroll_y": 0.0,
       "columns": { "names": 220.0, "values": 120.0 },
-      "rows": [ { "signal": "testbench.top.clk", "format": "bit" },
-                { "signal": "testbench.top.mem_addr", "format": "hex" } ],
+      "rows": [ { "signal": ["testbench", "top", "clk"], "format": "bit" },
+                { "signal": ["testbench", "top", "mem_addr"], "format": "hex" } ],
       "selected": [1] },
     { "id": 3, "kind": "waves", "version": 1, "title": "decode window",
       "link": { "viewport": false, "cursor": true },
       "viewport": { "start": 4200.0, "end": 4700.0 }, "cursor": 640, "scroll_y": 0.0,
       "columns": { "names": 220.0, "values": 120.0 },
-      "rows": [ { "signal": "testbench.top.pc", "format": "hex" } ], "selected": [] }
+      "rows": [ { "signal": ["testbench", "top", "pc"], "format": "hex" } ], "selected": [] }
   ],
   "shared": { "viewport": { "start": 0.0, "end": 5000.0 }, "cursor": 640,
               "markers": [ { "id": 1, "time": 420, "label": null }, { "id": 2, "time": 1310, "label": "irq" } ] },
@@ -501,12 +503,14 @@ pub struct Panels {
   <div class="tablewrap"><table><thead><tr><th>Field</th><th>Rule</th></tr></thead><tbody>
     <tr><td><code>format</code>, <code>version</code></td><td>Both checked before anything else. A different format string or a newer major version rejects the file with a notice; older versions are not migrated during the research phase (GOAL.md §8). The file is left untouched.</td></tr>
     <tr><td><code>trace</code></td><td>Identity of the trace the workspace was captured from. On restore the name and timescale are compared: a different timescale warns and restores times unchanged; a different name warns but proceeds, because renamed traces are common. <code>design_id</code> is compared when both sides have it.</td></tr>
-    <tr><td><code>layout</code>, <code>focused</code></td><td>The same tree as <code>Panels::layout</code>; sizes are fractions. An invalid tree (unknown id, duplicate, empty group) fails restore as a whole and reports why.</td></tr>
+    <tr><td><code>layout</code>, <code>focused</code></td><td>The same tree as <code>Panels::layout</code>; sizes are fractions; <code>active</code> and <code>focused</code> are panel ids (the core keeps an index). An invalid tree (unknown or duplicate id, empty group, an <code>active</code> that is not a member) fails prepare as a whole and reports why; nothing live changes.</td></tr>
+    <tr><td><code>supersedes</code></td><td>Present only in a per-user fallback file: the size and mtime of the sidecar that existed beside the trace when the fallback was written, or <code>null</code> if there was none. See <a href="#persist">precedence</a>.</td></tr>
+    <tr><td>integers</td><td>Times, ids and revisions are plain JSON integers. Hosts never parse workspace JSON; they move it as opaque text between the core and storage, so values above 2<sup>53</sup> are never touched by JavaScript. The playground on this page is the one exception and only shows small values.</td></tr>
     <tr><td><code>panels[].kind</code>, <code>version</code></td><td>Panels are decoded into <code>PanelKind</code> by name; an unknown kind or newer version is kept as raw JSON (<code>serde_json::value::RawValue</code>) in a placeholder panel that draws "unsupported panel" and is written back verbatim, so a workspace saved by a newer Volna survives a round trip through an older one.</td></tr>
-    <tr><td><code>rows[].signal</code></td><td>Resolved through <span class="badge prop">proposed</span> <code>Hierarchy::find_var(path: &amp;str) -&gt; Option&lt;VarId&gt;</code>, a segment walk from the roots added at the owning layer rather than a side table in the workspace code. Unresolved rows become placeholders (<code>missing: true</code>, no load) and are saved back unchanged.</td></tr>
+    <tr><td><code>rows[].signal</code></td><td>Resolved through <span class="badge prop">proposed</span> <code>Hierarchy::find_var(path: &amp;[&amp;str]) -&gt; Option&lt;VarId&gt;</code>, a segment walk from the roots added at the owning layer rather than a side table in the workspace code. If a scope declares the same name more than once, an optional <code>"nth"</code> on the row picks one; without it the first match is used and reported. Unresolved rows become placeholders (<code>missing: true</code>, no load) and are saved back unchanged.</td></tr>
     <tr><td><code>rows[].format</code></td><td>A translator id (<code>"bit"</code>, <code>"hex"</code>, …) looked up with <code>Translators::get</code>; unknown ids fall back to the signal's default translator and are reported.</td></tr>
     <tr><td><code>viewport</code>, <code>cursor</code>, <code>markers</code></td><td>Restored as saved even when outside the trace's time range; the viewport clamp already handles this at paint time and a marker beyond the end stays addressable.</td></tr>
-    <tr><td><code>shared</code></td><td>The linked viewport and cursor plus markers. Linked panels take these values after restore regardless of their saved per-panel values, which are kept for the moment they unlink.</td></tr>
+    <tr><td><code>shared</code></td><td>The shared viewport and cursor plus markers. Linked panels read these after restore; their own saved values are kept for the moment they unlink.</td></tr>
     <tr><td><code>sidebar</code></td><td>Chrome that belongs to the session: visibility, widths, selected scope and expanded scopes by path, filter text. Global look and feel is not here.</td></tr>
   </tbody></table></div>
   <p>Excluded on purpose: hover and drag state, animation, load state, window size and position (a preference of the host), theme (a preference), the trace bytes, and anything a VDB defines. The file describes what the user arranged, not what the toolkit computed.</p>
@@ -531,32 +535,35 @@ pub struct Panels {
       </ul></div>
   </div>
   <h3>Locations and precedence</h3>
+  <p>One save target per open trace, chosen once when the trace opens and remembered for the session. Reads and writes go to that target; nothing else is scanned. Only "Save Workspace As…" changes the target.</p>
   <ol class="steps">
     <li><strong>Explicit path</strong> from <code>--workspace</code> or an "Open Workspace…" action.</li>
     <li><strong>Sidecar</strong> next to the trace, when the directory is writable.</li>
-    <li><strong>Per-user fallback</strong> when the trace lives on a read-only share, which is the norm for CI artefacts: <code>&lt;data dir&gt;/volna/workspaces/&lt;sha256(canonical trace path)[..16]&gt;.volna.json</code>, where the data dir is <code>$XDG_DATA_HOME</code> or <code>~/.local/share</code> on Linux, <code>~/Library/Application Support</code> on macOS, <code>%LOCALAPPDATA%</code> on Windows. The file records the original path in <code>trace.path</code> so the mapping is auditable.</li>
+    <li><strong>Per-user fallback</strong> when it is not, which is the norm for CI artefacts: <code>&lt;data dir&gt;/volna/workspaces/&lt;sha256(canonical trace path)[..16]&gt;.volna.json</code>, where the data dir is <code>$XDG_DATA_HOME</code> or <code>~/.local/share</code> on Linux, <code>~/Library/Application Support</code> on macOS, <code>%LOCALAPPDATA%</code> on Windows. The file records the original path in <code>trace.path</code> so the mapping is auditable.</li>
   </ol>
-  <p>On load the first location that exists wins; on save the first location that is writable wins. A sidecar that exists but cannot be written falls through to the fallback with a one-time notice.</p>
+  <p>The fallback case needs one rule, because a read-only sidecar may exist beside the trace (checked in, or written by someone else). The fallback file records in <code>supersedes</code> the size and mtime of the sidecar that was present when it was written. On open, if that sidecar is still identical, the fallback is the newer state and is loaded. If the sidecar has changed or appeared since, it is loaded instead, the stale fallback is ignored, and the notice says so. Newer wins by provenance, not by comparing revisions or clocks between files that were written by different sessions.</p>
   <h3>Timing</h3>
   <ul>
-    <li><strong>Dirty tracking in the core.</strong> Commands that change persisted state (rows, layout, focus, links, viewport, cursor, markers, sidebar geometry, format choices) set a dirty flag; hover, pointer-move, animation ticks and menu dismissal do not.</li>
+    <li><strong>Revision, not a dirty flag.</strong> Commands that change persisted state (rows, layout, focus, links, viewport, cursor, markers, sidebar geometry, format choices) bump a monotonic <code>revision</code>; hover, pointer-move, animation ticks and menu dismissal do not. The workspace is dirty while <code>revision</code> is ahead of the last acknowledged save.</li>
     <li><strong>Idle autosave.</strong> <code>App::tick(now)</code>, the existing explicit clock, emits <code>Event::PersistWorkspace</code> once the app has been dirty and quiet for 1 s; during a viewport animation the timer restarts. This is the debounce example-dock applies at 10 s, shortened because Volna's captures are small.</li>
-    <li><strong>Forced points.</strong> Closing the trace, opening another, quitting (<code>on_app_quit</code> natively, <code>dispose</code> in VS Code) and hiding the editor tab all flush a pending save synchronously.</li>
-    <li><strong>Never while loading.</strong> No capture happens between <code>Open</code> and the restore completing, so a half-restored state cannot overwrite a good file.</li>
+    <li><strong>Save tickets.</strong> Every <code>PersistWorkspace</code> carries a <code>SaveTicket { target, epoch, revision }</code> and the host answers with the same ticket in <code>WorkspaceSaved</code>. The core marks the workspace clean only if the ticket matches the latest write for the current target and epoch; a late acknowledgement for an older revision, a previous target, or a workspace since replaced by a restore or trace switch is ignored. One write is in flight per target; a newer snapshot waits for the acknowledgement.</li>
+    <li><strong>Forced points.</strong> Closing the trace, opening another, and quitting (<code>on_app_quit</code>) flush a pending save synchronously in native. In VS Code the idle autosave is the primary mechanism; the host additionally asks the webview for a snapshot when the editor is hidden, and on dispose writes the last snapshot it already holds, because the webview is gone by then and cannot be asked.</li>
+    <li><strong>Never while loading.</strong> No capture happens between <code>Open</code> and the commit of a restore, so a half-restored state cannot overwrite a good file.</li>
     <li><strong>Atomic writes</strong> natively (temp file in the same directory, then rename); <code>workspace.fs.writeFile</code> in VS Code.</li>
   </ul>
   <h3>Error handling and unavailable state</h3>
   <div class="tablewrap"><table><thead><tr><th>Situation</th><th>Behaviour</th></tr></thead><tbody>
     <tr><td>No workspace file</td><td>Start with one empty panel, as today.</td></tr>
-    <tr><td>File unreadable, wrong format or newer version</td><td>Notice in the status bar with the reason; start fresh; <strong>autosave is suspended for this trace</strong> until the user saves explicitly or removes the file, so a file from a newer Volna is never overwritten silently.</td></tr>
+    <tr><td>Automatic file unreadable, wrong format or newer version</td><td>Notice in the status bar with the reason; start fresh; <strong>autosave is suspended for this trace</strong> until the user saves explicitly or removes the file, so a file from a newer Volna is never overwritten silently.</td></tr>
+    <tr><td>Explicitly opened workspace fails to prepare</td><td>The live workspace is untouched: prepare rejected the file before anything was committed. Notice with the reason; the current save target and autosave continue unchanged.</td></tr>
     <tr><td>Trace referenced by an explicitly opened workspace differs from the open trace</td><td>Keep the open trace (Surfer's rule); restore layout, panels, markers and links against it; report unresolved signals. With no trace open natively, open <code>trace.path</code> resolved against the workspace file's directory.</td></tr>
     <tr><td>Signal missing</td><td>Placeholder row: name shown dimmed with a "not in trace" badge, no history, no load; kept on save; promoted to a live row if a later trace resolves it.</td></tr>
-    <tr><td>Unknown translator, panel kind or layout id</td><td>Translator: default translator and a report entry. Panel kind: opaque placeholder panel. Layout: whole restore rejected with a notice, fresh start, autosave suspended.</td></tr>
+    <tr><td>Unknown translator, panel kind or layout id</td><td>Translator: default translator and a report entry. Panel kind: opaque placeholder panel. Layout: prepare fails as a whole; for an automatic file that means a fresh start with autosave suspended, for an explicit open it means nothing changes.</td></tr>
     <tr><td>Times outside the trace range</td><td>Kept; painting clamps.</td></tr>
-    <tr><td>Save fails (disk full, permission lost)</td><td>Notice; retry at the next idle point; explicit save reports the error in the dialog.</td></tr>
-    <tr><td>Two viewers on one trace</td><td>Last writer wins for the sidecar. Not mediated in this scope; explicit "Save As" gives each person their own file.</td></tr>
+    <tr><td>Save fails (disk full, permission lost)</td><td><code>WorkspaceSaved</code> carries the error; the workspace stays dirty, a "workspace not saved" notice stays up, and the next idle point retries the same target. The target is never switched silently; "Save As…" is the way out. An explicit save reports the error in the dialog.</td></tr>
+    <tr><td>Two viewers on one trace</td><td>Last writer wins for the sidecar. Not mediated in this scope; explicit "Save As" gives each person their own file. Cross-process locking and conflict prompts are deliberately deferred until there is evidence they are needed.</td></tr>
   </tbody></table></div>
-  <p>Every restore returns a <code>RestoreReport</code> listing what could not be applied. The report is surfaced as a status-bar notice with a "details" popup and is asserted in tests.</p>
+  <p>Restoration is two steps so that failure is harmless. <code>prepare</code> parses, checks format and version, validates the layout tree, resolves every row to a <code>VarId</code> or a placeholder and produces a <code>RestorePlan</code> without touching the live <code>App</code>. <code>commit</code> then installs panels, shared values, markers and sidebar state together, bumps the workspace <code>epoch</code> so results and acknowledgements from the previous workspace are rejected, and queues loads for the visible rows. Every commit returns a <code>RestoreReport</code> listing what could not be applied. The report is surfaced as a status-bar notice with a "details" popup and is asserted in tests.</p>
   <h3>Global preferences <span class="badge prop">proposed</span></h3>
   <p>Look and feel that is not part of any session lives in <code>&lt;config dir&gt;/volna/preferences.json</code>: theme name, default link flags for new panels, autosave on or off, the recent traces and workspaces list. The config dir is <code>$XDG_CONFIG_HOME/volna</code> or <code>~/.config/volna</code> on Linux and macOS (the goal's example, and the convention for command-line tools on both), <code>%APPDATA%\volna</code> on Windows; <code>VOLNA_CONFIG_DIR</code> overrides it. The model is a serde struct in <code>volna-core::workspace::prefs</code>; reading and writing are host code. Inside VS Code the theme comes from the host and the remaining preferences are contributed <code>volna.*</code> settings passed with the open message, so nothing is written to <code>~/.config</code> by the extension.</p>
   <h3>Command line <span class="badge prop">proposed</span></h3>
@@ -577,22 +584,22 @@ pub struct Panels {
       <ol class="steps">
         <li><code>main.rs</code> parses flags, builds <code>Persistence</code> and <code>App::new_with(persistence)</code>, opens the trace with <code>open_path</code>.</li>
         <li>The open completes (<code>LoadResult::Opened</code>); the core installs the session and emits <code>Event::LoadWorkspace{key: Sidecar(path) | Explicit(path)}</code>.</li>
-        <li>The GPUI <code>Workspace</code> resolves the key through the location precedence, reads the bytes off the UI thread and replies <code>Command::RestoreWorkspace(Some(json))</code> or <code>None</code>.</li>
-        <li>The core parses and validates, builds panels, resolves rows to <code>VarId</code>s, queues signal loads under the current generation, sets links, markers and sidebar state, and emits <code>LayoutChanged</code> plus <code>Notice(report)</code>.</li>
+        <li>The GPUI <code>Workspace</code> chooses the save target once (explicit path, writable sidecar, else fallback with the <code>supersedes</code> check), reads the bytes off the UI thread and replies <code>Command::RestoreWorkspace(Some(json))</code> or <code>None</code>.</li>
+        <li>The core runs <code>prepare</code>: parse, validate the tree, resolve rows to <code>VarId</code>s or placeholders. On failure it emits <code>Notice</code> and leaves the default single panel in place. On success it runs <code>commit</code>: installs panels, shared values, markers and sidebar state, bumps the epoch, queues loads for visible rows, and emits <code>LayoutChanged</code> plus <code>Notice(report)</code>.</li>
         <li>The dock adapter installs the layout; loads arrive through the existing <code>deliver</code> path and fan into every panel showing the signal.</li>
-        <li>Edits mark the core dirty; after 1 s idle <code>tick</code> emits <code>PersistWorkspace{target, json}</code>; the host writes atomically. Quit and close flush.</li>
+        <li>Edits bump the revision; after 1 s idle <code>tick</code> emits <code>PersistWorkspace{ticket, json}</code>; the host writes atomically and replies <code>WorkspaceSaved{ticket, result}</code>. Quit and close flush.</li>
       </ol></div>
     <div class="card"><h4 style="margin-top:0">VS Code extension</h4>
       <ol class="steps">
         <li>VS Code resolves the custom editor (first open or workspace restore) and calls <code>resolveCustomEditor</code>.</li>
-        <li><code>extension.js</code> reads the trace bytes and, unless <code>volna.workspace.autosave</code> is <code>off</code>, tries <code>&lt;uri&gt;.volna.json</code> through <code>workspace.fs.readFile</code>, then <code>context.workspaceState</code> under <code>volna.workspace:&lt;uri&gt;</code>. It posts <span class="msg">open {name, bytes, workspace, settings}</span>.</li>
+        <li><code>extension.js</code> reads the trace bytes and, unless <code>volna.workspace.autosave</code> is <code>off</code>, chooses the target for this editor: <code>&lt;uri&gt;.volna.json</code> through <code>workspace.fs</code> if the directory is writable, else <code>context.workspaceState</code> under <code>volna.workspace:&lt;uri&gt;</code> with the same <code>supersedes</code> rule. It reads the chosen source and posts <span class="msg">open {name, bytes, workspace, settings}</span>.</li>
         <li>The wasm bridge opens the bytes through <code>OpenSpec::Bytes</code> and, when the open completes, answers the core's <code>LoadWorkspace</code> event immediately with the JSON it was handed. No second round trip.</li>
-        <li>Same core restore as native, steps 4 and 5.</li>
-        <li>On <code>PersistWorkspace</code> the bridge posts <span class="msg">workspace {json}</span>; the host writes the sidecar with <code>workspace.fs.writeFile</code>, falling back to <code>workspaceState</code> if the write fails or the setting selects it. Because the extension host runs beside the file in remote sessions, the sidecar lands next to the remote trace without any transfer.</li>
-        <li><code>onDidChangeViewState</code> (hidden) and <code>webviewPanel.onDidDispose</code> request a final <span class="msg">workspace</span> flush; reopening the VS Code window returns to step 1 with the saved bytes.</li>
+        <li>Same core prepare and commit as native, steps 4 and 5.</li>
+        <li>On <code>PersistWorkspace</code> the bridge posts <span class="msg">workspace {ticket, json}</span>; the host keeps it as the latest snapshot for this editor, writes the chosen target with <code>workspace.fs.writeFile</code> or <code>workspaceState.update</code>, and answers <span class="msg">saved {ticket, error?}</span>. Because the extension host runs beside the file in remote sessions, the sidecar lands next to the remote trace without any transfer.</li>
+        <li><code>onDidChangeViewState</code> (hidden) sends <span class="msg">requestWorkspace</span> so the latest edits are captured before the webview may be discarded. <code>onDidDispose</code> writes the latest snapshot the host already holds and asks the webview for nothing. Reopening the VS Code window returns to step 1 with the saved bytes.</li>
       </ol></div>
   </div>
-  <p>Explicit actions use the same primitives: "Save Workspace As…" emits <code>Event::SaveWorkspaceDialog{suggested}</code>; the host shows its dialog (GPUI <code>prompt_for_new_path</code>, VS Code <code>showSaveDialog</code>) and writes the capture it then requests. "Open Workspace…" reads a chosen file and sends <code>Command::RestoreWorkspace</code>; if the trace named in it differs from the open one, the open trace is kept and the report says so.</p>
+  <p>Explicit actions use the same primitives: "Save Workspace As…" emits <code>Event::SaveWorkspaceDialog{suggested}</code>; the host shows its dialog (GPUI <code>prompt_for_new_path</code>, VS Code <code>showSaveDialog</code>) and writes the capture it then requests. "Open Workspace…" reads a chosen file and sends <code>Command::RestoreWorkspace</code>; if prepare fails the current workspace is untouched, and if the trace named in the file differs from the open one, the open trace is kept and the report says so. After a successful explicit open the chosen file becomes the save target.</p>
 </div></section>
 
 <section id="vscode"><div class="wrap">
@@ -601,8 +608,8 @@ pub struct Panels {
   <div class="grid two">
     <div class="card"><h4 style="margin-top:0">Messages <span class="badge prop">proposed</span> (existing ones kept)</h4>
       <div class="tablewrap" style="margin:8px 0 0"><table><thead><tr><th>Direction</th><th>Message</th></tr></thead><tbody>
-        <tr><td>webview → host</td><td><span class="msg">ready</span> <span class="badge exist">existing</span>, <span class="msg">pickFile</span> <span class="badge exist">existing</span>, <span class="msg">workspace {json, final}</span>, <span class="msg">saveWorkspaceAs {json, suggested}</span>, <span class="msg">openWorkspace</span>, <span class="msg">notice {level, text}</span></td></tr>
-        <tr><td>host → webview</td><td><span class="msg">open {name, bytes, workspace, settings}</span> (extends the existing <code>open</code>), <span class="msg">workspace {json}</span> (explicit load), <span class="msg">command {name}</span> (split, close, focus, link toggles), <span class="msg">requestWorkspace</span> (flush before hide or dispose)</td></tr>
+        <tr><td>webview → host</td><td><span class="msg">ready</span> <span class="badge exist">existing</span>, <span class="msg">pickFile</span> <span class="badge exist">existing</span>, <span class="msg">workspace {ticket, json}</span>, <span class="msg">saveWorkspaceAs {json, suggested}</span>, <span class="msg">openWorkspace</span>, <span class="msg">notice {level, text}</span></td></tr>
+        <tr><td>host → webview</td><td><span class="msg">open {name, bytes, workspace, settings}</span> (extends the existing <code>open</code>), <span class="msg">saved {ticket, error?}</span> (acknowledges a <span class="msg">workspace</span>), <span class="msg">workspace {json}</span> (explicit load), <span class="msg">command {name}</span> (split, close, focus, link toggles), <span class="msg">requestWorkspace</span> (snapshot before hide; never on dispose)</td></tr>
       </tbody></table></div></div>
     <div class="card"><h4 style="margin-top:0">Manifest additions</h4>
       <ul style="margin:0">
@@ -616,6 +623,7 @@ pub struct Panels {
   <h3>Lifecycle</h3>
   <ul>
     <li><strong>Reopening a VS Code workspace</strong> restores each Volna editor through <code>resolveCustomEditor</code>, which re-sends the trace and its sidecar, so panels, signals, markers and layout come back without a serializer. <code>retainContextWhenHidden</code> is kept for now because the wasm decode of a large trace is expensive; with the sidecar in place it becomes an optimisation rather than the only state holder and can be revisited.</li>
+    <li><strong>Open command.</strong> The existing "Volna: Open" command creates a free webview with no resource behind it. It becomes a file picker followed by <code>vscode.openWith(uri, "volna.waveform")</code>, so every viewer is a custom editor with a resource, a sidecar and the restore path above; the free-webview code path goes away.</li>
     <li><strong>Remote sessions.</strong> The extension host runs where the trace is, so both reading and writing the sidecar use <code>workspace.fs</code> against the remote file system; the webview never sees a path.</li>
     <li><strong>Theme</strong> stays exactly as today: the host delivers palette snapshots, the core resolves tokens, and a workspace restore never touches the theme.</li>
     <li><strong>Testing</strong> follows the existing recipe in <code>VERIFICATION.md</code>: an Extension Development Host with a short temporary user-data dir, CDP input through <code>tools/cdp.mjs</code>, <code>debug_state()</code> for assertions; the profile's <code>settings.json</code> sets <code>volna.workspace.autosave</code> to <code>off</code> except in the restore test, which uses a copy of the example trace in a temporary directory.</li>
@@ -636,10 +644,11 @@ pub enum Command {
     <span class="c">// existing variants unchanged, except:</span>
     Pointer(PanelId, PointerEvent),          <span class="c">// was Pointer(PointerEvent)</span>
     Panels(PanelsCommand),
-    RestoreWorkspace(Option&lt;String&gt;),        <span class="c">// host answer to Event::LoadWorkspace</span>
-    WorkspaceSaved(Result&lt;(), String&gt;),      <span class="c">// host outcome, for notices and retry</span>
+    RestoreWorkspace(Option&lt;String&gt;),        <span class="c">// host answer to Event::LoadWorkspace; prepare, then commit</span>
+    WorkspaceSaved { ticket: SaveTicket, result: Result&lt;(), String&gt; },   <span class="c">// ignored unless ticket is current</span>
     ...
 }
+pub struct SaveTicket { pub target: WorkspaceTarget, pub epoch: u64, pub revision: u64 }
 pub enum PanelsCommand {
     Split { panel: PanelId, axis: Axis },  NewTab { group_of: PanelId },
     Close(PanelId),  Focus(PanelId),  FocusNext,  FocusPrev,  FocusIndex(usize),
@@ -651,7 +660,7 @@ pub enum Event {
     <span class="c">// existing: Changed, OpenFileDialog, RevealScopeRow, RevealVarRow, FocusFilter</span>
     LayoutChanged { revision: u64 },
     LoadWorkspace { key: WorkspaceKey },
-    PersistWorkspace { target: WorkspaceTarget, json: String, final_flush: bool },
+    PersistWorkspace { ticket: SaveTicket, json: String },
     SaveWorkspaceDialog { suggested_name: String },
     OpenWorkspaceDialog,
     Notice { level: NoticeLevel, text: String, details: Vec&lt;String&gt; },
@@ -665,11 +674,14 @@ impl App {
     pub fn status(&amp;self) -&gt; Status;                              <span class="c">// focused panel + link chips</span>
     pub fn debug_state(&amp;self) -&gt; String;                         <span class="c">// one line per panel, prefixed "panel N"</span>
 }
-<span class="c">// Action stays panel-agnostic; App::action applies it to panels.focused and then
-// App::reconcile_links(source) propagates viewport/cursor to linked panels.</span></code></pre></div>
+<span class="c">// Action stays panel-agnostic; App::action applies it to panels.focused.
+// Navigation reads and writes go through the panel's effective viewport/cursor:
+// doc.shared when the corresponding link is on, the panel's own field otherwise.
+// There is no propagation step; linked panels paint from doc.shared directly.</span></code></pre></div>
   <div class="tabpane" data-pane="ws"><pre><code><span class="c">// volna-core/src/workspace/mod.rs</span>
 #[derive(Serialize, Deserialize)]
 pub struct Workspace { pub format: String, pub version: u32, pub trace: TraceRef,
+    pub supersedes: Option&lt;SidecarStamp&gt;,        <span class="c">// fallback files only: {size, mtime_ms} of the sidecar seen at write time</span>
     pub layout: Layout, pub focused: PanelId, pub panels: Vec&lt;PanelFile&gt;,
     pub shared: Shared, pub sidebar: SidebarState }
 
@@ -682,10 +694,15 @@ pub const FORMAT: &amp;str = "volna-workspace";
 pub const VERSION: u32 = 1;
 
 pub fn capture(app: &amp;App) -&gt; Workspace;
-pub fn restore(app: &amp;mut App, ws: Workspace) -&gt; RestoreReport;       <span class="c">// validates, resolves, queues loads</span>
 pub fn parse(json: &amp;str) -&gt; Result&lt;Workspace, WorkspaceError&gt;;       <span class="c">// bounded size and depth</span>
+pub fn prepare(app: &amp;App, ws: Workspace) -&gt; Result&lt;RestorePlan, WorkspaceError&gt;;
+    <span class="c">// validates the tree, resolves rows to VarId or placeholder; reads the App, never mutates it</span>
+pub fn commit(app: &amp;mut App, plan: RestorePlan) -&gt; RestoreReport;
+    <span class="c">// installs panels, shared values, markers, sidebar together; bumps epoch; queues visible loads</span>
 
-pub struct RestoreReport { pub missing_signals: Vec&lt;String&gt;, pub unknown_translators: Vec&lt;String&gt;,
+pub struct RestorePlan { panels: Panels, shared: Shared, markers: Vec&lt;Marker&gt;, sidebar: SidebarState,
+    report: RestoreReport }                                          <span class="c">// private; produced by prepare only</span>
+pub struct RestoreReport { pub missing_signals: Vec&lt;Vec&lt;String&gt;&gt;, pub unknown_translators: Vec&lt;String&gt;,
     pub unknown_panels: Vec&lt;(PanelId, String)&gt;, pub trace_mismatch: Option&lt;String&gt; }
 
 pub enum Persistence { Disabled, Explicit { path: PathBuf }, Auto }
@@ -693,11 +710,21 @@ pub enum WorkspaceKey    { Sidecar { trace: PathBuf }, Explicit(PathBuf), Host(S
 pub enum WorkspaceTarget { Sidecar { trace: PathBuf }, Explicit(PathBuf), Host(String) }
 
 <span class="c">// autosave scheduler, driven by App::tick(now)</span>
-pub struct Autosave { dirty: bool, last_change: Option&lt;u64&gt;, suspended: bool, idle_ms: u64 /* 1000 */ }
+pub struct Autosave {
+    target: Option&lt;WorkspaceTarget&gt;,   <span class="c">// chosen once per trace; changed only by Save As</span>
+    epoch: u64,                        <span class="c">// bumped by every commit and trace switch</span>
+    revision: u64,                     <span class="c">// bumped by every persisting command</span>
+    acked: u64,                        <span class="c">// revision of the last acknowledged write for (target, epoch)</span>
+    in_flight: Option&lt;SaveTicket&gt;,     <span class="c">// at most one write outstanding</span>
+    last_change: Option&lt;u64&gt;, suspended: bool, idle_ms: u64 /* 1000 */,
+}
+<span class="c">// dirty  == revision &gt; acked
+// on WorkspaceSaved { ticket, Ok }: if ticket == in_flight and ticket.epoch == epoch { acked = ticket.revision }
+// on WorkspaceSaved { ticket, Err }: keep dirty, notice, retry at the next idle point on the same target</span>
 
 <span class="c">// owning-layer addition, data/source.rs</span>
-impl Hierarchy { pub fn find_var(&amp;self, full_name: &amp;str) -&gt; Option&lt;VarId&gt;;
-                 pub fn find_scope(&amp;self, path: &amp;str) -&gt; Option&lt;ScopeId&gt;; }
+impl Hierarchy { pub fn find_var(&amp;self, path: &amp;[&amp;str], nth: usize) -&gt; Option&lt;VarId&gt;;
+                 pub fn find_scope(&amp;self, path: &amp;[&amp;str]) -&gt; Option&lt;ScopeId&gt;; }
 
 <span class="c">// preferences, volna-core/src/workspace/prefs.rs</span>
 #[derive(Serialize, Deserialize, Default)]
@@ -749,16 +776,27 @@ async function resolveCustomEditor(document, panel, context) {
   wire(panel.webview, context, document.uri);
   const settings = vscode.workspace.getConfiguration("volna");
   const bytes = await vscode.workspace.fs.readFile(document.uri);
-  const workspace = await readWorkspace(document.uri, settings);        <span class="c">// sidecar → workspaceState → null</span>
+  const target = await chooseTarget(document.uri, settings);           <span class="c">// once per editor: sidecar if writable, else workspaceState; null when autosave is off</span>
+  const workspace = await readWorkspace(target);                        <span class="c">// applies the supersedes rule for a workspaceState target</span>
   panel.webview.postMessage({ type: "open", name: basename(document.uri), bytes: bytes.buffer, workspace, settings: pick(settings) });
+  panel.webview.onDidReceiveMessage(async msg =&gt; {
+    if (msg.type === "workspace") {                                     <span class="c">// opaque JSON text; never JSON.parse'd here</span>
+      latest.set(document.uri.toString(), msg.json);
+      const error = await writeWorkspace(target, msg.json);
+      panel.webview.postMessage({ type: "saved", ticket: msg.ticket, error });
+    }
+  });
   panel.onDidChangeViewState(e =&gt; { if (!e.webviewPanel.visible) panel.webview.postMessage({ type: "requestWorkspace" }); });
-  panel.onDidDispose(() =&gt; flushPending(document.uri));
+  panel.onDidDispose(() =&gt; writeWorkspace(target, latest.get(document.uri.toString())));   <span class="c">// webview is gone; write what we hold</span>
 }
 function sidecarUri(uri) { return uri.with({ path: uri.path + ".volna.json" }); }
-async function writeWorkspace(uri, json, settings) {
-  if (settings.get("workspace.autosave") === "off") return;
-  try { await vscode.workspace.fs.writeFile(sidecarUri(uri), Buffer.from(json)); }
-  catch { await context.workspaceState.update("volna.workspace:" + uri.toString(), json); }
+async function writeWorkspace(target, json) {
+  if (!target || json == null) return;
+  try {
+    if (target.kind === "sidecar") await vscode.workspace.fs.writeFile(target.uri, Buffer.from(json));
+    else await context.workspaceState.update(target.key, json);
+    return undefined;
+  } catch (e) { return String(e); }                                     <span class="c">// reported in saved{}; the core retries the same target</span>
 }
 <span class="c">// commands: registerCommand("volna.splitRight", () =&gt; active().postMessage({ type: "command", name: "splitRight" })) …</span></code></pre></div>
 </div></section>
@@ -771,14 +809,17 @@ async function writeWorkspace(uri, json, settings) {
     <tr><td>Cursor ownership</td><td>Per panel with a link flag; markers shared</td><td>The requirement asks for independent cursors; the flag reproduces Surfer's shared cursor by default</td><td><code>Document::cursor</code> moves; every current caller changes (mechanical)</td></tr>
     <tr><td>Sync groups</td><td>Two global link flags</td><td>Covers "follow" and "independent" with no group UI; groups can replace bools later without a shape change</td><td>Cannot link panels A and B but not C</td></tr>
     <tr><td>Panel identity in files</td><td>Monotonic <code>PanelId</code> written to the file</td><td>Layout references and future cross-panel references (source ↔ waves) need stable ids</td><td>Ids must be validated on load</td></tr>
-    <tr><td>Signal references</td><td>Full hierarchical names</td><td>The only identity VTR promises across runs; FST offers nothing better</td><td>Needs <code>Hierarchy::find_var</code>; renames break rows (placeholders keep them visible)</td></tr>
+    <tr><td>Signal references</td><td>Hierarchy path as segments, optional <code>nth</code></td><td>Names are the only identity VTR promises across runs; segments need no escaping contract for identifiers that contain dots</td><td>Needs <code>Hierarchy::find_var</code>; renames break rows (placeholders keep them visible)</td></tr>
+    <tr><td>Shared navigation</td><td>One value on the document, read through by linked panels</td><td>A single copy cannot disagree; no propagation pass; re-linking always has a value to adopt</td><td>Every viewport/cursor read goes through an "effective" accessor</td></tr>
+    <tr><td>Save acknowledgement</td><td>Ticket of target, epoch and revision</td><td>A late or stale acknowledgement can never mark newer edits, another target, or a replaced workspace as saved</td><td>Three fields on two messages</td></tr>
+    <tr><td>Restoration</td><td>Prepare, then commit</td><td>A bad file, automatic or explicit, never disturbs a healthy workspace</td><td>A <code>RestorePlan</code> type between the two steps</td></tr>
     <tr><td>Format</td><td>JSON via serde_json</td><td>Already a dependency, readable in VS Code, diffable for sharing; RON would add a crate for no user benefit</td><td>Slightly larger files than a binary format; irrelevant at this size</td></tr>
     <tr><td>Sidecar name</td><td><code>&lt;file&gt;.volna.json</code></td><td>Distinguishes <code>a.vtr</code> from <code>a.fst</code>; sortable next to the trace; ignorable by glob</td><td>Long names</td></tr>
     <tr><td>Automatic save</td><td>Idle autosave, on by default</td><td>The requirement; matches VS Code's own editor-state behaviour</td><td>Files appear beside traces; documented, gitignored for examples, disabled in tests and by flag</td></tr>
-    <tr><td>Read-only trace directory</td><td>Per-user fallback dir keyed by path hash</td><td>Shared CI artefacts are read-only; losing the session there would make the feature unreliable</td><td>A second location to explain; the file records the original path</td></tr>
+    <tr><td>Read-only trace directory</td><td>Per-user fallback dir keyed by path hash, chosen once per trace</td><td>Shared CI artefacts are read-only; losing the session there would make the feature unreliable</td><td>A second location to explain; the fallback records the original path and the sidecar it supersedes</td></tr>
     <tr><td>Preferences location</td><td><code>~/.config/volna</code> on Linux and macOS</td><td>Goal's example; command-line tool convention on macOS as well</td><td>Not the macOS GUI convention (<code>Library/Application Support</code>), which is used only for the workspace fallback data</td></tr>
     <tr><td>VS Code storage</td><td>Sidecar through <code>workspace.fs</code>, <code>workspaceState</code> fallback</td><td>Same file as native, remote-safe, shareable; the fallback covers read-only and virtual file systems</td><td>Multiple editors per document disabled to avoid write races</td></tr>
-    <tr><td>Hidden header</td><td>Renderer wrapper over <code>DockSkin</code></td><td>One host path for one and many panels; identical geometry to today</td><td>Forwarding boilerplate; a fallback bypass is described</td></tr>
+    <tr><td>Hidden header</td><td>Renderer wrapper over <code>DockSkin</code>, proven in the phase 0 spike</td><td>One host path for one and many panels; identical geometry to today</td><td>Forwarding boilerplate; if the seam falls short, a small renderer hook rather than a bypass</td></tr>
     <tr><td>egui</td><td>Focused panel only, no persistence</td><td>AGENTS.md: keep it building with its minimal feature set</td><td>Sessions with several panels show one of them in egui; that is allowed by the direction ("without requiring that frontend to implement every view")</td></tr>
   </tbody></table></div>
 </div></section>
@@ -787,39 +828,47 @@ async function writeWorkspace(uri, json, settings) {
   <div class="eyebrow">Delivery</div>
   <h2>Phased implementation and validation</h2>
   <p>Each phase leaves <code>check.sh</code> green and ships its documentation changes (<code>volna/volna/ARCHITECTURE.md</code>, <code>README.md</code> key table, <code>VERIFICATION.md</code>, <code>docs/RATIONALE.md</code> entry) in the same change, per AGENTS.md.</p>
-  <details open><summary>Phase 0 · Owning-layer preparation</summary>
+  <details open><summary>Phase 0 · Dock feasibility spike</summary>
     <ul>
-      <li><code>Hierarchy::find_var</code> / <code>find_scope</code> in <code>data/source.rs</code> with unit tests on the fixture hierarchies.</li>
-      <li><code>Marker{id, time, label}</code>; <code>Document::cursor</code> moves into <code>WaveModel</code>; <code>Document::linked</code> added; callers in the painter, layout and edge stepping updated; egui and GPUI compile.</li>
+      <li>Two throwaway <code>WavePanelView</code>s over the existing <code>WaveTable</code> inside a <code>DockArea</code>, with <code>VolnaDockRenderer</code> installed. No core changes, no persistence, not merged.</li>
+      <li>Prove, natively and in the default VS Code webview: the single-panel header occupies zero height and the body sits at today's y-offset; split both axes, tab reorder and move between groups, close back to one panel; <code>dump()</code> round-trips to the core tree shape; <code>LayoutChanged</code> from the adapter's own <code>set_center</code> is distinguishable from a user edit; a window resize does not report a size edit; <code>on_removed</code> during <code>set_center</code> does not look like a close.</li>
+    </ul>
+    <p><strong>Gate:</strong> screenshots and a short note in <code>docs/RATIONALE.md</code>. If the renderer seam cannot hide the header or the events cannot be told apart, fix the seam (a small upstream or vendored hook) before phase 2 depends on it. Do not build a second single-panel path.</p>
+  </details>
+  <details><summary>Phase 1 · Owning-layer preparation</summary>
+    <ul>
+      <li><code>Hierarchy::find_var</code> / <code>find_scope</code> over path segments in <code>data/source.rs</code> with unit tests on the fixture hierarchies.</li>
+      <li><code>Marker{id, time, label}</code>; <code>Document::cursor</code> moves into <code>WaveModel</code>; <code>Document::shared</code> added with effective-viewport and effective-cursor accessors; callers in the painter, layout and edge stepping updated; egui and GPUI compile.</li>
       <li><code>debug_state()</code> format extended to one line per panel; headless and Metal assertions updated in the same commit.</li>
     </ul>
     <p><strong>Validate:</strong> <code>cargo test -p volna-core</code>, Metal harness, egui screenshots unchanged.</p>
   </details>
-  <details><summary>Phase 1 · Panels in the core, dock in GPUI</summary>
+  <details><summary>Phase 2 · Panels in the core, dock in GPUI</summary>
     <ul>
-      <li><code>panels</code> module: <code>Panels</code>, <code>Layout</code> with normalisation, <code>PanelsCommand</code>, focus, link reconciliation, load fan-out across panels, <code>layout_waves(id, …)</code>/<code>render_waves_into(id, …)</code>.</li>
+      <li><code>panels</code> module: <code>Panels</code>, <code>Layout</code> with normalisation, <code>PanelsCommand</code>, focus, link toggles over the shared values, load fan-out across panels, <code>layout_waves(id, …)</code>/<code>render_waves_into(id, …)</code>.</li>
       <li>GPUI: <code>WavePanelView</code>, <code>DockHost</code>, <code>VolnaDockRenderer</code>, toolbar link and close buttons, View menu entries, key bindings, status-bar chips, focus outline and inactive cursor token.</li>
       <li>egui: render <code>panels.focused()</code>; no other change.</li>
     </ul>
     <p><strong>Validate:</strong> headless tests for split/close/focus/link invariants and normalisation (property-style over random command sequences); a test that arrow keys pan only the focused panel and linked panels follow; Metal harness scenarios "split right, drag tab to bottom edge, close, header hidden again"; wasm build runs the dock in headless Chrome via <code>tools/cdp.mjs</code> with <code>debug_state()</code> assertions; frame-time baseline re-measured with one panel (must not regress) and with four.</p>
   </details>
-  <details><summary>Phase 2 · Workspace model and native persistence</summary>
+  <details><summary>Phase 3 · Workspace model and native persistence</summary>
     <ul>
-      <li><code>workspace</code> module: model, <code>capture</code>/<code>restore</code>/<code>parse</code>, <code>RestoreReport</code>, <code>Persistence</code>, autosave scheduler, preferences model.</li>
-      <li>Native store in the GPUI crate: precedence, atomic write, fallback directory, dialogs for Save As and Open, notices.</li>
+      <li><code>workspace</code> module: model, <code>capture</code>/<code>parse</code>/<code>prepare</code>/<code>commit</code>, <code>RestoreReport</code>, <code>Persistence</code>, autosave scheduler with save tickets, preferences model.</li>
+      <li>Native store in the GPUI crate: target chosen once per trace, atomic write, fallback directory with the <code>supersedes</code> check, dialogs for Save As and Open, notices.</li>
       <li>CLI flags and environment variables in both mains; <code>check.sh</code> exports <code>VOLNA_WORKSPACE=off</code>; <code>.gitignore</code> entry.</li>
     </ul>
-    <p><strong>Validate:</strong> round-trip tests (capture → JSON → restore → capture equal) on synthetic sessions; restore against a hierarchy missing half the signals yields placeholders and a report; newer version rejected and autosave suspended; timescale mismatch warns; fuzz the parser with truncated and oversized inputs; a native integration test opens a copied example trace in a temp dir, edits, waits for the idle save, reopens, asserts <code>debug_state()</code>; confirms the default test paths create no files.</p>
+    <p><strong>Validate:</strong> round-trip tests (capture → JSON → restore → capture equal) on synthetic sessions; restore against a hierarchy missing half the signals yields placeholders and a report; newer version rejected and autosave suspended; a failed explicit open leaves <code>debug_state()</code> unchanged; an acknowledgement for an older revision or a previous epoch leaves the workspace dirty; a fallback is loaded over an unchanged read-only sidecar and ignored over a changed one; timescale mismatch warns; fuzz the parser with truncated and oversized inputs; a native integration test opens a copied example trace in a temp dir, edits, waits for the idle save, reopens, asserts <code>debug_state()</code>; confirms the default test paths create no files.</p>
   </details>
-  <details><summary>Phase 3 · VS Code host</summary>
+  <details><summary>Phase 4 · VS Code host</summary>
     <ul>
-      <li>Extended <code>open</code> message, <code>workspace</code>/<code>command</code>/<code>requestWorkspace</code> messages, sidecar and <code>workspaceState</code> storage, settings, commands, keybindings, editor-title menu, <code>supportsMultipleEditorsPerDocument: false</code>.</li>
+      <li>Extended <code>open</code> message, <code>workspace</code>/<code>saved</code>/<code>command</code>/<code>requestWorkspace</code> messages, sidecar and <code>workspaceState</code> storage, settings, commands, keybindings, editor-title menu, <code>supportsMultipleEditorsPerDocument: false</code>, the open command routed through <code>vscode.openWith</code>.</li>
       <li>wasm bridge: hand the workspace to the core on open, forward <code>PersistWorkspace</code>, map <code>command</code> messages to <code>PanelsCommand</code>s.</li>
     </ul>
-    <p><strong>Validate:</strong> Node tests for the host's precedence and fallback logic with a faked <code>workspace.fs</code>; Extension Development Host session driven by CDP: open trace, split, add signals, reload window, assert restored state; remote-style check with a virtual file system provider stub to confirm no path leaks into the webview.</p>
+    <p><strong>Validate:</strong> Node tests for the host's precedence and fallback logic with a faked <code>workspace.fs</code>; Extension Development Host session driven by CDP: open trace, split, add signals, reload window, assert restored state; hide the editor and dispose it with unsaved edits, confirm the last snapshot was written without any message to the dead webview; remote-style check with a virtual file system provider stub to confirm no path leaks into the webview.</p>
   </details>
-  <details><summary>Phase 4 · Follow-ups outside this scope</summary>
+  <details><summary>Phase 5 · Follow-ups outside this scope</summary>
     <ul>
+      <li>Undo close, cross-process sidecar locking and conflict prompts when two viewers write one sidecar; only with evidence that last-writer-wins hurts.</li>
       <li>Additional panel kinds (transactions, source, pipeline) registered by name in both the core and the dock registry.</li>
       <li>Moving the sidebar into the dock's left placement for VS Code-like collapse, once the centre integration has settled.</li>
       <li>Named sync groups if two global flags prove insufficient.</li>
@@ -1006,7 +1055,7 @@ async function writeWorkspace(uri, json, settings) {
     return { format: 'volna-workspace', version: 1,
       trace: { path: 'picorv32.vtr', name: 'picorv32.vtr', timescale: -9, time_range: [0, TRACE_END] },
       layout: layout(state.layout), focused: state.focused,
-      panels: Object.values(state.panels).map(p => ({ id: p.id, kind: 'waves', version: 1, title: null, link: { viewport: p.syncViewport, cursor: p.syncCursor }, viewport: p.viewport, cursor: p.cursor, scroll_y: 0, columns: { names: 220, values: 120 }, rows: p.rows.map(r => ({ signal: 'testbench.top.' + r.replace(/\[.*\]/, ''), format: r.includes('[') ? 'hex' : 'bit' })), selected: [] })),
+      panels: Object.values(state.panels).map(p => ({ id: p.id, kind: 'waves', version: 1, title: null, link: { viewport: p.syncViewport, cursor: p.syncCursor }, viewport: p.viewport, cursor: p.cursor, scroll_y: 0, columns: { names: 220, values: 120 }, rows: p.rows.map(r => ({ signal: ['testbench', 'top', r.replace(/\[.*\]/, '')], format: r.includes('[') ? 'hex' : 'bit' })), selected: [] })),
       shared: { viewport: state.sharedViewport, cursor: state.sharedCursor, markers: state.markers.map(m => ({ id: m.id, time: m.time, label: null })) },
       sidebar: { visible: true, width: 280, scopes_fraction: 0.42, selected_scope: 'testbench.top', expanded: ['testbench'], filter: '' } };
   }
