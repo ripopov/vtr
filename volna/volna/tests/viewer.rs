@@ -206,6 +206,44 @@ fn run(measure: bool) -> anyhow::Result<()> {
     };
 
     if !measure {
+        // A saved split can arrive before DockArea has ever measured bounds.
+        // Verify the deferred install produces painted panels and live focus.
+        test.update(|cx| {
+            workspace.update(cx, |ws, cx| {
+                ws.set_session(Arc::new(volna_core::data::synth::SynthSource::new(100)), cx);
+                ws.dispatch(volna_core::Command::AddVars(vec![0]), None, cx);
+                ws.dispatch(
+                    volna_core::Command::Action(volna_core::Action::SplitRight),
+                    None,
+                    cx,
+                );
+            });
+        });
+        settle(&mut test, 8);
+        test.update(|cx| {
+            for panel in workspace.read(cx).app.panels.iter() {
+                let waves = panel.kind.waves().unwrap();
+                assert!(
+                    waves.frames_painted > 0,
+                    "initial split must paint without input"
+                );
+                assert!(waves.last_layout().bounds.width() > 100.0);
+            }
+        });
+        let initial_width =
+            test.update(|cx| workspace.read(cx).app.doc.shared.viewport.target().width());
+        key(&mut test, "=");
+        settle(&mut test, 12);
+        assert!(test.update(
+            |cx| workspace.read(cx).app.doc.shared.viewport.target().width() < initial_width
+        ));
+        shot(&mut test, "dock-initial-split")?;
+        test.update(|cx| {
+            workspace.update(cx, |ws, cx| {
+                ws.dispatch(volna_core::Command::CloseTrace, None, cx)
+            })
+        });
+        settle(&mut test, 4);
         // 1. Empty state.
         expect(
             &mut test,
@@ -344,6 +382,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
             &["selected={5}", "anchor=Some(5)"],
         );
         let before_zoom = state(&mut test, "before zoom");
+        let before_zoom_image = test.capture_screenshot(any)?;
         key(&mut test, "=");
         key(&mut test, "=");
         settle(&mut test, 12);
@@ -367,6 +406,16 @@ fn run(measure: bool) -> anyhow::Result<()> {
         settle(&mut test, 12);
         expect(&mut test, "marker added", &["markers=1"]);
         shot(&mut test, "04-cursor-zoom")?;
+        let zoom_image = test.capture_screenshot(any)?;
+        let scale = zoom_image.width() as f32 / 1440.0;
+        assert!(
+            (100..500).any(|y| (650..1400).any(|x| {
+                let x = (x as f32 * scale) as u32;
+                let y = (y as f32 * scale) as u32;
+                before_zoom_image.get_pixel(x, y) != zoom_image.get_pixel(x, y)
+            })),
+            "zoom and marker edits must invalidate the dock's cached waveform canvas"
+        );
         // Badge click (values column right edge).
         click(
             &mut test,
@@ -423,7 +472,15 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update(|cx| volna::theme::install(volna::theme::CoreTheme::one_dark(), cx));
         // Navigate and choose a translator through the component menu.
         let (menu_row, translator) = test.update(|cx| {
-            let menu = workspace.read(cx).app.waves.menu.as_ref().unwrap();
+            let menu = workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .menu
+                .as_ref()
+                .unwrap();
             (menu.row, menu.items[1].id.clone())
         });
         key(&mut test, "down");
@@ -432,10 +489,12 @@ fn run(measure: bool) -> anyhow::Result<()> {
         settle(&mut test, 2);
         expect(&mut test, "menu selection", &["menu=false"]);
         assert_eq!(
-            test.update(|cx| workspace.read(cx).app.waves.items[menu_row]
-                .translator
-                .id()
-                .to_owned()),
+            test.update(
+                |cx| workspace.read(cx).app.panels.focused_waves().unwrap().items[menu_row]
+                    .translator
+                    .id()
+                    .to_owned()
+            ),
             translator
         );
         click(
@@ -455,6 +514,219 @@ fn run(measure: bool) -> anyhow::Result<()> {
             viewport(&fitted),
             "fit must restore full trace range"
         );
+        // Dock geometry and keyboard actions use the production adapter.
+        let single_bounds = test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .last_layout()
+                .bounds
+        });
+        assert_eq!(
+            single_bounds.top(),
+            32.0,
+            "one panel has no dock header height"
+        );
+        key(&mut test, "cmd-\\");
+        settle(&mut test, 8);
+        test.update(|cx| {
+            let panels = &workspace.read(cx).app.panels;
+            assert_eq!(panels.len(), 2);
+            panels.validate().unwrap();
+            let visible = panels.layout().visible();
+            let a = panels.waves(visible[0]).unwrap().last_layout().bounds;
+            let b = panels.waves(visible[1]).unwrap().last_layout().bounds;
+            assert!(a.width() > 100.0 && b.width() > 100.0);
+            assert!(a.right() <= b.left() + 2.0);
+            assert!(
+                a.top() > single_bounds.top(),
+                "split panels expose a tab strip"
+            );
+        });
+        shot(&mut test, "dock-split-right")?;
+        key(&mut test, "l");
+        assert!(!test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .link
+                .viewport
+        }));
+        key(&mut test, "cmd-shift-\\");
+        settle(&mut test, 8);
+        assert_eq!(test.update(|cx| workspace.read(cx).app.panels.len()), 3);
+        shot(&mut test, "dock-split-down")?;
+        key(&mut test, "cmd-n");
+        settle(&mut test, 8);
+        assert_eq!(test.update(|cx| workspace.read(cx).app.panels.len()), 4);
+        assert!(test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .items
+                .is_empty()
+        }));
+        shot(&mut test, "dock-new-tab")?;
+        let new_tab_bounds = test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .last_layout()
+                .bounds
+        });
+        let menu_position = Point::new(
+            px(new_tab_bounds.right() - 14.0),
+            px(new_tab_bounds.top() - 16.0),
+        );
+        click(&mut test, menu_position, Modifiers::default());
+        settle(&mut test, 3);
+        click(
+            &mut test,
+            Point::new(menu_position.x - px(65.0), menu_position.y + px(138.0)),
+            Modifiers::default(),
+        );
+        settle(&mut test, 3);
+        for character in ["d", "e", "c", "o", "d", "e"] {
+            key(&mut test, character);
+        }
+        shot(&mut test, "dock-rename-dialog")?;
+        key(&mut test, "enter");
+        settle(&mut test, 4);
+        assert_eq!(
+            test.update(|cx| workspace.read(cx).app.panels.focused().title.clone()),
+            Some("decode".into())
+        );
+        let (before_sash, sash) = test.update(|cx| {
+            let p = &workspace.read(cx).app.panels;
+            let first = p
+                .waves(p.layout().visible()[0])
+                .unwrap()
+                .last_layout()
+                .bounds;
+            (
+                p.layout().clone(),
+                Point::new(px(first.right() + 1.0), px(first.top() + 100.0)),
+            )
+        });
+        drag(&mut test, sash, Point::new(sash.x + px(75.0), sash.y));
+        settle(&mut test, 6);
+        assert_ne!(
+            test.update(|cx| workspace.read(cx).app.panels.layout().clone()),
+            before_sash,
+            "a dock sash drag updates core fractions"
+        );
+        let (layout_before_zoom, bounds_before_zoom) = test.update(|cx| {
+            let p = &workspace.read(cx).app.panels;
+            (
+                p.layout().clone(),
+                p.focused_waves().unwrap().last_layout().bounds,
+            )
+        });
+        key(&mut test, "shift-escape");
+        settle(&mut test, 6);
+        test.update(|cx| {
+            let p = &workspace.read(cx).app.panels;
+            assert_eq!(*p.layout(), layout_before_zoom, "dock zoom is transient");
+            assert!(
+                p.focused_waves().unwrap().last_layout().bounds.width()
+                    > bounds_before_zoom.width()
+            );
+        });
+        shot(&mut test, "dock-zoom-group")?;
+        key(&mut test, "shift-escape");
+        settle(&mut test, 6);
+        let previous_focus = test.update(|cx| workspace.read(cx).app.panels.focused_id());
+        key(&mut test, "cmd-1");
+        settle(&mut test, 4);
+        test.update(|cx| {
+            let p = &workspace.read(cx).app.panels;
+            assert_eq!(p.focused_id(), p.layout().panels()[0]);
+        });
+        test.update(|cx| {
+            workspace.update(cx, |ws, cx| {
+                ws.dispatch(
+                    volna_core::Command::Panels(volna_core::panels::PanelsCommand::Focus(
+                        previous_focus,
+                    )),
+                    None,
+                    cx,
+                )
+            })
+        });
+        settle(&mut test, 4);
+        let (tab_from, drop_to, before_drop) = test.update(|cx| {
+            let p = &workspace.read(cx).app.panels;
+            let source = p.focused_waves().unwrap().last_layout().bounds;
+            let first = p
+                .waves(p.layout().visible()[0])
+                .unwrap()
+                .last_layout()
+                .bounds;
+            (
+                Point::new(px(source.left() + 120.0), px(source.top() - 15.0)),
+                Point::new(
+                    px(first.left() + first.width() / 2.0),
+                    px(first.bottom() - 15.0),
+                ),
+                p.layout().clone(),
+            )
+        });
+        drag(&mut test, tab_from, drop_to);
+        settle(&mut test, 8);
+        test.update(|cx| {
+            let p = &workspace.read(cx).app.panels;
+            assert_eq!(p.len(), 4, "tab moves do not destroy panel content");
+            assert_ne!(
+                p.layout(),
+                &before_drop,
+                "dragging a tab to a panel edge must split there"
+            );
+            p.validate().unwrap();
+        });
+        shot(&mut test, "dock-drag-to-split")?;
+        let before_resize = test.update(|cx| workspace.read(cx).app.panels.layout().clone());
+        test.update_window(any, |_, w, _| w.resize(size(px(1680.0), px(1000.0))))?;
+        settle(&mut test, 8);
+        assert_eq!(
+            test.update(|cx| workspace.read(cx).app.panels.layout().clone()),
+            before_resize,
+            "window resizing must not edit split fractions"
+        );
+        test.update_window(any, |_, w, _| w.resize(win_size))?;
+        settle(&mut test, 8);
+        let before_cycle = test.update(|cx| workspace.read(cx).app.panels.focused_id());
+        key(&mut test, "ctrl-tab");
+        settle(&mut test, 4);
+        assert_ne!(
+            test.update(|cx| workspace.read(cx).app.panels.focused_id()),
+            before_cycle
+        );
+        for _ in 0..3 {
+            key(&mut test, "cmd-w");
+            settle(&mut test, 6);
+        }
+        test.update(|cx| {
+            let panels = &workspace.read(cx).app.panels;
+            assert_eq!(panels.len(), 1);
+            panels.validate().unwrap();
+            assert_eq!(
+                panels.focused_waves().unwrap().last_layout().bounds,
+                single_bounds
+            );
+        });
+        shot(&mut test, "dock-single-again")?;
         // Exercise byte input through the GPUI executor (also used by web hosts).
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../ext/surfer/examples/verilator/features.fst");
@@ -466,6 +738,30 @@ fn run(measure: bool) -> anyhow::Result<()> {
         settle(&mut test, 4);
         let count = test.update(|cx| workspace.read(cx).app.doc.hierarchy().unwrap().vars.len());
         assert!(count > 0);
+        // A newly loaded trace owns keyboard focus without requiring a click
+        // into its replacement dock panel.
+        let fitted_width = test.update(|cx| {
+            let app = &workspace.read(cx).app;
+            app.panels
+                .focused_waves()
+                .unwrap()
+                .viewport(&app.doc)
+                .width()
+        });
+        key(&mut test, "=");
+        settle(&mut test, 20);
+        test.update(|cx| {
+            let app = &workspace.read(cx).app;
+            assert!(
+                app.panels
+                    .focused_waves()
+                    .unwrap()
+                    .viewport_state(&app.doc)
+                    .target()
+                    .width()
+                    < fitted_width
+            );
+        });
         test.update(|cx| {
             workspace.update(cx, |ws, cx| {
                 ws.dispatch(
@@ -477,7 +773,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         });
         settle(&mut test, 4);
         test.update(|cx| {
-            let rows = &workspace.read(cx).app.waves.items;
+            let rows = &workspace.read(cx).app.panels.focused_waves().unwrap().items;
             assert_eq!(rows.len(), count);
             assert!(rows.iter().all(|row| row.history.is_some()));
         });
@@ -486,12 +782,40 @@ fn run(measure: bool) -> anyhow::Result<()> {
     }
 
     // 4. Frame-time benchmark: synthetic traces, identical viewport and window.
+    let panel_count: usize = std::env::var("VOLNA_PERF_PANELS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    assert!(
+        [1, 4].contains(&panel_count),
+        "VOLNA_PERF_PANELS must be 1 or 4"
+    );
     for n in [10_000usize, 1_000_000, 100_000_000] {
         test.update(|cx| workspace.update(cx, |ws, cx| ws.open_synthetic(n, cx)));
         settle(&mut test, 4);
+        if panel_count == 4 {
+            for command in [
+                volna_core::Command::Action(volna_core::Action::SplitRight),
+                volna_core::Command::Action(volna_core::Action::SplitDown),
+                volna_core::Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(0)),
+                volna_core::Command::Action(volna_core::Action::SplitDown),
+            ] {
+                test.update(|cx| workspace.update(cx, |ws, cx| ws.dispatch(command, None, cx)));
+            }
+            settle(&mut test, 4);
+        }
         key(&mut test, "f");
         settle(&mut test, 12);
         // Pan a little each frame so every frame is a real repaint.
+        let painted_before = test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .frames_painted
+        });
         let mut samples = Vec::new();
         for _ in 0..30 {
             let start = Instant::now();
@@ -502,18 +826,40 @@ fn run(measure: bool) -> anyhow::Result<()> {
             .expect("benchmark draw");
             samples.push(start.elapsed().as_secs_f64() * 1000.0);
         }
+        let painted = test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .frames_painted
+        }) - painted_before;
+        assert!(
+            painted >= 30,
+            "benchmark reused cached canvases: {painted} paints for 30 frames"
+        );
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let median = samples[samples.len() / 2];
         let p90 = samples[samples.len() * 9 / 10];
         let paint_ms = test.update(|cx| workspace.read(cx).waves_frame_ms());
         println!(
-            "PERF transitions={n} frame_median_ms={median:.2} frame_p90_ms={p90:.2} table_paint_ms={paint_ms:.2}"
+            "PERF panels={panel_count} transitions={n} frame_median_ms={median:.2} frame_p90_ms={p90:.2} table_paint_ms={paint_ms:.2}"
         );
         // Zoomed-in view as well.
         for _ in 0..6 {
             key(&mut test, "=");
         }
         settle(&mut test, 12);
+        let painted_before = test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .frames_painted
+        });
         let mut samples = Vec::new();
         for _ in 0..30 {
             let start = Instant::now();
@@ -524,9 +870,22 @@ fn run(measure: bool) -> anyhow::Result<()> {
             .expect("benchmark draw");
             samples.push(start.elapsed().as_secs_f64() * 1000.0);
         }
+        let painted = test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .frames_painted
+        }) - painted_before;
+        assert!(
+            painted >= 30,
+            "benchmark reused cached canvases: {painted} paints for 30 frames"
+        );
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "PERF transitions={n} zoomed frame_median_ms={:.2} frame_p90_ms={:.2}",
+            "PERF panels={panel_count} transitions={n} zoomed frame_median_ms={:.2} frame_p90_ms={:.2}",
             samples[samples.len() / 2],
             samples[samples.len() * 9 / 10]
         );

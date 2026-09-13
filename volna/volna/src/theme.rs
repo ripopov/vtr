@@ -62,6 +62,16 @@ pub fn set(core: CoreTheme, cx: &mut App) {
     kit.button_primary_foreground = t.button.text;
     kit.button_primary_hover = t.button_hover.bg;
     kit.button_primary_active = t.button.bg;
+    kit.button_secondary = t.button.bg;
+    kit.button_secondary_foreground = t.button.text;
+    kit.button_secondary_hover = t.button_hover.bg;
+    kit.button_secondary_active = t.button.bg;
+    kit.tab = t.bar.bg;
+    kit.tab_foreground = t.bar.text_muted;
+    kit.tab_active = t.editor.bg;
+    kit.tab_active_foreground = t.editor.text;
+    kit.tab_bar = t.bar.bg;
+    kit.drag_border = t.border_focused;
     kit.tokens = kit.colors.into();
     ComponentTheme::sync_base(cx);
     cx.set_global(ThemeGlobal { gpui: t, core });

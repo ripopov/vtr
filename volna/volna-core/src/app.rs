@@ -9,6 +9,7 @@ use web_time::Instant;
 use crate::data::{ScopeId, VarId};
 use crate::document::{Delivered, Document, TraceState};
 use crate::geometry::{Modifiers, Rect};
+use crate::panels::{PanelId, Panels, PanelsCommand};
 use crate::scene::{Scene, TextCache, TextMeasure};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::sidebar::{Key, ScopeTreeModel, VariableListModel};
@@ -20,6 +21,14 @@ use crate::wave::timeline::format_time;
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    SplitRight,
+    SplitDown,
+    NewPanel,
+    ClosePanel,
+    FocusNextPanel,
+    FocusPrevPanel,
+    ToggleViewportLink,
+    ToggleCursorLink,
     ZoomIn,
     ZoomOut,
     ZoomFit,
@@ -40,6 +49,33 @@ pub enum Action {
     MoveSelectionDown,
 }
 
+impl Command {
+    /// Stable command names for hosts whose shortcuts run outside the viewer.
+    /// Routing and the meaning of each command remain in the core.
+    pub fn named(name: &str) -> Option<Self> {
+        let action = match name {
+            "openWorkspace" => return Some(Self::RequestOpenWorkspace),
+            "saveWorkspace" => return Some(Self::SaveWorkspace),
+            "saveWorkspaceAs" => return Some(Self::RequestSaveWorkspaceAs),
+            "splitRight" => Action::SplitRight,
+            "splitDown" => Action::SplitDown,
+            "newPanel" => Action::NewPanel,
+            "closePanel" => Action::ClosePanel,
+            "focusNextPanel" => Action::FocusNextPanel,
+            "focusPrevPanel" => Action::FocusPrevPanel,
+            "toggleViewportLink" => Action::ToggleViewportLink,
+            "toggleCursorLink" => Action::ToggleCursorLink,
+            _ => {
+                let index = name.strip_prefix("focusPanel")?.parse::<usize>().ok()?;
+                return (1..=9)
+                    .contains(&index)
+                    .then_some(Self::Panels(PanelsCommand::FocusIndex(index - 1)));
+            }
+        };
+        Some(Self::Action(action))
+    }
+}
+
 /// Which sash of the workspace chrome is being dragged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChromeDrag {
@@ -53,10 +89,15 @@ pub enum Command {
     Open(OpenSpec),
     /// Ask the frontend for a file (it answers with [`Command::Open`]).
     RequestOpenDialog,
+    RequestOpenWorkspace,
+    RequestSaveWorkspaceAs,
+    SaveWorkspace,
+    RequestQuit,
     CloseTrace,
     ToggleSidebar,
     Action(Action),
-    Pointer(PointerEvent),
+    Pointer(PanelId, PointerEvent),
+    Panels(PanelsCommand),
     /// Add rows for these variables to the wave view.
     AddVars(Vec<VarId>),
     SelectScope(ScopeId),
@@ -74,8 +115,8 @@ pub enum Command {
     AddSelectedOrAllVars,
     VariablesKey(Key, Modifiers),
     /// The format menu's popup reported a choice / was dismissed.
-    MenuSelect(String),
-    MenuDismiss,
+    MenuSelect(PanelId, String),
+    MenuDismiss(PanelId),
     SetSidebarWidth(f32),
     /// Scope tree height as a fraction of the sidebar.
     SetScopesFraction(f32),
@@ -87,6 +128,23 @@ pub enum Command {
 pub enum Event {
     /// Something visible changed; repaint.
     Changed,
+    LayoutChanged {
+        revision: u64,
+    },
+    Notice(String),
+    LoadWorkspace {
+        trace_uri: String,
+    },
+    PersistWorkspace {
+        ticket: crate::workspace::persistence::SaveTicket,
+        bytes: Vec<u8>,
+    },
+    OpenWorkspaceDialog,
+    SaveWorkspaceDialog,
+    TraceClosed {
+        trace_uri: String,
+    },
+    Quit,
     /// Show the platform file dialog, then send [`Command::Open`].
     OpenFileDialog,
     /// Scroll the scope tree so this row is visible.
@@ -100,6 +158,9 @@ pub enum Event {
 /// Text the status bar shows, already formatted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Status {
+    pub workspace_notice: Option<String>,
+    pub panel: Option<String>,
+    pub links: Option<crate::wave::model::Link>,
     pub file: Option<String>,
     pub time_range: Option<String>,
     pub signals: Option<String>,
@@ -114,7 +175,8 @@ pub const SIDEBAR_FRACTION_MIN: f32 = 0.15;
 
 pub struct App {
     pub doc: Document,
-    pub waves: WaveModel,
+    pub workspace: crate::workspace::State,
+    pub panels: Panels,
     pub scopes: ScopeTreeModel,
     pub variables: VariableListModel,
     pub sidebar_width: f32,
@@ -123,7 +185,7 @@ pub struct App {
     pub scopes_fraction: f32,
     pub drag: Option<ChromeDrag>,
     show_all_on_open: bool,
-    events: Vec<Event>,
+    pub(crate) events: Vec<Event>,
     text: TextCache,
     scene: Scene,
 }
@@ -138,7 +200,8 @@ impl App {
     pub fn new() -> Self {
         App {
             doc: Document::new(),
-            waves: WaveModel::new(),
+            workspace: crate::workspace::State::default(),
+            panels: Panels::new(),
             scopes: ScopeTreeModel::new(),
             variables: VariableListModel::new(),
             sidebar_width: 280.0,
@@ -171,6 +234,10 @@ impl App {
     }
 
     fn open(&mut self, spec: OpenSpec, show_all: bool) {
+        self.open_with_workspace(spec, show_all);
+    }
+
+    pub(crate) fn open_now(&mut self, spec: OpenSpec, show_all: bool) {
         self.show_all_on_open = show_all;
         self.doc.open(spec);
         self.changed();
@@ -183,17 +250,33 @@ impl App {
     }
 
     pub fn close_trace(&mut self) {
+        self.close_with_workspace();
+    }
+
+    pub(crate) fn close_now(&mut self) {
         self.doc.close();
         self.on_session_changed();
     }
 
     fn on_session_changed(&mut self) {
         let limits = self.doc.session().map(|s| s.info().time_range);
-        self.waves.reset(limits);
+        if let Err(e) = self.panels.reset(limits) {
+            self.events.push(Event::Notice(e.to_string()));
+        }
+        if let Some(w) = self.panels.focused_waves_mut() {
+            w.link = self.workspace.preferences.link_by_default;
+        }
+        self.layout_changed();
         self.scopes.reset(self.doc.hierarchy());
         self.variables.reset(self.doc.hierarchy());
         let scope = self.scopes.selected;
         self.variables.set_scope(self.doc.hierarchy(), scope);
+        self.changed();
+    }
+
+    pub(crate) fn workspace_restored(&mut self) {
+        self.drag = None;
+        self.layout_changed();
         self.changed();
     }
 
@@ -208,7 +291,12 @@ impl App {
         match self.doc.deliver(result) {
             Some(Delivered::Signals(results)) => {
                 for (signal, result) in results {
-                    self.waves.finish_signal(signal, result);
+                    let result = result.map_err(|e| e.to_string());
+                    for panel in self.panels.iter_mut() {
+                        if let Some(w) = panel.kind.waves_mut() {
+                            w.finish_signal(signal, result.clone().map_err(anyhow::Error::msg));
+                        }
+                    }
                 }
                 self.changed();
             }
@@ -218,8 +306,12 @@ impl App {
                     let count = session.hierarchy().vars.len();
                     self.add_vars(&(0..count).collect::<Vec<_>>());
                 }
+                self.session_ready_for_workspace();
             }
-            Some(Delivered::Opened(Err(_))) => self.changed(),
+            Some(Delivered::Opened(Err(_))) => {
+                self.workspace.loading = false;
+                self.changed();
+            }
             None => {}
         }
     }
@@ -229,13 +321,69 @@ impl App {
         std::mem::take(&mut self.events)
     }
 
-    fn changed(&mut self) {
-        if self.events.last() != Some(&Event::Changed) {
+    pub(crate) fn changed(&mut self) {
+        if !self.events.contains(&Event::Changed) {
             self.events.push(Event::Changed);
         }
     }
 
+    fn layout_changed(&mut self) {
+        self.events.push(Event::LayoutChanged {
+            revision: self.panels.revision(),
+        });
+        self.changed();
+    }
+
+    fn panel_command(&mut self, command: PanelsCommand) {
+        let revision = self.panels.revision();
+        let old_focus = self.panels.focused_id();
+        let result = match command {
+            PanelsCommand::Split { panel, axis } => {
+                self.panels.create(panel, Some(axis)).map(|_| ())
+            }
+            PanelsCommand::NewTab { group_of } => self.panels.create(group_of, None).map(|_| ()),
+            PanelsCommand::Close(id) => self.panels.close(id),
+            PanelsCommand::CloseOthers(id) => self.panels.close_others(id),
+            PanelsCommand::Focus(id) => self.panels.focus(id).map(|_| ()),
+            PanelsCommand::FocusNext => self.panels.focus_next(false).map(|_| ()),
+            PanelsCommand::FocusPrev => self.panels.focus_next(true).map(|_| ()),
+            PanelsCommand::FocusIndex(ix) => self.panels.focus_index(ix).map(|_| ()),
+            PanelsCommand::Rename(id, title) => self.panels.rename(id, title).map(|_| ()),
+            PanelsCommand::SetLayout {
+                layout,
+                from_revision,
+            } => self.panels.set_layout(layout, from_revision).map(|_| ()),
+            PanelsCommand::ToggleLink { panel, dim } => {
+                self.panels.toggle_link(panel, &self.doc, dim)
+            }
+        };
+        if old_focus != self.panels.focused_id()
+            && let Some(w) = self.panels.waves_mut(old_focus)
+        {
+            w.menu_dismiss();
+        }
+        if let Err(e) = result {
+            self.events.push(Event::Notice(e.to_string()));
+            // A rejected dock proposal must be resynchronized too.
+            self.layout_changed();
+        } else if revision != self.panels.revision() {
+            self.layout_changed();
+        } else {
+            self.changed();
+        }
+    }
+
     // -- commands ----------------------------------------------------------------
+
+    /// Delayed input from a panel or dialog belongs to the document generation
+    /// that produced it, even when a restored file reuses saved panel IDs.
+    pub fn handle_if_current(&mut self, generation: u64, command: Command) -> bool {
+        if generation != self.doc.generation() {
+            return false;
+        }
+        self.handle(command);
+        true
+    }
 
     pub fn handle(&mut self, command: Command) {
         self.handle_at(command, Instant::now());
@@ -243,17 +391,41 @@ impl App {
 
     /// Like [`App::handle`] with an explicit clock for animations.
     pub fn handle_at(&mut self, command: Command, now: Instant) {
+        let before = crate::workspace::Stamp::capture(self, &command);
+        let tracked = before.as_ref().map(|_| command.clone());
         match command {
             Command::Open(spec) => self.open(spec, false),
             Command::RequestOpenDialog => self.events.push(Event::OpenFileDialog),
+            Command::RequestOpenWorkspace | Command::RequestSaveWorkspaceAs => {
+                if self.workspace.scheduler.enabled() {
+                    self.events
+                        .push(if matches!(command, Command::RequestOpenWorkspace) {
+                            Event::OpenWorkspaceDialog
+                        } else {
+                            Event::SaveWorkspaceDialog
+                        });
+                } else {
+                    self.report_workspace_error(
+                        "Workspace persistence is disabled for this session".into(),
+                    );
+                }
+            }
+            Command::SaveWorkspace => self.save_workspace(None),
+            Command::RequestQuit => self.request_quit(),
             Command::CloseTrace => self.close_trace(),
             Command::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 self.changed();
             }
             Command::Action(a) => self.action(a, now),
-            Command::Pointer(ev) => {
-                if self.waves.pointer(&mut self.doc, ev) {
+            Command::Panels(command) => self.panel_command(command),
+            Command::Pointer(id, ev) => {
+                if matches!(ev, PointerEvent::Down { .. }) && self.panels.get(id).is_some() {
+                    self.panel_command(PanelsCommand::Focus(id));
+                }
+                if let Some(w) = self.panels.waves_mut(id)
+                    && w.pointer(&mut self.doc, ev)
+                {
                     self.changed();
                 }
             }
@@ -321,12 +493,16 @@ impl App {
                     self.changed();
                 }
             }
-            Command::MenuSelect(id) => {
-                self.waves.menu_select(&self.doc, &id);
+            Command::MenuSelect(panel, id) => {
+                if let Some(w) = self.panels.waves_mut(panel) {
+                    w.menu_select(&self.doc, &id);
+                }
                 self.changed();
             }
-            Command::MenuDismiss => {
-                self.waves.menu_dismiss();
+            Command::MenuDismiss(panel) => {
+                if let Some(w) = self.panels.waves_mut(panel) {
+                    w.menu_dismiss();
+                }
                 self.changed();
             }
             Command::SetSidebarWidth(w) => {
@@ -346,19 +522,70 @@ impl App {
                 self.changed();
             }
         }
+        if let Some(command) = tracked
+            && before != crate::workspace::Stamp::capture(self, &command)
+        {
+            self.workspace.scheduler.changed(now);
+        }
     }
 
     fn add_vars(&mut self, vars: &[VarId]) {
         if vars.is_empty() {
             return;
         }
-        self.waves.add_vars(&mut self.doc, vars);
+        // Reuse histories already held in another panel before queuing work.
+        let loaded: std::collections::HashMap<_, _> = self
+            .panels
+            .iter()
+            .filter_map(|p| p.kind.waves())
+            .flat_map(|w| &w.items)
+            .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
+            .collect();
+        if let Some(w) = self.panels.focused_mut().kind.waves_mut() {
+            w.add_vars_with_histories(&mut self.doc, vars, loaded);
+        }
         self.changed();
     }
 
     fn action(&mut self, action: Action, now: Instant) {
+        use crate::panels::Axis;
+        use crate::wave::model::LinkDim;
+        let panel = self.panels.focused_id();
+        let panel_command = match action {
+            Action::SplitRight => Some(PanelsCommand::Split {
+                panel,
+                axis: Axis::Horizontal,
+            }),
+            Action::SplitDown => Some(PanelsCommand::Split {
+                panel,
+                axis: Axis::Vertical,
+            }),
+            Action::NewPanel => Some(PanelsCommand::NewTab { group_of: panel }),
+            Action::ClosePanel if self.panels.len() == 1 => {
+                self.close_trace();
+                return;
+            }
+            Action::ClosePanel => Some(PanelsCommand::Close(panel)),
+            Action::FocusNextPanel => Some(PanelsCommand::FocusNext),
+            Action::FocusPrevPanel => Some(PanelsCommand::FocusPrev),
+            Action::ToggleViewportLink => Some(PanelsCommand::ToggleLink {
+                panel,
+                dim: LinkDim::Viewport,
+            }),
+            Action::ToggleCursorLink => Some(PanelsCommand::ToggleLink {
+                panel,
+                dim: LinkDim::Cursor,
+            }),
+            _ => None,
+        };
+        if let Some(command) = panel_command {
+            self.panel_command(command);
+            return;
+        }
         let doc = &mut self.doc;
-        let w = &mut self.waves;
+        let Some(w) = self.panels.focused_mut().kind.waves_mut() else {
+            return;
+        };
         match action {
             Action::ZoomIn => w.zoom_in(doc, now),
             Action::ZoomOut => w.zoom_out(doc, now),
@@ -371,7 +598,9 @@ impl App {
             Action::NextEdge => w.next_edge(doc, now),
             Action::PrevEdge => w.prev_edge(doc, now),
             Action::AddMarker => {
-                doc.add_marker_at_cursor();
+                if let Some(c) = w.cursor(doc) {
+                    doc.add_marker(c);
+                }
             }
             Action::ClearMarkers => doc.clear_markers(),
             Action::RemoveSelected => w.remove_selected(),
@@ -380,6 +609,15 @@ impl App {
             Action::CycleFormat => w.cycle_format(doc),
             Action::MoveSelectionUp => w.move_selection(-1),
             Action::MoveSelectionDown => w.move_selection(1),
+            // Panel actions were resolved before borrowing a wave model.
+            Action::SplitRight
+            | Action::SplitDown
+            | Action::NewPanel
+            | Action::ClosePanel
+            | Action::FocusNextPanel
+            | Action::FocusPrevPanel
+            | Action::ToggleViewportLink
+            | Action::ToggleCursorLink => unreachable!(),
         }
         self.changed();
     }
@@ -388,22 +626,44 @@ impl App {
 
     /// Advance animations. Returns true while another frame is needed.
     pub fn tick(&mut self, now: Instant) -> bool {
-        self.waves.tick(now)
+        let mut animating = self.doc.shared.viewport.tick(now);
+        for panel in self.panels.iter_mut() {
+            if let Some(w) = panel.kind.waves_mut() {
+                animating |= w.tick(now);
+            }
+        }
+        let waiting_to_save = self.workspace_tick(now);
+        animating || waiting_to_save
     }
 
     pub fn is_animating(&self) -> bool {
-        self.waves.is_animating()
+        self.doc.shared.viewport.is_animating()
+            || self
+                .panels
+                .iter()
+                .filter_map(|p| p.kind.waves())
+                .any(WaveModel::is_animating)
     }
 
     /// Lay the wave panel out in `bounds`; the result feeds hit regions.
-    pub fn layout_waves(&mut self, bounds: Rect, theme: &Theme) -> &WaveLayout {
-        self.waves.layout(bounds, &self.doc, theme)
+    pub fn layout_waves(
+        &mut self,
+        id: PanelId,
+        bounds: Rect,
+        theme: &Theme,
+    ) -> Option<&WaveLayout> {
+        Some(self.panels.waves_mut(id)?.layout(bounds, &self.doc, theme))
     }
 
     /// Paint the wave panel with the layout from the last [`App::layout_waves`].
-    pub fn render_waves(&mut self, theme: &Theme, measure: &mut dyn TextMeasure) -> &Scene {
+    pub fn render_waves(
+        &mut self,
+        id: PanelId,
+        theme: &Theme,
+        measure: &mut dyn TextMeasure,
+    ) -> &Scene {
         let mut scene = std::mem::take(&mut self.scene);
-        self.render_waves_into(theme, measure, &mut scene);
+        self.render_waves_into(id, theme, measure, &mut scene);
         self.scene = scene;
         &self.scene
     }
@@ -412,19 +672,26 @@ impl App {
     /// that must hand the scene to their painter while the app is borrowed.
     pub fn render_waves_into(
         &mut self,
+        id: PanelId,
         theme: &Theme,
         measure: &mut dyn TextMeasure,
         scene: &mut Scene,
     ) {
         scene.clear();
-        crate::wave::paint::paint(
-            &self.waves,
-            &self.doc,
-            theme,
-            &mut self.text,
-            measure,
-            scene,
-        );
+        let Some(w) = self.panels.waves(id) else {
+            return;
+        };
+        let focused = id == self.panels.focused_id();
+        crate::wave::paint::paint(w, &self.doc, theme, &mut self.text, measure, scene, focused);
+        if focused && self.panels.len() > 1 {
+            scene.quad(
+                w.last_layout().bounds,
+                crate::Color::TRANSPARENT,
+                0.0,
+                1.0,
+                theme.border_focused,
+            );
+        }
     }
 
     /// The last painted scene.
@@ -436,8 +703,21 @@ impl App {
 
     pub fn status(&self) -> Status {
         let mut s = Status {
+            workspace_notice: self
+                .workspace
+                .scheduler
+                .error()
+                .map(str::to_owned)
+                .or_else(|| self.workspace.notices.last().cloned()),
             file: self.doc.name(),
-            frame_ms: format!("{:.1} ms", self.waves.frame_ms_avg),
+            frame_ms: format!(
+                "{:.1} ms",
+                self.panels
+                    .focused()
+                    .kind
+                    .waves()
+                    .map_or(0.0, |w| w.frame_ms_avg)
+            ),
             ..Default::default()
         };
         if let Some(src) = self.doc.session() {
@@ -450,12 +730,16 @@ impl App {
             ));
             s.signals = Some(format!("{} signals", info.signal_count));
             s.changes = info.change_count.map(|n| format!("{n} changes"));
-            let vp = self.waves.viewport;
-            let px_per = vp.width() / f64::from(self.waves.wave_width).max(1.0);
+            s.panel = (self.panels.len() > 1).then(|| self.panels.focused().title());
+            let Some(w) = self.panels.focused().kind.waves() else {
+                return s;
+            };
+            s.links = Some(w.link);
+            let vp = w.viewport(&self.doc);
+            let px_per = vp.width() / f64::from(w.wave_width).max(1.0);
             s.px_per = Some(format!("1 px = {}", format_time(px_per, info.timescale)));
-            s.cursor = self
-                .doc
-                .cursor
+            s.cursor = w
+                .cursor(&self.doc)
                 .map(|c| format_time(c as f64, info.timescale));
             if !self.doc.markers.is_empty() {
                 s.markers = Some(format!("{} markers", self.doc.markers.len()));
@@ -470,21 +754,25 @@ impl App {
 
     /// One-line summary of the viewer state, for diagnostics and tests.
     pub fn debug_state(&self) -> String {
-        let w = &self.waves;
+        self.panels.layout().panels().into_iter().map(|id| {
+        let panel = self.panels.get(id).unwrap();
+        let Some(w) = panel.kind.waves() else { return format!("panel={} unsupported", id.0) };
         format!(
-            "items={} loaded={} selected={:?} anchor={:?} cursor={:?} markers={} viewport=({:.0},{:.0}) menu={} drag={:?} sidebar_w={}px scopes_frac={:.2}",
+            "panel={} focused={} linked=({},{}) items={} loaded={} selected={:?} anchor={:?} cursor={:?} markers={} viewport=({:.0},{:.0}) menu={} drag={:?} sidebar_w={}px scopes_frac={:.2}",
+            id.0, id == self.panels.focused_id(), w.link.viewport, w.link.cursor,
             w.items.len(),
             w.loaded_count(),
             w.selected,
             w.anchor,
-            self.doc.cursor,
+            w.cursor(&self.doc),
             self.doc.markers.len(),
-            w.viewport.start,
-            w.viewport.end,
+            w.viewport(&self.doc).start,
+            w.viewport(&self.doc).end,
             w.menu.is_some(),
             self.drag,
             self.sidebar_width,
             self.scopes_fraction
         )
+        }).collect::<Vec<_>>().join("\n")
     }
 }

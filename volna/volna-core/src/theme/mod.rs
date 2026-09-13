@@ -108,6 +108,7 @@ pub struct Theme<C = Color> {
     pub wave_row_selected: C,
     pub wave_row_hover: C,
     pub wave_cursor: C,
+    pub wave_cursor_inactive: C,
     pub wave_cursor_text: C,
     pub markers: [MarkerColors<C>; 6],
 
@@ -211,6 +212,7 @@ impl<C: Copy> Theme<C> {
             wave_row_selected: f(self.wave_row_selected),
             wave_row_hover: f(self.wave_row_hover),
             wave_cursor: f(self.wave_cursor),
+            wave_cursor_inactive: f(self.wave_cursor_inactive),
             wave_cursor_text: f(self.wave_cursor_text),
             markers: self.markers.map(|m| m.map(f)),
             ui_font: self.ui_font,
@@ -291,6 +293,7 @@ impl Theme<Color> {
             wave_row_selected: ca(0x74ade8, 0.10),
             wave_row_hover: ca(0xc8ccd4, 0.04),
             wave_cursor: c(0x74ade8),
+            wave_cursor_inactive: c(0x74ade8).with_alpha(0.45),
             wave_cursor_text: c(0x282c33),
             markers: [0xbf956a, 0xb477cf, 0x6eb4bf, 0xd07277, 0xdec184, 0xa1c181].map(|hex| {
                 MarkerColors {
@@ -439,6 +442,7 @@ impl Theme<Color> {
         t.wave_tick = alpha(t.editor.text, if hc { 0.4 } else { 0.12 });
         t.wave_tick_text = t.panel.text_muted;
         t.wave_cursor = stroke(opaque(p.cursor, accent), &backgrounds);
+        t.wave_cursor_inactive = t.wave_cursor.with_alpha(0.45);
         t.wave_cursor_text = fallback_text(t.editor.text, t.wave_cursor);
         t.markers = [4, 5, 3, 1, 2, 0].map(|i| MarkerColors {
             stroke: stroke(charts[i], &backgrounds),

@@ -3,7 +3,9 @@
 This document is the reference for the C API of VTR (Volna Trace Record). The
 header `core/vtr-capi/include/vtr.h` is the contract; this document explains
 every function and struct in it, the semantics behind them, and how they map
-onto the Rust implementation in `core/vtr`.
+onto the Rust implementation in `core/vtr`. Volna panel and workspace APIs
+belong to the viewer core and are outside this trace-library ABI; see the
+[viewer workspace contract](workspaces.html#api).
 
 Contents
 

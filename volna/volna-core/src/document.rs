@@ -1,11 +1,12 @@
 //! The open trace and everything every view over it must agree on: the
-//! session, the cursor, markers, translators and the load bookkeeping.
+//! session, shared navigation, markers, translators and load bookkeeping.
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::data::{Hierarchy, SignalRef, Translators};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
+use crate::wave::viewport::{Viewport, ViewportState};
 
 #[derive(Clone)]
 pub enum TraceState {
@@ -15,9 +16,25 @@ pub enum TraceState {
     Error(String),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Marker {
+    pub id: u64,
     pub time: u64,
+    pub label: Option<String>,
+}
+
+pub struct Shared {
+    pub viewport: ViewportState,
+    pub cursor: Option<u64>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            viewport: ViewportState::new(Viewport::fit((0, 1000))),
+            cursor: None,
+        }
+    }
 }
 
 /// A completed load the document accepted (its generation was current).
@@ -30,8 +47,9 @@ pub struct Document {
     state: TraceState,
     /// A newer open, explicit session replacement, or close invalidates old results.
     generation: u64,
-    pub cursor: Option<u64>,
+    pub shared: Shared,
     pub markers: Vec<Marker>,
+    next_marker: u64,
     pub translators: Translators,
     pending: HashSet<SignalRef>,
     requests: Vec<LoadRequest>,
@@ -48,8 +66,9 @@ impl Document {
         Document {
             state: TraceState::Empty,
             generation: 0,
-            cursor: None,
+            shared: Shared::default(),
             markers: Vec::new(),
+            next_marker: 1,
             translators: Translators::builtin(),
             pending: HashSet::new(),
             requests: Vec::new(),
@@ -115,6 +134,7 @@ impl Document {
         self.generation += 1;
         self.reset_state();
         self.state = TraceState::Loaded(session);
+        self.shared.viewport.set(Viewport::fit(self.limits()));
     }
 
     pub fn close(&mut self) {
@@ -127,7 +147,7 @@ impl Document {
         self.pending.clear();
         self.requests
             .retain(|r| matches!(r, LoadRequest::Open { .. }));
-        self.cursor = None;
+        self.shared = Shared::default();
         self.markers.clear();
     }
 
@@ -208,21 +228,27 @@ impl Document {
 
     // -- cursor and markers ----------------------------------------------------------
 
-    pub fn set_cursor(&mut self, t: Option<u64>) -> bool {
-        if self.cursor != t {
-            self.cursor = t;
-            true
-        } else {
-            false
-        }
+    /// Install already validated marker identities, preserving monotonic allocation.
+    pub(crate) fn restore_markers(&mut self, markers: Vec<Marker>) {
+        self.next_marker = self
+            .next_marker
+            .max(markers.iter().map(|m| m.id).max().unwrap_or(0) + 1);
+        self.markers = markers;
     }
 
-    pub fn add_marker_at_cursor(&mut self) -> bool {
-        let Some(c) = self.cursor else { return false };
+    pub fn add_marker(&mut self, c: u64) -> bool {
         if self.markers.iter().any(|m| m.time == c) {
             return false;
         }
-        self.markers.push(Marker { time: c });
+        let Some(next) = self.next_marker.checked_add(1) else {
+            return false;
+        };
+        self.markers.push(Marker {
+            id: self.next_marker,
+            time: c,
+            label: None,
+        });
+        self.next_marker = next;
         self.markers.sort_by_key(|m| m.time);
         true
     }

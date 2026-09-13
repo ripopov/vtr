@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+export VOLNA_WORKSPACE=off
 cd "$(dirname "$0")"
 # The toolkit-free core, the GPUI frontend (this crate) and the egui frontend.
 cargo fmt --package volna-core --package volna --package volna-egui -- --check
@@ -8,4 +9,4 @@ cargo test --locked -p volna-core
 cargo test --locked -p volna --all-features
 cargo test --locked -p volna-egui
 
-node --test vscode-ext/theme.test.mjs
+node --test vscode-ext/theme.test.mjs vscode-ext/workspace.test.cjs

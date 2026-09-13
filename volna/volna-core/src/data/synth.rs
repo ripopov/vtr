@@ -347,6 +347,7 @@ impl SynthSource {
 
         let end = (transitions as u64) * period;
         let info = TraceInfo {
+            design_id: None,
             name: format!("synthetic ({} transitions)", human(transitions)),
             timescale: -9,
             time_range: (0, end),

@@ -201,7 +201,14 @@ impl VolnaApp {
     fn after(&mut self, ctx: &Context) {
         for event in self.app.take_events() {
             match event {
-                Event::Changed => ctx.request_repaint(),
+                Event::LoadWorkspace { .. }
+                | Event::PersistWorkspace { .. }
+                | Event::OpenWorkspaceDialog
+                | Event::SaveWorkspaceDialog
+                | Event::TraceClosed { .. }
+                | Event::Quit => {}
+                Event::Changed | Event::LayoutChanged { .. } => ctx.request_repaint(),
+                Event::Notice(text) => log::warn!("{text}"),
                 Event::OpenFileDialog => self.open_file_dialog(),
                 Event::RevealScopeRow(ix) => self.reveal_scope = Some(ix),
                 Event::RevealVarRow(ix) => self.reveal_var = Some(ix),
@@ -839,17 +846,18 @@ impl VolnaApp {
         let rect = ui.available_rect_before_wrap();
         let _response = ui.allocate_rect(rect, Sense::click_and_drag());
         let bounds = CRect::from_xywh(rect.min.x, rect.min.y, rect.width(), rect.height());
-        self.app.layout_waves(bounds, &self.core_theme);
+        let panel = self.app.panels.focused_id();
+        self.app.layout_waves(panel, bounds, &self.core_theme);
 
         // -- input ------------------------------------------------------------
-        let menu_was_open = self.app.waves.menu.is_some();
+        let menu_was_open = self.app.panels.focused_waves().unwrap().menu.is_some();
         let pos = ctx.input(|i| i.pointer.latest_pos());
         let inside = pos.is_some_and(|p| rect.contains(p));
         let modifiers = to_modifiers(ctx.input(|i| i.modifiers));
         if let Some(p) = pos {
             let position = volna_core::geometry::point(p.x, p.y);
-            if inside || self.app.waves.drag.is_some() {
-                self.dispatch(Command::Pointer(PointerEvent::Move { position }));
+            if inside || self.app.panels.focused_waves().unwrap().drag.is_some() {
+                self.dispatch(Command::Pointer(panel, PointerEvent::Move { position }));
             }
             if inside {
                 self.pointer_inside = true;
@@ -860,37 +868,48 @@ impl VolnaApp {
                 ] {
                     if ctx.input(|i| i.pointer.button_pressed(eb)) {
                         ctx.memory_mut(|m| m.request_focus(self.ids.waves));
-                        self.dispatch(Command::Pointer(PointerEvent::Down {
-                            position,
-                            button: cb,
-                            modifiers,
-                        }));
+                        self.dispatch(Command::Pointer(
+                            panel,
+                            PointerEvent::Down {
+                                position,
+                                button: cb,
+                                modifiers,
+                            },
+                        ));
                     }
                 }
                 let scroll = ctx.input(|i| i.smooth_scroll_delta);
                 if scroll != Vec2::ZERO {
-                    self.dispatch(Command::Pointer(PointerEvent::Wheel {
-                        position,
-                        dx: scroll.x,
-                        dy: scroll.y,
-                        modifiers,
-                    }));
+                    self.dispatch(Command::Pointer(
+                        panel,
+                        PointerEvent::Wheel {
+                            position,
+                            dx: scroll.x,
+                            dy: scroll.y,
+                            modifiers,
+                        },
+                    ));
                 }
                 let zoom = ctx.input(|i| i.zoom_delta());
                 if zoom != 1.0 {
-                    self.dispatch(Command::Pointer(PointerEvent::Pinch {
-                        position,
-                        delta: zoom - 1.0,
-                    }));
+                    self.dispatch(Command::Pointer(
+                        panel,
+                        PointerEvent::Pinch {
+                            position,
+                            delta: zoom - 1.0,
+                        },
+                    ));
                 }
             }
         }
         if !inside && self.pointer_inside {
             self.pointer_inside = false;
-            self.dispatch(Command::Pointer(PointerEvent::Leave));
+            self.dispatch(Command::Pointer(panel, PointerEvent::Leave));
         }
-        if ctx.input(|i| i.pointer.any_released()) && self.app.waves.drag.is_some() {
-            self.dispatch(Command::Pointer(PointerEvent::Up));
+        if ctx.input(|i| i.pointer.any_released())
+            && self.app.panels.focused_waves().unwrap().drag.is_some()
+        {
+            self.dispatch(Command::Pointer(panel, PointerEvent::Up));
         }
 
         // -- paint ------------------------------------------------------------
@@ -898,7 +917,7 @@ impl VolnaApp {
         let mut scene = std::mem::take(&mut self.scene);
         let mut measure = EguiMeasure(&ctx);
         self.app
-            .render_waves_into(&self.core_theme, &mut measure, &mut scene);
+            .render_waves_into(panel, &self.core_theme, &mut measure, &mut scene);
         paint_scene(&scene, &ui.painter().with_clip_rect(rect));
         if let Some(icon) = scene.window_cursor {
             ctx.set_cursor_icon(cursor_icon(icon));
@@ -912,11 +931,13 @@ impl VolnaApp {
         }
         self.scene = scene;
         self.app
-            .waves
+            .panels
+            .focused_waves_mut()
+            .unwrap()
             .record_frame(started.elapsed().as_secs_f32() * 1000.0);
 
         // -- format menu ----------------------------------------------------------
-        if let Some(menu) = self.app.waves.menu.clone() {
+        if let Some(menu) = self.app.panels.focused_waves().unwrap().menu.clone() {
             let t = self.theme;
             let mut chosen = None;
             let area = Area::new(self.ids.format_menu)
@@ -940,12 +961,12 @@ impl VolnaApp {
                         });
                 });
             if let Some(id) = chosen {
-                self.dispatch(Command::MenuSelect(id));
+                self.dispatch(Command::MenuSelect(panel, id));
             } else if menu_was_open
                 && ctx.input(|i| i.pointer.any_pressed())
                 && !area.response.contains_pointer()
             {
-                self.dispatch(Command::MenuDismiss);
+                self.dispatch(Command::MenuDismiss(panel));
             }
         }
     }

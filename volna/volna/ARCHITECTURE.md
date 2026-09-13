@@ -11,7 +11,9 @@ VDB layer. VDB attachment is not yet implemented.
 ```
 volna/volna-core      the viewer, no GUI toolkit (builds and tests on every platform)
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
-  src/document.rs        Document: open trace, cursor, markers, translators, load generations
+  src/document.rs        Document: open trace, shared navigation, markers, translators, loads
+  src/panels/            stable IDs, split/tab layout, focus, per-panel wave models
+  src/workspace/         JSON codec, restore plans, save tickets, preferences and lifecycle
   src/session.rs         Session trait; OpenSpec; batched load requests/results
   src/data/fst_source.rs private fst-reader adapter and mutable reader ownership
   src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
@@ -26,6 +28,8 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
 
 volna/volna           GPUI frontend: native macOS app, wasm page, VS Code extension
   src/app.rs             Workspace: chrome in GPUI, dispatches Commands, runs loads
+  src/dock.rs            stock DockArea adapter over the core split/tab tree
+  src/native_workspace.rs atomic file I/O, paths, preferences and native options
   src/wave/table.rs      WaveTable element: hitboxes from the layout, paints the Scene
   src/sidebar/           uniform_list rows over the core models
   src/theme.rs           core theme mapped to Hsla once per install
@@ -45,14 +49,17 @@ volna/volna-egui      egui/eframe frontend: native desktop only
 A frontend talks to [`App`](../volna-core/src/app.rs) through four surfaces.
 
 **Commands in.** Everything the user does is a `Command`: `Open(OpenSpec)`,
-`Action(Action)` for the keyboard actions, `Pointer(PointerEvent)` for the wave
+`Action(Action)` for the keyboard actions, `Pointer(PanelId, PointerEvent)` for the wave
 panel, scope and variable list operations, filter text, menu choices, sash drags.
 Frontends translate their own events (GPUI actions, egui keys) into these; they
 never mutate viewer state directly.
 
 **Events out.** `take_events()` returns what the core wants done: `Changed`
 (repaint), `OpenFileDialog`, `RevealScopeRow`/`RevealVarRow` (scroll a list),
-`FocusFilter`. Consecutive `Changed` events coalesce.
+`FocusFilter`, `LayoutChanged { revision }`, `Notice`, and workspace I/O/dialog
+requests. Workspace writes carry a `SaveTicket` and opaque JSON bytes; hosts
+acknowledge the ticket through `workspace_saved`. Repaint events coalesce
+until drained. Dock proposals carry the layout revision they were based on.
 
 **Loads, pull based.** Opening a trace or adding a signal queues a
 `LoadRequest`; `take_requests()` hands them to the frontend, which performs them
@@ -62,8 +69,8 @@ Requests carry the document generation they were made under; a newer open,
 close or session replacement makes late results no-ops. Tests exercise this
 ownership model with a plain loop that performs requests in any order.
 
-**Layout and paint.** Each frame the frontend calls `layout_waves(bounds,
-theme)` and then `render_waves(theme, measure)` (or `render_waves_into` with its
+**Layout and paint.** Each frame the frontend calls `layout_waves(panel, bounds,
+theme)` and then `render_waves(panel, theme, measure)` (or `render_waves_into` with its
 own buffer). The layout gives the frontend the rectangles it needs for hit
 regions; the `Scene` is a flat display list of `Quad`, `Lines`, `Text`, `Icon`
 and `PushClip`/`PopClip` primitives with resolved colours and font *roles*, plus
@@ -100,13 +107,75 @@ cache avoids reshaping repeated labels across frames.
 
 ## Document versus view
 
-`Document` holds what every view over the same trace must agree on: the
-session, the cursor, markers, translators and the load bookkeeping. `WaveModel`
-holds only what changes when you look differently at the same trace: displayed
-rows, selection, viewport, scroll, column widths, hover and drag state, the open
-format menu. The sidebar models hold the expanded set, the selected scope, the
-filter text and the list selection. A second view over the same document would
-see the same cursor without any extra wiring.
+`App::panels` owns a toolkit-neutral tree of splits and tab groups, stable
+monotonic panel IDs, panel content, and focus. Split clones rows and formats
+while retaining shared immutable histories; a new tab starts empty. Close
+collapses empty groups and one-child splits, preserving surviving size ratios.
+The last waveform panel is emptied rather than removed. Layout proposals are
+validated atomically for membership, duplicates, active tabs, finite positive
+shares, depth and panel count. `debug_state()` reports one line per panel in
+layout order, with its ID, focus and link flags before the waveform state.
+
+`Document` owns the session, shared viewport and cursor, markers with stable IDs
+and optional labels, translators, and load generations. Each `WaveModel` owns
+its rows, selection, columns, scroll and transient input. Its two link flags
+choose between document navigation and local navigation through effective
+accessors. Linked viewports share one animation; `App::tick` advances it once,
+plus every independent animation. Unlink snapshots the displayed shared value;
+relink adopts the retained shared position even if no panels currently follow
+it. Markers always use the focused panel's effective cursor.
+
+Pointer commands name a panel; keyboard actions and sidebar additions resolve
+focus when handled. Deliveries fan out shared history Arcs to all matching
+panels. Adding a loaded signal in another panel reuses the history without
+queuing another decode. New panel IDs advance the existing allocator. Restoring saved IDs bumps the
+document generation; frontend callbacks carry that generation, so delayed
+pointer and menu events cannot target a replacement panel.
+
+`Hierarchy::find_scope` and `find_var` resolve literal path segments and return
+`Found`, `Missing`, or `Ambiguous`. `var_path` includes an optional declaration
+occurrence for duplicate variable names. Duplicate scopes remain ambiguous,
+including when a variable occurrence is supplied; names containing dots are
+never split. These lookups are metadata operations, separate from trace queries.
+
+The main GPUI frontend hosts every visible panel in the stock dock component.
+Its adapter converts the toolkit's resolved drag/drop tree to core IDs and
+normalized fractions; pixel sizes and the toolkit's serialized state never enter
+workspace files. The same dock path hides the tab header for a single panel.
+The core owns focus outlines and inactive cursor colours. egui retains its
+existing single-panel feature set and has persistence disabled.
+
+## Workspace persistence
+
+`workspace::Workspace` is versioned JSON, separate from VTR, VDB and the raw
+query protocol. It captures panel rows, formats, links, navigation, markers,
+layout and sidebar state. `prepare` validates the entire file and resolves
+hierarchy paths without mutating the app; `RestorePlan::commit` replaces the
+view and invalidates older history loads. Unknown panels retain their raw JSON.
+Unresolved rows/scopes and unavailable translator names survive subsequent saves.
+Integer cursor/marker times remain `u64`; hosts never parse workspace JSON.
+
+`workspace::State` owns resource identity and the save lifecycle. The scheduler
+tracks revision, epoch and destination, allows one outstanding write, and uses
+`tick(now)` for one-second idle saves. Input comparisons exclude hover and
+animation frames and do not serialize signal lists on pointer motion. Explicit
+Open prepares first, flushes the old state, then commits. Save As switches the
+active destination only on acknowledgement; failed flushes keep the live view.
+Automatic restore failures suspend saves. Fallback selection compares the
+saved `supersedes` SHA-256 against the exact sidecar bytes and preserves its base.
+
+`App::new()` disables persistence. Native `main` configures a byte store that
+reads bounded files and writes through a same-directory temporary file and
+rename. The WASM entry point accepts both opaque restore candidates with the
+trace, then passes core save events to the host. VS Code uses `workspace.fs`
+for files and `workspaceState` for fallback storage; ticket counters cross
+JavaScript as decimal strings. Its custom editor disables multiple editors per
+document, requests a snapshot on hide and flushes the last received snapshot
+on disposal. Native quit and trace transitions flush before replacing state.
+
+Preferences live outside workspace files. Native stores them under the config
+directory; VS Code supplies settings and theme snapshots. Tests and the egui
+frontend do not opt into workspace storage.
 
 ## The session seam
 

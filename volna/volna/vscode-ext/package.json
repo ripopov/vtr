@@ -5,21 +5,258 @@
   "version": "0.1.0",
   "publisher": "vtr",
   "license": "MIT OR Apache-2.0",
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["Visualization"],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization"
+  ],
   "activationEvents": [],
   "main": "./extension.js",
   "contributes": {
     "commands": [
-      { "command": "volna.open", "title": "Volna: Open Waveform Viewer" }
+      {
+        "command": "volna.open",
+        "title": "Volna: Open Waveform Viewer"
+      },
+      {
+        "command": "volna.splitRight",
+        "title": "Volna: Split Right"
+      },
+      {
+        "command": "volna.splitDown",
+        "title": "Volna: Split Down"
+      },
+      {
+        "command": "volna.newPanel",
+        "title": "Volna: New Waveform Tab"
+      },
+      {
+        "command": "volna.closePanel",
+        "title": "Volna: Close Panel"
+      },
+      {
+        "command": "volna.focusNextPanel",
+        "title": "Volna: Focus Next Panel"
+      },
+      {
+        "command": "volna.focusPrevPanel",
+        "title": "Volna: Focus Previous Panel"
+      },
+      {
+        "command": "volna.toggleViewportLink",
+        "title": "Volna: Toggle Viewport Link"
+      },
+      {
+        "command": "volna.toggleCursorLink",
+        "title": "Volna: Toggle Cursor Link"
+      },
+      {
+        "command": "volna.focusPanel1",
+        "title": "Volna: Focus Panel 1"
+      },
+      {
+        "command": "volna.focusPanel2",
+        "title": "Volna: Focus Panel 2"
+      },
+      {
+        "command": "volna.focusPanel3",
+        "title": "Volna: Focus Panel 3"
+      },
+      {
+        "command": "volna.focusPanel4",
+        "title": "Volna: Focus Panel 4"
+      },
+      {
+        "command": "volna.focusPanel5",
+        "title": "Volna: Focus Panel 5"
+      },
+      {
+        "command": "volna.focusPanel6",
+        "title": "Volna: Focus Panel 6"
+      },
+      {
+        "command": "volna.focusPanel7",
+        "title": "Volna: Focus Panel 7"
+      },
+      {
+        "command": "volna.focusPanel8",
+        "title": "Volna: Focus Panel 8"
+      },
+      {
+        "command": "volna.focusPanel9",
+        "title": "Volna: Focus Panel 9"
+      },
+      {
+        "command": "volna.openWorkspace",
+        "title": "Volna: Open Workspace\u2026"
+      },
+      {
+        "command": "volna.saveWorkspace",
+        "title": "Volna: Save Workspace"
+      },
+      {
+        "command": "volna.saveWorkspaceAs",
+        "title": "Volna: Save Workspace As\u2026"
+      }
     ],
     "customEditors": [
       {
         "viewType": "volna.waveform",
         "displayName": "Volna Waveform Viewer",
-        "selector": [{ "filenamePattern": "*.vtr" }, { "filenamePattern": "*.fst" }],
+        "selector": [
+          {
+            "filenamePattern": "*.vtr"
+          },
+          {
+            "filenamePattern": "*.fst"
+          }
+        ],
         "priority": "default"
       }
-    ]
+    ],
+    "keybindings": [
+      {
+        "command": "volna.splitRight",
+        "key": "ctrl+\\",
+        "mac": "cmd+\\",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.splitDown",
+        "key": "ctrl+shift+\\",
+        "mac": "cmd+shift+\\",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.newPanel",
+        "key": "ctrl+n",
+        "mac": "cmd+n",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.closePanel",
+        "key": "ctrl+w",
+        "mac": "cmd+w",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusNextPanel",
+        "key": "ctrl+tab",
+        "mac": "ctrl+tab",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPrevPanel",
+        "key": "ctrl+shift+tab",
+        "mac": "ctrl+shift+tab",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel1",
+        "key": "ctrl+1",
+        "mac": "cmd+1",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel2",
+        "key": "ctrl+2",
+        "mac": "cmd+2",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel3",
+        "key": "ctrl+3",
+        "mac": "cmd+3",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel4",
+        "key": "ctrl+4",
+        "mac": "cmd+4",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel5",
+        "key": "ctrl+5",
+        "mac": "cmd+5",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel6",
+        "key": "ctrl+6",
+        "mac": "cmd+6",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel7",
+        "key": "ctrl+7",
+        "mac": "cmd+7",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel8",
+        "key": "ctrl+8",
+        "mac": "cmd+8",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.focusPanel9",
+        "key": "ctrl+9",
+        "mac": "cmd+9",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.saveWorkspace",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.saveWorkspaceAs",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Volna",
+      "properties": {
+        "volna.workspace.autosave": {
+          "type": "string",
+          "enum": [
+            "sidecar",
+            "vscode",
+            "off"
+          ],
+          "default": "sidecar",
+          "description": "Save beside the trace, in VS Code workspace storage, or disable workspace persistence."
+        },
+        "volna.panels.linkByDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "Link viewport and cursor navigation in new workspaces."
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "volna.openWorkspace",
+          "when": "activeCustomEditorId == volna.waveform",
+          "group": "volna.workspace"
+        },
+        {
+          "command": "volna.saveWorkspace",
+          "when": "activeCustomEditorId == volna.waveform",
+          "group": "volna.workspace"
+        },
+        {
+          "command": "volna.saveWorkspaceAs",
+          "when": "activeCustomEditorId == volna.waveform",
+          "group": "volna.workspace"
+        }
+      ]
+    }
   }
 }

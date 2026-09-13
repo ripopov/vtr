@@ -22,11 +22,17 @@ use crate::theme::{Theme, core_theme, hsla, theme};
 
 pub struct WaveTable {
     ws: Entity<Workspace>,
+    panel: volna_core::panels::PanelId,
+    generation: u64,
 }
 
 impl WaveTable {
-    pub fn new(ws: Entity<Workspace>) -> Self {
-        WaveTable { ws }
+    pub fn new(ws: Entity<Workspace>, panel: volna_core::panels::PanelId, generation: u64) -> Self {
+        WaveTable {
+            ws,
+            panel,
+            generation,
+        }
     }
 }
 
@@ -268,7 +274,9 @@ impl Element for WaveTable {
         let t = *core_theme(cx);
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let (rects, row_h) = self.ws.update(cx, |ws, _| {
-            let layout = ws.app.layout_waves(cbounds(bounds), &t);
+            let Some(layout) = ws.app.layout_waves(self.panel, cbounds(bounds), &t) else {
+                return (Vec::new(), 24.0);
+            };
             let mut rects = vec![layout.names_split, layout.values_split];
             rects.extend(layout.badges.iter().map(|(_, b)| *b));
             rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
@@ -303,7 +311,8 @@ impl Element for WaveTable {
         let (mut scene, mut shaped) = self.ws.update(cx, |ws, _| {
             let mut scene = std::mem::take(&mut ws.scene);
             let mut measure = GpuiMeasure { window, theme: &t };
-            ws.app.render_waves_into(&core, &mut measure, &mut scene);
+            ws.app
+                .render_waves_into(self.panel, &core, &mut measure, &mut scene);
             (scene, std::mem::take(&mut ws.shaped))
         });
         let mut i = 0;
@@ -324,7 +333,9 @@ impl Element for WaveTable {
         self.ws.update(cx, |ws, _| {
             ws.scene = scene;
             ws.shaped = shaped;
-            ws.app.waves.record_frame(ms);
+            if let Some(w) = ws.app.panels.waves_mut(self.panel) {
+                w.record_frame(ms);
+            }
         });
     }
 }
@@ -334,9 +345,14 @@ impl WaveTable {
         let ws = self.ws.clone();
         let hitbox = prepaint.hitbox.clone();
         let row_h = prepaint.row_h;
-        let send = |ws: &Entity<Workspace>, ev: PointerEvent, window: &mut Window, cx: &mut App| {
+        let panel = self.panel;
+        let generation = self.generation;
+        let send = move |ws: &Entity<Workspace>,
+                         ev: PointerEvent,
+                         window: &mut Window,
+                         cx: &mut App| {
             ws.update(cx, |ws, cx| {
-                ws.dispatch(Command::Pointer(ev), Some(window), cx)
+                ws.dispatch_if_current(generation, Command::Pointer(panel, ev), Some(window), cx)
             });
         };
 
@@ -353,7 +369,15 @@ impl WaveTable {
                     MouseButton::Right => volna_core::geometry::MouseButton::Right,
                     _ => return,
                 };
-                let focus = ws.read(cx).waves_focus.clone();
+                if ws.read(cx).app.doc.generation() != generation {
+                    return;
+                }
+                let focus = ws
+                    .read(cx)
+                    .dock
+                    .as_ref()
+                    .and_then(|dock| dock.focus(panel, cx))
+                    .unwrap_or_else(|| ws.read(cx).waves_focus.clone());
                 window.focus(&focus, cx);
                 send(
                     &ws,
@@ -391,7 +415,13 @@ impl WaveTable {
                 if phase != DispatchPhase::Bubble {
                     return;
                 }
-                if ws.read(cx).app.waves.drag.is_some() {
+                if ws
+                    .read(cx)
+                    .app
+                    .panels
+                    .waves(panel)
+                    .is_some_and(|w| w.drag.is_some())
+                {
                     send(&ws, PointerEvent::Up, window, cx);
                 }
             }

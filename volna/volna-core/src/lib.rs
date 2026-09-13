@@ -19,6 +19,7 @@ pub mod data;
 pub mod document;
 pub mod geometry;
 pub mod icons;
+pub mod panels;
 pub mod scene;
 pub mod selection;
 pub mod session;
@@ -35,3 +36,5 @@ pub use theme::Theme;
 
 /// Re-exported clock so frontends and the core agree on `Instant`.
 pub use web_time::Instant;
+
+pub mod workspace;

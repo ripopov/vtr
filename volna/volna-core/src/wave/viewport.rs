@@ -1,11 +1,71 @@
 //! The visible time window and its mapping to pixels.
 
+use web_time::Instant;
+
+/// The animation belongs to the value being animated: linked panels advance
+/// the document's one animation, independent panels advance their own.
+#[derive(Clone)]
+pub struct ViewportState {
+    pub viewport: Viewport,
+    animation: Option<Animation>,
+}
+
+#[derive(Clone)]
+struct Animation {
+    from: Viewport,
+    to: Viewport,
+    start: Instant,
+}
+
+impl ViewportState {
+    pub fn new(viewport: Viewport) -> Self {
+        Self {
+            viewport,
+            animation: None,
+        }
+    }
+    pub fn is_animating(&self) -> bool {
+        self.animation.is_some()
+    }
+    pub fn target(&self) -> Viewport {
+        self.animation.as_ref().map_or(self.viewport, |a| a.to)
+    }
+    pub fn set(&mut self, viewport: Viewport) {
+        self.viewport = viewport;
+        self.animation = None;
+    }
+    pub fn animate_to(&mut self, mut target: Viewport, limits: (u64, u64), now: Instant) {
+        target.clamp(limits);
+        self.animation = if self.viewport.approx_eq(&target) {
+            None
+        } else {
+            Some(Animation {
+                from: self.viewport,
+                to: target,
+                start: now,
+            })
+        };
+    }
+    pub fn tick(&mut self, now: Instant) -> bool {
+        let Some(a) = &self.animation else {
+            return false;
+        };
+        let t = (now.saturating_duration_since(a.start).as_secs_f64() / 0.14).min(1.0);
+        self.viewport = Viewport::lerp(&a.from, &a.to, 1.0 - (1.0 - t).powi(3));
+        if t >= 1.0 {
+            self.viewport = a.to;
+            self.animation = None;
+        }
+        self.is_animating()
+    }
+}
+
 /// Fraction of the trace length the view may scroll past either end.
 pub const EDGE_SPACE: f64 = 0.2;
 /// Narrowest window, in time units.
 pub const MIN_WIDTH: f64 = 0.25;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Viewport {
     pub start: f64,
     pub end: f64,

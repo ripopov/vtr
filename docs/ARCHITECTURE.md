@@ -26,7 +26,10 @@ and exporters implement the RTL companion. The existing `vtr-vdb` package name
 does not make VDB part of the VTR file format.
 
 Volna's core owns document state, view models, interaction, load scheduling
-and toolkit-neutral drawing. Frontends host widgets and render that output.
+and toolkit-neutral drawing. Its panels and versioned workspace codec own
+dock layout, linked navigation and persistent session state. GPUI native and
+VS Code hosts save separate JSON sidecars; VTR and VDB remain unchanged.
+Frontends host widgets and render that output.
 The GPUI frontend is the main feature target; egui verifies toolkit independence
 and retains its current minimal functionality. The detailed current design and
 remote-file direction are in [Volna's architecture](../volna/volna/ARCHITECTURE.md).

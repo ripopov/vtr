@@ -7,7 +7,9 @@ files the reference reader accepts.
 
 The reference implementation lives in [`core/vtr`](../core/vtr/); the separate
 design companion lives in [`core/vtr-vdb/`](../core/vtr-vdb/).
-Design and presentation metadata belong to the separate VDB.
+Design and presentation metadata belong to the separate VDB. Viewer layouts,
+selected signals, cursors and markers live in the separate client-owned
+[workspace JSON format](workspaces.html#model), never in VTR.
 
 Notation: `u8/u16/u32/u64` are unsigned little-endian fixed-width integers;
 `i8`/`i64` signed likewise. `varint` is an unsigned LEB128 integer

@@ -4,6 +4,9 @@
 //            {"click": [x, y]} | {"mousedown"/"mouseup"/"move": [x, y]} |
 //            {"key": "=", "code": "Equal"} | {"wheel": [x, y, dx, dy, "ctrl"?]} |
 //            {"eval": "js"} | {"target": "substring of title/url"}]
+// `target` can select an iframe. `context` selects a JavaScript execution
+// context by predicate (e.g. "!!document.querySelector('canvas')"); `assert`
+// evaluates a predicate in it and fails unless true. `text` inserts text.
 import fs from "node:fs";
 
 const [port, scriptPath] = process.argv.slice(2);
@@ -12,19 +15,24 @@ const list = async () => (await fetch(`http://127.0.0.1:${port}/json/list`)).jso
 
 let targets = await list();
 let want = steps.find((s) => s.target)?.target;
-let page = targets.find((t) => t.type === "page" && (!want || (t.title + t.url).includes(want))) ?? targets.find((t) => t.type === "page");
+let page = targets.find((t) => ["page", "iframe"].includes(t.type) && (want ? (t.title + t.url).includes(want) : t.type === "page"));
 if (!page) { console.error("no page target", targets); process.exit(1); }
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let id = 0;
 const pending = new Map();
 const logs = [];
+const contexts = new Map();
+let contextId;
 ws.onmessage = (ev) => {
   const m = JSON.parse(ev.data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
   else if (m.method === "Runtime.consoleAPICalled") logs.push(`[console.${m.params.type}] ${m.params.args.map((a) => a.value ?? a.description ?? "").join(" ")}`);
   else if (m.method === "Runtime.exceptionThrown") logs.push(`[exception] ${m.params.exceptionDetails.text} ${m.params.exceptionDetails.exception?.description ?? ""}`);
   else if (m.method === "Log.entryAdded") logs.push(`[log.${m.params.entry.level}] ${m.params.entry.text}`);
+  else if (m.method === "Runtime.executionContextCreated") contexts.set(m.params.context.id, m.params.context);
+  else if (m.method === "Runtime.executionContextDestroyed") contexts.delete(m.params.executionContextId);
+  else if (m.method === "Runtime.executionContextsCleared") { contexts.clear(); contextId = undefined; }
 };
 const send = (method, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -36,6 +44,7 @@ for (const s of steps) {
   else if (s.wait) await sleep(s.wait);
   else if (s.shot) {
     const r = await send("Page.captureScreenshot", { format: "png" });
+    if (r.error || !r.result?.data) throw new Error(`Screenshot failed: ${JSON.stringify(r)}`);
     fs.writeFileSync(s.shot, Buffer.from(r.result.data, "base64"));
     console.log("saved", s.shot);
   } else if (s.click || s.mousedown || s.mouseup || s.move) {
@@ -57,10 +66,25 @@ for (const s of steps) {
     const [x, y, dx, dy, mod] = s.wheel;
     await send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: dx, deltaY: dy, modifiers: mod === "ctrl" ? 2 : mod === "shift" ? 8 : 0 });
     await sleep(60);
-  } else if (s.eval) {
-    const r = await send("Runtime.evaluate", { expression: s.eval, awaitPromise: true, returnByValue: true });
+  } else if (s.text !== undefined) {
+    await send("Input.insertText", { text: s.text });
+  } else if (s.context) {
+    contextId = undefined;
+    for (const candidate of contexts.values()) {
+      if (!candidate.auxData?.isDefault) continue;
+      const r = await send("Runtime.evaluate", { expression: s.context, contextId: candidate.id, returnByValue: true });
+      if (r.result?.result?.value === true) { contextId = candidate.id; break; }
+    }
+    if (contextId === undefined) throw new Error(`No execution context matches ${s.context}`);
+  } else if (s.eval || s.assert) {
+    const r = await send("Runtime.evaluate", { expression: s.eval ?? s.assert, contextId, awaitPromise: true, returnByValue: true });
+    if (r.error || r.result?.exceptionDetails) throw new Error(JSON.stringify(r.error ?? r.result.exceptionDetails));
+    if (s.assert && r.result.result?.value !== true) throw new Error(`Assertion failed: ${s.assert}: ${JSON.stringify(r.result)}`);
     console.log("eval:", JSON.stringify(r.result.result?.value ?? r.result));
   }
 }
 for (const l of logs) console.log(l);
 ws.close();
+if (logs.some((line) => line.startsWith("[exception]"))) {
+  throw new Error("The page raised an uncaught exception; inspect the runtime log above");
+}

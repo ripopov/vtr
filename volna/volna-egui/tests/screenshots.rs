@@ -62,8 +62,16 @@ fn fst_opens_and_loads_on_frontend_executor() {
     assert!(count > 0);
     app.app.handle(Command::AddVars((0..count).collect()));
     wait_loads(&mut h, &mut app);
-    assert_eq!(app.app.waves.items.len(), count);
-    assert!(app.app.waves.items.iter().all(|row| row.history.is_some()));
+    assert_eq!(app.app.panels.focused_waves().unwrap().items.len(), count);
+    assert!(
+        app.app
+            .panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.history.is_some())
+    );
     assert!(h.is_nonblank());
 }
 
@@ -104,7 +112,13 @@ fn viewer_interactions() {
 
     // Cursor click in the waves, select a row by name, zoom in twice, marker,
     // next edge.
-    let layout = app.app.waves.last_layout().clone();
+    let layout = app
+        .app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .last_layout()
+        .clone();
     let waves_x = layout.waves.left();
     h.click(&mut app, waves_x + 300.0, layout.row_y(3) + row / 2.0);
     expect(&app, "after wave click", &["cursor=Some("]);
@@ -146,7 +160,13 @@ fn viewer_interactions() {
     shot(&h, "04-cursor-zoom");
 
     // Badge click opens the format menu; escape dismisses it.
-    let layout = app.app.waves.last_layout().clone();
+    let layout = app
+        .app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .last_layout()
+        .clone();
     let badge = layout.badges.iter().find(|(ix, _)| *ix == 3).unwrap().1;
     h.move_to(&mut app, badge.left() + 4.0, badge.top() + 4.0);
     h.click(&mut app, badge.left() + 4.0, badge.top() + 4.0);
@@ -177,23 +197,45 @@ fn viewer_interactions() {
         "after sidebar drag",
         &["sidebar_w=338px", "drag=None"],
     );
-    let layout = app.app.waves.last_layout().clone();
+    let layout = app
+        .app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .last_layout()
+        .clone();
     let split_x = layout.names.right();
     h.drag(&mut app, (split_x, 500.0), (split_x + 40.0, 500.0));
     h.settle(&mut app, 2);
     assert!(
-        (app.app.waves.names_width - 260.0).abs() < 1.5,
+        (app.app.panels.focused_waves().unwrap().names_width - 260.0).abs() < 1.5,
         "{}",
-        app.app.waves.names_width
+        app.app.panels.focused_waves().unwrap().names_width
     );
 
     // Right-drag pans.
-    let layout = app.app.waves.last_layout().clone();
-    let before_pan = app.app.waves.viewport;
+    let layout = app
+        .app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .last_layout()
+        .clone();
+    let before_pan = app
+        .app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .viewport(&app.app.doc);
     h.key(&mut app, Key::Equals, Modifiers::NONE);
     std::thread::sleep(std::time::Duration::from_millis(200));
     h.settle(&mut app, 4);
-    let zoomed = app.app.waves.viewport;
+    let zoomed = app
+        .app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .viewport(&app.app.doc);
     assert!(zoomed.width() < before_pan.width());
     let y = layout.waves.top() + 100.0;
     let a = egui::Pos2::new(layout.waves.left() + 500.0, y);
@@ -219,7 +261,13 @@ fn viewer_interactions() {
         }],
     );
     assert!(
-        app.app.waves.viewport.start > zoomed.start,
+        app.app
+            .panels
+            .focused_waves()
+            .unwrap()
+            .viewport(&app.app.doc)
+            .start
+            > zoomed.start,
         "drag left pans right"
     );
 

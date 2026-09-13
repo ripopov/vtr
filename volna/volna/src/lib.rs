@@ -11,6 +11,9 @@
 
 pub mod app;
 pub mod assets;
+mod dock;
+#[cfg(not(target_family = "wasm"))]
+pub mod native_workspace;
 pub mod sidebar;
 pub mod theme;
 pub mod ui;
@@ -78,6 +81,22 @@ pub fn open_main_window(
             w.embedded = embedded;
             w
         });
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let weak = ws.downgrade();
+            window.on_window_should_close(cx, move |window, cx| {
+                weak.update(cx, |ws, cx| {
+                    ws.app.persist_workspace(volna_core::Instant::now(), true);
+                    ws.after(Some(window), cx);
+                    let scheduler = &ws.app.workspace.scheduler;
+                    !scheduler.enabled()
+                        || scheduler.suspended()
+                        || scheduler.target().is_none()
+                        || (!scheduler.dirty() && scheduler.outstanding().is_none())
+                })
+                .unwrap_or(true)
+            });
+        }
         workspace = Some(ws.clone());
         cx.new(|cx| gpui_kit::component::Root::new(ws, window, cx))
     })?;
@@ -99,12 +118,54 @@ pub mod web {
 
     enum HostEvent {
         Open(String, Vec<u8>),
+        Resource(String, Vec<u8>, Box<OpenMetadata>),
+        Workspace(WorkspaceMessage),
         Theme(Box<crate::theme::CoreTheme>),
+        Command(volna_core::app::Command),
         /// Log the viewer state to the console (browser-driven verification).
         DebugState,
     }
 
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct OpenMetadata {
+        trace_uri: String,
+        candidates: Option<Candidates>,
+        settings: Settings,
+    }
+    #[derive(serde::Deserialize)]
+    struct Candidates {
+        sidecar: volna_core::workspace::persistence::Candidate,
+        fallback: volna_core::workspace::persistence::Candidate,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Settings {
+        autosave: String,
+        link_by_default: bool,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "type", rename_all = "camelCase")]
+    enum WorkspaceMessage {
+        Saved {
+            ticket: volna_core::workspace::persistence::SaveTicket,
+            error: Option<String>,
+        },
+        Workspace {
+            candidate: volna_core::workspace::persistence::Candidate,
+        },
+        WorkspaceDestination {
+            target: volna_core::workspace::persistence::Target,
+        },
+        RequestWorkspace,
+        Candidates {
+            trace_uri: String,
+            candidates: Candidates,
+        },
+    }
+
     thread_local! {
+        static CANDIDATES: RefCell<Option<(String, Candidates)>> = const { RefCell::new(None) };
         static PENDING_THEME: RefCell<Option<crate::theme::CoreTheme>> = const { RefCell::new(None) };
         static HOST_TX: RefCell<Option<mpsc::UnboundedSender<HostEvent>>> = const { RefCell::new(None) };
     }
@@ -117,6 +178,89 @@ pub mod web {
                 tx.unbounded_send(HostEvent::Open(name, bytes)).ok();
             }
         });
+    }
+
+    fn enqueue(event: HostEvent) -> Result<(), JsValue> {
+        HOST_TX.with(|tx| {
+            tx.borrow()
+                .as_ref()
+                .ok_or_else(|| JsValue::from_str("viewer is not ready"))?
+                .unbounded_send(event)
+                .map_err(|_| JsValue::from_str("viewer is closed"))
+        })
+    }
+
+    /// Open a durable resource with opaque workspace candidates supplied by its host.
+    #[wasm_bindgen]
+    pub fn open_resource(name: String, bytes: Vec<u8>, metadata: &str) -> Result<(), JsValue> {
+        let metadata = serde_json::from_str(metadata)
+            .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
+        enqueue(HostEvent::Resource(name, bytes, Box::new(metadata)))
+    }
+
+    /// Workspace payloads are interpreted only by the Rust core.
+    #[wasm_bindgen]
+    pub fn workspace_message(json: &str) -> Result<(), JsValue> {
+        let message = serde_json::from_str(json)
+            .map_err(|e| JsValue::from_str(&format!("invalid workspace message: {e}")))?;
+        enqueue(HostEvent::Workspace(message))
+    }
+
+    pub fn request_workspace_candidates(trace_uri: &str) {
+        CANDIDATES.with(|slot| {
+            if slot
+                .borrow()
+                .as_ref()
+                .is_some_and(|(uri, _)| uri == trace_uri)
+                && let Some((trace_uri, candidates)) = slot.borrow_mut().take()
+            {
+                enqueue(HostEvent::Workspace(WorkspaceMessage::Candidates {
+                    trace_uri,
+                    candidates,
+                }))
+                .ok();
+            }
+        });
+    }
+
+    fn post(message: serde_json::Value) {
+        let global = js_sys::global();
+        if let Ok(callback) = js_sys::Reflect::get(&global, &JsValue::from_str("volnaWorkspace"))
+            && let Some(callback) = callback.dyn_ref::<js_sys::Function>()
+        {
+            callback
+                .call1(&global, &JsValue::from_str(&message.to_string()))
+                .ok();
+        }
+    }
+
+    pub fn write_workspace(ticket: volna_core::workspace::persistence::SaveTicket, bytes: Vec<u8>) {
+        post(
+            serde_json::json!({"type":"workspace", "ticket":ticket, "json":String::from_utf8(bytes).expect("core emits UTF-8 JSON")}),
+        );
+    }
+    pub fn workspace_dialog(save: bool) {
+        post(serde_json::json!({"type": if save { "saveWorkspaceAs" } else { "openWorkspace" }}));
+    }
+    pub fn trace_closed(trace_uri: &str) {
+        post(serde_json::json!({"type":"closeTrace", "traceUri":trace_uri}));
+    }
+    pub fn notice(text: &str) {
+        post(serde_json::json!({"type":"notice", "text":text}));
+    }
+
+    /// Dispatch a named host command; unknown names are rejected before queuing.
+    #[wasm_bindgen]
+    pub fn dispatch_command(name: &str) -> Result<(), JsValue> {
+        let command = volna_core::app::Command::named(name)
+            .ok_or_else(|| JsValue::from_str("unknown Volna command"))?;
+        HOST_TX.with(|tx| {
+            let tx = tx.borrow();
+            tx.as_ref()
+                .ok_or_else(|| JsValue::from_str("viewer is not ready"))?
+                .unbounded_send(HostEvent::Command(command))
+                .map_err(|_| JsValue::from_str("viewer is closed"))
+        })
     }
 
     /// Print the one-line viewer state (`Workspace::debug_state`) to the console.
@@ -210,7 +354,81 @@ pub mod web {
                         while let Some(event) = rx.next().await {
                             workspace.update(cx, |ws, cx| match event {
                                 HostEvent::Open(name, bytes) => ws.open_bytes(name, bytes, cx),
+                                HostEvent::Resource(name, bytes, metadata) => {
+                                    use volna_core::workspace::persistence::Persistence;
+                                    let policy = match metadata.settings.autosave.as_str() {
+                                        "sidecar" => Persistence::Auto,
+                                        "vscode" => Persistence::Storage,
+                                        _ => Persistence::Disabled,
+                                    };
+                                    ws.app.configure_persistence(policy);
+                                    ws.app.workspace.preferences.link_by_default =
+                                        volna_core::wave::model::Link {
+                                            viewport: metadata.settings.link_by_default,
+                                            cursor: metadata.settings.link_by_default,
+                                        };
+                                    let OpenMetadata {
+                                        trace_uri,
+                                        candidates,
+                                        ..
+                                    } = *metadata;
+                                    CANDIDATES.with(|slot| {
+                                        *slot.borrow_mut() =
+                                            candidates.map(|c| (trace_uri.clone(), c))
+                                    });
+                                    ws.app.open_resource(
+                                        volna_core::session::OpenSpec::Bytes { name, bytes },
+                                        trace_uri,
+                                    );
+                                    ws.after(None, cx);
+                                }
+                                HostEvent::Workspace(message) => {
+                                    use volna_core::workspace::persistence::Content;
+                                    match message {
+                                        WorkspaceMessage::Saved { ticket, error } => {
+                                            ws.app.workspace_saved(
+                                                ticket,
+                                                error,
+                                                volna_core::Instant::now(),
+                                            )
+                                        }
+                                        WorkspaceMessage::Candidates {
+                                            trace_uri,
+                                            candidates,
+                                        } => ws.app.restore_candidates(
+                                            &trace_uri,
+                                            candidates.sidecar,
+                                            candidates.fallback,
+                                        ),
+                                        WorkspaceMessage::Workspace { candidate } => {
+                                            let result = match candidate.content {
+                                                Content::Bytes(bytes) => {
+                                                    ws.app.open_workspace(candidate.target, &bytes)
+                                                }
+                                                Content::Missing => Err(anyhow::anyhow!(
+                                                    "workspace file does not exist"
+                                                )),
+                                                Content::Error(error) => {
+                                                    Err(anyhow::anyhow!(error))
+                                                }
+                                            };
+                                            if let Err(error) = result {
+                                                ws.app.report_workspace_error(format!(
+                                                    "Cannot open workspace: {error:#}"
+                                                ));
+                                            }
+                                        }
+                                        WorkspaceMessage::WorkspaceDestination { target } => {
+                                            ws.app.save_workspace(Some(target))
+                                        }
+                                        WorkspaceMessage::RequestWorkspace => ws
+                                            .app
+                                            .persist_workspace(volna_core::Instant::now(), true),
+                                    }
+                                    ws.after(None, cx);
+                                }
                                 HostEvent::Theme(theme) => crate::theme::install(*theme, cx),
+                                HostEvent::Command(command) => ws.dispatch(command, None, cx),
                                 HostEvent::DebugState => log::info!("STATE {}", ws.debug_state()),
                             });
                         }

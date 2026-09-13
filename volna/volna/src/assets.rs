@@ -5,7 +5,10 @@ use std::borrow::Cow;
 use gpui_kit::{App, AssetSource, Result, SharedString};
 use volna_core::icons::{FONTS, IconName};
 
-gpui_kit::assets::icon_assets!(ComponentAssets, [Check]);
+gpui_kit::assets::icon_assets!(
+    ComponentAssets,
+    [Check, Link, Unlink, Plus, X, Ellipsis, Maximize, Minimize]
+);
 
 pub struct Assets;
 

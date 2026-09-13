@@ -23,18 +23,21 @@ cargo test --locked -p volna-core --test fst
 cargo test --locked -p volna-core --test transactions
 cargo test --locked -p volna --all-features
 cargo test --locked -p volna-egui --test screenshots
-node --test volna/volna/vscode-ext/theme.test.mjs
+node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs
 ```
 
 | Area | Coverage |
 |---|---|
 | Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry, and duplicate/alias rows share histories |
+| Panel model | Literal hierarchy paths and duplicate-name ambiguity; split/close/focus/layout validation; 5,000 generated command sequences; shared and independent navigation; cross-panel load reuse and stale pointer rejection |
 | Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, format menu, sidebar filtering/keys, layout hit regions and repaint coalescing |
 | FST input | Plain/gzip fixtures, raw bytes, reals, nine-state values, aliases, EVCD payloads, event occurrences, unavailable samples and explicit unsupported metadata errors |
 | FST/VTR parity | Values at every change timestamp in the committed Verilator features, operators and pipeline recordings |
 | Transactions | Unsupported versus empty capabilities, typed attributes and phases, events, stages, parents, inclusive overlap boundaries, filtering, early stopping and cross-stream relations |
 | GPUI adapter | Production loading executor, input filtering/Escape, keyboard popup selection/dismissal, theme changes and nonblank Metal frames |
 | egui adapter | Production loading executor, VTR/FST opening, sidebar/divider dragging, filtering, selection, zoom/pan/fit and software-rendered screenshots |
+| Workspace codec and lifecycle | Exact integer times, unknown panels/formats, unresolved locators, atomic prepare/commit, malformed and oversized inputs, idle revisions, ticket races, fallback precedence, Save As and transition flush failures |
+| Workspace hosts | Native copied-trace idle save/reopen, atomic I/O and preference errors; opaque VS Code candidates, remote URI schemes, ticket destinations, write errors, hide/dispose sequencing and disabled storage |
 | Host theme | Raw VS Code palettes, host-neutral CSS parsing, synchronous initial snapshot and subsequent theme updates |
 
 FST fixture regeneration commands are in
@@ -81,6 +84,16 @@ Host with a temporary `--user-data-dir` and
 `--extensionDevelopmentPath=<absolute vscode-ext path>`, then open the bundled
 trace with Volna. [`tools/cdp.mjs`](tools/cdp.mjs) supports browser input and
 capture through the debugging protocol; `debug_state()` exposes viewer state.
+Use `target` to select the Volna iframe and `context: "!!document.querySelector('canvas')"`
+to select its content frame. `assert` fails unless its JavaScript predicate is true.
+The driver fails on uncaught runtime exceptions as well as failed assertions.
+Inspect the rendered panels in screenshots, not only restored model counts.
+Activate the editor tab before screenshots: a hidden VS Code webview may defer
+canvas frames. For persistence checks use a temporary copy of a trace, enable sidecar saving,
+create splits/tabs and rows, wait past the idle interval, reload the VS Code
+window, and assert all panels and loaded rows from `debug_state()`. Inspect the
+sidecar to verify the split fractions, links and resource reference. Other
+visual checks should set `volna.workspace.autosave` to `off`.
 
 For the default-host compatibility check, do not pass `--enable-coi` or other
 shared-memory flags to VS Code. In the Volna content frame, verify
@@ -116,7 +129,36 @@ transitions. It uses a 1440×900 logical viewport, ten displayed signals and a
 keyboard pan per frame. Compare fit-to-view and zoomed-in costs, recording the
 hardware, toolchain and display scale with the results. `table_paint_ms` covers
 the wave table; whole-frame time includes layout, sidebar and GPU submission.
-There are no pass/fail timing thresholds.
+Each timed loop asserts at least one real canvas paint per keyboard frame;
+a fresh-window split also verifies deferred installation and keyboard focus.
+Set `VOLNA_PERF_PANELS=4` for four linked panels in a balanced split layout.
+Compare the one-panel run against a detached worktree of the previous commit,
+using the same toolchain, profile, machine and session. There are no automatic
+pass/fail timing thresholds; investigate regressions before accepting results.
+
+The workspace comparison uses Apple M5, macOS 26.6.2, pinned
+`nightly-2026-04-14`, the `viewer` profile and a 1440×900 offscreen Metal window at 2× scale.
+The baseline is `cdb6945`, with only the same paint counter/assertions added.
+Three alternating baseline/one-panel/four-panel runs use 30 keyboard frames per
+case with persistence disabled. Values below are the best run's median in ms;
+[all medians, p90s and available table-paint samples](benchmarks/workspaces.csv)
+are retained. These are painting/navigation measurements, not trace read/write
+throughput or browser frame times.
+
+| Transitions | View | Baseline, 1 panel | Workspace, 1 panel | Workspace, 4 panels |
+|---|---|---:|---:|---:|
+| 10 K | Fit | 1.09 | 1.13 | 1.31 |
+| 10 K | Zoomed | 1.09 | 1.14 | 1.22 |
+| 1 M | Fit | 0.60 | 0.65 | 1.59 |
+| 1 M | Zoomed | 0.59 | 0.64 | 1.54 |
+| 100 M | Fit | 0.93 | 0.98 | 1.99 |
+| 100 M | Zoomed | 0.93 | 0.97 | 1.97 |
+
+The single-panel cost is 0.04–0.05 ms (about 4–8%). This intentionally relaxes
+the original proposal's zero-regression condition to retain one stock dock
+path. Explicit panel invalidation avoids rebuilding dock chrome on each pan;
+no performance improvement is claimed. Four linked panels remain below 2 ms
+in these best-of-three cases, with smaller canvases and shared histories.
 
 Whole-history loading must be measured separately from painting. FST histories
 store owned values and can use substantially more memory than the compressed

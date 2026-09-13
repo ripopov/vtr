@@ -26,7 +26,7 @@ use crate::ui::icon::icon_svg;
 use crate::ui::text_input::TextInputEvent;
 use crate::ui::{Icon, IconName, Splitter, SplitterAxis, TextInput, icon_button, popup_at};
 use gpui_kit::component::{
-    Selectable,
+    Selectable, Sizable,
     button::{Button, ButtonVariants},
     menu::{PopupMenu, PopupMenuItem},
     tooltip::Tooltip,
@@ -34,12 +34,38 @@ use gpui_kit::component::{
 
 actions!(
     workspace,
-    [OpenFile, ToggleSidebar, CloseTrace, OpenStressMenu, Quit]
+    [
+        OpenFile,
+        OpenWorkspace,
+        SaveWorkspace,
+        SaveWorkspaceAs,
+        ToggleSidebar,
+        CloseTrace,
+        OpenStressMenu,
+        Quit,
+        FocusPanel1,
+        FocusPanel2,
+        FocusPanel3,
+        FocusPanel4,
+        FocusPanel5,
+        FocusPanel6,
+        FocusPanel7,
+        FocusPanel8,
+        FocusPanel9
+    ]
 );
 
 actions!(
     waves,
     [
+        SplitRight,
+        SplitDown,
+        NewPanel,
+        ClosePanel,
+        FocusNextPanel,
+        FocusPrevPanel,
+        ToggleViewportLink,
+        ToggleCursorLink,
         ZoomIn,
         ZoomOut,
         ZoomFit,
@@ -72,6 +98,10 @@ pub(crate) struct TextKey {
 
 pub struct Workspace {
     pub app: CoreApp,
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) native_store: Option<crate::native_workspace::Store>,
+    pub(crate) dock: Option<crate::dock::DockHost>,
+    panel_focus_pending: bool,
     focus_handle: FocusHandle,
     pub(crate) waves_focus: FocusHandle,
     pub(crate) scopes_focus: FocusHandle,
@@ -80,8 +110,13 @@ pub struct Workspace {
     pub(crate) scopes_scroll: UniformListScrollHandle,
     pub(crate) variables_scroll: UniformListScrollHandle,
     stress_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
-    /// Mirrors `app.waves.menu`: (row, position, popup).
-    format_menu: Option<(usize, gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
+    /// Mirrors `app.panels.focused_waves().unwrap().menu`: (row, position, popup).
+    format_menu: Option<(
+        volna_core::panels::PanelId,
+        usize,
+        gpui_kit::Point<Pixels>,
+        Entity<PopupMenu>,
+    )>,
     /// Display list buffer and shaped-text cache, reused across frames.
     pub(crate) scene: Scene,
     pub(crate) shaped: HashMap<TextKey, ShapedLine>,
@@ -98,11 +133,63 @@ impl Focusable for Workspace {
 /// Register key bindings and the application menu.
 pub fn init(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("cmd-1", FocusPanel1, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-1", FocusPanel1, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-2", FocusPanel2, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-2", FocusPanel2, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-3", FocusPanel3, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-3", FocusPanel3, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-4", FocusPanel4, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-4", FocusPanel4, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-5", FocusPanel5, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-5", FocusPanel5, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-6", FocusPanel6, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-6", FocusPanel6, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-7", FocusPanel7, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-7", FocusPanel7, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-8", FocusPanel8, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-8", FocusPanel8, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-9", FocusPanel9, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-9", FocusPanel9, Some("Workspace && !Embedded")),
+    ]);
+    cx.bind_keys([
+        KeyBinding::new("cmd-s", SaveWorkspace, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-s", SaveWorkspace, Some("Workspace && !Embedded")),
+        KeyBinding::new(
+            "cmd-shift-s",
+            SaveWorkspaceAs,
+            Some("Workspace && !Embedded"),
+        ),
+        KeyBinding::new(
+            "ctrl-shift-s",
+            SaveWorkspaceAs,
+            Some("Workspace && !Embedded"),
+        ),
         KeyBinding::new("cmd-o", OpenFile, None),
         KeyBinding::new("ctrl-o", OpenFile, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("ctrl-b", ToggleSidebar, None),
-        KeyBinding::new("cmd-w", CloseTrace, None),
+        KeyBinding::new("cmd-w", ClosePanel, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-w", ClosePanel, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-\\", SplitRight, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-\\", SplitRight, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-shift-\\", SplitDown, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-shift-\\", SplitDown, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-n", NewPanel, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-n", NewPanel, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-tab", FocusNextPanel, Some("Workspace && !Embedded")),
+        KeyBinding::new(
+            "ctrl-shift-tab",
+            FocusPrevPanel,
+            Some("Workspace && !Embedded"),
+        ),
+        KeyBinding::new("l", ToggleViewportLink, Some("Waves")),
+        KeyBinding::new("shift-l", ToggleCursorLink, Some("Waves")),
+        KeyBinding::new(
+            "shift-escape",
+            gpui_kit::component::dock::ToggleZoom,
+            Some("Waves"),
+        ),
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("=", ZoomIn, Some("Waves")),
         KeyBinding::new("shift-=", ZoomIn, Some("Waves")),
@@ -141,6 +228,10 @@ pub fn init(cx: &mut App) {
             items: vec![
                 MenuItem::action("Open…", OpenFile),
                 MenuItem::action("Close Trace", CloseTrace),
+                MenuItem::separator(),
+                MenuItem::action("Open Workspace…", OpenWorkspace),
+                MenuItem::action("Save Workspace", SaveWorkspace),
+                MenuItem::action("Save Workspace As…", SaveWorkspaceAs),
             ],
             disabled: false,
         },
@@ -148,6 +239,12 @@ pub fn init(cx: &mut App) {
             name: "View".into(),
             items: vec![
                 MenuItem::action("Toggle Sidebar", ToggleSidebar),
+                MenuItem::action("Split Right", SplitRight),
+                MenuItem::action("Split Down", SplitDown),
+                MenuItem::action("New Waveform Tab", NewPanel),
+                MenuItem::action("Close Panel", ClosePanel),
+                MenuItem::action("Follow Shared Viewport", ToggleViewportLink),
+                MenuItem::action("Follow Shared Cursor", ToggleCursorLink),
                 MenuItem::separator(),
                 MenuItem::action("Zoom In", ZoomIn),
                 MenuItem::action("Zoom Out", ZoomOut),
@@ -178,6 +275,13 @@ pub(crate) fn to_modifiers(m: gpui_kit::Modifiers) -> volna_core::geometry::Modi
 
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        #[cfg(not(target_family = "wasm"))]
+        cx.on_app_quit(|this, cx| {
+            this.app.persist_workspace(Instant::now(), true);
+            this.after(None, cx);
+            async {}
+        })
+        .detach();
         let filter = cx.new(|cx| TextInput::new("Filter variables", cx));
         cx.subscribe(&filter, |this, filter, event, cx| match event {
             TextInputEvent::Changed => {
@@ -192,6 +296,10 @@ impl Workspace {
         window.focus(&waves_focus, cx);
         Workspace {
             app: CoreApp::new(),
+            #[cfg(not(target_family = "wasm"))]
+            native_store: None,
+            dock: None,
+            panel_focus_pending: false,
             focus_handle: cx.focus_handle(),
             waves_focus,
             scopes_focus: cx.focus_handle(),
@@ -216,25 +324,85 @@ impl Workspace {
         window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) {
-        self.app.handle(command);
+        self.dispatch_if_current(self.app.doc.generation(), command, window, cx);
+    }
+
+    pub(crate) fn dispatch_if_current(
+        &mut self,
+        generation: u64,
+        command: Command,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        let before = self.app.panels.focused_id();
+        if !self.app.handle_if_current(generation, command) {
+            return;
+        }
+        self.panel_focus_pending |= before != self.app.panels.focused_id();
         self.after(window, cx);
     }
 
-    fn after(&mut self, mut window: Option<&mut Window>, cx: &mut Context<Self>) {
-        for event in self.app.take_events() {
-            match event {
-                Event::Changed => cx.notify(),
-                Event::OpenFileDialog => self.open_file_dialog(cx),
-                Event::RevealScopeRow(ix) => self
-                    .scopes_scroll
-                    .scroll_to_item(ix, gpui_kit::ScrollStrategy::Nearest),
-                Event::RevealVarRow(ix) => self
-                    .variables_scroll
-                    .scroll_to_item(ix, gpui_kit::ScrollStrategy::Nearest),
-                Event::FocusFilter => {
-                    if let Some(window) = window.as_deref_mut() {
-                        let handle = self.filter.read(cx).focus_handle(cx);
-                        window.focus(&handle, cx);
+    pub(crate) fn after(&mut self, mut window: Option<&mut Window>, cx: &mut Context<Self>) {
+        loop {
+            let events = self.app.take_events();
+            if events.is_empty() {
+                break;
+            }
+            for event in events {
+                match event {
+                    Event::LoadWorkspace { trace_uri } => {
+                        #[cfg(not(target_family = "wasm"))]
+                        self.load_workspace_candidates(trace_uri);
+                        #[cfg(target_family = "wasm")]
+                        crate::web::request_workspace_candidates(&trace_uri);
+                    }
+                    Event::PersistWorkspace { ticket, bytes } => {
+                        #[cfg(not(target_family = "wasm"))]
+                        self.write_workspace(ticket, bytes);
+                        #[cfg(target_family = "wasm")]
+                        crate::web::write_workspace(ticket, bytes);
+                    }
+                    Event::OpenWorkspaceDialog | Event::SaveWorkspaceDialog => {
+                        let save = matches!(event, Event::SaveWorkspaceDialog);
+                        #[cfg(not(target_family = "wasm"))]
+                        self.workspace_dialog(save, cx);
+                        #[cfg(target_family = "wasm")]
+                        crate::web::workspace_dialog(save);
+                    }
+                    Event::TraceClosed { trace_uri } => {
+                        #[cfg(target_family = "wasm")]
+                        crate::web::trace_closed(&trace_uri);
+                        #[cfg(not(target_family = "wasm"))]
+                        let _ = trace_uri;
+                    }
+                    Event::Quit => cx.quit(),
+                    Event::Changed => {
+                        if let Some(dock) = &self.dock {
+                            dock.invalidate_panels(cx);
+                        }
+                        cx.notify();
+                    }
+                    Event::LayoutChanged { .. } => {
+                        self.panel_focus_pending = true;
+                        cx.notify();
+                    }
+                    Event::Notice(text) => {
+                        log::warn!("{text}");
+                        #[cfg(target_family = "wasm")]
+                        crate::web::notice(&text);
+                    }
+                    Event::OpenFileDialog => self.open_file_dialog(cx),
+                    Event::RevealScopeRow(ix) => self
+                        .scopes_scroll
+                        .scroll_to_item(ix, gpui_kit::ScrollStrategy::Nearest),
+                    Event::RevealVarRow(ix) => self
+                        .variables_scroll
+                        .scroll_to_item(ix, gpui_kit::ScrollStrategy::Nearest),
+                    Event::FocusFilter => {
+                        if let Some(window) = window.as_deref_mut() {
+                            let handle = self.filter.read(cx).focus_handle(cx);
+                            window.focus(&handle, cx);
+                        }
                     }
                 }
             }
@@ -261,19 +429,26 @@ impl Workspace {
 
     /// Keep the GPUI popup in step with the core's format menu.
     fn sync_format_menu(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
-        let Some(m) = &self.app.waves.menu else {
+        let panel = self.app.panels.focused_id();
+        let Some(m) = self
+            .app
+            .panels
+            .focused_waves()
+            .and_then(|w| w.menu.as_ref())
+        else {
             self.format_menu = None;
             return;
         };
         if self
             .format_menu
             .as_ref()
-            .is_some_and(|(row, _, _)| *row == m.row)
+            .is_some_and(|(id, row, _, _)| *id == panel && *row == m.row)
         {
             return;
         }
         let Some(window) = window else { return };
         let row = m.row;
+        let generation = self.app.doc.generation();
         let position = point(px(m.position.x), px(m.position.y));
         let items: Vec<_> = m
             .items
@@ -287,7 +462,12 @@ impl Workspace {
                 PopupMenuItem::new(label)
                     .checked(item.checked)
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.dispatch(Command::MenuSelect(id.clone()), Some(window), cx);
+                        this.dispatch_if_current(
+                            generation,
+                            Command::MenuSelect(panel, id.clone()),
+                            Some(window),
+                            cx,
+                        );
                     }))
             })
             .collect();
@@ -298,11 +478,11 @@ impl Workspace {
             }
             menu.min_w(px(200.0)).action_context(focus)
         });
-        cx.subscribe(&menu, |this, _, _: &gpui_kit::DismissEvent, cx| {
-            this.dispatch(Command::MenuDismiss, None, cx);
+        cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
+            this.dispatch_if_current(generation, Command::MenuDismiss(panel), None, cx);
         })
         .detach();
-        self.format_menu = Some((row, position, menu));
+        self.format_menu = Some((panel, row, position, menu));
         cx.notify();
     }
 
@@ -319,7 +499,26 @@ impl Workspace {
     /// Open a VTR or FST file from disk (native).
     #[cfg(not(target_family = "wasm"))]
     pub fn open_path(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
-        self.app.open_path(path);
+        if path.to_string_lossy().ends_with(".volna.json") {
+            self.open_workspace_path(path, cx);
+            return;
+        }
+        if self.app.workspace.scheduler.enabled() {
+            match path
+                .canonicalize()
+                .map_err(anyhow::Error::from)
+                .and_then(|path| Ok((crate::native_workspace::file_uri(&path)?, path)))
+            {
+                Ok((uri, path)) => self
+                    .app
+                    .open_resource(volna_core::session::OpenSpec::Path(path), uri),
+                Err(error) => self
+                    .app
+                    .report_workspace_error(format!("Cannot open trace: {error:#}")),
+            }
+        } else {
+            self.app.open_path(path);
+        }
         self.after(None, cx);
     }
 
@@ -422,7 +621,7 @@ impl Workspace {
             }
             menu.min_w(px(200.0)).action_context(focus)
         });
-        cx.subscribe(&menu, |this, _, _: &gpui_kit::DismissEvent, cx| {
+        cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
             this.stress_menu = None;
             cx.notify();
         })
@@ -438,7 +637,10 @@ impl Workspace {
 
     /// Smoothed paint time of the wave table, for diagnostics.
     pub fn waves_frame_ms(&self) -> f32 {
-        self.app.waves.frame_ms_avg
+        self.app
+            .panels
+            .focused_waves()
+            .map_or(0.0, |w| w.frame_ms_avg)
     }
 
     // -- rendering ----------------------------------------------------------------
@@ -600,11 +802,15 @@ impl Workspace {
             )
     }
 
-    fn render_center(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    fn render_center(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
         let t = *theme(cx);
         let colors = t.editor;
         match self.app.trace_state() {
-            TraceState::Loaded(_) => self.render_waves(cx).into_any_element(),
+            TraceState::Loaded(_) => self.render_waves(window, cx).into_any_element(),
             TraceState::Loading { name } => div()
                 .size_full()
                 .flex()
@@ -635,10 +841,9 @@ impl Workspace {
     }
 
     /// The wave panel: the focusable, action-handling host of the `WaveTable` element.
-    fn render_waves(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_waves(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let el = div()
             .id("wave-view")
-            .track_focus(&self.waves_focus)
             .key_context("Waves")
             .size_full()
             .relative();
@@ -666,7 +871,21 @@ impl Workspace {
                 MoveSelectionDown,
             ]
         );
-        el.child(crate::wave::WaveTable::new(cx.entity()))
+        let mut dock = self
+            .dock
+            .take()
+            .unwrap_or_else(|| crate::dock::DockHost::new(window, cx));
+        dock.sync(&self.app, cx.weak_entity(), window, cx);
+        if let Some(focus) = dock.focus(self.app.panels.focused_id(), cx) {
+            if self.panel_focus_pending {
+                window.focus(&focus, cx);
+                self.panel_focus_pending = false;
+            }
+            self.waves_focus = focus;
+        }
+        let area = dock.area.clone();
+        self.dock = Some(dock);
+        el.child(area)
     }
 
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -784,6 +1003,58 @@ impl Workspace {
         };
         let mut left = div().flex().items_center().gap_3();
         let mut right = div().flex().items_center().gap_3();
+        if let Some(panel) = status.panel {
+            left = left.child(mono(panel, colors.text));
+        }
+        if let Some(link) = status.links {
+            let chip = |id, text: &'static str, linked, action| {
+                let icon = if linked {
+                    gpui_kit::assets::IconName::Link
+                } else {
+                    gpui_kit::assets::IconName::Unlink
+                };
+                let tooltip = format!(
+                    "{} {} link",
+                    if linked { "Disable" } else { "Enable" },
+                    text.to_lowercase()
+                );
+                div()
+                    .id(id)
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .px_1p5()
+                    .h(px(18.0))
+                    .rounded_sm()
+                    .cursor(CursorStyle::PointingHand)
+                    .text_size(px(t.ui_size_small))
+                    .text_color(if linked {
+                        colors.icon_accent
+                    } else {
+                        colors.text_muted
+                    })
+                    .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
+                    .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+                    .child(gpui_kit::component::Icon::new(icon).with_size(px(12.0)))
+                    .child(text)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.dispatch(Command::Action(action), Some(window), cx)
+                    }))
+            };
+            right = right
+                .child(chip(
+                    "status-view-link",
+                    "View",
+                    link.viewport,
+                    Action::ToggleViewportLink,
+                ))
+                .child(chip(
+                    "status-cursor-link",
+                    "Cursor",
+                    link.cursor,
+                    Action::ToggleCursorLink,
+                ));
+        }
         if let Some(range) = status.time_range {
             left = left.child(mono(range, colors.text_muted));
         }
@@ -792,6 +1063,57 @@ impl Workspace {
         }
         if let Some(s) = status.changes {
             left = left.child(mono(s, colors.text_placeholder));
+        }
+        if let Some(notice) = status.workspace_notice {
+            let details = self.app.workspace.notices.clone();
+            right = right.child(
+                div()
+                    .id("workspace-notice")
+                    .cursor(CursorStyle::PointingHand)
+                    .text_color(t.editor.error)
+                    .text_size(px(t.ui_size_small))
+                    .child("Workspace notice")
+                    .tooltip(move |w, cx| Tooltip::new(notice.clone()).build(w, cx))
+                    .on_click(move |_, window, cx| {
+                        use gpui_kit::component::WindowExt;
+                        let details = details.clone();
+                        window.open_dialog(cx, move |dialog, _, _| {
+                            let details = details.clone();
+                            dialog
+                                .title("Workspace details")
+                                .footer(
+                                    Button::new("close-workspace-details")
+                                        .label("Close")
+                                        .on_click(|_, window, cx| window.close_dialog(cx)),
+                                )
+                                .child(
+                                    gpui_kit::uniform_list(
+                                        "workspace-details",
+                                        details.len(),
+                                        move |range, _, _| {
+                                            range
+                                                .map(|index| {
+                                                    div()
+                                                        .id(("workspace-detail", index))
+                                                        .h(px(28.0))
+                                                        .text_ellipsis()
+                                                        .child(details[index].clone())
+                                                        .tooltip({
+                                                            let text = details[index].clone();
+                                                            move |w, cx| {
+                                                                Tooltip::new(text.clone())
+                                                                    .build(w, cx)
+                                                            }
+                                                        })
+                                                })
+                                                .collect::<Vec<_>>()
+                                        },
+                                    )
+                                    .h(px(280.0)),
+                                )
+                        });
+                    }),
+            );
         }
         if let Some(s) = status.px_per {
             right = right.child(mono(s, colors.text_placeholder));
@@ -854,8 +1176,13 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_format_menu(Some(window), cx);
+        let was_animating = self.app.is_animating();
         if self.app.tick(Instant::now()) {
             window.request_animation_frame();
+        }
+        self.after(Some(window), cx);
+        if was_animating && let Some(dock) = &self.dock {
+            dock.invalidate_panels(cx);
         }
         let t = *theme(cx);
         let colors = t.editor;
@@ -863,7 +1190,11 @@ impl Render for Workspace {
         let sidebar_visible = self.app.sidebar_visible;
         let mut root = div()
             .id("workspace")
-            .key_context("Workspace")
+            .key_context(if self.embedded {
+                "Workspace Embedded"
+            } else {
+                "Workspace"
+            })
             .track_focus(&self.focus_handle)
             .flex()
             .flex_col()
@@ -873,8 +1204,97 @@ impl Render for Workspace {
             .font_family(t.ui_font)
             .text_size(px(t.ui_size))
             .on_action(cx.listener(Self::open_file))
+            .on_action(cx.listener(|this, _: &OpenWorkspace, window, cx| {
+                this.dispatch(Command::RequestOpenWorkspace, Some(window), cx)
+            }))
+            .on_action(cx.listener(|this, _: &SaveWorkspace, window, cx| {
+                this.dispatch(Command::SaveWorkspace, Some(window), cx)
+            }))
+            .on_action(cx.listener(|this, _: &SaveWorkspaceAs, window, cx| {
+                this.dispatch(Command::RequestSaveWorkspaceAs, Some(window), cx)
+            }))
+            .on_action(cx.listener(|this, _: &Quit, window, cx| {
+                this.dispatch(Command::RequestQuit, Some(window), cx)
+            }))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::close_trace));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel1, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(0)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel2, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(1)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel3, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(2)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel4, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(3)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel5, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(4)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel6, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(5)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel7, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(6)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel8, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(7)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = root.on_action(cx.listener(|this, _: &FocusPanel9, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(8)),
+                Some(window),
+                cx,
+            );
+        }));
+        root = wave_actions!(
+            root,
+            cx,
+            [
+                SplitRight,
+                SplitDown,
+                NewPanel,
+                ClosePanel,
+                FocusNextPanel,
+                FocusPrevPanel,
+                ToggleViewportLink,
+                ToggleCursorLink
+            ]
+        );
         #[cfg(not(target_family = "wasm"))]
         {
             root = root.on_drop(cx.listener(|this, paths: &gpui_kit::ExternalPaths, _, cx| {
@@ -887,7 +1307,8 @@ impl Render for Workspace {
             root = root.child(self.render_titlebar(cx));
         }
         let sidebar = sidebar_visible.then(|| self.render_sidebar(window, cx).into_any_element());
-        let center = self.render_center(cx);
+        let center = self.render_center(window, cx);
+        let dialogs = gpui_kit::component::Root::render_dialog_layer(window, cx);
         root.child(
             div()
                 .flex()
@@ -920,7 +1341,7 @@ impl Render for Workspace {
         .children(
             self.format_menu
                 .as_ref()
-                .map(|(_, p, m)| popup_at(*p, m.clone(), window, cx)),
+                .map(|(_, _, p, m)| popup_at(*p, m.clone(), window, cx)),
         )
         .children(
             self.stress_menu
@@ -928,5 +1349,6 @@ impl Render for Workspace {
                 .map(|(p, m)| popup_at(*p, m.clone(), window, cx)),
         )
         .children(drag.map(|d| self.render_drag_surface(d, cx)))
+        .children(dialogs)
     }
 }

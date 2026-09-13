@@ -72,8 +72,12 @@ fn pump(app: &mut App) {
 }
 
 fn frame(app: &mut App, theme: &Theme) {
-    app.layout_waves(Rect::from_xywh(0.0, 0.0, 1200.0, 600.0), theme);
-    app.render_waves(theme, &mut MonoMeasure);
+    app.layout_waves(
+        app.panels.focused_id(),
+        Rect::from_xywh(0.0, 0.0, 1200.0, 600.0),
+        theme,
+    );
+    app.render_waves(app.panels.focused_id(), theme, &mut MonoMeasure);
 }
 
 fn loaded_app(n: usize) -> (App, Arc<Source>) {
@@ -124,10 +128,24 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
     app.handle(Command::AddVars(vec![0, 1]));
     app.deliver(stale);
     assert_eq!(app.doc.pending_count(), 2);
-    assert!(app.waves.items.iter().all(|row| row.history.is_none()));
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.history.is_none())
+    );
     pump(&mut app);
     assert_eq!(app.doc.pending_count(), 0);
-    assert!(app.waves.items.iter().all(|row| row.history.is_some()));
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.history.is_some())
+    );
 }
 
 #[test]
@@ -149,9 +167,11 @@ fn aliases_share_pending_and_loaded_histories() {
         app.take_requests().is_empty(),
         "loaded histories are reused"
     );
-    assert_eq!(app.waves.items[1].name, "alias");
+    assert_eq!(app.panels.focused_waves().unwrap().items[1].name, "alias");
     assert!(
-        app.waves
+        app.panels
+            .focused_waves()
+            .unwrap()
             .items
             .iter()
             .all(|i| Arc::ptr_eq(&history, i.history.as_ref().unwrap()))
@@ -185,10 +205,18 @@ fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
         results: vec![(signal, Err(anyhow::anyhow!("old failure")))],
     });
     assert!(app.doc.is_pending(signal));
-    assert!(app.waves.items[0].history.is_none());
-    assert!(app.waves.items[0].error.is_none());
+    assert!(
+        app.panels.focused_waves().unwrap().items[0]
+            .history
+            .is_none()
+    );
+    assert!(app.panels.focused_waves().unwrap().items[0].error.is_none());
     pump(&mut app);
-    assert!(app.waves.items[0].history.is_some());
+    assert!(
+        app.panels.focused_waves().unwrap().items[0]
+            .history
+            .is_some()
+    );
 }
 
 #[test]
@@ -197,13 +225,22 @@ fn failed_loads_can_retry_for_all_alias_rows() {
     source.fail.store(true, SeqCst);
     app.handle(Command::AddVars(vec![0, 0]));
     pump(&mut app);
-    assert!(app.waves.items.iter().all(|i| i.error.is_some()));
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|i| i.error.is_some())
+    );
     source.fail.store(false, SeqCst);
     app.handle(Command::AddVars(vec![0]));
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 2);
     assert!(
-        app.waves
+        app.panels
+            .focused_waves()
+            .unwrap()
             .items
             .iter()
             .all(|i| i.error.is_none() && i.history.is_some())
@@ -243,7 +280,7 @@ fn latest_open_wins_and_stale_open_cannot_add_rows() {
         result: Ok(Arc::new(SynthSource::new(100))),
     });
     assert!(matches!(app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current)));
-    assert!(app.waves.items.is_empty());
+    assert!(app.panels.focused_waves().unwrap().items.is_empty());
 }
 
 #[test]
@@ -275,7 +312,7 @@ fn open_errors_are_reported_and_a_later_open_recovers() {
     pump(&mut app);
     assert!(app.doc.is_loaded());
     assert_eq!(
-        app.waves.items.len(),
+        app.panels.focused_waves().unwrap().items.len(),
         app.doc.hierarchy().unwrap().vars.len()
     );
 }
@@ -286,9 +323,20 @@ fn synthetic_open_shows_all_signals_and_events_coalesce() {
     app.open_synthetic(1000);
     pump(&mut app);
     let events = app.take_events();
-    assert_eq!(events, vec![Event::Changed]);
-    assert!(app.waves.loaded_count() > 0);
-    assert_eq!(app.waves.loaded_count(), app.waves.items.len());
+    assert_eq!(
+        events,
+        vec![
+            Event::Changed,
+            Event::LayoutChanged {
+                revision: app.panels.revision()
+            }
+        ]
+    );
+    assert!(app.panels.focused_waves().unwrap().loaded_count() > 0);
+    assert_eq!(
+        app.panels.focused_waves().unwrap().loaded_count(),
+        app.panels.focused_waves().unwrap().items.len()
+    );
 }
 
 #[test]
@@ -298,31 +346,49 @@ fn cursor_markers_and_selection_follow_the_document() {
     app.handle(Command::AddVars(vec![0, 1, 2]));
     pump(&mut app);
     frame(&mut app, &theme);
-    let layout = app.waves.last_layout().clone();
+    let layout = app.panels.focused_waves().unwrap().last_layout().clone();
     // Click in the waves of row 1 sets the cursor and selects the row.
     let p = point(layout.waves.left() + 300.0, layout.row_y(1) + 12.0);
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: p,
-        button: MouseButton::Left,
-        modifiers: Modifiers::default(),
-    }));
-    app.handle(Command::Pointer(PointerEvent::Up));
-    let cursor = app.doc.cursor.expect("cursor set");
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: p,
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    app.handle(Command::Pointer(app.panels.focused_id(), PointerEvent::Up));
+    let cursor = app.doc.shared.cursor.expect("cursor set");
     // Row 1 was already selected (new rows select themselves), so a plain
     // click keeps the multi-selection, as a drag start should.
     assert_eq!(
-        app.waves.selected.iter().copied().collect::<Vec<_>>(),
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .selected
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
         vec![0, 1, 2]
     );
     app.handle(Command::Action(Action::ClearSelection));
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: p,
-        button: MouseButton::Left,
-        modifiers: Modifiers::default(),
-    }));
-    app.handle(Command::Pointer(PointerEvent::Up));
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: p,
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    app.handle(Command::Pointer(app.panels.focused_id(), PointerEvent::Up));
     assert_eq!(
-        app.waves.selected.iter().copied().collect::<Vec<_>>(),
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .selected
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
         vec![1]
     );
     // Markers are document state.
@@ -336,44 +402,65 @@ fn cursor_markers_and_selection_follow_the_document() {
         "marker chip is painted"
     );
     // Shift-click on the chip removes it; a plain click jumps the cursor.
-    let chip = app.waves.last_layout().marker_chips[0].1;
+    let chip = app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .last_layout()
+        .marker_chips[0]
+        .1;
     let chip_p = point(chip.left() + 2.0, chip.top() + 2.0);
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: chip_p,
-        button: MouseButton::Left,
-        modifiers: Modifiers {
-            shift: true,
-            ..Default::default()
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: chip_p,
+            button: MouseButton::Left,
+            modifiers: Modifiers {
+                shift: true,
+                ..Default::default()
+            },
         },
-    }));
+    ));
     assert!(app.doc.markers.is_empty());
     // Escape: clear selection first, then cursor.
     app.handle(Command::Action(Action::ClearSelection));
-    assert!(app.waves.selected.is_empty());
-    assert_eq!(app.doc.cursor, Some(cursor));
+    assert!(app.panels.focused_waves().unwrap().selected.is_empty());
+    assert_eq!(app.doc.shared.cursor, Some(cursor));
     app.handle(Command::Action(Action::ClearSelection));
-    assert_eq!(app.doc.cursor, None);
+    assert_eq!(app.doc.shared.cursor, None);
     // Name-column clicks select with modifiers.
     let name_p = |row: usize| point(layout.names.left() + 20.0, layout.row_y(row) + 12.0);
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: name_p(0),
-        button: MouseButton::Left,
-        modifiers: Modifiers::default(),
-    }));
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: name_p(2),
-        button: MouseButton::Left,
-        modifiers: Modifiers {
-            shift: true,
-            ..Default::default()
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: name_p(0),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
         },
-    }));
+    ));
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: name_p(2),
+            button: MouseButton::Left,
+            modifiers: Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        },
+    ));
     assert_eq!(
-        app.waves.selected.iter().copied().collect::<Vec<_>>(),
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .selected
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
         vec![0, 1, 2]
     );
     app.handle(Command::Action(Action::RemoveSelected));
-    assert!(app.waves.items.is_empty());
+    assert!(app.panels.focused_waves().unwrap().items.is_empty());
 }
 
 #[test]
@@ -383,51 +470,76 @@ fn zoom_pan_and_fit_are_deterministic_with_an_explicit_clock() {
     app.handle(Command::AddVars(vec![0]));
     pump(&mut app);
     frame(&mut app, &theme);
-    let full = app.waves.viewport;
+    let full = app.panels.focused_waves().unwrap().viewport(&app.doc);
     let t0 = Instant::now();
     app.handle_at(Command::Action(Action::ZoomIn), t0);
     assert!(app.is_animating());
     assert!(app.tick(t0 + Duration::from_millis(50)));
     assert!(!app.tick(t0 + Duration::from_millis(500)));
-    let zoomed = app.waves.viewport;
+    let zoomed = app.panels.focused_waves().unwrap().viewport(&app.doc);
     assert!(
         (zoomed.width() - full.width() / 2.0).abs() < 1.0,
         "{zoomed:?} vs {full:?}"
     );
     app.handle_at(Command::Action(Action::PanRight), t0);
     app.tick(t0 + Duration::from_secs(1));
-    let panned = app.waves.viewport;
+    let panned = app.panels.focused_waves().unwrap().viewport(&app.doc);
     assert!(panned.start > zoomed.start);
     assert!((panned.width() - zoomed.width()).abs() < 1e-6);
     // Drag-pan with the middle button.
-    let layout = app.waves.last_layout().clone();
-    let before = app.waves.viewport.start;
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: point(layout.waves.left() + 400.0, layout.waves.top() + 12.0),
-        button: MouseButton::Middle,
-        modifiers: Modifiers::default(),
-    }));
-    app.handle(Command::Pointer(PointerEvent::Move {
-        position: point(layout.waves.left() + 300.0, layout.waves.top() + 12.0),
-    }));
-    app.handle(Command::Pointer(PointerEvent::Up));
-    assert!(app.waves.viewport.start > before, "drag left pans right");
-    // Wheel with the secondary modifier zooms about the pointer, immediately.
-    let dragged = app.waves.viewport;
-    app.handle(Command::Pointer(PointerEvent::Wheel {
-        position: point(layout.waves.left() + 100.0, layout.waves.top() + 10.0),
-        dx: 0.0,
-        dy: -120.0,
-        modifiers: Modifiers {
-            control: true,
-            ..Default::default()
+    let layout = app.panels.focused_waves().unwrap().last_layout().clone();
+    let before = app.panels.focused_waves().unwrap().viewport(&app.doc).start;
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: point(layout.waves.left() + 400.0, layout.waves.top() + 12.0),
+            button: MouseButton::Middle,
+            modifiers: Modifiers::default(),
         },
-    }));
+    ));
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Move {
+            position: point(layout.waves.left() + 300.0, layout.waves.top() + 12.0),
+        },
+    ));
+    app.handle(Command::Pointer(app.panels.focused_id(), PointerEvent::Up));
+    assert!(
+        app.panels.focused_waves().unwrap().viewport(&app.doc).start > before,
+        "drag left pans right"
+    );
+    // Wheel with the secondary modifier zooms about the pointer, immediately.
+    let dragged = app.panels.focused_waves().unwrap().viewport(&app.doc);
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Wheel {
+            position: point(layout.waves.left() + 100.0, layout.waves.top() + 10.0),
+            dx: 0.0,
+            dy: -120.0,
+            modifiers: Modifiers {
+                control: true,
+                ..Default::default()
+            },
+        },
+    ));
     assert!(!app.is_animating());
-    assert!(app.waves.viewport.width() > dragged.width());
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .viewport(&app.doc)
+            .width()
+            > dragged.width()
+    );
     app.handle_at(Command::Action(Action::ZoomFit), t0);
     app.tick(t0 + Duration::from_secs(1));
-    assert!(app.waves.viewport.approx_eq(&full));
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .viewport(&app.doc)
+            .approx_eq(&full)
+    );
     let status = app.status();
     assert!(status.px_per.as_deref().unwrap().starts_with("1 px = "));
 }
@@ -479,6 +591,7 @@ impl BurstSource {
         hierarchy.scopes.iter_mut().for_each(|s| s.vars.truncate(1));
         Arc::new(Self {
             info: TraceInfo {
+                design_id: None,
                 name: "burst".into(),
                 timescale: -9,
                 time_range: (0, 100_000),
@@ -516,7 +629,7 @@ fn dense_columns_collapse_into_one_band_and_zooming_in_resolves_edges() {
         .filter(|(_, c)| *c == theme.wave_dense)
         .collect();
     assert_eq!(dense.len(), 1, "one dense band for the burst: {dense:?}");
-    let layout = app.waves.last_layout().clone();
+    let layout = app.panels.focused_waves().unwrap().last_layout().clone();
     let expected_w = 1000.0 / 100_000.0 * f64::from(layout.waves.width());
     let (band, _) = dense[0];
     assert!(
@@ -525,8 +638,8 @@ fn dense_columns_collapse_into_one_band_and_zooming_in_resolves_edges() {
     );
     // Zoomed in far enough, every change is its own edge and nothing is dense.
     let t0 = Instant::now();
-    app.waves.viewport.start = 50_100.0;
-    app.waves.viewport.end = 50_120.0;
+    app.doc.shared.viewport.viewport.start = 50_100.0;
+    app.doc.shared.viewport.viewport.end = 50_120.0;
     let _ = t0;
     frame(&mut app, &theme);
     assert!(app.scene().quads().all(|(_, c)| c != theme.wave_dense));
@@ -553,33 +666,54 @@ fn format_menu_and_translator_cycle() {
     app.handle(Command::AddVars(vec![vector]));
     pump(&mut app);
     frame(&mut app, &theme);
-    let badge = app.waves.last_layout().badges[0].1;
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: point(badge.left() + 2.0, badge.top() + 2.0),
-        button: MouseButton::Left,
-        modifiers: Modifiers::default(),
-    }));
-    let menu = app.waves.menu.clone().expect("menu opened");
+    let badge = app.panels.focused_waves().unwrap().last_layout().badges[0].1;
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: point(badge.left() + 2.0, badge.top() + 2.0),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    let menu = app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .menu
+        .clone()
+        .expect("menu opened");
     assert!(menu.items.iter().any(|i| i.checked));
     assert!(app.debug_state().contains("menu=true"));
-    let before = app.waves.items[0].translator.id();
+    let before = app.panels.focused_waves().unwrap().items[0].translator.id();
     let other = menu.items.iter().find(|i| !i.checked).unwrap().id.clone();
-    app.handle(Command::MenuSelect(other.clone()));
-    assert!(app.waves.menu.is_none());
-    assert_eq!(app.waves.items[0].translator.id(), other);
-    assert_ne!(app.waves.items[0].translator.id(), before);
+    app.handle(Command::MenuSelect(app.panels.focused_id(), other.clone()));
+    assert!(app.panels.focused_waves().unwrap().menu.is_none());
+    assert_eq!(
+        app.panels.focused_waves().unwrap().items[0].translator.id(),
+        other
+    );
+    assert_ne!(
+        app.panels.focused_waves().unwrap().items[0].translator.id(),
+        before
+    );
     app.handle(Command::Action(Action::CycleFormat));
-    assert_ne!(app.waves.items[0].translator.id(), other);
+    assert_ne!(
+        app.panels.focused_waves().unwrap().items[0].translator.id(),
+        other
+    );
     // Escape closes an open menu before touching the selection.
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: point(badge.left() + 2.0, badge.top() + 2.0),
-        button: MouseButton::Left,
-        modifiers: Modifiers::default(),
-    }));
-    assert!(app.waves.menu.is_some());
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: point(badge.left() + 2.0, badge.top() + 2.0),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    assert!(app.panels.focused_waves().unwrap().menu.is_some());
     app.handle(Command::Action(Action::ClearSelection));
-    assert!(app.waves.menu.is_none());
-    assert!(!app.waves.selected.is_empty());
+    assert!(app.panels.focused_waves().unwrap().menu.is_none());
+    assert!(!app.panels.focused_waves().unwrap().selected.is_empty());
 }
 
 #[test]
@@ -603,7 +737,7 @@ fn sidebar_models_follow_scope_selection_and_keys() {
     // Enter adds the selection (or all).
     app.handle(Command::VariablesKey(Key::Down, Modifiers::default()));
     app.handle(Command::VariablesKey(Key::Enter, Modifiers::default()));
-    assert_eq!(app.waves.items.len(), 1);
+    assert_eq!(app.panels.focused_waves().unwrap().items.len(), 1);
     app.handle(Command::VariablesKey(
         Key::Char("x".into()),
         Modifiers::default(),
@@ -620,39 +754,65 @@ fn layout_hit_regions_and_scene_cursors_agree() {
     app.handle(Command::AddVars((0..40).map(|i| i % 4).collect()));
     pump(&mut app);
     frame(&mut app, &theme);
-    let layout = app.waves.last_layout().clone();
+    let layout = app.panels.focused_waves().unwrap().last_layout().clone();
     assert!(layout.scrollbar.is_some(), "40 rows overflow 600 px");
     assert!(layout.max_scroll > 0.0);
     // Wheel scrolls rows; the layout clamps.
-    app.handle(Command::Pointer(PointerEvent::Wheel {
-        position: point(layout.names.left() + 10.0, layout.names.top() + 10.0),
-        dx: 0.0,
-        dy: -1e6,
-        modifiers: Modifiers::default(),
-    }));
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Wheel {
+            position: point(layout.names.left() + 10.0, layout.names.top() + 10.0),
+            dx: 0.0,
+            dy: -1e6,
+            modifiers: Modifiers::default(),
+        },
+    ));
     frame(&mut app, &theme);
-    assert_eq!(app.waves.scroll_y, app.waves.last_layout().max_scroll);
+    assert_eq!(
+        app.panels.focused_waves().unwrap().scroll_y,
+        app.panels.focused_waves().unwrap().last_layout().max_scroll
+    );
     // Dragging the names divider resizes the column and pins the resize cursor.
-    let split = app.waves.last_layout().names_split;
-    app.handle(Command::Pointer(PointerEvent::Down {
-        position: point(split.left() + 4.0, split.top() + 100.0),
-        button: MouseButton::Left,
-        modifiers: Modifiers::default(),
-    }));
-    app.handle(Command::Pointer(PointerEvent::Move {
-        position: point(split.left() + 64.0, split.top() + 100.0),
-    }));
+    let split = app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .last_layout()
+        .names_split;
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position: point(split.left() + 4.0, split.top() + 100.0),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Move {
+            position: point(split.left() + 64.0, split.top() + 100.0),
+        },
+    ));
     frame(&mut app, &theme);
     assert!(app.scene().window_cursor.is_some());
     assert!(
-        (app.waves.names_width - 280.0).abs() < 1.0,
+        (app.panels.focused_waves().unwrap().names_width - 280.0).abs() < 1.0,
         "{}",
-        app.waves.names_width
+        app.panels.focused_waves().unwrap().names_width
     );
-    app.handle(Command::Pointer(PointerEvent::Up));
+    app.handle(Command::Pointer(app.panels.focused_id(), PointerEvent::Up));
     frame(&mut app, &theme);
     assert!(app.scene().window_cursor.is_none());
-    assert!(app.scene().cursors.len() >= 2 + app.waves.last_layout().badges.len());
+    assert!(
+        app.scene().cursors.len()
+            >= 2 + app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .last_layout()
+                .badges
+                .len()
+    );
     // Clip pushes and pops balance.
     let (mut depth, mut max_depth) = (0i32, 0);
     for p in &app.scene().prims {
@@ -677,17 +837,26 @@ fn hover_is_derived_from_the_pointer_and_only_changes_request_repaints() {
     pump(&mut app);
     frame(&mut app, &theme);
     app.take_events();
-    let layout = app.waves.last_layout().clone();
+    let layout = app.panels.focused_waves().unwrap().last_layout().clone();
     let p = point(layout.names.left() + 10.0, layout.row_y(1) + 5.0);
-    app.handle(Command::Pointer(PointerEvent::Move { position: p }));
-    assert_eq!(app.waves.hover_row, Some(1));
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Move { position: p },
+    ));
+    assert_eq!(app.panels.focused_waves().unwrap().hover_row, Some(1));
     assert_eq!(app.take_events(), vec![Event::Changed]);
-    app.handle(Command::Pointer(PointerEvent::Move {
-        position: point(p.x + 1.0, p.y),
-    }));
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Move {
+            position: point(p.x + 1.0, p.y),
+        },
+    ));
     assert!(app.take_events().is_empty(), "same row: no repaint");
-    app.handle(Command::Pointer(PointerEvent::Leave));
-    assert_eq!(app.waves.hover_row, None);
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Leave,
+    ));
+    assert_eq!(app.panels.focused_waves().unwrap().hover_row, None);
     assert_eq!(app.take_events(), vec![Event::Changed]);
 }
 
@@ -696,7 +865,7 @@ fn debug_state_matches_the_documented_format() {
     let mut app = App::new();
     assert_eq!(
         app.debug_state(),
-        "items=0 loaded=0 selected={} anchor=None cursor=None markers=0 viewport=(0,1000) menu=false drag=None sidebar_w=280px scopes_frac=0.42"
+        "panel=1 focused=true linked=(true,true) items=0 loaded=0 selected={} anchor=None cursor=None markers=0 viewport=(0,1000) menu=false drag=None sidebar_w=280px scopes_frac=0.42"
     );
     app.handle(Command::SetSidebarWidth(340.0));
     app.handle(Command::SetScopesFraction(0.05));

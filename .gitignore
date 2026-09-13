@@ -28,3 +28,6 @@
 /ext/NanoLog/
 /ext/binlog/
 /ext/quill/
+
+# Viewer workspaces beside bundled example traces.
+/volna/volna/examples/*.volna.json

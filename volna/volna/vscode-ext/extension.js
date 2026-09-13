@@ -3,11 +3,12 @@
 // Two entry points:
 //  - a read-only custom editor for *.vtr and *.fst files (bytes are sent to the
 //    webview, which hands them to the wasm module), and
-//  - the "Volna: Open Waveform Viewer" command, which opens an empty viewer.
+//  - the "Volna: Open Waveform Viewer" command, which picks a custom editor input.
 //
 // The webview never touches the file system: the extension host reads files
 // via vscode.workspace.fs and posts the bytes over postMessage.
 const vscode = require("vscode");
+const { createWorkspaceHost } = require("./workspace");
 
 function nonce() {
   let s = "";
@@ -42,16 +43,21 @@ function html(webview, extensionUri) {
 </head>
 <body>
 <script type="module" nonce="${n}">
-  import init, { open_trace, set_vscode_theme } from "${js}";
+  import init, { open_resource, set_vscode_theme, dispatch_command, workspace_message } from "${js}";
   import { watchTheme } from "${themeJs}";
   const vscode = acquireVsCodeApi();
   window.volnaEmbedded = true;
   window.volnaOpen = () => vscode.postMessage({ type: "pickFile" });
   window.volnaReady = () => vscode.postMessage({ type: "ready" });
+  window.volnaWorkspace = (envelope) => vscode.postMessage(JSON.parse(envelope));
   window.addEventListener("message", (ev) => {
     const msg = ev.data;
     if (msg && msg.type === "open") {
-      open_trace(msg.name, new Uint8Array(msg.bytes));
+      open_resource(msg.name, new Uint8Array(msg.bytes), JSON.stringify({ traceUri: msg.traceUri, candidates: msg.candidates, settings: msg.settings }));
+    } else if (msg && msg.type === "command") {
+      dispatch_command(msg.name);
+    } else if (msg && ["saved", "workspace", "workspaceDestination", "requestWorkspace"].includes(msg.type)) {
+      workspace_message(JSON.stringify(msg));
     }
   });
   const themes = watchTheme(set_vscode_theme);
@@ -63,44 +69,46 @@ function html(webview, extensionUri) {
 </html>`;
 }
 
-async function sendFile(webview, uri) {
-  const bytes = await vscode.workspace.fs.readFile(uri);
-  const name = uri.path.split("/").pop();
-  webview.postMessage({ type: "open", name, bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
+async function pickTrace() {
+  const picked = await vscode.window.showOpenDialog({
+    canSelectMany: false,
+    filters: { "Waveform traces": ["vtr", "fst"] },
+    openLabel: "Open",
+  });
+  if (picked?.[0]) await vscode.commands.executeCommand("vscode.openWith", picked[0], "volna.waveform");
 }
 
-function wire(panelWebview, context, initialUri) {
-  panelWebview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")] };
-  let current = initialUri;
-  panelWebview.onDidReceiveMessage(async (msg) => {
-    if (msg.type === "ready" && current) {
-      await sendFile(panelWebview, current);
-    } else if (msg.type === "pickFile") {
-      const picked = await vscode.window.showOpenDialog({
-        canSelectMany: false,
-        filters: { "Waveform traces": ["vtr", "fst"] },
-        openLabel: "Open",
-      });
-      if (picked && picked[0]) {
-        current = picked[0];
-        await sendFile(panelWebview, current);
-      }
+function wire(panel, context, uri) {
+  const webview = panel.webview;
+  const host = createWorkspaceHost(vscode, context, panel, uri);
+  panel.onDidChangeViewState(() => { if (!panel.visible) host.hidden(); });
+  panel.onDidDispose(() => host.dispose());
+  webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")] };
+  webview.onDidReceiveMessage(async (msg) => {
+    try {
+      if (msg.type === "pickFile") await pickTrace();
+      else await host.receive(msg);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Volna: ${error.message}`);
     }
   });
   // Register the receiver before loading HTML: ready may arrive immediately.
-  panelWebview.html = html(panelWebview, context.extensionUri);
+  webview.html = html(webview, context.extensionUri);
 }
 
 function activate(context) {
-  context.subscriptions.push(
-    vscode.commands.registerCommand("volna.open", () => {
-      const panel = vscode.window.createWebviewPanel("volna.viewer", "Volna", vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-      });
-      wire(panel.webview, context, undefined);
-    })
-  );
+  let activePanel;
+  const commandNames = [
+    "splitRight", "splitDown", "newPanel", "closePanel",
+    "focusNextPanel", "focusPrevPanel", "toggleViewportLink", "toggleCursorLink",
+    "openWorkspace", "saveWorkspace", "saveWorkspaceAs",
+    ...Array.from({ length: 9 }, (_, i) => `focusPanel${i + 1}`),
+  ];
+  context.subscriptions.push(vscode.commands.registerCommand("volna.open", pickTrace));
+  for (const name of commandNames) {
+    context.subscriptions.push(vscode.commands.registerCommand(`volna.${name}`, () =>
+      activePanel?.webview.postMessage({ type: "command", name })));
+  }
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       "volna.waveform",
@@ -109,10 +117,18 @@ function activate(context) {
           return { uri, dispose() {} };
         },
         async resolveCustomEditor(document, panel) {
-          wire(panel.webview, context, document.uri);
+          if (panel.active) activePanel = panel;
+          panel.onDidChangeViewState(() => {
+            if (panel.active) activePanel = panel;
+            else if (activePanel === panel) activePanel = undefined;
+          });
+          panel.onDidDispose(() => {
+            if (activePanel === panel) activePanel = undefined;
+          });
+          wire(panel, context, document.uri);
         },
       },
-      { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true }
+      { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false }
     )
   );
 }

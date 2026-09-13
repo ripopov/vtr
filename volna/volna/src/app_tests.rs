@@ -23,8 +23,11 @@ fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
     window
         .update(cx, |ws, _, _| {
             assert!(ws.app.doc.is_loaded());
-            assert!(!ws.app.waves.items.is_empty());
-            assert_eq!(ws.app.waves.loaded_count(), ws.app.waves.items.len());
+            assert!(!ws.app.panels.focused_waves().unwrap().items.is_empty());
+            assert_eq!(
+                ws.app.panels.focused_waves().unwrap().loaded_count(),
+                ws.app.panels.focused_waves().unwrap().items.len()
+            );
         })
         .unwrap();
 }
@@ -63,7 +66,7 @@ fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
             assert!(
                 matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current))
             );
-            assert!(ws.app.waves.items.is_empty());
+            assert!(ws.app.panels.focused_waves().unwrap().items.is_empty());
         })
         .unwrap();
 }
@@ -80,18 +83,24 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
             ws.app.handle(Command::SetScopesFraction(0.61));
             ws.app.handle(Command::AddVars(vec![0; 100]));
             ws.after(None, cx);
-            ws.app.doc.cursor = Some(42);
-            ws.app.waves.selected.insert(1);
-            ws.app.waves.anchor = Some(1);
-            ws.app.waves.viewport.start = 20.0;
-            ws.app.waves.viewport.end = 80.0;
-            ws.app.waves.names_width = 260.0;
-            ws.app.waves.values_width = 140.0;
-            ws.app.waves.scroll_y = 24.0;
+            ws.app.doc.shared.cursor = Some(42);
             ws.app
-                .doc
-                .markers
-                .push(volna_core::document::Marker { time: 30 });
+                .panels
+                .focused_waves_mut()
+                .unwrap()
+                .selected
+                .insert(1);
+            ws.app.panels.focused_waves_mut().unwrap().anchor = Some(1);
+            ws.app.doc.shared.viewport.viewport.start = 20.0;
+            ws.app.doc.shared.viewport.viewport.end = 80.0;
+            ws.app.panels.focused_waves_mut().unwrap().names_width = 260.0;
+            ws.app.panels.focused_waves_mut().unwrap().values_width = 140.0;
+            ws.app.panels.focused_waves_mut().unwrap().scroll_y = 24.0;
+            ws.app.doc.markers.push(volna_core::document::Marker {
+                id: 1,
+                time: 30,
+                label: None,
+            });
         })
         .unwrap();
     cx.run_until_parked();
@@ -99,7 +108,10 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
         .update(cx, |ws, _, _| {
             (
                 ws.debug_state(),
-                ws.app.waves.items[0].history.clone().unwrap(),
+                ws.app.panels.focused_waves().unwrap().items[0]
+                    .history
+                    .clone()
+                    .unwrap(),
             )
         })
         .unwrap();
@@ -125,7 +137,7 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
                     matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &source))
                 );
                 assert_eq!(ws.debug_state(), before);
-                let w = &ws.app.waves;
+                let w = &ws.app.panels.focused_waves().unwrap();
                 assert!(Arc::ptr_eq(w.items[0].history.as_ref().unwrap(), &history));
                 assert_eq!(w.names_width, 260.0);
                 assert_eq!(w.values_width, 140.0);
@@ -134,4 +146,57 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
             })
             .unwrap();
     }
+}
+
+#[gpui_kit::test]
+fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppContext) {
+    use crate::native_workspace::Store;
+    use volna_core::workspace::persistence::Persistence;
+    init(cx);
+    let temporary = tempfile::tempdir().unwrap();
+    let trace = temporary.path().join("trace.vtr");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr"),
+        &trace,
+    )
+    .unwrap();
+    let mut store = Store::new(Some(temporary.path().join("config"))).unwrap();
+    store.data_dir = temporary.path().join("fallback");
+    let window = cx.add_window(Workspace::new);
+    window
+        .update(cx, |ws, _, cx| {
+            ws.enable_native_persistence(store, Persistence::Auto, Default::default());
+            ws.open_path(trace.clone(), cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, _, cx| {
+            assert!(ws.app.doc.is_loaded());
+            assert!(
+                !ws.app.workspace.scheduler.suspended(),
+                "{:?}",
+                ws.app.workspace.notices
+            );
+            ws.dispatch(Command::AddVars(vec![0, 1]), None, cx);
+            ws.dispatch(Command::Action(Action::SplitRight), None, cx);
+            ws.app.tick(Instant::now() + Duration::from_secs(2));
+            ws.after(None, cx);
+            assert!(!ws.app.workspace.scheduler.dirty());
+            assert!(temporary.path().join("trace.vtr.volna.json").exists());
+            ws.open_path(trace.clone(), cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, _, _| {
+            assert_eq!(ws.app.panels.len(), 2);
+            for panel in ws.app.panels.iter() {
+                let waves = panel.kind.waves().unwrap();
+                assert_eq!(waves.items.len(), 2);
+                assert_eq!(waves.loaded_count(), 2);
+            }
+            assert!(!ws.app.workspace.scheduler.dirty());
+        })
+        .unwrap();
 }

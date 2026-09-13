@@ -14,7 +14,7 @@ use crate::icons::IconName;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
 use crate::wave::layout::{SCROLLBAR_W, WaveLayout};
-use crate::wave::model::{Drag, WaveModel};
+use crate::wave::model::{Drag, RowSource, WaveModel};
 use crate::wave::timeline::{format_time, ticks};
 use crate::wave::viewport::Viewport;
 
@@ -68,6 +68,7 @@ pub fn paint(
     text: &mut TextCache,
     measure: &mut dyn TextMeasure,
     scene: &mut Scene,
+    focused: bool,
 ) {
     let layout = model.last_layout().clone();
     let bounds = layout.bounds;
@@ -80,8 +81,8 @@ pub fn paint(
         scene,
         char_w,
     };
-    let viewport = model.viewport;
-    let cursor = doc.cursor;
+    let viewport = model.viewport(doc);
+    let cursor = model.cursor(doc);
     let timescale = doc.timescale();
     let has_source = doc.is_loaded();
     let waves = layout.waves;
@@ -176,7 +177,11 @@ pub fn paint(
                         name,
                         FontRole::Mono,
                         t.mono_size,
-                        colors.text,
+                        if item.source.signal().is_some() {
+                            colors.text
+                        } else {
+                            colors.text_placeholder
+                        },
                     );
                 });
                 if !dims.is_empty() && max_chars > name_len + 1 {
@@ -231,6 +236,9 @@ pub fn paint(
                         colors.value_color(tr.kind)
                     };
                     (tr.text, color)
+                }
+                (None, _) if item.source.signal().is_none() => {
+                    ("not in trace".to_string(), colors.text_placeholder)
                 }
                 (None, _) if item.error.is_none() => {
                     ("loading…".to_string(), colors.text_placeholder)
@@ -312,6 +320,24 @@ pub fn paint(
                         t.ui_size_small,
                         t.editor.error,
                     );
+                });
+            }
+            (None, None) if item.source.signal().is_none() => {
+                let label = match item.source {
+                    RowSource::Unresolved {
+                        ambiguous: true, ..
+                    } => "ambiguous signal path",
+                    _ => "not in trace",
+                };
+                p.scene.clipped(waves, |scene| {
+                    scene.text(
+                        point(waves.left() + 8.0, y),
+                        row_h,
+                        label,
+                        FontRole::Ui,
+                        t.ui_size_small,
+                        colors.text_placeholder,
+                    )
                 });
             }
             (None, None) => {
@@ -451,9 +477,9 @@ pub fn paint(
 
     // -- markers -----------------------------------------------------------------
     for (ix, chip) in &layout.marker_chips {
-        let m = doc.markers[*ix];
+        let m = &doc.markers[*ix];
         let x = snap(waves.left() + viewport.x_of(m.time as f64, wave_wf) as f32);
-        let marker = t.marker(*ix);
+        let marker = t.marker(m.id.saturating_sub(1) as usize);
         let color = marker.stroke;
         p.scene.clipped(waves, |scene| {
             scene.fill(
@@ -469,7 +495,7 @@ pub fn paint(
         };
         p.scene
             .quad(*chip, bg, 3.0, 0.0, crate::color::Color::TRANSPARENT);
-        let label = format!("M{}", ix + 1);
+        let label = format!("M{}", m.id);
         let w = p.width(&label, FontRole::UiSemibold, t.ui_size_small);
         p.scene.text(
             point(snap(chip.left() + (chip.width() - w) / 2.0), chip.top()),
@@ -510,7 +536,11 @@ pub fn paint(
                             point(x, header.bottom() - 8.0),
                             size(1.0, bounds.bottom() - header.bottom() + 8.0),
                         ),
-                        t.wave_cursor,
+                        if focused {
+                            t.wave_cursor
+                        } else {
+                            t.wave_cursor_inactive
+                        },
                     );
                     scene.quad(
                         chip,

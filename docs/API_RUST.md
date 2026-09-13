@@ -1707,6 +1707,16 @@ The toolkit-independent `volna-core` crate exposes `session::Session` above
 VTR and FST. This viewer API is separate from the reference `vtr::Reader` API
 documented above; it does not change the VTR file format or C ABI.
 
+`App::panels` owns the toolkit-neutral dock tree and per-panel view models.
+`workspace::Workspace` captures durable viewer state, validates a restore
+against an immutable session, and commits it only for the prepared document
+generation. Persistence defaults to disabled; native and VS Code hosts opt in
+and fulfill byte-I/O events with exact save tickets. See the
+[workspace contract](workspaces.html#api) for the codec and lifecycle.
+`Hierarchy::find_scope`, `find_var` and `var_path` resolve literal path segments
+without guessing ambiguous names. `TraceInfo::design_id` exposes the optional
+VTR `design.vdb_id` string attribute for workspace mismatch notices.
+
 `WaveValue::Bytes` is an uninterpreted variable-length signal payload, shared by
 FST strings and VTR VarLen values. The text translator quotes and ASCII-escapes
 it for display, retaining NUL and non-UTF-8 bytes in the raw query result.

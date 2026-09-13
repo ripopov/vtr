@@ -968,3 +968,67 @@ every event writer path without requiring a global dedup override. Range readers
 start at the first block whose end overlaps the lower bound, rather than the
 last block starting before it: several blocks may contain occurrences at the
 same timestamp. Existing column encodings represent these records.
+
+## Volna panel ownership and layout
+
+The panel model borrows Surfer's authoritative toolkit-neutral layout and
+revision-checked adapter proposals (`ext/surfer/libsurfer/src/tiles/layout.rs`)
+and gpui-base's bottom-up split normalization. Core shares are fractions:
+flattening a same-axis child multiplies its shares by its parent slot, while
+closing a child renormalizes surviving siblings without equalizing them.
+Invalid external trees are rejected before normalization rather than repaired.
+
+Linked navigation is read-through document state. The viewport animation lives
+with that viewport, so adding linked panels cannot multiply its progression or
+leave followers a frame behind. Independent panels own a separate animation.
+Two link flags avoid introducing synchronization groups for the current scope.
+Histories remain shared immutable Arcs across panels; the panel collection
+provides reuse from existing rows without a second history cache.
+
+Durable hierarchy locators use literal segments and an optional variable
+occurrence. This preserves escaped names containing dots and same-name
+declarations without guessing when a scope path is ambiguous. Runtime signal
+handles and toolkit widget identities are not durable names. These changes are
+viewer state only; VTR/VDB formats and the raw session query boundary are unchanged.
+
+### Workspace restore and save ownership
+
+Workspace files live beside traces or in host storage; no viewer state enters
+VTR, VDB, or the query protocol. The core owns the versioned JSON schema,
+segmented signal locators, complete layout validation, and restore selection.
+Preparing a restore does not touch live state. Commit replaces the view and
+invalidates old signal-load results. Unresolved rows own their saved locators,
+and unknown panels retain raw JSON so another viewer can recover their content.
+
+A revision/epoch/destination ticket identifies each write. Serializing writes
+also orders Save As behind earlier saves; switching the destination requires a
+successful acknowledgement. Trace changes and explicit workspace opens flush
+before replacing state. The one-second idle scheduler excludes hover and
+animation frames; pointer comparisons inspect navigation and geometry without
+serializing signal rows. Default library instances keep persistence disabled.
+
+Fallback files retain the SHA-256 of the sidecar from which they were based.
+This distinguishes a newer local arrangement from a changed shared sidecar
+without trusting clocks, keeping a registry, or parsing JSON in either host.
+A selected fallback stays active after permissions change. Native uses an
+atomic same-directory replacement; VS Code transports opaque text through
+workspace.fs or workspaceState and echoes ticket counters as decimal strings.
+Its retained custom editors request a snapshot when hidden and use the last
+received snapshot when disposed, matching the editor lifecycle described in
+its local API and the Surfer integration.
+
+
+Dock chrome is rebuilt only for panel revisions; waveform edits invalidate
+panel entities directly without borrowing them during focus callbacks. A first
+restored split explicitly retries after its dock bounds are measured. Native
+and wasm use the same stock engine and a header wrapper; library-owned close
+is disabled in favor of core commands so widget detachment cannot delete saved
+content. GPUI's dialog layer is hosted explicitly for rename and restore details.
+
+The one-panel dock has a small measured cost rather than meeting the proposal's
+strict zero-regression target. This is an intentional tradeoff for a single
+layout/input path; no special single-pane bypass or toolkit fork is added.
+The release A/B method, current frame costs and raw samples are in
+[Volna verification](../volna/volna/VERIFICATION.md#performance-checks).
+Both baseline and candidate benchmarks require a canvas repaint on each timed
+keyboard frame; cached frames are not navigation measurements.

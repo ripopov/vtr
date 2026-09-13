@@ -1,7 +1,7 @@
 //! `WaveModel`: the state of the waveform panel (displayed signals, selection,
 //! viewport, scroll, hover, drags, the format menu) and every input rule that
-//! mutates it. The cursor and markers live in the [`Document`] so other views
-//! share them; the model reads and writes them through it.
+//! mutates it. Navigation reads through the document while linked; markers
+//! always belong to the document.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use web_time::Instant;
 
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
-use super::viewport::Viewport;
+use super::viewport::{Viewport, ViewportState};
 use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
 use crate::document::Document;
 use crate::geometry::{Modifiers, MouseButton, Point, point};
@@ -18,22 +18,68 @@ use crate::theme::Theme;
 
 const SNAP_PX: f64 = 6.0;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Link {
+    pub viewport: bool,
+    pub cursor: bool,
+}
+
+impl Default for Link {
+    fn default() -> Self {
+        Self {
+            viewport: true,
+            cursor: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkDim {
+    Viewport,
+    Cursor,
+}
+
+/// A row is either bound to this session or retains an unresolved durable locator.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RowSource {
+    Resolved {
+        var: VarId,
+        signal: SignalRef,
+    },
+    Unresolved {
+        path: Vec<String>,
+        nth: Option<usize>,
+        ambiguous: bool,
+    },
+}
+
+impl RowSource {
+    pub fn signal(&self) -> Option<SignalRef> {
+        match self {
+            Self::Resolved { signal, .. } => Some(*signal),
+            _ => None,
+        }
+    }
+
+    pub fn locator(&self, hierarchy: &crate::data::Hierarchy) -> (Vec<String>, Option<usize>) {
+        match self {
+            Self::Resolved { var, .. } => hierarchy.var_path(*var),
+            Self::Unresolved { path, nth, .. } => (path.clone(), *nth),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct DisplayedSignal {
-    pub var: VarId,
-    pub signal: SignalRef,
+    pub source: RowSource,
+    /// Unavailable translator requested by a workspace; cleared by an explicit format change.
+    pub requested_format: Option<String>,
     pub name: String,
     pub scope: String,
     pub shape: SignalShape,
     pub translator: Arc<dyn Translator>,
     pub history: Option<Arc<dyn SignalHistory>>,
     pub error: Option<String>,
-}
-
-pub struct ViewportAnimation {
-    from: Viewport,
-    to: Viewport,
-    start: Instant,
-    duration_ms: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -95,8 +141,9 @@ pub struct WaveModel {
     pub items: Vec<DisplayedSignal>,
     pub selected: BTreeSet<usize>,
     pub anchor: Option<usize>,
-    pub viewport: Viewport,
-    anim: Option<ViewportAnimation>,
+    pub link: Link,
+    pub local_viewport: ViewportState,
+    pub local_cursor: Option<u64>,
     pub scroll_y: f32,
     pub names_width: f32,
     pub values_width: f32,
@@ -109,6 +156,7 @@ pub struct WaveModel {
     /// Width of the waves column at the last layout, for keyboard zoom.
     pub wave_width: f32,
     /// Duration of the last panel paint, and a smoothed average.
+    pub frames_painted: u64,
     pub frame_ms: f32,
     pub frame_ms_avg: f32,
     pub menu: Option<FormatMenu>,
@@ -124,13 +172,93 @@ impl Default for WaveModel {
 }
 
 impl WaveModel {
+    pub fn viewport(&self, doc: &Document) -> Viewport {
+        self.viewport_state(doc).viewport
+    }
+
+    pub fn viewport_state<'a>(&'a self, doc: &'a Document) -> &'a ViewportState {
+        if self.link.viewport {
+            &doc.shared.viewport
+        } else {
+            &self.local_viewport
+        }
+    }
+
+    pub fn viewport_state_mut<'a>(&'a mut self, doc: &'a mut Document) -> &'a mut ViewportState {
+        if self.link.viewport {
+            &mut doc.shared.viewport
+        } else {
+            &mut self.local_viewport
+        }
+    }
+
+    pub fn cursor(&self, doc: &Document) -> Option<u64> {
+        if self.link.cursor {
+            doc.shared.cursor
+        } else {
+            self.local_cursor
+        }
+    }
+
+    pub fn set_cursor(&mut self, doc: &mut Document, cursor: Option<u64>) -> bool {
+        let current = if self.link.cursor {
+            &mut doc.shared.cursor
+        } else {
+            &mut self.local_cursor
+        };
+        let changed = *current != cursor;
+        *current = cursor;
+        changed
+    }
+
+    pub fn toggle_link(&mut self, doc: &Document, dim: LinkDim) {
+        match dim {
+            LinkDim::Viewport => {
+                // Discard local animation on either edge. Unlink starts at
+                // the exact shared frame, without inheriting an animation.
+                self.local_viewport.set(doc.shared.viewport.viewport);
+                self.link.viewport = !self.link.viewport;
+            }
+            LinkDim::Cursor => {
+                self.local_cursor = doc.shared.cursor;
+                self.link.cursor = !self.link.cursor;
+            }
+        }
+    }
+
+    /// Copy persistent view content, sharing immutable histories. Pixel
+    /// layout, pointer capture, menus, and animation belong to the old view.
+    pub fn clone_view(&self, with_rows: bool) -> Self {
+        Self {
+            items: if with_rows {
+                self.items.clone()
+            } else {
+                Vec::new()
+            },
+            selected: if with_rows {
+                self.selected.clone()
+            } else {
+                BTreeSet::new()
+            },
+            anchor: if with_rows { self.anchor } else { None },
+            link: self.link,
+            local_viewport: ViewportState::new(self.local_viewport.viewport),
+            local_cursor: self.local_cursor,
+            scroll_y: if with_rows { self.scroll_y } else { 0.0 },
+            names_width: self.names_width,
+            values_width: self.values_width,
+            ..Self::new()
+        }
+    }
+
     pub fn new() -> Self {
         WaveModel {
             items: Vec::new(),
             selected: BTreeSet::new(),
             anchor: None,
-            viewport: Viewport::fit((0, 1000)),
-            anim: None,
+            link: Link::default(),
+            local_viewport: ViewportState::new(Viewport::fit((0, 1000))),
+            local_cursor: None,
             scroll_y: 0.0,
             names_width: 220.0,
             values_width: 120.0,
@@ -140,6 +268,7 @@ impl WaveModel {
             chip_hover: false,
             drag: None,
             wave_width: 800.0,
+            frames_painted: 0,
             frame_ms: 0.0,
             frame_ms_avg: 0.0,
             menu: None,
@@ -150,17 +279,18 @@ impl WaveModel {
 
     /// Forget every row and interaction; called when the document's session changes.
     pub fn reset(&mut self, limits: Option<(u64, u64)>) {
+        self.local_cursor = None;
         self.items.clear();
         self.selected.clear();
         self.anchor = None;
         self.scroll_y = 0.0;
-        self.anim = None;
+        self.local_viewport.set(self.local_viewport.viewport);
         self.menu = None;
         self.drag = None;
         self.hover_row = None;
         self.badge_hover = None;
         if let Some(limits) = limits {
-            self.viewport = Viewport::fit(limits);
+            self.local_viewport.set(Viewport::fit(limits));
         }
     }
 
@@ -170,7 +300,11 @@ impl WaveModel {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.anim.is_some()
+        !self.link.viewport && self.local_viewport.is_animating()
+    }
+
+    pub fn tick(&mut self, now: Instant) -> bool {
+        !self.link.viewport && self.local_viewport.tick(now)
     }
 
     pub fn loaded_count(&self) -> usize {
@@ -183,25 +317,37 @@ impl WaveModel {
     /// signal and queuing a load for the rest. Returns the histories that must
     /// be loaded (deduplicated).
     pub fn add_vars(&mut self, doc: &mut Document, vars: &[VarId]) {
+        let loaded = self
+            .items
+            .iter()
+            .filter_map(|i| Some((i.source.signal()?, i.history.clone()?)))
+            .collect();
+        self.add_vars_with_histories(doc, vars, loaded);
+    }
+
+    pub(crate) fn add_vars_with_histories(
+        &mut self,
+        doc: &mut Document,
+        vars: &[VarId],
+        loaded: HashMap<SignalRef, Arc<dyn SignalHistory>>,
+    ) {
         let Some(session) = doc.session().cloned() else {
             return;
         };
         let h = session.hierarchy();
         let first_new = self.items.len();
-        let loaded: HashMap<_, _> = self
-            .items
-            .iter()
-            .filter_map(|i| i.history.as_ref().map(|h| (i.signal, h.clone())))
-            .collect();
         for &var in vars {
-            let v = &h.vars[var];
+            let Some(v) = h.vars.get(var) else { continue };
             let translator = doc.translators.default_for(v.shape);
             // Variable identity/format stay per row; aliases share immutable data.
             let history = loaded.get(&v.signal).cloned();
             let needs_load = history.is_none();
             self.items.push(DisplayedSignal {
-                var,
-                signal: v.signal,
+                source: RowSource::Resolved {
+                    var,
+                    signal: v.signal,
+                },
+                requested_format: None,
                 name: v.name.clone(),
                 scope: h.scope_path(v.scope).join("."),
                 shape: v.shape,
@@ -213,7 +359,7 @@ impl WaveModel {
                 doc.request_signal(v.signal);
             }
         }
-        if !vars.is_empty() {
+        if self.items.len() > first_new {
             self.selected.clear();
             self.selected.extend(first_new..self.items.len());
             self.anchor = Some(first_new);
@@ -227,7 +373,11 @@ impl WaveModel {
         result: anyhow::Result<Arc<dyn SignalHistory>>,
     ) {
         let result = result.map_err(|e| e.to_string());
-        for item in self.items.iter_mut().filter(|i| i.signal == signal) {
+        for item in self
+            .items
+            .iter_mut()
+            .filter(|i| i.source.signal() == Some(signal))
+        {
             item.history = result.as_ref().ok().cloned();
             item.error = result.as_ref().err().cloned();
         }
@@ -258,7 +408,7 @@ impl WaveModel {
         } else if !self.selected.is_empty() {
             self.selected.clear();
         } else {
-            doc.set_cursor(None);
+            self.set_cursor(doc, None);
         }
     }
 
@@ -296,6 +446,7 @@ impl WaveModel {
                 && t.applies(item.shape)
             {
                 item.translator = t.clone();
+                item.requested_format = None;
             }
         }
     }
@@ -316,6 +467,7 @@ impl WaveModel {
                 .unwrap_or(0);
             let next = options[(pos + 1) % options.len()].clone();
             self.items[row].translator = next;
+            self.items[row].requested_format = None;
         }
     }
 
@@ -360,113 +512,84 @@ impl WaveModel {
 
     // -- navigation ------------------------------------------------------------
 
-    fn animate_to(&mut self, target: Viewport, limits: (u64, u64), now: Instant) {
-        let mut target = target;
-        target.clamp(limits);
-        if self.viewport.approx_eq(&target) {
-            return;
-        }
-        self.anim = Some(ViewportAnimation {
-            from: self.viewport,
-            to: target,
-            start: now,
-            duration_ms: 140.0,
-        });
-    }
-
-    /// Advance the viewport animation; returns true while it is still running.
-    pub fn tick(&mut self, now: Instant) -> bool {
-        let Some(anim) = &self.anim else { return false };
-        let elapsed = now.saturating_duration_since(anim.start).as_secs_f64() * 1000.0;
-        let t = (elapsed / anim.duration_ms).min(1.0);
-        // ease-out cubic
-        let e = 1.0 - (1.0 - t).powi(3);
-        self.viewport = Viewport::lerp(&anim.from, &anim.to, e);
-        if t >= 1.0 {
-            self.viewport = anim.to;
-            self.anim = None;
-            return false;
-        }
-        true
-    }
-
-    /// Finish any running animation immediately.
-    pub fn settle(&mut self) {
-        if let Some(anim) = self.anim.take() {
-            self.viewport = anim.to;
-        }
-    }
-
     fn wave_w(&self) -> f64 {
         f64::from(self.wave_width).max(1.0)
     }
 
     /// Immediate zoom (mouse wheel) around a pixel position in the waves column.
-    pub fn zoom_at(&mut self, doc: &Document, x_px: f32, factor: f64) {
-        self.anim = None;
+    pub fn zoom_at(&mut self, doc: &mut Document, x_px: f32, factor: f64) {
         let w = self.wave_w();
-        self.viewport
-            .zoom_about(f64::from(x_px), w, factor, doc.limits());
+        let mut target = self.viewport(doc);
+        target.zoom_about(f64::from(x_px), w, factor, doc.limits());
+        self.viewport_state_mut(doc).set(target);
     }
 
-    fn zoom_center(&mut self, doc: &Document, factor: f64, now: Instant) {
+    fn zoom_center(&mut self, doc: &mut Document, factor: f64, now: Instant) {
         let w = self.wave_w();
-        let anchor_x = match doc.cursor {
+        let anchor_x = match self.cursor(doc) {
             Some(c) => {
-                let x = self.viewport.x_of(c as f64, w);
+                let x = self.viewport(doc).x_of(c as f64, w);
                 if (0.0..=w).contains(&x) { x } else { w / 2.0 }
             }
             None => w / 2.0,
         };
-        let mut target = self.viewport;
+        let mut target = self.viewport(doc);
         target.zoom_about(anchor_x, w, factor, doc.limits());
-        self.animate_to(target, doc.limits(), now);
+        let limits = doc.limits();
+        self.viewport_state_mut(doc).animate_to(target, limits, now);
     }
 
-    pub fn zoom_in(&mut self, doc: &Document, now: Instant) {
+    pub fn zoom_in(&mut self, doc: &mut Document, now: Instant) {
         self.zoom_center(doc, 2.0, now);
     }
 
-    pub fn zoom_out(&mut self, doc: &Document, now: Instant) {
+    pub fn zoom_out(&mut self, doc: &mut Document, now: Instant) {
         self.zoom_center(doc, 0.5, now);
     }
 
-    pub fn zoom_fit(&mut self, doc: &Document, now: Instant) {
-        self.animate_to(Viewport::fit(doc.limits()), doc.limits(), now);
+    pub fn zoom_fit(&mut self, doc: &mut Document, now: Instant) {
+        let limits = doc.limits();
+        self.viewport_state_mut(doc)
+            .animate_to(Viewport::fit(limits), limits, now);
     }
 
-    pub fn go_to_start(&mut self, doc: &Document, now: Instant) {
-        let mut target = self.viewport;
+    pub fn go_to_start(&mut self, doc: &mut Document, now: Instant) {
+        let mut target = self.viewport(doc);
         target.go_to_start(doc.limits());
-        self.animate_to(target, doc.limits(), now);
+        let limits = doc.limits();
+        self.viewport_state_mut(doc).animate_to(target, limits, now);
     }
 
-    pub fn go_to_end(&mut self, doc: &Document, now: Instant) {
-        let mut target = self.viewport;
+    pub fn go_to_end(&mut self, doc: &mut Document, now: Instant) {
+        let mut target = self.viewport(doc);
         target.go_to_end(doc.limits());
-        self.animate_to(target, doc.limits(), now);
+        let limits = doc.limits();
+        self.viewport_state_mut(doc).animate_to(target, limits, now);
     }
 
-    pub fn go_to_cursor(&mut self, doc: &Document, now: Instant) {
-        let Some(c) = doc.cursor else { return };
-        let mut target = self.viewport;
+    pub fn go_to_cursor(&mut self, doc: &mut Document, now: Instant) {
+        let Some(c) = self.cursor(doc) else { return };
+        let mut target = self.viewport(doc);
         target.center_on(c as f64, doc.limits());
-        self.animate_to(target, doc.limits(), now);
+        let limits = doc.limits();
+        self.viewport_state_mut(doc).animate_to(target, limits, now);
     }
 
-    pub fn pan_fraction(&mut self, doc: &Document, frac: f64, now: Instant) {
-        let mut target = self.viewport;
+    pub fn pan_fraction(&mut self, doc: &mut Document, frac: f64, now: Instant) {
+        let mut target = self.viewport(doc);
         let w = target.width();
         target.start += w * frac;
         target.end += w * frac;
-        self.animate_to(target, doc.limits(), now);
+        let limits = doc.limits();
+        self.viewport_state_mut(doc).animate_to(target, limits, now);
     }
 
     /// Immediate pan by pixels (mouse drag / wheel).
-    pub fn pan_px(&mut self, doc: &Document, dx: f32) {
-        self.anim = None;
+    pub fn pan_px(&mut self, doc: &mut Document, dx: f32) {
         let w = self.wave_w();
-        self.viewport.pan_px(f64::from(dx), w, doc.limits());
+        let mut target = self.viewport(doc);
+        target.pan_px(f64::from(dx), w, doc.limits());
+        self.viewport_state_mut(doc).set(target);
     }
 
     fn edge_history(&self) -> Option<Arc<dyn SignalHistory>> {
@@ -477,36 +600,42 @@ impl WaveModel {
         self.items.get(row)?.history.clone()
     }
 
-    fn reveal_cursor(&mut self, doc: &Document, now: Instant) {
-        let Some(c) = doc.cursor else { return };
+    fn reveal_cursor(&mut self, doc: &mut Document, now: Instant) {
+        let Some(c) = self.cursor(doc) else { return };
         let c = c as f64;
-        if c < self.viewport.start || c > self.viewport.end {
-            let mut target = self.viewport;
+        if c < self.viewport(doc).start || c > self.viewport(doc).end {
+            let mut target = self.viewport(doc);
             target.center_on(c, doc.limits());
-            self.animate_to(target, doc.limits(), now);
+            let limits = doc.limits();
+            self.viewport_state_mut(doc).animate_to(target, limits, now);
         }
     }
 
     pub fn next_edge(&mut self, doc: &mut Document, now: Instant) {
         let Some(h) = self.edge_history() else { return };
-        let from = doc.cursor.unwrap_or(self.viewport.start.max(0.0) as u64);
+        let from = self
+            .cursor(doc)
+            .unwrap_or(self.viewport(doc).start.max(0.0) as u64);
         if let Some(t) = h.next_change_after(from) {
-            doc.set_cursor(Some(t));
+            self.set_cursor(doc, Some(t));
             self.reveal_cursor(doc, now);
         }
     }
 
     pub fn prev_edge(&mut self, doc: &mut Document, now: Instant) {
         let Some(h) = self.edge_history() else { return };
-        let from = doc.cursor.unwrap_or(self.viewport.end.max(0.0) as u64);
+        let from = self
+            .cursor(doc)
+            .unwrap_or(self.viewport(doc).end.max(0.0) as u64);
         if let Some(t) = h.prev_change_before(from) {
-            doc.set_cursor(Some(t));
+            self.set_cursor(doc, Some(t));
             self.reveal_cursor(doc, now);
         }
     }
 
     /// Record the paint time of the last frame.
     pub fn record_frame(&mut self, ms: f32) {
+        self.frames_painted += 1;
         self.frame_ms = ms;
         self.frame_ms_avg = if self.frame_ms_avg == 0.0 {
             ms
@@ -535,7 +664,7 @@ impl WaveModel {
             item_count: self.items.len(),
             scroll_y: self.scroll_y,
             markers: &doc.markers,
-            viewport: self.viewport,
+            viewport: self.viewport(doc),
         });
         self.scroll_y = layout.scroll_y;
         self.wave_width = layout.waves.width();
@@ -648,7 +777,7 @@ impl WaveModel {
                     doc.remove_marker(ix);
                 } else {
                     let t = doc.markers[ix].time;
-                    doc.set_cursor(Some(t));
+                    self.set_cursor(doc, Some(t));
                 }
                 return;
             }
@@ -658,8 +787,8 @@ impl WaveModel {
         if layout.header.contains(p) {
             if in_waves_x && button == MouseButton::Left {
                 let x = f64::from(p.x - layout.waves.left());
-                let t = snapped_time(&self.viewport, None, x, wave_wf);
-                doc.set_cursor(Some(t));
+                let t = snapped_time(&self.viewport(doc), None, x, wave_wf);
+                self.set_cursor(doc, Some(t));
                 self.drag = Some(Drag::Cursor);
             }
             return;
@@ -670,8 +799,8 @@ impl WaveModel {
                 MouseButton::Left => {
                     let x = f64::from(p.x - layout.waves.left());
                     let hist = row.and_then(|r| self.items[r].history.clone());
-                    let t = snapped_time(&self.viewport, hist.as_deref(), x, wave_wf);
-                    doc.set_cursor(Some(t));
+                    let t = snapped_time(&self.viewport(doc), hist.as_deref(), x, wave_wf);
+                    self.set_cursor(doc, Some(t));
                     self.drag = Some(Drag::Cursor);
                     if let Some(r) = row
                         && (!self.selected.contains(&r) || modifiers.shift || modifiers.secondary())
@@ -712,8 +841,8 @@ impl WaveModel {
                 let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
                 let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
                 let hist = row.and_then(|r| self.items[r].history.clone());
-                let t = snapped_time(&self.viewport, hist.as_deref(), x, wave_wf);
-                doc.set_cursor(Some(t));
+                let t = snapped_time(&self.viewport(doc), hist.as_deref(), x, wave_wf);
+                self.set_cursor(doc, Some(t));
                 true
             }
             Some(Drag::Pan { last_x }) => {
@@ -772,7 +901,7 @@ impl WaveModel {
     }
 
     /// Wheel: zoom with cmd/ctrl, pan horizontally, scroll rows vertically.
-    fn wheel(&mut self, doc: &Document, p: Point, dx: f32, dy: f32, modifiers: Modifiers) {
+    fn wheel(&mut self, doc: &mut Document, p: Point, dx: f32, dy: f32, modifiers: Modifiers) {
         if modifiers.secondary() || modifiers.control {
             let factor = 2f64.powf(f64::from(dy) / 120.0);
             let x = (p.x - self.layout.waves.left()).max(0.0);

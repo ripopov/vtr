@@ -10,6 +10,9 @@ use crate::icons::IconName;
 #[derive(Default)]
 pub struct ScopeTreeModel {
     expanded: HashSet<ScopeId>,
+    /// Unresolved saved paths remain owned by the scope tree until explicitly replaced.
+    pub(crate) unresolved_selected: Option<Vec<String>>,
+    pub(crate) unresolved_expanded: Vec<Vec<String>>,
     pub selected: Option<ScopeId>,
     /// Flattened visible rows: (scope, depth).
     pub visible: Vec<(ScopeId, usize)>,
@@ -32,6 +35,8 @@ impl ScopeTreeModel {
     /// tree is not a bare list of roots, and select the first root.
     pub fn reset(&mut self, h: Option<&Hierarchy>) {
         self.expanded.clear();
+        self.unresolved_selected = None;
+        self.unresolved_expanded.clear();
         self.selected = None;
         if let Some(h) = h {
             for &r in &h.roots {
@@ -43,6 +48,21 @@ impl ScopeTreeModel {
             self.selected = h.roots.first().copied();
         }
         self.rebuild(h);
+    }
+
+    pub fn expanded(&self) -> impl Iterator<Item = ScopeId> + '_ {
+        self.expanded.iter().copied()
+    }
+
+    pub(crate) fn restore(
+        &mut self,
+        h: &Hierarchy,
+        selected: Option<ScopeId>,
+        expanded: HashSet<ScopeId>,
+    ) {
+        self.selected = selected;
+        self.expanded = expanded;
+        self.rebuild(Some(h));
     }
 
     pub fn is_expanded(&self, id: ScopeId) -> bool {
@@ -80,6 +100,7 @@ impl ScopeTreeModel {
 
     /// Returns true when the selection changed.
     pub fn select(&mut self, id: ScopeId) -> bool {
+        self.unresolved_selected = None;
         if self.selected != Some(id) {
             self.selected = Some(id);
             true
@@ -89,6 +110,7 @@ impl ScopeTreeModel {
     }
 
     pub fn set_all(&mut self, h: &Hierarchy, expand: bool) {
+        self.unresolved_expanded.clear();
         self.expanded.clear();
         if expand {
             self.expanded.extend(0..h.scopes.len());

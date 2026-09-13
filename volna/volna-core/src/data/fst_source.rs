@@ -149,6 +149,7 @@ impl FstSession {
         }
         ensure!(scopes.is_empty(), "FST hierarchy has unclosed scopes");
         let info = TraceInfo {
+            design_id: None,
             name,
             timescale: header.timescale_exponent,
             time_range: (header.start_time, header.end_time),

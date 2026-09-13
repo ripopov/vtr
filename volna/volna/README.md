@@ -40,8 +40,10 @@ Gzip-wrapped files are decompressed into memory; normal native FST files remain
 buffered on disk. The current web build decodes on its single browser thread.
 
 Panels: a hierarchy browser (scope tree plus a separate, filterable variable
-list) and a waveform panel with three pixel-aligned columns (names, values,
-waves), a timeline, a cursor and numbered markers.
+list) and dockable waveform panels with three pixel-aligned columns (names,
+values, waves), timelines, linked or independent navigation and shared numbered
+markers. Split a panel to clone its rows, or create an empty tab. Drag tabs to
+rearrange groups; the last remaining panel hides its tab header.
 
 The `gpui-kit` 0.6.1 umbrella supplies the runtime, assets and components.
 Standard buttons, tooltips and popup menus use its component module.
@@ -89,8 +91,8 @@ cargo test -p volna-egui       # headless interaction test; PNGs under volna/vol
 
 The egui frontend has no wasm build and no VS Code integration. It uses the
 OS title bar and egui widgets for the chrome; the wave panel is the same core
-painter. Keyboard shortcuts match the table below with the Command key on
-macOS.
+painter. Its existing waveform shortcuts use the Command key on macOS; it does not
+implement the main viewer's docking or workspace commands.
 
 ## Build and run (WebAssembly)
 
@@ -121,8 +123,7 @@ code --extensionDevelopmentPath="$PWD/vscode-ext" "$PWD/examples"
 ```
 
 Opening any `*.vtr` or `*.fst` file uses the viewer as a custom editor; the command
-"Volna: Open Waveform Viewer" opens an empty viewer whose *Open* button
-goes through VS Code's file dialog. Package with `npx @vscode/vsce package`
+"Volna: Open Waveform Viewer" picks a trace and opens its custom editor. Package with `npx @vscode/vsce package`
 inside `vscode-ext/`.
 
 VS Code colours follow the current theme, including custom themes, colour
@@ -133,6 +134,41 @@ palette synchronously before creating its window. Missing metadata uses availabl
 colours and inferred appearance without delaying startup; late metadata still
 applies. Fonts and dimensions remain Volna's bundled ones.
 Native and standalone web continue to use One Dark.
+
+## Saved workspaces
+
+Native and VS Code reopen the layout, signal lists, formats, links, cursor,
+markers and sidebar from `<trace-name>.volna.json`. Save Workspace As creates a
+separate workspace; Open Workspace validates it before replacing the current
+view. A workspace referencing another trace must be opened with that trace.
+Missing signals and unsupported panel types are preserved, with a notice.
+
+Native options: `--workspace FILE`, `--no-workspace`, `--config-dir DIR`.
+`VOLNA_WORKSPACE=off|FILE` and `VOLNA_CONFIG_DIR=DIR` provide environment defaults.
+Preferences use `$XDG_CONFIG_HOME/volna` or `~/.config/volna` on Unix and
+`%APPDATA%/volna` on Windows. Read-only trace directories use per-user fallback
+storage. A restored fallback stays active until an explicit destination change.
+Unreadable or incompatible workspace files pause autosave to preserve the file.
+
+VS Code exposes `volna.workspace.autosave` (`sidecar`, `vscode`, `off`) and
+`volna.panels.linkByDefault`. Its file access uses the extension host, including
+remote files. Ordinary browser file-picker sessions and egui have no automatic
+workspace storage. Tests disable persistence unless they explicitly create a
+temporary store.
+
+Main GPUI viewer shortcuts (Command on macOS, Ctrl elsewhere):
+
+| Action | Keys |
+|---|---|
+| Split right / down | `⌘\` / `⌘shift-\` |
+| Empty tab / close panel | `⌘N` / `⌘W` |
+| Next / previous panel | `ctrl-tab` / `ctrl-shift-tab` |
+| Focus panel 1–9 | `⌘1` … `⌘9` |
+| Toggle viewport / cursor link | `L` / `shift-L` |
+| Zoom a dock group | `shift-esc` |
+| Save / Save As workspace | `⌘S` / `⌘shift-S` |
+
+The panel menu also provides rename and close-other-panel actions.
 
 ## Using the viewer
 

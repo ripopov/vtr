@@ -1,0 +1,118 @@
+//! Compare only the persistent fields an input can touch. In particular pointer
+//! motion never walks signal rows or serializes a workspace.
+use crate::document::Marker;
+use crate::panels::PanelId;
+use crate::wave::{
+    model::{Link, PointerEvent},
+    viewport::Viewport,
+};
+use crate::{Action, App, Command};
+use std::collections::BTreeSet;
+
+#[derive(PartialEq)]
+pub(crate) struct Stamp {
+    panel: PanelId,
+    layout_revision: u64,
+    shared_viewport: Viewport,
+    shared_cursor: Option<u64>,
+    markers: Vec<Marker>,
+    sidebar: (bool, f32, f32),
+    scope: Option<usize>,
+    expanded: Option<BTreeSet<usize>>,
+    unresolved_selected: Option<Vec<String>>,
+    unresolved_expanded: Option<Vec<Vec<String>>>,
+    filter: String,
+    wave: Option<WaveStamp>,
+}
+#[derive(PartialEq)]
+struct WaveStamp {
+    link: Link,
+    viewport: Option<Viewport>,
+    cursor: Option<u64>,
+    scroll: f32,
+    columns: (f32, f32),
+    rows: usize,
+    selected: Option<BTreeSet<usize>>,
+    formats: Option<Vec<String>>,
+}
+impl Stamp {
+    pub(crate) fn capture(app: &App, command: &Command) -> Option<Self> {
+        if !app.workspace.scheduler.enabled() || app.workspace.loading || !app.doc.is_loaded() {
+            return None;
+        }
+        let pointer = match command {
+            Command::Pointer(id, event) => Some((*id, event)),
+            _ => None,
+        };
+        if let Some((id, event)) = pointer {
+            match event {
+                PointerEvent::Leave | PointerEvent::Up => return None,
+                PointerEvent::Move { .. }
+                    if app.panels.waves(id).is_none_or(|w| w.drag.is_none()) =>
+                {
+                    return None;
+                }
+                _ => {}
+            }
+        }
+        if matches!(
+            command,
+            Command::MenuDismiss(_)
+                | Command::SelectVar { .. }
+                | Command::ChromeDragStart(_)
+                | Command::ChromeDragEnd
+                | Command::RequestOpenDialog
+                | Command::Open(_)
+                | Command::CloseTrace
+        ) {
+            return None;
+        }
+        let panel = match command {
+            Command::Pointer(id, _)
+            | Command::MenuSelect(id, _)
+            | Command::Panels(crate::panels::PanelsCommand::ToggleLink { panel: id, .. }) => *id,
+            _ => app.panels.focused_id(),
+        };
+        let selection = pointer.is_none_or(|(_, event)| matches!(event, PointerEvent::Down { .. }));
+        let formats = matches!(
+            command,
+            Command::MenuSelect(..) | Command::Action(Action::CycleFormat)
+        );
+        let scope = matches!(
+            command,
+            Command::ToggleScope(_) | Command::ExpandAllScopes(_) | Command::ScopesKey(_)
+        );
+        Some(Self {
+            panel,
+            layout_revision: app.panels.revision(),
+            shared_viewport: app.doc.shared.viewport.target(),
+            shared_cursor: app.doc.shared.cursor,
+            markers: app.doc.markers.clone(),
+            sidebar: (app.sidebar_visible, app.sidebar_width, app.scopes_fraction),
+            scope: app.scopes.selected,
+            expanded: scope.then(|| app.scopes.expanded().collect()),
+            unresolved_selected: app.scopes.unresolved_selected.clone(),
+            unresolved_expanded: scope.then(|| app.scopes.unresolved_expanded.clone()),
+            filter: app.variables.filter.clone(),
+            wave: app.panels.waves(panel).map(|w| WaveStamp {
+                link: w.link,
+                viewport: (!w.link.viewport).then(|| w.local_viewport.target()),
+                cursor: if w.link.cursor { None } else { w.local_cursor },
+                scroll: w.scroll_y,
+                columns: (w.names_width, w.values_width),
+                rows: w.items.len(),
+                selected: selection.then(|| w.selected.clone()),
+                formats: formats.then(|| {
+                    w.items
+                        .iter()
+                        .map(|r| {
+                            r.requested_format
+                                .clone()
+                                .unwrap_or_else(|| r.translator.id().into())
+                        })
+                        .collect()
+                }),
+            }),
+        })
+    }
+}

@@ -38,6 +38,15 @@ impl LocalSession {
         let hierarchy = build_hierarchy(&reader);
         let info = TraceInfo {
             name,
+            design_id: reader.meta().attrs.iter().find_map(|(key, value)| {
+                if reader.strings().get(*key) == "design.vdb_id"
+                    && let vtr::Value::Str(value) = value
+                {
+                    Some(reader.strings().get(*value).to_owned())
+                } else {
+                    None
+                }
+            }),
             timescale: reader.meta().timescale,
             time_range: reader.time_range().unwrap_or((0, 0)),
             signal_count: reader.signal_count() as usize,
