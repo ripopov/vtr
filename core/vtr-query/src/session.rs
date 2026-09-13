@@ -63,3 +63,18 @@ pub struct Delivery {
     pub reply: Reply,
     pub(crate) _charge: Reservation,
 }
+
+/// Asynchronous raw-query boundary used by toolkit-independent consumers.
+/// Implementations submit work without blocking; polling a task never executes
+/// reader work. Native tasks retain typed storage, while RPC tasks own wire
+/// admission. Dropping a task cancels and cleans up its abandoned delivery.
+pub trait AsyncSession {
+    type Task: std::future::Future<Output = crate::Result<Arc<Delivery>>> + Unpin;
+    fn info(&self) -> &SessionInfo;
+    fn execute(&self, query: Query, limits: crate::wave::Limits) -> crate::Result<Self::Task>;
+    fn advance(&self, cursor: Continuation) -> crate::Result<Self::Task>;
+    /// Only call on a task which has not returned Ready.
+    fn cancel(&self, task: &Self::Task);
+    fn release(&self, cursor: Continuation) -> crate::Result<()>;
+    fn close(&self);
+}

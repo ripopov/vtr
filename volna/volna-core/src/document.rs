@@ -47,6 +47,7 @@ pub struct Document {
     state: TraceState,
     /// A newer open, explicit session replacement, or close invalidates old results.
     generation: u64,
+    query_snapshot: Option<vtr_query::session::SnapshotId>,
     pub shared: Shared,
     pub markers: Vec<Marker>,
     next_marker: u64,
@@ -66,6 +67,7 @@ impl Document {
         Document {
             state: TraceState::Empty,
             generation: 0,
+            query_snapshot: None,
             shared: Shared::default(),
             markers: Vec::new(),
             next_marker: 1,
@@ -83,6 +85,28 @@ impl Document {
         self.generation
     }
 
+    /// Bind query results after the matching trace metadata has been opened.
+    /// A new child/snapshot requires a new document generation.
+    pub fn bind_query_session(
+        &mut self,
+        generation: u64,
+        snapshot: vtr_query::session::SnapshotId,
+    ) -> bool {
+        if generation != self.generation
+            || !self.is_loaded()
+            || self.query_snapshot.is_some_and(|old| old != snapshot)
+        {
+            return false;
+        }
+        self.query_snapshot = Some(snapshot);
+        self.pending.clear();
+        self.requests
+            .retain(|request| !matches!(request, LoadRequest::Signals { .. }));
+        true
+    }
+    pub fn query_snapshot(&self) -> Option<vtr_query::session::SnapshotId> {
+        self.query_snapshot
+    }
     pub fn session(&self) -> Option<&Arc<dyn Session>> {
         match &self.state {
             TraceState::Loaded(s) => Some(s),
@@ -122,6 +146,7 @@ impl Document {
     /// Start opening a trace; the previous one stays until the new one arrives.
     pub fn open(&mut self, spec: OpenSpec) {
         self.generation += 1;
+        self.query_snapshot = None;
         self.state = TraceState::Loading { name: spec.name() };
         self.requests.push(LoadRequest::Open {
             generation: self.generation,
@@ -144,6 +169,7 @@ impl Document {
     }
 
     fn reset_state(&mut self) {
+        self.query_snapshot = None;
         self.pending.clear();
         self.requests
             .retain(|r| matches!(r, LoadRequest::Open { .. }));
@@ -156,6 +182,9 @@ impl Document {
     /// Queue a history load unless one is already pending. Returns whether a
     /// request was queued.
     pub fn request_signal(&mut self, signal: SignalRef) -> bool {
+        if self.query_snapshot.is_some() {
+            return false;
+        }
         let Some(session) = self.session().cloned() else {
             return false;
         };

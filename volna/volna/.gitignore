@@ -4,3 +4,5 @@
 /vscode-ext/media
 /vscode-ext/*.vsix
 node_modules/
+
+/vscode-ext/bin

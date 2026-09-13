@@ -12,6 +12,8 @@ if [ -z "${CC_wasm32_unknown_unknown:-}" ]; then
     fi
   done
 fi
+# Bundle the workspace-host child alongside the WASM assets.
+node vscode-ext/build-server.cjs
 # Query Cargo so workspace builds and CARGO_TARGET_DIR both work.
 target_dir=$(cargo metadata --no-deps --format-version 1 | node -e '
   let input = "";

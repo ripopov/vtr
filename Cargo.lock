@@ -8544,6 +8544,7 @@ dependencies = [
  "anyhow",
  "flate2",
  "fst-reader",
+ "futures-lite",
  "log",
  "serde",
  "serde_json",
@@ -8551,6 +8552,7 @@ dependencies = [
  "tempfile",
  "url",
  "vtr",
+ "vtr-query",
  "web-time",
 ]
 
@@ -8656,6 +8658,7 @@ dependencies = [
  "futures-lite",
  "futures-util",
  "tempfile",
+ "volna-core",
  "vtr",
  "vtr-query",
 ]

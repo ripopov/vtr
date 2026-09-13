@@ -435,6 +435,7 @@ impl Workspace {
                     shape,
                     translator,
                     history: None,
+                    query: None,
                     error: None,
                 });
             }

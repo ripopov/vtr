@@ -17,6 +17,11 @@ cargo test -p vtr-server
 cargo run -p vtr-server -- --stdio /absolute/path/to/trace.vtr
 ```
 
+The endpoint tests also run the headless Volna demand scheduler through the
+production RPC client and real child, including multiple rows, shared aliases
+and display-list rendering. These development tests use the repository's pinned
+viewer-capable Rust toolchain; building the server binary has no viewer dependency.
+
 The final command expects binary protocol input, not interactive terminal text.
 The host binds the trace path through an argument array. No trace path, URL,
 credential or network listener is part of the wire protocol.

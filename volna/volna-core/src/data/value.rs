@@ -103,6 +103,73 @@ pub enum WaveValue {
 }
 
 impl WaveValue {
+    /// Convert raw query data for an existing client-side translator. Limit the
+    /// expanded representation (one byte per logic bit), not its packed size.
+    /// BackendDefault follows the VTR default convention carried by the query
+    /// contract: two-state zero, other logic X, real zero and empty bytes.
+    pub fn from_query_sample(
+        sample: &vtr_query::wave::Sample,
+        max_bytes: usize,
+    ) -> vtr_query::Result<Self> {
+        use vtr_query::{
+            Error,
+            wave::{Kind, Sample, Value},
+        };
+        let check = |bytes: usize| {
+            if bytes <= max_bytes {
+                Ok(())
+            } else {
+                Err(Error::ResourceLimit)
+            }
+        };
+        Ok(match sample {
+            Sample::Event => Self::Unavailable,
+            Sample::BackendDefault(Kind::Bits { width, states }) => {
+                check(*width as usize)?;
+                if !matches!(states, 2 | 4 | 9) {
+                    return Err(Error::Invalid("invalid logic domain"));
+                }
+                Self::Bits(if *states == 2 { "0" } else { "x" }.repeat(*width as usize))
+            }
+            Sample::BackendDefault(Kind::Real) => Self::Real(0.0),
+            Sample::BackendDefault(Kind::Bytes) => Self::Bytes(Vec::new()),
+            Sample::Known(Value::Real(bits)) => Self::Real(f64::from_bits(*bits)),
+            Sample::Known(Value::Bytes(bytes)) => {
+                check(bytes.as_slice().len())?;
+                Self::Bytes(bytes.as_slice().to_vec())
+            }
+            Sample::Known(Value::Bits {
+                width,
+                states,
+                data,
+            }) => {
+                check(*width as usize)?;
+                let bits: u64 = match states {
+                    2 => 1,
+                    4 => 2,
+                    9 => 4,
+                    _ => return Err(Error::Invalid("invalid logic domain")),
+                };
+                if data.as_slice().len() as u64 != (u64::from(*width) * bits).div_ceil(8) {
+                    return Err(Error::Invalid("invalid packed value size"));
+                }
+                if *states == 9
+                    && (0..*width as usize)
+                        .any(|i| vtr::signal::get_code(data.as_slice(), *states, i) > 8)
+                {
+                    return Err(Error::Invalid("invalid nine-state logic code"));
+                }
+                Self::Bits(
+                    vtr::SignalValue::Bits {
+                        width: *width,
+                        states: *states,
+                        data: data.as_slice(),
+                    }
+                    .to_ascii(),
+                )
+            }
+        })
+    }
     pub fn kind(&self) -> ValueKind {
         match self {
             WaveValue::Unavailable => ValueKind::Undef,

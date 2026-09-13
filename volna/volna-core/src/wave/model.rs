@@ -79,6 +79,7 @@ pub struct DisplayedSignal {
     pub shape: SignalShape,
     pub translator: Arc<dyn Translator>,
     pub history: Option<Arc<dyn SignalHistory>>,
+    pub query: Option<Arc<super::snapshot::WaveSnapshot>>,
     pub error: Option<String>,
 }
 
@@ -340,7 +341,11 @@ impl WaveModel {
             let Some(v) = h.vars.get(var) else { continue };
             let translator = doc.translators.default_for(v.shape);
             // Variable identity/format stay per row; aliases share immutable data.
-            let history = loaded.get(&v.signal).cloned();
+            let history = if doc.query_snapshot().is_none() {
+                loaded.get(&v.signal).cloned()
+            } else {
+                None
+            };
             let needs_load = history.is_none();
             self.items.push(DisplayedSignal {
                 source: RowSource::Resolved {
@@ -353,6 +358,7 @@ impl WaveModel {
                 shape: v.shape,
                 translator,
                 history,
+                query: None,
                 error: None,
             });
             if needs_load {
@@ -366,6 +372,32 @@ impl WaveModel {
         }
     }
 
+    /// Install immutable query data only for the currently opened dataset and
+    /// the same raw signal. The query controller owns viewport ordering.
+    pub fn install_query(
+        &mut self,
+        doc: &Document,
+        generation: u64,
+        row: usize,
+        data: Arc<super::snapshot::WaveSnapshot>,
+    ) -> bool {
+        if !doc.is_loaded()
+            || doc.generation() != generation
+            || doc.query_snapshot() != Some(data.snapshot())
+        {
+            return false;
+        }
+        let Some(item) = self.items.get_mut(row) else {
+            return false;
+        };
+        if item.source.signal().map(|signal| signal.0) != Some(data.demand().signal()) {
+            return false;
+        }
+        item.history = None;
+        item.query = Some(data);
+        item.error = None;
+        true
+    }
     /// A history load finished (the document already checked its generation).
     pub fn finish_signal(
         &mut self,
@@ -376,7 +408,7 @@ impl WaveModel {
         for item in self
             .items
             .iter_mut()
-            .filter(|i| i.source.signal() == Some(signal))
+            .filter(|i| i.source.signal() == Some(signal) && i.query.is_none())
         {
             item.history = result.as_ref().ok().cloned();
             item.error = result.as_ref().err().cloned();

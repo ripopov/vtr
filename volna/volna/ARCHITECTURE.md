@@ -226,12 +226,52 @@ The [client-server proposal](../../docs/client-server.md) defines two target
 deployments: native in-process queries and a native VS Code child server
 connected to the WASM viewer through the extension relay. Its
 [interactive walkthrough](../../docs/client-server.html) illustrates the design;
-these deployments and bounded contracts are proposed, not implemented.
+the viewer has not yet adopted the bounded session implementations.
 
 Full histories are the current implemented waveform query. They do not meet
 the remote-file objective: an expensive history still transfers and retains
-all changes for the selected signal. A remote transport must wait for bounded
-waveform-window and summary queries; no protocol or remote server exists.
+all changes for the selected signal. `vtr-query` now provides exact windows,
+raw summary bins, metadata pages, asynchronous native/RPC sessions and bounded
+Protobuf codecs. `vtr-server` hosts these over stdio; the extension's tested
+relay module has not yet been connected to the WASM viewer.
+
+`volna-core::wave::exact::ExactWindow` assembles bounded exact pages from one
+continuation chain. It preserves repeated-time ordering, rejects excess records
+without advancing the accepted prefix, and exposes samples only in proven
+coverage. An incomplete page does not prove the held value at its final timestamp.
+`wave::bounded::paint_exact` renders that coverage and preserves coalesced events.
+
+`volna-core::wave::bounded` also renders raw bins into a Scene without reconstructing
+histories. Multi-change bins remain aggregates across zooms, event bins preserve
+occurrence semantics, and only received bin intervals are painted. Its integer
+interval projection preserves single ticks at the maximum timestamp. This
+renderer is fed by `wave::demand::WaveDemands`, a document controller over
+one asynchronous query session for exact windows and summary grids. Fixed row
+slots retain the latest pending intent, drain cancelled work and share partial
+summary bins or completed exact windows for identical demands. Exact assembly
+has a record cap; reaching it preserves the accepted prefix and reports a
+resource limit so the viewport policy can request summaries. Cursor lookup uses
+only proven exact/summary samples; ambiguous aggregate interiors remain unresolved.
+The core converts raw samples to existing translator values under an expanded-byte
+limit, preserving packed logic, arbitrary bytes and IEEE bits. The scheduler rotates between slots and caps outstanding operations,
+including continuations and releases. A signal change clears incompatible bins;
+a pan retains valid old coverage until new pages arrive. Native worker integration
+tests exercise that path through to the display list. Canonical cache reuse
+across overlapping grids and runtime host adoption are still required.
+`WaveSnapshot` freezes admitted render data for displayed rows, sharing raw
+pages and separately accounting its reference arrays. The existing row painter
+accepts these snapshots for waveforms and cursor values. A document binds one
+query snapshot per generation, stops queuing full-history loads in that mode,
+and rejects stale or mismatched row installations. Snapshot creation and query
+polling stay outside painting. Native and RPC tests exercise this through the
+full panel painter. `QueryView` synchronizes visible panel rows and viewport grids
+with that scheduler, installs snapshots only when their revisions change, releases
+hidden row data and closes its session when the document generation changes.
+Hosts poll this core controller after layout/input and on task wakeups, outside
+painting. Runtime host opening still selects the full-history path.
+The existing floating-point viewport is projected outward to integer coverage
+for this integration; it still needs an exact origin representation for narrow
+navigation at extreme timestamps.
 
 Extend the same Session/load-request seam with explicit query identities and
 window results, keeping resident metadata separate. A window contract must

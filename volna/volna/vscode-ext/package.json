@@ -13,6 +13,10 @@
   ],
   "activationEvents": [],
   "main": "./extension.js",
+  "extensionKind": ["workspace"],
+  "scripts": {
+    "build:server": "node build-server.cjs"
+  },
   "contributes": {
     "commands": [
       {

@@ -1119,3 +1119,25 @@ fn nodes(
     }
     Ok(())
 }
+
+impl crate::session::AsyncSession for RpcSession {
+    type Task = RpcQueryFuture;
+    fn info(&self) -> &SessionInfo {
+        RpcSession::info(self)
+    }
+    fn execute(&self, query: Query, limits: Limits) -> Result<Self::Task> {
+        RpcSession::execute(self, query, limits)
+    }
+    fn advance(&self, cursor: Continuation) -> Result<Self::Task> {
+        RpcSession::advance(self, cursor)
+    }
+    fn cancel(&self, task: &Self::Task) {
+        task.cancellation().cancel();
+    }
+    fn release(&self, cursor: Continuation) -> Result<()> {
+        RpcSession::release(self, cursor)
+    }
+    fn close(&self) {
+        RpcSession::close(self);
+    }
+}

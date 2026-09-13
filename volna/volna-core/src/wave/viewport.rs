@@ -72,6 +72,44 @@ pub struct Viewport {
 }
 
 impl Viewport {
+    /// Project an outward-rounded integer trace interval onto this viewport.
+    /// The expanded row must be clipped by the caller to the visible canvas;
+    /// this preserves fractional pans and overscroll without inventing samples.
+    pub fn integer_projection(
+        &self,
+        row: crate::geometry::Rect,
+    ) -> Option<(vtr_query::Interval, crate::geometry::Rect)> {
+        let after_max = (1u128 << 64) as f64;
+        let width = self.width();
+        if !self.start.is_finite()
+            || !self.end.is_finite()
+            || !width.is_finite()
+            || width <= 0.0
+            || self.end <= 0.0
+            || self.start >= after_max
+        {
+            return None;
+        }
+        let start = self.start.floor().max(0.0) as u64;
+        let end = self.end.ceil().min(after_max) as u128;
+        let interval =
+            vtr_query::Interval::new(start, vtr_query::TimeBound::from_wide(end).ok()?).ok()?;
+        if interval.is_empty() {
+            return None;
+        }
+        let left = row.left() + self.x_of(start as f64, f64::from(row.width())) as f32;
+        let span = (end - u128::from(start)) as f64 / width * f64::from(row.width());
+        if !left.is_finite() || !(span as f32).is_finite() || span <= 0.0 {
+            return None;
+        }
+        Some((
+            interval,
+            crate::geometry::Rect::new(
+                crate::geometry::point(left, row.top()),
+                crate::geometry::size(span as f32, row.height()),
+            ),
+        ))
+    }
     pub fn fit(range: (u64, u64)) -> Self {
         let (a, b) = (range.0 as f64, range.1 as f64);
         let end = if b > a { b } else { a + 1.0 };

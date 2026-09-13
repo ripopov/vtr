@@ -16,8 +16,10 @@ futures over shared immutable deliveries. `release` retires an operation and
 codecs support the [`vtr-server` stdio child](../tools/vtr-server/README.md).
 `rpc_session::RpcDriver` handles handshake, prepaid reply capacity, packet
 correlation and cross-page validation, exposing the matching future-based
-`RpcSession` on native test hosts and WASM. The viewer has not yet adopted this
-bounded session API.
+`RpcSession` on native test hosts and WASM. Both implement `session::AsyncSession`.
+`summary::WaveBin::sample_at` returns a held sample only where the complete bin
+proves its value; ambiguous interiors, events and uncovered times return `None`.
+The live viewer has not yet adopted this bounded session API.
 It does not change the reader operations documented here or their C projection.
 
 Contents

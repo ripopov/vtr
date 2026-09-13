@@ -214,8 +214,22 @@ pub fn paint(
                 .map(|b| b.left() - pad)
                 .unwrap_or(layout.values.right() - pad);
             let avail = text_right - layout.values.left() - pad;
-            let (value_text, color) = match (&item.history, cursor) {
-                (Some(h), Some(c)) => {
+            let (value_text, color) = match (&item.query, &item.history, cursor) {
+                (Some(data), _, Some(c)) => match data.value_at(c, 4096) {
+                    Ok(Some(value)) => {
+                        let tr = item.translator.translate(&value);
+                        let color = if tr.kind == ValueKind::Normal {
+                            colors.text
+                        } else {
+                            colors.value_color(tr.kind)
+                        };
+                        (tr.text, color)
+                    }
+                    Ok(None) => ("–".to_string(), colors.text_placeholder),
+                    Err(_) => ("…".to_string(), colors.text_placeholder),
+                },
+                (Some(_), _, None) => ("–".to_string(), colors.text_placeholder),
+                (None, Some(h), Some(c)) => {
                     let index = h.index_at(c);
                     let value = if item.shape == SignalShape::Event {
                         WaveValue::Bits(
@@ -237,10 +251,10 @@ pub fn paint(
                     };
                     (tr.text, color)
                 }
-                (None, _) if item.source.signal().is_none() => {
+                (None, None, _) if item.source.signal().is_none() => {
                     ("not in trace".to_string(), colors.text_placeholder)
                 }
-                (None, _) if item.error.is_none() => {
+                (None, None, _) if item.error.is_none() => {
                     ("loading…".to_string(), colors.text_placeholder)
                 }
                 _ => ("–".to_string(), colors.text_placeholder),
@@ -292,8 +306,14 @@ pub fn paint(
         }
 
         // Waves column.
-        match (&item.history, &item.error) {
-            (Some(h), _) => match item.shape {
+        match (&item.query, &item.history, &item.error) {
+            (Some(data), _, _) => {
+                if let Some((interval, projected)) = viewport.integer_projection(wave_row) {
+                    p.scene
+                        .clipped(waves, |scene| data.paint(interval, projected, t, scene));
+                }
+            }
+            (None, Some(h), _) => match item.shape {
                 SignalShape::Event => p.scene.clipped(waves, |scene| {
                     paint_event_row(h.as_ref(), &viewport, wave_row, t, scene)
                 }),
@@ -309,7 +329,7 @@ pub fn paint(
                     &mut p,
                 ),
             },
-            (None, Some(err)) => {
+            (None, None, Some(err)) => {
                 let err = err.clone();
                 p.scene.clipped(waves, |scene| {
                     scene.text(
@@ -322,7 +342,7 @@ pub fn paint(
                     );
                 });
             }
-            (None, None) if item.source.signal().is_none() => {
+            (None, None, None) if item.source.signal().is_none() => {
                 let label = match item.source {
                     RowSource::Unresolved {
                         ambiguous: true, ..
@@ -340,7 +360,7 @@ pub fn paint(
                     )
                 });
             }
-            (None, None) => {
+            (None, None, None) => {
                 // Loading: a thin muted bar where the trace will be.
                 let bar = Rect::new(point(waves.left() + 8.0, y + row_h / 2.0), size(96.0, 1.0));
                 p.scene.clipped(waves, |scene| scene.fill(bar, t.border));

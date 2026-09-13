@@ -28,14 +28,23 @@ cargo test --locked -p volna-core --test fst
 cargo test --locked -p volna-core --test transactions
 cargo test --locked -p volna --all-features
 cargo test --locked -p volna-egui --test screenshots
-node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs
+node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs volna/volna/vscode-ext/relay.test.cjs
+cargo build --locked -p vtr-server
+# Use the Cargo target directory if CARGO_TARGET_DIR overrides ./target.
+VTR_SERVER="$PWD/target/debug/vtr-server" node --test volna/volna/vscode-ext/relay-server.test.cjs
 ```
 
 | Area | Coverage |
 |---|---|
 | Bounded-query foundation | Exact maximum-time endpoints, canonical grids across pans, half-open transaction/point boundaries, concurrent allocation admission and shared pins, fragmented/coalesced stdio frames, truncation, invalid lengths and terminal parser failures, exact/cold-summary and metadata pages, codec conformance and shared native delivery; this does not verify a live relay |
 | Query worker and stdio child | Asynchronous opening, nonblocking future polling/drop, cancellation and abandoned-result cleanup, fixed delivery credit; real child handshake, paging/retries, release, operation limits, stale snapshots, malformed/version errors, EOF and close |
-| RPC client | Prepaid reply capacity, transmission-order request IDs, priority cancellation, late/replaced-host replies, cross-page coverage, shared retries, control saturation, reentrant consumer wakeups and idle transport wakeups; production client versus real child across all current query families |
+| RPC client | Prepaid reply capacity, transmission-order request IDs, priority cancellation, late/replaced-host replies, cross-page coverage, shared retries, control saturation, reentrant consumer wakeups and idle transport wakeups; production client versus real child across all current query families, plus the core multi-row demand scheduler and display list through that same RPC path |
+| Extension relay module | Opaque exact ArrayBuffers, fragmented/coalesced frames, byte/slot admission, explicit consumption acknowledgement, stdin backpressure, hidden views, stale incarnations, truncated/unread output, shutdown escalation and a real native child handshake/error exchange. The module is not yet wired to the viewer; these are Node transport tests, not VS Code end-to-end verification. |
+| Summary demand | Real native worker pages reach the core summary renderer; superseded delayed completions are drained, only the latest intent runs, repeated navigation releases operation capacity, failed intents can be retried or replaced, eight rows share a bounded operation pool, and identical demands share partial and complete bins. Row removal preserves the shared session; changing signals clears incompatible bins. Query snapshots connect it to the row model/painter; runtime hosts have not switched loading paths. |
+| Query-backed rows | Native/RPC snapshots render in the existing panel/value-column painter, document generations and dataset IDs gate installation, late full-history results do not replace query data, partial exact snapshots remain immutable, and fractional/overscrolled projections stay aligned. Runtime host opening is not yet switched. |
+| Query cursor values | Exact and summary lookup through native/RPC demand slots, ambiguous-bin rejection, raw nine-state/byte/IEEE preservation, VTR defaults, invalid packing and expanded display-size admission. |
+| Exact coverage/rendering | Native and RPC pages assemble into the same bounded window; repeated timestamps spanning pages remain unproven until the boundary completes, rejected/foreign pages preserve the prefix, retries do not duplicate changes, and event/max-time rendering preserves raw semantics. The shared demand scheduler runs exact and summary rows, including representation switches, exact cancellation, duplicate consumers and bounded retries. Immutable query results also render through the existing row painter; runtime host adoption remains pending. |
+| Summary rendering | Raw-bin display lists preserve aggregate identity when zoomed, leave coverage gaps unpainted, distinguish repeated event occurrences and project maximum-time single ticks. This renderer is used by query-backed row snapshots; runtime hosts still use full-history loading. |
 | Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry, and duplicate/alias rows share histories |
 | Panel model | Literal hierarchy paths and duplicate-name ambiguity; split/close/focus/layout validation; 5,000 generated command sequences; shared and independent navigation; cross-panel load reuse and stale pointer rejection |
 | Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, format menu, sidebar filtering/keys, layout hit regions and repaint coalescing |

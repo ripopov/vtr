@@ -73,6 +73,9 @@ impl Value {
 #[derive(Clone, Debug)]
 pub enum Sample {
     Known(Value),
+    /// VTR defaults before the first change: two-state zero, other logic X,
+    /// real zero, and empty bytes. Backends with different initial semantics
+    /// must return their actual sample instead of this shorthand.
     BackendDefault(Kind),
     /// Events have occurrences, not a held value.
     Event,

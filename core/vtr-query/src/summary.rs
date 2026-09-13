@@ -63,6 +63,28 @@ pub struct WaveBin {
     pub(crate) _charge: Reservation,
 }
 impl WaveBin {
+    /// Return a held sample only where this complete bin determines it exactly.
+    /// Aggregated middle changes cannot be reconstructed from first/last values.
+    /// Events have occurrences, and queries outside the bin have no coverage.
+    pub fn sample_at(&self, time: u64) -> Option<Sample> {
+        if !self.interval.contains(time) || matches!(self.entry, Sample::Event) {
+            return None;
+        }
+        let Some(first) = &self.first else {
+            return Some(self.entry.clone());
+        };
+        if time < first.time {
+            return Some(self.entry.clone());
+        }
+        let last = self.last.as_ref()?;
+        if time >= last.time {
+            return Some(self.exit.clone());
+        }
+        if self.changes == 2 {
+            return Some(Sample::Known(first.value.clone()));
+        }
+        None
+    }
     /// Conservative delivery accounting: shared value storage may appear in
     /// several fields but is charged only once by its owning Budget lease.
     pub fn delivery_bytes(&self) -> usize {

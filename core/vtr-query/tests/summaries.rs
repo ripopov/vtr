@@ -137,3 +137,40 @@ fn event_counts_preserve_repeated_occurrences_without_held_values() {
     drop(bin);
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn summary_samples_are_returned_only_when_the_bin_proves_the_value() {
+    let budget = Budget::new(65536);
+    for changes in [
+        vec![],
+        vec![(3, 1.0)],
+        vec![(3, 1.0), (7, 2.0)],
+        vec![(3, 1.0), (5, 9.0), (7, 2.0)],
+        vec![(5, 1.0), (5, 9.0), (5, 2.0)],
+    ] {
+        let bin = reduce(0, 10, -1.0, &changes, &budget);
+        for time in 0..10 {
+            if let Some(actual) = bin.sample_at(time) {
+                let expected: f64 = changes
+                    .iter()
+                    .rev()
+                    .find(|(t, _)| *t <= time)
+                    .map_or(-1.0, |(_, value)| *value);
+                assert_eq!(value_bits(&actual), expected.to_bits());
+            }
+        }
+        assert!(bin.sample_at(10).is_none());
+        if changes.len() <= 2 {
+            assert!((0..10).all(|time| bin.sample_at(time).is_some()));
+        }
+    }
+    let dense = reduce(0, 10, -1.0, &[(3, 1.0), (5, 9.0), (7, 2.0)], &budget);
+    assert!(dense.sample_at(2).is_some());
+    assert!(dense.sample_at(3).is_none());
+    assert!(dense.sample_at(6).is_none());
+    assert!(dense.sample_at(7).is_some());
+    let mut event = BinBuilder::new(interval(0, 10), Sample::Event, &budget).unwrap();
+    event.push(5, real(1.0)).unwrap();
+    let event = event.finish();
+    assert!((0..10).all(|time| event.sample_at(time).is_none()));
+}

@@ -192,3 +192,14 @@ Consumer and outbound wakers run after releasing client state borrows, allowing
 an executor to submit or poll another query immediately. The RPC client compiles
 without the native engine for WASM. Tests exercise the driver against both
 controlled adversarial replies and the actual stdio child.
+
+Toolkit-independent consumers can use `session::AsyncSession` with either
+`local_session::LocalSession` or `rpc_session::RpcSession`. Associated task
+futures share the same immutable delivery type. Submission and future polling
+remain nonblocking; the native implementation does not enable or call a codec.
+
+`WaveBin::sample_at` extracts only provable held values from an aggregate:
+entry before its first change, exit at/after its last change, and the known
+middle span when there are exactly two changes. Other aggregate interiors and
+event bins return no held sample. Formatting and display-size limits remain in
+`volna-core`, outside the raw query protocol.

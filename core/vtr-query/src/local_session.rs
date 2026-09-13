@@ -469,6 +469,28 @@ fn run(mut session: Session<'_>, shared: &Shared) {
     }
 }
 
+impl crate::session::AsyncSession for LocalSession {
+    type Task = QueryFuture;
+    fn info(&self) -> &SessionInfo {
+        LocalSession::info(self)
+    }
+    fn execute(&self, query: Query, limits: Limits) -> Result<Self::Task> {
+        LocalSession::execute(self, query, limits)
+    }
+    fn advance(&self, cursor: Continuation) -> Result<Self::Task> {
+        LocalSession::advance(self, cursor)
+    }
+    fn cancel(&self, task: &Self::Task) {
+        task.cancellation().cancel();
+    }
+    fn release(&self, cursor: Continuation) -> Result<()> {
+        LocalSession::release(self, cursor)
+    }
+    fn close(&self) {
+        LocalSession::close(self);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

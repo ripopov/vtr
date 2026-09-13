@@ -96,7 +96,8 @@ implement the main viewer's docking or workspace commands.
 
 ## Build and run (WebAssembly)
 
-Requires Node.js, the `wasm32-unknown-unknown` target, `wasm-bindgen-cli`
+Requires Node.js, `protoc` (for the packaged native query child), the
+`wasm32-unknown-unknown` target, `wasm-bindgen-cli`
 matching the locked `wasm-bindgen` version, and a clang
 that can target wasm32 for the `zstd` C sources (Apple's clang cannot; the
 script picks up Homebrew LLVM automatically, or set `CC_wasm32_unknown_unknown`).
@@ -116,6 +117,16 @@ exports `debug_state()`, which logs the viewer state to the console; browser
 verification scripts use it.
 
 ## VS Code extension
+
+The extension runs on the workspace host (`extensionKind: workspace`).
+`web/build.sh` bundles the native query child for that host under
+`vscode-ext/bin/<platform>-<arch>/vtr-server` alongside the WASM assets. Build
+on the target workspace host; a binary built on macOS does not supply a Linux
+SSH/container host. To rebuild only the child, run
+`node vscode-ext/build-server.cjs` from this directory. The script checks that
+Node and Rust target the same host and respects Cargo's target directory.
+The relay module and packaged child are tested independently; the current
+webview still uses whole-file loading until its query-session adoption is complete.
 
 ```sh
 ./web/build.sh
