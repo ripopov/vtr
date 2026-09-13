@@ -245,7 +245,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
       <tr><td>Cursor shared, viewport independent</td><td>Any pane's click sets the one document cursor; zoom and pan are per tile with no sync feature; vertical scroll is opt-in linked. <span class="cite"><code>tiles/commands.rs:64-78</code>, <code>workspace/operations.rs:199-220</code></span></td><td><strong>Extended.</strong> Both cursor and viewport are per panel with an opt-out link flag each, so a split can show a second time window while still sharing the cursor.</td></tr>
       <tr><td>Hidden tab bar</td><td><code>hide_single_tab_bar</code> (default true) sets the bar height to zero and suppresses the focus outline when one tile exists; one rendering path for 1 and N tiles. <span class="cite"><code>render.rs:152, 463-465</code>, <code>config.rs:242</code></span></td><td><strong>Borrowed.</strong> Same rule, implemented as a wrapper over the dock skin.</td></tr>
       <tr><td>Focus resolved at the input boundary</td><td><code>TileTarget::Focused</code> becomes a concrete <code>TileId</code> once, so queued commands cannot drift. <span class="cite"><code>tiles/input.rs:15-50</code></span></td><td><strong>Borrowed.</strong> Frontends send <code>Pointer(PanelId, …)</code>; keyboard actions resolve against <code>panels.focused</code> synchronously inside <code>App::handle</code>.</td></tr>
-      <tr><td>State files</td><td>RON, <code>&lt;stem&gt;.surf.ron</code>, <code>--state-file</code>, sibling autoload with <code>Always/Ask/Never</code>; config (TOML, <code>ProjectDirs</code>) is <code>#[serde(skip)]</code> and never in state; loading a state keeps the live waveform and takes only cursor, markers and scope from the saved document. <span class="cite"><code>wave_source.rs:57-104</code>, <code>config.rs:77-133</code>, <code>state.rs:784-844</code>, <code>surfer/src/main.rs:41-72</code></span></td><td><strong>Borrowed</strong> (sibling file, preferences separate, keep the live trace on explicit load). <strong>Changed:</strong> JSON instead of RON, full-file-name sidecar, automatic save, relative trace path.</td></tr>
+      <tr><td>State files</td><td>RON, <code>&lt;stem&gt;.surf.ron</code>, <code>--state-file</code>, sibling autoload with <code>Always/Ask/Never</code>; config (TOML, <code>ProjectDirs</code>) is <code>#[serde(skip)]</code> and never in state; loading a state keeps the live waveform and takes only cursor, markers and scope from the saved document. <span class="cite"><code>wave_source.rs:57-104</code>, <code>config.rs:77-133</code>, <code>state.rs:784-844</code>, <code>surfer/src/main.rs:41-72</code></span></td><td><strong>Borrowed</strong> (sibling file, preferences separate). <strong>Changed:</strong> JSON, full-file-name sidecar, automatic save, relative trace path; explicit Open requires the matching trace instead of importing another trace's state.</td></tr>
       <tr><td>Missing signals</td><td>Unresolvable variables become <code>DisplayedItem::Placeholder</code> when <code>keep_unavailable</code> is set and are promoted back when the name resolves again. <span class="cite"><code>wave_data.rs:211-260, 321-346</code></span></td><td><strong>Borrowed.</strong> Placeholder rows survive a save/load cycle.</td></tr>
       <tr><td>Versioned, opaque tile payloads</td><td><code>TileFile{kind, kind_version, payload: RawValue}</code> keeps unknown kinds as raw text; decoder bounded to 64 MiB and depth 128. <span class="cite"><code>tiles/serde.rs:19-49</code></span></td><td><strong>Borrowed</strong> for panel payloads (<code>serde_json::value::RawValue</code>).</td></tr>
       <tr><td>VS Code</td><td><code>CustomReadonlyEditorProvider</code> hosting the wasm build with <code>retainContextWhenHidden</code>; state is saved only by explicit <span class="msg">RequestState</span>/<span class="msg">saveState</span> messages to a <code>.surf.ron</code> the user picks; nothing is restored across a VS Code restart. <span class="cite"><code>surfer-vscode/extension/src/surferWaveformViewer.ts:104-116, 224-262</code></span></td><td><strong>Exceeded.</strong> Automatic sidecar through <code>workspace.fs</code> and restore on editor resolve.</td></tr>
@@ -331,9 +331,9 @@ pub struct Panels {
     <li><strong>Toggling.</strong> Turning a flag off copies the shared value into the panel's own field, so the panel stays where it is and now moves alone. Turning it on discards the panel's own value and adopts the shared one, which is retained even after every panel has been independent.</li>
     <li><strong>Edge stepping and "centre on cursor"</strong> read and write the focused panel's effective cursor and viewport, so linked panels follow through the shared value.</li>
     <li><strong>Markers are always shared</strong>; <kbd>M</kbd> adds a marker at the focused panel's cursor.</li>
-    <li><strong>One panel:</strong> the flags exist but have no visible effect. They are kept so a later split starts in the expected state.</li>
+    <li><strong>One panel:</strong> the same rules apply. Re-linking can return it to a retained shared position; a later split inherits its flags.</li>
   </ul>
-  <p>This is deliberately weaker than named sync groups (as in Verdi or GTKWave "locked" windows): one global link per dimension covers the two common cases, "everything follows" and "this one is my independent zoomed-in view", and it needs no group management UI. Groups can be added later by replacing the bools with a <code>GroupId</code> without changing the file format's shape (the field becomes an integer).</p>
+  <p>This is deliberately weaker than named sync groups (as in Verdi or GTKWave "locked" windows): one global link per dimension covers the two common cases, "everything follows" and "this one is my independent zoomed-in view", and it needs no group management UI. Groups can be added later with a versioned format change if a workflow needs them.</p>
 
   <h3>Interactions <span class="badge prop">proposed</span></h3>
   <div class="tablewrap"><table><thead><tr><th>Interaction</th><th>Behaviour</th><th>Access</th></tr></thead><tbody>
@@ -404,7 +404,7 @@ pub struct Panels {
         <div class="box exist-b"><div class="t">Sidebar models <span class="badge exist">existing</span></div><small>ScopeTreeModel · VariableListModel · add-to-focused-panel</small></div>
         <div class="box prop-b"><div class="t">workspace <span class="badge prop">proposed</span></div><small>Workspace (serde) · capture · prepare → RestorePlan → commit → RestoreReport · Persistence policy · autosave scheduler (revision + idle via tick, save tickets) · preferences model</small></div>
       </div>
-      <div class="arrows"><span>Command in: <code>Panels(..)</code>, <code>Pointer(PanelId, ..)</code>, <code>RestoreWorkspace(json)</code>, <code>WorkspaceSaved{ticket, result}</code></span><span>Event out: <code>LayoutChanged</code>, <code>PersistWorkspace{ticket, json}</code>, <code>LoadWorkspace{key}</code>, <code>SaveWorkspaceDialog</code>, <code>Notice(..)</code></span></div>
+      <div class="arrows"><span>Command in: <code>Panels(..)</code>, <code>Pointer(PanelId, ..)</code>, <code>RestoreWorkspace(candidates)</code>, <code>WorkspaceSaved{ticket, result}</code></span><span>Event out: <code>LayoutChanged</code>, <code>PersistWorkspace{ticket, json}</code>, <code>LoadWorkspace{key}</code>, <code>SaveWorkspaceDialog</code>, <code>Notice(..)</code></span></div>
     </div>
     <div>
       <div class="box exist-b"><div class="t">volna (GPUI) <small>native · wasm · VS Code webview</small></div>
@@ -414,7 +414,7 @@ pub struct Panels {
           </div>
         </div>
         <div class="box host prop-b"><div class="t">NativeStore <span class="badge prop">proposed</span></div><small>sidecar / fallback dir / explicit path · atomic write · CLI flags · preferences file</small></div>
-        <div class="box host prop-b"><div class="t">web bridge <span class="badge exist">existing</span> + <span class="badge prop">proposed</span> messages</div><small><code>open{bytes, workspace}</code> · <code>workspace{json}</code> · <code>command{name}</code> · dialogs</small></div>
+        <div class="box host prop-b"><div class="t">web bridge <span class="badge exist">existing</span> + <span class="badge prop">proposed</span> messages</div><small><code>open{bytes, candidates}</code> · <code>workspace{json}</code> · <code>command{name}</code> · dialogs</small></div>
       </div>
       <div class="box host prop-b" style="margin-top:14px"><div class="t">vscode-ext/extension.js <small>thin host</small></div><small>reads/writes sidecar with <code>workspace.fs</code> · <code>workspaceState</code> fallback · settings → policy · commands + keybindings · lifecycle</small></div>
       <div class="box exist-b" style="margin-top:14px"><div class="t">volna-egui <span class="badge exist">existing</span></div><small>renders <code>panels.focused()</code> only · persistence disabled · compatibility edits only</small></div>
@@ -466,52 +466,51 @@ pub struct Panels {
 <section id="model"><div class="wrap">
   <div class="eyebrow">Workspace data model</div>
   <h2>The workspace file</h2>
-  <p>A JSON document owned by <code>volna-core::workspace</code>, written with serde_json, human-readable and diffable so colleagues can share and review it. Times are integers in the trace's own timescale units, matching <code>SignalHistory</code> and <code>Marker</code>. Signals are referenced by their hierarchy path as an array of segments, the same segments <code>scope_path</code> and the variable name produce today. A dot-joined string is deliberately not used: escaped HDL identifiers can contain dots, and the segment form needs no escaping contract.</p>
+  <p>A JSON document owned by <code>volna-core::workspace</code>, written with serde_json, human-readable and diffable so colleagues can share and review it. Cursor, marker and trace-range timestamps are <code>u64</code> integers in trace ticks. Viewport bounds retain the current finite <code>f64</code> representation, including fractional ticks and negative edge space; require <code>start &lt; end</code>. Signals are referenced by their hierarchy path as an array of segments, the same segments <code>scope_path</code> and the variable name produce today. A dot-joined string is deliberately not used: escaped HDL identifiers can contain dots, and the segment form needs no escaping contract.</p>
   <pre><code>{
   "format": "volna-workspace",
   "version": 1,
   "trace": {
-    "path": "picorv32.vtr",                    <span class="c">// relative to this file when possible, else absolute; informational in VS Code</span>
+    "path": "picorv32.vtr",                    <span class="c">// relative to this file when possible, else a durable URI; identifies the trace in both hosts</span>
     "name": "picorv32.vtr",
     "timescale": -9,
     "time_range": [0, 1234567],
     "design_id": null                          <span class="c">// VTR file attribute design.vdb_id when present</span>
   },
-  "supersedes": null,                          <span class="c">// per-user fallback files only: {size, mtime_ms} of the sidecar present when written</span>
   "layout": { "split": "horizontal", "sizes": [0.62, 0.38],
               "children": [ { "tabs": [1], "active": 1 }, { "tabs": [3], "active": 3 } ] },
   "focused": 1,                                <span class="c">// panel 2 was closed; ids are never reused</span>
   "panels": [
     { "id": 1, "kind": "waves", "version": 1, "title": null,
       "link": { "viewport": true, "cursor": true },
-      "viewport": { "start": 0.0, "end": 5000.0 }, "cursor": 640, "scroll_y": 0.0,
+      "scroll_y": 0.0,
       "columns": { "names": 220.0, "values": 120.0 },
       "rows": [ { "signal": ["testbench", "top", "clk"], "format": "bit" },
                 { "signal": ["testbench", "top", "mem_addr"], "format": "hex" } ],
       "selected": [1] },
     { "id": 3, "kind": "waves", "version": 1, "title": "decode window",
       "link": { "viewport": false, "cursor": true },
-      "viewport": { "start": 4200.0, "end": 4700.0 }, "cursor": 640, "scroll_y": 0.0,
+      "viewport": { "start": 4200.0, "end": 4700.0 }, "scroll_y": 0.0,
       "columns": { "names": 220.0, "values": 120.0 },
       "rows": [ { "signal": ["testbench", "top", "pc"], "format": "hex" } ], "selected": [] }
   ],
   "shared": { "viewport": { "start": 0.0, "end": 5000.0 }, "cursor": 640,
               "markers": [ { "id": 1, "time": 420, "label": null }, { "id": 2, "time": 1310, "label": "irq" } ] },
   "sidebar": { "visible": true, "width": 280.0, "scopes_fraction": 0.42,
-               "selected_scope": "testbench.top", "expanded": ["testbench", "testbench.top"], "filter": "" }
+               "selected_scope": ["testbench", "top"], "expanded": [["testbench"], ["testbench", "top"]], "filter": "" }
 }</code></pre>
   <div class="tablewrap"><table><thead><tr><th>Field</th><th>Rule</th></tr></thead><tbody>
     <tr><td><code>format</code>, <code>version</code></td><td>Both checked before anything else. A different format string or a newer major version rejects the file with a notice; older versions are not migrated during the research phase (GOAL.md §8). The file is left untouched.</td></tr>
     <tr><td><code>trace</code></td><td>Identity of the trace the workspace was captured from. On restore the name and timescale are compared: a different timescale warns and restores times unchanged; a different name warns but proceeds, because renamed traces are common. <code>design_id</code> is compared when both sides have it.</td></tr>
     <tr><td><code>layout</code>, <code>focused</code></td><td>The same tree as <code>Panels::layout</code>; sizes are fractions; <code>active</code> and <code>focused</code> are panel ids (the core keeps an index). An invalid tree (unknown or duplicate id, empty group, an <code>active</code> that is not a member) fails prepare as a whole and reports why; nothing live changes.</td></tr>
-    <tr><td><code>supersedes</code></td><td>Present only in a per-user fallback file: the size and mtime of the sidecar that existed beside the trace when the fallback was written, or <code>null</code> if there was none. See <a href="#persist">precedence</a>.</td></tr>
-    <tr><td>integers</td><td>Times, ids and revisions are plain JSON integers. Hosts never parse workspace JSON; they move it as opaque text between the core and storage, so values above 2<sup>53</sup> are never touched by JavaScript. The playground on this page is the one exception and only shows small values.</td></tr>
+    <tr><td><code>supersedes</code></td><td>Fallback base: a lowercase SHA-256 hex string, or <code>null</code> for no base. Omitted for other workspace files. Core uses it for <a href="#persist">restore selection</a>; hosts carry the JSON unchanged.</td></tr>
+    <tr><td>integers</td><td>Timestamp and panel-id integers round-trip exactly through Rust JSON; hosts carry workspace JSON as opaque text. Save-ticket epoch/revision values cross JavaScript separately as decimal strings and are echoed unchanged. Viewport bounds are floating-point numbers, not exact timestamp identities. The playground uses small values only.</td></tr>
     <tr><td><code>panels[].kind</code>, <code>version</code></td><td>Panels are decoded into <code>PanelKind</code> by name; an unknown kind or newer version is kept as raw JSON (<code>serde_json::value::RawValue</code>) in a placeholder panel that draws "unsupported panel" and is written back verbatim, so a workspace saved by a newer Volna survives a round trip through an older one.</td></tr>
-    <tr><td><code>rows[].signal</code></td><td>Resolved through <span class="badge prop">proposed</span> <code>Hierarchy::find_var(path: &amp;[&amp;str]) -&gt; Option&lt;VarId&gt;</code>, a segment walk from the roots added at the owning layer rather than a side table in the workspace code. If a scope declares the same name more than once, an optional <code>"nth"</code> on the row picks one; without it the first match is used and reported. Unresolved rows become placeholders (<code>missing: true</code>, no load) and are saved back unchanged.</td></tr>
-    <tr><td><code>rows[].format</code></td><td>A translator id (<code>"bit"</code>, <code>"hex"</code>, …) looked up with <code>Translators::get</code>; unknown ids fall back to the signal's default translator and are reported.</td></tr>
+    <tr><td><code>rows[].signal</code></td><td>Resolved by <code>Hierarchy::find_var(path, nth)</code> over path segments. It returns <code>Found</code>, <code>Missing</code> or <code>Ambiguous</code>. Optional zero-based <code>nth</code> selects a declaration among same-name variables in an unambiguous scope; without it, require exactly one match. Missing/ambiguous rows remain placeholders with their original locator and format, never load a guessed signal, and are reported separately.</td></tr>
+    <tr><td><code>rows[].format</code></td><td>A translator id (<code>"bit"</code>, <code>"hex"</code>, …) looked up with <code>Translators::get</code>; unknown ids display the signal's default translator and are reported; retain the requested id on save until the user changes it.</td></tr>
     <tr><td><code>viewport</code>, <code>cursor</code>, <code>markers</code></td><td>Restored as saved even when outside the trace's time range; the viewport clamp already handles this at paint time and a marker beyond the end stays addressable.</td></tr>
-    <tr><td><code>shared</code></td><td>The shared viewport and cursor plus markers. Linked panels read these after restore; their own saved values are kept for the moment they unlink.</td></tr>
-    <tr><td><code>sidebar</code></td><td>Chrome that belongs to the session: visibility, widths, selected scope and expanded scopes by path, filter text. Global look and feel is not here.</td></tr>
+    <tr><td><code>shared</code></td><td>The shared viewport and cursor plus markers. A panel omits its local <code>viewport</code> or <code>cursor</code> field while that link is on; while off, the field is required (<code>null</code> is a valid cursor). Unlinking always snapshots the current shared value. There is no saved pre-link position to revive.</td></tr>
+    <tr><td><code>sidebar</code></td><td>Session chrome: geometry, filter, selected scope as a segment array (or <code>null</code>), expanded scopes as arrays of segments. Scope resolution also reports ambiguity; unresolved saved paths survive without selecting an arbitrary scope. Global look and feel is not here.</td></tr>
   </tbody></table></div>
   <p>Excluded on purpose: hover and drag state, animation, load state, window size and position (a preference of the host), theme (a preference), the trace bytes, and anything a VDB defines. The file describes what the user arranged, not what the toolkit computed.</p>
 </div></section>
@@ -526,7 +525,7 @@ pub struct Panels {
     Explicit { path: PathBuf },     <span class="c">// --workspace FILE: load and autosave there</span>
     Auto,                           <span class="c">// default: sidecar beside the trace, fallback dir</span>
 }</code></pre>
-      <p><code>App::new()</code> defaults to <code>Disabled</code>. Only the two native mains and the web entry point opt in, so every existing test, the Metal harness, the egui screenshots and the headless suite are isolated by construction; nothing they do can read or write a sidecar, and manually opening example traces cannot affect them.</p></div>
+      <p><code>App::new()</code> defaults to <code>Disabled</code>. Only the GPUI native main and the web entry point opt in, so every existing test, the Metal harness, the egui screenshots and the headless suite are isolated by construction; nothing they do can read or write a sidecar, and manually opening example traces cannot affect them.</p></div>
     <div class="card"><h4 style="margin-top:0">File naming</h4>
       <ul style="margin:0">
         <li>Automatic sidecar: the full trace file name plus <code>.volna.json</code>, e.g. <code>picorv32.vtr.volna.json</code>. Full-name based, so <code>a.vtr</code> and its converted <code>a.fst</code> keep separate workspaces; <code>.json</code> gets syntax highlighting in any editor.</li>
@@ -535,18 +534,18 @@ pub struct Panels {
       </ul></div>
   </div>
   <h3>Locations and precedence</h3>
-  <p>One save target per open trace, chosen once when the trace opens and remembered for the session. Reads and writes go to that target; nothing else is scanned. Only "Save Workspace As…" changes the target.</p>
+  <p>Core selects a restore source before choosing a save target. In automatic mode the host supplies both exact candidates (sidecar and per-user fallback), their locations and write availability; it never parses their JSON. Explicit Open/CLI supplies only the selected file. Missing and unreadable files are distinct results; disabled mode reads neither candidate.</p>
   <ol class="steps">
-    <li><strong>Explicit path</strong> from <code>--workspace</code> or an "Open Workspace…" action.</li>
-    <li><strong>Sidecar</strong> next to the trace, when the directory is writable.</li>
-    <li><strong>Per-user fallback</strong> when it is not, which is the norm for CI artefacts: <code>&lt;data dir&gt;/volna/workspaces/&lt;sha256(canonical trace path)[..16]&gt;.volna.json</code>, where the data dir is <code>$XDG_DATA_HOME</code> or <code>~/.local/share</code> on Linux, <code>~/Library/Application Support</code> on macOS, <code>%LOCALAPPDATA%</code> on Windows. The file records the original path in <code>trace.path</code> so the mapping is auditable.</li>
+    <li><strong>Restore:</strong> a valid fallback wins when its <code>supersedes</code> matches the current sidecar. Otherwise use the sidecar and report that the fallback was set aside. With no sidecar, use the fallback even if its former base disappeared. With neither file, start fresh. A read/validation error pauses autosave rather than counting as absence.</li>
+    <li><strong>Save:</strong> if the fallback was restored, keep saving there even if the trace directory becomes writable. Otherwise use the sidecar when writable, or the fallback when it is not. Keep this target until a successful explicit Open or Save As; permission changes during a session report an error, never silently switch it.</li>
+    <li><strong>Fallback location:</strong> <code>&lt;data dir&gt;/volna/workspaces/&lt;sha256(canonical trace path)[..16]&gt;.volna.json</code> natively; <code>context.workspaceState</code> keyed by the full trace URI in VS Code. Native data roots are <code>$XDG_DATA_HOME</code> or <code>~/.local/share</code>, <code>~/Library/Application Support</code>, and <code>%LOCALAPPDATA%</code>. VS Code's explicit <code>vscode</code> storage setting always writes the fallback.</li>
   </ol>
-  <p>The fallback case needs one rule, because a read-only sidecar may exist beside the trace (checked in, or written by someone else). The fallback file records in <code>supersedes</code> the size and mtime of the sidecar that was present when it was written. On open, if that sidecar is still identical, the fallback is the newer state and is loaded. If the sidecar has changed or appeared since, it is loaded instead, the stale fallback is ignored, and the notice says so. Newer wins by provenance, not by comparing revisions or clocks between files that were written by different sessions.</p>
+  <p><code>supersedes</code> is the SHA-256 of the sidecar bytes from which the fallback was based, or <code>null</code> when no sidecar existed. Core computes it over the small workspace file, never the trace. Retain it across edits and reopen; replace it only when starting a new fallback from the selected sidecar. It identifies the base, not the latest sidecar seen at write time. No timestamp comparison, storage registry or conflict-merging service is needed.</p>
   <h3>Timing</h3>
   <ul>
     <li><strong>Revision, not a dirty flag.</strong> Commands that change persisted state (rows, layout, focus, links, viewport, cursor, markers, sidebar geometry, format choices) bump a monotonic <code>revision</code>; hover, pointer-move, animation ticks and menu dismissal do not. The workspace is dirty while <code>revision</code> is ahead of the last acknowledged save.</li>
     <li><strong>Idle autosave.</strong> <code>App::tick(now)</code>, the existing explicit clock, emits <code>Event::PersistWorkspace</code> once the app has been dirty and quiet for 1 s; during a viewport animation the timer restarts. This is the debounce example-dock applies at 10 s, shortened because Volna's captures are small.</li>
-    <li><strong>Save tickets.</strong> Every <code>PersistWorkspace</code> carries a <code>SaveTicket { target, epoch, revision }</code> and the host answers with the same ticket in <code>WorkspaceSaved</code>. The core marks the workspace clean only if the ticket matches the latest write for the current target and epoch; a late acknowledgement for an older revision, a previous target, or a workspace since replaced by a restore or trace switch is ignored. One write is in flight per target; a newer snapshot waits for the acknowledgement.</li>
+    <li><strong>Save tickets.</strong> Every <code>PersistWorkspace</code> carries a <code>SaveTicket { target, epoch, revision }</code> and the host answers with the same ticket in <code>WorkspaceSaved</code>. Core accepts an acknowledgement only for the outstanding ticket and its workspace epoch; unrelated or already completed tickets are ignored. A Save As ticket is tracked until its write succeeds, then its target becomes active. One write is in flight per target; a newer snapshot waits. A matching acknowledgement advances <code>acked</code> only to that saved revision, releases the pending write and leaves later edits dirty.</li>
     <li><strong>Forced points.</strong> Closing the trace, opening another, and quitting (<code>on_app_quit</code>) flush a pending save synchronously in native. In VS Code the idle autosave is the primary mechanism; the host additionally asks the webview for a snapshot when the editor is hidden, and on dispose writes the last snapshot it already holds, because the webview is gone by then and cannot be asked.</li>
     <li><strong>Never while loading.</strong> No capture happens between <code>Open</code> and the commit of a restore, so a half-restored state cannot overwrite a good file.</li>
     <li><strong>Atomic writes</strong> natively (temp file in the same directory, then rename); <code>workspace.fs.writeFile</code> in VS Code.</li>
@@ -556,7 +555,7 @@ pub struct Panels {
     <tr><td>No workspace file</td><td>Start with one empty panel, as today.</td></tr>
     <tr><td>Automatic file unreadable, wrong format or newer version</td><td>Notice in the status bar with the reason; start fresh; <strong>autosave is suspended for this trace</strong> until the user saves explicitly or removes the file, so a file from a newer Volna is never overwritten silently.</td></tr>
     <tr><td>Explicitly opened workspace fails to prepare</td><td>The live workspace is untouched: prepare rejected the file before anything was committed. Notice with the reason; the current save target and autosave continue unchanged.</td></tr>
-    <tr><td>Trace referenced by an explicitly opened workspace differs from the open trace</td><td>Keep the open trace (Surfer's rule); restore layout, panels, markers and links against it; report unresolved signals. With no trace open natively, open <code>trace.path</code> resolved against the workspace file's directory.</td></tr>
+    <tr><td>Trace referenced by an explicitly opened workspace differs from the open trace</td><td>Resolve the saved trace reference against the workspace location and reject a different resource before commit; a notice directs the user to open that trace first. With no trace open natively, open the referenced trace. Do not import another trace's state and then autosave over its workspace.</td></tr>
     <tr><td>Signal missing</td><td>Placeholder row: name shown dimmed with a "not in trace" badge, no history, no load; kept on save; promoted to a live row if a later trace resolves it.</td></tr>
     <tr><td>Unknown translator, panel kind or layout id</td><td>Translator: default translator and a report entry. Panel kind: opaque placeholder panel. Layout: prepare fails as a whole; for an automatic file that means a fresh start with autosave suspended, for an explicit open it means nothing changes.</td></tr>
     <tr><td>Times outside the trace range</td><td>Kept; painting clamps.</td></tr>
@@ -572,7 +571,7 @@ pub struct Panels {
       [--no-workspace]          <span class="c">// never read or write workspace files this run</span>
       [--config-dir DIR]        <span class="c">// preferences location (also VOLNA_CONFIG_DIR)</span>
 <span class="c">// environment: VOLNA_WORKSPACE=off | PATH, VOLNA_CONFIG_DIR=DIR; check.sh exports VOLNA_WORKSPACE=off</span></code></pre>
-  <p>The same hand-rolled parser is extended in both native mains; a <code>clap</code> dependency is not needed for five flags. <code>volna-egui</code> accepts and ignores the workspace flags so scripts can pass the same arguments to both.</p>
+  <p>Extend the GPUI native parser with these flags. The egui frontend keeps persistence disabled and receives only compatibility changes required by the core refactor.</p>
 </div></section>
 
 <section id="flows"><div class="wrap">
@@ -580,11 +579,11 @@ pub struct Panels {
   <h2>Restoration and saving on both hosts</h2>
   <p>The core runs the same sequence in both; only the boxes that move bytes differ.</p>
   <div class="flow">
-    <div class="card"><h4 style="margin-top:0">Native (GPUI or egui)</h4>
+    <div class="card"><h4 style="margin-top:0">Native (GPUI)</h4>
       <ol class="steps">
         <li><code>main.rs</code> parses flags, builds <code>Persistence</code> and <code>App::new_with(persistence)</code>, opens the trace with <code>open_path</code>.</li>
         <li>The open completes (<code>LoadResult::Opened</code>); the core installs the session and emits <code>Event::LoadWorkspace{key: Sidecar(path) | Explicit(path)}</code>.</li>
-        <li>The GPUI <code>Workspace</code> chooses the save target once (explicit path, writable sidecar, else fallback with the <code>supersedes</code> check), reads the bytes off the UI thread and replies <code>Command::RestoreWorkspace(Some(json))</code> or <code>None</code>.</li>
+        <li>The GPUI host reads the requested candidate files off the UI thread and returns <code>WorkspaceCandidates</code>: opaque JSON, location, write availability and distinct missing/error results. Core applies the source/target rules above.</li>
         <li>The core runs <code>prepare</code>: parse, validate the tree, resolve rows to <code>VarId</code>s or placeholders. On failure it emits <code>Notice</code> and leaves the default single panel in place. On success it runs <code>commit</code>: installs panels, shared values, markers and sidebar state, bumps the epoch, queues loads for visible rows, and emits <code>LayoutChanged</code> plus <code>Notice(report)</code>.</li>
         <li>The dock adapter installs the layout; loads arrive through the existing <code>deliver</code> path and fan into every panel showing the signal.</li>
         <li>Edits bump the revision; after 1 s idle <code>tick</code> emits <code>PersistWorkspace{ticket, json}</code>; the host writes atomically and replies <code>WorkspaceSaved{ticket, result}</code>. Quit and close flush.</li>
@@ -592,14 +591,14 @@ pub struct Panels {
     <div class="card"><h4 style="margin-top:0">VS Code extension</h4>
       <ol class="steps">
         <li>VS Code resolves the custom editor (first open or workspace restore) and calls <code>resolveCustomEditor</code>.</li>
-        <li><code>extension.js</code> reads the trace bytes and, unless <code>volna.workspace.autosave</code> is <code>off</code>, chooses the target for this editor: <code>&lt;uri&gt;.volna.json</code> through <code>workspace.fs</code> if the directory is writable, else <code>context.workspaceState</code> under <code>volna.workspace:&lt;uri&gt;</code> with the same <code>supersedes</code> rule. It reads the chosen source and posts <span class="msg">open {name, bytes, workspace, settings}</span>.</li>
-        <li>The wasm bridge opens the bytes through <code>OpenSpec::Bytes</code> and, when the open completes, answers the core's <code>LoadWorkspace</code> event immediately with the JSON it was handed. No second round trip.</li>
+        <li><code>extension.js</code> reads the trace bytes and both exact workspace candidates (sidecar and URI-keyed <code>workspaceState</code>), or neither when disabled. It posts <span class="msg">open {traceUri, name, bytes, candidates, settings}</span>; Rust selects the source and target using the same rules as native.</li>
+        <li>The wasm bridge opens the bytes through <code>OpenSpec::Bytes</code> and, when the open completes, answers the core's <code>LoadWorkspace</code> event with the candidates it was handed. No second round trip.</li>
         <li>Same core prepare and commit as native, steps 4 and 5.</li>
-        <li>On <code>PersistWorkspace</code> the bridge posts <span class="msg">workspace {ticket, json}</span>; the host keeps it as the latest snapshot for this editor, writes the chosen target with <code>workspace.fs.writeFile</code> or <code>workspaceState.update</code>, and answers <span class="msg">saved {ticket, error?}</span>. Because the extension host runs beside the file in remote sessions, the sidecar lands next to the remote trace without any transfer.</li>
+        <li>On <code>PersistWorkspace</code> the bridge posts <span class="msg">workspace {ticket, json}</span>; the host keeps it as the latest snapshot for this editor, writes <code>ticket.target</code> with <code>workspace.fs.writeFile</code> or <code>workspaceState.update</code>, and answers <span class="msg">saved {ticket, error?}</span>. Because the extension host runs beside the file in remote sessions, the sidecar lands next to the remote trace without any transfer.</li>
         <li><code>onDidChangeViewState</code> (hidden) sends <span class="msg">requestWorkspace</span> so the latest edits are captured before the webview may be discarded. <code>onDidDispose</code> writes the latest snapshot the host already holds and asks the webview for nothing. Reopening the VS Code window returns to step 1 with the saved bytes.</li>
       </ol></div>
   </div>
-  <p>Explicit actions use the same primitives: "Save Workspace As…" emits <code>Event::SaveWorkspaceDialog{suggested}</code>; the host shows its dialog (GPUI <code>prompt_for_new_path</code>, VS Code <code>showSaveDialog</code>) and writes the capture it then requests. "Open Workspace…" reads a chosen file and sends <code>Command::RestoreWorkspace</code>; if prepare fails the current workspace is untouched, and if the trace named in the file differs from the open one, the open trace is kept and the report says so. After a successful explicit open the chosen file becomes the save target.</p>
+  <p>Explicit actions use the same core prepare/commit and ticketed writes. <strong>Open Workspace</strong> supplies the file location with its bytes; after successful prepare, flush the old dirty workspace, then commit state and the new target together. A failed prepare or flush leaves both unchanged. <strong>Save As</strong> returns the chosen location to core, waits for outstanding writes, and writes a snapshot with a ticket naming that destination. Switch the active target only after success; newer edits remain dirty and save there next. Failure keeps the old target. Rebase the trace reference against the new location; fallback entries use an absolute trace URI so host storage needs no directory semantics. Hosts always write <code>ticket.target</code>, including explicit files; they never keep a separate authoritative target.</p>
 </div></section>
 
 <section id="vscode"><div class="wrap">
@@ -608,8 +607,8 @@ pub struct Panels {
   <div class="grid two">
     <div class="card"><h4 style="margin-top:0">Messages <span class="badge prop">proposed</span> (existing ones kept)</h4>
       <div class="tablewrap" style="margin:8px 0 0"><table><thead><tr><th>Direction</th><th>Message</th></tr></thead><tbody>
-        <tr><td>webview → host</td><td><span class="msg">ready</span> <span class="badge exist">existing</span>, <span class="msg">pickFile</span> <span class="badge exist">existing</span>, <span class="msg">workspace {ticket, json}</span>, <span class="msg">saveWorkspaceAs {json, suggested}</span>, <span class="msg">openWorkspace</span>, <span class="msg">notice {level, text}</span></td></tr>
-        <tr><td>host → webview</td><td><span class="msg">open {name, bytes, workspace, settings}</span> (extends the existing <code>open</code>), <span class="msg">saved {ticket, error?}</span> (acknowledges a <span class="msg">workspace</span>), <span class="msg">workspace {json}</span> (explicit load), <span class="msg">command {name}</span> (split, close, focus, link toggles), <span class="msg">requestWorkspace</span> (snapshot before hide; never on dispose)</td></tr>
+        <tr><td>webview → host</td><td><span class="msg">ready</span> <span class="badge exist">existing</span>, <span class="msg">pickFile</span> <span class="badge exist">existing</span>, <span class="msg">workspace {ticket, json}</span>, <span class="msg">saveWorkspaceAs {suggested}</span>, <span class="msg">openWorkspace</span>, <span class="msg">notice {level, text}</span></td></tr>
+        <tr><td>host → webview</td><td><span class="msg">open {traceUri, name, bytes, candidates, settings}</span> (extends the existing <code>open</code>), <span class="msg">saved {ticket, error?}</span> (acknowledges a <span class="msg">workspace</span>), <span class="msg">workspace {candidate}</span> (explicit load), <span class="msg">workspaceDestination {target}</span> (Save As dialog result), <span class="msg">command {name}</span> (split, close, focus, link toggles), <span class="msg">requestWorkspace</span> (snapshot before hide; never on dispose)</td></tr>
       </tbody></table></div></div>
     <div class="card"><h4 style="margin-top:0">Manifest additions</h4>
       <ul style="margin:0">
@@ -622,9 +621,9 @@ pub struct Panels {
   </div>
   <h3>Lifecycle</h3>
   <ul>
-    <li><strong>Reopening a VS Code workspace</strong> restores each Volna editor through <code>resolveCustomEditor</code>, which re-sends the trace and its sidecar, so panels, signals, markers and layout come back without a serializer. <code>retainContextWhenHidden</code> is kept for now because the wasm decode of a large trace is expensive; with the sidecar in place it becomes an optimisation rather than the only state holder and can be revisited.</li>
+    <li><strong>Reopening a VS Code workspace</strong> restores each Volna editor through <code>resolveCustomEditor</code>, which re-sends the trace and both workspace candidates, so panels, signals, markers and layout come back without a serializer. <code>retainContextWhenHidden</code> is kept for now because the wasm decode of a large trace is expensive; with the sidecar in place it becomes an optimisation rather than the only state holder and can be revisited.</li>
     <li><strong>Open command.</strong> The existing "Volna: Open" command creates a free webview with no resource behind it. It becomes a file picker followed by <code>vscode.openWith(uri, "volna.waveform")</code>, so every viewer is a custom editor with a resource, a sidecar and the restore path above; the free-webview code path goes away.</li>
-    <li><strong>Remote sessions.</strong> The extension host runs where the trace is, so both reading and writing the sidecar use <code>workspace.fs</code> against the remote file system; the webview never sees a path.</li>
+    <li><strong>Remote sessions.</strong> The extension host runs where the trace is, so both reading and writing the sidecar use <code>workspace.fs</code> against the remote file system; the webview receives a durable trace URI for core identity and relative workspace references.</li>
     <li><strong>Theme</strong> stays exactly as today: the host delivers palette snapshots, the core resolves tokens, and a workspace restore never touches the theme.</li>
     <li><strong>Testing</strong> follows the existing recipe in <code>VERIFICATION.md</code>: an Extension Development Host with a short temporary user-data dir, CDP input through <code>tools/cdp.mjs</code>, <code>debug_state()</code> for assertions; the profile's <code>settings.json</code> sets <code>volna.workspace.autosave</code> to <code>off</code> except in the restore test, which uses a copy of the example trace in a temporary directory.</li>
   </ul>
@@ -644,7 +643,8 @@ pub enum Command {
     <span class="c">// existing variants unchanged, except:</span>
     Pointer(PanelId, PointerEvent),          <span class="c">// was Pointer(PointerEvent)</span>
     Panels(PanelsCommand),
-    RestoreWorkspace(Option&lt;String&gt;),        <span class="c">// host answer to Event::LoadWorkspace; prepare, then commit</span>
+    RestoreWorkspace(WorkspaceCandidates),    <span class="c">// core selects, prepares, then commits</span>
+    SaveWorkspaceAs(WorkspaceTarget),        <span class="c">// dialog result; ticketed write before switching</span>
     WorkspaceSaved { ticket: SaveTicket, result: Result&lt;(), String&gt; },   <span class="c">// ignored unless ticket is current</span>
     ...
 }
@@ -681,7 +681,7 @@ impl App {
   <div class="tabpane" data-pane="ws"><pre><code><span class="c">// volna-core/src/workspace/mod.rs</span>
 #[derive(Serialize, Deserialize)]
 pub struct Workspace { pub format: String, pub version: u32, pub trace: TraceRef,
-    pub supersedes: Option&lt;SidecarStamp&gt;,        <span class="c">// fallback files only: {size, mtime_ms} of the sidecar seen at write time</span>
+    pub supersedes: Option&lt;String&gt;,              <span class="c">// fallback base SHA-256; omitted/null means no base</span>
     pub layout: Layout, pub focused: PanelId, pub panels: Vec&lt;PanelFile&gt;,
     pub shared: Shared, pub sidebar: SidebarState }
 
@@ -695,23 +695,31 @@ pub const VERSION: u32 = 1;
 
 pub fn capture(app: &amp;App) -&gt; Workspace;
 pub fn parse(json: &amp;str) -&gt; Result&lt;Workspace, WorkspaceError&gt;;       <span class="c">// bounded size and depth</span>
-pub fn prepare(app: &amp;App, ws: Workspace) -&gt; Result&lt;RestorePlan, WorkspaceError&gt;;
-    <span class="c">// validates the tree, resolves rows to VarId or placeholder; reads the App, never mutates it</span>
+pub fn prepare(app: &amp;App, candidates: WorkspaceCandidates) -&gt; Result&lt;RestorePlan, WorkspaceError&gt;;
+    <span class="c">// selects source/target, parses, validates and resolves rows; never mutates the App</span>
 pub fn commit(app: &amp;mut App, plan: RestorePlan) -&gt; RestoreReport;
     <span class="c">// installs panels, shared values, markers, sidebar together; bumps epoch; queues visible loads</span>
 
 pub struct RestorePlan { panels: Panels, shared: Shared, markers: Vec&lt;Marker&gt;, sidebar: SidebarState,
-    report: RestoreReport }                                          <span class="c">// private; produced by prepare only</span>
-pub struct RestoreReport { pub missing_signals: Vec&lt;Vec&lt;String&gt;&gt;, pub unknown_translators: Vec&lt;String&gt;,
+    target: Option&lt;WorkspaceTarget&gt;, supersedes: Option&lt;String&gt;,
+    report: RestoreReport }                  <span class="c">// private; produced by prepare only</span>
+pub struct RestoreReport { pub missing_signals: Vec&lt;Vec&lt;String&gt;&gt;, pub ambiguous_signals: Vec&lt;Vec&lt;String&gt;&gt;,
+    pub unknown_translators: Vec&lt;String&gt;,
     pub unknown_panels: Vec&lt;(PanelId, String)&gt;, pub trace_mismatch: Option&lt;String&gt; }
 
 pub enum Persistence { Disabled, Explicit { path: PathBuf }, Auto }
 pub enum WorkspaceKey    { Sidecar { trace: PathBuf }, Explicit(PathBuf), Host(String) }   <span class="c">// Host: VS Code uri</span>
 pub enum WorkspaceTarget { Sidecar { trace: PathBuf }, Explicit(PathBuf), Host(String) }
+<span class="c">// Host reads bytes and reports I/O facts; only core parses and selects.</span>
+pub struct Candidate { pub location: WorkspaceTarget, pub writable: bool,
+    pub json: Result&lt;Option&lt;String&gt;, String&gt; }  <span class="c">// None = missing; Err is not missing</span>
+pub enum WorkspaceCandidates {
+    Disabled, Explicit(Candidate), Auto { sidecar: Candidate, fallback: Candidate },
+}
 
 <span class="c">// autosave scheduler, driven by App::tick(now)</span>
 pub struct Autosave {
-    target: Option&lt;WorkspaceTarget&gt;,   <span class="c">// chosen once per trace; changed only by Save As</span>
+    target: Option&lt;WorkspaceTarget&gt;,   <span class="c">// selected by core; successful Open/Save As may change it</span>
     epoch: u64,                        <span class="c">// bumped by every commit and trace switch</span>
     revision: u64,                     <span class="c">// bumped by every persisting command</span>
     acked: u64,                        <span class="c">// revision of the last acknowledged write for (target, epoch)</span>
@@ -723,8 +731,9 @@ pub struct Autosave {
 // on WorkspaceSaved { ticket, Err }: keep dirty, notice, retry at the next idle point on the same target</span>
 
 <span class="c">// owning-layer addition, data/source.rs</span>
-impl Hierarchy { pub fn find_var(&amp;self, path: &amp;[&amp;str], nth: usize) -&gt; Option&lt;VarId&gt;;
-                 pub fn find_scope(&amp;self, path: &amp;[&amp;str]) -&gt; Option&lt;ScopeId&gt;; }
+pub enum Lookup&lt;T&gt; { Found(T), Missing, Ambiguous }
+impl Hierarchy { pub fn find_var(&amp;self, path: &amp;[&amp;str], nth: Option&lt;usize&gt;) -&gt; Lookup&lt;VarId&gt;;
+                 pub fn find_scope(&amp;self, path: &amp;[&amp;str]) -&gt; Lookup&lt;ScopeId&gt;; }
 
 <span class="c">// preferences, volna-core/src/workspace/prefs.rs</span>
 #[derive(Serialize, Deserialize, Default)]
@@ -773,30 +782,28 @@ impl Render for WavePanelView {
 // area.layout(DockPlacement::Center).panels().len() == 1.</span></code></pre></div>
   <div class="tabpane" data-pane="ext"><pre><code><span class="c">// vscode-ext/extension.js — host side, sketch</span>
 async function resolveCustomEditor(document, panel, context) {
-  wire(panel.webview, context, document.uri);
-  const settings = vscode.workspace.getConfiguration("volna");
-  const bytes = await vscode.workspace.fs.readFile(document.uri);
-  const target = await chooseTarget(document.uri, settings);           <span class="c">// once per editor: sidecar if writable, else workspaceState; null when autosave is off</span>
-  const workspace = await readWorkspace(target);                        <span class="c">// applies the supersedes rule for a workspaceState target</span>
-  panel.webview.postMessage({ type: "open", name: basename(document.uri), bytes: bytes.buffer, workspace, settings: pick(settings) });
-  panel.webview.onDidReceiveMessage(async msg =&gt; {
-    if (msg.type === "workspace") {                                     <span class="c">// opaque JSON text; never JSON.parse'd here</span>
-      latest.set(document.uri.toString(), msg.json);
-      const error = await writeWorkspace(target, msg.json);
-      panel.webview.postMessage({ type: "saved", ticket: msg.ticket, error });
-    }
+  const settings = pick(vscode.workspace.getConfiguration("volna"));
+  <span class="c">// Helpers below only perform I/O; no JSON.parse of workspace payloads.
+  // makeWorkspaceWriter serializes writes per destination and deduplicates tickets,
+  // including across editor dispose/reopen. flush waits for already received writes.</span>
+  const writer = makeWorkspaceWriter(context);
+  wire(panel.webview, {
+    ready: async () =&gt; {
+      const bytes = await vscode.workspace.fs.readFile(document.uri);
+      const candidates = await readCandidates(document.uri, settings);
+      panel.webview.postMessage({ type: "open", traceUri: document.uri.toString(), name: basename(document.uri),
+        bytes, candidates, settings });
+    },
+    workspace: async ({ ticket, json }) =&gt; {
+      const error = await writer.write(ticket.target, ticket, json);
+      if (!writer.disposed) panel.webview.postMessage({ type: "saved", ticket, error });
+    },
+    <span class="c">// Dialog handlers return {candidate} or {target} to core; they do not change policy.</span>
   });
-  panel.onDidChangeViewState(e =&gt; { if (!e.webviewPanel.visible) panel.webview.postMessage({ type: "requestWorkspace" }); });
-  panel.onDidDispose(() =&gt; writeWorkspace(target, latest.get(document.uri.toString())));   <span class="c">// webview is gone; write what we hold</span>
-}
-function sidecarUri(uri) { return uri.with({ path: uri.path + ".volna.json" }); }
-async function writeWorkspace(target, json) {
-  if (!target || json == null) return;
-  try {
-    if (target.kind === "sidecar") await vscode.workspace.fs.writeFile(target.uri, Buffer.from(json));
-    else await context.workspaceState.update(target.key, json);
-    return undefined;
-  } catch (e) { return String(e); }                                     <span class="c">// reported in saved{}; the core retries the same target</span>
+  panel.onDidChangeViewState(e =&gt; {
+    if (!e.webviewPanel.visible) panel.webview.postMessage({ type: "requestWorkspace" });
+  });
+  panel.onDidDispose(() =&gt; { writer.disposed = true; void writer.flush(); });
 }
 <span class="c">// commands: registerCommand("volna.splitRight", () =&gt; active().postMessage({ type: "command", name: "splitRight" })) …</span></code></pre></div>
 </div></section>
@@ -807,7 +814,7 @@ async function writeWorkspace(target, json) {
   <div class="tablewrap"><table><thead><tr><th>Decision</th><th>Chosen</th><th>Because</th><th>Cost</th></tr></thead><tbody>
     <tr><td>Where the layout tree lives</td><td>Core, mirrored into the dock</td><td>Frontend-neutral saved state (AGENTS.md "Volna direction" 2); egui and tests read the same tree; library upgrades cannot break files</td><td>A translation layer and a revision guard (about 150 lines)</td></tr>
     <tr><td>Cursor ownership</td><td>Per panel with a link flag; markers shared</td><td>The requirement asks for independent cursors; the flag reproduces Surfer's shared cursor by default</td><td><code>Document::cursor</code> moves; every current caller changes (mechanical)</td></tr>
-    <tr><td>Sync groups</td><td>Two global link flags</td><td>Covers "follow" and "independent" with no group UI; groups can replace bools later without a shape change</td><td>Cannot link panels A and B but not C</td></tr>
+    <tr><td>Sync groups</td><td>Two global link flags</td><td>Covers "follow" and "independent" with no group UI; groups require a versioned format change</td><td>Cannot have separate linked sets A+B and C+D</td></tr>
     <tr><td>Panel identity in files</td><td>Monotonic <code>PanelId</code> written to the file</td><td>Layout references and future cross-panel references (source ↔ waves) need stable ids</td><td>Ids must be validated on load</td></tr>
     <tr><td>Signal references</td><td>Hierarchy path as segments, optional <code>nth</code></td><td>Names are the only identity VTR promises across runs; segments need no escaping contract for identifiers that contain dots</td><td>Needs <code>Hierarchy::find_var</code>; renames break rows (placeholders keep them visible)</td></tr>
     <tr><td>Shared navigation</td><td>One value on the document, read through by linked panels</td><td>A single copy cannot disagree; no propagation pass; re-linking always has a value to adopt</td><td>Every viewport/cursor read goes through an "effective" accessor</td></tr>
@@ -816,7 +823,7 @@ async function writeWorkspace(target, json) {
     <tr><td>Format</td><td>JSON via serde_json</td><td>Already a dependency, readable in VS Code, diffable for sharing; RON would add a crate for no user benefit</td><td>Slightly larger files than a binary format; irrelevant at this size</td></tr>
     <tr><td>Sidecar name</td><td><code>&lt;file&gt;.volna.json</code></td><td>Distinguishes <code>a.vtr</code> from <code>a.fst</code>; sortable next to the trace; ignorable by glob</td><td>Long names</td></tr>
     <tr><td>Automatic save</td><td>Idle autosave, on by default</td><td>The requirement; matches VS Code's own editor-state behaviour</td><td>Files appear beside traces; documented, gitignored for examples, disabled in tests and by flag</td></tr>
-    <tr><td>Read-only trace directory</td><td>Per-user fallback dir keyed by path hash, chosen once per trace</td><td>Shared CI artefacts are read-only; losing the session there would make the feature unreliable</td><td>A second location to explain; the fallback records the original path and the sidecar it supersedes</td></tr>
+    <tr><td>Read-only trace directory</td><td>Per-user fallback dir keyed by path hash, retained when restored</td><td>Shared CI artefacts are read-only; losing the session there would make the feature unreliable</td><td>A second location to explain; core checks the fallback's original sidecar fingerprint</td></tr>
     <tr><td>Preferences location</td><td><code>~/.config/volna</code> on Linux and macOS</td><td>Goal's example; command-line tool convention on macOS as well</td><td>Not the macOS GUI convention (<code>Library/Application Support</code>), which is used only for the workspace fallback data</td></tr>
     <tr><td>VS Code storage</td><td>Sidecar through <code>workspace.fs</code>, <code>workspaceState</code> fallback</td><td>Same file as native, remote-safe, shareable; the fallback covers read-only and virtual file systems</td><td>Multiple editors per document disabled to avoid write races</td></tr>
     <tr><td>Hidden header</td><td>Renderer wrapper over <code>DockSkin</code>, proven in the phase 0 spike</td><td>One host path for one and many panels; identical geometry to today</td><td>Forwarding boilerplate; if the seam falls short, a small renderer hook rather than a bypass</td></tr>
@@ -854,17 +861,17 @@ async function writeWorkspace(target, json) {
   <details><summary>Phase 3 · Workspace model and native persistence</summary>
     <ul>
       <li><code>workspace</code> module: model, <code>capture</code>/<code>parse</code>/<code>prepare</code>/<code>commit</code>, <code>RestoreReport</code>, <code>Persistence</code>, autosave scheduler with save tickets, preferences model.</li>
-      <li>Native store in the GPUI crate: target chosen once per trace, atomic write, fallback directory with the <code>supersedes</code> check, dialogs for Save As and Open, notices.</li>
-      <li>CLI flags and environment variables in both mains; <code>check.sh</code> exports <code>VOLNA_WORKSPACE=off</code>; <code>.gitignore</code> entry.</li>
+      <li>Native store in the GPUI crate: candidate reads, ticketed atomic writes, fallback directory and dialogs for Save As and Open, notices.</li>
+      <li>CLI flags and environment variables in the GPUI main; <code>check.sh</code> exports <code>VOLNA_WORKSPACE=off</code>; <code>.gitignore</code> entry.</li>
     </ul>
-    <p><strong>Validate:</strong> round-trip tests (capture → JSON → restore → capture equal) on synthetic sessions; restore against a hierarchy missing half the signals yields placeholders and a report; newer version rejected and autosave suspended; a failed explicit open leaves <code>debug_state()</code> unchanged; an acknowledgement for an older revision or a previous epoch leaves the workspace dirty; a fallback is loaded over an unchanged read-only sidecar and ignored over a changed one; timescale mismatch warns; fuzz the parser with truncated and oversized inputs; a native integration test opens a copied example trace in a temp dir, edits, waits for the idle save, reopens, asserts <code>debug_state()</code>; confirms the default test paths create no files.</p>
+    <p><strong>Validate:</strong> round-trip tests (capture → JSON → restore → capture equal) on synthetic sessions; restore against a hierarchy missing half the signals yields placeholders and a report; newer version rejected and autosave suspended; a failed explicit open leaves <code>debug_state()</code> unchanged; an acknowledgement for an older revision or a previous epoch leaves the workspace dirty; a fallback survives a read-only-to-writable transition, retains its original base across saves, and is set aside when the sidecar changes; missing/ambiguous variable and scope paths (including dots inside identifiers) survive round-trip; unlink snapshots the current shared state; integer timestamps above 2<sup>53</sup> round-trip exactly; failed Save As retains the old target and successful Save As during an outstanding write directs subsequent edits to the new target; a different-trace explicit Open is rejected; timescale mismatch warns; fuzz the parser with truncated and oversized inputs; a native integration test opens a copied example trace in a temp dir, edits, waits for the idle save, reopens, asserts <code>debug_state()</code>; confirms the default test paths create no files.</p>
   </details>
   <details><summary>Phase 4 · VS Code host</summary>
     <ul>
       <li>Extended <code>open</code> message, <code>workspace</code>/<code>saved</code>/<code>command</code>/<code>requestWorkspace</code> messages, sidecar and <code>workspaceState</code> storage, settings, commands, keybindings, editor-title menu, <code>supportsMultipleEditorsPerDocument: false</code>, the open command routed through <code>vscode.openWith</code>.</li>
-      <li>wasm bridge: hand the workspace to the core on open, forward <code>PersistWorkspace</code>, map <code>command</code> messages to <code>PanelsCommand</code>s.</li>
+      <li>wasm bridge: hand the candidates to the core on open, forward <code>PersistWorkspace</code>, map <code>command</code> messages to <code>PanelsCommand</code>s.</li>
     </ul>
-    <p><strong>Validate:</strong> Node tests for the host's precedence and fallback logic with a faked <code>workspace.fs</code>; Extension Development Host session driven by CDP: open trace, split, add signals, reload window, assert restored state; hide the editor and dispose it with unsaved edits, confirm the last snapshot was written without any message to the dead webview; remote-style check with a virtual file system provider stub to confirm no path leaks into the webview.</p>
+    <p><strong>Validate:</strong> Node tests that the host forwards both opaque candidates and writes the destination in each ticket with a faked <code>workspace.fs</code>; Extension Development Host session driven by CDP: open trace, split, add signals, reload window, assert restored state; hide the editor and dispose it with unsaved edits, confirm the last snapshot was written without any message to the dead webview; remote-style check with a virtual filesystem provider stub to confirm URI scheme/authority survive and relative references resolve correctly.</p>
   </details>
   <details><summary>Phase 5 · Follow-ups outside this scope</summary>
     <ul>
@@ -927,10 +934,13 @@ async function writeWorkspace(target, json) {
     const id = nextId++;
     const src = from ? state.panels[from] : null;
     state.panels[id] = { id, kind: 'waves', title: 'Waves ' + id, rows: rows || [],
-      viewport: src ? { ...src.viewport } : { ...state.sharedViewport }, cursor: src ? src.cursor : state.sharedCursor,
+      viewport: src && !src.syncViewport ? { ...viewportOf(src) } : undefined,
+      cursor: src && !src.syncCursor ? cursorOf(src) : undefined,
       syncViewport: src ? src.syncViewport : true, syncCursor: src ? src.syncCursor : true };
     return id;
   }
+  function viewportOf(p) { return p.syncViewport ? state.sharedViewport : p.viewport; }
+  function cursorOf(p) { return p.syncCursor ? state.sharedCursor : p.cursor; }
   function tabsNode(ids) { return { kind: 'tabs', panels: ids, active: 0 }; }
   function reset() {
     nextId = 1; state.panels = {}; state.markers = [{ id: 1, time: 420 }, { id: 2, time: 1310 }];
@@ -983,19 +993,24 @@ async function writeWorkspace(target, json) {
     focus(id) { state.focused = id; const t = findTabs(state.layout, id, null, -1); t.node.active = t.node.panels.indexOf(id); },
     toggleSync(id, what) {
       const p = state.panels[id];
-      if (what === 'viewport') { p.syncViewport = !p.syncViewport; if (p.syncViewport) p.viewport = { ...state.sharedViewport }; }
-      else { p.syncCursor = !p.syncCursor; if (p.syncCursor) p.cursor = state.sharedCursor; }
+      if (what === 'viewport') {
+        if (p.syncViewport) p.viewport = { ...state.sharedViewport }; else delete p.viewport;
+        p.syncViewport = !p.syncViewport;
+      } else {
+        if (p.syncCursor) p.cursor = state.sharedCursor; else delete p.cursor;
+        p.syncCursor = !p.syncCursor;
+      }
     },
-    pan(id, dir) { const p = state.panels[id]; const w = p.viewport.end - p.viewport.start; let s = p.viewport.start + dir * w * 0.1; s = Math.max(0, Math.min(TRACE_END - w, s)); setViewport(p, { start: s, end: s + w }); },
-    zoom(id, f) { const p = state.panels[id]; const w = Math.min(TRACE_END, Math.max(20, (p.viewport.end - p.viewport.start) * f)); let s = Math.max(0, p.cursor - w / 2); if (s + w > TRACE_END) s = TRACE_END - w; setViewport(p, { start: s, end: s + w }); },
+    pan(id, dir) { const p = state.panels[id], vp = viewportOf(p); const w = vp.end - vp.start; let s = vp.start + dir * w * 0.1; s = Math.max(0, Math.min(TRACE_END - w, s)); setViewport(p, { start: s, end: s + w }); },
+    zoom(id, f) { const p = state.panels[id], vp = viewportOf(p); const w = Math.min(TRACE_END, Math.max(20, (vp.end - vp.start) * f)); let s = Math.max(0, cursorOf(p) - w / 2); if (s + w > TRACE_END) s = TRACE_END - w; setViewport(p, { start: s, end: s + w }); },
     fit(id) { setViewport(state.panels[id], { start: 0, end: TRACE_END }); },
-    setCursor(id, time) { const p = state.panels[id]; p.cursor = time; if (p.syncCursor) { state.sharedCursor = time; for (const q of Object.values(state.panels)) if (q.syncCursor) q.cursor = time; } },
+    setCursor(id, time) { const p = state.panels[id]; const tick = Math.round(time); if (p.syncCursor) state.sharedCursor = tick; else p.cursor = tick; },
     addRow(id, name) { const p = state.panels[id]; if (!p.rows.includes(name)) p.rows.push(name); },
     removeRow(id, name) { const p = state.panels[id]; p.rows = p.rows.filter(r => r !== name); },
-    addMarker() { const t = state.panels[state.focused].cursor; if (state.markers.some(m => m.time === t)) return; const id = (state.markers.at(-1)?.id ?? 0) + 1; state.markers.push({ id, time: t }); },
+    addMarker() { const t = cursorOf(state.panels[state.focused]); if (state.markers.some(m => m.time === t)) return; const id = (state.markers.at(-1)?.id ?? 0) + 1; state.markers.push({ id, time: t }); },
     clearMarkers() { state.markers = []; },
   };
-  function setViewport(p, vp) { p.viewport = vp; if (p.syncViewport) { state.sharedViewport = { ...vp }; for (const q of Object.values(state.panels)) if (q.syncViewport) q.viewport = { ...vp }; } }
+  function setViewport(p, vp) { if (p.syncViewport) state.sharedViewport = { ...vp }; else p.viewport = vp; }
   function wavePath(name, vp, w, h) {
     let seed = 0; for (const ch of name) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
     const period = 40 + (seed % 7) * 37; const isBus = name.includes('[');
@@ -1016,12 +1031,13 @@ async function writeWorkspace(target, json) {
   }
   function fmt(ns) { return ns >= 1000 ? (ns / 1000).toFixed(2) + ' µs' : Math.round(ns) + ' ns'; }
   function panelHtml(p, single) {
-    const focused = p.id === state.focused; const w = 320, rh = 18; const vp = p.viewport;
+    const focused = p.id === state.focused; const w = 320, rh = 18; const vp = viewportOf(p);
     const px = t => ((t - vp.start) / (vp.end - vp.start)) * w;
     const rows = p.rows.map(r => `<div class="pg-row"><span class="pg-name">${r}<button data-act="removeRow" data-name="${r}" data-id="${p.id}" aria-label="remove ${r}">×</button></span><svg viewBox="0 0 ${w} ${rh}" preserveAspectRatio="none">${wavePath(r, vp, w, rh)}</svg></div>`).join('');
     const markers = state.markers.filter(m => m.time >= vp.start && m.time <= vp.end).map(m => `<div class="pg-marker" style="left:calc(${(px(m.time) / w * 100).toFixed(2)}% + 0px)"><span>${m.id}</span></div>`).join('');
-    const cursorIn = p.cursor >= vp.start && p.cursor <= vp.end;
-    const cursor = cursorIn ? `<div class="pg-cursor" style="left:${(px(p.cursor) / w * 100).toFixed(2)}%"></div>` : '';
+    const cursorTime = cursorOf(p);
+    const cursorIn = cursorTime !== null && cursorTime >= vp.start && cursorTime <= vp.end;
+    const cursor = cursorIn ? `<div class="pg-cursor" style="left:${(px(cursorTime) / w * 100).toFixed(2)}%"></div>` : '';
     const header = single ? '' : `<div class="pg-header"><span class="pg-title">${p.title}</span><span class="pg-tools">
           <button class="pg-tool ${p.syncViewport ? 'on' : 'off'}" data-act="toggleSync" data-what="viewport" data-id="${p.id}" title="Follow shared viewport (L)"><b>⛓</b><i>view</i></button>
           <button class="pg-tool ${p.syncCursor ? 'on' : 'off'}" data-act="toggleSync" data-what="cursor" data-id="${p.id}" title="Follow shared cursor (⇧L)"><b>⛓</b><i>cursor</i></button>
@@ -1046,7 +1062,7 @@ async function writeWorkspace(target, json) {
     const ids = panelIds(state.layout); const single = ids.length === 1; const fp = state.panels[state.focused];
     root.querySelector('.pg-center').innerHTML = nodeHtml(state.layout, single);
     const chips = single ? '' : `<span class="pg-chip">focus: ${fp.title}</span><span class="pg-chip ${fp.syncViewport ? 'on' : ''}">view ${fp.syncViewport ? 'linked' : 'free'}</span><span class="pg-chip ${fp.syncCursor ? 'on' : ''}">cursor ${fp.syncCursor ? 'linked' : 'free'}</span>`;
-    root.querySelector('.pg-status').innerHTML = `<span>0 – ${fmt(TRACE_END)}</span><span>cursor ${fmt(fp.cursor)}</span><span>${state.markers.length} markers</span>${chips}<span class="pg-hint">${single ? 'single panel: header hidden; link toggles in the View menu and keys' : ids.length + ' panels'}</span>`;
+    root.querySelector('.pg-status').innerHTML = `<span>0 – ${fmt(TRACE_END)}</span><span>cursor ${fmt(cursorOf(fp))}</span><span>${state.markers.length} markers</span>${chips}<span class="pg-hint">${single ? 'single panel: header hidden; link toggles in the View menu and keys' : ids.length + ' panels'}</span>`;
     root.querySelector('.pg-sidebar').innerHTML = `<div class="pg-side-title">Variables <small>double-click adds to the focused panel</small></div>` + SIGNALS.map(s => `<div class="pg-var" data-dbl="addRow" data-name="${s}">${s}</div>`).join('');
     document.getElementById('pg-json').textContent = JSON.stringify(captureWorkspace(), null, 2);
   }
@@ -1055,9 +1071,9 @@ async function writeWorkspace(target, json) {
     return { format: 'volna-workspace', version: 1,
       trace: { path: 'picorv32.vtr', name: 'picorv32.vtr', timescale: -9, time_range: [0, TRACE_END] },
       layout: layout(state.layout), focused: state.focused,
-      panels: Object.values(state.panels).map(p => ({ id: p.id, kind: 'waves', version: 1, title: null, link: { viewport: p.syncViewport, cursor: p.syncCursor }, viewport: p.viewport, cursor: p.cursor, scroll_y: 0, columns: { names: 220, values: 120 }, rows: p.rows.map(r => ({ signal: ['testbench', 'top', r.replace(/\[.*\]/, '')], format: r.includes('[') ? 'hex' : 'bit' })), selected: [] })),
+      panels: Object.values(state.panels).map(p => ({ id: p.id, kind: 'waves', version: 1, title: null, link: { viewport: p.syncViewport, cursor: p.syncCursor }, ...(!p.syncViewport ? { viewport: p.viewport } : {}), ...(!p.syncCursor ? { cursor: p.cursor } : {}), scroll_y: 0, columns: { names: 220, values: 120 }, rows: p.rows.map(r => ({ signal: ['testbench', 'top', r.replace(/\[.*\]/, '')], format: r.includes('[') ? 'hex' : 'bit' })), selected: [] })),
       shared: { viewport: state.sharedViewport, cursor: state.sharedCursor, markers: state.markers.map(m => ({ id: m.id, time: m.time, label: null })) },
-      sidebar: { visible: true, width: 280, scopes_fraction: 0.42, selected_scope: 'testbench.top', expanded: ['testbench'], filter: '' } };
+      sidebar: { visible: true, width: 280, scopes_fraction: 0.42, selected_scope: ['testbench', 'top'], expanded: [['testbench']], filter: '' } };
   }
   root.addEventListener('dblclick', e => { const v = e.target.closest('[data-dbl]'); if (v) { cmd.addRow(state.focused, v.dataset.name); render(); } });
   root.addEventListener('click', e => {
@@ -1086,7 +1102,7 @@ async function writeWorkspace(target, json) {
       const id = +body.dataset.id; cmd.focus(id);
       const rect = body.querySelector('.pg-rows').getBoundingClientRect();
       const x = e.clientX - rect.left - 96; const w = rect.width - 96;
-      if (x >= 0 && w > 0) { const p = state.panels[id]; cmd.setCursor(id, p.viewport.start + (x / w) * (p.viewport.end - p.viewport.start)); }
+      if (x >= 0 && w > 0) { const vp = viewportOf(state.panels[id]); cmd.setCursor(id, vp.start + (x / w) * (vp.end - vp.start)); }
       render(); root.querySelector('.pg-panel.focused')?.focus({ preventScroll: true }); return;
     }
     const panel = e.target.closest('.pg-panel');
