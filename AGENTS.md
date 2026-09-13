@@ -84,6 +84,18 @@ on the client (GOAL.md section 2 applies to the wire as much as to the
 file). The native app keeps working over a memory-mapped file through the
 local session, with no second code path.
 
+## Long-term agent-driven debugging
+
+Support MCP (Model Context Protocol) so an AI agent can drive an investigation
+from its existing conversation, query traces, and launch or control Volna to
+show hypotheses and evidence. Users should be able to select signals or time
+regions and add comments in Volna to steer that same investigation. An initial
+feedback path can compose a message to copy into the agent conversation,
+including a stable selection snapshot and readable trace, signal and time
+references. Keep MCP adapters thin over toolkit-independent core commands and
+query APIs, preserving the VTR/VDB split. This is a long-term direction, not
+a claim of implemented support or a requirement for embedded agent chat.
+
 ## Where to look
 
 | need | file |
