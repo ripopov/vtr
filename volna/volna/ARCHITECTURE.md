@@ -222,6 +222,12 @@ transaction block caches are not memory-bounded remote query results.
 
 ### Future bounded queries
 
+The [client-server proposal](../../docs/client-server.md) defines two target
+deployments: native in-process queries and a native VS Code child server
+connected to the WASM viewer through the extension relay. Its
+[interactive walkthrough](../../docs/client-server.html) illustrates the design;
+these deployments and bounded contracts are proposed, not implemented.
+
 Full histories are the current implemented waveform query. They do not meet
 the remote-file objective: an expensive history still transfers and retains
 all changes for the selected signal. A remote transport must wait for bounded
