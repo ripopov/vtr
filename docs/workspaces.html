@@ -1,0 +1,1070 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna Panels and Workspaces</title>
+<meta name="description" content="Proposed architecture for dockable waveform panels, tabs and persistent workspace sessions in Volna, standalone and inside VS Code.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f2f4f3;--paper:#fbfcfb;--ink:#1a252c;--muted:#5b6a70;--line:#d2dad7;--line-strong:#b6c2be;
+  --accent:#1f7f6a;--accent-ink:#135846;--accent-soft:#dff0ea;--amber:#b5761c;--amber-soft:#f6e9d2;
+  --exist:#e6ebf4;--exist-ink:#3a4f78;--prop:#dff0ea;--prop-ink:#135846;
+  --code-bg:#1d262c;--code-ink:#e3ebe7;--code-dim:#8fa39c;--focus:#1f7f6a;
+  --wave:#2f9d7f;--wave-bus:#3b7dd8;--cursor:#d9534f;--marker:#b5761c;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c373d;--line-strong:#3d4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
+  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
+  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
+  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+}}
+:root[data-theme="dark"]{
+  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c373d;--line-strong:#3d4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
+  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
+  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
+  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:70px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;padding-inline:0}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,pre,kbd,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.88em;background:color-mix(in srgb,var(--line) 45%,transparent);padding:1px 5px;border-radius:4px}
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;font-size:12.5px;line-height:1.6;overflow-x:auto;margin:14px 0}
+pre code{background:none;padding:0;font-size:inherit;color:inherit}
+pre .c{color:var(--code-dim);font-style:italic}
+kbd{font-size:.8em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper)}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:12px 24px;display:flex;align-items:center;gap:20px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap;letter-spacing:-.2px}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:16px;overflow:auto;scrollbar-width:none}
+nav a{font-size:12.5px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+.wrap{max-width:1180px;margin:auto;padding-inline:24px}
+section{padding-block:44px;border-bottom:1px solid var(--line)}
+.hero{padding-top:52px}
+h1{font-size:clamp(30px,4.6vw,50px);letter-spacing:-1.4px;line-height:1.08;font-weight:600;margin:0 0 18px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:26px;letter-spacing:-.6px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 10px;text-wrap:balance}
+h4{font-size:14.5px;margin:18px 0 6px}
+p{margin:0 0 12px;max-width:74ch}
+.lede{font-size:18px;color:var(--muted);max-width:70ch}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.small,small{font-size:12.5px;color:var(--muted)}
+ul,ol{padding-left:22px;max-width:80ch}li{margin:5px 0}
+.grid{display:grid;gap:16px}.two{grid-template-columns:1fr 1fr}.three{grid-template-columns:repeat(3,1fr)}
+@media (max-width:820px){.two,.three{grid-template-columns:1fr}}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
+.card p:last-child{margin-bottom:0}
+.callout{background:var(--accent-soft);border-left:3px solid var(--accent);padding:14px 18px;margin:18px 0;font-size:14px;border-radius:0 6px 6px 0}
+.callout.warn{background:var(--amber-soft);border-color:var(--amber)}
+.callout p{max-width:none}
+.badge{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;padding:1px 7px;border-radius:3px;vertical-align:middle;margin-right:4px}
+.badge.exist{background:var(--exist);color:var(--exist-ink)}
+.badge.prop{background:var(--prop);color:var(--prop-ink)}
+.badge.lib{background:var(--amber-soft);color:var(--amber)}
+body.only-proposed .exist-block{opacity:.38}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:16px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:10px 13px;border-bottom:1px solid var(--line)}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--line) 35%,transparent)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px;margin:16px 0}
+.toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px}
+.toggle input{accent-color:var(--accent)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:18px 0 0;flex-wrap:wrap}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.tabpane{display:none;padding-top:14px}.tabpane.active{display:block}
+details{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:0 18px;margin:10px 0}
+details summary{cursor:pointer;padding:12px 0;font-weight:500;list-style:none;display:flex;gap:10px;align-items:center}
+details summary::before{content:"";width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}
+details[open] summary::before{transform:rotate(45deg)}
+details > :not(summary){margin-bottom:14px}
+.steps{counter-reset:s;list-style:none;padding:0;max-width:none}
+.steps li{counter-increment:s;position:relative;padding-left:38px;margin:10px 0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace}
+.cite{font-size:12px;color:var(--muted)}
+.cite code,td .cite code{font-size:11.5px;white-space:normal;overflow-wrap:anywhere}
+td:last-child.cite{min-width:180px}
+/* ownership diagram */
+.own{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;margin:18px 0}
+@media (max-width:900px){.own{grid-template-columns:1fr}}
+.box{border:1px solid var(--line-strong);border-radius:8px;padding:12px 14px;background:var(--paper)}
+.box .t{font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.box .t small{font-weight:400}
+.box .box{margin:8px 0;background:color-mix(in srgb,var(--bg) 60%,var(--paper))}
+.box.prop-b{border-color:var(--accent)}
+.box.exist-b{border-color:var(--exist-ink)}
+.box.host{border-style:dashed}
+.arrows{font-size:12.5px;color:var(--muted);margin:6px 0;display:flex;flex-wrap:wrap;gap:6px 18px}
+/* playground */
+.pg{border:1px solid var(--line-strong);border-radius:10px;background:var(--code-bg);color:var(--code-ink);font-size:12px;overflow:hidden;margin:18px 0}
+.pg *{box-sizing:border-box}
+.pg-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid #2c3a42;background:#182129}
+.pg-toolbar button,.pg button{font:inherit;font-size:12px;background:#243039;color:var(--code-ink);border:1px solid #3a4a55;border-radius:4px;padding:3px 9px;cursor:pointer}
+.pg button:hover{background:#2f3e49}
+.pg button:focus-visible{outline:2px solid var(--focus)}
+.pg-main{display:flex;min-height:380px}
+.pg-sidebar{width:190px;flex:none;border-right:1px solid #2c3a42;padding:8px;overflow:auto;background:#161e24}
+.pg-side-title{font-weight:500;margin-bottom:6px;color:#9fb1ab}
+.pg-side-title small{display:block;font-weight:400;color:#7f918b;font-size:10.5px}
+.pg-var{padding:2px 6px;border-radius:3px;cursor:pointer;font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.pg-var:hover{background:#243039}
+.pg-center{flex:1;min-width:0;display:flex;padding:6px;gap:0}
+.pg-split{display:flex;flex:1;min-width:0;min-height:0;gap:6px}
+.pg-split.h{flex-direction:row}.pg-split.v{flex-direction:column}
+.pg-cell{display:flex;min-width:0;min-height:0}
+.pg-tabpanel{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
+.pg-tabs{display:flex;gap:2px;background:#182129;border-radius:6px 6px 0 0;padding:4px 4px 0}
+.pg-tab{background:#1f2a32;border:1px solid #2c3a42;border-bottom:0;border-radius:5px 5px 0 0;padding:3px 10px;color:#9fb1ab;display:flex;gap:8px;align-items:center}
+.pg-tab.active{background:#26333c;color:var(--code-ink)}
+.pg-tab.focused{box-shadow:inset 0 2px 0 var(--focus)}
+.pg-tab-close{opacity:.6;cursor:pointer}.pg-tab-close:hover{opacity:1}
+.pg-tab-new{padding:3px 8px}
+.pg-panel{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid #2c3a42;border-radius:6px;background:#1f2a32;outline:1px solid transparent}
+.pg-tabs + .pg-panel{border-radius:0 0 6px 6px}
+.pg-panel.focused:not(.single){outline-color:var(--focus);border-color:var(--focus)}
+.pg-header{display:flex;align-items:center;gap:8px;padding:3px 8px;border-bottom:1px solid #2c3a42;background:#182129;font-size:11.5px}
+.pg-title{color:#9fb1ab}.pg-panel.focused .pg-title{color:var(--code-ink)}
+.pg-tools{margin-left:auto;display:flex;gap:4px}
+.pg-tool{padding:1px 6px !important;display:inline-flex;gap:3px;align-items:center}
+.pg-tool i{font-style:normal;font-size:10px;color:#9fb1ab}
+.pg-tool.on{border-color:var(--focus);color:var(--focus)}
+.pg-body{flex:1;min-height:0;display:flex;flex-direction:column;cursor:crosshair;position:relative;overflow:hidden}
+.pg-tool.off{opacity:.65}.pg-tool.off b{text-decoration:line-through;font-weight:400}
+.pg-timeline{position:relative;height:20px;border-bottom:1px solid #2c3a42;margin-left:96px;display:flex;justify-content:space-between;padding:0 4px;color:#7f918b;font-family:"IBM Plex Mono",monospace;font-size:10.5px;align-items:center}
+.pg-rows{flex:1;position:relative;overflow:auto;padding-bottom:4px}
+.pg-row{display:flex;align-items:center;height:22px}
+.pg-name{width:96px;flex:none;padding:0 6px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:#c9d5d0;display:flex;justify-content:space-between;gap:4px;white-space:nowrap;overflow:hidden}
+.pg-name button{padding:0 4px !important;font-size:10px;opacity:0;line-height:1.3}
+.pg-row:hover .pg-name button{opacity:.8}
+.pg-row svg{flex:1;height:18px;min-width:0}
+.pg-row svg path{fill:none;stroke:var(--wave);stroke-width:1.4}
+.pg-row svg path:not(.bit){stroke:var(--wave-bus);fill:color-mix(in srgb,var(--wave-bus) 18%,transparent)}
+.pg-row svg text{fill:#c9d5d0;font-size:9px;font-family:"IBM Plex Mono",monospace}
+.pg-marker{position:absolute;top:0;bottom:-380px;width:0;border-left:1px dashed var(--marker);z-index:1;pointer-events:none}
+.pg-marker span{position:absolute;top:2px;left:2px;background:var(--marker);color:#1d262c;border-radius:3px;font-size:9px;padding:0 4px;font-weight:600}
+.pg-cursor{position:absolute;top:0;bottom:-380px;width:0;border-left:1.5px solid var(--cursor);z-index:2;pointer-events:none}
+.pg-panel:not(.focused):not(.single) .pg-cursor{opacity:.45}
+.pg-empty{padding:12px;color:#7f918b}
+.pg-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid #2c3a42;background:#182129;color:#9fb1ab;font-family:"IBM Plex Mono",monospace;font-size:11px;align-items:center}
+.pg-chip{border:1px solid #3a4a55;border-radius:10px;padding:0 8px}
+.pg-chip.on{border-color:var(--focus);color:var(--focus)}
+.pg-hint{margin-left:auto;font-family:"IBM Plex Sans",sans-serif;color:#7f918b}
+.pg-json{max-height:420px;overflow:auto;margin-top:0;border-radius:0 0 10px 10px;font-size:11.5px}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;align-items:baseline;max-width:640px}
+.keys kbd{white-space:nowrap}
+.flow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:820px){.flow{grid-template-columns:1fr}}
+.msg{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:11.5px;background:color-mix(in srgb,var(--line) 45%,transparent);border-radius:4px;padding:0 5px}
+footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">Volna <span>Panels &amp; Workspaces</span></a>
+  <nav>
+    <a href="#summary">Summary</a><a href="#today">Today</a><a href="#refs">References</a><a href="#panels">Panels</a><a href="#playground">Playground</a><a href="#ownership">Ownership</a><a href="#dock">Docking</a><a href="#model">Data model</a><a href="#persist">Persistence</a><a href="#flows">Flows</a><a href="#vscode">VS Code</a><a href="#api">API</a><a href="#tradeoffs">Trade-offs</a><a href="#plan">Plan</a>
+  </nav>
+</div></header>
+
+<main id="top">
+<section class="hero"><div class="wrap">
+  <div class="eyebrow">Architecture proposal · volna-core · GPUI · VS Code</div>
+  <h1>Dockable waveform panels and <em>persistent workspaces</em> for Volna</h1>
+  <p class="lede">Several waveform panels over one trace, arranged in VS Code-style splits and tabs, with linked or independent viewports and cursors, and a workspace file that brings the whole debugging session back when the trace is reopened, natively or inside VS Code.</p>
+  <div class="legend">
+    <span><span class="badge exist">existing</span> already in the repository</span>
+    <span><span class="badge prop">proposed</span> new in this design</span>
+    <span><span class="badge lib">library</span> provided by gpui-kit 0.6.1</span>
+    <label class="toggle"><input type="checkbox" id="only-proposed"> dim existing material</label>
+  </div>
+  <p class="small">Research and design only; nothing here is implemented. Citations point at files in this repository, the pinned Surfer fork under <code>ext/surfer</code>, and the gpui-kit 0.6.1 sources in the cargo registry.</p>
+</div></section>
+
+<section id="summary"><div class="wrap">
+  <div class="eyebrow">Recommendation</div>
+  <h2>The simplest coherent design</h2>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">Panels live in the core</h4>
+      <p><span class="badge prop">proposed</span> <code>volna-core</code> gains a <code>Panels</code> model: a toolkit-neutral layout tree of splits and tab groups, a map of panels keyed by a never-recycled <code>PanelId</code>, and a focused panel. Each waveform panel owns a <code>WaveModel</code> (rows, viewport, cursor, selection). The <code>Document</code> keeps what every panel shares: the session, markers, translators and load bookkeeping. Keyboard actions go to the focused panel; pointer events name their panel.</p></div>
+    <div class="card"><h4 style="margin-top:0">Two link flags per panel, no groups</h4>
+      <p><span class="badge prop">proposed</span> Synchronisation is two toggles per panel, <em>follow viewport</em> and <em>follow cursor</em>, shown as icon buttons in the panel header. Linked panels share one viewport and one cursor stored on the document; an unlinked panel keeps its own. With a single panel the header is hidden and the same toggles sit in the View menu and status bar, where they are also reachable by keyboard.</p></div>
+    <div class="card"><h4 style="margin-top:0">Reuse gpui-kit's dock engine</h4>
+      <p><span class="badge lib">library</span> The GPUI frontend hosts the central area in gpui-kit's <code>DockArea</code>, which already provides nested splits, tab groups, drag-to-reorder, drag-to-split, zoom and a serde round trip. <span class="badge prop">proposed</span> A thin adapter mirrors the core layout into the dock and translates dock edits back; a wrapper renderer hides the tab bar when the centre holds one panel, so today's viewer looks unchanged.</p></div>
+    <div class="card"><h4 style="margin-top:0">One workspace format, thin hosts</h4>
+      <p><span class="badge prop">proposed</span> <code>volna-core::workspace</code> defines a versioned JSON document, captures it from <code>App</code>, restores it by resolving signal paths against the open hierarchy, and schedules autosaves. Hosts only move bytes: the native app writes <code>trace.vtr.volna.json</code> beside the trace, the VS Code extension writes the same file through <code>workspace.fs</code> so remote files work, and both fall back to per-user storage when the trace directory is read-only.</p></div>
+  </div>
+  <div class="callout"><p><strong>What stays out.</strong> Nothing presentational enters VTR, VDB or the future raw-data query protocol; workspace files are a client-side annotation beside the trace. The egui frontend keeps rendering exactly one panel, the focused one, and gains no persistence. No new panel kinds ship in this scope, but the panel model, workspace format and dock registry are keyed by kind so transaction, source and pipeline panels slot in later.</p></div>
+</div></section>
+
+<section id="today"><div class="wrap">
+  <div class="eyebrow">Starting point</div>
+  <h2>What exists today</h2>
+  <p>The current viewer is one wave view over one document. These are the facts the design has to change or build on, from a read of the three viewer crates and the VS Code adapter.</p>
+  <div class="tablewrap exist-block"><table>
+    <thead><tr><th>Area</th><th>Current state</th><th>Where</th></tr></thead>
+    <tbody>
+    <tr><td>Core app</td><td><span class="badge exist">existing</span> <code>App</code> owns exactly one <code>WaveModel</code> by value plus the sidebar models and chrome geometry. <code>Action</code> (18 keyboard actions), <code>Command</code> (22 variants) and <code>PointerEvent</code> carry no panel identity. <code>layout_waves</code>, <code>render_waves</code>, <code>tick</code>, <code>status</code> and <code>debug_state</code> all address that single model.</td><td class="cite"><code>volna/volna-core/src/app.rs:20-129</code>, <code>:390-489</code></td></tr>
+    <tr><td>Document vs view</td><td><span class="badge exist">existing</span> <code>Document</code> holds the session, cursor, markers, translators and load generations; <code>WaveModel</code> holds rows, selection, viewport, scroll, column widths and the format menu. The architecture note already promises that a second view "would see the same cursor without any extra wiring". Markers are bare times without ids or labels; the cursor is wiped with every session change.</td><td class="cite"><code>document.rs:18-38</code>, <code>:126-132</code>; <code>wave/model.rs:94-118</code>; <code>volna/volna/ARCHITECTURE.md</code> "Document versus view"</td></tr>
+    <tr><td>Identities</td><td><span class="badge exist">existing</span> <code>ScopeId</code>/<code>VarId</code> are indices into the resident <code>Hierarchy</code>; <code>SignalRef</code> is a backend handle. Paths are producible (<code>scope_path</code>, <code>full_name</code>) but there is no path-to-id lookup. VTR's stable identity for external databases is by full hierarchical name.</td><td class="cite"><code>data/source.rs:5-67</code>; <code>docs/SPEC.md:40-44</code></td></tr>
+    <tr><td>Loads</td><td><span class="badge exist">existing</span> Pull-based, generation-stamped <code>LoadRequest</code>/<code>LoadResult</code>; results fan into the one wave model; duplicate rows share an <code>Arc</code> history and dropping the last row releases it.</td><td class="cite"><code>app.rs:203-225</code>; <code>document.rs:177-207</code></td></tr>
+    <tr><td>Serialisation</td><td><span class="badge exist">existing</span> <code>volna-core</code> already depends on serde and serde_json, but only for one-way host palette parsing. Nothing in the viewer crates writes to disk. No <code>dirs</code>/<code>clap</code> dependency; both native mains parse <code>FILE</code>, <code>--synthetic N</code> and <code>--help</code> by hand.</td><td class="cite"><code>volna-core/Cargo.toml:20-21</code>; <code>theme/palette.rs</code>; <code>volna/src/main.rs:11-29</code></td></tr>
+    <tr><td>GPUI shell</td><td><span class="badge exist">existing</span> One <code>Workspace</code> entity per window inside gpui-kit's <code>Root</code>; three focus handles; key context <code>"Waves"</code> for wave actions; a custom 1 px <code>Splitter</code> with a window-wide drag surface; <code>WaveTable</code> element takes the whole workspace entity. gpui-kit 0.6.1 is pinned and its buttons, tooltips and popup menus are in use; the dock module is compiled but unused.</td><td class="cite"><code>volna/src/app.rs:73-159</code>, <code>:638-670</code>; <code>wave/table.rs:23-31</code>; <code>ui/splitter.rs</code></td></tr>
+    <tr><td>VS Code adapter</td><td><span class="badge exist">existing</span> Custom editor <code>volna.waveform</code> for <code>*.vtr</code>/<code>*.fst</code>, read-only provider shape, <code>retainContextWhenHidden</code>, <code>supportsMultipleEditorsPerDocument: true</code>. Three messages: <span class="msg">ready</span>, <span class="msg">pickFile</span> from the webview, <span class="msg">open {name, bytes}</span> from the host. No <code>workspaceState</code>, <code>setState</code> or serializer; a hidden tab survives only through retained context.</td><td class="cite"><code>vscode-ext/extension.js:44-118</code>; <code>package.json:16-23</code></td></tr>
+    <tr><td>Web bridge</td><td><span class="badge exist">existing</span> Host events reach wasm through one channel: <code>open_trace</code>, <code>set_theme</code>, <code>set_vscode_theme</code>, <code>debug_state</code>; traces arrive as bytes and open through <code>OpenSpec::Bytes</code>. <code>OpenSpec::Path</code> does not exist on wasm.</td><td class="cite"><code>volna/src/lib.rs:87-236</code>; <code>session.rs:79-87</code></td></tr>
+    <tr><td>egui frontend</td><td><span class="badge exist">existing</span> Calls <code>App::{new, handle, deliver, take_events, take_requests, open_path, open_synthetic, tick, status, trace_state, layout_waves}</code> and reads <code>app.waves</code>, sidebar fields and chrome geometry directly. Its own single-panel <code>KeyTarget</code> routes keys.</td><td class="cite"><code>volna-egui/src/lib.rs:93-139</code></td></tr>
+    <tr><td>Tests</td><td><span class="badge exist">existing</span> Headless tests inject sessions with <code>set_session</code>; the Metal harness opens <code>examples/picorv32.vtr</code> and asserts substrings of <code>debug_state()</code>, whose one-line format is itself a test contract. No sidecar patterns in <code>.gitignore</code>.</td><td class="cite"><code>tests/headless.rs:695</code>; <code>tests/viewer.rs:265-275</code></td></tr>
+    </tbody></table></div>
+</div></section>
+
+<section id="refs"><div class="wrap">
+  <div class="eyebrow">References examined</div>
+  <h2>Surfer, gpui-kit's dock, and VS Code's editor lifecycle</h2>
+  <div class="tabs" role="tablist" data-tabs="refs">
+    <button role="tab" aria-selected="true" data-tab="surfer">Surfer integration</button>
+    <button role="tab" aria-selected="false" data-tab="gpui">gpui-kit Dock and example-dock</button>
+    <button role="tab" aria-selected="false" data-tab="vsc">VS Code custom editors</button>
+  </div>
+  <div class="tabpane active" data-pane="surfer">
+    <p>The pinned Surfer fork (egui, <code>egui_tiles 0.17</code>) is the behaviour bar. Its tiling and state code is about ten thousand lines with a design record in <code>ext/surfer/TileDesign.md</code>. What it does, and what this design borrows or rejects:</p>
+    <div class="tablewrap"><table><thead><tr><th>Surfer</th><th>Fact</th><th>Volna</th></tr></thead><tbody>
+      <tr><td>Own layout type</td><td><code>LayoutNode = Tile | Split{dir, shares, children} | Tabs{active, children}</code> is authoritative; the <code>egui_tiles::Tree</code> is rebuilt whenever a <code>revision</code> counter changes, and the saved <code>LayoutFile</code> contains no library node ids. <span class="cite"><code>libsurfer/src/tiles/layout.rs:48-142</code>, <code>render.rs:87-107</code></span></td><td><strong>Borrowed.</strong> The core layout tree is authoritative; the gpui dock is a mirror.</td></tr>
+      <tr><td>Three ownership tiers</td><td>Shared document (<code>WaveData</code>: cursor, markers, scope), shared content (<code>ItemList</code>, referenced by several tiles), per-tile view (<code>WaveformView</code>: viewport, scroll, focused item). <span class="cite"><code>tiles/workspace.rs:525-529</code>, <code>tile_kinds/waveform.rs:416-426</code>, <code>TileDesign.md:96-130</code></span></td><td><strong>Simplified.</strong> Two tiers: shared document, per-panel view. Each panel owns its signal list, as the requirements ask; "split as clone" copies the list.</td></tr>
+      <tr><td>Cursor shared, viewport independent</td><td>Any pane's click sets the one document cursor; zoom and pan are per tile with no sync feature; vertical scroll is opt-in linked. <span class="cite"><code>tiles/commands.rs:64-78</code>, <code>workspace/operations.rs:199-220</code></span></td><td><strong>Extended.</strong> Both cursor and viewport are per panel with an opt-out link flag each, so a split can show a second time window while still sharing the cursor.</td></tr>
+      <tr><td>Hidden tab bar</td><td><code>hide_single_tab_bar</code> (default true) sets the bar height to zero and suppresses the focus outline when one tile exists; one rendering path for 1 and N tiles. <span class="cite"><code>render.rs:152, 463-465</code>, <code>config.rs:242</code></span></td><td><strong>Borrowed.</strong> Same rule, implemented as a wrapper over the dock skin.</td></tr>
+      <tr><td>Focus resolved at the input boundary</td><td><code>TileTarget::Focused</code> becomes a concrete <code>TileId</code> once, so queued commands cannot drift. <span class="cite"><code>tiles/input.rs:15-50</code></span></td><td><strong>Borrowed.</strong> Frontends send <code>Pointer(PanelId, …)</code>; keyboard actions resolve against <code>panels.focused</code> synchronously inside <code>App::handle</code>.</td></tr>
+      <tr><td>State files</td><td>RON, <code>&lt;stem&gt;.surf.ron</code>, <code>--state-file</code>, sibling autoload with <code>Always/Ask/Never</code>; config (TOML, <code>ProjectDirs</code>) is <code>#[serde(skip)]</code> and never in state; loading a state keeps the live waveform and takes only cursor, markers and scope from the saved document. <span class="cite"><code>wave_source.rs:57-104</code>, <code>config.rs:77-133</code>, <code>state.rs:784-844</code>, <code>surfer/src/main.rs:41-72</code></span></td><td><strong>Borrowed</strong> (sibling file, preferences separate, keep the live trace on explicit load). <strong>Changed:</strong> JSON instead of RON, full-file-name sidecar, automatic save, relative trace path.</td></tr>
+      <tr><td>Missing signals</td><td>Unresolvable variables become <code>DisplayedItem::Placeholder</code> when <code>keep_unavailable</code> is set and are promoted back when the name resolves again. <span class="cite"><code>wave_data.rs:211-260, 321-346</code></span></td><td><strong>Borrowed.</strong> Placeholder rows survive a save/load cycle.</td></tr>
+      <tr><td>Versioned, opaque tile payloads</td><td><code>TileFile{kind, kind_version, payload: RawValue}</code> keeps unknown kinds as raw text; decoder bounded to 64 MiB and depth 128. <span class="cite"><code>tiles/serde.rs:19-49</code></span></td><td><strong>Borrowed</strong> for panel payloads (<code>serde_json::value::RawValue</code>).</td></tr>
+      <tr><td>VS Code</td><td><code>CustomReadonlyEditorProvider</code> hosting the wasm build with <code>retainContextWhenHidden</code>; state is saved only by explicit <span class="msg">RequestState</span>/<span class="msg">saveState</span> messages to a <code>.surf.ron</code> the user picks; nothing is restored across a VS Code restart. <span class="cite"><code>surfer-vscode/extension/src/surferWaveformViewer.ts:104-116, 224-262</code></span></td><td><strong>Exceeded.</strong> Automatic sidecar through <code>workspace.fs</code> and restore on editor resolve.</td></tr>
+    </tbody></table></div>
+  </div>
+  <div class="tabpane" data-pane="gpui">
+    <p>Volna pins <code>gpui-kit = "=0.6.1"</code> (registry, no git). In 0.6 the dock was split into an engine in <code>gpui-base</code> and a skin in <code>gpui-component</code>; the older <code>DockItem</code>/<code>TabPanel</code>/<code>StackPanel</code> types survive only as the persisted strings <code>"StackPanel"</code>/<code>"TabPanel"</code>. The upstream <code>examples/dock/src/main.rs</code> (tag v0.6.1) is not vendored in the registry; it was fetched for this study.</p>
+    <div class="tablewrap"><table><thead><tr><th>Capability</th><th>gpui-kit 0.6.1</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Areas</td><td>One <code>DockArea</code> with a centre pane tree plus optional left, right and bottom docks, each collapsible and resizable; no top dock; no tear-off windows.</td><td class="cite"><code>gpui-base/src/dock/dock_area.rs:127-378</code></td></tr>
+      <tr><td>Tree</td><td><code>PaneNode = Split | Tabs | Tiles</code>, unbounded nesting, stable <code>NodeId</code>s; normalisation removes empties, collapses single children and splices same-axis splits. <code>PanelId</code> is the panel entity's id.</td><td class="cite"><code>dock/mod.rs:7-13</code>, <code>layout/normalize.rs:13-45</code></td></tr>
+      <tr><td>Editing</td><td><code>add_panel_view</code>, <code>remove_panel</code>, <code>move_panel(PanelId, InsertTarget)</code>, <code>split_at(NodeId, PanelId, Placement)</code>, zoom of a container, <code>set_locked</code>.</td><td class="cite"><code>dock_area.rs:402-739</code></td></tr>
+      <tr><td>Drag and drop</td><td>GPUI's own drag API: tab reorder, move between groups, drop on an edge to split; host values can be dropped too and arrive as <code>DockEvent::DragDrop{item, target}</code>.</td><td class="cite"><code>gpui-component/src/dock/tab_panel.rs:526-605</code>, <code>tab_group.rs:740-752</code></td></tr>
+      <tr><td>Persistence</td><td><code>dump() -&gt; DockAreaState</code> and <code>load(DockAreaState)</code>; <code>PanelState{panel_name, children, info}</code> with <code>PanelInfo::{Stack{sizes: Vec&lt;Pixels&gt;, axis}, Tabs{active_index}, Panel(serde_json::Value), Tiles}</code>; panels rebuilt through a global <code>PanelRegistry</code> by name; unknown names survive a round trip through a placeholder; <code>version: Option&lt;usize&gt;</code> is stored, never compared.</td><td class="cite"><code>dock/state.rs:10-140</code>, <code>registry.rs:59-125</code>, <code>dock_area.rs:821-900</code></td></tr>
+      <tr><td>Panel trait</td><td>Base: <code>panel_name, visible, closable, zoomable, set_active, dump</code>. Skin: <code>tab_name, title, title_style, toolbar_buttons, dropdown_menu, zoom_control, inner_padding</code>.</td><td class="cite"><code>gpui-base/src/dock/panel.rs:21-92</code>, <code>gpui-component/src/dock/panel.rs:71-137</code></td></tr>
+      <tr><td>Single panel</td><td><code>PanelStyle::Auto</code> replaces the tab bar with a 30 px title row when a group shows one panel; there is no flag to hide it entirely. The whole appearance is a replaceable <code>DockAreaRenderer</code>/<code>TabGroupRenderer</code>.</td><td class="cite"><code>tab_panel.rs:356, 691</code>, <code>tab_group.rs:904</code>, <code>dock_area.rs:1975-2076</code></td></tr>
+      <tr><td>Focus</td><td>Each <code>TabGroup</code> tracks focus and focuses the displayed panel's <code>FocusHandle</code> on selection; <code>set_active</code> is delivered once per edge. No area-wide "active panel" accessor.</td><td class="cite"><code>tab_group.rs:465-715</code>, <code>active.rs</code></td></tr>
+      <tr><td>Events and keys</td><td><code>DockEvent::LayoutChanged</code> fires on every edit, undebounced. Actions <code>ToggleZoom</code>/<code>ClosePanel</code> exist without default bindings; no next/previous-tab action; no per-tab close button in the skin.</td><td class="cite"><code>dock_area.rs:40</code>, <code>dock/mod.rs:63</code>, <code>tab_panel.rs:271</code></td></tr>
+      <tr><td>Sizes</td><td>Global <code>PANEL_MIN_SIZE = 100 px</code>; split sizes are written back only when a resize drag finishes, and <code>dump</code> reads measured pixels.</td><td class="cite"><code>gpui-base/src/resizable/mod.rs:14</code>, <code>dock_area.rs:884-899</code></td></tr>
+      <tr><td>Platform</td><td>No <code>cfg(wasm)</code> gating and no file I/O in the dock modules; no TODOs. Untested here on wasm.</td><td class="cite">grep over <code>gpui-base-0.6.1/src/dock</code></td></tr>
+      <tr><td>example-dock</td><td>Creates the area with <code>DockSkin::dock_area(id, Some(version))</code>; subscribes to <code>LayoutChanged</code> and saves <code>dump()</code> to <code>target/docks.json</code> after a 10 s timer, skipping unchanged states; saves again in <code>on_app_quit</code>; on load compares the file's <code>version</code> with its own constant and prompts to reset; registers panel builders so <code>load</code> can rebuild them; binds <kbd>shift-escape</kbd> to zoom and <kbd>ctrl-w</kbd> to close.</td><td class="cite"><code>gpui-kit v0.6.1 examples/dock/src/main.rs:34-106, 184-262</code></td></tr>
+    </tbody></table></div>
+  </div>
+  <div class="tabpane" data-pane="vsc">
+    <p>Facts from the VS Code extension guides that shape the host adapter:</p>
+    <ul>
+      <li><strong>Webview state.</strong> <code>getState</code>/<code>setState</code> "is persisted even after the webview content itself is destroyed when a webview panel becomes hidden", but "the state is destroyed when the webview panel is destroyed". They are "the preferred way to persist state, as they have much lower performance overhead than <code>retainContextWhenHidden</code>", which "has high memory overhead and should only be used when other persistence techniques will not work". (Webview guide, Persistence.)</li>
+      <li><strong>Restart.</strong> A <code>WebviewPanelSerializer</code> restores plain webview panels across restarts. Custom editors are editor inputs: VS Code reopens them with the workspace and asks the provider to <code>openCustomDocument</code> and <code>resolveCustomEditor</code> again, so restoring a Volna editor is the same code path as the first open. The custom editor guide recommends <code>workspace.fs</code> for writing files, which also covers remote and virtual workspaces.</li>
+      <li><strong>Multiple editors.</strong> "By default, VS Code only allows there to be one editor for each custom document"; Volna currently opts into <code>supportsMultipleEditorsPerDocument: true</code>. With internal panels covering the split use case, two editors autosaving one sidecar would race, so the proposal turns this off.</li>
+      <li><strong>Read-only provider.</strong> Volna's traces are never edited, so the provider remains the read-only shape: no backup, save or revert hooks. Workspace files are separate from the document and never mark the editor dirty.</li>
+    </ul>
+  </div>
+</div></section>
+
+<section id="panels"><div class="wrap">
+  <div class="eyebrow">Panels</div>
+  <h2>Panel model and interactions</h2>
+  <h3>Core types <span class="badge prop">proposed</span></h3>
+  <pre><code><span class="c">// volna-core/src/panels/mod.rs</span>
+pub struct PanelId(u64);                     <span class="c">// monotonic per App, never recycled</span>
+pub enum Axis { Horizontal, Vertical }
+
+pub enum Layout {
+    Tabs  { panels: Vec&lt;PanelId&gt;, active: usize },          <span class="c">// leaves only, like Surfer and gpui-base</span>
+    Split { axis: Axis, sizes: Vec&lt;f32&gt;, children: Vec&lt;Layout&gt; }, <span class="c">// sizes are fractions summing to 1</span>
+}
+
+pub enum PanelKind { Waves(WaveModel) }      <span class="c">// later: Transactions(..), Source(..), Pipeline(..)</span>
+impl PanelKind { pub fn name(&amp;self) -&gt; &amp;'static str { "waves" } }
+
+pub struct Link { pub viewport: bool, pub cursor: bool }   <span class="c">// default: both true</span>
+
+pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub link: Link, pub kind: PanelKind }
+
+pub struct Panels {
+    layout: Layout,
+    panels: BTreeMap&lt;PanelId, Panel&gt;,
+    focused: PanelId,                        <span class="c">// always a panel in `layout`</span>
+    next_id: u64,
+}</code></pre>
+  <p>Invariants the core enforces after every command: the layout references every panel exactly once, tab groups contain at least one panel, splits contain at least two children, sizes are normalised, and at least one waveform panel exists. Closing the last panel empties it instead of removing it, so the single-panel view is always available and the hidden-header rule below never has to handle zero panels.</p>
+
+  <h3>What moves, what stays</h3>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">Shared on <code>Document</code></h4>
+      <ul>
+        <li><span class="badge exist">existing</span> session, translators, hierarchy access, load generations and pending set</li>
+        <li><span class="badge exist">existing</span> markers, now with an <code>id</code> and optional <code>label</code> so chips are addressable and a workspace can name them (<code>Marker{id, time, label}</code>)</li>
+        <li><span class="badge prop">proposed</span> <code>linked: Linked { viewport: Viewport, cursor: Option&lt;u64&gt; }</code>, the values every linked panel displays</li>
+      </ul></div>
+    <div class="card"><h4 style="margin-top:0">Per panel on <code>WaveModel</code></h4>
+      <ul>
+        <li><span class="badge exist">existing</span> rows (<code>DisplayedSignal</code>), selection, viewport and animation, scroll, column widths, hover and drag state, format menu</li>
+        <li><span class="badge prop">proposed</span> <code>cursor: Option&lt;u64&gt;</code> moves here from <code>Document</code></li>
+        <li><span class="badge prop">proposed</span> <code>missing: bool</code> on a row that could not be resolved on restore (placeholder)</li>
+      </ul></div>
+  </div>
+  <p>Load fan-out changes from "the one model" to "every waveform panel that shows this signal": <code>App::deliver</code> iterates the panels, and histories stay shared <code>Arc</code>s across panels exactly as they are shared across duplicate rows today. A history is released when the last row in any panel drops it.</p>
+
+  <h3>Synchronisation semantics <span class="badge prop">proposed</span></h3>
+  <ul>
+    <li><strong>Two flags per panel.</strong> <code>link.viewport</code> and <code>link.cursor</code>, both on by default. New panels inherit the flags of the panel they were split from.</li>
+    <li><strong>Linked means "displays the document value".</strong> When a linked panel pans, zooms, fits, animates or sets the cursor, the core writes the new value into <code>doc.linked</code> and copies it into every other linked panel, animation target included (<code>WaveModel::follow(&amp;source)</code>). Unlinked panels are untouched.</li>
+    <li><strong>Toggling on snaps.</strong> Turning a flag on copies the document value into the panel. Turning it off leaves the panel where it is; it now moves alone.</li>
+    <li><strong>Edge stepping and "centre on cursor"</strong> operate on the focused panel's own cursor and viewport and then propagate through the same rule, so linked panels follow.</li>
+    <li><strong>Markers are always shared</strong>; <kbd>M</kbd> adds a marker at the focused panel's cursor.</li>
+    <li><strong>One panel:</strong> the flags exist but have no visible effect. They are kept so a later split starts in the expected state.</li>
+  </ul>
+  <p>This is deliberately weaker than named sync groups (as in Verdi or GTKWave "locked" windows): one global link per dimension covers the two common cases, "everything follows" and "this one is my independent zoomed-in view", and it needs no group management UI. Groups can be added later by replacing the bools with a <code>GroupId</code> without changing the file format's shape (the field becomes an integer).</p>
+
+  <h3>Interactions <span class="badge prop">proposed</span></h3>
+  <div class="tablewrap"><table><thead><tr><th>Interaction</th><th>Behaviour</th><th>Access</th></tr></thead><tbody>
+    <tr><td>Create</td><td><em>Split right</em>/<em>split down</em> clones the focused panel (signal list, format choices, link flags, viewport, cursor) beside it; <em>new tab</em> adds an empty waveform panel to the focused tab group and focuses it. A split of a panel already inside a same-axis split appends a sibling rather than nesting.</td><td>Header buttons, View menu, tab-bar <kbd>+</kbd>, <kbd>⌘\</kbd> / <kbd>⌘⇧\</kbd>, <kbd>⌘N</kbd>; drag a tab onto a panel edge</td></tr>
+    <tr><td>Close</td><td>Removes the panel; the group's next tab (or the neighbour) takes focus; empty groups and single-child splits collapse. Closing the last panel empties it. Histories held only by that panel are released.</td><td>Header <kbd>×</kbd>, tab <kbd>×</kbd>, panel menu, <kbd>⌘W</kbd> (closes the trace instead when only one panel exists, preserving today's binding)</td></tr>
+    <tr><td>Tabs</td><td>Tab groups hold any number of waveform panels; click activates and focuses; drag reorders within the group or moves to another group; dropping on the strip's empty end appends.</td><td>Mouse; <kbd>ctrl-tab</kbd> / <kbd>ctrl-shift-tab</kbd> cycle panels in layout order</td></tr>
+    <tr><td>Dock and move</td><td>Drag a tab and drop it on the left, right, top or bottom quarter of any panel to split there, or on the strip to join a group. The library resolves the drop; the core receives the resulting tree.</td><td>Mouse only (as in VS Code); command palette later</td></tr>
+    <tr><td>Resize</td><td>Drag the sash between siblings; sizes are stored as fractions and clamped to the library minimum (100 px).</td><td>Mouse</td></tr>
+    <tr><td>Zoom (maximise)</td><td>Temporarily shows one tab group full-size; not persisted.</td><td>Panel menu, <kbd>⇧esc</kbd></td></tr>
+    <tr><td>Focus</td><td>Any pointer press inside a panel, activating its tab, or a keyboard cycle focuses it. The focused panel receives every <code>Action</code>, including arrow-key panning, and sidebar double-clicks add signals to it.</td><td>Pointer, <kbd>ctrl-tab</kbd>, <kbd>⌘1</kbd>…<kbd>⌘9</kbd></td></tr>
+    <tr><td>Link toggles</td><td>Two icon buttons in each header (chain icon, filled when linked; a slashed chain when free), with tooltips naming the key. With the header hidden they live in View → "Follow shared viewport" / "Follow shared cursor" and as clips in the status bar; keys work in both cases.</td><td>Header, View menu, status bar, <kbd>L</kbd> viewport, <kbd>⇧L</kbd> cursor</td></tr>
+    <tr><td>Rename</td><td>Optional title, shown in the tab; defaults to "Waves 1", "Waves 2", numbered by id.</td><td>Panel menu → Rename</td></tr>
+  </tbody></table></div>
+
+  <h3>Visual rules</h3>
+  <ul>
+    <li><strong>Single panel in the centre: no header, no outline.</strong> The element tree, geometry and default chrome match today's viewer, so the Metal and egui screenshot baselines stay valid.</li>
+    <li><strong>Two or more panels:</strong> each tab group shows a tab strip (VS Code-style: active tab in surface colour with an accent top edge; inactive tabs dimmed). The focused panel's tab and a 1 px accent outline around its body mark keyboard focus; unfocused panels draw their cursor line with the <code>wave_cursor_inactive</code> token at reduced contrast so the eye finds the active panel. All colours are theme tokens (<code>theme::Theme</code>), so VS Code themes and One Dark both resolve them.</li>
+    <li><strong>Status bar</strong> shows the focused panel's name and its two link states as chips when more than one panel exists; the trace range, cursor time and resolution shown today refer to the focused panel.</li>
+  </ul>
+  <div class="keys">
+    <kbd>⌘\</kbd><span>Split right (clone)</span>
+    <kbd>⌘⇧\</kbd><span>Split down (clone)</span>
+    <kbd>⌘N</kbd><span>New empty waveform tab</span>
+    <kbd>⌘W</kbd><span>Close panel; close trace when it is the only panel</span>
+    <kbd>ctrl-tab</kbd> <span>Focus next panel; <kbd>ctrl-shift-tab</kbd> previous</span>
+    <kbd>⌘1…9</kbd><span>Focus nth panel</span>
+    <kbd>L</kbd><span>Toggle "follow shared viewport" on the focused panel</span>
+    <kbd>⇧L</kbd><span>Toggle "follow shared cursor"</span>
+    <kbd>⇧esc</kbd><span>Toggle zoom of the focused group</span>
+  </div>
+  <p class="small">Existing bindings (<kbd>= - F S E C ← → M ⇧M T ⌫ ⌘A esc ↑ ↓</kbd>) keep their meaning and now apply to the focused panel. Inside VS Code these arrive as extension commands with <code>when: activeCustomEditorId == volna.waveform</code>, so VS Code's own <kbd>⌘\</kbd>, <kbd>⌘N</kbd> and <kbd>⌘W</kbd> are not intercepted by the webview; see <a href="#vscode">VS Code</a>.</p>
+</div></section>
+
+<section id="playground"><div class="wrap">
+  <div class="eyebrow">Interactive mock-up</div>
+  <h2>Try the panel behaviour</h2>
+  <p>A toy model of the proposed commands: split, tab, close, focus, link and pan. It starts with two panels: the left one follows the shared viewport and cursor, the right one has unlinked its viewport and shows a zoomed-in window while still following the cursor. Click inside a panel to set its cursor; use the keys above (the mock-up uses <kbd>⌘</kbd> or <kbd>ctrl</kbd> with <kbd>\</kbd>, <kbd>n</kbd> and <kbd>w</kbd>), or the toolbar. "Single panel" shows the hidden-header state. The JSON below is the workspace capture of the current state, updated live, in the format proposed in <a href="#model">Data model</a>.</p>
+  <div class="pg" id="pg" tabindex="-1">
+    <div class="pg-toolbar">
+      <button data-act="reset">Reset (two panels)</button>
+      <button data-act="resetSingle">Single panel</button>
+      <button data-act="splitFocused" data-axis="h">Split right (⌘\)</button>
+      <button data-act="splitFocused" data-axis="v">Split down (⌘⇧\)</button>
+      <button data-act="toggleSyncFocused" data-what="viewport">Toggle viewport link (L)</button>
+      <button data-act="toggleSyncFocused" data-what="cursor">Toggle cursor link (⇧L)</button>
+      <button data-act="addMarker">Marker at cursor (M)</button>
+      <button data-act="clearMarkers">Clear markers (⇧M)</button>
+      <span class="pg-hint">← → pan · = − zoom · F fit · ⌘\ split · ⌘⇧\ split down · ⌘W close · ctrl-tab next</span>
+    </div>
+    <div class="pg-main"><div class="pg-sidebar"></div><div class="pg-center"></div></div>
+    <div class="pg-status"></div>
+    <pre class="pg-json" id="pg-json"></pre>
+  </div>
+</div></section>
+
+<section id="ownership"><div class="wrap">
+  <div class="eyebrow">Components</div>
+  <h2>Ownership across crates</h2>
+  <p>Solid green borders mark new components, blue borders existing ones, dashed boxes host adapters. Arrows are the only cross-boundary traffic: commands and events between core and frontends, bytes between frontends and hosts.</p>
+  <div class="own">
+    <div class="box exist-b"><div class="t">volna-core <small>no GUI toolkit · tested headless</small></div>
+      <div class="box exist-b"><div class="t">App <span class="badge exist">existing</span></div>
+        <div class="box exist-b"><div class="t">Document <span class="badge exist">existing</span></div><small>session · hierarchy · translators · load generations · markers · <span class="badge prop">proposed</span> linked viewport &amp; cursor</small></div>
+        <div class="box prop-b"><div class="t">Panels <span class="badge prop">proposed</span></div><small>Layout tree · focused · Panel{id, title, link, kind}</small>
+          <div class="box exist-b"><div class="t">WaveModel ×N <span class="badge exist">existing</span></div><small>rows · selection · viewport · <span class="badge prop">proposed</span> cursor · placeholders</small></div>
+        </div>
+        <div class="box exist-b"><div class="t">Sidebar models <span class="badge exist">existing</span></div><small>ScopeTreeModel · VariableListModel · add-to-focused-panel</small></div>
+        <div class="box prop-b"><div class="t">workspace <span class="badge prop">proposed</span></div><small>Workspace (serde) · capture · restore → RestoreReport · Persistence policy · autosave scheduler (dirty + idle via tick) · preferences model</small></div>
+      </div>
+      <div class="arrows"><span>Command in: <code>Panels(..)</code>, <code>Pointer(PanelId, ..)</code>, <code>RestoreWorkspace(json)</code></span><span>Event out: <code>LayoutChanged</code>, <code>PersistWorkspace{target, json}</code>, <code>LoadWorkspace{key}</code>, <code>SaveWorkspaceDialog</code>, <code>Notice(..)</code></span></div>
+    </div>
+    <div>
+      <div class="box exist-b"><div class="t">volna (GPUI) <small>native · wasm · VS Code webview</small></div>
+        <div class="box exist-b"><div class="t">Workspace entity <span class="badge exist">existing</span></div><small>menus · sidebar · status bar · loads on background executor</small>
+          <div class="box prop-b"><div class="t">DockHost <span class="badge prop">proposed</span></div><small>gpui-kit <code>DockArea</code> <span class="badge lib">library</span> · <code>VolnaDockRenderer</code> wrapper · layout mirror ↔ core tree · revision guard</small>
+            <div class="box prop-b"><div class="t">WavePanelView ×N <span class="badge prop">proposed</span></div><small>implements <code>Panel</code>: focus handle, key context "Waves", toolbar link buttons; hosts <code>WaveTable(PanelId)</code> <span class="badge exist">existing</span></small></div>
+          </div>
+        </div>
+        <div class="box host prop-b"><div class="t">NativeStore <span class="badge prop">proposed</span></div><small>sidecar / fallback dir / explicit path · atomic write · CLI flags · preferences file</small></div>
+        <div class="box host prop-b"><div class="t">web bridge <span class="badge exist">existing</span> + <span class="badge prop">proposed</span> messages</div><small><code>open{bytes, workspace}</code> · <code>workspace{json}</code> · <code>command{name}</code> · dialogs</small></div>
+      </div>
+      <div class="box host prop-b" style="margin-top:14px"><div class="t">vscode-ext/extension.js <small>thin host</small></div><small>reads/writes sidecar with <code>workspace.fs</code> · <code>workspaceState</code> fallback · settings → policy · commands + keybindings · lifecycle</small></div>
+      <div class="box exist-b" style="margin-top:14px"><div class="t">volna-egui <span class="badge exist">existing</span></div><small>renders <code>panels.focused()</code> only · persistence disabled · compatibility edits only</small></div>
+    </div>
+  </div>
+  <p>The core remains the only place that decides anything: which panel a key affects, what a drop produces once the library has resolved it, when a workspace is dirty, and what a restored file means. Frontends paint, host widgets and shuttle bytes.</p>
+</div></section>
+
+<section id="dock"><div class="wrap">
+  <div class="eyebrow">Docking library</div>
+  <h2>Integrating gpui-kit's <code>DockArea</code></h2>
+  <p>The engine fits: it already implements the tree editing, drag semantics and serialisation that would otherwise be several thousand lines, its appearance is replaceable, it has no native-only code, and Volna already links it. The integration keeps the core tree authoritative and treats the dock as a view of it, following Surfer's adapter pattern.</p>
+  <h3>Mapping <span class="badge prop">proposed</span></h3>
+  <div class="tablewrap"><table><thead><tr><th>Core</th><th>Dock</th><th>Notes</th></tr></thead><tbody>
+    <tr><td><code>Layout::Split{axis, sizes}</code></td><td><code>DockLayout::h_split()/v_split().child(layout, Some(px))</code></td><td>Fractions × the centre's measured bounds at install time; before the first frame the adapter defers installation one frame (bounds come from <code>DockArea::bounds()</code>).</td></tr>
+    <tr><td><code>Layout::Tabs{panels, active}</code></td><td><code>DockLayout::tabs().panel_view(panel_handle(view)).active_index(i)</code></td><td>Views are cached per <code>PanelId</code> so a re-install reuses entities and their focus handles.</td></tr>
+    <tr><td><code>Panel{kind: Waves}</code></td><td><code>WavePanelView: Panel</code>, <code>panel_name() = "volna.waves"</code>, <code>dump()</code> → <code>PanelInfo::panel({"id": 3})</code></td><td>Registered once with <code>register_panel</code> so <code>DockArea::load</code> could rebuild it; Volna never calls <code>load</code> from disk, only <code>set_center</code> from the core tree.</td></tr>
+    <tr><td><code>panels.focused</code></td><td>the view whose <code>FocusHandle</code> is focused</td><td>Focus-in on a view sends <code>Command::Panels(Focus(id))</code>; the core never asks the dock which group is active.</td></tr>
+    <tr><td>link buttons, close</td><td><code>Panel::toolbar_buttons()</code></td><td>Two toggle icons plus a close icon in the tab strip's suffix; also <code>dropdown_menu()</code> entries for split, rename, close others.</td></tr>
+  </tbody></table></div>
+  <h3>Round trip and loop guard</h3>
+  <ol class="steps">
+    <li><strong>Core → dock.</strong> After any command that changes <code>Panels::layout</code>, the core emits <code>Event::LayoutChanged{revision}</code>. The adapter rebuilds a <code>DockLayout</code> from the tree and calls <code>set_center</code>, recording <code>revision</code>.</li>
+    <li><strong>Dock → core.</strong> On <code>DockEvent::LayoutChanged</code> the adapter calls <code>dump()</code>, walks the <code>PanelState</code> tree (<code>"StackPanel"</code> → Split with sizes normalised to fractions, <code>"TabPanel"</code> → Tabs, <code>"volna.waves"</code> → the <code>PanelId</code> in its <code>info</code>) and sends <code>Command::Panels(SetLayout{tree, from_revision})</code>. The core validates (every id known, no duplicates) and adopts it, or rejects it and re-emits its own tree so the dock resynchronises.</li>
+    <li><strong>Guard.</strong> <code>LayoutChanged</code> raised by the adapter's own <code>set_center</code> is ignored by comparing the dumped tree with the tree installed at that revision. This is the same idea as Surfer's <code>LayoutAdapter</code> revision check.</li>
+  </ol>
+  <h3>Hiding the header for one panel</h3>
+  <p><code>PanelStyle::Auto</code> still draws a 30 px title row. Volna installs <code>VolnaDockRenderer</code>, a <code>DockAreaRenderer</code> that forwards every hook to the stock <code>DockSkin</code> and wraps its <code>tab_group_renderer()</code>: when the centre tree has exactly one panel, <code>render_tab_bar</code> returns an empty element and <code>frame</code> drops the group border, so the panel body starts at the same y-offset as today's <code>WaveTable</code>. <code>TabGroupSkin</code> is crate-private but reachable through the trait, so this is composition, not a fork. If the wrapper proves brittle, the fallback is to bypass the dock entirely while one panel exists and render the cached <code>WavePanelView</code> directly; the entity and its state are the same in both hosts.</p>
+  <h3>Limitations to accept or work around</h3>
+  <ul>
+    <li>No per-tab close button in the skin: provided through the toolbar and <kbd>⌘W</kbd>; a custom <code>TabGroupRenderer</code> could add it later.</li>
+    <li>No next/previous tab action: the core implements <code>FocusNext/FocusPrev</code> over its own tree.</li>
+    <li>Sizes are pixels in the dock and written back only when a drag ends; fractions in the core, converted both ways.</li>
+    <li>Zoom is per container and not persisted; acceptable.</li>
+    <li>Single global minimum of 100 px; fine for waveform panels.</li>
+    <li>wasm is not gated out but is unverified; the phase-1 acceptance test runs the dock in the browser build.</li>
+  </ul>
+  <h3>Alternatives considered</h3>
+  <div class="tablewrap"><table><thead><tr><th>Option</th><th>Assessment</th></tr></thead><tbody>
+    <tr><td>Extend Volna's own <code>Splitter</code> into a tile tree</td><td>Full control and no library coupling, but tab strips, drag previews, drop indicators and edge splitting would have to be written and maintained; Surfer's equivalent is roughly ten thousand lines. Rejected.</td></tr>
+    <tr><td>gpui-base <code>resizable</code> + component <code>TabBar</code>, no dock</td><td>Covers splits and tabs, but not drag-to-split or moving tabs between groups. Kept as the fallback if the dock fails on wasm.</td></tr>
+    <tr><td>Persist <code>DockAreaState</code> verbatim</td><td>Ties the workspace file to one toolkit and to pixel sizes; egui could not read it and the format would change with the library. Rejected in favour of the toolkit-neutral tree; the dock's own JSON is never written to disk.</td></tr>
+    <tr><td>Zed's workspace/pane system</td><td>Not published as a crate; would mean vendoring Zed code. Rejected.</td></tr>
+    <tr><td>Tiles canvas (floating panels)</td><td>Available in the dock but not VS Code-like; out of scope.</td></tr>
+  </tbody></table></div>
+</div></section>
+
+<section id="model"><div class="wrap">
+  <div class="eyebrow">Workspace data model</div>
+  <h2>The workspace file</h2>
+  <p>A JSON document owned by <code>volna-core::workspace</code>, written with serde_json, human-readable and diffable so colleagues can share and review it. Times are integers in the trace's own timescale units, matching <code>SignalHistory</code> and <code>Marker</code>. Signals are referenced by full hierarchical name, the identity VTR guarantees to external databases and the one <code>Hierarchy::full_name</code> produces today.</p>
+  <pre><code>{
+  "format": "volna-workspace",
+  "version": 1,
+  "trace": {
+    "path": "picorv32.vtr",                    <span class="c">// relative to this file when possible, else absolute; informational in VS Code</span>
+    "name": "picorv32.vtr",
+    "timescale": -9,
+    "time_range": [0, 1234567],
+    "design_id": null                          <span class="c">// VTR file attribute design.vdb_id when present</span>
+  },
+  "layout": { "split": "horizontal", "sizes": [0.62, 0.38],
+              "children": [ { "tabs": [1, 2], "active": 1 }, { "tabs": [3], "active": 3 } ] },
+  "focused": 1,
+  "panels": [
+    { "id": 1, "kind": "waves", "version": 1, "title": null,
+      "link": { "viewport": true, "cursor": true },
+      "viewport": { "start": 0.0, "end": 5000.0 }, "cursor": 640, "scroll_y": 0.0,
+      "columns": { "names": 220.0, "values": 120.0 },
+      "rows": [ { "signal": "testbench.top.clk", "format": "bit" },
+                { "signal": "testbench.top.mem_addr", "format": "hex" } ],
+      "selected": [1] },
+    { "id": 3, "kind": "waves", "version": 1, "title": "decode window",
+      "link": { "viewport": false, "cursor": true },
+      "viewport": { "start": 4200.0, "end": 4700.0 }, "cursor": 640, "scroll_y": 0.0,
+      "columns": { "names": 220.0, "values": 120.0 },
+      "rows": [ { "signal": "testbench.top.pc", "format": "hex" } ], "selected": [] }
+  ],
+  "shared": { "viewport": { "start": 0.0, "end": 5000.0 }, "cursor": 640,
+              "markers": [ { "id": 1, "time": 420, "label": null }, { "id": 2, "time": 1310, "label": "irq" } ] },
+  "sidebar": { "visible": true, "width": 280.0, "scopes_fraction": 0.42,
+               "selected_scope": "testbench.top", "expanded": ["testbench", "testbench.top"], "filter": "" }
+}</code></pre>
+  <div class="tablewrap"><table><thead><tr><th>Field</th><th>Rule</th></tr></thead><tbody>
+    <tr><td><code>format</code>, <code>version</code></td><td>Both checked before anything else. A different format string or a newer major version rejects the file with a notice; older versions are not migrated during the research phase (GOAL.md §8). The file is left untouched.</td></tr>
+    <tr><td><code>trace</code></td><td>Identity of the trace the workspace was captured from. On restore the name and timescale are compared: a different timescale warns and restores times unchanged; a different name warns but proceeds, because renamed traces are common. <code>design_id</code> is compared when both sides have it.</td></tr>
+    <tr><td><code>layout</code>, <code>focused</code></td><td>The same tree as <code>Panels::layout</code>; sizes are fractions. An invalid tree (unknown id, duplicate, empty group) fails restore as a whole and reports why.</td></tr>
+    <tr><td><code>panels[].kind</code>, <code>version</code></td><td>Panels are decoded into <code>PanelKind</code> by name; an unknown kind or newer version is kept as raw JSON (<code>serde_json::value::RawValue</code>) in a placeholder panel that draws "unsupported panel" and is written back verbatim, so a workspace saved by a newer Volna survives a round trip through an older one.</td></tr>
+    <tr><td><code>rows[].signal</code></td><td>Resolved through <span class="badge prop">proposed</span> <code>Hierarchy::find_var(path: &amp;str) -&gt; Option&lt;VarId&gt;</code>, a segment walk from the roots added at the owning layer rather than a side table in the workspace code. Unresolved rows become placeholders (<code>missing: true</code>, no load) and are saved back unchanged.</td></tr>
+    <tr><td><code>rows[].format</code></td><td>A translator id (<code>"bit"</code>, <code>"hex"</code>, …) looked up with <code>Translators::get</code>; unknown ids fall back to the signal's default translator and are reported.</td></tr>
+    <tr><td><code>viewport</code>, <code>cursor</code>, <code>markers</code></td><td>Restored as saved even when outside the trace's time range; the viewport clamp already handles this at paint time and a marker beyond the end stays addressable.</td></tr>
+    <tr><td><code>shared</code></td><td>The linked viewport and cursor plus markers. Linked panels take these values after restore regardless of their saved per-panel values, which are kept for the moment they unlink.</td></tr>
+    <tr><td><code>sidebar</code></td><td>Chrome that belongs to the session: visibility, widths, selected scope and expanded scopes by path, filter text. Global look and feel is not here.</td></tr>
+  </tbody></table></div>
+  <p>Excluded on purpose: hover and drag state, animation, load state, window size and position (a preference of the host), theme (a preference), the trace bytes, and anything a VDB defines. The file describes what the user arranged, not what the toolkit computed.</p>
+</div></section>
+
+<section id="persist"><div class="wrap">
+  <div class="eyebrow">Persistence</div>
+  <h2>Where, when and how workspaces are saved</h2>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">Policy, decided once by the host at startup <span class="badge prop">proposed</span></h4>
+      <pre style="margin:8px 0 0"><code>pub enum Persistence {
+    Disabled,                       <span class="c">// tests, --no-workspace, VOLNA_WORKSPACE=off</span>
+    Explicit { path: PathBuf },     <span class="c">// --workspace FILE: load and autosave there</span>
+    Auto,                           <span class="c">// default: sidecar beside the trace, fallback dir</span>
+}</code></pre>
+      <p><code>App::new()</code> defaults to <code>Disabled</code>. Only the two native mains and the web entry point opt in, so every existing test, the Metal harness, the egui screenshots and the headless suite are isolated by construction; nothing they do can read or write a sidecar, and manually opening example traces cannot affect them.</p></div>
+    <div class="card"><h4 style="margin-top:0">File naming</h4>
+      <ul style="margin:0">
+        <li>Automatic sidecar: the full trace file name plus <code>.volna.json</code>, e.g. <code>picorv32.vtr.volna.json</code>. Full-name based, so <code>a.vtr</code> and its converted <code>a.fst</code> keep separate workspaces; <code>.json</code> gets syntax highlighting in any editor.</li>
+        <li>Explicit saves: any name the user picks; the dialog suggests <code>&lt;trace&gt;.&lt;label&gt;.volna.json</code>. Opening any <code>*.volna.json</code> from the File menu or command line loads a workspace.</li>
+        <li><code>*.volna.json</code> is added to the repository <code>.gitignore</code> under <code>volna/volna/examples/</code>.</li>
+      </ul></div>
+  </div>
+  <h3>Locations and precedence</h3>
+  <ol class="steps">
+    <li><strong>Explicit path</strong> from <code>--workspace</code> or an "Open Workspace…" action.</li>
+    <li><strong>Sidecar</strong> next to the trace, when the directory is writable.</li>
+    <li><strong>Per-user fallback</strong> when the trace lives on a read-only share, which is the norm for CI artefacts: <code>&lt;data dir&gt;/volna/workspaces/&lt;sha256(canonical trace path)[..16]&gt;.volna.json</code>, where the data dir is <code>$XDG_DATA_HOME</code> or <code>~/.local/share</code> on Linux, <code>~/Library/Application Support</code> on macOS, <code>%LOCALAPPDATA%</code> on Windows. The file records the original path in <code>trace.path</code> so the mapping is auditable.</li>
+  </ol>
+  <p>On load the first location that exists wins; on save the first location that is writable wins. A sidecar that exists but cannot be written falls through to the fallback with a one-time notice.</p>
+  <h3>Timing</h3>
+  <ul>
+    <li><strong>Dirty tracking in the core.</strong> Commands that change persisted state (rows, layout, focus, links, viewport, cursor, markers, sidebar geometry, format choices) set a dirty flag; hover, pointer-move, animation ticks and menu dismissal do not.</li>
+    <li><strong>Idle autosave.</strong> <code>App::tick(now)</code>, the existing explicit clock, emits <code>Event::PersistWorkspace</code> once the app has been dirty and quiet for 1 s; during a viewport animation the timer restarts. This is the debounce example-dock applies at 10 s, shortened because Volna's captures are small.</li>
+    <li><strong>Forced points.</strong> Closing the trace, opening another, quitting (<code>on_app_quit</code> natively, <code>dispose</code> in VS Code) and hiding the editor tab all flush a pending save synchronously.</li>
+    <li><strong>Never while loading.</strong> No capture happens between <code>Open</code> and the restore completing, so a half-restored state cannot overwrite a good file.</li>
+    <li><strong>Atomic writes</strong> natively (temp file in the same directory, then rename); <code>workspace.fs.writeFile</code> in VS Code.</li>
+  </ul>
+  <h3>Error handling and unavailable state</h3>
+  <div class="tablewrap"><table><thead><tr><th>Situation</th><th>Behaviour</th></tr></thead><tbody>
+    <tr><td>No workspace file</td><td>Start with one empty panel, as today.</td></tr>
+    <tr><td>File unreadable, wrong format or newer version</td><td>Notice in the status bar with the reason; start fresh; <strong>autosave is suspended for this trace</strong> until the user saves explicitly or removes the file, so a file from a newer Volna is never overwritten silently.</td></tr>
+    <tr><td>Trace referenced by an explicitly opened workspace differs from the open trace</td><td>Keep the open trace (Surfer's rule); restore layout, panels, markers and links against it; report unresolved signals. With no trace open natively, open <code>trace.path</code> resolved against the workspace file's directory.</td></tr>
+    <tr><td>Signal missing</td><td>Placeholder row: name shown dimmed with a "not in trace" badge, no history, no load; kept on save; promoted to a live row if a later trace resolves it.</td></tr>
+    <tr><td>Unknown translator, panel kind or layout id</td><td>Translator: default translator and a report entry. Panel kind: opaque placeholder panel. Layout: whole restore rejected with a notice, fresh start, autosave suspended.</td></tr>
+    <tr><td>Times outside the trace range</td><td>Kept; painting clamps.</td></tr>
+    <tr><td>Save fails (disk full, permission lost)</td><td>Notice; retry at the next idle point; explicit save reports the error in the dialog.</td></tr>
+    <tr><td>Two viewers on one trace</td><td>Last writer wins for the sidecar. Not mediated in this scope; explicit "Save As" gives each person their own file.</td></tr>
+  </tbody></table></div>
+  <p>Every restore returns a <code>RestoreReport</code> listing what could not be applied. The report is surfaced as a status-bar notice with a "details" popup and is asserted in tests.</p>
+  <h3>Global preferences <span class="badge prop">proposed</span></h3>
+  <p>Look and feel that is not part of any session lives in <code>&lt;config dir&gt;/volna/preferences.json</code>: theme name, default link flags for new panels, autosave on or off, the recent traces and workspaces list. The config dir is <code>$XDG_CONFIG_HOME/volna</code> or <code>~/.config/volna</code> on Linux and macOS (the goal's example, and the convention for command-line tools on both), <code>%APPDATA%\volna</code> on Windows; <code>VOLNA_CONFIG_DIR</code> overrides it. The model is a serde struct in <code>volna-core::workspace::prefs</code>; reading and writing are host code. Inside VS Code the theme comes from the host and the remaining preferences are contributed <code>volna.*</code> settings passed with the open message, so nothing is written to <code>~/.config</code> by the extension.</p>
+  <h3>Command line <span class="badge prop">proposed</span></h3>
+  <pre><code>volna [FILE.vtr|FILE.fst|FILE.volna.json] [--synthetic N]
+      [--workspace PATH]        <span class="c">// load and autosave this workspace file, ignoring sidecars</span>
+      [--no-workspace]          <span class="c">// never read or write workspace files this run</span>
+      [--config-dir DIR]        <span class="c">// preferences location (also VOLNA_CONFIG_DIR)</span>
+<span class="c">// environment: VOLNA_WORKSPACE=off | PATH, VOLNA_CONFIG_DIR=DIR; check.sh exports VOLNA_WORKSPACE=off</span></code></pre>
+  <p>The same hand-rolled parser is extended in both native mains; a <code>clap</code> dependency is not needed for five flags. <code>volna-egui</code> accepts and ignores the workspace flags so scripts can pass the same arguments to both.</p>
+</div></section>
+
+<section id="flows"><div class="wrap">
+  <div class="eyebrow">Flows</div>
+  <h2>Restoration and saving on both hosts</h2>
+  <p>The core runs the same sequence in both; only the boxes that move bytes differ.</p>
+  <div class="flow">
+    <div class="card"><h4 style="margin-top:0">Native (GPUI or egui)</h4>
+      <ol class="steps">
+        <li><code>main.rs</code> parses flags, builds <code>Persistence</code> and <code>App::new_with(persistence)</code>, opens the trace with <code>open_path</code>.</li>
+        <li>The open completes (<code>LoadResult::Opened</code>); the core installs the session and emits <code>Event::LoadWorkspace{key: Sidecar(path) | Explicit(path)}</code>.</li>
+        <li>The GPUI <code>Workspace</code> resolves the key through the location precedence, reads the bytes off the UI thread and replies <code>Command::RestoreWorkspace(Some(json))</code> or <code>None</code>.</li>
+        <li>The core parses and validates, builds panels, resolves rows to <code>VarId</code>s, queues signal loads under the current generation, sets links, markers and sidebar state, and emits <code>LayoutChanged</code> plus <code>Notice(report)</code>.</li>
+        <li>The dock adapter installs the layout; loads arrive through the existing <code>deliver</code> path and fan into every panel showing the signal.</li>
+        <li>Edits mark the core dirty; after 1 s idle <code>tick</code> emits <code>PersistWorkspace{target, json}</code>; the host writes atomically. Quit and close flush.</li>
+      </ol></div>
+    <div class="card"><h4 style="margin-top:0">VS Code extension</h4>
+      <ol class="steps">
+        <li>VS Code resolves the custom editor (first open or workspace restore) and calls <code>resolveCustomEditor</code>.</li>
+        <li><code>extension.js</code> reads the trace bytes and, unless <code>volna.workspace.autosave</code> is <code>off</code>, tries <code>&lt;uri&gt;.volna.json</code> through <code>workspace.fs.readFile</code>, then <code>context.workspaceState</code> under <code>volna.workspace:&lt;uri&gt;</code>. It posts <span class="msg">open {name, bytes, workspace, settings}</span>.</li>
+        <li>The wasm bridge opens the bytes through <code>OpenSpec::Bytes</code> and, when the open completes, answers the core's <code>LoadWorkspace</code> event immediately with the JSON it was handed. No second round trip.</li>
+        <li>Same core restore as native, steps 4 and 5.</li>
+        <li>On <code>PersistWorkspace</code> the bridge posts <span class="msg">workspace {json}</span>; the host writes the sidecar with <code>workspace.fs.writeFile</code>, falling back to <code>workspaceState</code> if the write fails or the setting selects it. Because the extension host runs beside the file in remote sessions, the sidecar lands next to the remote trace without any transfer.</li>
+        <li><code>onDidChangeViewState</code> (hidden) and <code>webviewPanel.onDidDispose</code> request a final <span class="msg">workspace</span> flush; reopening the VS Code window returns to step 1 with the saved bytes.</li>
+      </ol></div>
+  </div>
+  <p>Explicit actions use the same primitives: "Save Workspace As…" emits <code>Event::SaveWorkspaceDialog{suggested}</code>; the host shows its dialog (GPUI <code>prompt_for_new_path</code>, VS Code <code>showSaveDialog</code>) and writes the capture it then requests. "Open Workspace…" reads a chosen file and sends <code>Command::RestoreWorkspace</code>; if the trace named in it differs from the open one, the open trace is kept and the report says so.</p>
+</div></section>
+
+<section id="vscode"><div class="wrap">
+  <div class="eyebrow">VS Code</div>
+  <h2>Host integration details</h2>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">Messages <span class="badge prop">proposed</span> (existing ones kept)</h4>
+      <div class="tablewrap" style="margin:8px 0 0"><table><thead><tr><th>Direction</th><th>Message</th></tr></thead><tbody>
+        <tr><td>webview → host</td><td><span class="msg">ready</span> <span class="badge exist">existing</span>, <span class="msg">pickFile</span> <span class="badge exist">existing</span>, <span class="msg">workspace {json, final}</span>, <span class="msg">saveWorkspaceAs {json, suggested}</span>, <span class="msg">openWorkspace</span>, <span class="msg">notice {level, text}</span></td></tr>
+        <tr><td>host → webview</td><td><span class="msg">open {name, bytes, workspace, settings}</span> (extends the existing <code>open</code>), <span class="msg">workspace {json}</span> (explicit load), <span class="msg">command {name}</span> (split, close, focus, link toggles), <span class="msg">requestWorkspace</span> (flush before hide or dispose)</td></tr>
+      </tbody></table></div></div>
+    <div class="card"><h4 style="margin-top:0">Manifest additions</h4>
+      <ul style="margin:0">
+        <li><code>contributes.commands</code>: <code>volna.splitRight</code>, <code>volna.splitDown</code>, <code>volna.newPanel</code>, <code>volna.closePanel</code>, <code>volna.focusNextPanel</code>, <code>volna.toggleViewportLink</code>, <code>volna.toggleCursorLink</code>, <code>volna.saveWorkspaceAs</code>, <code>volna.openWorkspace</code>.</li>
+        <li><code>contributes.keybindings</code> with <code>when: activeCustomEditorId == volna.waveform</code>, mirroring the native keys so VS Code owns key dispatch and forwards <span class="msg">command</span> messages.</li>
+        <li><code>contributes.menus</code>: editor title entries for the workspace actions.</li>
+        <li><code>contributes.configuration</code>: <code>volna.workspace.autosave</code> (<code>sidecar</code> default, <code>vscode</code>, <code>off</code>), <code>volna.panels.linkByDefault</code>.</li>
+        <li><code>supportsMultipleEditorsPerDocument</code> becomes <code>false</code>.</li>
+      </ul></div>
+  </div>
+  <h3>Lifecycle</h3>
+  <ul>
+    <li><strong>Reopening a VS Code workspace</strong> restores each Volna editor through <code>resolveCustomEditor</code>, which re-sends the trace and its sidecar, so panels, signals, markers and layout come back without a serializer. <code>retainContextWhenHidden</code> is kept for now because the wasm decode of a large trace is expensive; with the sidecar in place it becomes an optimisation rather than the only state holder and can be revisited.</li>
+    <li><strong>Remote sessions.</strong> The extension host runs where the trace is, so both reading and writing the sidecar use <code>workspace.fs</code> against the remote file system; the webview never sees a path.</li>
+    <li><strong>Theme</strong> stays exactly as today: the host delivers palette snapshots, the core resolves tokens, and a workspace restore never touches the theme.</li>
+    <li><strong>Testing</strong> follows the existing recipe in <code>VERIFICATION.md</code>: an Extension Development Host with a short temporary user-data dir, CDP input through <code>tools/cdp.mjs</code>, <code>debug_state()</code> for assertions; the profile's <code>settings.json</code> sets <code>volna.workspace.autosave</code> to <code>off</code> except in the restore test, which uses a copy of the example trace in a temporary directory.</li>
+  </ul>
+</div></section>
+
+<section id="api"><div class="wrap">
+  <div class="eyebrow">API sketches</div>
+  <h2>Key Rust surfaces</h2>
+  <div class="tabs" role="tablist" data-tabs="api">
+    <button role="tab" aria-selected="true" data-tab="core">Core commands and events</button>
+    <button role="tab" aria-selected="false" data-tab="ws">Workspace module</button>
+    <button role="tab" aria-selected="false" data-tab="gp">GPUI adapter</button>
+    <button role="tab" aria-selected="false" data-tab="ext">extension.js</button>
+  </div>
+  <div class="tabpane active" data-pane="core"><pre><code><span class="c">// volna-core/src/app.rs — additions and changes</span>
+pub enum Command {
+    <span class="c">// existing variants unchanged, except:</span>
+    Pointer(PanelId, PointerEvent),          <span class="c">// was Pointer(PointerEvent)</span>
+    Panels(PanelsCommand),
+    RestoreWorkspace(Option&lt;String&gt;),        <span class="c">// host answer to Event::LoadWorkspace</span>
+    WorkspaceSaved(Result&lt;(), String&gt;),      <span class="c">// host outcome, for notices and retry</span>
+    ...
+}
+pub enum PanelsCommand {
+    Split { panel: PanelId, axis: Axis },  NewTab { group_of: PanelId },
+    Close(PanelId),  Focus(PanelId),  FocusNext,  FocusPrev,  FocusIndex(usize),
+    ToggleLink { panel: PanelId, dim: LinkDim },  Rename(PanelId, Option&lt;String&gt;),
+    SetLayout { layout: Layout, from_revision: u64 },   <span class="c">// dock → core</span>
+    ToggleZoom(PanelId),
+}
+pub enum Event {
+    <span class="c">// existing: Changed, OpenFileDialog, RevealScopeRow, RevealVarRow, FocusFilter</span>
+    LayoutChanged { revision: u64 },
+    LoadWorkspace { key: WorkspaceKey },
+    PersistWorkspace { target: WorkspaceTarget, json: String, final_flush: bool },
+    SaveWorkspaceDialog { suggested_name: String },
+    OpenWorkspaceDialog,
+    Notice { level: NoticeLevel, text: String, details: Vec&lt;String&gt; },
+}
+impl App {
+    pub fn new_with(persistence: Persistence) -&gt; Self;          <span class="c">// new() == Disabled</span>
+    pub fn panels(&amp;self) -&gt; &amp;Panels;
+    pub fn waves(&amp;self, id: PanelId) -&gt; Option&lt;&amp;WaveModel&gt;;
+    pub fn layout_waves(&amp;mut self, id: PanelId, bounds: Rect, theme: &amp;Theme) -&gt; &amp;WaveLayout;
+    pub fn render_waves_into(&amp;mut self, id: PanelId, theme: &amp;Theme, m: &amp;mut dyn TextMeasure, out: &amp;mut Scene);
+    pub fn status(&amp;self) -&gt; Status;                              <span class="c">// focused panel + link chips</span>
+    pub fn debug_state(&amp;self) -&gt; String;                         <span class="c">// one line per panel, prefixed "panel N"</span>
+}
+<span class="c">// Action stays panel-agnostic; App::action applies it to panels.focused and then
+// App::reconcile_links(source) propagates viewport/cursor to linked panels.</span></code></pre></div>
+  <div class="tabpane" data-pane="ws"><pre><code><span class="c">// volna-core/src/workspace/mod.rs</span>
+#[derive(Serialize, Deserialize)]
+pub struct Workspace { pub format: String, pub version: u32, pub trace: TraceRef,
+    pub layout: Layout, pub focused: PanelId, pub panels: Vec&lt;PanelFile&gt;,
+    pub shared: Shared, pub sidebar: SidebarState }
+
+#[derive(Serialize, Deserialize)]
+pub struct PanelFile { pub id: PanelId, pub kind: String, pub version: u32,
+    pub title: Option&lt;String&gt;, pub link: Link,
+    #[serde(flatten)] pub payload: Box&lt;serde_json::value::RawValue&gt; }   <span class="c">// decoded per kind</span>
+
+pub const FORMAT: &amp;str = "volna-workspace";
+pub const VERSION: u32 = 1;
+
+pub fn capture(app: &amp;App) -&gt; Workspace;
+pub fn restore(app: &amp;mut App, ws: Workspace) -&gt; RestoreReport;       <span class="c">// validates, resolves, queues loads</span>
+pub fn parse(json: &amp;str) -&gt; Result&lt;Workspace, WorkspaceError&gt;;       <span class="c">// bounded size and depth</span>
+
+pub struct RestoreReport { pub missing_signals: Vec&lt;String&gt;, pub unknown_translators: Vec&lt;String&gt;,
+    pub unknown_panels: Vec&lt;(PanelId, String)&gt;, pub trace_mismatch: Option&lt;String&gt; }
+
+pub enum Persistence { Disabled, Explicit { path: PathBuf }, Auto }
+pub enum WorkspaceKey    { Sidecar { trace: PathBuf }, Explicit(PathBuf), Host(String) }   <span class="c">// Host: VS Code uri</span>
+pub enum WorkspaceTarget { Sidecar { trace: PathBuf }, Explicit(PathBuf), Host(String) }
+
+<span class="c">// autosave scheduler, driven by App::tick(now)</span>
+pub struct Autosave { dirty: bool, last_change: Option&lt;u64&gt;, suspended: bool, idle_ms: u64 /* 1000 */ }
+
+<span class="c">// owning-layer addition, data/source.rs</span>
+impl Hierarchy { pub fn find_var(&amp;self, full_name: &amp;str) -&gt; Option&lt;VarId&gt;;
+                 pub fn find_scope(&amp;self, path: &amp;str) -&gt; Option&lt;ScopeId&gt;; }
+
+<span class="c">// preferences, volna-core/src/workspace/prefs.rs</span>
+#[derive(Serialize, Deserialize, Default)]
+pub struct Preferences { pub theme: Option&lt;String&gt;, pub link_by_default: Link,
+    pub autosave: bool, pub recent_traces: Vec&lt;PathBuf&gt;, pub recent_workspaces: Vec&lt;PathBuf&gt; }</code></pre></div>
+  <div class="tabpane" data-pane="gp"><pre><code><span class="c">// volna/src/dock.rs — DockHost owned by Workspace</span>
+pub struct DockHost {
+    area: Entity&lt;DockArea&gt;,
+    skin: Rc&lt;DockSkin&gt;,
+    views: HashMap&lt;PanelId, Entity&lt;WavePanelView&gt;&gt;,
+    installed_revision: u64,
+    installed_tree: Option&lt;Layout&gt;,
+}
+impl DockHost {
+    pub fn new(ws: Entity&lt;Workspace&gt;, window, cx) -&gt; Self {
+        let (area, skin) = DockSkin::dock_area("volna-center", None, window, cx);
+        <span class="c">// wrap the skin so a lone centre panel has no tab bar</span>
+        area.update(cx, |a, _| a.with_renderer(Rc::new(VolnaDockRenderer { skin: skin.clone(), area: a.weak() })));
+        register_panel(cx, "volna.waves", |ctx, window, cx| { <span class="c">/* rebuild from ctx.info() id */</span> });
+        cx.subscribe_in(&amp;area, window, |ws, area, ev: &amp;DockEvent, window, cx| {
+            if let DockEvent::LayoutChanged = ev { ws.dock.sync_from_dock(area, cx) }   <span class="c">// dump → Layout → Command::Panels(SetLayout)</span>
+        }).detach();
+        ...
+    }
+    pub fn sync_to_dock(&amp;mut self, panels: &amp;Panels, revision: u64, window, cx);       <span class="c">// on Event::LayoutChanged</span>
+}
+
+pub struct WavePanelView { id: PanelId, ws: Entity&lt;Workspace&gt;, focus: FocusHandle }
+impl Panel for WavePanelView {
+    fn panel_name(&amp;self) -&gt; &amp;'static str { "volna.waves" }
+    fn tab_name(&amp;self, cx) -&gt; SharedString { title or format!("Waves {}", self.id.0) }
+    fn closable(&amp;self, cx) -&gt; bool { true }
+    fn toolbar_buttons(&amp;self, window, cx) -&gt; Option&lt;Vec&lt;Button&gt;&gt; {
+        Some(vec![link_button(LinkDim::Viewport, ..), link_button(LinkDim::Cursor, ..), close_button(..)])
+    }
+    fn dump(&amp;self, cx) -&gt; PanelState { PanelState::new("volna.waves").info(PanelInfo::panel(json!({"id": self.id.0}))) }
+}
+impl Render for WavePanelView {
+    fn render(..) { div().track_focus(&amp;self.focus).key_context("Waves")
+        .on_focus_in(cx.listener(|v, _, _, cx| v.dispatch(Command::Panels(PanelsCommand::Focus(v.id)), cx)))
+        .child(WaveTable::new(self.ws.clone(), self.id)) }        <span class="c">// WaveTable now takes the PanelId</span>
+}
+
+<span class="c">// VolnaDockRenderer: forwards every DockAreaRenderer hook to `skin`,
+// wraps skin.tab_group_renderer() so render_tab_bar() returns Empty when
+// area.layout(DockPlacement::Center).panels().len() == 1.</span></code></pre></div>
+  <div class="tabpane" data-pane="ext"><pre><code><span class="c">// vscode-ext/extension.js — host side, sketch</span>
+async function resolveCustomEditor(document, panel, context) {
+  wire(panel.webview, context, document.uri);
+  const settings = vscode.workspace.getConfiguration("volna");
+  const bytes = await vscode.workspace.fs.readFile(document.uri);
+  const workspace = await readWorkspace(document.uri, settings);        <span class="c">// sidecar → workspaceState → null</span>
+  panel.webview.postMessage({ type: "open", name: basename(document.uri), bytes: bytes.buffer, workspace, settings: pick(settings) });
+  panel.onDidChangeViewState(e =&gt; { if (!e.webviewPanel.visible) panel.webview.postMessage({ type: "requestWorkspace" }); });
+  panel.onDidDispose(() =&gt; flushPending(document.uri));
+}
+function sidecarUri(uri) { return uri.with({ path: uri.path + ".volna.json" }); }
+async function writeWorkspace(uri, json, settings) {
+  if (settings.get("workspace.autosave") === "off") return;
+  try { await vscode.workspace.fs.writeFile(sidecarUri(uri), Buffer.from(json)); }
+  catch { await context.workspaceState.update("volna.workspace:" + uri.toString(), json); }
+}
+<span class="c">// commands: registerCommand("volna.splitRight", () =&gt; active().postMessage({ type: "command", name: "splitRight" })) …</span></code></pre></div>
+</div></section>
+
+<section id="tradeoffs"><div class="wrap">
+  <div class="eyebrow">Decisions</div>
+  <h2>Trade-offs</h2>
+  <div class="tablewrap"><table><thead><tr><th>Decision</th><th>Chosen</th><th>Because</th><th>Cost</th></tr></thead><tbody>
+    <tr><td>Where the layout tree lives</td><td>Core, mirrored into the dock</td><td>Frontend-neutral saved state (AGENTS.md "Volna direction" 2); egui and tests read the same tree; library upgrades cannot break files</td><td>A translation layer and a revision guard (about 150 lines)</td></tr>
+    <tr><td>Cursor ownership</td><td>Per panel with a link flag; markers shared</td><td>The requirement asks for independent cursors; the flag reproduces Surfer's shared cursor by default</td><td><code>Document::cursor</code> moves; every current caller changes (mechanical)</td></tr>
+    <tr><td>Sync groups</td><td>Two global link flags</td><td>Covers "follow" and "independent" with no group UI; groups can replace bools later without a shape change</td><td>Cannot link panels A and B but not C</td></tr>
+    <tr><td>Panel identity in files</td><td>Monotonic <code>PanelId</code> written to the file</td><td>Layout references and future cross-panel references (source ↔ waves) need stable ids</td><td>Ids must be validated on load</td></tr>
+    <tr><td>Signal references</td><td>Full hierarchical names</td><td>The only identity VTR promises across runs; FST offers nothing better</td><td>Needs <code>Hierarchy::find_var</code>; renames break rows (placeholders keep them visible)</td></tr>
+    <tr><td>Format</td><td>JSON via serde_json</td><td>Already a dependency, readable in VS Code, diffable for sharing; RON would add a crate for no user benefit</td><td>Slightly larger files than a binary format; irrelevant at this size</td></tr>
+    <tr><td>Sidecar name</td><td><code>&lt;file&gt;.volna.json</code></td><td>Distinguishes <code>a.vtr</code> from <code>a.fst</code>; sortable next to the trace; ignorable by glob</td><td>Long names</td></tr>
+    <tr><td>Automatic save</td><td>Idle autosave, on by default</td><td>The requirement; matches VS Code's own editor-state behaviour</td><td>Files appear beside traces; documented, gitignored for examples, disabled in tests and by flag</td></tr>
+    <tr><td>Read-only trace directory</td><td>Per-user fallback dir keyed by path hash</td><td>Shared CI artefacts are read-only; losing the session there would make the feature unreliable</td><td>A second location to explain; the file records the original path</td></tr>
+    <tr><td>Preferences location</td><td><code>~/.config/volna</code> on Linux and macOS</td><td>Goal's example; command-line tool convention on macOS as well</td><td>Not the macOS GUI convention (<code>Library/Application Support</code>), which is used only for the workspace fallback data</td></tr>
+    <tr><td>VS Code storage</td><td>Sidecar through <code>workspace.fs</code>, <code>workspaceState</code> fallback</td><td>Same file as native, remote-safe, shareable; the fallback covers read-only and virtual file systems</td><td>Multiple editors per document disabled to avoid write races</td></tr>
+    <tr><td>Hidden header</td><td>Renderer wrapper over <code>DockSkin</code></td><td>One host path for one and many panels; identical geometry to today</td><td>Forwarding boilerplate; a fallback bypass is described</td></tr>
+    <tr><td>egui</td><td>Focused panel only, no persistence</td><td>AGENTS.md: keep it building with its minimal feature set</td><td>Sessions with several panels show one of them in egui; that is allowed by the direction ("without requiring that frontend to implement every view")</td></tr>
+  </tbody></table></div>
+</div></section>
+
+<section id="plan"><div class="wrap">
+  <div class="eyebrow">Delivery</div>
+  <h2>Phased implementation and validation</h2>
+  <p>Each phase leaves <code>check.sh</code> green and ships its documentation changes (<code>volna/volna/ARCHITECTURE.md</code>, <code>README.md</code> key table, <code>VERIFICATION.md</code>, <code>docs/RATIONALE.md</code> entry) in the same change, per AGENTS.md.</p>
+  <details open><summary>Phase 0 · Owning-layer preparation</summary>
+    <ul>
+      <li><code>Hierarchy::find_var</code> / <code>find_scope</code> in <code>data/source.rs</code> with unit tests on the fixture hierarchies.</li>
+      <li><code>Marker{id, time, label}</code>; <code>Document::cursor</code> moves into <code>WaveModel</code>; <code>Document::linked</code> added; callers in the painter, layout and edge stepping updated; egui and GPUI compile.</li>
+      <li><code>debug_state()</code> format extended to one line per panel; headless and Metal assertions updated in the same commit.</li>
+    </ul>
+    <p><strong>Validate:</strong> <code>cargo test -p volna-core</code>, Metal harness, egui screenshots unchanged.</p>
+  </details>
+  <details><summary>Phase 1 · Panels in the core, dock in GPUI</summary>
+    <ul>
+      <li><code>panels</code> module: <code>Panels</code>, <code>Layout</code> with normalisation, <code>PanelsCommand</code>, focus, link reconciliation, load fan-out across panels, <code>layout_waves(id, …)</code>/<code>render_waves_into(id, …)</code>.</li>
+      <li>GPUI: <code>WavePanelView</code>, <code>DockHost</code>, <code>VolnaDockRenderer</code>, toolbar link and close buttons, View menu entries, key bindings, status-bar chips, focus outline and inactive cursor token.</li>
+      <li>egui: render <code>panels.focused()</code>; no other change.</li>
+    </ul>
+    <p><strong>Validate:</strong> headless tests for split/close/focus/link invariants and normalisation (property-style over random command sequences); a test that arrow keys pan only the focused panel and linked panels follow; Metal harness scenarios "split right, drag tab to bottom edge, close, header hidden again"; wasm build runs the dock in headless Chrome via <code>tools/cdp.mjs</code> with <code>debug_state()</code> assertions; frame-time baseline re-measured with one panel (must not regress) and with four.</p>
+  </details>
+  <details><summary>Phase 2 · Workspace model and native persistence</summary>
+    <ul>
+      <li><code>workspace</code> module: model, <code>capture</code>/<code>restore</code>/<code>parse</code>, <code>RestoreReport</code>, <code>Persistence</code>, autosave scheduler, preferences model.</li>
+      <li>Native store in the GPUI crate: precedence, atomic write, fallback directory, dialogs for Save As and Open, notices.</li>
+      <li>CLI flags and environment variables in both mains; <code>check.sh</code> exports <code>VOLNA_WORKSPACE=off</code>; <code>.gitignore</code> entry.</li>
+    </ul>
+    <p><strong>Validate:</strong> round-trip tests (capture → JSON → restore → capture equal) on synthetic sessions; restore against a hierarchy missing half the signals yields placeholders and a report; newer version rejected and autosave suspended; timescale mismatch warns; fuzz the parser with truncated and oversized inputs; a native integration test opens a copied example trace in a temp dir, edits, waits for the idle save, reopens, asserts <code>debug_state()</code>; confirms the default test paths create no files.</p>
+  </details>
+  <details><summary>Phase 3 · VS Code host</summary>
+    <ul>
+      <li>Extended <code>open</code> message, <code>workspace</code>/<code>command</code>/<code>requestWorkspace</code> messages, sidecar and <code>workspaceState</code> storage, settings, commands, keybindings, editor-title menu, <code>supportsMultipleEditorsPerDocument: false</code>.</li>
+      <li>wasm bridge: hand the workspace to the core on open, forward <code>PersistWorkspace</code>, map <code>command</code> messages to <code>PanelsCommand</code>s.</li>
+    </ul>
+    <p><strong>Validate:</strong> Node tests for the host's precedence and fallback logic with a faked <code>workspace.fs</code>; Extension Development Host session driven by CDP: open trace, split, add signals, reload window, assert restored state; remote-style check with a virtual file system provider stub to confirm no path leaks into the webview.</p>
+  </details>
+  <details><summary>Phase 4 · Follow-ups outside this scope</summary>
+    <ul>
+      <li>Additional panel kinds (transactions, source, pipeline) registered by name in both the core and the dock registry.</li>
+      <li>Moving the sidebar into the dock's left placement for VS Code-like collapse, once the centre integration has settled.</li>
+      <li>Named sync groups if two global flags prove insufficient.</li>
+      <li>Workspace-aware remote sessions: when bounded window queries land, the restore path issues window requests instead of whole histories; the file format does not change.</li>
+    </ul>
+  </details>
+  <h3>Non-goals</h3>
+  <ul>
+    <li>Editing or annotating traces; nothing is written into VTR or VDB.</li>
+    <li>Multi-window tear-off, floating tiles, a top dock.</li>
+    <li>Migration of older workspace versions during the research phase.</li>
+    <li>Feature parity in <code>volna-egui</code>.</li>
+  </ul>
+</div></section>
+
+<section id="sources"><div class="wrap">
+  <div class="eyebrow">Sources</div>
+  <h2>References</h2>
+  <ul>
+    <li>Repository guidance: <code>GOAL.md</code> §2 and §8, <code>AGENTS.md</code> "Volna direction" and rules, <code>docs/ARCHITECTURE.md</code>, <code>volna/volna/ARCHITECTURE.md</code>, <code>volna/volna/README.md</code>, <code>volna/volna/VERIFICATION.md</code>, <code>docs/RATIONALE.md</code> "Volna viewer", <code>docs/SPEC.md</code> §1 identity, <code>docs/VDB_RTL.md</code> "Surfer source navigation".</li>
+    <li>Volna sources: <code>volna/volna-core/src/{app,document,session}.rs</code>, <code>data/source.rs</code>, <code>wave/{model,viewport,layout}.rs</code>, <code>volna/volna/src/{app,lib,main}.rs</code>, <code>wave/table.rs</code>, <code>ui/splitter.rs</code>, <code>vscode-ext/{extension.js,package.json}</code>, <code>volna/volna-egui/src/lib.rs</code>, <code>tests/{headless,viewer}.rs</code>.</li>
+    <li>Surfer fork at <code>ext/surfer</code> (commit <code>d2a3b334</code>): <code>TileDesign.md</code>, <code>docs/development/tiling.md</code>, <code>libsurfer/src/tiles/{layout,render,input,commands,serde,workspace}.rs</code>, <code>tile_kinds/waveform.rs</code>, <code>state.rs</code>, <code>state_file_io.rs</code>, <code>wave_source.rs</code>, <code>wave_data.rs</code>, <code>config.rs</code>, <code>surfer/src/main.rs</code>, <code>surfer-vscode/extension/src/surferWaveformViewer.ts</code>, <code>docs/html/source-code.html</code>.</li>
+    <li>gpui-kit 0.6.1 (cargo registry): <code>gpui-base/src/dock/{dock_area,tab_group,panel,state,registry,layout/*}.rs</code>, <code>gpui-base/src/resizable/mod.rs</code>, <code>gpui-component/src/dock/{mod,panel,tab_panel,dock}.rs</code>; upstream <code>examples/dock/src/main.rs</code> at tag v0.6.1 (<a href="https://github.com/longbridge/gpui-kit">longbridge/gpui-kit</a>).</li>
+    <li>VS Code API guides: <a href="https://code.visualstudio.com/api/extension-guides/custom-editors">Custom Editors</a> and <a href="https://code.visualstudio.com/api/extension-guides/webview">Webviews</a> (Persistence, Lifecycle).</li>
+  </ul>
+</div></section>
+</main>
+<footer><div class="wrap">Volna · Panels and Persistent Workspace Sessions · design document, part of the repository docs. Nothing described as proposed is implemented.</div></footer>
+
+<script>
+(function(){
+  // existing/proposed dimmer
+  const cb=document.getElementById('only-proposed');
+  cb.addEventListener('change',()=>document.body.classList.toggle('only-proposed',cb.checked));
+  // tabs
+  document.querySelectorAll('[data-tabs]').forEach(bar=>{
+    const name=bar.dataset.tabs;const panes=[...bar.parentElement.querySelectorAll('.tabpane')];
+    bar.querySelectorAll('[role=tab]').forEach(btn=>btn.addEventListener('click',()=>{
+      bar.querySelectorAll('[role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b===btn)));
+      panes.forEach(p=>p.classList.toggle('active',p.dataset.pane===btn.dataset.tab));
+    }));
+  });
+})();
+</script>
+<script>
+// Interactive docking playground: a toy model of the proposed core types.
+// Layout tree: {kind:'split', axis:'h'|'v', sizes:[..], children:[..]} | {kind:'tabs', panels:[ids], active:idx}
+(function () {
+  const root = document.getElementById('pg');
+  if (!root) return;
+  const TRACE_END = 2000; // ns, toy trace range
+  const SIGNALS = ['clk', 'resetn', 'mem_valid', 'mem_ready', 'mem_addr[31:0]', 'mem_wdata[31:0]', 'pc[31:0]', 'trap', 'irq[31:0]', 'cpu_state[7:0]'];
+  let nextId = 1;
+  const state = { panels: {}, layout: null, focused: null, markers: [{ id: 1, time: 420 }, { id: 2, time: 1310 }], sharedViewport: { start: 0, end: TRACE_END }, sharedCursor: 640 };
+  function newPanel(rows, from) {
+    const id = nextId++;
+    const src = from ? state.panels[from] : null;
+    state.panels[id] = { id, kind: 'waves', title: 'Waves ' + id, rows: rows || [],
+      viewport: src ? { ...src.viewport } : { ...state.sharedViewport }, cursor: src ? src.cursor : state.sharedCursor,
+      syncViewport: src ? src.syncViewport : true, syncCursor: src ? src.syncCursor : true };
+    return id;
+  }
+  function tabsNode(ids) { return { kind: 'tabs', panels: ids, active: 0 }; }
+  function reset() {
+    nextId = 1; state.panels = {}; state.markers = [{ id: 1, time: 420 }, { id: 2, time: 1310 }];
+    state.sharedViewport = { start: 0, end: TRACE_END }; state.sharedCursor = 640;
+    const a = newPanel(['clk', 'resetn', 'mem_valid', 'mem_addr[31:0]']);
+    state.layout = tabsNode([a]); state.focused = a;
+    // start with two panels side by side: the second one shows an independent, zoomed-in viewport
+    cmd.split(a, 'h');
+    const b = state.focused; const pb = state.panels[b];
+    pb.rows = ['clk', 'pc[31:0]', 'mem_wdata[31:0]']; pb.syncViewport = false; pb.viewport = { start: 300, end: 900 };
+    state.focused = a; render();
+  }
+  function resetSingle() {
+    nextId = 1; state.panels = {}; state.markers = [{ id: 1, time: 420 }, { id: 2, time: 1310 }];
+    state.sharedViewport = { start: 0, end: TRACE_END }; state.sharedCursor = 640;
+    const a = newPanel(['clk', 'resetn', 'mem_valid', 'mem_addr[31:0]']);
+    state.layout = tabsNode([a]); state.focused = a; render();
+  }
+  function findTabs(node, id, parent, idx) {
+    if (node.kind === 'tabs') return node.panels.includes(id) ? { node, parent, idx } : null;
+    for (let i = 0; i < node.children.length; i++) { const r = findTabs(node.children[i], id, node, i); if (r) return r; }
+    return null;
+  }
+  function panelIds(node, out = []) { if (node.kind === 'tabs') out.push(...node.panels); else node.children.forEach(c => panelIds(c, out)); return out; }
+  function normalize(node) {
+    if (node.kind === 'tabs') return node.panels.length ? node : null;
+    node.children = node.children.map(normalize).filter(Boolean);
+    if (node.children.length === 0) return null;
+    if (node.children.length === 1) return node.children[0];
+    node.sizes = node.children.map(() => 1 / node.children.length);
+    return node;
+  }
+  const cmd = {
+    split(id, axis) {
+      const src = state.panels[id]; const nid = newPanel(src.rows.slice(), id);
+      const t = findTabs(state.layout, id, null, -1); const fresh = tabsNode([nid]);
+      if (t.parent && t.parent.axis === axis) { t.parent.children.splice(t.idx + 1, 0, fresh); t.parent.sizes = t.parent.children.map(() => 1 / t.parent.children.length); }
+      else { const split = { kind: 'split', axis, sizes: [0.5, 0.5], children: [t.node, fresh] }; if (t.parent) t.parent.children[t.idx] = split; else state.layout = split; }
+      state.focused = nid;
+    },
+    newTab(id) { const nid = newPanel([], id); const t = findTabs(state.layout, id, null, -1); t.node.panels.push(nid); t.node.active = t.node.panels.length - 1; state.focused = nid; },
+    close(id) {
+      const ids = panelIds(state.layout);
+      if (ids.length === 1) { state.panels[id].rows = []; return; }
+      const t = findTabs(state.layout, id, null, -1); const i = t.node.panels.indexOf(id);
+      t.node.panels.splice(i, 1); t.node.active = Math.max(0, Math.min(t.node.active, t.node.panels.length - 1));
+      delete state.panels[id]; state.layout = normalize(state.layout);
+      if (state.focused === id) state.focused = t.node.panels[t.node.active] ?? panelIds(state.layout)[0];
+    },
+    focus(id) { state.focused = id; const t = findTabs(state.layout, id, null, -1); t.node.active = t.node.panels.indexOf(id); },
+    toggleSync(id, what) {
+      const p = state.panels[id];
+      if (what === 'viewport') { p.syncViewport = !p.syncViewport; if (p.syncViewport) p.viewport = { ...state.sharedViewport }; }
+      else { p.syncCursor = !p.syncCursor; if (p.syncCursor) p.cursor = state.sharedCursor; }
+    },
+    pan(id, dir) { const p = state.panels[id]; const w = p.viewport.end - p.viewport.start; let s = p.viewport.start + dir * w * 0.1; s = Math.max(0, Math.min(TRACE_END - w, s)); setViewport(p, { start: s, end: s + w }); },
+    zoom(id, f) { const p = state.panels[id]; const w = Math.min(TRACE_END, Math.max(20, (p.viewport.end - p.viewport.start) * f)); let s = Math.max(0, p.cursor - w / 2); if (s + w > TRACE_END) s = TRACE_END - w; setViewport(p, { start: s, end: s + w }); },
+    fit(id) { setViewport(state.panels[id], { start: 0, end: TRACE_END }); },
+    setCursor(id, time) { const p = state.panels[id]; p.cursor = time; if (p.syncCursor) { state.sharedCursor = time; for (const q of Object.values(state.panels)) if (q.syncCursor) q.cursor = time; } },
+    addRow(id, name) { const p = state.panels[id]; if (!p.rows.includes(name)) p.rows.push(name); },
+    removeRow(id, name) { const p = state.panels[id]; p.rows = p.rows.filter(r => r !== name); },
+    addMarker() { const t = state.panels[state.focused].cursor; if (state.markers.some(m => m.time === t)) return; const id = (state.markers.at(-1)?.id ?? 0) + 1; state.markers.push({ id, time: t }); },
+    clearMarkers() { state.markers = []; },
+  };
+  function setViewport(p, vp) { p.viewport = vp; if (p.syncViewport) { state.sharedViewport = { ...vp }; for (const q of Object.values(state.panels)) if (q.syncViewport) q.viewport = { ...vp }; } }
+  function wavePath(name, vp, w, h) {
+    let seed = 0; for (const ch of name) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const period = 40 + (seed % 7) * 37; const isBus = name.includes('[');
+    const px = t => ((t - vp.start) / (vp.end - vp.start)) * w;
+    if (isBus) {
+      const parts = []; let t = Math.floor(vp.start / period) * period;
+      for (; t < vp.end; t += period) {
+        const xa = Math.max(0, px(t)), xb = Math.min(w, px(t + period)); if (xb - xa < 1) continue;
+        parts.push(`<path d="M${xa.toFixed(1)} ${h / 2} L${(xa + 3).toFixed(1)} 2 H${(xb - 3).toFixed(1)} L${xb.toFixed(1)} ${h / 2} L${(xb - 3).toFixed(1)} ${h - 2} H${(xa + 3).toFixed(1)} Z"/>`);
+        if (xb - xa > 34) parts.push(`<text x="${(xa + 6).toFixed(1)}" y="${h - 4}">${((seed ^ t) & 0xffff).toString(16).padStart(4, '0')}</text>`);
+      }
+      return parts.join('');
+    }
+    let t = Math.floor(vp.start / period) * period; let level = ((t / period) | 0) & 1;
+    let d = `M0 ${level ? 2 : h - 2}`;
+    for (; t < vp.end + period; t += period) { const x = Math.max(0, Math.min(w, px(t))); d += ` H${x.toFixed(1)}`; level ^= 1; d += ` V${level ? 2 : h - 2}`; }
+    return `<path class="bit" d="${d}"/>`;
+  }
+  function fmt(ns) { return ns >= 1000 ? (ns / 1000).toFixed(2) + ' µs' : Math.round(ns) + ' ns'; }
+  function panelHtml(p, single) {
+    const focused = p.id === state.focused; const w = 320, rh = 18; const vp = p.viewport;
+    const px = t => ((t - vp.start) / (vp.end - vp.start)) * w;
+    const rows = p.rows.map(r => `<div class="pg-row"><span class="pg-name">${r}<button data-act="removeRow" data-name="${r}" data-id="${p.id}" aria-label="remove ${r}">×</button></span><svg viewBox="0 0 ${w} ${rh}" preserveAspectRatio="none">${wavePath(r, vp, w, rh)}</svg></div>`).join('');
+    const markers = state.markers.filter(m => m.time >= vp.start && m.time <= vp.end).map(m => `<div class="pg-marker" style="left:calc(${(px(m.time) / w * 100).toFixed(2)}% + 0px)"><span>${m.id}</span></div>`).join('');
+    const cursorIn = p.cursor >= vp.start && p.cursor <= vp.end;
+    const cursor = cursorIn ? `<div class="pg-cursor" style="left:${(px(p.cursor) / w * 100).toFixed(2)}%"></div>` : '';
+    const header = single ? '' : `<div class="pg-header"><span class="pg-title">${p.title}</span><span class="pg-tools">
+          <button class="pg-tool ${p.syncViewport ? 'on' : 'off'}" data-act="toggleSync" data-what="viewport" data-id="${p.id}" title="Follow shared viewport (L)"><b>⛓</b><i>view</i></button>
+          <button class="pg-tool ${p.syncCursor ? 'on' : 'off'}" data-act="toggleSync" data-what="cursor" data-id="${p.id}" title="Follow shared cursor (⇧L)"><b>⛓</b><i>cursor</i></button>
+          <button class="pg-tool" data-act="split" data-axis="h" data-id="${p.id}" title="Split right (⌘\\)">◫</button>
+          <button class="pg-tool" data-act="split" data-axis="v" data-id="${p.id}" title="Split down (⌘⇧\\)">⊟</button>
+          <button class="pg-tool" data-act="close" data-id="${p.id}" title="Close panel (⌘W)">✕</button></span></div>`;
+    const sug = SIGNALS[(p.id * 3) % SIGNALS.length];
+    const empty = p.rows.length ? '' : `<div class="pg-empty">No signals. Double-click a variable in the sidebar, or <button data-act="addRow" data-id="${p.id}" data-name="${sug}">add ${sug}</button></div>`;
+    return `<div class="pg-panel ${focused ? 'focused' : ''} ${single ? 'single' : ''}" data-id="${p.id}" tabindex="0">${header}
+      <div class="pg-body" data-id="${p.id}"><div class="pg-timeline"><span>${fmt(vp.start)}</span><span>${fmt((vp.start + vp.end) / 2)}</span><span>${fmt(vp.end)}</span>${markers}${cursor}</div>
+      <div class="pg-rows">${rows}${empty}</div></div></div>`;
+  }
+  function nodeHtml(node, single) {
+    if (node.kind === 'tabs') {
+      const many = node.panels.length > 1;
+      const tabs = many ? `<div class="pg-tabs">${node.panels.map((id, i) => `<button class="pg-tab ${i === node.active ? 'active' : ''} ${id === state.focused ? 'focused' : ''}" data-act="focus" data-id="${id}">${state.panels[id].title}<span data-act="close" data-id="${id}" class="pg-tab-close" title="Close">×</span></button>`).join('')}<button class="pg-tab pg-tab-new" data-act="newTab" data-id="${node.panels[node.active]}" title="New waveform tab (⌘N)">+</button></div>` : '';
+      return `<div class="pg-tabpanel">${tabs}${panelHtml(state.panels[node.panels[node.active]], single)}</div>`;
+    }
+    return `<div class="pg-split ${node.axis}">${node.children.map((c, i) => `<div class="pg-cell" style="flex:${node.sizes[i]} 1 0">${nodeHtml(c, false)}</div>`).join('')}</div>`;
+  }
+  function render() {
+    const ids = panelIds(state.layout); const single = ids.length === 1; const fp = state.panels[state.focused];
+    root.querySelector('.pg-center').innerHTML = nodeHtml(state.layout, single);
+    const chips = single ? '' : `<span class="pg-chip">focus: ${fp.title}</span><span class="pg-chip ${fp.syncViewport ? 'on' : ''}">view ${fp.syncViewport ? 'linked' : 'free'}</span><span class="pg-chip ${fp.syncCursor ? 'on' : ''}">cursor ${fp.syncCursor ? 'linked' : 'free'}</span>`;
+    root.querySelector('.pg-status').innerHTML = `<span>0 – ${fmt(TRACE_END)}</span><span>cursor ${fmt(fp.cursor)}</span><span>${state.markers.length} markers</span>${chips}<span class="pg-hint">${single ? 'single panel: header hidden; link toggles in the View menu and keys' : ids.length + ' panels'}</span>`;
+    root.querySelector('.pg-sidebar').innerHTML = `<div class="pg-side-title">Variables <small>double-click adds to the focused panel</small></div>` + SIGNALS.map(s => `<div class="pg-var" data-dbl="addRow" data-name="${s}">${s}</div>`).join('');
+    document.getElementById('pg-json').textContent = JSON.stringify(captureWorkspace(), null, 2);
+  }
+  function captureWorkspace() {
+    const layout = n => n.kind === 'tabs' ? { tabs: n.panels, active: n.panels[n.active] } : { split: n.axis === 'h' ? 'horizontal' : 'vertical', sizes: n.sizes.map(s => +s.toFixed(3)), children: n.children.map(layout) };
+    return { format: 'volna-workspace', version: 1,
+      trace: { path: 'picorv32.vtr', name: 'picorv32.vtr', timescale: -9, time_range: [0, TRACE_END] },
+      layout: layout(state.layout), focused: state.focused,
+      panels: Object.values(state.panels).map(p => ({ id: p.id, kind: 'waves', version: 1, title: null, link: { viewport: p.syncViewport, cursor: p.syncCursor }, viewport: p.viewport, cursor: p.cursor, scroll_y: 0, columns: { names: 220, values: 120 }, rows: p.rows.map(r => ({ signal: 'testbench.top.' + r.replace(/\[.*\]/, ''), format: r.includes('[') ? 'hex' : 'bit' })), selected: [] })),
+      shared: { viewport: state.sharedViewport, cursor: state.sharedCursor, markers: state.markers.map(m => ({ id: m.id, time: m.time, label: null })) },
+      sidebar: { visible: true, width: 280, scopes_fraction: 0.42, selected_scope: 'testbench.top', expanded: ['testbench'], filter: '' } };
+  }
+  root.addEventListener('dblclick', e => { const v = e.target.closest('[data-dbl]'); if (v) { cmd.addRow(state.focused, v.dataset.name); render(); } });
+  root.addEventListener('click', e => {
+    const b = e.target.closest('[data-act]');
+    if (b) {
+      const id = +b.dataset.id;
+      switch (b.dataset.act) {
+        case 'split': cmd.split(id, b.dataset.axis); break;
+        case 'newTab': cmd.newTab(id); break;
+        case 'close': cmd.close(id); e.stopPropagation(); break;
+        case 'focus': cmd.focus(id); break;
+        case 'toggleSync': cmd.toggleSync(id, b.dataset.what); break;
+        case 'addRow': cmd.addRow(id, b.dataset.name); break;
+        case 'removeRow': cmd.removeRow(id, b.dataset.name); break;
+        case 'reset': reset(); return;
+        case 'resetSingle': resetSingle(); return;
+        case 'splitFocused': cmd.split(state.focused, b.dataset.axis); break;
+        case 'addMarker': cmd.addMarker(); break;
+        case 'clearMarkers': cmd.clearMarkers(); break;
+        case 'toggleSyncFocused': cmd.toggleSync(state.focused, b.dataset.what); break;
+      }
+      render(); return;
+    }
+    const body = e.target.closest('.pg-body');
+    if (body) {
+      const id = +body.dataset.id; cmd.focus(id);
+      const rect = body.querySelector('.pg-rows').getBoundingClientRect();
+      const x = e.clientX - rect.left - 96; const w = rect.width - 96;
+      if (x >= 0 && w > 0) { const p = state.panels[id]; cmd.setCursor(id, p.viewport.start + (x / w) * (p.viewport.end - p.viewport.start)); }
+      render(); root.querySelector('.pg-panel.focused')?.focus({ preventScroll: true }); return;
+    }
+    const panel = e.target.closest('.pg-panel');
+    if (panel) { cmd.focus(+panel.dataset.id); render(); }
+  });
+  root.addEventListener('keydown', e => {
+    const id = state.focused; let handled = true; const mod = e.metaKey || e.ctrlKey;
+    switch (e.key) {
+      case 'ArrowLeft': cmd.pan(id, -1); break;
+      case 'ArrowRight': cmd.pan(id, 1); break;
+      case '=': case '+': cmd.zoom(id, 0.5); break;
+      case '-': cmd.zoom(id, 2); break;
+      case 'f': case 'F': cmd.fit(id); break;
+      case 'm': cmd.addMarker(); break;
+      case 'M': cmd.clearMarkers(); break;
+      case 'l': cmd.toggleSync(id, 'viewport'); break;
+      case 'L': cmd.toggleSync(id, 'cursor'); break;
+      case 'w': if (mod) cmd.close(id); else handled = false; break;
+      case 'n': if (mod) cmd.newTab(id); else handled = false; break;
+      case '\\': case '|': if (mod) cmd.split(id, e.shiftKey ? 'v' : 'h'); else handled = false; break;
+      case 'Tab': if (e.ctrlKey) { const ids = panelIds(state.layout); const d = e.shiftKey ? -1 : 1; cmd.focus(ids[(ids.indexOf(id) + d + ids.length) % ids.length]); } else handled = false; break;
+      default: handled = false;
+    }
+    if (handled) { e.preventDefault(); render(); root.querySelector('.pg-panel.focused')?.focus({ preventScroll: true }); }
+  });
+  reset();
+})();
+</script>
+</body>
+</html>
