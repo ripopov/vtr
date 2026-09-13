@@ -8638,12 +8638,26 @@ dependencies = [
 name = "vtr-query"
 version = "0.1.0"
 dependencies = [
+ "futures-channel",
+ "futures-lite",
  "prost",
  "prost-build",
  "rand 0.8.8",
  "tempfile",
  "thiserror 2.0.20",
  "vtr",
+]
+
+[[package]]
+name = "vtr-server"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "futures-lite",
+ "futures-util",
+ "tempfile",
+ "vtr",
+ "vtr-query",
 ]
 
 [[package]]

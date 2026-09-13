@@ -6,9 +6,12 @@ cooperative cancellation, optional stdio framing, native exact waveform windows
 and resumable cold-path waveform summaries. Native metadata operations include
 child pages, substring search, batched literal path resolution and string byte
 parts, dispatched through a typed native session. A Protobuf schema and bounded
-request decoder and borrowed-result encoder cover these operations. Reply decoding, the remaining query
-families, asynchronous host adapters
-and viewer integration are not implemented here yet.
+request/reply decoders and a borrowed-result encoder cover these operations.
+`local_session::LocalSession` executes these queries asynchronously on a native
+worker, and [`vtr-server`](../../tools/vtr-server/README.md) hosts it over stdio.
+The wire feature also provides an asynchronous RPC client and host driver.
+The remaining query families, VS Code relay and viewer integration are not
+implemented here yet.
 
 `Interval` uses `[start,end)` with `TimeBound::AfterMax` for the exclusive end
 after `u64::MAX`. `Grid` validates power-of-two alignment and bounds before use.
@@ -43,8 +46,23 @@ types. This strict version-one contract does not silently accept unknown fields.
 The returned request retains its conservative decode reservation until dropped.
 Raw generated message decoding bypasses this admission and must not be used on
 untrusted input. `wire_encode` counts encoded bytes before allocating one admitted
-output buffer and writes directly from borrowed typed results. Reply-side decoding
-is still under development.
+output buffer and writes directly from borrowed typed results. Delivery encoding
+also checks the receiver's structural and decoded-size caps before returning.
+
+`wire_reply::decode` shares the schema preflight and converts admitted Protobuf
+objects into the same immutable `Reply` pages used by native sessions. It checks
+snapshot/continuation consistency, completeness, grids, ordered waveform changes,
+packed value lengths and logic codes, declaration order and parent identities,
+summary domains/counts/extrema, text ranges and advertised capabilities. IEEE
+real bits and unused packing bits are preserved. Decoded byte vectors move into
+shared storage without another payload copy. All descendants share a conservative
+whole-response reservation, which stays charged until the last retained page or
+payload is dropped; retaining a small part may therefore retain the full charge.
+
+These are per-envelope checks. Matching a reply to its pending request, validating
+coverage and ordering across pages, and rejecting replies from a replaced host
+incarnation are handled by `rpc_session`. The codec alone does not establish
+that lifecycle.
 
 ```sh
 cargo test -p vtr-query --all-features
@@ -69,7 +87,7 @@ is not a complete coverage claim. Cancellation is checked between scan batches.
 These limits bound response allocations, not reader caches or decoder scratch.
 In particular, predecessor lookup still uses the reader's owned point-query
 result. Oversized individual values return `ResourceLimit`; paged large-value
-retrieval, blackout coverage, raw summary indexes and wire continuations remain
+retrieval, blackout coverage, raw summary indexes and asynchronous adapters remain
 required before the viewer can adopt the complete bounded-session contract.
 
 `native::Summary` scans directly into a constant-sized `summary::BinBuilder`;
@@ -124,3 +142,53 @@ state. A host-held cancellation token can stop work while the session worker is
 busy; dropping the session cancels all operations. This is the execution layer,
 not the asynchronous viewer adapter or the complete wire protocol. Reader cache
 and scratch admission are still needed in addition to response accounting.
+
+`LocalSession::open` returns an opening future and performs file I/O on a dedicated
+worker. Query futures only poll oneshot delivery slots. Submission, waiting
+results and active work share a fixed request-credit allowance; consuming a
+result makes its credit available for an immediate continuation. Retained page
+bytes remain charged independently of request credit.
+
+Dropping a pending query future cancels it and releases any result that races
+with the drop. Explicit cancellation links to the worker's active operation;
+a handle from a completed request cannot cancel a later page. Retaining that
+handle still retains its allocation reservation. Releases have a
+separate bounded queue and run before queued data requests. Dropping/closing the
+session signals shutdown without joining the reader thread on the caller. Reader
+work and destruction finish on the worker, and their allocations remain owned
+until then. A blocked reader open is not made interruptible by wrapping it in a
+future; the host/extension still owns disposal deadlines.
+
+`RpcDriver::new` returns a host driver and an opening future. The driver exchanges
+Hello/Open controls; the future resolves to `RpcSession` after a validated
+Opened response. The session exposes `execute`, `advance`, `release` and `close`.
+The host pumps `poll_outbound` (or `take_outbound`) and calls `receive` with the
+opaque document/child incarnation. Queuing a query or control wakes an idle
+outbound poll without waiting for a paint. Polling and request submission do not
+read or decode trace data. Incoming decoding still runs on the receiving thread
+and must be scheduled outside paint/layout with a measured install budget.
+
+RPC data slots reserve the peer's maximum encoded and decoded reply capacity
+before a request can leave the process. After validated decoding, the shared
+reservation shrinks to the conservative retained decoded bound plus the received
+encoded length. Controls and outgoing packets use a separately prepaid one-MiB
+pool. These charges cover Rust-side protocol storage; host message copies and
+JavaScript queues require their own bounded accounting. Delivered but unconsumed
+futures retain request credit, and decoded pages retain their allocation charges.
+
+Priority selection precedes wire-ID assignment, so cancel/release/close can pass
+unsent queries while IDs remain strictly increasing. Dropped sent queries retain
+a bounded receive slot until their response arrives; late successes are discarded
+and released on the server. The driver ignores replaced incarnations and rejects
+unknown/duplicate replies, wrong snapshots, wrong reply families and mismatched
+continuations. It validates cross-page time order, predecessor consistency,
+summary grids/continuity, hierarchy order and path/text coverage. Retrying the
+last successfully received cursor returns its shared cached delivery. A full
+control queue leaves an explicit release retryable. Closing invalidates futures
+and schedules Close; a broken transport fails them immediately. The host must
+tear down an unresponsive child under its disposal deadline.
+
+Consumer and outbound wakers run after releasing client state borrows, allowing
+an executor to submit or poll another query immediately. The RPC client compiles
+without the native engine for WASM. Tests exercise the driver against both
+controlled adversarial replies and the actual stdio child.

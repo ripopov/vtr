@@ -16,7 +16,7 @@ pub struct Continuation {
     pub step: u64,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SessionInfo {
     pub snapshot: SnapshotId,
     pub timescale: i8,

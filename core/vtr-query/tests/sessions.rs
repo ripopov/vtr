@@ -163,3 +163,76 @@ fn completed_query_retries_until_release_and_summary_uses_same_dispatcher() {
     drop(session);
     assert_eq!(budget.used(), 0);
 }
+
+#[cfg(feature = "wire")]
+#[test]
+fn native_pages_cross_the_wire_without_changing_results_or_continuations() {
+    use prost::Message;
+    use vtr_query::{
+        wire::{proto, MAX_DECODED_BYTES},
+        wire_encode, wire_reply,
+    };
+    let (_dir, reader, signal) = fixture();
+    let budget = Budget::new(MAX_DECODED_BYTES);
+    let mut session = Session::new(&reader, budget.clone(), 1).unwrap();
+    let queries = [
+        query(signal),
+        Query::Summary {
+            signal,
+            grid: Grid::new(0, 2, 3).unwrap(),
+        },
+        Query::Children { parent: None },
+        Query::Search {
+            scope: None,
+            needle: "s".into(),
+        },
+        Query::Resolve {
+            paths: vec![vtr_query::metadata::Path {
+                segments: vec!["s".into()],
+                occurrence: None,
+                kind: None,
+            }],
+        },
+    ];
+    for query in queries {
+        let first = session
+            .start(
+                query,
+                Limits {
+                    work: 1,
+                    ..limits()
+                },
+                Cancellation::default(),
+            )
+            .unwrap();
+        let mut cursor = first;
+        let mut complete = false;
+        for _ in 0..100 {
+            let native = session.advance(cursor).unwrap();
+            let bytes = wire_encode::delivery(1, &native, &budget).unwrap();
+            let response = wire_reply::decode(bytes.bytes(), &budget).unwrap();
+            let wire_reply::Body::Delivery(remote) = response.body() else {
+                panic!("delivery")
+            };
+            assert_eq!(remote.request, native.request);
+            assert_eq!(remote.next, native.next);
+            assert_eq!(remote.reply.complete(), native.reply.complete());
+            let again = wire_encode::delivery(1, remote, &budget).unwrap();
+            assert_eq!(
+                proto::Envelope::decode(bytes.bytes()).unwrap(),
+                proto::Envelope::decode(again.bytes()).unwrap()
+            );
+            match remote.next {
+                Some(next) => cursor = next,
+                None => {
+                    complete = true;
+                    break;
+                }
+            }
+        }
+        assert!(complete, "query must exhaust under single-unit work slices");
+        session.release(first).unwrap();
+    }
+    drop(session);
+    assert_eq!(budget.used(), 0);
+}

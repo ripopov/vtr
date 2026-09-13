@@ -175,3 +175,81 @@ fn generated_request_objects_fit_the_preflight_allowance() {
         p::Grid
     );
 }
+
+#[test]
+fn borrowed_request_encoder_matches_strict_decoder_for_every_operation() {
+    use vtr_query::{
+        metadata::Path,
+        session::{Continuation, SnapshotId},
+        wave::Limits,
+        wire_encode, Grid, Interval,
+    };
+    let snapshot = SnapshotId([7; 16]);
+    let cursor = Continuation {
+        snapshot,
+        operation: u64::MAX,
+        step: u64::MAX,
+    };
+    let queries = vec![
+        Query::Window {
+            signal: u32::MAX,
+            interval: Interval::new(u64::MAX, TimeBound::AfterMax).unwrap(),
+        },
+        Query::Summary {
+            signal: 0,
+            grid: Grid::new(0, 64, 1).unwrap(),
+        },
+        Query::Children { parent: None },
+        Query::Children { parent: Some(0) },
+        Query::Search {
+            scope: Some(0),
+            needle: "ß.\\x[0]".into(),
+        },
+        Query::Resolve {
+            paths: vec![Path {
+                segments: vec!["".into(), "ß.\\x[0]".into()],
+                occurrence: Some(0),
+                kind: Some(2),
+            }],
+        },
+        Query::Text {
+            id: u32::MAX,
+            offset: u64::MAX,
+            length: 0,
+        },
+    ];
+    let mut bodies = vec![
+        RequestBody::Hello,
+        RequestBody::Open,
+        RequestBody::Close,
+        RequestBody::Next(cursor),
+        RequestBody::Release(cursor),
+        RequestBody::Cancel(u64::MAX),
+    ];
+    bodies.extend(queries.into_iter().map(|query| RequestBody::Query {
+        query,
+        limits: Limits::default(),
+    }));
+    let budget = Budget::new(MAX_DECODED_BYTES);
+    for body in bodies {
+        let bytes = wire_encode::request(u64::MAX, Some(snapshot), &body, &budget).unwrap();
+        let decoded = decode(bytes.bytes(), &budget).unwrap();
+        let again =
+            wire_encode::request(decoded.request_id, decoded.snapshot, &decoded.body, &budget)
+                .unwrap();
+        assert_eq!(again.bytes(), bytes.bytes());
+    }
+    assert_eq!(budget.used(), 0);
+    let oversized = RequestBody::Query {
+        query: Query::Search {
+            scope: None,
+            needle: "x".repeat(65536),
+        },
+        limits: Limits::default(),
+    };
+    assert!(matches!(
+        wire_encode::request(1, Some(snapshot), &oversized, &budget),
+        Err(Error::ResourceLimit)
+    ));
+    assert_eq!(budget.used(), 0);
+}

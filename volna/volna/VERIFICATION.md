@@ -13,7 +13,7 @@ PATH, or `PROTOC` pointing to it); native-only query builds do not use it.
 volna/volna/check.sh
 ```
 
-The script checks formatting and strict Clippy for `vtr-query`, `volna-core`,
+The script checks formatting and strict Clippy for `vtr-query`, `vtr-server`, `volna-core`,
 `volna` and `volna-egui`, runs their Rust tests, and runs the Node tests for the VS Code
 adapter. The frame-time benchmark is excluded from the regular test run.
 
@@ -21,6 +21,7 @@ For focused checks:
 
 ```sh
 cargo test --locked -p vtr-query --all-features
+cargo test --locked -p vtr-server
 cargo check --locked -p vtr-query --all-features --target wasm32-unknown-unknown
 cargo test --locked -p volna-core
 cargo test --locked -p volna-core --test fst
@@ -32,7 +33,9 @@ node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspa
 
 | Area | Coverage |
 |---|---|
-| Bounded-query foundation | Exact maximum-time endpoints, canonical grids across pans, half-open transaction/point boundaries, concurrent allocation admission and shared pins, fragmented/coalesced stdio frames, truncation, invalid lengths and terminal parser failures; this does not verify query execution or a live relay |
+| Bounded-query foundation | Exact maximum-time endpoints, canonical grids across pans, half-open transaction/point boundaries, concurrent allocation admission and shared pins, fragmented/coalesced stdio frames, truncation, invalid lengths and terminal parser failures, exact/cold-summary and metadata pages, codec conformance and shared native delivery; this does not verify a live relay |
+| Query worker and stdio child | Asynchronous opening, nonblocking future polling/drop, cancellation and abandoned-result cleanup, fixed delivery credit; real child handshake, paging/retries, release, operation limits, stale snapshots, malformed/version errors, EOF and close |
+| RPC client | Prepaid reply capacity, transmission-order request IDs, priority cancellation, late/replaced-host replies, cross-page coverage, shared retries, control saturation, reentrant consumer wakeups and idle transport wakeups; production client versus real child across all current query families |
 | Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry, and duplicate/alias rows share histories |
 | Panel model | Literal hierarchy paths and duplicate-name ambiguity; split/close/focus/layout validation; 5,000 generated command sequences; shared and independent navigation; cross-panel load reuse and stale pointer rejection |
 | Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, format menu, sidebar filtering/keys, layout hit regions and repaint coalescing |

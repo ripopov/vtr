@@ -60,7 +60,7 @@ pub struct WaveBin {
     pub first: Option<Change>,
     pub last: Option<Change>,
     pub real: Option<RealSummary>,
-    _charge: Reservation,
+    pub(crate) _charge: Reservation,
 }
 impl WaveBin {
     /// Conservative delivery accounting: shared value storage may appear in

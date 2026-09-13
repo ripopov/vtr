@@ -1,0 +1,18 @@
+[package]
+name = "vtr-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.85"
+description = "Per-document native VTR query child for the VS Code relay."
+
+[dependencies]
+vtr-query = { path = "../../core/vtr-query", features = ["native-engine", "wire"] }
+async-channel = "2"
+futures-lite = "2"
+futures-util = "0.3"
+
+[dev-dependencies]
+vtr = { path = "../../core/vtr" }
+tempfile = "3"

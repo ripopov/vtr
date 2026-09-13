@@ -9,12 +9,13 @@ description = "Bounded raw trace queries shared by native and VS Code Volna sess
 
 [features]
 default = []
-wire = ["dep:prost", "dep:prost-build"]
-native-engine = ["dep:vtr", "dep:rand"]
+wire = ["dep:prost", "dep:prost-build", "dep:futures-channel"]
+native-engine = ["dep:vtr", "dep:rand", "dep:futures-channel"]
 
 [dependencies]
 thiserror = "2"
 prost = { version = "0.14", optional = true }
+futures-channel = { version = "0.3", optional = true }
 
 [build-dependencies]
 prost-build = { version = "0.14", optional = true }
@@ -25,3 +26,4 @@ rand = { version = "0.8", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+futures-lite = "2"

@@ -9,7 +9,15 @@ is spelled out. The on-disk format is specified in
 
 The separate [`vtr-query` foundation](../core/vtr-query/README.md) supplies
 validated half-open intervals, canonical grids, shared byte reservations,
-cancellation and optional stdio framing for the planned bounded session API.
+waveform/metadata pages, typed continuations and asynchronous native execution.
+`local_session::LocalSession::open` opens on a worker; `execute`/`advance` return
+futures over shared immutable deliveries. `release` retires an operation and
+`close` signals shutdown without joining the reader on the caller. Optional wire
+codecs support the [`vtr-server` stdio child](../tools/vtr-server/README.md).
+`rpc_session::RpcDriver` handles handshake, prepaid reply capacity, packet
+correlation and cross-page validation, exposing the matching future-based
+`RpcSession` on native test hosts and WASM. The viewer has not yet adopted this
+bounded session API.
 It does not change the reader operations documented here or their C projection.
 
 Contents

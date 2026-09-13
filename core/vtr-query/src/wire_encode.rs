@@ -328,7 +328,7 @@ fn reply(w: &mut Writer, reply: &Reply) -> Result<()> {
     }
 }
 pub fn delivery(request_id: u64, d: &Delivery, budget: &Budget) -> Result<Encoded> {
-    encode(MAX_REPLY_BYTES, budget, |w| {
+    let encoded = encode(MAX_REPLY_BYTES, budget, |w| {
         header(w, request_id, Some(d.request.snapshot))?;
         w.message(16, |w| {
             w.message(1, |w| cursor(w, &d.request))?;
@@ -337,7 +337,14 @@ pub fn delivery(request_id: u64, d: &Delivery, budget: &Budget) -> Result<Encode
             }
             reply(w, &d.reply)
         })
-    })
+    })?;
+    // A small encoded frame can still exceed the receiver's decoded or
+    // structural cap. Fail the query locally instead of sending such a frame.
+    crate::wire_admission::decoded_bytes(
+        crate::wire_admission::Schema::ReplyEnvelope,
+        encoded.bytes(),
+    )?;
+    Ok(encoded)
 }
 pub fn opened(request_id: u64, info: &SessionInfo, budget: &Budget) -> Result<Encoded> {
     encode(MAX_REPLY_BYTES, budget, |w| {
@@ -458,7 +465,7 @@ pub fn request(
     body: &RequestBody,
     budget: &Budget,
 ) -> Result<Encoded> {
-    encode(MAX_REQUEST_BYTES, budget, |w| {
+    let encoded = encode(MAX_REQUEST_BYTES, budget, |w| {
         header(w, request_id, snapshot)?;
         match body {
             RequestBody::Hello => w.empty(10),
@@ -469,5 +476,7 @@ pub fn request(
             RequestBody::Release(c) => w.message(18, |w| cursor(w, c)),
             RequestBody::Cancel(id) => w.message(17, |w| w.uint(1, *id)),
         }
-    })
+    })?;
+    crate::wire_admission::decoded_bytes(crate::wire_admission::Schema::Envelope, encoded.bytes())?;
+    Ok(encoded)
 }

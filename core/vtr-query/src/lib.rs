@@ -29,6 +29,8 @@ pub use time::{Grid, Interval, TimeBound};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
+    #[error("query session closed")]
+    Closed,
     #[error("invalid query: {0}")]
     Invalid(&'static str),
     #[error("resource limit exceeded")]
@@ -42,3 +44,14 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(feature = "wire")]
+mod wire_admission;
+#[cfg(feature = "wire")]
+pub mod wire_reply;
+
+#[cfg(all(feature = "native-engine", not(target_family = "wasm")))]
+pub mod local_session;
+
+#[cfg(feature = "wire")]
+pub mod rpc_session;

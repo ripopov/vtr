@@ -11,6 +11,7 @@ use crate::{Error, Result};
 struct Account {
     limit: usize,
     used: AtomicUsize,
+    _backing: Option<Reservation>,
 }
 
 /// Clones refer to the same ceiling, including cached, pinned and queued data.
@@ -22,7 +23,20 @@ impl Budget {
         Self(Arc::new(Account {
             limit,
             used: AtomicUsize::new(0),
+            _backing: None,
         }))
+    }
+
+    /// Fixed reserved capacity for protocol controls. Its backing admission
+    /// follows child reservations even after the child Budget handle is dropped.
+    #[cfg(feature = "wire")]
+    pub(crate) fn child(&self, limit: usize) -> Result<Self> {
+        let backing = self.reserve(limit)?;
+        Ok(Self(Arc::new(Account {
+            limit,
+            used: AtomicUsize::new(0),
+            _backing: Some(backing),
+        })))
     }
 
     pub fn limit(&self) -> usize {
@@ -44,7 +58,7 @@ impl Budget {
             .map_err(|_| Error::ResourceLimit)?;
         Ok(Reservation(Arc::new(Lease {
             account: self.0.clone(),
-            bytes,
+            bytes: AtomicUsize::new(bytes),
         })))
     }
 }
@@ -52,12 +66,14 @@ impl Budget {
 #[derive(Debug)]
 struct Lease {
     account: Arc<Account>,
-    bytes: usize,
+    bytes: AtomicUsize,
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        self.account.used.fetch_sub(self.bytes, Ordering::AcqRel);
+        self.account
+            .used
+            .fetch_sub(self.bytes.load(Ordering::Acquire), Ordering::AcqRel);
     }
 }
 
@@ -68,7 +84,24 @@ pub struct Reservation(Arc<Lease>);
 
 impl Reservation {
     pub fn bytes(&self) -> usize {
-        self.0.bytes
+        self.0.bytes.load(Ordering::Acquire)
+    }
+    /// Return unused prepaid capacity after a decoder has established the
+    /// retained allocation bound. All shared descendants observe the new charge.
+    #[cfg(feature = "wire")]
+    pub(crate) fn shrink(&self, bytes: usize) -> Result<()> {
+        let previous = self
+            .0
+            .bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                (bytes <= old).then_some(bytes)
+            })
+            .map_err(|_| Error::ResourceLimit)?;
+        self.0
+            .account
+            .used
+            .fetch_sub(previous - bytes, Ordering::AcqRel);
+        Ok(())
     }
 }
 

@@ -11,8 +11,8 @@ VTR runtime traces, separate VDB design metadata, and the Volna UI. SystemC,
 gem5 and wavepeek integration are part of the direction; see
 `docs/ARCHITECTURE.md` for current support and planned work.
 
-One Rust workspace with nine crates grouped by responsibility:
-`core/` contains `vtr`, `vtr-capi`, `vtr-vdb` and `vtr-query`; `tools/` contains `vtr-cli`;
+One Rust workspace with ten crates grouped by responsibility:
+`core/` contains `vtr`, `vtr-capi`, `vtr-vdb` and `vtr-query`; `tools/` contains `vtr-cli` and `vtr-server`;
 `bench/` contains `vtr-bench`; `volna/` contains `volna-core`, `volna` (GPUI)
 and `volna-egui`. Standalone Python exporters live in `integrations/slang`.
 The Verilator backend is in the pinned `ext/verilator` submodule, with build

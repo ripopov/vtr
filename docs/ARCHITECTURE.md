@@ -11,7 +11,8 @@ to support interactive and AI-assisted debugging.
 | Component | Code | Responsibility |
 |---|---|---|
 | VTR | `core/vtr`, `core/vtr-capi` | Trace format, reader/writer, runtime hierarchy, waveforms, transactions, relations and logs; Rust and C APIs |
-| Query contracts | `core/vtr-query` | Exact time grids, shared allocation reservations, native exact waveform pages and cold-path summaries, cooperative cancellation and optional bounded stdio framing; remaining query families and viewer integration remain under implementation |
+| Query engine | `core/vtr-query` | Raw waveform and metadata pages, shared allocation admission, typed asynchronous native/RPC sessions, cancellation and optional Protobuf framing/codecs; remaining query families and viewer integration remain under implementation |
+| Query child | `tools/vtr-server` | Per-document VTR stdio endpoint over the same asynchronous session; intended for the VS Code extension relay |
 | VTR tools | `tools/vtr-cli`, `bench/vtr-bench` | Trace inspection/conversion and Rust benchmark drivers |
 | VDB | `core/vtr-vdb`, `integrations/slang` | Separate design metadata, source index, semantics, RTL netlists and temporal driver tracing; standalone pyslang export |
 | Volna | `volna/volna-core`, `volna/volna`, `volna/volna-egui` | Toolkit-independent viewer logic, main GPUI UI and minimal egui adapter |
@@ -37,7 +38,8 @@ remote-file direction are in [Volna's architecture](../volna/volna/ARCHITECTURE.
 
 The intended remote boundary puts raw trace queries beside the file and leaves
 VDB profiles, presentation and user annotations on the client. Current local
-sessions and whole-history loading do not yet implement that remote service.
+viewer sessions and whole-history loading have not yet adopted the query engine
+or the stdio child; the VS Code relay remains under implementation.
 
 ## Integration status
 
@@ -55,9 +57,11 @@ See [integrations/README.md](../integrations/README.md) for entry points and
 
 ## Workspace and supporting material
 
-The nine Rust packages share one root Cargo workspace and lockfile.
-`cargo test` exercises the six default packages;
-`volna/volna/check.sh` checks the three viewer packages and the VS Code adapter.
+The ten Rust packages share one root Cargo workspace and lockfile.
+`cargo test` exercises the seven default packages;
+`volna/volna/check.sh` checks the query library/child, three viewer packages and
+the VS Code adapter. Building the default workspace now requires `protoc` for
+the query child; native-only query library builds do not enable the wire codec.
 Run `cargo test -p vtr-query --all-features` to include the optional framing tests.
 Native viewer checks still require the platform SDK and desktop services.
 

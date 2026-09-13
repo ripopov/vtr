@@ -242,6 +242,15 @@ impl<'a> Session<'a> {
             }
         }
     }
+    pub(crate) fn cancellation(&self, cursor: Continuation) -> Result<Cancellation> {
+        self.validate(cursor)?;
+        self.slots
+            .iter()
+            .flatten()
+            .find(|(id, _)| *id == cursor.operation)
+            .map(|(_, slot)| slot.cancellation.clone())
+            .ok_or(Error::Invalid("unknown or released operation"))
+    }
     fn validate(&self, cursor: Continuation) -> Result<()> {
         if cursor.snapshot != self.info.snapshot {
             return Err(Error::Invalid("continuation belongs to another snapshot"));

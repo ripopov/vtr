@@ -27,6 +27,15 @@ impl Bytes {
     pub fn as_slice(&self) -> &[u8] {
         &self.0.bytes
     }
+    /// The wire preflight reserves generated and converted storage together.
+    /// Retaining that reservation lets decoded payloads move without copying.
+    #[cfg(feature = "wire")]
+    pub(crate) fn from_admitted(bytes: Vec<u8>, charge: &Reservation) -> Self {
+        Self(Arc::new(Storage {
+            bytes,
+            _charge: charge.clone(),
+        }))
+    }
     pub fn from_slice(bytes: &[u8], budget: &Budget) -> Result<Self> {
         let charge = budget.reserve(Self::retained_size(bytes.len())?)?;
         let mut owned = Vec::new();

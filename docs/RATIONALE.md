@@ -62,8 +62,38 @@ assigned operation IDs prevent old continuations from addressing replacement
 operations. Requesting the next page acknowledges the previous delivery, so
 retry support does not require a growing reply history. The shared response
 budget includes slot storage and retained deliveries; host workers execute the
-native operations without a codec. Asynchronous viewer and relay adapters are
-separate integration work, as are reader cache and scratch limits.
+native operations without a codec. The asynchronous local adapter owns a dedicated
+reader worker and fixed delivery credit. Polling does no reader work; dropped
+futures cancel active work and retire raced results. A separate release queue
+prevents saturated data delivery from trapping abandoned operations. Shutdown
+signals the worker without joining it on a UI thread. Reader cache and scratch
+limits remain separate work.
+
+The stdio child uses this local adapter, with independent input and output pumps.
+Four outstanding data replies retain credit through stdout delivery, while
+control messages have a separate bounded queue. Strictly increasing wire request
+IDs reject reuse with constant state; logical retries use fresh request IDs and
+the same validated continuation. The child is bound to one host-supplied path,
+so no remote path/URL registry, socket or authentication service is introduced.
+The viewer and extension have not yet adopted this endpoint.
+
+The optional Protobuf codec performs a shared nonallocating schema pass in both
+wire directions before admitting generated objects. Framing size alone cannot
+bound decoded vectors or nested records. Native replies are encoded directly
+from borrowed typed pages into one admitted buffer; WASM decoding moves payload
+vectors into shared typed pages. A conservative whole-response reservation follows
+all retained descendants, avoiding payload copies and premature budget release.
+This can overcharge a small retained slice; it cannot justify reader-cache or
+transport-queue memory claims. Reply validation checks per-envelope semantics;
+the RPC driver additionally matches pending demand and cross-page coverage.
+It prepays maximum incoming storage before transmission and returns unused
+capacity after validating the decoded allocation bound. A separate control pool
+keeps cancellation and release independent of data saturation. Wire IDs are
+assigned after queue priority selection, so an overtaking control cannot cause
+an older unsent query to violate the child's increasing-ID rule. Abandoned sent
+requests retain receive credit until their late reply can be discarded/released.
+Consumer wakers run outside client state borrows; host transport wakeups do not
+wait for a render frame.
 
 Volna uses Session and immutable SignalHistory interfaces with batched loads
 and a private fst-reader adapter. The converter's numeric FST scope,
