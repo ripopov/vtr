@@ -25,6 +25,8 @@ struct Binding {
 
 pub struct QueryView<S: AsyncSession> {
     metadata: crate::query_metadata::MetadataQueries<S::Task>,
+    navigation: crate::query_navigation::Navigation<S::Task>,
+    cursor: crate::query_cursor::CursorQueries<S::Task>,
     demands: Option<WaveDemands<S>>,
     generation: u64,
     snapshot: SnapshotId,
@@ -73,6 +75,7 @@ impl<S: AsyncSession> QueryView<S> {
         }
         bindings.resize_with(max_rows, || None);
         let demands = WaveDemands::new(session, limits, max_items, max_rows, 4, budget)?;
+        let cursor = crate::query_cursor::CursorQueries::new(max_rows, limits, budget)?;
         if !app.doc.bind_query_session(generation, snapshot) {
             return Err(Error::Invalid(
                 "query session does not belong to the active document",
@@ -80,7 +83,9 @@ impl<S: AsyncSession> QueryView<S> {
         }
         Ok(Self {
             metadata: crate::query_metadata::MetadataQueries::new(limits, budget),
+            navigation: crate::query_navigation::Navigation::new(limits),
             demands: Some(demands),
+            cursor,
             generation,
             snapshot,
             bindings,
@@ -174,6 +179,8 @@ impl<S: AsyncSession> QueryView<S> {
         if app.doc.query_snapshot() != Some(self.snapshot) {
             self.demands = None; // a different recording closes the old worker
             self.metadata.stop();
+            self.navigation.stop();
+            self.cursor.stop();
         } else if self.generation != app.doc.generation() {
             // A workspace restore changes row identity without changing the trace.
             self.generation = app.doc.generation();
@@ -188,6 +195,8 @@ impl<S: AsyncSession> QueryView<S> {
             return Poll::Ready(Err(error));
         }
         let demands = self.demands.as_mut().unwrap();
+        let navigation = self.navigation.poll(demands.session(), app, cx);
+        let cursor = self.cursor.poll(demands.session(), app, cx);
         let metadata = self.metadata.poll(demands.session(), app, cx);
         let progress = demands.poll(cx);
         let mut changed = false;
@@ -226,16 +235,26 @@ impl<S: AsyncSession> QueryView<S> {
         if changed {
             app.changed();
         }
-        match metadata {
-            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-            Poll::Ready(Ok(Progress::Advanced)) => Poll::Ready(Ok(Progress::Advanced)),
-            Poll::Pending if !matches!(progress, Poll::Ready(Progress::Advanced)) => Poll::Pending,
-            Poll::Ready(Ok(Progress::Backpressure))
-                if matches!(progress, Poll::Ready(Progress::Idle)) =>
-            {
-                Poll::Ready(Ok(Progress::Backpressure))
+        let mut advanced = changed;
+        let mut pending = false;
+        let mut backpressure = false;
+        for result in [navigation, cursor, metadata, progress.map(Ok)] {
+            match result {
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(Progress::Advanced)) => advanced = true,
+                Poll::Ready(Ok(Progress::Backpressure)) => backpressure = true,
+                Poll::Pending => pending = true,
+                Poll::Ready(Ok(Progress::Idle)) => {}
             }
-            _ => progress.map(Ok),
+        }
+        if advanced {
+            Poll::Ready(Ok(Progress::Advanced))
+        } else if pending {
+            Poll::Pending
+        } else if backpressure {
+            Poll::Ready(Ok(Progress::Backpressure))
+        } else {
+            Poll::Ready(Ok(Progress::Idle))
         }
     }
 }

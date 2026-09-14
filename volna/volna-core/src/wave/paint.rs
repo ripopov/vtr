@@ -214,8 +214,30 @@ pub fn paint(
                 .map(|b| b.left() - pad)
                 .unwrap_or(layout.values.right() - pad);
             let avail = text_right - layout.values.left() - pad;
-            let (value_text, color) = match (&item.query, &item.history, cursor) {
-                (Some(data), _, Some(c)) => match data.value_at(c, 4096) {
+            let (value_text, color) = match (
+                item.query.is_some() || doc.query_snapshot().is_some(),
+                &item.history,
+                cursor,
+            ) {
+                (_, _, _) if item.source.signal().is_none() => {
+                    ("not in trace".to_string(), colors.text_placeholder)
+                }
+                (true, _, Some(c)) => match item
+                    .cursor_sample
+                    .as_ref()
+                    .and_then(|point| {
+                        item.source
+                            .signal()
+                            .map(|signal| point.value_at(doc, signal.0, c, 4096))
+                    })
+                    .transpose()
+                    .and_then(|point| match point.flatten() {
+                        Some(value) => Ok(Some(value)),
+                        None => item
+                            .query
+                            .as_ref()
+                            .map_or(Ok(None), |data| data.value_at(c, 4096)),
+                    }) {
                     Ok(Some(value)) => {
                         let tr = item.translator.translate(&value);
                         let color = if tr.kind == ValueKind::Normal {
@@ -228,8 +250,8 @@ pub fn paint(
                     Ok(None) => ("–".to_string(), colors.text_placeholder),
                     Err(_) => ("…".to_string(), colors.text_placeholder),
                 },
-                (Some(_), _, None) => ("–".to_string(), colors.text_placeholder),
-                (None, Some(h), Some(c)) => {
+                (true, _, None) => ("–".to_string(), colors.text_placeholder),
+                (false, Some(h), Some(c)) => {
                     let index = h.index_at(c);
                     let value = if item.shape == SignalShape::Event {
                         WaveValue::Bits(
@@ -251,10 +273,10 @@ pub fn paint(
                     };
                     (tr.text, color)
                 }
-                (None, None, _) if item.source.signal().is_none() => {
+                (false, None, _) if item.source.signal().is_none() => {
                     ("not in trace".to_string(), colors.text_placeholder)
                 }
-                (None, None, _) if item.error.is_none() => {
+                (false, None, _) if item.error.is_none() => {
                     ("loading…".to_string(), colors.text_placeholder)
                 }
                 _ => ("–".to_string(), colors.text_placeholder),

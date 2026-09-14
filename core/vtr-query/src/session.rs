@@ -27,16 +27,43 @@ pub struct SessionInfo {
 
 #[derive(Debug)]
 pub enum Query {
-    Window { signal: u32, interval: Interval },
-    Summary { signal: u32, grid: Grid },
-    Children { parent: Option<u32> },
-    Search { scope: Option<u32>, needle: String },
-    Resolve { paths: Vec<Path> },
-    Text { id: u32, offset: u64, length: usize },
+    ValuesAt {
+        pairs: Vec<crate::wave::SignalTime>,
+    },
+    FindChange {
+        signal: u32,
+        from: u64,
+        direction: crate::wave::Direction,
+    },
+    Window {
+        signal: u32,
+        interval: Interval,
+    },
+    Summary {
+        signal: u32,
+        grid: Grid,
+    },
+    Children {
+        parent: Option<u32>,
+    },
+    Search {
+        scope: Option<u32>,
+        needle: String,
+    },
+    Resolve {
+        paths: Vec<Path>,
+    },
+    Text {
+        id: u32,
+        offset: u64,
+        length: usize,
+    },
 }
 
 #[derive(Debug)]
 pub enum Reply {
+    Values(Arc<crate::wave::ValuesPage>),
+    FindChange(Arc<crate::wave::ChangeSearchPage>),
     Window(Arc<WindowPage>),
     Summary(Arc<crate::summary::SummaryPage>),
     Children(Arc<DeclarationPage>),
@@ -47,6 +74,8 @@ pub enum Reply {
 impl Reply {
     pub fn complete(&self) -> bool {
         match self {
+            Self::Values(page) => page.complete,
+            Self::FindChange(page) => page.result != crate::wave::ChangeSearchResult::Pending,
             Self::Window(page) => page.complete,
             Self::Summary(page) => page.complete,
             Self::Children(page) => page.complete,

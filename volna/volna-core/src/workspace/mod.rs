@@ -453,6 +453,7 @@ impl Workspace {
                     translator,
                     history: None,
                     query: None,
+                    cursor_sample: None,
                     error: None,
                 });
             }

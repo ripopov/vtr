@@ -397,7 +397,37 @@ impl App {
         }
     }
 
+    pub(crate) fn finish_query_edge(
+        &mut self,
+        panel: crate::panels::PanelId,
+        intent: crate::wave::model::EdgeIntent,
+        result: vtr_query::Result<Option<u64>>,
+        now: Instant,
+    ) {
+        let Some(waves) = self.panels.waves_mut(panel) else {
+            return;
+        };
+        let before = waves.cursor(&self.doc);
+        if !waves.finish_edge(&mut self.doc, intent, result, now) {
+            return;
+        }
+        if before != waves.cursor(&self.doc) && !self.workspace.loading {
+            self.workspace.scheduler.changed(now);
+        }
+        self.changed();
+    }
+
     fn layout_changed(&mut self) {
+        // A hidden tab cannot move a linked cursor, nor keep a command that
+        // unexpectedly runs when the tab becomes visible again.
+        let visible = self.panels.layout().visible();
+        for panel in self.panels.iter_mut() {
+            if !visible.contains(&panel.id)
+                && let Some(waves) = panel.kind.waves_mut()
+            {
+                waves.cancel_edge();
+            }
+        }
         self.events.push(Event::LayoutChanged {
             revision: self.panels.revision(),
         });

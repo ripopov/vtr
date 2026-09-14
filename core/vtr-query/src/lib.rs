@@ -10,7 +10,13 @@ pub mod metadata;
 #[cfg(all(feature = "native-engine", not(target_family = "wasm")))]
 pub mod native;
 #[cfg(all(feature = "native-engine", not(target_family = "wasm")))]
+pub mod native_index;
+#[cfg(all(feature = "native-engine", not(target_family = "wasm")))]
 pub mod native_metadata;
+#[cfg(all(feature = "native-engine", not(target_family = "wasm")))]
+pub mod native_navigation;
+#[cfg(all(feature = "native-engine", not(target_family = "wasm")))]
+pub mod native_samples;
 #[cfg(all(feature = "native-engine", not(target_family = "wasm")))]
 pub mod native_session;
 pub mod session;

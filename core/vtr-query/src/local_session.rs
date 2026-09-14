@@ -395,6 +395,10 @@ fn input_bytes(query: &Query) -> Result<usize> {
         Ok(())
     };
     match query {
+        Query::ValuesAt { pairs } => add(pairs
+            .capacity()
+            .checked_mul(std::mem::size_of::<crate::wave::SignalTime>())
+            .ok_or(Error::ResourceLimit)?)?,
         Query::Search { needle, .. } => add(needle.capacity())?,
         Query::Resolve { paths } => {
             add(paths

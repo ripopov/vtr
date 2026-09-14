@@ -83,6 +83,7 @@ pub struct DisplayedSignal {
     pub translator: Arc<dyn Translator>,
     pub history: Option<Arc<dyn SignalHistory>>,
     pub query: Option<Arc<super::snapshot::WaveSnapshot>>,
+    pub cursor_sample: Option<super::snapshot::CursorSample>,
     pub error: Option<String>,
 }
 
@@ -141,6 +142,17 @@ pub enum PointerEvent {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EdgeIntent {
+    pub signal: u32,
+    pub from: u64,
+    pub direction: vtr_query::wave::Direction,
+    generation: u64,
+    row: usize,
+    cursor: Option<u64>,
+    linked: bool,
+}
+
 pub struct WaveModel {
     pub items: Vec<DisplayedSignal>,
     pub selected: BTreeSet<usize>,
@@ -167,6 +179,7 @@ pub struct WaveModel {
     /// Last known pointer position over the panel.
     pub pointer: Option<Point>,
     layout: WaveLayout,
+    edge_intent: Option<EdgeIntent>,
 }
 
 impl Default for WaveModel {
@@ -278,12 +291,14 @@ impl WaveModel {
             menu: None,
             pointer: None,
             layout: WaveLayout::default(),
+            edge_intent: None,
         }
     }
 
     /// Forget every row and interaction; called when the document's session changes.
     pub fn reset(&mut self, limits: Option<(u64, u64)>) {
         self.local_cursor = None;
+        self.edge_intent = None;
         self.items.clear();
         self.selected.clear();
         self.anchor = None;
@@ -366,6 +381,7 @@ impl WaveModel {
                 translator,
                 history,
                 query: None,
+                cursor_sample: None,
                 error: None,
             });
         }
@@ -635,12 +651,100 @@ impl WaveModel {
         self.viewport_state_mut(doc).set(target);
     }
 
-    fn edge_history(&self) -> Option<Arc<dyn SignalHistory>> {
-        let row = self
-            .anchor
+    fn edge_row(&self) -> Option<usize> {
+        self.anchor
             .filter(|r| self.selected.contains(r))
-            .or_else(|| self.selected.iter().next().copied())?;
-        self.items.get(row)?.history.clone()
+            .or_else(|| self.selected.iter().next().copied())
+    }
+
+    fn edge_origin(&self, doc: &Document, direction: vtr_query::wave::Direction) -> u64 {
+        self.cursor(doc).unwrap_or_else(|| match direction {
+            vtr_query::wave::Direction::Next => self.viewport(doc).start.max(0.0) as u64,
+            vtr_query::wave::Direction::Previous => self.viewport(doc).end.max(0.0) as u64,
+        })
+    }
+
+    pub(crate) fn pending_edge(&mut self, doc: &Document) -> Option<EdgeIntent> {
+        let intent = self.edge_intent?;
+        let valid = doc.query_snapshot().is_some()
+            && intent.generation == doc.generation()
+            && self.edge_row() == Some(intent.row)
+            && self
+                .items
+                .get(intent.row)
+                .and_then(|item| item.source.signal())
+                .is_some_and(|signal| signal.0 == intent.signal)
+            && self.cursor(doc) == intent.cursor
+            && self.link.cursor == intent.linked
+            && self.edge_origin(doc, intent.direction) == intent.from;
+        if !valid {
+            self.edge_intent = None;
+        }
+        self.edge_intent
+    }
+
+    pub(crate) fn cancel_edge(&mut self) {
+        self.edge_intent = None;
+    }
+
+    pub(crate) fn finish_edge(
+        &mut self,
+        doc: &mut Document,
+        intent: EdgeIntent,
+        result: vtr_query::Result<Option<u64>>,
+        now: Instant,
+    ) -> bool {
+        if self.pending_edge(doc) != Some(intent) {
+            return false;
+        }
+        self.edge_intent = None;
+        match result {
+            Ok(time) => {
+                self.items[intent.row].error = None;
+                if let Some(time) = time {
+                    self.set_cursor(doc, Some(time));
+                    self.reveal_cursor(doc, now);
+                }
+            }
+            Err(error) => self.items[intent.row].error = Some(error.to_string()),
+        }
+        true
+    }
+
+    fn navigate_edge(
+        &mut self,
+        doc: &mut Document,
+        direction: vtr_query::wave::Direction,
+        now: Instant,
+    ) {
+        let Some(row) = self.edge_row() else {
+            return;
+        };
+        let from = self.edge_origin(doc, direction);
+        if doc.query_snapshot().is_some() {
+            self.edge_intent = self
+                .items
+                .get(row)
+                .and_then(|item| item.source.signal())
+                .map(|signal| EdgeIntent {
+                    signal: signal.0,
+                    from,
+                    direction,
+                    generation: doc.generation(),
+                    row,
+                    cursor: self.cursor(doc),
+                    linked: self.link.cursor,
+                });
+        } else if let Some(history) = self.items.get(row).and_then(|item| item.history.as_ref()) {
+            let time = match direction {
+                vtr_query::wave::Direction::Next => history.next_change_after(from),
+                vtr_query::wave::Direction::Previous => history.prev_change_before(from),
+            };
+            if let Some(time) = time {
+                self.set_cursor(doc, Some(time));
+                self.reveal_cursor(doc, now);
+            }
+        }
     }
 
     fn reveal_cursor(&mut self, doc: &mut Document, now: Instant) {
@@ -655,25 +759,11 @@ impl WaveModel {
     }
 
     pub fn next_edge(&mut self, doc: &mut Document, now: Instant) {
-        let Some(h) = self.edge_history() else { return };
-        let from = self
-            .cursor(doc)
-            .unwrap_or(self.viewport(doc).start.max(0.0) as u64);
-        if let Some(t) = h.next_change_after(from) {
-            self.set_cursor(doc, Some(t));
-            self.reveal_cursor(doc, now);
-        }
+        self.navigate_edge(doc, vtr_query::wave::Direction::Next, now);
     }
 
     pub fn prev_edge(&mut self, doc: &mut Document, now: Instant) {
-        let Some(h) = self.edge_history() else { return };
-        let from = self
-            .cursor(doc)
-            .unwrap_or(self.viewport(doc).end.max(0.0) as u64);
-        if let Some(t) = h.prev_change_before(from) {
-            self.set_cursor(doc, Some(t));
-            self.reveal_cursor(doc, now);
-        }
+        self.navigate_edge(doc, vtr_query::wave::Direction::Previous, now);
     }
 
     /// Record the paint time of the last frame.

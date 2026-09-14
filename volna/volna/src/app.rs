@@ -564,7 +564,7 @@ impl Workspace {
 
     /// Run a request the way the load loop would, for tests that need to
     /// control completion order.
-    #[cfg(test)]
+    #[cfg(all(test, not(target_family = "wasm")))]
     pub(crate) fn queue(
         &mut self,
         request: volna_core::session::LoadRequest,

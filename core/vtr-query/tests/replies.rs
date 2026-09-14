@@ -81,6 +81,64 @@ fn roundtrip(e: p::Envelope) {
     assert_eq!(budget.used(), 0);
 }
 #[test]
+fn sample_pages_preserve_exact_pairs_payloads_and_require_fields() {
+    let page = p::ValuesPage {
+        offset: 3,
+        complete: true,
+        samples: vec![p::SampleAt {
+            pair: Some(p::SignalTime {
+                signal: u32::MAX,
+                time: u64::MAX,
+            }),
+            sample: Some(known(real(0x7ff800000000beef))),
+        }],
+    };
+    roundtrip(reply(p::delivery::Page::Values(page.clone()), true));
+    for missing_pair in [true, false] {
+        let mut bad = page.clone();
+        if missing_pair {
+            bad.samples[0].pair = None;
+        } else {
+            bad.samples[0].sample = None;
+        }
+        assert!(wire_reply::decode(
+            &reply(p::delivery::Page::Values(bad), true).encode_to_vec(),
+            &Budget::new(MAX_DECODED_BYTES)
+        )
+        .is_err());
+    }
+}
+#[test]
+fn edge_pages_preserve_status_and_require_matching_continuations() {
+    use p::change_search_page::Result as R;
+    for result in [
+        R::Pending(p::Empty {}),
+        R::Found(0),
+        R::Found(u64::MAX),
+        R::Exhausted(p::Empty {}),
+    ] {
+        let complete = !matches!(result, R::Pending(_));
+        let page = p::delivery::Page::FindChange(p::ChangeSearchPage {
+            result: Some(result),
+        });
+        roundtrip(reply(page.clone(), complete));
+        assert!(wire_reply::decode(
+            &reply(page, !complete).encode_to_vec(),
+            &Budget::new(MAX_DECODED_BYTES)
+        )
+        .is_err());
+    }
+    assert!(wire_reply::decode(
+        &reply(
+            p::delivery::Page::FindChange(p::ChangeSearchPage { result: None }),
+            true
+        )
+        .encode_to_vec(),
+        &Budget::new(MAX_DECODED_BYTES)
+    )
+    .is_err());
+}
+#[test]
 fn waveform_codec_preserves_payload_bits_defaults_events_and_same_time_order() {
     roundtrip(window(
         vec![real(0), real(1u64 << 63), real(0x7ff800000000beef)],
@@ -277,7 +335,7 @@ fn controls_and_opened_capabilities_match_generated_schema() {
     };
     assert_eq!(got.timescale, -128);
     assert_eq!(got.time_range, info.time_range);
-    assert_eq!(operations.len(), 6);
+    assert_eq!(operations.len(), 8);
     // Prost emits packed enums; the borrowed encoder emits unpacked enums.
     let packed = p::Envelope::decode(opened.bytes()).unwrap().encode_to_vec();
     assert!(wire_reply::decode(&packed, &b).is_ok());
@@ -450,6 +508,12 @@ fn generated_and_typed_objects_fit_the_shared_preflight_allowance() {
         p::SearchPage,
         p::ResolvePage,
         p::TextPart,
+        p::ValuesAt,
+        p::SignalTime,
+        p::SampleAt,
+        p::ValuesPage,
+        p::FindChange,
+        p::ChangeSearchPage,
         p::Change,
         p::Sample,
         p::Value,
@@ -476,6 +540,9 @@ fn generated_and_typed_objects_fit_the_shared_preflight_allowance() {
         vtr_query::metadata::SearchPage,
         vtr_query::metadata::ResolvePage,
         vtr_query::metadata::TextPart,
+        vtr_query::wave::ChangeSearchPage,
+        vtr_query::wave::SampleAt,
+        vtr_query::wave::ValuesPage,
         wire_reply::Response
     );
 }

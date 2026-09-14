@@ -422,6 +422,42 @@ fn delivery(d: p::Delivery, identity: SnapshotId, charge: &Reservation) -> Resul
                 _charge: charge.clone(),
             }))
         }
+        P::Values(p) => {
+            let samples = p
+                .samples
+                .into_iter()
+                .map(|s| {
+                    let pair = required(s.pair)?;
+                    Ok(crate::wave::SampleAt {
+                        pair: crate::wave::SignalTime {
+                            signal: pair.signal,
+                            time: pair.time,
+                        },
+                        sample: sample(required(s.sample)?, charge)?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Reply::Values(Arc::new(crate::wave::ValuesPage {
+                offset: p.offset as usize,
+                complete: p.complete,
+                samples,
+                _charge: charge.clone(),
+            }))
+        }
+        P::FindChange(p) => Reply::FindChange(Arc::new(crate::wave::ChangeSearchPage {
+            result: match required(p.result)? {
+                p::change_search_page::Result::Pending(_) => {
+                    crate::wave::ChangeSearchResult::Pending
+                }
+                p::change_search_page::Result::Found(time) => {
+                    crate::wave::ChangeSearchResult::Found(time)
+                }
+                p::change_search_page::Result::Exhausted(_) => {
+                    crate::wave::ChangeSearchResult::Exhausted
+                }
+            },
+            _charge: charge.clone(),
+        })),
         P::Text(p) => {
             if p.offset
                 .checked_add(p.bytes.len() as u64)
@@ -543,7 +579,7 @@ fn decode_admitted(input: &[u8], charge: Reservation) -> Result<Response> {
         }
         B::Opened(i) => {
             let snapshot = snapshot(i.snapshot)?;
-            if identity != Some(snapshot) || i.operations.len() > 6 {
+            if identity != Some(snapshot) || i.operations.len() > 8 {
                 return Err(invalid());
             }
             let mut seen = 0u32;
@@ -551,7 +587,7 @@ fn decode_admitted(input: &[u8], charge: Reservation) -> Result<Response> {
                 .operations
                 .into_iter()
                 .map(|o| {
-                    if !(1..=6).contains(&o) || seen & (1 << o) != 0 {
+                    if !(1..=8).contains(&o) || seen & (1 << o) != 0 {
                         return Err(invalid());
                     }
                     seen |= 1 << o;

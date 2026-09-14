@@ -329,8 +329,20 @@ an immediate redraw. Workspace restoration preserves the query snapshot and
 worker while changing the row generation to reject stale UI commands.
 Native FST, synthetic sessions and standalone browser file loading still use the
 legacy history path. VS Code VTR resources use RPC summary queries.
-The native query policy currently requests summaries; exact cursor/edge queries,
-full value labels and analog rendering still need integration.
+Both query hosts use summaries for visible rows and bounded `FindChange`
+operations for previous/next edge commands. Navigation retains one replaceable
+intent per panel and one active operation in the core controller. It validates
+document generation, selected signal, origin cursor and cursor link state before
+applying a result. Obsolete tasks are dropped and retained continuations released;
+hidden panels discard queued intents during the layout change, even if reopened
+before the scheduler polls. Accepted cursor moves mark the workspace dirty for
+autosave; stale and no-hit results leave it unchanged. This is strict timestamp stepping,
+so all occurrences at the origin timestamp are skipped. Visible cursor values
+use bounded `ValuesAt` batches, deduplicated by raw signal and time across
+aliases and panels. Cursor changes cancel stale requests; hidden rows release
+their samples. Exact samples render without waiting for summary geometry and
+never mark a workspace dirty merely because query data arrived. Full value
+labels and analog rendering still need integration.
 The existing floating-point viewport is projected outward to integer coverage
 for this integration; it still needs an exact origin representation for narrow
 navigation at extreme timestamps.

@@ -98,6 +98,33 @@ fn byte_full_pages_retry_the_unconsumed_event() {
     }
     writer.close().unwrap();
     let reader = vtr::Reader::open(path).unwrap();
+    let mut narrow = Window::new(
+        &reader,
+        signal.0,
+        Interval::new(0, TimeBound::AfterMax).unwrap(),
+        Limits {
+            records: 128,
+            work: 128,
+            bytes: std::mem::size_of::<WindowPage>()
+                + std::mem::size_of::<Predecessor>()
+                + std::mem::size_of::<Change>()
+                + Bytes::retained_size(100).unwrap(),
+        },
+        Budget::new(10000),
+        Cancellation::default(),
+    )
+    .unwrap();
+    let mut narrow_count = 0;
+    loop {
+        let page = narrow.next_page().unwrap();
+        assert!(page.changes().len() <= 1);
+        narrow_count += page.changes().len();
+        assert!(narrow_count <= 4);
+        if page.complete {
+            break;
+        }
+    }
+    assert_eq!(narrow_count, 4);
     // Capacity for four fixed records but only one payload. Byte admission,
     // rather than record count, must cause the page boundary.
     let bytes = std::mem::size_of::<WindowPage>()

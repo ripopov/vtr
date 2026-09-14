@@ -319,6 +319,25 @@ fn reply(w: &mut Writer, reply: &Reply) -> Result<()> {
             }
             Ok(())
         }),
+        Reply::Values(p) => w.message(17, |w| {
+            w.uint(1, p.offset as u64)?;
+            w.uint(2, u64::from(p.complete))?;
+            for s in p.samples() {
+                w.message(3, |w| {
+                    w.message(1, |w| {
+                        w.uint(1, u64::from(s.pair.signal))?;
+                        w.uint(2, s.pair.time)
+                    })?;
+                    w.message(2, |w| sample(w, &s.sample))
+                })?;
+            }
+            Ok(())
+        }),
+        Reply::FindChange(p) => w.message(16, |w| match p.result {
+            crate::wave::ChangeSearchResult::Pending => w.empty(1),
+            crate::wave::ChangeSearchResult::Found(time) => w.uint(2, time),
+            crate::wave::ChangeSearchResult::Exhausted => w.empty(3),
+        }),
         Reply::Text(p) => w.message(15, |w| {
             w.uint(1, u64::from(p.id))?;
             w.uint(2, p.offset)?;
@@ -358,7 +377,7 @@ pub fn opened(request_id: u64, info: &SessionInfo, budget: &Budget) -> Result<En
             }
             w.uint(4, u64::from(info.signals))?;
             w.uint(5, info.declarations)?;
-            for operation in 1..=6 {
+            for operation in 1..=8 {
                 w.uint(6, operation)?;
             }
             Ok(())
@@ -451,6 +470,30 @@ fn query(w: &mut Writer, q: &Query, limits: Limits) -> Result<()> {
                 })?;
             }
             Ok(())
+        }),
+        Query::ValuesAt { pairs } => w.message(17, |w| {
+            for p in pairs {
+                w.message(1, |w| {
+                    w.uint(1, u64::from(p.signal))?;
+                    w.uint(2, p.time)
+                })?;
+            }
+            Ok(())
+        }),
+        Query::FindChange {
+            signal,
+            from,
+            direction,
+        } => w.message(16, |w| {
+            w.uint(1, u64::from(*signal))?;
+            w.uint(2, *from)?;
+            w.uint(
+                3,
+                match direction {
+                    crate::wave::Direction::Previous => 1,
+                    crate::wave::Direction::Next => 2,
+                },
+            )
         }),
         Query::Text { id, offset, length } => w.message(15, |w| {
             w.uint(1, u64::from(*id))?;

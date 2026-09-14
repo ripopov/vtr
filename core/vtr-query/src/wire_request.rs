@@ -75,6 +75,21 @@ fn query(query: p::Query) -> Result<(Query, Limits)> {
     }
     use p::query::Operation as O;
     let query = match query.operation.ok_or_else(missing)? {
+        O::ValuesAt(q) => {
+            if q.pairs.len() > 4096 {
+                return Err(Error::ResourceLimit);
+            }
+            Query::ValuesAt {
+                pairs: q
+                    .pairs
+                    .into_iter()
+                    .map(|p| crate::wave::SignalTime {
+                        signal: p.signal,
+                        time: p.time,
+                    })
+                    .collect(),
+            }
+        }
         O::Window(q) => Query::Window {
             signal: q.signal,
             interval: interval(q.interval.ok_or_else(missing)?)?,
@@ -114,6 +129,15 @@ fn query(query: p::Query) -> Result<(Query, Limits)> {
                     })
                 })
                 .collect::<Result<_>>()?,
+        },
+        O::FindChange(q) => Query::FindChange {
+            signal: q.signal,
+            from: q.from,
+            direction: match q.direction {
+                1 => crate::wave::Direction::Previous,
+                2 => crate::wave::Direction::Next,
+                _ => return Err(Error::Invalid("invalid search direction")),
+            },
         },
         O::Text(q) => Query::Text {
             id: q.id,

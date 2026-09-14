@@ -20,9 +20,19 @@ correlation and cross-page validation, exposing the matching future-based
 `RpcSession` on native test hosts and WASM. Both implement `session::AsyncSession`.
 `summary::WaveBin::sample_at` returns a held sample only where the complete bin
 proves its value; ambiguous interiors, events and uncovered times return `None`.
+`native_navigation::FindChange` provides a bounded cold scan for strict
+previous/next raw timestamps, with distinct pending, found and exhausted
+results. `Query::FindChange` exposes it through both asynchronous session
+implementations and drives asynchronous previous/next edge commands in Volna.
+`native_samples::ValuesAt` provides ordered, bounded batches of exact point
+samples through `Query::ValuesAt` on both session implementations. Volna uses
+these batches for exact cursor values independently of summary completion.
 Native GPUI and VS Code VTR opening use this API for summary rows; FST query
-adoption and exact cursor/edge queries remain incomplete.
+adoption and reader memory admission remain incomplete.
 It does not change the reader operations documented here or their C projection.
+`native_index::SignalIndex` borrows an already-loaded immutable `SignalData` for
+binary-search samples, edge searches and discrete summaries. It does not yet
+provide bounded history construction or a session-owned warm cache.
 
 Contents
 

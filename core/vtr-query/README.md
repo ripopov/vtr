@@ -83,6 +83,42 @@ When a page fills, the reader leaves its next event unconsumed, including at
 the same timestamp. A work-limited page can be empty without proving exhaustion.
 `complete` is the only end-of-window indication; the requested interval alone
 is not a complete coverage claim. Cancellation is checked between scan batches.
+Empty work slices allocate no change slots. Once the first event is reached,
+its payload size determines the fixed row capacity within the reply byte cap;
+a high record limit cannot prevent a wide event from fitting by itself.
+
+`native_navigation::FindChange` finds the nearest raw occurrence strictly before
+or after a timestamp without collecting a history or copying signal values.
+All occurrences at the supplied timestamp are excluded. Each admitted
+`wave::ChangeSearchPage` reports `Pending`, `Found(time)` or `Exhausted`; only the
+last proves that no hit exists. Previous searches keep tentative candidates
+private until the scan is exhausted. Work slices and cancellation use the same
+reader scan units as windows; completed results are repeatable and reservation
+failure does not advance the scan. The current cold implementation scans the
+prefix for previous searches and makes no warm-latency claim.
+`session::Query::FindChange` exposes it through native workers and RPC with
+capability `FIND_CHANGE` (7). RPC validates strict direction and recording bounds
+for hits, and requires continuations exactly for pending searches. Volna uses
+this operation for asynchronous previous/next edge commands. Individual
+same-time event positions and raw value predicates remain unimplemented.
+
+`native_samples::ValuesAt` batches up to 4096 signal/time pairs in caller order,
+including duplicates. It returns admitted `wave::ValuesPage` slices with exact
+samples, an offset and completeness. Each slice performs at most `limits.work`
+reader point lookups and returns at most `limits.records` samples within the
+reply byte limit. Byte-full pages leave the next pair unconsumed. Pages
+reserve room for the first value before choosing the fixed row capacity, so a
+large record limit cannot crowd out a wide value that fits in a one-row page.
+Held samples use the last change at or before the requested tick (including the last of
+multiple same-time changes); events return `Sample::Event`. Defaults before the
+first change are returned as their concrete raw values. Times include zero and
+`u64::MAX` without adding one. `Query::ValuesAt` exposes it through native and
+RPC sessions under capability `VALUES_AT` (8). The RPC client retains admitted
+pair identities to validate offsets, ordering and completeness across pages.
+Volna batches visible cursor demands through this operation and validates sample
+identity again before painting. Like window predecessors, it relies on
+the reader's owned point result: temporary value storage and decoder scratch
+are not yet covered by query admission, and a work unit is not a wall-time cap.
 
 These limits bound response allocations, not reader caches or decoder scratch.
 In particular, predecessor lookup still uses the reader's owned point-query
@@ -109,6 +145,21 @@ and raw selector identity. Transaction overlap counts cannot use this reducer.
 The native summary implementation is a cold scan, not the proposed reusable
 warm index. Reader byte admission, blackout/unavailable coverage, large-value
 references and performance gates still apply before deployment readiness.
+
+`native_index::SignalIndex` is a borrowed query view over an existing immutable
+`vtr::SignalData`. It adds no second history buffer or timestamp index. Exact
+samples and strict previous/next timestamps use binary search; discrete summary
+bins use two timestamp searches and boundary values without walking interior
+changes. Initial samples use the history's concrete initial value, and packed
+values use the history's declared packing. Results retain ordinary query byte
+reservations. Bit, byte-string and event bins are checked against cold reduction;
+real point samples preserve IEEE bits, but real summaries require a separate
+range-extrema index and are not approximated by this helper.
+
+This helper does not load, admit or cache histories and is not yet selected by
+the native session. Bounded construction, retained-history accounting, eviction,
+real extrema and warm/cold session selection remain required before adopting it
+as the primary query path or making a latency claim.
 
 `native_metadata::Children` uses the reader's adjacency index and borrowed node
 views. Headers carry raw types, aliases, signal identities, child counts and

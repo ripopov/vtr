@@ -26,6 +26,32 @@ fn query(operation: p::query::Operation) -> p::Envelope {
     }))
 }
 #[test]
+fn edge_request_roundtrips_exact_time_and_rejects_unknown_direction() {
+    let budget = Budget::new(MAX_DECODED_BYTES);
+    for direction in [1, 2, 0, 3, -1] {
+        let envelope = query(p::query::Operation::FindChange(p::FindChange {
+            signal: u32::MAX,
+            from: u64::MAX,
+            direction,
+        }));
+        let decoded = decode(&envelope.encode_to_vec(), &budget);
+        if direction == 1 || direction == 2 {
+            let request = decoded.unwrap();
+            let encoded = vtr_query::wire_encode::request(
+                request.request_id,
+                request.snapshot,
+                &request.body,
+                &budget,
+            )
+            .unwrap();
+            assert_eq!(p::Envelope::decode(encoded.bytes()).unwrap(), envelope);
+        } else {
+            assert!(decoded.is_err());
+        }
+    }
+    assert_eq!(budget.used(), 0);
+}
+#[test]
 fn request_decoding_preserves_maximum_time_and_integer_identities() {
     let encoded = query(p::query::Operation::Window(p::WaveWindow {
         signal: u32::MAX,

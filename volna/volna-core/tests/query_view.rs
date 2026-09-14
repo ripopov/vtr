@@ -51,6 +51,92 @@ fn layout(app: &mut App, theme: &Theme) {
         theme,
     );
 }
+
+#[test]
+fn exact_cursor_values_replace_dense_ambiguity_and_reject_stale_times() {
+    let (_dir, mut app, session) = fixture();
+    let mut view =
+        QueryView::attach(&mut app, session, limits(), 4, 8, &Budget::new(65536)).unwrap();
+    app.handle(Command::AddVars(vec![0, 1, 2]));
+    layout(&mut app, &Theme::one_dark());
+    drain(&mut view, &mut app);
+    app.doc.shared.cursor = Some(61);
+    let _ = view.poll(&mut app, &mut Context::from_waker(Waker::noop()));
+    app.doc.shared.cursor = Some(62);
+    drain(&mut view, &mut app);
+    let rows = &app.panels.focused_waves().unwrap().items;
+    for (index, expected) in ["0", "1", "0"].into_iter().enumerate() {
+        let signal = rows[index].source.signal().unwrap().0;
+        assert!(rows[index].query.as_ref().unwrap().sample_at(62).is_none());
+        let sample = rows[index].cursor_sample.as_ref().unwrap();
+        assert_eq!(
+            sample.value_at(&app.doc, signal, 62, 4096).unwrap(),
+            Some(volna_core::data::WaveValue::Bits(expected.into()))
+        );
+        assert!(
+            sample
+                .value_at(&app.doc, signal, 61, 4096)
+                .unwrap()
+                .is_none()
+        );
+        assert!(rows[index].history.is_none());
+    }
+    assert!(matches!(
+        view.poll(&mut app, &mut Context::from_waker(Waker::noop())),
+        Poll::Ready(Ok(Progress::Idle))
+    ));
+    // The value column must not wait for overview geometry to finish scanning.
+    for item in &mut app.panels.focused_waves_mut().unwrap().items {
+        item.query = None;
+    }
+    let values = app.panels.focused_waves().unwrap().last_layout().values;
+    let scene = app.render_waves(
+        app.panels.focused_id(),
+        &Theme::one_dark(),
+        &mut MonoMeasure,
+    );
+    for expected in ["0", "1"] {
+        assert!(scene.prims.iter().any(|prim| matches!(prim, Prim::Text { text, origin, .. } if text == expected && origin.x >= values.left() && origin.x < values.right())));
+    }
+    app.doc.shared.cursor = None;
+    drain(&mut view, &mut app);
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.cursor_sample.is_none())
+    );
+}
+
+#[test]
+fn cursor_input_admission_waits_for_capacity_without_closing_the_view() {
+    let (_dir, mut app, session) = fixture();
+    let budget = Budget::new(65536);
+    let mut view = QueryView::attach(&mut app, session, limits(), 4, 8, &budget).unwrap();
+    app.handle(Command::AddVars(vec![0]));
+    layout(&mut app, &Theme::one_dark());
+    drain(&mut view, &mut app);
+    let pin = budget.reserve(budget.limit() - budget.used()).unwrap();
+    app.doc.shared.cursor = Some(61);
+    assert!(matches!(
+        view.poll(&mut app, &mut Context::from_waker(Waker::noop())),
+        Poll::Ready(Ok(Progress::Backpressure))
+    ));
+    assert!(!view.is_closed());
+    drop(pin);
+    drain(&mut view, &mut app);
+    let row = &app.panels.focused_waves().unwrap().items[0];
+    assert_eq!(
+        row.cursor_sample
+            .as_ref()
+            .unwrap()
+            .value_at(&app.doc, 0, 61, 4096)
+            .unwrap(),
+        Some(volna_core::data::WaveValue::Bits("1".into()))
+    );
+}
 fn drain(view: &mut QueryView<LocalSession>, app: &mut App) {
     futures_lite::future::block_on(async {
         for _ in 0..10000 {
@@ -64,6 +150,169 @@ fn drain(view: &mut QueryView<LocalSession>, app: &mut App) {
         }
         panic!("app queries did not become idle");
     });
+}
+
+#[test]
+fn edge_commands_query_raw_changes_without_loading_histories() {
+    let (_dir, mut app, session) = fixture();
+    let mut view =
+        QueryView::attach(&mut app, session, limits(), 16, 8, &Budget::new(65536)).unwrap();
+    app.handle(Command::AddVars(vec![0, 1]));
+    layout(&mut app, &Theme::one_dark());
+    drain(&mut view, &mut app);
+    app.configure_persistence(volna_core::workspace::persistence::Persistence::Auto);
+    app.panels.focused_waves_mut().unwrap().selected = [0].into();
+    app.panels.focused_waves_mut().unwrap().anchor = Some(0);
+    for (origin, action, expected) in [
+        (60, volna_core::Action::NextEdge, 61),
+        (60, volna_core::Action::PrevEdge, 59),
+        (0, volna_core::Action::PrevEdge, 0),
+        (127, volna_core::Action::NextEdge, 127),
+    ] {
+        app.doc.shared.cursor = Some(origin);
+        let revision = app.workspace.scheduler.revision();
+        app.handle(Command::Action(action));
+        assert_eq!(
+            app.doc.shared.cursor,
+            Some(origin),
+            "input must not execute reader work"
+        );
+        drain(&mut view, &mut app);
+        assert_eq!(app.doc.shared.cursor, Some(expected));
+        assert_eq!(
+            app.workspace.scheduler.revision(),
+            revision + u64::from(origin != expected)
+        );
+        assert!(
+            app.panels
+                .focused_waves()
+                .unwrap()
+                .items
+                .iter()
+                .all(|item| item.history.is_none())
+        );
+        assert!(app.take_requests().is_empty());
+    }
+}
+
+#[test]
+fn edge_requests_are_replaced_and_stale_cursor_or_selection_results_are_discarded() {
+    let (_dir, mut app, session) = fixture();
+    let mut view = QueryView::attach(
+        &mut app,
+        session,
+        Limits {
+            work: 1,
+            ..limits()
+        },
+        16,
+        8,
+        &Budget::new(65536),
+    )
+    .unwrap();
+    app.handle(Command::AddVars(vec![0, 1]));
+    layout(&mut app, &Theme::one_dark());
+    drain(&mut view, &mut app);
+    app.panels.focused_waves_mut().unwrap().selected = [0].into();
+    app.panels.focused_waves_mut().unwrap().anchor = Some(0);
+    app.doc.shared.cursor = Some(60);
+    app.handle(Command::Action(volna_core::Action::PrevEdge));
+    let _ = view.poll(&mut app, &mut Context::from_waker(Waker::noop()));
+    app.handle(Command::Action(volna_core::Action::NextEdge));
+    drain(&mut view, &mut app);
+    assert_eq!(app.doc.shared.cursor, Some(61));
+
+    app.handle(Command::Action(volna_core::Action::PrevEdge));
+    let _ = view.poll(&mut app, &mut Context::from_waker(Waker::noop()));
+    app.doc.shared.cursor = Some(90);
+    drain(&mut view, &mut app);
+    assert_eq!(app.doc.shared.cursor, Some(90));
+
+    app.handle(Command::Action(volna_core::Action::PrevEdge));
+    let _ = view.poll(&mut app, &mut Context::from_waker(Waker::noop()));
+    let waves = app.panels.focused_waves_mut().unwrap();
+    waves.selected = [1].into();
+    waves.anchor = Some(1);
+    drain(&mut view, &mut app);
+    assert_eq!(app.doc.shared.cursor, Some(90));
+    // Returning to the old selection must not revive a discarded command.
+    let waves = app.panels.focused_waves_mut().unwrap();
+    waves.selected = [0].into();
+    waves.anchor = Some(0);
+    drain(&mut view, &mut app);
+    assert_eq!(app.doc.shared.cursor, Some(90));
+}
+
+#[test]
+fn edge_navigation_respects_unlinked_cursor_and_document_replacement() {
+    let (_dir, mut app, session) = fixture();
+    let mut view =
+        QueryView::attach(&mut app, session, limits(), 16, 8, &Budget::new(65536)).unwrap();
+    app.handle(Command::AddVars(vec![0]));
+    layout(&mut app, &Theme::one_dark());
+    drain(&mut view, &mut app);
+    app.doc.shared.cursor = Some(10);
+    let waves = app.panels.focused_waves_mut().unwrap();
+    waves.selected = [0].into();
+    waves.anchor = Some(0);
+    waves.link.cursor = false;
+    waves.local_cursor = Some(70);
+    app.handle(Command::Action(volna_core::Action::NextEdge));
+    drain(&mut view, &mut app);
+    assert_eq!(app.panels.focused_waves().unwrap().local_cursor, Some(71));
+    assert_eq!(app.doc.shared.cursor, Some(10));
+    app.handle(Command::Action(volna_core::Action::PrevEdge));
+    let _ = view.poll(&mut app, &mut Context::from_waker(Waker::noop()));
+    app.set_session(Arc::new(SynthSource::new(16)));
+    let cursor = app.doc.shared.cursor;
+    drain(&mut view, &mut app);
+    assert!(view.is_closed());
+    assert_eq!(app.doc.shared.cursor, cursor);
+}
+
+#[test]
+fn hiding_a_panel_discards_queued_and_running_edge_commands() {
+    for (submitted, poll_hidden) in [(false, false), (false, true), (true, false), (true, true)] {
+        let (_dir, mut app, session) = fixture();
+        let mut view = QueryView::attach(
+            &mut app,
+            session,
+            Limits {
+                work: 1,
+                ..limits()
+            },
+            16,
+            8,
+            &Budget::new(65536),
+        )
+        .unwrap();
+        app.handle(Command::AddVars(vec![0]));
+        layout(&mut app, &Theme::one_dark());
+        drain(&mut view, &mut app);
+        app.doc.shared.cursor = Some(60);
+        let waves = app.panels.focused_waves_mut().unwrap();
+        waves.selected = [0].into();
+        waves.anchor = Some(0);
+        let original = app.panels.focused_id();
+        app.handle(Command::Action(volna_core::Action::PrevEdge));
+        if submitted {
+            let _ = view.poll(&mut app, &mut Context::from_waker(Waker::noop()));
+        }
+        app.handle(Command::Action(volna_core::Action::NewPanel));
+        assert!(!app.panels.layout().visible().contains(&original));
+        if poll_hidden {
+            drain(&mut view, &mut app);
+        }
+        assert_eq!(app.doc.shared.cursor, Some(60));
+        app.handle(Command::Action(volna_core::Action::ClosePanel));
+        assert_eq!(app.panels.focused_id(), original);
+        drain(&mut view, &mut app);
+        assert_eq!(
+            app.doc.shared.cursor,
+            Some(60),
+            "showing a panel must not revive its discarded command"
+        );
+    }
 }
 #[test]
 fn app_rows_and_viewports_drive_queries_without_frontend_policy() {

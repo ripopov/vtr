@@ -107,6 +107,54 @@ pub struct Limits {
     pub records: usize,
     pub work: usize,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Previous,
+    Next,
+}
+
+/// Only `Exhausted` proves no matching timestamp exists. A partial search never
+/// exposes a candidate that subsequent scan work might replace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeSearchResult {
+    Pending,
+    Found(u64),
+    Exhausted,
+}
+
+#[derive(Debug)]
+pub struct ChangeSearchPage {
+    pub result: ChangeSearchResult,
+    pub(crate) _charge: Reservation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SignalTime {
+    pub signal: u32,
+    pub time: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct SampleAt {
+    pub pair: SignalTime,
+    pub sample: Sample,
+}
+
+/// Completed samples in the caller's pair order. A partial page does not
+/// authorize interpreting any of the remaining pairs as unavailable.
+#[derive(Debug)]
+pub struct ValuesPage {
+    pub offset: usize,
+    pub complete: bool,
+    pub(crate) samples: Vec<SampleAt>,
+    pub(crate) _charge: Reservation,
+}
+impl ValuesPage {
+    pub fn samples(&self) -> &[SampleAt] {
+        &self.samples
+    }
+}
 impl Default for Limits {
     fn default() -> Self {
         Self {

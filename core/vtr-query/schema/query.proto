@@ -46,6 +46,8 @@ enum Operation {
   SEARCH = 4;
   RESOLVE_PATHS = 5;
   TEXT_PART = 6;
+  FIND_CHANGE = 7;
+  VALUES_AT = 8;
 }
 message Continuation {
   bytes snapshot = 1;
@@ -82,8 +84,19 @@ message Query {
     Search search = 13;
     Resolve resolve = 14;
     TextRequest text = 15;
+    FindChange find_change = 16;
+    ValuesAt values_at = 17;
   }
 }
+enum Direction { DIRECTION_UNSPECIFIED = 0; PREVIOUS = 1; NEXT = 2; }
+message FindChange { uint32 signal = 1; uint64 from = 2; Direction direction = 3; }
+message ChangeSearchPage {
+  oneof result { Empty pending = 1; uint64 found = 2; Empty exhausted = 3; }
+}
+message SignalTime { uint32 signal = 1; uint64 time = 2; }
+message ValuesAt { repeated SignalTime pairs = 1; }
+message SampleAt { SignalTime pair = 1; Sample sample = 2; }
+message ValuesPage { uint32 offset = 1; bool complete = 2; repeated SampleAt samples = 3; }
 message WaveWindow { uint32 signal = 1; Interval interval = 2; }
 message WaveSummary { uint32 signal = 1; Grid grid = 2; }
 message Children { optional uint32 parent = 1; }
@@ -105,6 +118,8 @@ message Delivery {
     SearchPage search = 13;
     ResolvePage resolve = 14;
     TextPart text = 15;
+    ChangeSearchPage find_change = 16;
+    ValuesPage values = 17;
   }
 }
 message Bits { uint32 width = 1; uint32 states = 2; bytes data = 3; }

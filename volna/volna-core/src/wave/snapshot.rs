@@ -70,3 +70,29 @@ pub(crate) fn sample_at(
     bins.get(after.checked_sub(1)?)
         .and_then(|bin| bin.sample_at(time))
 }
+
+/// One exact cursor sample. Payload clones share admitted query storage.
+#[derive(Clone)]
+pub struct CursorSample {
+    pub(crate) generation: u64,
+    pub(crate) snapshot: SnapshotId,
+    pub(crate) pair: vtr_query::wave::SignalTime,
+    pub(crate) sample: Sample,
+}
+impl CursorSample {
+    pub fn value_at(
+        &self,
+        doc: &crate::Document,
+        signal: u32,
+        time: u64,
+        max_bytes: usize,
+    ) -> Result<Option<WaveValue>> {
+        if self.generation != doc.generation()
+            || Some(self.snapshot) != doc.query_snapshot()
+            || self.pair != (vtr_query::wave::SignalTime { signal, time })
+        {
+            return Ok(None);
+        }
+        WaveValue::from_query_sample(&self.sample, max_bytes).map(Some)
+    }
+}

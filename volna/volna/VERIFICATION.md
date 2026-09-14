@@ -195,9 +195,19 @@ code --user-data-dir /tmp/volna-vscode-check --extensions-dir /tmp/volna-vscode-
 Open a copy of `volna/volna/examples/counter.vtr` with **Volna Waveform Viewer**.
 The hierarchy must appear without input needed to wake the handshake. Select
 `tb`, add all four listed variables, place the cursor and zoom with `=`. Verify
-waveforms and cursor values remain visible as the viewport changes. Closing the
+waveforms and cursor values remain visible as the viewport changes. Select the
+`clk` row and use Shift+Right / Shift+Left: the cursor must move to strict next /
+previous raw edges without loading whole histories. For this fixture, a cursor
+at 194 moves forward to 200, then backward to 190. Closing the
 editor must retire its native child. Use a copied trace and disable autosave in
 this test profile if workspace persistence is not being tested.
+
+At tick 194, the four top-level rows (`overflow`, `clk`, `reset`, `_tmp`) show
+`0`, `1`, `0`, `x`. Cursor sampling uses one `ValuesAt` batch for these four
+signal/time pairs. Verify rapid cursor movement leaves values for the final
+position, and that clearing the cursor removes its displayed samples. The core
+tests also cover samples arriving before summary geometry, dense summaries that
+cannot prove the cursor value, and stale times rejected during painting.
 
 Developer Tools can inspect the webview canvas, console errors and exported
 `debug_state()` output from its WASM module. Launching a child alone does not

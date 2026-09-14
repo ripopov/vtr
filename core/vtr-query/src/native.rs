@@ -15,7 +15,7 @@ pub(crate) fn kind(kind: SignalKind) -> Kind {
         SignalKind::VarLen => Kind::Bytes,
     }
 }
-fn payload_bytes(value: SignalValue<'_>) -> usize {
+pub(crate) fn payload_bytes(value: SignalValue<'_>) -> usize {
     match value {
         SignalValue::Bits { data, .. } | SignalValue::VarLen(data) => {
             Bytes::retained_size(data.len()).unwrap_or(usize::MAX)
@@ -23,7 +23,7 @@ fn payload_bytes(value: SignalValue<'_>) -> usize {
         SignalValue::Real(_) => 0,
     }
 }
-fn value(value: SignalValue<'_>, budget: &Budget) -> Result<Value> {
+pub(crate) fn value(value: SignalValue<'_>, budget: &Budget) -> Result<Value> {
     Ok(match value {
         SignalValue::Bits {
             width,
@@ -116,28 +116,12 @@ impl<'a> Window<'a> {
             .bytes
             .checked_sub(overhead)
             .ok_or(Error::ResourceLimit)?;
-        let capacity = self
-            .limits
-            .records
-            .min(self.limits.work)
-            .min(available / std::mem::size_of::<Change>());
-        if capacity == 0 {
-            return Err(Error::ResourceLimit);
-        }
-        let row_bytes = capacity
-            .checked_mul(std::mem::size_of::<Change>())
-            .ok_or(Error::ResourceLimit)?;
-        let charge = self
-            .budget
-            .reserve(row_bytes + std::mem::size_of::<WindowPage>())?;
+        // Empty work slices need only a page header. Allocate row slots after
+        // the first event reveals how much space its payload must retain.
+        let mut charge = Some(self.budget.reserve(std::mem::size_of::<WindowPage>())?);
         let mut changes = Vec::new();
-        changes
-            .try_reserve_exact(capacity)
-            .map_err(|_| Error::ResourceLimit)?;
-        if changes.capacity() != capacity {
-            return Err(Error::ResourceLimit);
-        }
-        let mut remaining = available - row_bytes;
+        let mut capacity = 0;
+        let mut remaining = available;
         let mut failure = None;
         let mut page_full = false;
         let mut complete = self.scan.is_none();
@@ -146,40 +130,73 @@ impl<'a> Window<'a> {
             self.cancellation.check()?;
             let batch = work.min(256);
             work -= batch;
-            complete = self
-                .scan
-                .as_mut()
-                .unwrap()
-                .scan(batch, |time, raw| {
-                    let bytes = payload_bytes(raw);
-                    if bytes > remaining {
-                        if changes.is_empty() {
-                            failure = Some(Error::ResourceLimit);
+            complete =
+                self.scan
+                    .as_mut()
+                    .unwrap()
+                    .scan(batch, |time, raw| {
+                        let bytes = payload_bytes(raw);
+                        if capacity == 0 {
+                            capacity = self.limits.records.min(self.limits.work).min(
+                                available.saturating_sub(bytes) / std::mem::size_of::<Change>(),
+                            );
+                            if capacity == 0 || bytes > available {
+                                failure = Some(Error::ResourceLimit);
+                                page_full = true;
+                                return ScanAction::StopBefore;
+                            }
+                            let row_bytes = capacity * std::mem::size_of::<Change>();
+                            // No row allocation exists yet. Replace the preparation
+                            // lease before allocating the exact admitted capacity.
+                            drop(charge.take());
+                            match self
+                                .budget
+                                .reserve(row_bytes + std::mem::size_of::<WindowPage>())
+                            {
+                                Ok(reservation) => charge = Some(reservation),
+                                Err(error) => {
+                                    failure = Some(error);
+                                    page_full = true;
+                                    return ScanAction::StopBefore;
+                                }
+                            }
+                            if changes.try_reserve_exact(capacity).is_err()
+                                || changes.capacity() != capacity
+                            {
+                                failure = Some(Error::ResourceLimit);
+                                page_full = true;
+                                return ScanAction::StopBefore;
+                            }
+                            remaining = available - row_bytes;
                         }
-                        page_full = true;
-                        return ScanAction::StopBefore;
-                    }
-                    match value(raw, &self.budget) {
-                        Ok(value) => {
-                            remaining -= bytes;
-                            changes.push(Change { time, value });
-                        }
-                        Err(error) => {
+                        if bytes > remaining {
                             if changes.is_empty() {
-                                failure = Some(error);
+                                failure = Some(Error::ResourceLimit);
                             }
                             page_full = true;
                             return ScanAction::StopBefore;
                         }
-                    }
-                    if changes.len() == capacity {
-                        page_full = true;
-                        ScanAction::StopAfter
-                    } else {
-                        ScanAction::Continue
-                    }
-                })
-                .map_err(backend)?;
+                        match value(raw, &self.budget) {
+                            Ok(value) => {
+                                remaining -= bytes;
+                                changes.push(Change { time, value });
+                            }
+                            Err(error) => {
+                                if changes.is_empty() {
+                                    failure = Some(error);
+                                }
+                                page_full = true;
+                                return ScanAction::StopBefore;
+                            }
+                        }
+                        if changes.len() == capacity {
+                            page_full = true;
+                            ScanAction::StopAfter
+                        } else {
+                            ScanAction::Continue
+                        }
+                    })
+                    .map_err(backend)?;
         }
         if let Some(error) = failure {
             return Err(error);
@@ -190,7 +207,7 @@ impl<'a> Window<'a> {
             predecessor: self.predecessor.clone(),
             complete,
             changes,
-            _charge: charge,
+            _charge: charge.unwrap(),
         }))
     }
 }

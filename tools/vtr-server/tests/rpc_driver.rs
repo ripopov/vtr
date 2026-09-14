@@ -99,6 +99,93 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
         records: 2,
         work: 1,
     };
+    // One-unit slices must preserve the exact result through the real child,
+    // framing, RPC continuation validation and release path.
+    for (from, direction, expected) in [
+        (8, vtr_query::wave::Direction::Previous, Some(7)),
+        (8, vtr_query::wave::Direction::Next, Some(9)),
+        (0, vtr_query::wave::Direction::Previous, None),
+        (16, vtr_query::wave::Direction::Next, None),
+    ] {
+        let mut delivery = host
+            .drive(
+                session
+                    .execute(
+                        Query::FindChange {
+                            signal: signal.0,
+                            from,
+                            direction,
+                        },
+                        limits,
+                    )
+                    .unwrap(),
+            )
+            .unwrap();
+        let first = delivery.request;
+        let mut slices = 0;
+        loop {
+            slices += 1;
+            assert!(slices < 100);
+            let Reply::FindChange(page) = &delivery.reply else {
+                panic!("edge reply");
+            };
+            if let Some(next) = delivery.next {
+                assert_eq!(page.result, vtr_query::wave::ChangeSearchResult::Pending);
+                delivery = host.drive(session.advance(next).unwrap()).unwrap();
+            } else {
+                assert_eq!(
+                    page.result,
+                    expected.map_or(
+                        vtr_query::wave::ChangeSearchResult::Exhausted,
+                        vtr_query::wave::ChangeSearchResult::Found,
+                    )
+                );
+                break;
+            }
+        }
+        session.release(first).unwrap();
+    }
+    let pairs = [16, 0, 3, 3, u64::MAX].map(|time| vtr_query::wave::SignalTime {
+        signal: signal.0,
+        time,
+    });
+    let mut sampled = host
+        .drive(
+            session
+                .execute(
+                    Query::ValuesAt {
+                        pairs: pairs.to_vec(),
+                    },
+                    limits,
+                )
+                .unwrap(),
+        )
+        .unwrap();
+    let first = sampled.request;
+    let mut offset = 0;
+    loop {
+        let Reply::Values(page) = &sampled.reply else {
+            panic!("sample reply");
+        };
+        assert_eq!(page.offset, offset);
+        for sample in page.samples() {
+            assert_eq!(sample.pair, pairs[offset]);
+            let vtr_query::wave::Sample::Known(vtr_query::wave::Value::Bits { data, .. }) =
+                &sample.sample
+            else {
+                panic!("bit sample");
+            };
+            assert_eq!(data.as_slice(), &[u8::from(matches!(offset, 2 | 3))]);
+            offset += 1;
+        }
+        let Some(next) = sampled.next else {
+            break;
+        };
+        sampled = host.drive(session.advance(next).unwrap()).unwrap();
+    }
+    assert_eq!(offset, pairs.len());
+    session.release(first).unwrap();
+    drop(sampled);
     let mut text = None;
     let mut remote_app = volna_core::App::new();
     remote_app

@@ -67,10 +67,14 @@ enum Shape {
     Search,
     Resolve(usize),
     Text(u32, u64, usize),
+    FindChange(u64, crate::wave::Direction),
+    Values,
 }
 struct Operation {
     key: u64,
     shape: Shape,
+    pairs: Vec<crate::wave::SignalTime>,
+    _pairs_charge: Option<Reservation>,
     limits: Limits,
     last: Option<Arc<Delivery>>,
     next: Option<Continuation>,
@@ -157,7 +161,7 @@ struct State {
     incarnation: Incarnation,
     phase: Phase,
     info: Option<Arc<SessionInfo>>,
-    capabilities: u8,
+    capabilities: u16,
     limits: p::Welcome,
     next_ticket: u64,
     next_wire: u64,
@@ -337,6 +341,26 @@ impl RpcSession {
                 return Err(Error::Invalid("invalid node kind"));
             }
         }
+        let pairs_input = match &query {
+            Query::ValuesAt { pairs } => pairs.as_slice(),
+            _ => &[],
+        };
+        if pairs_input.len() > 4096 {
+            return Err(Error::ResourceLimit);
+        }
+        let pairs_charge = if pairs_input.is_empty() {
+            None
+        } else {
+            Some(state.budget.reserve(std::mem::size_of_val(pairs_input))?)
+        };
+        let mut pairs = Vec::new();
+        pairs
+            .try_reserve_exact(pairs_input.len())
+            .map_err(|_| Error::ResourceLimit)?;
+        if pairs.capacity() != pairs_input.len() {
+            return Err(Error::ResourceLimit);
+        }
+        pairs.extend_from_slice(pairs_input);
         let (shape, capability) = shape(&query);
         if state.capabilities & (1 << capability) == 0 {
             return Err(Error::Invalid("remote operation is unsupported"));
@@ -356,6 +380,8 @@ impl RpcSession {
         state.operations[slot] = Some(Operation {
             key: future.ticket,
             shape,
+            pairs,
+            _pairs_charge: pairs_charge,
             limits,
             last: None,
             next: None,
@@ -537,12 +563,16 @@ fn query_limits(limits: Limits, peer: &p::Welcome) -> Result<Limits> {
 }
 fn shape(query: &Query) -> (Shape, u8) {
     match query {
+        Query::ValuesAt { .. } => (Shape::Values, 8),
         Query::Window { interval, .. } => (Shape::Window(*interval), 1),
         Query::Summary { grid, .. } => (Shape::Summary(*grid), 2),
         Query::Children { parent } => (Shape::Children(*parent), 3),
         Query::Search { .. } => (Shape::Search, 4),
         Query::Resolve { paths } => (Shape::Resolve(paths.len()), 5),
         Query::Text { id, offset, length } => (Shape::Text(*id, *offset, *length), 6),
+        Query::FindChange {
+            from, direction, ..
+        } => (Shape::FindChange(*from, *direction), 7),
     }
 }
 fn input_bytes(body: &RequestBody) -> Result<usize> {
@@ -553,6 +583,10 @@ fn input_bytes(body: &RequestBody) -> Result<usize> {
     };
     if let RequestBody::Query { query, .. } = body {
         match query {
+            Query::ValuesAt { pairs } => add(pairs
+                .capacity()
+                .checked_mul(std::mem::size_of::<crate::wave::SignalTime>())
+                .ok_or(Error::ResourceLimit)?)?,
             Query::Search { needle, .. } => add(needle.capacity())?,
             Query::Resolve { paths } => {
                 add(paths
@@ -1031,6 +1065,27 @@ fn remote_error(code: Code) -> Error {
 fn validate(op: &mut Operation, d: &Delivery, limits: Limits, info: &SessionInfo) -> Result<()> {
     let invalid = || Error::Frame("reply does not match requested coverage");
     match (op.shape, &d.reply) {
+        (Shape::Values, Reply::Values(p)) => {
+            if p.offset as u64 != op.offset || p.samples().len() > limits.records {
+                return Err(invalid());
+            }
+            let end = p
+                .offset
+                .checked_add(p.samples().len())
+                .ok_or_else(invalid)?;
+            if end > op.pairs.len() || p.complete != (end == op.pairs.len()) {
+                return Err(invalid());
+            }
+            if !p
+                .samples()
+                .iter()
+                .zip(&op.pairs[p.offset..end])
+                .all(|(sample, pair)| sample.pair == *pair)
+            {
+                return Err(invalid());
+            }
+            op.offset = end as u64;
+        }
         (Shape::Window(range), Reply::Window(p)) => {
             if p.interval != range || p.changes().len() > limits.records {
                 return Err(invalid());
@@ -1093,6 +1148,17 @@ fn validate(op: &mut Operation, d: &Delivery, limits: Limits, info: &SessionInfo
                 return Err(invalid());
             }
             if p.results().iter().any(|r|matches!(r,crate::metadata::Resolution::Found(id) if u64::from(*id)>=info.declarations)){return Err(invalid());}
+        }
+        (Shape::FindChange(from, direction), Reply::FindChange(p)) => {
+            if let crate::wave::ChangeSearchResult::Found(time) = p.result {
+                let ordered = match direction {
+                    crate::wave::Direction::Previous => time < from,
+                    crate::wave::Direction::Next => time > from,
+                };
+                if !ordered || !info.time_range.is_some_and(|range| range.contains(time)) {
+                    return Err(invalid());
+                }
+            }
         }
         (Shape::Text(id, offset, length), Reply::Text(p)) => {
             if p.id != id

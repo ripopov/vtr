@@ -12,6 +12,8 @@ use std::sync::Arc;
 use vtr::Reader;
 
 enum Operation<'a> {
+    Values(crate::native_samples::ValuesAt<'a>),
+    FindChange(crate::native_navigation::FindChange<'a>),
     Window(Window<'a>),
     Summary(Summary<'a>),
     Children(Children<'a>),
@@ -27,6 +29,8 @@ impl Operation<'_> {
         cancellation: &Cancellation,
     ) -> Result<Reply> {
         match self {
+            Self::Values(query) => query.next_page().map(Reply::Values),
+            Self::FindChange(query) => query.next_page().map(Reply::FindChange),
             Self::Window(query) => query.next_page().map(Reply::Window),
             Self::Summary(query) => query.next_page().map(Reply::Summary),
             Self::Children(query) => query.next_page().map(Reply::Children),
@@ -127,6 +131,26 @@ impl<'a> Session<'a> {
             .checked_add(1)
             .ok_or(Error::ResourceLimit)?;
         let operation = match query {
+            Query::ValuesAt { pairs } => Operation::Values(crate::native_samples::ValuesAt::new(
+                self.reader,
+                &pairs,
+                limits,
+                self.budget.clone(),
+                cancellation.clone(),
+            )?),
+            Query::FindChange {
+                signal,
+                from,
+                direction,
+            } => Operation::FindChange(crate::native_navigation::FindChange::new(
+                self.reader,
+                signal,
+                from,
+                direction,
+                limits,
+                self.budget.clone(),
+                cancellation.clone(),
+            )?),
             Query::Window { signal, interval } => Operation::Window(Window::new(
                 self.reader,
                 signal,

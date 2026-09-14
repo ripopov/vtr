@@ -17,6 +17,54 @@ use vtr_query::{
 };
 const HOST: Incarnation = Incarnation([1; 16]);
 const SNAP: SnapshotId = SnapshotId([7; 16]);
+#[test]
+fn sample_replies_must_match_requested_pairs_and_page_boundaries() {
+    for (signal, time, offset, complete, valid) in [
+        (1, 50, 0, true, true),
+        (2, 50, 0, true, false),
+        (1, 51, 0, true, false),
+        (1, 50, 1, true, false),
+        (1, 50, 0, false, false),
+    ] {
+        let (mut driver, session, _) = connected();
+        let future = session
+            .execute(
+                Query::ValuesAt {
+                    pairs: vec![vtr_query::wave::SignalTime {
+                        signal: 1,
+                        time: 50,
+                    }],
+                },
+                limits(),
+            )
+            .unwrap();
+        let packet = driver.take_outbound().unwrap().unwrap();
+        let bytes = p::Envelope {
+            version: wire_request::VERSION,
+            request_id: packet.request_id,
+            snapshot: SNAP.0.to_vec(),
+            body: Some(p::envelope::Body::Reply(p::Delivery {
+                request: Some(cursor(1, 0)),
+                next: (!complete).then(|| cursor(1, 1)),
+                page: Some(p::delivery::Page::Values(p::ValuesPage {
+                    offset,
+                    complete,
+                    samples: vec![p::SampleAt {
+                        pair: Some(p::SignalTime { signal, time }),
+                        sample: Some(p::Sample {
+                            value: Some(p::sample::Value::Known(p::Value {
+                                value: Some(p::value::Value::Real(0)),
+                            })),
+                        }),
+                    }],
+                })),
+            })),
+        }
+        .encode_to_vec();
+        assert_eq!(driver.receive(HOST, &bytes).is_ok(), valid);
+        assert_eq!(ready(future).is_ok(), valid);
+    }
+}
 fn poll<F: Future + Unpin>(future: &mut F) -> Poll<F::Output> {
     Pin::new(future).poll(&mut Context::from_waker(Waker::noop()))
 }
@@ -128,6 +176,47 @@ fn ack(driver: &mut RpcDriver, packet: &vtr_query::rpc_session::Outbound) {
     let b = Budget::new(1 << 20);
     let bytes = wire_encode::acknowledged(packet.request_id, Some(SNAP), &b).unwrap();
     driver.receive(HOST, bytes.bytes()).unwrap();
+}
+#[test]
+fn edge_hits_must_be_strictly_on_the_requested_side() {
+    use vtr_query::wave::Direction;
+    for (direction, time, valid) in [
+        (Direction::Previous, 49, true),
+        (Direction::Previous, 50, false),
+        (Direction::Previous, 51, false),
+        (Direction::Next, 51, true),
+        (Direction::Next, 50, false),
+        (Direction::Next, 49, false),
+        (Direction::Next, 100, false),
+    ] {
+        let (mut driver, session, _) = connected();
+        let future = session
+            .execute(
+                Query::FindChange {
+                    signal: 1,
+                    from: 50,
+                    direction,
+                },
+                limits(),
+            )
+            .unwrap();
+        let packet = driver.take_outbound().unwrap().unwrap();
+        let bytes = p::Envelope {
+            version: wire_request::VERSION,
+            request_id: packet.request_id,
+            snapshot: SNAP.0.to_vec(),
+            body: Some(p::envelope::Body::Reply(p::Delivery {
+                request: Some(cursor(1, 0)),
+                next: None,
+                page: Some(p::delivery::Page::FindChange(p::ChangeSearchPage {
+                    result: Some(p::change_search_page::Result::Found(time)),
+                })),
+            })),
+        }
+        .encode_to_vec();
+        assert_eq!(driver.receive(HOST, &bytes).is_ok(), valid);
+        assert_eq!(ready(future).is_ok(), valid);
+    }
 }
 #[test]
 fn admission_precedes_sending_and_unconsumed_futures_keep_delivery_credit() {

@@ -15,6 +15,12 @@ pub(crate) enum Schema {
     SearchPage,
     ResolvePage,
     TextPart,
+    ValuesAt,
+    SignalTime,
+    SampleAt,
+    ValuesPage,
+    FindChange,
+    ChangeSearchPage,
     Change,
     Sample,
     Value,
@@ -58,6 +64,7 @@ enum Field {
     Text,
     Message(Schema),
 }
+
 fn field(schema: Schema, tag: u32) -> Result<Field> {
     use Field::*;
     use Schema as S;
@@ -76,6 +83,19 @@ fn field(schema: Schema, tag: u32) -> Result<Field> {
         (S::Query, 13) => Message(S::Search),
         (S::Query, 14) => Message(S::Resolve),
         (S::Query, 15) => Message(S::Text),
+        (S::Query, 17) => Message(S::ValuesAt),
+        (S::ValuesAt, 1) => Message(S::SignalTime),
+        (S::SignalTime, 1) => U32,
+        (S::SignalTime, 2) => U64,
+        (S::Delivery, 17) => Message(S::ValuesPage),
+        (S::ValuesPage, 1) => U32,
+        (S::ValuesPage, 2) => Bool,
+        (S::ValuesPage, 3) => Message(S::SampleAt),
+        (S::SampleAt, 1) => Message(S::SignalTime),
+        (S::SampleAt, 2) => Message(S::Sample),
+        (S::Query, 16) => Message(S::FindChange),
+        (S::FindChange, 1 | 3) => U32,
+        (S::FindChange, 2) => U64,
         (S::Limits, 1 | 3) => U64,
         (S::Limits, 2) => U32,
         (S::Window | S::Summary, 1) => U32,
@@ -116,6 +136,9 @@ fn field(schema: Schema, tag: u32) -> Result<Field> {
         (S::Delivery, 13) => Message(S::SearchPage),
         (S::Delivery, 14) => Message(S::ResolvePage),
         (S::Delivery, 15) => Message(S::TextPart),
+        (S::Delivery, 16) => Message(S::ChangeSearchPage),
+        (S::ChangeSearchPage, 1 | 3) => Message(S::Empty),
+        (S::ChangeSearchPage, 2) => U64,
         (S::WindowPage, 1) => Message(S::Interval),
         (S::WindowPage, 2) => Message(S::Sample),
         (S::WindowPage, 3) => Message(S::Change),
@@ -232,10 +255,13 @@ impl Admission {
             let kind = field(schema, tag)?;
             let repeated = matches!(
                 (schema, tag),
-                (Schema::Resolve | Schema::Path, 1)
+                (Schema::Resolve | Schema::Path | Schema::ValuesAt, 1)
                     | (Schema::Info, 6)
                     | (
-                        Schema::WindowPage | Schema::SearchPage | Schema::ResolvePage,
+                        Schema::WindowPage
+                            | Schema::SearchPage
+                            | Schema::ResolvePage
+                            | Schema::ValuesPage,
                         3
                     )
                     | (Schema::SummaryPage | Schema::DeclarationPage, 4)
@@ -257,6 +283,7 @@ impl Admission {
                     | Schema::Kind
                     | Schema::MetadataText
                     | Schema::Resolution
+                    | Schema::ChangeSearchPage
             ) || matches!(
                 schema,
                 Schema::Envelope
@@ -281,7 +308,7 @@ impl Admission {
                 Field::Operations => {
                     if key & 7 == 0 {
                         let value = varint(&mut input)?;
-                        if !(1..=6).contains(&value) {
+                        if !(1..=8).contains(&value) {
                             return Err(Error::Frame("invalid operation"));
                         }
                     } else if key & 7 == 2 {
@@ -293,7 +320,7 @@ impl Admission {
                         input = &input[len..];
                         while !packed.is_empty() {
                             let value = varint(&mut packed)?;
-                            if !(1..=6).contains(&value) {
+                            if !(1..=8).contains(&value) {
                                 return Err(Error::Frame("invalid operation"));
                             }
                             self.add(8)?;
@@ -365,4 +392,23 @@ pub(crate) fn admit(
     budget: &crate::Budget,
 ) -> Result<crate::Reservation> {
     budget.reserve(decoded_bytes(schema, input)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edge_status_preflight_rejects_conflicting_duplicate_and_unknown_fields() {
+        let budget = crate::Budget::new(MAX_DECODED_BYTES);
+        for bytes in [
+            &[10, 0, 16, 0][..], // pending and found(0)
+            &[16, 0, 16, 1][..], // repeated found
+            &[26, 0, 10, 0][..], // exhausted and pending
+            &[34, 0][..],        // unknown status
+        ] {
+            assert!(admit(Schema::ChangeSearchPage, bytes, &budget).is_err());
+            assert_eq!(budget.used(), 0);
+        }
+    }
 }
