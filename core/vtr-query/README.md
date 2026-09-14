@@ -94,8 +94,11 @@ All occurrences at the supplied timestamp are excluded. Each admitted
 last proves that no hit exists. Previous searches keep tentative candidates
 private until the scan is exhausted. Work slices and cancellation use the same
 reader scan units as windows; completed results are repeatable and reservation
-failure does not advance the scan. The current cold implementation scans the
-prefix for previous searches and makes no warm-latency claim.
+failure does not advance the scan. The cold implementation scans the prefix for
+previous searches. Native sessions use binary search when a completed history
+is already cached; a cache miss does not start construction or delay a nearby
+edge query. The operation pins its history through reply admission and releases
+it after finding the final timestamp.
 `session::Query::FindChange` exposes it through native workers and RPC with
 capability `FIND_CHANGE` (7). RPC validates strict direction and recording bounds
 for hits, and requires continuations exactly for pending searches. Volna uses
@@ -142,8 +145,8 @@ and first/last occurrences but no held exit value. `WaveBin::merge` composes
 complete aligned siblings for the same source; the caller must match snapshot
 and raw selector identity. Transaction overlap counts cannot use this reducer.
 
-The native summary implementation is a cold scan, not the proposed reusable
-warm index. Reader byte admission, blackout/unavailable coverage, large-value
+`native::Summary` is the cold reducer used when the session cannot use a warm
+history. Reader byte admission, blackout/unavailable coverage, large-value
 references and performance gates still apply before deployment readiness.
 
 `native_index::SignalIndex` is a borrowed query view over an existing immutable
@@ -156,10 +159,39 @@ reservations. Bit, byte-string and event bins are checked against cold reduction
 real point samples preserve IEEE bits, but real summaries require a separate
 range-extrema index and are not approximated by this helper.
 
-This helper does not load, admit or cache histories and is not yet selected by
-the native session. Bounded construction, retained-history accounting, eviction,
-real extrema and warm/cold session selection remain required before adopting it
-as the primary query path or making a latency claim.
+`native_history::Build` reserves the construction ceiling before starting the
+reader's incremental `HistoryLoad`. Successful construction shrinks admission to
+the retained capacities and transfers it into a shared `History`; its borrowed
+index cannot outlive that reservation. Cancellation, refusal and errors discard
+partial output and release admission. The reader counts block work and caps
+output growth, including moving reallocations, but its caches and decoder
+scratch remain outside this admission. Construction performs a sizing walk and
+an append walk over each decoded column; performance is not yet established.
+
+Native sessions use these histories for discrete summary queries. The session
+reserves half its remaining query budget for the history cache, leaving reply
+headroom in the parent budget. Up to 64 entries (four per operation slot) share
+construction by canonical signal ID. Each build is capped at half the cache
+quota after entry storage, at most 64 MiB. Idle entries are evicted by recency;
+active subscribers prevent eviction, and abandoned unfinished builds are
+discarded. Over-budget histories retain a small refusal entry until eviction,
+so repeated pans do not repeatedly attempt the same oversized construction.
+
+Construction advances one file block per progress page. Its completion page
+contains no bins; subsequent pages use binary-search discrete summaries bounded
+by reply bytes, records and work. Ready histories answer later grids immediately.
+Real summaries and queries unable to acquire cache capacity retain cold reduction.
+Each summary keeps one execution mode after useful output begins, preserving
+packing and entry semantics across its pages. Edge requests pin a ready history
+at start. Cursor batches use ready histories per lookup and fall back to reader
+point queries for cold signals; ordering, duplicates and exact samples retain
+the same contract. Cached values use the history's canonical declared packing.
+Exact windows pin an available history and traverse its index range, sharing the
+same byte-limited page builder as cold scans. Range boundaries use binary search,
+including exclusive `AfterMax`, and strict predecessors come from the history.
+Point, edge and exact-window requests do not start history construction on a
+miss. Reader cache/scratch admission, real extrema,
+construction latency and the native/remote performance gates remain unverified.
 
 `native_metadata::Children` uses the reader's adjacency index and borrowed node
 views. Headers carry raw types, aliases, signal identities, child counts and

@@ -1136,11 +1136,16 @@ decompression and existing caches are not bounded by this work-unit count.
 
 ```c
 typedef struct vtr_signal_data vtr_signal_data;
+typedef struct vtr_history_load vtr_history_load;
+vtr_history_load *vtr_reader_history_load(const vtr_reader *r, uint32_t sig, size_t bytes);
+int vtr_history_load_advance(vtr_history_load *load, size_t blocks, int *progress, vtr_signal_data **out);
+void vtr_history_load_free(vtr_history_load *load);
 vtr_signal_data *vtr_reader_load_signal(const vtr_reader *r, uint32_t sig);
 int              vtr_reader_load_signals(const vtr_reader *r, const uint32_t *sigs, size_t n, vtr_signal_data **out);
 vtr_signal_data *vtr_signal_data_clone(const vtr_signal_data *d);
 void             vtr_signal_data_free(vtr_signal_data *d);
 size_t           vtr_signal_data_len(const vtr_signal_data *d);
+size_t           vtr_signal_data_retained_bytes(const vtr_signal_data *d);
 const uint64_t  *vtr_signal_data_times(const vtr_signal_data *d);
 int              vtr_signal_data_get(const vtr_signal_data *d, size_t i, vtr_signal_value *out);
 int              vtr_signal_data_initial(const vtr_signal_data *d, vtr_signal_value *out);
@@ -1153,6 +1158,21 @@ unknown signal or a decoding error). The object is an immutable handle: it does 
 reference the reader, can outlive it, and can be read concurrently. Free each
 handle with `vtr_signal_data_free` (NULL is ignored). Borrowed time/value
 pointers remain valid until that handle is freed; they must not be modified.
+
+**`vtr_reader_history_load(r, sig, bytes)`** creates an incremental loader, or
+returns NULL with an error message for invalid input. Its byte cap covers shared
+history storage and vector capacities, including room for moving reallocations;
+reader caches, decode scratch, allocator bookkeeping and loader handles are
+separate. Free the loader before its reader. `vtr_history_load_advance` processes
+at most `blocks` file blocks (`blocks > 0`), each including sizing and append
+walks of a decoded column. Drop between calls to cancel. `progress` is 0 for
+pending, 1 for complete, or 2 for budget refusal. Only completion writes `out`,
+with a new handle that must be freed separately and can outlive the loader and
+reader. Completion and refusal repeat; no partial history is exposed. Refusal
+also covers variable-length histories beyond the `u32` offset domain. Errors
+leave output arguments unchanged; decode/allocation errors terminate the loader,
+while invalid zero work does not. All pointer arguments to advance are required.
+`vtr_history_load_free(NULL)` is harmless. This is not a wall-time or RSS bound.
 
 **`vtr_reader_load_signals(r, sigs, n, out)`** loads a batch into `n`
 caller-allocated output slots. Each slot receives a separately owned handle in
@@ -1169,6 +1189,12 @@ remains valid after the original handle and reader are freed. Storage is
 released when the last handle is freed.
 
 * `vtr_signal_data_len(d)` — number of changes `n` (0 for a NULL `d`).
+* `vtr_signal_data_retained_bytes(d)` — shared storage object plus capacities of
+  initial-value, time, value and offset buffers, including unused capacity (0
+  for NULL). Count once across clones or repeated IDs in a batch; independent
+  loads own separate storage. Saturates at `SIZE_MAX`. Excludes handles,
+  Arc/allocator bookkeeping, reader caches and construction scratch; it is not
+  an RSS or peak-memory bound and does not provide construction admission.
 * `vtr_signal_data_times(d)` — pointer to `n` change times, non-decreasing
   (equal times are same-time updates in emission order). NULL for a NULL `d`.
 * `vtr_signal_data_get(d, i, &v)` — value of change `i`; `VTR_ERR_NOT_FOUND`

@@ -12,6 +12,7 @@ writer/reader comparison and writes raw JSON results plus a Markdown report.
     python3 bench/run.py log              # only the log-writer comparison (VTR vs NanoLog, binlog, Quill, CLP)
 
 Options: --scale small|full (default full), --out DIR (default bench/results/latest),
+         --report PATH (default docs/BENCHMARK_RESULTS.md, or OUT/BENCHMARK_RESULTS.md for a custom --out),
          --workloads NAME[,NAME...] to restrict, --repeat N (default 3, best-of),
          --sim-repeat N (default 2, best-of for the simulator runs).
 """
@@ -35,7 +36,7 @@ VTR_CLI = os.path.join(TARGET, "vtr")
 VERILATOR = os.path.join(BUILD, "verilator", "install", "bin", "verilator")
 VTR_LIBDIR = os.path.join(BUILD, "vtr-lib")
 LOG_BUILD = os.path.join(BUILD, "log")
-VTR_INCLUDE = os.path.join(ROOT, "crates", "vtr-capi", "include")
+VTR_INCLUDE = os.path.join(ROOT, "core", "vtr-capi", "include")
 SIM_ENV = dict(os.environ, VERILATOR=VERILATOR, VTR_INCLUDE=VTR_INCLUDE, VTR_LIBDIR=VTR_LIBDIR)
 SIM_MODES = ["none", "fst", "vtr"]
 
@@ -807,6 +808,7 @@ def main():
     ap.add_argument("what", choices=["all", "prepare", "run", "report", "compilers", "log"])
     ap.add_argument("--scale", choices=["small", "full"], default="full")
     ap.add_argument("--out", default=os.path.join(ROOT, "bench", "results", "latest"))
+    ap.add_argument("--report", help="Markdown destination; custom --out directories keep their report alongside the JSON")
     ap.add_argument("--workloads", default=None)
     ap.add_argument("--repeat", type=int, default=3)
     ap.add_argument("--sim-repeat", type=int, default=2, help="best-of N for the simulator runs (minutes each on c910)")
@@ -814,6 +816,10 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     res_path = os.path.join(a.out, "results.json")
+    default_out = os.path.join(ROOT, "bench", "results", "latest")
+    report_path = a.report or os.path.join(
+        ROOT if os.path.abspath(a.out) == default_out else a.out,
+        "docs/BENCHMARK_RESULTS.md" if os.path.abspath(a.out) == default_out else "BENCHMARK_RESULTS.md")
     rtl_names = SMALL_SET if a.scale == "small" else list(RTL_WORKLOADS)
     tx_names = SMALL_TX if a.scale == "small" else list(TX_WORKLOADS)
     log_names = SMALL_LOG if a.scale == "small" else list(LOG_WORKLOADS)
@@ -826,7 +832,7 @@ def main():
         import compilers
         sys.argv = [sys.argv[0]]
         compilers.main()
-        render(json.load(open(res_path)), os.path.join(ROOT, "docs", "BENCHMARK_RESULTS.md"))
+        render(json.load(open(res_path)), report_path)
         return
     if a.what in ("all", "prepare", "run"):
         build()
@@ -867,8 +873,8 @@ def main():
             results["log"] = [done_log[k] for k in LOG_WORKLOADS if k in done_log]
             json.dump(results, open(res_path, "w"), indent=1)
     if a.what in ("all", "run", "report", "log"):
-        render(results, os.path.join(ROOT, "docs", "BENCHMARK_RESULTS.md"))
-        print("report written to docs/BENCHMARK_RESULTS.md")
+        render(results, report_path)
+        print(f"report written to {report_path}")
 
 
 if __name__ == "__main__":

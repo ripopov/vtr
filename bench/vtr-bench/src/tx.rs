@@ -381,7 +381,7 @@ pub fn gen_tlm(n: u64, seed: u64) -> TxReplay {
         let pid = next_id;
         next_id += 1;
         let tn = t + 2;
-        let slave = (addr >> 18) as u64 % n_slave;
+        let slave = (addr >> 18) % n_slave;
         push(&mut ev, tn, TxOp::Begin { id: pid, gen: g_noc, time: tn });
         push(&mut ev, tn, TxOp::Attr { id: pid, key: k_src, phase: 0, ty: 2, v: c as u64 });
         push(&mut ev, tn, TxOp::Attr { id: pid, key: k_dst, phase: 0, ty: 2, v: slave });

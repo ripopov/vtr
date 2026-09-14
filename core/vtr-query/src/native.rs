@@ -44,11 +44,28 @@ pub(crate) fn value(value: SignalValue<'_>, budget: &Budget) -> Result<Value> {
 /// Dropping the operation releases its cursor and reader pins.
 pub struct Window<'a> {
     interval: Interval,
-    scan: Option<vtr::ChangeScan<'a>>,
+    scan: Option<Scan<'a>>,
     predecessor: Arc<Predecessor>,
     budget: Budget,
     limits: Limits,
     cancellation: Cancellation,
+}
+
+enum Scan<'a> {
+    Cold(vtr::ChangeScan<'a>),
+    Warm(crate::native_history::HistoryWindow),
+}
+impl Scan<'_> {
+    fn scan(
+        &mut self,
+        work: usize,
+        visit: impl FnMut(u64, SignalValue<'_>) -> ScanAction,
+    ) -> vtr::Result<bool> {
+        match self {
+            Self::Cold(scan) => scan.scan(work, visit),
+            Self::Warm(scan) => Ok(scan.scan(work, visit)),
+        }
+    }
 }
 impl<'a> Window<'a> {
     pub fn new(
@@ -59,6 +76,18 @@ impl<'a> Window<'a> {
         budget: Budget,
         cancellation: Cancellation,
     ) -> Result<Self> {
+        Self::new_with_history(reader, signal, interval, limits, budget, cancellation, None)
+    }
+
+    pub(crate) fn new_with_history(
+        reader: &'a Reader,
+        signal: u32,
+        interval: Interval,
+        limits: Limits,
+        budget: Budget,
+        cancellation: Cancellation,
+        history: Option<Arc<crate::native_history::History>>,
+    ) -> Result<Self> {
         cancellation.check()?;
         if limits.records == 0 || limits.work == 0 {
             return Err(Error::Invalid("zero record or work limit"));
@@ -66,8 +95,22 @@ impl<'a> Window<'a> {
         let signal = SignalId(signal);
         let declared = reader.signal_kind(signal).map_err(backend)?;
         let predecessor_charge = budget.reserve(std::mem::size_of::<Predecessor>())?;
-        let predecessor = if reader.signal_var_type(signal).map_err(backend)? == vtr::VarType::Event
-        {
+        let predecessor = if let Some(history) = &history {
+            let raw = if interval.start() == 0 {
+                history.initial()
+            } else {
+                history.value_at(interval.start() - 1)
+            };
+            match raw {
+                Some(raw) => {
+                    if payload_bytes(raw) > limits.bytes {
+                        return Err(Error::ResourceLimit);
+                    }
+                    Sample::Known(value(raw, &budget)?)
+                }
+                None => Sample::Event,
+            }
+        } else if reader.signal_var_type(signal).map_err(backend)? == vtr::VarType::Event {
             Sample::Event
         } else if interval.start() == 0 {
             Sample::BackendDefault(kind(declared))
@@ -82,16 +125,20 @@ impl<'a> Window<'a> {
         };
         let scan = if interval.is_empty() {
             None
+        } else if let Some(history) = history {
+            Some(Scan::Warm(crate::native_history::HistoryWindow::new(
+                history, interval,
+            )))
         } else {
             let end = match interval.end() {
                 TimeBound::Tick(t) => t - 1,
                 TimeBound::AfterMax => u64::MAX,
             };
-            Some(
+            Some(Scan::Cold(
                 reader
                     .change_scan(signal, interval.start(), end)
                     .map_err(backend)?,
-            )
+            ))
         };
         Ok(Self {
             interval,
@@ -218,7 +265,7 @@ pub use crate::summary::SummaryPage;
 /// exact history. Warm indexed summaries can implement the same result type.
 pub struct Summary<'a> {
     grid: crate::Grid,
-    scan: vtr::ChangeScan<'a>,
+    scan: Scan<'a>,
     scan_done: bool,
     offset: u32,
     builder: Option<crate::summary::BinBuilder>,

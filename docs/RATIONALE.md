@@ -377,6 +377,16 @@ decompressed pieces; a global time table built on demand.
   the last handle releases them, independently of the reader's lifetime.
   Freezing retains the builder's vector allocations behind the private shared
   handle; shrinking them into boxed slices can copy entire histories.
+  `retained_bytes` exposes these capacities at their owner so query caches can
+  account for spare allocation without duplicating buffers or inferring sizes
+  from entry counts. It counts shared storage once and excludes allocator
+  overhead and construction scratch. Incremental `history_load` sizes each
+  decoded column before the ordinary append, checks output capacity and moving
+  reallocations, and publishes only a completed shared history. This keeps the
+  existing packing and alias machinery while allowing refusal and cancellation
+  between blocks. The extra column walk and conservative growth admission need
+  performance evaluation before this becomes the primary warm-cache builder;
+  reader scratch admission remains separate.
   This targets read-only consumers and avoids decoding and allocating the
   same waveform repeatedly when several hierarchy names resolve to one ID.
   Public mutable vectors and cloning entire histories were rejected: they

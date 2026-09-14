@@ -369,3 +369,26 @@ every workload where a claim does not hold.
 
 Reproduce a single workload with `python3 bench/run.py run --workloads
 scr1_axi`, and only the read tables with `--reads-only`.
+Runs using a custom `--out DIR` keep their Markdown report beside the JSON in
+that directory. `--report PATH` overrides the report destination. The default
+output directory continues to update `docs/BENCHMARK_RESULTS.md`.
+
+## Typed query sessions
+
+`cargo run --release -p vtr-bench -- query TRACE.vtr SIGNAL` measures a fresh
+session's first full-range summary and five repeated summary, 1,000-point and
+previous-edge requests. `SIGNAL` is an explicit numeric ID or dotted path;
+choose a known active clock or busy bus. Zero-change selections are rejected.
+The JSON includes raw timings, page/progress counts, signal changes, file bytes,
+and reserved query capacity (not RSS). Summary counts and edge timestamps are
+checked against an independently loaded history. The reference pass warms the
+OS cache; the timed reader starts with fresh reader caches. These measurements
+include typed session scheduling and result consumption, not GUI frames or RTT.
+
+For A/B work, build the same driver against a detached HEAD worktree and the
+candidate, keeping the baseline reader/query implementation unchanged. Alternate
+binary order across at least three runs; report first construction separately
+from repeated queries and include progress-page counts, since remote continuations
+add latency. Compare file size and writer timings on the same replay workloads,
+then run the full suite before updating the results report. A local one-signal
+measurement does not establish the 32-row native or shaped-network gates.

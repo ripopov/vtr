@@ -13,6 +13,8 @@ use vtr::{Reader, ScanAction, SignalId};
 /// execution can produce the same result without scanning the prefix.
 pub struct FindChange<'a> {
     scan: Option<vtr::ChangeScan<'a>>,
+    history: Option<Arc<crate::native_history::History>>,
+    from: u64,
     direction: Direction,
     candidate: Option<u64>,
     result: ChangeSearchResult,
@@ -52,6 +54,8 @@ impl<'a> FindChange<'a> {
             .map_err(|error| Error::Backend(error.to_string()))?;
         Ok(Self {
             scan,
+            history: None,
+            from,
             direction,
             candidate: None,
             result: ChangeSearchResult::Pending,
@@ -61,6 +65,13 @@ impl<'a> FindChange<'a> {
         })
     }
 
+    /// Replace the untouched cold cursor with a pin from this session's cache.
+    pub(crate) fn with_history(mut self, history: Arc<crate::native_history::History>) -> Self {
+        self.scan = None;
+        self.history = Some(history);
+        self
+    }
+
     pub fn next_page(&mut self) -> Result<Arc<ChangeSearchPage>> {
         self.cancellation.check()?;
         // Admit the result before advancing so allocation pressure cannot lose
@@ -68,6 +79,12 @@ impl<'a> FindChange<'a> {
         let charge = self
             .budget
             .reserve(std::mem::size_of::<ChangeSearchPage>())?;
+        if let Some(history) = self.history.take() {
+            self.result = history
+                .index()
+                .find_change(self.from, self.direction)
+                .map_or(ChangeSearchResult::Exhausted, ChangeSearchResult::Found);
+        }
         let mut work = self.limits.work;
         while self.result == ChangeSearchResult::Pending && work > 0 {
             self.cancellation.check()?;

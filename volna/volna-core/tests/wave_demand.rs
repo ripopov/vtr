@@ -72,13 +72,29 @@ impl AsyncSession for GateSession {
     }
 }
 fn fixture() -> (tempfile::TempDir, GateSession, u32) {
+    fixture_with_real(false)
+}
+fn fixture_with_real(real: bool) -> (tempfile::TempDir, GateSession, u32) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("demand.vtr");
     let mut writer = vtr::Writer::create(&path).unwrap();
-    let (_, signal) = writer.add_bits("clock", 1, 2);
+    let (_, signal) = if real {
+        writer.add_var(
+            "analog",
+            vtr::VarType::Real,
+            vtr::Direction::Implicit,
+            vtr::SignalKind::Real,
+        )
+    } else {
+        writer.add_bits("clock", 1, 2)
+    };
     for time in 0..128 {
         writer.set_time(time).unwrap();
-        writer.emit_u64(signal, time % 2).unwrap();
+        if real {
+            writer.emit_real(signal, time as f64).unwrap();
+        } else {
+            writer.emit_u64(signal, time % 2).unwrap();
+        }
     }
     writer.close().unwrap();
     let local =
@@ -437,7 +453,9 @@ fn identical_panel_demands_share_work_and_immutable_bins() {
 
 #[test]
 fn empty_work_slices_preserve_old_coverage_until_a_useful_bin_arrives() {
-    let (_dir, session, signal) = fixture();
+    // Real extrema currently use cold reduction. Discrete histories become warm
+    // after the first request and can immediately deliver a useful replacement.
+    let (_dir, session, signal) = fixture_with_real(true);
     let mut small_work = limits();
     small_work.work = 1;
     let mut loader = WaveDemands::new(session, small_work, 16, 1, 1, &Budget::new(65536)).unwrap();

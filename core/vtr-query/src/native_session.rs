@@ -4,7 +4,9 @@
 use crate::session::{Continuation, Delivery, Query, Reply, SessionInfo, SnapshotId};
 use crate::wave::{Bytes, Limits};
 use crate::{
-    native::{Summary, Window},
+    native::Window,
+    native_cache::Cache,
+    native_cached_summary::CachedSummary,
     native_metadata::{text_part, Children, ResolvePaths, Search},
 };
 use crate::{Budget, Cancellation, Error, Interval, Result, TimeBound};
@@ -15,24 +17,25 @@ enum Operation<'a> {
     Values(crate::native_samples::ValuesAt<'a>),
     FindChange(crate::native_navigation::FindChange<'a>),
     Window(Window<'a>),
-    Summary(Summary<'a>),
+    Summary(CachedSummary<'a>),
     Children(Children<'a>),
     Search(Search<'a>),
     Resolve(ResolvePaths<'a>),
     Text { id: u32, offset: u64, length: usize },
 }
-impl Operation<'_> {
+impl<'a> Operation<'a> {
     fn next(
         &mut self,
         reader: &Reader,
         budget: &Budget,
         cancellation: &Cancellation,
+        cache: &mut Cache<'a>,
     ) -> Result<Reply> {
         match self {
-            Self::Values(query) => query.next_page().map(Reply::Values),
+            Self::Values(query) => query.next_page_cached(cache).map(Reply::Values),
             Self::FindChange(query) => query.next_page().map(Reply::FindChange),
             Self::Window(query) => query.next_page().map(Reply::Window),
-            Self::Summary(query) => query.next_page().map(Reply::Summary),
+            Self::Summary(query) => query.next_page(cache).map(Reply::Summary),
             Self::Children(query) => query.next_page().map(Reply::Children),
             Self::Search(query) => query.next_page().map(Reply::Search),
             Self::Resolve(query) => query.next_page().map(Reply::Resolve),
@@ -57,6 +60,7 @@ pub struct Session<'a> {
     slots: Vec<Option<(u64, Slot<'a>)>>,
     _slots_charge: crate::Reservation,
     next_operation: u64,
+    cache: Cache<'a>,
 }
 impl<'a> Session<'a> {
     pub fn new(reader: &'a Reader, budget: Budget, max_operations: usize) -> Result<Self> {
@@ -83,6 +87,7 @@ impl<'a> Session<'a> {
                 )
             })
             .transpose()?;
+        let cache = Cache::new(reader, &budget, max_operations)?;
         Ok(Self {
             reader,
             info: SessionInfo {
@@ -96,6 +101,7 @@ impl<'a> Session<'a> {
             slots,
             _slots_charge: charge,
             next_operation: 0,
+            cache,
         })
     }
     pub fn info(&self) -> &SessionInfo {
@@ -142,30 +148,38 @@ impl<'a> Session<'a> {
                 signal,
                 from,
                 direction,
-            } => Operation::FindChange(crate::native_navigation::FindChange::new(
-                self.reader,
-                signal,
-                from,
-                direction,
-                limits,
-                self.budget.clone(),
-                cancellation.clone(),
-            )?),
-            Query::Window { signal, interval } => Operation::Window(Window::new(
+            } => {
+                let query = crate::native_navigation::FindChange::new(
+                    self.reader,
+                    signal,
+                    from,
+                    direction,
+                    limits,
+                    self.budget.clone(),
+                    cancellation.clone(),
+                )?;
+                Operation::FindChange(match self.cache.ready(signal) {
+                    Some(history) => query.with_history(history),
+                    None => query,
+                })
+            }
+            Query::Window { signal, interval } => Operation::Window(Window::new_with_history(
                 self.reader,
                 signal,
                 interval,
                 limits,
                 self.budget.clone(),
                 cancellation.clone(),
+                self.cache.ready(signal),
             )?),
-            Query::Summary { signal, grid } => Operation::Summary(Summary::new(
+            Query::Summary { signal, grid } => Operation::Summary(CachedSummary::new(
                 self.reader,
                 signal,
                 grid,
                 limits,
                 self.budget.clone(),
                 cancellation.clone(),
+                &mut self.cache,
             )?),
             Query::Children { parent } => Operation::Children(Children::new(
                 self.reader,
@@ -239,9 +253,12 @@ impl<'a> Session<'a> {
         let next_step = cursor.step.checked_add(1).ok_or(Error::ResourceLimit)?;
         slot.last = None;
         let charge = self.budget.reserve(std::mem::size_of::<Delivery>())?;
-        let result = slot
-            .operation
-            .next(self.reader, &self.budget, &slot.cancellation);
+        let result = slot.operation.next(
+            self.reader,
+            &self.budget,
+            &slot.cancellation,
+            &mut self.cache,
+        );
         match result {
             Ok(reply) => {
                 slot.complete = reply.complete();
@@ -290,8 +307,11 @@ impl<'a> Session<'a> {
             .iter_mut()
             .find(|slot| slot.as_ref().is_some_and(|(id, _)| *id == cursor.operation))
         {
-            if let Some((_, slot)) = slot.take() {
+            if let Some((_, mut slot)) = slot.take() {
                 slot.cancellation.cancel();
+                if let Operation::Summary(summary) = &mut slot.operation {
+                    summary.release(&mut self.cache);
+                }
             }
         }
         Ok(())

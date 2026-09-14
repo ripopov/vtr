@@ -7,10 +7,26 @@ use crate::{
 use std::sync::Arc;
 use vtr::{Reader, SignalId, VarType};
 
+enum Point {
+    Event,
+    Owned(vtr::OwnedSignalValue),
+    Cached(Arc<crate::native_history::History>, u64),
+}
+impl Point {
+    fn raw(&self) -> Option<vtr::SignalValue<'_>> {
+        match self {
+            Self::Event => None,
+            Self::Owned(value) => Some(value.borrow()),
+            Self::Cached(history, time) => history.value_at(*time),
+        }
+    }
+}
+
 /// Samples preserve pair order, including repeated signals and times. A work
 /// unit is one reader point lookup; cancellation is checked between lookups.
-/// Reader decode scratch and the temporary owned point value are not admitted
-/// by this layer, just as with the exact-window predecessor lookup.
+/// Cold lookups still use reader decode scratch and an owned point temporary
+/// outside query admission. Cached lookups borrow from an admitted history and
+/// copy only the returned value into its admitted sample.
 pub struct ValuesAt<'a> {
     reader: &'a Reader,
     pairs: Vec<SignalTime>,
@@ -62,7 +78,7 @@ impl<'a> ValuesAt<'a> {
         })
     }
 
-    fn lookup(&self, pair: SignalTime) -> Result<Option<vtr::OwnedSignalValue>> {
+    fn lookup(&self, pair: SignalTime) -> Result<Point> {
         self.cancellation.check()?;
         let signal = SignalId(pair.signal);
         if self
@@ -71,16 +87,36 @@ impl<'a> ValuesAt<'a> {
             .map_err(|error| Error::Backend(error.to_string()))?
             == VarType::Event
         {
-            Ok(None)
+            Ok(Point::Event)
         } else {
             self.reader
                 .value_at(signal, pair.time)
-                .map(Some)
+                .map(Point::Owned)
                 .map_err(|error| Error::Backend(error.to_string()))
         }
     }
 
     pub fn next_page(&mut self) -> Result<Arc<ValuesPage>> {
+        self.next_page_with(Self::lookup)
+    }
+
+    pub(crate) fn next_page_cached(
+        &mut self,
+        cache: &mut crate::native_cache::Cache<'_>,
+    ) -> Result<Arc<ValuesPage>> {
+        self.next_page_with(|query, pair| {
+            query.cancellation.check()?;
+            match cache.ready(pair.signal) {
+                Some(history) => Ok(Point::Cached(history, pair.time)),
+                None => query.lookup(pair),
+            }
+        })
+    }
+
+    fn next_page_with(
+        &mut self,
+        mut lookup: impl FnMut(&Self, SignalTime) -> Result<Point>,
+    ) -> Result<Arc<ValuesPage>> {
         self.cancellation.check()?;
         let overhead = std::mem::size_of::<ValuesPage>();
         let available = self
@@ -101,12 +137,9 @@ impl<'a> ValuesAt<'a> {
             .pairs
             .get(self.offset)
             .copied()
-            .map(|pair| self.lookup(pair))
+            .map(|pair| lookup(self, pair))
             .transpose()?;
-        let first_bytes = first
-            .as_ref()
-            .and_then(Option::as_ref)
-            .map_or(0, |raw| payload_bytes(raw.borrow()));
+        let first_bytes = first.as_ref().and_then(Point::raw).map_or(0, payload_bytes);
         let fixed_bytes = available
             .checked_sub(first_bytes)
             .ok_or(Error::ResourceLimit)?;
@@ -140,17 +173,17 @@ impl<'a> ValuesAt<'a> {
             let raw = if index == 0 {
                 first.take().unwrap()
             } else {
-                self.lookup(*pair)?
+                lookup(self, *pair)?
             };
-            let sample = if let Some(raw) = raw {
-                let size = payload_bytes(raw.borrow());
+            let sample = if let Some(raw) = raw.raw() {
+                let size = payload_bytes(raw);
                 if size > remaining {
                     if samples.is_empty() {
                         return Err(Error::ResourceLimit);
                     }
                     break;
                 }
-                let value = match value(raw.borrow(), &self.budget) {
+                let value = match value(raw, &self.budget) {
                     Ok(value) => value,
                     Err(Error::ResourceLimit) if !samples.is_empty() => break,
                     Err(error) => return Err(error),

@@ -157,6 +157,25 @@ int main(int argc, char **argv) {
     ASSERT(vtr_reader_change_scan(NULL, event, 0, 1) == NULL);
     vtr_signal_data *d = vtr_reader_load_signal(rd, bus);
     ASSERT(d != NULL && vtr_signal_data_len(d) == 251);
+    vtr_history_load *history_load = vtr_reader_history_load(rd, bus, 65536);
+    ASSERT(history_load != NULL);
+    int history_progress = 0;
+    vtr_signal_data *bounded = NULL;
+    while (history_progress == 0)
+        CHECK(vtr_history_load_advance(history_load, 1, &history_progress, &bounded));
+    ASSERT(history_progress == 1 && bounded != NULL);
+    ASSERT(vtr_signal_data_len(bounded) == vtr_signal_data_len(d));
+    ASSERT(vtr_signal_data_retained_bytes(bounded) <= 65536);
+    vtr_history_load_free(history_load);
+    ASSERT(vtr_signal_data_times(bounded)[1] == 40);
+    vtr_signal_data_free(bounded);
+    history_load = vtr_reader_history_load(rd, bus, 0);
+    bounded = d;
+    CHECK(vtr_history_load_advance(history_load, 1, &history_progress, &bounded));
+    ASSERT(history_progress == 2 && bounded == d);
+    ASSERT(vtr_history_load_advance(history_load, 0, &history_progress, &bounded) == VTR_ERR_INVALID);
+    vtr_history_load_free(history_load);
+    vtr_history_load_free(NULL);
     ASSERT(vtr_signal_data_times(d)[1] == 40);
     ASSERT(vtr_signal_data_index_at(d, 39) == 0);
     uint32_t requests[] = {s, bus, clk, bus, s};
@@ -174,6 +193,11 @@ int main(int argc, char **argv) {
     ASSERT(va.data == vb.data && va.len == vb.len);
     vtr_signal_data *survivor = vtr_signal_data_clone(loaded[1]);
     ASSERT(survivor != NULL);
+    size_t retained = vtr_signal_data_retained_bytes(survivor);
+    ASSERT(retained >= 251 * sizeof(uint64_t));
+    ASSERT(retained == vtr_signal_data_retained_bytes(loaded[1]));
+    ASSERT(retained == vtr_signal_data_retained_bytes(loaded[3]));
+    ASSERT(vtr_signal_data_retained_bytes(NULL) == 0);
     ASSERT(vtr_signal_data_times(survivor) == vtr_signal_data_times(loaded[1]));
     for (size_t i = 0; i < 5; i++) vtr_signal_data_free(loaded[i]);
     CHECK(vtr_reader_load_signals(rd, NULL, 0, NULL));
@@ -201,6 +225,7 @@ int main(int argc, char **argv) {
     vtr_value_buf_free(b);
     vtr_reader_close(rd);
     ASSERT(vtr_signal_data_len(survivor) == 251);
+    ASSERT(vtr_signal_data_retained_bytes(survivor) == retained);
     ASSERT(vtr_signal_data_times(survivor)[1] == 40);
     CHECK(vtr_signal_data_get(survivor, 1, &sv));
     ASSERT(sv.kind == 0 && sv.width == 16);

@@ -329,6 +329,22 @@ an immediate redraw. Workspace restoration preserves the query snapshot and
 worker while changing the row generation to reject stale UI commands.
 Native FST, synthetic sessions and standalone browser file loading still use the
 legacy history path. VS Code VTR resources use RPC summary queries.
+Discrete summary queries in both hosts share a session-owned history cache.
+Construction prepays output capacity, yields between blocks and is abandoned when
+its last subscriber leaves. Completed histories answer new grids by binary search;
+idle histories can be evicted, and over-budget histories use cold reduction.
+Ready histories also serve exact cursor samples and edge navigation. Those
+requests use the ordinary cold path on a miss without starting a full-history
+build. Navigation pins a history until its timestamp result is admitted; cursor
+batches borrow cached values while producing admitted samples.
+Exact windows pin a ready history and traverse its selected range through the
+same admitted page builder used by cold scans. An exact-window cache miss does
+not initiate full-history construction.
+Real summaries remain cold until a range-extrema index is implemented. The cache
+reserves half the remaining host query budget; the native query host and stdio
+server both start with 512 MiB query budgets. Reader caches and scratch still need
+separate admission, and construction/viewport latency gates are not yet proven.
+
 Both query hosts use summaries for visible rows and bounded `FindChange`
 operations for previous/next edge commands. Navigation retains one replaceable
 intent per panel and one active operation in the core controller. It validates

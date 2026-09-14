@@ -246,6 +246,15 @@ int vtr_reader_for_each_change(const vtr_reader *r, uint64_t t0, uint64_t t1, vt
 /* Immutable history; handles may outlive the reader and be read concurrently.
  * Borrowed time/value pointers are read-only and valid until the handle is freed. */
 typedef struct vtr_signal_data vtr_signal_data;
+/* Incremental output-capped loading. Reader caches/scratch are outside bytes.
+ * Free the load before its reader. Drop between advances to cancel. */
+typedef struct vtr_history_load vtr_history_load;
+vtr_history_load *vtr_reader_history_load(const vtr_reader *r, uint32_t sig, size_t bytes);
+/* blocks > 0. progress: 0 pending, 1 complete, 2 budget exceeded.
+ * Only completion writes out; free each returned signal-data handle.
+ * Completed/refused results repeat; errors leave progress/out unchanged. */
+int vtr_history_load_advance(vtr_history_load *load, size_t blocks, int *progress, vtr_signal_data **out);
+void vtr_history_load_free(vtr_history_load *load);
 vtr_signal_data *vtr_reader_load_signal(const vtr_reader *r, uint32_t sig);
 /* Caller allocates n output slots; free each returned handle separately.
  * Duplicate IDs share immutable storage. On error, out is unchanged.
@@ -254,6 +263,9 @@ int              vtr_reader_load_signals(const vtr_reader *r, const uint32_t *si
 vtr_signal_data *vtr_signal_data_clone(const vtr_signal_data *d); /* shares storage; NULL in -> NULL out */
 void             vtr_signal_data_free(vtr_signal_data *d);
 size_t           vtr_signal_data_len(const vtr_signal_data *d);
+/* Shared storage and buffer capacities, counted once across clones. Excludes
+ * handles, Arc/allocator overhead and reader scratch; not RSS. NULL -> 0. */
+size_t           vtr_signal_data_retained_bytes(const vtr_signal_data *d);
 const uint64_t  *vtr_signal_data_times(const vtr_signal_data *d);
 int              vtr_signal_data_get(const vtr_signal_data *d, size_t i, vtr_signal_value *out);
 int              vtr_signal_data_initial(const vtr_signal_data *d, vtr_signal_value *out);

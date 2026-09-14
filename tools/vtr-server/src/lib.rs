@@ -21,7 +21,7 @@ const CONTROLS: usize = 8;
 const QUEUED: usize = MAX_OUTSTANDING + CONTROLS;
 // Application allocations; reader cache/scratch and OS pipe memory are not
 // covered by this ceiling and still require reader admission and RSS tests.
-const DATA_BUDGET: usize = 64 * 1024 * 1024;
+const DATA_BUDGET: usize = 512 * 1024 * 1024;
 const CONTROL_BUDGET: usize = 256 * 1024;
 struct Pending {
     id: u64,

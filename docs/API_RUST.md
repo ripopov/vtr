@@ -31,8 +31,15 @@ Native GPUI and VS Code VTR opening use this API for summary rows; FST query
 adoption and reader memory admission remain incomplete.
 It does not change the reader operations documented here or their C projection.
 `native_index::SignalIndex` borrows an already-loaded immutable `SignalData` for
-binary-search samples, edge searches and discrete summaries. It does not yet
-provide bounded history construction or a session-owned warm cache.
+binary-search samples, edge searches and discrete summaries. `native_history::Build`
+prepays incremental output construction and transfers its reservation into a
+shared history owner. Native sessions share these histories for discrete summary
+queries, with bounded entry storage, idle eviction, shared construction and cold
+fallback. Completed histories also serve exact cursor samples and strict edge
+queries; cache misses use the existing point lookup or cold scan immediately.
+Exact windows also use completed histories when available, retaining their
+reservation while traversing the selected range. Reader scratch admission and
+real range-extrema indexing remain incomplete.
 
 Contents
 
@@ -1240,6 +1247,7 @@ copy it.
 #[derive(Clone, Debug)]
 pub struct SignalData { /* private shared immutable storage */ }
 impl SignalData {
+    pub fn retained_bytes(&self) -> usize              // shared object + buffer capacities
     pub fn kind(&self) -> SignalKind                   // declared kind and packing
     pub fn times(&self) -> &[u64]                      // non-decreasing; same-time emission order
     pub fn len(&self) -> usize
@@ -1256,6 +1264,41 @@ to the declared packing, so `get(i)` reports `states` equal to
 `kind().states()`. Packed buffers and variable-length offsets are private;
 use `get(i)` for read-only value access. `index_at`/`value_at` are binary
 searches over `times()`.
+
+`retained_bytes()` counts the shared storage object and the capacities of its
+initial-value, time, packed-value and offset buffers, including unused capacity.
+Count it once per shared history: clones and repeated IDs from one load report
+the same bytes. Separate loads own separate storage. The sum saturates at
+`usize::MAX` and excludes handles, Arc/allocator bookkeeping, reader caches and
+construction scratch. It is a retained-data estimate, not an RSS or peak-memory
+bound; it does not make unrestricted history loading safe under a memory budget.
+
+```rust
+pub fn history_load(&self, sig: SignalId, bytes: usize) -> Result<HistoryLoad<'_>>
+pub enum HistoryProgress { Pending, Complete(SignalData), BudgetExceeded }
+impl HistoryLoad<'_> {
+    pub fn advance(&mut self, blocks: usize) -> Result<HistoryProgress>
+}
+```
+
+Incremental single-signal construction checks output capacity before appending
+each column. `bytes` covers the shared storage object and vector capacities;
+growth also checks room for old and replacement buffers. The loader prefers
+geometric growth and tries exact capacity near the ceiling. It can refuse a
+history whose final logical bytes would fit if construction growth does not.
+Variable-length histories exceeding the `u32` offset domain are refused.
+Allocation bookkeeping, loader handles, reader caches and decompression scratch
+are outside this cap; callers must admit these separately. Allocator-reported
+extra capacity is checked after reservation and cannot be published over budget.
+
+`advance` processes at most the supplied nonzero number of file blocks. Each
+block performs a sizing walk and the ordinary canonical-packing append over
+the same decompressed column. A block is not a wall-time bound. Drop the loader
+between calls to cancel. `Pending` never exposes a partial history. Completion
+returns shared handles and can be repeated; refusal releases partial output and
+repeats `BudgetExceeded`. Decode/allocation errors discard construction and are
+terminal. Invalid zero work leaves the loader usable. The reader must outlive
+the loader, but completed histories are independent of both.
 
 ```rust
 pub fn for_each_change(&self, t0: u64, t1: u64, f: impl FnMut(u64, SignalId, SignalValue<'_>)) -> Result<()>

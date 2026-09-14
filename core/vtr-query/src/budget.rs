@@ -29,7 +29,10 @@ impl Budget {
 
     /// Fixed reserved capacity for protocol controls. Its backing admission
     /// follows child reservations even after the child Budget handle is dropped.
-    #[cfg(feature = "wire")]
+    #[cfg(any(
+        feature = "wire",
+        all(feature = "native-engine", not(target_family = "wasm"))
+    ))]
     pub(crate) fn child(&self, limit: usize) -> Result<Self> {
         let backing = self.reserve(limit)?;
         Ok(Self(Arc::new(Account {
@@ -88,7 +91,10 @@ impl Reservation {
     }
     /// Return unused prepaid capacity after a decoder has established the
     /// retained allocation bound. All shared descendants observe the new charge.
-    #[cfg(feature = "wire")]
+    #[cfg(any(
+        feature = "wire",
+        all(feature = "native-engine", not(target_family = "wasm"))
+    ))]
     pub(crate) fn shrink(&self, bytes: usize) -> Result<()> {
         let previous = self
             .0

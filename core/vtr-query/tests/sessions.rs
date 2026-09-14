@@ -42,6 +42,389 @@ fn limits() -> Limits {
 }
 
 #[test]
+fn repeated_summaries_reuse_completed_history_without_build_progress() {
+    let (_dir, reader, signal) = fixture();
+    let budget = Budget::new(32768);
+    let mut session = Session::new(&reader, budget.clone(), 2).unwrap();
+    let grid = Grid::new(0, 2, 4).unwrap();
+    let mut run = || {
+        let cursor = session
+            .start(
+                Query::Summary { signal, grid },
+                Limits {
+                    records: 4,
+                    work: 4,
+                    ..limits()
+                },
+                Cancellation::default(),
+            )
+            .unwrap();
+        let mut next = cursor;
+        let mut progress = 0;
+        let mut counts = Vec::new();
+        loop {
+            let delivery = session.advance(next).unwrap();
+            let Reply::Summary(page) = &delivery.reply else {
+                panic!("wrong reply")
+            };
+            assert_eq!(page.offset as usize, counts.len());
+            if page.bins().is_empty() {
+                progress += 1;
+            }
+            counts.extend(page.bins().iter().map(|bin| bin.changes));
+            if let Some(cursor) = delivery.next {
+                next = cursor;
+            } else {
+                break;
+            }
+        }
+        session.release(cursor).unwrap();
+        (progress, counts)
+    };
+    let first = run();
+    let warm = run();
+    assert!(first.0 > 0);
+    assert_eq!(warm.0, 0);
+    assert_eq!(first.1, vec![4, 4, 2, 0]);
+    assert_eq!(warm.1, first.1);
+    drop(session);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn warm_edges_are_exact_and_complete_in_one_work_unit() {
+    use vtr_query::wave::{ChangeSearchResult, Direction};
+    let (_dir, reader, signal) = fixture();
+    let mut session = Session::new(&reader, Budget::new(32768), 2).unwrap();
+    let one = Limits {
+        work: 1,
+        ..limits()
+    };
+    let cold = session
+        .start(
+            Query::FindChange {
+                signal,
+                from: 8,
+                direction: Direction::Previous,
+            },
+            one,
+            Cancellation::default(),
+        )
+        .unwrap();
+    let first = session.advance(cold).unwrap();
+    let Reply::FindChange(page) = &first.reply else {
+        panic!("wrong reply")
+    };
+    assert_eq!(page.result, ChangeSearchResult::Pending);
+    session.release(cold).unwrap();
+    drop(first);
+    let warm = session
+        .start(
+            Query::Summary {
+                signal,
+                grid: Grid::new(0, 4, 1).unwrap(),
+            },
+            one,
+            Cancellation::default(),
+        )
+        .unwrap();
+    let mut cursor = warm;
+    loop {
+        let page = session.advance(cursor).unwrap();
+        if let Some(next) = page.next {
+            cursor = next;
+        } else {
+            break;
+        }
+    }
+    session.release(warm).unwrap();
+    for (from, direction, expected) in [
+        (0, Direction::Previous, ChangeSearchResult::Exhausted),
+        (9, Direction::Next, ChangeSearchResult::Exhausted),
+        (4, Direction::Previous, ChangeSearchResult::Found(3)),
+        (4, Direction::Next, ChangeSearchResult::Found(5)),
+        (u64::MAX, Direction::Previous, ChangeSearchResult::Found(9)),
+    ] {
+        let cursor = session
+            .start(
+                Query::FindChange {
+                    signal,
+                    from,
+                    direction,
+                },
+                one,
+                Cancellation::default(),
+            )
+            .unwrap();
+        let delivery = session.advance(cursor).unwrap();
+        assert!(delivery.next.is_none());
+        let Reply::FindChange(page) = &delivery.reply else {
+            panic!("wrong reply")
+        };
+        assert_eq!(page.result, expected);
+        session.release(cursor).unwrap();
+    }
+}
+
+#[test]
+fn cursor_batches_mix_cached_logic_events_and_cold_real_values() {
+    use vtr_query::wave::{Sample, SignalTime, Value};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cached-points.vtr");
+    let mut writer = vtr::Writer::create_with(
+        &path,
+        vtr::WriterOptions {
+            background: false,
+            dedup: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let (_, bits) = writer.add_bits("bits", 8, 4);
+    let (_, event) = writer.add_var(
+        "event",
+        vtr::VarType::Event,
+        vtr::Direction::Implicit,
+        vtr::SignalKind::Bits {
+            width: 1,
+            states: 2,
+        },
+    );
+    let (_, real) = writer.add_var(
+        "real",
+        vtr::VarType::Real,
+        vtr::Direction::Implicit,
+        vtr::SignalKind::Real,
+    );
+    let nan = 0x7ff8_0000_0000_002au64;
+    writer.set_time(3).unwrap();
+    writer.emit_u64(bits, 1).unwrap();
+    writer.emit_u64(bits, 2).unwrap();
+    writer.emit_u64(event, 1).unwrap();
+    writer.emit_real(real, f64::from_bits(nan)).unwrap();
+    writer.close().unwrap();
+    let reader = vtr::Reader::open(path).unwrap();
+    let mut session = Session::new(&reader, Budget::new(65536), 2).unwrap();
+    for signal in [bits, event] {
+        let first = session
+            .start(
+                Query::Summary {
+                    signal: signal.0,
+                    grid: Grid::new(0, 2, 1).unwrap(),
+                },
+                limits(),
+                Cancellation::default(),
+            )
+            .unwrap();
+        let mut cursor = first;
+        loop {
+            let page = session.advance(cursor).unwrap();
+            if let Some(next) = page.next {
+                cursor = next;
+            } else {
+                break;
+            }
+        }
+        session.release(first).unwrap();
+    }
+    let pairs = vec![
+        SignalTime {
+            signal: bits.0,
+            time: 0,
+        },
+        SignalTime {
+            signal: real.0,
+            time: 3,
+        },
+        SignalTime {
+            signal: bits.0,
+            time: 3,
+        },
+        SignalTime {
+            signal: event.0,
+            time: u64::MAX,
+        },
+        SignalTime {
+            signal: bits.0,
+            time: u64::MAX,
+        },
+    ];
+    let first = session
+        .start(
+            Query::ValuesAt {
+                pairs: pairs.clone(),
+            },
+            Limits {
+                work: 1,
+                ..limits()
+            },
+            Cancellation::default(),
+        )
+        .unwrap();
+    let mut cursor = first;
+    let mut offset = 0;
+    loop {
+        let delivery = session.advance(cursor).unwrap();
+        let Reply::Values(page) = &delivery.reply else {
+            panic!("wrong reply")
+        };
+        assert_eq!(page.offset, offset);
+        assert_eq!(page.samples().len(), 1);
+        let sample = &page.samples()[0];
+        assert_eq!(sample.pair, pairs[offset]);
+        match (&sample.sample, offset) {
+            (
+                Sample::Known(Value::Bits {
+                    width: 8,
+                    states: 4,
+                    data,
+                }),
+                index,
+            ) => {
+                let raw = vtr::SignalValue::Bits {
+                    width: 8,
+                    states: 4,
+                    data: data.as_slice(),
+                };
+                if index == 0 {
+                    assert_eq!(raw.to_ascii(), "xxxxxxxx");
+                } else {
+                    assert_eq!(raw.as_u64(), Some(2));
+                }
+            }
+            (Sample::Known(Value::Real(bits)), 1) => assert_eq!(*bits, nan),
+            (Sample::Event, 3) => {}
+            _ => panic!("unexpected sample {:?}", sample.sample),
+        }
+        offset += 1;
+        if let Some(next) = delivery.next {
+            cursor = next;
+        } else {
+            break;
+        }
+    }
+    assert_eq!(offset, pairs.len());
+    session.release(first).unwrap();
+}
+
+#[test]
+fn cached_windows_preserve_same_time_values_bounds_and_pressure_retries() {
+    use vtr_query::wave::{Sample, Value};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cached-windows.vtr");
+    let mut writer = vtr::Writer::create_with(
+        &path,
+        vtr::WriterOptions {
+            block_records: 2,
+            background: false,
+            dedup: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let (_, signal) = writer.add_var(
+        "bytes",
+        vtr::VarType::String,
+        vtr::Direction::Implicit,
+        vtr::SignalKind::VarLen,
+    );
+    for (time, byte) in [(0, 1), (0, 2), (3, 3), (u64::MAX, 4)] {
+        writer.set_time(time).unwrap();
+        writer.emit_varlen(signal, &vec![byte; 1024]).unwrap();
+    }
+    writer.close().unwrap();
+    let reader = vtr::Reader::open(path).unwrap();
+    let budget = Budget::new(1 << 20);
+    let mut session = Session::new(&reader, budget.clone(), 2).unwrap();
+    let warm = session
+        .start(
+            Query::Summary {
+                signal: signal.0,
+                grid: Grid::new(0, 64, 1).unwrap(),
+            },
+            Limits {
+                bytes: 16384,
+                records: 1,
+                work: 256,
+            },
+            Cancellation::default(),
+        )
+        .unwrap();
+    let mut cursor = warm;
+    loop {
+        let delivery = session.advance(cursor).unwrap();
+        if let Some(next) = delivery.next {
+            cursor = next;
+        } else {
+            break;
+        }
+    }
+    session.release(warm).unwrap();
+    for (start, end, predecessor, expected) in [
+        (
+            0,
+            TimeBound::AfterMax,
+            None,
+            vec![(0, 1), (0, 2), (3, 3), (u64::MAX, 4)],
+        ),
+        (0, TimeBound::Tick(3), None, vec![(0, 1), (0, 2)]),
+        (3, TimeBound::AfterMax, Some(2), vec![(3, 3), (u64::MAX, 4)]),
+        (u64::MAX, TimeBound::AfterMax, Some(3), vec![(u64::MAX, 4)]),
+        (3, TimeBound::Tick(3), Some(2), vec![]),
+    ] {
+        let first = session
+            .start(
+                Query::Window {
+                    signal: signal.0,
+                    interval: Interval::new(start, end).unwrap(),
+                },
+                Limits {
+                    bytes: 2600,
+                    records: 100,
+                    work: 100,
+                },
+                Cancellation::default(),
+            )
+            .unwrap();
+        let pressure = budget.reserve(budget.limit() - budget.used()).unwrap();
+        assert!(matches!(session.advance(first), Err(Error::ResourceLimit)));
+        drop(pressure);
+        let mut cursor = first;
+        let mut actual = Vec::new();
+        loop {
+            let delivery = session.advance(cursor).unwrap();
+            let Reply::Window(page) = &delivery.reply else {
+                panic!("wrong reply")
+            };
+            let Sample::Known(Value::Bytes(bytes)) = &page.predecessor.sample else {
+                panic!("wrong predecessor")
+            };
+            assert_eq!(bytes.as_slice().first().copied(), predecessor);
+            assert!(
+                page.changes().len() <= 1,
+                "wide values must obey the byte cap despite a large record limit"
+            );
+            for change in page.changes() {
+                let Value::Bytes(bytes) = &change.value else {
+                    panic!("wrong value")
+                };
+                assert_eq!(bytes.as_slice().len(), 1024);
+                actual.push((change.time, bytes.as_slice()[0]));
+            }
+            if let Some(next) = delivery.next {
+                cursor = next;
+            } else {
+                break;
+            }
+        }
+        assert_eq!(actual, expected);
+        session.release(first).unwrap();
+    }
+    drop(session);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
 fn retry_returns_identical_delivery_and_old_cursors_cannot_advance() {
     let (_dir, reader, signal) = fixture();
     let budget = Budget::new(32768);
@@ -147,13 +530,20 @@ fn completed_query_retries_until_release_and_summary_uses_same_dispatcher() {
             Cancellation::default(),
         )
         .unwrap();
-    let page = session.advance(cursor).unwrap();
-    assert!(page.next.is_none());
+    let mut next = cursor;
+    let page = loop {
+        let page = session.advance(next).unwrap();
+        if let Some(cursor) = page.next {
+            next = cursor;
+        } else {
+            break page;
+        }
+    };
     let Reply::Summary(summary) = &page.reply else {
         panic!("expected summary");
     };
     assert_eq!(summary.bins()[0].changes, 10);
-    assert!(Arc::ptr_eq(&page, &session.advance(cursor).unwrap()));
+    assert!(Arc::ptr_eq(&page, &session.advance(page.request).unwrap()));
     assert!(matches!(
         session.start(query(signal), limits(), Cancellation::default()),
         Err(Error::ResourceLimit)

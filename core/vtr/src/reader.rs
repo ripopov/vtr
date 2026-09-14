@@ -21,6 +21,9 @@ use crate::xform::Xform;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
+mod history;
+pub use history::{HistoryLoad, HistoryProgress};
+
 /// Reader configuration.
 #[derive(Clone, Debug, Default)]
 pub struct ReadOptions {
@@ -216,6 +219,21 @@ impl SignalData {
 
     pub fn is_empty(&self) -> bool {
         self.inner.times.is_empty()
+    }
+
+    /// Retained shared data bytes, including unused vector capacity.
+    ///
+    /// Counts the shared storage object and its initial-value, time, value and
+    /// offset allocations. Excludes handles, Arc/allocator bookkeeping, reader
+    /// caches and construction scratch; this is not an RSS or peak-memory bound.
+    /// Count once per shared history, not once per clone or repeated loaded ID.
+    /// Arithmetic saturates at `usize::MAX`.
+    pub fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<SignalDataInner>()
+            .saturating_add(self.inner.initial.capacity())
+            .saturating_add(self.inner.times.capacity().saturating_mul(std::mem::size_of::<u64>()))
+            .saturating_add(self.inner.data.capacity())
+            .saturating_add(self.inner.offsets.capacity().saturating_mul(std::mem::size_of::<u32>()))
     }
 
     /// Value of change `i`.
@@ -1024,6 +1042,12 @@ impl Reader {
         Ok(self.load_signals(&[sig])?.pop().unwrap())
     }
 
+    /// Start incremental history construction with a retained-output byte cap.
+    /// Reader caches and decompression scratch are outside this cap.
+    pub fn history_load(&self, sig: SignalId, bytes: usize) -> Result<HistoryLoad<'_>> {
+        HistoryLoad::new(self, sig, bytes)
+    }
+
     /// Loads histories in request order, decoding each distinct signal only once.
     /// Repeated IDs share immutable storage, as do clones of the returned handles.
     /// Sharing is local to this call; separate calls do not retain loaded histories.
@@ -1682,6 +1706,23 @@ impl Reader {
 mod cache_tests {
     use super::*;
     use crate::{Writer, WriterOptions, LogSiteSpec, Severity, LogArgType, LogArg, TxStatus};
+
+    #[test]
+    fn history_accounting_includes_spare_capacity_and_is_shared() {
+        let mut builder = SignalDataBuilder::new(SignalKind::Bits { width: 8, states: 2 });
+        builder.times.reserve_exact(1024);
+        builder.data.reserve_exact(2048);
+        builder.offsets.reserve_exact(128);
+        let history = builder.finish();
+        assert!(history.is_empty());
+        let retained = history.retained_bytes();
+        assert!(retained >= 1024 * 8 + 2048 + 128 * 4);
+        let clone = history.clone();
+        assert_eq!(clone.retained_bytes(), retained);
+        drop(history);
+        assert_eq!(clone.retained_bytes(), retained);
+        assert!(clone.is_empty());
+    }
 
     #[test]
     fn eviction_releases_blocks_and_preserves_owned_results() {

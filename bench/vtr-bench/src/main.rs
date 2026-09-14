@@ -1,6 +1,7 @@
 //! `vtr-bench`: workload preparation and benchmark drivers.
 
 mod load;
+mod query;
 mod logw;
 mod read;
 mod replay;
@@ -17,6 +18,7 @@ vtr-bench commands:
   write <in.rpl> <out.vtr> [--codec zstd|lz4|none] [--level L] [--no-background] [--group-size N] [--label S]
   read <in.fst> <in.vtr> [--seed S]                   read/navigation benchmarks vs wellen (JSON)
   load <in.vtr> <unique|requests> <count> [--seed S]   VTR history loads, without/with replacement (JSON)
+  query <in.vtr> <signal-id|path>                    first/repeated summaries, points and edges (JSON)
   gen-kanata <out.log> <n_insn> [--seed S]
   gen-tlm <out.txr> <n_insn> [--seed S]
   tx-write <in.txr> <out.vtr> [--codec ..] [--no-background]
@@ -128,6 +130,16 @@ fn main() {
             let label = flag(&args, "--label").unwrap_or_else(|| "vtr".into());
             let r = write::run(&rp, &pos[2], writer_opts(&args), &label);
             println!("{}", serde_json::to_string_pretty(&r).unwrap());
+        }
+        "query" => {
+            if pos.len() != 3 {
+                eprintln!("usage: vtr-bench query <file.vtr> <signal-id|path>");
+                std::process::exit(2);
+            }
+            match query::run(&pos[1], &pos[2]) {
+                Ok(result) => println!("{}", serde_json::to_string_pretty(&result).unwrap()),
+                Err(error) => { eprintln!("error: {error}"); std::process::exit(2); }
+            }
         }
         "load" => {
             if pos.len() != 4 {

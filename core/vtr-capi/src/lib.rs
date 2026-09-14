@@ -1339,6 +1339,45 @@ pub unsafe extern "C" fn vtr_reader_for_each_change(r: *const vtr_reader, t0: u6
 
 pub struct vtr_signal_data(vtr::SignalData);
 
+/// Free before the reader; completed signal-data handles are independent.
+pub struct vtr_history_load(vtr::HistoryLoad<'static>);
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_history_load(r: *const vtr_reader, sig: u32, bytes: usize) -> *mut vtr_history_load {
+    if r.is_null() {
+        set_error("NULL reader");
+        return ptr::null_mut();
+    }
+    match (*r).0.history_load(SignalId(sig), bytes) {
+        Ok(load) => Box::into_raw(Box::new(vtr_history_load(load))),
+        Err(error) => { status(Err(error)); ptr::null_mut() }
+    }
+}
+
+/// progress: 0 pending, 1 complete, 2 budget exceeded. `out` is written only
+/// on completion, with a new independently owned handle on each such call.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_history_load_advance(load: *mut vtr_history_load, blocks: usize, progress: *mut c_int, out: *mut *mut vtr_signal_data) -> c_int {
+    let load = need!(load);
+    let progress = need!(progress);
+    let out = need!(out);
+    match load.0.advance(blocks) {
+        Ok(vtr::HistoryProgress::Pending) => { *progress = 0; VTR_OK }
+        Ok(vtr::HistoryProgress::Complete(history)) => {
+            *out = Box::into_raw(Box::new(vtr_signal_data(history)));
+            *progress = 1;
+            VTR_OK
+        }
+        Ok(vtr::HistoryProgress::BudgetExceeded) => { *progress = 2; VTR_OK }
+        Err(error) => status(Err(error)),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_history_load_free(load: *mut vtr_history_load) {
+    if !load.is_null() { drop(Box::from_raw(load)); }
+}
+
 /// Loads all changes of a signal. Free with `vtr_signal_data_free`.
 #[no_mangle]
 pub unsafe extern "C" fn vtr_reader_load_signal(r: *const vtr_reader, sig: u32) -> *mut vtr_signal_data {
@@ -1395,6 +1434,12 @@ pub unsafe extern "C" fn vtr_signal_data_free(d: *mut vtr_signal_data) {
 #[no_mangle]
 pub unsafe extern "C" fn vtr_signal_data_len(d: *const vtr_signal_data) -> usize {
     d.as_ref().map(|d| d.0.len()).unwrap_or(0)
+}
+
+/// Retained shared data bytes including spare capacity; zero for NULL.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_signal_data_retained_bytes(d: *const vtr_signal_data) -> usize {
+    d.as_ref().map(|d| d.0.retained_bytes()).unwrap_or(0)
 }
 
 /// Pointer to the change-time array (`len` entries).
