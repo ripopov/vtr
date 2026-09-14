@@ -170,8 +170,10 @@ an append walk over each decoded column; performance is not yet established.
 
 Native sessions use these histories for discrete summary queries. The session
 reserves half its remaining query budget for the history cache, leaving reply
-headroom in the parent budget. Up to 64 entries (four per operation slot) share
-construction by canonical signal ID. Each build is capped at half the cache
+headroom in the parent budget. Entries share construction by canonical signal
+ID; their capacity is bounded by the reader's signal count and one quarter of
+the cache byte quota, independently of active-query concurrency. This allows a
+visible working set larger than four requests to remain warm across pans. Each build is capped at half the cache
 quota after entry storage, at most 64 MiB. Idle entries are evicted by recency;
 active subscribers prevent eviction, and abandoned unfinished builds are
 discarded. Over-budget histories retain a small refusal entry until eviction,

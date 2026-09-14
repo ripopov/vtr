@@ -384,15 +384,19 @@ decompressed pieces; a global time table built on demand.
   decoded column before the ordinary append, checks output capacity and moving
   reallocations, and publishes only a completed shared history. This keeps the
   existing packing and alias machinery while allowing refusal and cancellation
-  between blocks. The extra column walk and conservative growth admission need
-  performance evaluation before this becomes the primary warm-cache builder;
-  reader scratch admission remains separate.
+  between blocks. The native query session uses this builder for its admitted
+  discrete-history cache, sharing construction and immutable results across
+  viewport requests. Histories that exceed admission fall back to bounded
+  traversal. The typed-session benchmark separates construction from repeated
+  queries to expose the extra column walk and amortization; reader scratch
+  admission remains separate from retained-history accounting.
   This targets read-only consumers and avoids decoding and allocating the
   same waveform repeatedly when several hierarchy names resolve to one ID.
   Public mutable vectors and cloning entire histories were rejected: they
   impose copying to support mutation that the reader does not need. A
-  persistent history cache was also left out to avoid retaining unbounded
-  waveform data. Dynamic aliases remain per-block encoding references;
+  persistent, unbounded reader history cache was rejected; the query session
+  instead owns a byte-limited cache whose pinned histories retain their charges
+  after eviction. Dynamic aliases remain per-block encoding references;
   distinct signal IDs are not assumed to have identical complete histories.
   The C API projects batch loading and cheap handle cloning directly.
   Validation separates unique-signal loads from requests sampled with

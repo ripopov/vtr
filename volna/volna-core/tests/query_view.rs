@@ -821,3 +821,81 @@ fn permitted_aliases_keep_native_and_query_shapes_identical() {
         expected
     );
 }
+
+/// Replays a real saved viewport through the native asynchronous scheduler.
+/// Run with VOLNA_PAN_WORKSPACE and --ignored --nocapture under --profile viewer.
+#[test]
+#[ignore]
+fn saved_workspace_pan_latency() {
+    use std::time::Instant;
+    use volna_core::workspace::Workspace;
+    let workspace_path = std::path::PathBuf::from(
+        std::env::var_os("VOLNA_PAN_WORKSPACE").expect("set VOLNA_PAN_WORKSPACE"),
+    );
+    let bytes = std::fs::read(&workspace_path).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let trace_path = workspace_path
+        .parent()
+        .unwrap()
+        .join(json["trace"]["path"].as_str().unwrap());
+    let mut app = App::new();
+    app.set_session(Arc::new(
+        volna_core::session::LocalSession::open(&trace_path).unwrap(),
+    ));
+    let session = futures_lite::future::block_on(
+        LocalSession::open(trace_path.clone(), Budget::new(512 << 20), 4).unwrap(),
+    )
+    .unwrap();
+    let mut view = QueryView::attach(
+        &mut app,
+        session,
+        Limits {
+            bytes: 256 << 10,
+            records: 128,
+            work: 4096,
+        },
+        4096,
+        256,
+        &Budget::new(128 << 20),
+    )
+    .unwrap();
+    Workspace::parse(&bytes)
+        .unwrap()
+        .prepare(
+            &app,
+            url::Url::from_file_path(&trace_path).unwrap().as_str(),
+            url::Url::from_file_path(&workspace_path).unwrap().as_str(),
+        )
+        .unwrap()
+        .commit(&mut app)
+        .unwrap();
+    let theme = Theme::one_dark();
+    let start = json["shared"]["viewport"]["start"].as_f64().unwrap();
+    let end = json["shared"]["viewport"]["end"].as_f64().unwrap();
+    for pan in 0..11 {
+        if let Ok(first) = std::env::var("VOLNA_PAN_FIRST_ROW") {
+            app.panels.focused_waves_mut().unwrap().scroll_y = first.parse::<f32>().unwrap() * theme.row_height;
+        }
+        let shift = f64::from(pan) * (end - start) * 0.05;
+        app.doc.shared.viewport.set(Viewport {
+            start: start + shift,
+            end: end + shift,
+        });
+        app.layout_waves(
+            app.panels.focused_id(),
+            Rect::from_xywh(0.0, 0.0, 1920.0, 1000.0),
+            &theme,
+        );
+        let visible = app.panels.focused_waves().unwrap().last_layout().rows.len();
+        let timer = Instant::now();
+        drain(&mut view, &mut app);
+        let query_ms = timer.elapsed().as_secs_f64() * 1000.0;
+        let timer = Instant::now();
+        let scene = app.render_waves(app.panels.focused_id(), &theme, &mut MonoMeasure);
+        std::hint::black_box(&scene);
+        println!(
+            "PAN {pan}: visible={visible} query_ms={query_ms:.3} render_ms={:.3}",
+            timer.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}

@@ -32,14 +32,16 @@ pub(crate) struct Cache<'a> {
     _charge: Reservation,
 }
 impl<'a> Cache<'a> {
-    pub(crate) fn new(reader: &'a vtr::Reader, parent: &Budget, operations: usize) -> Result<Self> {
+    pub(crate) fn new(reader: &'a vtr::Reader, parent: &Budget) -> Result<Self> {
         // Reserve a separate quota so histories cannot consume reply headroom.
         let bytes = parent.limit().saturating_sub(parent.used()) / 2;
         let budget = parent.child(bytes)?;
-        let capacity = operations
-            .saturating_mul(4)
-            .min(64)
-            .min(bytes / (std::mem::size_of::<Entry<'a>>() * 4));
+        // Concurrency bounds active work, not the reusable working set. A
+        // visible set larger than the operation count must remain warm across
+        // pans. Bound entry storage by this cache's byte quota and the number
+        // of canonical signals in the immutable reader.
+        let capacity =
+            (reader.signal_count() as usize).min(bytes / (std::mem::size_of::<Entry<'a>>() * 4));
         let charge = budget.reserve(capacity * std::mem::size_of::<Entry<'a>>())?;
         let mut entries = Vec::new();
         entries
@@ -199,8 +201,9 @@ mod tests {
         writer.close().unwrap();
         let reader = vtr::Reader::open(path).unwrap();
         let parent = Budget::new(65536);
-        let mut cache = Cache::new(&reader, &parent, 1).unwrap();
+        let mut cache = Cache::new(&reader, &parent).unwrap();
         // Isolate entry-capacity eviction from construction-byte pressure.
+        cache.capacity = 4;
         cache.history_bytes = 2048;
         assert!(cache.acquire(signals[0]).unwrap());
         assert!(cache.acquire(signals[0]).unwrap());
@@ -279,7 +282,7 @@ mod tests {
         let result = edge.next_page().unwrap();
         assert_eq!(result.result, crate::wave::ChangeSearchResult::Found(8));
         assert_eq!(parent.used(), 0);
-        let mut refused = Cache::new(&reader, &parent, 1).unwrap();
+        let mut refused = Cache::new(&reader, &parent).unwrap();
         refused.history_bytes = 200;
         assert!(refused.acquire(signals[0]).unwrap());
         while matches!(refused.advance(signals[0]).unwrap(), Lookup::Pending) {}

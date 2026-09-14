@@ -626,3 +626,63 @@ fn native_pages_cross_the_wire_without_changing_results_or_continuations() {
     drop(session);
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn panning_thirty_two_rows_keeps_admitted_histories_warm() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pan.vtr");
+    let mut writer = vtr::Writer::create(&path).unwrap();
+    let signals: Vec<_> = (0..32)
+        .map(|i| writer.add_bits(&format!("s{i}"), 1, 2).1)
+        .collect();
+    for time in 0..64 {
+        writer.set_time(time).unwrap();
+        for &signal in &signals {
+            writer.emit_u64(signal, time % 2).unwrap();
+        }
+    }
+    writer.close().unwrap();
+    let reader = vtr::Reader::open(path).unwrap();
+    let budget = Budget::new(256 << 20);
+    let mut session = Session::new(&reader, budget.clone(), 4).unwrap();
+    for pan in 0..3 {
+        for signal in &signals {
+            let first = session
+                .start(
+                    Query::Summary {
+                        signal: signal.0,
+                        grid: Grid::new(pan * 8, 2, 8).unwrap(),
+                    },
+                    Limits {
+                        bytes: 65536,
+                        records: 8,
+                        work: 8,
+                    },
+                    Cancellation::default(),
+                )
+                .unwrap();
+            let mut cursor = first;
+            loop {
+                let page = session.advance(cursor).unwrap();
+                let Reply::Summary(summary) = &page.reply else {
+                    panic!("summary expected")
+                };
+                if pan > 0 {
+                    assert!(
+                        !summary.bins().is_empty(),
+                        "pan {pan}, signal {} rebuilt an already admitted history",
+                        signal.0
+                    );
+                }
+                if let Some(next) = page.next {
+                    cursor = next;
+                } else {
+                    break;
+                }
+            }
+            session.release(first).unwrap();
+        }
+    }
+    drop(session);
+    assert_eq!(budget.used(), 0);
+}

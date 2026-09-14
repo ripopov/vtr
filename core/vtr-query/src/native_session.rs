@@ -87,7 +87,7 @@ impl<'a> Session<'a> {
                 )
             })
             .transpose()?;
-        let cache = Cache::new(reader, &budget, max_operations)?;
+        let cache = Cache::new(reader, &budget)?;
         Ok(Self {
             reader,
             info: SessionInfo {

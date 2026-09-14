@@ -377,7 +377,9 @@ output directory continues to update `docs/BENCHMARK_RESULTS.md`.
 
 `cargo run --release -p vtr-bench -- query TRACE.vtr SIGNAL` measures a fresh
 session's first full-range summary and five repeated summary, 1,000-point and
-previous-edge requests. `SIGNAL` is an explicit numeric ID or dotted path;
+previous-edge and exact-window requests. Exact windows use the busiest 1%
+interval of the selected signal, found outside the timer; their record counts
+and timestamp sums are checked against the reference history. `SIGNAL` is an explicit numeric ID or dotted path;
 choose a known active clock or busy bus. Zero-change selections are rejected.
 The JSON includes raw timings, page/progress counts, signal changes, file bytes,
 and reserved query capacity (not RSS). Summary counts and edge timestamps are

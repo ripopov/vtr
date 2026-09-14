@@ -1,7 +1,7 @@
 //! Repeatable typed-session measurements, usable with the pre-cache revision.
 use std::time::Instant;
 use vtr_query::{native_session::Session, session::{Query, Reply},
-    wave::{ChangeSearchResult, Direction, Limits, SignalTime}, Budget, Cancellation, Grid};
+    wave::{ChangeSearchResult, Direction, Limits, SignalTime}, Budget, Cancellation, Grid, Interval, TimeBound};
 
 #[derive(Default, serde::Serialize)]
 struct Measurement {
@@ -11,6 +11,7 @@ struct Measurement {
     records: usize,
     changes: u64,
     edge: Option<u64>,
+    timestamp_sum: u64,
 }
 
 fn execute(session: &mut Session<'_>, query: Query) -> Result<Measurement, String> {
@@ -28,6 +29,13 @@ fn execute(session: &mut Session<'_>, query: Query) -> Result<Measurement, Strin
                     result.records += summary.bins().len();
                     result.changes += summary.bins().iter().map(|bin| bin.changes).sum::<u64>();
                     result.progress_pages += usize::from(summary.bins().is_empty());
+                }
+                Reply::Window(window) => {
+                    result.records += window.changes().len();
+                    result.progress_pages += usize::from(window.changes().is_empty() && !window.complete);
+                    for change in window.changes() {
+                        result.timestamp_sum = result.timestamp_sum.wrapping_add(change.time);
+                    }
                 }
                 Reply::Values(values) => result.records += values.samples().len(),
                 Reply::FindChange(change) => match change.result {
@@ -59,6 +67,23 @@ pub fn run(path: &str, selector: &str) -> Result<serde_json::Value, String> {
     let changes = history.len() as u64;
     let (start, end) = reference.time_range().ok_or("trace has no time range")?;
     let expected_edge = history.times().iter().rev().copied().find(|&time| time < end);
+    // Pick the busiest 1% interval of this signal, outside the timer. A random
+    // interval can contain no events even when the recording is large.
+    let width = (u128::from(end - start) + 1).div_ceil(100);
+    let times = history.times();
+    let (mut left, mut best_left, mut best_right) = (0, 0, 0);
+    for right in 0..times.len() {
+        while u128::from(times[right] - times[left]) >= width { left += 1; }
+        if right + 1 - left > best_right - best_left {
+            (best_left, best_right) = (left, right + 1);
+        }
+    }
+    let window_end = (u128::from(times[best_left]) + width).min(u128::from(end) + 1);
+    let window = Interval::new(times[best_left], TimeBound::from_wide(window_end)
+        .map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+    let window_records = best_right - best_left;
+    let window_timestamp_sum = times[best_left..best_right].iter()
+        .fold(0u64, |sum, &time| sum.wrapping_add(time));
     drop(history);
     drop(reference);
     let open = Instant::now();
@@ -72,6 +97,7 @@ pub fn run(path: &str, selector: &str) -> Result<serde_json::Value, String> {
     let mut repeated = Vec::new();
     let mut samples = Vec::new();
     let mut edges = Vec::new();
+    let mut windows = Vec::new();
     for _ in 0..5 {
         let summary = execute(&mut session, Query::Summary { signal: signal.0, grid })?;
         if summary.changes != changes { return Err("repeated summary change count differs from reference".into()); }
@@ -84,6 +110,11 @@ pub fn run(path: &str, selector: &str) -> Result<serde_json::Value, String> {
         let edge = execute(&mut session, Query::FindChange { signal: signal.0, from: end, direction: Direction::Previous })?;
         if edge.edge != expected_edge { return Err("edge timestamp differs from reference".into()); }
         edges.push(edge);
+        let exact = execute(&mut session, Query::Window { signal: signal.0, interval: window })?;
+        if exact.records != window_records || exact.timestamp_sum != window_timestamp_sum {
+            return Err("exact window count or timestamp sum differs from reference".into());
+        }
+        windows.push(exact);
     }
     let reserved_query_bytes = budget.used();
     drop(session);
@@ -91,6 +122,9 @@ pub fn run(path: &str, selector: &str) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "file": path, "file_bytes": std::fs::metadata(path).map_err(|error| error.to_string())?.len(),
         "signal": signal.0, "changes": changes, "bins": grid.count(), "open_s": open_s,
         "first_summary": first, "repeated_summaries": repeated, "point_batches": samples,
-        "previous_edges": edges, "reserved_query_bytes": reserved_query_bytes,
+        "previous_edges": edges, "exact_windows": windows,
+        "window": { "start": window.start(), "end_exclusive": window.end().wide().to_string(),
+            "records": window_records, "selection": "busiest 1% interval of selected signal" },
+        "reserved_query_bytes": reserved_query_bytes,
         "method": "fresh reader caches, OS cache warmed by reference; one signal, typed session, 5 repeated trials; no network or frame timing" }))
 }
