@@ -69,6 +69,11 @@ pub struct Delivery {
 /// reader work. Native tasks retain typed storage, while RPC tasks own wire
 /// admission. Dropping a task cancels and cleans up its abandoned delivery.
 pub trait AsyncSession {
+    /// Register the single owning scheduler before attempting work. Wake it when
+    /// asynchronous admission/control progress can unblock a refused request.
+    /// Sessions with no asynchronous admission state need no registration.
+    fn register_progress_waker(&self, _waker: &std::task::Waker) {}
+
     type Task: std::future::Future<Output = crate::Result<Arc<Delivery>>> + Unpin;
     fn info(&self) -> &SessionInfo;
     fn execute(&self, query: Query, limits: crate::wave::Limits) -> crate::Result<Self::Task>;

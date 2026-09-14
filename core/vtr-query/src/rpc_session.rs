@@ -137,6 +137,17 @@ fn flush(state: &Rc<RefCell<State>>) {
                 if let Some(wake) = wake {
                     wake.wake();
                 }
+                let closed = {
+                    let mut state = state.borrow_mut();
+                    if state.phase == Phase::Closed {
+                        state.progress_waker.take()
+                    } else {
+                        None
+                    }
+                };
+                if let Some(wake) = closed {
+                    wake.wake();
+                }
                 break;
             }
         }
@@ -151,6 +162,7 @@ struct State {
     next_ticket: u64,
     next_wire: u64,
     outbound_waker: Option<Waker>,
+    progress_waker: Option<Waker>,
     notify_outbound: bool,
     pending: [Option<Pending>; DATA],
     operations: [Option<Operation>; DATA],
@@ -218,6 +230,7 @@ impl RpcDriver {
             next_ticket: 0,
             next_wire: 0,
             outbound_waker: None,
+            progress_waker: None,
             notify_outbound: false,
             pending: std::array::from_fn(|_| None),
             operations: std::array::from_fn(|_| None),
@@ -288,6 +301,10 @@ impl RpcDriver {
         }
         drop(state);
         flush(&self.state);
+        let wake = self.state.borrow_mut().progress_waker.take();
+        if let Some(wake) = wake {
+            wake.wake();
+        }
         result.map(|()| true)
     }
     pub fn transport_failed(&mut self) {
@@ -1121,6 +1138,17 @@ fn nodes(
 }
 
 impl crate::session::AsyncSession for RpcSession {
+    fn register_progress_waker(&self, waker: &Waker) {
+        let mut state = self.state.borrow_mut();
+        if state
+            .progress_waker
+            .as_ref()
+            .is_none_or(|old| !old.will_wake(waker))
+        {
+            state.progress_waker = Some(waker.clone());
+        }
+    }
+
     type Task = RpcQueryFuture;
     fn info(&self) -> &SessionInfo {
         RpcSession::info(self)

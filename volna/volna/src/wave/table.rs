@@ -280,7 +280,10 @@ impl Element for WaveTable {
             let mut rects = vec![layout.names_split, layout.values_split];
             rects.extend(layout.badges.iter().map(|(_, b)| *b));
             rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
-            (rects, layout.row_h)
+            let row_h = layout.row_h;
+            #[cfg(not(target_family = "wasm"))]
+            ws.wake_queries();
+            (rects, row_h)
         });
         let regions = rects
             .into_iter()

@@ -9,6 +9,98 @@ use crate::geometry::Modifiers;
 use crate::icons::IconName;
 use crate::selection;
 
+/// Metadata access for resident and incrementally queried variable lists.
+pub trait VariableHierarchy {
+    fn variables(&self, scope: Option<ScopeId>) -> impl Iterator<Item = VarId> + '_;
+    fn root_variables(&self) -> impl Iterator<Item = VarId> + '_;
+    fn variable_name(&self, id: VarId) -> Option<&str>;
+    fn variable_direction(&self, id: VarId) -> Direction;
+    fn variables_complete(&self, scope: Option<ScopeId>, global: bool) -> bool;
+}
+impl VariableHierarchy for Hierarchy {
+    fn variables(&self, scope: Option<ScopeId>) -> impl Iterator<Item = VarId> + '_ {
+        (0..if scope.is_none() { self.vars.len() } else { 0 }).chain(
+            scope
+                .and_then(|scope| self.scopes.get(scope))
+                .into_iter()
+                .flat_map(|scope| scope.vars.iter().copied()),
+        )
+    }
+    fn root_variables(&self) -> impl Iterator<Item = VarId> + '_ {
+        std::iter::empty()
+    }
+    fn variable_name(&self, id: VarId) -> Option<&str> {
+        self.vars.get(id).map(|var| var.name.as_str())
+    }
+    fn variable_direction(&self, id: VarId) -> Direction {
+        self.vars
+            .get(id)
+            .map_or(Direction::None, |var| var.direction)
+    }
+    fn variables_complete(&self, _: Option<ScopeId>, _: bool) -> bool {
+        true
+    }
+}
+impl VariableHierarchy for crate::data::query_hierarchy::QueryHierarchy {
+    fn variables(&self, scope: Option<ScopeId>) -> impl Iterator<Item = VarId> + '_ {
+        self.declarations()
+            .filter(move |node| {
+                scope.is_none_or(|scope| node.parent.map(|id| id as ScopeId) == Some(scope))
+            })
+            .filter_map(variable_id)
+    }
+    fn root_variables(&self) -> impl Iterator<Item = VarId> + '_ {
+        self.children(None).filter_map(variable_id)
+    }
+    fn variable_name(&self, id: VarId) -> Option<&str> {
+        self.declaration(u32::try_from(id).ok()?)
+            .and_then(|node| self.text(&node.name))
+    }
+    fn variable_direction(&self, id: VarId) -> Direction {
+        let Some(node) = u32::try_from(id).ok().and_then(|id| self.declaration(id)) else {
+            return Direction::None;
+        };
+        let vtr_query::metadata::DeclarationData::Variable { direction, .. } = node.data else {
+            return Direction::None;
+        };
+        match vtr::Direction::from_u8(direction) {
+            vtr::Direction::Input => Direction::Input,
+            vtr::Direction::Output => Direction::Output,
+            vtr::Direction::InOut => Direction::InOut,
+            _ => Direction::None,
+        }
+    }
+    fn variables_complete(&self, scope: Option<ScopeId>, global: bool) -> bool {
+        let coverage = if global {
+            self.is_fully_loaded()
+        } else {
+            match scope {
+                Some(scope) => u32::try_from(scope).ok().is_some_and(|scope| {
+                    self.declaration(scope)
+                        .is_some_and(|node| node.children == 0)
+                        || self.state(Some(scope)).is_some_and(|state| state.complete)
+                }),
+                None => self.state(None).is_some_and(|state| state.complete),
+            }
+        };
+        coverage
+            && if scope.is_none() && !global {
+                self.root_variables()
+                    .all(|id| self.variable_name(id).is_some())
+            } else {
+                self.variables(scope)
+                    .all(|id| self.variable_name(id).is_some())
+            }
+    }
+}
+fn variable_id(node: &vtr_query::metadata::Declaration) -> Option<VarId> {
+    matches!(
+        node.data,
+        vtr_query::metadata::DeclarationData::Variable { .. }
+    )
+    .then_some(node.id as VarId)
+}
+
 const MAX_SEARCH_ROWS: usize = 5000;
 
 #[derive(Default)]
@@ -18,6 +110,8 @@ pub struct VariableListModel {
     pub rows: Vec<VarId>,
     pub selected: BTreeSet<usize>,
     pub anchor: Option<usize>,
+    /// False while pages/names are missing or the global search row cap applies.
+    pub complete: bool,
 }
 
 /// What a key press asked for.
@@ -38,47 +132,70 @@ impl VariableListModel {
     }
 
     /// Start over for a new hierarchy.
-    pub fn reset(&mut self, h: Option<&Hierarchy>) {
+    pub fn reset(&mut self, h: Option<&impl VariableHierarchy>) {
         self.scope = None;
         self.filter.clear();
         self.rebuild(h);
     }
 
-    pub fn rebuild(&mut self, h: Option<&Hierarchy>) {
+    pub fn rebuild(&mut self, h: Option<&impl VariableHierarchy>) {
         self.rows.clear();
         self.selected.clear();
         self.anchor = None;
+        self.complete = false;
         let filter = self.filter.to_lowercase();
         if let Some(h) = h {
             let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
+            self.complete =
+                h.variables_complete(self.scope, self.scope.is_none() && !filter.is_empty());
             match self.scope {
                 Some(s) => {
-                    self.rows.extend(
-                        h.scopes[s]
-                            .vars
-                            .iter()
-                            .copied()
-                            .filter(|&v| matches(&h.vars[v].name)),
-                    );
+                    self.rows.extend(h.variables(Some(s)).filter(|&id| {
+                        filter.is_empty() || h.variable_name(id).is_some_and(matches)
+                    }))
                 }
                 None if !filter.is_empty() => {
                     self.rows.extend(
-                        (0..h.vars.len())
-                            .filter(|&v| matches(&h.vars[v].name))
-                            .take(MAX_SEARCH_ROWS),
+                        h.variables(None)
+                            .filter(|&id| h.variable_name(id).is_some_and(matches))
+                            .take(MAX_SEARCH_ROWS + 1),
                     );
+                    if self.rows.len() > MAX_SEARCH_ROWS {
+                        self.rows.truncate(MAX_SEARCH_ROWS);
+                        self.complete = false;
+                    }
                 }
-                None => {}
+                None => self.rows.extend(h.root_variables()),
             }
         }
     }
 
-    pub fn set_scope(&mut self, h: Option<&Hierarchy>, scope: Option<ScopeId>) {
+    /// Incoming pages can change row positions; preserve selection by raw/local
+    /// variable identity rather than keeping indices into the old row list.
+    pub fn refresh(&mut self, h: Option<&impl VariableHierarchy>) {
+        let selected: BTreeSet<_> = self
+            .selected
+            .iter()
+            .filter_map(|&row| self.rows.get(row).copied())
+            .collect();
+        let anchor = self.anchor.and_then(|row| self.rows.get(row)).copied();
+        self.rebuild(h);
+        for (row, id) in self.rows.iter().enumerate() {
+            if selected.contains(id) {
+                self.selected.insert(row);
+            }
+            if anchor == Some(*id) {
+                self.anchor = Some(row);
+            }
+        }
+    }
+
+    pub fn set_scope(&mut self, h: Option<&impl VariableHierarchy>, scope: Option<ScopeId>) {
         self.scope = scope;
         self.rebuild(h);
     }
 
-    pub fn set_filter(&mut self, h: Option<&Hierarchy>, text: &str) {
+    pub fn set_filter(&mut self, h: Option<&impl VariableHierarchy>, text: &str) {
         if self.filter != text {
             self.filter = text.to_owned();
             self.rebuild(h);
@@ -95,10 +212,10 @@ impl VariableListModel {
     }
 
     /// Whether any listed variable has a port direction worth a column.
-    pub fn show_direction(&self, h: &Hierarchy) -> bool {
+    pub fn show_direction(&self, h: &impl VariableHierarchy) -> bool {
         self.rows
             .iter()
-            .any(|&v| h.vars[v].direction != Direction::None)
+            .any(|&v| h.variable_direction(v) != Direction::None)
     }
 
     /// The selected variables, or every listed one when nothing is selected.

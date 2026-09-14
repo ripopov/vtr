@@ -226,14 +226,35 @@ The [client-server proposal](../../docs/client-server.md) defines two target
 deployments: native in-process queries and a native VS Code child server
 connected to the WASM viewer through the extension relay. Its
 [interactive walkthrough](../../docs/client-server.html) illustrates the design;
-the viewer has not yet adopted the bounded session implementations.
+native GPUI VTR opening uses bounded summary queries. Complete deployment
+coverage and the remaining query families are still under implementation.
 
-Full histories are the current implemented waveform query. They do not meet
-the remote-file objective: an expensive history still transfers and retains
-all changes for the selected signal. `vtr-query` now provides exact windows,
+Legacy FST, synthetic and WASM history loading retains all changes for selected
+signals and does not meet the remote-file objective. `vtr-query` provides exact windows,
 raw summary bins, metadata pages, asynchronous native/RPC sessions and bounded
 Protobuf codecs. `vtr-server` hosts these over stdio; the extension's tested
 relay module has not yet been connected to the WASM viewer.
+
+`volna-core::data::query_hierarchy::QueryHierarchy` retains only requested
+children pages, sharing their raw declaration and text backing. Its admitted
+index/reference arrays cap retained declarations; page admission validates the
+snapshot, parent, sibling ordering, child counts and exact continuation chain
+before changing accepted coverage. Empty work slices replace the group's last
+envelope rather than accumulating. Unopened scopes remain distinct from empty,
+fully loaded scopes. `QueryText` assembles referenced metadata names under a byte
+cap, including parts that split UTF-8, and exposes text only after completion.
+The existing scope-tree and variable-list models accept resident metadata or
+these raw pages through read-only topology/name interfaces. Unloaded scopes stay
+expandable; refresh preserves selected variable identities across row insertion.
+Referenced names retain their byte reservation when installed into the tree,
+and incomplete pages/names or truncated global searches cannot claim complete
+results. Tree flattening is iterative for deeply nested designs. Native and real
+stdio/RPC tests exercise these models. Documents own the page cache, and sidebar
+widgets borrow labels and topology through `BrowserHierarchy`. The real RPC test
+constructs the document, restores a workspace and paints rows without opening the
+trace in the UI. Incomplete workspace paths remain pending; automatic resolution
+as pages arrive, metadata demand scheduling, cache eviction and WASM host wiring
+still need integration before WASM can open without whole-file loading.
 
 `volna-core::wave::exact::ExactWindow` assembles bounded exact pages from one
 continuation chain. It preserves repeated-time ordering, rejects excess records
@@ -257,7 +278,7 @@ limit, preserving packed logic, arbitrary bytes and IEEE bits. The scheduler rot
 including continuations and releases. A signal change clears incompatible bins;
 a pan retains valid old coverage until new pages arrive. Native worker integration
 tests exercise that path through to the display list. Canonical cache reuse
-across overlapping grids and runtime host adoption are still required.
+across overlapping grids and remote host adoption are still required.
 `WaveSnapshot` freezes admitted render data for displayed rows, sharing raw
 pages and separately accounting its reference arrays. The existing row painter
 accepts these snapshots for waveforms and cursor values. A document binds one
@@ -266,9 +287,19 @@ and rejects stale or mismatched row installations. Snapshot creation and query
 polling stay outside painting. Native and RPC tests exercise this through the
 full panel painter. `QueryView` synchronizes visible panel rows and viewport grids
 with that scheduler, installs snapshots only when their revisions change, releases
-hidden row data and closes its session when the document generation changes.
+hidden row data and closes its session when the query snapshot changes.
 Hosts poll this core controller after layout/input and on task wakeups, outside
-painting. Runtime host opening still selects the full-history path.
+painting. Native GPUI VTR opening awaits a query worker before delivering metadata,
+then attaches this controller before restored rows can request histories. The worker
+shares the same immutable memory-mapped reader as the metadata session. A bounded
+notification channel wakes the GPUI task after input/layout; worker futures wake it
+when replies arrive or asynchronous releases free admission capacity. Repaint
+notifications are coalesced on a 16 ms timer, so each partial page does not force
+an immediate redraw. Workspace restoration preserves the query snapshot and
+worker while changing the row generation to reject stale UI commands.
+Native FST, synthetic sessions and the WASM host still use the legacy history path.
+The native query policy currently requests summaries; exact cursor/edge queries,
+full value labels and analog rendering still need integration.
 The existing floating-point viewport is projected outward to integer coverage
 for this integration; it still needs an exact origin representation for narrow
 navigation at extreme timestamps.

@@ -167,7 +167,10 @@ impl Workspace {
     /// Histories and transient input/animation state are never serialized.
     pub fn capture(app: &App, trace_path: String, supersedes: Option<String>) -> Result<Self> {
         let session = app.doc.session().context("no trace open")?;
-        let h = session.hierarchy();
+        let h = app
+            .doc
+            .browser_hierarchy()
+            .context("no hierarchy available")?;
         let info = session.info();
         let panels = app
             .panels
@@ -183,17 +186,20 @@ impl Workspace {
                     .items
                     .iter()
                     .map(|item| {
-                        let (signal, nth) = item.source.locator(h);
-                        Row {
+                        let (signal, nth) = item
+                            .source
+                            .locator(&h)
+                            .context("signal path metadata is not loaded yet")?;
+                        Ok(Row {
                             signal,
                             nth,
                             format: item
                                 .requested_format
                                 .clone()
                                 .unwrap_or_else(|| item.translator.id().into()),
-                        }
+                        })
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>>>()?;
                 Ok(serde_json::value::to_raw_value(&WavePanel {
                     id: panel.id,
                     kind: "waves".into(),
@@ -214,18 +220,19 @@ impl Workspace {
                 })?)
             })
             .collect::<Result<_>>()?;
-        let path = |id| {
-            h.scope_path(id)
+        let path = |id| -> Result<Vec<String>> {
+            Ok(h.scope_path(Some(id))
+                .context("scope path metadata is not loaded yet")?
                 .into_iter()
                 .map(str::to_owned)
-                .collect::<Vec<_>>()
+                .collect())
         };
         let mut expanded = app
             .scopes
             .expanded()
             .map(path)
-            .chain(app.scopes.unresolved_expanded.iter().cloned())
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
+        expanded.extend(app.scopes.unresolved_expanded.iter().cloned());
         expanded.sort();
         expanded.dedup();
         Ok(Self {
@@ -251,11 +258,10 @@ impl Workspace {
                 visible: app.sidebar_visible,
                 width: app.sidebar_width,
                 scopes_fraction: app.scopes_fraction,
-                selected_scope: app
-                    .scopes
-                    .unresolved_selected
-                    .clone()
-                    .or_else(|| app.scopes.selected.map(path)),
+                selected_scope: match &app.scopes.unresolved_selected {
+                    Some(path) => Some(path.clone()),
+                    None => app.scopes.selected.map(path).transpose()?,
+                },
                 expanded,
                 filter: app.variables.filter.clone(),
             },
@@ -279,7 +285,10 @@ impl Workspace {
             "workspace references a different trace; open that trace first"
         );
         let session = app.doc.session().context("no trace open")?;
-        let h = session.hierarchy();
+        let h = app
+            .doc
+            .browser_hierarchy()
+            .context("no hierarchy available")?;
         let mut report = RestoreReport::default();
         if self.trace.name != session.info().name {
             report.push("Trace name differs from the saved workspace");
@@ -388,14 +397,16 @@ impl Workspace {
                 let found = h.find_var(&row.signal, row.nth);
                 let (source, name, scope, shape) = match found {
                     Lookup::Found(var) => {
-                        let v = &h.vars[var];
+                        let v = h.variable(var).context("resolved variable is absent")?;
                         (
                             RowSource::Resolved {
                                 var,
                                 signal: v.signal,
                             },
-                            v.name.clone(),
-                            h.scope_path(v.scope).join("."),
+                            v.name.context("resolved name is not loaded")?.to_owned(),
+                            h.scope_path(v.scope)
+                                .context("resolved scope is not loaded")?
+                                .join("."),
                             v.shape,
                         )
                     }
@@ -403,7 +414,13 @@ impl Workspace {
                         let ambiguous = found == Lookup::Ambiguous;
                         report.push(format!(
                             "{} signal: {:?}",
-                            if ambiguous { "Ambiguous" } else { "Missing" },
+                            if ambiguous {
+                                "Ambiguous"
+                            } else if found == Lookup::Pending {
+                                "Pending"
+                            } else {
+                                "Missing"
+                            },
                             row.signal
                         ));
                         let name = row.signal.last().unwrap().clone();
@@ -470,7 +487,7 @@ impl Workspace {
                 }
             }
         }
-        scopes.restore(h, selected, expanded);
+        scopes.restore(&h, selected, expanded);
         Ok(RestorePlan {
             generation: app.doc.generation(),
             panels,
@@ -492,9 +509,8 @@ impl RestorePlan {
             app.doc.generation() == self.generation,
             "trace changed while preparing workspace"
         );
-        let session = app.doc.session().context("no trace open")?.clone();
-        // Invalidate earlier history results before installing rows.
-        app.doc.set_session(session);
+        app.doc.session().context("no trace open")?;
+        app.doc.reset_for_workspace();
         app.doc.shared.viewport = ViewportState::new(self.shared.viewport);
         app.doc.shared.cursor = self.shared.cursor;
         app.doc.restore_markers(self.shared.markers);
@@ -505,7 +521,7 @@ impl RestorePlan {
         app.scopes_fraction = self.sidebar.scopes_fraction;
         app.variables.filter = self.sidebar.filter;
         app.variables.scope = app.scopes.selected;
-        app.variables.rebuild(app.doc.hierarchy());
+        app.variables.rebuild(app.doc.browser_hierarchy().as_ref());
         for panel in app.panels.iter() {
             if let Some(w) = panel.kind.waves() {
                 for row in &w.items {

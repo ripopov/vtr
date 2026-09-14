@@ -61,10 +61,13 @@ impl RowSource {
         }
     }
 
-    pub fn locator(&self, hierarchy: &crate::data::Hierarchy) -> (Vec<String>, Option<usize>) {
+    pub fn locator(
+        &self,
+        hierarchy: &crate::data::browser::BrowserHierarchy<'_>,
+    ) -> Option<(Vec<String>, Option<usize>)> {
         match self {
             Self::Resolved { var, .. } => hierarchy.var_path(*var),
-            Self::Unresolved { path, nth, .. } => (path.clone(), *nth),
+            Self::Unresolved { path, nth, .. } => Some((path.clone(), *nth)),
         }
     }
 }
@@ -309,7 +312,10 @@ impl WaveModel {
     }
 
     pub fn loaded_count(&self) -> usize {
-        self.items.iter().filter(|i| i.history.is_some()).count()
+        self.items
+            .iter()
+            .filter(|i| i.history.is_some() || i.query.is_some())
+            .count()
     }
 
     // -- items ---------------------------------------------------------------
@@ -332,13 +338,14 @@ impl WaveModel {
         vars: &[VarId],
         loaded: HashMap<SignalRef, Arc<dyn SignalHistory>>,
     ) {
-        let Some(session) = doc.session().cloned() else {
+        let Some(h) = doc.browser_hierarchy() else {
             return;
         };
-        let h = session.hierarchy();
         let first_new = self.items.len();
         for &var in vars {
-            let Some(v) = h.vars.get(var) else { continue };
+            let Some(v) = h.variable(var) else { continue };
+            let name = v.name.unwrap_or("Loading…");
+            let scope = h.scope_path(v.scope);
             let translator = doc.translators.default_for(v.shape);
             // Variable identity/format stay per row; aliases share immutable data.
             let history = if doc.query_snapshot().is_none() {
@@ -346,23 +353,27 @@ impl WaveModel {
             } else {
                 None
             };
-            let needs_load = history.is_none();
+
             self.items.push(DisplayedSignal {
                 source: RowSource::Resolved {
                     var,
                     signal: v.signal,
                 },
                 requested_format: None,
-                name: v.name.clone(),
-                scope: h.scope_path(v.scope).join("."),
+                name: name.to_owned(),
+                scope: scope.map(|path| path.join(".")).unwrap_or_default(),
                 shape: v.shape,
                 translator,
                 history,
                 query: None,
                 error: None,
             });
-            if needs_load {
-                doc.request_signal(v.signal);
+        }
+        for row in &self.items[first_new..] {
+            if row.history.is_none()
+                && let Some(signal) = row.source.signal()
+            {
+                doc.request_signal(signal);
             }
         }
         if self.items.len() > first_new {

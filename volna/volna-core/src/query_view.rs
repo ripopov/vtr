@@ -169,10 +169,14 @@ impl<S: AsyncSession> QueryView<S> {
         Ok(())
     }
     pub fn poll(&mut self, app: &mut App, cx: &mut Context<'_>) -> Poll<Result<Progress>> {
-        if self.generation != app.doc.generation()
-            || app.doc.query_snapshot() != Some(self.snapshot)
-        {
-            self.demands = None; // drop closes the old session and cancels work
+        if app.doc.query_snapshot() != Some(self.snapshot) {
+            self.demands = None; // a different recording closes the old worker
+        } else if self.generation != app.doc.generation() {
+            // A workspace restore changes row identity without changing the trace.
+            self.generation = app.doc.generation();
+            for binding in self.bindings.iter_mut().flatten() {
+                binding.revision = None;
+            }
         }
         if self.demands.is_none() {
             return Poll::Ready(Ok(Progress::Idle));
@@ -189,7 +193,13 @@ impl<S: AsyncSession> QueryView<S> {
             };
             let state = demands.slot(slot).unwrap();
             let revision = state.revision();
-            if binding.revision == Some(revision) {
+            if binding.revision == Some(revision)
+                && app
+                    .panels
+                    .waves(binding.row.panel)
+                    .and_then(|waves| waves.items.get(binding.row.index))
+                    .is_some_and(|item| item.query.is_some())
+            {
                 continue;
             }
             let data = match demands.snapshot(slot) {

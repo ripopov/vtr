@@ -453,3 +453,6 @@ pub mod web {
         static APP: RefCell<Option<gpui_kit::ApplicationHandle>> = const { RefCell::new(None) };
     }
 }
+
+#[cfg(not(target_family = "wasm"))]
+mod native_query;

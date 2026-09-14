@@ -1,8 +1,10 @@
 //! Model layer: signal values, change histories, value translators and the
 //! hierarchy model. Sessions (`crate::session`) produce these.
 
+pub mod browser;
 pub(crate) mod fst_source;
 pub mod history;
+pub mod query_hierarchy;
 pub mod source;
 pub mod synth;
 pub mod transactions;

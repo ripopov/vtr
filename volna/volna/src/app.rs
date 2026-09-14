@@ -99,6 +99,8 @@ pub(crate) struct TextKey {
 pub struct Workspace {
     pub app: CoreApp,
     #[cfg(not(target_family = "wasm"))]
+    pub(crate) queries: Option<crate::native_query::Host>,
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) native_store: Option<crate::native_workspace::Store>,
     pub(crate) dock: Option<crate::dock::DockHost>,
     panel_focus_pending: bool,
@@ -297,6 +299,8 @@ impl Workspace {
         Workspace {
             app: CoreApp::new(),
             #[cfg(not(target_family = "wasm"))]
+            queries: None,
+            #[cfg(not(target_family = "wasm"))]
             native_store: None,
             dock: None,
             panel_focus_pending: false,
@@ -410,6 +414,8 @@ impl Workspace {
         self.sync_format_menu(window, cx);
         self.sync_filter(cx);
         self.run_requests(cx);
+        #[cfg(not(target_family = "wasm"))]
+        self.wake_queries();
     }
 
     /// Perform queued loads on the background executor and deliver the results.
@@ -417,8 +423,20 @@ impl Workspace {
         for request in self.app.take_requests() {
             cx.spawn(async move |this, cx| {
                 let result = cx.background_spawn(async move { request.perform() }).await;
+                #[cfg(not(target_family = "wasm"))]
+                let (result, queries) = crate::native_query::prepare(result).await;
                 this.update(cx, |this, cx| {
+                    #[cfg(not(target_family = "wasm"))]
+                    let generation = this.app.doc.generation();
                     this.app.deliver(result);
+                    #[cfg(not(target_family = "wasm"))]
+                    if let Some((requested, queries)) = queries {
+                        if requested == generation {
+                            this.attach_queries(queries, cx);
+                        } else {
+                            queries.close();
+                        }
+                    }
                     this.after(None, cx);
                 })
                 .ok();

@@ -143,7 +143,9 @@ busy; dropping the session cancels all operations. This is the execution layer,
 not the asynchronous viewer adapter or the complete wire protocol. Reader cache
 and scratch admission are still needed in addition to response accounting.
 
-`LocalSession::open` returns an opening future and performs file I/O on a dedicated
+`LocalSession::from_reader` shares an existing `Arc<Reader>` with the worker,
+without reopening or copying its mapping. Reader storage is owned separately from
+the query allocation budget. `LocalSession::open` returns an opening future and performs file I/O on a dedicated
 worker. Query futures only poll oneshot delivery slots. Submission, waiting
 results and active work share a fixed request-credit allowance; consuming a
 result makes its credit available for an immediate continuation. Retained page
@@ -203,3 +205,8 @@ entry before its first change, exit at/after its last change, and the known
 middle span when there are exactly two changes. Other aggregate interiors and
 event bins return no held sample. Formatting and display-size limits remain in
 `volna-core`, outside the raw query protocol.
+
+An `AsyncSession` scheduler registers its progress waker before attempting work.
+Native delivery-credit reclamation and worker-side releases wake that scheduler;
+RPC replies and shutdown do the same. This permits admission backpressure to
+sleep even when no query future is pending, without periodic polling.

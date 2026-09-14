@@ -67,8 +67,8 @@ impl Workspace {
         let show_direction = self
             .app
             .doc
-            .hierarchy()
-            .is_some_and(|h| vars.show_direction(h));
+            .browser_hierarchy()
+            .is_some_and(|h| vars.show_direction(&h));
         let placeholder = vars.placeholder(self.app.doc.is_loaded());
         let header = panel_header("Variables", cx).child(
             div()
@@ -97,21 +97,21 @@ impl Workspace {
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
                 let t = *theme(cx);
-                let Some(h) = this.app.doc.hierarchy() else {
+                let Some(h) = this.app.doc.browser_hierarchy() else {
                     return Vec::new();
                 };
                 range
                     .map(|ix| {
                         let var = this.app.variables.rows[ix];
-                        let v = &h.vars[var];
+                        let v = h.variable(var).expect("listed variable");
                         let selected = this.app.variables.selected.contains(&ix);
                         let colors = t.row(selected, false);
                         let hover = t.hover;
                         let dims: SharedString = v.shape.dims().into();
                         let name: SharedString = if show_scope {
-                            h.full_name(var).into()
+                            h.full_name(var).unwrap_or_else(|| "Loading…".into()).into()
                         } else {
-                            v.name.clone().into()
+                            v.name.unwrap_or("Loading…").into()
                         };
                         let dir = direction_label(v.direction);
                         let mut row = div()

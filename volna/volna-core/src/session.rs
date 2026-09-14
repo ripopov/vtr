@@ -33,6 +33,16 @@ pub struct Capabilities {
 }
 
 pub trait Session: Send + Sync {
+    /// Start bounded native queries over this same immutable reader, when supported.
+    /// The host awaits readiness before exposing the opened document to row loads.
+    #[cfg(not(target_family = "wasm"))]
+    fn open_queries(
+        &self,
+        _budget: vtr_query::Budget,
+    ) -> Option<vtr_query::Result<vtr_query::local_session::OpenFuture>> {
+        None
+    }
+
     /// Capabilities describe operations, not whether this recording has rows.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
@@ -71,6 +81,24 @@ pub trait Session: Send + Sync {
                 )
             })
             .collect()
+    }
+}
+
+/// Resident trace header for a query-backed document. Hierarchy pages belong
+/// to Document; this header never opens a file or supplies history data.
+pub(crate) struct QueryMetadataSession {
+    pub info: TraceInfo,
+    pub hierarchy: Hierarchy,
+}
+impl Session for QueryMetadataSession {
+    fn info(&self) -> &TraceInfo {
+        &self.info
+    }
+    fn hierarchy(&self) -> &Hierarchy {
+        &self.hierarchy
+    }
+    fn load_signal(&self, _: SignalRef) -> anyhow::Result<Arc<dyn SignalHistory>> {
+        anyhow::bail!("query-backed documents require bounded waveform requests")
     }
 }
 

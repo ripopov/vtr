@@ -503,6 +503,7 @@ impl<S: AsyncSession> WaveDemands<S> {
             .count()
     }
     pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Progress> {
+        self.session.register_progress_waker(cx.waker());
         let mut pending = false;
         let mut pressure = false;
         let mut active = self.active_operations();

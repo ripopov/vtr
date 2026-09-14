@@ -12,6 +12,8 @@ pub enum Lookup<T> {
     Found(T),
     Missing,
     Ambiguous,
+    /// The loaded metadata cannot yet prove presence, absence or uniqueness.
+    Pending,
 }
 
 fn unique<T>(mut matches: impl Iterator<Item = T>) -> Lookup<T> {
@@ -93,6 +95,7 @@ impl Hierarchy {
             Lookup::Found(id) => id,
             Lookup::Missing => return Lookup::Missing,
             Lookup::Ambiguous => return Lookup::Ambiguous,
+            Lookup::Pending => return Lookup::Pending,
         };
         let mut matches = self.scopes[scope]
             .vars

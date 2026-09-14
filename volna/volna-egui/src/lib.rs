@@ -20,6 +20,7 @@ use volna_core::geometry::{Modifiers, MouseButton, Rect as CRect};
 use volna_core::icons::FONTS;
 use volna_core::session::LoadResult;
 use volna_core::sidebar::Key as ListKey;
+use volna_core::sidebar::scopes::ScopeHierarchy;
 use volna_core::sidebar::scopes::scope_icon;
 use volna_core::sidebar::variables::{direction_label, shape_icon};
 use volna_core::wave::PointerEvent;
@@ -535,14 +536,14 @@ impl VolnaApp {
             }
             ui.spacing_mut().item_spacing.y = 0.0;
             let visible = self.app.scopes.visible.clone();
-            let Some(h) = self.app.doc.hierarchy() else {
+            let Some(h) = self.app.doc.browser_hierarchy() else {
                 return;
             };
             scroll.show_rows(ui, row_h, count, |ui, range| {
                 for ix in range {
                     let (id, depth) = visible[ix];
-                    let scope = &h.scopes[id];
-                    let has_children = !scope.children.is_empty();
+                    let scope = h.scope(id).expect("visible scope");
+                    let has_children = h.has_child_scopes(id);
                     let expanded = self.app.scopes.is_expanded(id);
                     let selected = self.app.scopes.selected == Some(id);
                     let (rect, resp) = ui.allocate_exact_size(
@@ -574,7 +575,7 @@ impl VolnaApp {
                     }
                     paint::small_icon(
                         ui.painter(),
-                        scope_icon(&scope.kind),
+                        scope_icon(scope.kind),
                         Rect::from_center_size(
                             Pos2::new(x + 27.0, rect.center().y),
                             Vec2::splat(14.0),
@@ -584,7 +585,7 @@ impl VolnaApp {
                     ui.painter().text(
                         Pos2::new(x + 38.0, rect.center().y),
                         Align2::LEFT_CENTER,
-                        &scope.name,
+                        scope.name.unwrap_or("Loading…"),
                         font_id(volna_core::FontRole::Ui, self.core_theme.ui_size),
                         colors.text,
                     );
@@ -671,10 +672,10 @@ impl VolnaApp {
             ui.centered_and_justified(|ui| {
                 ui.label(RichText::new(text).small().color(t.panel.text_placeholder));
             });
-        } else if let Some(h) = self.app.doc.hierarchy() {
+        } else if let Some(h) = self.app.doc.browser_hierarchy() {
             let focused = ui.memory(|m| m.has_focus(self.ids.variables));
             let show_scope = self.app.variables.show_scope();
-            let show_direction = self.app.variables.show_direction(h);
+            let show_direction = self.app.variables.show_direction(&h);
             let mut scroll = ScrollArea::vertical()
                 .id_salt("variables")
                 .auto_shrink(false);
@@ -689,7 +690,7 @@ impl VolnaApp {
             scroll.show_rows(ui, row_h, count, |ui, range| {
                 for ix in range {
                     let var = rows[ix];
-                    let v = &h.vars[var];
+                    let v = h.variable(var).expect("listed variable");
                     let selected = self.app.variables.selected.contains(&ix);
                     let (rect, resp) = ui.allocate_exact_size(
                         Vec2::new(ui.available_width(), row_h),
@@ -734,9 +735,9 @@ impl VolnaApp {
                         x += 28.0;
                     }
                     let name = if show_scope {
-                        h.full_name(var)
+                        h.full_name(var).unwrap_or_else(|| "Loading…".into())
                     } else {
-                        v.name.clone()
+                        v.name.unwrap_or("Loading…").to_owned()
                     };
                     let dims = v.shape.dims();
                     let dims_w = if dims.is_empty() {

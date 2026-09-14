@@ -6,7 +6,7 @@ use gpui_kit::{
 };
 use volna_core::app::Command;
 use volna_core::sidebar::Key;
-use volna_core::sidebar::scopes::scope_icon;
+use volna_core::sidebar::scopes::{ScopeHierarchy, scope_icon};
 
 use crate::app::Workspace;
 use crate::theme::theme;
@@ -60,19 +60,19 @@ impl Workspace {
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
                 let t = *theme(cx);
-                let Some(h) = this.app.doc.hierarchy() else {
+                let Some(h) = this.app.doc.browser_hierarchy() else {
                     return Vec::new();
                 };
                 range
                     .map(|ix| {
                         let (id, depth) = this.app.scopes.visible[ix];
-                        let scope = &h.scopes[id];
-                        let has_children = !scope.children.is_empty();
+                        let scope = h.scope(id).expect("visible scope");
+                        let has_children = h.has_child_scopes(id);
                         let expanded = this.app.scopes.is_expanded(id);
                         let selected = this.app.scopes.selected == Some(id);
                         let colors = t.row(selected, false);
                         let hover = t.hover;
-                        let name: SharedString = scope.name.clone().into();
+                        let name: SharedString = scope.name.unwrap_or("Loading…").into();
                         let mut row = div()
                             .id(("scope", ix))
                             .flex()
@@ -128,7 +128,7 @@ impl Workspace {
                             });
                         row.child(chevron)
                             .child(
-                                Icon::new(scope_icon(&scope.kind))
+                                Icon::new(scope_icon(scope.kind))
                                     .size(px(14.0))
                                     .inherit_color(),
                             )

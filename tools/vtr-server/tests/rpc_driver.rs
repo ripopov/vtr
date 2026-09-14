@@ -100,6 +100,11 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
         work: 1,
     };
     let mut text = None;
+    let mut remote_app = volna_core::App::new();
+    remote_app
+        .set_query_document("rpc.vtr".into(), session.info(), 64, &budget)
+        .unwrap();
+    let metadata_generation = remote_app.doc.generation();
     let queries = [
         Query::Window {
             signal: signal.0,
@@ -134,6 +139,11 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
                 exact.append(reply.clone()).unwrap();
             }
             if let Reply::Children(page) = &reply.reply {
+                remote_app
+                    .doc
+                    .append_query_children(metadata_generation, reply.clone())
+                    .unwrap();
+                remote_app.refresh_query_metadata();
                 for declaration in page.declarations() {
                     if let Text::Reference { id, bytes } = &declaration.name {
                         text = Some((*id, *bytes));
@@ -160,6 +170,17 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
         }
         session.release(first).unwrap();
     }
+    let hierarchy = remote_app.doc.query_hierarchy().unwrap();
+    assert!(hierarchy.state(None).unwrap().complete);
+    assert_eq!(hierarchy.len() as u64, session.info().declarations);
+    assert!(hierarchy
+        .children(None)
+        .any(|node| matches!(node.name, Text::Reference { .. })));
+    assert_eq!(remote_app.variables.rows.len(), 1);
+    assert!(!remote_app.variables.complete);
+    remote_app.handle(volna_core::Command::SetFilter("λλ".into()));
+    assert!(remote_app.variables.rows.is_empty());
+    assert!(!remote_app.variables.complete);
     let (id, bytes) = text.expect("large name reference");
     assert_eq!(bytes, name.len() as u64);
     let part = host
@@ -182,6 +203,59 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
     assert_eq!(text.bytes.as_slice(), &name.as_bytes()[1..4]);
     session.release(part.request).unwrap();
     drop(part);
+    let mut assembled = volna_core::data::query_hierarchy::QueryText::new(
+        session.info().snapshot,
+        id,
+        bytes,
+        4096,
+        &budget,
+    )
+    .unwrap();
+    while assembled.remaining() > 0 {
+        let part = host
+            .drive(
+                session
+                    .execute(
+                        Query::Text {
+                            id,
+                            offset: assembled.offset(),
+                            length: 127,
+                        },
+                        limits,
+                    )
+                    .unwrap(),
+            )
+            .unwrap();
+        assembled.append(&part).unwrap();
+        session.release(part.request).unwrap();
+    }
+    assert_eq!(assembled.text(), Some(name.as_str()));
+    remote_app
+        .doc
+        .install_query_text(metadata_generation, assembled)
+        .unwrap();
+    remote_app.refresh_query_metadata();
+    assert_eq!(remote_app.variables.rows.len(), 1);
+    assert!(remote_app.variables.complete);
+    remote_app.handle(volna_core::Command::AddVars(vec![0]));
+    assert_eq!(
+        remote_app.panels.focused_waves().unwrap().items[0].name,
+        name
+    );
+    assert!(remote_app.take_requests().is_empty());
+    let workspace =
+        volna_core::workspace::Workspace::capture(&remote_app, "rpc.vtr".into(), None).unwrap();
+    workspace
+        .prepare(
+            &remote_app,
+            "file:///tmp/rpc.vtr",
+            "file:///tmp/rpc.vtr.volna.json",
+        )
+        .unwrap()
+        .commit(&mut remote_app)
+        .unwrap();
+    assert!(remote_app.doc.query_hierarchy().is_some());
+    assert_ne!(remote_app.doc.generation(), metadata_generation);
     // The production viewer controller consumes the same session contract as
     // its native worker tests, with real child framing and RPC validation here.
     use volna_core::wave::demand::{Demand, Progress, WaveDemands};
@@ -328,10 +402,8 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
     assert!(scene.prims.len() > 2);
     // Exercise the existing row model and full panel painter with remote data.
     let data = demands.snapshot(0).unwrap().unwrap();
-    let mut doc = volna_core::Document::new();
-    doc.set_session(std::sync::Arc::new(
-        volna_core::session::LocalSession::open(&path).unwrap(),
-    ));
+    // Header, names and hierarchy came exclusively from the child protocol.
+    let mut doc = remote_app.doc;
     let generation = doc.generation();
     assert!(doc.bind_query_session(generation, data.snapshot()));
     let mut model = volna_core::wave::WaveModel::new();

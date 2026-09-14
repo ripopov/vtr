@@ -58,6 +58,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         Arc::new(Assets),
         gpui_kit::platform::current_headless_renderer,
     );
+    test.allow_parking(); // native query workers wake this executor from real threads
     test.update(volna::init_app);
 
     let win_size = size(px(1440.0), px(900.0));
@@ -358,7 +359,38 @@ fn run(measure: bool) -> anyhow::Result<()> {
             Point::new(px(280.0 - 12.0 - 12.0), px(32.0 + scopes_h + 16.0)),
             Modifiers::default(),
         );
-        settle(&mut test, 4);
+        settle(&mut test, 1); // establish visible demand before waiting for its replies
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            test.run_until_parked();
+            let ready = test.update(|cx| {
+                let waves = workspace.read(cx).app.panels.focused_waves().unwrap();
+                waves.loaded_count() == 29
+            });
+            if ready {
+                break;
+            }
+            if Instant::now() >= deadline {
+                test.update(|cx| {
+                    let app = &workspace.read(cx).app;
+                    let w = app.panels.focused_waves().unwrap();
+                    eprintln!(
+                        "snapshot={:?} rows={:?} waves={:?} notices={:?} errors={:?}",
+                        app.doc.query_snapshot(),
+                        w.last_layout().rows,
+                        w.last_layout().waves,
+                        app.workspace.notices,
+                        w.items.iter().map(|row| &row.error).collect::<Vec<_>>()
+                    );
+                });
+            }
+            assert!(
+                Instant::now() < deadline,
+                "visible query rows did not arrive: {}",
+                state(&mut test, "query timeout")
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         expect(&mut test, "after add", &["items=29 loaded=29"]);
         shot(&mut test, "03-signals")?;
 

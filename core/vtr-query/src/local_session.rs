@@ -51,6 +51,7 @@ impl Drop for Ticket {
     fn drop(&mut self) {
         if let Some(shared) = self.shared.upgrade() {
             shared.outstanding.fetch_sub(1, Ordering::AcqRel);
+            shared.notify_progress();
         }
     }
 }
@@ -76,9 +77,17 @@ struct Shared {
     capacity: usize,
     outstanding: AtomicUsize,
     stopped: AtomicBool,
+    progress: Mutex<Option<std::task::Waker>>,
     _charge: Reservation,
 }
 impl Shared {
+    fn notify_progress(&self) {
+        let wake = self.progress.lock().unwrap().take();
+        if let Some(wake) = wake {
+            wake.wake();
+        }
+    }
+
     fn close(&self) {
         let mut queue = self.queue.lock().unwrap();
         queue.closed = true;
@@ -131,11 +140,20 @@ impl LocalSession {
             vtr::Reader::open(path).map_err(|error| Error::Backend(error.to_string()))
         })
     }
-    fn open_reader(
+    /// Share an already-open immutable reader with a query worker. Reader storage
+    /// remains owned by the caller and worker; query allocations use `budget`.
+    pub fn from_reader(
+        reader: Arc<vtr::Reader>,
+        budget: Budget,
+        capacity: usize,
+    ) -> Result<OpenFuture> {
+        Self::open_reader(budget, capacity, 0, move || Ok(reader))
+    }
+    fn open_reader<R: std::borrow::Borrow<vtr::Reader> + Send + 'static>(
         budget: Budget,
         capacity: usize,
         input_bytes: usize,
-        open: impl FnOnce() -> Result<vtr::Reader> + Send + 'static,
+        open: impl FnOnce() -> Result<R> + Send + 'static,
     ) -> Result<OpenFuture> {
         if capacity == 0 {
             return Err(Error::Invalid("session needs request capacity"));
@@ -169,6 +187,7 @@ impl LocalSession {
             capacity,
             outstanding: AtomicUsize::new(0),
             stopped: AtomicBool::new(false),
+            progress: Mutex::new(None),
             _charge: charge,
         });
         let (tx, rx) = oneshot::channel();
@@ -188,13 +207,14 @@ impl LocalSession {
                     }
                 };
                 drop(path_charge);
-                let session = match Session::new(&reader, worker_shared.budget.clone(), capacity) {
-                    Ok(session) => session,
-                    Err(error) => {
-                        let _ = tx.send(Err(error));
-                        return;
-                    }
-                };
+                let session =
+                    match Session::new(reader.borrow(), worker_shared.budget.clone(), capacity) {
+                        Ok(session) => session,
+                        Err(error) => {
+                            let _ = tx.send(Err(error));
+                            return;
+                        }
+                    };
                 if tx.send(Ok(session.info().clone())).is_ok() {
                     run(session, &worker_shared);
                 }
@@ -421,6 +441,7 @@ fn run(mut session: Session<'_>, shared: &Shared) {
         let job = match work {
             Work::Release(cursor) => {
                 let _ = session.release(cursor);
+                shared.notify_progress();
                 continue;
             }
             Work::Job(job) => job,
@@ -470,6 +491,13 @@ fn run(mut session: Session<'_>, shared: &Shared) {
 }
 
 impl crate::session::AsyncSession for LocalSession {
+    fn register_progress_waker(&self, waker: &std::task::Waker) {
+        let mut registered = self.shared.progress.lock().unwrap();
+        if registered.as_ref().is_none_or(|old| !old.will_wake(waker)) {
+            *registered = Some(waker.clone());
+        }
+    }
+
     type Task = QueryFuture;
     fn info(&self) -> &SessionInfo {
         LocalSession::info(self)
@@ -502,7 +530,7 @@ mod tests {
         let mut opening = LocalSession::open_reader(budget.clone(), 1, 0, move || {
             entered_tx.send(std::thread::current().id()).unwrap();
             release_rx.recv().unwrap();
-            Err(Error::Invalid("test open failure"))
+            Err::<vtr::Reader, _>(Error::Invalid("test open failure"))
         })
         .unwrap();
         let worker = entered_rx

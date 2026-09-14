@@ -48,6 +48,7 @@ pub struct Document {
     /// A newer open, explicit session replacement, or close invalidates old results.
     generation: u64,
     query_snapshot: Option<vtr_query::session::SnapshotId>,
+    query_hierarchy: Option<crate::data::query_hierarchy::QueryHierarchy>,
     pub shared: Shared,
     pub markers: Vec<Marker>,
     next_marker: u64,
@@ -68,6 +69,7 @@ impl Document {
             state: TraceState::Empty,
             generation: 0,
             query_snapshot: None,
+            query_hierarchy: None,
             shared: Shared::default(),
             markers: Vec::new(),
             next_marker: 1,
@@ -114,6 +116,93 @@ impl Document {
         }
     }
 
+    /// Open a query-backed document from its handshake header, without a local
+    /// reader or a complete hierarchy. Admission failure leaves the old document.
+    pub fn set_query_document(
+        &mut self,
+        name: String,
+        info: &vtr_query::session::SessionInfo,
+        capacity: usize,
+        budget: &vtr_query::Budget,
+    ) -> vtr_query::Result<()> {
+        let hierarchy = crate::data::query_hierarchy::QueryHierarchy::new(info, capacity, budget)?;
+        let time_range = info.time_range.map_or((0, 0), |range| {
+            (
+                range.start(),
+                range
+                    .end()
+                    .wide()
+                    .saturating_sub(1)
+                    .max(u128::from(range.start())) as u64,
+            )
+        });
+        self.set_session(Arc::new(crate::session::QueryMetadataSession {
+            info: crate::data::TraceInfo {
+                name,
+                design_id: None,
+                timescale: info.timescale,
+                time_range,
+                signal_count: info.signals as usize,
+                change_count: None,
+            },
+            hierarchy: Hierarchy::default(),
+        }));
+        self.query_snapshot = Some(info.snapshot);
+        self.query_hierarchy = Some(hierarchy);
+        Ok(())
+    }
+
+    pub fn browser_hierarchy(&self) -> Option<crate::data::browser::BrowserHierarchy<'_>> {
+        self.query_hierarchy
+            .as_ref()
+            .map(crate::data::browser::BrowserHierarchy::Paged)
+            .or_else(|| {
+                self.hierarchy()
+                    .map(crate::data::browser::BrowserHierarchy::Resident)
+            })
+    }
+    pub fn query_hierarchy(&self) -> Option<&crate::data::query_hierarchy::QueryHierarchy> {
+        self.query_hierarchy.as_ref()
+    }
+    /// Install the metadata store for the already-bound immutable query session.
+    /// Row identity and transient state are preserved as additional pages arrive.
+    pub fn install_query_hierarchy(
+        &mut self,
+        generation: u64,
+        hierarchy: crate::data::query_hierarchy::QueryHierarchy,
+    ) -> bool {
+        if generation != self.generation || self.query_snapshot != Some(hierarchy.snapshot()) {
+            return false;
+        }
+        self.query_hierarchy = Some(hierarchy);
+        true
+    }
+    pub fn append_query_children(
+        &mut self,
+        generation: u64,
+        page: Arc<vtr_query::session::Delivery>,
+    ) -> vtr_query::Result<bool> {
+        if generation != self.generation {
+            return Err(vtr_query::Error::Invalid("stale hierarchy delivery"));
+        }
+        self.query_hierarchy
+            .as_mut()
+            .ok_or(vtr_query::Error::Invalid("no query hierarchy"))?
+            .append(page)
+    }
+    pub fn install_query_text(
+        &mut self,
+        generation: u64,
+        text: crate::data::query_hierarchy::QueryText,
+    ) -> vtr_query::Result<()> {
+        if generation != self.generation {
+            return Err(vtr_query::Error::Invalid("stale metadata text"));
+        }
+        self.query_hierarchy
+            .as_mut()
+            .ok_or(vtr_query::Error::Invalid("no query hierarchy"))?
+            .install_text(text)
+    }
     pub fn hierarchy(&self) -> Option<&Hierarchy> {
         self.session().map(|s| s.hierarchy())
     }
@@ -147,6 +236,7 @@ impl Document {
     pub fn open(&mut self, spec: OpenSpec) {
         self.generation += 1;
         self.query_snapshot = None;
+        self.query_hierarchy = None;
         self.state = TraceState::Loading { name: spec.name() };
         self.requests.push(LoadRequest::Open {
             generation: self.generation,
@@ -166,6 +256,16 @@ impl Document {
         self.generation += 1;
         self.reset_state();
         self.state = TraceState::Empty;
+    }
+
+    /// Restore changes row identity, not the immutable recording or its cache.
+    pub(crate) fn reset_for_workspace(&mut self) {
+        self.generation += 1;
+        let snapshot = self.query_snapshot;
+        let hierarchy = self.query_hierarchy.take();
+        self.reset_state();
+        self.query_snapshot = snapshot;
+        self.query_hierarchy = hierarchy;
     }
 
     fn reset_state(&mut self) {

@@ -12,7 +12,7 @@ use super::value::{Bit, SignalShape, WaveValue};
 use crate::session::Session;
 
 pub struct LocalSession {
-    pub(super) reader: Reader,
+    pub(super) reader: Arc<Reader>,
     pub(super) tracks: Vec<super::transactions::Track>,
     info: TraceInfo,
     hierarchy: Hierarchy,
@@ -54,7 +54,7 @@ impl LocalSession {
         };
         Ok(LocalSession {
             tracks: super::vtr_transactions::tracks(&reader),
-            reader,
+            reader: Arc::new(reader),
             info,
             hierarchy,
         })
@@ -157,6 +157,18 @@ fn root_scope(h: &mut Hierarchy) -> usize {
 }
 
 impl Session for LocalSession {
+    #[cfg(not(target_family = "wasm"))]
+    fn open_queries(
+        &self,
+        budget: vtr_query::Budget,
+    ) -> Option<vtr_query::Result<vtr_query::local_session::OpenFuture>> {
+        Some(vtr_query::local_session::LocalSession::from_reader(
+            self.reader.clone(),
+            budget,
+            4,
+        ))
+    }
+
     fn transactions(&self) -> Option<&dyn super::transactions::TransactionQueries> {
         Some(self)
     }

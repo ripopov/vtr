@@ -10,7 +10,8 @@ is spelled out. The on-disk format is specified in
 The separate [`vtr-query` foundation](../core/vtr-query/README.md) supplies
 validated half-open intervals, canonical grids, shared byte reservations,
 waveform/metadata pages, typed continuations and asynchronous native execution.
-`local_session::LocalSession::open` opens on a worker; `execute`/`advance` return
+`local_session::LocalSession::open` opens on a worker; `from_reader` shares an
+existing immutable `Arc<Reader>` with that worker without reopening the file; `execute`/`advance` return
 futures over shared immutable deliveries. `release` retires an operation and
 `close` signals shutdown without joining the reader on the caller. Optional wire
 codecs support the [`vtr-server` stdio child](../tools/vtr-server/README.md).
@@ -19,7 +20,8 @@ correlation and cross-page validation, exposing the matching future-based
 `RpcSession` on native test hosts and WASM. Both implement `session::AsyncSession`.
 `summary::WaveBin::sample_at` returns a held sample only where the complete bin
 proves its value; ambiguous interiors, events and uncovered times return `None`.
-The live viewer has not yet adopted this bounded session API.
+Native GPUI VTR opening uses this API for summary rows; FST and WASM runtime
+adoption and exact cursor/edge queries remain incomplete.
 It does not change the reader operations documented here or their C projection.
 
 Contents

@@ -157,3 +157,41 @@ fn failed_admission_leaves_the_existing_document_and_load_requests_unchanged() {
     assert!(app.doc.query_snapshot().is_none());
     assert!(!app.take_requests().is_empty());
 }
+
+#[test]
+fn restoring_rows_keeps_the_query_session_and_reinstalls_render_data() {
+    use volna_core::workspace::Workspace;
+    let (_dir, mut app, session) = fixture();
+    let mut view =
+        QueryView::attach(&mut app, session, limits(), 16, 8, &Budget::new(65536)).unwrap();
+    app.handle(Command::AddVars(vec![0, 1]));
+    let theme = Theme::one_dark();
+    layout(&mut app, &theme);
+    drain(&mut view, &mut app);
+    let generation = app.doc.generation();
+    let snapshot = app.doc.query_snapshot();
+    let saved = Workspace::capture(&app, "view.vtr".into(), None).unwrap();
+    saved
+        .prepare(
+            &app,
+            "file:///tmp/view.vtr",
+            "file:///tmp/view.vtr.volna.json",
+        )
+        .unwrap()
+        .commit(&mut app)
+        .unwrap();
+    assert_ne!(app.doc.generation(), generation);
+    assert_eq!(app.doc.query_snapshot(), snapshot);
+    assert!(app.take_requests().is_empty());
+    layout(&mut app, &theme);
+    drain(&mut view, &mut app);
+    assert!(!view.is_closed());
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.query.is_some() && row.history.is_none())
+    );
+}

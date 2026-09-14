@@ -8534,6 +8534,7 @@ dependencies = [
  "tempfile",
  "url",
  "volna-core",
+ "vtr-query",
  "wasm-bindgen",
 ]
 

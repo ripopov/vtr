@@ -196,3 +196,46 @@ fn decoded_delivery_waiting_in_an_unpolled_future_is_released_on_drop() {
     drop(session);
     until(|| budget.used() == 0);
 }
+
+#[test]
+fn worker_shares_the_open_reader_and_releases_its_ownership_on_close() {
+    let (_dir, path, signal) = fixture();
+    let reader = Arc::new(vtr::Reader::open(&path).unwrap());
+    let weak = Arc::downgrade(&reader);
+    let budget = Budget::new(1 << 20);
+    let session = wait(LocalSession::from_reader(reader, budget.clone(), 1).unwrap()).unwrap();
+    assert_eq!(weak.strong_count(), 1, "worker owns the supplied reader");
+    let page = wait(session.execute(query(signal), limits()).unwrap()).unwrap();
+    assert!(matches!(&page.reply, Reply::Window(window) if !window.changes().is_empty()));
+    drop(page);
+    session.close();
+    until(|| session.is_stopped());
+    assert!(weak.upgrade().is_none());
+    drop(session);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn releases_wake_admission_waiters_without_a_pending_query_future() {
+    use std::task::{Wake, Waker};
+    use vtr_query::session::AsyncSession;
+    struct Notify(std::sync::mpsc::SyncSender<()>);
+    impl Wake for Notify {
+        fn wake(self: Arc<Self>) {
+            let _ = self.0.try_send(());
+        }
+    }
+    let (_dir, path, signal) = fixture();
+    let session = wait(LocalSession::open(path, Budget::new(1 << 20), 1).unwrap()).unwrap();
+    let page = wait(session.execute(query(signal), limits()).unwrap()).unwrap();
+    let cursor = page.request;
+    drop(page);
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    session.register_progress_waker(&Waker::from(Arc::new(Notify(tx))));
+    session.release(cursor).unwrap();
+    rx.recv_timeout(Duration::from_secs(5))
+        .expect("release must wake admission waiter");
+    let page = wait(session.execute(query(signal), limits()).unwrap()).unwrap();
+    assert!(matches!(page.reply, Reply::Window(_)));
+    session.close();
+}

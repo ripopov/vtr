@@ -244,6 +244,52 @@ impl App {
     }
 
     /// Replace the session immediately (tests and hosts that hold one).
+    pub fn set_query_document(
+        &mut self,
+        name: String,
+        info: &vtr_query::session::SessionInfo,
+        capacity: usize,
+        budget: &vtr_query::Budget,
+    ) -> vtr_query::Result<()> {
+        self.doc.set_query_document(name, info, capacity, budget)?;
+        self.on_session_changed();
+        Ok(())
+    }
+
+    /// Refresh browser rows after admitted query metadata changes. Raw pages
+    /// remain owned by the document; only visible row identities are rebuilt.
+    pub fn refresh_query_metadata(&mut self) {
+        let hierarchy = self.doc.browser_hierarchy();
+        if self.scopes.visible.is_empty() && self.scopes.selected.is_none() {
+            self.scopes.reset(hierarchy.as_ref());
+            self.variables.scope = self.scopes.selected;
+        } else {
+            self.scopes.refresh(hierarchy.as_ref());
+        }
+        self.variables.refresh(hierarchy.as_ref());
+        if let Some(hierarchy) = hierarchy {
+            for panel in self.panels.iter_mut() {
+                if let Some(waves) = panel.kind.waves_mut() {
+                    for row in &mut waves.items {
+                        if let crate::wave::model::RowSource::Resolved { var, .. } = row.source
+                            && let Some(variable) = hierarchy.variable(var)
+                        {
+                            if let Some(name) = variable.name
+                                && row.name != name
+                            {
+                                row.name = name.to_owned();
+                            }
+                            if let Some(scope) = hierarchy.scope_path(variable.scope) {
+                                row.scope = scope.join(".");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.changed();
+    }
+
     pub fn set_session(&mut self, session: Arc<dyn Session>) {
         self.doc.set_session(session);
         self.on_session_changed();
@@ -267,10 +313,11 @@ impl App {
             w.link = self.workspace.preferences.link_by_default;
         }
         self.layout_changed();
-        self.scopes.reset(self.doc.hierarchy());
-        self.variables.reset(self.doc.hierarchy());
+        self.scopes.reset(self.doc.browser_hierarchy().as_ref());
+        self.variables.reset(self.doc.browser_hierarchy().as_ref());
         let scope = self.scopes.selected;
-        self.variables.set_scope(self.doc.hierarchy(), scope);
+        self.variables
+            .set_scope(self.doc.browser_hierarchy().as_ref(), scope);
         self.changed();
     }
 
@@ -432,30 +479,31 @@ impl App {
             Command::AddVars(vars) => self.add_vars(&vars),
             Command::SelectScope(id) => {
                 if self.scopes.select(id) {
-                    self.variables.set_scope(self.doc.hierarchy(), Some(id));
+                    self.variables
+                        .set_scope(self.doc.browser_hierarchy().as_ref(), Some(id));
                 }
                 self.changed();
             }
             Command::ToggleScope(id) => {
-                if let Some(h) = self.doc.hierarchy() {
+                if let Some(h) = self.doc.browser_hierarchy().as_ref() {
                     self.scopes.toggle(h, id);
                 }
                 self.changed();
             }
             Command::ExpandAllScopes(expand) => {
-                if let Some(h) = self.doc.hierarchy() {
+                if let Some(h) = self.doc.browser_hierarchy().as_ref() {
                     self.scopes.set_all(h, expand);
                 }
                 self.changed();
             }
             Command::ScopesKey(key) => {
-                let Some(h) = self.doc.hierarchy() else {
-                    return;
-                };
+                let hierarchy = self.doc.browser_hierarchy();
+                let Some(h) = hierarchy.as_ref() else { return };
                 let out = self.scopes.key(h, &key);
                 if out.changed {
                     let scope = self.scopes.selected;
-                    self.variables.set_scope(self.doc.hierarchy(), scope);
+                    self.variables
+                        .set_scope(self.doc.browser_hierarchy().as_ref(), scope);
                 }
                 if let Some(row) = out.reveal {
                     self.events.push(Event::RevealScopeRow(row));
@@ -463,7 +511,8 @@ impl App {
                 self.changed();
             }
             Command::SetFilter(text) => {
-                self.variables.set_filter(self.doc.hierarchy(), &text);
+                self.variables
+                    .set_filter(self.doc.browser_hierarchy().as_ref(), &text);
                 self.changed();
             }
             Command::SelectVar { ix, modifiers } => {

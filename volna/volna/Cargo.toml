@@ -36,6 +36,7 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+vtr-query = { path = "../../core/vtr-query", features = ["native-engine"] }
 env_logger = "0.11"
 tempfile = "3"
 url = "2"

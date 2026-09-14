@@ -148,8 +148,25 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
     }
 }
 
+// Native reader workers run outside GPUI's deterministic executor.
+fn wait_native(cx: &mut TestAppContext, mut ready: impl FnMut(&mut TestAppContext) -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        cx.run_until_parked();
+        if ready(cx) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "native worker did not finish"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
 #[gpui_kit::test]
 fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppContext) {
+    cx.executor().allow_parking(); // this integration uses real reader threads
     use crate::native_workspace::Store;
     use volna_core::workspace::persistence::Persistence;
     init(cx);
@@ -169,7 +186,11 @@ fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppCo
             ws.open_path(trace.clone(), cx);
         })
         .unwrap();
-    cx.run_until_parked();
+    wait_native(cx, |cx| {
+        window
+            .update(cx, |ws, _, _| ws.app.doc.is_loaded())
+            .unwrap()
+    });
     window
         .update(cx, |ws, _, cx| {
             assert!(ws.app.doc.is_loaded());
@@ -187,16 +208,139 @@ fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppCo
             ws.open_path(trace.clone(), cx);
         })
         .unwrap();
-    cx.run_until_parked();
+    wait_native(cx, |cx| {
+        window
+            .update(cx, |ws, _, _| ws.app.doc.is_loaded())
+            .unwrap()
+    });
+    window
+        .update(cx, |ws, _, _| {
+            let ids: Vec<_> = ws.app.panels.iter().map(|panel| panel.id).collect();
+            for id in ids {
+                ws.app.layout_waves(
+                    id,
+                    volna_core::geometry::Rect::from_xywh(0.0, 0.0, 900.0, 300.0),
+                    &volna_core::Theme::one_dark(),
+                );
+            }
+            ws.wake_queries();
+        })
+        .unwrap();
+    wait_native(cx, |cx| {
+        window
+            .update(cx, |ws, _, _| {
+                assert!(
+                    ws.queries.is_some(),
+                    "query host missing: {:?}",
+                    ws.app.workspace.notices
+                );
+                assert!(
+                    ws.app.workspace.notices.is_empty(),
+                    "{:?}",
+                    ws.app.workspace.notices
+                );
+                ws.app.panels.iter().all(|panel| {
+                    panel.kind.waves().unwrap().items.iter().all(|row| {
+                        assert!(row.error.is_none(), "{:?}", row.error);
+                        row.query.is_some()
+                    })
+                })
+            })
+            .unwrap()
+    });
     window
         .update(cx, |ws, _, _| {
             assert_eq!(ws.app.panels.len(), 2);
             for panel in ws.app.panels.iter() {
                 let waves = panel.kind.waves().unwrap();
                 assert_eq!(waves.items.len(), 2);
-                assert_eq!(waves.loaded_count(), 2);
+                assert!(
+                    waves
+                        .items
+                        .iter()
+                        .all(|row| row.query.is_some() && row.history.is_none())
+                );
             }
             assert!(!ws.app.workspace.scheduler.dirty());
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn native_queries_wake_from_idle_for_new_rows_and_viewports(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    init(cx);
+    let window = cx.add_window(Workspace::new);
+    window
+        .update(cx, |ws, _, cx| {
+            ws.open_path(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/picorv32.vtr"),
+                cx,
+            )
+        })
+        .unwrap();
+    wait_native(cx, |cx| {
+        window
+            .update(cx, |ws, _, _| ws.app.doc.is_loaded())
+            .unwrap()
+    });
+    cx.run_until_parked(); // controller is idle before the user adds a row
+    window
+        .update(cx, |ws, _, cx| {
+            assert!(ws.app.doc.query_snapshot().is_some());
+            ws.dispatch(Command::AddVars(vec![0]), None, cx);
+            ws.app.layout_waves(
+                ws.app.panels.focused_id(),
+                volna_core::geometry::Rect::from_xywh(0.0, 0.0, 900.0, 300.0),
+                &volna_core::Theme::one_dark(),
+            );
+            ws.wake_queries();
+        })
+        .unwrap();
+    wait_native(cx, |cx| {
+        window
+            .update(cx, |ws, _, _| {
+                ws.app.panels.focused_waves().unwrap().items[0]
+                    .query
+                    .is_some()
+            })
+            .unwrap()
+    });
+    let old = window
+        .update(cx, |ws, _, _| {
+            let old = ws.app.panels.focused_waves().unwrap().items[0]
+                .query
+                .as_ref()
+                .unwrap()
+                .demand();
+            ws.app.doc.shared.viewport.set(volna_core::wave::Viewport {
+                start: 0.0,
+                end: 100.0,
+            });
+            ws.wake_queries();
+            old
+        })
+        .unwrap();
+    wait_native(cx, |cx| {
+        window
+            .update(cx, |ws, _, _| {
+                ws.app.panels.focused_waves().unwrap().items[0]
+                    .query
+                    .as_ref()
+                    .is_some_and(|data| data.demand() != old)
+            })
+            .unwrap()
+    });
+    window
+        .update(cx, |ws, _, cx| {
+            assert!(
+                ws.app.panels.focused_waves().unwrap().items[0]
+                    .history
+                    .is_none()
+            );
+            ws.dispatch(Command::CloseTrace, None, cx);
+            assert!(ws.queries.is_none());
+            assert!(ws.app.doc.query_snapshot().is_none());
         })
         .unwrap();
 }

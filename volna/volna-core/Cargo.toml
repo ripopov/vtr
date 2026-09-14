@@ -27,3 +27,6 @@ serde_json = { version = "1", features = ["raw_value"] }
 futures-lite = "2"
 vtr-query = { path = "../../core/vtr-query", features = ["native-engine"] }
 tempfile = "3"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+vtr-query = { path = "../../core/vtr-query", features = ["native-engine"] }
