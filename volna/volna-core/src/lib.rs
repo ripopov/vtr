@@ -20,6 +20,7 @@ pub mod document;
 pub mod geometry;
 pub mod icons;
 pub mod panels;
+mod query_metadata;
 pub mod query_view;
 pub mod scene;
 pub mod selection;

@@ -467,6 +467,15 @@ impl Workspace {
         let selected = match &self.sidebar.selected_scope {
             Some(path) => match h.find_scope(path) {
                 Lookup::Found(id) => Some(id),
+                Lookup::Missing
+                    if path.is_empty()
+                        && matches!(h, crate::data::browser::BrowserHierarchy::Paged(_)) =>
+                {
+                    // The empty path selects declarations at the trace root.
+                    // A paged browser has no synthetic scope ID for that row.
+                    scopes.unresolved_selected = Some(path.clone());
+                    None
+                }
                 other => {
                     report.push(format!("{other:?} selected scope: {path:?}"));
                     scopes.unresolved_selected = Some(path.clone());
@@ -480,6 +489,12 @@ impl Workspace {
             match h.find_scope(path) {
                 Lookup::Found(id) => {
                     expanded.insert(id);
+                }
+                Lookup::Missing
+                    if path.is_empty()
+                        && matches!(h, crate::data::browser::BrowserHierarchy::Paged(_)) =>
+                {
+                    scopes.unresolved_expanded.push(path.clone());
                 }
                 other => {
                     report.push(format!("{other:?} expanded scope: {path:?}"));

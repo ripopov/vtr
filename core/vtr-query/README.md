@@ -116,6 +116,9 @@ attribute/enum counts without cloning detail collections. Large names, or names
 that do not fit the current page budget, use explicit snapshot-local string
 references. `text_part` retrieves byte ranges; ranges may split UTF-8 and must
 be assembled before text decoding.
+Alias declaration types remain raw. VTR's writer and hierarchy decoder require
+aliases to preserve whether the canonical signal is an event, so an event alias
+has event semantics in both resident and paged metadata without an extra field.
 
 `Search` matches Unicode scalar lowercase expansions without normalization,
 preserves declaration order and has no hidden result-count cutoff. It retains a
@@ -210,3 +213,8 @@ An `AsyncSession` scheduler registers its progress waker before attempting work.
 Native delivery-credit reclamation and worker-side releases wake that scheduler;
 RPC replies and shutdown do the same. This permits admission backpressure to
 sleep even when no query future is pending, without periodic polling.
+
+Wire validation distinguishes a signal's value domain from its bit packing.
+Bit values of the same width may use different two-, four- or nine-state
+packing across changes and defaults; each payload is validated and preserved
+without repacking. Width changes and bit/real/byte domain changes are rejected.

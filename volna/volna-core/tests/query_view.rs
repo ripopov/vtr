@@ -195,3 +195,380 @@ fn restoring_rows_keeps_the_query_session_and_reinstalls_render_data() {
             .all(|row| row.query.is_some() && row.history.is_none())
     );
 }
+
+#[test]
+fn query_document_loads_sidebar_and_waves_through_one_scheduler() {
+    let (_dir, _resident_app, session) = fixture();
+    let budget = Budget::new(1 << 20);
+    let mut app = App::new();
+    app.set_query_document("view.vtr".into(), session.info(), 16, &budget)
+        .unwrap();
+    let mut view = QueryView::attach(&mut app, session, limits(), 16, 8, &budget).unwrap();
+    assert!(app.variables.rows.is_empty());
+    drain(&mut view, &mut app);
+    assert!(
+        app.doc
+            .query_hierarchy()
+            .unwrap()
+            .state(None)
+            .unwrap()
+            .complete
+    );
+    assert_eq!(app.variables.rows.len(), 3);
+    assert!(app.variables.complete);
+    app.handle(Command::AddAllVars);
+    assert!(app.take_requests().is_empty());
+    layout(&mut app, &Theme::one_dark());
+    drain(&mut view, &mut app);
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.query.is_some() && row.history.is_none())
+    );
+    app.doc.close();
+    drain(&mut view, &mut app);
+    assert!(view.is_closed());
+}
+
+#[test]
+fn metadata_capacity_failure_keeps_accepted_pages_and_stops_refetching() {
+    let (_dir, _resident_app, session) = fixture();
+    let budget = Budget::new(1 << 20);
+    let mut app = App::new();
+    app.set_query_document("view.vtr".into(), session.info(), 2, &budget)
+        .unwrap();
+    let mut view = QueryView::attach(&mut app, session, limits(), 16, 8, &budget).unwrap();
+    futures_lite::future::block_on(async {
+        for _ in 0..1000 {
+            match futures_lite::future::poll_fn(|cx| view.poll(&mut app, cx)).await {
+                Err(vtr_query::Error::ResourceLimit) => return,
+                Err(error) => panic!("unexpected error: {error}"),
+                Ok(_) => futures_lite::future::yield_now().await,
+            }
+        }
+        panic!("metadata capacity failure was not reported");
+    });
+    assert_eq!(app.doc.query_hierarchy().unwrap().len(), 2);
+    assert!(!app.variables.complete);
+    drain(&mut view, &mut app);
+    assert_eq!(app.doc.query_hierarchy().unwrap().len(), 2);
+}
+
+#[test]
+fn scheduler_fetches_referenced_scope_and_alias_names_in_bounded_parts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("names.vtr");
+    let scope_name = "scope界".repeat(1200);
+    let signal_name = "signalλ".repeat(1200);
+    let mut writer = vtr::Writer::create(&path).unwrap();
+    let root = writer.begin_scope(&scope_name, vtr::ScopeType::Module, "");
+    let (_, signal) = writer.add_bits(&signal_name, 32, 4);
+    writer
+        .add_alias(
+            &signal_name,
+            vtr::VarType::Wire,
+            vtr::Direction::Input,
+            signal,
+        )
+        .unwrap();
+    writer.end_scope().unwrap();
+    writer.close().unwrap();
+    let session =
+        futures_lite::future::block_on(LocalSession::open(path, Budget::new(16 << 20), 2).unwrap())
+            .unwrap();
+    let budget = Budget::new(1 << 20);
+    let mut app = App::new();
+    app.set_query_document("names.vtr".into(), session.info(), 8, &budget)
+        .unwrap();
+    let mut view = QueryView::attach(
+        &mut app,
+        session,
+        Limits {
+            bytes: 1024,
+            records: 1,
+            work: 4,
+        },
+        16,
+        8,
+        &budget,
+    )
+    .unwrap();
+    drain(&mut view, &mut app);
+    assert_eq!(app.scopes.selected, Some(root.0 as usize));
+    let hierarchy = app.doc.browser_hierarchy().unwrap();
+    assert_eq!(
+        hierarchy.scope(root.0 as usize).unwrap().name,
+        Some(scope_name.as_str())
+    );
+    assert_eq!(app.variables.rows.len(), 2);
+    assert!(app.variables.complete);
+    for &var in &app.variables.rows {
+        assert_eq!(
+            hierarchy.variable(var).unwrap().name,
+            Some(signal_name.as_str())
+        );
+    }
+    app.handle(Command::AddAllVars);
+    let waves = app.panels.focused_waves().unwrap();
+    assert_eq!(waves.items.len(), 2);
+    assert_eq!(waves.items[0].name, signal_name);
+    assert_eq!(waves.items[0].scope, scope_name);
+    assert_eq!(
+        waves.items[0].source.signal(),
+        waves.items[1].source.signal()
+    );
+    volna_core::workspace::Workspace::capture(&app, "names.vtr".into(), None).unwrap();
+    drop(view);
+    drop(app);
+    assert_eq!(
+        budget.used(),
+        0,
+        "name assembly and cached names release client admission"
+    );
+}
+
+#[test]
+fn restored_paths_demand_collapsed_ancestors_without_loading_unrelated_subtrees() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("deep.vtr");
+    let mut writer = vtr::Writer::create(&path).unwrap();
+    writer.begin_scope("root", vtr::ScopeType::Module, "");
+    let mut selected = None;
+    for level in 1..6 {
+        let name = if level == 3 {
+            "literal.long.scope".repeat(100)
+        } else {
+            format!("level{level}")
+        };
+        selected = Some(writer.begin_scope(&name, vtr::ScopeType::Module, ""));
+    }
+    let (_, signal) = writer.add_bits("wanted", 32, 4);
+    for _ in 1..6 {
+        writer.end_scope().unwrap();
+    }
+    let unrelated = writer.begin_scope("unrelated", vtr::ScopeType::Module, "");
+    writer.begin_scope("hidden", vtr::ScopeType::Module, "");
+    writer.add_bits("not_requested", 1, 2);
+    for _ in 0..3 {
+        writer.end_scope().unwrap();
+    }
+    writer.close().unwrap();
+    let mut original = App::new();
+    original.set_session(Arc::new(
+        volna_core::session::LocalSession::open(&path).unwrap(),
+    ));
+    original.handle(Command::AddVars(vec![0]));
+    original.handle(Command::ExpandAllScopes(false));
+    original.handle(Command::ToggleScope(0));
+    original.handle(Command::SelectScope(5));
+    let saved =
+        volna_core::workspace::Workspace::capture(&original, "deep.vtr".into(), None).unwrap();
+    let session =
+        futures_lite::future::block_on(LocalSession::open(path, Budget::new(16 << 20), 2).unwrap())
+            .unwrap();
+    let budget = Budget::new(1 << 20);
+    let mut app = App::new();
+    app.set_query_document("deep.vtr".into(), session.info(), 32, &budget)
+        .unwrap();
+    saved
+        .prepare(
+            &app,
+            "file:///tmp/deep.vtr",
+            "file:///tmp/deep.vtr.volna.json",
+        )
+        .unwrap()
+        .commit(&mut app)
+        .unwrap();
+    let mut view = QueryView::attach(
+        &mut app,
+        session,
+        Limits {
+            bytes: 1024,
+            records: 1,
+            work: 4,
+        },
+        16,
+        8,
+        &budget,
+    )
+    .unwrap();
+    drain(&mut view, &mut app);
+    let row = &app.panels.focused_waves().unwrap().items[0];
+    assert_eq!(row.source.signal().unwrap().0, signal.0);
+    assert_eq!(row.name, "wanted");
+    assert_eq!(app.scopes.selected, Some(selected.unwrap().0 as usize));
+    assert!(
+        app.doc
+            .query_hierarchy()
+            .unwrap()
+            .state(Some(unrelated.0))
+            .is_none()
+    );
+    assert!(app.variables.complete);
+    assert!(app.take_requests().is_empty());
+}
+
+#[test]
+fn root_variable_paths_round_trip_between_native_and_query_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("roots.vtr");
+    let mut writer = vtr::Writer::create(&path).unwrap();
+    writer.begin_scope("(top)", vtr::ScopeType::Module, "");
+    let (_, inside) = writer.add_bits("same", 1, 2);
+    writer.end_scope().unwrap();
+    let (_, outside) = writer.add_bits("same", 1, 2);
+    writer
+        .add_alias("same", vtr::VarType::Wire, vtr::Direction::Input, outside)
+        .unwrap();
+    writer.close().unwrap();
+    let mut native = App::new();
+    native.set_session(Arc::new(
+        volna_core::session::LocalSession::open(&path).unwrap(),
+    ));
+    let h = native.doc.hierarchy().unwrap();
+    assert_eq!(h.var_path(0).0, ["(top)", "same"]);
+    assert_eq!(h.var_path(1), (vec!["same".into()], Some(0)));
+    assert_eq!(h.var_path(2), (vec!["same".into()], Some(1)));
+    native.handle(Command::AddVars(vec![1, 0, 2]));
+    native.handle(Command::SelectScope(1));
+    let saved =
+        volna_core::workspace::Workspace::capture(&native, "roots.vtr".into(), None).unwrap();
+    let session =
+        futures_lite::future::block_on(LocalSession::open(path, Budget::new(16 << 20), 2).unwrap())
+            .unwrap();
+    let budget = Budget::new(1 << 20);
+    let mut app = App::new();
+    app.set_query_document("roots.vtr".into(), session.info(), 16, &budget)
+        .unwrap();
+    saved
+        .prepare(
+            &app,
+            "file:///tmp/roots.vtr",
+            "file:///tmp/roots.vtr.volna.json",
+        )
+        .unwrap()
+        .commit(&mut app)
+        .unwrap();
+    let mut view = QueryView::attach(&mut app, session, limits(), 16, 8, &budget).unwrap();
+    drain(&mut view, &mut app);
+    let signals: Vec<_> = app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .items
+        .iter()
+        .map(|row| row.source.signal().unwrap().0)
+        .collect();
+    assert_eq!(signals, [outside.0, inside.0, outside.0]);
+    let saved = volna_core::workspace::Workspace::capture(&app, "roots.vtr".into(), None).unwrap();
+    saved
+        .prepare(
+            &native,
+            "file:///tmp/roots.vtr",
+            "file:///tmp/roots.vtr.volna.json",
+        )
+        .unwrap()
+        .commit(&mut native)
+        .unwrap();
+    assert_eq!(
+        native
+            .panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .map(|row| row.source.signal().unwrap().0)
+            .collect::<Vec<_>>(),
+        signals
+    );
+    assert_eq!(native.scopes.selected, Some(1));
+}
+
+#[test]
+fn permitted_aliases_keep_native_and_query_shapes_identical() {
+    use volna_core::data::SignalShape;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("aliases.vtr");
+    let mut writer = vtr::Writer::create(&path).unwrap();
+    let (_, event) = writer.add_var(
+        "event",
+        vtr::VarType::Event,
+        vtr::Direction::Implicit,
+        vtr::SignalKind::Bits {
+            width: 1,
+            states: 2,
+        },
+    );
+    assert!(
+        writer
+            .add_alias("invalid", vtr::VarType::Wire, vtr::Direction::Input, event)
+            .is_err()
+    );
+    writer
+        .add_alias(
+            "event_alias",
+            vtr::VarType::Event,
+            vtr::Direction::Input,
+            event,
+        )
+        .unwrap();
+    let (_, held) = writer.add_bits("held", 1, 2);
+    assert!(
+        writer
+            .add_alias("invalid", vtr::VarType::Event, vtr::Direction::Input, held)
+            .is_err()
+    );
+    writer
+        .add_alias("reg_alias", vtr::VarType::Reg, vtr::Direction::Input, held)
+        .unwrap();
+    writer.close().unwrap();
+    let mut native = App::new();
+    native.set_session(Arc::new(
+        volna_core::session::LocalSession::open(&path).unwrap(),
+    ));
+    native.handle(Command::AddVars(vec![0, 1, 2, 3]));
+    let expected: Vec<_> = native
+        .panels
+        .focused_waves()
+        .unwrap()
+        .items
+        .iter()
+        .map(|row| row.shape)
+        .collect();
+    assert_eq!(
+        expected,
+        [
+            SignalShape::Event,
+            SignalShape::Event,
+            SignalShape::Bit,
+            SignalShape::Bit
+        ]
+    );
+    let session =
+        futures_lite::future::block_on(LocalSession::open(path, Budget::new(16 << 20), 2).unwrap())
+            .unwrap();
+    let budget = Budget::new(1 << 20);
+    let mut app = App::new();
+    app.set_query_document("aliases.vtr".into(), session.info(), 16, &budget)
+        .unwrap();
+    let mut view = QueryView::attach(&mut app, session, limits(), 16, 8, &budget).unwrap();
+    drain(&mut view, &mut app);
+    let node = app.doc.query_hierarchy().unwrap().declaration(3).unwrap();
+    assert!(
+        matches!(node.data, vtr_query::metadata::DeclarationData::Variable { type_code, alias: true, .. } if type_code == vtr::VarType::Reg.code())
+    );
+    app.handle(Command::AddAllVars);
+    assert_eq!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .map(|row| row.shape)
+            .collect::<Vec<_>>(),
+        expected
+    );
+}

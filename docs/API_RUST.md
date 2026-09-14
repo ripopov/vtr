@@ -20,7 +20,7 @@ correlation and cross-page validation, exposing the matching future-based
 `RpcSession` on native test hosts and WASM. Both implement `session::AsyncSession`.
 `summary::WaveBin::sample_at` returns a held sample only where the complete bin
 proves its value; ambiguous interiors, events and uncovered times return `None`.
-Native GPUI VTR opening uses this API for summary rows; FST and WASM runtime
+Native GPUI and VS Code VTR opening use this API for summary rows; FST query
 adoption and exact cursor/edge queries remain incomplete.
 It does not change the reader operations documented here or their C projection.
 

@@ -281,7 +281,6 @@ impl Element for WaveTable {
             rects.extend(layout.badges.iter().map(|(_, b)| *b));
             rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
             let row_h = layout.row_h;
-            #[cfg(not(target_family = "wasm"))]
             ws.wake_queries();
             (rects, row_h)
         });

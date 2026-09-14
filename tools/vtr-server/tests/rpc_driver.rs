@@ -181,6 +181,14 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
     remote_app.handle(volna_core::Command::SetFilter("λλ".into()));
     assert!(remote_app.variables.rows.is_empty());
     assert!(!remote_app.variables.complete);
+    remote_app.handle(volna_core::Command::AddVars(vec![0]));
+    assert_eq!(
+        remote_app.panels.focused_waves().unwrap().items[0].name,
+        "Loading…"
+    );
+    assert!(
+        volna_core::workspace::Workspace::capture(&remote_app, "rpc.vtr".into(), None).is_err()
+    );
     let (id, bytes) = text.expect("large name reference");
     assert_eq!(bytes, name.len() as u64);
     let part = host
@@ -237,7 +245,7 @@ fn rpc_client_and_native_child_agree_on_every_current_query_family() {
     remote_app.refresh_query_metadata();
     assert_eq!(remote_app.variables.rows.len(), 1);
     assert!(remote_app.variables.complete);
-    remote_app.handle(volna_core::Command::AddVars(vec![0]));
+    assert_eq!(remote_app.panels.focused_waves().unwrap().items.len(), 1);
     assert_eq!(
         remote_app.panels.focused_waves().unwrap().items[0].name,
         name

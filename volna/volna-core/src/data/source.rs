@@ -38,6 +38,8 @@ pub enum Direction {
 
 #[derive(Clone, Debug)]
 pub struct Scope {
+    /// UI-only grouping for declarations without a source scope.
+    pub synthetic: bool,
     pub name: String,
     /// Scope kind name (`module`, `task`, ...), used for the icon.
     pub kind: String,
@@ -68,15 +70,21 @@ impl Hierarchy {
     /// Resolve literal path segments, including dots and escaped HDL names.
     /// Every scope along the path must be unambiguous.
     pub fn find_scope(&self, path: &[impl AsRef<str>]) -> Lookup<ScopeId> {
+        if path.is_empty() {
+            return unique(
+                self.roots
+                    .iter()
+                    .copied()
+                    .filter(|&id| self.scopes[id].synthetic),
+            );
+        }
         let mut children = &self.roots;
         let mut result = Lookup::Missing;
         for name in path {
-            result = unique(
-                children
-                    .iter()
-                    .copied()
-                    .filter(|&id| self.scopes[id].name == name.as_ref()),
-            );
+            result =
+                unique(children.iter().copied().filter(|&id| {
+                    !self.scopes[id].synthetic && self.scopes[id].name == name.as_ref()
+                }));
             match result {
                 Lookup::Found(id) => children = &self.scopes[id].children,
                 _ => return result,
@@ -129,6 +137,9 @@ impl Hierarchy {
     }
 
     pub fn scope_path(&self, mut id: ScopeId) -> Vec<&str> {
+        if self.scopes[id].synthetic {
+            return Vec::new();
+        }
         let mut parts = vec![self.scopes[id].name.as_str()];
         while let Some(p) = self.scopes[id].parent {
             parts.push(self.scopes[p].name.as_str());

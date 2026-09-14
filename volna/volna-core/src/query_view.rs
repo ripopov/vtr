@@ -24,6 +24,7 @@ struct Binding {
 }
 
 pub struct QueryView<S: AsyncSession> {
+    metadata: crate::query_metadata::MetadataQueries<S::Task>,
     demands: Option<WaveDemands<S>>,
     generation: u64,
     snapshot: SnapshotId,
@@ -78,6 +79,7 @@ impl<S: AsyncSession> QueryView<S> {
             ));
         }
         Ok(Self {
+            metadata: crate::query_metadata::MetadataQueries::new(limits, budget),
             demands: Some(demands),
             generation,
             snapshot,
@@ -171,6 +173,7 @@ impl<S: AsyncSession> QueryView<S> {
     pub fn poll(&mut self, app: &mut App, cx: &mut Context<'_>) -> Poll<Result<Progress>> {
         if app.doc.query_snapshot() != Some(self.snapshot) {
             self.demands = None; // a different recording closes the old worker
+            self.metadata.stop();
         } else if self.generation != app.doc.generation() {
             // A workspace restore changes row identity without changing the trace.
             self.generation = app.doc.generation();
@@ -185,6 +188,7 @@ impl<S: AsyncSession> QueryView<S> {
             return Poll::Ready(Err(error));
         }
         let demands = self.demands.as_mut().unwrap();
+        let metadata = self.metadata.poll(demands.session(), app, cx);
         let progress = demands.poll(cx);
         let mut changed = false;
         for (slot, binding) in self.bindings.iter_mut().enumerate() {
@@ -222,6 +226,16 @@ impl<S: AsyncSession> QueryView<S> {
         if changed {
             app.changed();
         }
-        progress.map(Ok)
+        match metadata {
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Ready(Ok(Progress::Advanced)) => Poll::Ready(Ok(Progress::Advanced)),
+            Poll::Pending if !matches!(progress, Poll::Ready(Progress::Advanced)) => Poll::Pending,
+            Poll::Ready(Ok(Progress::Backpressure))
+                if matches!(progress, Poll::Ready(Progress::Idle)) =>
+            {
+                Poll::Ready(Ok(Progress::Backpressure))
+            }
+            _ => progress.map(Ok),
+        }
     }
 }

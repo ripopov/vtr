@@ -98,8 +98,9 @@ pub(crate) struct TextKey {
 
 pub struct Workspace {
     pub app: CoreApp,
-    #[cfg(not(target_family = "wasm"))]
-    pub(crate) queries: Option<crate::native_query::Host>,
+    #[cfg(target_family = "wasm")]
+    pub(crate) web_relay: Option<crate::web_rpc::Host>,
+    pub(crate) queries: Option<crate::query_host::Host>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) native_store: Option<crate::native_workspace::Store>,
     pub(crate) dock: Option<crate::dock::DockHost>,
@@ -298,8 +299,9 @@ impl Workspace {
         window.focus(&waves_focus, cx);
         Workspace {
             app: CoreApp::new(),
-            #[cfg(not(target_family = "wasm"))]
             queries: None,
+            #[cfg(target_family = "wasm")]
+            web_relay: None,
             #[cfg(not(target_family = "wasm"))]
             native_store: None,
             dock: None,
@@ -414,8 +416,11 @@ impl Workspace {
         self.sync_format_menu(window, cx);
         self.sync_filter(cx);
         self.run_requests(cx);
-        #[cfg(not(target_family = "wasm"))]
         self.wake_queries();
+        #[cfg(target_family = "wasm")]
+        if let Some(relay) = &self.web_relay {
+            relay.wake();
+        }
     }
 
     /// Perform queued loads on the background executor and deliver the results.
@@ -424,7 +429,7 @@ impl Workspace {
             cx.spawn(async move |this, cx| {
                 let result = cx.background_spawn(async move { request.perform() }).await;
                 #[cfg(not(target_family = "wasm"))]
-                let (result, queries) = crate::native_query::prepare(result).await;
+                let (result, queries) = crate::query_host::prepare(result).await;
                 this.update(cx, |this, cx| {
                     #[cfg(not(target_family = "wasm"))]
                     let generation = this.app.doc.generation();

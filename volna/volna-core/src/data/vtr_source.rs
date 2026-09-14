@@ -91,6 +91,7 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
             NodeData::Scope { scope_type, .. } => {
                 let sid = out.scopes.len();
                 out.scopes.push(Scope {
+                    synthetic: false,
                     name: reader.str(node.name).to_string(),
                     kind: scope_type.name().to_string(),
                     parent: parent_scope,
@@ -141,11 +142,12 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
 }
 
 fn root_scope(h: &mut Hierarchy) -> usize {
-    if let Some(&r) = h.roots.iter().find(|&&r| h.scopes[r].name == "(top)") {
+    if let Some(&r) = h.roots.iter().find(|&&r| h.scopes[r].synthetic) {
         return r;
     }
     let sid = h.scopes.len();
     h.scopes.push(Scope {
+        synthetic: true,
         name: "(top)".into(),
         kind: "module".into(),
         parent: None,

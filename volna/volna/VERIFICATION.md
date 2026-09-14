@@ -28,7 +28,7 @@ cargo test --locked -p volna-core --test fst
 cargo test --locked -p volna-core --test transactions
 cargo test --locked -p volna --all-features
 cargo test --locked -p volna-egui --test screenshots
-node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs volna/volna/vscode-ext/relay.test.cjs
+node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs volna/volna/vscode-ext/relay.test.cjs volna/volna/vscode-ext/query-host.test.cjs
 cargo build --locked -p vtr-server
 # Use the Cargo target directory if CARGO_TARGET_DIR overrides ./target.
 VTR_SERVER="$PWD/target/debug/vtr-server" node --test volna/volna/vscode-ext/relay-server.test.cjs
@@ -39,13 +39,13 @@ VTR_SERVER="$PWD/target/debug/vtr-server" node --test volna/volna/vscode-ext/rel
 | Bounded-query foundation | Exact maximum-time endpoints, canonical grids across pans, half-open transaction/point boundaries, concurrent allocation admission and shared pins, fragmented/coalesced stdio frames, truncation, invalid lengths and terminal parser failures, exact/cold-summary and metadata pages, codec conformance and shared native delivery; this does not verify a live relay |
 | Query worker and stdio child | Asynchronous opening, nonblocking future polling/drop, cancellation and abandoned-result cleanup, fixed delivery credit; real child handshake, paging/retries, release, operation limits, stale snapshots, malformed/version errors, EOF and close |
 | RPC client | Prepaid reply capacity, transmission-order request IDs, priority cancellation, late/replaced-host replies, cross-page coverage, shared retries, control saturation, reentrant consumer wakeups and idle transport wakeups; production client versus real child across all current query families, plus the core multi-row demand scheduler and display list through that same RPC path |
-| Extension relay module | Opaque exact ArrayBuffers, fragmented/coalesced frames, byte/slot admission, explicit consumption acknowledgement, stdin backpressure, hidden views, stale incarnations, truncated/unread output, shutdown escalation and a real native child handshake/error exchange. The module is not yet wired to the viewer; these are Node transport tests, not VS Code end-to-end verification. |
+| Extension relay module | Opaque exact ArrayBuffers, fragmented/coalesced frames, byte/slot admission, explicit consumption acknowledgement, stdin backpressure, hidden views, stale incarnations, truncated/unread output, shutdown escalation and a real native child handshake/error exchange. The editor query host also verifies single-child reload/disposal, stale incarnations and workspace metadata opening without reading trace bytes. The WASM RPC bridge is connected for VTR; these are Node host/transport tests, not proof of complete VS Code end-to-end behavior. |
 | Summary demand | Real native worker pages reach the core summary renderer; superseded delayed completions are drained, only the latest intent runs, repeated navigation releases operation capacity, failed intents can be retried or replaced, eight rows share a bounded operation pool, and identical demands share partial and complete bins. Row removal preserves the shared session; changing signals clears incompatible bins. Query snapshots connect it to the row model/painter; native GPUI VTR opening uses this path; other hosts still need adoption. |
 | Query-backed rows | Native/RPC snapshots render in the existing panel/value-column painter, document generations and dataset IDs gate installation, late full-history results do not replace query data, partial exact snapshots remain immutable, and fractional/overscrolled projections stay aligned. Native GPUI restore tests verify query rows without full histories and preserve the worker across workspace restoration. |
 | Query cursor values | Exact and summary lookup through native/RPC demand slots, ambiguous-bin rejection, raw nine-state/byte/IEEE preservation, VTR defaults, invalid packing and expanded display-size admission. |
 | Incremental hierarchy | Native and real RPC children pages retain raw identities, aliases and referenced names; unloaded descendants stay unloaded. Missing parents, skipped continuations, foreign snapshots and capacity refusal preserve accepted state. Referenced text assembles across UTF-8 boundaries under a byte cap. The shared sidebar models consume these stores, preserve identity across late page insertion, keep unloaded scopes expandable and distinguish partial search results. Runtime sidebar loading remains to be connected. |
-| Exact coverage/rendering | Native and RPC pages assemble into the same bounded window; repeated timestamps spanning pages remain unproven until the boundary completes, rejected/foreign pages preserve the prefix, retries do not duplicate changes, and event/max-time rendering preserves raw semantics. The shared demand scheduler runs exact and summary rows, including representation switches, exact cancellation, duplicate consumers and bounded retries. Immutable query results also render through the existing row painter; native GPUI uses summary demand; exact runtime demand and remote adoption remain pending. |
-| Summary rendering | Raw-bin display lists preserve aggregate identity when zoomed, leave coverage gaps unpainted, distinguish repeated event occurrences and project maximum-time single ticks. This renderer is used by query-backed row snapshots; native GPUI VTR opening uses summary rows; FST and WASM still use full histories. |
+| Exact coverage/rendering | Native and RPC pages assemble into the same bounded window; repeated timestamps spanning pages remain unproven until the boundary completes, rejected/foreign pages preserve the prefix, retries do not duplicate changes, and event/max-time rendering preserves raw semantics. The shared demand scheduler runs exact and summary rows, including representation switches, exact cancellation, duplicate consumers and bounded retries. Immutable query results also render through the existing row painter; native GPUI uses summary demand; exact runtime demand and full remote deployment verification remain pending. |
+| Summary rendering | Raw-bin display lists preserve aggregate identity when zoomed, leave coverage gaps unpainted, distinguish repeated event occurrences and project maximum-time single ticks. This renderer is used by query-backed row snapshots; native GPUI and VS Code VTR opening use summary rows; FST and standalone browser file loading still use full histories. |
 | Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry, and duplicate/alias rows share histories |
 | Panel model | Literal hierarchy paths and duplicate-name ambiguity; split/close/focus/layout validation; 5,000 generated command sequences; shared and independent navigation; cross-panel load reuse and stale pointer rejection |
 | Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, format menu, sidebar filtering/keys, layout hit regions and repaint coalescing |
@@ -183,3 +183,24 @@ store owned values and can use substantially more memory than the compressed
 file. Batched queries and viewport-sized drawing do not establish bounded
 loading memory or remote-file support. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the query and rendering boundaries.
+
+## VS Code relay smoke check
+
+Build with `volna/volna/web/build.sh`, then launch an isolated development host:
+
+```sh
+code --user-data-dir /tmp/volna-vscode-check --extensions-dir /tmp/volna-vscode-extensions --extensionDevelopmentPath "$PWD/volna/volna/vscode-ext" --new-window
+```
+
+Open a copy of `volna/volna/examples/counter.vtr` with **Volna Waveform Viewer**.
+The hierarchy must appear without input needed to wake the handshake. Select
+`tb`, add all four listed variables, place the cursor and zoom with `=`. Verify
+waveforms and cursor values remain visible as the viewport changes. Closing the
+editor must retire its native child. Use a copied trace and disable autosave in
+this test profile if workspace persistence is not being tested.
+
+Developer Tools can inspect the webview canvas, console errors and exported
+`debug_state()` output from its WASM module. Launching a child alone does not
+prove the viewer opened the recording; confirm loaded rows and visible waveform
+geometry. This local smoke check does not replace SSH/container/tunnel tests or
+the latency and memory gates in the client-server proposal.

@@ -233,7 +233,21 @@ Legacy FST, synthetic and WASM history loading retains all changes for selected
 signals and does not meet the remote-file objective. `vtr-query` provides exact windows,
 raw summary bins, metadata pages, asynchronous native/RPC sessions and bounded
 Protobuf codecs. `vtr-server` hosts these over stdio; the extension's tested
-relay module has not yet been connected to the WASM viewer.
+relay is wired to an editor query host selected by a `ready` message with
+`transport: rpc`. That host passes workspace candidates separately from the
+trace, serializes child replacement and forwards opaque packets. The WASM
+message bridge selects this path for VTR resources; FST retains byte loading.
+The GPUI query executor accepts the native local session or WASM RPC session
+through the same controller. Its Rust relay transport retains one outbound
+packet until write acknowledgement, validates courier reply order and ignores
+stale webview incarnations. These transport rules have native unit coverage;
+full VS Code runtime verification remains required. Core `open_query_resource` admits
+metadata before queuing the resource transition, waits for an outstanding
+workspace save, and requests workspace candidates only after installing the
+matching query snapshot. Replacing a queued open releases its metadata storage.
+The WASM host retires sessions whose queued resource is superseded and rejects
+handshakes after the document generation changes. Failed courier sends close the
+driver and request child shutdown; the workspace reports the send failure.
 
 `volna-core::data::query_hierarchy::QueryHierarchy` retains only requested
 children pages, sharing their raw declaration and text backing. Its admitted
@@ -252,9 +266,25 @@ results. Tree flattening is iterative for deeply nested designs. Native and real
 stdio/RPC tests exercise these models. Documents own the page cache, and sidebar
 widgets borrow labels and topology through `BrowserHierarchy`. The real RPC test
 constructs the document, restores a workspace and paints rows without opening the
-trace in the UI. Incomplete workspace paths remain pending; automatic resolution
-as pages arrive, metadata demand scheduling, cache eviction and WASM host wiring
-still need integration before WASM can open without whole-file loading.
+trace in the UI. Incomplete workspace paths remain pending and resolve as pages
+and names arrive, preserving row order, formats and selection. Saved unresolved
+paths demand their first unloaded ancestor group even when that ancestor is
+collapsed; missing or ambiguous prefixes do not trigger unrelated subtree loads.
+Native synthetic root groups are explicitly marked and omitted from durable
+signal paths. An unscoped variable uses a single name segment; an empty sidebar
+scope path selects root declarations. A real scope named `(top)` remains a
+distinct source scope, so its variables cannot capture unscoped aliases.
+`QueryView` shares
+its session with a single child-page operation, loading roots and selected or
+expanded scopes. Each poll admits at most one page; completed operations release
+their server capacity before another starts. A retained-page capacity error keeps
+the accepted prefix and stops metadata loading instead of refetching in a loop.
+Referenced names in retained declarations are assembled one at a time after
+child-page demand settles. Each text request transfers at most 4 KiB and is
+released before the next part; assembly reserves the complete name against the
+client budget, with a 1 MiB per-name cap. Only complete UTF-8 names become visible.
+Search and metadata eviction remain incomplete. VS Code VTR opening now uses
+these bounded metadata queries without whole-file loading.
 
 `volna-core::wave::exact::ExactWindow` assembles bounded exact pages from one
 continuation chain. It preserves repeated-time ordering, rejects excess records
@@ -278,7 +308,7 @@ limit, preserving packed logic, arbitrary bytes and IEEE bits. The scheduler rot
 including continuations and releases. A signal change clears incompatible bins;
 a pan retains valid old coverage until new pages arrive. Native worker integration
 tests exercise that path through to the display list. Canonical cache reuse
-across overlapping grids and remote host adoption are still required.
+across overlapping grids and remote deployment verification are still required.
 `WaveSnapshot` freezes admitted render data for displayed rows, sharing raw
 pages and separately accounting its reference arrays. The existing row painter
 accepts these snapshots for waveforms and cursor values. A document binds one
@@ -297,7 +327,8 @@ when replies arrive or asynchronous releases free admission capacity. Repaint
 notifications are coalesced on a 16 ms timer, so each partial page does not force
 an immediate redraw. Workspace restoration preserves the query snapshot and
 worker while changing the row generation to reject stale UI commands.
-Native FST, synthetic sessions and the WASM host still use the legacy history path.
+Native FST, synthetic sessions and standalone browser file loading still use the
+legacy history path. VS Code VTR resources use RPC summary queries.
 The native query policy currently requests summaries; exact cursor/edge queries,
 full value labels and analog rendering still need integration.
 The existing floating-point viewport is projected outward to integer coverage

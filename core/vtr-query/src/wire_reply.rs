@@ -110,6 +110,14 @@ fn value_kind(v: &Value) -> Kind {
         Value::Bytes(_) => Kind::Bytes,
     }
 }
+// State count describes each value's packing, which can change within a
+// signal (e.g. a four-state default followed by compact two-state values).
+fn same_domain(a: Kind, b: Kind) -> bool {
+    match (a, b) {
+        (Kind::Bits { width: a, .. }, Kind::Bits { width: b, .. }) => a == b,
+        _ => a == b,
+    }
+}
 fn sample_kind(s: &Sample) -> Option<Kind> {
     match s {
         Sample::Known(v) => Some(value_kind(v)),
@@ -151,7 +159,7 @@ fn change(
     charge: &Reservation,
 ) -> Result<Change> {
     let value = value(required(c.value)?, charge)?;
-    if !range.contains(c.time) || domain.is_some_and(|k| k != value_kind(&value)) {
+    if !range.contains(c.time) || domain.is_some_and(|k| !same_domain(k, value_kind(&value))) {
         return Err(invalid());
     }
     Ok(Change {
@@ -220,7 +228,11 @@ fn bin(b: p::WaveBin, expected: Interval, charge: &Reservation) -> Result<Arc<Wa
     let entry = sample(required(b.entry)?, charge)?;
     let exit = sample(required(b.exit)?, charge)?;
     let domain = sample_kind(&entry);
-    if sample_kind(&exit) != domain {
+    if match (domain, sample_kind(&exit)) {
+        (Some(a), Some(b)) => !same_domain(a, b),
+        (None, None) => false,
+        _ => true,
+    } {
         return Err(invalid());
     }
     let first = b

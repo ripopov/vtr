@@ -1,14 +1,12 @@
 // Volna VS Code extension: hosts the wasm build of the viewer in a webview.
 //
-// Two entry points:
-//  - a read-only custom editor for *.vtr and *.fst files (bytes are sent to the
-//    webview, which hands them to the wasm module), and
-//  - the "Volna: Open Waveform Viewer" command, which picks a custom editor input.
-//
-// The webview never touches the file system: the extension host reads files
-// via vscode.workspace.fs and posts the bytes over postMessage.
+// Custom editors host the viewer; the open command picks their resource.
+// A relay-capable viewer requests the native query child with transport: "rpc".
+// VTR uses the native relay; FST retains legacy byte loading. Workspace JSON
+// remains opaque in both deployments.
 const vscode = require("vscode");
 const { createWorkspaceHost } = require("./workspace");
+const { createQueryHost } = require("./query-host");
 
 function nonce() {
   let s = "";
@@ -43,16 +41,31 @@ function html(webview, extensionUri) {
 </head>
 <body>
 <script type="module" nonce="${n}">
-  import init, { open_resource, set_vscode_theme, dispatch_command, workspace_message } from "${js}";
+  import init, { open_resource, set_vscode_theme, dispatch_command, workspace_message, rpc_open, rpc_reply, rpc_written, rpc_failed } from "${js}";
   import { watchTheme } from "${themeJs}";
   const vscode = acquireVsCodeApi();
+  let incarnation;
+  window.volnaRpc = message => vscode.postMessage(message);
   window.volnaEmbedded = true;
   window.volnaOpen = () => vscode.postMessage({ type: "pickFile" });
-  window.volnaReady = () => vscode.postMessage({ type: "ready" });
+  window.volnaReady = () => vscode.postMessage({ type: "ready", transport: "rpc" });
   window.volnaWorkspace = (envelope) => vscode.postMessage(JSON.parse(envelope));
   window.addEventListener("message", (ev) => {
     const msg = ev.data;
-    if (msg && msg.type === "open") {
+    if (msg && msg.type === "rpcOpen") {
+      incarnation = msg.incarnation;
+      rpc_open(msg.name, incarnation, JSON.stringify({ traceUri: msg.traceUri, candidates: msg.candidates, settings: msg.settings }));
+    } else if (msg && msg.incarnation === incarnation && ["rpcReply", "rpcWritten", "rpcFailed", "rpcStopped"].includes(msg.type)) {
+      try {
+        if (msg.type === "rpcReply") rpc_reply(incarnation, msg.token, new Uint8Array(msg.bytes));
+        else if (msg.type === "rpcWritten") rpc_written(incarnation, msg.token);
+        else rpc_failed(incarnation);
+      } catch (error) {
+        console.error("Volna relay:", error);
+        rpc_failed(incarnation);
+        vscode.postMessage({ type: "rpcClose", incarnation });
+      }
+    } else if (msg && msg.type === "open") {
       open_resource(msg.name, new Uint8Array(msg.bytes), JSON.stringify({ traceUri: msg.traceUri, candidates: msg.candidates, settings: msg.settings }));
     } else if (msg && msg.type === "command") {
       dispatch_command(msg.name);
@@ -80,14 +93,15 @@ async function pickTrace() {
 
 function wire(panel, context, uri) {
   const webview = panel.webview;
-  const host = createWorkspaceHost(vscode, context, panel, uri);
-  panel.onDidChangeViewState(() => { if (!panel.visible) host.hidden(); });
-  panel.onDidDispose(() => host.dispose());
+  const queries = createQueryHost(context, panel, uri);
+  const host = createWorkspaceHost(vscode, context, panel, uri, { openQuery: queries.open });
+  panel.onDidChangeViewState(() => { queries.visibility(); if (!panel.visible) host.hidden(); });
+  panel.onDidDispose(() => { host.dispose(); void queries.dispose(); });
   webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")] };
   webview.onDidReceiveMessage(async (msg) => {
     try {
       if (msg.type === "pickFile") await pickTrace();
-      else await host.receive(msg);
+      else if (!queries.receive(msg)) await host.receive(msg);
     } catch (error) {
       vscode.window.showErrorMessage(`Volna: ${error.message}`);
     }

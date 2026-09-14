@@ -65,6 +65,7 @@ impl FstSession {
                     let parent = scopes.last().copied();
                     let id = hierarchy.scopes.len();
                     hierarchy.scopes.push(Scope {
+                        synthetic: false,
                         name,
                         kind: vtr::ScopeType::from_code(tpe as u16).name().into(),
                         parent,
@@ -115,6 +116,7 @@ impl FstSession {
                         *top.get_or_insert_with(|| {
                             let id = hierarchy.scopes.len();
                             hierarchy.scopes.push(Scope {
+                                synthetic: true,
                                 name: "(top)".into(),
                                 kind: "module".into(),
                                 parent: None,

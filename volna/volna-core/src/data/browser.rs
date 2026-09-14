@@ -103,6 +103,9 @@ impl<'a> BrowserHierarchy<'a> {
     /// None means some required ancestor/name is not loaded yet. Literal path
     /// segments stay separate; dots inside an HDL identifier are not separators.
     pub fn scope_path(&self, mut scope: Option<ScopeId>) -> Option<Vec<&'a str>> {
+        if let Self::Resident(h) = self {
+            return Some(scope.map(|id| h.scope_path(id)).unwrap_or_default());
+        }
         let mut path = Vec::new();
         while let Some(id) = scope {
             let node = self.scope(id)?;
@@ -126,7 +129,8 @@ impl<'a> BrowserHierarchy<'a> {
         let mut count = 0;
         let mut occurrence = None;
         for node in h.children(parent) {
-            if matches!(node.data, DeclarationData::Variable { .. }) && h.text(&node.name)? == name
+            if matches!(node.data, DeclarationData::Variable { .. })
+                && matches_name(h, &node.name, name)?
             {
                 if node.id as usize == id {
                     occurrence = Some(count);
@@ -175,6 +179,38 @@ impl<'a> BrowserHierarchy<'a> {
             }
         }
         result
+    }
+    /// First unloaded sibling group needed to resolve a literal saved path.
+    /// A variable path also needs the final scope's children. Unknown names
+    /// return no group until their text arrives; missing or ambiguous prefixes
+    /// never cause speculative descent into an unrelated subtree.
+    pub(crate) fn pending_path_children(
+        &self,
+        path: &[String],
+        variable: bool,
+    ) -> Option<Option<u32>> {
+        let Self::Paged(h) = self else { return None };
+        let scopes = if variable { path.split_last()?.1 } else { path };
+        let mut parent = None;
+        for segment in scopes {
+            if !h.state(parent).is_some_and(|state| state.complete) {
+                return Some(parent);
+            }
+            let mut found = None;
+            for node in h
+                .children(parent)
+                .filter(|node| matches!(node.data, DeclarationData::Scope { .. }))
+            {
+                if matches_name(h, &node.name, segment)? {
+                    if found.is_some() {
+                        return None;
+                    }
+                    found = Some(node.id);
+                }
+            }
+            parent = Some(found?);
+        }
+        (variable && !h.state(parent).is_some_and(|state| state.complete)).then_some(parent)
     }
     pub fn find_var(
         &self,

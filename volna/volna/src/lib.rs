@@ -118,6 +118,7 @@ pub mod web {
 
     enum HostEvent {
         Open(String, Vec<u8>),
+        Query(String, String, Box<OpenMetadata>),
         Resource(String, Vec<u8>, Box<OpenMetadata>),
         Workspace(WorkspaceMessage),
         Theme(Box<crate::theme::CoreTheme>),
@@ -196,6 +197,25 @@ pub mod web {
         let metadata = serde_json::from_str(metadata)
             .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
         enqueue(HostEvent::Resource(name, bytes, Box::new(metadata)))
+    }
+
+    #[wasm_bindgen]
+    pub fn rpc_open(name: String, incarnation: String, metadata: &str) -> Result<(), JsValue> {
+        let metadata = serde_json::from_str(metadata)
+            .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
+        enqueue(HostEvent::Query(name, incarnation, Box::new(metadata)))
+    }
+    #[wasm_bindgen]
+    pub fn rpc_written(incarnation: &str, token: &str) -> Result<(), JsValue> {
+        crate::web_rpc::written(incarnation, token)
+    }
+    #[wasm_bindgen]
+    pub fn rpc_reply(incarnation: &str, token: &str, bytes: &[u8]) -> Result<(), JsValue> {
+        crate::web_rpc::receive(incarnation, token, bytes)
+    }
+    #[wasm_bindgen]
+    pub fn rpc_failed(incarnation: &str) -> Result<(), JsValue> {
+        crate::web_rpc::failed(incarnation)
     }
 
     /// Workspace payloads are interpreted only by the Rust core.
@@ -354,6 +374,37 @@ pub mod web {
                         while let Some(event) = rx.next().await {
                             workspace.update(cx, |ws, cx| match event {
                                 HostEvent::Open(name, bytes) => ws.open_bytes(name, bytes, cx),
+                                HostEvent::Query(name, incarnation, metadata) => {
+                                    use volna_core::workspace::persistence::Persistence;
+                                    let policy = match metadata.settings.autosave.as_str() {
+                                        "sidecar" => Persistence::Auto,
+                                        "vscode" => Persistence::Storage,
+                                        _ => Persistence::Disabled,
+                                    };
+                                    ws.app.configure_persistence(policy);
+                                    ws.app.workspace.preferences.link_by_default =
+                                        volna_core::wave::model::Link {
+                                            viewport: metadata.settings.link_by_default,
+                                            cursor: metadata.settings.link_by_default,
+                                        };
+                                    let OpenMetadata {
+                                        trace_uri,
+                                        candidates,
+                                        ..
+                                    } = *metadata;
+                                    CANDIDATES.with(|slot| {
+                                        *slot.borrow_mut() =
+                                            candidates.map(|c| (trace_uri.clone(), c))
+                                    });
+                                    if let Err(error) =
+                                        crate::web_rpc::start(ws, name, incarnation, trace_uri, cx)
+                                    {
+                                        ws.app.report_workspace_error(format!(
+                                            "Cannot open trace queries: {error:?}"
+                                        ));
+                                        ws.after(None, cx);
+                                    }
+                                }
                                 HostEvent::Resource(name, bytes, metadata) => {
                                     use volna_core::workspace::persistence::Persistence;
                                     let policy = match metadata.settings.autosave.as_str() {
@@ -454,5 +505,10 @@ pub mod web {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
-mod native_query;
+mod query_host;
+
+#[cfg(any(test, target_family = "wasm"))]
+mod relay_transport;
+
+#[cfg(target_family = "wasm")]
+mod web_rpc;

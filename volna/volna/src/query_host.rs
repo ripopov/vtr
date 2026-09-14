@@ -1,10 +1,14 @@
-//! Native executor adapter. Viewport policy and accepted rows belong to QueryView.
+//! GPUI executor adapter for native and WASM query sessions. Viewport policy and accepted rows belong to QueryView.
 use crate::app::Workspace;
 use futures::{Stream, StreamExt, channel::mpsc, future::poll_fn};
 use gpui_kit::{Context, Task};
 use std::{pin::Pin, task::Poll};
 use volna_core::{query_view::QueryView, session::LoadResult, wave::demand::Progress};
-use vtr_query::{Budget, local_session::LocalSession, wave::Limits};
+#[cfg(not(target_family = "wasm"))]
+use vtr_query::local_session::LocalSession as RuntimeSession;
+#[cfg(target_family = "wasm")]
+use vtr_query::rpc_session::RpcSession as RuntimeSession;
+use vtr_query::{Budget, wave::Limits};
 
 pub(crate) struct Host {
     snapshot: vtr_query::session::SnapshotId,
@@ -15,7 +19,8 @@ pub(crate) struct Host {
 
 /// Readiness is paired with metadata delivery, so restored rows cannot start
 /// full-history work before the bounded session is attached.
-pub(crate) async fn prepare(mut result: LoadResult) -> (LoadResult, Option<(u64, LocalSession)>) {
+#[cfg(not(target_family = "wasm"))]
+pub(crate) async fn prepare(mut result: LoadResult) -> (LoadResult, Option<(u64, RuntimeSession)>) {
     let LoadResult::Opened {
         generation,
         result: opened,
@@ -53,7 +58,7 @@ impl Workspace {
             let _ = host.wake.try_send(()); // one coalesced notification, no input backlog
         }
     }
-    pub(crate) fn attach_queries(&mut self, session: LocalSession, cx: &mut Context<Self>) {
+    pub(crate) fn attach_queries(&mut self, session: RuntimeSession, cx: &mut Context<Self>) {
         self.queries = None;
         let snapshot = session.info().snapshot;
         let mut view = match QueryView::attach(

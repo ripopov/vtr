@@ -260,10 +260,18 @@ impl App {
     /// remain owned by the document; only visible row identities are rebuilt.
     pub fn refresh_query_metadata(&mut self) {
         let hierarchy = self.doc.browser_hierarchy();
-        if self.scopes.visible.is_empty() && self.scopes.selected.is_none() {
+        if self.scopes.visible.is_empty()
+            && self.scopes.selected.is_none()
+            && self.scopes.unresolved_selected.is_none()
+            && self.scopes.unresolved_expanded.is_empty()
+        {
             self.scopes.reset(hierarchy.as_ref());
             self.variables.scope = self.scopes.selected;
         } else {
+            if let Some(hierarchy) = &hierarchy {
+                self.scopes.resolve_saved_paths(hierarchy);
+                self.variables.scope = self.scopes.selected;
+            }
             self.scopes.refresh(hierarchy.as_ref());
         }
         self.variables.refresh(hierarchy.as_ref());
@@ -271,6 +279,21 @@ impl App {
             for panel in self.panels.iter_mut() {
                 if let Some(waves) = panel.kind.waves_mut() {
                     for row in &mut waves.items {
+                        if let crate::wave::model::RowSource::Unresolved { path, nth, .. } =
+                            &row.source
+                            && let crate::data::source::Lookup::Found(var) =
+                                hierarchy.find_var(path, *nth)
+                            && let Some(variable) = hierarchy.variable(var)
+                        {
+                            row.source = crate::wave::model::RowSource::Resolved {
+                                var,
+                                signal: variable.signal,
+                            };
+                            row.shape = variable.shape;
+                            if row.requested_format.is_some() {
+                                row.translator = self.doc.translators.default_for(variable.shape);
+                            }
+                        }
                         if let crate::wave::model::RowSource::Resolved { var, .. } = row.source
                             && let Some(variable) = hierarchy.variable(var)
                         {
@@ -304,7 +327,7 @@ impl App {
         self.on_session_changed();
     }
 
-    fn on_session_changed(&mut self) {
+    pub(crate) fn on_session_changed(&mut self) {
         let limits = self.doc.session().map(|s| s.info().time_range);
         if let Err(e) = self.panels.reset(limits) {
             self.events.push(Event::Notice(e.to_string()));

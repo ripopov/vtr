@@ -510,3 +510,111 @@ fn stale_panel_input_cannot_target_reused_saved_ids_and_new_ids_keep_increasing(
     assert!(app.handle_if_current(app.doc.generation(), Command::Action(Action::NewPanel)));
     assert!(app.panels.focused_id() > highest);
 }
+
+#[test]
+fn query_resource_waits_for_save_and_only_installs_the_latest_admitted_open() {
+    use vtr_query::{
+        Budget,
+        session::{SessionInfo, SnapshotId},
+    };
+    let mut app = persistent_app();
+    app.handle(Command::AddVars(vec![0]));
+    app.take_requests();
+    let generation = app.doc.generation();
+    let mut info = SessionInfo {
+        snapshot: SnapshotId([1; 16]),
+        timescale: -9,
+        time_range: None,
+        signals: 1,
+        declarations: 1,
+    };
+    let rejected = Budget::new(1);
+    assert!(
+        app.open_query_resource(
+            "remote.vtr".into(),
+            &info,
+            16,
+            &rejected,
+            "vscode-remote://ssh/remote.vtr".into()
+        )
+        .is_err()
+    );
+    assert_eq!(app.doc.generation(), generation);
+    assert_eq!(rejected.used(), 0);
+    let first = Budget::new(1 << 20);
+    app.open_query_resource(
+        "first.vtr".into(),
+        &info,
+        16,
+        &first,
+        "vscode-remote://ssh/first.vtr".into(),
+    )
+    .unwrap();
+    assert_eq!(app.doc.generation(), generation);
+    assert!(first.used() > 0);
+    assert!(app.is_query_resource_pending(info.snapshot));
+    let (ticket, _) = emitted_save(&mut app);
+    let second = Budget::new(1 << 20);
+    info.snapshot = SnapshotId([2; 16]);
+    let uri = "vscode-remote://ssh/second.vtr";
+    app.open_query_resource("second.vtr".into(), &info, 16, &second, uri.into())
+        .unwrap();
+    assert!(!app.is_query_resource_pending(SnapshotId([1; 16])));
+    assert!(app.is_query_resource_pending(info.snapshot));
+    assert_eq!(
+        first.used(),
+        0,
+        "superseded opening releases metadata admission"
+    );
+    assert_eq!(app.doc.generation(), generation);
+    app.workspace_saved(ticket, None, Instant::now());
+    assert_eq!(app.doc.query_snapshot(), Some(info.snapshot));
+    assert_eq!(app.workspace.trace_uri.as_deref(), Some(uri));
+    assert!(
+        app.take_requests().is_empty(),
+        "RPC opening must not queue a file or history load"
+    );
+    assert!(app.take_events().iter().any(
+        |event| matches!(event, volna_core::Event::LoadWorkspace { trace_uri } if trace_uri == uri)
+    ));
+    drop(app);
+    assert_eq!(second.used(), 0);
+}
+
+#[test]
+fn closing_while_query_open_waits_for_save_retires_the_queued_resource() {
+    use vtr_query::{
+        Budget,
+        session::{SessionInfo, SnapshotId},
+    };
+    let mut app = persistent_app();
+    app.handle(Command::AddVars(vec![0]));
+    let info = SessionInfo {
+        snapshot: SnapshotId([42; 16]),
+        timescale: -9,
+        time_range: None,
+        signals: 1,
+        declarations: 1,
+    };
+    let budget = Budget::new(1 << 20);
+    app.open_query_resource(
+        "pending.vtr".into(),
+        &info,
+        16,
+        &budget,
+        "vscode-remote://ssh/pending.vtr".into(),
+    )
+    .unwrap();
+    assert!(app.is_query_resource_pending(info.snapshot));
+    let (ticket, _) = emitted_save(&mut app);
+    app.close_trace();
+    assert!(!app.is_query_resource_pending(info.snapshot));
+    assert_eq!(budget.used(), 0);
+    assert!(
+        app.doc.is_loaded(),
+        "old document stays until its save finishes"
+    );
+    app.workspace_saved(ticket, None, Instant::now());
+    assert!(!app.doc.is_loaded());
+    assert!(!app.is_query_resource_pending(info.snapshot));
+}

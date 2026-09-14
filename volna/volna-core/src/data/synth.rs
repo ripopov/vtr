@@ -153,6 +153,7 @@ impl SynthSource {
         let period = 10u64; // time units per clock half-period
         let mut hierarchy = Hierarchy::default();
         hierarchy.scopes.push(Scope {
+            synthetic: false,
             name: "synth".into(),
             kind: "module".into(),
             parent: None,
@@ -160,6 +161,7 @@ impl SynthSource {
             vars: Vec::new(),
         });
         hierarchy.scopes.push(Scope {
+            synthetic: false,
             name: "core".into(),
             kind: "module".into(),
             parent: Some(0),

@@ -439,3 +439,97 @@ fn deeply_expanded_scope_topology_does_not_use_the_call_stack() {
     assert_eq!(model.visible.len(), hierarchy.0);
     assert_eq!(model.visible.last(), Some(&(19999, 19999)));
 }
+
+#[test]
+fn workspace_rows_and_scopes_resolve_as_pages_arrive() {
+    use volna_core::{
+        App, Command, data::SignalShape, wave::model::RowSource, workspace::Workspace,
+    };
+    let (_dir, reader, root, nested) = fixture();
+    let budget = Budget::new(4 << 20);
+    let mut session = Session::new(&reader, budget.clone(), 8).unwrap();
+    let mut tree = QueryHierarchy::new(session.info(), 16, &budget).unwrap();
+    for parent in [None, Some(root), Some(nested)] {
+        let page = begin(&mut session, parent);
+        append_all(&mut tree, &mut session, page);
+    }
+    let mut original = App::new();
+    original
+        .set_query_document("hierarchy.vtr".into(), session.info(), 16, &budget)
+        .unwrap();
+    assert!(
+        original
+            .doc
+            .install_query_hierarchy(original.doc.generation(), tree)
+    );
+    original.refresh_query_metadata();
+    let vars: Vec<_> = original
+        .doc
+        .query_hierarchy()
+        .unwrap()
+        .children(Some(root))
+        .filter(|node| {
+            matches!(node.data, DeclarationData::Variable { .. })
+                && node.name.as_str().unwrap() == Some("same")
+        })
+        .map(|node| node.id as usize)
+        .collect();
+    original.handle(Command::SelectScope(nested as usize));
+    original.handle(Command::AddVars(vars.clone()));
+    let saved = Workspace::capture(&original, "hierarchy.vtr".into(), None).unwrap();
+    let mut app = App::new();
+    app.set_query_document("hierarchy.vtr".into(), session.info(), 16, &budget)
+        .unwrap();
+    saved
+        .prepare(
+            &app,
+            "file:///tmp/hierarchy.vtr",
+            "file:///tmp/hierarchy.vtr.volna.json",
+        )
+        .unwrap()
+        .commit(&mut app)
+        .unwrap();
+    assert!(
+        app.panels
+            .focused_waves()
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| matches!(row.source, RowSource::Unresolved { .. }))
+    );
+    let selection = app.panels.focused_waves().unwrap().selected.clone();
+    let generation = app.doc.generation();
+    // Refreshing empty metadata must not discard saved selected/expanded paths.
+    app.refresh_query_metadata();
+    for parent in [None, Some(root)] {
+        let mut delivery = begin(&mut session, parent);
+        let first = delivery.request;
+        loop {
+            app.doc
+                .append_query_children(generation, delivery.clone())
+                .unwrap();
+            app.refresh_query_metadata();
+            let Some(next) = delivery.next else { break };
+            delivery = session.advance(next).unwrap();
+        }
+        session.release(first).unwrap();
+    }
+    assert_eq!(app.scopes.selected, Some(nested as usize));
+    assert_eq!(app.variables.scope, Some(nested as usize));
+    let waves = app.panels.focused_waves().unwrap();
+    assert_eq!(waves.selected, selection);
+    assert_eq!(waves.items.len(), 2);
+    for (row, var) in waves.items.iter().zip(vars) {
+        assert!(matches!(row.source, RowSource::Resolved { var: actual, .. } if actual == var));
+        assert_eq!(row.shape, SignalShape::Vector { width: 32 });
+        assert_eq!(row.name, "same");
+        assert_eq!(row.scope, "literal.root");
+        assert!(row.history.is_none());
+    }
+    assert_eq!(
+        waves.items[0].source.signal(),
+        waves.items[1].source.signal()
+    );
+    assert!(app.take_requests().is_empty());
+    Workspace::capture(&app, "hierarchy.vtr".into(), None).unwrap();
+}

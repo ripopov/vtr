@@ -6,11 +6,12 @@ const storageKey = (uri) => `volna.workspace:${uri.toString()}`;
 const fileTarget = (uri) => ({ kind: "file", uri: uri.toString() });
 const bytes = (value) => Array.from(value);
 
-function createWorkspaceHost(vscode, context, panel, uri) {
+function createWorkspaceHost(vscode, context, panel, uri, { openQuery } = {}) {
   const webview = panel.webview;
   const sidecar = uri.with({ path: `${uri.path}.volna.json` });
   let latest;
   let disposed = false;
+  let readyGeneration = 0;
   let writes = Promise.resolve();
   const settings = () => {
     const config = vscode.workspace.getConfiguration("volna", uri);
@@ -56,9 +57,17 @@ function createWorkspaceHost(vscode, context, panel, uri) {
       fallback: { target: { kind: "storage", key: storageKey(uri) }, content: fallbackContent, writable: true },
     };
   }
-  async function ready() {
+  async function ready(message) {
+    const generation = ++readyGeneration;
     const config = settings();
+    if (message.transport === "rpc" && uri.path.toLowerCase().endsWith(".vtr")) {
+      if (!openQuery) throw new Error("Native query host is unavailable");
+      const saved = await candidates(config.autosave);
+      if (!disposed && generation === readyGeneration) await openQuery({ traceUri: uri.toString(), name: uri.path.split("/").pop(), candidates: saved, settings: config });
+      return;
+    }
     const [trace, saved] = await Promise.all([vscode.workspace.fs.readFile(uri), candidates(config.autosave)]);
+    if (disposed || generation !== readyGeneration) return;
     await post({ type: "open", traceUri: uri.toString(), name: uri.path.split("/").pop(),
       bytes: trace.buffer.slice(trace.byteOffset, trace.byteOffset + trace.byteLength), candidates: saved, settings: config });
   }
@@ -82,7 +91,7 @@ function createWorkspaceHost(vscode, context, panel, uri) {
   }
   async function receive(message) {
     switch (message.type) {
-      case "ready": return ready();
+      case "ready": return ready(message);
       case "workspace": latest = message; return save(message, true);
       case "saveWorkspaceAs": {
         const picked = await vscode.window.showSaveDialog({ defaultUri: sidecar, filters: { "Volna workspace": ["volna.json"] } });

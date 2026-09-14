@@ -413,6 +413,9 @@ pub struct WaveDemands<S: AsyncSession> {
     _charge: Reservation,
 }
 impl<S: AsyncSession> WaveDemands<S> {
+    pub(crate) fn session(&self) -> &S {
+        &self.session
+    }
     pub fn new(
         session: S,
         limits: Limits,

@@ -504,3 +504,53 @@ fn detached_payload_keeps_its_decode_admission_alive() {
     drop(bytes);
     assert_eq!(b.used(), 0);
 }
+
+#[test]
+fn bit_packing_may_change_without_changing_signal_domain() {
+    let bits = |width, states, data| p::Value {
+        value: Some(p::value::Value::Bits(p::Bits {
+            width,
+            states,
+            data: vec![data],
+        })),
+    };
+    roundtrip(window(
+        vec![bits(1, 2, 0), bits(1, 4, 3), bits(1, 9, 8)],
+        known(bits(1, 4, 0)),
+    ));
+    let entry = p::Sample {
+        value: Some(p::sample::Value::BackendDefault(p::Kind {
+            value: Some(p::kind::Value::Bits(p::BitKind {
+                width: 1,
+                states: 4,
+            })),
+        })),
+    };
+    let bin = p::WaveBin {
+        interval: Some(range()),
+        entry: Some(entry),
+        exit: Some(known(bits(1, 2, 0))),
+        changes: 1,
+        first: Some(change(bits(1, 2, 0))),
+        last: Some(change(bits(1, 2, 0))),
+        real: None,
+    };
+    roundtrip(reply(
+        p::delivery::Page::Summary(p::SummaryPage {
+            grid: Some(p::Grid {
+                start: u64::MAX,
+                level: 0,
+                count: 1,
+            }),
+            offset: 0,
+            bins: vec![bin],
+            complete: true,
+        }),
+        true,
+    ));
+    assert!(wire_reply::decode(
+        &window(vec![bits(2, 2, 0)], known(bits(1, 4, 0))).encode_to_vec(),
+        &Budget::new(MAX_DECODED_BYTES)
+    )
+    .is_err());
+}

@@ -10,7 +10,7 @@ class Uri {
   toString() { return this.url.toString(); }
   static parse(value) { return new Uri(value); }
 }
-function fixture(autosave = "sidecar") {
+function fixture(autosave = "sidecar", options) {
   const uri = new Uri("vscode-remote://ssh-remote+board/home/user/trace.vtr");
   const sidecar = `${uri}.volna.json`;
   const files = new Map([[uri.toString(), Buffer.from([1, 2, 3])]]);
@@ -36,7 +36,7 @@ function fixture(autosave = "sidecar") {
   };
   const context = { workspaceState: { get: (key) => storage.get(key), update: async (key, value) => storage.set(key, value) } };
   const panel = { webview: { postMessage: async (message) => { posted.push(message); return true; } } };
-  const host = createWorkspaceHost(vscode, context, panel, uri);
+  const host = createWorkspaceHost(vscode, context, panel, uri, options);
   return { host, uri, sidecar, files, storage, posted, written, read, notices, vscode, fail: (error) => failWrite = error, delay: (promise) => delayWrite = promise };
 }
 const ticket = (target, revision = "18446744073709551614") => ({ target, epoch: "18446744073709551613", revision });
@@ -132,4 +132,26 @@ test("closing a trace closes its own custom editor even when another tab is acti
   assert.deepEqual(closed, [owner]);
   await f.host.receive({ type: "closeTrace", traceUri: "file:///other.txt" });
   assert.deepEqual(closed, [owner]);
+});
+
+test("query opening forwards workspace metadata without reading trace bytes", async () => {
+  const opened = [];
+  const f = fixture("sidecar", { openQuery: async metadata => opened.push(metadata) });
+  await f.host.receive({ type: "ready", transport: "rpc" });
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].traceUri, f.uri.toString());
+  assert.equal(opened[0].name, "trace.vtr");
+  assert.equal(opened[0].candidates.sidecar.target.uri, f.sidecar);
+  assert.equal("bytes" in opened[0], false);
+  assert.deepEqual(f.read, [f.sidecar]);
+  assert.equal(f.posted.length, 0);
+});
+
+test("query opening with persistence off performs no filesystem reads", async () => {
+  const opened = [];
+  const f = fixture("off", { openQuery: async metadata => opened.push(metadata) });
+  await f.host.receive({ type: "ready", transport: "rpc" });
+  assert.equal(opened.length, 1);
+  assert.deepEqual(f.read, []);
+  assert.deepEqual(f.written, []);
 });

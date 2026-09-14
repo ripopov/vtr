@@ -19,4 +19,4 @@ query_target_dir=$(cargo metadata --no-deps --format-version 1 | node -e '
 ')
 VTR_SERVER="$query_target_dir/debug/vtr-server" node --test \
   vscode-ext/theme.test.mjs vscode-ext/workspace.test.cjs \
-  vscode-ext/relay.test.cjs vscode-ext/relay-server.test.cjs
+  vscode-ext/relay.test.cjs vscode-ext/query-host.test.cjs vscode-ext/relay-server.test.cjs

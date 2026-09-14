@@ -20,6 +20,10 @@ pub struct State {
 }
 
 enum Transition {
+    Query {
+        document: crate::document::PreparedQueryDocument,
+        uri: String,
+    },
     Open {
         spec: OpenSpec,
         show_all: bool,
@@ -35,6 +39,11 @@ enum Transition {
 }
 
 impl App {
+    /// Whether a query opening is still waiting for the previous workspace save.
+    /// Hosts use this to retire a session whose queued open was superseded.
+    pub fn is_query_resource_pending(&self, snapshot: vtr_query::session::SnapshotId) -> bool {
+        matches!(&self.workspace.pending, Some(Transition::Query { document, .. }) if document.snapshot() == snapshot)
+    }
     pub fn configure_persistence(&mut self, policy: Persistence) {
         self.workspace.scheduler.policy = policy;
     }
@@ -46,6 +55,24 @@ impl App {
             show_all: false,
             uri: Some(trace_uri),
         });
+    }
+
+    /// Queue an admitted query document behind the current workspace save.
+    /// Hosts attach the matching query controller once its snapshot is installed.
+    pub fn open_query_resource(
+        &mut self,
+        name: String,
+        info: &vtr_query::session::SessionInfo,
+        capacity: usize,
+        budget: &vtr_query::Budget,
+        trace_uri: String,
+    ) -> vtr_query::Result<()> {
+        let document = crate::document::PreparedQueryDocument::new(name, info, capacity, budget)?;
+        self.transition(Transition::Query {
+            document,
+            uri: trace_uri,
+        });
+        Ok(())
     }
 
     pub(crate) fn open_with_workspace(&mut self, spec: OpenSpec, show_all: bool) {
@@ -95,6 +122,19 @@ impl App {
         }
         let transition = self.workspace.pending.take().unwrap();
         match transition {
+            Transition::Query { document, uri } => {
+                if let Err(error) = self.workspace.scheduler.begin(None, None) {
+                    self.notice(error.to_string());
+                    return;
+                }
+                self.workspace.opening_uri = Some(uri);
+                self.workspace.trace_uri = None;
+                self.workspace.loading = true;
+                self.workspace.notices.clear();
+                self.doc.install_query_document(document);
+                self.on_session_changed();
+                self.session_ready_for_workspace();
+            }
             Transition::Open {
                 spec,
                 show_all,

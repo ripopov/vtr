@@ -125,31 +125,15 @@ impl Document {
         capacity: usize,
         budget: &vtr_query::Budget,
     ) -> vtr_query::Result<()> {
-        let hierarchy = crate::data::query_hierarchy::QueryHierarchy::new(info, capacity, budget)?;
-        let time_range = info.time_range.map_or((0, 0), |range| {
-            (
-                range.start(),
-                range
-                    .end()
-                    .wide()
-                    .saturating_sub(1)
-                    .max(u128::from(range.start())) as u64,
-            )
-        });
-        self.set_session(Arc::new(crate::session::QueryMetadataSession {
-            info: crate::data::TraceInfo {
-                name,
-                design_id: None,
-                timescale: info.timescale,
-                time_range,
-                signal_count: info.signals as usize,
-                change_count: None,
-            },
-            hierarchy: Hierarchy::default(),
-        }));
-        self.query_snapshot = Some(info.snapshot);
-        self.query_hierarchy = Some(hierarchy);
+        let prepared = PreparedQueryDocument::new(name, info, capacity, budget)?;
+        self.install_query_document(prepared);
         Ok(())
+    }
+
+    pub(crate) fn install_query_document(&mut self, prepared: PreparedQueryDocument) {
+        self.set_session(prepared.session);
+        self.query_snapshot = Some(prepared.hierarchy.snapshot());
+        self.query_hierarchy = Some(prepared.hierarchy);
     }
 
     pub fn browser_hierarchy(&self) -> Option<crate::data::browser::BrowserHierarchy<'_>> {
@@ -393,5 +377,46 @@ impl Document {
         } else {
             false
         }
+    }
+}
+
+/// Admitted metadata waiting for workspace persistence before installation.
+pub(crate) struct PreparedQueryDocument {
+    session: Arc<dyn Session>,
+    hierarchy: crate::data::query_hierarchy::QueryHierarchy,
+}
+impl PreparedQueryDocument {
+    pub(crate) fn snapshot(&self) -> vtr_query::session::SnapshotId {
+        self.hierarchy.snapshot()
+    }
+    pub(crate) fn new(
+        name: String,
+        info: &vtr_query::session::SessionInfo,
+        capacity: usize,
+        budget: &vtr_query::Budget,
+    ) -> vtr_query::Result<Self> {
+        let hierarchy = crate::data::query_hierarchy::QueryHierarchy::new(info, capacity, budget)?;
+        let time_range = info.time_range.map_or((0, 0), |range| {
+            (
+                range.start(),
+                range
+                    .end()
+                    .wide()
+                    .saturating_sub(1)
+                    .max(u128::from(range.start())) as u64,
+            )
+        });
+        let session = Arc::new(crate::session::QueryMetadataSession {
+            info: crate::data::TraceInfo {
+                name,
+                design_id: None,
+                timescale: info.timescale,
+                time_range,
+                signal_count: info.signals as usize,
+                change_count: None,
+            },
+            hierarchy: Hierarchy::default(),
+        });
+        Ok(Self { session, hierarchy })
     }
 }

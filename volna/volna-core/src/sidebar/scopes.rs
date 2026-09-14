@@ -119,6 +119,24 @@ impl ScopeTreeModel {
         self.expanded.iter().copied()
     }
 
+    pub(crate) fn resolve_saved_paths(&mut self, h: &crate::data::browser::BrowserHierarchy<'_>) {
+        use crate::data::source::Lookup;
+        if let Some(path) = &self.unresolved_selected
+            && let Lookup::Found(id) = h.find_scope(path)
+        {
+            self.selected = Some(id);
+            self.unresolved_selected = None;
+        }
+        self.unresolved_expanded.retain(|path| {
+            if let Lookup::Found(id) = h.find_scope(path) {
+                self.expanded.insert(id);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     pub(crate) fn restore(
         &mut self,
         h: &impl ScopeHierarchy,
