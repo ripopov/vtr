@@ -1,9 +1,11 @@
 //! The open trace and everything every view over it must agree on: the
 //! session, shared navigation, markers, translators and load bookkeeping.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::data::loaded_tracks::LoadedTrack;
+use crate::data::transactions::{TrackKind, TrackRef};
 use crate::data::{Hierarchy, SignalRef, Translators};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::wave::viewport::{Viewport, ViewportState};
@@ -39,6 +41,7 @@ impl Default for Shared {
 
 /// A completed load the document accepted (its generation was current).
 pub enum Delivered {
+    Track,
     Signals(crate::session::SignalLoads),
     Opened(anyhow::Result<Arc<dyn Session>>),
 }
@@ -53,6 +56,21 @@ pub struct Document {
     pub translators: Translators,
     pending: HashSet<SignalRef>,
     requests: Vec<LoadRequest>,
+    tracks: HashMap<TrackRef, TrackLoad>,
+    next_track_request: u64,
+}
+
+/// A selected track has one document-owned load, shared by its consumers.
+pub struct TrackLoad {
+    consumers: usize,
+    request_id: u64,
+    pub state: TrackLoadState,
+}
+
+pub enum TrackLoadState {
+    Loading,
+    Ready(LoadedTrack),
+    Failed(String),
 }
 
 impl Default for Document {
@@ -72,6 +90,8 @@ impl Document {
             translators: Translators::builtin(),
             pending: HashSet::new(),
             requests: Vec::new(),
+            tracks: HashMap::new(),
+            next_track_request: 1,
         }
     }
 
@@ -122,6 +142,7 @@ impl Document {
     /// Start opening a trace; the previous one stays until the new one arrives.
     pub fn open(&mut self, spec: OpenSpec) {
         self.generation += 1;
+        self.tracks.clear();
         self.state = TraceState::Loading { name: spec.name() };
         self.requests.push(LoadRequest::Open {
             generation: self.generation,
@@ -144,6 +165,7 @@ impl Document {
     }
 
     fn reset_state(&mut self) {
+        self.tracks.clear();
         self.pending.clear();
         self.requests
             .retain(|r| matches!(r, LoadRequest::Open { .. }));
@@ -152,6 +174,119 @@ impl Document {
     }
 
     // -- signal loads --------------------------------------------------------------
+
+    /// Retain a whole raw track for a panel or analysis. Pair with release_track.
+    /// A generator already loaded through a stream shares its existing object.
+    pub fn retain_track(&mut self, track: TrackRef) -> anyhow::Result<()> {
+        if let Some(load) = self.tracks.get_mut(&track) {
+            load.consumers = load
+                .consumers
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("too many track consumers"))?;
+            return Ok(());
+        }
+        let session = self
+            .session()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no open trace"))?;
+        anyhow::ensure!(
+            session.capabilities().transactions,
+            "transactions unsupported"
+        );
+        let catalog = session.tracks();
+        let declaration = catalog
+            .iter()
+            .find(|t| t.id == track)
+            .ok_or_else(|| anyhow::anyhow!("unknown transaction track {}", track.0))?;
+        let ids: Vec<_> = match declaration.kind {
+            TrackKind::Generator { .. } => vec![track],
+            TrackKind::Stream { .. } => catalog
+                .iter()
+                .filter_map(|t| match t.kind {
+                    TrackKind::Generator { stream } if stream == track => Some(t.id),
+                    _ => None,
+                })
+                .collect(),
+        };
+        let resident: Option<Vec<_>> = ids
+            .iter()
+            .map(|id| {
+                self.tracks.values().find_map(|load| match &load.state {
+                    TrackLoadState::Ready(data) => data
+                        .generators
+                        .iter()
+                        .find(|g| g.generator() == *id)
+                        .cloned(),
+                    _ => None,
+                })
+            })
+            .collect();
+        let request_id = self.next_track_request;
+        self.next_track_request = request_id
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("track request identities exhausted"))?;
+        let state = if let Some(generators) = resident {
+            TrackLoadState::Ready(LoadedTrack { track, generators })
+        } else {
+            self.requests.push(LoadRequest::Track {
+                generation: self.generation,
+                request_id,
+                session,
+                track,
+            });
+            TrackLoadState::Loading
+        };
+        self.tracks.insert(
+            track,
+            TrackLoad {
+                consumers: 1,
+                request_id,
+                state,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn track(&self, track: TrackRef) -> Option<&TrackLoadState> {
+        self.tracks.get(&track).map(|load| &load.state)
+    }
+
+    pub fn release_track(&mut self, track: TrackRef) {
+        let Some(load) = self.tracks.get_mut(&track) else {
+            return;
+        };
+        load.consumers -= 1;
+        if load.consumers == 0 {
+            self.tracks.remove(&track);
+            self.requests
+                .retain(|r| !matches!(r, LoadRequest::Track { track: id, .. } if *id == track));
+        }
+    }
+
+    pub fn retry_track(&mut self, track: TrackRef) -> bool {
+        let Some(session) = self.session().cloned() else {
+            return false;
+        };
+        let Some(load) = self.tracks.get_mut(&track) else {
+            return false;
+        };
+        if !matches!(load.state, TrackLoadState::Failed(_)) {
+            return false;
+        }
+        let Some(next) = self.next_track_request.checked_add(1) else {
+            return false;
+        };
+        load.request_id = self.next_track_request;
+        self.next_track_request = next;
+        load.state = TrackLoadState::Loading;
+        self.requests.push(LoadRequest::Track {
+            generation: self.generation,
+            request_id: load.request_id,
+            session,
+            track,
+        });
+        true
+    }
 
     /// Queue a history load unless one is already pending. Returns whether a
     /// request was queued.
@@ -184,6 +319,40 @@ impl Document {
         self.pending.contains(&signal)
     }
 
+    /// Prune unstarted work using the same ownership rules in every executor.
+    /// Stale queues must never clear pending demand for the new recording.
+    pub(crate) fn retain_queued_signals(
+        &mut self,
+        generation: u64,
+        signals: &mut Vec<SignalRef>,
+        wanted: &HashSet<SignalRef>,
+    ) -> bool {
+        if generation != self.generation {
+            return false;
+        }
+        signals.retain(|signal| {
+            if wanted.contains(signal) {
+                true
+            } else {
+                self.pending.remove(signal);
+                false
+            }
+        });
+        !signals.is_empty()
+    }
+
+    pub(crate) fn wants_track_request(
+        &self,
+        generation: u64,
+        request_id: u64,
+        track: TrackRef,
+    ) -> bool {
+        generation == self.generation
+            && self.tracks.get(&track).is_some_and(|load| {
+                load.request_id == request_id && matches!(load.state, TrackLoadState::Loading)
+            })
+    }
+
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }
@@ -196,6 +365,41 @@ impl Document {
     /// Accept a completed load if its generation is still current.
     pub fn deliver(&mut self, result: LoadResult) -> Option<Delivered> {
         match result {
+            LoadResult::Track {
+                generation,
+                request_id,
+                track,
+                result,
+            } => {
+                if !self.wants_track_request(generation, request_id, track) {
+                    return None;
+                }
+                let state = match result {
+                    Ok(mut loaded) if loaded.track == track => {
+                        // Reuse objects retained by other selected tracks. The
+                        // recording is immutable for this document generation.
+                        for generator in &mut loaded.generators {
+                            if let Some(resident) =
+                                self.tracks.values().find_map(|load| match &load.state {
+                                    TrackLoadState::Ready(data) => data
+                                        .generators
+                                        .iter()
+                                        .find(|g| g.generator() == generator.generator())
+                                        .cloned(),
+                                    _ => None,
+                                })
+                            {
+                                *generator = resident;
+                            }
+                        }
+                        TrackLoadState::Ready(loaded)
+                    }
+                    Ok(_) => TrackLoadState::Failed("track identity mismatch".into()),
+                    Err(error) => TrackLoadState::Failed(format!("{error:#}")),
+                };
+                self.tracks.get_mut(&track).expect("selected track").state = state;
+                Some(Delivered::Track)
+            }
             LoadResult::Signals {
                 generation,
                 results,

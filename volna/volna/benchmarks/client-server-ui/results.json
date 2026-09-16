@@ -1,0 +1,17 @@
+{
+  "remote_messages_during_interaction": 0,
+  "poses": [
+    {
+      "pose": "initial",
+      "different_pixels": 0
+    },
+    {
+      "pose": "navigated",
+      "different_pixels": 0
+    },
+    {
+      "pose": "filtered",
+      "different_pixels": 0
+    }
+  ]
+}

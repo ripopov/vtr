@@ -23,6 +23,8 @@ required-features = ["visual-test"]
 
 [features]
 default = []
+# Browser verification of complete transaction loads before a track UI exists.
+remote-profile = []
 # Offscreen Metal rendering for screenshots and frame-time measurement (macOS).
 visual-test = ["dep:image", "dep:libtest-mimic"]
 

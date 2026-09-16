@@ -7,6 +7,8 @@
 // `target` can select an iframe. `context` selects a JavaScript execution
 // context by predicate (e.g. "!!document.querySelector('canvas')"); `assert`
 // evaluates a predicate in it and fails unless true. `text` inserts text.
+// `metrics` sets {width, height, deviceScaleFactor, mobile:false} for repeatable screenshots.
+// `files` sets absolute paths on the file input selected by `selector`.
 import fs from "node:fs";
 
 const [port, scriptPath] = process.argv.slice(2);
@@ -40,8 +42,25 @@ await send("Page.enable"); await send("Runtime.enable"); await send("Log.enable"
 await send("Network.enable"); await send("Network.setCacheDisabled", { cacheDisabled: true });
 
 for (const s of steps) {
-  if (s.navigate) { await send("Page.navigate", { url: s.navigate }); }
+  if (s.foreground) {
+    const r = await send("Page.bringToFront");
+    if (r.error) throw new Error(JSON.stringify(r.error));
+  }
+  else if (s.navigate) { await send("Page.navigate", { url: s.navigate }); }
+  else if (s.metrics) {
+    const r = await send("Emulation.setDeviceMetricsOverride", s.metrics);
+    if (r.error) throw new Error(JSON.stringify(r.error));
+  }
   else if (s.wait) await sleep(s.wait);
+  else if (s.files) {
+    const doc = await send("DOM.getDocument");
+    const node = await send("DOM.querySelector", {
+      nodeId: doc.result.root.nodeId, selector: s.selector ?? 'input[type="file"]',
+    });
+    if (!node.result?.nodeId) throw new Error("File input not found");
+    const r = await send("DOM.setFileInputFiles", { nodeId: node.result.nodeId, files: s.files });
+    if (r.error) throw new Error(JSON.stringify(r.error));
+  }
   else if (s.shot) {
     const r = await send("Page.captureScreenshot", { format: "png" });
     if (r.error || !r.result?.data) throw new Error(`Screenshot failed: ${JSON.stringify(r)}`);

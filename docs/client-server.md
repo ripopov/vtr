@@ -1,5 +1,8 @@
 # Volna client-server design
 
+> Superseded by [complete-object client-server loading](client-server-simple.html).
+> The window-query design below is not the implementation target.
+
 For an interactive explanation of the proposed final design, open the
 [animated walkthrough](client-server.html). This document retains the research,
 source evidence, detailed contracts and validation plan.

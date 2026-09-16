@@ -11,8 +11,9 @@ VTR runtime traces, separate VDB design metadata, and the Volna UI. SystemC,
 gem5 and wavepeek integration are part of the direction; see
 `docs/ARCHITECTURE.md` for current support and planned work.
 
-One Rust workspace with eight crates grouped by responsibility:
-`core/` contains `vtr`, `vtr-capi` and `vtr-vdb`; `tools/` contains `vtr-cli`;
+One Rust workspace with nine crates grouped by responsibility:
+`core/` contains `vtr`, `vtr-capi` and `vtr-vdb`; `tools/` contains `vtr-cli`
+and the headless `volna-server`;
 `bench/` contains `vtr-bench`; `volna/` contains `volna-core`, `volna` (GPUI)
 and `volna-egui`. Standalone Python exporters live in `integrations/slang`.
 The Verilator backend is in the pinned `ext/verilator` submodule, with build
@@ -69,14 +70,15 @@ guide its evolution; they describe direction, not a fixed object tree, and
 3. **Client-server split for remote files.** The main use case is VS Code
    in remote mode (`vscode-server` over SSH, tunnels, containers) opening
    very large VTR files that live on the remote host, without transferring
-   the file to the client. The reader and all query work (hierarchy,
-   histories, level-of-detail summaries, row and transaction windows,
-   search) run next to the file as a query library; the viewer talks to it
-   through a session interface that has a local in-process implementation
-   and a remote one over a compact binary protocol. Transfer must scale
-   with what is on screen, not with file size, so the viewer must never
-   block a frame on the network. The same split serves any webview-hosted
-   frontend, where the sandbox cannot memory-map files.
+   the file to the client. The reader runs beside the file and supplies
+   complete metadata, complete selected signal histories and complete
+   selected transaction tracks. Navigation, search over loaded data,
+   summaries, analysis and presentation run on the client. Native local
+   loading and remote loading deliver the same immutable objects; native
+   loading shares buffers directly without serialization. Transfer and
+   client memory scale with complete selected data, not the visible time
+   window. Loading must stay asynchronous and fail explicitly when data
+   exceeds configured limits. See `docs/client-server-simple.html`.
 
 Constraints that follow: the query library and the protocol carry raw
 trace data only; presentation rules, VDB profiles and user annotations stay

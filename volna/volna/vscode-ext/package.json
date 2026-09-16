@@ -13,6 +13,7 @@
   ],
   "activationEvents": [],
   "main": "./extension.js",
+  "extensionKind": ["workspace"],
   "contributes": {
     "commands": [
       {
@@ -222,6 +223,20 @@
     "configuration": {
       "title": "Volna",
       "properties": {
+        "volna.remote.memoryMiB": {
+          "type": "integer", "default": 512, "minimum": 1, "maximum": 16384,
+          "description": "Client admission budget for loaded trace data and decoding workspace, in MiB. Reopen the trace to apply. This does not bound total browser memory."
+        },
+        "volna.remote.objectMiB": {
+          "type": "integer", "default": 256, "minimum": 1, "maximum": 16384,
+          "description": "Maximum decoded wire size of one complete metadata, signal or track object, in MiB. Reopen the trace to apply."
+        },
+        "volna.serverPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Path to volna-server on the workspace host. Empty uses the binary bundled with the extension."
+        },
         "volna.workspace.autosave": {
           "type": "string",
           "enum": [

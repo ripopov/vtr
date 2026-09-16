@@ -14,6 +14,7 @@ to support interactive and AI-assisted debugging.
 | VTR tools | `tools/vtr-cli`, `bench/vtr-bench` | Trace inspection/conversion and Rust benchmark drivers |
 | VDB | `core/vtr-vdb`, `integrations/slang` | Separate design metadata, source index, semantics, RTL netlists and temporal driver tracing; standalone pyslang export |
 | Volna | `volna/volna-core`, `volna/volna`, `volna/volna-egui` | Toolkit-independent viewer logic, main GPUI UI and minimal egui adapter |
+| Volna server | `tools/volna-server` | Headless complete-object loading over framed stdin/stdout; uses toolkit-free core adapters |
 | Integrations | `integrations/` | Simulator/consumer build glue and end-to-end integration checks |
 | External projects | `ext/` | Pinned simulator forks, consumers and format references |
 
@@ -34,9 +35,16 @@ The GPUI frontend is the main feature target; egui verifies toolkit independence
 and retains its current minimal functionality. The detailed current design and
 remote-file direction are in [Volna's architecture](../volna/volna/ARCHITECTURE.md).
 
-The intended remote boundary puts raw trace queries beside the file and leaves
-VDB profiles, presentation and user annotations on the client. Current local
-sessions and whole-history loading do not yet implement that remote service.
+The remote boundary loads complete selected histories and transaction tracks
+beside the file, with navigation and analysis over resident client data.
+VDB profiles, presentation and user annotations stay on the client.
+`volna-server` implements the headless loading service. The VS Code frontend
+opens workspace traces through its child relay and loads selected full histories
+and transaction tracks asynchronously. Native execution and the remote client
+consume the same core load requests; the server calls the native session backend.
+All transaction navigation uses complete resident objects. Transport framing,
+backpressure and remote admission limits stay in the protocol adapter. See
+[verification](../volna/volna/VERIFICATION.md) for measured coverage and limits.
 
 ## Integration status
 
@@ -46,7 +54,7 @@ sessions and whole-history loading do not yet implement that remote service.
 | SystemC / ESL | C ABI usable from C++/SystemC; Verilator SystemC trace wrapper; FTR conversion and LWTR4SC reference/benchmarks | Broader SystemC instrumentation and ESL design semantics |
 | gem5 / pipelines | Kanata conversion, Konata reference, VDB application note and pipeline UX demo | Native gem5 integration with VTR/VDB; no gem5 backend is implemented here |
 | wavepeek / AI agents | Pinned reference consumer used to study waveform query needs | VTR/VDB integration for AI-assisted debugging; no adapter is implemented here |
-| Volna / UI | VTR and FST waveforms through a shared core; GPUI native/web/VS Code and minimal native egui | VDB attachment, source and transaction views, remote queries |
+| Volna / UI | VTR and FST waveforms through a shared core; GPUI native/web/VS Code and minimal native egui | VDB attachment, source and transaction views, complete-object remote loading |
 | Surfer | Pinned external VTR/VDB consumer and source-view integration | Existing integration remains usable; Volna is the official UI |
 
 See [integrations/README.md](../integrations/README.md) for entry points and
@@ -54,7 +62,7 @@ See [integrations/README.md](../integrations/README.md) for entry points and
 
 ## Workspace and supporting material
 
-The eight Rust packages share one root Cargo workspace and lockfile.
+The nine Rust packages share one root Cargo workspace and lockfile.
 `cargo test` exercises the five default packages;
 `volna/volna/check.sh` checks the three viewer packages and the VS Code adapter.
 Native viewer checks still require the platform SDK and desktop services.

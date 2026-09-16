@@ -20,6 +20,7 @@ pub mod document;
 pub mod geometry;
 pub mod icons;
 pub mod panels;
+pub mod remote;
 pub mod scene;
 pub mod selection;
 pub mod session;

@@ -13,6 +13,8 @@ crate-type = ["rlib"]
 [dependencies]
 vtr = { path = "../../core/vtr" }
 anyhow = "1"
+bincode = "=1.3.3"
+lz4_flex = { version = "=0.11.6", features = ["frame"] }
 fst-reader = "0.17"
 flate2 = "1"
 log = "0.4"

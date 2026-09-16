@@ -276,6 +276,12 @@ typedef int (*vtr_tx_cb)(void *user, const vtr_tx *tx);  /* return non-zero to s
 int vtr_reader_visit_transactions(const vtr_reader *r, uint32_t generator /* or VTR_NONE */, uint32_t stream /* or VTR_NONE */,
                                   uint64_t t0, uint64_t t1 /* 0 = no window */, vtr_tx_cb cb, void *user);
 int vtr_reader_transaction(const vtr_reader *r, uint64_t id, vtr_tx_cb cb, void *user);
+/* Owning generator; output is written only on success. */
+int vtr_reader_transaction_generator(const vtr_reader *r, uint64_t id, uint32_t *out_generator);
+/* Resolve owners in input order, including duplicates; missing IDs yield
+ * VTR_NONE. Arrays have len elements; both may be NULL when len is zero.
+ * Outputs remain unchanged on error. */
+int vtr_reader_transaction_generators(const vtr_reader *r, const uint64_t *ids, size_t len, uint32_t *out_generators);
 
 typedef int (*vtr_relation_cb)(void *user, uint32_t kind, uint64_t from, uint64_t to, uint32_t n_attrs, const uint32_t *keys, const vtr_value *values);
 int vtr_reader_relations(const vtr_reader *r, uint64_t id, int direction /* 0 from id, 1 to id */, vtr_relation_cb cb, void *user);

@@ -149,6 +149,51 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
 }
 
 #[test]
+fn removing_queued_signals_clears_demand_but_active_loads_survive_readd() {
+    let (mut app, source) = loaded_app(10);
+    let signal = source.hierarchy.vars[0].signal;
+    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::Action(Action::RemoveSelected));
+    assert!(app.take_requests().is_empty());
+    assert!(!app.doc.is_pending(signal));
+    assert_eq!(source.loads.load(SeqCst), 0);
+
+    app.handle(Command::AddVars(vec![0]));
+    let active = app.take_requests().pop().unwrap();
+    app.handle(Command::Action(Action::RemoveSelected));
+    assert!(app.take_requests().is_empty());
+    assert!(app.doc.is_pending(signal));
+    app.handle(Command::AddVars(vec![0]));
+    assert!(
+        app.take_requests().is_empty(),
+        "reuse the active immutable load"
+    );
+    app.deliver(active.perform());
+    assert!(
+        app.panels.focused_waves().unwrap().items[0]
+            .history
+            .is_some()
+    );
+    assert_eq!(source.loads.load(SeqCst), 1);
+}
+
+#[test]
+fn removing_one_alias_keeps_the_other_alias_queued() {
+    let (mut app, source) = loaded_app(10);
+    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(vec![source.hierarchy.vars.len() - 1]));
+    app.handle(Command::Action(Action::RemoveSelected));
+    pump(&mut app);
+    assert_eq!(source.loads.load(SeqCst), 1);
+    assert_eq!(app.panels.focused_waves().unwrap().items.len(), 1);
+    assert!(
+        app.panels.focused_waves().unwrap().items[0]
+            .history
+            .is_some()
+    );
+}
+
+#[test]
 fn aliases_share_pending_and_loaded_histories() {
     let (mut app, source) = loaded_app(10);
     let alias = source.hierarchy.vars.len() - 1;
@@ -216,6 +261,83 @@ fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
         app.panels.focused_waves().unwrap().items[0]
             .history
             .is_some()
+    );
+}
+
+#[test]
+fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
+    use volna_core::wave::model::MenuAction;
+    let (mut app, source) = loaded_app(10);
+    source.fail.store(true, SeqCst);
+    app.handle(Command::AddVars(vec![0, 0]));
+    pump(&mut app);
+    source.fail.store(false, SeqCst);
+    app.handle(Command::AddVars(vec![1]));
+    pump(&mut app);
+    let panel = app.panels.focused_id();
+    let ready = app.panels.waves(panel).unwrap().items[2]
+        .history
+        .clone()
+        .unwrap();
+    app.panels
+        .waves_mut(panel)
+        .unwrap()
+        .open_format_menu(&app.doc, 0, point(100.0, 100.0));
+    assert!(
+        app.panels
+            .waves(panel)
+            .unwrap()
+            .menu
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| item.action == MenuAction::RetryLoad)
+    );
+    app.handle(Command::MenuSelect(panel, MenuAction::RetryLoad));
+    assert!(
+        app.panels
+            .waves(panel)
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.error.is_none())
+    );
+    assert_eq!(app.panels.waves(panel).unwrap().items.len(), 3);
+    let mut requests = app.take_requests();
+    assert_eq!(requests.len(), 1);
+    let request = requests.pop().unwrap();
+    let LoadRequest::Signals { signals, .. } = &request else {
+        panic!("signal request")
+    };
+    assert_eq!(signals, &[source.hierarchy.vars[0].signal]);
+    app.deliver(request.perform());
+    let rows = &app.panels.waves(panel).unwrap().items;
+    assert!(Arc::ptr_eq(
+        rows[0].history.as_ref().unwrap(),
+        rows[1].history.as_ref().unwrap()
+    ));
+    assert!(Arc::ptr_eq(rows[2].history.as_ref().unwrap(), &ready));
+    assert_eq!(source.loads.load(SeqCst), 3);
+    app.panels
+        .waves_mut(panel)
+        .unwrap()
+        .open_format_menu(&app.doc, 0, point(100.0, 100.0));
+    assert!(
+        !app.panels
+            .waves(panel)
+            .unwrap()
+            .menu
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| item.action == MenuAction::RetryLoad)
+    );
+    app.handle(Command::MenuSelect(panel, MenuAction::RetryLoad));
+    assert!(
+        app.take_requests().is_empty(),
+        "a stale retry cannot reload ready data"
     );
 }
 
@@ -685,12 +807,21 @@ fn format_menu_and_translator_cycle() {
     assert!(menu.items.iter().any(|i| i.checked));
     assert!(app.debug_state().contains("menu=true"));
     let before = app.panels.focused_waves().unwrap().items[0].translator.id();
-    let other = menu.items.iter().find(|i| !i.checked).unwrap().id.clone();
+    let other = menu
+        .items
+        .iter()
+        .find(|i| !i.checked)
+        .unwrap()
+        .action
+        .clone();
+    let volna_core::wave::model::MenuAction::Format(ref format) = other else {
+        panic!("format choice");
+    };
     app.handle(Command::MenuSelect(app.panels.focused_id(), other.clone()));
     assert!(app.panels.focused_waves().unwrap().menu.is_none());
     assert_eq!(
         app.panels.focused_waves().unwrap().items[0].translator.id(),
-        other
+        format
     );
     assert_ne!(
         app.panels.focused_waves().unwrap().items[0].translator.id(),
@@ -699,7 +830,7 @@ fn format_menu_and_translator_cycle() {
     app.handle(Command::Action(Action::CycleFormat));
     assert_ne!(
         app.panels.focused_waves().unwrap().items[0].translator.id(),
-        other
+        format
     );
     // Escape closes an open menu before touching the selection.
     app.handle(Command::Pointer(

@@ -3,9 +3,9 @@
 //! A [`Session`] is an opened trace: its metadata, its hierarchy and its signal
 //! histories on demand. [`LocalSession`] wraps VTR's reader; the private FST
 //! adapter wraps fst-reader. Both produce the same immutable history contract.
-//! Full-history loads are not sufficient for remote viewing: bounded windows
-//! and summaries remain necessary before a remote implementation can scale
-//! transfer with the viewport.
+//! Remote loading uses these same complete objects; the client performs
+//! navigation and queries after loading. Selected histories and tracks must
+//! fit in client memory. See `docs/client-server-simple.html`.
 //!
 //! Loading is pull based so it fits any executor: the document queues
 //! [`LoadRequest`]s, the frontend performs them wherever it likes (a thread, a
@@ -25,7 +25,7 @@ pub use crate::data::vtr_source::LocalSession;
 /// whole batch. Duplicate successful identities share an immutable history.
 pub type SignalLoads = Vec<(SignalRef, anyhow::Result<Arc<dyn SignalHistory>>)>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Capabilities {
     pub waveforms: bool,
     pub transactions: bool,
@@ -33,22 +33,33 @@ pub struct Capabilities {
 }
 
 pub trait Session: Send + Sync {
+    /// Server identity for asynchronous executor routing. Local sessions return
+    /// None and use the blocking load methods on a background executor.
+    fn remote_id(&self) -> Option<u64> {
+        None
+    }
+    /// Resident raw track catalog; reading it performs no I/O.
+    fn tracks(&self) -> &[crate::data::transactions::Track] {
+        &[]
+    }
     /// Capabilities describe operations, not whether this recording has rows.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             waveforms: true,
-            transactions: self.transactions().is_some(),
-            relations: self.relations().is_some(),
+            transactions: false,
+            relations: false,
         }
-    }
-    fn transactions(&self) -> Option<&dyn crate::data::transactions::TransactionQueries> {
-        None
-    }
-    fn relations(&self) -> Option<&dyn crate::data::transactions::RelationQueries> {
-        None
     }
     fn info(&self) -> &TraceInfo;
     fn hierarchy(&self) -> &Hierarchy;
+    /// Load all records and incident relations of a stream or generator.
+    /// This is blocking work for a loader executor, never a painting call.
+    fn load_track(
+        &self,
+        _track: crate::data::transactions::TrackRef,
+    ) -> anyhow::Result<crate::data::loaded_tracks::LoadedTrack> {
+        anyhow::bail!("transaction track loading is unsupported")
+    }
     /// Load the full change history of a signal. May be slow; call off the UI thread.
     fn load_signal(&self, signal: SignalRef) -> anyhow::Result<Arc<dyn SignalHistory>>;
 
@@ -77,6 +88,11 @@ pub trait Session: Send + Sync {
 /// What to open.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenSpec {
+    /// Recording opened by the workspace host's remote executor.
+    Remote {
+        name: String,
+        limits: crate::remote::limits::Limits,
+    },
     /// A trace on disk: memory-mapped VTR or buffered FST.
     #[cfg(not(target_family = "wasm"))]
     Path(std::path::PathBuf),
@@ -90,6 +106,7 @@ impl OpenSpec {
     /// Display name while loading.
     pub fn name(&self) -> String {
         match self {
+            OpenSpec::Remote { name, .. } => name.clone(),
             #[cfg(not(target_family = "wasm"))]
             OpenSpec::Path(p) => p
                 .file_name()
@@ -103,6 +120,9 @@ impl OpenSpec {
     /// Open the trace. Blocking; run it where blocking is acceptable.
     pub fn open(self) -> anyhow::Result<Arc<dyn Session>> {
         match self {
+            OpenSpec::Remote { .. } => {
+                anyhow::bail!("remote opening requires the asynchronous executor")
+            }
             #[cfg(not(target_family = "wasm"))]
             OpenSpec::Path(p) => {
                 use std::io::{Read, Seek};
@@ -154,6 +174,12 @@ fn is_fst(bytes: &[u8]) -> anyhow::Result<bool> {
 
 /// Work the document wants done. Obtain with [`crate::app::App::take_requests`].
 pub enum LoadRequest {
+    Track {
+        generation: u64,
+        request_id: u64,
+        session: Arc<dyn Session>,
+        track: crate::data::transactions::TrackRef,
+    },
     Open {
         generation: u64,
         spec: OpenSpec,
@@ -166,9 +192,61 @@ pub enum LoadRequest {
 }
 
 impl LoadRequest {
+    /// Transport routing for an already opened recording. Opening is routed
+    /// from its OpenSpec before a server identity exists.
+    pub fn remote_id(&self) -> Option<u64> {
+        match self {
+            Self::Signals { session, .. } | Self::Track { session, .. } => session.remote_id(),
+            Self::Open { .. } => None,
+        }
+    }
+
+    /// Complete failed work with its original document and object identities.
+    pub fn fail(self, error: anyhow::Error) -> LoadResult {
+        match self {
+            Self::Open { generation, .. } => LoadResult::Opened {
+                generation,
+                result: Err(error),
+            },
+            Self::Signals {
+                generation,
+                signals,
+                ..
+            } => LoadResult::Signals {
+                generation,
+                results: signals
+                    .into_iter()
+                    .map(|id| (id, Err(anyhow::anyhow!("{error:#}"))))
+                    .collect(),
+            },
+            Self::Track {
+                generation,
+                request_id,
+                track,
+                ..
+            } => LoadResult::Track {
+                generation,
+                request_id,
+                track,
+                result: Err(error),
+            },
+        }
+    }
+
     /// Perform the request. Blocking; run it off the UI thread where possible.
     pub fn perform(self) -> LoadResult {
         match self {
+            LoadRequest::Track {
+                generation,
+                request_id,
+                session,
+                track,
+            } => LoadResult::Track {
+                generation,
+                request_id,
+                track,
+                result: session.load_track(track),
+            },
             LoadRequest::Open { generation, spec } => LoadResult::Opened {
                 generation,
                 result: spec.open(),
@@ -187,6 +265,12 @@ impl LoadRequest {
 
 /// The outcome of a [`LoadRequest`], to hand to [`crate::app::App::deliver`].
 pub enum LoadResult {
+    Track {
+        generation: u64,
+        request_id: u64,
+        track: crate::data::transactions::TrackRef,
+        result: anyhow::Result<crate::data::loaded_tracks::LoadedTrack>,
+    },
     Signals {
         generation: u64,
         results: SignalLoads,

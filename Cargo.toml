@@ -5,6 +5,7 @@ members = [
     "core/vtr",
     "core/vtr-capi",
     "tools/vtr-cli",
+    "tools/volna-server",
     "bench/vtr-bench",
     "core/vtr-vdb",
     "volna/volna-core",

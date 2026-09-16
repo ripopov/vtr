@@ -481,7 +481,10 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 .menu
                 .as_ref()
                 .unwrap();
-            (menu.row, menu.items[1].id.clone())
+            let volna_core::wave::model::MenuAction::Format(id) = &menu.items[1].action else {
+                panic!("expected format choice");
+            };
+            (menu.row, id.clone())
         });
         key(&mut test, "down");
         key(&mut test, "down");

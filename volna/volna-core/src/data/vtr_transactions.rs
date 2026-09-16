@@ -3,6 +3,139 @@ use super::transactions::*;
 use super::vtr_source::LocalSession;
 use vtr::{NodeData, Reader, Value};
 
+/// Load a whole raw track in one transaction scan and one relation scan.
+/// Ordinals come directly from the reader's documented file-order traversal;
+/// equal parallel edges therefore never collapse during loading.
+pub(super) fn load_track(
+    session: &LocalSession,
+    track: TrackRef,
+) -> anyhow::Result<super::loaded_tracks::LoadedTrack> {
+    use super::loaded_tracks::{LoadedGenerator, LoadedRelation, LoadedTrack, TransactionLocation};
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+
+    let selected = session
+        .tracks
+        .iter()
+        .find(|t| t.id == track)
+        .ok_or_else(|| anyhow::anyhow!("unknown transaction track {}", track.0))?;
+    let generators: Vec<_> = match selected.kind {
+        TrackKind::Generator { .. } => vec![track],
+        TrackKind::Stream { .. } => session
+            .tracks
+            .iter()
+            .filter_map(|t| match t.kind {
+                TrackKind::Generator { stream } if stream == track => Some(t.id),
+                _ => None,
+            })
+            .collect(),
+    };
+    let mut records: HashMap<_, Vec<Transaction>> =
+        generators.iter().map(|&id| (id, vec![])).collect();
+    let query = match selected.kind {
+        TrackKind::Generator { .. } => vtr::TxQuery {
+            generator: Some(vtr::NodeId(track.0)),
+            ..Default::default()
+        },
+        TrackKind::Stream { .. } => vtr::TxQuery {
+            stream: Some(vtr::NodeId(track.0)),
+            ..Default::default()
+        },
+    };
+    let mut owners = HashMap::new();
+    session.reader.visit_transactions(&query, |tx| {
+        let generator = TrackRef(tx.generator.0);
+        owners.insert(TransactionRef(tx.id), generator);
+        records
+            .get_mut(&generator)
+            .expect("selected generator in catalog")
+            .push(transaction(&session.reader, tx));
+        true
+    })?;
+    // Gather incident references first. Resolve external owners together;
+    // asking the reader once per relation repeatedly scans the same blocks.
+    let mut external = HashSet::new();
+    for tx in records.values().flatten() {
+        if let Some(parent) = tx.parent
+            && !owners.contains_key(&parent)
+        {
+            external.insert(parent.0);
+        }
+    }
+    let mut incident = Vec::new();
+    let mut ordinal = 0u64;
+    session.reader.visit_relations(|edge| {
+        let id = ordinal;
+        ordinal += 1;
+        if owners.contains_key(&TransactionRef(edge.from))
+            || owners.contains_key(&TransactionRef(edge.to))
+        {
+            for endpoint in [edge.from, edge.to] {
+                if !owners.contains_key(&TransactionRef(endpoint)) {
+                    external.insert(endpoint);
+                }
+            }
+            incident.push((id, relation(&session.reader, edge.clone())));
+        }
+        true
+    })?;
+    let external: Vec<_> = external.into_iter().collect();
+    for (id, generator) in external
+        .iter()
+        .zip(session.reader.transaction_generators(&external)?)
+    {
+        let generator =
+            generator.ok_or_else(|| anyhow::anyhow!("missing referenced transaction {}", id))?;
+        owners.insert(TransactionRef(*id), TrackRef(generator.0));
+    }
+    let mut edges: HashMap<_, Vec<LoadedRelation>> =
+        generators.iter().map(|&id| (id, vec![])).collect();
+    for (id, relation) in incident {
+        let from_generator = owners[&relation.from];
+        let to_generator = owners[&relation.to];
+        let loaded = LoadedRelation {
+            id,
+            from_generator,
+            to_generator,
+            relation,
+        };
+        if let Some(out) = edges.get_mut(&from_generator) {
+            out.push(loaded.clone());
+        }
+        if to_generator != from_generator
+            && let Some(out) = edges.get_mut(&to_generator)
+        {
+            out.push(loaded);
+        }
+    }
+    let mut loaded = Vec::with_capacity(generators.len());
+    for generator in generators {
+        let transactions = records.remove(&generator).expect("selected generator");
+        let mut parents = HashMap::new();
+        for tx in &transactions {
+            if let Some(parent) = tx.parent {
+                parents.insert(
+                    tx.id,
+                    TransactionLocation {
+                        transaction: parent,
+                        generator: owners[&parent],
+                    },
+                );
+            }
+        }
+        loaded.push(Arc::new(LoadedGenerator::new(
+            generator,
+            transactions,
+            parents,
+            edges.remove(&generator).expect("selected generator"),
+        )?));
+    }
+    Ok(LoadedTrack {
+        track,
+        generators: loaded,
+    })
+}
+
 fn value(reader: &Reader, v: &Value) -> AttributeValue {
     match v {
         Value::Null => AttributeValue::Null,
@@ -133,74 +266,5 @@ fn relation(reader: &Reader, r: vtr::Relation) -> Relation {
         from: TransactionRef(r.from),
         to: TransactionRef(r.to),
         attributes: attributes(reader, &r.attrs),
-    }
-}
-
-impl TransactionQueries for LocalSession {
-    fn tracks(&self) -> &[Track] {
-        &self.tracks
-    }
-    fn visit_transactions(
-        &self,
-        query: &TransactionQuery,
-        visitor: &mut dyn FnMut(&Transaction) -> bool,
-    ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            query.window.is_none_or(|(start, end)| start <= end),
-            "transaction window is reversed"
-        );
-        if let Some(id) = query.generator {
-            anyhow::ensure!(
-                self.tracks
-                    .iter()
-                    .any(|t| t.id == id && matches!(t.kind, TrackKind::Generator { .. })),
-                "unknown generator {}",
-                id.0
-            );
-        }
-        if let Some(id) = query.stream {
-            anyhow::ensure!(
-                self.tracks
-                    .iter()
-                    .any(|t| t.id == id && matches!(t.kind, TrackKind::Stream { .. })),
-                "unknown stream {}",
-                id.0
-            );
-        }
-        self.reader.visit_transactions(
-            &vtr::TxQuery {
-                generator: query.generator.map(|id| vtr::NodeId(id.0)),
-                stream: query.stream.map(|id| vtr::NodeId(id.0)),
-                window: query.window,
-            },
-            |tx| visitor(&transaction(&self.reader, tx)),
-        )?;
-        Ok(())
-    }
-    fn transaction(&self, id: TransactionRef) -> anyhow::Result<Option<Transaction>> {
-        Ok(self
-            .reader
-            .transaction(id.0)?
-            .as_ref()
-            .map(|tx| transaction(&self.reader, tx)))
-    }
-}
-
-impl RelationQueries for LocalSession {
-    fn relations_from(&self, id: TransactionRef) -> anyhow::Result<Vec<Relation>> {
-        Ok(self
-            .reader
-            .relations_from(id.0)?
-            .into_iter()
-            .map(|r| relation(&self.reader, r))
-            .collect())
-    }
-    fn relations_to(&self, id: TransactionRef) -> anyhow::Result<Vec<Relation>> {
-        Ok(self
-            .reader
-            .relations_to(id.0)?
-            .into_iter()
-            .map(|r| relation(&self.reader, r))
-            .collect())
     }
 }

@@ -1,0 +1,1197 @@
+--- a/tools/volna-server/examples/remote_cost.rs
++++ b/tools/volna-server/examples/remote_cost.rs
+@@ -190,16 +190,7 @@
+                     .take(count.parse()?)
+                     .collect();
+                 let count = ids.len();
+-                anyhow::ensure!(
+-                    run.client
+-                        .submit(volna_core::session::LoadRequest::Signals {
+-                            session: session.clone(),
+-                            generation: 1,
+-                            signals: ids,
+-                        })
+-                        .is_ok(),
+-                    "signal submission rejected"
+-                );
++                run.client.signals(session.remote_id().unwrap(), 1, ids)?;
+                 count
+             } else {
+                 let ids: Vec<_> = if let Some(id) = selection.strip_prefix("track:") {
+@@ -214,17 +205,8 @@
+                         .collect()
+                 };
+                 for (index, &track) in ids.iter().enumerate() {
+-                    anyhow::ensure!(
+-                        run.client
+-                            .submit(volna_core::session::LoadRequest::Track {
+-                                session: session.clone(),
+-                                generation: 1,
+-                                request_id: index as u64 + 1,
+-                                track,
+-                            })
+-                            .is_ok(),
+-                        "track submission rejected"
+-                    );
++                    run.client
++                        .track(session.clone(), 1, index as u64 + 1, track)?;
+                 }
+                 ids.len()
+             };
+--- a/tools/volna-server/tests/process.rs
++++ b/tools/volna-server/tests/process.rs
+@@ -312,16 +312,9 @@
+         panic!("Open result");
+     };
+     let session = result.unwrap();
+-    assert!(
+-        client
+-            .submit(volna_core::session::LoadRequest::Track {
+-                session: session.clone(),
+-                generation: 11,
+-                request_id: 71,
+-                track: TrackRef(stream.0)
+-            })
+-            .is_ok()
+-    );
++    client
++        .track(session.clone(), 11, 71, TrackRef(stream.0))
++        .unwrap();
+     let LoadResult::Track {
+         generation: 11,
+         request_id: 71,
+@@ -349,26 +342,12 @@
+             assert_eq!(a.parent(tx.id), b.parent(tx.id));
+         }
+     }
+-    assert!(
+-        client
+-            .submit(volna_core::session::LoadRequest::Track {
+-                session: session.clone(),
+-                generation: 11,
+-                request_id: 72,
+-                track: TrackRef(u32::MAX)
+-            })
+-            .is_ok()
+-    );
+-    assert!(
+-        client
+-            .submit(volna_core::session::LoadRequest::Track {
+-                session: session.clone(),
+-                generation: 11,
+-                request_id: 73,
+-                track: TrackRef(a.0)
+-            })
+-            .is_ok()
+-    );
++    client
++        .track(session.clone(), 11, 72, TrackRef(u32::MAX))
++        .unwrap();
++    client
++        .track(session.clone(), 11, 73, TrackRef(a.0))
++        .unwrap();
+     let LoadResult::Track {
+         request_id: 72,
+         result,
+@@ -387,26 +366,12 @@
+         panic!("next track");
+     };
+     assert_eq!(result.unwrap().generators[0].transactions().len(), 1);
+-    assert!(
+-        client
+-            .submit(volna_core::session::LoadRequest::Track {
+-                session: session.clone(),
+-                generation: 11,
+-                request_id: 74,
+-                track: TrackRef(a.0)
+-            })
+-            .is_ok()
+-    );
+-    assert!(
+-        client
+-            .submit(volna_core::session::LoadRequest::Track {
+-                session: session.clone(),
+-                generation: 11,
+-                request_id: 75,
+-                track: TrackRef(b.0)
+-            })
+-            .is_ok()
+-    );
++    client
++        .track(session.clone(), 11, 74, TrackRef(a.0))
++        .unwrap();
++    client
++        .track(session.clone(), 11, 75, TrackRef(b.0))
++        .unwrap();
+     assert!(client.take_command().unwrap().is_some());
+     let failed = client.disconnect("test disconnect");
+     assert_eq!(failed.len(), 2);
+--- a/volna/volna-core/examples/load_cost.rs
++++ b/volna/volna-core/examples/load_cost.rs
+@@ -7,7 +7,9 @@
+
+ fn main() -> anyhow::Result<()> {
+     let mut args = std::env::args().skip(1);
+-    let path = args.next().expect("load_cost TRACE SIGNAL_COUNT|tracks");
++    let path = args
++        .next()
++        .expect("load_cost TRACE SIGNAL_COUNT|tracks");
+     let selection = args.next().expect("SIGNAL_COUNT|tracks");
+     let start = Instant::now();
+     let session = OpenSpec::Path(path.clone().into()).open()?;
+@@ -17,11 +19,7 @@
+     let mut changes = 0;
+     let load_start = Instant::now();
+     if selection == "tracks" {
+-        for track in session
+-            .tracks()
+-            .iter()
+-            .filter(|track| matches!(track.kind, TrackKind::Stream { .. }))
+-        {
++        for track in session.tracks().iter().filter(|track| matches!(track.kind, TrackKind::Stream { .. })) {
+             tracks.push(session.load_track(track.id)?);
+         }
+     } else {
+--- a/volna/volna-core/src/app.rs
++++ b/volna/volna-core/src/app.rs
+@@ -291,14 +291,16 @@
+         {
+             let wanted = self.signal_demand();
+             requests.retain_mut(|request| {
+-                if let LoadRequest::Signals {
+-                    generation,
+-                    signals,
+-                    ..
+-                } = request
+-                {
+-                    self.doc
+-                        .retain_queued_signals(*generation, signals, &wanted)
++                if let LoadRequest::Signals { signals, .. } = request {
++                    signals.retain(|signal| {
++                        if wanted.contains(signal) {
++                            true
++                        } else {
++                            self.doc.cancel_queued_signal(*signal);
++                            false
++                        }
++                    });
++                    !signals.is_empty()
+                 } else {
+                     true
+                 }
+--- a/volna/volna-core/src/data/transactions.rs
++++ b/volna/volna-core/src/data/transactions.rs
+@@ -1,4 +1,4 @@
+-//! Raw transaction records and catalog. Identities are local to an open session;
++//! Raw transaction query contract. Identities are local to an open session;
+ //! names and attribute values are resolved, with no backend string handles.
+
+ // These are semantic enums, not reader handles or storage representations.
+@@ -135,3 +135,36 @@
+ wire_code!(phase_code, AttrPhase, 2);
+ wire_code!(status_code, TxStatus, 4);
+ wire_code!(kind_code, TxKind, 5);
++
++#[derive(Clone, Debug, Default)]
++pub struct TransactionQuery {
++    pub generator: Option<TrackRef>,
++    pub stream: Option<TrackRef>,
++    /// Inclusive overlap [start, end], following VTR transaction semantics.
++    /// Point transactions at either boundary are included.
++    pub window: Option<(u64, u64)>,
++}
++
++/// Optional session facet. Absence means unsupported, whereas an empty track
++/// list or zero callback invocations means supported but empty.
++pub trait TransactionQueries: Send + Sync {
++    /// Resident metadata; no trace decoding.
++    fn tracks(&self) -> &[Track];
++    /// Blocking query. Visit order is backend order, not chronological order.
++    /// Return false to stop early. The callback borrows each resolved record.
++    fn visit_transactions(
++        &self,
++        query: &TransactionQuery,
++        visitor: &mut dyn FnMut(&Transaction) -> bool,
++    ) -> anyhow::Result<()>;
++    /// A missing identity returns None, not an unsupported-operation error.
++    fn transaction(&self, id: TransactionRef) -> anyhow::Result<Option<Transaction>>;
++}
++
++/// Relations are separate capabilities; future sources can implement either
++/// facet without manufacturing the other domain.
++pub trait RelationQueries: Send + Sync {
++    /// Blocking query. A missing endpoint returns an empty list.
++    fn relations_from(&self, id: TransactionRef) -> anyhow::Result<Vec<Relation>>;
++    fn relations_to(&self, id: TransactionRef) -> anyhow::Result<Vec<Relation>>;
++}
+--- a/volna/volna-core/src/data/vtr_source.rs
++++ b/volna/volna-core/src/data/vtr_source.rs
+@@ -163,15 +163,11 @@
+     ) -> anyhow::Result<super::loaded_tracks::LoadedTrack> {
+         super::vtr_transactions::load_track(self, track)
+     }
+-    fn tracks(&self) -> &[super::transactions::Track] {
+-        &self.tracks
+-    }
+-    fn capabilities(&self) -> crate::session::Capabilities {
+-        crate::session::Capabilities {
+-            waveforms: true,
+-            transactions: true,
+-            relations: true,
+-        }
++    fn transactions(&self) -> Option<&dyn super::transactions::TransactionQueries> {
++        Some(self)
++    }
++    fn relations(&self) -> Option<&dyn super::transactions::RelationQueries> {
++        Some(self)
+     }
+     fn info(&self) -> &TraceInfo {
+         &self.info
+--- a/volna/volna-core/src/data/vtr_transactions.rs
++++ b/volna/volna-core/src/data/vtr_transactions.rs
+@@ -268,3 +268,72 @@
+         attributes: attributes(reader, &r.attrs),
+     }
+ }
++
++impl TransactionQueries for LocalSession {
++    fn tracks(&self) -> &[Track] {
++        &self.tracks
++    }
++    fn visit_transactions(
++        &self,
++        query: &TransactionQuery,
++        visitor: &mut dyn FnMut(&Transaction) -> bool,
++    ) -> anyhow::Result<()> {
++        anyhow::ensure!(
++            query.window.is_none_or(|(start, end)| start <= end),
++            "transaction window is reversed"
++        );
++        if let Some(id) = query.generator {
++            anyhow::ensure!(
++                self.tracks
++                    .iter()
++                    .any(|t| t.id == id && matches!(t.kind, TrackKind::Generator { .. })),
++                "unknown generator {}",
++                id.0
++            );
++        }
++        if let Some(id) = query.stream {
++            anyhow::ensure!(
++                self.tracks
++                    .iter()
++                    .any(|t| t.id == id && matches!(t.kind, TrackKind::Stream { .. })),
++                "unknown stream {}",
++                id.0
++            );
++        }
++        self.reader.visit_transactions(
++            &vtr::TxQuery {
++                generator: query.generator.map(|id| vtr::NodeId(id.0)),
++                stream: query.stream.map(|id| vtr::NodeId(id.0)),
++                window: query.window,
++            },
++            |tx| visitor(&transaction(&self.reader, tx)),
++        )?;
++        Ok(())
++    }
++    fn transaction(&self, id: TransactionRef) -> anyhow::Result<Option<Transaction>> {
++        Ok(self
++            .reader
++            .transaction(id.0)?
++            .as_ref()
++            .map(|tx| transaction(&self.reader, tx)))
++    }
++}
++
++impl RelationQueries for LocalSession {
++    fn relations_from(&self, id: TransactionRef) -> anyhow::Result<Vec<Relation>> {
++        Ok(self
++            .reader
++            .relations_from(id.0)?
++            .into_iter()
++            .map(|r| relation(&self.reader, r))
++            .collect())
++    }
++    fn relations_to(&self, id: TransactionRef) -> anyhow::Result<Vec<Relation>> {
++        Ok(self
++            .reader
++            .relations_to(id.0)?
++            .into_iter()
++            .map(|r| relation(&self.reader, r))
++            .collect())
++    }
++}
+--- a/volna/volna-core/src/document.rs
++++ b/volna/volna-core/src/document.rs
+@@ -319,26 +319,9 @@
+         self.pending.contains(&signal)
+     }
+
+-    /// Prune unstarted work using the same ownership rules in every executor.
+-    /// Stale queues must never clear pending demand for the new recording.
+-    pub(crate) fn retain_queued_signals(
+-        &mut self,
+-        generation: u64,
+-        signals: &mut Vec<SignalRef>,
+-        wanted: &HashSet<SignalRef>,
+-    ) -> bool {
+-        if generation != self.generation {
+-            return false;
+-        }
+-        signals.retain(|signal| {
+-            if wanted.contains(signal) {
+-                true
+-            } else {
+-                self.pending.remove(signal);
+-                false
+-            }
+-        });
+-        !signals.is_empty()
++    /// Only executors discarding work that has not started may clear demand.
++    pub(crate) fn cancel_queued_signal(&mut self, signal: SignalRef) {
++        self.pending.remove(&signal);
+     }
+
+     pub(crate) fn wants_track_request(
+--- a/volna/volna-core/src/remote/client.rs
++++ b/volna/volna-core/src/remote/client.rs
+@@ -7,8 +7,28 @@
+ use super::signals::SignalTransfer;
+ use super::track_transfer::TrackTransfer;
+ use super::transport::{Body, Command, MAX_BATCH, Packet};
+-use crate::session::{LoadRequest, LoadResult};
++use crate::data::SignalRef;
++use crate::data::transactions::TrackRef;
++use crate::session::{LoadResult, Session};
+ use std::collections::VecDeque;
++use std::sync::Arc;
++
++struct Signals {
++    generation: u64,
++    remaining: Vec<SignalRef>,
++}
++
++struct Track {
++    generation: u64,
++    request_id: u64,
++    session: Arc<dyn Session>,
++    track: TrackRef,
++}
++
++enum Job {
++    Signals(Signals),
++    Track(Track),
++}
+
+ enum Active {
+     Open {
+@@ -16,11 +36,11 @@
+         transfer: OpenTransfer,
+     },
+     Signals {
+-        job: LoadRequest,
++        job: Signals,
+         transfer: SignalTransfer,
+     },
+     Track {
+-        job: LoadRequest,
++        job: Track,
+         transfer: TrackTransfer,
+     },
+ }
+@@ -31,7 +51,7 @@
+     limit: u64,
+     budget: MemoryBudget,
+     active: Option<Active>,
+-    queued: VecDeque<LoadRequest>,
++    queued: VecDeque<Job>,
+     opening: Option<Packet>,
+     connected: bool,
+ }
+@@ -55,36 +75,49 @@
+         })
+     }
+
+-    /// Submit the same work item used by the local executor. Rejected work
+-    /// returns a normal completion for the document to deliver.
+-    pub fn submit(&mut self, request: LoadRequest) -> Result<(), LoadResult> {
+-        if !self.connected || self.session.is_none() || self.session != request.remote_id() {
+-            return Err(request.fail(anyhow::anyhow!(
+-                "remote connection is closed or belongs to another recording"
+-            )));
+-        }
+-        match request {
+-            LoadRequest::Signals {
++    /// Queue canonical IDs for this recording. The document already coalesces
++    /// duplicate consumers; duplicates inside this submission are removed too.
++    pub fn signals(
++        &mut self,
++        session: u64,
++        generation: u64,
++        signals: Vec<SignalRef>,
++    ) -> anyhow::Result<()> {
++        anyhow::ensure!(
++            self.connected && self.session == Some(session),
++            "remote connection is closed or belongs to another recording"
++        );
++        let mut unique = std::collections::HashSet::new();
++        let signals: Vec<_> = signals
++            .into_iter()
++            .filter(|id| unique.insert(*id))
++            .collect();
++        for ids in signals.chunks(MAX_BATCH) {
++            self.queued.push_back(Job::Signals(Signals {
+                 generation,
+-                signals,
+-                session,
+-            } => {
+-                let mut unique = std::collections::HashSet::new();
+-                let signals: Vec<_> = signals
+-                    .into_iter()
+-                    .filter(|id| unique.insert(*id))
+-                    .collect();
+-                for ids in signals.chunks(MAX_BATCH) {
+-                    self.queued.push_back(LoadRequest::Signals {
+-                        generation,
+-                        session: session.clone(),
+-                        signals: ids.to_vec(),
+-                    });
+-                }
+-            }
+-            request @ LoadRequest::Track { .. } => self.queued.push_back(request),
+-            LoadRequest::Open { .. } => unreachable!("open requests have no remote identity"),
+-        }
++                remaining: ids.to_vec(),
++            }));
++        }
++        Ok(())
++    }
++
++    pub fn track(
++        &mut self,
++        session: Arc<dyn Session>,
++        generation: u64,
++        request_id: u64,
++        track: TrackRef,
++    ) -> anyhow::Result<()> {
++        anyhow::ensure!(
++            self.connected && self.session.is_some() && self.session == session.remote_id(),
++            "remote connection is closed or belongs to another recording"
++        );
++        self.queued.push_back(Job::Track(Track {
++            generation,
++            request_id,
++            session,
++            track,
++        }));
+         Ok(())
+     }
+
+@@ -97,7 +130,7 @@
+         if !self.connected || self.active.is_some() {
+             return Ok(None);
+         }
+-        let Some(job) = self.queued.front() else {
++        let Some(job) = self.queued.pop_front() else {
+             return Ok(None);
+         };
+         self.request = self
+@@ -108,49 +141,33 @@
+             .session
+             .ok_or_else(|| anyhow::anyhow!("recording is not open"))?;
+         let command = match job {
+-            LoadRequest::Signals {
+-                generation,
+-                signals,
+-                ..
+-            } => {
++            Job::Signals(job) => {
+                 let transfer = SignalTransfer::new(
+                     session,
+                     self.request,
+-                    *generation,
+-                    signals,
++                    job.generation,
++                    &job.remaining,
+                     self.limit,
+                     self.budget.clone(),
+                 )?;
+-                let command = Command::Signals(signals.iter().map(|id| id.0).collect());
+-                self.active = Some(Active::Signals {
+-                    job: self.queued.pop_front().unwrap(),
+-                    transfer,
+-                });
++                let command = Command::Signals(job.remaining.iter().map(|id| id.0).collect());
++                self.active = Some(Active::Signals { job, transfer });
+                 command
+             }
+-            LoadRequest::Track {
+-                generation,
+-                request_id,
+-                session,
+-                track,
+-            } => {
++            Job::Track(job) => {
+                 let transfer = TrackTransfer::new(
+                     self.request,
+-                    *generation,
+-                    *request_id,
+-                    session.clone(),
+-                    *track,
++                    job.generation,
++                    job.request_id,
++                    job.session.clone(),
++                    job.track,
+                     self.limit,
+                     self.budget.clone(),
+                 )?;
+-                let command = Command::Track(track.0);
+-                self.active = Some(Active::Track {
+-                    job: self.queued.pop_front().unwrap(),
+-                    transfer,
+-                });
++                let command = Command::Track(job.track.0);
++                self.active = Some(Active::Track { job, transfer });
+                 command
+             }
+-            LoadRequest::Open { .. } => unreachable!("only object loads are queued"),
+         };
+         let packet = Packet {
+             session,
+@@ -169,20 +186,24 @@
+         }
+         let wanted = app.signal_demand();
+         self.queued.retain_mut(|job| match job {
+-            LoadRequest::Signals {
+-                generation,
+-                signals,
+-                ..
+-            } => app.doc.retain_queued_signals(*generation, signals, &wanted),
+-            LoadRequest::Track {
+-                generation,
+-                request_id,
+-                track,
+-                ..
+-            } => app
+-                .doc
+-                .wants_track_request(*generation, *request_id, *track),
+-            LoadRequest::Open { .. } => unreachable!("only object loads are queued"),
++            Job::Signals(job) => {
++                if job.generation != app.doc.generation() {
++                    return false;
++                }
++                job.remaining.retain(|signal| {
++                    if wanted.contains(signal) {
++                        true
++                    } else {
++                        app.doc.cancel_queued_signal(*signal);
++                        false
++                    }
++                });
++                !job.remaining.is_empty()
++            }
++            Job::Track(job) => {
++                app.doc
++                    .wants_track_request(job.generation, job.request_id, job.track)
++            }
+         });
+     }
+
+@@ -222,12 +243,9 @@
+                     }
+                 }
+                 LoadResult::Signals { results, .. } => {
+-                    if let Some(Active::Signals {
+-                        job: LoadRequest::Signals { signals, .. },
+-                        ..
+-                    }) = self.active.as_mut()
+-                    {
+-                        signals.retain(|id| !results.iter().any(|(done, _)| id == done));
++                    if let Some(Active::Signals { job, .. }) = self.active.as_mut() {
++                        job.remaining
++                            .retain(|id| !results.iter().any(|(done, _)| id == done));
+                     }
+                 }
+                 LoadResult::Track { .. } => {}
+@@ -260,16 +278,30 @@
+                 generation,
+                 result: Err(anyhow::anyhow!(message.to_owned())),
+             }),
+-            Some(Active::Signals { job, .. } | Active::Track { job, .. }) => {
+-                self.queued.push_front(job)
+-            }
++            Some(Active::Signals { job, .. }) => self.queued.push_front(Job::Signals(job)),
++            Some(Active::Track { job, .. }) => self.queued.push_front(Job::Track(job)),
+             None => {}
+         }
+-        results.extend(
+-            self.queued
+-                .drain(..)
+-                .map(|job| job.fail(anyhow::anyhow!(message.to_owned()))),
+-        );
++        for job in self.queued.drain(..) {
++            match job {
++                Job::Signals(job) => {
++                    results.push(LoadResult::Signals {
++                        generation: job.generation,
++                        results: job
++                            .remaining
++                            .into_iter()
++                            .map(|id| (id, Err(anyhow::anyhow!(message.to_owned()))))
++                            .collect(),
++                    });
++                }
++                Job::Track(job) => results.push(LoadResult::Track {
++                    generation: job.generation,
++                    request_id: job.request_id,
++                    track: job.track,
++                    result: Err(anyhow::anyhow!(message.to_owned())),
++                }),
++            }
++        }
+         results
+     }
+ }
+@@ -277,15 +309,12 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use crate::data::SignalRef;
+     use crate::data::history::VecHistory;
+-    use crate::data::transactions::TrackRef;
+     use crate::data::{SignalShape, WaveValue};
+     use crate::remote::history::PackedHistory;
+     use crate::remote::objects::Metadata;
+     use crate::remote::transport::{DATA_BYTES, ObjectId, acknowledgement};
+     use crate::session::OpenSpec;
+-    use std::sync::Arc;
+
+     fn response(client: &mut RemoteClient, packet: Packet) -> Option<LoadResult> {
+         let expected = acknowledgement(&packet);
+@@ -365,7 +394,17 @@
+         app.set_session(result.unwrap());
+         let enqueue = |app: &mut App, client: &mut RemoteClient| {
+             for request in app.take_requests() {
+-                assert!(client.submit(request).is_ok());
++                let crate::session::LoadRequest::Signals {
++                    generation,
++                    session,
++                    signals,
++                } = request
++                else {
++                    panic!("signals")
++                };
++                client
++                    .signals(session.remote_id().unwrap(), generation, signals)
++                    .unwrap();
+             }
+         };
+         app.handle(ViewerCommand::AddVars(vec![0]));
+@@ -436,12 +475,18 @@
+         let mut app = App::new();
+         app.set_session(result.unwrap());
+         let enqueue = |app: &mut App, client: &mut RemoteClient| {
+-            let request = app.take_requests().pop().unwrap();
+-            let LoadRequest::Track { request_id, .. } = &request else {
++            let LoadRequest::Track {
++                generation,
++                request_id,
++                session,
++                track,
++            } = app.take_requests().pop().unwrap()
++            else {
+                 panic!("track")
+             };
+-            let request_id = *request_id;
+-            assert!(client.submit(request).is_ok());
++            client
++                .track(session, generation, request_id, track)
++                .unwrap();
+             request_id
+         };
+         app.doc.retain_track(track).unwrap();
+@@ -453,53 +498,11 @@
+         client.sync_demand(&mut app);
+         assert_eq!(client.queued.len(), 1);
+         assert!(
+-            matches!(client.queued.front(), Some(LoadRequest::Track { request_id, .. }) if *request_id == current)
++            matches!(client.queued.front(), Some(Job::Track(job)) if job.request_id == current)
+         );
+         app.doc.release_track(track);
+         client.sync_demand(&mut app);
+         assert!(client.take_command().unwrap().is_none());
+-    }
+-
+-    #[test]
+-    fn command_failure_keeps_work_for_failure_delivery() {
+-        let mut client =
+-            RemoteClient::new(1, 1024 * 1024, MemoryBudget::new(4 * 1024 * 1024)).unwrap();
+-        let open = client.take_command().unwrap().unwrap();
+-        let local = OpenSpec::Synthetic(100).open().unwrap();
+-        let LoadResult::Opened { result, .. } = object(
+-            &mut client,
+-            open.request,
+-            &mut 0,
+-            ObjectId::Metadata,
+-            bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap(),
+-        ) else {
+-            panic!("opened")
+-        };
+-        let session = result.unwrap();
+-        assert!(
+-            client
+-                .submit(LoadRequest::Signals {
+-                    generation: 7,
+-                    session,
+-                    signals: vec![SignalRef(0)]
+-                })
+-                .is_ok()
+-        );
+-        client.request = u64::MAX;
+-        assert!(client.take_command().is_err());
+-        let mut failures = client.disconnect("request identity exhausted");
+-        assert_eq!(failures.len(), 1);
+-        let LoadResult::Signals {
+-            generation,
+-            results,
+-        } = failures.pop().unwrap()
+-        else {
+-            panic!("signals")
+-        };
+-        assert_eq!(generation, 7);
+-        assert_eq!(results.len(), 1);
+-        assert_eq!(results[0].0, SignalRef(0));
+-        assert!(results[0].1.is_err());
+     }
+
+     #[test]
+@@ -527,33 +530,8 @@
+         let session = result.unwrap();
+         let mut ids: Vec<_> = (0..65).map(SignalRef).collect();
+         ids.push(SignalRef(0));
+-        let wrong_session = Arc::new(
+-            crate::remote::session::RemoteSession::new(32, Metadata::from_session(local.as_ref()))
+-                .unwrap(),
+-        );
+-        let Err(LoadResult::Signals {
+-            generation,
+-            results,
+-        }) = client.submit(LoadRequest::Signals {
+-            generation: 71,
+-            session: wrong_session,
+-            signals: ids.clone(),
+-        })
+-        else {
+-            panic!("rejected submission must return signal completions")
+-        };
+-        assert_eq!(generation, 71);
+-        assert_eq!(results.iter().map(|(id, _)| *id).collect::<Vec<_>>(), ids);
+-        assert!(results.iter().all(|(_, result)| result.is_err()));
+-        assert!(
+-            client
+-                .submit(LoadRequest::Signals {
+-                    generation: 71,
+-                    session: session.clone(),
+-                    signals: ids
+-                })
+-                .is_ok()
+-        );
++        assert!(client.signals(32, 71, ids.clone()).is_err());
++        client.signals(31, 71, ids).unwrap();
+         let command = client.take_command().unwrap().unwrap();
+         let Body::Command(Command::Signals(ids)) = command.body else {
+             panic!("signal command");
+@@ -600,15 +578,7 @@
+         }
+         assert_eq!(failed, (1..65).map(SignalRef).collect::<Vec<_>>());
+         assert!(client.take_command().unwrap().is_none());
+-        assert!(
+-            client
+-                .submit(LoadRequest::Signals {
+-                    generation: 71,
+-                    session: session.clone(),
+-                    signals: vec![SignalRef(65)]
+-                })
+-                .is_err()
+-        );
++        assert!(client.signals(31, 71, vec![SignalRef(65)]).is_err());
+         drop(client);
+         drop(session);
+         assert_eq!(history.value(None), WaveValue::Bits("1".into()));
+--- a/volna/volna-core/src/remote/objects.rs
++++ b/volna/volna-core/src/remote/objects.rs
+@@ -136,36 +136,22 @@
+ }
+
+ impl TrackPayload {
+-    /// Borrow the backend's complete records for serialization. Only the
+-    /// parent-location list is projected; records, attributes and relations
+-    /// stay in their original immutable storage throughout the response.
+-    pub fn from_loaded(track: &LoadedTrack) -> impl Serialize + '_ {
+-        #[derive(Serialize)]
+-        struct Generator<'a> {
+-            generator: TrackRef,
+-            transactions: &'a [Transaction],
+-            parents: Vec<(TransactionRef, TransactionLocation)>,
+-            relations: &'a [LoadedRelation],
+-        }
+-        #[derive(Serialize)]
+-        struct Track<'a> {
+-            track: TrackRef,
+-            generators: Vec<Generator<'a>>,
+-        }
+-        Track {
++    pub fn from_loaded(track: &LoadedTrack) -> Self {
++        Self {
+             track: track.track,
+             generators: track
+                 .generators
+                 .iter()
+-                .map(|generator| Generator {
++                .map(|generator| GeneratorPayload {
++                    reservation: None,
+                     generator: generator.generator(),
+-                    transactions: generator.transactions(),
++                    transactions: generator.transactions().to_vec(),
+                     parents: generator
+                         .transactions()
+                         .iter()
+                         .filter_map(|tx| generator.parent(tx.id).map(|p| (tx.id, p)))
+                         .collect(),
+-                    relations: generator.relations(),
++                    relations: generator.relations().to_vec(),
+                 })
+                 .collect(),
+         }
+--- a/volna/volna-core/src/remote/server.rs
++++ b/volna/volna-core/src/remote/server.rs
+@@ -119,10 +119,7 @@
+                 reply(
+                     &mut writer,
+                     ObjectId::Track(id),
+-                    result
+-                        .as_ref()
+-                        .map(TrackPayload::from_loaded)
+-                        .map_err(|error| anyhow::anyhow!("{error:#}")),
++                    result.map(|track| TrackPayload::from_loaded(&track)),
+                     max_object_bytes,
+                 )?;
+             }
+--- a/volna/volna-core/src/session.rs
++++ b/volna/volna-core/src/session.rs
+@@ -38,17 +38,23 @@
+     fn remote_id(&self) -> Option<u64> {
+         None
+     }
+-    /// Resident raw track catalog; reading it performs no I/O.
++    /// Resident metadata, available without a blocking transaction query facet.
+     fn tracks(&self) -> &[crate::data::transactions::Track] {
+-        &[]
++        self.transactions().map_or(&[], |query| query.tracks())
+     }
+     /// Capabilities describe operations, not whether this recording has rows.
+     fn capabilities(&self) -> Capabilities {
+         Capabilities {
+             waveforms: true,
+-            transactions: false,
+-            relations: false,
+-        }
++            transactions: self.transactions().is_some(),
++            relations: self.relations().is_some(),
++        }
++    }
++    fn transactions(&self) -> Option<&dyn crate::data::transactions::TransactionQueries> {
++        None
++    }
++    fn relations(&self) -> Option<&dyn crate::data::transactions::RelationQueries> {
++        None
+     }
+     fn info(&self) -> &TraceInfo;
+     fn hierarchy(&self) -> &Hierarchy;
+@@ -192,47 +198,6 @@
+ }
+
+ impl LoadRequest {
+-    /// Transport routing for an already opened recording. Opening is routed
+-    /// from its OpenSpec before a server identity exists.
+-    pub fn remote_id(&self) -> Option<u64> {
+-        match self {
+-            Self::Signals { session, .. } | Self::Track { session, .. } => session.remote_id(),
+-            Self::Open { .. } => None,
+-        }
+-    }
+-
+-    /// Complete failed work with its original document and object identities.
+-    pub fn fail(self, error: anyhow::Error) -> LoadResult {
+-        match self {
+-            Self::Open { generation, .. } => LoadResult::Opened {
+-                generation,
+-                result: Err(error),
+-            },
+-            Self::Signals {
+-                generation,
+-                signals,
+-                ..
+-            } => LoadResult::Signals {
+-                generation,
+-                results: signals
+-                    .into_iter()
+-                    .map(|id| (id, Err(anyhow::anyhow!("{error:#}"))))
+-                    .collect(),
+-            },
+-            Self::Track {
+-                generation,
+-                request_id,
+-                track,
+-                ..
+-            } => LoadResult::Track {
+-                generation,
+-                request_id,
+-                track,
+-                result: Err(error),
+-            },
+-        }
+-    }
+-
+     /// Perform the request. Blocking; run it off the UI thread where possible.
+     pub fn perform(self) -> LoadResult {
+         match self {
+--- a/volna/volna-core/tests/transactions.rs
++++ b/volna/volna-core/tests/transactions.rs
+@@ -2,7 +2,7 @@
+ use volna_core::session::OpenSpec;
+
+ #[test]
+-fn remote_metadata_queues_complete_tracks() {
++fn remote_metadata_queues_tracks_without_blocking_query_facets() {
+     use std::sync::Arc;
+     use volna_core::document::{Document, TrackLoadState};
+     use volna_core::remote::{objects::Metadata, session::RemoteSession};
+@@ -20,6 +20,7 @@
+     let metadata = Metadata::from_session(local.as_ref());
+     assert!(RemoteSession::new(0, metadata.clone()).is_err());
+     let remote = Arc::new(RemoteSession::new(41, metadata).unwrap());
++    assert!(remote.transactions().is_none());
+     assert!(remote.capabilities().transactions);
+     assert_eq!(remote.tracks(), local.tracks());
+     assert_eq!(
+@@ -80,7 +81,8 @@
+     assert!(fst.capabilities().waveforms);
+     assert!(!fst.capabilities().transactions);
+     assert!(!fst.capabilities().relations);
+-    assert!(fst.tracks().is_empty());
++    assert!(fst.transactions().is_none());
++    assert!(fst.relations().is_none());
+     assert!(fst.load_track(TrackRef(0)).is_err());
+
+     let file = tempfile::NamedTempFile::new().unwrap();
+@@ -88,8 +90,19 @@
+     let vtr = OpenSpec::Path(file.path().into()).open().unwrap();
+     assert!(vtr.capabilities().transactions);
+     assert!(vtr.capabilities().relations);
+-    assert!(vtr.tracks().is_empty());
+-    assert!(vtr.load_track(TrackRef(0)).is_err());
++    let query = vtr.transactions().unwrap();
++    assert!(query.tracks().is_empty());
++    query
++        .visit_transactions(&TransactionQuery::default(), &mut |_| panic!("empty trace"))
++        .unwrap();
++    assert!(query.transaction(TransactionRef(1)).unwrap().is_none());
++    assert!(
++        vtr.relations()
++            .unwrap()
++            .relations_from(TransactionRef(1))
++            .unwrap()
++            .is_empty()
++    );
+ }
+
+ #[test]
+@@ -146,8 +159,9 @@
+     w.close().unwrap();
+
+     let session = OpenSpec::Path(file.path().into()).open().unwrap();
+-    assert_eq!(session.tracks().len(), 4);
+-    let generator = session
++    let txs = session.transactions().unwrap();
++    assert_eq!(txs.tracks().len(), 4);
++    let generator = txs
+         .tracks()
+         .iter()
+         .find(|t| t.path == ["top", "cpu", "instructions"])
+@@ -158,11 +172,7 @@
+             stream: TrackRef(stream.0)
+         }
+     );
+-    let loaded_a = session.load_track(generator.id).unwrap();
+-    let loaded_b = session.load_track(TrackRef(stream_b.0)).unwrap();
+-    let a = &loaded_a.generators[0];
+-    let b = &loaded_b.generators[0];
+-    let p = a.transaction(TransactionRef(parent)).unwrap();
++    let p = txs.transaction(TransactionRef(parent)).unwrap().unwrap();
+     assert_eq!(
+         (p.begin, p.end, p.status, p.kind),
+         (10, 20, TxStatus::Aborted, TxKind::Producer)
+@@ -186,41 +196,72 @@
+     assert_eq!(p.stages[0].lane, "alu");
+     assert_eq!(p.stages[0].end, Some(18));
+     assert_eq!(
+-        b.transaction(TransactionRef(child)).unwrap().parent,
++        txs.transaction(TransactionRef(child))
++            .unwrap()
++            .unwrap()
++            .parent,
+         Some(TransactionRef(parent))
+     );
+-    assert!(a.transaction(TransactionRef(child)).is_none());
+     let mut ids = Vec::new();
+-    for records in [a, b] {
+-        records
+-            .visit_window(20, 20, |tx| {
+-                ids.push(tx.id);
+-                true
+-            })
+-            .unwrap();
+-    }
++    txs.visit_transactions(
++        &TransactionQuery {
++            window: Some((20, 20)),
++            ..Default::default()
++        },
++        &mut |tx| {
++            ids.push(tx.id);
++            true
++        },
++    )
++    .unwrap();
+     assert_eq!(
+         ids.len(),
+         2,
+         "inclusive overlap includes ending and point transactions"
+     );
+-    assert_eq!(
+-        a.transactions().iter().map(|tx| tx.id).collect::<Vec<_>>(),
+-        [TransactionRef(parent)]
+-    );
++    ids.clear();
++    txs.visit_transactions(
++        &TransactionQuery {
++            generator: Some(generator.id),
++            ..Default::default()
++        },
++        &mut |tx| {
++            ids.push(tx.id);
++            true
++        },
++    )
++    .unwrap();
++    assert_eq!(ids, [TransactionRef(parent)]);
+     let mut visits = 0;
+-    assert!(
+-        !a.visit_window(0, u64::MAX, |_| {
+-            visits += 1;
+-            false
+-        })
+-        .unwrap()
+-    );
++    txs.visit_transactions(&TransactionQuery::default(), &mut |_| {
++        visits += 1;
++        false
++    })
++    .unwrap();
+     assert_eq!(visits, 1);
+-    assert!(a.visit_window(2, 1, |_| true).is_err());
+-    assert!(session.load_track(TrackRef(u32::MAX)).is_err());
+-    assert_eq!(a.relations(), b.relations());
+-    let from: Vec<_> = a.relations().iter().map(|edge| &edge.relation).collect();
++    assert!(
++        txs.visit_transactions(
++            &TransactionQuery {
++                window: Some((2, 1)),
++                ..Default::default()
++            },
++            &mut |_| true
++        )
++        .is_err()
++    );
++    assert!(
++        txs.visit_transactions(
++            &TransactionQuery {
++                generator: Some(TrackRef(u32::MAX)),
++                ..Default::default()
++            },
++            &mut |_| true
++        )
++        .is_err()
++    );
++    let relations = session.relations().unwrap();
++    let from = relations.relations_from(TransactionRef(parent)).unwrap();
++    assert_eq!(from, relations.relations_to(TransactionRef(child)).unwrap());
+     assert_eq!(from[0].kind, "causes");
+     assert_eq!(
+         from[0].attributes[0].1,
+--- a/volna/volna/src/web_remote.rs
++++ b/volna/volna/src/web_remote.rs
+@@ -106,13 +106,54 @@
+                 }
+                 None
+             }
+-            request if request.remote_id().is_some() => {
+-                let result = match self.remote.as_mut() {
+-                    Some(bridge) => bridge.client.submit(request),
+-                    None => Err(request.fail(anyhow::anyhow!("remote connection is closed"))),
+-                };
+-                if let Err(result) = result {
+-                    self.app.deliver(result);
++            LoadRequest::Signals {
++                generation,
++                session,
++                signals,
++            } if session.remote_id().is_some() => {
++                let result = self
++                    .remote
++                    .as_mut()
++                    .ok_or_else(|| anyhow::anyhow!("remote connection is closed"))
++                    .and_then(|bridge| {
++                        bridge.client.signals(
++                            session.remote_id().unwrap(),
++                            generation,
++                            signals.clone(),
++                        )
++                    });
++                if let Err(error) = result {
++                    self.app.deliver(LoadResult::Signals {
++                        generation,
++                        results: signals
++                            .into_iter()
++                            .map(|id| (id, Err(anyhow::anyhow!("{error:#}"))))
++                            .collect(),
++                    });
++                    cx.notify();
++                } else if let Err(error) = self.remote_command() {
++                    self.fail_remote(&format!("{error:#}"), cx);
++                }
++                None
++            }
++            LoadRequest::Track {
++                generation,
++                request_id,
++                session,
++                track,
++            } if session.remote_id().is_some() => {
++                let result = self
++                    .remote
++                    .as_mut()
++                    .ok_or_else(|| anyhow::anyhow!("remote connection is closed"))
++                    .and_then(|bridge| bridge.client.track(session, generation, request_id, track));
++                if let Err(error) = result {
++                    self.app.deliver(LoadResult::Track {
++                        generation,
++                        request_id,
++                        track,
++                        result: Err(error),
++                    });
+                     cx.notify();
+                 } else if let Err(error) = self.remote_command() {
+                     self.fail_remote(&format!("{error:#}"), cx);

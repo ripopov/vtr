@@ -1,0 +1,109 @@
+{
+  "baseline": "Pre-refactor complete-object implementation, including pre-existing uncommitted work; no user changes discarded. Native measurement entry point overlaid identically to load complete tracks.",
+  "head": "d56358bfcfd0aafc550416cfc715a0fbcd65e827",
+  "toolchain": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+  "cpu": "Intel(R) Core(TM) Ultra 7 265K",
+  "profile": "viewer",
+  "cpus": "0-7",
+  "binaries": {
+    "baseline_native": {
+      "path": "/tmp/volna-dry-baseline-target/viewer/examples/load_cost",
+      "sha256": "e086cfee5a8f3262f76e57a6d161e67cfdd967aebb0f2f915d13e82ed95e9402"
+    },
+    "baseline_remote": {
+      "path": "/tmp/volna-dry-baseline/binaries/remote_cost",
+      "sha256": "b07ae265933728cf7516babe414bb83c6a7a54db25ad7b260bead29ad688f8da"
+    },
+    "baseline_server": {
+      "path": "/tmp/volna-dry-baseline/binaries/volna-server",
+      "sha256": "b2431a42a5a2faec3af8fdd8f7c2d4473dfcc92a42b55796c4a6c3e954e09473"
+    },
+    "current_native": {
+      "path": "target/viewer/examples/load_cost",
+      "sha256": "b4567cd0ce6eb2f615527fd52cb37dea5aa6b74b6e04ab21f68cb75117077e65"
+    },
+    "current_remote": {
+      "path": "target/viewer/examples/remote_cost",
+      "sha256": "f62fd32ea3ee9414d491512bab1e10e9d3b2199fda31ec0cb888cdcd5f2cb632"
+    },
+    "current_server": {
+      "path": "target/viewer/volna-server",
+      "sha256": "e11e6d3c550fc74c01421281520902ee47ea35742d14b073de98362bf400a090"
+    },
+    "baseline_wasm": {
+      "path": "/tmp/volna-dry-baseline/volna/volna/vscode-ext/media/volna_bg.wasm",
+      "sha256": "33d453f478753f4e188e7bad181a0b9d87c2bb78d06700b2fa9ad233d06fdd23"
+    },
+    "current_wasm": {
+      "path": "/tmp/volna-dry-normal-bundle/media/volna_bg.wasm",
+      "sha256": "606481f793850100bef6609426a89192eec8a15667ddbf813e8349eac6d7a36a"
+    }
+  },
+  "fixtures": {
+    "volna/volna/examples/picorv32.vtr": {
+      "bytes": 19531,
+      "sha256": "b690744f9a93d6e036bc1b190bf86c964bf3c952a4388290bae5a06cfb1520f0"
+    },
+    "bench/results/latest/rsa256.vtr": {
+      "bytes": 32493712,
+      "sha256": "c3eb44804a22e232ff13965ba37ffb6277e5698a65f31eaff35e538c70ec6565"
+    },
+    "bench/workloads/gen/rsa256.fst": {
+      "bytes": 33814234,
+      "sha256": "ad673ea085ccd71e543863084ae9789b6da8000a1beee4a3ae1b50d5e831d593"
+    },
+    "bench/results/latest/kanata_sample2.vtr": {
+      "bytes": 216876,
+      "sha256": "f97fe988fef490667ed316bee0a243eae36d0da7ad7fdf08987469f5a9e2197a"
+    },
+    "bench/results/latest/tlm_1m.vtr": {
+      "bytes": 38225052,
+      "sha256": "3a4f56f67d2a20cdf3caa9d8bdf29f324b32b07d83318b15eec731f6195d5a15"
+    },
+    "bench/results/latest/c910_coremark.vtr": {
+      "bytes": 254937343,
+      "sha256": "5ba26f2a333c042183e9bf0542bbe1b89680d7f179c329f71c260c7f734073fa"
+    },
+    "/tmp/volna-tlm-10k.vtr": {
+      "bytes": 385531,
+      "sha256": "d2ffcca9f1198f033b23c2e69ba4bf0c19681fa006b9576da32e296e0cc2590c"
+    }
+  },
+  "restored_source_sha256": {
+    "tools/volna-server/examples/remote_cost.rs": "b3f3aa15e26e61809b559a266f36cc788e69986f059fafdc32ac1f6965946a3b",
+    "tools/volna-server/tests/process.rs": "4f882745ebdd7e9a45dc294b422e77867b25ee971a7b212777626e27b0cfc0bf",
+    "volna/volna-core/examples/load_cost.rs": "de23b84bf7846add87555ebb36b5c1e926ca661ff8c05ccab13941265efbca2f",
+    "volna/volna-core/src/app.rs": "a18e0ea658000436a6e5f511d053c63090b171764b9231ca814ab0e1d30726a2",
+    "volna/volna-core/src/data/transactions.rs": "3707f3669236334d9c5fb3c085c63dc75651be4cbafb33d512ba500801dafdf0",
+    "volna/volna-core/src/data/vtr_source.rs": "7b57344ede83d7c89764548a2b3c4ba5303f41f15864ddb91287bf35ac553a65",
+    "volna/volna-core/src/data/vtr_transactions.rs": "f8591e8244d33cd7c64d3275fd4f5ce6f7d2e47a47bccf9e45ff1283e2f31a31",
+    "volna/volna-core/src/document.rs": "c90b3822da99f746c3c2a9b8e48e2b3056dd0559d3179cc2512f434db358cf15",
+    "volna/volna-core/src/remote/client.rs": "d0e140188dfb035b97fbf3024cfddd756c218b7fee6e69ddf2b8ca8efd153ca8",
+    "volna/volna-core/src/remote/objects.rs": "266f2b632dbf68c9bfc81f452e5c04bbd3cfa1160b7e558c9d2ca2be0002ce3c",
+    "volna/volna-core/src/remote/server.rs": "f1770caadb5a284ca685776e92e125f500ec42632faf0f7aa2291d639ed9f567",
+    "volna/volna-core/src/session.rs": "15216a23f5e09700d9d2facfb4e91744fde165b342be9c8cf445d694fdbb5292",
+    "volna/volna-core/tests/transactions.rs": "f157549ce260b4a4779ce0a49ad040bb4a9ab82caa618d874797c752205215f7",
+    "volna/volna/src/web_remote.rs": "e7d19e43a550423ab748f71757750496c65e2853582bbadd3622149308ac1086"
+  },
+  "gui": {
+    "ports": [
+      9342,
+      9343
+    ],
+    "viewport": [
+      1200,
+      800
+    ],
+    "dpr": 1,
+    "flags": [
+      "--ozone-platform=x11",
+      "--disable-gpu-vsync",
+      "--force-device-scale-factor=1"
+    ],
+    "scope": "TOP.Testbench.i_rsa.i_RSAMont",
+    "observation_seconds": 3,
+    "os_cache": "warm",
+    "samples_per_variant": 3,
+    "note": "Six-run GUI cohort precedes final request-identity-exhaustion error-path fix; normal loading path is unchanged. A final-bundle follow-up is recorded separately."
+  }
+}

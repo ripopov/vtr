@@ -41,11 +41,25 @@ fn verilator_uses_one_stream_and_one_generator_per_severity() {
     reader
         .visit_transactions(&TxQuery::default(), |tx| {
             assert_eq!(tx.begin, tx.end);
+            assert_eq!(
+                reader.transaction_generator(tx.id).unwrap(),
+                Some(tx.generator)
+            );
             transactions.push(tx.id);
             true
         })
         .unwrap();
     assert_eq!(transactions, rows.iter().map(|r| r.0).collect::<Vec<_>>());
+    let mut owner_ids = transactions.clone();
+    owner_ids.reverse();
+    owner_ids.extend([u64::MAX, transactions[0]]);
+    assert_eq!(
+        reader.transaction_generators(&owner_ids).unwrap(),
+        owner_ids
+            .iter()
+            .map(|&id| reader.transaction_generator(id).unwrap())
+            .collect::<Vec<_>>()
+    );
     let warning = reader
         .log_sites()
         .iter()

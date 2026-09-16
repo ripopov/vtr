@@ -14,7 +14,8 @@ function createWorkspaceHost(vscode, context, panel, uri) {
   let writes = Promise.resolve();
   const settings = () => {
     const config = vscode.workspace.getConfiguration("volna", uri);
-    return { autosave: config.get("workspace.autosave", "sidecar"), linkByDefault: config.get("panels.linkByDefault", true) };
+    return { autosave: config.get("workspace.autosave", "sidecar"), linkByDefault: config.get("panels.linkByDefault", true),
+      remote: { memoryMiB: config.get("remote.memoryMiB", 512), objectMiB: config.get("remote.objectMiB", 256) } };
   };
   const post = async (message) => {
     if (!disposed) {
@@ -58,9 +59,9 @@ function createWorkspaceHost(vscode, context, panel, uri) {
   }
   async function ready() {
     const config = settings();
-    const [trace, saved] = await Promise.all([vscode.workspace.fs.readFile(uri), candidates(config.autosave)]);
+    const saved = await candidates(config.autosave);
     await post({ type: "open", traceUri: uri.toString(), name: uri.path.split("/").pop(),
-      bytes: trace.buffer.slice(trace.byteOffset, trace.byteOffset + trace.byteLength), candidates: saved, settings: config });
+      candidates: saved, settings: config });
   }
   function save(snapshot, acknowledge) {
     // Capture each message before queuing; never substitute a newer target or payload.

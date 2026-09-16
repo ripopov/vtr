@@ -98,6 +98,8 @@ pub(crate) struct TextKey {
 
 pub struct Workspace {
     pub app: CoreApp,
+    #[cfg(target_family = "wasm")]
+    pub(crate) remote: Option<crate::web_remote::Bridge>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) native_store: Option<crate::native_workspace::Store>,
     pub(crate) dock: Option<crate::dock::DockHost>,
@@ -296,6 +298,8 @@ impl Workspace {
         window.focus(&waves_focus, cx);
         Workspace {
             app: CoreApp::new(),
+            #[cfg(target_family = "wasm")]
+            remote: None,
             #[cfg(not(target_family = "wasm"))]
             native_store: None,
             dock: None,
@@ -414,7 +418,13 @@ impl Workspace {
 
     /// Perform queued loads on the background executor and deliver the results.
     fn run_requests(&mut self, cx: &mut Context<Self>) {
+        #[cfg(target_family = "wasm")]
+        self.sync_remote();
         for request in self.app.take_requests() {
+            #[cfg(target_family = "wasm")]
+            let Some(request) = self.route_remote(request, cx) else {
+                continue;
+            };
             cx.spawn(async move |this, cx| {
                 let result = cx.background_spawn(async move { request.perform() }).await;
                 this.update(cx, |this, cx| {
@@ -454,7 +464,7 @@ impl Workspace {
             .items
             .iter()
             .map(|item| {
-                let id = item.id.clone();
+                let id = item.action.clone();
                 let label = match &item.badge {
                     Some(badge) => format!("{} ({badge})", item.label),
                     None => item.label.clone(),

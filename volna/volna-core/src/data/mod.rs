@@ -3,6 +3,7 @@
 
 pub(crate) mod fst_source;
 pub mod history;
+pub mod loaded_tracks;
 pub mod source;
 pub mod synth;
 pub mod transactions;

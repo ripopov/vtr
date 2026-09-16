@@ -1,0 +1,39 @@
+{
+  "loaded": {
+    "action": "state",
+    "streams": 9,
+    "ready": 9,
+    "loading": 0,
+    "transactions": 30000,
+    "incidentRelations": 54328,
+    "errors": []
+  },
+  "timedOut": false,
+  "firstReadyMs": 100.70000000298023,
+  "totalMs": 224.90000000596046,
+  "sent": 65,
+  "received": 56,
+  "sendBytes": 4497,
+  "receiveBytes": 2087827,
+  "memoryStart": 8978432,
+  "memoryLoaded": 26017792,
+  "releaseMs": 10.200000002980232,
+  "released": {
+    "action": "release",
+    "streams": 9,
+    "ready": 0,
+    "loading": 0,
+    "transactions": 0,
+    "incidentRelations": 0,
+    "errors": []
+  },
+  "maxFrameMs": 17.100000008940697,
+  "frames": 31,
+  "longTasks": [],
+  "releaseLongTasks": [],
+  "releaseSends": 0,
+  "memoryReleased": 26017792,
+  "fixture": "/tmp/volna-tlm-10k.vtr",
+  "memoryMiB": 512,
+  "objectMiB": 256
+}

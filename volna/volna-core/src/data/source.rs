@@ -23,10 +23,12 @@ fn unique<T>(mut matches: impl Iterator<Item = T>) -> Lookup<T> {
 }
 
 /// Opaque handle to a signal inside a source (VTR `SignalId`).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct SignalRef(pub u32);
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Direction {
     None,
     Input,
@@ -34,7 +36,7 @@ pub enum Direction {
     InOut,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Scope {
     pub name: String,
     /// Scope kind name (`module`, `task`, ...), used for the icon.
@@ -44,7 +46,7 @@ pub struct Scope {
     pub vars: Vec<VarId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Variable {
     pub name: String,
     pub scope: ScopeId,
@@ -55,7 +57,7 @@ pub struct Variable {
     pub signal: SignalRef,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Hierarchy {
     pub scopes: Vec<Scope>,
     pub roots: Vec<ScopeId>,
@@ -146,7 +148,7 @@ impl Hierarchy {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TraceInfo {
     /// Display name (file name).
     pub name: String,

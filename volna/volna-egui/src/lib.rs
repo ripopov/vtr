@@ -955,7 +955,7 @@ impl VolnaApp {
                                     None => item.label.clone(),
                                 };
                                 if ui.selectable_label(item.checked, label).clicked() {
-                                    chosen = Some(item.id.clone());
+                                    chosen = Some(item.action.clone());
                                 }
                             }
                         });

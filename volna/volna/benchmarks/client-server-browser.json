@@ -1,0 +1,248 @@
+{
+  "fixture": "bench/results/latest/rsa256.vtr",
+  "scope": "TOP.Testbench.i_rsa.i_RSAMont",
+  "displayed_rows": 27,
+  "loaded_rows": 27,
+  "measurement": "Data request through last acknowledgement; metadata and application startup excluded",
+  "renderer": "WebGL2 fallback; WebGPU adapter unavailable",
+  "flags": [
+    "--ozone-platform=x11",
+    "--disable-gpu-vsync"
+  ],
+  "normal": {
+    "sent": 251,
+    "received": 250,
+    "sendBytes": 18152,
+    "receiveBytes": 23704750,
+    "loadMs": 2265.39999999851,
+    "memoryStart": 9043968,
+    "memoryEnd": 60686336,
+    "maxFrameMs": 17.600000001490116,
+    "frames": 142,
+    "longTasks": []
+  },
+  "delayed": {
+    "sent": 251,
+    "received": 250,
+    "sendBytes": 18152,
+    "receiveBytes": 23704759,
+    "loadMs": 15030.20000000298,
+    "memoryStart": 60686336,
+    "memoryEnd": 60686336,
+    "maxFrameMs": 17.899999998509884,
+    "frames": 908,
+    "longTasks": [],
+    "sendDelayMs": 50,
+    "midLoad": {
+      "loadedRows": 4,
+      "totalRows": 27,
+      "cursor": 219219,
+      "viewport": [
+        109035,
+        287224
+      ]
+    }
+  },
+  "graphics_control": {
+    "description": "Default-vsync traces contain approximately one-second EGL swap waits in both baseline and current viewers; thread CPU remains below 0.5 ms. Disabling GPU vsync is a test-host workaround, not an application change.",
+    "trace_event": "NativeViewGLSurfaceEGL:RealSwapBuffers",
+    "samples": {
+      "current": [
+        {
+          "wallMs": 1001.913,
+          "threadCpuMs": 0.386
+        },
+        {
+          "wallMs": 1001.845,
+          "threadCpuMs": 0.381
+        },
+        {
+          "wallMs": 1001.905,
+          "threadCpuMs": 0.401
+        },
+        {
+          "wallMs": 1001.052,
+          "threadCpuMs": 0.412
+        },
+        {
+          "wallMs": 1001.715,
+          "threadCpuMs": 0.272
+        },
+        {
+          "wallMs": 1001.245,
+          "threadCpuMs": 0.37
+        },
+        {
+          "wallMs": 1001.531,
+          "threadCpuMs": 0.313
+        },
+        {
+          "wallMs": 1001.782,
+          "threadCpuMs": 0.262
+        }
+      ],
+      "baseline": [
+        {
+          "wallMs": 1000.871,
+          "threadCpuMs": 0.27
+        },
+        {
+          "wallMs": 1001.826,
+          "threadCpuMs": 0.414
+        },
+        {
+          "wallMs": 1001.421,
+          "threadCpuMs": 0.271
+        }
+      ]
+    }
+  },
+  "replays": {
+    "fast": {
+      "sent": 251,
+      "received": 250,
+      "sendBytes": 18152,
+      "receiveBytes": 23704758,
+      "loadMs": 2227.60000000149,
+      "memoryStart": 60686336,
+      "memoryEnd": 60686336,
+      "frames": 140,
+      "maxFrameMs": 17.600000001490116,
+      "longTasks": [],
+      "fixture": "bench/results/latest/rsa256.vtr",
+      "scope": "TOP.Testbench.i_rsa.i_RSAMont",
+      "sendDelayMs": 0,
+      "states": [
+        "panel=6 focused=true linked=(true,true) items=27 loaded=26 selected={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26} anchor=Some(0) cursor=Some(219219) markers=0 viewport=(109035,287224) menu=false drag=None sidebar_w=280px scopes_frac=0.42",
+        "panel=6 focused=true linked=(true,true) items=27 loaded=27 selected={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26} anchor=Some(0) cursor=Some(219219) markers=0 viewport=(109035,287224) menu=false drag=None sidebar_w=280px scopes_frac=0.42"
+      ],
+      "loadedNavigationSends": 0,
+      "measurement": "Data request through last acknowledgement; metadata/startup excluded"
+    },
+    "slow": {
+      "sent": 251,
+      "received": 250,
+      "sendBytes": 18152,
+      "receiveBytes": 23704758,
+      "loadMs": 15043.79999999702,
+      "memoryStart": 60686336,
+      "memoryEnd": 60686336,
+      "frames": 908,
+      "maxFrameMs": 17.80000000447035,
+      "longTasks": [],
+      "fixture": "bench/results/latest/rsa256.vtr",
+      "scope": "TOP.Testbench.i_rsa.i_RSAMont",
+      "sendDelayMs": 50,
+      "states": [
+        "panel=5 focused=true linked=(true,true) items=27 loaded=4 selected={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26} anchor=Some(0) cursor=Some(219219) markers=0 viewport=(109035,287224) menu=false drag=None sidebar_w=280px scopes_frac=0.42",
+        "panel=5 focused=true linked=(true,true) items=27 loaded=27 selected={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26} anchor=Some(0) cursor=Some(219219) markers=0 viewport=(109035,287224) menu=false drag=None sidebar_w=280px scopes_frac=0.42"
+      ],
+      "loadedNavigationSends": 0,
+      "measurement": "Data request through last acknowledgement; metadata/startup excluded"
+    }
+  },
+  "objectRefusal": {
+    "memoryMiB": 512,
+    "objectMiB": 1,
+    "displayedRows": 27,
+    "loadedRows": 24,
+    "failedRows": 3,
+    "visibleError": "signal exceeds transfer limit",
+    "screenshot": "client-server-ui/object-refusal.png"
+  },
+  "normalBundleCold": {
+    "sent": 251,
+    "received": 250,
+    "sendBytes": 18152,
+    "receiveBytes": 23704751,
+    "loadMs": 1034,
+    "memoryStart": 9240576,
+    "memoryEnd": 59637760,
+    "frames": 66,
+    "maxFrameMs": 54.899999998509884,
+    "longTasks": [],
+    "fixture": "bench/results/latest/rsa256.vtr",
+    "scope": "TOP.Testbench.i_rsa.i_RSAMont",
+    "sendDelayMs": 0,
+    "states": [
+      "panel=3 focused=true linked=(true,true) items=27 loaded=27 selected={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26} anchor=Some(0) cursor=Some(219219) markers=0 viewport=(109035,287224) menu=false drag=None sidebar_w=280px scopes_frac=0.42",
+      "panel=3 focused=true linked=(true,true) items=27 loaded=27 selected={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26} anchor=Some(0) cursor=Some(219219) markers=0 viewport=(109035,287224) menu=false drag=None sidebar_w=280px scopes_frac=0.42"
+    ],
+    "loadedNavigationSends": 0,
+    "measurement": "Data request through last acknowledgement; metadata/startup excluded"
+  },
+  "normalBundleTracedRepeat": {
+    "sent": 251,
+    "received": 250,
+    "sendBytes": 18152,
+    "receiveBytes": 23704751,
+    "loadMs": 1066.9000000059605,
+    "memoryStart": 60030976,
+    "memoryEnd": 85721088,
+    "frames": 70,
+    "maxFrameMs": 17.5,
+    "longTasks": []
+  },
+  "normalBundleNote": "Cold run exceeds the profiler frame-gap threshold (54.9 ms); a traced warm repeat records 17.5 ms. No long tasks in either sample. The cold outlier is not attributed to a cause by this repeat.",
+  "retryMenu": {
+    "objectMiB": 1,
+    "rowsBefore": 27,
+    "rowsAfter": 27,
+    "loadedBefore": 24,
+    "loadedAfter": 24,
+    "clientPackets": 2,
+    "serverPackets": 1,
+    "clientBytes": 127,
+    "serverBytes": 95,
+    "result": "The retried signal remains explicitly refused by the unchanged size limit; ready rows remain available",
+    "screenshot": "client-server-ui/retry-menu.png"
+  },
+  "coldTraceComparison": {
+    "samples": {
+      "current": {
+        "sent": 251,
+        "received": 250,
+        "sendBytes": 18152,
+        "receiveBytes": 23704750,
+        "loadMs": 1001.8000000044703,
+        "memoryStart": 9240576,
+        "memoryEnd": 59703296,
+        "frames": 65,
+        "maxFrameMs": 41.899999998509884,
+        "longTasks": [],
+        "traceMaxima": {
+          "CrRendererMain": {
+            "event": "ProxyMain::BeginMainFrame",
+            "wallMs": 7.178,
+            "threadCpuMs": 6.66
+          },
+          "CrGpuMain": {
+            "event": "Scheduler::RunTask",
+            "wallMs": 50.814,
+            "threadCpuMs": 50.801
+          }
+        }
+      },
+      "baseline": {
+        "frames": 196,
+        "maxFrameMs": 39.400000005960464,
+        "longTasks": [],
+        "memoryStart": 41615360,
+        "memoryEnd": 105840640,
+        "traceMaxima": {
+          "CrRendererMain": {
+            "event": "TimerBase::run",
+            "wallMs": 33.423,
+            "threadCpuMs": 33.406
+          },
+          "CrGpuMain": {
+            "event": "Scheduler::RunTask",
+            "wallMs": 8.548,
+            "threadCpuMs": 8.464
+          }
+        }
+      }
+    },
+    "note": "Fresh webviews and same 27-signal RSA scope, X11 with GPU vsync disabled. Baseline observation includes scope selection and 3 seconds after adding rows; current frame window covers data request through last ACK plus 100 ms. These maxima are diagnostics, not matched latency percentiles. They do not establish the cause of the earlier untraced 54.9 ms sample."
+  }
+}

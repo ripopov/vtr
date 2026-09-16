@@ -654,6 +654,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4471,6 +4480,9 @@ name = "lz4_flex"
 version = "0.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+dependencies = [
+ "twox-hash",
+]
 
 [[package]]
 name = "lz4_flex"
@@ -8474,9 +8486,11 @@ name = "volna-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "flate2",
  "fst-reader",
  "log",
+ "lz4_flex 0.11.6",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -8498,6 +8512,20 @@ dependencies = [
  "log",
  "rfd",
  "volna-core",
+]
+
+[[package]]
+name = "volna-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "getrandom 0.4.3",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "volna-core",
+ "vtr",
 ]
 
 [[package]]

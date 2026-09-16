@@ -48,7 +48,7 @@ pub enum ValueKind {
 }
 
 /// The storage shape of a signal, independent of the HDL variable type.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SignalShape {
     /// Timestamped occurrences, not a held logic level.
     Event,

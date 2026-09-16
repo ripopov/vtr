@@ -18,6 +18,10 @@ pub mod sidebar;
 pub mod theme;
 pub mod ui;
 pub mod wave;
+#[cfg(all(target_family = "wasm", feature = "remote-profile"))]
+mod web_profile;
+#[cfg(target_family = "wasm")]
+mod web_remote;
 
 use gpui_kit::{
     App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px,
@@ -118,12 +122,17 @@ pub mod web {
 
     enum HostEvent {
         Open(String, Vec<u8>),
-        Resource(String, Vec<u8>, Box<OpenMetadata>),
+        Resource(volna_core::session::OpenSpec, Box<OpenMetadata>),
+        RemoteFrame(String, Vec<u8>),
+        RemoteError(String, String),
+        RemoteContinue(String),
         Workspace(WorkspaceMessage),
         Theme(Box<crate::theme::CoreTheme>),
         Command(volna_core::app::Command),
         /// Log the viewer state to the console (browser-driven verification).
         DebugState,
+        #[cfg(feature = "remote-profile")]
+        ProfileTracks(String),
     }
 
     #[derive(serde::Deserialize)]
@@ -143,6 +152,8 @@ pub mod web {
     struct Settings {
         autosave: String,
         link_by_default: bool,
+        #[serde(default)]
+        remote: volna_core::remote::limits::Limits,
     }
     #[derive(serde::Deserialize)]
     #[serde(tag = "type", rename_all = "camelCase")]
@@ -195,7 +206,35 @@ pub mod web {
     pub fn open_resource(name: String, bytes: Vec<u8>, metadata: &str) -> Result<(), JsValue> {
         let metadata = serde_json::from_str(metadata)
             .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
-        enqueue(HostEvent::Resource(name, bytes, Box::new(metadata)))
+        enqueue(HostEvent::Resource(
+            volna_core::session::OpenSpec::Bytes { name, bytes },
+            Box::new(metadata),
+        ))
+    }
+
+    #[wasm_bindgen]
+    pub fn open_remote(name: String, metadata: &str) -> Result<(), JsValue> {
+        let metadata: OpenMetadata = serde_json::from_str(metadata)
+            .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
+        enqueue(HostEvent::Resource(
+            volna_core::session::OpenSpec::Remote {
+                name,
+                limits: metadata.settings.remote,
+            },
+            Box::new(metadata),
+        ))
+    }
+    #[wasm_bindgen]
+    pub fn trace_frame(connection: String, bytes: Vec<u8>) -> Result<(), JsValue> {
+        enqueue(HostEvent::RemoteFrame(connection, bytes))
+    }
+    #[wasm_bindgen]
+    pub fn trace_error(connection: String, message: String) -> Result<(), JsValue> {
+        enqueue(HostEvent::RemoteError(connection, message))
+    }
+    #[wasm_bindgen]
+    pub fn trace_continue(connection: String) -> Result<(), JsValue> {
+        enqueue(HostEvent::RemoteContinue(connection))
     }
 
     /// Workspace payloads are interpreted only by the Rust core.
@@ -271,6 +310,22 @@ pub mod web {
                 tx.unbounded_send(HostEvent::DebugState).ok();
             }
         });
+    }
+
+    /// Test-only consumer of complete raw streams: load, state, or release.
+    #[cfg(feature = "remote-profile")]
+    #[wasm_bindgen]
+    pub fn profile_tracks(action: String) -> Result<(), JsValue> {
+        if !matches!(action.as_str(), "load" | "state" | "release") {
+            return Err(JsValue::from_str("expected load, state, or release"));
+        }
+        HOST_TX.with(|tx| {
+            tx.borrow()
+                .as_ref()
+                .ok_or_else(|| JsValue::from_str("viewer is not ready"))?
+                .unbounded_send(HostEvent::ProfileTracks(action))
+                .map_err(|_| JsValue::from_str("viewer is closed"))
+        })
     }
 
     /// Host-neutral JSON palette; malformed input leaves the current theme intact.
@@ -354,7 +409,16 @@ pub mod web {
                         while let Some(event) = rx.next().await {
                             workspace.update(cx, |ws, cx| match event {
                                 HostEvent::Open(name, bytes) => ws.open_bytes(name, bytes, cx),
-                                HostEvent::Resource(name, bytes, metadata) => {
+                                HostEvent::RemoteFrame(connection, bytes) => {
+                                    ws.remote_frame(&connection, bytes, cx)
+                                }
+                                HostEvent::RemoteError(connection, message) => {
+                                    ws.remote_error(&connection, &message, cx)
+                                }
+                                HostEvent::RemoteContinue(connection) => {
+                                    ws.remote_continue(&connection, cx)
+                                }
+                                HostEvent::Resource(spec, metadata) => {
                                     use volna_core::workspace::persistence::Persistence;
                                     let policy = match metadata.settings.autosave.as_str() {
                                         "sidecar" => Persistence::Auto,
@@ -376,10 +440,7 @@ pub mod web {
                                         *slot.borrow_mut() =
                                             candidates.map(|c| (trace_uri.clone(), c))
                                     });
-                                    ws.app.open_resource(
-                                        volna_core::session::OpenSpec::Bytes { name, bytes },
-                                        trace_uri,
-                                    );
+                                    ws.app.open_resource(spec, trace_uri);
                                     ws.after(None, cx);
                                 }
                                 HostEvent::Workspace(message) => {
@@ -430,6 +491,8 @@ pub mod web {
                                 HostEvent::Theme(theme) => crate::theme::install(*theme, cx),
                                 HostEvent::Command(command) => ws.dispatch(command, None, cx),
                                 HostEvent::DebugState => log::info!("STATE {}", ws.debug_state()),
+                                #[cfg(feature = "remote-profile")]
+                                HostEvent::ProfileTracks(action) => ws.profile_tracks(&action, cx),
                             });
                         }
                     })

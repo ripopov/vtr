@@ -13,7 +13,7 @@ browsing, and transaction/pipeline views are planned. Keep static VDB semantics
 separate from runtime VTR data as these features are developed.
 
 FST opens directly through `fst-reader` in the shared core, including native
-paths and browser/VS Code byte inputs. Selection queues a batch of complete
+paths, browser byte inputs and the VS Code workspace server. Selection queues a batch of complete
 signal histories; aliases share the loaded data. Supported values include
 nine-state logic, reals and arbitrary byte strings. Byte strings display quoted
 escapes. Enum signals display recorded numeric bits; enum tables are not used
@@ -125,6 +125,28 @@ code --extensionDevelopmentPath="$PWD/vscode-ext" "$PWD/examples"
 Opening any `*.vtr` or `*.fst` file uses the viewer as a custom editor; the command
 "Volna: Open Waveform Viewer" picks a trace and opens its custom editor. Package with `npx @vscode/vsce package`
 inside `vscode-ext/`.
+
+The build also places a native `volna-server` in `vscode-ext/bin`. The extension
+runs on the workspace host, including SSH/container workspaces, and starts that
+child beside the recording. Set `volna.serverPath` to a server executable built
+for the workspace host when the bundled binary targets a different platform.
+Only complete metadata and selected histories/tracks cross the relay; the
+extension does not read and send the whole trace file. Navigation over loaded
+data is local to the viewer.
+
+`volna.remote.memoryMiB` controls client admission (default 512 MiB), and
+`volna.remote.objectMiB` limits each decoded wire object (default 256 MiB).
+Reopen the trace after changing either setting. A load that cannot fit fails
+explicitly; remove loaded data or raise the limit. For a failed signal, click
+its format badge and choose **Retry loading**. This retries the complete signal
+for all alias rows without adding rows; other loaded signals remain available.
+A disconnected recording must be reopened before new loads can succeed.
+Save the workspace before closing to restore the same selections on reopen;
+the new session reloads complete objects using their durable paths.
+These limits do not bound
+total browser memory or guarantee that a large allocation will fit its address
+space. Metadata is subject to admission too. See the
+[complete-object design](../../docs/client-server-simple.html).
 
 VS Code colours follow the current theme, including custom themes, colour
 customizations, light/dark and both high-contrast modes. Changes repaint the

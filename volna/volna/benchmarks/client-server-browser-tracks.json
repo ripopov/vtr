@@ -1,0 +1,198 @@
+{
+  "fixtureGeneration": [
+    "target/release/vtr-bench gen-tlm /tmp/volna-tlm-10k.txr 10000",
+    "target/release/vtr-bench tx-write /tmp/volna-tlm-10k.txr /tmp/volna-tlm-10k.vtr --no-background"
+  ],
+  "flags": [
+    "--ozone-platform=x11",
+    "--disable-gpu-vsync"
+  ],
+  "beforeSchedulingChange": {
+    "loaded": {
+      "action": "state",
+      "streams": 9,
+      "ready": 9,
+      "loading": 0,
+      "transactions": 30000,
+      "incidentRelations": 54328,
+      "errors": []
+    },
+    "firstReadyMs": 1639.3999999985099,
+    "totalMs": 15768.20000000298,
+    "sent": 65,
+    "received": 56,
+    "sendBytes": 4497,
+    "receiveBytes": 2087823,
+    "memoryStart": 8978432,
+    "memoryLoaded": 26148864,
+    "releaseMs": 10.299999997019768,
+    "released": {
+      "action": "release",
+      "streams": 9,
+      "ready": 0,
+      "loading": 0,
+      "transactions": 0,
+      "incidentRelations": 0,
+      "errors": []
+    },
+    "maxFrameMs": 17.80000000447035,
+    "frames": 960,
+    "longTasks": [],
+    "releaseLongTasks": [],
+    "releaseSends": 0,
+    "memoryReleased": 26148864,
+    "fixture": "/tmp/volna-tlm-10k.vtr",
+    "memoryMiB": 512,
+    "objectMiB": 256
+  },
+  "afterSchedulingChange": {
+    "loaded": {
+      "action": "state",
+      "streams": 9,
+      "ready": 9,
+      "loading": 0,
+      "transactions": 30000,
+      "incidentRelations": 54328,
+      "errors": []
+    },
+    "firstReadyMs": 100.30000000447035,
+    "totalMs": 208.30000000447035,
+    "sent": 65,
+    "received": 56,
+    "sendBytes": 4497,
+    "receiveBytes": 2087821,
+    "memoryStart": 8978432,
+    "memoryLoaded": 26279936,
+    "releaseMs": 10.099999994039536,
+    "released": {
+      "action": "release",
+      "streams": 9,
+      "ready": 0,
+      "loading": 0,
+      "transactions": 0,
+      "incidentRelations": 0,
+      "errors": []
+    },
+    "maxFrameMs": 17.69999999552965,
+    "frames": 31,
+    "longTasks": [],
+    "releaseLongTasks": [],
+    "releaseSends": 0,
+    "memoryReleased": 26279936,
+    "fixture": "/tmp/volna-tlm-10k.vtr",
+    "memoryMiB": 512,
+    "objectMiB": 256
+  },
+  "timerProbe": {
+    "times": [
+      0.10000000149011612,
+      0,
+      0,
+      0,
+      0,
+      0,
+      732.6999999955297,
+      997.8999999985099,
+      1002.3000000044703,
+      997.7999999970198,
+      1001.8999999985099,
+      998
+    ],
+    "probe": {
+      "sends": 0,
+      "frames": 0,
+      "yields": 19
+    }
+  },
+  "messageTaskExperiment": {
+    "yields": 505,
+    "elapsedMs": 8004.8,
+    "finalReady": 2,
+    "finalLoading": 0,
+    "finalErrors": 7,
+    "transactions": 500000,
+    "incidentRelations": 1222609
+  },
+  "largeMessageTasks": {
+    "loaded": {
+      "action": "state",
+      "streams": 9,
+      "ready": 2,
+      "loading": 0,
+      "transactions": 500000,
+      "incidentRelations": 1222609,
+      "errors": [
+        "2: client memory budget exceeded; remove tracks or raise the limit",
+        "3: client memory budget exceeded; remove tracks or raise the limit",
+        "4: object exceeds transfer limit",
+        "5: client memory budget exceeded; remove tracks or raise the limit",
+        "6: client memory budget exceeded; remove tracks or raise the limit",
+        "7: client memory budget exceeded; remove tracks or raise the limit",
+        "8: client memory budget exceeded; remove tracks or raise the limit"
+      ]
+    },
+    "timedOut": false,
+    "firstReadyMs": 2816.2000000029802,
+    "totalMs": 15162.60000000149,
+    "sent": 2155,
+    "received": 2146,
+    "sendBytes": 154936,
+    "receiveBytes": 146569155,
+    "memoryStart": 8912896,
+    "memoryLoaded": 450691072,
+    "releaseMs": 44.599999994039536,
+    "released": {
+      "action": "release",
+      "streams": 9,
+      "ready": 0,
+      "loading": 0,
+      "transactions": 0,
+      "incidentRelations": 0,
+      "errors": []
+    },
+    "maxFrameMs": 27.899999998509884,
+    "frames": 923,
+    "longTasks": [],
+    "releaseLongTasks": [],
+    "releaseSends": 0,
+    "memoryReleased": 450691072,
+    "fixture": "/home/ripopov/work/vtr/bench/results/latest/tlm_1m.vtr",
+    "memoryMiB": 512,
+    "objectMiB": 256,
+    "processPeaks": [
+      {
+        "role": "renderer",
+        "pid": 2445490,
+        "peakRssKiB": 388316
+      },
+      {
+        "role": "renderer",
+        "pid": 2446080,
+        "peakRssKiB": 703896
+      },
+      {
+        "role": "server",
+        "pid": 2446565,
+        "peakRssKiB": 2756052
+      }
+    ]
+  },
+  "timerSchedulingControl": {
+    "fixture": "bench/results/latest/tlm_1m.vtr",
+    "memoryMiB": 512,
+    "objectMiB": 256,
+    "deadlineMs": 45000,
+    "completed": false,
+    "streams": 9,
+    "ready": 0,
+    "loading": 9,
+    "serverState": "Live child waiting for protocol input; no restart inferred from observation deadline",
+    "status": "Nested timer delay; the MessageChannel continuation experiment and fresh run complete",
+    "afterForeground": {
+      "ready": 1,
+      "loading": 8,
+      "transactions": 250000,
+      "incidentRelations": 611701
+    }
+  }
+}

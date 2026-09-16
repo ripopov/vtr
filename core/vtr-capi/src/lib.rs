@@ -1608,6 +1608,53 @@ pub unsafe extern "C" fn vtr_reader_transaction(r: *const vtr_reader, id: u64, c
 
 pub type vtr_relation_cb = Option<unsafe extern "C" fn(user: *mut std::ffi::c_void, kind: u32, from: u64, to: u64, n_attrs: u32, keys: *const u32, values: *const vtr_value) -> c_int>;
 
+/// Owning generator without copying transaction details.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_transaction_generator(
+    r: *const vtr_reader,
+    id: u64,
+    out_generator: *mut u32,
+) -> c_int {
+    let r = need_ref!(r);
+    if out_generator.is_null() {
+        return VTR_ERR_NULL;
+    }
+    match r.0.transaction_generator(id) {
+        Ok(Some(generator)) => {
+            *out_generator = generator.0;
+            VTR_OK
+        }
+        Ok(None) => VTR_ERR_NOT_FOUND,
+        Err(error) => status(Err(error)),
+    }
+}
+
+/// Resolve owners in input order; missing IDs produce VTR_NONE.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_transaction_generators(
+    r: *const vtr_reader,
+    ids: *const u64,
+    len: usize,
+    out_generators: *mut u32,
+) -> c_int {
+    let r = need_ref!(r);
+    if len == 0 {
+        return VTR_OK;
+    }
+    if ids.is_null() || out_generators.is_null() {
+        return VTR_ERR_NULL;
+    }
+    match r.0.transaction_generators(std::slice::from_raw_parts(ids, len)) {
+        Ok(owners) => {
+            for (index, owner) in owners.into_iter().enumerate() {
+                *out_generators.add(index) = owner.map_or(VTR_NONE, |id| id.0);
+            }
+            VTR_OK
+        }
+        Err(error) => status(Err(error)),
+    }
+}
+
 unsafe fn emit_relations(list: Vec<vtr::Relation>, cb: unsafe extern "C" fn(*mut std::ffi::c_void, u32, u64, u64, u32, *const u32, *const vtr_value) -> c_int, user: *mut std::ffi::c_void) {
     for rel in &list {
         let keys: Vec<u32> = rel.attrs.iter().map(|(k, _)| k.0).collect();

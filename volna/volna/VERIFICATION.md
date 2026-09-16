@@ -24,11 +24,14 @@ cargo test --locked -p volna-core --test transactions
 cargo test --locked -p volna --all-features
 cargo test --locked -p volna-egui --test screenshots
 node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs
+cargo test --locked -p volna-server
+cargo clippy --locked -p volna-server --all-targets -- -D warnings
+node --test volna/volna/vscode-ext/trace-host.test.cjs
 ```
 
 | Area | Coverage |
 |---|---|
-| Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry, and duplicate/alias rows share histories |
+| Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry through the row menu without adding rows or replacing unrelated histories, duplicate/alias rows share histories, queued demand is removed with its last consumer, and active signal loads survive removal/re-add |
 | Panel model | Literal hierarchy paths and duplicate-name ambiguity; split/close/focus/layout validation; 5,000 generated command sequences; shared and independent navigation; cross-panel load reuse and stale pointer rejection |
 | Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, format menu, sidebar filtering/keys, layout hit regions and repaint coalescing |
 | FST input | Plain/gzip fixtures, raw bytes, reals, nine-state values, aliases, EVCD payloads, event occurrences, unavailable samples and explicit unsupported metadata errors |
@@ -39,6 +42,7 @@ node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspa
 | Workspace codec and lifecycle | Exact integer times, unknown panels/formats, unresolved locators, atomic prepare/commit, malformed and oversized inputs, idle revisions, ticket races, fallback precedence, Save As and transition flush failures |
 | Workspace hosts | Native copied-trace idle save/reopen, atomic I/O and preference errors; opaque VS Code candidates, remote URI schemes, ticket destinations, write errors, hide/dispose sequencing and disabled storage |
 | Host theme | Raw VS Code palettes, host-neutral CSS parsing, synchronous initial snapshot and subsequent theme updates |
+| Complete-object transport | Framing and compression limits, cooperative metadata/history/track decoding, admission accounting, atomic installation, stale identities, disconnect and per-item errors; real child-process VTR/FST equivalence and track round trips |
 
 FST fixture regeneration commands are in
 [`fst_values.c`](../volna-core/tests/fixtures/fst_values.c). Regular tests use
@@ -118,7 +122,278 @@ state must survive. Standalone web checks should also cover `volnaHostTheme()`,
 `set_theme(json)`, malformed palettes and palettes without an explicit kind.
 Host color safeguards do not constitute a complete accessibility audit.
 
+### Local/remote VS Code image comparison
+
+Build the baseline and current extension bundles in separate worktrees. Launch
+each in an isolated Extension Development Host with a separate user-data directory
+and `--remote-debugging-port` (for example, 9335 and 9334). Use the same VS Code
+version, theme, display backend and scale; `--ozone-platform=x11` selects X11 on
+Linux. Disable workspace autosave in both test profiles. Open each worktree's
+`volna/volna/examples/picorv32.vtr`, dismiss host notifications, and load the eight variables
+in the root `testbench` scope. Clear the variable filter. Set both viewers to the
+same cursor, viewport, selection and layout before comparing.
+
+For a 1200×800 window at device scale 1, with the default sidebar layout:
+
+```sh
+# Python requires Pillow; Node must be >= 22.
+python3 volna/volna/tools/compare-remote-ui.py 9335 9334 /tmp/volna-ui-comparison
+```
+
+The tool verifies eight loaded rows and exact frame geometry, captures the
+starting pose, applies identical cursor/zoom/pan actions and keyboard filtering,
+and compares viewer pixels. It also asserts zero outgoing remote messages during
+those actions. It saves scripts, console logs, images and numerical results for
+inspection. The comparison excludes VS Code breadcrumbs (different paths) and
+the live status counter; it does not mask waveform or sidebar content. Inspect
+the images as well as the equality result to verify the intended visible state.
+
+The [retained comparison](benchmarks/client-server-ui/results.json) against
+`d56358bfcfd0aafc550416cfc715a0fbcd65e827` has zero differing pixels in all three
+poses and zero remote messages. The [baseline](benchmarks/client-server-ui/baseline-filtered.png)
+and [remote](benchmarks/client-server-ui/current-filtered.png) captures show the
+same cursor values and filtered waveform view. This covers a small RTL recording
+in one theme and scale. It does not establish large-object performance, other
+themes/scales, or transaction rendering. Animation-frame samples from background
+windows are throttled and must not be used to claim frame-time parity.
+
 ## Performance checks
+
+### Shared loading baseline
+
+The loading comparison starts from the complete-object implementation immediately
+before the unification refactor, including the existing uncommitted work. It does
+not compare against the older whole-file VS Code implementation. The
+[environment manifest](benchmarks/loading-unification/environment.json) records
+fixture, executable and restored-source hashes. The
+[baseline patch](benchmarks/loading-unification/baseline.patch) restores that
+runtime implementation from this revision while keeping an identical native
+complete-track measurement entry point. Apply it only in an isolated source copy;
+build baseline and current with separate Cargo target directories.
+
+Measurements use an Intel Core Ultra 7 265K, pinned `nightly-2026-04-14`, the
+`viewer` profile and cores 0–7. The runner alternates order and retains one warmup
+plus seven fresh-process samples per variant/workload. Record counts and errors
+must match. CPU time is the process family's user plus system CPU, measured with
+`getrusage(RUSAGE_CHILDREN)`; it includes startup, cleanup and the waited-for server
+child, unlike the loader's internal wall-clock timer. Peak RSS is Linux `VmHWM`.
+
+Generate the smaller transaction fixture and build the measurement programs:
+
+```sh
+cargo build --release -p vtr-bench
+target/release/vtr-bench gen-tlm /tmp/volna-tlm-10k.txr 10000
+target/release/vtr-bench tx-write /tmp/volna-tlm-10k.txr /tmp/volna-tlm-10k.vtr --no-background
+cargo build --locked -p volna-core -p volna-server --profile viewer \
+  --example load_cost --example remote_cost --bin volna-server
+```
+
+RSA, Kanata and large TLM fixture generation is documented in `docs/BENCHMARKS.md`.
+The baseline patch changes no VTR reader, encoding or file-format code. The track
+round-trip test verifies that borrowed serialization emits the same bytes as the
+owned wire payload, including typed details and large values.
+
+### Native complete-history loading
+
+`load_cost` opens through the shared session backend, retains complete histories
+in batches of 64 canonical signals, or loads every complete stream with `tracks`.
+The latter includes relation extraction and client index construction, replacing
+the former benchmark's record-only transaction query. Both variants use the same
+measurement source and retain their results through the RSS sample.
+
+```sh
+python3 volna/volna/tools/bench-loading.py \
+  /tmp/volna-dry-baseline-target/viewer/examples/load_cost \
+  target/viewer/examples/load_cost /tmp/native-load.jsonl \
+  --samples 7 --transaction-trace /tmp/volna-tlm-10k.vtr
+```
+
+[All native samples](benchmarks/loading-unification/native.jsonl): values below
+are baseline / current. RSS comes from the fastest total-time sample; CPU uses
+the median of all measured samples.
+
+| Selection | Best total, ms | Median total, ms | Peak RSS, KiB | Median process CPU, ms |
+|---|---:|---:|---:|---:|
+| PicoRV32 VTR, 64 signals | 0.288 / 0.284 | 0.294 / 0.292 | 3,508 / 3,476 | 1.339 / 1.297 |
+| RSA VTR, 64 signals | 17.959 / 17.779 | 19.082 / 18.468 | 51,948 / 51,928 | 21.756 / 21.350 |
+| RSA FST, 64 signals | 118.566 / 118.580 | 121.397 / 119.469 | 129,420 / 129,340 | 146.338 / 143.674 |
+| TLM, 30,000 transactions, complete streams | 36.655 / 36.547 | 36.949 / 37.797 | 41,460 / 41,464 | 45.854 / 46.538 |
+
+Native costs remain comparable. The TLM median increases 2.3% while its fastest
+sample is slightly faster; these small variations do not establish a speedup or
+regression. Native histories still share the reader's immutable storage and do
+not pass through serialization or a server process.
+
+### Complete-object child protocol
+
+`remote_cost` drives the real child with the production `RemoteClient`, retaining
+completed objects and measuring framing, compression, admission, validation and
+index construction. It reports first-ready latency, CPU decoder work, bytes in
+both directions and per-process peak RSS. It does not simulate browser scheduling.
+
+```sh
+python3 volna/volna/tools/bench-loading.py \
+  /tmp/volna-dry-baseline/binaries/remote_cost target/viewer/examples/remote_cost \
+  /tmp/remote-load.jsonl --samples 7 \
+  --remote-servers /tmp/volna-dry-baseline/binaries/volna-server target/viewer/volna-server \
+  --transaction-trace /tmp/volna-tlm-10k.vtr
+```
+
+[All remote samples](benchmarks/loading-unification/remote.jsonl), baseline /
+current. Times and RSS use the fastest total-time sample; CPU uses the median.
+
+| Selection | First ready, ms | Total, ms | Server peak RSS, KiB | Median process-family CPU, ms |
+|---|---:|---:|---:|---:|
+| PicoRV32 VTR, 64 signals | 1.530 / 1.349 | 6.016 / 5.770 | 3,708 / 3,644 | 7.230 / 7.117 |
+| RSA VTR, 64 signals | 44.373 / 44.087 | 678.955 / 676.478 | 84,596 / 84,612 | 664.495 / 665.754 |
+| RSA FST, 64 signals | 165.712 / 159.860 | 792.904 / 787.247 | 159,220 / 159,228 | 771.918 / 772.536 |
+| TLM, 30,000 transactions | 24.935 / 23.250 | 172.787 / 165.300 | 30,560 / 25,916 | 171.441 / 163.001 |
+| Kanata, 4,041 transactions | 81.892 / 72.506 | 81.896 / 72.510 | 38,864 / 24,988 | 89.042 / 78.861 |
+
+Waveform costs remain comparable. Borrowing track records for serialization
+reduces server copies: TLM server RSS falls 15%, and Kanata falls 36%; total times
+fall about 4% and 11%, respectively. Client peak RSS remains comparable (about
+29,600 KiB for TLM and 17,900 KiB for Kanata; exact values
+are in the samples). This is a server allocation improvement, not a smaller
+client representation.
+
+The current best samples send 103,685 bytes for PicoRV32, 23,810,628 for RSA VTR,
+23,810,692 for RSA FST, 2,088,418 for TLM and 1,047,379 for Kanata. Corresponding
+client bytes are 14,399, 27,105, 27,105, 4,781 and 1,906. Both variants have the
+same payload representation, counts and frame sequence. Small compressed-size
+variations reflect fresh random session identities in the envelopes.
+
+The retained [initial native](benchmarks/loading-unification/initial-native.jsonl)
+and [initial remote](benchmarks/loading-unification/initial-remote.jsonl) cohorts
+precede the final queue consolidation. PicoRV32 remote wall-clock outliers occur
+in both variants despite comparable CPU work. The final seven-sample cohort has
+median baseline/current totals of 6.206/6.028 ms; the apparent slowdown does not
+recur. No sample was removed from either cohort.
+
+### Limits and large tracks
+
+Run the real process path with explicit memory/object limits in MiB:
+
+```sh
+target/viewer/examples/remote_cost target/viewer/volna-server \
+  bench/results/latest/rsa256.vtr signals:64 512 1
+target/viewer/examples/remote_cost target/viewer/volna-server \
+  bench/results/latest/c910_coremark.vtr signals:0 1 256
+target/viewer/examples/remote_cost target/viewer/volna-server \
+  bench/results/latest/tlm_1m.vtr tracks 512 256
+```
+
+[Paired limit samples](benchmarks/loading-unification/limits.jsonl) return
+identical records and errors. The signal limit refuses three histories while
+61 succeed. The metadata-budget failure releases admission storage. Three
+alternating large-track runs retain 501,070 transactions and 862,771 incident
+relation entries, with explicit errors for seven tracks. Incident entries can
+include the same edge in both endpoint generators.
+
+| Large-track metric | Baseline | Current |
+|---|---:|---:|
+| Total time, range | 15.13–15.28 s | 13.74–13.82 s |
+| Best first-ready time | 2.671 s | 2.487 s |
+| Median process-family CPU | 14.789 s | 13.359 s |
+| Server peak RSS, best sample | 2,755,956 KiB | 2,185,992 KiB |
+| Client peak RSS, best sample | 553,744 KiB | 553,692 KiB |
+| Decoded admission peak | 536,869,896 bytes | 536,869,896 bytes |
+
+Server peak RSS falls about 21%, and total time about 9%. Backpressure and
+client admission remain unchanged. The 512 MiB admission budget does not cap
+process RSS or the server reader's decoded caches. Per-process high-water marks
+are not a simultaneously sampled combined memory total. These checks do not
+claim that arbitrary complete selections fit the defaults.
+
+### Browser responsiveness and visual comparison
+
+Use isolated VS Code development hosts with the baseline/current extensions,
+`--ozone-platform=x11 --disable-gpu-vsync --force-device-scale-factor=1`, a
+1200×800 content viewport and DPR 1. The editor iframe must be at (48,92), size
+1152×686. The graphics flag avoids an inherited test-host vsync stall; it is not
+a product setting or an application performance fix. Keep the tested window
+in the foreground and do not run CPU benchmarks concurrently.
+
+```sh
+python3 volna/volna/tools/compare-cold-ui.py 9342 9343 /tmp/loading-cold-ui
+python3 volna/volna/tools/profile-remote-ui.py 9343 /tmp/loading-slow-ui --send-delay-ms 50
+```
+
+The matched comparison reopens the RSA webview for each sample, selects all 27
+signals in `TOP.Testbench.i_rsa.i_RSAMont`, then observes three seconds. OS caches
+remain warm; startup and metadata are excluded. The
+[six samples](benchmarks/loading-unification/gui/samples.json) have median gaps
+of 16.5–16.6 ms in both variants, p95 gaps of 17.5–17.6 ms, and no observed tasks
+over 50 ms. Each sample has one isolated frame gap over 50 ms (baseline maximum
+76.6 ms, current 61.5 ms). Thus there is no measured frame-time regression, but
+also no universal 60 Hz or maximum-gap guarantee.
+
+All three [image pairs](benchmarks/loading-unification/gui/visual.json) are
+pixel-identical. The captures were inspected to verify that they show the same
+27 loaded waveforms. The [final normal-bundle follow-up](benchmarks/loading-unification/gui-final/samples.json)
+also loads all rows and is [pixel-identical](benchmarks/loading-unification/gui-final/visual.json).
+It records p95 gaps of 17.6/17.1 ms and maximum gaps of 38.8/54.7 ms for
+baseline/current, with no long tasks. The isolated current gap remains within
+the range observed in the repeated baseline cohort. The six-run cohort precedes
+the final command-identity-exhaustion failure-path fix; the follow-up uses the
+final bundle, whose hash is recorded in the environment manifest.
+
+The [delayed transfer](benchmarks/loading-unification/slow-ui.json) completes
+in 13.83 s with 23,704,758 incoming bytes. Cursor/zoom input takes effect while
+only four rows are ready; all 27 subsequently load. Across 835 animation callbacks
+the maximum gap is 17.8 ms, with no observed task over 50 ms. Loaded navigation
+sends zero packets. The warm WASM heap grows from 59.6 to 85.3 MB; linear-memory
+capacity is not process RSS and need not shrink when previous objects are freed.
+
+A 50 ms alarm in the profiling scripts is an investigation trigger. Compare
+matched baseline runs before attributing an isolated frame gap to the loader.
+To capture renderer and GPU work alongside a generated replay script:
+
+```sh
+node volna/volna/tools/trace-cdp.mjs 9343 \
+  /tmp/loading-slow-ui/profile.json /tmp/loading-trace.json
+```
+
+Standalone Chrome also exercises the real HTML file input for VTR and FST.
+The [VTR capture](benchmarks/loading-unification/gui/standalone-vtr.png) shows
+all eight root signals loaded, and the [FST capture](benchmarks/loading-unification/gui/standalone-fst.png)
+shows all five. This path calls `open_trace` with file bytes and has no remote
+host callbacks. The CDP helper's `files` action drives the actual file input and
+its change handler, using absolute fixture paths.
+
+### Browser transaction loading
+
+There is no transaction panel yet. The opt-in `remote-profile` diagnostic
+consumer exercises production document ownership, transport, decoder and indexes:
+
+```sh
+VOLNA_WEB_FEATURES=remote-profile volna/volna/web/build.sh
+# Open /tmp/volna-tlm-10k.vtr in the isolated development host first.
+python3 volna/volna/tools/profile-remote-tracks.py 9343 \
+  /tmp/volna-tlm-10k.vtr /tmp/loading-tracks
+# Rebuild the normal bundle after profiling:
+volna/volna/web/build.sh
+```
+
+Use the wasm-bindgen CLI version matching Cargo.lock. The diagnostic feature is
+absent from normal bundles. Its consumer retains each raw stream, reports counts,
+then releases them. The host yields with MessageChannel tasks between slices of
+bounded decoder steps, targeting 2 ms per slice. This target is not a hard upper
+bound for every allocation or index operation.
+
+
+The [actual browser sample](benchmarks/loading-unification/browser-tracks.json)
+loads all nine streams: 30,000 transactions and 54,328 incident relation entries,
+with no errors. Total observation is 224.9 ms; first-ready observation is 100.7 ms
+(polls every 100 ms). It receives 2,087,827 bytes. Across 31 animation callbacks,
+the maximum gap is 17.1 ms, with no tasks over 50 ms during loading or release.
+Release takes 10.2 ms including polling, leaves no retained streams, and sends
+zero packets. WASM linear memory grows from 8.98 to 26.02 MB and retains that
+capacity after release. This is a current-path responsiveness check, not a
+matched browser transaction speedup claim. The larger paired process benchmark
+above measures the server allocation improvement separately.
+
+### Painting
 
 ```sh
 cargo test -p volna --profile viewer --features visual-test --test viewer frame_times -- --ignored

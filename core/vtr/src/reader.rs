@@ -1357,6 +1357,71 @@ impl Reader {
         Ok(None)
     }
 
+    /// Owning generator of a transaction or log record, without cloning its
+    /// attributes, events or stages. Missing identities return `None`.
+    pub fn transaction_generator(&self, id: TxId) -> Result<Option<NodeId>> {
+        for i in 0..self.tx_blocks.len() {
+            let h = &self.tx_blocks[i].header;
+            if h.n_tx == 0 || id < h.min_id || id > h.max_id {
+                continue;
+            }
+            let d = self.tx_block(i)?;
+            if let Some(t) = d.transactions.iter().find(|t| t.id == id) {
+                return Ok(Some(t.generator));
+            }
+        }
+        for i in 0..self.log_blocks.len() {
+            let h = &self.log_blocks[i].header;
+            if h.n_rec == 0 || id < h.min_id || id > h.max_id {
+                continue;
+            }
+            let d = self.log_block(i)?;
+            if let Some(rec) = d.recs.iter().find(|r| r.id == id) {
+                return Ok(Some(NodeId(rec.gen)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Resolve many transaction/log owners in one pass over relevant blocks.
+    /// Results follow input order, including duplicates; missing IDs are `None`.
+    /// No transaction attributes, events or stages are cloned.
+    pub fn transaction_generators(&self, ids: &[TxId]) -> Result<Vec<Option<NodeId>>> {
+        let mut requested: Vec<_> = ids.to_vec();
+        requested.sort_unstable();
+        requested.dedup();
+        let mut owners: std::collections::HashMap<_, _> =
+            requested.iter().map(|&id| (id, None)).collect();
+        let mut remaining = requested.len();
+        let intersects = |min, max| {
+            requested.get(requested.partition_point(|&id| id < min))
+                .is_some_and(|&id| id <= max)
+        };
+        for i in 0..self.tx_blocks.len() {
+            if remaining == 0 { break; }
+            let h = &self.tx_blocks[i].header;
+            if h.n_tx == 0 || !intersects(h.min_id, h.max_id) { continue; }
+            for tx in &self.tx_block(i)?.transactions {
+                if let Some(owner) = owners.get_mut(&tx.id).filter(|owner| owner.is_none()) {
+                    *owner = Some(tx.generator);
+                    remaining -= 1;
+                }
+            }
+        }
+        for i in 0..self.log_blocks.len() {
+            if remaining == 0 { break; }
+            let h = &self.log_blocks[i].header;
+            if h.n_rec == 0 || !intersects(h.min_id, h.max_id) { continue; }
+            for record in &self.log_block(i)?.recs {
+                if let Some(owner) = owners.get_mut(&record.id).filter(|owner| owner.is_none()) {
+                    *owner = Some(NodeId(record.gen));
+                    remaining -= 1;
+                }
+            }
+        }
+        Ok(ids.iter().map(|id| owners[id]).collect())
+    }
+
     // ----- logs -----
 
     /// All log sites (generators of `LOG` streams carrying `log.args`).

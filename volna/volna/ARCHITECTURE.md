@@ -199,53 +199,62 @@ run off the UI thread; the current wasm executor is single-threaded and can
 block while decoding. See the [FST support notes](README.md) for extended
 metadata limitations and explicit unsupported cases.
 
-`Session::capabilities()` reports operations, independently of recorded content.
-`transactions()` and `relations()` return optional query facets. VTR provides
-both even for empty recordings; FST and the synthetic waveform source provide
-neither. Thus `None` means unsupported, while an empty visit, a missing record
-or an empty relation list is a supported query returning no data. Facets avoid
-requiring waveform-only backends to implement dummy transaction operations.
+`Session::capabilities()` reports supported data independently of recorded
+content. VTR supports transactions and relations even for an empty recording;
+FST and the synthetic waveform source support waveforms only. `tracks()` is
+resident metadata. `load_track()` is the single backend operation for a complete
+stream or generator, including records, typed attributes, phases, events,
+stages, parent locations and incident relations.
 
-Transaction tracks are resident raw metadata with session-local `TrackRef`
-identities and resolved paths, stream kinds and attributes. Expensive queries
-visit transactions by generator, stream and inclusive overlap window, fetch a
-`TransactionRef`, or obtain incoming/outgoing relations. VTR's attribute
-phases, typed values, parent, status, kind, events and stages survive this
-adapter. Strings are resolved at the boundary, so query results outlive the
-session without backend string-table handles. The small semantic status/kind/
-phase enums are shared with VTR; no reader or buffer types cross the boundary.
-The visitor stops on false and does not promise chronological order. These
-facets establish future view extension points; no transaction views or load
-requests are issued by today's wave-only frontends. Callers must execute these
-blocking queries away from native UI frames. Relation vectors and decoded
-transaction block caches are not memory-bounded remote query results.
+Both local and remote consumers query the resulting immutable `LoadedGenerator`
+objects. Their indexes provide transaction lookup and inclusive overlap queries,
+including long intervals and point events. Relation identities preserve parallel
+edges and references into unloaded tracks. No reader query facet is exposed to
+viewer consumers: once an object is loaded, navigation reads resident storage.
+Names are resolved at the backend boundary, so loaded data outlives the session.
+The main frontend still has no transaction panel.
 
-### Future bounded queries
+### Complete-object remote loading
 
-The [client-server proposal](../../docs/client-server.md) defines two target
-deployments: native in-process queries and a native VS Code child server
-connected to the WASM viewer through the extension relay. Its
-[interactive walkthrough](../../docs/client-server.html) illustrates the design;
-these deployments and bounded contracts are proposed, not implemented.
+The [client-server design](../../docs/client-server-simple.html) uses the same
+resident objects for local and remote viewing. Native `OpenSpec::Path` loads
+in process. In VS Code, the workspace extension launches `volna-server` beside
+the file and relays opaque framed binary messages to `OpenSpec::Remote`.
+Opening transfers full raw metadata; selecting signals or transaction tracks
+loads their complete recordings. Pan, zoom, cursor and resident-data queries
+have no network dependency. VDB and presentation stay on the client.
 
-Full histories are the current implemented waveform query. They do not meet
-the remote-file objective: an expensive history still transfers and retains
-all changes for the selected signal. A remote transport must wait for bounded
-waveform-window and summary queries; no protocol or remote server exists.
+The server opens recordings through the same `OpenSpec::open` and calls the
+same `Session::load_signals` and `load_track` methods as local execution. Its
+additional responsibilities are wire conversion, framing and snapshot checks.
+Track serialization borrows immutable records and relations, without a second
+owned copy of their typed attributes.
 
-Extend the same Session/load-request seam with explicit query identities and
-window results, keeping resident metadata separate. A window contract must
-define a half-open `[start, end)` interval, the value immediately before
-`start`, every change at `start` in source order, and exclusion of changes at
-`end`. It must distinguish unknown boundary data from a known X value, empty
-complete intervals from unavailable data, and complete results from truncated
-ones. A caller-specified change/byte limit and a continuation that preserves
-same-timestamp ordering are needed; never report a clipped result as complete.
-Summary queries must specify bins, transition counts and boundary values and
-must label summaries as aggregates rather than exact transitions. Carry
-generation plus query identity through completions so a stale pan/zoom request
-cannot replace a newer window in the same document. These are requirements for
-the future extension, not implemented window behavior or measured bounds.
+Both executors consume `LoadRequest` and return `LoadResult`. The remote client
+accepts requests through `submit`; submission failures return ordinary results
+with the original identities. The document owns queued-demand filtering for
+both paths. The browser bridge handles host calls and scheduling, not per-kind
+load policy. `remote::client::RemoteClient` queues one command at a time. Responses carry
+session/request identities and use checksummed LZ4 frames with fixed bincode
+fields. Each frame is acknowledged after consumption. Cooperative decoders
+build objects privately, validate references and construct transaction indexes;
+only the explicit End produces a normal `LoadResult`. The browser groups bounded
+decoder steps into short (2 ms target) work slices and yields via MessageChannel
+tasks, avoiding nested-timer throttling while giving input and painting regular
+opportunities to run. Track results also retain
+the document's request identity, so removal/re-add and retry reject stale work.
+Completed objects remain usable after disconnect; unfinished loads fail.
+Both the document queue and the remote executor discard queued work after its
+last consumer is removed. Active responses finish normally and are discarded
+if no consumer remains; removing demand needs no cancellation protocol.
+
+Signals and generators own reservations from a shared client memory budget.
+Shared consumers keep the same storage alive; the last consumer releases it.
+Admission and per-object limits are configurable in VS Code and apply on reopen.
+Oversized objects fail explicitly, without truncation or automatic eviction.
+These limits cover admitted data and conservative construction allowances,
+not total browser RSS or backend reader caches. Full metadata and all selected
+histories/tracks must fit; selecting a large stream can still be expensive.
 
 ## Frontends
 
@@ -346,8 +355,9 @@ refresh windows, preserving the trace, rows and interaction state.
   unshared WASM memory; do not enable atomics/shared-memory linker flags or
   rebuild a threaded standard library. Compiled-in threading support does not
   start workers or require `SharedArrayBuffer`. Default VS Code needs no
-  cross-origin isolation or extra startup flags. Files arrive as bytes over
-  `postMessage` and open through `OpenSpec::Bytes`. `debug_state()` on the wasm
+  cross-origin isolation or extra startup flags. VS Code relays complete-object
+  frames over `postMessage`; browser file-picker inputs still use
+  `OpenSpec::Bytes`. `debug_state()` on the wasm
   module logs the core state to the console for browser-driven verification.
 - Native: `OpenSpec::Path` memory-maps the file; signal histories are loaded on
   demand off the UI thread when a variable is added.

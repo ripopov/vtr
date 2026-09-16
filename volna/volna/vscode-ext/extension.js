@@ -1,14 +1,15 @@
 // Volna VS Code extension: hosts the wasm build of the viewer in a webview.
 //
 // Two entry points:
-//  - a read-only custom editor for *.vtr and *.fst files (bytes are sent to the
-//    webview, which hands them to the wasm module), and
+//  - a read-only custom editor for *.vtr and *.fst files, backed by a workspace
+//    child that sends complete selected histories to the wasm viewer, and
 //  - the "Volna: Open Waveform Viewer" command, which picks a custom editor input.
 //
-// The webview never touches the file system: the extension host reads files
-// via vscode.workspace.fs and posts the bytes over postMessage.
+// The webview never touches the file system. Trace frames are relayed opaquely;
+// workspace settings and saved viewer sessions use vscode.workspace.fs.
 const vscode = require("vscode");
 const { createWorkspaceHost } = require("./workspace");
+const { createTraceHost } = require("./trace-host.cjs");
 
 function nonce() {
   let s = "";
@@ -43,17 +44,30 @@ function html(webview, extensionUri) {
 </head>
 <body>
 <script type="module" nonce="${n}">
-  import init, { open_resource, set_vscode_theme, dispatch_command, workspace_message } from "${js}";
+  import init, { open_remote, trace_frame, trace_error, trace_continue, set_vscode_theme, dispatch_command, workspace_message } from "${js}";
   import { watchTheme } from "${themeJs}";
   const vscode = acquireVsCodeApi();
   window.volnaEmbedded = true;
   window.volnaOpen = () => vscode.postMessage({ type: "pickFile" });
   window.volnaReady = () => vscode.postMessage({ type: "ready" });
   window.volnaWorkspace = (envelope) => vscode.postMessage(JSON.parse(envelope));
+  window.volnaTraceStart = (connection) => vscode.postMessage({ type: "traceStart", connection });
+  window.volnaTraceSend = (connection, bytes) => vscode.postMessage({ type: "traceRequest", connection, bytes });
+  window.volnaTraceStop = (connection) => vscode.postMessage({ type: "traceStop", connection });
+  // Message tasks yield to input/painting without building a nested timer
+  // chain, which Chromium can throttle to one callback per second. The Rust
+  // executor schedules at most one continuation for the active response.
+  const traceYield = new MessageChannel();
+  traceYield.port1.onmessage = (event) => trace_continue(event.data);
+  window.volnaTraceYield = (connection) => traceYield.port2.postMessage(connection);
   window.addEventListener("message", (ev) => {
     const msg = ev.data;
     if (msg && msg.type === "open") {
-      open_resource(msg.name, new Uint8Array(msg.bytes), JSON.stringify({ traceUri: msg.traceUri, candidates: msg.candidates, settings: msg.settings }));
+      open_remote(msg.name, JSON.stringify({ traceUri: msg.traceUri, candidates: msg.candidates, settings: msg.settings }));
+    } else if (msg && msg.type === "traceFrame") {
+      trace_frame(msg.connection, new Uint8Array(msg.bytes));
+    } else if (msg && msg.type === "traceError") {
+      trace_error(msg.connection, msg.message);
     } else if (msg && msg.type === "command") {
       dispatch_command(msg.name);
     } else if (msg && ["saved", "workspace", "workspaceDestination", "requestWorkspace"].includes(msg.type)) {
@@ -81,12 +95,14 @@ async function pickTrace() {
 function wire(panel, context, uri) {
   const webview = panel.webview;
   const host = createWorkspaceHost(vscode, context, panel, uri);
+  const trace = createTraceHost(vscode, context, panel, uri);
   panel.onDidChangeViewState(() => { if (!panel.visible) host.hidden(); });
-  panel.onDidDispose(() => host.dispose());
+  panel.onDidDispose(() => { trace.dispose(); host.dispose(); });
   webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")] };
   webview.onDidReceiveMessage(async (msg) => {
     try {
       if (msg.type === "pickFile") await pickTrace();
+      else if (["traceStart", "traceRequest", "traceStop"].includes(msg.type)) await trace.receive(msg);
       else await host.receive(msg);
     } catch (error) {
       vscode.window.showErrorMessage(`Volna: ${error.message}`);

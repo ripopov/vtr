@@ -157,11 +157,21 @@ fn root_scope(h: &mut Hierarchy) -> usize {
 }
 
 impl Session for LocalSession {
-    fn transactions(&self) -> Option<&dyn super::transactions::TransactionQueries> {
-        Some(self)
+    fn load_track(
+        &self,
+        track: super::transactions::TrackRef,
+    ) -> anyhow::Result<super::loaded_tracks::LoadedTrack> {
+        super::vtr_transactions::load_track(self, track)
     }
-    fn relations(&self) -> Option<&dyn super::transactions::RelationQueries> {
-        Some(self)
+    fn tracks(&self) -> &[super::transactions::Track] {
+        &self.tracks
+    }
+    fn capabilities(&self) -> crate::session::Capabilities {
+        crate::session::Capabilities {
+            waveforms: true,
+            transactions: true,
+            relations: true,
+        }
     }
     fn info(&self) -> &TraceInfo {
         &self.info

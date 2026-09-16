@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A simpler Volna remote design: load complete signals and transaction tracks, then browse and analyze them on the client.">
+  <title>Volna · Load once, explore locally</title>
+  <style>
+    :root { color-scheme: light; --ink:#20333b; --muted:#52666c; --line:#ccd8d3; --accent:#006e60; --paper:#fffefa; --bg:#f4f5ef; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.65 system-ui,sans-serif; }
+    main,footer { max-width:1040px; margin:auto; padding:30px; }
+    header { padding:35px 0 25px; }
+    h1,h2,h3 { line-height:1.2; letter-spacing:-.025em; }
+    h1 { font-size:clamp(36px,6vw,64px); max-width:800px; margin:18px 0; }
+    h2 { font-size:28px; margin-top:0; }
+    h3 { font-size:20px; }
+    p { margin:12px 0; }
+    a { color:var(--accent); text-underline-offset:3px; }
+    a:focus-visible { outline:3px solid var(--accent); outline-offset:4px; }
+    .eyebrow { color:var(--accent); text-transform:uppercase; font-size:12px; letter-spacing:.12em; font-weight:700; }
+    .lead { font-size:22px; max-width:800px; }
+    .muted,footer { color:var(--muted); font-size:14px; }
+    nav { display:flex; flex-wrap:wrap; gap:10px 22px; margin:28px 0 0; font-size:14px; }
+    section { padding:34px 0; border-top:1px solid var(--line); }
+    .callout { padding:18px 22px; background:#e1eee6; border-left:4px solid var(--accent); margin:24px 0; }
+    .flow { display:grid; grid-template-columns:1fr auto 1fr; gap:18px; align-items:center; margin:25px 0; }
+    .box { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:22px; }
+    .box h3 { margin-top:0; }
+    .arrow { color:var(--accent); font-size:30px; }
+    .table { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; font-size:15px; }
+    th,td { padding:13px 12px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line); }
+    th { background:#e9eee7; }
+    th:first-child { width:24%; }
+    code,pre { font-family:ui-monospace,monospace; font-size:.88em; }
+    code { overflow-wrap:anywhere; }
+    pre { padding:20px; background:var(--ink); color:#edf5ef; border-radius:8px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    li { margin:9px 0; }
+    footer { border-top:1px solid var(--line); padding-bottom:45px; }
+    @media(max-width:650px) { main,footer { padding:20px; } .flow { grid-template-columns:1fr; } .arrow { text-align:center; transform:rotate(90deg); } th,td { padding:10px 8px; } }
+    @media print { body { background:white; font-size:11pt; } nav { display:none; } main { padding:0; } section { break-inside:avoid; } pre { background:#eee; color:black; } }
+  </style>
+</head>
+<body>
+<main id="main">
+  <header>
+    <div class="eyebrow">Volna / complete-object architecture</div>
+    <h1>Load once.<br>Explore locally.</h1>
+    <p class="lead">The server opens the trace and sends complete histories for requested signals and complete data for requested transaction tracks. The client does the rest.</p>
+    <p class="muted">Replacement for <a href="client-server.html">the viewport-query proposal</a> and its <a href="client-server.md">detailed design</a>. Native and VS Code loading implement this boundary; see the <a href="../volna/volna/ARCHITECTURE.md">current architecture</a> and <a href="../volna/volna/VERIFICATION.md">verification workflows and limits</a>.</p>
+    <nav aria-label="Sections"><a href="#decision">Decision</a><a href="#data">Data contract</a><a href="#protocol">Protocol</a><a href="#lifecycle">Loading</a><a href="#limits">Limits</a><a href="#delivery">Delivery</a></nav>
+  </header>
+
+  <section id="decision">
+    <h2>1. One loading model</h2>
+    <p>Open the file beside the reader. Transfer the full hierarchy and track catalog once. When a user adds a signal or transaction track, load its data over the entire recording. Keep that data in shared immutable client storage while it is in use.</p>
+    <div class="flow" role="img" aria-label="Server reads the trace and sends full selected histories and tracks to the client. Client performs all navigation, analysis, and presentation.">
+      <div class="box"><h3>Server: file loading</h3><p>VTR mmap or FST reader<br>Metadata and complete object loads<br>Serialization and compression</p></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="box"><h3>Client: exploration</h3><p>Resident hierarchy and selected data<br>Search, cursor, pan, zoom, indexes<br>Transactions, VDB, annotations, painting</p></div>
+    </div>
+    <p>Pan, zoom, cursor movement, resizing, formatting and filtering loaded data issue <strong>zero data requests</strong>. Searching the hierarchy also stays local. An analysis that needs an unloaded signal or track explicitly loads that whole object first; its result must identify its loaded-data scope.</p>
+    <div class="callout"><strong>Changed requirement:</strong> transfer and client memory scale with the complete selected signals and tracks, plus all metadata. They do not scale with the visible time window. This deliberately replaces the viewport-scaling requirement in the repository’s previous remote direction. A very large selected history can be slow to load or too large for the client.</div>
+    <p>Keep the two existing deployment targets: native local and VS Code remote/local workspaces. Native calls the loader on background workers and shares buffers directly. In VS Code, the workspace extension owns one headless child per trace document and relays framed messages between its stdin/stdout and the webview. No separate HTTP service is needed for this first implementation.</p>
+    <p>Both paths use the same toolkit-independent <code>Session</code> backend to open recordings and load complete objects. Native executes <code>LoadRequest</code> in process; the remote client submits those same requests over the protocol, and the headless service calls the same backend methods. The document owns demand and completion handling. There is no separate local transaction-query interface. The existing standalone web file-opening path can remain available. The egui frontend needs only compatibility maintenance for its current features.</p>
+  </section>
+
+  <section id="evidence">
+    <h2>2. Borrow the proven boundary</h2>
+    <p>The checked-out <a href="../ext/surfer/surver/src/server.rs">Surver server</a> serializes its hierarchy, supplies a time table, and loads requested signals through a background loader. It deduplicates signal IDs and returns compressed complete signals. The <a href="../ext/surfer/libsurfer/src/remote/client.rs">Surfer client</a> reconstructs those signals for local use. Borrow that division of work. Complete transaction-track loading is Volna’s extension of this approach.</p>
+    <p>Volna’s <a href="../volna/volna-core/src/session.rs">current session API</a> already exposes resident metadata and full immutable signal histories. Its <a href="../volna/volna/ARCHITECTURE.md">document loading path</a> already coalesces signal requests, shares histories across rows and rejects stale generations. Preserve those behaviors. As described in <a href="RATIONALE.md">the rationale</a>, shared history storage avoids copies and a permanent history cache is unnecessary.</p>
+    <p>Remove remote time windows, summary queries, continuation tokens, coverage caches, viewport demand scheduling and server-side search from this proposal. Client indexes or drawing summaries may be derived from loaded data when useful; they have no wire representation.</p>
+  </section>
+
+  <section id="data">
+    <h2>3. Three complete payloads</h2>
+    <div class="table"><table>
+      <thead><tr><th>Object</th><th>Contents and guarantee</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Metadata</strong></td><td>Trace information, exact time units and range, capabilities, full hierarchy, signal declarations and aliases, and the full raw track catalog. Include raw availability/dump-off information needed to interpret histories. No signal histories or transaction records are loaded implicitly.</td></tr>
+        <tr><td><strong>Signal</strong></td><td>Canonical signal ID, shape, initial-value/availability semantics, all timestamps and values for the recording. Preserve source ordering at equal timestamps, event occurrences, logic states, widths and supported value kinds. Each history is independently interpretable: transmit its timestamps, not a mandatory recording-wide time table.</td></tr>
+        <tr><td><strong>Transaction track</strong></td><td>All member transactions for the recording, with complete typed attributes and phases, events, stages, raw lanes, status, kind, parent IDs, and all incoming/outgoing relations incident to those transactions. Include referenced strings/types so no backend table handle escapes.</td></tr>
+      </tbody>
+    </table></div>
+    <h3>A track is a raw stream or generator</h3>
+    <p>Use the existing <a href="../volna/volna-core/src/data/transactions.rs"><code>TrackRef</code> catalog</a>: a generator selects all its transactions; a stream selects all transactions of its generators. A VDB-defined grouping or visual lane is a client view, not a server load unit. Stream loads include member generators with no transactions.</p>
+    <p>Store loaded transaction records once per generator. A stream load fills those generator stores; selecting an already resident generator reuses them. Release a generator’s records when no loaded stream, generator view or active analysis retains them. Do not build a second transaction cache alongside this ownership.</p>
+    <h3>Cross-track relations do not recursively load the graph</h3>
+    <p>Each relation has a stable session-local ID, endpoint transaction IDs, endpoint generator IDs, raw kind and attributes. Repeated copies from different track loads share that identity; distinct parallel relations remain distinct. If the reader has no stable relation identity or endpoint-owner lookup, add that small API at the reader’s owning layer rather than deduplicating by content or scanning every track per relation.</p>
+    <p>A relation or parent may point into an unloaded generator. Retain the reference and show “track not loaded”; following it loads that generator in full. Parent references also include the owning generator ID. The server does not recursively transfer referenced transactions. An absent endpoint in a completed owner track is missing data, not another pending load.</p>
+    <p>Supported-but-empty is a successful complete object. Unsupported operations are explicit capability/error results. Data must never silently lose attributes or relations to satisfy a size limit. VDB, source interpretation, user comments, colors and visual row packing remain on the client and outside the raw trace protocol, following <a href="../GOAL.md">GOAL.md section 2</a>.</p>
+  </section>
+
+  <section id="protocol">
+    <h2>4. A small protocol</h2>
+    <p>One child owns one immutable opened recording. The host supplies its authorized path when launching it; the webview does not get an arbitrary server file API. Use these operations:</p>
+    <pre>Open(protocol_version)          → Opened(session_id, Metadata)
+LoadSignals(request_id, ids)     → one complete Signal or Error per unique ID
+LoadTracks(request_id, ids)      → one complete Track or Error per unique ID
+Close                           → release reader and exit</pre>
+    <p>Every response carries the session ID and request ID. The client also associates requests with its document generation. The child assigns a fresh opaque session ID at open; a filename or design build ID is not a recording identity. Reject a mismatched protocol version before decoding payloads. No old-version compatibility or schema negotiation is required.</p>
+    <p>Use one versioned binary schema shared by the Rust server and client, with fixed-width IDs/timestamps and immutable packed history buffers. Use one established serializer and one compression codec: bincode with explicitly fixed options and LZ4 frames are the proposed starting point. Pin their versions and test their native/WASM round trips. Do not serialize trait objects or private reader structures.</p>
+    <p>Keep binary payloads opaque to JavaScript; represent envelope counters as strings if they pass through JSON. The VS Code adapter must test its actual message encoding rather than assume <code>ArrayBuffer</code> support. If byte arrays require base64 in this relay, encode only transport chunks and include that overhead in measurements.</p>
+    <h3>Chunks are transport, not query pages</h3>
+    <p>Send an object header with identity and expected decoded size, ordered bounded byte chunks, then an explicit end marker. Start with at most 1 MiB per transport chunk and one unacknowledged chunk across the relay. The client acknowledges after consuming it; this prevents the child and extension from filling queues with a whole large response. Compression/decompression is incremental across chunks, with output limits enforced.</p>
+    <p>The receiver builds the object privately, validates sizes, references and completion, then publishes it atomically. Never display half a history or call a truncated track complete. A stream track commits only after all its members and relations arrive. Transport chunks carry no time coverage, resume token or partially queryable result. A failed object is retried from the beginning.</p>
+    <p>Start with one active load batch per document and a deduplicated pending set. Preserve modest signal batching for VTR/FST decode efficiency; send tracks one at a time. Put batch limits in the executor rather than inventing a priority scheduler. Each requested ID must finish with exactly one success or error; a broken connection fails every remaining item.</p>
+  </section>
+
+  <section id="lifecycle">
+    <h2>5. Simple ownership and failure rules</h2>
+    <pre>Absent → Queued → Loading → Ready
+                     └──→ Failed → Queued (explicit retry)
+
+Last consumer removed → release data / remove queued demand
+New recording         → new generation; reject old completions</pre>
+    <ul>
+      <li><strong>One owner in the core.</strong> The document coordinates loads. Rows, panels and analyses retain shared immutable objects. Aliases use the canonical signal ID; failed retries update all consumers together.</li>
+      <li><strong>No frame waits for loading.</strong> Native read/decode runs on workers. The web client must yield between bounded receive/decode/install steps or use a dedicated worker without requiring shared WASM memory. A single giant deserialize on the UI thread does not meet this requirement.</li>
+      <li><strong>Removal needs no cancellation protocol.</strong> Remove queued demand immediately. An active batch may finish; discard objects with no consumers. Closing/replacing the document terminates its child and drops pending work. An explicit stop-and-reopen action can abandon an oversized active load.</li>
+      <li><strong>Partial batch success is useful.</strong> Fully completed signals remain ready when another signal fails. An interrupted object is discarded. Errors name the object and reason and expose explicit retry.</li>
+      <li><strong>Disconnect preserves completed data.</strong> Continue exploring resident objects offline; new loads fail visibly. Reconnect opens a new session and reloads selected objects. Do not merge old and new session data or attempt resumable transfers in the first version.</li>
+      <li><strong>Immutable input only.</strong> No live-tail or in-place reload support. Producers must finish writing before open. On detected file change, invalidate the session and require reopen; a new recording never inherits old runtime IDs. Workspace restoration uses existing durable paths.</li>
+    </ul>
+    <p>The server retains its reader and native reader caches, but adds no permanent copy of every sent history. Release response buffers after sending. Existing reader caches can still consume memory; this design does not claim that transport backpressure bounds reader memory.</p>
+  </section>
+
+  <section id="limits">
+    <h2>6. Honest limits, predictable behavior</h2>
+    <p>This design fits investigations that select a manageable subset of a large recording. Selecting every signal can approach or exceed the cost of transferring the file. A whole transaction stream can be much larger than its current visible region.</p>
+    <pre>Client memory ≈ full metadata + unique loaded histories/tracks
+              + client indexes + in-flight assembly/decode memory
+
+Initial load  ≈ server decode + encode + transfer + client decode/install
+Loaded pan / zoom / cursor: no network dependency</pre>
+    <p>Configure a client memory budget and per-object transfer limit. Count decoded storage and temporary copies, not just compressed bytes. Reject an object before allocation when its declared size cannot fit; enforce checked lengths and decoded-byte limits while receiving it. Refuse additional loads with a clear “remove tracks or raise the limit” error. Never silently evict displayed data, truncate results or switch to a second window-query mode.</p>
+    <p>Metadata is subject to the same limits; if the complete hierarchy cannot fit, opening fails clearly. A byte limit alone cannot bound client index construction or native reader scratch, so measure peak memory and responsiveness with representative large objects before choosing defaults. The server may have to decode an object to learn its actual size; reject known oversize loads early and document this remaining server-side limitation.</p>
+    <p>Compression reduces transport bytes, not the resident data requirement. No speed or memory improvement is claimed without measurements. No new VTR encoding, file-format version or reader decode optimization is needed for this proposal.</p>
+  </section>
+
+  <section id="delivery">
+    <h2>7. Implement the seam, then the transport</h2>
+    <ol>
+      <li><strong>Complete local objects.</strong> Keep existing signal histories. Add whole-track loading and client-resident transaction queries to the core. Put server record extraction beside the existing session/backend adapters. Fix any missing reader relation identity/owner API there. Validate local semantics first.</li>
+      <li><strong>Asynchronous delivery.</strong> Retain the existing <code>LoadRequest</code>/<code>LoadResult</code> generation pattern and extend it for tracks and remote completions. The current blocking <code>Session::load_signals</code> cannot wait for browser RPC: use it inside the local executor; the remote executor sends requests and delivers results later. Both install the same objects. Drawing sees resident data only.</li>
+      <li><strong>Headless child and codec.</strong> Add the small server binary under <code>tools/</code>; share raw protocol types through a small toolkit-free module or crate under <code>volna/</code>. Keep native local execution free of serialization. Start with an in-memory transport harness, then framed stdin/stdout.</li>
+      <li><strong>VS Code relay.</strong> Replace whole-file delivery for workspace traces with child startup and opaque chunk forwarding. Add backpressure, load/error state and process cleanup. Keep UI policy in <code>volna-core</code>. Exercise real webview transport and decode scheduling before calling remote support complete.</li>
+    </ol>
+    <p>When implementing this direction, update <code>AGENTS.md</code>’s remote intent, the architecture/session documentation and the old proposal links together so they no longer require viewport queries. Update API references and the rationale for any actual API changes. The VTR/VDB split remains binding; there is no reason to change the VTR file specification merely to add transport.</p>
+    <h3>Acceptance checks</h3>
+    <div class="table"><table>
+      <thead><tr><th>Check</th><th>Required result</th></tr></thead>
+      <tbody>
+        <tr><td>Local versus remote</td><td>Equivalent complete VTR/FST histories, including aliases, initial values, equal-time events, wide values, empty signals and dump-off behavior. Same cursor values and rendered waveform for the same loaded data.</td></tr>
+        <tr><td>Transactions</td><td>Full records and typed details survive round trip. Cover empty/unsupported tracks, overlapping stream/generator selections, long and point transactions, duplicate parallel relations and links to unloaded tracks. Local interval queries use an overlap index that retains transactions beginning before the viewport.</td></tr>
+        <tr><td>Failures and ownership</td><td>Reject stale successes/errors, wrong versions, malformed lengths and truncated objects. Test removal/re-add, per-item failure, explicit retry, disconnect and reopen. Duplicate consumers share storage; the last consumer releases it.</td></tr>
+        <tr><td>Actual remote behavior</td><td>After loading, pan/zoom/cursor/filter send zero load requests. Slow transfer and client decode keep input responsive. Relay queues remain bounded. Closing the document stops the child.</td></tr>
+        <tr><td>Cost</td><td>Record first-ready latency, total load time, wire bytes, client/server peak memory and frame stalls on representative RTL and transaction workloads. Compare native loading against the previous build. Exercise one oversized object and metadata-budget failure; report limits instead of claiming arbitrary-file scalability.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout"><strong>The key invariant:</strong> a loaded object is complete for the recording. Every subsequent question about that object is answered on the client.</div>
+  </section>
+</main>
+<footer>Self-contained design · No external assets or scripts · Sources: checked-out Surver and Volna implementations linked above.</footer>
+</body>
+</html>

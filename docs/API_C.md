@@ -1682,6 +1682,8 @@ section 2.1: `Corrupt`→4, `UnsupportedVersion`→5, `Invalid`→1, `State`→2
 | `vtr_reader_visit_transactions` | `Reader::visit_transactions(&TxQuery { generator, stream, window }, cb)` |
 | `vtr_reader_transaction` | `Reader::transaction(id)` |
 | `vtr_reader_relations` | `Reader::relations_from(id)` (`direction == 0`) / `Reader::relations_to(id)` |
+| `vtr_reader_transaction_generator` | `Reader::transaction_generator(id)`; writes a `uint32_t` generator ID on success, returns `VTR_ERR_NOT_FOUND` for missing IDs, and leaves output unchanged on error |
+| `vtr_reader_transaction_generators` | `Reader::transaction_generators(ids)`; fills `len` generator IDs in request order, including duplicates, with `VTR_NONE` for missing IDs; both arrays may be null for zero length; leaves outputs unchanged on error |
 
 Rust-only conveniences with no C equivalent: `Writer::add_var_in` /
 `add_alias_in` (explicit parent), `Writer::blackout_at`,

@@ -92,15 +92,21 @@ pub enum Drag {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MenuAction {
+    Format(String),
+    RetryLoad,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MenuItem {
-    pub id: String,
+    pub action: MenuAction,
     pub label: String,
     pub badge: Option<String>,
     pub checked: bool,
 }
 
-/// The value-format menu, open for one row at a panel position. The frontend
-/// shows it with its own popup widget and reports the choice back.
+/// The row menu for value formats and failed-load retry. The frontend shows
+/// its own popup widget at the panel position and reports the typed choice.
 #[derive(Clone, Debug)]
 pub struct FormatMenu {
     pub row: usize,
@@ -477,17 +483,25 @@ impl WaveModel {
             return;
         };
         let current = item.translator.id();
-        let items = doc
+        let mut items: Vec<_> = doc
             .translators
             .applicable(item.shape)
             .into_iter()
             .map(|t| MenuItem {
-                id: t.id().into(),
+                action: MenuAction::Format(t.id().into()),
                 label: t.name().into(),
                 badge: Some(t.badge().into()),
                 checked: t.id() == current,
             })
             .collect();
+        if item.error.is_some() && item.source.signal().is_some() {
+            items.push(MenuItem {
+                action: MenuAction::RetryLoad,
+                label: "Retry loading".into(),
+                badge: None,
+                checked: false,
+            });
+        }
         self.menu = Some(FormatMenu {
             row,
             position,
@@ -496,14 +510,20 @@ impl WaveModel {
     }
 
     /// The frontend's popup reported a choice.
-    pub fn menu_select(&mut self, doc: &Document, id: &str) {
-        let Some(menu) = self.menu.take() else { return };
+    /// Return a failed canonical signal to retry through the document owner.
+    pub fn menu_select(&mut self, doc: &Document, action: &MenuAction) -> Option<SignalRef> {
+        let menu = self.menu.take()?;
+        let MenuAction::Format(id) = action else {
+            let row = self.items.get(menu.row)?;
+            return row.error.as_ref().and_then(|_| row.source.signal());
+        };
         let rows: Vec<usize> = if self.selected.contains(&menu.row) {
             self.selected.iter().copied().collect()
         } else {
             vec![menu.row]
         };
         self.set_translator(doc, &rows, id);
+        None
     }
 
     pub fn menu_dismiss(&mut self) {

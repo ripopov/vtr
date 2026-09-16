@@ -1,0 +1,25 @@
+{
+  "baselineCommit": "d56358bfcfd0aafc550416cfc715a0fbcd65e827",
+  "fixture": "bench/results/latest/rsa256.vtr",
+  "scope": "TOP.Testbench.i_rsa.i_RSAMont",
+  "flags": [
+    "--ozone-platform=x11",
+    "--disable-gpu-vsync"
+  ],
+  "geometry": {
+    "width": 1200,
+    "height": 800,
+    "dpr": 1
+  },
+  "measurement": "Three alternating runs per version; fresh webview/WASM heap; warm OS cache. Scope selection precedes measurement. Add all 27 rows, observe three seconds, assert all loaded, compare viewer pixels. No tracing enabled.",
+  "sha256": {
+    "fixture": "c3eb44804a22e232ff13965ba37ffb6277e5698a65f31eaff35e538c70ec6565",
+    "baselineWasm": "b86d71d04bcb05a2a334244c3c51ad666ff4a7505e18e488872f5d3378d83e9a",
+    "currentWasm": "33d453f478753f4e188e7bad181a0b9d87c2bb78d06700b2fa9ad233d06fdd23"
+  },
+  "vscode": "1.137.0 (645f29cc3176500b4b5762ba887cf2a7f0ffdf2c)",
+  "renderer": "WebGL2 / ANGLE / NVIDIA GeForce RTX 5070 Ti",
+  "platform": "Linux x86-64",
+  "cpu": "Intel Core Ultra 7 265K",
+  "toolchain": "nightly-2026-04-14, viewer profile"
+}

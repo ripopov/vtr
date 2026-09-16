@@ -1248,6 +1248,8 @@ pub fn tx_counts(&self) -> (u64, u64)   // (transactions, relations) summed from
 pub fn visit_transactions(&self, q: &TxQuery, f: impl FnMut(&Transaction) -> bool) -> Result<()>
 pub fn transactions(&self, q: &TxQuery) -> Result<Vec<Transaction>>
 pub fn transaction(&self, id: TxId) -> Result<Option<Transaction>>
+pub fn transaction_generator(&self, id: TxId) -> Result<Option<NodeId>>
+pub fn transaction_generators(&self, ids: &[TxId]) -> Result<Vec<Option<NodeId>>>
 pub fn relations_from(&self, id: TxId) -> Result<Vec<Relation>>
 pub fn relations_to(&self, id: TxId) -> Result<Vec<Relation>>
 pub fn visit_relations(&self, f: impl FnMut(&Relation) -> bool) -> Result<()>
@@ -1264,6 +1266,14 @@ filter has no block-level index and decodes every candidate block. Return
 
 `transaction(id)` decodes only blocks whose `[min_id, max_id]` covers `id`
 (ids are dense and increasing, so normally exactly one block).
+`transaction_generator(id)` uses the same block pruning for transactions and
+log records, returning only the owning generator without cloning record details.
+Missing identities return `None`.
+`transaction_generators(ids)` resolves a batch in one pass over relevant
+transaction/log blocks, preserving input order and duplicates. It checks the
+requested ID set against each block's bounds and clones no record details.
+Use it for collections of parent/relation endpoints; separate single-ID calls
+repeat block traversal even when the decoded blocks are cached.
 `relations_from`/`relations_to` similarly use the per-block
 `[rel_min_from, rel_max_from]` / `[rel_min_to, rel_max_to]` ranges; a
 relation whose endpoints are far apart in id space makes those ranges wide and
@@ -1733,30 +1743,121 @@ VTR retains its format-defined initial values. Built-in translators display
 unavailable values as `?`, and no initial waveform level is drawn. Sampling at
 a change timestamp selects the last change at that timestamp.
 
-`info()` and `hierarchy()` are resident metadata. `load_signal()` and
+`info()`, `hierarchy()` and `tracks()` are resident metadata. `load_signal()` and
 `load_signals()` are blocking full-history queries. Batch results retain
 request order and per-signal errors. The document batches queued loads, tags
 them with its generation, and rejects stale completions. VTR histories retain
 their shared immutable `SignalData` buffers behind the history interface.
 
-`capabilities()` reports waveform, transaction and relation operations, not
-whether a particular trace contains records. The optional `transactions()`
-and `relations()` facets are absent for FST and present for VTR, including
-empty VTR files. Their common records are in `data::transactions`:
+`capabilities()` reports supported waveform, transaction and relation data,
+not whether a particular trace contains records. VTR supports all three; FST
+supports waveforms. The common records are in `data::transactions`:
 
-- `TransactionQueries::tracks()` returns resident stream/generator metadata.
-- `visit_transactions(query, visitor)` filters by optional generator, stream
-  and inclusive overlap `[start, end]`, preserving point transactions at either
-  boundary. A reversed window or invalid track is an error. Returning false
-  stops the visit; source visit order is not necessarily time order.
-- `transaction(id)` returns `None` for a missing record.
-- `RelationQueries::relations_from(id)` and `relations_to(id)` return all
-  matching raw relations, or an empty vector for a missing endpoint.
+- `Session::tracks()` returns the resident stream/generator catalog for both
+  local and remote sessions.
+- `Session::load_track(id)` loads a complete stream or generator, including
+  empty member generators, into `LoadedTrack`. Its shared `LoadedGenerator`
+  handles own immutable records, resolved parent locations and incident
+  relations with file-order identities. `visit_window` answers inclusive
+  overlaps locally using a max-end interval index; it retains long intervals
+  beginning before the window. Invalid identities and unsupported backends
+  return errors. Loaded references remain valid after the source is dropped.
+- `Document::retain_track` and `release_track` account for consumers and share
+  generator storage across selected streams and generators. `retry_track`
+  explicitly retries a failed load. `LoadRequest::Track` completions carry both
+  document generation and request identity, so removal/re-add and retries
+  cannot accept superseded results. `Document::track` exposes loading, ready
+  and failed states without querying the reader.
+
+`remote::transport` supplies the raw packet codec and pipe framing. `Receiver`
+validates one request's object identities, sequence numbers, declared sizes and
+completion, yielding decoded chunks for a private object builder. `ResponseWriter`
+serializes into bounded chunks and waits for matching acknowledgements before
+advancing. These primitives do not perform object installation or viewer
+navigation. Native local loading does not use this codec.
+
+`remote::objects::Metadata` carries resident raw metadata and validates tree
+membership and track references before installation. `TrackPayload` converts
+between serializable records and validated immutable `LoadedTrack` objects.
+Wire transactions are ordered by `(begin, end, id)` within each generator;
+`TrackPayload::into_loaded` validates that canonical order. The shared generator
+validator/index builder also supports cooperative checkpoints for remote
+installation; native construction sorts records before using the same builder.
+`remote::tracks::TrackDecoder` reconstructs and validates complete tracks in
+cooperative steps, including recursively typed details, incident relations and
+interval indexes. Each generator owns its decoded-data reservation plus a
+conservative index allowance; shared references retain it, and the last reference
+releases that generator independently. Temporary track-validation reservations
+are released after construction. Repeated relations are compared incrementally
+without serialized copies, preserving floating-point bit patterns. The returned
+`LoadedTrack` remains private until the protocol End. `TrackTransfer` publishes
+the corresponding `LoadResult::Track` with the original document generation and
+request identity. Admission/record-validation failures drain the object and
+produce per-track errors; envelope failures discard private data and require
+disconnecting the transport.
+`remote::metadata::MetadataDecoder` consumes bounded chunks of the same fixed
+bincode schema and cooperatively validates references. `MetadataStep::Yield`
+requires yielding to input/painting; `NeedInput` permits another chunk. Its
+checked collection lengths reserve decoded storage before allocation, including
+conservative validation workspace. Nested attributes are limited to 128 levels.
+`ValidatedMetadata::into_session` moves the metadata and memory reservation into
+the remote session without copying or revalidating. The host must still receive
+the matching protocol `End` before publishing that session. Dropping an unfinished
+decoder releases its private allocations and reservation.
+`remote::open::OpenTransfer` ties this decoder to one protocol Open response:
+it acknowledges consumed chunks and produces `LoadResult::Opened` only after
+the matching End. `remote::client::RemoteClient` queues Open, signal and track
+loads, splits signal submissions into protocol-sized batches, and permits one
+active command. Hosts must send each `ClientStep` acknowledgement and deliver
+its result before requesting the next command. Disconnect returns failures for
+unfinished loads while completed histories remain owned by their consumers.
+The GPUI web driver routes `OpenSpec::Remote` and remote signal/track loads through
+this queue; local and byte-image loads retain their existing executor.
+`OpenSpec::Remote` carries `remote::limits::Limits`, expressed in MiB and checked
+before starting a connection. VS Code forwards its resource-scoped
+`volna.remote.memoryMiB` and `volna.remote.objectMiB` settings at open; defaults
+are 512 and 256 MiB, respectively. Changing settings affects the next open.
+`remote::session::RemoteSession` owns validated metadata and a nonzero server
+identity. `Session::remote_id()` distinguishes it for asynchronous executor
+routing; local sessions return `None`. Its blocking load methods return an
+error. Histories and tracks belong to document consumers, not a second session
+cache.
+`remote::history::PackedHistory` implements the existing `SignalHistory`
+interface directly: fixed-width values use fixed strides, logic states use
+nibbles, and only variable-length values need offsets. Initial availability,
+same-timestamp ordering, real bit patterns and raw byte values survive transport.
+Deserialization validates storage before returning a usable history.
+`remote::signals::SignalTransfer` turns framed history replies into ordinary
+`LoadResult::Signals` completions. It consumes bounded chunks, validates at most
+one chunk's worth of values per `step`, and withholds the final acknowledgement
+until validation succeeds. A host must yield between `ClientStep::Yield` steps.
+Each completion retains its document generation. `SignalTransfer` enforces a
+per-object limit and reserves decoded signal storage from a shared
+`remote::memory::MemoryBudget` before allocation. The reservation follows the
+history through private assembly and completed `Arc` ownership, releasing only
+when the last consumer drops it. Failed or abandoned builders release it too.
+An object refused by client admission is drained without retaining its payload,
+then delivered as a per-signal error so later objects in the batch can succeed.
+The reservation has no wire representation. The host executor must use the same
+budget for metadata, tracks, indexes and transport scratch; signal admission
+alone does not bound total client memory or process RSS.
+`remote::server::serve` runs the sequential headless service with a host-provided
+session identity and immutable-recording check. The `volna-server` binary hosts
+it on stdin/stdout; see `tools/volna-server/README.md`.
+
+`LoadedGenerator::transaction(id)` returns a borrowed record or `None`.
+`relations()` exposes immutable incident relations, including identities and
+endpoint owners; consumers can inspect either incoming or outgoing edges.
+`parent(id)` retains the parent's owner even if its track is not loaded.
 
 Common records resolve names and recursively typed attributes, retaining
 attribute phases, transaction parents, statuses, kinds, events, stages and
 cross-stream relations. `TrackRef` and `TransactionRef` belong to the opened
 session; they must not be reused after replacing it. VDB/presentation rules
-are outside these query interfaces. Queries are blocking and must be run off
-native UI frames. No bounded remote transport or transaction view is supplied;
-see `volna/volna/ARCHITECTURE.md` for the future window/summary contract.
+remain on the client. Backend loads are blocking and must run off native UI
+frames; queries over loaded data perform no I/O. `RemoteClient::submit` accepts
+the same `LoadRequest` as the local executor and returns a failed `LoadResult`
+if submission is rejected. The browser host only routes and drives transport;
+the shared document owns demand and stale-result handling. No transaction UI
+is supplied yet. See `volna/volna/ARCHITECTURE.md` for the current ownership and
+complete-object transport.

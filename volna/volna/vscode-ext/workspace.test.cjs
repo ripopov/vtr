@@ -54,16 +54,30 @@ test("open forwards both candidates unchanged and preserves remote resource iden
   assert.equal(open.candidates.sidecar.target.uri, f.sidecar);
   assert.equal(Buffer.from(open.candidates.sidecar.content.value).toString(), json);
   assert.equal(Buffer.from(open.candidates.fallback.content.value).toString(), fallback);
-  assert.deepEqual(Array.from(new Uint8Array(open.bytes)), [1, 2, 3]);
+  assert.equal(open.bytes, undefined);
+  assert.deepEqual(open.settings.remote, { memoryMiB: 512, objectMiB: 256 });
+  assert.equal(f.read.includes(f.uri.toString()), false);
   assert.equal(open.candidates.sidecar.writable, true);
   assert.equal([...f.files.keys()].filter((k) => k.includes(".probe-")).length, 0);
 });
 
-test("disabled persistence reads only trace bytes and never probes or writes", async () => {
+test("remote memory limits are forwarded from resource-scoped settings", async () => {
+  const f = fixture("off");
+  f.vscode.workspace.getConfiguration = (section, uri) => {
+    assert.equal(section, "volna");
+    assert.equal(uri, f.uri);
+    return { get: (key, fallback) => ({ "workspace.autosave": "off", "remote.memoryMiB": 64, "remote.objectMiB": 16 }[key] ?? fallback) };
+  };
+  await f.host.receive({ type: "ready" });
+  assert.deepEqual(f.posted[0].settings.remote, { memoryMiB: 64, objectMiB: 16 });
+  assert.deepEqual(f.read, []);
+});
+
+test("disabled persistence performs no file reads, probes or writes", async () => {
   const f = fixture("off");
   await f.host.receive({ type: "ready" });
   assert.equal(f.posted[0].candidates, undefined);
-  assert.deepEqual(f.read, [f.uri.toString()]);
+  assert.deepEqual(f.read, []);
   assert.equal(f.written.length, 0);
   await f.host.dispose();
   assert.equal(f.written.length, 0);

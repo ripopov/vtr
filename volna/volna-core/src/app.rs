@@ -15,7 +15,7 @@ use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::sidebar::{Key, ScopeTreeModel, VariableListModel};
 use crate::theme::Theme;
 use crate::wave::layout::WaveLayout;
-use crate::wave::model::{PointerEvent, WaveModel};
+use crate::wave::model::{MenuAction, PointerEvent, WaveModel};
 use crate::wave::timeline::format_time;
 
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
@@ -115,7 +115,7 @@ pub enum Command {
     AddSelectedOrAllVars,
     VariablesKey(Key, Modifiers),
     /// The format menu's popup reported a choice / was dismissed.
-    MenuSelect(PanelId, String),
+    MenuSelect(PanelId, MenuAction),
     MenuDismiss(PanelId),
     SetSidebarWidth(f32),
     /// Scope tree height as a fraction of the sidebar.
@@ -284,11 +284,41 @@ impl App {
 
     /// Loads the frontend should perform, then hand to [`App::deliver`].
     pub fn take_requests(&mut self) -> Vec<LoadRequest> {
-        self.doc.take_requests()
+        let mut requests = self.doc.take_requests();
+        if requests
+            .iter()
+            .any(|r| matches!(r, LoadRequest::Signals { .. }))
+        {
+            let wanted = self.signal_demand();
+            requests.retain_mut(|request| {
+                if let LoadRequest::Signals {
+                    generation,
+                    signals,
+                    ..
+                } = request
+                {
+                    self.doc
+                        .retain_queued_signals(*generation, signals, &wanted)
+                } else {
+                    true
+                }
+            });
+        }
+        requests
+    }
+
+    pub(crate) fn signal_demand(&self) -> std::collections::HashSet<crate::data::SignalRef> {
+        self.panels
+            .iter()
+            .filter_map(|panel| panel.kind.waves())
+            .flat_map(|waves| &waves.items)
+            .filter_map(|row| row.source.signal())
+            .collect()
     }
 
     pub fn deliver(&mut self, result: LoadResult) {
         match self.doc.deliver(result) {
+            Some(Delivered::Track) => self.changed(),
             Some(Delivered::Signals(results)) => {
                 for (signal, result) in results {
                     let result = result.map_err(|e| e.to_string());
@@ -493,9 +523,23 @@ impl App {
                     self.changed();
                 }
             }
-            Command::MenuSelect(panel, id) => {
-                if let Some(w) = self.panels.waves_mut(panel) {
-                    w.menu_select(&self.doc, &id);
+            Command::MenuSelect(panel, action) => {
+                let retry = self
+                    .panels
+                    .waves_mut(panel)
+                    .and_then(|w| w.menu_select(&self.doc, &action));
+                if let Some(signal) = retry
+                    && self.doc.request_signal(signal)
+                {
+                    for panel in self.panels.iter_mut() {
+                        if let Some(waves) = panel.kind.waves_mut() {
+                            for row in &mut waves.items {
+                                if row.source.signal() == Some(signal) {
+                                    row.error = None;
+                                }
+                            }
+                        }
+                    }
                 }
                 self.changed();
             }

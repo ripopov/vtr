@@ -28,21 +28,53 @@ and display escaped text rather than guessing a width from names or dropping
 strengths. Event histories use a distinct shape and pixel-bounded point-marker
 painting, without synthesizing pulse durations or held values.
 
-Optional transaction and relation query facets preserve VTR's broader model
-without making FST manufacture records. Absence means unsupported; present
-facets with empty results mean supported but empty. VTR adapts its existing
-inclusive transaction-window visitors and endpoint relation queries, preserving
-parents, attribute phases, typed values, events and stages. Resolved names in
-owned query records avoid exporting reader string-table handles. The semantic
-status/kind/phase enums are reused; no toolkit or backend storage is required by
-the facet contract. Track metadata is resident, queries are blocking, and
-frontends do not expose transaction views.
+Complete-track loading is the common transaction contract for local and remote
+consumers. Capability flags distinguish unsupported sources from supported but
+empty recordings. Resident `LoadedGenerator` indexes answer overlap and identity
+queries after loading; exposing a separate blocking reader query facet would
+permit local-only viewer behavior and duplicate the loading model. Resolved names
+and typed values avoid exporting reader string-table handles. Backend extraction
+is shared by native sessions and the headless service; only the latter converts
+objects to the wire schema. Serialization borrows loaded transaction records and
+relations rather than cloning their nested attributes into another owned payload.
+The browser's incremental decoder still owns its private construction buffers
+and performs wire validation before publication.
 
-The visitor supports early stopping but does not establish remote pagination;
-relation vectors and VTR decoded transaction caches are not bounded by the
-viewport. Full waveform histories likewise do not satisfy the remote-file
-objective. The architecture records the required future window, summary,
-boundary, completeness and result-limit semantics.
+The remote direction uses complete selected signals and transaction tracks,
+as described in the [simple client-server design](client-server-simple.html).
+This adopts Surver's whole-signal loading boundary and accepts client memory
+proportional to selected data. Reader caches are not bounded by the viewport.
+Complete track objects retain immutable per-generator stores, parent-owner
+references and incident relations. Relation file-order ordinals preserve
+parallel edges without a second identity table. A max-end tree over sorted
+transactions answers local overlap queries without losing long intervals.
+`transaction_generator` and its batch counterpart `transaction_generators`
+expose ownership at the reader layer without cloning transaction details merely
+to resolve unloaded endpoints. Whole-track loading gathers incident endpoints
+and resolves external owners in one batch. Repeating a scalar lookup per edge
+rescans block headers and rows for every external reference, even when the
+decoded blocks are already cached. Batching avoids that repeated traversal
+without adding a permanent ownership cache.
+The [TLM batch-owner A/B samples](../volna/volna/benchmarks/client-server-owners.jsonl)
+and [current remote load costs](../volna/volna/VERIFICATION.md#complete-object-child-protocol)
+record the measured effects.
+
+The raw transport uses fixed little-endian bincode fields inside independently
+checksummed LZ4 frames. Frames have an explicit protocol version and a 1 MiB
+size limit; data chunks carry at most 256 KiB and use 64 KiB LZ4 blocks. The
+sender waits for an acknowledgement before sending another frame. Independent
+frames let a browser consume and yield between chunks without retaining an
+entire compressed object. This is transport fragmentation, not time-window
+pagination. An object becomes complete only after its declared byte count and
+explicit end marker agree. Short frames, excess output, identity/sequence
+mismatches and duplicated results fail the request. The LZ4 frame layout is
+validated before decompression because the library accepts EOF at a block
+boundary without requiring the end marker; that permissive behavior is not
+appropriate for atomic object delivery.
+Histories and chunks use bincode's bulk-byte serializer. With fixed-width
+options it emits the same length-prefixed byte representation as `Vec<u8>`,
+but avoids a serializer and write call for every byte. The RSA transfer A/B in
+the verification guide measures the effect; the wire schema is unchanged.
 The supported subset and limitations are in the
 [viewer guide](../volna/volna/README.md); test coverage and commands are in the
 [verification guide](../volna/volna/VERIFICATION.md).
