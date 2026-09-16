@@ -85,6 +85,7 @@ pub struct DisplayedSignal {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Drag {
     Cursor,
+    ZoomRange { start: Point, current: Point },
     Pan { last_x: f32 },
     NamesSplit,
     ValuesSplit,
@@ -407,9 +408,11 @@ impl WaveModel {
         self.selected = (0..self.items.len()).collect();
     }
 
-    /// Escape: close the menu, else clear the selection, else clear the cursor.
+    /// Escape: cancel a drag, close the menu, clear selection, then clear cursor.
     pub fn clear_selection(&mut self, doc: &mut Document) {
-        if self.menu.is_some() {
+        if self.drag.is_some() {
+            self.drag = None;
+        } else if self.menu.is_some() {
             self.menu = None;
         } else if !self.selected.is_empty() {
             self.selected.clear();
@@ -546,14 +549,14 @@ impl WaveModel {
 
     fn zoom_center(&mut self, doc: &mut Document, factor: f64, now: Instant) {
         let w = self.wave_w();
+        let mut target = self.viewport_state(doc).target();
         let anchor_x = match self.cursor(doc) {
             Some(c) => {
-                let x = self.viewport(doc).x_of(c as f64, w);
+                let x = target.x_of(c as f64, w);
                 if (0.0..=w).contains(&x) { x } else { w / 2.0 }
             }
             None => w / 2.0,
         };
-        let mut target = self.viewport(doc);
         target.zoom_about(anchor_x, w, factor, doc.limits());
         let limits = doc.limits();
         self.viewport_state_mut(doc).animate_to(target, limits, now);
@@ -573,15 +576,31 @@ impl WaveModel {
             .animate_to(Viewport::fit(limits), limits, now);
     }
 
+    pub fn zoom_to_cursor(&mut self, doc: &mut Document, now: Instant) {
+        let Some(cursor) = self.cursor(doc) else {
+            return;
+        };
+        let half_width = self.viewport_state(doc).target().width() / 4.0;
+        let limits = doc.limits();
+        self.viewport_state_mut(doc).animate_to(
+            Viewport {
+                start: cursor as f64 - half_width,
+                end: cursor as f64 + half_width,
+            },
+            limits,
+            now,
+        );
+    }
+
     pub fn go_to_start(&mut self, doc: &mut Document, now: Instant) {
-        let mut target = self.viewport(doc);
+        let mut target = self.viewport_state(doc).target();
         target.go_to_start(doc.limits());
         let limits = doc.limits();
         self.viewport_state_mut(doc).animate_to(target, limits, now);
     }
 
     pub fn go_to_end(&mut self, doc: &mut Document, now: Instant) {
-        let mut target = self.viewport(doc);
+        let mut target = self.viewport_state(doc).target();
         target.go_to_end(doc.limits());
         let limits = doc.limits();
         self.viewport_state_mut(doc).animate_to(target, limits, now);
@@ -589,14 +608,14 @@ impl WaveModel {
 
     pub fn go_to_cursor(&mut self, doc: &mut Document, now: Instant) {
         let Some(c) = self.cursor(doc) else { return };
-        let mut target = self.viewport(doc);
+        let mut target = self.viewport_state(doc).target();
         target.center_on(c as f64, doc.limits());
         let limits = doc.limits();
         self.viewport_state_mut(doc).animate_to(target, limits, now);
     }
 
     pub fn pan_fraction(&mut self, doc: &mut Document, frac: f64, now: Instant) {
-        let mut target = self.viewport(doc);
+        let mut target = self.viewport_state(doc).target();
         let w = target.width();
         target.start += w * frac;
         target.end += w * frac;
@@ -709,7 +728,7 @@ impl WaveModel {
     // -- pointer input -------------------------------------------------------------
 
     /// Handle pointer input. Returns true when something visible changed.
-    pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent) -> bool {
+    pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent, now: Instant) -> bool {
         match event {
             PointerEvent::Down {
                 position,
@@ -722,7 +741,25 @@ impl WaveModel {
             PointerEvent::Move { position } => self.pointer_move(doc, position),
             PointerEvent::Up => {
                 let had = self.drag.is_some();
-                self.drag = None;
+                if let Some(Drag::ZoomRange { start, current }) = self.drag.take()
+                    && (current.x - start.x).abs() >= 4.0
+                {
+                    let layout = &self.layout;
+                    let viewport = self.viewport(doc);
+                    let a =
+                        viewport.time_at(f64::from(start.x - layout.waves.left()), self.wave_w());
+                    let b =
+                        viewport.time_at(f64::from(current.x - layout.waves.left()), self.wave_w());
+                    let limits = doc.limits();
+                    self.viewport_state_mut(doc).animate_to(
+                        Viewport {
+                            start: a.min(b),
+                            end: a.max(b),
+                        },
+                        limits,
+                        now,
+                    );
+                }
                 had
             }
             PointerEvent::Leave => {
@@ -743,7 +780,7 @@ impl WaveModel {
                 dy,
                 modifiers,
             } => {
-                self.wheel(doc, position, dx, dy, modifiers);
+                self.wheel(doc, position, dx, dy, modifiers, now);
                 true
             }
             PointerEvent::Pinch { position, delta } => {
@@ -804,6 +841,15 @@ impl WaveModel {
         }
         let in_waves_x = p.x >= layout.waves.left() && p.x < layout.waves.right();
         let wave_wf = layout.wave_width_f64();
+        if in_waves_x && button == MouseButton::Left && (modifiers.control || modifiers.platform) {
+            let displayed = self.viewport(doc);
+            self.viewport_state_mut(doc).set(displayed);
+            self.drag = Some(Drag::ZoomRange {
+                start: p,
+                current: p,
+            });
+            return;
+        }
         if layout.header.contains(p) {
             if in_waves_x && button == MouseButton::Left {
                 let x = f64::from(p.x - layout.waves.left());
@@ -857,6 +903,10 @@ impl WaveModel {
         let layout = &self.layout;
         let wave_wf = layout.wave_width_f64();
         match self.drag {
+            Some(Drag::ZoomRange { start, .. }) => {
+                self.drag = Some(Drag::ZoomRange { start, current: p });
+                true
+            }
             Some(Drag::Cursor) => {
                 let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
                 let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
@@ -920,14 +970,25 @@ impl WaveModel {
         }
     }
 
-    /// Wheel: zoom with cmd/ctrl, pan horizontally, scroll rows vertically.
-    fn wheel(&mut self, doc: &mut Document, p: Point, dx: f32, dy: f32, modifiers: Modifiers) {
-        if modifiers.secondary() || modifiers.control {
+    /// Wheel over waves pans time; over names/values it scrolls rows.
+    fn wheel(
+        &mut self,
+        doc: &mut Document,
+        p: Point,
+        dx: f32,
+        dy: f32,
+        modifiers: Modifiers,
+        now: Instant,
+    ) {
+        if modifiers.control || modifiers.platform {
             let factor = 2f64.powf(f64::from(dy) / 120.0);
             let x = (p.x - self.layout.waves.left()).max(0.0);
             self.zoom_at(doc, x, factor);
         } else if modifiers.shift {
-            self.pan_px(doc, -dy);
+            // Some hosts translate Shift-wheel's vertical delta to horizontal.
+            self.scroll_y = (self.scroll_y - dy - dx).clamp(0.0, self.layout.max_scroll);
+        } else if p.x >= self.layout.waves.left() {
+            self.pan_fraction(doc, -f64::from(dx + dy) / 1000.0, now);
         } else {
             if dx.abs() > 0.0 {
                 self.pan_px(doc, -dx);

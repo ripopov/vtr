@@ -904,6 +904,22 @@ from a four-state simulator would take.
 
 ## Volna viewer
 
+Waveform navigation borrows smooth time navigation and range zoom from Surfer,
+and the simple scrolling distinction from
+[Vaporview's controls](https://github.com/Lramseyer/vaporview#controls): wheel
+over waves pans time; Shift-wheel or wheel over labels scrolls rows.
+Ctrl/Cmd-left-drag selects a time interval in either direction, regardless of
+vertical drift. Plain left-drag retains Volna's cursor scrubbing; middle/right
+drag pans. Surfer's directional gesture menu is omitted because a small vertical
+pointer movement should not turn range selection into fit or endpoint navigation.
+Vaporview's automatic mouse/touchpad detection and plain-left-drag zoom are not
+adopted: deterministic modifiers keep input predictable and preserve scrubbing.
+Range selection, previews and animation remain in `volna-core`, shared by native
+and web hosts. Volna retains its short cubic animation. Repeated keyboard and wheel
+inputs compose against the pending viewport target, while retargeting samples
+the current animation so an input between frames does not jump backwards.
+This changes client presentation only; VTR, VDB and the wire format are unaffected.
+
 `volna/volna` is the official VTR/VDB viewer, built with GPUI. Source/history
 interfaces separate runtime trace access from presentation; asynchronous-load
 regression tests guard against stale results. It currently provides VTR

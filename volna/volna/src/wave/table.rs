@@ -447,7 +447,7 @@ impl WaveTable {
             }
         });
 
-        // Wheel: zoom with cmd/ctrl, pan horizontally, scroll rows vertically.
+        // The core resolves wheel zoom, time pan and row scroll from the hit region.
         window.on_mouse_event({
             move |ev: &ScrollWheelEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {

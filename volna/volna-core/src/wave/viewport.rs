@@ -35,6 +35,7 @@ impl ViewportState {
         self.animation = None;
     }
     pub fn animate_to(&mut self, mut target: Viewport, limits: (u64, u64), now: Instant) {
+        self.tick(now);
         target.clamp(limits);
         self.animation = if self.viewport.approx_eq(&target) {
             None

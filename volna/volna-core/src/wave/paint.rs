@@ -384,6 +384,46 @@ pub fn paint(
         );
     }
 
+    if let Some(Drag::ZoomRange { start, current }) = model.drag {
+        let label = "Zoom to selected area · Esc to cancel";
+        let label_width = p.width(label, FontRole::Ui, t.ui_size);
+        let label_x = (current.x + 8.0)
+            .min(waves.right() - label_width - 8.0)
+            .max(waves.left() + 8.0);
+        p.scene.clipped(waves, |scene| {
+            if (current.x - start.x).abs() >= 4.0 {
+                scene.fill(
+                    Rect::from_xywh(
+                        start.x.min(current.x),
+                        waves.top(),
+                        (current.x - start.x).abs(),
+                        waves.height(),
+                    ),
+                    t.selection.bg.with_alpha(0.35),
+                );
+            }
+            scene.lines(
+                vec![
+                    [point(start.x, waves.top()), point(start.x, waves.bottom())],
+                    [
+                        point(current.x, waves.top()),
+                        point(current.x, waves.bottom()),
+                    ],
+                ],
+                t.editor.text,
+                1.0,
+            );
+            scene.text(
+                point(label_x, (current.y + 8.0).min(waves.bottom() - 20.0)),
+                20.0,
+                label,
+                FontRole::Ui,
+                t.ui_size,
+                t.editor.text,
+            );
+        });
+    }
+
     // -- header: column titles, tick labels, unit -----------------------------
     let panel_theme = t.panel;
     let header = layout.header;

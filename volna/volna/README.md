@@ -199,8 +199,9 @@ The panel menu also provides rename and close-other-panel actions.
 | Add variables | double-click a variable; `+` in the Variables header adds all listed | `⏎` adds the selected variables |
 | Search all variables | type in the filter with no scope selected | |
 | Set cursor | click or drag in the waves or the timeline (snaps to nearby edges) | `shift-←/→` previous/next edge of the selected signal |
-| Zoom | `⌘`/`ctrl` + wheel, pinch | `=` / `-`, `F` fit |
-| Pan | horizontal wheel/trackpad, `shift` + wheel, middle/right drag | `←` `→`, `Home`/`S` start, `End`/`E` end, `C` centre on cursor |
+| Zoom | `⌘`/`ctrl` + wheel, pinch | `=` / `-`, `F` or `shift-F` fit, `shift-Z` zoom and centre on cursor |
+| Zoom to selected area | `⌘`/`ctrl` + left-drag across a time range | `esc` cancels the selection |
+| Pan | wheel/trackpad over waves, middle/right-drag | `←` `→`, `PageUp` later / `PageDown` earlier, `Home`/`S` start, `End`/`E` end, `C` centre on cursor |
 | Markers | click a chip to jump, `shift`-click to remove | `M` add at cursor, `shift-M` clear |
 | Value format | click the badge in the values column | `T` cycles binary / hex / decimal / signed / float |
 | Rows | click, `shift`/`⌘` multi-select, drag the column dividers | `↑` `↓`, `⌫` remove, `⌘A`, `esc` |
@@ -209,6 +210,13 @@ The panel menu also provides rename and close-other-panel actions.
 
 The status bar shows the trace range, cursor time, pixel resolution and the
 smoothed paint time of the wave table.
+
+`⌘`/`ctrl` + left-drag selects a time range in either direction. Vertical
+movement does not change the action; a shaded preview shows the selected range
+before release. Shift-wheel scrolls signal rows even over the waveforms;
+wheel over names or values also scrolls rows. Plain left-drag scrubs the cursor.
+Keyboard and wheel pans animate, and repeated inputs accumulate at the target
+position. Middle/right-drag and pointer-anchored wheel/pinch zoom respond immediately.
 
 ## Verification and performance
 

@@ -92,6 +92,14 @@ Use `target` to select the Volna iframe and `context: "!!document.querySelector(
 to select its content frame. `assert` fails unless its JavaScript predicate is true.
 The driver fails on uncaught runtime exceptions as well as failed assertions.
 Inspect the rendered panels in screenshots, not only restored model counts.
+With default sidebar/column widths, rows loaded and the editor focused,
+`tools/verify-navigation.mjs <port>`
+checks standalone browser navigation through real input and exported viewport
+state. For VS Code, append the active webview URL fragment and its content-frame
+origin in CSS pixels, for example `id=<webview-id> 52 90`. Use a temporary trace
+copy with autosave off. The verifier checks range gestures, Control/Command,
+Escape, repeated zoom, pan destinations, wheel zoom, cursor zoom, endpoints,
+page keys, Shift-wheel isolation and middle/right-drag, and writes a final screenshot under `/tmp`.
 Activate the editor tab before screenshots: a hidden VS Code webview may defer
 canvas frames. For persistence checks use a temporary copy of a trace, enable sidecar saving,
 create splits/tabs and rows, wait past the idle interval, reload the VS Code
@@ -111,6 +119,13 @@ Exercise the following in each target frontend:
 
 - Load a trace, select scopes, filter variables, add signals and select rows.
 - Move the cursor, zoom/pan/fit, navigate edges, and add/jump/remove markers.
+- Exercise repeated animated pans and zooms; PageUp/PageDown; Shift-Z with a
+  cursor offscreen; wheel pan over waves versus row scrolling over names;
+  Ctrl/Cmd-wheel and pinch anchored at the pointer; and right-drag panning.
+- Ctrl/Cmd-left-drag a time range in both directions, including vertical drift.
+  Inspect the preview before release and the resulting time bounds afterward.
+  Check that small/vertical-only drags do not zoom, Escape cancels selection,
+  middle/right-drag pans, and linked versus independent panels behave correctly.
 - Open the format menu, switch translators and drag the column/sidebar dividers.
 - Open another recording and verify that pending results cannot populate it.
 - Check empty/loading states, text at 1× and 2×, and nonblank waveform rendering.

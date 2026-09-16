@@ -32,6 +32,9 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     ZoomFit,
+    ZoomToCursor,
+    PanPageLeft,
+    PanPageRight,
     GoToStart,
     GoToEnd,
     GoToCursor,
@@ -454,7 +457,7 @@ impl App {
                     self.panel_command(PanelsCommand::Focus(id));
                 }
                 if let Some(w) = self.panels.waves_mut(id)
-                    && w.pointer(&mut self.doc, ev)
+                    && w.pointer(&mut self.doc, ev, now)
                 {
                     self.changed();
                 }
@@ -634,6 +637,9 @@ impl App {
             Action::ZoomIn => w.zoom_in(doc, now),
             Action::ZoomOut => w.zoom_out(doc, now),
             Action::ZoomFit => w.zoom_fit(doc, now),
+            Action::ZoomToCursor => w.zoom_to_cursor(doc, now),
+            Action::PanPageLeft => w.pan_fraction(doc, -1.0, now),
+            Action::PanPageRight => w.pan_fraction(doc, 1.0, now),
             Action::GoToStart => w.go_to_start(doc, now),
             Action::GoToEnd => w.go_to_end(doc, now),
             Action::GoToCursor => w.go_to_cursor(doc, now),

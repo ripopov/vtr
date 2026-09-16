@@ -586,6 +586,167 @@ fn cursor_markers_and_selection_follow_the_document() {
 }
 
 #[test]
+fn shift_wheel_scrolls_rows_without_panning_time() {
+    let (mut app, _) = loaded_app(1000);
+    app.handle(Command::AddVars(vec![0; 80]));
+    pump(&mut app);
+    frame(&mut app, &Theme::one_dark());
+    let panel = app.panels.focused_id();
+    let w = app.panels.focused_waves().unwrap();
+    let before = w.viewport(&app.doc);
+    let position = point(w.last_layout().waves.left() + 100.0, 180.0);
+    assert!(w.last_layout().max_scroll > 100.0);
+    for (dx, dy, expected) in [(0.0, -40.0, 40.0), (-40.0, 0.0, 80.0)] {
+        app.handle(Command::Pointer(
+            panel,
+            PointerEvent::Wheel {
+                position,
+                dx,
+                dy,
+                modifiers: Modifiers {
+                    shift: true,
+                    ..Modifiers::default()
+                },
+            },
+        ));
+        let w = app.panels.focused_waves().unwrap();
+        assert_eq!(w.scroll_y, expected);
+        assert_eq!(w.viewport(&app.doc), before);
+        assert!(!app.is_animating());
+    }
+}
+
+#[test]
+fn command_drag_selects_time_even_with_vertical_drift() {
+    let (mut app, _) = loaded_app(1000);
+    frame(&mut app, &Theme::one_dark());
+    let panel = app.panels.focused_id();
+    let area = app.panels.focused_waves().unwrap().last_layout().waves;
+    let now = Instant::now();
+    app.handle_at(
+        Command::Pointer(
+            panel,
+            PointerEvent::Down {
+                position: point(area.left() + 50.0, area.top() + 100.0),
+                button: MouseButton::Left,
+                modifiers: Modifiers {
+                    control: true,
+                    platform: true,
+                    ..Modifiers::default()
+                },
+            },
+        ),
+        now,
+    );
+    assert!(matches!(
+        app.panels.focused_waves().unwrap().drag,
+        Some(volna_core::wave::model::Drag::ZoomRange { .. })
+    ));
+    assert_eq!(app.panels.focused_waves().unwrap().cursor(&app.doc), None);
+    app.handle_at(
+        Command::Pointer(
+            panel,
+            PointerEvent::Move {
+                position: point(area.left() + 150.0, area.top() + 250.0),
+            },
+        ),
+        now,
+    );
+    app.handle_at(Command::Pointer(panel, PointerEvent::Up), now);
+    assert!(app.is_animating());
+    let full_width = app.doc.limits().1 as f64 - app.doc.limits().0 as f64;
+    app.tick(now + Duration::from_secs(1));
+    let selected = app.panels.focused_waves().unwrap().viewport(&app.doc);
+    assert!((selected.width() - full_width * 100.0 / f64::from(area.width())).abs() < 1e-3);
+}
+
+#[test]
+fn repeated_navigation_accumulates_before_animation_frames() {
+    let (mut app, _) = loaded_app(1000);
+    frame(&mut app, &Theme::one_dark());
+    let now = Instant::now();
+    let full = app.panels.focused_waves().unwrap().viewport(&app.doc);
+    app.handle_at(Command::Action(Action::ZoomIn), now);
+    app.handle_at(Command::Action(Action::ZoomIn), now);
+    app.tick(now + Duration::from_secs(1));
+    let zoomed = app.panels.focused_waves().unwrap().viewport(&app.doc);
+    assert!((zoomed.width() - full.width() / 4.0).abs() < 1e-6);
+    app.handle_at(
+        Command::Action(Action::PanRight),
+        now + Duration::from_secs(1),
+    );
+    app.handle_at(
+        Command::Action(Action::PanRight),
+        now + Duration::from_secs(1),
+    );
+    app.tick(now + Duration::from_secs(2));
+    let panned = app.panels.focused_waves().unwrap().viewport(&app.doc);
+    assert!((panned.start - zoomed.start - zoomed.width() / 2.0).abs() < 1e-6);
+}
+
+#[test]
+fn area_gesture_previews_then_zooms_in_either_direction_and_escape_cancels() {
+    for reverse in [false, true] {
+        let (mut app, _) = loaded_app(1000);
+        let theme = Theme::one_dark();
+        frame(&mut app, &theme);
+        let panel = app.panels.focused_id();
+        let waves = app.panels.focused_waves().unwrap();
+        let full = waves.viewport(&app.doc);
+        let area = waves.last_layout().waves;
+        let a = point(area.left() + area.width() * 0.25, area.top() + 40.0);
+        let b = point(area.left() + area.width() * 0.75, a.y);
+        let (a, b) = if reverse { (b, a) } else { (a, b) };
+        let now = Instant::now();
+        app.handle_at(
+            Command::Pointer(
+                panel,
+                PointerEvent::Down {
+                    position: a,
+                    button: MouseButton::Left,
+                    modifiers: Modifiers {
+                        control: true,
+                        ..Modifiers::default()
+                    },
+                },
+            ),
+            now,
+        );
+        app.handle_at(
+            Command::Pointer(panel, PointerEvent::Move { position: b }),
+            now,
+        );
+        assert_eq!(app.panels.focused_waves().unwrap().viewport(&app.doc), full);
+        frame(&mut app, &theme);
+        app.handle_at(Command::Pointer(panel, PointerEvent::Up), now);
+        assert!(app.is_animating());
+        app.tick(now + Duration::from_secs(1));
+        let selected = app.panels.focused_waves().unwrap().viewport(&app.doc);
+        assert!((selected.start - full.start - full.width() * 0.25).abs() < 1e-3);
+        assert!((selected.width() - full.width() * 0.5).abs() < 1e-3);
+        app.handle(Command::Pointer(
+            panel,
+            PointerEvent::Down {
+                position: a,
+                button: MouseButton::Left,
+                modifiers: Modifiers {
+                    control: true,
+                    ..Modifiers::default()
+                },
+            },
+        ));
+        app.handle(Command::Pointer(panel, PointerEvent::Move { position: b }));
+        app.handle(Command::Action(Action::ClearSelection));
+        app.handle(Command::Pointer(panel, PointerEvent::Up));
+        assert!(!app.is_animating());
+        assert_eq!(
+            app.panels.focused_waves().unwrap().viewport(&app.doc),
+            selected
+        );
+    }
+}
+
+#[test]
 fn zoom_pan_and_fit_are_deterministic_with_an_explicit_clock() {
     let (mut app, _) = loaded_app(1000);
     let theme = Theme::one_dark();
@@ -608,14 +769,14 @@ fn zoom_pan_and_fit_are_deterministic_with_an_explicit_clock() {
     let panned = app.panels.focused_waves().unwrap().viewport(&app.doc);
     assert!(panned.start > zoomed.start);
     assert!((panned.width() - zoomed.width()).abs() < 1e-6);
-    // Drag-pan with the middle button.
+    // Drag-pan with the right button.
     let layout = app.panels.focused_waves().unwrap().last_layout().clone();
     let before = app.panels.focused_waves().unwrap().viewport(&app.doc).start;
     app.handle(Command::Pointer(
         app.panels.focused_id(),
         PointerEvent::Down {
             position: point(layout.waves.left() + 400.0, layout.waves.top() + 12.0),
-            button: MouseButton::Middle,
+            button: MouseButton::Right,
             modifiers: Modifiers::default(),
         },
     ));

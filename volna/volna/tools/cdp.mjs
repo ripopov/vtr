@@ -68,7 +68,7 @@ for (const s of steps) {
     console.log("saved", s.shot);
   } else if (s.click || s.mousedown || s.mouseup || s.move) {
     const [x, y] = s.click ?? s.mousedown ?? s.mouseup ?? s.move;
-    const mods = s.shift ? 8 : 0;
+    const mods = (s.shift ? 8 : 0) | (s.ctrl ? 2 : 0) | (s.meta ? 4 : 0) | (s.alt ? 1 : 0);
     const ev = (type, extra = {}) => send("Input.dispatchMouseEvent", { type, x, y, button: s.button ?? "left", modifiers: mods, ...extra });
     if (s.move || s.click) await ev("mouseMoved", { button: "none" });
     if (s.click || s.mousedown) await ev("mousePressed", { clickCount: s.count ?? 1 });
