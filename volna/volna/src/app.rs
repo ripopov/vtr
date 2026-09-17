@@ -43,6 +43,8 @@ actions!(
         CloseTrace,
         OpenStressMenu,
         Quit,
+        OpenSettings,
+        CommandPalette,
         FocusPanel1,
         FocusPanel2,
         FocusPanel3,
@@ -127,6 +129,10 @@ pub struct Workspace {
     pub(crate) shaped: HashMap<TextKey, ShapedLine>,
     /// Hide the native-style title bar (used inside the VS Code webview).
     pub embedded: bool,
+    /// The command line chose the workspace policy; `workspace.autosave` is ignored.
+    pub(crate) cli_policy: bool,
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) config_watcher: Option<notify::RecommendedWatcher>,
 }
 
 impl Focusable for Workspace {
@@ -196,6 +202,35 @@ pub fn init(cx: &mut App) {
             Some("Waves"),
         ),
         KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-,", OpenSettings, None),
+        KeyBinding::new("ctrl-,", OpenSettings, None),
+        KeyBinding::new("cmd-k", CommandPalette, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-k", CommandPalette, Some("Workspace && !Embedded")),
+        KeyBinding::new(
+            "cmd-shift-,",
+            crate::settings_panel::ToggleSettingsJson,
+            None,
+        ),
+        KeyBinding::new(
+            "ctrl-shift-,",
+            crate::settings_panel::ToggleSettingsJson,
+            None,
+        ),
+        KeyBinding::new(
+            "escape",
+            crate::settings_panel::SettingsEscape,
+            Some("Settings"),
+        ),
+        KeyBinding::new(
+            "cmd-s",
+            crate::settings_panel::ApplySettingsJson,
+            Some("Settings"),
+        ),
+        KeyBinding::new(
+            "ctrl-s",
+            crate::settings_panel::ApplySettingsJson,
+            Some("Settings"),
+        ),
         KeyBinding::new("=", ZoomIn, Some("Waves")),
         KeyBinding::new("shift-=", ZoomIn, Some("Waves")),
         KeyBinding::new("-", ZoomOut, Some("Waves")),
@@ -228,7 +263,11 @@ pub fn init(cx: &mut App) {
     cx.set_menus(vec![
         Menu {
             name: "Volna".into(),
-            items: vec![MenuItem::action("Quit", Quit)],
+            items: vec![
+                MenuItem::action("Settings…", OpenSettings),
+                MenuItem::separator(),
+                MenuItem::action("Quit", Quit),
+            ],
             disabled: false,
         },
         Menu {
@@ -246,6 +285,7 @@ pub fn init(cx: &mut App) {
         Menu {
             name: "View".into(),
             items: vec![
+                MenuItem::action("Command Palette…", CommandPalette),
                 MenuItem::action("Toggle Sidebar", ToggleSidebar),
                 MenuItem::action("Split Right", SplitRight),
                 MenuItem::action("Split Down", SplitDown),
@@ -286,6 +326,7 @@ impl Workspace {
         #[cfg(not(target_family = "wasm"))]
         cx.on_app_quit(|this, cx| {
             this.app.persist_workspace(Instant::now(), true);
+            this.app.flush_settings(Instant::now());
             this.after(None, cx);
             async {}
         })
@@ -322,6 +363,9 @@ impl Workspace {
             scene: Scene::default(),
             shaped: HashMap::new(),
             embedded: false,
+            cli_policy: false,
+            #[cfg(not(target_family = "wasm"))]
+            config_watcher: None,
         }
     }
 
@@ -412,6 +456,24 @@ impl Workspace {
                         if let Some(window) = window.as_deref_mut() {
                             let handle = self.filter.read(cx).focus_handle(cx);
                             window.focus(&handle, cx);
+                        }
+                    }
+                    Event::WriteSettings { ticket, bytes } => {
+                        #[cfg(not(target_family = "wasm"))]
+                        self.write_settings(ticket, bytes);
+                        #[cfg(target_family = "wasm")]
+                        {
+                            let error = crate::web::write_settings(&bytes).err();
+                            self.app.settings_saved(ticket, error, Instant::now());
+                        }
+                    }
+                    Event::SettingsChanged { keys } => self.settings_changed(&keys, cx),
+                    Event::FocusSettingsSearch => {
+                        if let (Some(window), Some(id)) =
+                            (window.as_deref_mut(), self.app.panels.settings_id())
+                        {
+                            let view = self.settings_view(id, window, cx);
+                            view.update(cx, |view, cx| view.focus_search(window, cx));
                         }
                     }
                 }
@@ -611,6 +673,90 @@ impl Workspace {
         self.dispatch(Command::CloseTrace, Some(window), cx);
     }
 
+    fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        if self.embedded {
+            // VS Code owns the settings UI; open it filtered to this extension.
+            #[cfg(target_family = "wasm")]
+            crate::web::open_host_settings();
+            return;
+        }
+        self.dispatch(
+            Command::Settings(volna_core::app::SettingsCommand::Open),
+            Some(window),
+            cx,
+        );
+    }
+
+    fn command_palette(&mut self, _: &CommandPalette, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette(window, cx);
+    }
+
+    /// The settings tab's view (created when needed).
+    pub(crate) fn settings_view(
+        &mut self,
+        id: volna_core::panels::PanelId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<crate::settings_panel::SettingsPanelView> {
+        let mut dock = self
+            .dock
+            .take()
+            .unwrap_or_else(|| crate::dock::DockHost::new(window, cx));
+        let view = dock.settings_view(id, cx.weak_entity(), window, cx);
+        self.dock = Some(dock);
+        view
+    }
+
+    /// React to resolved settings: re-project the theme, follow the
+    /// workspace policy unless the command line fixed it.
+    fn settings_changed(&mut self, keys: &[&'static str], cx: &mut Context<Self>) {
+        if keys.contains(&"appearance.theme") {
+            self.apply_theme_setting(cx);
+        }
+        if keys.contains(&"workspace.autosave") && !self.embedded && !self.cli_policy {
+            use volna_core::settings::Autosave;
+            use volna_core::workspace::persistence::Persistence;
+            let policy = match self.app.settings.resolved().workspace.autosave {
+                Autosave::Off => Persistence::Disabled,
+                _ => Persistence::Auto,
+            };
+            self.app.configure_persistence(policy);
+        }
+        cx.notify();
+    }
+
+    /// Install the theme `appearance.theme` names. Embedded hosts supply
+    /// their own palette snapshot instead.
+    pub(crate) fn apply_theme_setting(&mut self, cx: &mut Context<Self>) {
+        if self.embedded {
+            return;
+        }
+        let name = self.app.settings.resolved().appearance.theme.clone();
+        log::debug!("applying theme setting {name:?}");
+        #[cfg(not(target_family = "wasm"))]
+        let theme = match &self.native_store {
+            Some(store) => store.theme(&name),
+            None if name == "one-dark" => Ok(crate::theme::CoreTheme::one_dark()),
+            None => Err(anyhow::anyhow!("no theme directory")),
+        };
+        #[cfg(target_family = "wasm")]
+        let theme = if name == "one-dark" {
+            Ok(crate::theme::CoreTheme::one_dark())
+        } else {
+            Err(anyhow::anyhow!(
+                "palette files are not available in the browser"
+            ))
+        };
+        match theme {
+            Ok(theme) => crate::theme::install(theme, cx),
+            Err(error) => {
+                self.app
+                    .report_workspace_error(format!("Theme '{name}': {error:#}; using One Dark"));
+                crate::theme::install(crate::theme::CoreTheme::one_dark(), cx);
+            }
+        }
+    }
+
     fn open_stress_menu(
         &mut self,
         position: gpui_kit::Point<Pixels>,
@@ -775,6 +921,14 @@ impl Workspace {
                     .tooltip("Open trace (⌘O)")
                     .on_click(cx.listener(|this, _, w, cx| this.open_file(&OpenFile, w, cx))),
             )
+            .child(
+                icon_button("open-settings", IconName::Settings, t.bar, t.bar_hover, cx)
+                    .selected(self.app.panels.settings_id().is_some())
+                    .tooltip("Settings (⌘,)")
+                    .on_click(
+                        cx.listener(|this, _, w, cx| this.open_settings(&OpenSettings, w, cx)),
+                    ),
+            )
     }
 
     fn render_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -825,6 +979,14 @@ impl Workspace {
     ) -> gpui_kit::AnyElement {
         let t = *theme(cx);
         let colors = t.editor;
+        let settings_only = match self.app.trace_state() {
+            TraceState::Loaded(_) | TraceState::Loading { .. } => None,
+            _ => self.app.panels.settings_id(),
+        };
+        if let Some(id) = settings_only {
+            let view = self.settings_view(id, window, cx);
+            return div().size_full().child(view).into_any_element();
+        }
         match self.app.trace_state() {
             TraceState::Loaded(_) => self.render_waves(window, cx).into_any_element(),
             TraceState::Loading { name } => div()
@@ -1236,7 +1398,27 @@ impl Render for Workspace {
                 this.dispatch(Command::RequestQuit, Some(window), cx)
             }))
             .on_action(cx.listener(Self::toggle_sidebar))
-            .on_action(cx.listener(Self::close_trace));
+            .on_action(cx.listener(Self::close_trace))
+            .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::command_palette))
+            .on_action(cx.listener(
+                |this, _: &crate::settings_panel::ToggleSettingsJson, window, cx| {
+                    use volna_core::app::SettingsCommand;
+                    if this.embedded {
+                        return;
+                    }
+                    if this.app.panels.settings_id().is_none() {
+                        this.dispatch(Command::Settings(SettingsCommand::Open), Some(window), cx);
+                    }
+                    if !this.app.settings_view.json {
+                        this.dispatch(
+                            Command::Settings(SettingsCommand::ToggleJson),
+                            Some(window),
+                            cx,
+                        );
+                    }
+                },
+            ));
         root = root.on_action(cx.listener(|this, _: &FocusPanel1, window, cx| {
             this.dispatch(
                 Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(0)),

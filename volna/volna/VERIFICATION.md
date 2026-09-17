@@ -21,7 +21,8 @@ For focused checks:
 cargo test --locked -p volna-core
 cargo test --locked -p volna-core --test fst
 cargo test --locked -p volna-core --test transactions
-cargo test --locked -p volna --all-features
+cargo test --locked -p volna-core --test settings      # settings.json store, edits, search, the Settings tab
+cargo test --locked -p volna --all-features            # includes the manifest check and the settings render test
 cargo test --locked -p volna-egui --test screenshots
 node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs
 cargo test --locked -p volna-server

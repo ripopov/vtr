@@ -24,10 +24,38 @@ use volna_core::panels::{Axis, Layout, PanelId, PanelsCommand};
 use volna_core::{App as CoreApp, Command};
 
 use crate::app::Workspace;
+use crate::settings_panel::SettingsPanelView;
+
+/// The GPUI view of one core panel, by kind.
+pub(crate) enum PanelView {
+    Waves(Entity<WavePanelView>),
+    Settings(Entity<SettingsPanelView>),
+}
+
+impl PanelView {
+    fn handle(&self) -> Arc<dyn base::PanelView> {
+        match self {
+            Self::Waves(view) => panel_handle(view.clone()),
+            Self::Settings(view) => panel_handle(view.clone()),
+        }
+    }
+    fn focus(&self, cx: &App) -> FocusHandle {
+        match self {
+            Self::Waves(view) => view.read(cx).focus.clone(),
+            Self::Settings(view) => view.read(cx).focus_handle(cx),
+        }
+    }
+    fn entity_id(&self) -> gpui_kit::EntityId {
+        match self {
+            Self::Waves(view) => view.entity_id(),
+            Self::Settings(view) => view.entity_id(),
+        }
+    }
+}
 
 pub(crate) struct DockHost {
     pub area: Entity<base::DockArea>,
-    views: BTreeMap<PanelId, Entity<WavePanelView>>,
+    views: BTreeMap<PanelId, PanelView>,
     single: Rc<Cell<bool>>,
     revision: Option<u64>,
     installed: Option<Layout>,
@@ -98,7 +126,9 @@ impl DockHost {
         cx: &mut App,
     ) {
         if self.generation != app.doc.generation() {
-            self.views.clear();
+            // The settings tab keeps its id and its view across traces.
+            self.views
+                .retain(|_, view| matches!(view, PanelView::Settings(_)));
             self.installed = None;
             self.echo = None;
             self.revision = None;
@@ -108,9 +138,15 @@ impl DockHost {
         self.views.retain(|id, _| app.panels.get(*id).is_some());
         for panel in app.panels.iter() {
             self.views.entry(panel.id).or_insert_with(|| {
-                cx.new(|cx| {
-                    WavePanelView::new(ws.clone(), panel.id, app.doc.generation(), window, cx)
-                })
+                if panel.kind.is_settings() {
+                    PanelView::Settings(
+                        cx.new(|cx| SettingsPanelView::new(ws.clone(), panel.id, window, cx)),
+                    )
+                } else {
+                    PanelView::Waves(cx.new(|cx| {
+                        WavePanelView::new(ws.clone(), panel.id, app.doc.generation(), window, cx)
+                    }))
+                }
             });
         }
         let layout = app.panels.layout();
@@ -148,9 +184,25 @@ impl DockHost {
 
     pub fn focus(&self, panel: PanelId, cx: &App) -> Option<FocusHandle> {
         self.installed.as_ref()?;
-        self.views
-            .get(&panel)
-            .map(|view| view.read(cx).focus.clone())
+        self.views.get(&panel).map(|view| view.focus(cx))
+    }
+
+    /// The settings tab's view, created on demand so it can also be shown
+    /// without a trace (when the dock itself is not rendered).
+    pub fn settings_view(
+        &mut self,
+        id: PanelId,
+        ws: WeakEntity<Workspace>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Entity<SettingsPanelView> {
+        let view = self.views.entry(id).or_insert_with(|| {
+            PanelView::Settings(cx.new(|cx| SettingsPanelView::new(ws, id, window, cx)))
+        });
+        match view {
+            PanelView::Settings(view) => view.clone(),
+            PanelView::Waves(_) => unreachable!("panel {id:?} is not the settings tab"),
+        }
     }
 
     pub fn invalidate_panels(&self, cx: &mut App) {
@@ -164,7 +216,7 @@ impl DockHost {
 
 fn to_dock(
     layout: &Layout,
-    views: &BTreeMap<PanelId, Entity<WavePanelView>>,
+    views: &BTreeMap<PanelId, PanelView>,
     width: f32,
     height: f32,
     cx: &App,
@@ -173,7 +225,7 @@ fn to_dock(
         Layout::Tabs { tabs, active } => {
             let mut out = base::DockLayout::tabs();
             for id in tabs {
-                out = out.panel_view(panel_handle(views[id].clone()), cx);
+                out = out.panel_view(views[id].handle(), cx);
             }
             out.active_index(tabs.iter().position(|id| id == active).unwrap())
         }
@@ -242,7 +294,10 @@ fn from_dock(state: &base::PanelState) -> Result<Layout> {
 }
 
 fn panel_id(state: &base::PanelState) -> Result<PanelId> {
-    ensure!(state.panel_name == "volna.waves", "unknown dock widget");
+    ensure!(
+        matches!(state.panel_name.as_ref(), "volna.waves" | "volna.settings"),
+        "unknown dock widget"
+    );
     match &state.info {
         base::PanelInfo::Panel(value) => value
             .get("id")
@@ -253,7 +308,7 @@ fn panel_id(state: &base::PanelState) -> Result<PanelId> {
     }
 }
 
-struct WavePanelView {
+pub(crate) struct WavePanelView {
     ws: WeakEntity<Workspace>,
     id: PanelId,
     generation: u64,

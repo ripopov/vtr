@@ -12,11 +12,9 @@ function createWorkspaceHost(vscode, context, panel, uri) {
   let latest;
   let disposed = false;
   let writes = Promise.resolve();
-  const settings = () => {
-    const config = vscode.workspace.getConfiguration("volna", uri);
-    return { autosave: config.get("workspace.autosave", "sidecar"), linkByDefault: config.get("panels.linkByDefault", true),
-      remote: { memoryMiB: config.get("remote.memoryMiB", 512), objectMiB: config.get("remote.objectMiB", 256) } };
-  };
+  // Every contributed key without its `volna.` prefix, as the viewer's
+  // registry names it; the viewer validates values, the host never does.
+  const settings = () => collectSettings(vscode, uri);
   const post = async (message) => {
     if (!disposed) {
       try { return await webview.postMessage(message); }
@@ -59,7 +57,7 @@ function createWorkspaceHost(vscode, context, panel, uri) {
   }
   async function ready() {
     const config = settings();
-    const saved = await candidates(config.autosave);
+    const saved = await candidates(config["workspace.autosave"] ?? "sidecar");
     await post({ type: "open", traceUri: uri.toString(), name: uri.path.split("/").pop(),
       candidates: saved, settings: config });
   }
@@ -106,11 +104,26 @@ function createWorkspaceHost(vscode, context, panel, uri) {
     }
   }
   function hidden() { return post({ type: "requestWorkspace" }); }
+  // VS Code's settings changed: push the fresh `volna.*` values to the viewer.
+  function settingsChanged() { return post({ type: "settings", settings: settings() }); }
   function dispose() {
     disposed = true;
     // The webview is already gone. Only use the snapshot received while alive.
     return latest ? save(latest, false) : writes;
   }
-  return { receive, hidden, dispose, settled: () => writes };
+  return { receive, hidden, dispose, settingsChanged, settled: () => writes };
 }
-module.exports = { createWorkspaceHost, storageKey };
+
+// The keys the extension contributes (see package.json `contributes.configuration`),
+// read resource-scoped so folder settings apply to the trace's folder.
+const SETTING_KEYS = ["workspace.autosave", "panels.linkByDefault", "waves.animation", "waves.snapPixels", "remote.memoryMiB", "remote.objectMiB"];
+function collectSettings(vscode, uri) {
+  const config = vscode.workspace.getConfiguration("volna", uri);
+  const out = {};
+  for (const key of SETTING_KEYS) {
+    const value = config.get(key);
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+module.exports = { createWorkspaceHost, collectSettings, storageKey, SETTING_KEYS };

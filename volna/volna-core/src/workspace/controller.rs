@@ -11,7 +11,7 @@ use anyhow::{Context, Result, ensure};
 #[derive(Default)]
 pub struct State {
     pub scheduler: Scheduler,
-    pub preferences: super::prefs::Preferences,
+    pub state: super::state::State,
     pub trace_uri: Option<String>,
     pub notices: Vec<String>,
     pub(crate) loading: bool,

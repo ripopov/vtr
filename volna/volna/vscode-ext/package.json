@@ -13,12 +13,18 @@
   ],
   "activationEvents": [],
   "main": "./extension.js",
-  "extensionKind": ["workspace"],
+  "extensionKind": [
+    "workspace"
+  ],
   "contributes": {
     "commands": [
       {
         "command": "volna.open",
         "title": "Volna: Open Waveform Viewer"
+      },
+      {
+        "command": "volna.openSettings",
+        "title": "Volna: Open Settings"
       },
       {
         "command": "volna.splitRight",
@@ -90,7 +96,7 @@
       },
       {
         "command": "volna.openWorkspace",
-        "title": "Volna: Open Workspace\u2026"
+        "title": "Volna: Open Workspace…"
       },
       {
         "command": "volna.saveWorkspace",
@@ -98,7 +104,7 @@
       },
       {
         "command": "volna.saveWorkspaceAs",
-        "title": "Volna: Save Workspace As\u2026"
+        "title": "Volna: Save Workspace As…"
       }
     ],
     "customEditors": [
@@ -223,19 +229,32 @@
     "configuration": {
       "title": "Volna",
       "properties": {
-        "volna.remote.memoryMiB": {
-          "type": "integer", "default": 512, "minimum": 1, "maximum": 16384,
-          "description": "Client admission budget for loaded trace data and decoding workspace, in MiB. Reopen the trace to apply. This does not bound total browser memory."
+        "volna.panels.linkByDefault": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "New waveform panels follow the shared viewport and cursor. Each panel can still unlink from its header."
         },
-        "volna.remote.objectMiB": {
-          "type": "integer", "default": 256, "minimum": 1, "maximum": 16384,
-          "description": "Maximum decoded wire size of one complete metadata, signal or track object, in MiB. Reopen the trace to apply."
-        },
-        "volna.serverPath": {
+        "volna.waves.animation": {
           "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "Path to volna-server on the workspace host. Empty uses the binary bundled with the extension."
+          "enum": [
+            "on",
+            "reduced",
+            "off"
+          ],
+          "enumDescriptions": [
+            "On",
+            "Reduced",
+            "Off"
+          ],
+          "default": "on",
+          "markdownDescription": "Animate pan and zoom. `reduced` keeps the motion but shortens it; `off` jumps."
+        },
+        "volna.waves.snapPixels": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24,
+          "default": 6,
+          "markdownDescription": "Clicks in the waves snap the cursor to an edge within this many pixels. 0 disables snapping."
         },
         "volna.workspace.autosave": {
           "type": "string",
@@ -244,13 +263,36 @@
             "vscode",
             "off"
           ],
+          "enumDescriptions": [
+            "Beside the trace",
+            "VS Code workspace storage",
+            "Off"
+          ],
           "default": "sidecar",
-          "description": "Save beside the trace, in VS Code workspace storage, or disable workspace persistence."
+          "markdownDescription": "Save the session beside the trace as `<trace>.volna.json`, in VS Code workspace storage, or disable workspace persistence. Reopen the trace to apply.",
+          "scope": "resource"
         },
-        "volna.panels.linkByDefault": {
-          "type": "boolean",
-          "default": true,
-          "description": "Link viewport and cursor navigation in new workspaces."
+        "volna.remote.memoryMiB": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384,
+          "default": 512,
+          "markdownDescription": "Client admission budget for loaded trace data and decoding workspace, in MiB. This does not bound total browser memory. Reopen the trace to apply.",
+          "scope": "resource"
+        },
+        "volna.remote.objectMiB": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384,
+          "default": 256,
+          "markdownDescription": "Maximum decoded wire size of one complete metadata, signal or track object, in MiB. Reopen the trace to apply.",
+          "scope": "resource"
+        },
+        "volna.remote.serverPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to `volna-server` on the workspace host. Empty uses the binary bundled with the extension. Reopen the trace to apply.",
+          "scope": "machine"
         }
       }
     },

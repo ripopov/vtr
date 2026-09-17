@@ -44,7 +44,7 @@ function html(webview, extensionUri) {
 </head>
 <body>
 <script type="module" nonce="${n}">
-  import init, { open_remote, trace_frame, trace_error, trace_continue, set_vscode_theme, dispatch_command, workspace_message } from "${js}";
+  import init, { open_remote, trace_frame, trace_error, trace_continue, set_vscode_theme, set_settings, dispatch_command, workspace_message } from "${js}";
   import { watchTheme } from "${themeJs}";
   const vscode = acquireVsCodeApi();
   window.volnaEmbedded = true;
@@ -70,6 +70,8 @@ function html(webview, extensionUri) {
       trace_error(msg.connection, msg.message);
     } else if (msg && msg.type === "command") {
       dispatch_command(msg.name);
+    } else if (msg && msg.type === "settings") {
+      set_settings(JSON.stringify(msg.settings));
     } else if (msg && ["saved", "workspace", "workspaceDestination", "requestWorkspace"].includes(msg.type)) {
       workspace_message(JSON.stringify(msg));
     }
@@ -92,16 +94,23 @@ async function pickTrace() {
   if (picked?.[0]) await vscode.commands.executeCommand("vscode.openWith", picked[0], "volna.waveform");
 }
 
+// VS Code owns the settings UI; the viewer asks for it filtered to this extension.
+const openSettings = () => vscode.commands.executeCommand("workbench.action.openSettings", "@ext:vtr.volna");
+
 function wire(panel, context, uri) {
   const webview = panel.webview;
   const host = createWorkspaceHost(vscode, context, panel, uri);
   const trace = createTraceHost(vscode, context, panel, uri);
+  const configuration = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration("volna", uri)) host.settingsChanged();
+  });
   panel.onDidChangeViewState(() => { if (!panel.visible) host.hidden(); });
-  panel.onDidDispose(() => { trace.dispose(); host.dispose(); });
+  panel.onDidDispose(() => { configuration.dispose(); trace.dispose(); host.dispose(); });
   webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")] };
   webview.onDidReceiveMessage(async (msg) => {
     try {
       if (msg.type === "pickFile") await pickTrace();
+      else if (msg.type === "openSettings") await openSettings();
       else if (["traceStart", "traceRequest", "traceStop"].includes(msg.type)) await trace.receive(msg);
       else await host.receive(msg);
     } catch (error) {
@@ -121,6 +130,7 @@ function activate(context) {
     ...Array.from({ length: 9 }, (_, i) => `focusPanel${i + 1}`),
   ];
   context.subscriptions.push(vscode.commands.registerCommand("volna.open", pickTrace));
+  context.subscriptions.push(vscode.commands.registerCommand("volna.openSettings", openSettings));
   for (const name of commandNames) {
     context.subscriptions.push(vscode.commands.registerCommand(`volna.${name}`, () =>
       activePanel?.webview.postMessage({ type: "command", name })));

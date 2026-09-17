@@ -206,6 +206,9 @@ impl VolnaApp {
                 | Event::OpenWorkspaceDialog
                 | Event::SaveWorkspaceDialog
                 | Event::TraceClosed { .. }
+                | Event::WriteSettings { .. }
+                | Event::SettingsChanged { .. }
+                | Event::FocusSettingsSearch
                 | Event::Quit => {}
                 Event::Changed | Event::LayoutChanged { .. } => ctx.request_repaint(),
                 Event::Notice(text) => log::warn!("{text}"),

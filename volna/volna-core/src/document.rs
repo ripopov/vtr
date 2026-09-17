@@ -46,11 +46,30 @@ pub enum Delivered {
     Opened(anyhow::Result<Arc<dyn Session>>),
 }
 
+/// Navigation behaviour mirrored from the resolved user settings, so the wave
+/// model reads it beside the shared viewport it animates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Navigation {
+    pub animation: crate::settings::Animation,
+    /// Clicks snap the cursor to an edge within this many pixels.
+    pub snap_px: f64,
+}
+
+impl Default for Navigation {
+    fn default() -> Self {
+        Self {
+            animation: crate::settings::Animation::On,
+            snap_px: 6.0,
+        }
+    }
+}
+
 pub struct Document {
     state: TraceState,
     /// A newer open, explicit session replacement, or close invalidates old results.
     generation: u64,
     pub shared: Shared,
+    pub navigation: Navigation,
     pub markers: Vec<Marker>,
     next_marker: u64,
     pub translators: Translators,
@@ -85,6 +104,7 @@ impl Document {
             state: TraceState::Empty,
             generation: 0,
             shared: Shared::default(),
+            navigation: Navigation::default(),
             markers: Vec::new(),
             next_marker: 1,
             translators: Translators::builtin(),

@@ -12,6 +12,7 @@ use crate::geometry::{Modifiers, Rect};
 use crate::panels::{PanelId, Panels, PanelsCommand};
 use crate::scene::{Scene, TextCache, TextMeasure};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
+use crate::settings::{self, Value};
 use crate::sidebar::{Key, ScopeTreeModel, VariableListModel};
 use crate::theme::Theme;
 use crate::wave::layout::WaveLayout;
@@ -125,6 +126,31 @@ pub enum Command {
     SetScopesFraction(f32),
     ChromeDragStart(ChromeDrag),
     ChromeDragEnd,
+    Settings(SettingsCommand),
+}
+
+/// The settings editor. GUI edits become surgical text edits in the core;
+/// the query and JSON toggle live here so the command palette can drive them.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SettingsCommand {
+    /// Open the Settings tab, or focus its search box when it is open.
+    Open,
+    Close,
+    Set {
+        id: String,
+        value: Value,
+    },
+    Reset {
+        id: String,
+    },
+    /// The JSON view's save: replace the whole document text.
+    ReplaceText(String),
+    Query(String),
+    ToggleJson,
+    /// Open the tab filtered to one setting (`@id:`), from the palette.
+    Reveal {
+        id: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,6 +182,24 @@ pub enum Event {
     RevealVarRow(usize),
     /// Typing in the variable list: move keyboard focus to the filter box.
     FocusFilter,
+    /// Write `settings.json`; acknowledge through [`App::settings_saved`].
+    WriteSettings {
+        ticket: u64,
+        bytes: Vec<u8>,
+    },
+    /// Resolved settings changed for these ids (registry order is not implied).
+    SettingsChanged {
+        keys: Vec<&'static str>,
+    },
+    /// Move keyboard focus to the settings search box.
+    FocusSettingsSearch,
+}
+
+/// Transient state of the settings editor, owned by the core.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SettingsView {
+    pub query: String,
+    pub json: bool,
 }
 
 /// Text the status bar shows, already formatted.
@@ -187,6 +231,8 @@ pub struct App {
     /// Height of the scope tree as a fraction of the sidebar.
     pub scopes_fraction: f32,
     pub drag: Option<ChromeDrag>,
+    pub settings: settings::Store,
+    pub settings_view: SettingsView,
     show_all_on_open: bool,
     pub(crate) events: Vec<Event>,
     text: TextCache,
@@ -211,6 +257,8 @@ impl App {
             sidebar_visible: true,
             scopes_fraction: 0.42,
             drag: None,
+            settings: settings::Store::new(settings::Host::Native),
+            settings_view: SettingsView::default(),
             show_all_on_open: false,
             events: Vec::new(),
             text: TextCache::default(),
@@ -267,7 +315,7 @@ impl App {
             self.events.push(Event::Notice(e.to_string()));
         }
         if let Some(w) = self.panels.focused_waves_mut() {
-            w.link = self.workspace.preferences.link_by_default;
+            w.link = self.settings.resolved().link_by_default();
         }
         self.layout_changed();
         self.scopes.reset(self.doc.hierarchy());
@@ -568,6 +616,7 @@ impl App {
                 self.drag = None;
                 self.changed();
             }
+            Command::Settings(command) => self.settings_command(command, now),
         }
         if let Some(command) = tracked
             && before != crate::workspace::Stamp::capture(self, &command)
@@ -683,7 +732,8 @@ impl App {
             }
         }
         let waiting_to_save = self.workspace_tick(now);
-        animating || waiting_to_save
+        let waiting_for_settings = self.settings_tick(now, false);
+        animating || waiting_to_save || waiting_for_settings
     }
 
     pub fn is_animating(&self) -> bool {
@@ -806,7 +856,9 @@ impl App {
     pub fn debug_state(&self) -> String {
         self.panels.layout().panels().into_iter().map(|id| {
         let panel = self.panels.get(id).unwrap();
-        let Some(w) = panel.kind.waves() else { return format!("panel={} unsupported", id.0) };
+        let Some(w) = panel.kind.waves() else {
+            return format!("panel={} {}", id.0, if panel.kind.is_settings() { "settings" } else { "unsupported" });
+        };
         format!(
             "panel={} focused={} linked=({},{}) items={} loaded={} selected={:?} anchor={:?} cursor={:?} markers={} viewport=({:.0},{:.0}) menu={} drag={:?} sidebar_w={}px scopes_frac={:.2}",
             id.0, id == self.panels.focused_id(), w.link.viewport, w.link.cursor,

@@ -10,6 +10,7 @@
 //! - `session`: the [`session::Session`] boundary through which all trace data is read
 //! - `data`: values, histories, translators, hierarchy
 //! - `wave`: viewport math, timeline, the wave panel model, layout and painter
+//! - `settings`: the registry, `settings.json` store, search and generated schema
 //! - `sidebar`: scope tree and variable list models
 //! - `scene`, `geometry`, `color`, `theme`, `icons`: the toolkit-neutral presentation types
 
@@ -24,6 +25,7 @@ pub mod remote;
 pub mod scene;
 pub mod selection;
 pub mod session;
+pub mod settings;
 pub mod sidebar;
 pub mod theme;
 pub mod wave;

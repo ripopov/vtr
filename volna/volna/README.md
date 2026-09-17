@@ -167,16 +167,45 @@ Missing signals and unsupported panel types are preserved, with a notice.
 
 Native options: `--workspace FILE`, `--no-workspace`, `--config-dir DIR`.
 `VOLNA_WORKSPACE=off|FILE` and `VOLNA_CONFIG_DIR=DIR` provide environment defaults.
-Preferences use `$XDG_CONFIG_HOME/volna` or `~/.config/volna` on Unix and
+The config directory is `$XDG_CONFIG_HOME/volna` or `~/.config/volna` on Unix and
 `%APPDATA%/volna` on Windows. Read-only trace directories use per-user fallback
 storage. A restored fallback stays active until an explicit destination change.
 Unreadable or incompatible workspace files pause autosave to preserve the file.
 
-VS Code exposes `volna.workspace.autosave` (`sidecar`, `vscode`, `off`) and
-`volna.panels.linkByDefault`. Its file access uses the extension host, including
-remote files. Ordinary browser file-picker sessions and egui have no automatic
-workspace storage. Tests disable persistence unless they explicitly create a
-temporary store.
+VS Code contributes the same keys under `volna.*` (see below). Its file access
+uses the extension host, including remote files. Ordinary browser file-picker
+sessions and egui have no automatic workspace storage. Tests disable
+persistence unless they explicitly create a temporary store.
+
+## Settings
+
+`⌘,` opens the Settings tab beside the waves; `⌘K` opens the command palette.
+User settings live in `<config dir>/settings.json`, a JSON file with comments
+that holds only the keys you changed. The tab edits that file surgically, so
+hand edits, comments and formatting survive; "Open settings.json" (`⌘⇧,`)
+switches the tab to a JSON editor with completion, hover documentation and
+diagnostics, and `settings.schema.json` beside the file gives external editors
+the same. The search box ranks settings fuzzily (`folcur` finds "Link new
+panels" through its keywords) and accepts `@modified`, `@page:waves` and
+`@id:waves.snap`. A changed setting shows a bar and offers reset, copy id and
+copy as JSON. An invalid value falls back to its default with a diagnostic; a
+syntax error keeps the last good values and disables GUI edits until fixed.
+
+| Key | Values | Applies |
+|---|---|---|
+| `appearance.theme` | `one-dark` or the stem of a palette JSON in `<config dir>/themes/` | live (native, web) |
+| `panels.linkByDefault` | boolean | new panels |
+| `waves.animation` | `on`, `reduced`, `off` | live |
+| `waves.snapPixels` | 0–24 | live |
+| `workspace.autosave` | `sidecar`, `vscode` (VS Code only), `off` | next trace open |
+| `workspace.recentLimit` | 5–50 | live (native, web) |
+| `remote.memoryMiB`, `remote.objectMiB`, `remote.serverPath` | see the VS Code contribution | next trace open (VS Code only) |
+
+Recent traces and workspaces are machine state, kept in `state.json` and never
+in settings. Inside VS Code the extension owns the settings UI: `⌘,` opens
+VS Code's settings filtered to Volna, and configuration changes reach the
+viewer immediately. A version 1 `preferences.json` is migrated once into
+`settings.json` and `state.json` and renamed `preferences.json.migrated`.
 
 Main GPUI viewer shortcuts (Command on macOS, Ctrl elsewhere):
 
@@ -189,6 +218,8 @@ Main GPUI viewer shortcuts (Command on macOS, Ctrl elsewhere):
 | Toggle viewport / cursor link | `L` / `shift-L` |
 | Zoom a dock group | `shift-esc` |
 | Save / Save As workspace | `⌘S` / `⌘shift-S` |
+| Settings / settings.json | `⌘,` / `⌘shift-,` |
+| Command palette | `⌘K` |
 
 The panel menu also provides rename and close-other-panel actions.
 

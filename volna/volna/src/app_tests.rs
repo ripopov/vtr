@@ -165,7 +165,7 @@ fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppCo
     let window = cx.add_window(Workspace::new);
     window
         .update(cx, |ws, _, cx| {
-            ws.enable_native_persistence(store, Persistence::Auto, Default::default());
+            ws.enable_native_persistence(store, Persistence::Auto, false, cx);
             ws.open_path(trace.clone(), cx);
         })
         .unwrap();
@@ -199,4 +199,142 @@ fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppCo
             assert!(!ws.app.workspace.scheduler.dirty());
         })
         .unwrap();
+}
+
+#[gpui_kit::test]
+fn settings_tab_results_json_view_and_palette_render(cx: &mut TestAppContext) {
+    use volna_core::app::SettingsCommand;
+    init(cx);
+    // Dialogs (the palette) need the component root, as in production.
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.app
+                .settings_loaded("{\n  \"waves.snapPixels\": 4, // four\n}\n");
+            ws.dispatch(Command::Settings(SettingsCommand::Open), Some(window), cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let settings = window
+        .update(cx, |ws, _, _| {
+            ws.app.panels.settings_id().expect("tab open")
+        })
+        .unwrap();
+    // The tab renders without a trace, then with one, in every mode.
+    for query in [
+        "",
+        "snap px",
+        "@modified",
+        "@id:waves",
+        "nothing matches this",
+    ] {
+        window
+            .update(cx, |ws, window, cx| {
+                ws.dispatch(
+                    Command::Settings(SettingsCommand::Query(query.into())),
+                    Some(window),
+                    cx,
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+    }
+    window
+        .update(cx, |ws, window, cx| {
+            ws.dispatch(
+                Command::Settings(SettingsCommand::ToggleJson),
+                Some(window),
+                cx,
+            );
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, window, cx| {
+            let view = ws.settings_view(settings, window, cx);
+            assert!(view.read(cx).json.is_some(), "the JSON view was rendered");
+            let text = view.read(cx).json.as_ref().unwrap().text(cx);
+            assert_eq!(text, ws.app.settings.text());
+            ws.dispatch(
+                Command::Settings(SettingsCommand::ReplaceText(
+                    "{\"waves.snapPixels\": 4,,}".into(),
+                )),
+                Some(window),
+                cx,
+            );
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let source: Arc<dyn Session> = Arc::new(SynthSource::new(20));
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(source, cx);
+            ws.dispatch(
+                Command::Settings(SettingsCommand::ToggleJson),
+                Some(window),
+                cx,
+            );
+            ws.dispatch(
+                Command::Settings(SettingsCommand::Set {
+                    id: "panels.linkByDefault".into(),
+                    value: volna_core::settings::Value::Bool(false),
+                }),
+                Some(window),
+                cx,
+            );
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, window, cx| {
+            assert_eq!(ws.app.panels.settings_id(), Some(settings));
+            assert_eq!(ws.app.panels.len(), 2);
+            // The edit was refused while the document is broken.
+            assert!(ws.app.settings.text().contains(",,"));
+            ws.open_palette(window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, window, cx| {
+            ws.dispatch(Command::Settings(SettingsCommand::Close), Some(window), cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, _, _| {
+            assert_eq!(ws.app.panels.settings_id(), None);
+            assert_eq!(ws.app.panels.len(), 1);
+        })
+        .unwrap();
+}
+
+/// A workspace hosted inside the component `Root`, updated like a plain window.
+struct RootWindow {
+    root: gpui_kit::WindowHandle<gpui_kit::component::Root>,
+    workspace: gpui_kit::Entity<Workspace>,
+}
+
+impl RootWindow {
+    fn update<R>(
+        &self,
+        cx: &mut TestAppContext,
+        f: impl FnOnce(&mut Workspace, &mut gpui_kit::Window, &mut gpui_kit::Context<Workspace>) -> R,
+    ) -> anyhow::Result<R> {
+        use gpui_kit::AppContext as _;
+        let workspace = self.workspace.clone();
+        // Lease only the workspace: dialogs update the root themselves.
+        cx.update_window(self.root.into(), move |_, window, cx| {
+            workspace.update(cx, |ws, cx| f(ws, window, cx))
+        })
+    }
 }

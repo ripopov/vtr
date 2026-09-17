@@ -214,9 +214,9 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 <table><thead><tr><th>Owner</th><th>Responsibility</th></tr></thead><tbody>
 <tr><td><code>volna-core/src/panels/</code></td><td>Stable panel IDs, validated layout, focus, split/tab/close/rename and link commands. Layout revisions identify dock edits; document generations protect callbacks across restore.</td></tr>
 <tr><td><code>volna-core/src/document.rs</code>, <code>wave/model.rs</code></td><td>One session and shared navigation/markers; per-panel rows, local navigation, selection and geometry. Histories share immutable storage across panels.</td></tr>
-<tr><td><code>volna-core/src/workspace/</code></td><td>Versioned codec, prepare/commit, candidate selection, save scheduler, transitions and preferences. Persistence starts disabled.</td></tr>
+<tr><td><code>volna-core/src/workspace/</code></td><td>Versioned codec, prepare/commit, candidate selection, save scheduler, transitions and <code>state.json</code>. Persistence starts disabled.</td></tr>
 <tr><td><code>volna/src/dock.rs</code></td><td>Stock dock engine and skin, header wrapper, core layout adapter, panel widgets and focus. The same dock hosts one or many panels.</td></tr>
-<tr><td><code>volna/src/native_workspace.rs</code></td><td>Native files, atomic replacement, fallback directories, preferences, CLI and dialogs.</td></tr>
+<tr><td><code>volna/src/native_workspace.rs</code></td><td>Native files, atomic replacement, fallback directories, settings and state files, the config watcher, CLI and dialogs.</td></tr>
 <tr><td><code>volna/src/lib.rs</code>, <code>vscode-ext/workspace.js</code></td><td>Wasm messages and resource-based custom editor lifecycle. Host JSON payloads remain opaque; ticket counters use decimal strings.</td></tr>
 <tr><td><code>volna-egui</code></td><td>Existing minimal functionality over the focused waveform model; persistence stays disabled.</td></tr>
 </tbody></table>
@@ -549,13 +549,13 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
     <tr><td>Two viewers on one trace</td><td>Last writer wins for the sidecar. Not mediated in this scope; explicit "Save As" gives each person their own file. Cross-process locking and conflict prompts are deliberately deferred until there is evidence they are needed.</td></tr>
   </tbody></table></div>
   <p>Restoration is two steps so that failure is harmless. <code>prepare</code> parses, checks format and version, validates the layout tree, resolves every row to a <code>VarId</code> or a placeholder and produces a <code>RestorePlan</code> without touching the live <code>App</code>. <code>commit</code> then installs panels, shared values, markers and sidebar state together, bumps the document generation to reject stale loads and callbacks, and queues unique resolved signals across panels. The app controller separately advances the save epoch. Every commit returns a <code>RestoreReport</code> listing what could not be applied. The report is surfaced as a status-bar notice with a "details" popup and is asserted in tests.</p>
-  <h3>Global preferences <span class="badge prop">implemented</span></h3>
-  <p>Look and feel that is not part of any session lives in <code>&lt;config dir&gt;/volna/preferences.json</code>: theme name, default link flags for new panels, autosave on or off, the recent traces and workspaces list. The config dir is <code>$XDG_CONFIG_HOME/volna</code> or <code>~/.config/volna</code> on Linux and macOS (the goal's example, and the convention for command-line tools on both), <code>%APPDATA%\volna</code> on Windows; <code>VOLNA_CONFIG_DIR</code> overrides it. The model is a serde struct in <code>volna-core::workspace::prefs</code>; reading and writing are host code. Inside VS Code the theme comes from the host and the remaining preferences are contributed <code>volna.*</code> settings passed with the open message, so nothing is written to <code>~/.config</code> by the extension.</p>
+  <h3>Global settings <span class="badge prop">implemented</span></h3>
+  <p>Look and feel that is not part of any session lives in <code>&lt;config dir&gt;/volna/settings.json</code> (theme, default link flags for new panels, animation, snapping, autosave policy, recent-list limit), with the recent traces and workspaces in <code>state.json</code> beside it. The config dir is <code>$XDG_CONFIG_HOME/volna</code> or <code>~/.config/volna</code> on Linux and macOS, <code>%APPDATA%\volna</code> on Windows; <code>VOLNA_CONFIG_DIR</code> overrides it. The model, file format, editor and search are described in <a href="user-settings.html">Volna user settings</a>. Inside VS Code the theme comes from the host and the same keys are contributed <code>volna.*</code> settings that reach the viewer live, so nothing is written to <code>~/.config</code> by the extension.</p>
   <h3>Command line <span class="badge prop">implemented</span></h3>
   <pre><code>volna [FILE.vtr|FILE.fst|FILE.volna.json] [--synthetic N]
       [--workspace PATH]        <span class="c">// load and autosave this workspace file, ignoring sidecars</span>
       [--no-workspace]          <span class="c">// never read or write workspace files this run</span>
-      [--config-dir DIR]        <span class="c">// preferences location (also VOLNA_CONFIG_DIR)</span>
+      [--config-dir DIR]        <span class="c">// settings.json, state.json and themes/ (also VOLNA_CONFIG_DIR)</span>
 <span class="c">// environment: VOLNA_WORKSPACE=off | PATH, VOLNA_CONFIG_DIR=DIR; check.sh exports VOLNA_WORKSPACE=off</span></code></pre>
   <p>The GPUI native parser accepts these flags. The egui frontend keeps persistence disabled and receives only compatibility changes required by the core refactor.</p>
 </div></section>
@@ -567,7 +567,7 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
   <div class="flow">
     <div class="card"><h4 style="margin-top:0">Native (GPUI)</h4>
       <ol class="steps">
-        <li><code>main.rs</code> parses flags and preferences, configures persistence on <code>App::new()</code>, and opens the trace with its canonical resource URI.</li>
+        <li><code>main.rs</code> parses flags; the workspace reads <code>settings.json</code> and <code>state.json</code>, configures persistence from <code>workspace.autosave</code> unless a flag chose it, and opens the trace with its canonical resource URI.</li>
         <li>The open completes (<code>LoadResult::Opened</code>); the core installs the session and emits <code>Event::LoadWorkspace{key: Sidecar(path) | Explicit(path)}</code>.</li>
         <li>The GPUI host reads the requested candidate files off the UI thread and returns <code>WorkspaceCandidates</code>: opaque JSON, location, write availability and distinct missing/error results. Core applies the source/target rules above.</li>
         <li>The core runs <code>prepare</code>: parse, validate the tree, resolve rows to <code>VarId</code>s or placeholders. On failure it emits <code>Notice</code> and leaves the default single panel in place. On success it runs <code>commit</code>: installs panels, shared values, markers and sidebar state, bumps the epoch, queues loads for visible rows, and emits <code>LayoutChanged</code> plus <code>Notice(report)</code>.</li>

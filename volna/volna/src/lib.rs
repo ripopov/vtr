@@ -7,6 +7,7 @@
 //! - `theme`, `assets`: the core theme mapped to GPUI colours; fonts and icons
 //! - `ui`: component styling/placement, text input, splitter, icons and headers
 //! - `sidebar`: scope tree and variable list rows
+//! - `settings_panel`, `settings_json`, `palette`: the Settings tab, its JSON view and ⌘K
 //! - `wave`: the `WaveTable` element that paints the core's display list
 
 pub mod app;
@@ -14,6 +15,9 @@ pub mod assets;
 mod dock;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_workspace;
+mod palette;
+mod settings_json;
+mod settings_panel;
 pub mod sidebar;
 pub mod theme;
 pub mod ui;
@@ -83,6 +87,15 @@ pub fn open_main_window(
         let ws = cx.new(|cx| {
             let mut w = Workspace::new(window, cx);
             w.embedded = embedded;
+            #[cfg(target_family = "wasm")]
+            {
+                use volna_core::settings::Host;
+                w.app
+                    .configure_settings(if embedded { Host::Vscode } else { Host::Web }, None);
+                if !embedded && let Some(text) = web::read_settings() {
+                    w.app.settings_loaded(&text);
+                }
+            }
             w
         });
         #[cfg(not(target_family = "wasm"))]
@@ -128,6 +141,8 @@ pub mod web {
         RemoteContinue(String),
         Workspace(WorkspaceMessage),
         Theme(Box<crate::theme::CoreTheme>),
+        /// The host's `volna.*` configuration, as generic values by id.
+        Settings(std::collections::BTreeMap<String, volna_core::settings::Value>),
         Command(volna_core::app::Command),
         /// Log the viewer state to the console (browser-driven verification).
         DebugState,
@@ -140,20 +155,36 @@ pub mod web {
     struct OpenMetadata {
         trace_uri: String,
         candidates: Option<Candidates>,
-        settings: Settings,
+        /// `volna.*` keys without the prefix, as the host's configuration holds them.
+        #[serde(default)]
+        settings: serde_json::Map<String, serde_json::Value>,
     }
     #[derive(serde::Deserialize)]
     struct Candidates {
         sidecar: volna_core::workspace::persistence::Candidate,
         fallback: volna_core::workspace::persistence::Candidate,
     }
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Settings {
-        autosave: String,
-        link_by_default: bool,
-        #[serde(default)]
-        remote: volna_core::remote::limits::Limits,
+
+    /// Host configuration values become generic setting values; the core
+    /// validates them against the registry and ignores what it cannot use.
+    fn host_settings(
+        map: &serde_json::Map<String, serde_json::Value>,
+    ) -> std::collections::BTreeMap<String, volna_core::settings::Value> {
+        use volna_core::settings::Value;
+        map.iter()
+            .filter_map(|(key, value)| {
+                let value = match value {
+                    serde_json::Value::Bool(b) => Value::Bool(*b),
+                    serde_json::Value::Number(n) => n
+                        .as_i64()
+                        .map(Value::Integer)
+                        .or_else(|| n.as_f64().map(Value::Number))?,
+                    serde_json::Value::String(s) => Value::Text(s.clone()),
+                    _ => return None,
+                };
+                Some((key.clone(), value))
+            })
+            .collect()
     }
     #[derive(serde::Deserialize)]
     #[serde(tag = "type", rename_all = "camelCase")]
@@ -216,13 +247,64 @@ pub mod web {
     pub fn open_remote(name: String, metadata: &str) -> Result<(), JsValue> {
         let metadata: OpenMetadata = serde_json::from_str(metadata)
             .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
+        // Limits are resolved once the host settings are installed (below).
         enqueue(HostEvent::Resource(
             volna_core::session::OpenSpec::Remote {
                 name,
-                limits: metadata.settings.remote,
+                limits: volna_core::remote::limits::Limits::default(),
             },
             Box::new(metadata),
         ))
+    }
+
+    /// The host's current `volna.*` configuration (VS Code's
+    /// `onDidChangeConfiguration`), applied live as overrides.
+    #[wasm_bindgen]
+    pub fn set_settings(json: &str) -> Result<(), JsValue> {
+        let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(json)
+            .map_err(|e| JsValue::from_str(&format!("invalid settings: {e}")))?;
+        enqueue(HostEvent::Settings(host_settings(&map)))
+    }
+
+    fn local_storage() -> Option<js_sys::Object> {
+        let global = js_sys::global();
+        js_sys::Reflect::get(&global, &JsValue::from_str("localStorage"))
+            .ok()?
+            .dyn_into::<js_sys::Object>()
+            .ok()
+    }
+
+    const STORAGE_KEY: &str = "volna.settings";
+
+    /// Standalone web: the settings document lives in `localStorage`.
+    pub fn read_settings() -> Option<String> {
+        let storage = local_storage()?;
+        let get = js_sys::Reflect::get(&storage, &JsValue::from_str("getItem")).ok()?;
+        get.dyn_ref::<js_sys::Function>()?
+            .call1(&storage, &JsValue::from_str(STORAGE_KEY))
+            .ok()?
+            .as_string()
+    }
+
+    pub fn write_settings(bytes: &[u8]) -> Result<(), String> {
+        let storage = local_storage().ok_or("localStorage is unavailable")?;
+        let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+        let set = js_sys::Reflect::get(&storage, &JsValue::from_str("setItem"))
+            .map_err(|_| "localStorage.setItem is unavailable".to_owned())?;
+        set.dyn_ref::<js_sys::Function>()
+            .ok_or("localStorage.setItem is not a function")?
+            .call2(
+                &storage,
+                &JsValue::from_str(STORAGE_KEY),
+                &JsValue::from_str(text),
+            )
+            .map(|_| ())
+            .map_err(|_| "localStorage write failed".to_owned())
+    }
+
+    /// Embedded: ask VS Code to open its settings editor filtered to Volna.
+    pub fn open_host_settings() {
+        post(serde_json::json!({"type":"openSettings"}));
     }
     #[wasm_bindgen]
     pub fn trace_frame(connection: String, bytes: Vec<u8>) -> Result<(), JsValue> {
@@ -419,18 +501,27 @@ pub mod web {
                                     ws.remote_continue(&connection, cx)
                                 }
                                 HostEvent::Resource(spec, metadata) => {
+                                    use volna_core::settings::Autosave;
                                     use volna_core::workspace::persistence::Persistence;
-                                    let policy = match metadata.settings.autosave.as_str() {
-                                        "sidecar" => Persistence::Auto,
-                                        "vscode" => Persistence::Storage,
-                                        _ => Persistence::Disabled,
+                                    if ws.embedded {
+                                        ws.app.set_host_settings(host_settings(&metadata.settings));
+                                    }
+                                    let resolved = ws.app.settings.resolved().clone();
+                                    let policy = match resolved.workspace.autosave {
+                                        Autosave::Sidecar => Persistence::Auto,
+                                        Autosave::Vscode => Persistence::Storage,
+                                        Autosave::Off => Persistence::Disabled,
                                     };
                                     ws.app.configure_persistence(policy);
-                                    ws.app.workspace.preferences.link_by_default =
-                                        volna_core::wave::model::Link {
-                                            viewport: metadata.settings.link_by_default,
-                                            cursor: metadata.settings.link_by_default,
-                                        };
+                                    let spec = match spec {
+                                        volna_core::session::OpenSpec::Remote { name, .. } => {
+                                            volna_core::session::OpenSpec::Remote {
+                                                name,
+                                                limits: resolved.remote_limits(),
+                                            }
+                                        }
+                                        spec => spec,
+                                    };
                                     let OpenMetadata {
                                         trace_uri,
                                         candidates,
@@ -489,6 +580,10 @@ pub mod web {
                                     ws.after(None, cx);
                                 }
                                 HostEvent::Theme(theme) => crate::theme::install(*theme, cx),
+                                HostEvent::Settings(map) => {
+                                    ws.app.set_host_settings(map);
+                                    ws.after(None, cx);
+                                }
                                 HostEvent::Command(command) => ws.dispatch(command, None, cx),
                                 HostEvent::DebugState => log::info!("STATE {}", ws.debug_state()),
                                 #[cfg(feature = "remote-profile")]

@@ -17,26 +17,18 @@ fn main() {
     };
     if options.help {
         println!(
-            "usage: volna [FILE.vtr|FILE.fst|FILE.volna.json] [--synthetic N]\n  --workspace FILE   load and autosave an explicit workspace\n  --no-workspace     disable workspace reads and writes\n  --config-dir DIR   preferences directory\nEnvironment: VOLNA_WORKSPACE=off|FILE, VOLNA_CONFIG_DIR=DIR"
+            "usage: volna [FILE.vtr|FILE.fst|FILE.volna.json] [--synthetic N]\n  --workspace FILE   load and autosave an explicit workspace\n  --no-workspace     disable workspace reads and writes\n  --config-dir DIR   settings directory (settings.json, state.json, themes/)\nEnvironment: VOLNA_WORKSPACE=off|FILE, VOLNA_CONFIG_DIR=DIR"
         );
         return;
     }
-    let mut store = match Store::new(options.config_dir) {
+    let store = match Store::new(options.config_dir) {
         Ok(store) => store,
         Err(error) => {
             eprintln!("{error:#}");
             std::process::exit(2);
         }
     };
-    let preferences = store.preferences().unwrap_or_else(|error| {
-        eprintln!("preferences: {error:#}");
-        Default::default()
-    });
-    let policy = if !preferences.autosave && options.policy == Persistence::Auto {
-        Persistence::Disabled
-    } else {
-        options.policy
-    };
+    let policy = options.policy;
     volna::application().run(move |cx| {
         volna::init_app(cx);
         cx.on_window_closed(|cx, _| {
@@ -47,7 +39,7 @@ fn main() {
         .detach();
         match volna::open_main_window(cx, false) {
             Ok(workspace) => workspace.update(cx, |ws, cx| {
-                ws.enable_native_persistence(store, policy, preferences);
+                ws.enable_native_persistence(store, policy, true, cx);
                 if let Some(path) = options.file {
                     ws.open_path(path, cx);
                 } else if let Some(n) = options.synthetic {

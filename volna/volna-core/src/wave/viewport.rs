@@ -15,6 +15,7 @@ struct Animation {
     from: Viewport,
     to: Viewport,
     start: Instant,
+    duration: std::time::Duration,
 }
 
 impl ViewportState {
@@ -34,9 +35,21 @@ impl ViewportState {
         self.viewport = viewport;
         self.animation = None;
     }
-    pub fn animate_to(&mut self, mut target: Viewport, limits: (u64, u64), now: Instant) {
+    /// Move to `target` with the user's animation mode; `Off` jumps.
+    pub fn animate_to(
+        &mut self,
+        mut target: Viewport,
+        limits: (u64, u64),
+        now: Instant,
+        mode: crate::settings::Animation,
+    ) {
         self.tick(now);
         target.clamp(limits);
+        let Some(duration) = mode.duration() else {
+            self.viewport = target;
+            self.animation = None;
+            return;
+        };
         self.animation = if self.viewport.approx_eq(&target) {
             None
         } else {
@@ -44,6 +57,7 @@ impl ViewportState {
                 from: self.viewport,
                 to: target,
                 start: now,
+                duration,
             })
         };
     }
@@ -51,7 +65,8 @@ impl ViewportState {
         let Some(a) = &self.animation else {
             return false;
         };
-        let t = (now.saturating_duration_since(a.start).as_secs_f64() / 0.14).min(1.0);
+        let t = (now.saturating_duration_since(a.start).as_secs_f64() / a.duration.as_secs_f64())
+            .min(1.0);
         self.viewport = Viewport::lerp(&a.from, &a.to, 1.0 - (1.0 - t).powi(3));
         if t >= 1.0 {
             self.viewport = a.to;

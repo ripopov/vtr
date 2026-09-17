@@ -986,6 +986,38 @@ the same views without resetting trace or interaction state. The single-webview 
 One Dark defaults remain. See Volna's architecture and verification guide for
 the boundary and tests.
 
+## Volna user settings
+
+Settings follow VS Code and Zed rather than Surfer's TOML: one `settings.json`
+with comments holding only changed keys, edited surgically by the GUI so hand
+edits and GUI edits never fight, a registry in `volna-core` that generates the
+editor, the JSON Schema and VS Code's contribution block, and a ranked fuzzy
+search instead of gpui-kit's substring filter. Nested objects like Zed's were
+rejected because the VS Code contribution is flat and surgical edits into
+nested objects need path-aware insertion; flat dotted keys map to `volna.*`
+unchanged. A GUI-only store with the file as an export was rejected because it
+cannot preserve comments. Re-serialising the whole document (the previous
+preferences path) was replaced by a few hundred lines of span-recording parser
+and edit engine, which removes a class of "my comment disappeared" complaints.
+
+The user file deliberately has no version field, an exception to the format
+rule in GOAL.md section 8: a hand-edited file must degrade key by key with a
+diagnostic, never fail as a whole, or one typo would reset every setting.
+Renamed keys are migrated by a table. The machine-written `state.json` (recent
+lists) follows the rule and is versioned and strict. Recent items left the
+settings file because settings are what a user syncs to another machine and
+state is what the app remembers about this one, as VS Code separates them.
+
+The Settings tab is a dock panel kind in the core rather than a modal sheet
+(a sheet hides the waves, so appearance changes cannot be previewed) and rather
+than a frontend-only tab (the dock mirrors the core layout, so a tab the core
+does not know would break the mirror). It is excluded from workspace files and
+re-added across trace changes, the one panel kind with that treatment.
+
+`workspace.autosave` applies on the next trace open on every host instead of
+the "next save" the proposal wanted: the workspace candidates are read when a
+trace opens, so switching persistence on mid-session has no target to save to.
+
 ## Volna event waveforms
 
 Volna uses Surfer’s event glyph (`libsurfer/src/drawing_canvas.rs`,

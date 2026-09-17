@@ -32,6 +32,8 @@ pub struct PanelId(pub u64);
 
 pub enum PanelKind {
     Waves(Box<WaveModel>),
+    /// The settings editor: a chrome tab the workspace codec never saves.
+    Settings,
     /// Unrecognized panel payloads are preserved by the workspace codec.
     Unsupported(Box<serde_json::value::RawValue>),
 }
@@ -40,15 +42,19 @@ impl PanelKind {
     pub fn waves(&self) -> Option<&WaveModel> {
         match self {
             Self::Waves(w) => Some(w),
-            Self::Unsupported(_) => None,
+            _ => None,
         }
     }
 
     pub fn waves_mut(&mut self) -> Option<&mut WaveModel> {
         match self {
             Self::Waves(w) => Some(w),
-            Self::Unsupported(_) => None,
+            _ => None,
         }
+    }
+
+    pub fn is_settings(&self) -> bool {
+        matches!(self, Self::Settings)
     }
 }
 
@@ -62,6 +68,7 @@ impl Panel {
     pub fn title(&self) -> String {
         self.title.clone().unwrap_or_else(|| match self.kind {
             PanelKind::Waves(_) => format!("Waves {}", self.id.0),
+            PanelKind::Settings => "Settings".into(),
             PanelKind::Unsupported(_) => format!("Unsupported panel {}", self.id.0),
         })
     }
@@ -130,7 +137,65 @@ impl Panels {
         result.validate()?;
         result.layout = result.layout.normalized().expect("validated layout");
         result.validate()?;
+        if let Some(id) = previous.settings_id() {
+            result.readd_settings(id, previous.focused == id)?;
+        }
         Ok(result)
+    }
+
+    /// The open settings tab, if any.
+    pub fn settings_id(&self) -> Option<PanelId> {
+        self.iter().find(|p| p.kind.is_settings()).map(|p| p.id)
+    }
+
+    /// Open the settings tab in the focused group, or focus it. Returns
+    /// whether the layout changed.
+    pub fn open_settings(&mut self) -> Result<bool> {
+        if let Some(id) = self.settings_id() {
+            return self.focus(id);
+        }
+        ensure!(self.len() < MAX_PANELS, "panel limit reached");
+        let next = self
+            .next_id
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("panel IDs exhausted"))?;
+        let id = PanelId(self.next_id);
+        self.advance()?;
+        self.next_id = next;
+        self.insert_settings(id, self.focused, true);
+        Ok(true)
+    }
+
+    /// Put a settings panel with this id beside `beside` and give it focus if asked.
+    fn insert_settings(&mut self, id: PanelId, beside: PanelId, focus: bool) {
+        if let Some(Layout::Tabs { tabs, active }) = self.layout.group_mut(beside) {
+            tabs.push(id);
+            if focus {
+                *active = id;
+            }
+        }
+        self.panels.insert(
+            id,
+            Panel {
+                id,
+                title: None,
+                kind: PanelKind::Settings,
+            },
+        );
+        if focus {
+            self.focused = id;
+        }
+    }
+
+    /// Restore the settings tab after a trace change or a workspace restore
+    /// replaced the panels; its id is kept so the frontend keeps its view.
+    fn readd_settings(&mut self, id: PanelId, focus: bool) -> Result<()> {
+        ensure!(!self.panels.contains_key(&id), "settings id reused");
+        ensure!(self.len() < MAX_PANELS, "panel limit reached");
+        self.next_id = self.next_id.max(id.0 + 1);
+        let beside = self.focused;
+        self.insert_settings(id, beside, focus);
+        self.validate()
     }
 
     pub fn layout(&self) -> &Layout {
@@ -385,14 +450,35 @@ impl Panels {
         Ok(())
     }
 
+    /// The layout, focus and panels a workspace file records: everything but
+    /// the settings tab, which is chrome.
+    pub fn saved_view(&self) -> (Layout, PanelId, Vec<&Panel>) {
+        let mut layout = self.layout.clone();
+        for id in self.iter().filter(|p| p.kind.is_settings()).map(|p| p.id) {
+            layout.remove(id);
+        }
+        let layout = layout.normalized().expect("a waveform panel remains");
+        let focused = if self.panels[&self.focused].kind.is_settings() {
+            layout
+                .active_for(self.focused)
+                .unwrap_or_else(|| layout.visible()[0])
+        } else {
+            self.focused
+        };
+        let panels = self.iter().filter(|p| !p.kind.is_settings()).collect();
+        (layout, focused, panels)
+    }
+
     /// A trace change discards content while keeping the ID allocator alive,
-    /// so delayed pointer events can never address a replacement panel.
+    /// so delayed pointer events can never address a replacement panel. The
+    /// settings tab survives the change.
     pub fn reset(&mut self, limits: Option<(u64, u64)>) -> Result<()> {
         let next = self
             .next_id
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("panel IDs exhausted"))?;
         self.advance()?;
+        let settings = self.settings_id().map(|id| (id, self.focused == id));
         let id = PanelId(self.next_id);
         self.next_id = next;
         let mut waves = WaveModel::new();
@@ -407,6 +493,9 @@ impl Panels {
         )]);
         self.layout = Layout::single(id);
         self.focused = id;
+        if let Some((settings, focus)) = settings {
+            self.readd_settings(settings, focus)?;
+        }
         Ok(())
     }
 }

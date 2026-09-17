@@ -169,13 +169,13 @@ impl Workspace {
         let session = app.doc.session().context("no trace open")?;
         let h = session.hierarchy();
         let info = session.info();
-        let panels = app
-            .panels
-            .iter()
+        let (layout, focused, saved_panels) = app.panels.saved_view();
+        let panels = saved_panels
+            .into_iter()
             .map(|panel| -> Result<_> {
                 let PanelKind::Waves(w) = &panel.kind else {
                     let PanelKind::Unsupported(raw) = &panel.kind else {
-                        unreachable!()
+                        unreachable!("settings panels are not saved")
                     };
                     return Ok(raw.clone());
                 };
@@ -239,8 +239,8 @@ impl Workspace {
                 time_range: info.time_range,
                 design_id: info.design_id.clone(),
             },
-            layout: app.panels.layout().clone(),
-            focused: app.panels.focused_id(),
+            layout,
+            focused,
             panels,
             shared: Shared {
                 viewport: app.doc.shared.viewport.target(),
@@ -540,4 +540,4 @@ mod controller;
 pub(crate) use changes::Stamp;
 pub use controller::State;
 
-pub mod prefs;
+pub mod state;

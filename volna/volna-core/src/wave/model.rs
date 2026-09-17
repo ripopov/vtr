@@ -16,8 +16,6 @@ use crate::geometry::{Modifiers, MouseButton, Point, point};
 use crate::selection;
 use crate::theme::Theme;
 
-const SNAP_PX: f64 = 6.0;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Link {
     pub viewport: bool,
@@ -559,7 +557,9 @@ impl WaveModel {
         };
         target.zoom_about(anchor_x, w, factor, doc.limits());
         let limits = doc.limits();
-        self.viewport_state_mut(doc).animate_to(target, limits, now);
+        let mode = doc.navigation.animation;
+        self.viewport_state_mut(doc)
+            .animate_to(target, limits, now, mode);
     }
 
     pub fn zoom_in(&mut self, doc: &mut Document, now: Instant) {
@@ -572,8 +572,9 @@ impl WaveModel {
 
     pub fn zoom_fit(&mut self, doc: &mut Document, now: Instant) {
         let limits = doc.limits();
+        let mode = doc.navigation.animation;
         self.viewport_state_mut(doc)
-            .animate_to(Viewport::fit(limits), limits, now);
+            .animate_to(Viewport::fit(limits), limits, now, mode);
     }
 
     pub fn zoom_to_cursor(&mut self, doc: &mut Document, now: Instant) {
@@ -582,6 +583,7 @@ impl WaveModel {
         };
         let half_width = self.viewport_state(doc).target().width() / 4.0;
         let limits = doc.limits();
+        let mode = doc.navigation.animation;
         self.viewport_state_mut(doc).animate_to(
             Viewport {
                 start: cursor as f64 - half_width,
@@ -589,6 +591,7 @@ impl WaveModel {
             },
             limits,
             now,
+            mode,
         );
     }
 
@@ -596,14 +599,18 @@ impl WaveModel {
         let mut target = self.viewport_state(doc).target();
         target.go_to_start(doc.limits());
         let limits = doc.limits();
-        self.viewport_state_mut(doc).animate_to(target, limits, now);
+        let mode = doc.navigation.animation;
+        self.viewport_state_mut(doc)
+            .animate_to(target, limits, now, mode);
     }
 
     pub fn go_to_end(&mut self, doc: &mut Document, now: Instant) {
         let mut target = self.viewport_state(doc).target();
         target.go_to_end(doc.limits());
         let limits = doc.limits();
-        self.viewport_state_mut(doc).animate_to(target, limits, now);
+        let mode = doc.navigation.animation;
+        self.viewport_state_mut(doc)
+            .animate_to(target, limits, now, mode);
     }
 
     pub fn go_to_cursor(&mut self, doc: &mut Document, now: Instant) {
@@ -611,7 +618,9 @@ impl WaveModel {
         let mut target = self.viewport_state(doc).target();
         target.center_on(c as f64, doc.limits());
         let limits = doc.limits();
-        self.viewport_state_mut(doc).animate_to(target, limits, now);
+        let mode = doc.navigation.animation;
+        self.viewport_state_mut(doc)
+            .animate_to(target, limits, now, mode);
     }
 
     pub fn pan_fraction(&mut self, doc: &mut Document, frac: f64, now: Instant) {
@@ -620,7 +629,9 @@ impl WaveModel {
         target.start += w * frac;
         target.end += w * frac;
         let limits = doc.limits();
-        self.viewport_state_mut(doc).animate_to(target, limits, now);
+        let mode = doc.navigation.animation;
+        self.viewport_state_mut(doc)
+            .animate_to(target, limits, now, mode);
     }
 
     /// Immediate pan by pixels (mouse drag / wheel).
@@ -646,7 +657,9 @@ impl WaveModel {
             let mut target = self.viewport(doc);
             target.center_on(c, doc.limits());
             let limits = doc.limits();
-            self.viewport_state_mut(doc).animate_to(target, limits, now);
+            let mode = doc.navigation.animation;
+            self.viewport_state_mut(doc)
+                .animate_to(target, limits, now, mode);
         }
     }
 
@@ -751,6 +764,7 @@ impl WaveModel {
                     let b =
                         viewport.time_at(f64::from(current.x - layout.waves.left()), self.wave_w());
                     let limits = doc.limits();
+                    let mode = doc.navigation.animation;
                     self.viewport_state_mut(doc).animate_to(
                         Viewport {
                             start: a.min(b),
@@ -758,6 +772,7 @@ impl WaveModel {
                         },
                         limits,
                         now,
+                        mode,
                     );
                 }
                 had
@@ -853,7 +868,13 @@ impl WaveModel {
         if layout.header.contains(p) {
             if in_waves_x && button == MouseButton::Left {
                 let x = f64::from(p.x - layout.waves.left());
-                let t = snapped_time(&self.viewport(doc), None, x, wave_wf);
+                let t = snapped_time(
+                    &self.viewport(doc),
+                    None,
+                    x,
+                    wave_wf,
+                    doc.navigation.snap_px,
+                );
                 self.set_cursor(doc, Some(t));
                 self.drag = Some(Drag::Cursor);
             }
@@ -865,7 +886,13 @@ impl WaveModel {
                 MouseButton::Left => {
                     let x = f64::from(p.x - layout.waves.left());
                     let hist = row.and_then(|r| self.items[r].history.clone());
-                    let t = snapped_time(&self.viewport(doc), hist.as_deref(), x, wave_wf);
+                    let t = snapped_time(
+                        &self.viewport(doc),
+                        hist.as_deref(),
+                        x,
+                        wave_wf,
+                        doc.navigation.snap_px,
+                    );
                     self.set_cursor(doc, Some(t));
                     self.drag = Some(Drag::Cursor);
                     if let Some(r) = row
@@ -911,7 +938,13 @@ impl WaveModel {
                 let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
                 let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
                 let hist = row.and_then(|r| self.items[r].history.clone());
-                let t = snapped_time(&self.viewport(doc), hist.as_deref(), x, wave_wf);
+                let t = snapped_time(
+                    &self.viewport(doc),
+                    hist.as_deref(),
+                    x,
+                    wave_wf,
+                    doc.navigation.snap_px,
+                );
                 self.set_cursor(doc, Some(t));
                 true
             }
@@ -1001,16 +1034,20 @@ impl WaveModel {
 }
 
 /// Where a click on the waves at `x_px` lands after snapping to the nearest
-/// transition of `history` within `SNAP_PX`.
+/// transition of `history` within `snap_px` pixels (0 disables snapping).
 pub fn snapped_time(
     vp: &Viewport,
     history: Option<&dyn SignalHistory>,
     x_px: f64,
     width_px: f64,
+    snap_px: f64,
 ) -> u64 {
     let raw = vp.time_at(x_px, width_px).round().max(0.0);
     let Some(h) = history else { return raw as u64 };
-    let tol = SNAP_PX / vp.px_per_unit(width_px);
+    if snap_px <= 0.0 {
+        return raw as u64;
+    }
+    let tol = snap_px / vp.px_per_unit(width_px);
     let t = raw as u64;
     let mut best: Option<(f64, u64)> = None;
     let mut consider = |cand: u64| {

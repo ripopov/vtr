@@ -13,7 +13,8 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
   src/document.rs        Document: open trace, shared navigation, markers, translators, loads
   src/panels/            stable IDs, split/tab layout, focus, per-panel wave models
-  src/workspace/         JSON codec, restore plans, save tickets, preferences and lifecycle
+  src/workspace/         JSON codec, restore plans, save tickets, state.json and lifecycle
+  src/settings/          registry, settings.json store (JSONC, surgical edits, diagnostics), search, schema
   src/session.rs         Session trait; OpenSpec; batched load requests/results
   src/data/fst_source.rs private fst-reader adapter and mutable reader ownership
   src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
@@ -29,7 +30,10 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
 volna/volna           GPUI frontend: native macOS app, wasm page, VS Code extension
   src/app.rs             Workspace: chrome in GPUI, dispatches Commands, runs loads
   src/dock.rs            stock DockArea adapter over the core split/tab tree
-  src/native_workspace.rs atomic file I/O, paths, preferences and native options
+  src/native_workspace.rs atomic file I/O, paths, settings/state files, watcher, native options
+  src/settings_panel.rs  the Settings tab: gpui-kit pages, search bar, results, item controls
+  src/settings_json.rs   the JSON view: Editor with registry completion, hover and diagnostics
+  src/palette.rs         the ⌘K command palette over actions and ranked settings
   src/wave/table.rs      WaveTable element: hitboxes from the layout, paints the Scene
   src/sidebar/           uniform_list rows over the core models
   src/theme.rs           core theme mapped to Hsla once per install
@@ -173,9 +177,56 @@ JavaScript as decimal strings. Its custom editor disables multiple editors per
 document, requests a snapshot on hide and flushes the last received snapshot
 on disposal. Native quit and trace transitions flush before replacing state.
 
-Preferences live outside workspace files. Native stores them under the config
-directory; VS Code supplies settings and theme snapshots. Tests and the egui
-frontend do not opt into workspace storage.
+Machine state (the recent traces and workspaces) is `state.json` in the config
+directory, versioned and written only by the app. Tests and the egui frontend
+do not opt into workspace storage.
+
+## User settings
+
+`settings::registry` declares every setting once: id (`waves.snapPixels`),
+page, group, title, description, keywords, kind and constraints, default,
+apply mode and the hosts it exists on. `settings::Store` resolves three layers,
+registry defaults, the user's `settings.json` and host overrides (VS Code's
+`volna.*` configuration), into the typed `Settings` struct plus diagnostics.
+The file is JSONC (comments, trailing commas, a byte-order mark) parsed by
+`settings::jsonc`, which records the byte span of every top-level property so
+a GUI change replaces one value span, an absent key is inserted before the
+closing brace with the document's indentation and no trailing comma, and a
+reset removes one property. Comments and unknown keys survive every edit. An
+invalid value falls back to its default with a diagnostic naming the line; a
+syntax error keeps the last good values and makes the editor read-only until
+the JSON view fixes it. Renamed ids are rewritten once with a comment. The
+file has no version field on purpose: each key degrades on its own, so a typo
+never resets every setting (the GOAL.md rule applies to the machine-written
+`state.json`, which is versioned and strict).
+
+The store also owns the write queue: one write in flight, acknowledged by
+ticket through `App::settings_saved`, coalesced after 300 ms, flushed on quit.
+The SHA-256 of the last written bytes suppresses the file watcher's echo.
+`settings::search` ranks entries for a query (`@modified`, `@page:`, `@id:`
+filters; word, prefix, substring and fzf-like subsequence matches over title,
+id segments, keywords and description) and reports the matched ranges.
+`settings::schema` emits the JSON Schema written beside the file as
+`settings.schema.json`, VS Code's `contributes.configuration` (a test keeps
+`package.json` equal to it) and the read-only default document.
+
+The Settings tab is a core panel kind (`PanelKind::Settings`) so focus, tab
+order and dock placement follow the usual rules; `Panels::saved_view` leaves
+it out of workspace files and it survives trace changes and restores. The
+GPUI frontend renders it with gpui-kit's `Settings` pages, its own search bar
+and flat ranked results, per-item modified bars and actions, and the JSON
+view on gpui-kit's `Editor` with completion, hover and diagnostics from the
+registry (Tree-sitter colours natively, the stub on the web). ⌘K opens a
+command palette listing actions with their key hints and the ranked settings;
+a boolean setting toggles in place, any other reveals the tab filtered to
+`@id:`. Native watches the config directory (`notify`) for `settings.json`
+and `themes/*.json` palette files, which `appearance.theme` selects by file
+stem. Standalone web keeps the document in `localStorage`. Inside VS Code the
+extension owns the settings UI: ⌘, forwards to VS Code's editor filtered to
+`@ext:vtr.volna`, and `onDidChangeConfiguration` pushes the `volna.*` keys to
+`set_settings`, so a change applies without reopening the trace. The
+`SettingsChanged { keys }` event lets frontends re-project the theme or the
+workspace policy only when a relevant key changed.
 
 ## The session seam
 

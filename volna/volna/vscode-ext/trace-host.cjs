@@ -84,7 +84,7 @@ function createTraceHost(vscode, context, panel, uri, spawnChild = spawn) {
     if (!["file", "vscode-remote"].includes(uri.scheme)) throw new Error(`Remote trace loading does not support ${uri.scheme}: resources`);
     stop();
     const ownEpoch = epoch;
-    const configured = vscode.workspace.getConfiguration("volna", uri).get("serverPath", "");
+    const configured = vscode.workspace.getConfiguration("volna", uri).get("remote.serverPath", "");
     const executable = configured || path.join(context.extensionPath, "bin", process.platform === "win32" ? "volna-server.exe" : "volna-server");
     const child = spawnChild(executable, [uri.fsPath], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false });
     const state = { child, connection, awaitingClient: false, pendingWrites: 0, writes: Promise.resolve(), diagnostics: "" };
