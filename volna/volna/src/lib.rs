@@ -28,8 +28,8 @@ mod web_profile;
 mod web_remote;
 
 use gpui_kit::{
-    App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px,
-    size,
+    App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowDecorations,
+    WindowOptions, point, px, size,
 };
 
 pub use app::Workspace;
@@ -44,9 +44,34 @@ pub fn init_app(cx: &mut App) {
     app::init(cx);
 }
 
+/// The environment variable that overrides [`window_decorations`].
+pub const WINDOW_DECORATIONS_ENV: &str = "VOLNA_WINDOW_DECORATIONS";
+
+/// The decorations the main window asks for on X11 and Wayland (other
+/// platforms ignore the request).
+///
+/// Like Zed, Volna draws its own title bar and window controls by default.
+/// Wayland compositors without the `xdg-decoration` protocol (GNOME) never
+/// draw a frame, so asking for server decorations there leaves the window
+/// with no close, minimize or maximize controls at all, while compositors
+/// that do draw one stack it above Volna's own bar. `server` opts back in to
+/// the window manager's frame; GPUI falls back to it on its own on X11
+/// without a compositor, and Volna then draws no controls.
+pub fn window_decorations(env: Option<&str>) -> WindowDecorations {
+    match env.map(str::trim) {
+        Some("server") => WindowDecorations::Server,
+        None | Some("") | Some("client") => WindowDecorations::Client,
+        Some(other) => {
+            log::warn!("{WINDOW_DECORATIONS_ENV}={other:?}: expected `client` or `server`");
+            WindowDecorations::Client
+        }
+    }
+}
+
 /// Options for the main window on desktop platforms.
 pub fn window_options(cx: &mut App) -> WindowOptions {
     let bounds = Bounds::centered(None, size(px(1440.0), px(900.0)), cx);
+    let decorations = std::env::var(WINDOW_DECORATIONS_ENV).ok();
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
@@ -54,6 +79,11 @@ pub fn window_options(cx: &mut App) -> WindowOptions {
             appears_transparent: true,
             traffic_light_position: Some(point(px(10.0), px(10.0))),
         }),
+        // The title bar moves the window itself (`start_window_move`), so
+        // AppKit must not also treat it as a drag region: that delays title
+        // bar clicks while it disambiguates double-clicks.
+        app_owns_titlebar_drag: true,
+        window_decorations: Some(window_decorations(decorations.as_deref())),
         window_min_size: Some(size(px(800.0), px(500.0))),
         ..Default::default()
     }
@@ -609,5 +639,26 @@ pub mod web {
 
     thread_local! {
         static APP: RefCell<Option<gpui_kit::ApplicationHandle>> = const { RefCell::new(None) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_decorations;
+    use gpui_kit::WindowDecorations;
+
+    #[test]
+    fn client_decorations_unless_server_is_requested() {
+        assert_eq!(window_decorations(None), WindowDecorations::Client);
+        assert_eq!(window_decorations(Some("")), WindowDecorations::Client);
+        assert_eq!(
+            window_decorations(Some("client")),
+            WindowDecorations::Client
+        );
+        assert_eq!(
+            window_decorations(Some(" server ")),
+            WindowDecorations::Server
+        );
+        assert_eq!(window_decorations(Some("nope")), WindowDecorations::Client);
     }
 }

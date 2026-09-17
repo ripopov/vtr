@@ -26,6 +26,10 @@ pub enum IconName {
     Sigma,
     TriangleAlert,
     Type,
+    WindowClose,
+    WindowMaximize,
+    WindowMinimize,
+    WindowRestore,
     X,
 }
 
@@ -72,6 +76,10 @@ icons!(
     Sigma => "sigma",
     TriangleAlert => "triangle-alert",
     Type => "type",
+    WindowClose => "window-close",
+    WindowMaximize => "window-maximize",
+    WindowMinimize => "window-minimize",
+    WindowRestore => "window-restore",
     X => "x",
 );
 

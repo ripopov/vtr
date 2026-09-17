@@ -352,7 +352,16 @@ menu and filter input in step with the core's menu and filter, and spawns each
 `LoadRequest` on the background executor. The window hosts `Workspace` inside
 the component `Root` for overlays and focus routing. Buttons, tooltips and menus
 use library interactions; `src/ui` adds Volna styling/placement and retains the
-custom filter input, splitter, icons and headers. The filter stays custom on
+custom filter input, splitter, icons and headers. The window chrome follows
+Zed: the title bar is Volna's own on every desktop, drawn over a transparent
+system title bar. On macOS the native traffic lights sit in it; on Linux the
+main window asks for client-side decorations (`VOLNA_WINDOW_DECORATIONS=server`
+opts back in to the window manager's frame) and `src/ui/window_controls.rs`
+draws the minimize, maximize/restore and close buttons on the sides GNOME's
+`button-layout` configures, limited to what the compositor supports, with the
+compositor's window menu on right-click; on Windows the same buttons mark the
+platform's caption hit regions. The component `Root` supplies the Linux
+client-side frame, shadow and resize edges. The filter stays custom on
 both targets because the component input's focus-loss path in `gpui-pre-web`
 0.3.4 blurs the browser's keyboard receiver; see the [rationale](../../docs/RATIONALE.md#volna-viewer).
 `WaveTable` is a custom element: `prepaint` asks the core for the layout and

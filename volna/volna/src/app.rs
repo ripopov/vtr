@@ -25,7 +25,10 @@ use volna_core::{App as CoreApp, FontRole, Instant, Scene};
 use crate::theme::{ThemePx, theme};
 use crate::ui::icon::icon_svg;
 use crate::ui::text_input::TextInputEvent;
-use crate::ui::{Icon, IconName, Splitter, SplitterAxis, TextInput, icon_button, popup_at};
+use crate::ui::{
+    Icon, IconName, Side, Splitter, SplitterAxis, TextInput, app_draws_controls, icon_button,
+    popup_at, render_window_controls,
+};
 use gpui_kit::component::{
     Selectable, Sizable,
     button::{Button, ButtonVariants},
@@ -884,10 +887,35 @@ impl Workspace {
         .with_priority(100)
     }
 
-    fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The title bar Volna draws on every desktop platform, after Zed's: the
+    /// window controls are native on macOS (traffic lights over the transparent
+    /// bar), drawn by Volna on Linux client-side decorations and on Windows
+    /// (see `ui::window_controls`), and the window manager's under Linux
+    /// server-side decorations.
+    fn render_titlebar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.bar;
         let file: Option<SharedString> = self.app.doc.name().map(Into::into);
+        let fullscreen = window.is_fullscreen();
+        let left_controls = render_window_controls(Side::Left, window, cx);
+        let right_controls = render_window_controls(Side::Right, window, cx);
+        let is_macos = cfg!(target_os = "macos");
+        let is_windows = cfg!(target_os = "windows");
+        let supported = window.window_controls();
+        // Linux client-side decorations offer the compositor's window menu.
+        let window_menu = app_draws_controls(window) && !is_windows && supported.window_menu;
+        // Double-click zooms: through AppKit's rules on macOS, and by
+        // maximizing where the window manager supports that on Linux. On
+        // Windows the platform handles the drag area itself.
+        let zoom_on_double_click = is_macos || (supported.maximize && window.is_resizable());
+        let left_pad = if fullscreen || left_controls.is_some() {
+            t.px(8.0)
+        } else if is_macos {
+            // Room for the traffic lights.
+            t.px(80.0)
+        } else {
+            t.px(12.0)
+        };
         div()
             .id("titlebar")
             .flex()
@@ -895,14 +923,15 @@ impl Workspace {
             .items_center()
             .h(px(t.titlebar_height))
             .w_full()
-            .pl(t.px(80.0))
-            .pr_2()
+            .pl(left_pad)
+            .when(right_controls.is_none(), |el| el.pr_2())
             .gap_2()
             .bg(t.bar.bg)
             .border_b_1()
             .border_color(t.border)
             .font_family(t.ui_font)
             .text_size(px(t.ui_size))
+            .when_some(left_controls, |el, controls| el.child(controls))
             .child(
                 // Everything left of the buttons drags the window; double-click zooms it.
                 div()
@@ -912,12 +941,24 @@ impl Workspace {
                     .h_full()
                     .items_center()
                     .gap_2()
-                    .on_mouse_down(MouseButton::Left, |ev, window, _| {
-                        if ev.click_count == 2 {
-                            window.titlebar_double_click();
-                        } else {
-                            window.start_window_move();
-                        }
+                    .window_control_area(gpui_kit::WindowControlArea::Drag)
+                    .when(!is_windows, |el| {
+                        el.on_mouse_down(MouseButton::Left, move |ev, window, _| {
+                            if ev.click_count == 2 {
+                                if is_macos {
+                                    window.titlebar_double_click();
+                                } else if zoom_on_double_click {
+                                    window.zoom_window();
+                                }
+                            } else {
+                                window.start_window_move();
+                            }
+                        })
+                    })
+                    .when(window_menu, |el| {
+                        el.on_mouse_down(MouseButton::Right, |ev, window, _| {
+                            window.show_window_menu(ev.position)
+                        })
                     })
                     .child(Icon::new(IconName::AudioWaveform).color(colors.icon_accent))
                     .child(
@@ -956,6 +997,7 @@ impl Workspace {
                         cx.listener(|this, _, w, cx| this.open_settings(&OpenSettings, w, cx)),
                     ),
             )
+            .when_some(right_controls, |el, controls| el.child(controls))
     }
 
     fn render_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1559,7 +1601,7 @@ impl Render for Workspace {
             }));
         }
         if !self.embedded {
-            root = root.child(self.render_titlebar(cx));
+            root = root.child(self.render_titlebar(window, cx));
         }
         let sidebar = sidebar_visible.then(|| self.render_sidebar(window, cx).into_any_element());
         let center = self.render_center(window, cx);
