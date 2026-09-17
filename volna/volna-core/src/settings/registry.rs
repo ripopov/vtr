@@ -133,7 +133,7 @@ pub enum Kind {
     },
     Text,
     Enum(&'static [Choice]),
-    /// `one-dark` plus the palette names the host found; validated by the store.
+    /// One Dark and the bundled palettes plus the palette names the host found.
     Theme,
 }
 
@@ -233,7 +233,7 @@ impl Spec {
             }
             (Kind::Enum(_), _) => Err("expected a string".into()),
             (Kind::Theme, Value::Text(v)) => {
-                if v == "one-dark" || themes.iter().any(|t| t == v) {
+                if crate::theme::builtin::is_builtin(v) || themes.iter().any(|t| t == v) {
                     Ok(())
                 } else {
                     Err(format!("unknown theme \"{v}\""))
@@ -254,7 +254,11 @@ impl Spec {
             Kind::Number { min, max, .. } => {
                 json!({"type": "number", "minimum": min, "maximum": max})
             }
-            Kind::Text | Kind::Theme => json!({"type": "string"}),
+            Kind::Text => json!({"type": "string"}),
+            Kind::Theme => json!({
+                "type": "string",
+                "examples": crate::theme::builtin::choices().map(|(id, _)| id).collect::<Vec<_>>(),
+            }),
             Kind::Enum(choices) => {
                 let choices: Vec<_> = choices
                     .iter()
@@ -286,8 +290,18 @@ pub static REGISTRY: &[Spec] = &[
         page: Page::Appearance,
         group: "Theme",
         title: "Theme",
-        description: "One Dark, or any palette JSON dropped into the `themes` directory beside `settings.json`. Palettes reload when the file changes.",
-        keywords: &["dark", "light", "palette", "colors", "colours"],
+        description: "One Dark, Dracula, Catppuccin, GitHub or VS Code, or any palette JSON dropped into the `themes` directory beside `settings.json`. Palettes reload when the file changes.",
+        keywords: &[
+            "dark",
+            "light",
+            "palette",
+            "colors",
+            "colours",
+            "dracula",
+            "catppuccin",
+            "github",
+            "vscode",
+        ],
         kind: Kind::Theme,
         default: Literal::Text("one-dark"),
         apply: Apply::Live,

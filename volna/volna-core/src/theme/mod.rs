@@ -4,7 +4,9 @@
 //! palette into its own colour representation once (`theme.map(...)`) and keep
 //! reading the same field names. All resolution logic runs on the core
 //! [`Color`] type; metrics are logical pixels.
+pub mod builtin;
 mod palette;
+pub use builtin::{BUILTIN, Builtin};
 pub use palette::{Appearance, ColorPair, HostPalette};
 mod color;
 pub use color::parse_css_color;

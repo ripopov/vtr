@@ -169,10 +169,10 @@ impl Store {
         names
     }
 
-    /// Resolve `appearance.theme` to a core theme; `one-dark` needs no file.
+    /// Resolve `appearance.theme` to a core theme; bundled themes need no file.
     pub fn theme(&self, name: &str) -> Result<volna_core::Theme> {
-        if name == "one-dark" {
-            return Ok(volna_core::Theme::one_dark());
+        if let Some(theme) = volna_core::Theme::builtin(name) {
+            return Ok(theme);
         }
         let path = self.themes_dir().join(format!("{name}.json"));
         let bytes = read_limited(&path, settings::store::MAX_BYTES)?

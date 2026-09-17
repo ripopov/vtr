@@ -1,0 +1,22 @@
+{
+  "appearance": "dark",
+  "editor": { "background": "#1e1e2e", "foreground": "#cdd6f4" },
+  "panel": { "background": "#181825", "foreground": "#cdd6f4" },
+  "bar": { "background": "#11111b", "foreground": "#cdd6f4" },
+  "elevated": { "background": "#181825", "foreground": "#cdd6f4" },
+  "tooltip": { "background": "#181825", "foreground": "#cdd6f4" },
+  "input": { "background": "#181825", "foreground": "#cdd6f4" },
+  "selection": { "background": "#45475a", "foreground": "#cdd6f4" },
+  "hover": { "background": "#313244", "foreground": "#cdd6f4" },
+  "menu_hover": { "background": "#313244", "foreground": "#cdd6f4" },
+  "button": { "background": "#89b4fa", "foreground": "#1e1e2e" },
+  "button_hover": "#b4befe",
+  "muted": "#a6adc8",
+  "placeholder": "#6c7086",
+  "accent": "#89b4fa",
+  "error": "#f38ba8",
+  "border": "#313244",
+  "focus": "#89b4fa",
+  "charts": ["#a6e3a1", "#f38ba8", "#f9e2af", "#89b4fa", "#fab387", "#cba6f7"],
+  "cursor": "#f5e0dc"
+}

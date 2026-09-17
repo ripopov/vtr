@@ -690,7 +690,8 @@ fn render_control(
         }
         Kind::Enum(_) | Kind::Theme => {
             let choices: Vec<(String, String)> = match spec.kind {
-                Kind::Theme => std::iter::once(("one-dark".to_owned(), "One Dark".to_owned()))
+                Kind::Theme => volna_core::theme::builtin::choices()
+                    .map(|(id, label)| (id.to_owned(), label.to_owned()))
                     .chain(themes.iter().map(|t| (t.clone(), format!("{t} (palette)"))))
                     .collect(),
                 _ => spec

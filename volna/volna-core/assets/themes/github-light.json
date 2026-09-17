@@ -1,0 +1,22 @@
+{
+  "appearance": "light",
+  "editor": { "background": "#ffffff", "foreground": "#1f2328" },
+  "panel": { "background": "#f6f8fa", "foreground": "#1f2328" },
+  "bar": { "background": "#f6f8fa", "foreground": "#1f2328" },
+  "elevated": { "background": "#ffffff", "foreground": "#1f2328" },
+  "tooltip": { "background": "#24292f", "foreground": "#ffffff" },
+  "input": { "background": "#ffffff", "foreground": "#1f2328" },
+  "selection": { "background": "rgba(84, 174, 255, 0.4)", "foreground": "#1f2328" },
+  "hover": { "background": "rgba(208, 215, 222, 0.32)", "foreground": "#1f2328" },
+  "menu_hover": { "background": "rgba(208, 215, 222, 0.32)", "foreground": "#1f2328" },
+  "button": { "background": "#1f883d", "foreground": "#ffffff" },
+  "button_hover": "#1a7f37",
+  "muted": "#656d76",
+  "placeholder": "#6e7781",
+  "accent": "#0969da",
+  "error": "#cf222e",
+  "border": "#d0d7de",
+  "focus": "#0969da",
+  "charts": ["#1a7f37", "#cf222e", "#9a6700", "#0969da", "#bc4c00", "#8250df"],
+  "cursor": "#0969da"
+}

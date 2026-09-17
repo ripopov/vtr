@@ -193,7 +193,7 @@ syntax error keeps the last good values and disables GUI edits until fixed.
 
 | Key | Values | Applies |
 |---|---|---|
-| `appearance.theme` | `one-dark` or the stem of a palette JSON in `<config dir>/themes/` | live (native, web) |
+| `appearance.theme` | `one-dark`, `dracula`, `catppuccin-mocha`, `catppuccin-latte`, `github-dark`, `github-light`, `vscode-dark`, `vscode-light`, or the stem of a palette JSON in `<config dir>/themes/` | live (native, web) |
 | `panels.linkByDefault` | boolean | new panels |
 | `waves.animation` | `on`, `reduced`, `off` | live |
 | `waves.snapPixels` | 0–24 | live |

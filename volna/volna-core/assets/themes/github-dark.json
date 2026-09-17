@@ -1,0 +1,22 @@
+{
+  "appearance": "dark",
+  "editor": { "background": "#0d1117", "foreground": "#e6edf3" },
+  "panel": { "background": "#010409", "foreground": "#e6edf3" },
+  "bar": { "background": "#010409", "foreground": "#e6edf3" },
+  "elevated": { "background": "#161b22", "foreground": "#e6edf3" },
+  "tooltip": { "background": "#161b22", "foreground": "#e6edf3" },
+  "input": { "background": "#0d1117", "foreground": "#e6edf3" },
+  "selection": { "background": "rgba(56, 139, 253, 0.35)", "foreground": "#e6edf3" },
+  "hover": { "background": "rgba(177, 186, 196, 0.12)", "foreground": "#e6edf3" },
+  "menu_hover": { "background": "rgba(177, 186, 196, 0.12)", "foreground": "#e6edf3" },
+  "button": { "background": "#238636", "foreground": "#ffffff" },
+  "button_hover": "#2ea043",
+  "muted": "#8b949e",
+  "placeholder": "#6e7681",
+  "accent": "#58a6ff",
+  "error": "#f85149",
+  "border": "#30363d",
+  "focus": "#1f6feb",
+  "charts": ["#3fb950", "#f85149", "#d29922", "#58a6ff", "#db6d28", "#bc8cff"],
+  "cursor": "#58a6ff"
+}

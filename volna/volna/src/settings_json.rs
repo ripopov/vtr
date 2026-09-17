@@ -371,12 +371,14 @@ impl CompletionProvider for Registry {
                             ..Default::default()
                         })
                         .collect(),
-                    Kind::Theme => vec![CompletionItem {
-                        label: quoted("one-dark"),
-                        kind: Some(CompletionItemKind::ENUM_MEMBER),
-                        detail: Some("One Dark".into()),
-                        ..Default::default()
-                    }],
+                    Kind::Theme => volna_core::theme::builtin::choices()
+                        .map(|(id, label)| CompletionItem {
+                            label: quoted(id),
+                            kind: Some(CompletionItemKind::ENUM_MEMBER),
+                            detail: Some(label.into()),
+                            ..Default::default()
+                        })
+                        .collect(),
                     _ => vec![CompletionItem {
                         label: spec.default.value().to_json_text(),
                         kind: Some(CompletionItemKind::VALUE),
@@ -423,7 +425,13 @@ impl HoverProvider for Registry {
                 Kind::Number { min, max, .. } => format!("{min}–{max}"),
                 Kind::Bool => "true or false".into(),
                 Kind::Text => "text".into(),
-                Kind::Theme => "`one-dark` or a palette file name".into(),
+                Kind::Theme => {
+                    volna_core::theme::builtin::choices()
+                        .map(|(id, _)| format!("`{id}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                        + ", or a palette file name"
+                }
             };
             Hover {
                 contents: HoverContents::Markup(MarkupContent {

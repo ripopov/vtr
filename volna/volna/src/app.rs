@@ -736,17 +736,12 @@ impl Workspace {
         #[cfg(not(target_family = "wasm"))]
         let theme = match &self.native_store {
             Some(store) => store.theme(&name),
-            None if name == "one-dark" => Ok(crate::theme::CoreTheme::one_dark()),
-            None => Err(anyhow::anyhow!("no theme directory")),
+            None => crate::theme::CoreTheme::builtin(&name)
+                .ok_or_else(|| anyhow::anyhow!("no theme directory")),
         };
         #[cfg(target_family = "wasm")]
-        let theme = if name == "one-dark" {
-            Ok(crate::theme::CoreTheme::one_dark())
-        } else {
-            Err(anyhow::anyhow!(
-                "palette files are not available in the browser"
-            ))
-        };
+        let theme = crate::theme::CoreTheme::builtin(&name)
+            .ok_or_else(|| anyhow::anyhow!("palette files are not available in the browser"));
         match theme {
             Ok(theme) => crate::theme::install(theme, cx),
             Err(error) => {

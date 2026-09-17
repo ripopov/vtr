@@ -221,7 +221,8 @@ command palette listing actions with their key hints and the ranked settings;
 a boolean setting toggles in place, any other reveals the tab filtered to
 `@id:`. Native watches the config directory (`notify`) for `settings.json`
 and `themes/*.json` palette files, which `appearance.theme` selects by file
-stem. Standalone web keeps the document in `localStorage`. Inside VS Code the
+stem; the bundled palettes under `volna-core/assets/themes` (Dracula,
+Catppuccin, GitHub, VS Code Modern) resolve through the same path. Standalone web keeps the document in `localStorage`. Inside VS Code the
 extension owns the settings UI: ⌘, forwards to VS Code's editor filtered to
 `@ext:vtr.volna`, and `onDidChangeConfiguration` pushes the `volna.*` keys to
 `set_settings`, so a change applies without reopening the trace. The
