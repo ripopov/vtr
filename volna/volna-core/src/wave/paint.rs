@@ -14,10 +14,12 @@ use crate::icons::IconName;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
 use crate::wave::layout::{SCROLLBAR_W, WaveLayout};
-use crate::wave::model::{Drag, RowSource, WaveModel};
+use crate::wave::model::{Drag, RowSource, WaveModel, ZOOM_RANGE_MIN_PX};
 use crate::wave::timeline::{format_time, ticks};
 use crate::wave::viewport::Viewport;
 
+// Pixel constants are design sizes at zoom 1.0; the painter multiplies them
+// by the theme's zoom. Hairlines (1 px strokes and borders) stay one pixel.
 const TICK_SPACING_PX: f64 = 96.0;
 /// Vertical inset of the trace inside a row.
 const TRACE_PAD: f32 = 5.0;
@@ -73,6 +75,7 @@ pub fn paint(
     let layout = model.last_layout().clone();
     let bounds = layout.bounds;
     let t = theme;
+    let z = |v: f32| v * t.zoom;
     let char_w = text.width(measure, "0", FontRole::Mono, t.mono_size);
     let mut p = Painter {
         theme,
@@ -103,7 +106,12 @@ pub fn paint(
     p.scene.fill(layout.header, t.panel.bg);
 
     // -- tick grid in the waves area ---------------------------------------
-    let (tick_list, unit) = ticks(&viewport, wave_wf, timescale, TICK_SPACING_PX);
+    let (tick_list, unit) = ticks(
+        &viewport,
+        wave_wf,
+        timescale,
+        TICK_SPACING_PX * f64::from(t.zoom),
+    );
     p.scene.clipped(waves, |scene| {
         for tick in &tick_list {
             let x = snap(waves.left() + viewport.x_of(tick.time, wave_wf) as f32);
@@ -155,7 +163,7 @@ pub fn paint(
 
         // Name column: leaf name, then a muted range badge for vectors.
         {
-            let pad = 12.0;
+            let pad = z(12.0);
             let avail = layout.names.width() - pad * 2.0;
             let dims = item.shape.dims();
             let max_chars = (avail / char_w).floor().max(0.0) as usize;
@@ -204,7 +212,7 @@ pub fn paint(
 
         // Values column: value at cursor plus the format badge.
         {
-            let pad = 8.0;
+            let pad = z(8.0);
             let badge = layout
                 .badges
                 .iter()
@@ -277,7 +285,7 @@ pub fn paint(
                     };
                     let x = b.left() + (b.width() - label_w) / 2.0;
                     p.scene.clipped(values_rect, |scene| {
-                        scene.quad(b, bg, 3.0, 1.0, t.border_variant);
+                        scene.quad(b, bg, z(3.0), 1.0, t.border_variant);
                         scene.text(
                             point(snap(x), b.top()),
                             b.height(),
@@ -313,7 +321,7 @@ pub fn paint(
                 let err = err.clone();
                 p.scene.clipped(waves, |scene| {
                     scene.text(
-                        point(waves.left() + 8.0, y),
+                        point(waves.left() + z(8.0), y),
                         row_h,
                         err,
                         FontRole::Ui,
@@ -331,7 +339,7 @@ pub fn paint(
                 };
                 p.scene.clipped(waves, |scene| {
                     scene.text(
-                        point(waves.left() + 8.0, y),
+                        point(waves.left() + z(8.0), y),
                         row_h,
                         label,
                         FontRole::Ui,
@@ -342,7 +350,10 @@ pub fn paint(
             }
             (None, None) => {
                 // Loading: a thin muted bar where the trace will be.
-                let bar = Rect::new(point(waves.left() + 8.0, y + row_h / 2.0), size(96.0, 1.0));
+                let bar = Rect::new(
+                    point(waves.left() + z(8.0), y + row_h / 2.0),
+                    size(z(96.0), 1.0),
+                );
                 p.scene.clipped(waves, |scene| scene.fill(bar, t.border));
             }
         }
@@ -359,14 +370,14 @@ pub fn paint(
         p.scene.fill(area, t.editor.bg);
         let cx_ = area.left() + area.width() / 2.0;
         let cy = area.top() + area.height() / 2.0;
-        let icon = Rect::new(point(cx_ - 16.0, cy - 44.0), size(32.0, 32.0));
+        let icon = Rect::new(point(cx_ - z(16.0), cy - z(44.0)), size(z(32.0), z(32.0)));
         p.scene
             .icon(IconName::ListTree, icon, t.editor.text_placeholder);
         let title = "No signals displayed";
         let title_w = p.width(title, FontRole::UiMedium, t.ui_size);
         p.scene.text(
-            point(snap(cx_ - title_w / 2.0), cy - 4.0),
-            20.0,
+            point(snap(cx_ - title_w / 2.0), cy - z(4.0)),
+            z(20.0),
             title,
             FontRole::UiMedium,
             t.ui_size,
@@ -375,8 +386,8 @@ pub fn paint(
         let hint = "Double-click a variable in the sidebar, or select variables and press Enter";
         let hint_w = p.width(hint, FontRole::Ui, t.ui_size_small);
         p.scene.text(
-            point(snap(cx_ - hint_w / 2.0), cy + 18.0),
-            18.0,
+            point(snap(cx_ - hint_w / 2.0), cy + z(18.0)),
+            z(18.0),
             hint,
             FontRole::Ui,
             t.ui_size_small,
@@ -387,11 +398,11 @@ pub fn paint(
     if let Some(Drag::ZoomRange { start, current }) = model.drag {
         let label = "Zoom to selected area · Esc to cancel";
         let label_width = p.width(label, FontRole::Ui, t.ui_size);
-        let label_x = (current.x + 8.0)
-            .min(waves.right() - label_width - 8.0)
-            .max(waves.left() + 8.0);
+        let label_x = (current.x + z(8.0))
+            .min(waves.right() - label_width - z(8.0))
+            .max(waves.left() + z(8.0));
         p.scene.clipped(waves, |scene| {
-            if (current.x - start.x).abs() >= 4.0 {
+            if (current.x - start.x).abs() >= z(ZOOM_RANGE_MIN_PX) {
                 scene.fill(
                     Rect::from_xywh(
                         start.x.min(current.x),
@@ -414,8 +425,8 @@ pub fn paint(
                 1.0,
             );
             scene.text(
-                point(label_x, (current.y + 8.0).min(waves.bottom() - 20.0)),
-                20.0,
+                point(label_x, (current.y + z(8.0)).min(waves.bottom() - z(20.0))),
+                z(20.0),
                 label,
                 FontRole::Ui,
                 t.ui_size,
@@ -431,7 +442,7 @@ pub fn paint(
         Rect::new(header.origin, size(layout.names.width(), header.height())),
         |scene| {
             scene.text(
-                point(layout.names.left() + 12.0, header.top()),
+                point(layout.names.left() + z(12.0), header.top()),
                 header.height(),
                 "SIGNALS",
                 FontRole::UiSemibold,
@@ -461,7 +472,7 @@ pub fn paint(
         ),
         |scene| {
             scene.text(
-                point(layout.values.left() + 8.0, header.top()),
+                point(layout.values.left() + z(8.0), header.top()),
                 header.height(),
                 value_title,
                 vfont,
@@ -477,7 +488,7 @@ pub fn paint(
     {
         let unit_w = (!unit.is_empty()).then(|| p.width(unit, FontRole::Mono, t.ui_size_small));
         let unit_x = unit_w
-            .map(|w| header_waves.right() - w - (SCROLLBAR_W + 4.0))
+            .map(|w| header_waves.right() - w - z(SCROLLBAR_W + 4.0))
             .unwrap_or(header_waves.right());
         let mut labels = Vec::new();
         for tick in &tick_list {
@@ -488,13 +499,13 @@ pub fn paint(
         p.scene.clipped(header_waves, |scene| {
             for (x, label, w) in labels {
                 scene.fill(
-                    Rect::new(point(x, header.bottom() - 7.0), size(1.0, 6.0)),
+                    Rect::new(point(x, header.bottom() - z(7.0)), size(1.0, z(6.0))),
                     panel_theme.text_placeholder,
                 );
-                if x + 4.0 + w < unit_x - 8.0 {
+                if x + z(4.0) + w < unit_x - z(8.0) {
                     scene.text(
-                        point(x + 4.0, header.top() + 2.0),
-                        20.0,
+                        point(x + z(4.0), header.top() + z(2.0)),
+                        z(20.0),
                         label,
                         FontRole::Mono,
                         t.ui_size_small,
@@ -504,8 +515,8 @@ pub fn paint(
             }
             if unit_w.is_some() {
                 scene.text(
-                    point(unit_x, header.top() + 2.0),
-                    20.0,
+                    point(unit_x, header.top() + z(2.0)),
+                    z(20.0),
                     unit,
                     FontRole::Mono,
                     t.ui_size_small,
@@ -534,7 +545,7 @@ pub fn paint(
             marker.background
         };
         p.scene
-            .quad(*chip, bg, 3.0, 0.0, crate::color::Color::TRANSPARENT);
+            .quad(*chip, bg, z(3.0), 0.0, crate::color::Color::TRANSPARENT);
         let label = format!("M{}", m.id);
         let w = p.width(&label, FontRole::UiSemibold, t.ui_size_small);
         p.scene.text(
@@ -559,12 +570,12 @@ pub fn paint(
             let x = snap(waves.left() + xf as f32);
             let label = format_time(c as f64, timescale);
             let label_w = p.width(&label, FontRole::Mono, t.ui_size_small);
-            let chip_w = label_w + 10.0;
+            let chip_w = label_w + z(10.0);
             let mut cx0 = x + 1.0;
-            if cx0 + chip_w > header_waves.right() - SCROLLBAR_W {
+            if cx0 + chip_w > header_waves.right() - z(SCROLLBAR_W) {
                 cx0 = x - chip_w;
             }
-            let chip = Rect::new(point(cx0, header.bottom() - 18.0), size(chip_w, 16.0));
+            let chip = Rect::new(point(cx0, header.bottom() - z(18.0)), size(chip_w, z(16.0)));
             p.scene.clipped(
                 Rect::new(
                     point(waves.left(), header.top()),
@@ -573,8 +584,8 @@ pub fn paint(
                 |scene| {
                     scene.fill(
                         Rect::new(
-                            point(x, header.bottom() - 8.0),
-                            size(1.0, bounds.bottom() - header.bottom() + 8.0),
+                            point(x, header.bottom() - z(8.0)),
+                            size(1.0, bounds.bottom() - header.bottom() + z(8.0)),
                         ),
                         if focused {
                             t.wave_cursor
@@ -585,12 +596,12 @@ pub fn paint(
                     scene.quad(
                         chip,
                         t.wave_cursor,
-                        3.0,
+                        z(3.0),
                         0.0,
                         crate::color::Color::TRANSPARENT,
                     );
                     scene.text(
-                        point(chip.left() + 5.0, chip.top()),
+                        point(chip.left() + z(5.0), chip.top()),
                         chip.height(),
                         label,
                         FontRole::Mono,
@@ -667,7 +678,7 @@ pub fn paint(
             t.scrollbar_thumb
         };
         p.scene
-            .quad(thumb, color, 3.0, 0.0, crate::color::Color::TRANSPARENT);
+            .quad(thumb, color, z(3.0), 0.0, crate::color::Color::TRANSPARENT);
     }
 }
 
@@ -694,11 +705,12 @@ pub fn paint_event_row(
         h.index_at((vp.start.ceil() as u64).saturating_sub(1))
             .map_or(0, |last| last + 1)
     };
+    let pad = TRACE_PAD * t.zoom;
     while i < h.len() && h.time(i) as f64 <= vp.end {
         let x = vp.x_of(h.time(i) as f64, area.width() as f64).floor();
         let screen_x = area.left() + x as f32;
-        let top = area.top() + TRACE_PAD;
-        let bottom = (area.bottom() - TRACE_PAD).max(top);
+        let top = area.top() + pad;
+        let bottom = (area.bottom() - pad).max(top);
         // Surfer's event glyph: a full-height stem with a filled upward
         // arrowhead, 5 px wide and one fifth of the trace height.
         let head_height = (bottom - top) * 0.2;
@@ -706,7 +718,7 @@ pub fn paint_event_row(
         if head_height > 0.0 {
             for row in 1..=head_height.ceil() as usize {
                 let y = (row as f32).min(head_height);
-                let half_width = 2.5 * y / head_height;
+                let half_width = 2.5 * t.zoom * y / head_height;
                 segments.push([
                     point(screen_x - half_width, top + y),
                     point(screen_x + half_width, top + y),
@@ -744,8 +756,8 @@ pub fn paint_bit_row(
     }
     let wf = w_px as f64;
     let x0 = area.left();
-    let top = area.top() + TRACE_PAD;
-    let bottom = area.bottom() - TRACE_PAD;
+    let top = area.top() + TRACE_PAD * t.zoom;
+    let bottom = area.bottom() - TRACE_PAD * t.zoom;
     let mid = snap(top + (bottom - top) / 2.0);
     // Top of the 1px line for a bit level.
     let y_of = |b: Bit| -> f32 {
@@ -855,8 +867,8 @@ fn paint_bus_row(
     }
     let wf = w_px as f64;
     let x0 = area.left();
-    let top = area.top() + TRACE_PAD;
-    let bottom = area.bottom() - TRACE_PAD;
+    let top = area.top() + TRACE_PAD * t.zoom;
+    let bottom = area.bottom() - TRACE_PAD * t.zoom;
     let midf = top + (bottom - top) / 2.0;
     let to_u = |tt: f64| -> Option<u64> { (tt >= 0.0).then_some(tt as u64) };
     let time_at = |x: f64| vp.time_at(x, wf);
@@ -928,7 +940,7 @@ fn paint_bus_row(
 
     // Paint. Horizontal edges are crisp quads; slants are stroked lines.
     let mut slants: Vec<(ValueKind, Vec<[crate::geometry::Point; 2]>)> = Vec::new();
-    let slant_w = 3.0f32;
+    let slant_w = 3.0 * t.zoom;
     let char_w = p.char_w;
     let mut texts = Vec::new();
     p.scene.clipped(clip, |scene| {
@@ -980,7 +992,7 @@ fn paint_bus_row(
                 lines.push([point(xb, midf), point(xb - tw, botf)]);
             }
             // Text.
-            let avail = seg_w - 2.0 * tw - 8.0;
+            let avail = seg_w - 2.0 * tw - 8.0 * t.zoom;
             if avail >= char_w {
                 let max_chars = (avail / char_w).floor() as usize;
                 let tr = translator.translate(&value);
@@ -990,7 +1002,7 @@ fn paint_bus_row(
                     } else {
                         t.value_color(tr.kind)
                     };
-                    texts.push((snap(xa + tw + 4.0), text, color));
+                    texts.push((snap(xa + tw + 4.0 * t.zoom), text, color));
                 }
             }
         }

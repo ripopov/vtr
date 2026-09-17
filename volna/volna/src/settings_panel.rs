@@ -25,7 +25,7 @@ use volna_core::settings::{self, Host, Kind, Page, REGISTRY, Spec, Value, search
 use volna_core::{App as CoreApp, Command};
 
 use crate::app::Workspace;
-use crate::theme::theme;
+use crate::theme::{ThemePx, theme};
 use crate::ui::{Icon, IconName};
 
 gpui_kit::actions!(
@@ -161,7 +161,7 @@ impl SettingsPanelView {
             .child(
                 div().flex_1().min_w_0().child(
                     Input::new(&self.search)
-                        .prefix(Icon::new(IconName::Search).size(px(14.0)))
+                        .prefix(Icon::new(IconName::Search).size(t.px(14.0)))
                         .small(),
                 ),
             )
@@ -276,7 +276,7 @@ impl SettingsPanelView {
             ..Default::default()
         };
         Settings::new("volna-settings")
-            .sidebar_width(px(200.0))
+            .sidebar_width(theme(cx).px(200.0))
             .header_style(&hidden)
             .pages(pages)
             .into_any_element()
@@ -388,7 +388,7 @@ fn render_row(
         .flex()
         .w_full()
         .gap_3()
-        .child(div().flex_none().w(px(3.0)).rounded_sm().bg(if modified {
+        .child(div().flex_none().w(t.px(3.0)).rounded_sm().bg(if modified {
             t.panel.icon_accent
         } else {
             gpui_kit::transparent_black()
@@ -509,8 +509,162 @@ fn set(
 
 struct NumberState {
     input: Entity<InputState>,
-    shown: i64,
+    shown: f64,
     _subscriptions: Vec<Subscription>,
+}
+
+/// Range, step and text form of an integer or number setting.
+#[derive(Clone, Copy)]
+struct NumberBounds {
+    min: f64,
+    max: f64,
+    step: f64,
+    /// Decimals shown, derived from the step (`0.1` → one).
+    decimals: usize,
+    integer: bool,
+}
+
+impl NumberBounds {
+    fn of(kind: Kind) -> Option<Self> {
+        match kind {
+            Kind::Integer { min, max, step } => Some(Self {
+                min: min as f64,
+                max: max as f64,
+                step: step as f64,
+                decimals: 0,
+                integer: true,
+            }),
+            Kind::Number { min, max, step } => {
+                let mut decimals = 0;
+                let mut s = step;
+                while decimals < 6 && (s - s.round()).abs() > 1e-9 {
+                    s *= 10.0;
+                    decimals += 1;
+                }
+                Some(Self {
+                    min,
+                    max,
+                    step,
+                    decimals,
+                    integer: false,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Clamp to the range and round to the shown decimals.
+    fn clamp(&self, v: f64) -> f64 {
+        let scale = 10f64.powi(self.decimals as i32);
+        (v.clamp(self.min, self.max) * scale).round() / scale
+    }
+
+    fn text(&self, v: f64) -> String {
+        format!("{:.*}", self.decimals, v)
+    }
+
+    fn value(&self, v: f64) -> Value {
+        if self.integer {
+            Value::Integer(v as i64)
+        } else {
+            Value::Number(v)
+        }
+    }
+}
+
+/// A `NumberInput` with stepper buttons; typed text applies on Enter or blur.
+fn render_number(
+    ws: &WeakEntity<Workspace>,
+    id: &'static str,
+    bounds: NumberBounds,
+    current: f64,
+    enabled: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let current = bounds.clamp(current);
+    let state = window.use_keyed_state(
+        SharedString::from(format!("setting-number-{id}")),
+        cx,
+        |window, cx| {
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .default_value(bounds.text(current))
+                    .min(bounds.min)
+                    .max(bounds.max)
+                    .step(bounds.step)
+            });
+            let ws_step = ws.clone();
+            let ws_change = ws.clone();
+            let subscriptions = vec![
+                cx.subscribe_in(
+                    &input,
+                    window,
+                    move |state: &mut NumberState, input, event: &NumberInputEvent, window, cx| {
+                        let NumberInputEvent::Step(action) = event;
+                        let Ok(shown) = input.read(cx).value().trim().parse::<f64>() else {
+                            return;
+                        };
+                        let next = bounds.clamp(match action {
+                            StepAction::Increment => shown + bounds.step,
+                            StepAction::Decrement => shown - bounds.step,
+                        });
+                        state.shown = next;
+                        input.update(cx, |input, cx| {
+                            input.set_value(bounds.text(next), window, cx)
+                        });
+                        set(&ws_step, id, bounds.value(next), window, cx);
+                    },
+                ),
+                cx.subscribe_in(
+                    &input,
+                    window,
+                    move |state: &mut NumberState, input, event: &InputEvent, window, cx| {
+                        if let InputEvent::PressEnter { .. } | InputEvent::Blur = event {
+                            let text = input.read(cx).value();
+                            let Ok(parsed) = text.trim().parse::<f64>() else {
+                                let shown = state.shown;
+                                input.update(cx, |input, cx| {
+                                    input.set_value(bounds.text(shown), window, cx)
+                                });
+                                return;
+                            };
+                            let next = bounds.clamp(parsed);
+                            if bounds.text(next) != text.trim() {
+                                input.update(cx, |input, cx| {
+                                    input.set_value(bounds.text(next), window, cx)
+                                });
+                            }
+                            if next != state.shown {
+                                state.shown = next;
+                                set(&ws_change, id, bounds.value(next), window, cx);
+                            }
+                        }
+                    },
+                ),
+            ];
+            NumberState {
+                input,
+                shown: current,
+                _subscriptions: subscriptions,
+            }
+        },
+    );
+    state.update(cx, |state, cx| {
+        if state.shown != current {
+            state.shown = current;
+            let input = state.input.clone();
+            input.update(cx, |input, cx| {
+                input.set_value(bounds.text(current), window, cx)
+            });
+        }
+    });
+    let input = state.read(cx).input.clone();
+    NumberInput::new(&input)
+        .small()
+        .disabled(!enabled)
+        .w(theme(cx).px(120.0))
+        .into_any_element()
 }
 
 struct TextState {
@@ -542,108 +696,17 @@ fn render_control(
                 })
                 .into_any_element()
         }
-        Kind::Integer { min, max, step } => {
-            let current = value.as_i64().unwrap_or_default();
-            let state = window.use_keyed_state(
-                SharedString::from(format!("setting-number-{id}")),
+        Kind::Integer { .. } | Kind::Number { .. } => {
+            let bounds = NumberBounds::of(spec.kind).expect("numeric kind");
+            render_number(
+                ws,
+                id,
+                bounds,
+                value.as_f64().unwrap_or_default(),
+                enabled,
+                window,
                 cx,
-                |window, cx| {
-                    let input = cx.new(|cx| {
-                        InputState::new(window, cx)
-                            .default_value(current.to_string())
-                            .min(min as f64)
-                            .max(max as f64)
-                            .step(step as f64)
-                    });
-                    let ws_step = ws.clone();
-                    let ws_change = ws.clone();
-                    let subscriptions = vec![
-                        cx.subscribe_in(
-                            &input,
-                            window,
-                            move |state: &mut NumberState,
-                                  input,
-                                  event: &NumberInputEvent,
-                                  window,
-                                  cx| {
-                                let NumberInputEvent::Step(action) = event;
-                                let Ok(shown) = input.read(cx).value().parse::<i64>() else {
-                                    return;
-                                };
-                                let next = match action {
-                                    StepAction::Increment => shown + step,
-                                    StepAction::Decrement => shown - step,
-                                }
-                                .clamp(min, max);
-                                state.shown = next;
-                                input.update(cx, |input, cx| {
-                                    input.set_value(next.to_string(), window, cx)
-                                });
-                                set(&ws_step, id, Value::Integer(next), window, cx);
-                            },
-                        ),
-                        cx.subscribe_in(
-                            &input,
-                            window,
-                            move |state: &mut NumberState,
-                                  input,
-                                  event: &InputEvent,
-                                  window,
-                                  cx| {
-                                match event {
-                                    InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                                        let text = input.read(cx).value();
-                                        let Ok(parsed) = text.trim().parse::<i64>() else {
-                                            let shown = state.shown;
-                                            input.update(cx, |input, cx| {
-                                                input.set_value(shown.to_string(), window, cx)
-                                            });
-                                            return;
-                                        };
-                                        let next = parsed.clamp(min, max);
-                                        if next != parsed {
-                                            input.update(cx, |input, cx| {
-                                                input.set_value(next.to_string(), window, cx)
-                                            });
-                                        }
-                                        if next != state.shown {
-                                            state.shown = next;
-                                            set(&ws_change, id, Value::Integer(next), window, cx);
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            },
-                        ),
-                    ];
-                    NumberState {
-                        input,
-                        shown: current,
-                        _subscriptions: subscriptions,
-                    }
-                },
-            );
-            state.update(cx, |state, cx| {
-                if state.shown != current {
-                    state.shown = current;
-                    let input = state.input.clone();
-                    input.update(cx, |input, cx| {
-                        input.set_value(current.to_string(), window, cx)
-                    });
-                }
-            });
-            let input = state.read(cx).input.clone();
-            NumberInput::new(&input)
-                .small()
-                .disabled(!enabled)
-                .w(px(120.0))
-                .into_any_element()
-        }
-        Kind::Number { .. } => {
-            // No number-kind setting is registered yet; render the value read-only.
-            div()
-                .child(SharedString::from(value.to_json_text()))
-                .into_any_element()
+            )
         }
         Kind::Text => {
             let current = value.as_str().unwrap_or_default().to_owned();
@@ -685,7 +748,7 @@ fn render_control(
             Input::new(&input)
                 .small()
                 .disabled(!enabled)
-                .w(px(220.0))
+                .w(theme(cx).px(220.0))
                 .into_any_element()
         }
         Kind::Enum(_) | Kind::Theme => {

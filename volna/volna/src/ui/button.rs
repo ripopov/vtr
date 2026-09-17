@@ -1,11 +1,11 @@
 //! Volna's compact icon-button styling over GPUI Kit's interaction component.
 use super::IconName;
-use crate::theme::Surface;
+use crate::theme::{Surface, ThemePx, theme};
 use gpui_kit::component::{
     Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
 };
-use gpui_kit::{App, ElementId, Styled, px};
+use gpui_kit::{App, ElementId, Styled};
 
 pub fn icon_button(
     id: impl Into<ElementId>,
@@ -24,5 +24,5 @@ pub fn icon_button(
                 .active(hover.bg),
         )
         .xsmall()
-        .size(px(24.0))
+        .size(theme(cx).px(24.0))
 }

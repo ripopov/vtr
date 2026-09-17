@@ -12,7 +12,7 @@ use volna_core::sidebar::Key;
 use volna_core::sidebar::variables::{direction_label, shape_icon};
 
 use crate::app::{Workspace, to_modifiers};
-use crate::theme::theme;
+use crate::theme::{ThemePx, theme};
 use crate::ui::{Icon, IconName, icon_button, panel_header};
 
 impl Workspace {
@@ -150,13 +150,13 @@ impl Workspace {
                         }
                         row.child(
                             Icon::new(shape_icon(v.shape))
-                                .size(px(14.0))
+                                .size(t.px(14.0))
                                 .inherit_color(),
                         )
                         .when(show_direction, |row| {
                             row.child(
                                 div()
-                                    .w(px(24.0))
+                                    .w(t.px(24.0))
                                     .flex_none()
                                     .text_size(px(t.ui_size_small))
                                     .child(SharedString::from(dir)),

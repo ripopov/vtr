@@ -16,12 +16,13 @@ use gpui_kit::{
     ParentElement, Pixels, Render, ShapedLine, SharedString, Styled, Transformation,
     UniformListScrollHandle, Window, actions, div, percentage, point, px,
 };
-use volna_core::app::{Action, ChromeDrag, Command, Event};
+use volna_core::app::{Action, ChromeDrag, Command, Event, SettingsCommand};
 use volna_core::document::TraceState;
 use volna_core::session::Session;
+use volna_core::settings::ZoomStep;
 use volna_core::{App as CoreApp, FontRole, Instant, Scene};
 
-use crate::theme::theme;
+use crate::theme::{ThemePx, theme};
 use crate::ui::icon::icon_svg;
 use crate::ui::text_input::TextInputEvent;
 use crate::ui::{Icon, IconName, Splitter, SplitterAxis, TextInput, icon_button, popup_at};
@@ -45,6 +46,9 @@ actions!(
         Quit,
         OpenSettings,
         CommandPalette,
+        UiZoomIn,
+        UiZoomOut,
+        UiZoomReset,
         FocusPanel1,
         FocusPanel2,
         FocusPanel3,
@@ -206,6 +210,18 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-,", OpenSettings, None),
         KeyBinding::new("cmd-k", CommandPalette, Some("Workspace && !Embedded")),
         KeyBinding::new("ctrl-k", CommandPalette, Some("Workspace && !Embedded")),
+        // Interface zoom, as in VS Code: ⌘= / ⌘+ in, ⌘- out, ⌘0 reset.
+        // Embedded in VS Code the host's own zoom applies.
+        KeyBinding::new("cmd-=", UiZoomIn, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-=", UiZoomIn, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-shift-=", UiZoomIn, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-shift-=", UiZoomIn, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-+", UiZoomIn, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-+", UiZoomIn, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd--", UiZoomOut, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl--", UiZoomOut, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-0", UiZoomReset, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-0", UiZoomReset, Some("Workspace && !Embedded")),
         KeyBinding::new(
             "cmd-shift-,",
             crate::settings_panel::ToggleSettingsJson,
@@ -297,6 +313,16 @@ pub fn init(cx: &mut App) {
                 MenuItem::action("Zoom In", ZoomIn),
                 MenuItem::action("Zoom Out", ZoomOut),
                 MenuItem::action("Zoom to Fit", ZoomFit),
+                MenuItem::separator(),
+                MenuItem::submenu(Menu {
+                    name: "Appearance".into(),
+                    items: vec![
+                        MenuItem::action("Zoom In", UiZoomIn),
+                        MenuItem::action("Zoom Out", UiZoomOut),
+                        MenuItem::action("Reset Zoom", UiZoomReset),
+                    ],
+                    disabled: false,
+                }),
             ],
             disabled: false,
         },
@@ -550,11 +576,12 @@ impl Workspace {
             })
             .collect();
         let focus = self.waves_focus.clone();
+        let min_w = theme(cx).px(200.0);
         let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
             for item in items {
                 menu = menu.item(item);
             }
-            menu.min_w(px(200.0)).action_context(focus)
+            menu.min_w(min_w).action_context(focus)
         });
         cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
             this.dispatch_if_current(generation, Command::MenuDismiss(panel), None, cx);
@@ -680,11 +707,7 @@ impl Workspace {
             crate::web::open_host_settings();
             return;
         }
-        self.dispatch(
-            Command::Settings(volna_core::app::SettingsCommand::Open),
-            Some(window),
-            cx,
-        );
+        self.dispatch(Command::Settings(SettingsCommand::Open), Some(window), cx);
     }
 
     fn command_palette(&mut self, _: &CommandPalette, window: &mut Window, cx: &mut Context<Self>) {
@@ -712,6 +735,11 @@ impl Workspace {
     fn settings_changed(&mut self, keys: &[&'static str], cx: &mut Context<Self>) {
         if keys.contains(&"appearance.theme") {
             self.apply_theme_setting(cx);
+        }
+        if keys.contains(&"appearance.zoom") {
+            let zoom = self.app.settings.resolved().appearance.zoom as f32;
+            log::debug!("applying interface zoom {zoom}");
+            crate::theme::set_zoom(zoom, cx);
         }
         if keys.contains(&"workspace.autosave") && !self.embedded && !self.cli_policy {
             use volna_core::settings::Autosave;
@@ -772,11 +800,12 @@ impl Workspace {
         })
         .collect();
         let focus = self.focus_handle.clone();
+        let min_w = theme(cx).px(200.0);
         let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
             for item in items {
                 menu = menu.item(item);
             }
-            menu.min_w(px(200.0)).action_context(focus)
+            menu.min_w(min_w).action_context(focus)
         });
         cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
             this.stress_menu = None;
@@ -819,7 +848,10 @@ impl Workspace {
                 .cursor(cursor)
                 .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| {
                     let command = match drag {
-                        ChromeDrag::Sidebar => Command::SetSidebarWidth(f32::from(ev.position.x)),
+                        // The width is kept at zoom 1.0 and scaled when laid out.
+                        ChromeDrag::Sidebar => {
+                            Command::SetSidebarWidth(f32::from(ev.position.x) / theme(cx).zoom)
+                        }
                         ChromeDrag::ScopesSplit => {
                             let t = theme(cx);
                             let top = if this.embedded {
@@ -863,7 +895,7 @@ impl Workspace {
             .items_center()
             .h(px(t.titlebar_height))
             .w_full()
-            .pl(px(80.0))
+            .pl(t.px(80.0))
             .pr_2()
             .gap_2()
             .bg(t.bar.bg)
@@ -937,13 +969,13 @@ impl Workspace {
             .flex_col()
             .flex_none()
             .h_full()
-            .w(px(self.app.sidebar_width))
+            .w(t.px(self.app.sidebar_width))
             .bg(t.panel.bg)
             .child(
                 div()
                     .flex_none()
                     .h(gpui_kit::relative(frac))
-                    .min_h(px(96.0))
+                    .min_h(t.px(96.0))
                     .overflow_hidden()
                     .child(scopes),
             )
@@ -961,7 +993,7 @@ impl Workspace {
             .child(
                 div()
                     .flex_1()
-                    .min_h(px(96.0))
+                    .min_h(t.px(96.0))
                     .overflow_hidden()
                     .child(variables),
             )
@@ -993,13 +1025,14 @@ impl Workspace {
                 .gap_3()
                 .bg(t.editor.bg)
                 .child(
-                    icon_svg(IconName::LoaderCircle, px(28.0), colors.icon_accent).with_animation(
-                        "spinner",
-                        Animation::new(Duration::from_millis(900)).repeat(),
-                        |svg, delta| {
-                            svg.with_transformation(Transformation::rotate(percentage(delta)))
-                        },
-                    ),
+                    icon_svg(IconName::LoaderCircle, t.px(28.0), colors.icon_accent)
+                        .with_animation(
+                            "spinner",
+                            Animation::new(Duration::from_millis(900)).repeat(),
+                            |svg, delta| {
+                                svg.with_transformation(Transformation::rotate(percentage(delta)))
+                            },
+                        ),
                 )
                 .child(
                     div()
@@ -1077,7 +1110,7 @@ impl Workspace {
                 .items_center()
                 .justify_between()
                 .gap_4()
-                .w(px(260.0))
+                .w(t.px(260.0))
                 .child(div().text_color(colors.text_muted).child(label))
                 .child(
                     div()
@@ -1103,13 +1136,13 @@ impl Workspace {
             .text_size(px(t.ui_size))
             .child(
                 Icon::new(IconName::AudioWaveform)
-                    .size(px(40.0))
+                    .size(t.px(40.0))
                     .color(colors.text_placeholder),
             )
             .child(
                 div()
                     .mt_2()
-                    .text_size(px(16.0))
+                    .text_size(t.px(16.0))
                     .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                     .text_color(colors.text)
                     .child("No trace open"),
@@ -1135,7 +1168,7 @@ impl Workspace {
                         .text_color(t.panel.error)
                         .child(
                             Icon::new(IconName::TriangleAlert)
-                                .size(px(14.0))
+                                .size(t.px(14.0))
                                 .color(t.panel.error),
                         )
                         .child(e),
@@ -1200,7 +1233,7 @@ impl Workspace {
                     .items_center()
                     .gap_1()
                     .px_1p5()
-                    .h(px(18.0))
+                    .h(t.px(18.0))
                     .rounded_sm()
                     .cursor(CursorStyle::PointingHand)
                     .text_size(px(t.ui_size_small))
@@ -1211,7 +1244,7 @@ impl Workspace {
                     })
                     .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
                     .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
-                    .child(gpui_kit::component::Icon::new(icon).with_size(px(12.0)))
+                    .child(gpui_kit::component::Icon::new(icon).with_size(t.px(12.0)))
                     .child(text)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.dispatch(Command::Action(action), Some(window), cx)
@@ -1271,7 +1304,7 @@ impl Workspace {
                                                 .map(|index| {
                                                     div()
                                                         .id(("workspace-detail", index))
-                                                        .h(px(28.0))
+                                                        .h(t.px(28.0))
                                                         .text_ellipsis()
                                                         .child(details[index].clone())
                                                         .tooltip({
@@ -1285,7 +1318,7 @@ impl Workspace {
                                                 .collect::<Vec<_>>()
                                         },
                                     )
-                                    .h(px(280.0)),
+                                    .h(t.px(280.0)),
                                 )
                         });
                     }),
@@ -1302,7 +1335,7 @@ impl Workspace {
                     .gap_1()
                     .child(
                         Icon::new(IconName::Locate)
-                            .size(px(12.0))
+                            .size(t.px(12.0))
                             .color(colors.icon_accent),
                     )
                     .child(mono(c, colors.text)),
@@ -1319,7 +1352,7 @@ impl Workspace {
                 .items_center()
                 .gap_1()
                 .px_1p5()
-                .h(px(18.0))
+                .h(t.px(18.0))
                 .rounded_sm()
                 .cursor(CursorStyle::PointingHand)
                 .text_color(colors.text_muted)
@@ -1327,9 +1360,14 @@ impl Workspace {
                 .tooltip(|w, cx| Tooltip::new("Open a synthetic stress trace").build(w, cx))
                 .on_click(cx.listener(|this, ev: &gpui_kit::ClickEvent, window, cx| {
                     let p = ev.position();
-                    this.open_stress_menu(point(p.x - px(160.0), p.y - px(120.0)), window, cx);
+                    let t = theme(cx);
+                    this.open_stress_menu(point(p.x - t.px(160.0), p.y - t.px(120.0)), window, cx);
                 }))
-                .child(Icon::new(IconName::Activity).size(px(12.0)).inherit_color())
+                .child(
+                    Icon::new(IconName::Activity)
+                        .size(t.px(12.0))
+                        .inherit_color(),
+                )
                 .child(div().text_size(px(t.ui_size_small)).child("Stress")),
         );
         div()
@@ -1398,7 +1436,6 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(
                 |this, _: &crate::settings_panel::ToggleSettingsJson, window, cx| {
-                    use volna_core::app::SettingsCommand;
                     if this.embedded {
                         return;
                     }
@@ -1477,6 +1514,28 @@ impl Render for Workspace {
                 cx,
             );
         }));
+        root = root
+            .on_action(cx.listener(|this, _: &UiZoomIn, window, cx| {
+                this.dispatch(
+                    Command::Settings(SettingsCommand::Zoom(ZoomStep::In)),
+                    Some(window),
+                    cx,
+                );
+            }))
+            .on_action(cx.listener(|this, _: &UiZoomOut, window, cx| {
+                this.dispatch(
+                    Command::Settings(SettingsCommand::Zoom(ZoomStep::Out)),
+                    Some(window),
+                    cx,
+                );
+            }))
+            .on_action(cx.listener(|this, _: &UiZoomReset, window, cx| {
+                this.dispatch(
+                    Command::Settings(SettingsCommand::Zoom(ZoomStep::Reset)),
+                    Some(window),
+                    cx,
+                );
+            }));
         root = wave_actions!(
             root,
             cx,

@@ -313,3 +313,36 @@ fn coalesced_events_remain_distinct_with_identical_host_chart_colors() {
         assert!(contrast(theme.wave_event_coalesced, theme.editor.bg) >= 2.99);
     }
 }
+
+#[test]
+fn zoomed_scales_every_metric_from_the_design_size_and_map_keeps_it() {
+    let base = Theme::one_dark();
+    assert_eq!(base.zoom, 1.0);
+    let big = base.zoomed(2.0);
+    assert_eq!(big.zoom, 2.0);
+    assert_eq!(big.ui_size, base.ui_size * 2.0);
+    assert_eq!(big.ui_size_small, base.ui_size_small * 2.0);
+    assert_eq!(big.mono_size, base.mono_size * 2.0);
+    assert_eq!(big.row_height, base.row_height * 2.0);
+    assert_eq!(big.header_height, base.header_height * 2.0);
+    assert_eq!(big.titlebar_height, base.titlebar_height * 2.0);
+    assert_eq!(big.statusbar_height, base.statusbar_height * 2.0);
+    assert_eq!(big.timeline_height, base.timeline_height * 2.0);
+    assert_eq!(big.icon_size, base.icon_size * 2.0);
+    assert_eq!(big.splitter_grab, base.splitter_grab * 2.0);
+    assert_eq!(big.scale(12.0), 24.0);
+    // Colours and fonts are untouched.
+    assert_eq!(big.editor.bg, base.editor.bg);
+    assert_eq!(big.ui_font, base.ui_font);
+    // Zooming an already zoomed theme starts from the design size again.
+    let half = big.zoomed(0.5);
+    assert_eq!(half.row_height, base.row_height * 0.5);
+    assert_eq!(half.zoomed(1.0).row_height, base.row_height);
+    // Nonsense factors fall back to the design size.
+    assert_eq!(base.zoomed(0.0).zoom, 1.0);
+    assert_eq!(base.zoomed(f32::NAN).row_height, base.row_height);
+    // Colour conversion keeps the zoom.
+    let mapped = big.map(|c| c.with_alpha(0.5));
+    assert_eq!(mapped.zoom, 2.0);
+    assert_eq!(mapped.row_height, big.row_height);
+}

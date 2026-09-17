@@ -19,7 +19,9 @@ pub mod schema;
 pub mod search;
 pub mod store;
 
-pub use registry::{Apply, Choice, Host, Hosts, Kind, Page, REGISTRY, Spec, spec};
+pub use registry::{
+    Apply, Choice, Host, Hosts, Kind, Page, REGISTRY, Spec, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP, spec,
+};
 pub use search::{Hit, Matched, search};
 pub use store::{Diagnostic, Severity, Store, WRITE_IDLE};
 
@@ -147,10 +149,43 @@ impl Autosave {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AppearanceSettings {
     /// `one-dark` or the stem of a palette file in the host's theme directory.
     pub theme: String,
+    /// Interface zoom factor, 1.0 = design sizes; see [`ZoomStep`].
+    pub zoom: f64,
+}
+
+/// A keyboard or menu step of `appearance.zoom`, like VS Code's View: Zoom
+/// In / Zoom Out / Reset Zoom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZoomStep {
+    In,
+    Out,
+    Reset,
+}
+
+impl ZoomStep {
+    /// The zoom after this step from `current`: one [`ZOOM_STEP`] in either
+    /// direction, clamped to the registry range (a step at the limit is a
+    /// no-op) and rounded to the step so the file shows `1.2`, never
+    /// `1.2000000000000002`.
+    pub fn apply(self, current: f64) -> f64 {
+        let next = match self {
+            ZoomStep::In => current + ZOOM_STEP,
+            ZoomStep::Out => current - ZOOM_STEP,
+            ZoomStep::Reset => 1.0,
+        };
+        normalize_zoom(next)
+    }
+}
+
+/// Round a zoom factor to the step and clamp it to the registry range.
+pub fn normalize_zoom(zoom: f64) -> f64 {
+    let zoom = if zoom.is_finite() { zoom } else { 1.0 };
+    let steps = (zoom / ZOOM_STEP).round();
+    ((steps * ZOOM_STEP * 10.0).round() / 10.0).clamp(ZOOM_MIN, ZOOM_MAX)
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PanelSettings {
@@ -175,7 +210,7 @@ pub struct RemoteSettings {
 
 /// The resolved settings the viewer reads. Every field has a registry entry;
 /// invalid or missing document values fall back to that entry's default.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub appearance: AppearanceSettings,
     pub panels: PanelSettings,
@@ -198,6 +233,7 @@ impl Settings {
         Settings {
             appearance: AppearanceSettings {
                 theme: text("appearance.theme"),
+                zoom: normalize_zoom(value("appearance.zoom").as_f64().unwrap_or(1.0)),
             },
             panels: PanelSettings {
                 link_by_default: value("panels.linkByDefault").as_bool().unwrap_or(true),
@@ -231,5 +267,40 @@ impl Settings {
             memory_mib: self.remote.memory_mib,
             object_mib: self.remote.object_mib,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoom_steps_clamp_round_and_reset() {
+        assert_eq!(Settings::default().appearance.zoom, 1.0);
+        assert_eq!(ZoomStep::In.apply(1.0), 1.1);
+        assert_eq!(ZoomStep::In.apply(1.1), 1.2);
+        assert_eq!(ZoomStep::Out.apply(1.0), 0.9);
+        assert_eq!(ZoomStep::Out.apply(0.5), 0.5);
+        assert_eq!(ZoomStep::In.apply(3.0), 3.0);
+        assert_eq!(ZoomStep::Reset.apply(2.3), 1.0);
+        // Twenty steps in from the minimum land exactly on 2.5.
+        let mut z = 0.5;
+        for _ in 0..20 {
+            z = ZoomStep::In.apply(z);
+        }
+        assert_eq!(z, 2.5);
+        assert_eq!(normalize_zoom(0.4), ZOOM_MIN);
+        assert_eq!(normalize_zoom(3.1), ZOOM_MAX);
+        assert_eq!(normalize_zoom(f64::NAN), 1.0);
+        let resolved = Settings::from_values(&|id| match id {
+            "appearance.zoom" => Value::Number(1.75),
+            _ => spec(id).unwrap().default.value(),
+        });
+        assert_eq!(resolved.appearance.zoom, 1.8);
+        let resolved = Settings::from_values(&|id| match id {
+            "appearance.zoom" => Value::Integer(2),
+            _ => spec(id).unwrap().default.value(),
+        });
+        assert_eq!(resolved.appearance.zoom, 2.0);
     }
 }

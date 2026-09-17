@@ -129,6 +129,9 @@ pub struct Theme<C = Color> {
     pub timeline_height: f32,
     pub icon_size: f32,
     pub splitter_grab: f32,
+    /// The interface zoom the metrics above already include (1.0 = the
+    /// design sizes). Painters multiply their own pixel constants by it.
+    pub zoom: f32,
 }
 
 fn c(hex: u32) -> Color {
@@ -229,7 +232,40 @@ impl<C: Copy> Theme<C> {
             timeline_height: self.timeline_height,
             icon_size: self.icon_size,
             splitter_grab: self.splitter_grab,
+            zoom: self.zoom,
         }
+    }
+
+    /// The same theme at interface zoom `factor`: every font size and metric
+    /// is the design size times `factor`, whatever zoom `self` already has.
+    pub fn zoomed(&self, factor: f32) -> Self
+    where
+        C: Copy,
+    {
+        let factor = if factor.is_finite() && factor > 0.0 {
+            factor
+        } else {
+            1.0
+        };
+        let f = factor / self.zoom;
+        let mut t = self.map(|c| c);
+        t.ui_size *= f;
+        t.ui_size_small *= f;
+        t.mono_size *= f;
+        t.row_height *= f;
+        t.header_height *= f;
+        t.titlebar_height *= f;
+        t.statusbar_height *= f;
+        t.timeline_height *= f;
+        t.icon_size *= f;
+        t.splitter_grab *= f;
+        t.zoom = factor;
+        t
+    }
+
+    /// A design-time pixel size at this theme's zoom.
+    pub fn scale(&self, px: f32) -> f32 {
+        px * self.zoom
     }
 }
 
@@ -319,6 +355,7 @@ impl Theme<Color> {
             timeline_height: 32.0,
             icon_size: 16.0,
             splitter_grab: 8.0,
+            zoom: 1.0,
         }
     }
 

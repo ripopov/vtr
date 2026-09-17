@@ -229,6 +229,13 @@
     "configuration": {
       "title": "Volna",
       "properties": {
+        "volna.appearance.zoom": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 3.0,
+          "default": 1.0,
+          "markdownDescription": "Scale the whole interface: chrome, sidebars, the settings editor and the wave table with its rows and text. 1 is the design size. `⌘=` / `⌘-` step it, `⌘0` resets it. Time-axis zoom of the waves is unrelated."
+        },
         "volna.panels.linkByDefault": {
           "type": "boolean",
           "default": true,

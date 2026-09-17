@@ -229,6 +229,40 @@ extension owns the settings UI: ⌘, forwards to VS Code's editor filtered to
 `SettingsChanged { keys }` event lets frontends re-project the theme or the
 workspace policy only when a relevant key changed.
 
+### Interface zoom
+
+`appearance.zoom` (0.5–3.0, step 0.1) is one multiplier over every size the
+viewer already has; it replaces nothing. The core `Theme` carries its metrics
+(`ui_size`, `row_height`, `timeline_height`, bar heights, `icon_size`,
+`splitter_grab`, …) plus a `zoom` field; `Theme::zoomed(factor)` returns the
+palette with every metric at its design size times the factor, whatever zoom
+the input had, and `Theme::scale(px)` is a design pixel at that zoom. The wave
+layout takes the zoom with the theme (`LayoutInput::zoom`, kept in
+`WaveLayout::zoom`) and multiplies its constants (column minimum, splitter
+tolerance, scrollbar, badge and chip sizes), so the painted rectangles and
+the hit regions agree at every factor; the painter scales its paddings, chip
+and label heights, the tick spacing and the trace inset the same way and
+keeps hairlines at one pixel. Values saved in workspaces stay at zoom 1.0:
+column widths and the sidebar width are multiplied when laid out and divided
+when a drag stores them, `waves.snapPixels` is multiplied when a click snaps,
+and a wave panel rescales its `scroll_y` when the row height changes so the
+same rows stay on screen. The time axis of the waves (`Viewport`) is untouched.
+
+The GPUI frontend keeps the installed palette at its design sizes and
+re-projects `base.zoomed(zoom)` on every `SettingsChanged` naming the key,
+exactly like a theme change (`theme::set_zoom`; nothing in the workspace is
+rebuilt). The component theme's `font_size` becomes the zoomed UI size, and
+gpui-kit's `Root` sets the window's rem size from it, so its settings editor,
+inputs, menus, dialogs and the palette scale through rem units; Volna's own
+chrome reads the zoomed theme metrics and writes literal sizes through
+`ThemePx::px` (`t.px(12.0)`) instead of `px(12.0)`. `SettingsCommand::Zoom`
+(`ZoomStep::{In, Out, Reset}`) steps the setting by 0.1, clamped and rounded
+to the step, writing `settings.json` through the ordinary path (reset removes
+the key), so ⌘= / ⌘+ / ⌘- / ⌘0, the View ▸ Appearance menu and the palette
+persist across restarts. Embedded in VS Code the host's own window zoom
+applies and the key bindings are off, but `volna.appearance.zoom` is still
+honoured through the configuration path.
+
 ## The session seam
 
 All trace data is reached through the `Session` trait: resident `info()` and

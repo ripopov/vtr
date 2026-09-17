@@ -7,7 +7,7 @@ use volna_core::Instant;
 use volna_core::app::{App, Command, Event, SettingsCommand};
 use volna_core::panels::PanelsCommand;
 use volna_core::session::OpenSpec;
-use volna_core::settings::{Animation, Host, Value, WRITE_IDLE};
+use volna_core::settings::{Animation, Host, Value, WRITE_IDLE, ZoomStep};
 use volna_core::workspace::persistence::{Candidate, Content, Persistence, Target};
 
 fn pump(app: &mut App) {
@@ -281,4 +281,53 @@ fn theme_names_validate_the_theme_key_and_unavailable_keys_are_diagnosed() {
             .message
             .contains("not used on this host")
     );
+}
+
+#[test]
+fn zoom_steps_write_the_setting_and_reset_removes_it() {
+    let mut app = app();
+    app.settings_loaded("{\n  \"waves.snapPixels\": 4,\n}\n");
+    events(&mut app);
+    assert_eq!(app.settings.resolved().appearance.zoom, 1.0);
+    let t0 = Instant::now();
+    app.handle_at(Command::Settings(SettingsCommand::Zoom(ZoomStep::In)), t0);
+    let ev = events(&mut app);
+    assert_eq!(changed_keys(&ev), vec!["appearance.zoom"]);
+    assert_eq!(app.settings.resolved().appearance.zoom, 1.1);
+    assert!(app.settings.text().contains("\"appearance.zoom\": 1.1"));
+    assert!(app.settings.is_modified("appearance.zoom"));
+    for _ in 0..30 {
+        app.handle_at(Command::Settings(SettingsCommand::Zoom(ZoomStep::In)), t0);
+    }
+    assert_eq!(app.settings.resolved().appearance.zoom, 3.0);
+    // A step at the limit is a no-op, not an error notice.
+    app.handle_at(Command::Settings(SettingsCommand::Zoom(ZoomStep::In)), t0);
+    assert!(
+        !events(&mut app)
+            .iter()
+            .any(|e| matches!(e, Event::Notice(_)))
+    );
+    app.handle_at(Command::Settings(SettingsCommand::Zoom(ZoomStep::Out)), t0);
+    assert_eq!(app.settings.resolved().appearance.zoom, 2.9);
+    events(&mut app);
+    app.handle_at(
+        Command::Settings(SettingsCommand::Zoom(ZoomStep::Reset)),
+        t0,
+    );
+    let ev = events(&mut app);
+    assert_eq!(changed_keys(&ev), vec!["appearance.zoom"]);
+    assert_eq!(app.settings.resolved().appearance.zoom, 1.0);
+    assert!(!app.settings.text().contains("appearance.zoom"));
+    assert!(app.settings.text().contains("\"waves.snapPixels\": 4"));
+    // The change reaches the file after the idle interval.
+    app.handle_at(Command::Settings(SettingsCommand::Zoom(ZoomStep::Out)), t0);
+    events(&mut app);
+    app.tick(t0 + WRITE_IDLE + Duration::from_millis(1));
+    let (_, text) = write(&events(&mut app)).expect("a write");
+    assert!(text.contains("\"appearance.zoom\": 0.9"));
+    // An out-of-range file value falls back to the default with a diagnostic.
+    app.settings_external(b"{ \"appearance.zoom\": 9 }");
+    events(&mut app);
+    assert_eq!(app.settings.resolved().appearance.zoom, 1.0);
+    assert!(!app.settings.diagnostics().is_empty());
 }

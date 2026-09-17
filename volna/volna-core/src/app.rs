@@ -151,6 +151,9 @@ pub enum SettingsCommand {
     Reveal {
         id: String,
     },
+    /// Step `appearance.zoom` (⌘= / ⌘- / ⌘0); the new value is written to
+    /// the settings file like any other change.
+    Zoom(settings::ZoomStep),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

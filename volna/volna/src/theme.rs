@@ -3,7 +3,7 @@
 //! snapshots) lives in `volna_core::theme`; this module only converts.
 
 use gpui_kit::component::{Theme as ComponentTheme, ThemeMode};
-use gpui_kit::{App, Global, Hsla, px};
+use gpui_kit::{App, Global, Hsla, Pixels, px};
 
 pub use volna_core::theme::{Appearance, HostPalette, vscode};
 
@@ -18,11 +18,28 @@ pub type Theme = volna_core::theme::Theme<Hsla>;
 pub type CoreTheme = volna_core::theme::Theme;
 
 struct ThemeGlobal {
+    /// The installed palette at its design sizes (zoom 1.0).
+    base: CoreTheme,
+    /// `appearance.zoom`; `core` and `gpui` are `base` at this zoom.
+    zoom: f32,
     core: CoreTheme,
     gpui: Theme,
 }
 
 impl Global for ThemeGlobal {}
+
+/// Design-time pixel sizes at the current interface zoom, for the chrome
+/// Volna lays out itself (`t.px(12.0)` instead of `px(12.0)`). The theme's
+/// own metrics (`row_height`, `ui_size`, …) are already zoomed.
+pub trait ThemePx {
+    fn px(&self, design_px: f32) -> Pixels;
+}
+
+impl<C: Copy> ThemePx for volna_core::theme::Theme<C> {
+    fn px(&self, design_px: f32) -> Pixels {
+        px(self.scale(design_px))
+    }
+}
 
 pub fn hsla(c: volna_core::Color) -> Hsla {
     Hsla {
@@ -33,13 +50,26 @@ pub fn hsla(c: volna_core::Color) -> Hsla {
     }
 }
 
-/// Make `core` the current theme without repainting (start-up).
+/// Make `core` the current theme without repainting (start-up). The
+/// interface zoom already installed is kept.
 ///
 /// gpui-kit's defaults are a light palette; first adopt its own dark or light
 /// base for the appearance, then project every token the chrome reads
 /// (buttons, tabs, sidebar, group boxes, inputs, switches, lists, menus) from
 /// the core surfaces, so components Volna does not restyle still match.
 pub fn set(core: CoreTheme, cx: &mut App) {
+    let zoom = cx.try_global::<ThemeGlobal>().map_or(1.0, |g| g.zoom);
+    set_zoomed(core, zoom, cx);
+}
+
+/// Install `base` scaled by `zoom`. gpui-kit's `Root` sets the window's rem
+/// size from the component theme's `font_size`, so every rem-based size in
+/// its chrome (the settings editor, inputs, menus, dialogs, the palette)
+/// follows the zoomed UI font size; Volna's own chrome reads the zoomed
+/// metrics and [`ThemePx`].
+fn set_zoomed(base: CoreTheme, zoom: f32, cx: &mut App) {
+    let core = base.zoomed(zoom);
+    let zoom = core.zoom;
     let t = core.map(hsla);
     let mode = if t.appearance.is_dark() {
         ThemeMode::Dark
@@ -150,13 +180,31 @@ pub fn set(core: CoreTheme, cx: &mut App) {
     kit.progress_bar = t.button.bg;
     kit.tokens = kit.colors.into();
     ComponentTheme::sync_base(cx);
-    cx.set_global(ThemeGlobal { gpui: t, core });
+    cx.set_global(ThemeGlobal {
+        base,
+        zoom,
+        gpui: t,
+        core,
+    });
 }
 
 /// Presentation only; invalidate cached children without rebuilding viewer state.
 pub fn install(core: CoreTheme, cx: &mut App) {
     set(core, cx);
     cx.refresh_windows();
+}
+
+/// Apply `appearance.zoom`: re-project the installed palette at `zoom` and
+/// repaint. Like a theme change, viewer state is untouched.
+pub fn set_zoom(zoom: f32, cx: &mut App) {
+    let base = cx.global::<ThemeGlobal>().base;
+    set_zoomed(base, zoom, cx);
+    cx.refresh_windows();
+}
+
+/// The current interface zoom factor.
+pub fn zoom(cx: &App) -> f32 {
+    cx.global::<ThemeGlobal>().zoom
 }
 
 pub fn theme(cx: &App) -> &Theme {

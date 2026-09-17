@@ -118,6 +118,19 @@ impl App {
                 self.settings_view.json = !self.settings_view.json;
                 self.changed();
             }
+            SettingsCommand::Zoom(step) => {
+                let next = step.apply(self.settings.resolved().appearance.zoom);
+                let result = if next == 1.0 {
+                    self.settings.reset("appearance.zoom", now)
+                } else {
+                    self.settings
+                        .set("appearance.zoom", Value::Number(next), now)
+                };
+                match result {
+                    Ok(keys) => self.settings_changed(keys),
+                    Err(error) => self.notice_settings(error.to_string()),
+                }
+            }
             SettingsCommand::Reveal { id } => {
                 self.settings_view = SettingsView {
                     query: format!("@id:{id}"),

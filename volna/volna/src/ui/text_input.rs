@@ -9,7 +9,7 @@ use gpui_kit::{
 };
 
 use super::icon::{Icon, IconName};
-use crate::theme::theme;
+use crate::theme::{ThemePx, theme};
 
 pub enum TextInputEvent {
     Changed,
@@ -128,7 +128,7 @@ impl Render for TextInput {
             .flex()
             .items_center()
             .gap_2()
-            .h(px(24.0))
+            .h(t.px(24.0))
             .px_2()
             .rounded_md()
             .bg(t.input.bg)
@@ -142,7 +142,7 @@ impl Render for TextInput {
             .on_click(cx.listener(|this, _, window, cx| window.focus(&this.focus_handle, cx)))
             .child(
                 Icon::new(IconName::Search)
-                    .size(px(14.0))
+                    .size(t.px(14.0))
                     .color(colors.icon_muted),
             )
             .child(
@@ -162,7 +162,7 @@ impl Render for TextInput {
                             .child(SharedString::from(self.text.clone()))
                     })
                     .when(focused, |el| {
-                        el.child(div().w(px(1.0)).h(px(14.0)).bg(colors.text))
+                        el.child(div().w(px(1.0)).h(t.px(14.0)).bg(colors.text))
                     }),
             )
             .when(!empty, |el| {
@@ -172,14 +172,14 @@ impl Render for TextInput {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .size(px(16.0))
+                        .size(t.px(16.0))
                         .rounded_sm()
                         .cursor(CursorStyle::PointingHand)
                         .hover(move |s| s.bg(colors.bg).border_1().border_color(hover_border))
                         .on_click(cx.listener(|this, _, _, cx| this.clear(cx)))
                         .child(
                             Icon::new(IconName::X)
-                                .size(px(12.0))
+                                .size(t.px(12.0))
                                 .color(colors.icon_muted),
                         ),
                 )

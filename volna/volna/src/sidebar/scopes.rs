@@ -9,7 +9,7 @@ use volna_core::sidebar::Key;
 use volna_core::sidebar::scopes::scope_icon;
 
 use crate::app::Workspace;
-use crate::theme::theme;
+use crate::theme::{ThemePx, theme};
 use crate::ui::{Icon, IconName, icon_button, panel_header};
 
 impl Workspace {
@@ -78,7 +78,7 @@ impl Workspace {
                             .flex()
                             .items_center()
                             .h(px(t.row_height))
-                            .pl(px(8.0 + 12.0 * depth as f32))
+                            .pl(t.px(8.0 + 12.0 * depth as f32))
                             .pr_2()
                             .gap_1()
                             .cursor(CursorStyle::PointingHand)
@@ -108,7 +108,7 @@ impl Workspace {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .size(px(16.0))
+                            .size(t.px(16.0))
                             .rounded_sm()
                             .when(has_children, |el| {
                                 el.cursor(CursorStyle::PointingHand)
@@ -122,14 +122,14 @@ impl Workspace {
                                         } else {
                                             IconName::ChevronRight
                                         })
-                                        .size(px(14.0))
+                                        .size(t.px(14.0))
                                         .inherit_color(),
                                     )
                             });
                         row.child(chevron)
                             .child(
                                 Icon::new(scope_icon(&scope.kind))
-                                    .size(px(14.0))
+                                    .size(t.px(14.0))
                                     .inherit_color(),
                             )
                             .child(

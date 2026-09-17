@@ -191,9 +191,20 @@ panels" through its keywords) and accepts `@modified`, `@page:waves` and
 copy as JSON. An invalid value falls back to its default with a diagnostic; a
 syntax error keeps the last good values and disables GUI edits until fixed.
 
+`appearance.zoom` scales the whole interface like VS Code's View: Zoom In /
+Zoom Out: gpui-kit's chrome, Volna's bars, tabs and sidebars, and the wave
+table (row height, text, timeline and marker labels, cursor and scrollbar
+geometry, hit-testing) all follow one factor on top of their own sizes.
+`⌘=` (or `⌘+`) and `⌘-` step it by 0.1, `⌘0` resets it; the View ▸
+Appearance menu and the palette (`Interface: Zoom In`) do the same. Each step
+writes the setting, so it persists and survives restart, and changing it keeps
+the trace, selection, viewport and markers as a theme change does. The wave
+time axis has its own zoom (`=` / `-` in the waves) and is unaffected.
+
 | Key | Values | Applies |
 |---|---|---|
 | `appearance.theme` | `one-dark`, `dracula`, `catppuccin-mocha`, `catppuccin-latte`, `github-dark`, `github-light`, `vscode-dark`, `vscode-light`, or the stem of a palette JSON in `<config dir>/themes/` | live (native, web) |
+| `appearance.zoom` | 0.5–3.0 in steps of 0.1, default 1.0 | live |
 | `panels.linkByDefault` | boolean | new panels |
 | `waves.animation` | `on`, `reduced`, `off` | live |
 | `waves.snapPixels` | 0–24 | live |
@@ -220,6 +231,7 @@ Main GPUI viewer shortcuts (Command on macOS, Ctrl elsewhere):
 | Save / Save As workspace | `⌘S` / `⌘shift-S` |
 | Settings / settings.json | `⌘,` / `⌘shift-,` |
 | Command palette | `⌘K` |
+| Interface zoom in / out / reset | `⌘=` or `⌘+` / `⌘-` / `⌘0` |
 
 The panel menu also provides rename and close-other-panel actions.
 

@@ -283,6 +283,11 @@ impl Spec {
     }
 }
 
+/// Range and step of `appearance.zoom`, the interface zoom factor.
+pub const ZOOM_MIN: f64 = 0.5;
+pub const ZOOM_MAX: f64 = 3.0;
+pub const ZOOM_STEP: f64 = 0.1;
+
 /// Every setting, in the order the editor shows them.
 pub static REGISTRY: &[Spec] = &[
     Spec {
@@ -306,6 +311,25 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Text("one-dark"),
         apply: Apply::Live,
         hosts: Hosts::NATIVE_WEB,
+        since: 1,
+    },
+    Spec {
+        id: "appearance.zoom",
+        page: Page::Appearance,
+        group: "Zoom",
+        title: "Zoom",
+        description: "Scale the whole interface: chrome, sidebars, the settings editor and the wave table with its rows and text. 1 is the design size. `⌘=` / `⌘-` step it, `⌘0` resets it. Time-axis zoom of the waves is unrelated.",
+        keywords: &[
+            "scale", "font", "size", "bigger", "smaller", "magnify", "hidpi",
+        ],
+        kind: Kind::Number {
+            min: ZOOM_MIN,
+            max: ZOOM_MAX,
+            step: ZOOM_STEP,
+        },
+        default: Literal::Number(1.0),
+        apply: Apply::Live,
+        hosts: Hosts::ALL,
         since: 1,
     },
     Spec {

@@ -9,6 +9,9 @@ use std::sync::Arc;
 use web_time::Instant;
 
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
+
+/// A ⌘-drag narrower than this (at zoom 1.0) is a click, not a zoom range.
+pub const ZOOM_RANGE_MIN_PX: f32 = 4.0;
 use super::viewport::{Viewport, ViewportState};
 use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
 use crate::document::Document;
@@ -707,10 +710,15 @@ impl WaveModel {
         doc: &Document,
         theme: &Theme,
     ) -> &WaveLayout {
+        // Keep the same rows on screen when the interface zoom changes.
+        if self.layout.row_h > 0.0 && self.layout.row_h != theme.row_height {
+            self.scroll_y *= theme.row_height / self.layout.row_h;
+        }
         let layout = WaveLayout::compute(LayoutInput {
             bounds,
             row_h: theme.row_height,
             header_h: theme.timeline_height,
+            zoom: theme.zoom,
             names_width: self.names_width,
             values_width: self.values_width,
             item_count: self.items.len(),
@@ -755,7 +763,7 @@ impl WaveModel {
             PointerEvent::Up => {
                 let had = self.drag.is_some();
                 if let Some(Drag::ZoomRange { start, current }) = self.drag.take()
-                    && (current.x - start.x).abs() >= 4.0
+                    && (current.x - start.x).abs() >= ZOOM_RANGE_MIN_PX * self.layout.zoom
                 {
                     let layout = &self.layout;
                     let viewport = self.viewport(doc);
@@ -856,6 +864,7 @@ impl WaveModel {
         }
         let in_waves_x = p.x >= layout.waves.left() && p.x < layout.waves.right();
         let wave_wf = layout.wave_width_f64();
+        let snap_px = doc.navigation.snap_px * f64::from(layout.zoom);
         if in_waves_x && button == MouseButton::Left && (modifiers.control || modifiers.platform) {
             let displayed = self.viewport(doc);
             self.viewport_state_mut(doc).set(displayed);
@@ -868,13 +877,7 @@ impl WaveModel {
         if layout.header.contains(p) {
             if in_waves_x && button == MouseButton::Left {
                 let x = f64::from(p.x - layout.waves.left());
-                let t = snapped_time(
-                    &self.viewport(doc),
-                    None,
-                    x,
-                    wave_wf,
-                    doc.navigation.snap_px,
-                );
+                let t = snapped_time(&self.viewport(doc), None, x, wave_wf, snap_px);
                 self.set_cursor(doc, Some(t));
                 self.drag = Some(Drag::Cursor);
             }
@@ -886,13 +889,7 @@ impl WaveModel {
                 MouseButton::Left => {
                     let x = f64::from(p.x - layout.waves.left());
                     let hist = row.and_then(|r| self.items[r].history.clone());
-                    let t = snapped_time(
-                        &self.viewport(doc),
-                        hist.as_deref(),
-                        x,
-                        wave_wf,
-                        doc.navigation.snap_px,
-                    );
+                    let t = snapped_time(&self.viewport(doc), hist.as_deref(), x, wave_wf, snap_px);
                     self.set_cursor(doc, Some(t));
                     self.drag = Some(Drag::Cursor);
                     if let Some(r) = row
@@ -912,7 +909,7 @@ impl WaveModel {
             return;
         }
         if let Some((ix, b)) = layout.badge_at(p) {
-            let pos = point(b.left(), b.bottom() + 4.0);
+            let pos = point(b.left(), b.bottom() + 4.0 * layout.zoom);
             if !self.selected.contains(&ix) {
                 self.select_row(ix, modifiers);
             }
@@ -943,7 +940,7 @@ impl WaveModel {
                     hist.as_deref(),
                     x,
                     wave_wf,
-                    doc.navigation.snap_px,
+                    doc.navigation.snap_px * f64::from(layout.zoom),
                 );
                 self.set_cursor(doc, Some(t));
                 true
@@ -954,12 +951,13 @@ impl WaveModel {
                 self.pan_px(doc, dx);
                 true
             }
+            // Column widths are kept at zoom 1.0 (they are saved in workspaces).
             Some(Drag::NamesSplit) => {
-                self.names_width = (p.x - layout.bounds.left()).max(MIN_COLUMN);
+                self.names_width = ((p.x - layout.bounds.left()) / layout.zoom).max(MIN_COLUMN);
                 true
             }
             Some(Drag::ValuesSplit) => {
-                self.values_width = (p.x - layout.names.right()).max(MIN_COLUMN);
+                self.values_width = ((p.x - layout.names.right()) / layout.zoom).max(MIN_COLUMN);
                 true
             }
             Some(Drag::Scroll { grab }) => {
