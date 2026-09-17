@@ -113,6 +113,7 @@ a claim of implemented support or a requirement for embedded agent chat.
 | VDB source index (`verilator_vdb_index`, slang submodule of the Verilator fork) and Surfer's source tile | `integrations/verilator/README.md`, `docs/VDB_RTL.md`, `ext/surfer/docs/html/source-code.html` |
 | open ideas ranked by measured headroom | `docs/SOTA_REVIEW_2026.md` |
 | Volna panels, docking and persistent workspace sessions (design proposal) | `docs/workspaces.html` |
+| Volna user settings: `settings.json`, settings editor with fuzzy search on gpui-kit, VS Code parity (design proposal) | `docs/user-settings.html` |
 
 ## Build and test
 

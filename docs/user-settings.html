@@ -1,0 +1,1050 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna User Settings</title>
+<meta name="description" content="Proposal for Volna user settings: a settings.json source of truth, a settings editor with fuzzy navigation built on gpui-kit, and the same keys in VS Code.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f2f4f3;--paper:#fbfcfb;--ink:#1a252c;--muted:#5b6a70;--line:#d2dad7;--line-strong:#b6c2be;
+  --accent:#1f7f6a;--accent-ink:#135846;--accent-soft:#dff0ea;--amber:#b5761c;--amber-soft:#f6e9d2;
+  --exist:#e6ebf4;--exist-ink:#3a4f78;--prop:#dff0ea;--prop-ink:#135846;
+  --code-bg:#1d262c;--code-ink:#e3ebe7;--code-dim:#8fa39c;--focus:#1f7f6a;
+  --wave:#2f9d7f;--wave-bus:#3b7dd8;--cursor:#d9534f;--marker:#b5761c;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c373d;--line-strong:#3d4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
+  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
+  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
+  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+}}
+:root[data-theme="dark"]{
+  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c373d;--line-strong:#3d4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
+  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
+  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
+  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:70px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;padding-inline:0}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,pre,kbd,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.88em;background:color-mix(in srgb,var(--line) 45%,transparent);padding:1px 5px;border-radius:4px}
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;font-size:12.5px;line-height:1.6;overflow-x:auto;margin:14px 0}
+pre code{background:none;padding:0;font-size:inherit;color:inherit}
+pre .c{color:var(--code-dim);font-style:italic}
+kbd{font-size:.8em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper)}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:12px 24px;display:flex;align-items:center;gap:20px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap;letter-spacing:-.2px}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:16px;overflow:auto;scrollbar-width:none}
+nav a{font-size:12.5px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+.wrap{max-width:1180px;margin:auto;padding-inline:24px}
+section{padding-block:44px;border-bottom:1px solid var(--line)}
+.hero{padding-top:52px}
+h1{font-size:clamp(30px,4.6vw,50px);letter-spacing:-1.4px;line-height:1.08;font-weight:600;margin:0 0 18px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:26px;letter-spacing:-.6px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 10px;text-wrap:balance}
+h4{font-size:14.5px;margin:18px 0 6px}
+p{margin:0 0 12px;max-width:74ch}
+.lede{font-size:18px;color:var(--muted);max-width:70ch}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.small,small{font-size:12.5px;color:var(--muted)}
+ul,ol{padding-left:22px;max-width:80ch}li{margin:5px 0}
+.grid{display:grid;gap:16px}.two{grid-template-columns:1fr 1fr}.three{grid-template-columns:repeat(3,1fr)}
+@media (max-width:820px){.two,.three{grid-template-columns:1fr}}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
+.card p:last-child{margin-bottom:0}
+.callout{background:var(--accent-soft);border-left:3px solid var(--accent);padding:14px 18px;margin:18px 0;font-size:14px;border-radius:0 6px 6px 0}
+.callout.warn{background:var(--amber-soft);border-color:var(--amber)}
+.callout p{max-width:none}
+.badge{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;padding:1px 7px;border-radius:3px;vertical-align:middle;margin-right:4px}
+.badge.exist{background:var(--exist);color:var(--exist-ink)}
+.badge.prop{background:var(--prop);color:var(--prop-ink)}
+.badge.lib{background:var(--amber-soft);color:var(--amber)}
+body.only-proposed .exist-block{opacity:.38}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:16px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:10px 13px;border-bottom:1px solid var(--line)}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--line) 35%,transparent)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px;margin:16px 0}
+.toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px}
+.toggle input{accent-color:var(--accent)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:18px 0 0;flex-wrap:wrap}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.tabpane{display:none;padding-top:14px}.tabpane.active{display:block}
+details{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:0 18px;margin:10px 0}
+details summary{cursor:pointer;padding:12px 0;font-weight:500;list-style:none;display:flex;gap:10px;align-items:center}
+details summary::before{content:"";width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}
+details[open] summary::before{transform:rotate(45deg)}
+details > :not(summary){margin-bottom:14px}
+.steps{counter-reset:s;list-style:none;padding:0;max-width:none}
+.steps li{counter-increment:s;position:relative;padding-left:38px;margin:10px 0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace}
+.cite{font-size:12px;color:var(--muted)}
+.cite code,td .cite code{font-size:11.5px;white-space:normal;overflow-wrap:anywhere}
+td:last-child.cite{min-width:180px}
+/* ownership diagram */
+.own{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;margin:18px 0}
+@media (max-width:900px){.own{grid-template-columns:1fr}}
+.box{border:1px solid var(--line-strong);border-radius:8px;padding:12px 14px;background:var(--paper)}
+.box .t{font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.box .t small{font-weight:400}
+.box .box{margin:8px 0;background:color-mix(in srgb,var(--bg) 60%,var(--paper))}
+.box.prop-b{border-color:var(--accent)}
+.box.exist-b{border-color:var(--exist-ink)}
+.box.host{border-style:dashed}
+.arrows{font-size:12.5px;color:var(--muted);margin:6px 0;display:flex;flex-wrap:wrap;gap:6px 18px}
+/* playground */
+.keys{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;align-items:baseline;max-width:640px}
+.keys kbd{white-space:nowrap}
+.flow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:820px){.flow{grid-template-columns:1fr}}
+.msg{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:11.5px;background:color-mix(in srgb,var(--line) 45%,transparent);border-radius:4px;padding:0 5px}
+footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* ---- settings playground ---- */
+.se-guide{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;margin:12px 0 14px}
+.se-guide button{font:inherit;font-size:12.5px;background:var(--paper);border:1px solid var(--line-strong);border-radius:6px;padding:4px 10px;color:var(--ink);cursor:pointer}
+.se-guide button:hover{border-color:var(--accent)}
+.se-guide button code{background:none;padding:0}
+.se{--se-bg:#1e2227;--se-panel:#23272e;--se-side:#21252b;--se-ink:#d7dde3;--se-muted:#8b95a1;--se-line:#333a44;--se-accent:#4fa3ff;--se-hover:#2a3038;--se-active:#2f3846;--se-mark:#f2c94c;--se-err:#f07a76;--se-warn:#e0a94a;--se-mod:#4fa3ff;
+  background:var(--se-bg);color:var(--se-ink);border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;font:13px/1.45 "IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;position:relative;height:640px;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.se *{box-sizing:border-box}
+.se [hidden]{display:none!important}
+.se code{background:rgba(255,255,255,.09);color:var(--se-ink);padding:0 4px;border-radius:3px;font-size:.92em}
+.se button{font:inherit;color:inherit}
+.se kbd{font-family:"IBM Plex Mono",monospace;font-size:10.5px;border:1px solid var(--se-line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--se-panel);color:var(--se-muted)}
+.se-titlebar{display:flex;align-items:center;justify-content:space-between;background:var(--se-side);border-bottom:1px solid var(--se-line);height:34px;padding-right:8px}
+.se-tabs{display:flex;height:100%}
+.se-tab{padding:0 16px;display:flex;align-items:center;color:var(--se-muted);border-right:1px solid var(--se-line);font-size:12.5px}
+.se-tab.active{color:var(--se-ink);background:var(--se-bg);box-shadow:inset 0 -2px 0 var(--se-accent)}
+.se-tb-actions{display:flex;gap:6px}
+.se-btn{background:transparent;border:1px solid var(--se-line);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.se-btn:hover{background:var(--se-hover)}
+.se-btn[aria-pressed="true"]{background:var(--se-active);border-color:var(--se-accent)}
+.se-btn.primary{background:var(--se-accent);border-color:var(--se-accent);color:#0b1620;font-weight:600}
+.se-btn.primary kbd{background:transparent;color:#0b1620;border-color:rgba(0,0,0,.3)}
+.se-btn:disabled{opacity:.5;cursor:default}
+.se-searchbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--se-line);background:var(--se-panel)}
+.se-search{display:flex;align-items:center;gap:8px;flex:0 1 420px;background:var(--se-bg);border:1px solid var(--se-line);border-radius:6px;padding:5px 9px;color:var(--se-muted)}
+.se-search:focus-within{border-color:var(--se-accent)}
+.se-search input{flex:1;background:none;border:0;outline:0;color:var(--se-ink);font:inherit;min-width:60px}
+.se-chip{background:transparent;border:1px solid var(--se-line);border-radius:12px;padding:2px 10px;font-size:12px;cursor:pointer;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-chip[aria-pressed="true"]{border-color:var(--se-accent);color:var(--se-ink);background:var(--se-active)}
+.se-count{color:var(--se-muted);font-size:12px;white-space:nowrap}
+.se-spacer{flex:1}
+.se-banner{padding:8px 14px;background:rgba(240,122,118,.12);border-bottom:1px solid var(--se-err);color:var(--se-ink);font-size:12.5px;display:flex;gap:10px;align-items:center}
+.se-banner b{color:var(--se-err)}
+.se-banner button{margin-left:auto}
+.se-body{display:flex;flex:1;min-height:0}
+.se-toc{width:190px;flex:none;background:var(--se-side);border-right:1px solid var(--se-line);padding:10px 0;overflow:auto}
+.se-toc button{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:0;padding:6px 14px;text-align:left;cursor:pointer;color:var(--se-ink);font-size:13px;border-left:2px solid transparent}
+.se-toc button:hover{background:var(--se-hover)}
+.se-toc button.active{background:var(--se-active);border-left-color:var(--se-accent)}
+.se-toc button.empty{color:var(--se-muted);opacity:.55}
+.se-toc button .n{font-size:11px;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-toc .se-toc-group{padding:4px 14px 4px 28px;font-size:12px;color:var(--se-muted);cursor:pointer}
+.se-toc .se-toc-group:hover{color:var(--se-ink)}
+.se-main{flex:1;min-width:0;overflow:auto;padding:14px 22px 30px}
+.se-main.readonly .se-item{opacity:.55;pointer-events:none}
+.se-page-title{font-size:16px;font-weight:600;margin:4px 0 2px;display:flex;align-items:center;gap:10px}
+.se-page-title .se-btn{margin-left:auto;font-size:12px}
+.se-page-desc{color:var(--se-muted);margin:0 0 12px;font-size:12.5px}
+.se-group{margin:12px 0 18px}
+.se-group-title{font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:var(--se-muted);margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--se-line)}
+.se-item{display:grid;grid-template-columns:1fr auto;gap:6px 18px;align-items:center;padding:9px 10px 9px 14px;border-radius:6px;position:relative;margin:2px 0}
+.se-item:hover{background:var(--se-hover)}
+.se-item.focus{outline:1px solid var(--se-accent)}
+.se-item.flash{animation:se-flash 1.4s ease-out}
+@keyframes se-flash{0%{background:rgba(79,163,255,.35)}100%{background:transparent}}
+.se-item.modified::before{content:"";position:absolute;left:4px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--se-mod)}
+.se-item-text{min-width:0}
+.se-item-title{font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.se-item-title .se-page-tag{font-weight:400;font-size:11px;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-item-title .se-apply{font-weight:500;font-size:10.5px;color:var(--se-warn);border:1px solid var(--se-warn);border-radius:3px;padding:0 5px;text-transform:uppercase;letter-spacing:.4px}
+.se-item-desc{color:var(--se-muted);font-size:12.5px;margin-top:2px}
+.se-item-why{color:var(--se-muted);font-size:11.5px;margin-top:2px;font-family:"IBM Plex Mono",monospace}
+.se-item mark{background:transparent;color:var(--se-mark);text-decoration:underline;text-decoration-color:var(--se-mark);text-underline-offset:2px;font-weight:700}
+.se-item-ctl{display:flex;align-items:center;gap:8px}
+.se-item-ctl select,.se-item-ctl input[type=text],.se-item-ctl input[type=number]{background:var(--se-bg);border:1px solid var(--se-line);border-radius:5px;color:var(--se-ink);font:inherit;padding:4px 8px;min-width:120px}
+.se-item-ctl input[type=number]{width:90px;min-width:0}
+.se-item-ctl select:focus,.se-item-ctl input:focus{outline:0;border-color:var(--se-accent)}
+.se-switch{width:34px;height:18px;border-radius:9px;background:var(--se-line);border:0;position:relative;cursor:pointer;flex:none}
+.se-switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .12s}
+.se-switch[aria-checked="true"]{background:var(--se-accent)}
+.se-switch[aria-checked="true"]::after{left:18px}
+.se-more{background:none;border:0;color:var(--se-muted);cursor:pointer;width:24px;height:24px;border-radius:4px;font-size:16px;line-height:1;visibility:hidden}
+.se-item:hover .se-more,.se-item.modified .se-more,.se-item.menu-open .se-more{visibility:visible}
+.se-more:hover{background:var(--se-active);color:var(--se-ink)}
+.se-menu{position:absolute;right:10px;top:calc(100% - 4px);z-index:5;background:var(--se-panel);border:1px solid var(--se-line);border-radius:6px;padding:4px;min-width:170px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.se-menu button{display:block;width:100%;text-align:left;background:none;border:0;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12.5px}
+.se-menu button:hover{background:var(--se-hover)}
+.se-menu button:disabled{opacity:.45;cursor:default}
+.se-empty{color:var(--se-muted);padding:30px;text-align:center}
+.se-json{flex:1;min-width:0;display:flex;flex-direction:column}
+.se-json-head{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid var(--se-line);background:var(--se-panel);font-size:12.5px}
+.se-json-path{font-family:"IBM Plex Mono",monospace;color:var(--se-muted)}
+.se-json-defaults{margin-left:auto;color:var(--se-muted);display:flex;gap:6px;align-items:center}
+.se-json-panes{display:flex;flex:1;min-height:0}
+.se-editor{flex:1;display:flex;min-width:0;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5}
+.se-gutter{margin:0;padding:10px 8px 10px 12px;color:var(--se-muted);text-align:right;background:var(--se-side);border-right:1px solid var(--se-line);user-select:none;overflow:hidden;font:inherit;min-width:44px}
+.se-gutter .err{color:var(--se-err);font-weight:700}
+.se-editor textarea{flex:1;background:var(--se-bg);color:var(--se-ink);border:0;outline:0;resize:none;padding:10px 12px;font:inherit;white-space:pre;overflow:auto;tab-size:2}
+.se-defaults{flex:1;margin:0;padding:10px 12px;background:var(--se-side);border-left:1px solid var(--se-line);color:var(--se-muted);font-family:"IBM Plex Mono",monospace;font-size:12px;line-height:1.5;overflow:auto;white-space:pre}
+.se-defaults .k{color:var(--se-ink)}
+.se-diags{border-top:1px solid var(--se-line);background:var(--se-panel);max-height:110px;overflow:auto;font-size:12px}
+.se-diags:empty{display:none}
+.se-diag{display:flex;gap:10px;padding:4px 14px;cursor:pointer;align-items:baseline}
+.se-diag:hover{background:var(--se-hover)}
+.se-diag .sev{font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.5px;min-width:52px}
+.se-diag.error .sev{color:var(--se-err)}.se-diag.warning .sev{color:var(--se-warn)}
+.se-diag .loc{color:var(--se-muted);font-family:"IBM Plex Mono",monospace;min-width:60px}
+.se-status{display:flex;justify-content:space-between;align-items:center;height:24px;padding:0 12px;background:var(--se-side);border-top:1px solid var(--se-line);font-size:11.5px;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-status-right{color:var(--se-muted)}
+.se-status-right.busy{color:var(--se-accent)}
+.se-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;justify-content:center;align-items:flex-start;padding-top:60px;z-index:10}
+.se-palette{width:520px;max-width:92%;background:var(--se-panel);border:1px solid var(--se-line);border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden}
+.se-palette input{width:100%;background:var(--se-bg);border:0;border-bottom:1px solid var(--se-line);outline:0;color:var(--se-ink);font:inherit;font-size:14px;padding:10px 14px}
+.se-palette-list{max-height:320px;overflow:auto;padding:6px}
+.se-pal-group{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;color:var(--se-muted);padding:8px 10px 4px}
+.se-pal-item{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;cursor:pointer}
+.se-pal-item.sel{background:var(--se-active)}
+.se-pal-item .ic{width:16px;color:var(--se-muted);text-align:center;flex:none}
+.se-pal-item .lab{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.se-pal-item .lab small{color:var(--se-muted);margin-left:8px;font-family:"IBM Plex Mono",monospace;font-size:11px}
+.se-pal-item .val{color:var(--se-muted);font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.se-pal-item mark{background:transparent;color:var(--se-mark);font-weight:700}
+.se-palette-foot{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--se-line);font-size:11px;color:var(--se-muted)}
+.se-toast{position:absolute;left:50%;bottom:40px;transform:translateX(-50%);background:var(--se-panel);border:1px solid var(--se-line);color:var(--se-ink);padding:8px 14px;border-radius:8px;font-size:12.5px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:20}
+@media (max-width:820px){
+  .se{height:auto;min-height:560px}
+  .se-toc{width:140px}
+  .se-item{grid-template-columns:1fr}
+  .se-search{flex-basis:100%}
+  .se-searchbar{flex-wrap:wrap}
+  .se-json-panes{flex-direction:column}
+}
+@media (max-width:560px){.se-toc{display:none}}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">Volna <span>User Settings</span></a>
+  <nav>
+    <a href="#summary">Summary</a><a href="#today">Today</a><a href="#kit">gpui-kit review</a><a href="#bar">VS Code &amp; Zed</a><a href="#model">Model</a><a href="#editor">Editor</a><a href="#search">Search</a><a href="#playground">Playground</a><a href="#ownership">Ownership</a><a href="#hosts">Hosts</a><a href="#catalogue">Catalogue</a><a href="#tradeoffs">Trade-offs</a><a href="#checks">Checks</a><a href="#plan">Plan</a><a href="#refs">References</a>
+  </nav>
+</div></header>
+
+<main id="top">
+<section class="hero"><div class="wrap">
+  <div class="eyebrow">Design proposal · volna-core · GPUI · VS Code</div>
+  <h1>One <em>settings.json</em>, a settings editor with fuzzy navigation, the same keys on every host</h1>
+  <p class="lede">User settings for Volna that behave the way VS Code users expect: a human-edited JSON file with comments and schema-driven completion as the source of truth, a settings editor that searches every setting fuzzily and edits that file surgically, and one registry that generates the native editor, the JSON schema and the VS Code contribution block.</p>
+  <div class="legend">
+    <span><span class="badge exist">existing</span> already in the repository</span>
+    <span><span class="badge prop">proposed</span> new design in this document</span>
+    <span><span class="badge lib">library</span> provided by gpui-kit 0.6.1</span>
+    <label class="toggle"><input type="checkbox" id="only-proposed"> dim foundation material</label>
+  </div>
+  <p class="small">Written on 2026-09-17 after reviewing <a href="https://github.com/longbridge/gpui-kit">longbridge/gpui-kit</a> at commit <code>d604a2a</code> (2026-09-16) against the pinned <code>gpui-kit 0.6.1</code> that Volna builds with, plus the current preferences code in <code>volna-core</code>, the GPUI frontend and the VS Code extension. Nothing here is implemented yet; the <a href="#playground">playground</a> is a browser mock of the proposed behaviour.</p>
+</div></section>
+
+<section id="summary"><div class="wrap">
+  <div class="eyebrow">Recommendation</div>
+  <h2>The simplest coherent design</h2>
+  <div class="grid two">
+    <div class="card"><h3>The file is the truth</h3><p><span class="badge prop">proposed</span> A single <code>settings.json</code> (JSON with comments) holds only the keys the user changed. Defaults live in code. The editor writes into that file with surgical edits that keep comments and formatting, exactly as VS Code and Zed do, so hand edits and GUI edits never fight.</p></div>
+    <div class="card"><h3>One registry, three outputs</h3><p><span class="badge prop">proposed</span> <code>volna-core::settings</code> declares every setting once: id, page, group, type, constraints, default, description, search keywords, apply mode. From it the core resolves values, emits diagnostics, generates the JSON Schema, and the build generates VS Code's <code>contributes.configuration</code>. The GPUI editor is built from the same table.</p></div>
+    <div class="card"><h3>Reuse gpui-kit's Settings, own the search</h3><p><span class="badge lib">library</span> gpui-kit ships a <code>Settings</code> component (sidebar of pages, groups, typed fields, per-page reset, a search box) and a <code>Command</code> palette. <span class="badge prop">proposed</span> Their matching is plain substring; Volna runs its own ranked fuzzy search in the core and hands the component already-filtered, already-ordered pages.</p></div>
+    <div class="card"><h3>Editor as a tab, JSON one click away</h3><p><span class="badge prop">proposed</span> <kbd>⌘,</kbd> opens a Settings tab in the centre dock beside the waves, so appearance changes preview live. An "Open settings.json" button switches the same tab to gpui-kit's <code>Editor</code> with schema completion, hover docs and diagnostics from the core parser. <kbd>⌘K</kbd> reaches any setting from the command palette.</p></div>
+    <div class="card"><h3>Hosts move bytes, never parse</h3><p><span class="badge exist">existing</span> The workspace persistence pattern (byte store, save tickets, atomic rename, read-error write protection) is reused unchanged. Native watches the file; standalone web keeps the text in browser storage; VS Code supplies its own <code>volna.*</code> configuration and gets live updates through <code>onDidChangeConfiguration</code>.</p></div>
+    <div class="card"><h3>State is not a setting</h3><p><span class="badge prop">proposed</span> Recent traces and recent workspaces leave the preferences file and move to <code>state.json</code>. Settings are what a user would sync to another machine; state is what the app remembers about this one. The two never share a file, as in VS Code.</p></div>
+  </div>
+  <div class="callout"><p><strong>Scope.</strong> Global user settings only: appearance, waveform behaviour, sidebar, workspace persistence, remote limits, logging. Per-trace state stays in the workspace file described in <a href="workspaces.html">Panels and Workspaces</a>. Key bindings are a natural second file (<code>keymap.json</code>) built on the same store and editor, but they are not designed here.</p></div>
+</div></section>
+
+<section id="today"><div class="wrap">
+  <div class="eyebrow">Starting point</div>
+  <h2>What exists today</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Piece</th><th>Fact</th><th>Where</th></tr>
+    <tr><td><span class="badge exist">existing</span> Preferences struct</td><td>Version 1, five fields: <code>theme</code> (string, only <code>"one-dark"</code> is honoured, anything else logs a warning), <code>link_by_default</code>, <code>autosave</code>, <code>recent_traces</code>, <code>recent_workspaces</code>. Serde with <code>#[serde(default)]</code>; parse rejects files above 1 MiB or another version.</td><td class="cite"><code>volna-core/src/workspace/prefs.rs</code>, <code>volna/src/main.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Native store</td><td><code>preferences.json</code> under <code>$XDG_CONFIG_HOME/volna</code> (or <code>--config-dir</code>, <code>VOLNA_CONFIG_DIR</code>). Read once at start; a read or parse error marks the file non-writable so a bad file is never overwritten; writes go through a same-directory temporary file and rename.</td><td class="cite"><code>volna/src/native_workspace.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Consumption</td><td>Only one value reaches the viewer: new panels take <code>link_by_default</code>. The theme is always One Dark natively; VS Code supplies a palette snapshot instead.</td><td class="cite"><code>volna-core/src/app.rs</code>, <code>volna/src/theme.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> VS Code contributions</td><td>Five hand-written settings in <code>package.json</code>: <code>volna.remote.memoryMiB</code>, <code>volna.remote.objectMiB</code>, <code>volna.serverPath</code> (machine scope), <code>volna.workspace.autosave</code> (<code>sidecar</code> | <code>vscode</code> | <code>off</code>), <code>volna.panels.linkByDefault</code>. The extension reads them once when a trace opens and passes them inside the open metadata; there is no <code>onDidChangeConfiguration</code> listener, so the descriptions say "Reopen the trace to apply".</td><td class="cite"><code>vscode-ext/package.json</code>, <code>vscode-ext/workspace.js</code>, <code>volna/src/lib.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Theme inputs</td><td>The core resolves a typed palette from One Dark, from a VS Code CSS-variable snapshot, or from a host-neutral JSON palette (<code>HostPalette::from_json</code>). The GPUI adapter projects it onto gpui-kit's component theme once per install.</td><td class="cite"><code>volna-core/src/theme/</code>, <code>volna-core/tests/fixtures/custom-palette.json</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Key bindings and menus</td><td>Hard-coded <code>KeyBinding</code> tables with contexts <code>Workspace &amp;&amp; !Embedded</code> and <code>Waves</code>; App, File and View menus. No settings entry, no command palette.</td><td class="cite"><code>volna/src/app.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Persistence discipline</td><td>The workspace scheduler tracks revision, epoch and destination, allows one outstanding write, acknowledges by ticket and detects its own echoes by SHA-256. The settings store adopts the same rules instead of inventing new ones.</td><td class="cite"><code>volna-core/src/workspace/</code></td></tr>
+  </table></div>
+  <p>Two gaps define the work: nothing edits these values from inside the app, and the two hosts describe different settings in different places. VS Code users already get a JSON file and a searchable editor for the five contributed keys; native users get a file they have to discover.</p>
+</div></section>
+
+<section id="kit"><div class="wrap">
+  <div class="eyebrow">Library review</div>
+  <h2>What gpui-kit offers for settings</h2>
+  <p>gpui-kit is three crates: <code>gpui-base</code> (unstyled behaviour), <code>gpui-component</code> (the styled system Volna already uses for buttons, menus, tooltips and the dock) and <code>gpui-shell</code> (a JavaScript plugin runtime, not relevant here). The review below covers the pieces a VS Code-style settings experience needs. Line references are to the 2026-09-16 checkout; the <code>setting</code> and <code>command</code> modules are byte-identical in the pinned 0.6.1 crate except one field renderer.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Component</th><th>What it does</th><th>Verdict for Volna</th></tr>
+    <tr><td><span class="badge lib">library</span> <code>setting::Settings</code></td><td>A resizable sidebar of <code>SettingPage</code>s (icon, title, collapsible group list) beside one active page of <code>SettingGroup</code>s rendered as group boxes. Each <code>SettingItem</code> has a title, a Markdown-capable description, hidden search keywords, a disabled state and a typed field. A search <code>Input</code> in the sidebar header filters items by case-insensitive substring over title, description and keywords; groups and pages with no match disappear. A page shows a reset button when any field differs from its <code>default_value</code>. Layout stacks label over field under 480 px. Internal state (query, selected page, deferred scroll) lives in <code>use_keyed_state</code>.</td><td>Use it as the rendering layer. It gives the VS Code shape (table of contents, groups, typed controls, reset) for free. Its search is the one thing to replace; see <a href="#search">Search</a>.<div class="cite"><code>crates/component/src/setting/{settings,page,group,item}.rs</code>; substring match in <code>item.rs</code> <code>is_match</code></div></td></tr>
+    <tr><td><span class="badge lib">library</span> <code>SettingField</code></td><td>Get/set closures over <code>&amp;App</code>: <code>switch</code>, <code>checkbox</code> (bool), <code>number_input</code> with min/max/step (f64), <code>input</code> (string), <code>dropdown</code> and <code>scrollable_dropdown</code> (id/label pairs), and <code>element</code>/<code>render</code> for anything custom with an <code>on_reset</code> hook. Only these six types are dispatched; an unsupported type panics at render.</td><td>Covers bool, number, string and enum. Lists (recent items, extra theme directories), colours and key chords need <code>SettingField::render</code> with Volna's own controls, which is what the custom-item path exists for.<div class="cite"><code>setting/fields/*.rs</code></div></td></tr>
+    <tr><td><span class="badge lib">library</span> <code>command::Command</code></td><td>A <kbd>⌘K</kbd> palette: search input, groups, separators, items with icons, checkmarks, disabled states and an <code>Action</code> whose active key binding is rendered as a <code>Kbd</code> hint. Virtualised rows. <code>filterable(false)</code> keeps the query box but disables local filtering and reports the query through <code>on_query</code>; <code>on_select</code> fires as the highlight moves, which the story uses to preview themes live and restore on cancel.</td><td>Use it for the command palette and for the theme picker. Feed it ranked entries from the core matcher through <code>filterable(false)</code>; the local match is substring only.<div class="cite"><code>crates/component/src/command/</code>, <code>crates/story/src/themes.rs</code></div></td></tr>
+    <tr><td><span class="badge lib">library</span> <code>input::Editor</code></td><td>A code editor with line numbers, folding, search, column selection and Tree-sitter highlighting; <code>.language("json")</code> needs the <code>tree-sitter</code> feature (<code>tree-sitter-json</code> is bundled). LSP-shaped hooks in <code>gpui-base</code>: <code>CompletionProvider</code>, <code>HoverProvider</code>, <code>CodeActionProvider</code>, <code>DefinitionProvider</code>, <code>DocumentColorProvider</code>, and an <code>lsp_types</code>-compatible <code>Diagnostic</code> set rendered as squiggles. On wasm the highlighter is a stub; editing and diagnostics still work.</td><td>Use it for the JSON view. A 200-line schema-driven completion and hover provider over the registry gives VS Code-grade IntelliSense without a language server. Native gets colours, web gets a plain editor with the same completion and diagnostics.<div class="cite"><code>crates/base/src/input/editor/lsp/</code>, <code>editor/diagnostics.rs</code>, <code>component/src/highlighter/wasm_stub.rs</code></div></td></tr>
+    <tr><td><span class="badge lib">library</span> <code>ThemeRegistry</code> and theme JSON</td><td>Themes are JSON files with a published <code>$schema</code>, a family name and a list of <code>{name, mode, colors, font_size, font_family, radius, shadow, highlight}</code>. The registry loads them from strings, and natively <code>watch_dir</code> reloads on change (the <code>notify</code> crate is already in Volna's lockfile through gpui-kit). The story app persists the chosen theme by observing the global and writing a small JSON file.</td><td>Not adopted as Volna's theme format: Volna's painter reads the core <code>Theme</code>, and user palettes already exist as host-neutral JSON. The watch-a-directory pattern is borrowed for <code>~/.config/volna/themes/</code>.<div class="cite"><code>crates/component/src/theme/registry.rs</code>, <code>themes/*.json</code></div></td></tr>
+    <tr><td><span class="badge lib">library</span> Chrome parts</td><td><code>Sidebar</code>/<code>SidebarMenu</code> (used inside <code>Settings</code>), <code>Tree</code>, <code>Tabs</code>, <code>Sheet</code> (side drawer), <code>Dialog</code>, <code>Kbd</code>, <code>Label::highlights</code> (marks matched text), <code>Slider</code>, <code>ColorPicker</code>, <code>Switch</code>, <code>Select</code>, <code>NumberInput</code>, <code>DescriptionList</code>.</td><td>Enough to build every field the catalogue needs and to mark search matches in titles.<div class="cite"><code>crates/component/src/label.rs</code> <code>highlights()</code></div></td></tr>
+    <tr><td><span class="badge lib">library</span> <code>gpui-shell::Storage</code></td><td>A revisioned, cached JSON key-value store with one write in flight and a <code>flush</code> barrier, written for JavaScript plugins. Its module comment argues why a dirty bit cannot order writes.</td><td>Not a dependency (it is the plugin runtime), but its design matches the existing workspace scheduler and confirms the approach.<div class="cite"><code>crates/shell/src/storage.rs</code></div></td></tr>
+  </table></div>
+
+  <h3>Gaps against the VS Code experience</h3>
+  <ul>
+    <li><strong>Matching is substring, unranked.</strong> "folcur" finds nothing; "cursor follow" finds nothing because the whole query must occur contiguously. There is no scoring, no ordering by relevance, no match highlighting in results, and no filter syntax such as <code>@modified</code>.</li>
+    <li><strong>Search filters instead of navigating.</strong> Non-matching items vanish; the reader loses the page context and there is no result count. VS Code shows a flattened result list with per-page counts in the table of contents.</li>
+    <li><strong>No per-item modified indicator.</strong> Reset exists only per page. VS Code marks each changed setting with a bar and offers Reset, Copy Setting ID and Copy Setting as JSON on that item.</li>
+    <li><strong>Search state is internal.</strong> Query and selection live in <code>use_keyed_state</code> keyed by element id. Deep links (open the editor at one setting from the palette) need the query to be owned outside the component.</li>
+    <li><strong>No notion of a file.</strong> The component reads and writes app globals; persistence, defaults, validation and JSON are the application's job. That suits Volna, whose core already owns persistence.</li>
+    <li><strong>No JSON toggle, no schema.</strong> The <code>Editor</code> and LSP hooks exist, but nothing connects a settings schema to completion or diagnostics.</li>
+  </ul>
+  <p>Every gap is either a small wrapper around the component or work that belongs in <code>volna-core</code> anyway. Two items are worth offering upstream once they are proven in Volna: a <code>Settings::matcher(...)</code> hook that replaces the substring test with a scored matcher, and an externally owned query so a host can drive the search box.</p>
+</div></section>
+
+<section id="bar"><div class="wrap">
+  <div class="eyebrow">Behaviour bar</div>
+  <h2>What VS Code and Zed do, and what Volna borrows</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Behaviour</th><th>VS Code</th><th>Zed</th><th>Volna</th></tr>
+    <tr><td>Source of truth</td><td><code>settings.json</code> per scope (user, workspace, folder), JSON with comments and trailing commas; only changed keys are stored.</td><td><code>~/.config/zed/settings.json</code> and <code>.zed/settings.json</code>, same JSONC rules; nested objects rather than dotted keys.</td><td><span class="badge prop">proposed</span> Borrowed. One user file, JSONC, changed keys only, flat dotted keys so the VS Code contribution is the same key with a <code>volna.</code> prefix.</td></tr>
+    <tr><td>Defaults</td><td>Declared in code and extension manifests; "Default Settings (JSON)" is a generated read-only document with every key and description as a comment.</td><td><code>default.json</code> embedded in the binary; "zed: open default settings" shows it read-only.</td><td><span class="badge prop">proposed</span> Borrowed. Defaults live in the registry; the editor can show a generated read-only default document.</td></tr>
+    <tr><td>GUI edits</td><td>The Settings editor writes into <code>settings.json</code> at the right scope, preserving comments and formatting; edits apply immediately.</td><td>The settings editor calls <code>update_settings_file</code>, which patches the JSON text in place (comments kept) and the file watcher applies it.</td><td><span class="badge prop">proposed</span> Borrowed. The core computes a minimal text edit; the host writes bytes; the file watcher or the direct path applies the value.</td></tr>
+    <tr><td>Hand edits</td><td>Apply on save. Syntax errors block writes from the GUI with a notification until fixed.</td><td>Apply on save through the watcher; parse errors are reported and the previous good values stay.</td><td><span class="badge prop">proposed</span> Borrowed. The store keeps the last good resolution; a syntax error makes the GUI read-only with a banner pointing at the line.</td></tr>
+    <tr><td>Validation</td><td>JSON Schema from <code>contributes.configuration</code>: completion, hover docs, enum values, ranges, unknown-key warnings.</td><td>A published JSON schema for editor tooling; the app tolerates unknown keys.</td><td><span class="badge prop">proposed</span> Borrowed. Schema generated from the registry; diagnostics computed by the core (unknown key, type, range, enum), shown in the JSON view and in the GUI banner.</td></tr>
+    <tr><td>Search</td><td>Word matching on title and description, fuzzy and prefix matching on setting ids, filters <code>@modified</code>, <code>@id:</code>, <code>@ext:</code>, <code>@tag:</code>; flattened ranked results with per-category counts.</td><td>Item list filtered by a query over titles and paths; pages on the left.</td><td><span class="badge prop">proposed</span> Borrowed from VS Code, simplified: ranked fuzzy matcher over title, id, keywords, description; <code>@modified</code>, <code>@page:</code>, <code>@id:</code> filters; results view with counts.</td></tr>
+    <tr><td>Modified marker and reset</td><td>Blue bar on changed items; gear menu with Reset Setting, Copy Setting ID, Copy Setting as JSON.</td><td>Reset per item to the default value.</td><td><span class="badge prop">proposed</span> Borrowed from VS Code, including the copy actions.</td></tr>
+    <tr><td>Where the editor lives</td><td>An editor tab; JSON mode is another tab; <kbd>Ctrl+,</kbd> opens it.</td><td>A tab; <kbd>⌘,</kbd> opens it.</td><td><span class="badge prop">proposed</span> Borrowed. A centre-dock tab that is not saved in workspace files.</td></tr>
+    <tr><td>Reach from anywhere</td><td>Command palette entries "Preferences: Open Settings" and "Open User Settings (JSON)".</td><td>Palette entries "zed: open settings" and "zed: open settings editor".</td><td><span class="badge prop">proposed</span> Extended. The palette lists the actions and, when the query matches, individual settings that open the editor at that item.</td></tr>
+    <tr><td>Machine state</td><td>Recently opened lives in storage, never in <code>settings.json</code>; Settings Sync excludes it.</td><td>Session state in a database, separate from settings.</td><td><span class="badge prop">proposed</span> Borrowed. Recent traces and workspaces move to <code>state.json</code>.</td></tr>
+    <tr><td>Per-project scope</td><td>Workspace and folder scopes override user settings.</td><td>Project settings override user settings.</td><td>Rejected for now. Volna's per-trace file is the workspace document; adding a second override layer is a later, additive step because the store already resolves layers.</td></tr>
+  </table></div>
+</div></section>
+
+<section id="model"><div class="wrap">
+  <div class="eyebrow">Core</div>
+  <h2>The settings model</h2>
+  <h3>The registry</h3>
+  <p><span class="badge prop">proposed</span> <code>volna-core::settings::registry</code> is a static table, one entry per setting, in the order the editor shows them. Titles, descriptions and keywords are English strings in code; the frontend never invents text.</p>
+<pre><code><span class="c">// volna-core/src/settings/registry.rs (sketch)</span>
+pub struct Spec {
+    pub id: &amp;'static str,            <span class="c">// "waves.animation"</span>
+    pub page: Page,                  <span class="c">// Appearance | Waves | Sidebar | Workspace | Remote | Advanced</span>
+    pub group: &amp;'static str,         <span class="c">// "Navigation"</span>
+    pub title: &amp;'static str,         <span class="c">// "Animation"</span>
+    pub description: &amp;'static str,   <span class="c">// Markdown allowed</span>
+    pub keywords: &amp;'static [&amp;'static str], <span class="c">// ["smooth", "motion", "reduce"]</span>
+    pub kind: Kind,                  <span class="c">// Bool | Integer{min,max,step} | Number{..} | Enum{values,labels} | Text | List</span>
+    pub default: Value,
+    pub apply: Apply,                <span class="c">// Live | OnReopen | Restart</span>
+    pub hosts: Hosts,                <span class="c">// ALL | NATIVE | VSCODE | WEB bit set</span>
+    pub since: u32,                  <span class="c">// settings file version that introduced it</span>
+}</code></pre>
+  <p>Ids are lowercase dotted paths with camelCase leaves, the VS Code convention, so <code>waves.animation</code> is <code>volna.waves.animation</code> in VS Code and nothing else changes. A test asserts that every id is unique, that every default satisfies its own constraints, and that the JSON emitted from the registry matches the contribution block committed in <code>package.json</code>.</p>
+
+  <h3>Layers and resolution</h3>
+  <p><span class="badge prop">proposed</span> <code>settings::Store</code> holds three layers and one result:</p>
+  <ol class="steps">
+    <li><strong>Defaults</strong> from the registry, always complete.</li>
+    <li><strong>The user document</strong>: the raw JSONC text plus the parsed map of top-level keys with their byte spans. Kept verbatim so edits can be surgical and so unknown keys survive round trips.</li>
+    <li><strong>Host overrides</strong>: values a host supplies and owns, such as VS Code's configuration or a command-line <code>--set key=value</code>. They win over the file but are never written into it.</li>
+    <li><strong>Resolved <code>Settings</code></strong>: a plain typed struct (<code>appearance.theme: String</code>, <code>waves.snapPixels: u32</code>, …) rebuilt whenever a layer changes, plus a <code>Vec&lt;Diagnostic&gt;</code>. Invalid values fall back to the default and produce a diagnostic with the key's span; they never block start-up, matching the "missing metadata never gates startup" rule already used for themes.</li>
+  </ol>
+  <p>The viewer reads only the resolved struct. <code>App</code> exposes <code>settings()</code> and a <code>SettingsChanged { keys }</code> event so frontends re-project the theme or re-layout only when a relevant key changed. <code>Preferences</code> is retired once the native file path lands: <code>link_by_default</code>, <code>theme</code> and <code>autosave</code> become registry entries, and the recent lists move to <code>state.json</code> (see below).</p>
+
+  <h3>The file</h3>
+<pre><code><span class="c">// ~/.config/volna/settings.json — only what the user changed</span>
+{
+  <span class="c">// Pick any palette JSON dropped into ~/.config/volna/themes/</span>
+  "appearance.theme": "gruvbox-dark",
+  "appearance.uiFontSize": 14,
+  "waves.animation": "reduced",
+  "waves.snapPixels": 8,
+  "panels.linkByDefault": false,
+  "workspace.autosave": "off",
+  "log.level": "debug",           <span class="c">// trailing comma tolerated</span>
+}</code></pre>
+  <p>Parsing accepts comments and trailing commas (JSONC) with a small tolerant parser in the core; no new dependency is required, and the same parser records spans for edits. The file carries no version field: versioning is per key through <code>since</code>, and renamed keys are migrated by a table of <code>old id → new id</code> that rewrites the document once, keeping a comment with the old name. This is a deliberate exception to the GOAL.md rule that formats are versioned and incompatible files rejected: a hand-edited file must degrade key by key with a diagnostic, never fail as a whole, or one typo would reset every setting. The machine-written <code>state.json</code> below follows the rule. A file above 1 MiB is treated as unreadable, the same cap <code>preferences.json</code> has today, and an unreadable file disables writes until it is fixed.</p>
+
+  <h3>state.json</h3>
+  <p><span class="badge prop">proposed</span> The machine state that leaves the preferences file. Plain JSON, written only by the app, so it is versioned and strict: <code>{ "version": 1, "recentTraces": [uri, …], "recentWorkspaces": [uri, …] }</code>, newest first, each list trimmed to <code>workspace.recentLimit</code> on write. It is owned by <code>volna-core::workspace::state</code> (the code that keeps the recent lists today), read once at start, written through the same ticketed byte path as <code>settings.json</code> with the same 1 MiB cap and the same rule that a read or parse error makes the file non-writable. An unreadable or wrong-version file yields empty lists and a log line, never a failed start. The file is never synced, never edited by hand and never shown in the JSON view; it has no schema and no editor.</p>
+
+  <h3>Surgical edits</h3>
+  <p><span class="badge prop">proposed</span> A GUI change becomes <code>Command::Settings(Set { id, value })</code>. The store answers with a text edit against the current document, not a re-serialisation:</p>
+  <ul>
+    <li><strong>Key present</strong>: replace the value span only. Comments on the line and elsewhere are untouched.</li>
+    <li><strong>Key absent</strong>: insert <code>"id": value</code> before the closing brace using the document's indentation and quoting style, adding a comma to the previous property if needed. The new property carries no trailing comma: the parser tolerates trailing commas the user typed, but the editor never produces one, so the file stays valid for strict JSON tools that follow the <code>$schema</code> line.</li>
+    <li><strong>Reset</strong>: remove the property and its comma; an empty document becomes <code>{}</code>.</li>
+    <li><strong>Unparsable document</strong>: refuse the edit, keep the GUI read-only, and show the error position. The user fixes it in the JSON view.</li>
+  </ul>
+  <p>The new text is applied to the store immediately (so the GUI and the waves update in the same frame), then handed to the host as <code>Event::WriteSettings { ticket, bytes }</code>. Writes follow the workspace scheduler: one in flight, acknowledged by ticket, coalesced after a short idle. When the host's file watcher reports a change, the store compares the SHA-256 of the bytes with the last write it issued and ignores its own echo, the same rule the workspace <code>supersedes</code> check uses.</p>
+
+  <h3>Generated artefacts</h3>
+  <div class="grid three">
+    <div class="card"><h4>JSON Schema</h4><p>Emitted by <code>vtr</code>-style tooling or a test snapshot into <code>volna/volna/settings.schema.json</code>. Used by the in-app completion provider and by external editors through a <code>"$schema"</code> line the migration adds to the file.</p></div>
+    <div class="card"><h4>VS Code contribution</h4><p>The <code>contributes.configuration</code> object, keys prefixed with <code>volna.</code>, descriptions and enum labels copied, <code>hosts</code> deciding which entries appear and <code>scope</code> derived from <code>Apply</code>. A test diffs it against <code>package.json</code>.</p></div>
+    <div class="card"><h4>Default settings document</h4><p>Every key with its default value and its description as a comment, shown read-only in the JSON view and used by the documentation.</p></div>
+  </div>
+</div></section>
+
+<section id="editor"><div class="wrap">
+  <div class="eyebrow">GPUI frontend</div>
+  <h2>The settings editor</h2>
+  <div class="grid two">
+    <div>
+      <h3>Layout</h3>
+      <p><span class="badge prop">proposed</span> A centre-dock tab titled "Settings", opened by <kbd>⌘,</kbd>, the App menu ("Settings…") or the command palette. The tab is a chrome panel: the core records that it exists (so focus and tab order work) but the workspace codec never saves it, and closing the trace leaves it open.</p>
+      <p>Inside the tab, gpui-kit's <code>Settings</code> component provides the table of contents on the left and the active page on the right. Volna hides the component's own search input through <code>header_style</code> and renders its search bar above the component: query box with the <kbd>⌘,</kbd> hint, result count, an <code>@modified</code> chip, and the "Open settings.json" button on the right, as in VS Code.</p>
+      <h3>Items</h3>
+      <p>Each registry entry becomes a <code>SettingItem</code> whose title is a <code>Label</code> with match highlights, whose description is the registry Markdown, and whose field maps to a <code>SettingField</code> by kind: <code>switch</code> for booleans, <code>number_input</code> with the declared range and step, <code>dropdown</code> for enums, <code>input</code> for text, and <code>render</code> for lists and palette pickers. Get closures read the resolved struct; set closures dispatch <code>Command::Settings(Set)</code>.</p>
+      <p>A changed item shows a coloured bar on its left edge and an actions button: <em>Reset setting</em>, <em>Copy setting id</em>, <em>Copy as JSON</em>. Items whose <code>apply</code> is <code>OnReopen</code> carry a small "reopen trace to apply" badge; <code>Restart</code> ones say so. Items not available on the current host are omitted, not disabled, so VS Code-only keys such as <code>remote.memoryMiB</code> never confuse a native user.</p>
+    </div>
+    <div>
+      <h3>JSON view</h3>
+      <p><span class="badge prop">proposed</span> "Open settings.json" swaps the page area for gpui-kit's <code>Editor</code> in JSON mode with the file's text. Three providers, all backed by the registry: completion of key names when the caret is in a key position and of enum values in a value position; hover documentation for a key; diagnostics from the store's last parse (unknown key, wrong type, out of range, not an enum member) as squiggles with the message. A "Default settings" toggle shows the generated read-only document beside it. <kbd>⌘S</kbd> writes the document through the same ticketed path as GUI edits; the GUI reflects the new values when the write is acknowledged.</p>
+      <p>On the web build highlighting is unavailable (the Tree-sitter stub), but completion, hover and diagnostics do not depend on it.</p>
+      <h3>Command palette</h3>
+      <p><span class="badge prop">proposed</span> <kbd>⌘K</kbd> opens gpui-kit's <code>Command</code> in a dialog with two groups: <em>Commands</em> (every registered action with its key hint) and <em>Settings</em>, filled by the same core matcher as the editor, capped at eight rows. Choosing a setting opens the Settings tab, selects its page, scrolls to the item and flashes it. Choosing a boolean toggles it in place without opening the editor, which is the fastest path for "turn animation off".</p>
+      <h3>Keyboard</h3>
+      <div class="keys">
+        <kbd>⌘,</kbd><span>open Settings; focus the search box if already open</span>
+        <kbd>↓ ↑</kbd><span>move between results, then between items on the page</span>
+        <kbd>⏎</kbd><span>focus the item's control; on a boolean, toggle it</span>
+        <kbd>⌫</kbd><span>on a modified item with focus, reset it</span>
+        <kbd>esc</kbd><span>clear the query, then close the tab</span>
+        <kbd>⌘⇧,</kbd><span>toggle GUI and JSON view</span>
+        <kbd>⌘K</kbd><span>command palette</span>
+      </div>
+    </div>
+  </div>
+  <div class="callout"><p><strong>VS Code host.</strong> Inside VS Code the extension already owns the settings UI and the JSON file. <kbd>⌘,</kbd> in the embedded viewer posts a command to the extension, which runs <code>workbench.action.openSettings</code> with the query <code>@ext:vtr.volna</code> (the extension id is <code>publisher.name</code> from <code>package.json</code>). The GPUI settings tab is not rendered in <code>Embedded</code> mode. Live updates arrive through <code>onDidChangeConfiguration</code> as a JSON object of <code>volna.*</code> keys into a new <code>set_settings(json)</code> wasm export, replacing the once-at-open copy in the open metadata.</p></div>
+</div></section>
+
+<section id="search"><div class="wrap">
+  <div class="eyebrow">Fuzzy navigation</div>
+  <h2>Search that finds "folcur"</h2>
+  <p><span class="badge prop">proposed</span> <code>volna-core::settings::search</code> ranks registry entries for a query and returns, for each hit, a score and the matched character ranges in the title and id. It is deterministic, allocation-light, and testable headless. The playground below runs the same algorithm in JavaScript.</p>
+  <ol class="steps">
+    <li><strong>Filters first.</strong> Tokens starting with <code>@</code> are constraints, not text: <code>@modified</code> keeps changed settings, <code>@page:waves</code> keeps one page, <code>@id:waves.snap</code> matches ids by prefix. Remaining tokens are lowercased search terms; every term must match (AND).</li>
+    <li><strong>Per term, best field wins.</strong> Title: whole word 100, word prefix 80, contiguous substring 60, fuzzy subsequence up to 50. Id segments: the same ladder at 0.8. Keywords: the same ladder at 0.7, with the fuzzy rule also allowed across the joined keyword list so one term can span two keywords. Description: whole word or substring only, at 0.4, because fuzzy matching prose is noise.</li>
+    <li><strong>Fuzzy scoring</strong> is fzf-like: characters must appear in order; each match earns 1, plus 3 at a word or camelCase boundary, plus 2 when adjacent to the previous match; each skipped character costs 0.3 with a cap. Fuzzy needs at least three query characters, and a fuzzy hit scoring under 15 is discarded so that a short term cannot collect stray letters across a long keyword list; below three characters only word, prefix and substring rules apply.</li>
+    <li><strong>Rank</strong> by total score, then modified items first, then registry order. The results view lists hits flat in that order with the page name as a secondary label; the table of contents shows a count per page and dims empty pages.</li>
+    <li><strong>Highlight</strong> the matched ranges in the title with <code>Label::highlights</code>; when the hit came from the id or a keyword, show that text under the title so the user sees why it matched.</li>
+  </ol>
+  <p>Worked examples from the catalogue: <code>folcur</code> matches <em>Link new panels</em> through the fuzzy path over its keywords <em>follow cursor</em> (f-o-l at a word start, c-u-r at a word start); <code>snap px</code> matches <em>Snap distance</em> through the title and the id segment <code>snapPixels</code>; <code>reduce</code> matches <em>Animation</em> through a keyword; <code>@modified snap</code> lists only changed settings mentioning snap, which in the sample document is <em>Snap distance</em> alone.</p>
+</div></section>
+<section id="playground"><div class="wrap">
+  <div class="eyebrow">Try it</div>
+  <h2>Playground: the proposed editor in a browser mock</h2>
+  <p>A mock of the Settings tab with the proposed fuzzy matcher, modified markers, per-item actions, the JSON view with surgical edits and diagnostics, and the command palette. It runs on the catalogue below with a native host, so VS Code-only keys are absent. Everything you change stays on this page; the JSON on the right is the actual text the edits are applied to, comments included.</p>
+  <div class="se-guide">
+    <span>Try:</span>
+    <button type="button" data-try="query" data-q="folcur">type <code>folcur</code></button>
+    <button type="button" data-try="query" data-q="snap px">type <code>snap px</code></button>
+    <button type="button" data-try="query" data-q="@modified">filter <code>@modified</code></button>
+    <button type="button" data-try="json">open settings.json</button>
+    <button type="button" data-try="break">break the JSON</button>
+    <button type="button" data-try="palette">⌘K, toggle animation</button>
+    <button type="button" data-try="restore">restore the sample</button>
+  </div>
+
+  <div class="se" id="se">
+    <div class="se-titlebar">
+      <div class="se-tabs">
+        <span class="se-tab">picorv32.vtr</span>
+        <span class="se-tab active">Settings</span>
+      </div>
+      <div class="se-tb-actions">
+        <button type="button" class="se-btn" id="se-palette-btn" title="Command palette">⌘K</button>
+      </div>
+    </div>
+    <div class="se-searchbar">
+      <div class="se-search">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="se-query" type="text" placeholder="Search settings" autocomplete="off" spellcheck="false" aria-label="Search settings">
+        <kbd>⌘,</kbd>
+      </div>
+      <button type="button" class="se-chip" id="se-modified-chip" aria-pressed="false">@modified</button>
+      <span class="se-count" id="se-count"></span>
+      <span class="se-spacer"></span>
+      <button type="button" class="se-btn" id="se-json-btn" aria-pressed="false">Open settings.json</button>
+    </div>
+    <div class="se-banner" id="se-banner" hidden></div>
+    <div class="se-body">
+      <aside class="se-toc" id="se-toc" aria-label="Pages"></aside>
+      <div class="se-main" id="se-main"></div>
+      <div class="se-json" id="se-jsonview" hidden>
+        <div class="se-json-head">
+          <span class="se-json-path">~/.config/volna/settings.json</span>
+          <label class="se-json-defaults"><input type="checkbox" id="se-defaults-toggle"> show default settings</label>
+          <button type="button" class="se-btn primary" id="se-apply">Apply <kbd>⌘S</kbd></button>
+        </div>
+        <div class="se-json-panes">
+          <div class="se-editor" id="se-editor">
+            <pre class="se-gutter" id="se-gutter" aria-hidden="true"></pre>
+            <textarea id="se-text" spellcheck="false" aria-label="settings.json"></textarea>
+          </div>
+          <pre class="se-defaults" id="se-defaults" hidden></pre>
+        </div>
+        <div class="se-diags" id="se-diags"></div>
+      </div>
+    </div>
+    <div class="se-status" id="se-status"><span id="se-status-text">settings.json · 0 changed</span><span class="se-status-right" id="se-status-write"></span></div>
+    <div class="se-overlay" id="se-overlay" hidden>
+      <div class="se-palette" role="dialog" aria-label="Command palette">
+        <input id="se-palette-input" type="text" placeholder="Type a command or a setting…" autocomplete="off" spellcheck="false">
+        <div class="se-palette-list" id="se-palette-list"></div>
+        <div class="se-palette-foot"><kbd>↑↓</kbd> move <kbd>⏎</kbd> run <kbd>esc</kbd> close</div>
+      </div>
+    </div>
+    <div class="se-toast" id="se-toast" hidden></div>
+  </div>
+  <p class="small">What the mock implements: the matcher exactly as specified in <a href="#search">Search</a>, the JSONC parser with spans, surgical set/insert/remove edits, resolution with diagnostics, the read-only banner on syntax errors, the palette with in-place boolean toggles, and the copy actions. What it only pretends: the write path is a status-bar message instead of a file, no file watcher, no live preview on a waveform, no VS Code host.</p>
+</div></section>
+
+<section id="ownership"><div class="wrap">
+  <div class="eyebrow">Ownership</div>
+  <h2>Who owns what</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Crate</th><th>Owns</th><th>Never does</th></tr>
+    <tr><td><code>volna-core</code></td><td><span class="badge prop">proposed</span> <code>settings::{registry, store, jsonc, search, schema, vscode}</code>; the resolved <code>Settings</code> struct; <code>Command::Settings(Set | Reset | Query | Open | ToggleJson)</code>; <code>Event::WriteSettings</code>, <code>Event::SettingsChanged</code>, <code>Event::RevealSetting</code>; the Settings chrome panel in <code>Panels</code>; migration of <code>preferences.json</code>; headless tests for parsing, edits, resolution, search ranking and migration.</td><td>Touch files, know the config directory, render anything, import a toolkit.</td></tr>
+    <tr><td><code>volna</code> (GPUI, native)</td><td><span class="badge prop">proposed</span> <code>settings_panel.rs</code>: builds gpui-kit <code>Settings</code> pages from the registry, the search bar, results view, modified markers and item actions; <code>settings_json.rs</code>: the <code>Editor</code> with completion, hover and diagnostics providers; the command palette; the <kbd>⌘,</kbd> and <kbd>⌘K</kbd> bindings and the App menu entry. <code>native_workspace.rs</code> gains <code>settings.json</code> and <code>state.json</code> in the byte store, a <code>notify</code> watcher on the config directory (settings and themes) and the write path. <code>theme.rs</code> re-projects the core palette onto gpui-kit's component theme with its existing <code>set</code> on every <code>SettingsChanged</code> that touches <code>appearance.*</code>, the path the VS Code snapshot already uses, instead of only once at install.</td><td>Decide defaults, validate values, edit JSON text, rank search results.</td></tr>
+    <tr><td><code>volna</code> (wasm, standalone web)</td><td><span class="badge prop">proposed</span> The same panel and JSON view; the document text lives in <code>localStorage</code> under one key and is written on acknowledgement; no watcher.</td><td>Diverge from native behaviour beyond storage and highlighting.</td></tr>
+    <tr><td><code>volna</code> (VS Code extension)</td><td><span class="badge prop">proposed</span> Generated <code>contributes.configuration</code>; <code>onDidChangeConfiguration</code> → <code>set_settings(json)</code>; the "open settings" command that runs <code>workbench.action.openSettings</code> with <code>@ext:volna</code>; theme snapshots as today.</td><td>Render the GPUI settings tab; keep a second copy of defaults.</td></tr>
+    <tr><td><code>volna-egui</code></td><td>Reads the resolved struct through the core for the values it already uses (link default). No editor, per the frontend rules in <code>AGENTS.md</code>.</td><td>Gain features.</td></tr>
+    <tr><td>gpui-kit (upstream)</td><td><span class="badge lib">library</span> Candidate contributions after the Volna implementation settles: a <code>Settings::matcher</code> hook, an externally owned query, a per-item reset and modified indicator.</td><td>Block the Volna work; everything above is achievable with 0.6.1 as is.</td></tr>
+  </table></div>
+</div></section>
+
+<section id="hosts"><div class="wrap">
+  <div class="eyebrow">Hosts</div>
+  <h2>Native, standalone web, VS Code</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Concern</th><th>Native GPUI</th><th>Standalone web</th><th>VS Code webview</th></tr>
+    <tr><td>Where the JSON lives</td><td><code>&lt;config&gt;/settings.json</code>; <code>state.json</code> beside it; <code>themes/*.json</code> palettes.</td><td><code>localStorage["volna.settings"]</code> as text; state in another key.</td><td>VS Code's own user/workspace <code>settings.json</code> under <code>volna.*</code>.</td></tr>
+    <tr><td>How values arrive</td><td>Read once at start, then the watcher reports changes; the store re-parses and diffs keys.</td><td>Read once at start; edits only from this page.</td><td>Open metadata carries the current values; <code>onDidChangeConfiguration</code> pushes a fresh object of <code>volna.*</code> keys at any time.</td></tr>
+    <tr><td>How edits leave</td><td><code>Event::WriteSettings</code> → temporary file and rename, ticket acknowledged; echo suppressed by hash.</td><td>Same event; the host writes storage and acknowledges synchronously.</td><td>The GPUI editor is not shown; VS Code edits its file. A future "edit from the viewer" path would call <code>configuration.update</code>, and is not needed for parity.</td></tr>
+    <tr><td>Settings UI</td><td>The GPUI tab, JSON view with highlighting.</td><td>The GPUI tab, JSON view without highlighting.</td><td>VS Code's settings editor, filtered by <code>@ext:vtr.volna</code>; <kbd>⌘,</kbd> in the viewer forwards to it.</td></tr>
+    <tr><td>Theme</td><td><code>appearance.theme</code> selects One Dark or a palette file; palettes reload on change.</td><td>Same, palettes bundled or pasted.</td><td>Always the host snapshot; <code>appearance.theme</code> is not contributed (<code>hosts</code> excludes it).</td></tr>
+    <tr><td>Failure</td><td>Unreadable file: defaults, a notice, writes disabled until fixed (existing rule). Syntax error: last good values, GUI read-only with a banner.</td><td>Same rules on the stored text.</td><td>VS Code validates against the contributed schema before the value reaches Volna; the core still validates and falls back per key.</td></tr>
+  </table></div>
+</div></section>
+
+<section id="catalogue"><div class="wrap">
+  <div class="eyebrow">Initial catalogue</div>
+  <h2>The first registry</h2>
+  <p>Keys with a value today are marked existing; their ids are kept where a VS Code contribution already uses them. The <em>Milestone</em> column separates the first registry from keys that wait for a feature. The first registry holds only keys with a consumer in the viewer today (a constant, a preference or a VS Code contribution), so every entry has an observable effect and a test. The rest are features in their own right; each is registered in the same table when its feature lands, and the settings work never gates on them.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Id</th><th>Page · group</th><th>Type, default</th><th>Apply</th><th>Hosts</th><th>Status</th><th>Milestone</th></tr>
+    <tr><td><code>appearance.theme</code></td><td>Appearance · Theme</td><td>enum from One Dark plus palette files, <code>"one-dark"</code></td><td>live</td><td>native, web</td><td><span class="badge exist">existing</span> value; the picker and palette files are proposed</td><td>first</td></tr>
+    <tr><td><code>appearance.uiFontSize</code></td><td>Appearance · Fonts</td><td>integer 10–24, <code>13</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+    <tr><td><code>appearance.monoFont</code></td><td>Appearance · Fonts</td><td>text, <code>"Lilex"</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+    <tr><td><code>panels.linkByDefault</code></td><td>Waves · Panels</td><td>boolean, <code>true</code></td><td>live (new panels)</td><td>all</td><td><span class="badge exist">existing</span> native and VS Code</td><td>first</td></tr>
+    <tr><td><code>waves.defaultFormat</code></td><td>Waves · Values</td><td>enum hex | binary | decimal | signed | float, <code>"hex"</code></td><td>live (new rows)</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+    <tr><td><code>waves.animation</code></td><td>Waves · Navigation</td><td>enum on | reduced | off, <code>"on"</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span>; the viewport animation exists, the switch does not</td><td>first</td></tr>
+    <tr><td><code>waves.snapPixels</code></td><td>Waves · Navigation</td><td>integer 0–24, <code>6</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span>; today the constant <code>SNAP_PX</code> in <code>wave/model.rs</code></td><td>first</td></tr>
+    <tr><td><code>waves.wheelZoomSpeed</code></td><td>Waves · Navigation</td><td>number 0.5–3, <code>1</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+    <tr><td><code>sidebar.visible</code></td><td>Sidebar · Layout</td><td>boolean, <code>true</code></td><td>live (new windows)</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+    <tr><td><code>sidebar.filter</code></td><td>Sidebar · Variables</td><td>enum substring | fuzzy, <code>"substring"</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+    <tr><td><code>workspace.autosave</code></td><td>Workspace · Persistence</td><td>enum sidecar | vscode | off, <code>"sidecar"</code></td><td>live (next save)</td><td>all; <code>vscode</code> value only in VS Code</td><td><span class="badge exist">existing</span> native boolean and VS Code enum, unified</td><td>first</td></tr>
+    <tr><td><code>workspace.recentLimit</code></td><td>Workspace · History</td><td>integer 5–50, <code>20</code></td><td>live</td><td>native, web</td><td><span class="badge prop">proposed</span>; today the literal <code>20</code> in <code>Preferences::remember</code></td><td>first</td></tr>
+    <tr><td><code>remote.memoryMiB</code></td><td>Remote · Limits</td><td>integer 1–16384, <code>512</code></td><td>reopen</td><td>VS Code</td><td><span class="badge exist">existing</span></td><td>first</td></tr>
+    <tr><td><code>remote.objectMiB</code></td><td>Remote · Limits</td><td>integer 1–16384, <code>256</code></td><td>reopen</td><td>VS Code</td><td><span class="badge exist">existing</span></td><td>first</td></tr>
+    <tr><td><code>remote.serverPath</code></td><td>Remote · Server</td><td>text, <code>""</code></td><td>reopen</td><td>VS Code, machine scope</td><td><span class="badge exist">existing</span></td><td>first</td></tr>
+    <tr><td><code>log.level</code></td><td>Advanced · Logging</td><td>enum error | warn | info | debug | trace, <code>"warn"</code></td><td>live</td><td>native, web</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+  </table></div>
+  <p>Migration: <code>preferences.json</code> version 1 is read once, its <code>theme</code>, <code>link_by_default</code> and <code>autosave</code> become <code>appearance.theme</code>, <code>panels.linkByDefault</code> and <code>workspace.autosave</code> in a new <code>settings.json</code> (only when they differ from the defaults), its recent lists become <code>state.json</code>, and the old file is renamed to <code>preferences.json.migrated</code>. A user who never changed anything ends up with an empty <code>{}</code> and a <code>$schema</code> comment.</p>
+</div></section>
+
+<section id="tradeoffs"><div class="wrap">
+  <div class="eyebrow">Alternatives considered</div>
+  <h2>Trade-offs</h2>
+  <div class="grid two">
+    <div class="card"><h3>TOML like Surfer</h3><p>Surfer keeps a TOML config resolved through <code>ProjectDirs</code>. Rejected: the VS Code host needs JSON anyway, gpui-kit's editor has a JSON grammar and no TOML one, and one format for settings, workspaces and palettes keeps the parsers and tests shared.</p></div>
+    <div class="card"><h3>Nested objects like Zed</h3><p><code>{"waves": {"animation": "off"}}</code> reads well but the VS Code contribution is flat, surgical edits into nested objects need path-aware insertion, and search over ids becomes a join. Flat dotted keys are accepted as the only form; a nested form could be accepted later as input without changing the store.</p></div>
+    <div class="card"><h3>GUI-only store, file as an export</h3><p>Simplest to build, but it breaks the VS Code expectation that the file is authoritative, makes hand edits second class, and cannot preserve comments. Rejected.</p></div>
+    <div class="card"><h3>Serialise the whole struct on every change</h3><p>The current preferences path. It drops comments and unknown keys and rewrites formatting. The surgical editor is a few hundred lines with its tests, because it has to handle string escapes, block comments, duplicate keys, list values, CRLF line endings and a byte-order mark (the playground parser already covers all but the last two), and it removes an entire class of complaints; the store keeps serialisation only for the generated default document.</p></div>
+    <div class="card"><h3>A modal sheet instead of a tab</h3><p>gpui-kit's <code>Sheet</code> would take a day less. But a modal hides the waves, so appearance and navigation settings cannot be previewed, and it fights the dock's focus model. A tab is what VS Code and Zed do and what users expect from <kbd>⌘,</kbd>.</p></div>
+    <div class="card"><h3>Keep the component's own search</h3><p>Zero code, but "folcur" and "cursor follow" find nothing, there is no ranking or highlighting, and the query cannot be driven from the palette. Replacing the match is the smallest change that makes the editor feel like VS Code's.</p></div>
+    <div class="card"><h3>Adopt gpui-kit's theme JSON as Volna's theme format</h3><p>It would give thirty ready themes for the chrome, but the waveform painter reads Volna's core tokens, and VS Code hosts already supply a palette snapshot in Volna's format. The registry's watch-a-directory idea is borrowed; the format is not.</p></div>
+    <div class="card"><h3>Settings inside the workspace file</h3><p>Would let a trace carry its own preferences, but workspace files are shared and copied with traces; user preferences in them leak between people. Per-workspace overrides can be added as a fourth store layer later without touching the file format.</p></div>
+  </div>
+</div></section>
+
+<section id="checks"><div class="wrap">
+  <div class="eyebrow">Verification</div>
+  <h2>Behaviour and regression checks</h2>
+  <p>Each statement is a headless test in <code>volna-core</code> unless marked otherwise.</p>
+  <ul>
+    <li>Parsing accepts comments, trailing commas and unknown keys; the resolved struct equals defaults for an empty or missing document.</li>
+    <li>A document with a wrong type, an out-of-range integer and an unknown enum member resolves to the defaults for those keys and reports three diagnostics with the correct line numbers.</li>
+    <li><code>Set</code> on a present key changes only that value's byte span; the rest of the text, including every comment, is byte-identical. <code>Set</code> on an absent key inserts one property with the document's indentation and no trailing comma; the result parses under strict JSON when the rest of the document does. <code>Reset</code> removes exactly one property and leaves valid JSONC. Repeating a hundred random set/reset operations keeps the document parsable and equal to the resolved values.</li>
+    <li>A syntax error makes <code>Set</code> return an error, keeps the last good resolution, and the diagnostic names the line; fixing the text restores writes.</li>
+    <li>The echo of the store's own write, delivered as a watcher change with identical bytes, produces no <code>SettingsChanged</code>; a different external write produces one with the changed keys only.</li>
+    <li>Search: <code>folcur</code> ranks <em>Follow cursor</em> first; <code>snap</code> ranks <em>Snap distance</em> above any description-only hit; <code>@modified</code> lists exactly the keys present in the document; ranking is stable across runs and independent of page order except as a tie-break.</li>
+    <li>The registry has unique ids, defaults within constraints, and its VS Code emission equals the committed <code>package.json</code> block.</li>
+    <li>Migration of a version 1 <code>preferences.json</code> produces the expected <code>settings.json</code> and <code>state.json</code>, and a second run is a no-op.</li>
+    <li>GPUI (macOS harness): <kbd>⌘,</kbd> opens the tab, typing a query shows the results view with highlighted titles, toggling a switch updates the JSON view text without reformatting, and the tab is absent from a saved workspace.</li>
+    <li>VS Code (extension tests): changing <code>volna.waves.animation</code> in VS Code settings reaches the webview without reopening the trace; the generated contribution block validates as a VS Code manifest.</li>
+  </ul>
+</div></section>
+
+<section id="plan"><div class="wrap">
+  <div class="eyebrow">Sequence</div>
+  <h2>Plan</h2>
+  <ol class="steps">
+    <li><strong>Core registry and store.</strong> Registry with the first-milestone catalogue above, JSONC parser with spans, resolution with diagnostics, surgical edits, search, schema and contribution emitters, migration. All headless tests. No frontend change yet: <code>Preferences</code> stays as a thin shim that reads and writes the store, because <code>native_workspace.rs</code> and both frontends construct and save it directly today, so they keep compiling unchanged until the next step removes the shim.</li>
+    <li><strong>Native file path.</strong> <code>settings.json</code> and <code>state.json</code> in the byte store, watcher, write tickets, echo suppression. Viewer reads live values for theme, link default, animation and snapping.</li>
+    <li><strong>VS Code parity.</strong> Generate the contribution block, add <code>onDidChangeConfiguration</code> and <code>set_settings</code>, forward <kbd>⌘,</kbd> to VS Code's editor. Drop "Reopen the trace to apply" from live keys.</li>
+    <li><strong>Settings tab.</strong> gpui-kit <code>Settings</code> driven by the registry, Volna search bar and results view, modified markers, item actions, keyboard model, App menu entry.</li>
+    <li><strong>JSON view.</strong> <code>Editor</code> with completion, hover and diagnostics providers; default document; <kbd>⌘⇧,</kbd>.</li>
+    <li><strong>Command palette.</strong> <code>Command</code> in a dialog with actions and settings; in-place boolean toggles; reveal in the tab.</li>
+    <li><strong>Upstream.</strong> Offer the matcher hook and external query to gpui-kit; if accepted, delete the prefiltering wrapper.</li>
+  </ol>
+</div></section>
+
+<section id="refs"><div class="wrap">
+  <div class="eyebrow">Sources</div>
+  <h2>References</h2>
+  <ul>
+    <li>gpui-kit repository, commit <code>d604a2a</code> (2026-09-16): <code>crates/component/src/setting/</code>, <code>crates/component/src/command/</code>, <code>crates/base/src/input/editor/lsp/</code>, <code>crates/base/src/input/editor/diagnostics.rs</code>, <code>crates/component/src/highlighter/wasm_stub.rs</code>, <code>crates/component/src/theme/registry.rs</code>, <code>crates/component/src/label.rs</code>, <code>crates/story/src/stories/settings_story.rs</code>, <code>crates/story/src/themes.rs</code>, <code>crates/shell/src/storage.rs</code>, <code>website/component/{settings,command,editor,theme}.md</code>. <a href="https://github.com/longbridge/gpui-kit">github.com/longbridge/gpui-kit</a>, <a href="https://gpui-kit.com">gpui-kit.com</a>.</li>
+    <li>Volna: <code>volna/volna-core/src/workspace/prefs.rs</code>, <code>volna/volna/src/native_workspace.rs</code>, <code>volna/volna/src/theme.rs</code>, <code>volna/volna/src/app.rs</code>, <code>volna/volna/src/lib.rs</code>, <code>volna/volna/vscode-ext/{package.json,workspace.js,extension.js}</code>, <code>volna/volna/ARCHITECTURE.md</code>, <code>docs/workspaces.html</code>, <code>docs/RATIONALE.md</code> (Volna viewer).</li>
+    <li>VS Code: <a href="https://code.visualstudio.com/docs/configure/settings">User and workspace settings</a> (settings editor, <code>settings.json</code>, <code>@modified</code> and other filters, default settings), <a href="https://code.visualstudio.com/api/references/contribution-points#contributes.configuration">contributes.configuration</a>.</li>
+    <li>Zed: <a href="https://zed.dev/docs/configuring-zed">Configuring Zed</a> (<code>settings.json</code>, default settings, project settings) and the settings editor introduced in 2025, which writes back into <code>settings.json</code> with comment-preserving edits.</li>
+    <li>Surfer configuration (TOML, <code>ProjectDirs</code>) as the previous behaviour bar, see <a href="workspaces.html#refs">Panels and Workspaces</a>.</li>
+  </ul>
+</div></section>
+</main>
+<footer><div class="wrap"><p class="small">Volna user settings proposal · 2026-09-17 · companion to <a href="workspaces.html">Panels and Workspaces</a> and <a href="client-server-simple.html">Load once</a>.</p></div></footer>
+
+<script>
+(function(){
+  var t=document.getElementById('only-proposed');
+  if(t){ t.addEventListener('change',function(){ document.body.classList.toggle('only-proposed', t.checked); }); }
+  var links=[].slice.call(document.querySelectorAll('header nav a'));
+  var secs=links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  function mark(){ var y=window.scrollY+90, cur=-1; secs.forEach(function(s,i){ if(s && s.offsetTop<=y) cur=i; }); links.forEach(function(a,i){ a.classList.toggle('active', i===cur); }); }
+  window.addEventListener('scroll', mark, {passive:true}); mark();
+})();
+</script>
+<script>
+(function(){
+'use strict';
+const $ = (s, r) => (r || document).querySelector(s);
+
+/* ---------- registry (native host: VS Code-only keys omitted) ---------- */
+const PAGES = [
+  { id:'appearance', title:'Appearance', desc:'Theme, fonts and chrome.' },
+  { id:'waves', title:'Waves', desc:'Waveform panels, values and navigation.' },
+  { id:'sidebar', title:'Sidebar', desc:'Scope tree and variable list.' },
+  { id:'workspace', title:'Workspace', desc:'How sessions are saved beside traces.' },
+  { id:'advanced', title:'Advanced', desc:'Logging and developer options.' },
+];
+const REG = [
+  { id:'appearance.theme', page:'appearance', group:'Theme', title:'Theme', desc:'One Dark, or any palette JSON dropped into `~/.config/volna/themes/`. Palettes reload when the file changes.', kw:['dark','light','palette','colors','colours'], kind:'enum', values:['one-dark','gruvbox-dark','solarized-light'], labels:['One Dark','Gruvbox Dark (palette)','Solarized Light (palette)'], def:'one-dark', apply:'live' },
+  { id:'appearance.uiFontSize', page:'appearance', group:'Fonts', title:'UI font size', desc:'Size of the chrome text in logical pixels. The waveform value text follows it.', kw:['text','zoom','scale'], kind:'int', min:10, max:24, step:1, def:13, apply:'live' },
+  { id:'appearance.monoFont', page:'appearance', group:'Fonts', title:'Monospace font', desc:'Family used for values, times and the JSON view. Lilex is bundled.', kw:['typeface','family','code'], kind:'text', def:'Lilex', apply:'live' },
+  { id:'panels.linkByDefault', page:'waves', group:'Panels', title:'Link new panels', desc:'New waveform panels follow the shared viewport and cursor. Each panel can still unlink from its header.', kw:['follow','cursor','viewport','sync','split'], kind:'bool', def:true, apply:'live' },
+  { id:'waves.defaultFormat', page:'waves', group:'Values', title:'Default value format', desc:'Radix used for newly added bus signals. `T` cycles the format of a selected row.', kw:['radix','hex','binary','decimal','signed','float'], kind:'enum', values:['hex','binary','decimal','signed','float'], labels:['Hexadecimal','Binary','Decimal','Signed','Float'], def:'hex', apply:'live' },
+  { id:'waves.animation', page:'waves', group:'Navigation', title:'Animation', desc:'Animate pan and zoom. `reduced` keeps the motion but shortens it; `off` jumps.', kw:['smooth','motion','reduce','transition'], kind:'enum', values:['on','reduced','off'], labels:['On','Reduced','Off'], def:'on', apply:'live' },
+  { id:'waves.snapPixels', page:'waves', group:'Navigation', title:'Snap distance', desc:'Clicks in the waves snap the cursor to an edge within this many pixels. 0 disables snapping.', kw:['edge','cursor','magnet','px'], kind:'int', min:0, max:24, step:1, def:6, apply:'live' },
+  { id:'waves.wheelZoomSpeed', page:'waves', group:'Navigation', title:'Wheel zoom speed', desc:'Multiplier for ⌘/ctrl + wheel and pinch zoom.', kw:['scroll','trackpad','pinch','sensitivity'], kind:'num', min:0.5, max:3, step:0.1, def:1, apply:'live' },
+  { id:'sidebar.visible', page:'sidebar', group:'Layout', title:'Show sidebar', desc:'Show the scope tree and variable list in new windows. `⌘B` toggles it at any time.', kw:['hide','toggle','tree','panel'], kind:'bool', def:true, apply:'live' },
+  { id:'sidebar.filter', page:'sidebar', group:'Variables', title:'Variable filter matching', desc:'How the filter box matches variable names.', kw:['search','fuzzy','substring'], kind:'enum', values:['substring','fuzzy'], labels:['Substring','Fuzzy'], def:'substring', apply:'live' },
+  { id:'workspace.autosave', page:'workspace', group:'Persistence', title:'Autosave workspace', desc:'Save the session beside the trace as `<trace>.volna.json`, or disable persistence.', kw:['sidecar','session','persist','save'], kind:'enum', values:['sidecar','off'], labels:['Beside the trace','Off'], def:'sidecar', apply:'live' },
+  { id:'workspace.recentLimit', page:'workspace', group:'History', title:'Recent items to keep', desc:'How many recent traces and workspaces the File menu remembers.', kw:['history','mru','menu'], kind:'int', min:5, max:50, step:1, def:20, apply:'live' },
+  { id:'log.level', page:'advanced', group:'Logging', title:'Log level', desc:'Verbosity of the native log. Takes effect for new messages.', kw:['debug','trace','verbose','stderr'], kind:'enum', values:['error','warn','info','debug','trace'], labels:['Error','Warn','Info','Debug','Trace'], def:'warn', apply:'live' },
+];
+const BY_ID = Object.fromEntries(REG.map(s => [s.id, s]));
+const PAGE_BY_ID = Object.fromEntries(PAGES.map(p => [p.id, p]));
+
+const SAMPLE = `{
+  // Volna user settings. Only the keys you change live here; everything
+  // else uses the defaults shown in "Default settings" of the JSON view.
+  "$schema": "./settings.schema.json",
+
+  "appearance.theme": "gruvbox-dark",
+  "waves.animation": "reduced",   // "on" | "reduced" | "off"
+  "waves.snapPixels": 8,
+}
+`;
+
+/* ---------- JSONC parser with spans (top-level object only) ---------- */
+function parseDoc(text){
+  const props = []; let i = 0; const n = text.length;
+  const fail = (msg, at) => ({ ok:false, props, error:{ msg, pos: at, ...lineCol(text, at) } });
+  const ws = () => { for(;;){ while(i<n && /\s/.test(text[i])) i++;
+      if(text.startsWith('//', i)){ while(i<n && text[i] !== '\n') i++; continue; }
+      if(text.startsWith('/*', i)){ const e = text.indexOf('*/', i+2); if(e<0){ i = n; return; } i = e+2; continue; }
+      return; } };
+  ws(); if(i>=n) return { ok:true, props, empty:true, open:-1, close:-1 };
+  if(text[i] !== '{') return fail('expected "{"', i);
+  const open = i; i++;
+  for(;;){
+    ws(); if(i>=n) return fail('unterminated object', n);
+    if(text[i] === '}') break;
+    if(text[i] !== '"') return fail('expected a property name in quotes', i);
+    const keyStart = i; const key = readString(); if(key === null) return fail('unterminated string', keyStart);
+    const keyEnd = i;
+    ws(); if(text[i] !== ':') return fail('expected ":" after property name', i); i++;
+    ws(); const valStart = i; const value = readValue(); if(value === undefined) return fail('invalid value', valStart);
+    const valEnd = i;
+    props.push({ key, keyStart, keyEnd, valStart, valEnd, value, line: lineCol(text, keyStart).line });
+    ws();
+    if(text[i] === ',') { i++; continue; }
+    if(text[i] === '}') break;
+    return fail('expected "," or "}"', i);
+  }
+  const close = i;
+  return { ok:true, props, open, close };
+  function readString(){ let s=''; i++; while(i<n){ const c=text[i]; if(c==='"'){ i++; return s; } if(c==='\\'){ const d=text[i+1]; const m={n:'\n',t:'\t',r:'\r','"':'"','\\':'\\','/':'/'}; if(d==='u'){ s+=String.fromCharCode(parseInt(text.substr(i+2,4),16)); i+=6; continue; } s+= (m[d] ?? d); i+=2; continue; } if(c==='\n') return null; s+=c; i++; } return null; }
+  function readValue(){
+    const c = text[i];
+    if(c === '"'){ const s = readString(); return s === null ? undefined : s; }
+    if(c === '{' || c === '['){ const start=i; let depth=0, inStr=false; while(i<n){ const ch=text[i]; if(inStr){ if(ch==='\\'){ i+=2; continue; } if(ch==='"') inStr=false; i++; continue; } if(ch==='"') inStr=true; else if(ch==='{'||ch==='[') depth++; else if(ch==='}'||ch===']'){ depth--; if(depth===0){ i++; try{ return JSON.parse(stripComments(text.slice(start,i)).replace(/,(\s*[}\]])/g,'$1')); }catch{ return undefined; } } } else if(ch==='/' && (text[i+1]==='/'||text[i+1]==='*')){ const save=i; ws(); if(i===save) i++; continue; } i++; } return undefined; }
+    const m = /^(true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(text.slice(i));
+    if(!m) return undefined; i += m[0].length;
+    return m[0]==='true' ? true : m[0]==='false' ? false : m[0]==='null' ? null : Number(m[0]);
+  }
+}
+function stripComments(s){ return s.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,''); }
+function lineCol(text, pos){ let line=1, col=1; for(let k=0;k<pos&&k<text.length;k++){ if(text[k]==='\n'){ line++; col=1; } else col++; } return { line, col }; }
+
+/* ---------- resolution + diagnostics ---------- */
+function validate(spec, v){
+  switch(spec.kind){
+    case 'bool': return typeof v === 'boolean' ? null : 'expected true or false';
+    case 'int': if(typeof v !== 'number' || !Number.isInteger(v)) return 'expected an integer'; if(v<spec.min||v>spec.max) return `expected ${spec.min}–${spec.max}`; return null;
+    case 'num': if(typeof v !== 'number') return 'expected a number'; if(v<spec.min||v>spec.max) return `expected ${spec.min}–${spec.max}`; return null;
+    case 'text': return typeof v === 'string' ? null : 'expected a string';
+    case 'enum': return spec.values.includes(v) ? null : `expected one of ${spec.values.map(x=>JSON.stringify(x)).join(', ')}`;
+  }
+  return null;
+}
+function resolve(parsed){
+  const values = Object.fromEntries(REG.map(s => [s.id, s.def]));
+  const modified = new Set(); const diags = [];
+  if(!parsed.ok){ diags.push({ sev:'error', line: parsed.error.line, col: parsed.error.col, key:null, msg:`syntax error: ${parsed.error.msg}` }); return { values, modified, diags }; }
+  const seen = new Set();
+  for(const p of parsed.props){
+    if(p.key === '$schema') continue;
+    if(seen.has(p.key)) diags.push({ sev:'warning', line:p.line, key:p.key, msg:`duplicate key "${p.key}", last one wins` });
+    seen.add(p.key);
+    const spec = BY_ID[p.key];
+    if(!spec){ diags.push({ sev:'warning', line:p.line, key:p.key, msg:`unknown setting "${p.key}"` }); continue; }
+    const err = validate(spec, p.value);
+    if(err){ diags.push({ sev:'error', line:p.line, key:p.key, msg:`"${p.key}": ${err}; using default ${JSON.stringify(spec.def)}` }); continue; }
+    values[p.key] = p.value; if(p.value !== spec.def) modified.add(p.key); else modified.add(p.key);
+  }
+  return { values, modified, diags };
+}
+
+/* ---------- surgical edits ---------- */
+function indentOf(text, parsed){
+  if(parsed.props.length){ const ls = text.lastIndexOf('\n', parsed.props[0].keyStart) + 1; const pre = text.slice(ls, parsed.props[0].keyStart); if(/^[ \t]+$/.test(pre)) return pre; }
+  return '  ';
+}
+function editSet(text, parsed, key, value){
+  const json = JSON.stringify(value);
+  const p = parsed.props.find(q => q.key === key);
+  if(p) return text.slice(0, p.valStart) + json + text.slice(p.valEnd);
+  if(parsed.empty) return `{\n  "${key}": ${json}\n}\n`;
+  const ind = indentOf(text, parsed);
+  let out = text;
+  if(parsed.props.length){
+    const last = parsed.props[parsed.props.length-1];
+    const between = out.slice(last.valEnd, parsed.close);
+    if(!/,/.test(stripComments(between))) out = out.slice(0, last.valEnd) + ',' + out.slice(last.valEnd);
+  }
+  const p2 = parseDoc(out); const close = p2.close;
+  const before = out.slice(0, close); const nl = before.endsWith('\n') ? '' : '\n';
+  const trimmed = before.replace(/[ \t]+$/, '');
+  return trimmed + (trimmed.endsWith('\n') ? '' : '\n') + `${ind}"${key}": ${json}\n` + out.slice(close);
+}
+function editRemove(text, parsed, key){
+  const p = parsed.props.find(q => q.key === key); if(!p) return text;
+  let start = text.lastIndexOf('\n', p.keyStart - 1) + 1;
+  let end = p.valEnd;
+  const rest = text.slice(end); const m = /^[ \t]*,?[ \t]*(\/\/[^\n]*)?\n?/.exec(rest); end += m ? m[0].length : 0;
+  const lineStartOnlyWs = /^[ \t]*$/.test(text.slice(start, p.keyStart));
+  if(!lineStartOnlyWs) start = p.keyStart;
+  let out = text.slice(0, start) + text.slice(end);
+  const p2 = parseDoc(out);
+  if(p2.ok && p2.props.length === 0 && stripComments(out.slice(p2.open+1, p2.close)).trim() === '') out = '{}\n';
+  return out;
+}
+
+/* ---------- search ---------- */
+function isBoundary(s, k){ if(k===0) return true; const a=s[k-1], b=s[k]; if(/[^a-z0-9]/i.test(a)) return true; if(/[a-z]/.test(a) && /[A-Z]/.test(b)) return true; return false; }
+function fuzzy(hay, q){
+  if(q.length < 3) return null;
+  const h = hay, hl = hay.toLowerCase(); let score = 0, prev = -2; const ranges = []; let pos = 0;
+  for(const ch of q){ const k = hl.indexOf(ch, pos); if(k < 0) return null;
+    let s = 1; if(isBoundary(h, k)) s += 3; if(k === prev + 1) s += 2; s -= Math.min(6, Math.max(0, k - pos)) * 0.3;
+    score += s; ranges.push([k, k+1]); prev = k; pos = k + 1; }
+  const total = score * 3; if(total < 15) return null;
+  return { score: Math.min(50, total), ranges: merge(ranges) };
+}
+function merge(r){ const out=[]; for(const [a,b] of r){ if(out.length && out[out.length-1][1]===a) out[out.length-1][1]=b; else out.push([a,b]); } return out; }
+function wordMatch(hay, q){
+  const hl = hay.toLowerCase(); const words = []; const re = /[a-z0-9]+/g; let m;
+  while((m = re.exec(hl))) words.push([m.index, m[0]]);
+  for(const [at, w] of words) if(w === q) return { score:100, ranges:[[at, at+q.length]] };
+  for(const [at, w] of words) if(w.startsWith(q)) return { score:80, ranges:[[at, at+q.length]] };
+  const k = hl.indexOf(q); if(k >= 0) return { score:60, ranges:[[k, k+q.length]] };
+  return null;
+}
+function best(hay, q, weight, allowFuzzy){
+  const w = wordMatch(hay, q); if(w) return { score: w.score*weight, ranges: w.ranges };
+  if(allowFuzzy){ const f = fuzzy(hay, q); if(f) return { score: f.score*weight, ranges: f.ranges }; }
+  return null;
+}
+function search(query, state){
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const filters = { modified:false, page:null, id:null }; const terms = [];
+  for(const t of tokens){ const tl = t.toLowerCase();
+    if(tl === '@modified') filters.modified = true;
+    else if(tl.startsWith('@page:')) filters.page = tl.slice(6);
+    else if(tl.startsWith('@id:')) filters.id = tl.slice(4);
+    else if(tl.startsWith('@')) { /* unknown filter: ignore */ }
+    else terms.push(tl); }
+  const hits = [];
+  REG.forEach((spec, order) => {
+    if(filters.modified && !state.modified.has(spec.id)) return;
+    if(filters.page && !(spec.page === filters.page || PAGE_BY_ID[spec.page].title.toLowerCase().startsWith(filters.page))) return;
+    if(filters.id && !spec.id.toLowerCase().startsWith(filters.id)) return;
+    let total = 0; const titleRanges = []; const idRanges = []; let why = null;
+    for(const term of terms){
+      const cands = [];
+      const t = best(spec.title, term, 1, true); if(t) cands.push({ ...t, field:'title' });
+      const idHay = spec.id.split('.').join(' '); const i = best(idHay, term, 0.8, true); if(i) cands.push({ ...i, field:'id' });
+      for(const kw of spec.kw){ const k = best(kw, term, 0.7, false); if(k){ cands.push({ score:k.score, ranges:[], field:'kw', kw }); } }
+      const kwAll = spec.kw.join(' '); const kf = fuzzy(kwAll, term); if(kf){ cands.push({ score:kf.score*0.7, ranges:[], field:'kw', kw: kwAll.split(' ').filter((w,ix)=>kf.ranges.some(([a,b])=>{ const at=kwAll.split(' ').slice(0,ix).join(' ').length + (ix?1:0); return a < at + w.length && b > at; })).join(', ') }); }
+      const d = best(spec.desc, term, 0.4, false); if(d) cands.push({ score:d.score, ranges:[], field:'desc' });
+      if(!cands.length) return;
+      cands.sort((a,b) => b.score - a.score); const c = cands[0]; total += c.score;
+      if(c.field === 'title') titleRanges.push(...c.ranges);
+      else if(c.field === 'id'){ idRanges.push(...c.ranges.map(([a,b]) => [a,b])); why = why || 'id'; }
+      else if(c.field === 'kw'){ why = why || ('keyword ' + c.kw); }
+      else why = why || 'description';
+    }
+    hits.push({ spec, score: total, titleRanges: merge(titleRanges.sort((a,b)=>a[0]-b[0])), idRanges, why, order });
+  });
+  hits.sort((a,b) => b.score - a.score || (state.modified.has(b.spec.id) - state.modified.has(a.spec.id)) || a.order - b.order);
+  return { hits, terms, filters, active: terms.length > 0 || filters.modified || !!filters.page || !!filters.id };
+}
+function hl(text, ranges){ if(!ranges || !ranges.length) return esc(text); let out='', pos=0; for(const [a,b] of ranges){ out += esc(text.slice(pos,a)) + '<mark>' + esc(text.slice(a,b)) + '</mark>'; pos=b; } return out + esc(text.slice(pos)); }
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function md(s){ return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>'); }
+
+/* ---------- state ---------- */
+const S = { text: SAMPLE, parsed:null, values:null, modified:new Set(), diags:[], page:'waves', query:'', json:false, menuFor:null, focusIx:-1, writes:0, lastGood:null };
+function reparse(){
+  S.parsed = parseDoc(S.text);
+  const r = resolve(S.parsed);
+  if(S.parsed.ok){ S.values = r.values; S.modified = r.modified; S.lastGood = { values: r.values, modified: r.modified }; }
+  else if(S.lastGood){ S.values = S.lastGood.values; S.modified = S.lastGood.modified; }
+  else { S.values = r.values; S.modified = r.modified; }
+  S.diags = r.diags;
+}
+function commit(newText, what){
+  S.text = newText; reparse(); S.writes++;
+  const w = $('#se-status-write'); w.textContent = `writing settings.json… (${what})`; w.classList.add('busy');
+  clearTimeout(commit.t); commit.t = setTimeout(() => { w.textContent = `written · ticket #${S.writes} acknowledged`; w.classList.remove('busy'); }, 500);
+  render();
+}
+function setValue(id, value){
+  if(!S.parsed.ok){ toast('settings.json has a syntax error; fix it in the JSON view first'); return false; }
+  const spec = BY_ID[id]; const err = validate(spec, value); if(err){ toast(`${id}: ${err}`); return false; }
+  const next = (value === spec.def) ? editRemove(S.text, S.parsed, id) : editSet(S.text, S.parsed, id, value);
+  commit(next, `set ${id}`); return true;
+}
+function resetValue(id){ if(!S.parsed.ok){ toast('settings.json has a syntax error; fix it in the JSON view first'); return; } commit(editRemove(S.text, S.parsed, id), `reset ${id}`); }
+
+/* ---------- rendering ---------- */
+const root = $('#se');
+const elQuery = $('#se-query'), elToc = $('#se-toc'), elMain = $('#se-main'), elCount = $('#se-count'), elBanner = $('#se-banner');
+const elJson = $('#se-jsonview'), elText = $('#se-text'), elGutter = $('#se-gutter'), elDiags = $('#se-diags'), elDefaults = $('#se-defaults');
+
+function render(){
+  const res = search(S.query, S);
+  const syntaxErr = !S.parsed.ok;
+  elBanner.hidden = !syntaxErr;
+  if(syntaxErr){ const e = S.parsed.error; elBanner.innerHTML = `<b>settings.json has a syntax error</b> line ${e.line}, column ${e.col}: ${esc(e.msg)}. The last good values stay in effect; edits are disabled until the file parses. <button type="button" class="se-btn" id="se-banner-fix">Open settings.json</button>`; $('#se-banner-fix').onclick = () => setJson(true, e.line); }
+  elMain.classList.toggle('readonly', syntaxErr);
+  // toc
+  const counts = {}; PAGES.forEach(p => counts[p.id] = 0);
+  if(res.active) res.hits.forEach(h => counts[h.spec.page]++); else REG.forEach(s => counts[s.page]++);
+  elToc.innerHTML = PAGES.map(p => `<button type="button" data-page="${p.id}" class="${(!res.active && S.page===p.id)?'active':''} ${res.active && counts[p.id]===0 ? 'empty':''}"><span>${p.title}</span><span class="n">${counts[p.id]}</span></button>` +
+    ((!res.active && S.page===p.id) ? [...new Set(REG.filter(s=>s.page===p.id).map(s=>s.group))].map(g => `<div class="se-toc-group" data-group="${esc(g)}">${esc(g)}</div>`).join('') : '')).join('');
+  elToc.querySelectorAll('button').forEach(b => b.onclick = () => { S.page = b.dataset.page; if(res.active){ S.query = `@page:${S.page} ` + S.query.replace(/@page:\S+\s*/g,''); elQuery.value = S.query; } S.focusIx=-1; render(); });
+  elToc.querySelectorAll('.se-toc-group').forEach(g => g.onclick = () => { const t = elMain.querySelector(`[data-group="${CSS.escape(g.dataset.group)}"]`); t && t.scrollIntoView({ block:'start', behavior:'smooth' }); });
+  // main
+  const modCount = [...S.modified].filter(k => BY_ID[k]).length;
+  $('#se-status-text').textContent = `settings.json · ${modCount} changed · ${S.diags.length} diagnostics`;
+  $('#se-modified-chip').setAttribute('aria-pressed', String(res.filters.modified));
+  if(res.active){
+    elCount.textContent = `${res.hits.length} result${res.hits.length===1?'':'s'}`;
+    elMain.innerHTML = res.hits.length ? `<div class="se-page-title">Results <span class="se-page-tag">${esc(res.terms.join(' '))}</span></div>` + res.hits.map((h,ix) => itemHtml(h.spec, ix, h)).join('') : `<div class="se-empty">No settings match <b>${esc(S.query)}</b>.<br><small>Filters: <code>@modified</code>, <code>@page:waves</code>, <code>@id:waves.snap</code></small></div>`;
+  } else {
+    elCount.textContent = '';
+    const page = PAGE_BY_ID[S.page]; const specs = REG.filter(s => s.page === S.page);
+    const groups = [...new Set(specs.map(s => s.group))]; let ix = 0;
+    const dirty = specs.some(s => S.modified.has(s.id));
+    elMain.innerHTML = `<div class="se-page-title">${esc(page.title)}${dirty ? `<button type="button" class="se-btn" id="se-reset-page" title="Reset every setting on this page">↶ Reset page</button>`:''}</div><p class="se-page-desc">${esc(page.desc)}</p>` +
+      groups.map(g => `<div class="se-group" data-group="${esc(g)}"><div class="se-group-title">${esc(g)}</div>` + specs.filter(s => s.group===g).map(s => itemHtml(s, ix++, null)).join('') + `</div>`).join('');
+    const rp = $('#se-reset-page'); if(rp) rp.onclick = () => { if(!S.parsed.ok) return toast('fix settings.json first'); let t = S.text; let p = S.parsed; for(const s of specs){ if(S.modified.has(s.id)){ t = editRemove(t, p, s.id); p = parseDoc(t); } } commit(t, `reset page ${page.title}`); };
+  }
+  wireItems();
+  renderJson();
+}
+function itemHtml(spec, ix, hit){
+  const v = S.values[spec.id]; const mod = S.modified.has(spec.id);
+  const title = hit ? hl(spec.title, hit.titleRanges) : esc(spec.title);
+  const why = hit && hit.why ? `<div class="se-item-why">${hit.why === 'id' ? hl(spec.id.split('.').join(' '), hit.idRanges).replace(/ /g,'.') : esc(spec.id) + ' · matched ' + esc(hit.why)}</div>` : '';
+  let ctl = '';
+  switch(spec.kind){
+    case 'bool': ctl = `<button type="button" class="se-switch" role="switch" aria-checked="${v}" data-id="${spec.id}"></button>`; break;
+    case 'enum': ctl = `<select data-id="${spec.id}">${spec.values.map((x,i)=>`<option value="${esc(x)}" ${x===v?'selected':''}>${esc(spec.labels[i])}</option>`).join('')}</select>`; break;
+    case 'int': case 'num': ctl = `<input type="number" data-id="${spec.id}" value="${v}" min="${spec.min}" max="${spec.max}" step="${spec.step}">`; break;
+    case 'text': ctl = `<input type="text" data-id="${spec.id}" value="${esc(v)}">`; break;
+  }
+  return `<div class="se-item ${mod?'modified':''} ${S.focusIx===ix?'focus':''}" data-id="${spec.id}" data-ix="${ix}" tabindex="0">
+    <div class="se-item-text"><div class="se-item-title">${title}${hit ? `<span class="se-page-tag">${esc(PAGE_BY_ID[spec.page].title)} › ${esc(spec.group)}</span>`:''}${spec.apply!=='live'?`<span class="se-apply">${spec.apply}</span>`:''}</div><div class="se-item-desc">${md(spec.desc)}</div>${why}</div>
+    <div class="se-item-ctl">${ctl}<button type="button" class="se-more" title="More actions" aria-label="More actions for ${esc(spec.title)}">⋯</button></div>
+    ${S.menuFor===spec.id ? `<div class="se-menu"><button type="button" data-act="reset" ${mod?'':'disabled'}>Reset setting</button><button type="button" data-act="copyid">Copy setting id</button><button type="button" data-act="copyjson">Copy setting as JSON</button></div>`:''}
+  </div>`;
+}
+function wireItems(){
+  elMain.querySelectorAll('.se-switch').forEach(b => b.onclick = () => setValue(b.dataset.id, b.getAttribute('aria-checked') !== 'true'));
+  elMain.querySelectorAll('select[data-id]').forEach(s => s.onchange = () => setValue(s.dataset.id, s.value));
+  elMain.querySelectorAll('input[type=number][data-id]').forEach(i => i.onchange = () => { const spec = BY_ID[i.dataset.id]; const v = spec.kind==='int' ? parseInt(i.value,10) : parseFloat(i.value); if(!setValue(i.dataset.id, v)) i.value = S.values[i.dataset.id]; });
+  elMain.querySelectorAll('input[type=text][data-id]').forEach(i => i.onchange = () => setValue(i.dataset.id, i.value));
+  elMain.querySelectorAll('.se-more').forEach(b => b.onclick = (e) => { e.stopPropagation(); const id = b.closest('.se-item').dataset.id; S.menuFor = S.menuFor===id ? null : id; render(); });
+  elMain.querySelectorAll('.se-menu button').forEach(b => b.onclick = (e) => { e.stopPropagation(); const id = b.closest('.se-item').dataset.id; const spec = BY_ID[id]; S.menuFor = null;
+    if(b.dataset.act==='reset') resetValue(id);
+    else if(b.dataset.act==='copyid'){ copy(id); render(); }
+    else if(b.dataset.act==='copyjson'){ copy(`"${id}": ${JSON.stringify(S.values[id])}`); render(); } });
+  elMain.querySelectorAll('.se-item').forEach(it => { it.onfocus = () => { S.focusIx = +it.dataset.ix; elMain.querySelectorAll('.se-item.focus').forEach(x=>x.classList.remove('focus')); it.classList.add('focus'); };
+    it.onkeydown = (e) => { if(e.target !== it) return; const id = it.dataset.id; const spec = BY_ID[id];
+      if(e.key==='Enter'){ e.preventDefault(); if(spec.kind==='bool') setValue(id, !S.values[id]); else { const c = it.querySelector('select,input'); c && c.focus(); } }
+      else if(e.key==='Backspace' && S.modified.has(id)){ e.preventDefault(); resetValue(id); }
+      else if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); const items=[...elMain.querySelectorAll('.se-item')]; const k=items.indexOf(it)+(e.key==='ArrowDown'?1:-1); if(items[k]) items[k].focus(); } }; });
+}
+function copy(text){ try{ navigator.clipboard && navigator.clipboard.writeText(text); }catch{} toast(`Copied: ${text}`); }
+let toastT; function toast(msg){ const t = $('#se-toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 1800); }
+
+/* ---------- JSON view ---------- */
+function setJson(on, line){
+  S.json = on; $('#se-json-btn').setAttribute('aria-pressed', String(on)); $('#se-json-btn').textContent = on ? 'Back to settings UI' : 'Open settings.json';
+  elJson.hidden = !on; elMain.hidden = on; elToc.hidden = on;
+  if(on){ elText.value = S.text; renderJson(); if(line){ gotoLine(line); } }
+}
+function renderJson(){
+  if(elJson.hidden) return;
+  if(document.activeElement !== elText) elText.value = S.text;
+  const lines = elText.value.split('\n').length; const errLine = S.parsed.ok ? -1 : S.parsed.error.line;
+  const diagLines = new Set(S.diags.map(d => d.line));
+  elGutter.innerHTML = Array.from({length: lines}, (_, k) => `<span class="${(k+1)===errLine || diagLines.has(k+1) ? 'err':''}">${k+1}</span>`).join('\n');
+  elDiags.innerHTML = S.diags.map(d => `<div class="se-diag ${d.sev}" data-line="${d.line}"><span class="sev">${d.sev}</span><span class="loc">line ${d.line}</span><span>${esc(d.msg)}</span></div>`).join('');
+  elDiags.querySelectorAll('.se-diag').forEach(d => d.onclick = () => gotoLine(+d.dataset.line));
+  elDefaults.innerHTML = defaultsDoc();
+}
+function gotoLine(line){ const ls = elText.value.split('\n'); let pos = 0; for(let k=0;k<line-1 && k<ls.length;k++) pos += ls[k].length+1; elText.focus(); elText.setSelectionRange(pos, pos + (ls[line-1]||'').length); const lh = 18.75; elText.scrollTop = Math.max(0, (line-3)*lh); elGutter.scrollTop = elText.scrollTop; }
+function defaultsDoc(){
+  let out = '{\n  // Default settings (read-only, generated from the registry)\n';
+  for(const p of PAGES){ out += `\n  // ── ${p.title}\n`; for(const s of REG.filter(x=>x.page===p.id)){ out += `  // ${s.desc.replace(/`/g,'')}\n`; if(s.kind==='enum') out += `  //   one of: ${s.values.map(v=>JSON.stringify(v)).join(' | ')}\n`; if(s.kind==='int'||s.kind==='num') out += `  //   range: ${s.min}–${s.max}\n`; out += `  <span class="k">"${s.id}"</span>: ${JSON.stringify(s.def)},\n`; } }
+  return out + '}\n';
+}
+function applyText(){ const t = elText.value; if(t === S.text){ toast('No changes'); return; } commit(t, 'save from JSON view'); if(!S.parsed.ok) toast(`Syntax error on line ${S.parsed.error.line}; last good values kept`); else toast('Saved settings.json'); }
+
+/* ---------- palette ---------- */
+const COMMANDS = [
+  { label:'Open Trace…', key:'⌘O' }, { label:'Toggle Sidebar', key:'⌘B' }, { label:'Split Right', key:'⌘\\' }, { label:'Zoom to Fit', key:'F' },
+  { label:'Settings: Open', key:'⌘,', run:() => { closePalette(); setJson(false); S.query=''; elQuery.value=''; render(); elQuery.focus(); } },
+  { label:'Settings: Open settings.json', key:'⌘⇧,', run:() => { closePalette(); setJson(true); } },
+];
+const P = { open:false, sel:0, rows:[] };
+function openPalette(q){ P.open = true; $('#se-overlay').hidden = false; const inp = $('#se-palette-input'); inp.value = q || ''; renderPalette(); inp.focus(); }
+function closePalette(){ P.open = false; $('#se-overlay').hidden = true; }
+function renderPalette(){
+  const q = $('#se-palette-input').value; const ql = q.trim().toLowerCase();
+  const cmdHits = COMMANDS.map(c => { const m = ql ? best(c.label, ql, 1, true) : { score:0, ranges:[] }; return m ? { c, m } : null; }).filter(Boolean);
+  const setHits = ql ? search(q, S).hits.slice(0, 8) : [];
+  P.rows = [ ...cmdHits.map(x => ({ kind:'cmd', ...x })), ...setHits.map(h => ({ kind:'set', h })) ];
+  P.sel = Math.min(P.sel, Math.max(0, P.rows.length-1));
+  let html = ''; let k = 0;
+  if(cmdHits.length){ html += '<div class="se-pal-group">Commands</div>'; for(const x of cmdHits){ html += `<div class="se-pal-item ${k===P.sel?'sel':''}" data-k="${k}"><span class="ic">›</span><span class="lab">${hl(x.c.label, x.m.ranges)}</span><kbd>${esc(x.c.key)}</kbd></div>`; k++; } }
+  if(setHits.length){ html += '<div class="se-pal-group">Settings</div>'; for(const h of setHits){ const v = S.values[h.spec.id]; html += `<div class="se-pal-item ${k===P.sel?'sel':''}" data-k="${k}"><span class="ic">⚙</span><span class="lab">${hl(h.spec.title, h.titleRanges)}<small>${esc(h.spec.id)}</small></span><span class="val">${h.spec.kind==='bool' ? (v?'on → off':'off → on') : esc(JSON.stringify(v))}</span></div>`; k++; } }
+  if(!k) html = '<div class="se-empty">No matching command or setting.</div>';
+  $('#se-palette-list').innerHTML = html;
+  $('#se-palette-list').querySelectorAll('.se-pal-item').forEach(r => { r.onmouseenter = () => { P.sel = +r.dataset.k; renderPalette(); }; r.onclick = () => { P.sel = +r.dataset.k; runPalette(); }; });
+  const sel = $('#se-palette-list .se-pal-item.sel'); sel && sel.scrollIntoView({ block:'nearest' });
+}
+function runPalette(){
+  const r = P.rows[P.sel]; if(!r) return;
+  if(r.kind === 'cmd'){ if(r.c.run) r.c.run(); else { closePalette(); toast(`Ran "${r.c.label}" (mock)`); } return; }
+  const spec = r.h.spec;
+  if(spec.kind === 'bool'){ const nv = !S.values[spec.id]; if(setValue(spec.id, nv)) toast(`${spec.title}: ${nv ? 'on' : 'off'}`); renderPalette(); return; }
+  closePalette(); reveal(spec.id);
+}
+function reveal(id){ const spec = BY_ID[id]; setJson(false); S.query=''; elQuery.value=''; S.page = spec.page; S.menuFor = null; render();
+  const el = elMain.querySelector(`.se-item[data-id="${CSS.escape(id)}"]`); if(el){ el.scrollIntoView({ block:'center' }); el.classList.add('flash'); el.focus(); } }
+
+/* ---------- wiring ---------- */
+elQuery.addEventListener('input', () => { S.query = elQuery.value; S.focusIx = -1; render(); });
+elQuery.addEventListener('keydown', (e) => { if(e.key==='Escape'){ if(S.query){ S.query=''; elQuery.value=''; render(); } else toast('esc again would close the tab'); } if(e.key==='ArrowDown'){ e.preventDefault(); const f = elMain.querySelector('.se-item'); f && f.focus(); } });
+$('#se-modified-chip').onclick = () => { const on = /@modified/.test(S.query); S.query = on ? S.query.replace(/@modified\s*/g,'').trim() : ('@modified ' + S.query).trim(); elQuery.value = S.query; render(); };
+$('#se-json-btn').onclick = () => setJson(!S.json);
+$('#se-apply').onclick = applyText;
+elText.addEventListener('input', () => { const parsed = parseDoc(elText.value); const lines = elText.value.split('\n').length; const errLine = parsed.ok ? -1 : parsed.error.line; elGutter.innerHTML = Array.from({length: lines}, (_, k) => `<span class="${(k+1)===errLine?'err':''}">${k+1}</span>`).join('\n'); const r = resolve(parsed); elDiags.innerHTML = r.diags.map(d => `<div class="se-diag ${d.sev}" data-line="${d.line}"><span class="sev">${d.sev}</span><span class="loc">line ${d.line}</span><span>${esc(d.msg)} <em>(unsaved)</em></span></div>`).join(''); });
+elText.addEventListener('scroll', () => { elGutter.scrollTop = elText.scrollTop; });
+elText.addEventListener('keydown', (e) => { if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); applyText(); } if(e.key==='Tab'){ e.preventDefault(); const s = elText.selectionStart; elText.setRangeText('  ', s, elText.selectionEnd, 'end'); elText.dispatchEvent(new Event('input')); } });
+$('#se-defaults-toggle').onchange = (e) => { elDefaults.hidden = !e.target.checked; };
+$('#se-palette-btn').onclick = () => openPalette('');
+$('#se-palette-input').addEventListener('input', () => { P.sel = 0; renderPalette(); });
+$('#se-palette-input').addEventListener('keydown', (e) => { if(e.key==='ArrowDown'){ e.preventDefault(); P.sel = Math.min(P.rows.length-1, P.sel+1); renderPalette(); } else if(e.key==='ArrowUp'){ e.preventDefault(); P.sel = Math.max(0, P.sel-1); renderPalette(); } else if(e.key==='Enter'){ e.preventDefault(); runPalette(); } else if(e.key==='Escape'){ e.preventDefault(); closePalette(); } });
+$('#se-overlay').addEventListener('mousedown', (e) => { if(e.target === e.currentTarget) closePalette(); });
+root.addEventListener('keydown', (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if(mod && e.key === 'k'){ e.preventDefault(); P.open ? closePalette() : openPalette(''); }
+  else if(mod && e.shiftKey && (e.key === ',' || e.key === '<')){ e.preventDefault(); setJson(!S.json); }
+  else if(mod && e.key === ','){ e.preventDefault(); setJson(false); elQuery.focus(); elQuery.select(); }
+});
+document.addEventListener('click', (e) => { if(S.menuFor && !e.target.closest('.se-menu') && !e.target.closest('.se-more')){ S.menuFor = null; render(); } });
+
+document.querySelectorAll('.se-guide button').forEach(b => b.onclick = () => {
+  const t = b.dataset.try;
+  root.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  if(t === 'query'){ closePalette(); setJson(false); S.query = b.dataset.q; elQuery.value = S.query; render(); elQuery.focus(); }
+  else if(t === 'json'){ closePalette(); setJson(true); }
+  else if(t === 'break'){ closePalette(); const broken = S.text.replace('"waves.snapPixels": 8', '"waves.snapPixels": 8 "oops"'); commit(broken, 'external edit (broken)'); setJson(false); toast('The file watcher delivered a broken settings.json'); }
+  else if(t === 'palette'){ setJson(false); openPalette('anim'); }
+  else if(t === 'restore'){ closePalette(); commit(SAMPLE, 'restore sample'); setJson(false); S.query=''; elQuery.value=''; S.page='waves'; render(); }
+});
+
+reparse(); render();
+window.se = { search:(q) => search(q, S).hits.map(h => ({ id:h.spec.id, score:+h.score.toFixed(1), why:h.why })), doc:() => S.text, set:setValue, reset:resetValue, parse:() => parseDoc(S.text), values:() => S.values, diags:() => S.diags, restore:() => commit(SAMPLE,'restore'), openPalette, reveal, setJson, state:S };
+})();
+
+</script>
+</body>
+</html>
