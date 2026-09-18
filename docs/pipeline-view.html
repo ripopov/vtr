@@ -195,7 +195,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     <span><span class="badge prop">proposed</span> the first version described here</span>
     <span><span class="badge lib">later</span> deliberately left out, with its seam named</span>
   </div>
-  <p class="small">Companion to <a href="VDB_KONATA_PLAN.html">VDB_KONATA_PLAN.html</a> (how Kanata logs become VTR records and a VDB profile) and <a href="workspaces.html">workspaces.html</a> (panels, links, persistence). This document covers only the viewer panel. Status: proposal, nothing implemented yet.</p>
+  <p class="small">Companion to <a href="VDB_KONATA_PLAN.html">VDB_KONATA_PLAN.html</a> (how Kanata logs become VTR records and a VDB profile) and <a href="workspaces.html">workspaces.html</a> (panels, links, persistence). This document covers only the viewer panel. The hierarchy browser it opens from has been implemented since this was written (<a href="hierarchy.html">hierarchy.html</a>, <a href="../volna/volna/ARCHITECTURE.md#hierarchy-browser">ARCHITECTURE.md</a>): streams are tree rows, generators are members, and Enter on either currently posts the notice <em>Pipeline panels are not available yet.</em> That notice is the seam this panel fills. Status: proposal; the panel itself is not implemented.</p>
 </div></section>
 
 <section id="summary"><div class="wrap">
@@ -223,7 +223,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
   <div class="tablewrap"><table>
     <thead><tr><th>Area</th><th>Version 1</th><th>Later, and where it plugs in</th></tr></thead>
     <tbody>
-    <tr><td>Sidebar</td><td class="v1">As <a href="hierarchy.html">hierarchy.html</a> proposes: streams are tree rows under the scope that owns them, with a track reference and an icon per kind (<code>PIPELINE</code> gets the pipeline icon); selecting a stream lists its generators in the member pane. Enter or double-click on a generator, or on a stream row, opens the pipeline panel.</td><td>Drag a member onto a panel; context menus. Both end in the same command.</td></tr>
+    <tr><td>Sidebar</td><td class="v1">Already in place (<a href="hierarchy.html">hierarchy.html</a>): streams are tree rows under the scope that owns them, with a track reference and an icon per kind (<code>PIPELINE</code> gets the workflow icon and tint, any other kind the generic stream icon plus a tag with the kind string); selecting a stream lists its generators in the member pane, titled <em>Generators</em>. Today Enter or double-click on a generator or a stream row posts <em>Pipeline panels are not available yet.</em>; version 1 replaces that notice with the panel and changes nothing else in the sidebar.</td><td>Drag a member onto a panel; context menus. Both end in the same command.</td></tr>
     <tr><td>Opening</td><td class="v1"><code>OpenPipeline { track }</code> accepts any stream or generator: double-click or Enter on the node, the sidebar action, or View ▸ Pipeline, which lists the recognized <code>PIPELINE</code> streams as shortcuts. It opens a panel split below the focused panel, or focuses the panel already showing that track. The core never checks the stream kind.</td><td>Open from a transaction reference elsewhere (a relation, a table row, an MCP command) with the same command.</td></tr>
     <tr><td>Rows</td><td class="v1">One row per transaction of the opened generator, or of every generator of the opened stream in catalog order, each in the resident <code>(begin, end, id)</code> order. A transaction without stages is one cell spanning its lifetime. Label column on the left: row index and the <code>vtr.label</code> text.</td><td>Row order by attribute, hide flushed, filter, multiple threads as row groups: a <code>RowIndex</code> between the loaded objects and the model.</td></tr>
     <tr><td>Cells</td><td class="v1">Each stage is a filled cell on lane <code>"0"</code>, coloured by stage name, separated from its neighbour by a gap and an edge stroke. Other lanes are drawn as a grey band over the lower part of the row. Flushed transactions (<code>TxStatus::Aborted</code>) get a tinted row.</td><td>VDB stage table (colour, role, long name), custom colour schemes, split lanes, lane heights: all through <code>StagePalette</code> and <code>LaneLayout</code>.</td></tr>
@@ -239,7 +239,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 <section id="mock"><div class="wrap">
   <div class="eyebrow">Interactive mock-up</div>
   <h2>Try the panel behaviour</h2>
-  <p>Two panels over one document, exactly as the core would model them: a wave panel on top and the pipeline panel below, both following the shared viewport and cursor. The sidebar follows <a href="hierarchy.html">hierarchy.html</a>: the <code>thread0</code> stream is recognized as a pipeline (its icon); select it to see its <code>instruction</code> generator in the member pane and the <em>Open as pipeline</em> action. The data is recorded: the first 600 instructions of Konata's own <code>kanata-sample-2.log</code> (cycles 0–1392, 80 of them flushed), and five waveform signals derived from the same facts, as a Verilator run of that core would have dumped them.</p>
+  <p>Two panels over one document, exactly as the core would model them: a wave panel on top and the pipeline panel below, both following the shared viewport and cursor. The sidebar mirrors the implemented hierarchy browser (<a href="hierarchy.html">hierarchy.html</a>): the <code>thread0</code> stream is recognized as a pipeline (workflow icon), <code>mem_bus</code> is an unrecognized kind (generic icon and a <code>TX</code> tag), and selecting a stream lists its generators with the container breadcrumb above them. What the mock adds is the activation: the <em>Open as pipeline</em> action and the double-click, which today end in a notice. The data is recorded: the first 600 instructions of Konata's own <code>kanata-sample-2.log</code> (cycles 0–1392, 80 of them flushed), and five waveform signals derived from the same facts, as a Verilator run of that core would have dumped them.</p>
   <div class="guide">
     <button data-guide="flush">Zoom into the first flush</button>
     <button data-guide="stall">Look at the stall burst around cycle 410</button>
@@ -277,7 +277,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     <tr><td><span class="badge exist">existing</span> <code>Viewport</code>, <code>ViewportState</code></td><td><code>zoom_about</code>, <code>pan_px</code>, <code>center_on</code>, <code>clamp</code> with 20 % edge space, and the eased animation with an explicit clock.</td><td class="cite"><code>volna-core/src/wave/viewport.rs</code></td></tr>
     <tr><td><span class="badge exist">existing</span> <code>Link</code>, <code>LinkDim</code>, <code>toggle_link</code></td><td>Unlink snapshots the shared value, relink adopts it. The header buttons and <kbd>L</kbd> / <kbd>⇧L</kbd> already exist for wave panels.</td><td class="cite"><code>volna-core/src/wave/model.rs</code></td></tr>
     <tr><td><span class="badge exist">existing</span> <code>Panels</code>, <code>PanelKind</code>, dock adapter</td><td>Stable IDs, split/tab layout, focus order, the Settings tab as precedent for a non-wave kind, and the GPUI <code>DockArea</code> mapping.</td><td class="cite"><code>volna-core/src/panels/</code>, <code>volna/src/dock.rs</code></td></tr>
-    <tr><td><span class="badge exist">existing</span> Scope tree and <code>scope_icon</code></td><td><code>Hierarchy { scopes, roots, vars }</code> with a kind string per scope that <code>scope_icon(kind)</code> maps to a Lucide icon; keyboard navigation, filter and reveal events. <code>build_hierarchy</code> currently skips stream and generator nodes, which is the one place this proposal extends.</td><td class="cite"><code>volna-core/src/data/{source.rs, vtr_source.rs}</code>, <code>sidebar/scopes.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Hierarchy browser</td><td><code>Hierarchy { scopes, roots, vars, generators }</code>: a stream is a scope with <code>ScopeRole::Stream { track }</code> and its kind string, a generator is a <code>Member</code> next to variables and streams, and <code>member_track</code> / <code>is_log</code> answer what a member opens as. <code>ScopeTreeModel</code> flattens streams like scopes; <code>MemberListModel</code> lists generators or log sites, searches the whole trace over every member kind and carries the activation notice. <code>stream_icon</code>, <code>scope_icon</code>, <code>member_icon</code> and <code>stream_tag</code> map kinds to Lucide icons and tints. <code>Command::ActivateMembers</code> reaches <code>App::activate_members</code>, which adds variables and, for anything with a track, posts <em>Pipeline panels are not available yet.</em> (or the log variant). Saved sidebar paths cover streams; remote metadata carries roles and generator declarations.</td><td class="cite"><code>volna-core/src/data/{source.rs, vtr_source.rs}</code>, <code>sidebar/{scopes, members, icons}.rs</code>, <code>app.rs</code></td></tr>
     <tr><td><span class="badge exist">existing</span> <code>Session::tracks</code>, <code>load_track</code>, <code>Document::retain_track</code></td><td>The resident track catalog (<code>Track { path, kind: Stream { kind } | Generator { stream } }</code>), the single blocking track load for a stream (all its generators) or one generator, consumer counting, request identities, generation checks and the remote path with memory reservations.</td><td class="cite"><code>volna-core/src/session.rs</code>, <code>document.rs</code>, <code>remote/</code></td></tr>
     <tr><td><span class="badge exist">existing</span> <code>LoadedGenerator</code></td><td>Transactions sorted by <code>(begin, end, id)</code>, <code>transaction(id)</code>, incident relations, and <code>visit_window</code> for later time-to-rows queries.</td><td class="cite"><code>volna-core/src/data/loaded_tracks.rs</code></td></tr>
     <tr><td><span class="badge exist">existing</span> <code>Transaction</code> records</td><td><code>stages: Vec&lt;TransactionStage { name, lane, begin, end: Option }&gt;</code>, <code>status: TxStatus</code> (<code>Aborted</code> = flushed, <code>Open</code> = never retired), attributes with phases, events.</td><td class="cite"><code>volna-core/src/data/transactions.rs</code>, <code>core/vtr/src/txblock.rs</code></td></tr>
@@ -305,7 +305,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     </div>
     <div class="box"><div class="t">Frontends <small>paint and host</small></div>
       <div class="box exist-b"><div class="t">GPUI <small>existing pattern, new element</small></div>
-        <ul><li><code>PanelView::Pipeline(Entity&lt;PipelinePanelView&gt;)</code> in the dock adapter</li><li><code>PipelineCanvas</code> element: prepaint → <code>App::layout_panel</code>, paint → <code>App::render_panel</code></li><li>Stream rows in the scope tree, generator rows in the member pane (hierarchy.html); Enter and double-click open the panel</li><li>View ▸ Pipeline menu and palette entries listing the recognized <code>PIPELINE</code> streams</li></ul></div>
+        <ul><li><code>PanelView::Pipeline(Entity&lt;PipelinePanelView&gt;)</code> in the dock adapter</li><li><code>PipelineCanvas</code> element: prepaint → <code>App::layout_panel</code>, paint → <code>App::render_panel</code></li><li>Enter and double-click on the existing stream and generator rows open the panel instead of posting the notice; no new sidebar rows</li><li>View ▸ Pipeline menu and palette entries listing the recognized <code>PIPELINE</code> streams</li></ul></div>
       <div class="box host"><div class="t">volna-egui <small>unchanged</small></div>
         <ul><li>Builds against the new kind; shows nothing for it (single-panel minimal frontend by decree)</li></ul></div>
       <div class="box host"><div class="t">VS Code / remote <small>unchanged</small></div>
@@ -375,10 +375,10 @@ impl RowView {
 }
 impl Lerp for RowView { .. }
 
-<span class="c">// data/source.rs — from hierarchy.html: streams are scopes with a role, generators are members</span>
-pub enum ScopeRole { Scope, Stream { kind: String, track: TrackRef } }
-pub struct Generator { pub name: String, pub stream: ScopeId, pub track: TrackRef, .. }
-pub enum Member { Var(VarId), Generator(GeneratorId), Stream(ScopeId) }   <span class="c">// what Enter activates</span>
+<span class="c">// data/source.rs — existing: streams are scopes with a role, generators are members; nothing changes here</span>
+pub enum ScopeRole { Scope, Stream { track: TrackRef } }                      <span class="c">// the kind string stays on Scope::kind</span>
+pub struct Generator { pub name: String, pub stream: ScopeId, pub track: TrackRef, pub attributes: Attributes }
+pub enum Member { Var(VarId), Generator(GeneratorId), Stream(ScopeId) }   <span class="c">// what Enter activates; member_track(m), is_log(m)</span>
 
 <span class="c">// pipeline/model.rs</span>
 pub enum TrackSource { Resolved { track: TrackRef, path: Vec&lt;String&gt; }, Unresolved { path: Vec&lt;String&gt; } }
@@ -424,7 +424,7 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
     <li><strong>Actions.</strong> Zoom, pan, go-to, marker and link actions resolve the focused panel's <code>NavState</code> and are implemented once against it; <code>ZoomIn</code> on a pipeline panel also scales rows, <code>MoveSelectionUp/Down</code> scroll rows. Row-selection, format and edge actions are no-ops for the kind. No new <code>Action</code> variants.</li>
     <li><strong>Open.</strong> <code>OpenPipeline</code> validates <code>capabilities().transactions</code> and that the track exists in the catalog, focuses an existing panel for that track, or creates one with <code>Panels::create(focused, Some(Axis::Vertical))</code>, <code>link</code> from <code>panels.linkByDefault</code>, and calls <code>PipelineModel::open</code>. Failures become <code>Event::Notice</code>.</li>
     <li><strong>Delivery.</strong> <code>App::deliver</code> already routes <code>LoadResult::Track</code> into the document; afterwards every pipeline panel refreshes its palette from <code>doc.track(track)</code>. Close calls <code>PipelineModel::close</code>, which releases the consumer; the document drops the load and any queued request when the count reaches zero.</li>
-    <li><strong>Sidebar.</strong> <code>Command::ActivateMembers</code> from hierarchy.html routes <code>Member::Generator</code> and <code>Member::Stream</code> to <code>OpenPipeline { track }</code>. The kind string is used for the icon and for the View ▸ Pipeline shortcut list, nowhere else.</li>
+    <li><strong>Sidebar.</strong> <code>App::activate_members</code> already sorts members into variables, tracks and log sites; today the track branch sets <code>MemberListModel::notice</code> and emits <code>Event::Notice</code>. Version 1 makes that branch call <code>OpenPipeline { track }</code> once per distinct track, keeps the log-site notice until a log panel exists, and touches nothing else in the sidebar. The kind string is used for the icon and for the View ▸ Pipeline shortcut list, nowhere else.</li>
     <li><strong>Persistence.</strong> The codec gains a <code>"pipeline"</code> variant; restore resolves the saved path against <code>session.tracks()</code> and keeps <code>Unresolved</code> panels visible with an explanatory empty state, mirroring unresolved wave rows.</li>
   </ul>
 <pre><code>{ "kind": "pipeline", "track": ["cpu", "thread0", "instruction"],
@@ -485,7 +485,7 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
       <ul>
         <li><code>PipelineCanvas</code> is <code>WaveTable</code> with the wave-specific hitboxes swapped for the label divider and marker chips. The shared parts, the measurer, <code>paint_prims</code>, pointer forwarding and clip nesting, move to <code>wave/canvas.rs</code> so the two elements are thin.</li>
         <li><code>dock.rs</code> maps <code>PanelKind::Pipeline</code> to <code>PanelView::Pipeline</code>; the panel's header renders the title, the link buttons and, for an unresolved or failed stream, the notice.</li>
-        <li>The sidebar rows come from hierarchy.html (stream rows with the pipeline icon, generator rows in the member pane). The View menu gets a Pipeline submenu listing the recognized <code>PIPELINE</code> streams; the palette lists the same. All of them dispatch <code>Command::OpenPipeline</code>.</li>
+        <li>The sidebar rows already exist (stream rows with the pipeline icon and kind tags, generator rows in the member pane); only the activation outcome changes. The View menu gets a Pipeline submenu listing the recognized <code>PIPELINE</code> streams; the palette lists the same. All of them dispatch <code>Command::OpenPipeline</code>.</li>
         <li>Trackpad handling: GPUI reports precise scroll deltas and pinch; the element maps them to <code>Wheel</code> with precise flag and to <code>Pinch</code>, exactly as the wave element does today.</li>
         <li>Interface zoom flows through the theme metrics and <code>LayoutInput::zoom</code>; <code>row_px</code> and <code>label_width</code> are stored unzoomed and multiplied at layout.</li>
       </ul></div>
@@ -536,14 +536,14 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
   <h2>Five steps, each leaving the tree green</h2>
   <ol class="steps">
     <li><strong>Refactor without behaviour change.</strong> <code>Tween&lt;T&gt;</code> in <code>nav/tween.rs</code>, <code>NavState</code> extracted from <code>WaveModel</code>, cursor and marker painting moved to <code>wave::overlay</code>, <code>WaveTable</code> split into the shared canvas and the wave-specific hitboxes. All existing headless, viewer and egui tests pass unchanged.</li>
-    <li><strong>Core panel.</strong> <code>RowView</code>, <code>PipelineModel</code>, <code>PipelineLayout</code>, <code>pipeline::paint</code>, <code>StagePalette</code>, <code>PanelKind::Pipeline</code>, <code>Command::OpenPipeline</code>, <code>layout_panel</code>/<code>render_panel</code>; the sidebar model from hierarchy.html is a prerequisite. A test-only <code>PipelineSource</code> session with a few dozen transactions, plus a checked-in small VTR converted from <code>kanata-sample-2.log</code> for the demos directory.</li>
+    <li><strong>Core panel.</strong> <code>RowView</code>, <code>PipelineModel</code>, <code>PipelineLayout</code>, <code>pipeline::paint</code>, <code>StagePalette</code>, <code>PanelKind::Pipeline</code>, <code>Command::OpenPipeline</code>, <code>layout_panel</code>/<code>render_panel</code>; the sidebar model is already in place, so the sidebar change is the one branch in <code>activate_members</code>. A test-only <code>PipelineSource</code> session with a few dozen transactions, plus a checked-in small VTR converted from <code>kanata-sample-2.log</code> for the demos directory.</li>
     <li><strong>Persistence.</strong> Codec variant, restore resolution, unresolved state, round-trip tests, <code>Panels::saved_view</code> unchanged.</li>
     <li><strong>GPUI.</strong> <code>PipelineCanvas</code>, <code>PanelView::Pipeline</code>, View ▸ Pipeline menu and palette entries, one viewer-harness screenshot. Web and VS Code builds verified with the demo file.</li>
     <li><strong>Documentation.</strong> <code>volna/volna/ARCHITECTURE.md</code> gains a pipeline section, <code>VERIFICATION.md</code> the new checks, <code>AGENTS.md</code> a "Where to look" row pointing here.</li>
   </ol>
   <h3>Headless checks that define done</h3>
   <ul>
-    <li>The scope tree of a Kanata trace lists <code>cpu › thread0</code> with the pipeline icon and its member pane lists <code>instruction</code>; a non-<code>PIPELINE</code> stream gets the generic icon and still opens.</li>
+    <li>The scope tree of a Kanata trace lists <code>cpu › thread0</code> with the pipeline icon and its member pane lists <code>instruction</code> (already covered by the hierarchy browser tests); Enter on either opens a panel instead of posting the notice, <code>sidebar_notice</code> stays <code>None</code>, and a non-<code>PIPELINE</code> stream gets the generic icon and still opens.</li>
     <li>Opening a stream or a generator queues exactly one <code>LoadRequest::Track</code>; delivery paints one quad per visible lane-0 stage and one band per overlay stage; a second panel on the same stream queues nothing.</li>
     <li>Zoom about a pointer position keeps the same <code>(time, row)</code> under it in both axes, at interface zoom 1.0 and 2.0.</li>
     <li>With the viewport linked, a wheel event in the pipeline changes the wave panel's viewport to the same value; unlinked, the shared value is unchanged and the local one moves.</li>
@@ -1077,11 +1077,11 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
     root.focus({ preventScroll: true }); invalidate();
   }));
   reset();
-  // sidebar: the scope tree with stream/generator nodes (proposed) and the variable pane
+  // sidebar: the scope tree and member pane as the hierarchy browser paints them (Lucide box, workflow, chart-no-axes-gantt, circle-dot); only the activation is proposed
   const ICONS = {
     module: '<svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>',
     PIPELINE: '<svg viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>',
-    stream: '<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+    stream: '<svg viewBox="0 0 24 24"><path d="M8 6h10"/><path d="M6 12h9"/><path d="M11 18h7"/></svg>',
     generator: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.5"/></svg>',
   };
   const TREE = [
@@ -1093,12 +1093,12 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
   const treeEl = root.querySelector('.pv-tree'), varsEl = root.querySelector('.pv-vars'), subEl = root.querySelector('.pv-side-sub'), varsTitle = root.querySelector('.pv-vars-title');
   let selectedNode = TREE[1];
   function renderTree() {
-    treeEl.innerHTML = TREE.map((n, i) => `<div class="pv-node${n === selectedNode ? ' sel' : ''}${n.kind === 'PIPELINE' ? ' pipe' : ''}" data-node="${i}" style="padding-left:${4 + n.depth * 12}px" title="${n.path}${n.stream ? ' — stream, kind ' + n.kind : ''}">${ICONS[n.kind] || ICONS.stream}<span>${n.path.split('.').pop()}</span>${n.stream && n.kind !== 'PIPELINE' ? `<span class="k">${n.kind}</span>` : ''}</div>`).join('');
-    subEl.textContent = selectedNode.path + (selectedNode.stream ? ' · stream ' + selectedNode.kind : '');
+    treeEl.innerHTML = TREE.map((n, i) => `<div class="pv-node${n === selectedNode ? ' sel' : ''}${n.kind === 'PIPELINE' ? ' pipe' : ''}" data-node="${i}" style="padding-left:${4 + n.depth * 12}px" title="${n.path}${n.stream ? ' — stream, kind ' + n.kind + (n.kind === 'PIPELINE' ? ' (recognized)' : ' (tagged)') : ''}">${ICONS[n.kind] || ICONS.stream}<span>${n.path.split('.').pop()}</span>${n.stream && n.kind !== 'PIPELINE' ? `<span class="k">${n.kind}</span>` : ''}</div>`).join('');
+    subEl.textContent = selectedNode.path + ' · ' + selectedNode.kind;
     if (selectedNode.stream) {
       varsTitle.textContent = 'Generators';
       const isOpen = selectedNode.path.startsWith('cpu.thread0');
-      varsEl.innerHTML = selectedNode.gens.map(g => `<div class="pv-node gen" data-open="${selectedNode.path}.${g}" title="double-click: open as pipeline">${ICONS.generator}<span>${g}</span><span class="k">generator</span></div>`).join('') +
+      varsEl.innerHTML = selectedNode.gens.map(g => `<div class="pv-node gen" data-open="${selectedNode.path}.${g}" title="double-click: open as pipeline (today: the not-available notice)">${ICONS.generator}<span>${g}</span><span class="k">generator</span></div>`).join('') +
         `<div class="pv-open"><button data-open="${selectedNode.path}">${isOpen ? 'Show pipeline (already open)' : 'Open stream as pipeline'}</button>${selectedNode.empty ? '<span>(no records in this demo)</span>' : ''}</div>`;
     } else {
       varsTitle.textContent = 'Variables';
