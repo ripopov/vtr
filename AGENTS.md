@@ -114,6 +114,8 @@ a claim of implemented support or a requirement for embedded agent chat.
 | open ideas ranked by measured headroom | `docs/SOTA_REVIEW_2026.md` |
 | Volna panels, docking and persistent workspace sessions (design proposal) | `docs/workspaces.html` |
 | Volna user settings: `settings.json`, settings editor with fuzzy search on gpui-kit, VS Code parity (design, implemented) | `docs/user-settings.html`, `volna/volna/ARCHITECTURE.md` |
+| Volna hierarchy browser: one sidebar tree for scopes, variables, transaction streams, generators and log sites, icon per node kind (design proposal) | `docs/hierarchy.html` |
+| Volna pipeline panel: Konata-style rows of stage cells over any generator or stream, shared time axis with the wave panels, map-like zoom (design proposal) | `docs/pipeline-view.html`, `docs/VDB_KONATA_PLAN.html` |
 
 ## Build and test
 

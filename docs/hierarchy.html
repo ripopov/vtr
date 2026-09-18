@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna Hierarchy Browser</title>
+<meta name="description" content="Design proposal for Volna's sidebar: one tree for RTL scopes and variables, transaction streams, generators and log sites, with an icon per node kind and one action per member.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+
+:root{
+  --bg:#f2f4f3;--paper:#fbfcfb;--ink:#1a252c;--muted:#5b6a70;--line:#d2dad7;--line-strong:#b6c2be;
+  --accent:#1f7f6a;--accent-ink:#135846;--accent-soft:#dff0ea;--amber:#b5761c;--amber-soft:#f6e9d2;
+  --exist:#e6ebf4;--exist-ink:#3a4f78;--prop:#dff0ea;--prop-ink:#135846;
+  --code-bg:#1d262c;--code-ink:#e3ebe7;--code-dim:#8fa39c;--focus:#1f7f6a;
+  --wave:#2f9d7f;--wave-bus:#3b7dd8;--cursor:#d9534f;--marker:#b5761c;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c373d;--line-strong:#3d4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
+  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
+  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
+  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+}}
+:root[data-theme="dark"]{
+  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c373d;--line-strong:#3d4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
+  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
+  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
+  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:70px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;padding-inline:0}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,pre,kbd,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.88em;background:color-mix(in srgb,var(--line) 45%,transparent);padding:1px 5px;border-radius:4px}
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;font-size:12.5px;line-height:1.6;overflow-x:auto;margin:14px 0}
+pre code{background:none;padding:0;font-size:inherit;color:inherit}
+pre .c{color:var(--code-dim);font-style:italic}
+kbd{font-size:.8em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper)}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:12px 24px;display:flex;align-items:center;gap:20px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap;letter-spacing:-.2px}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:16px;overflow:auto;scrollbar-width:none}
+nav a{font-size:12.5px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+.wrap{max-width:1180px;margin:auto;padding-inline:24px}
+section{padding-block:44px;border-bottom:1px solid var(--line)}
+.hero{padding-top:52px}
+h1{font-size:clamp(30px,4.6vw,50px);letter-spacing:-1.4px;line-height:1.08;font-weight:600;margin:0 0 18px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:26px;letter-spacing:-.6px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 10px;text-wrap:balance}
+h4{font-size:14.5px;margin:18px 0 6px}
+p{margin:0 0 12px;max-width:74ch}
+.lede{font-size:18px;color:var(--muted);max-width:70ch}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.small,small{font-size:12.5px;color:var(--muted)}
+ul,ol{padding-left:22px;max-width:80ch}li{margin:5px 0}
+.grid{display:grid;gap:16px}.two{grid-template-columns:1fr 1fr}.three{grid-template-columns:repeat(3,1fr)}
+@media (max-width:820px){.two,.three{grid-template-columns:1fr}}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
+.card p:last-child{margin-bottom:0}
+.callout{background:var(--accent-soft);border-left:3px solid var(--accent);padding:14px 18px;margin:18px 0;font-size:14px;border-radius:0 6px 6px 0}
+.callout.warn{background:var(--amber-soft);border-color:var(--amber)}
+.callout p{max-width:none}
+.badge{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;padding:1px 7px;border-radius:3px;vertical-align:middle;margin-right:4px}
+.badge.exist{background:var(--exist);color:var(--exist-ink)}
+.badge.prop{background:var(--prop);color:var(--prop-ink)}
+.badge.lib{background:var(--amber-soft);color:var(--amber)}
+body.only-proposed .exist-block{opacity:.38}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:16px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:10px 13px;border-bottom:1px solid var(--line)}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--line) 35%,transparent)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px;margin:16px 0}
+.toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px}
+.toggle input{accent-color:var(--accent)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:18px 0 0;flex-wrap:wrap}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.tabpane{display:none;padding-top:14px}.tabpane.active{display:block}
+details{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:0 18px;margin:10px 0}
+details summary{cursor:pointer;padding:12px 0;font-weight:500;list-style:none;display:flex;gap:10px;align-items:center}
+details summary::before{content:"";width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}
+details[open] summary::before{transform:rotate(45deg)}
+details > :not(summary){margin-bottom:14px}
+.steps{counter-reset:s;list-style:none;padding:0;max-width:none}
+.steps li{counter-increment:s;position:relative;padding-left:38px;margin:10px 0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace}
+.cite{font-size:12px;color:var(--muted)}
+.cite code,td .cite code{font-size:11.5px;white-space:normal;overflow-wrap:anywhere}
+td:last-child.cite{min-width:180px}
+/* ownership diagram */
+.own{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;margin:18px 0}
+@media (max-width:900px){.own{grid-template-columns:1fr}}
+.box{border:1px solid var(--line-strong);border-radius:8px;padding:12px 14px;background:var(--paper)}
+.box .t{font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.box .t small{font-weight:400}
+.box .box{margin:8px 0;background:color-mix(in srgb,var(--bg) 60%,var(--paper))}
+.box.prop-b{border-color:var(--accent)}
+.box.exist-b{border-color:var(--exist-ink)}
+.box.host{border-style:dashed}
+.arrows{font-size:12.5px;color:var(--muted);margin:6px 0;display:flex;flex-wrap:wrap;gap:6px 18px}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;align-items:baseline;max-width:640px}
+.keys kbd{white-space:nowrap}
+.msg{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:11.5px;background:color-mix(in srgb,var(--line) 45%,transparent);border-radius:4px;padding:0 5px}
+footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* ---- interactive mock (always dark, like the Volna One Dark chrome) ---- */
+.hb{border:1px solid var(--line-strong);border-radius:10px;background:#1d262c;color:#e3ebe7;font-size:12px;overflow:hidden;margin:18px 0;--hb-panel:#1f2a32;--hb-bar:#182129;--hb-line:#2c3a42;--hb-muted:#8fa39c;--hb-dim:#6f8079;--hb-text:#e3ebe7;--hb-focus:#4fc3a1;--hb-sel:#2a3a45;--hb-hover:#243039;--hb-pipe:#4fc3a1;--hb-log:#e0a94a;--hb-stream:#7fb0ef;--hb-in:#4fc3a1;--hb-out:#7fb0ef;--hb-io:#e0a94a;--hb-err:#f07a76}
+.hb *{box-sizing:border-box}
+.hb:focus{outline:none}
+.hb[data-focus="tree"] .hb-scopes .hb-body,.hb[data-focus="list"] .hb-members .hb-body{box-shadow:inset 0 0 0 1px var(--hb-focus)}
+.hb-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--hb-line);background:var(--hb-bar)}
+.hb button{font:inherit;font-size:12px;background:#243039;color:var(--hb-text);border:1px solid #3a4a55;border-radius:4px;padding:3px 9px;cursor:pointer}
+.hb button:hover{background:#2f3e49}
+.hb button:disabled{opacity:.4;cursor:default}
+.hb button.on{border-color:var(--hb-focus);color:var(--hb-focus)}
+.hb button.ico{padding:1px 4px;display:inline-flex;align-items:center}
+.hb-hint{margin-left:auto;font-family:"IBM Plex Sans",sans-serif;color:var(--hb-muted);font-size:11.5px}
+.hb-title{display:flex;align-items:center;gap:10px;padding:5px 10px;background:#161e24;border-bottom:1px solid var(--hb-line);font-size:11.5px;color:var(--hb-muted)}
+.hb-title b{color:var(--hb-text);font-weight:600}
+.hb-title .dots{display:inline-flex;gap:6px;margin-right:4px}
+.hb-title .dots i{width:10px;height:10px;border-radius:50%;background:#3a4a55;display:inline-block}
+.hb-work{display:flex;height:600px;min-height:0}
+.hb-side{width:300px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--hb-line);background:#161e24;min-height:0}
+.hb-scopes{flex:1.05;display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--hb-line)}
+.hb-members{flex:1;display:flex;flex-direction:column;min-height:0}
+.hb-head{display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:11.5px;color:var(--hb-muted);font-weight:500;flex:none;border-bottom:1px solid var(--hb-line);background:var(--hb-bar)}
+.hb-head .sp{margin-left:auto;display:flex;gap:3px;align-items:center}
+.hb-count{font-family:"IBM Plex Mono",monospace;color:var(--hb-dim);font-size:11px}
+.hb-crumb{padding:3px 8px;font-size:10.5px;color:var(--hb-muted);font-family:"IBM Plex Mono",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;border-bottom:1px solid var(--hb-line)}
+.hb-crumb .k{font-family:"IBM Plex Sans",sans-serif;color:var(--hb-dim)}
+.hb-filter{padding:4px 8px;flex:none;display:flex;gap:4px}
+.hb-filter input{flex:1;min-width:0;font:inherit;font-size:11.5px;background:#1d262c;color:var(--hb-text);border:1px solid #3a4a55;border-radius:4px;padding:3px 7px}
+.hb-filter input:focus{outline:none;border-color:var(--hb-focus)}
+.hb-body{flex:1;min-height:0;overflow:auto;padding:3px 0}
+.hb-row{display:flex;align-items:center;gap:5px;height:22px;padding:0 8px;cursor:pointer;white-space:nowrap;color:#c9d5d0;font-size:12px}
+.hb-row:hover{background:var(--hb-hover)}
+.hb-row.sel{background:var(--hb-sel);color:var(--hb-text)}
+.hb-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.hb-row .mono,.mono{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.hb-row .path{color:var(--hb-dim)}
+.hb-row .dims{flex:none;color:var(--hb-dim);font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+.hb-row .tag{flex:none;font-size:9.5px;letter-spacing:.4px;color:var(--hb-stream);border:1px solid color-mix(in srgb,var(--hb-stream) 45%,transparent);border-radius:3px;padding:0 4px;line-height:14px}
+.hb-row .sev{flex:none;font-size:9.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;border-radius:3px;padding:0 4px;line-height:14px;background:#243039}
+.hb-row .sev.warn{color:var(--hb-log)}.hb-row .sev.error{color:var(--hb-err)}.hb-row .sev.info{color:var(--hb-stream)}
+.chev{width:14px;height:14px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:3px}
+.chev:hover{background:#34454f}.chev.none{visibility:hidden}
+.ic{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:#9fb1ab}
+.hb-row.sel .ic{color:#c9d5d0}
+.ic.k-PIPELINE{color:var(--hb-pipe)}.ic.k-LOG{color:var(--hb-log)}.ic.k-stream{color:var(--hb-stream)}
+.dir{width:16px;flex:none;display:inline-flex;align-items:center}
+.dir.in .ic{color:var(--hb-in)}.dir.out .ic{color:var(--hb-out)}.dir.io .ic{color:var(--hb-io)}
+.hb-empty{padding:14px 12px;color:var(--hb-dim);font-size:11.5px;line-height:1.5}
+.hb-empty.big{padding:40px 24px;text-align:center;font-size:13px;color:var(--hb-muted)}
+.hb-empty.big .ic{width:28px;height:28px;color:var(--hb-pipe);margin-bottom:8px}
+.hb-empty.big small{color:var(--hb-dim)}
+.hb-main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--hb-panel)}
+.hb-tabs{display:flex;gap:2px;background:var(--hb-bar);padding:4px 6px 0;border-bottom:1px solid var(--hb-line);flex:none;overflow:auto}
+.hb-tab{display:inline-flex;align-items:center;gap:6px;background:#1f2a32;border:1px solid var(--hb-line);border-bottom:0;border-radius:5px 5px 0 0;padding:3px 10px;color:#9fb1ab;cursor:pointer;white-space:nowrap;font-size:11.5px}
+.hb-tab.on{background:#26333c;color:var(--hb-text);box-shadow:inset 0 2px 0 var(--hb-focus)}
+.hb-main-body{flex:1;min-height:0;overflow:auto}
+.hb-wave-rows{padding:8px 0}
+.hb-wave-row{display:flex;align-items:center;gap:8px;height:24px;padding:0 12px;color:#c9d5d0}
+.hb-wave-row .dims{color:var(--hb-dim);font-family:"IBM Plex Mono",monospace;font-size:10.5px;width:52px}
+.hb-wave-row .fake{flex:1;height:12px;border-radius:2px;background:repeating-linear-gradient(90deg,transparent 0 18px,#4fc3a1 18px 20px);opacity:.55}
+.hb-wave-row .fake.vector{background:repeating-linear-gradient(90deg,rgba(127,176,239,.25) 0 46px,#7fb0ef 46px 48px)}
+.hb-wave-row .fake.real{background:linear-gradient(90deg,transparent,rgba(224,169,74,.5),transparent)}
+.hb-wave-row .fake.text,.hb-wave-row .fake.event{background:repeating-linear-gradient(90deg,transparent 0 60px,#e3ebe7 60px 61px)}
+.hb-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--hb-line);background:var(--hb-bar);color:var(--hb-muted);font-family:"IBM Plex Mono",monospace;font-size:11px;min-height:27px;align-items:center}
+.hb-status .k{color:var(--hb-dim)}
+.hb-status .what{margin-left:auto;font-family:"IBM Plex Sans",sans-serif;color:var(--hb-text)}
+.guide{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.guide button{font:inherit;font-size:13px;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:6px;padding:5px 12px;cursor:pointer}
+.guide button:hover{border-color:var(--accent);color:var(--accent-ink)}
+.pv-note{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+#selftest{display:none}
+/* icon catalogue */
+.icat{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px 16px;margin:12px 0}
+.icat div{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;row-gap:1px;font-size:13px;padding:5px 8px;border-radius:5px;background:var(--paper);border:1px solid var(--line)}
+.icat .ic{width:16px;height:16px;color:var(--ink)}
+.icat .ic.k-PIPELINE{color:var(--accent)}.icat .ic.k-LOG{color:var(--amber)}.icat .ic.k-stream{color:var(--wave-bus)}
+.icat .ic.d-in{color:var(--accent)}.icat .ic.d-out{color:var(--wave-bus)}.icat .ic.d-io{color:var(--amber)}
+.icat code{font-size:.8em}
+.icat .lbl{min-width:0}
+.icat small{grid-column:2;color:var(--muted);font-size:11.5px;line-height:1.3}
+.icat small:empty{display:none}
+.own .box .box ul{margin:0;padding-left:18px;font-size:12.5px}
+.own .box .box li{margin:2px 0}
+.v1{color:var(--accent-ink);font-weight:600}
+.mini{font-size:12.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">Volna <span>Hierarchy Browser</span></a>
+  <nav>
+    <a href="#summary">Summary</a><a href="#today">Today</a><a href="#mock">Mock-up</a><a href="#icons">Icons</a><a href="#model">Model</a><a href="#api">Core API</a><a href="#interaction">Interaction</a><a href="#frontends">Frontends</a><a href="#later">Later</a><a href="#alternatives">Alternatives</a><a href="#plan">Plan</a><a href="#sources">References</a>
+  </nav>
+</div></header>
+
+<main id="top">
+<section class="hero"><div class="wrap">
+  <div class="eyebrow">Design proposal · volna-core · GPUI · egui</div>
+  <h1>One tree for <em>signals, streams and logs</em> in Volna's sidebar</h1>
+  <p class="lede">A VTR file is one hierarchy: RTL scopes and variables next to transaction streams, their generators and log sites. Volna's sidebar currently shows only the first half. This proposal shows the whole tree, gives every node kind an icon that says what it is, and keeps one rule for what Enter does. No new settings, no new panels.</p>
+  <div class="legend">
+    <span><span class="badge exist">existing</span> already in the repository, reused as is</span>
+    <span><span class="badge prop">proposed</span> the change described here</span>
+    <span><span class="badge lib">library</span> offered by gpui-kit 0.6.1, considered</span>
+  </div>
+  <p class="small">Prerequisite for <a href="pipeline-view.html">pipeline-view.html</a>, whose panel opens from this tree. Companion to <a href="workspaces.html">workspaces.html</a> (sidebar state in the workspace file). Status: proposal, nothing implemented yet.</p>
+</div></section>
+
+<section id="summary"><div class="wrap">
+  <div class="eyebrow">Recommendation</div>
+  <h2>Five decisions</h2>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">1 · Containers in the tree, members in the list</h4>
+      <p>The upper pane lists what <em>contains</em> things: scopes and streams. The lower pane lists what a container <em>holds</em>: variables of a scope, generators of a stream, log sites of a <code>LOG</code> stream. The two-pane layout stays; what changes is that streams are containers and generators are members. Enum tables never become rows: they are type information for a variable.</p></div>
+    <div class="card"><h4 style="margin-top:0">2 · Icons say what a node is; tags say what we do not recognize</h4>
+      <p>Every scope type, stream kind and member kind maps to a Lucide icon through three small functions in the core. Recognized stream kinds (<code>PIPELINE</code>, <code>LOG</code>) get their own icon and colour; any other kind gets the generic transaction-stream icon plus a small tag with the kind string, so an FTR <code>TRANSACTOR</code> or an OpenTelemetry <code>otel.scope</code> is still identifiable.</p></div>
+    <div class="card"><h4 style="margin-top:0">3 · One action per member kind</h4>
+      <p>Enter and double-click mean "put it in the main area": a variable is added to the focused wave panel (today's behaviour), a generator or a stream opens as a pipeline panel (<code>Command::OpenPipeline</code>). A log site is listed but has no action until a log panel exists; the status line says so.</p></div>
+    <div class="card"><h4 style="margin-top:0">4 · The model stays in the core</h4>
+      <p><code>Hierarchy</code> gains a role on scopes and a generator table; <code>ScopeTreeModel</code> flattens streams like scopes; <code>VariableListModel</code> becomes a <code>MemberListModel</code> over an enum of members. Frontends keep painting <code>uniform_list</code> rows from the flattened model; the keyboard, filter, reveal and persistence code is unchanged in shape.</p></div>
+    <div class="card"><h4 style="margin-top:0">5 · Search covers every member</h4>
+      <p>The whole-trace search that the filter box already offers for variables returns generators and streams too, each with its icon and full path, so "find the write generator" and "find the rdata signal" are the same gesture.</p></div>
+    <div class="card"><h4 style="margin-top:0">What this does not add</h4>
+      <p>No inline-variables tree style, no sorting, no counts on tree rows, no context menus, no drag and drop, no log panel, no settings. Each is listed under <a href="#later">Later</a> with the seam it would use.</p></div>
+  </div>
+</div></section>
+
+<section id="today"><div class="wrap">
+  <div class="eyebrow">Today</div>
+  <h2>What the sidebar already does</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Piece</th><th>Behaviour</th><th class="cite">Where</th></tr></thead>
+    <tbody>
+    <tr><td><span class="badge exist">existing</span> <code>Hierarchy</code></td><td><code>scopes: Vec&lt;Scope { name, kind: String, parent, children, vars }&gt;</code>, <code>roots</code>, <code>vars: Vec&lt;Variable { name, scope, shape, var_type, direction, signal }&gt;</code>; path lookups return <code>Found / Missing / Ambiguous</code>.</td><td class="cite"><code>volna-core/src/data/source.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> <code>build_hierarchy</code></td><td>Walks the VTR nodes in declaration order; scopes get their <code>ScopeType::name()</code> as kind; variables get a <code>SignalShape</code>; <strong>streams, generators and enum tables are skipped</strong>. The transaction catalog is built separately as <code>Track { id, path, kind, attributes }</code>.</td><td class="cite"><code>data/vtr_source.rs</code>, <code>data/vtr_transactions.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> <code>ScopeTreeModel</code></td><td>Expanded set, selection, flattened <code>visible: Vec&lt;(ScopeId, depth)&gt;</code>; first two levels expanded on reset; ↑ ↓ ← → Enter Space; unresolved saved paths retained.</td><td class="cite"><code>sidebar/scopes.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> <code>VariableListModel</code></td><td>Rows of the selected scope filtered by substring, or a whole-trace search (5 000 rows cap) when no scope is selected; multi-selection with anchor; Enter adds selected or all; typing focuses the filter box.</td><td class="cite"><code>sidebar/variables.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Icons</td><td><code>scope_icon(kind)</code>: module/sc_module/core → box, struct-like → braces, package → folder, else folder. <code>shape_icon</code>: bit → activity, vector → binary, real → sigma, text/event → type. Direction is a text column ("in", "out", "io") shown when any listed variable has one. Lucide SVGs live in <code>volna-core/assets/icons</code> (ISC) and every frontend renders them.</td><td class="cite"><code>sidebar/*.rs</code>, <code>icons.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Persistence</td><td>Selected and expanded scopes are saved as name paths and resolved on restore; unresolved ones survive later saves.</td><td class="cite"><code>workspace/mod.rs</code></td></tr>
+    <tr><td><span class="badge exist">existing</span> Frontends</td><td>GPUI paints both panes with <code>uniform_list</code> rows and a custom filter input; egui paints the same models with stroked icons. VS Code uses the GPUI web build.</td><td class="cite"><code>volna/src/sidebar/</code>, <code>volna-egui/src/lib.rs</code></td></tr>
+    <tr><td><span class="badge lib">library</span> <code>gpui_kit::Tree</code></td><td>A tree element over <code>TreeState { items: Vec&lt;TreeItem&gt;, selected_index, scroll }</code> with its own expand state, selection and reveal. Considered and not used, see <a href="#alternatives">Alternatives</a>.</td><td class="cite"><code>gpui-component-0.6.1/src/tree.rs</code>, <code>gpui-base-0.6.1/src/tree.rs</code></td></tr>
+    </tbody></table></div>
+</div></section>
+
+<section id="mock"><div class="wrap">
+  <div class="eyebrow">Interactive mock-up</div>
+  <h2>Try the browser</h2>
+  <p>The sidebar over an example trace that one Verilator run of a small SoC could have written: RTL scopes with ports, parameters, a struct, an interface and a generate block; a <code>core</code> scope with two <code>PIPELINE</code> streams; a <code>TX</code> bus stream and an FTR-style <code>TRANSACTOR</code> stream; a <code>LOG</code> stream with three call sites; and an OpenTelemetry resource with two <code>otel.scope</code> streams. The main area is a stand-in: added variables appear as rows in "Waves 1", opened generators as pipeline tabs.</p>
+  <div class="guide">
+    <button data-guide="pipeline">Select the PIPELINE stream</button>
+    <button data-guide="open">Open its generator as a pipeline</button>
+    <button data-guide="log">Show the LOG stream</button>
+    <button data-guide="search">Search "read" everywhere</button>
+    <button data-guide="otel">Expand everything, select an OTel scope</button>
+    <button data-guide="reset">Reset</button>
+  </div>
+  <div class="hb" id="hb" tabindex="0">
+    <div class="hb-title"><span class="dots"><i></i><i></i><i></i></span><b>Volna</b> — soc_run.vtr</div>
+    <div class="hb-toolbar">
+      <button data-act="everywhere">Search everywhere</button>
+      <button data-act="expand">Expand all</button>
+      <button data-act="collapse">Collapse all</button>
+      <button data-act="reset">Reset</button>
+      <span class="hb-hint">↑ ↓ move · → ← expand, collapse · Enter/Space toggle or open · Tab other pane · type to filter · ⇧/⌘ click multi-select · double-click add or open</span>
+    </div>
+    <div class="hb-work">
+      <div class="hb-side">
+        <div class="hb-scopes">
+          <div class="hb-head">Scopes<span class="sp"><button class="ico" data-act="expand" title="Expand all"><svg class="ic" viewBox="0 0 24 24"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button><button class="ico" data-act="collapse" title="Collapse all"><svg class="ic" viewBox="0 0 24 24"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg></button></span></div>
+          <div class="hb-body hb-tree"></div>
+        </div>
+        <div class="hb-members">
+          <div class="hb-head"><span class="hb-list-title">Variables</span><span class="hb-count">0</span><span class="sp"><button class="ico" data-act="add-all" title="Add all listed variables (⏎)"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button></span></div>
+          <div class="hb-crumb"></div>
+          <div class="hb-filter"><input type="text" placeholder="Filter, or search everywhere" spellcheck="false"></div>
+          <div class="hb-body hb-list"></div>
+        </div>
+      </div>
+      <div class="hb-main"><div class="hb-tabs"></div><div class="hb-main-body"></div></div>
+    </div>
+    <div class="hb-status"></div>
+  </div>
+  <p class="pv-note"><strong>What the mock implements versus what is proposed.</strong> The tree flattening, keyboard model, filter and multi-selection follow <code>ScopeTreeModel</code> and <code>VariableListModel</code> line by line, extended as this document proposes; the icon mapping is the proposed one, rendered from the same Lucide SVGs gpui-kit ships. The main area is a placeholder for the wave and pipeline panels. Tooltips are plain <code>title</code> attributes. There is no workspace file, no unresolved-path state and no reveal-on-restore.</p>
+</div></section>
+
+<section id="icons"><div class="wrap">
+  <div class="eyebrow">Icon catalogue</div>
+  <h2>Every node kind, one glyph</h2>
+  <p>All icons are Lucide, already bundled by gpui-kit-assets 0.6.1 and copied into <code>volna-core/assets/icons</code> like the existing ones. The choice favours silhouettes that stay distinct at 14 px in both appearances; colour is used only where a kind needs to stand out at a glance (stream kinds, port direction), and the same tokens serve light and dark themes.</p>
+  <h3>Containers: scope types</h3>
+  <div class="icat">
+    <div><span data-icon="box"></span><span class="lbl"><code>module</code>, <code>vhdl_architecture</code></span><small>box: the default HDL container</small></div>
+    <div><span data-icon="boxes"></span><span class="lbl"><code>sc_module</code></span><small>SystemC modules nest models</small></div>
+    <div><span data-icon="cpu"></span><span class="lbl"><code>core</code></span><small>a hardware thread or core</small></div>
+    <div><span data-icon="braces"></span><span class="lbl"><code>struct</code>, <code>union</code>, <code>vhdl_record</code></span><small>as today</small></div>
+    <div><span data-icon="component"></span><span class="lbl"><code>class</code></span><small>an object, not a net container</small></div>
+    <div><span data-icon="cable"></span><span class="lbl"><code>interface</code></span><small>a bundle of ports</small></div>
+    <div><span data-icon="package"></span><span class="lbl"><code>package</code>, <code>vhdl_package</code></span><small>parameters and types</small></div>
+    <div><span data-icon="square-function"></span><span class="lbl"><code>task</code>, <code>function</code>, <code>vhdl_procedure</code>, <code>vhdl_function</code></span><small></small></div>
+    <div><span data-icon="git-fork"></span><span class="lbl"><code>generate</code>, <code>vhdl_*generate</code></span><small>elaborated branches</small></div>
+    <div><span data-icon="brackets"></span><span class="lbl"><code>begin</code>, <code>fork</code>, <code>vhdl_block</code></span><small>named blocks</small></div>
+    <div><span data-icon="zap"></span><span class="lbl"><code>vhdl_process</code></span><small>runs on events</small></div>
+    <div><span data-icon="layers"></span><span class="lbl"><code>sv_array</code></span><small>unpacked array of instances</small></div>
+    <div><span data-icon="terminal"></span><span class="lbl"><code>program</code></span><small></small></div>
+    <div><span data-icon="server"></span><span class="lbl"><code>resource</code> (OpenTelemetry)</span><small>a service instance</small></div>
+    <div><span data-icon="library"></span><span class="lbl"><code>instrumentation_scope</code></span><small></small></div>
+    <div><span data-icon="folder"></span><span class="lbl"><code>generic</code> and unknown codes</span><small>as today</small></div>
+  </div>
+  <h3>Containers: stream kinds</h3>
+  <div class="icat">
+    <div><span data-icon="workflow" data-cls="k-PIPELINE"></span><span class="lbl"><code>PIPELINE</code></span><small>recognized: instruction pipelines</small></div>
+    <div><span data-icon="scroll-text" data-cls="k-LOG"></span><span class="lbl"><code>LOG</code></span><small>recognized: log call sites</small></div>
+    <div><span data-icon="chart-no-axes-gantt" data-cls="k-stream"></span><span class="lbl">any other kind, with a <span class="badge exist" style="text-transform:none">kind</span> tag</span><small><code>TX</code>, <code>TRANSACTOR</code>, <code>otel.scope</code>, …</small></div>
+  </div>
+  <h3>Members</h3>
+  <div class="icat">
+    <div><span data-icon="activity"></span><span class="lbl">bit</span><small>as today</small></div>
+    <div><span data-icon="binary"></span><span class="lbl">vector</span><small>as today</small></div>
+    <div><span data-icon="hash"></span><span class="lbl"><code>integer</code> variable</span><small>whole numbers, not bit patterns</small></div>
+    <div><span data-icon="sigma"></span><span class="lbl">real</span><small>as today</small></div>
+    <div><span data-icon="type"></span><span class="lbl">string</span><small>as today</small></div>
+    <div><span data-icon="zap"></span><span class="lbl">event</span><small>occurrences, not levels (today: type)</small></div>
+    <div><span data-icon="pi"></span><span class="lbl"><code>parameter</code></span><small>a constant; trailing "param"</small></div>
+    <div><span data-icon="tags"></span><span class="lbl">enum-typed variable</span><small>has an enum table</small></div>
+    <div><span data-icon="circle-dot"></span><span class="lbl">generator</span><small>transactions of a stream</small></div>
+    <div><span data-icon="message-square"></span><span class="lbl">log site</span><small>generator of a <code>LOG</code> stream; severity badge</small></div>
+  </div>
+  <h3>Port direction</h3>
+  <div class="icat">
+    <div><span data-icon="log-in" data-cls="d-in"></span><span class="lbl">input</span><small>replaces the "in" text</small></div>
+    <div><span data-icon="log-out" data-cls="d-out"></span><span class="lbl">output</span><small>replaces "out"</small></div>
+    <div><span data-icon="arrow-left-right" data-cls="d-io"></span><span class="lbl">inout</span><small>replaces "io"</small></div>
+  </div>
+  <p class="mini">Tooltips carry the words: hovering a row names the kind, the component type of a module, the stream kind, a variable's declared type and width, a log site's severity and source location. The icon is the fast path, the tooltip the exact one.</p>
+</div></section>
+
+<section id="model"><div class="wrap">
+  <div class="eyebrow">Architecture</div>
+  <h2>What changes in the core model</h2>
+  <div class="own">
+    <div class="box exist-b"><div class="t">volna-core <small>toolkit-free</small></div>
+      <div class="box prop-b"><div class="t">data::Hierarchy <small>extended</small></div>
+        <ul><li><code>Scope</code> gains <code>role: ScopeRole</code>: <code>Scope</code> or <code>Stream { kind, track: TrackRef }</code>, and <code>generators: Vec&lt;GeneratorId&gt;</code></li><li>new <code>generators: Vec&lt;Generator { name, stream: ScopeId, track: TrackRef, log_site: Option&lt;LogSite&gt; }&gt;</code></li><li><code>find_scope</code> resolves stream paths unchanged; <code>find_generator(path)</code> added</li></ul></div>
+      <div class="box prop-b"><div class="t">data::vtr_source::build_hierarchy <small>extended</small></div>
+        <ul><li><code>NodeData::Stream</code> → a scope with <code>ScopeRole::Stream</code>; <code>NodeData::Generator</code> → a generator entry; both keyed by the VTR node id so the track catalog and the tree agree on <code>TrackRef</code></li><li>enum tables stay skipped; a variable whose attributes reference one gets <code>enum_table: Some(..)</code> for the icon and the future translator</li></ul></div>
+      <div class="box exist-b"><div class="t">sidebar::ScopeTreeModel <small>unchanged in shape</small></div>
+        <ul><li>flattens streams exactly like scopes (they are scopes with a role)</li><li>Enter on a stream with no children reports <code>open: Some(track)</code> in <code>ScopeKeyOutcome</code></li></ul></div>
+      <div class="box prop-b"><div class="t">sidebar::MemberListModel <small>renamed from VariableListModel</small></div>
+        <ul><li><code>rows: Vec&lt;Member&gt;</code> where <code>Member = Var(VarId) | Generator(GeneratorId) | Stream(ScopeId)</code></li><li>search over all three kinds; <code>VarKeyOutcome.add</code> becomes <code>activate: Vec&lt;Member&gt;</code></li><li>title, placeholder and count derive from the selected container's role</li></ul></div>
+      <div class="box prop-b"><div class="t">sidebar::icons <small>three functions</small></div>
+        <ul><li><code>scope_icon(&amp;Scope)</code>, <code>stream_icon(kind) -&gt; (IconName, Tint)</code>, <code>member_icon(&amp;Hierarchy, Member)</code>, <code>direction_icon(Direction) -&gt; Option&lt;(IconName, Tint)&gt;</code></li></ul></div>
+    </div>
+    <div class="box"><div class="t">Frontends <small>paint rows</small></div>
+      <div class="box exist-b"><div class="t">GPUI <small>rows change, structure does not</small></div>
+        <ul><li>tree rows: chevron, icon (tinted for streams), name, kind tag for unrecognized streams</li><li>member rows: icon, direction icon, name or full path, trailing dims / "param" / severity badge</li><li>header title from the model; breadcrumb line under it; tooltips from a core <code>describe(member)</code></li></ul></div>
+      <div class="box host"><div class="t">egui <small>compatibility only</small></div>
+        <ul><li>keeps drawing the same models; new icons stroked like the existing ones; generator rows inert</li></ul></div>
+    </div>
+  </div>
+  <h3>Why generators are members and not tree nodes</h3>
+  <p>A stream is to its generators what a scope is to its variables: a declaration container whose children are the things you actually put on screen. An OpenTelemetry scope stream can declare hundreds of span-name generators and an FTR transactor a few dozen; a pipeline stream declares one. Listing them in the member pane keeps the tree shallow, gives the filter box something to filter, and means "select container, then act on members" is the one gesture for both halves of the file. The earlier draft in <a href="pipeline-view.html">pipeline-view.html</a> placed generators in the tree; it now follows this rule.</p>
+  <h3>Actions</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Member</th><th>Enter / double-click</th><th>"+" in the header</th><th>Command</th></tr></thead>
+    <tbody>
+    <tr><td>variable</td><td>add to the focused wave panel</td><td>adds every listed variable</td><td><code>Command::AddVars</code> <span class="badge exist">existing</span></td></tr>
+    <tr><td>generator</td><td>open a pipeline panel for it, or focus the one already open</td><td>ignores generators</td><td><code>Command::OpenPipeline { track }</code> <span class="badge prop">proposed</span> in pipeline-view.html</td></tr>
+    <tr><td>stream (tree row without children, or a search result)</td><td>open a pipeline panel for the whole stream</td><td>–</td><td>same</td></tr>
+    <tr><td>log site</td><td>none yet; the status line explains</td><td>–</td><td>a log panel is a later proposal</td></tr>
+    </tbody></table></div>
+</div></section>
+
+<section id="api"><div class="wrap">
+  <div class="eyebrow">Core API</div>
+  <h2>Sketch</h2>
+<pre><code><span class="c">// data/source.rs</span>
+pub enum ScopeRole { Scope, Stream { kind: String, track: TrackRef } }
+pub struct Scope { pub name, pub kind: String, pub role: ScopeRole, pub parent, pub children, pub vars: Vec&lt;VarId&gt;, pub generators: Vec&lt;GeneratorId&gt; }
+pub struct Generator { pub name: String, pub stream: ScopeId, pub track: TrackRef, pub log_site: Option&lt;LogSite&gt; }
+pub struct LogSite { pub severity: Severity, pub file: Option&lt;String&gt;, pub line: Option&lt;u32&gt; }   <span class="c">// from the `log.*` node attributes</span>
+pub struct Variable { .., pub enum_table: Option&lt;EnumTableId&gt; }
+impl Hierarchy { pub fn find_generator(&amp;self, path: &amp;[impl AsRef&lt;str&gt;]) -&gt; Lookup&lt;GeneratorId&gt;; pub fn generator_path(&amp;self, id) -&gt; Vec&lt;String&gt;; }
+
+<span class="c">// sidebar/members.rs (was variables.rs)</span>
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Member { Var(VarId), Generator(GeneratorId), Stream(ScopeId) }
+pub struct MemberListModel { pub scope: Option&lt;ScopeId&gt;, pub filter: String, pub everywhere: bool, pub rows: Vec&lt;Member&gt;, pub selected: BTreeSet&lt;usize&gt;, pub anchor: Option&lt;usize&gt; }
+pub struct MemberKeyOutcome { pub changed: bool, pub activate: Vec&lt;Member&gt;, pub reveal: Option&lt;usize&gt;, pub focus_filter: bool }
+impl MemberListModel {
+    pub fn title(&amp;self, h: &amp;Hierarchy) -&gt; &amp;'static str;          <span class="c">// "Variables" | "Generators" | "Log sites" | "Results"</span>
+    pub fn breadcrumb(&amp;self, h: &amp;Hierarchy) -&gt; String;
+    pub fn placeholder(&amp;self, h: Option&lt;&amp;Hierarchy&gt;, loaded: bool) -&gt; Option&lt;&amp;'static str&gt;;
+    pub fn describe(&amp;self, h: &amp;Hierarchy, m: Member) -&gt; String;   <span class="c">// tooltip text</span>
+}
+
+<span class="c">// sidebar/icons.rs</span>
+pub enum Tint { None, Pipeline, Log, Stream, In, Out, InOut }    <span class="c">// resolved to theme tokens by the frontend</span>
+pub fn scope_icon(scope: &amp;Scope) -&gt; (IconName, Tint);
+pub fn member_icon(h: &amp;Hierarchy, m: Member) -&gt; IconName;
+pub fn direction_icon(d: Direction) -&gt; Option&lt;(IconName, Tint)&gt;;
+pub fn stream_tag(scope: &amp;Scope) -&gt; Option&lt;&amp;str&gt;;               <span class="c">// the kind string for unrecognized stream kinds</span>
+
+<span class="c">// app.rs — the member activation replaces the variable-only path</span>
+Command::ActivateMembers(Vec&lt;Member&gt;)   <span class="c">// vars → AddVars, generators/streams → OpenPipeline, log sites → Notice</span>
+Command::SetSearchEverywhere(bool)
+
+<span class="c">// icons.rs — new variants, SVGs copied from gpui-kit-assets</span>
+IconName::{Boxes, Cpu, Component, Cable, Package, SquareFunction, GitFork, Brackets, Zap, Layers, Terminal, Server, Library,
+           Workflow, ScrollText, ChartNoAxesGantt, Hash, Pi, Tags, CircleDot, MessageSquare, LogIn, LogOut, ArrowLeftRight}</code></pre>
+  <p class="mini">Theme: three tint tokens (<code>sidebar_pipeline</code>, <code>sidebar_log</code>, <code>sidebar_stream</code>) and three direction tokens, derived from existing accent colours in <code>Theme::one_dark()</code> and from the host palette with the usual 3:1 contrast floor. Persistence: selected and expanded paths already cover streams because they are scopes; the search-everywhere flag is transient and not saved.</p>
+</div></section>
+
+<section id="interaction"><div class="wrap">
+  <div class="eyebrow">Interaction</div>
+  <h2>Keys, pointer and states</h2>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">Scopes pane <span class="badge exist">existing</span> + streams</h4>
+      <div class="keys">
+        <kbd>↑</kbd> <kbd>↓</kbd> <span>move the selection; the member pane follows</span>
+        <kbd>→</kbd> <span>expand</span>
+        <kbd>←</kbd> <span>collapse, or go to the parent; a childless row goes to the parent at once (today an expanded leaf swallows the first press, since reset marks second-level rows expanded whether or not they have children)</span>
+        <kbd>⏎</kbd> <kbd>Space</kbd> <span>toggle a container with children; open a childless stream as a pipeline</span>
+        <kbd>Tab</kbd> <span>move focus to the member pane</span>
+      </div>
+      <p class="mini" style="margin-top:12px">Click selects, double-click toggles or opens, the chevron toggles without selecting. Expand all / collapse all in the header as today.</p></div>
+    <div class="card"><h4 style="margin-top:0">Members pane <span class="badge exist">existing</span> + generators</h4>
+      <div class="keys">
+        <kbd>↑</kbd> <kbd>↓</kbd> <span>move; <kbd>⇧</kbd> extends the selection</span>
+        <kbd>⏎</kbd> <span>activate the selected members, or add all listed variables</span>
+        <kbd>Esc</kbd> <span>clear the selection, then the filter</span>
+        <span>typing</span> <span>focuses the filter box and filters the listed members</span>
+        <span>Search everywhere</span> <span>the filter searches the whole trace: variables, generators, streams, shown with full paths</span>
+      </div></div>
+  </div>
+  <h3>States the panes must show</h3>
+  <ul>
+    <li><strong>No trace:</strong> "Open a trace to browse variables" as today.</li>
+    <li><strong>Container without members:</strong> a scope with only child scopes says so; a stream without generators says "This stream declares no generators".</li>
+    <li><strong>LOG stream selected:</strong> title "Log sites", rows with severity badge and <code>file:line</code>; Enter does nothing and the status line explains.</li>
+    <li><strong>Search with no hits:</strong> "No members match"; the 5 000-row cap is kept and a trailing row says when it was hit.</li>
+    <li><strong>Unresolved saved selection:</strong> retained and written back as today; streams included.</li>
+  </ul>
+</div></section>
+
+<section id="frontends"><div class="wrap">
+  <div class="eyebrow">Frontends</div>
+  <h2>Row painting, nothing structural</h2>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">GPUI</h4>
+      <ul>
+        <li>Tree rows add the tint from <code>scope_icon</code> and the kind tag; member rows swap the direction text for the icon and add the severity badge. The <code>uniform_list</code> structure, focus handles, scroll tracking and reveal events are untouched.</li>
+        <li>The member pane header reads its title and count from the model; a one-line breadcrumb under the header shows the selected path and kind (mono, muted, ellipsis).</li>
+        <li>A "Search everywhere" toggle sits beside the filter box; it maps to <code>SetSearchEverywhere</code>.</li>
+        <li>Icons: the listed Lucide SVGs are copied into <code>volna-core/assets/icons</code>; nothing is fetched at run time.</li>
+      </ul></div>
+    <div class="card"><h4 style="margin-top:0">egui and VS Code</h4>
+      <ul>
+        <li>The egui frontend keeps calling the same icon functions; new variants get a stroked drawing in <code>paint.rs</code> like the existing ones. Its list draws generator rows without an action, which preserves its current feature set as AGENTS.md requires.</li>
+        <li>VS Code hosts the GPUI web build; the host palette supplies the tint tokens through the existing snapshot path.</li>
+      </ul></div>
+  </div>
+</div></section>
+
+<section id="later"><div class="wrap">
+  <div class="eyebrow">Later</div>
+  <h2>What attaches where</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Feature</th><th>Seam</th></tr></thead>
+    <tbody>
+    <tr><td>Inline variables in the tree (Surfer's "Tree" style)</td><td>A second flattening in <code>ScopeTreeModel</code> that emits member rows; the icon functions and actions are shared.</td></tr>
+    <tr><td>Sorting, grouping by direction, hiding parameters</td><td>Row producers in <code>MemberListModel::rebuild</code>; a setting only when a default proves wrong.</td></tr>
+    <tr><td>Counts on tree rows (variables, generators, records)</td><td><code>Scope</code> already knows its member counts; record counts need a resident catalog field.</td></tr>
+    <tr><td>Context menus, drag a member onto a panel</td><td>Frontend gestures that end in <code>ActivateMembers</code> with a target panel.</td></tr>
+    <tr><td>Log panel</td><td>Log sites already carry severity and location; a panel over <code>LoadedGenerator</code> records gives Enter its action.</td></tr>
+    <tr><td>Transactions as Gantt rows in the wave panel</td><td>A generator member activated into a wave panel instead of a pipeline panel; same member, second target.</td></tr>
+    <tr><td>Enum translators</td><td><code>Variable::enum_table</code> feeds a built-in translator; the icon already marks the variables.</td></tr>
+    <tr><td>Parameter values in the list</td><td>Parameters are constants: show the value in the trailing column once the source exposes it.</td></tr>
+    </tbody></table></div>
+</div></section>
+
+<section id="alternatives"><div class="wrap">
+  <div class="eyebrow">Alternatives considered</div>
+  <h2>Rejected, and why</h2>
+  <div class="grid two">
+    <div class="card"><h4 style="margin-top:0">gpui-kit's <code>Tree</code> component</h4><p>It owns expansion, selection and reveal in its <code>TreeState</code>, which would duplicate what <code>ScopeTreeModel</code> already decides and put viewer state in a frontend. It also builds an item tree eagerly; the core's flattened rows scale to large hierarchies with <code>uniform_list</code> as today. Keep the library for chrome that has no core model.</p></div>
+    <div class="card"><h4 style="margin-top:0">Generators as tree nodes</h4><p>Reasonable for one-generator pipeline streams, poor for transactor and OpenTelemetry streams with dozens or hundreds. Members in the list keep the tree shallow and reuse the filter and multi-selection.</p></div>
+    <div class="card"><h4 style="margin-top:0">A separate "Streams" panel</h4><p>Hides the fact that streams live inside the design hierarchy and would need its own selection, filter and persistence. One tree, one set of rules.</p></div>
+    <div class="card"><h4 style="margin-top:0">Hiding unrecognized stream kinds</h4><p>The file's content should be visible whatever produced it; a generic icon plus the kind tag costs nothing and helps when a new producer appears.</p></div>
+    <div class="card"><h4 style="margin-top:0">Coloured icons for every scope type</h4><p>Colour that carries no decision is noise. Tints are reserved for the three stream families and the port directions, where they answer a question the user actually has.</p></div>
+    <div class="card"><h4 style="margin-top:0">Direction as text, as today</h4><p>Text works but competes with the name column; three small tinted glyphs read faster and free width for long names. The tooltip keeps the words.</p></div>
+  </div>
+</div></section>
+
+<section id="plan"><div class="wrap">
+  <div class="eyebrow">Plan and verification</div>
+  <h2>Four steps</h2>
+  <ol class="steps">
+    <li><strong>Model.</strong> <code>ScopeRole</code>, <code>Generator</code>, <code>Member</code>, <code>MemberListModel</code>, icon functions, <code>build_hierarchy</code> extension, <code>find_generator</code>. Existing headless tests pass; new ones cover a VTR fixture with streams, generators and a log stream.</li>
+    <li><strong>Commands.</strong> <code>ActivateMembers</code>, <code>SetSearchEverywhere</code>; <code>AddVars</code> stays for hosts that call it directly; <code>OpenPipeline</code> lands with pipeline-view.html, until then generators activate to a notice.</li>
+    <li><strong>Frontends.</strong> Icon assets, GPUI rows, breadcrumb, tags, badges, direction icons, search toggle; egui stroked icons; a viewer screenshot of the mixed tree.</li>
+    <li><strong>Documentation.</strong> ARCHITECTURE.md sidebar section, VERIFICATION.md checks, AGENTS.md row.</li>
+  </ol>
+  <h3>Headless checks that define done</h3>
+  <ul>
+    <li>Opening the Kanata demo trace lists <code>cpu › thread0</code> as a stream row with the pipeline icon and tint; selecting it lists one generator with the generator icon; the title reads "Generators".</li>
+    <li>A stream of an unrecognized kind gets the generic icon and its kind as a tag; a <code>LOG</code> stream lists log sites with severity and location and its title reads "Log sites".</li>
+    <li>Search everywhere for a name that matches a variable, a generator and a stream returns all three with full paths, in that order, under the row cap.</li>
+    <li>Enter on a selected variable produces <code>AddVars</code>; on a generator produces <code>OpenPipeline</code> with its <code>TrackRef</code>; on a log site produces a <code>Notice</code> and no load request.</li>
+    <li>Saved selection and expansion of a stream path restore; an unknown stream path stays unresolved and is written back unchanged.</li>
+    <li>Every scope type name and stream kind in the catalogue maps to an icon variant that has an SVG asset; the test enumerates them.</li>
+  </ul>
+</div></section>
+
+<section id="sources"><div class="wrap">
+  <div class="eyebrow">References</div>
+  <h2>Files behind this proposal</h2>
+  <ul>
+    <li>VTR hierarchy: <code>docs/SPEC.md</code> §5 (five node kinds, scope types, generators inside streams), <code>core/vtr/src/hierarchy.rs</code>, <code>core/vtr/src/logblock.rs</code> (<code>STREAM_KIND = "LOG"</code>, <code>log.*</code> site attributes).</li>
+    <li>Producers: <code>tools/vtr-cli/src/{kanata.rs, ftr.rs, otlp.rs}</code> for the stream kinds <code>PIPELINE</code>, FTR's own kinds, <code>otel.scope</code>.</li>
+    <li>Volna core: <code>volna/volna-core/src/data/{source.rs, vtr_source.rs, vtr_transactions.rs}</code>, <code>sidebar/{scopes.rs, variables.rs}</code>, <code>icons.rs</code>, <code>workspace/mod.rs</code>.</li>
+    <li>Frontends: <code>volna/volna/src/sidebar/{scopes.rs, variables.rs}</code>, <code>volna/volna-egui/src/lib.rs</code>.</li>
+    <li>Library: <code>gpui-component-0.6.1/src/tree.rs</code>, <code>gpui-base-0.6.1/src/tree.rs</code>, <code>gpui-kit-assets-0.6.1/assets/icons</code> (Lucide, ISC).</li>
+    <li>Reference viewer: Surfer's <code>libsurfer/src/hierarchy.rs</code> (Separate and Tree styles, direction column, icon toggles).</li>
+    <li>Related proposals: <a href="pipeline-view.html">docs/pipeline-view.html</a>, <a href="workspaces.html">docs/workspaces.html</a>.</li>
+  </ul>
+  <p class="small">Self-contained HTML. The mock-up runs locally on static data; no network requests, no persistent state. Icons © Lucide contributors, ISC.</p>
+</div></section>
+</main>
+<footer><div class="wrap">Volna hierarchy browser proposal · 2026-09-18 · state of the tree at commit <code>1a9346b</code>.</div></footer>
+<pre id="selftest"></pre>
+
+<script>
+const ICON = {"box":"<path d=\"M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z\" /> <path d=\"m3.3 7 8.7 5 8.7-5\" /> <path d=\"M12 22V12\" />","cpu":"<path d=\"M12 20v2\" /> <path d=\"M12 2v2\" /> <path d=\"M17 20v2\" /> <path d=\"M17 2v2\" /> <path d=\"M2 12h2\" /> <path d=\"M2 17h2\" /> <path d=\"M2 7h2\" /> <path d=\"M20 12h2\" /> <path d=\"M20 17h2\" /> <path d=\"M20 7h2\" /> <path d=\"M7 20v2\" /> <path d=\"M7 2v2\" /> <rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\" /> <rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" rx=\"1\" />","braces":"<path d=\"M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1\" /> <path d=\"M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1\" />","package":"<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\" /> <path d=\"M12 22V12\" /> <polyline points=\"3.29 7 12 12 20.71 7\" /> <path d=\"m7.5 4.27 9 5.15\" />","square-function":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\" /> <path d=\"M9 17c2 0 2.8-1 2.8-2.8V10c0-2 1-3.3 3.2-3\" /> <path d=\"M9 11.2h5.7\" />","git-fork":"<circle cx=\"12\" cy=\"18\" r=\"3\" /> <circle cx=\"6\" cy=\"6\" r=\"3\" /> <circle cx=\"18\" cy=\"6\" r=\"3\" /> <path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\" /> <path d=\"M12 12v3\" />","brackets":"<path d=\"M16 3h3a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-3\" /> <path d=\"M8 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h3\" />","terminal":"<path d=\"M12 19h8\" /> <path d=\"m4 17 6-6-6-6\" />","layers":"<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\" /> <path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\" /> <path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\" />","folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\" />","folder-open":"<path d=\"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2\" />","server":"<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\" /> <rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\" /> <line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\" /> <line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\" />","library":"<path d=\"m16 6 4 14\" /> <path d=\"M12 6v14\" /> <path d=\"M8 8v12\" /> <path d=\"M4 4v16\" />","zap":"<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\" />","workflow":"<rect width=\"8\" height=\"8\" x=\"3\" y=\"3\" rx=\"2\" /> <path d=\"M7 11v4a2 2 0 0 0 2 2h4\" /> <rect width=\"8\" height=\"8\" x=\"13\" y=\"13\" rx=\"2\" />","scroll-text":"<path d=\"M15 12h-5\" /> <path d=\"M15 8h-5\" /> <path d=\"M19 17V5a2 2 0 0 0-2-2H4\" /> <path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\" />","chart-no-axes-gantt":"<path d=\"M6 5h12\" /> <path d=\"M4 12h10\" /> <path d=\"M12 19h8\" />","circle-dot":"<circle cx=\"12\" cy=\"12\" r=\"1\" /> <circle cx=\"12\" cy=\"12\" r=\"10\" />","message-square":"<path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\" />","activity":"<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\" />","binary":"<rect x=\"14\" y=\"14\" width=\"4\" height=\"6\" rx=\"2\" /> <rect x=\"6\" y=\"4\" width=\"4\" height=\"6\" rx=\"2\" /> <path d=\"M6 20h4\" /> <path d=\"M14 10h4\" /> <path d=\"M6 14h2v6\" /> <path d=\"M14 4h2v6\" />","sigma":"<path d=\"M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2\" />","type":"<path d=\"M12 4v16\" /> <path d=\"M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2\" /> <path d=\"M9 20h6\" />","hash":"<line x1=\"4\" x2=\"20\" y1=\"9\" y2=\"9\" /> <line x1=\"4\" x2=\"20\" y1=\"15\" y2=\"15\" /> <line x1=\"10\" x2=\"8\" y1=\"3\" y2=\"21\" /> <line x1=\"16\" x2=\"14\" y1=\"3\" y2=\"21\" />","pi":"<line x1=\"9\" x2=\"9\" y1=\"4\" y2=\"20\" /> <path d=\"M4 7c0-1.7 1.3-3 3-3h13\" /> <path d=\"M18 20c-1.7 0-3-1.3-3-3V4\" />","tags":"<path d=\"M13.172 2a2 2 0 0 1 1.414.586l6.71 6.71a2.4 2.4 0 0 1 0 3.408l-4.592 4.592a2.4 2.4 0 0 1-3.408 0l-6.71-6.71A2 2 0 0 1 6 9.172V3a1 1 0 0 1 1-1z\" /> <path d=\"M2 7v6.172a2 2 0 0 0 .586 1.414l6.71 6.71a2.4 2.4 0 0 0 3.191.193\" /> <circle cx=\"10.5\" cy=\"6.5\" r=\".5\" fill=\"currentColor\" />","log-in":"<path d=\"m10 17 5-5-5-5\" /> <path d=\"M15 12H3\" /> <path d=\"M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4\" />","log-out":"<path d=\"m16 17 5-5-5-5\" /> <path d=\"M21 12H9\" /> <path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4\" />","arrow-left-right":"<path d=\"M8 3 4 7l4 4\" /> <path d=\"M4 7h16\" /> <path d=\"m16 21 4-4-4-4\" /> <path d=\"M20 17H4\" />","chevron-right":"<path d=\"m9 18 6-6-6-6\" />","chevron-down":"<path d=\"m6 9 6 6 6-6\" />","chevrons-left":"<path d=\"m11 17-5-5 5-5\" /> <path d=\"m18 17-5-5 5-5\" />","chevrons-right":"<path d=\"m6 17 5-5-5-5\" /> <path d=\"m13 17 5-5-5-5\" />","plus":"<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />","search":"<path d=\"m21 21-4.34-4.34\" /> <circle cx=\"11\" cy=\"11\" r=\"8\" />","x":"<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />","info":"<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"M12 16v-4\" /> <path d=\"M12 8h.01\" />","list-tree":"<path d=\"M8 5h13\" /> <path d=\"M13 12h8\" /> <path d=\"M13 19h8\" /> <path d=\"M3 10a2 2 0 0 0 2 2h3\" /> <path d=\"M3 5v12a2 2 0 0 0 2 2h3\" />","boxes":"<path d=\"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z\" /> <path d=\"m7 16.5-4.74-2.85\" /> <path d=\"m7 16.5 5-3\" /> <path d=\"M7 16.5v5.17\" /> <path d=\"M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z\" /> <path d=\"m17 16.5-5-3\" /> <path d=\"m17 16.5 4.74-2.85\" /> <path d=\"M17 16.5v5.17\" /> <path d=\"M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z\" /> <path d=\"M12 8 7.26 5.15\" /> <path d=\"m12 8 4.74-2.85\" /> <path d=\"M12 13.5V8\" />","cable":"<path d=\"M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z\" /> <path d=\"M17 21v-2\" /> <path d=\"M19 14V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V10\" /> <path d=\"M21 21v-2\" /> <path d=\"M3 5V3\" /> <path d=\"M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z\" /> <path d=\"M7 5V3\" />","network":"<rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /> <rect x=\"2\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /> <rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /> <path d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\" /> <path d=\"M12 12V8\" />","timer":"<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\" /> <line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\" /> <circle cx=\"12\" cy=\"14\" r=\"8\" />","variable":"<path d=\"M8 21s-4-3-4-9 4-9 4-9\" /> <path d=\"M16 3s4 3 4 9-4 9-4 9\" /> <line x1=\"15\" x2=\"9\" y1=\"9\" y2=\"15\" /> <line x1=\"9\" x2=\"15\" y1=\"9\" y2=\"15\" />","circle-small":"<circle cx=\"12\" cy=\"12\" r=\"6\" />","git-branch":"<path d=\"M15 6a9 9 0 0 0-9 9V3\" /> <circle cx=\"18\" cy=\"6\" r=\"3\" /> <circle cx=\"6\" cy=\"18\" r=\"3\" />","component":"<path d=\"M15.536 11.293a1 1 0 0 0 0 1.414l2.376 2.377a1 1 0 0 0 1.414 0l2.377-2.377a1 1 0 0 0 0-1.414l-2.377-2.377a1 1 0 0 0-1.414 0z\" /> <path d=\"M2.297 11.293a1 1 0 0 0 0 1.414l2.377 2.377a1 1 0 0 0 1.414 0l2.377-2.377a1 1 0 0 0 0-1.414L6.088 8.916a1 1 0 0 0-1.414 0z\" /> <path d=\"M8.916 17.912a1 1 0 0 0 0 1.415l2.377 2.376a1 1 0 0 0 1.414 0l2.377-2.376a1 1 0 0 0 0-1.415l-2.377-2.376a1 1 0 0 0-1.414 0z\" /> <path d=\"M8.916 4.674a1 1 0 0 0 0 1.414l2.377 2.376a1 1 0 0 0 1.414 0l2.377-2.376a1 1 0 0 0 0-1.414l-2.377-2.377a1 1 0 0 0-1.414 0z\" />","square-stack":"<path d=\"M4 10c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2\" /> <path d=\"M10 16c-1.1 0-2-.9-2-2v-4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2\" /> <rect width=\"8\" height=\"8\" x=\"14\" y=\"14\" rx=\"2\" />","file-code":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\" /> <path d=\"M14 2v5a1 1 0 0 0 1 1h5\" /> <path d=\"M10 12.5 8 15l2 2.5\" /> <path d=\"m14 12.5 2 2.5-2 2.5\" />","database":"<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\" /> <path d=\"M3 5V19A9 3 0 0 0 21 19V5\" /> <path d=\"M3 12A9 3 0 0 0 21 12\" />"};
+</script>
+<script>
+/* Volna hierarchy browser — interactive mock. Mirrors the proposed core model:
+   containers (scopes, streams) in the tree, members (variables, generators) in
+   the list, one action per member kind. No framework, static data. */
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------- example trace
+  // What one Verilator run of a small SoC could write: RTL scopes and signals,
+  // a pipeline stream per hardware thread, a bus transaction stream, a log
+  // stream, and an OpenTelemetry resource from the software side.
+  const C = [];  // containers: { id, name, role: 'scope'|'stream', kind, parent, attrs }
+  const V = [];  // variables:  { name, scope, shape, width, type, dir, enum }
+  const G = [];  // generators: { name, stream, log }
+  const scope = (name, kind, parent, attrs) => { C.push({ id: C.length, name, role: 'scope', kind, parent, attrs }); return C.length - 1; };
+  const stream = (name, kind, parent, attrs) => { C.push({ id: C.length, name, role: 'stream', kind, parent, attrs }); return C.length - 1; };
+  const v = (scope, name, shape, o = {}) => V.push({ name, scope, shape, width: o.w || (shape === 'bit' ? 1 : 0), type: o.t || (shape === 'bit' || shape === 'vector' ? 'wire' : shape), dir: o.d || '', enum: !!o.e });
+  const gen = (stream, name, log) => G.push({ name, stream, log });
+
+  const top = scope('top', 'module', null, { component: 'soc' });
+  v(top, 'clk', 'bit', { d: 'in' }); v(top, 'rst_n', 'bit', { d: 'in' }); v(top, 'irq', 'vector', { w: 8, d: 'out' });
+  const pkg = scope('soc_pkg', 'package', top);
+  v(pkg, 'XLEN', 'vector', { w: 32, t: 'parameter' }); v(pkg, 'N_HARTS', 'vector', { w: 32, t: 'parameter' }); v(pkg, 'CLK_PERIOD_NS', 'real', { t: 'parameter' });
+  const cpu = scope('cpu', 'core', top, { component: 'rv_core' });
+  v(cpu, 'pc', 'vector', { w: 32, t: 'reg' }); v(cpu, 'fetch_valid', 'bit'); v(cpu, 'stall', 'bit'); v(cpu, 'cycle', 'vector', { w: 64, t: 'integer' });
+  v(cpu, 'hart_id', 'vector', { w: 2, t: 'parameter' });
+  const dec = scope('decode', 'module', cpu, { component: 'decoder' });
+  v(dec, 'opcode', 'vector', { w: 7 }); v(dec, 'op_t', 'vector', { w: 3, t: 'logic', e: true }); v(dec, 'illegal', 'bit', { d: 'out' });
+  const regs = scope('regfile', 'module', cpu, { component: 'regfile' });
+  v(regs, 'we', 'bit', { d: 'in' }); v(regs, 'waddr', 'vector', { w: 5, d: 'in' }); v(regs, 'wdata', 'vector', { w: 32, d: 'in' }); v(regs, 'rdata', 'vector', { w: 32, d: 'out' });
+  const lsu = scope('lsu', 'module', cpu, { component: 'lsu' });
+  const req = scope('req', 'struct', lsu);
+  v(req, 'addr', 'vector', { w: 32 }); v(req, 'size', 'vector', { w: 2 }); v(req, 'we', 'bit');
+  const axi = scope('axi', 'interface', lsu, { component: 'axi_lite_if' });
+  v(axi, 'arvalid', 'bit', { d: 'out' }); v(axi, 'arready', 'bit', { d: 'in' }); v(axi, 'rdata', 'vector', { w: 32, d: 'in' });
+  const t0 = stream('thread0', 'PIPELINE', cpu, { 'kanata.version': '0004' });
+  gen(t0, 'instruction');
+  const t1 = stream('thread1', 'PIPELINE', cpu);
+  gen(t1, 'instruction');
+  const uart = scope('uart', 'module', top, { component: 'uart_16550' });
+  v(uart, 'tx', 'bit', { d: 'out' }); v(uart, 'rx', 'bit', { d: 'in' }); v(uart, 'baud_div', 'vector', { w: 16, t: 'reg' });
+  const fifo = scope('fifo', 'module', uart, { component: 'fifo #(8)' });
+  v(fifo, 'count', 'vector', { w: 4 }); v(fifo, 'full', 'bit'); v(fifo, 'empty', 'bit');
+  const gen_lanes = scope('gen_lanes', 'generate', top);
+  for (let i = 0; i < 2; i++) { const l = scope(`lane[${i}]`, 'begin', gen_lanes); v(l, 'data', 'vector', { w: 16 }); v(l, 'valid', 'bit'); }
+  const dbg = scope('dbg', 'module', top, { component: 'debug_unit' });
+  v(dbg, 'trigger', 'event', { t: 'event' }); v(dbg, 'temperature', 'real', { t: 'real' }); v(dbg, 'last_msg', 'text', { t: 'string' });
+  const sc = scope('tlm_mem', 'sc_module', top);
+  v(sc, 'busy', 'bit');
+  const bus = stream('mem_bus', 'TX', top, { 'ftr.id': 3 });
+  gen(bus, 'read'); gen(bus, 'write'); gen(bus, 'burst');
+  const trace = stream('trace', 'TRANSACTOR', top);
+  gen(trace, 'dma_xfer');
+  const log = stream('log', 'LOG', top);
+  gen(log, 'flush at pc=%x', { severity: 'warn', file: 'rv_core.sv', line: 212 });
+  gen(log, 'boot: %s', { severity: 'info', file: 'top.sv', line: 41 });
+  gen(log, 'assertion %s failed', { severity: 'error', file: 'lsu.sv', line: 88 });
+  const res = scope('checkout-service', 'resource', null, { 'service.name': 'checkout' });
+  const otel = stream('http.server', 'otel.scope', res, { 'otel.version': '1.4' });
+  gen(otel, 'POST /cart'); gen(otel, 'GET /cart/{id}');
+  const otel2 = stream('db.client', 'otel.scope', res);
+  gen(otel2, 'SELECT items');
+
+  C.forEach(c => { c.children = []; c.vars = []; c.gens = []; });
+  C.forEach(c => { if (c.parent != null) C[c.parent].children.push(c.id); });
+  V.forEach((x, i) => C[x.scope].vars.push(i));
+  G.forEach((g, i) => C[g.stream].gens.push(i));
+  const ROOTS = C.filter(c => c.parent == null).map(c => c.id);
+  const pathOf = id => { const p = []; for (let c = C[id]; c; c = c.parent == null ? null : C[c.parent]) p.unshift(c.name); return p; };
+
+  // ------------------------------------------------------------------- icons
+  // scope_icon(kind), stream_icon(kind), member_icon(member): the core mapping the doc proposes.
+  const SCOPE_ICON = {
+    module: 'box', vhdl_architecture: 'box', sc_module: 'boxes', core: 'cpu',
+    struct: 'braces', union: 'braces', vhdl_record: 'braces', class: 'component', interface: 'cable',
+    package: 'package', vhdl_package: 'package', program: 'terminal',
+    task: 'square-function', function: 'square-function', vhdl_procedure: 'square-function', vhdl_function: 'square-function',
+    generate: 'git-fork', vhdl_generate: 'git-fork', vhdl_for_generate: 'git-fork', vhdl_if_generate: 'git-fork',
+    begin: 'brackets', fork: 'brackets', vhdl_block: 'brackets', vhdl_process: 'zap', sv_array: 'layers',
+    resource: 'server', instrumentation_scope: 'library', generic: 'folder',
+  };
+  const STREAM_ICON = { PIPELINE: 'workflow', LOG: 'scroll-text' };
+  const STREAM_DEFAULT = 'chart-no-axes-gantt';
+  const RECOGNIZED = new Set(Object.keys(STREAM_ICON));
+  const containerIcon = c => c.role === 'stream' ? (STREAM_ICON[c.kind] || STREAM_DEFAULT) : (SCOPE_ICON[c.kind] || 'folder');
+  const varIcon = x => x.type === 'parameter' ? 'pi' : x.enum ? 'tags' : x.type === 'integer' ? 'hash' : ({ bit: 'activity', vector: 'binary', real: 'sigma', text: 'type', event: 'zap' })[x.shape];
+  const genIcon = g => g.log ? 'message-square' : 'circle-dot';
+  const DIR_ICON = { in: 'log-in', out: 'log-out', io: 'arrow-left-right' };
+  const svg = (name, cls) => `<svg class="ic ${cls || ''}" viewBox="0 0 24 24">${ICON[name] || ''}</svg>`;
+  const dims = x => x.shape === 'vector' ? `[${x.width - 1}:0]` : x.shape === 'real' ? 'real' : x.shape === 'text' ? 'str' : x.shape === 'event' ? 'event' : '';
+  const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+
+  // ------------------------------------------------------------------- state
+  const root = document.getElementById('hb'); if (!root) return;
+  const treeEl = root.querySelector('.hb-tree'), listEl = root.querySelector('.hb-list'), filterEl = root.querySelector('.hb-filter input');
+  const listTitle = root.querySelector('.hb-list-title'), listCount = root.querySelector('.hb-count'), crumbEl = root.querySelector('.hb-crumb');
+  const addAllBtn = root.querySelector('[data-act="add-all"]'), tabsEl = root.querySelector('.hb-tabs'), mainEl = root.querySelector('.hb-main-body'), statusEl = root.querySelector('.hb-status');
+  const S = { expanded: new Set(), selected: null, visible: [], filter: '', rows: [], listSel: new Set(), anchor: null, focus: 'tree', waves: [], pipelines: [], activeTab: 'waves', everywhere: false };
+
+  function reset() {
+    S.expanded = new Set(); S.selected = ROOTS[0]; S.filter = ''; filterEl.value = ''; S.everywhere = false;
+    for (const r of ROOTS) { S.expanded.add(r); for (const c of C[r].children) S.expanded.add(c); }
+    S.waves = []; S.pipelines = []; S.activeTab = 'waves'; S.focus = 'tree'; S.listSel = new Set(); S.anchor = null;
+    rebuild(); renderAll();
+  }
+  function rebuild() {
+    S.visible = [];
+    const walk = (id, depth) => { S.visible.push([id, depth]); if (S.expanded.has(id)) for (const c of C[id].children) walk(c, depth + 1); };
+    for (const r of ROOTS) walk(r, 0);
+    rebuildList();
+  }
+  // MemberListModel::rebuild: members of the selected container, or a search over every member.
+  function rebuildList() {
+    const f = S.filter.toLowerCase(); const m = name => !f || name.toLowerCase().includes(f);
+    S.rows = [];
+    if (S.everywhere && f) {
+      V.forEach((x, i) => { if (m(x.name)) S.rows.push({ kind: 'var', ix: i }); });
+      G.forEach((g, i) => { if (m(g.name)) S.rows.push({ kind: 'gen', ix: i }); });
+      C.forEach(c => { if (c.role === 'stream' && m(c.name)) S.rows.push({ kind: 'stream', ix: c.id }); });
+    } else if (S.selected != null) {
+      const c = C[S.selected];
+      for (const i of c.vars) if (m(V[i].name)) S.rows.push({ kind: 'var', ix: i });
+      for (const i of c.gens) if (m(G[i].name)) S.rows.push({ kind: 'gen', ix: i });
+    }
+    S.listSel = new Set(); S.anchor = null;
+  }
+  function select(id) { const changed = S.selected !== id; S.selected = id; S.everywhere = false; rebuildList(); return changed; }
+  function toggle(id) { if (!S.expanded.delete(id)) S.expanded.add(id); rebuild(); }
+  function setAll(expand) { S.expanded = new Set(expand ? C.map(c => c.id) : []); rebuild(); }
+
+  // ---------------------------------------------------------------- actions
+  // One action per member kind: variables go to the focused wave panel, generators
+  // and streams open a pipeline panel (Command::AddVars / Command::OpenPipeline).
+  function activate(rows) {
+    const vars = rows.filter(r => r.kind === 'var').map(r => r.ix);
+    const tracks = rows.filter(r => r.kind !== 'var');
+    if (vars.length) { for (const i of vars) if (!S.waves.includes(i)) S.waves.push(i); S.activeTab = 'waves'; }
+    for (const t of tracks) {
+      const path = t.kind === 'gen' ? [...pathOf(G[t.ix].stream), G[t.ix].name] : pathOf(t.ix);
+      const key = path.join('.');
+      const isLog = t.kind === 'gen' ? !!G[t.ix].log : C[t.ix].kind === 'LOG';
+      if (isLog) { notice(`Log panels are not part of this proposal; "${key}" stays listed.`); continue; }
+      if (!S.pipelines.includes(key)) S.pipelines.push(key);
+      S.activeTab = key;
+    }
+    renderAll();
+  }
+  let noticeText = '', noticeTimer = 0;
+  function notice(t) { noticeText = t; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { noticeText = ''; renderStatus(); }, 2500); }
+
+  // -------------------------------------------------------------------- render
+  function renderTree() {
+    treeEl.innerHTML = S.visible.map(([id, depth], ix) => {
+      const c = C[id]; const has = c.children.length > 0; const exp = S.expanded.has(id);
+      const tag = c.role === 'stream' && !RECOGNIZED.has(c.kind) ? `<span class="tag">${esc(c.kind)}</span>` : '';
+      const title = c.role === 'stream' ? `${pathOf(id).join('.')} — stream, kind ${c.kind}` : `${pathOf(id).join('.')} — ${c.kind}${c.attrs && c.attrs.component ? ' ' + c.attrs.component : ''}`;
+      return `<div class="hb-row tree${S.selected === id ? ' sel' : ''}${c.role === 'stream' ? ' stream' : ''}" data-ix="${ix}" data-id="${id}" style="padding-left:${6 + depth * 12}px" title="${esc(title)}">` +
+        `<span class="chev${has ? '' : ' none'}" data-toggle="${id}">${has ? svg(exp ? 'chevron-down' : 'chevron-right') : ''}</span>${svg(containerIcon(c), c.role === 'stream' ? 'k-' + (RECOGNIZED.has(c.kind) ? c.kind : 'stream') : '')}<span class="name">${esc(c.name)}</span>${tag}</div>`;
+    }).join('');
+  }
+  function renderList() {
+    const c = S.selected != null ? C[S.selected] : null;
+    const searching = S.everywhere && S.filter;
+    listTitle.textContent = searching ? 'Results' : !c ? 'Members' : c.role === 'stream' ? (c.kind === 'LOG' ? 'Log sites' : 'Generators') : 'Variables';
+    listCount.textContent = S.rows.length;
+    crumbEl.innerHTML = searching ? `whole trace · "${esc(S.filter)}"` : c ? `${esc(pathOf(c.id).join('.'))} <span class="k">· ${c.role === 'stream' ? 'stream ' + esc(c.kind) : esc(c.kind)}${c.attrs && c.attrs.component ? ' ' + esc(c.attrs.component) : ''}</span>` : '';
+    const anyDir = S.rows.some(r => r.kind === 'var' && V[r.ix].dir);
+    const addable = S.rows.filter(r => r.kind === 'var').length;
+    addAllBtn.disabled = addable === 0; addAllBtn.title = addable ? `Add all ${addable} listed variables (⏎)` : 'Nothing to add';
+    if (!S.rows.length) {
+      const text = searching ? 'No members match' : !c ? 'Select a scope or stream, or search everywhere' : c.role === 'stream' ? 'This stream declares no generators' : c.children.length ? 'No variables here; expand the scope for its children' : 'No variables in this scope';
+      listEl.innerHTML = `<div class="hb-empty">${text}</div>`; return;
+    }
+    listEl.innerHTML = S.rows.map((r, ix) => {
+      const sel = S.listSel.has(ix) ? ' sel' : '';
+      if (r.kind === 'var') {
+        const x = V[r.ix]; const full = searching ? `<span class="path">${esc(pathOf(x.scope).join('.'))}.</span>${esc(x.name)}` : esc(x.name);
+        const dir = anyDir ? `<span class="dir ${x.dir || 'none'}" title="${x.dir === 'in' ? 'input' : x.dir === 'out' ? 'output' : x.dir === 'io' ? 'inout' : ''}">${x.dir ? svg(DIR_ICON[x.dir]) : ''}</span>` : '';
+        return `<div class="hb-row var${sel}" data-ix="${ix}" title="${esc(x.type)}${x.enum ? ' (enum op_t)' : ''} ${dims(x)}">${svg(varIcon(x))}${dir}<span class="name mono">${full}</span><span class="dims">${x.type === 'parameter' ? 'param' : ''} ${dims(x)}</span></div>`;
+      }
+      if (r.kind === 'gen') {
+        const g = G[r.ix]; const st = C[g.stream];
+        const full = searching ? `<span class="path">${esc(pathOf(g.stream).join('.'))}.</span>${esc(g.name)}` : esc(g.name);
+        const trail = g.log ? `<span class="sev ${g.log.severity}">${g.log.severity}</span><span class="dims">${esc(g.log.file)}:${g.log.line}</span>` : `<span class="dims">generator</span>`;
+        return `<div class="hb-row gen${sel}" data-ix="${ix}" title="${esc(pathOf(g.stream).join('.') + '.' + g.name)} — ${g.log ? 'log site' : 'generator of stream ' + st.kind}">${svg(genIcon(g))}<span class="name mono">${full}</span>${trail}</div>`;
+      }
+      const c2 = C[r.ix];
+      return `<div class="hb-row gen${sel}" data-ix="${ix}" title="stream ${esc(c2.kind)}">${svg(containerIcon(c2), 'k-' + (RECOGNIZED.has(c2.kind) ? c2.kind : 'stream'))}<span class="name mono"><span class="path">${esc(pathOf(r.ix).slice(0, -1).join('.'))}.</span>${esc(c2.name)}</span><span class="dims">stream · ${esc(c2.kind)}</span></div>`;
+    }).join('');
+  }
+  function renderMain() {
+    tabsEl.innerHTML = [`<span class="hb-tab${S.activeTab === 'waves' ? ' on' : ''}" data-tab="waves">${svg('activity')}Waves 1</span>`]
+      .concat(S.pipelines.map(k => `<span class="hb-tab${S.activeTab === k ? ' on' : ''}" data-tab="${esc(k)}">${svg('workflow')}Pipeline · ${esc(k.split('.').slice(-2).join('.'))}</span>`)).join('');
+    if (S.activeTab === 'waves') {
+      mainEl.innerHTML = S.waves.length ? `<div class="hb-wave-rows">${S.waves.map(i => { const x = V[i]; return `<div class="hb-wave-row">${svg(varIcon(x))}<span class="mono">${esc(pathOf(x.scope).join('.'))}.${esc(x.name)}</span><span class="dims">${dims(x)}</span><span class="fake ${x.shape}"></span></div>`; }).join('')}</div>`
+        : `<div class="hb-empty big">Waves 1 is empty.<br><small>Select variables on the left and press Enter or double-click to add them.</small></div>`;
+    } else {
+      mainEl.innerHTML = `<div class="hb-empty big">${svg('workflow')}<br>Pipeline panel for <span class="mono">${esc(S.activeTab)}</span><br><small>Rows of stage cells, shared viewport and cursor: see <a href="pipeline-view.html">pipeline-view.html</a>.</small></div>`;
+    }
+  }
+  function renderStatus() {
+    let what = '';
+    const r = S.focus === 'list' && S.anchor != null ? S.rows[S.anchor] : null;
+    if (noticeText) what = noticeText;
+    else if (r && r.kind === 'var') what = `Enter adds ${S.listSel.size > 1 ? S.listSel.size + ' variables' : '“' + V[r.ix].name + '”'} to Waves 1`;
+    else if (r && r.kind === 'gen') what = G[r.ix].log ? 'Log sites list only; a log panel is a later feature' : `Enter opens “${G[r.ix].name}” as a pipeline panel`;
+    else if (r && r.kind === 'stream') what = `Enter opens stream “${C[r.ix].name}” as a pipeline panel`;
+    else if (S.selected != null) { const c = C[S.selected]; what = c.role === 'stream' ? (c.kind === 'LOG' ? 'A LOG stream: its generators are log sites' : `Enter opens the whole ${c.kind} stream as a pipeline panel`) : c.children.length ? 'Enter or Space toggles the scope' : 'A leaf scope; its variables are listed on the right'; }
+    statusEl.innerHTML = `<span><span class="k">focus</span> ${S.focus === 'tree' ? 'Scopes' : 'Members'}</span><span><span class="k">selection</span> ${S.selected != null ? esc(pathOf(S.selected).join('.')) : '—'}</span><span class="what">${esc(what)}</span>`;
+  }
+  function renderAll() { renderTree(); renderList(); renderMain(); renderStatus(); root.dataset.focus = S.focus; }
+
+  // ------------------------------------------------------------------- events
+  treeEl.addEventListener('click', e => {
+    const t = e.target.closest('[data-toggle]'); const row = e.target.closest('.hb-row');
+    if (!row) return; const id = +row.dataset.id; S.focus = 'tree';
+    if (t && C[id].children.length) { toggle(id); renderAll(); return; }
+    select(id); if (e.detail === 2) { if (C[id].children.length) toggle(id); else if (C[id].role === 'stream') { activate([{ kind: 'stream', ix: id }]); return; } }
+    rebuild(); renderAll();
+  });
+  listEl.addEventListener('click', e => {
+    const row = e.target.closest('.hb-row'); if (!row) return; const ix = +row.dataset.ix; S.focus = 'list';
+    if (e.detail === 2) { activate([S.rows[ix]]); return; }
+    if (e.shiftKey && S.anchor != null) { const [a, b] = [Math.min(S.anchor, ix), Math.max(S.anchor, ix)]; for (let i = a; i <= b; i++) S.listSel.add(i); }
+    else if (e.ctrlKey || e.metaKey) { if (!S.listSel.delete(ix)) S.listSel.add(ix); S.anchor = ix; }
+    else { S.listSel = new Set([ix]); S.anchor = ix; }
+    renderList(); renderStatus(); root.dataset.focus = S.focus;
+  });
+  tabsEl.addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { S.activeTab = t.dataset.tab; renderMain(); } });
+  filterEl.addEventListener('input', () => { S.filter = filterEl.value; rebuildList(); renderList(); renderStatus(); });
+  filterEl.addEventListener('keydown', e => { if (e.key === 'Escape') { filterEl.value = ''; S.filter = ''; rebuildList(); renderAll(); } if (e.key === 'ArrowDown' || e.key === 'Enter') { S.focus = 'list'; root.focus({ preventScroll: true }); key(e); e.preventDefault(); } });
+  root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.act;
+    if (a === 'expand') setAll(true); else if (a === 'collapse') setAll(false);
+    else if (a === 'add-all') activate(S.rows.filter(r => r.kind === 'var'));
+    else if (a === 'everywhere') { S.everywhere = !S.everywhere; S.selected = S.everywhere ? null : ROOTS[0]; rebuild(); filterEl.focus(); }
+    else if (a === 'reset') reset();
+    renderAll(); root.querySelector('[data-act="everywhere"]').classList.toggle('on', S.everywhere);
+  }));
+  function key(e) {
+    if (e.target === filterEl && !(e.key === 'ArrowDown' || e.key === 'Enter')) return;
+    let handled = true;
+    if (S.focus === 'tree') {
+      // ScopeTreeModel::key
+      const sel = S.selected; const pos = S.visible.findIndex(([id]) => id === sel); if (pos < 0) return;
+      const c = C[sel]; const has = c.children.length > 0;
+      switch (e.key) {
+        case 'ArrowDown': if (pos + 1 < S.visible.length) select(S.visible[pos + 1][0]); break;
+        case 'ArrowUp': if (pos > 0) select(S.visible[pos - 1][0]); break;
+        case 'ArrowRight': if (has && !S.expanded.has(sel)) toggle(sel); break;
+        case 'ArrowLeft': if (has && S.expanded.has(sel)) toggle(sel); else if (c.parent != null) select(c.parent); break;   // proposed fix: a childless row never swallows the key
+        case 'Enter': case ' ': if (has) toggle(sel); else if (c.role === 'stream') { activate([{ kind: 'stream', ix: sel }]); return; } break;
+        case 'Tab': S.focus = 'list'; break;
+        default: handled = false;
+      }
+      rebuild();
+    } else {
+      // MemberListModel::key
+      switch (e.key) {
+        case 'Enter': { const rows = S.listSel.size ? [...S.listSel].sort((a, b) => a - b).map(i => S.rows[i]) : S.rows.filter(r => r.kind === 'var'); if (rows.length) { activate(rows); return; } break; }
+        case 'ArrowDown': case 'ArrowUp': {
+          if (!S.rows.length) break; const down = e.key === 'ArrowDown';
+          const cur = S.anchor; const next = cur == null ? 0 : Math.min(S.rows.length - 1, Math.max(0, cur + (down ? 1 : -1)));
+          if (e.shiftKey) S.listSel.add(next); else S.listSel = new Set([next]); S.anchor = next; break;
+        }
+        case 'Escape': S.listSel = new Set(); break;
+        case 'Tab': S.focus = 'tree'; break;
+        default:
+          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { filterEl.focus(); filterEl.value += e.key; S.filter = filterEl.value; rebuildList(); } else handled = false;
+      }
+    }
+    if (handled) { e.preventDefault(); renderAll(); }
+  }
+  root.addEventListener('keydown', key);
+  root.addEventListener('focusin', e => { if (e.target === filterEl) S.focus = 'list'; });
+
+  // guided scenarios
+  const guides = {
+    reset,
+    pipeline() { reset(); select(t0); S.focus = 'tree'; rebuild(); renderAll(); },
+    log() { reset(); select(log); S.focus = 'tree'; rebuild(); renderAll(); },
+    search() { reset(); S.everywhere = true; S.selected = null; S.filter = 'read'; filterEl.value = 'read'; rebuild(); renderAll(); root.querySelector('[data-act="everywhere"]').classList.add('on'); },
+    otel() { reset(); setAll(true); select(otel); rebuild(); renderAll(); },
+    open() { reset(); select(t0); S.focus = 'list'; S.listSel = new Set([0]); S.anchor = 0; rebuild(); renderAll(); activate([S.rows[0]]); },
+  };
+  document.querySelectorAll('[data-guide]').forEach(b => b.addEventListener('click', () => { guides[b.dataset.guide](); root.focus({ preventScroll: true }); }));
+  reset();
+
+  // icon catalogue tables in the prose
+  document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = svg(el.dataset.icon, el.dataset.cls || ''); });
+
+  window.hb = { C, V, G, S, ROOTS, select, toggle, setAll, activate, key, reset, guides, rebuild, renderAll, containerIcon, varIcon, genIcon, pathOf, ids: { top, cpu, t0, bus, log, otel, dec } };
+})();
+</script>
+</body>
+</html>
