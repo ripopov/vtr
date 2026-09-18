@@ -116,9 +116,9 @@ does today (`tools/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
 | `C= n` absolute start cycle (discarded by Konata itself) | file attribute `kanata.start_cycle`; all times absolute cycles (`time.unit = cycle`) |
 | `C n` cycle advance | absolute cycle on every transaction, stage, event |
 | `I id gid tid` | transaction (begin = cycle) on stream `thread<tid>` of the `instruction` generator; `insn_id_in_sim` attribute; `line` attribute |
-| `L id 0 text` label | attribute `label` (appended, `\n` unescaped) |
+| `L id 0 text` label | attribute `vtr.label` (appended, `\n` unescaped) |
 | `L id 1 text` detail | attribute `detail` |
-| `L id 2 text` stage label | attribute `label` on the most recently started stage |
+| `L id 2 text` stage label | attribute `vtr.label` on the most recently started stage |
 | `S id lane stage` | stage `{name, lane, begin}`; opening a stage on a lane closes the open one (Konata semantics) |
 | `E id lane stage` | stage end |
 | zero-length stages, repeated stage names | preserved (begin == end; repeated stages are separate entries) |

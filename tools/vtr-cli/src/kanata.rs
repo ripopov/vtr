@@ -3,8 +3,8 @@
 //! Mapping (see docs/VDB_APPNOTE.md for the viewer side):
 //! * one stream per thread id, generator "instruction"
 //! * `I`  -> begin transaction; attrs `insn_id_in_sim` (begin phase), `line`
-//! * `L 0/1` -> attrs `label` / `detail` (record phase, appended)
-//! * `L 2` -> attr `label` on the most recently started stage
+//! * `L 0/1` -> attrs `vtr.label` / `detail` (record phase, appended)
+//! * `L 2` -> attr `vtr.label` on the most recently started stage
 //! * `S`/`E` -> stages on lane `lane`
 //! * `R`  -> end; attrs `retire_id`; status Aborted for flush
 //! * `W`  -> relation `wakeup` (attr `type` when non-zero) from producer to consumer
@@ -52,7 +52,7 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
 
     let k_gid = w.intern("insn_id_in_sim");
     let k_line = w.intern("line");
-    let k_label = w.intern("label");
+    let k_label = w.intern("vtr.label");
     let k_detail = w.intern("detail");
     let k_rid = w.intern("retire_id");
     let k_type = w.intern("type");

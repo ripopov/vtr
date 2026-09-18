@@ -67,12 +67,12 @@ through `vtr_writer_*`) produces:
 * one transaction per instruction: `begin` = fetch cycle, `end` = retire
   cycle, `status` = `unset` (retired) / `aborted` (flushed) / `open` (never
   retired);
-* attributes: `insn_id_in_sim` (begin), `line` (begin), `label` and
+* attributes: `insn_id_in_sim` (begin), `line` (begin), `vtr.label` and
   `detail` (record, text with real newlines), `retire_id` (end);
 * stages: one per Kanata `S` line: `name` (e.g. `F`, `Dc`, `X`), `lane`
   (`0`, `1`, ...), `[begin, end]`; a stage started while another stage on
   the same lane is open closes that one (Kanata semantics); type-2 labels
-  become stage attribute `label`;
+  become stage attribute `vtr.label`;
 * relations: `wakeup` from producer to consumer, attribute `type` when not
   the default;
 * file attributes: `time.unit = "cycle"`, `kanata.version`,
@@ -123,9 +123,9 @@ dependencies:
   style: { by_attribute: type, default: solid, 1: dashed }
 
 labels:
-  name:   { attribute: label }             # left pane text
+  name:   { attribute: vtr.label }         # left pane text
   detail: { attribute: detail }            # tooltip
-  stage:  { stage_attribute: label }       # per-stage tooltip lines
+  stage:  { stage_attribute: vtr.label }   # per-stage tooltip lines
 
 stats:
   branch: { label_regex: "\\b(beq|bne|jal|jalr|b[a-z]+)\\b" }
@@ -170,8 +170,10 @@ a consumer (relations are indexed by target id per block). Anchor points
 come from the stage with `role_of_stage == execute` on each side, exactly
 as the VDB says; if a side has no such stage the arrow is not drawn.
 
-*Labels and tooltips*: `label`/`detail` attributes and per-stage `label`
-attributes, all by key id.
+*Labels and tooltips*: `vtr.label`/`detail` attributes and per-stage
+`vtr.label` attributes, all by key id. `vtr.label` is the reserved caption
+key (SPEC 5.3), so a viewer with no VDB loaded already shows it; the VDB
+here only says that the same key feeds the left pane.
 
 *Row identity across runs / A-B comparison*: the VDB names
 `insn_id_in_sim` as the row key, so two runs of the same program align
@@ -186,7 +188,7 @@ All computed from data, none stored.
 | Kanata feature | VTR data | VDB semantic |
 |---|---|---|
 | `I id gid tid` | transaction, stream `thread<tid>`, attribute `insn_id_in_sim` | row key |
-| `L 0/1/2` | attributes `label`/`detail`, stage attribute `label` | which text goes where |
+| `L 0/1/2` | attributes `vtr.label`/`detail`, stage attribute `vtr.label` | which text goes where |
 | `S`/`E lane stage` | stages with lane and name | colour, role, lane order |
 | `R rid type` | end time, `retire_id`, status retired/aborted | flush overlay, hide toggle |
 | `W consumer producer type` | relation `wakeup` with `type` | arrow anchors and style |

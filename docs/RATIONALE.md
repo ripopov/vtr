@@ -371,6 +371,26 @@ local; the contents are stored as 24 columns compressed as one blob.
   ranges; a full reverse index was rejected as a write-time cost with no
   measured need (the per-block ranges make `relations_to` local for the
   common case of relations between temporally close transactions).
+* A transaction carries no name field, because a name column would repeat
+  the generator's name on every row of that generator; the generator
+  indirection already removes that redundancy, and FTR makes the same
+  choice. Per-instance names (a Konata instruction mnemonic, a packet tag)
+  are the reserved attribute `vtr.label` instead: producers that have one
+  pay an interned string id per transaction, producers that do not pay
+  nothing. Reserving the key rather than leaving it a convention is what
+  lets a viewer caption a bar without a VDB; it stays a name, not styling,
+  so the VTR/VDB split (GOAL.md section 2) holds.
+* `vtr.label` is prefixed rather than the bare `label` the Kanata converter
+  used to write, because the importers pass foreign attribute keys through
+  verbatim (`otlp.rs` interns an OTLP span attribute key as-is, as does the
+  FTR importer) and only prefix VTR's own additions. A bare reservation
+  would silently give caption semantics to any imported span attribute that
+  happens to be called `label`. Keeping reservation a pure prefix rule also
+  keeps the producer's invariant to one sentence — anything without a
+  reserved prefix is yours — instead of a prefix rule plus a growing list
+  of bare words. It is `label`, not `name`, because everything else VTR
+  calls a name is stable identity that a VDB binds to; a per-instance
+  caption is not, and an OTel span's own `name` is already the generator's.
 * Ids are assigned by the writer (dense, monotonic) so id lookups can
   use per-block ranges; producer ids are attributes. FTR's global counter
   works the same way; OpenTelemetry's 16+8-byte ids would defeat

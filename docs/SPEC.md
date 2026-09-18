@@ -343,9 +343,31 @@ value }`. A value is a tag byte followed by a tag-specific payload:
 | 17 | text | `blob`, UTF-8; inline text that is not interned (one-off strings such as log arguments; requires 1.1) |
 
 Attribute keys are free form. Keys beginning with `vtr.` and `log.` are
-reserved for this specification (`log.*` is defined in section 8.1);
-converters use tool prefixes (`fst.`, `otel.`, `kanata.`, `ftr.`) for
-source-specific data. Readers must preserve unknown attributes.
+reserved for this specification (`log.*` is defined in section 8.1,
+`vtr.label` below); converters use tool prefixes (`fst.`, `otel.`,
+`kanata.`, `ftr.`) for source-specific data. Readers must preserve unknown
+attributes. Producers that copy attributes from another format must not
+strip or add a reserved prefix, so a foreign key never acquires reserved
+meaning by accident.
+
+The reserved key `vtr.label` carries a human-readable name for the *single*
+item that holds it — a transaction, an event, a stage, a relation or a
+hierarchy node. Its value is a *str* or *text* (tag 5 or 17); on a
+transaction the phase is free (7.2), and a reader that finds several
+`vtr.label` attributes on one item uses the first. A viewer displays it
+wherever it names that item — the caption of a transaction bar in a Gantt or
+pipeline row, its entry in a transaction list, the title of a tooltip or
+detail panel — and falls back to the generator's name (section 5) when the
+key is absent.
+
+`vtr.label` names an instance, not a type, which is why it is not called a
+name: the stable name of a transaction *kind* is its generator's name, and
+that is what a VDB binds to and what survives across runs. A producer with
+no per-instance name omits the key rather than repeating the generator name.
+The value is text only: it carries no colour, ordering, grouping or layout,
+and a VDB may override or ignore it. A producer-chosen name for one recorded
+item is identity data, permitted under GOAL.md section 2 on the same footing
+as node, event, stage and relation names; presentation stays in VDB.
 
 ## 6. SIGNAL_BLOCK (kind 4)
 
@@ -574,6 +596,12 @@ attribute, exactly the columns implied by its tag are read.
 * Relations are directed `from -> to` with a free-form kind string and
   attributes. Structural parent/child nesting uses the `parent` field;
   producers may additionally record a `parent_of` relation.
+* A transaction has no name of its own: its name is its generator's. The
+  reserved attribute key `vtr.label` (5.3) overrides that for one
+  transaction, and viewers show its *str*/*text* value wherever they name
+  the transaction. The same key labels a single event, stage or relation.
+  The Kanata converter writes it from `L 0` (transaction) and `L 2`
+  (stage).
 * Text logs are streams of kind `LOG`; their records are zero-duration
   transactions stored in LOG_BLOCKs (section 8), not in TX_BLOCKs.
 
