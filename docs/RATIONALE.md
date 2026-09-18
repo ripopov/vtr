@@ -13,6 +13,24 @@ tools, viewers and integrations. Consumers, including Surfer, reference these
 canonical paths directly.
 See the [architecture guide](ARCHITECTURE.md) for boundaries and integration status.
 
+## Volna hierarchy browser
+
+Scopes and streams share the existing container tree; variables and generators
+share a member list. This follows the separate-pane pattern examined in Surfer
+and preserves the core's virtualized row producers. gpui-kit's `TreeState` would
+duplicate core expansion, selection and reveal state, so frontends retain their
+uniform lists. Generators stay out of the tree to keep large transactors shallow.
+
+Stream kind lives once in `Scope::kind`; `ScopeRole` adds only its raw track
+identity. Log-site descriptions are borrowed views over raw attributes, avoiding
+a presentation schema in the protocol. Core icon mappings use bundled Lucide
+assets. Search combines variables, generators and streams under one cap, and
+empty selection activates only variables, avoiding accidental mass transaction
+loads. Transaction activation reports a notice until the corresponding panel
+exists. Iterative flattening supports deep trees without recursion. The metadata
+extension uses remote protocol version 2; VTR encodings and C/Rust reader APIs
+are unchanged.
+
 ## Volna FST session integration
 
 Volna uses Session and immutable SignalHistory interfaces with batched loads

@@ -20,7 +20,7 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
   src/data/              values, histories, translators, hierarchy
   src/wave/              viewport math, timeline, WaveModel, WaveLayout, painter → Scene
-  src/sidebar/           ScopeTreeModel, VariableListModel
+  src/sidebar/           ScopeTreeModel, MemberListModel, semantic icons and row descriptions
   src/scene.rs           Scene display list, FontRole, TextMeasure, TextCache
   src/theme/             Theme<C> tokens, One Dark, host palettes, VS Code snapshot parser
   src/geometry.rs        Point/Rect/Modifiers/CursorIcon in logical pixels
@@ -136,7 +136,7 @@ queuing another decode. New panel IDs advance the existing allocator. Restoring 
 document generation; frontend callbacks carry that generation, so delayed
 pointer and menu events cannot target a replacement panel.
 
-`Hierarchy::find_scope` and `find_var` resolve literal path segments and return
+`Hierarchy::find_scope`, `find_generator` and `find_var` resolve literal path segments and return
 `Found`, `Missing`, or `Ambiguous`. `var_path` includes an optional declaration
 occurrence for duplicate variable names. Duplicate scopes remain ambiguous,
 including when a variable occurrence is supplied; names containing dots are
@@ -148,6 +148,36 @@ normalized fractions; pixel sizes and the toolkit's serialized state never enter
 workspace files. The same dock path hides the tab header for a single panel.
 The core owns focus outlines and inactive cursor colours. egui retains its
 existing single-panel feature set and has persistence disabled.
+
+## Hierarchy browser
+
+The upper sidebar is a virtualized container tree: RTL/ESL scopes and transaction
+streams in declaration order. `ScopeRole` distinguishes streams without duplicating
+their kind string. The lower `MemberListModel` lists scope variables or stream
+generators, including log sites. `TrackRef` is the same identity used by the raw
+transaction catalog. Enum references and scope component names survive VTR and
+FST loading; enum tables are not sidebar rows.
+
+The core owns filtering, multi-selection, keyboard navigation, tooltips, icon
+mapping and activation. Whole-trace search returns variables, generators, then
+streams, with a combined 5,000-result cap and an explicit truncation indicator.
+Changing containers exits whole-trace search. Enter activates selected members;
+with no selection it adds only listed variables. The plus button always adds
+only variables. Generator and stream activation currently reports a visible
+notice without loading transactions; pipeline and log panels remain future work.
+
+GPUI paints uniform rows, stream tags, port glyphs, severity badges and the
+selected container breadcrumb. Lucide assets are bundled. Three sidebar tint
+tokens serve streams and directions, with host palette contrast correction for
+normal, selected and hovered rows. egui retains its minimal waveform feature set,
+rendering shared members and glyphs without transaction activation UI.
+Tree flattening uses an explicit stack. Saved selected/expanded paths cover
+streams and retain unresolved names. Search-everywhere is transient.
+
+Raw metadata includes container roles, component names, enum references and
+generator declarations/attributes. Remote framing version **2** rejects older
+peers before decoding the changed metadata schema. Icon, tint, badge, selection
+and activation decisions stay on the client.
 
 ## Workspace persistence
 

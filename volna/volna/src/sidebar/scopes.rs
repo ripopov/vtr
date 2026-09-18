@@ -1,12 +1,13 @@
 //! The scope tree panel: GPUI rows over `ScopeTreeModel`.
 
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     Context, CursorStyle, IntoElement, KeyDownEvent, SharedString, Window, div, px, uniform_list,
 };
 use volna_core::app::Command;
 use volna_core::sidebar::Key;
-use volna_core::sidebar::scopes::scope_icon;
+use volna_core::sidebar::icons::{scope_icon, stream_tag};
 
 use crate::app::Workspace;
 use crate::theme::{ThemePx, theme};
@@ -14,6 +15,11 @@ use crate::ui::{Icon, IconName, icon_button, panel_header};
 
 impl Workspace {
     fn scopes_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if ev.keystroke.key == "tab" {
+            window.focus(&self.variables_focus, cx);
+            cx.stop_propagation();
+            return;
+        }
         let key = match ev.keystroke.key.as_str() {
             "down" => Key::Down,
             "up" => Key::Up,
@@ -24,6 +30,7 @@ impl Workspace {
             _ => return,
         };
         self.dispatch(Command::ScopesKey(key), Some(window), cx);
+        cx.stop_propagation();
     }
 
     pub(crate) fn render_scopes(
@@ -75,6 +82,8 @@ impl Workspace {
                         let name: SharedString = scope.name.clone().into();
                         let mut row = div()
                             .id(("scope", ix))
+                            .w_full()
+                            .min_w_0()
                             .flex()
                             .items_center()
                             .h(px(t.row_height))
@@ -89,8 +98,12 @@ impl Workspace {
                                 move |this, ev: &gpui_kit::ClickEvent, window, cx| {
                                     window.focus(&this.scopes_focus, cx);
                                     this.dispatch(Command::SelectScope(id), Some(window), cx);
-                                    if ev.click_count() == 2 && has_children {
-                                        this.dispatch(Command::ToggleScope(id), Some(window), cx);
+                                    if ev.click_count() == 2 {
+                                        this.dispatch(
+                                            Command::ScopesKey(Key::Enter),
+                                            Some(window),
+                                            cx,
+                                        );
                                     }
                                 },
                             ));
@@ -114,6 +127,7 @@ impl Workspace {
                                 el.cursor(CursorStyle::PointingHand)
                                     .hover(move |s| s.bg(t.badge_hover.bg))
                                     .on_click(cx.listener(move |this, _, window, cx| {
+                                        cx.stop_propagation();
                                         this.dispatch(Command::ToggleScope(id), Some(window), cx)
                                     }))
                                     .child(
@@ -126,20 +140,41 @@ impl Workspace {
                                         .inherit_color(),
                                     )
                             });
-                        row.child(chevron)
-                            .child(
-                                Icon::new(scope_icon(&scope.kind))
-                                    .size(t.px(14.0))
-                                    .inherit_color(),
-                            )
+                        let (icon, tint) = scope_icon(scope);
+                        let tooltip = format!(
+                            "{} — {} {}",
+                            h.scope_path(id).join("."),
+                            scope.kind,
+                            scope.component
+                        );
+                        row.tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+                            .child(chevron)
+                            .child(Icon::new(icon).size(t.px(14.0)).color(tint.color(&t)))
                             .child(
                                 div()
                                     .flex_1()
+                                    .min_w_0()
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
                                     .child(name),
                             )
+                            .when_some(stream_tag(scope), |row, tag| {
+                                row.child(
+                                    div()
+                                        .flex_none()
+                                        .max_w(t.px(90.0))
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .px_1()
+                                        .rounded_sm()
+                                        .bg(t.badge.bg)
+                                        .text_color(t.badge.text)
+                                        .text_size(px(t.ui_size_small))
+                                        .child(SharedString::from(tag.to_owned())),
+                                )
+                            })
                     })
                     .collect()
             }),

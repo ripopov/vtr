@@ -70,6 +70,11 @@ fn missing_and_invisible_values_fall_back_in_every_appearance() {
                 ..Default::default()
             };
             let t = Theme::from_host(&p);
+            for tint in t.sidebar_tints {
+                for bg in [t.panel.bg, t.selection.bg, t.hover.bg] {
+                    assert!(contrast(tint, bg) >= 2.99);
+                }
+            }
             for surface in [
                 t.editor,
                 t.panel,

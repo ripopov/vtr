@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use web_time::Instant;
 
+use crate::data::Member;
 use crate::data::{ScopeId, VarId};
 use crate::document::{Delivered, Document, TraceState};
 use crate::geometry::{Modifiers, Rect};
@@ -13,7 +14,7 @@ use crate::panels::{PanelId, Panels, PanelsCommand};
 use crate::scene::{Scene, TextCache, TextMeasure};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::settings::{self, Value};
-use crate::sidebar::{Key, ScopeTreeModel, VariableListModel};
+use crate::sidebar::{Key, MemberListModel, ScopeTreeModel};
 use crate::theme::Theme;
 use crate::wave::layout::WaveLayout;
 use crate::wave::model::{MenuAction, PointerEvent, WaveModel};
@@ -104,6 +105,8 @@ pub enum Command {
     Panels(PanelsCommand),
     /// Add rows for these variables to the wave view.
     AddVars(Vec<VarId>),
+    ActivateMembers(Vec<Member>),
+    SetSearchEverywhere(bool),
     SelectScope(ScopeId),
     ToggleScope(ScopeId),
     ExpandAllScopes(bool),
@@ -208,6 +211,7 @@ pub struct SettingsView {
 /// Text the status bar shows, already formatted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Status {
+    pub sidebar_notice: Option<String>,
     pub workspace_notice: Option<String>,
     pub panel: Option<String>,
     pub links: Option<crate::wave::model::Link>,
@@ -228,7 +232,7 @@ pub struct App {
     pub workspace: crate::workspace::State,
     pub panels: Panels,
     pub scopes: ScopeTreeModel,
-    pub variables: VariableListModel,
+    pub variables: MemberListModel,
     pub sidebar_width: f32,
     pub sidebar_visible: bool,
     /// Height of the scope tree as a fraction of the sidebar.
@@ -255,7 +259,7 @@ impl App {
             workspace: crate::workspace::State::default(),
             panels: Panels::new(),
             scopes: ScopeTreeModel::default(),
-            variables: VariableListModel::default(),
+            variables: MemberListModel::default(),
             sidebar_width: 280.0,
             sidebar_visible: true,
             scopes_fraction: 0.42,
@@ -506,8 +510,15 @@ impl App {
                 }
             }
             Command::AddVars(vars) => self.add_vars(&vars),
+            Command::ActivateMembers(members) => self.activate_members(&members),
+            Command::SetSearchEverywhere(search) => {
+                self.variables.search_everywhere = search;
+                self.variables.rebuild(self.doc.hierarchy());
+                self.events.push(Event::FocusFilter);
+                self.changed();
+            }
             Command::SelectScope(id) => {
-                if self.scopes.select(id) {
+                if self.scopes.select(id) || self.variables.search_everywhere {
                     self.variables.set_scope(self.doc.hierarchy(), Some(id));
                 }
                 self.changed();
@@ -536,6 +547,9 @@ impl App {
                 if let Some(row) = out.reveal {
                     self.events.push(Event::RevealScopeRow(row));
                 }
+                if let Some(member) = out.activate {
+                    self.activate_members(&[member]);
+                }
                 self.changed();
             }
             Command::SetFilter(text) => {
@@ -547,17 +561,21 @@ impl App {
                 self.changed();
             }
             Command::AddAllVars => {
-                let vars = self.variables.rows.clone();
+                let vars = self.variables.listed_vars();
                 self.add_vars(&vars);
             }
             Command::AddSelectedOrAllVars => {
                 let vars = self.variables.selected_or_all();
-                self.add_vars(&vars);
+                self.activate_members(&vars);
             }
             Command::VariablesKey(key, modifiers) => {
+                if key == Key::Escape && self.variables.selected.is_empty() {
+                    self.variables.set_filter(self.doc.hierarchy(), "");
+                    self.changed();
+                }
                 let out = self.variables.key(&key, modifiers);
-                if let Some(vars) = out.add {
-                    self.add_vars(&vars);
+                if let Some(members) = out.activate {
+                    self.activate_members(&members);
                 }
                 if let Some(row) = out.reveal {
                     self.events.push(Event::RevealVarRow(row));
@@ -618,6 +636,44 @@ impl App {
         {
             self.workspace.scheduler.changed(now);
         }
+    }
+
+    fn activate_members(&mut self, members: &[Member]) {
+        let Some(h) = self.doc.hierarchy() else {
+            return;
+        };
+        let mut vars = Vec::new();
+        let mut pipeline = false;
+        let mut log = false;
+        for &member in members {
+            if let Member::Var(id) = member {
+                if id < h.vars.len() {
+                    vars.push(id);
+                }
+            } else if h.member_track(member).is_some() {
+                if h.is_log(member) {
+                    log = true;
+                } else {
+                    pipeline = true;
+                }
+            }
+        }
+        if !vars.is_empty() {
+            self.add_vars(&vars);
+        }
+        let notice = match (pipeline, log) {
+            (true, true) => Some("Pipeline and log panels are not available yet."),
+            (true, false) => Some("Pipeline panels are not available yet."),
+            (false, true) => {
+                Some("Log sites are listed for inspection; log panels are not available yet.")
+            }
+            _ => None,
+        };
+        self.variables.notice = notice.map(str::to_owned);
+        if let Some(notice) = notice {
+            self.events.push(Event::Notice(notice.into()));
+        }
+        self.changed();
     }
 
     fn add_vars(&mut self, vars: &[VarId]) {
@@ -798,6 +854,7 @@ impl App {
 
     pub fn status(&self) -> Status {
         let mut s = Status {
+            sidebar_notice: self.variables.notice.clone(),
             workspace_notice: self
                 .workspace
                 .scheduler

@@ -1,7 +1,8 @@
-//! The variable list panel: GPUI rows over `VariableListModel`, with the
+//! The variable list panel: GPUI rows over `MemberListModel`, with the
 //! filter text box.
 
 use gpui_kit::component::Disableable;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     Context, CursorStyle, Focusable, IntoElement, KeyDownEvent, SharedString, Window, div, px,
@@ -9,7 +10,8 @@ use gpui_kit::{
 };
 use volna_core::app::Command;
 use volna_core::sidebar::Key;
-use volna_core::sidebar::variables::{direction_label, shape_icon};
+use volna_core::sidebar::icons::{direction_icon, member_icon};
+use volna_core::sidebar::members::{describe, log_site, member_detail};
 
 use crate::app::{Workspace, to_modifiers};
 use crate::theme::{ThemePx, theme};
@@ -17,12 +19,26 @@ use crate::ui::{Icon, IconName, icon_button, panel_header};
 
 impl Workspace {
     fn variables_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if ev.keystroke.key == "tab" {
+            window.focus(&self.scopes_focus, cx);
+            cx.stop_propagation();
+            return;
+        }
         if self
             .filter
             .read(cx)
             .focus_handle(cx)
             .contains_focused(window, cx)
         {
+            if ev.keystroke.key == "down" {
+                window.focus(&self.variables_focus, cx);
+                self.dispatch(
+                    Command::VariablesKey(Key::Down, to_modifiers(ev.keystroke.modifiers)),
+                    Some(window),
+                    cx,
+                );
+                cx.stop_propagation();
+            }
             return;
         }
         let ks = &ev.keystroke;
@@ -51,6 +67,7 @@ impl Workspace {
             Some(window),
             cx,
         );
+        cx.stop_propagation();
     }
 
     pub(crate) fn render_variables(
@@ -69,8 +86,16 @@ impl Workspace {
             .doc
             .hierarchy()
             .is_some_and(|h| vars.show_direction(h));
-        let placeholder = vars.placeholder(self.app.doc.is_loaded());
-        let header = panel_header("Variables", cx).child(
+        let placeholder = vars.placeholder(self.app.doc.hierarchy());
+        let breadcrumb = self
+            .app
+            .doc
+            .hierarchy()
+            .map(|h| vars.breadcrumb(h))
+            .unwrap_or_default();
+        let everywhere = vars.search_everywhere;
+        let truncated = vars.truncated;
+        let header = panel_header(vars.title(self.app.doc.hierarchy()), cx).child(
             div()
                 .flex()
                 .items_center()
@@ -84,7 +109,7 @@ impl Workspace {
                 )
                 .child(
                     icon_button("add-all", IconName::Plus, t.panel, t.hover, cx)
-                        .disabled(count == 0)
+                        .disabled(!vars.rows.iter().any(|m| m.var().is_some()))
                         .tooltip("Add all listed variables (⏎)")
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.dispatch(Command::AddAllVars, Some(window), cx)
@@ -102,20 +127,25 @@ impl Workspace {
                 };
                 range
                     .map(|ix| {
-                        let var = this.app.variables.rows[ix];
-                        let v = &h.vars[var];
+                        let member = this.app.variables.rows[ix];
                         let selected = this.app.variables.selected.contains(&ix);
                         let colors = t.row(selected, false);
                         let hover = t.hover;
-                        let dims: SharedString = v.shape.dims().into();
+                        let dims: SharedString = member_detail(h, member).into();
                         let name: SharedString = if show_scope {
-                            h.full_name(var).into()
+                            h.member_path(member).into()
                         } else {
-                            v.name.clone().into()
+                            h.member_name(member).to_owned().into()
                         };
-                        let dir = direction_label(v.direction);
+                        let dir = member
+                            .var()
+                            .and_then(|id| direction_icon(h.vars[id].direction));
+                        let tooltip = describe(h, member);
+                        let severity = log_site(h, member).map(|s| s.severity);
                         let mut row = div()
                             .id(("var", ix))
+                            .w_full()
+                            .min_w_0()
                             .flex()
                             .items_center()
                             .h(px(t.row_height))
@@ -129,7 +159,7 @@ impl Workspace {
                                 move |this, ev: &gpui_kit::ClickEvent, window, cx| {
                                     window.focus(&this.variables_focus, cx);
                                     let command = if ev.click_count() == 2 {
-                                        Command::AddVars(vec![var])
+                                        Command::ActivateMembers(vec![member])
                                     } else {
                                         Command::SelectVar {
                                             ix,
@@ -148,29 +178,58 @@ impl Workspace {
                         } else {
                             row = row.hover(move |s| s.bg(hover.bg).text_color(hover.text));
                         }
-                        row.child(
-                            Icon::new(shape_icon(v.shape))
-                                .size(t.px(14.0))
-                                .inherit_color(),
-                        )
-                        .when(show_direction, |row| {
-                            row.child(
-                                div()
-                                    .w(t.px(24.0))
-                                    .flex_none()
-                                    .text_size(px(t.ui_size_small))
-                                    .child(SharedString::from(dir)),
+                        row.tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+                            .child(
+                                Icon::new(member_icon(h, member))
+                                    .size(t.px(14.0))
+                                    .inherit_color(),
                             )
-                        })
-                        .child(
-                            div()
-                                .flex_1()
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child(name),
-                        )
-                        .child(div().flex_none().child(dims))
+                            .when(show_direction, |row| {
+                                row.child(
+                                    div()
+                                        .w(t.px(24.0))
+                                        .flex_none()
+                                        .text_size(px(t.ui_size_small))
+                                        .when_some(dir, |el, (icon, tint)| {
+                                            el.child(
+                                                Icon::new(icon)
+                                                    .size(t.px(14.0))
+                                                    .color(tint.color(&t)),
+                                            )
+                                        }),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .child(name),
+                            )
+                            .when_some(severity, |row, severity| {
+                                row.child(
+                                    div()
+                                        .flex_none()
+                                        .px_1()
+                                        .rounded_sm()
+                                        .bg(t.badge.bg)
+                                        .text_color(t.badge.text)
+                                        .text_size(px(t.ui_size_small))
+                                        .child(SharedString::from(severity)),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .max_w(t.px(140.0))
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .text_color(colors.text_muted)
+                                    .child(dims),
+                            )
                     })
                     .collect()
             }),
@@ -188,7 +247,49 @@ impl Workspace {
             .size_full()
             .bg(t.panel.bg)
             .child(header)
-            .child(div().flex_none().px_2().py_1().child(self.filter.clone()))
+            .when(!breadcrumb.is_empty(), |el| {
+                el.child(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .font_family(t.mono_font)
+                        .text_size(px(t.ui_size_small))
+                        .text_color(colors.text_muted)
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(SharedString::from(breadcrumb)),
+                )
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .flex_none()
+                    .px_2()
+                    .py_1()
+                    .gap_1()
+                    .child(div().flex_1().min_w_0().child(self.filter.clone()))
+                    .child(
+                        icon_button(
+                            "search-everywhere",
+                            IconName::Search,
+                            if everywhere { t.selection } else { t.panel },
+                            t.hover,
+                            cx,
+                        )
+                        .tooltip("Search everywhere: variables, generators and streams")
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.dispatch(
+                                    Command::SetSearchEverywhere(!everywhere),
+                                    Some(window),
+                                    cx,
+                                );
+                            },
+                        )),
+                    ),
+            )
             .child(
                 div()
                     .flex_1()
@@ -209,5 +310,15 @@ impl Workspace {
                         None => list.into_any_element(),
                     }),
             )
+            .when(truncated, |el| {
+                el.child(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .text_size(px(t.ui_size_small))
+                        .text_color(colors.text_muted)
+                        .child("First 5,000 matches · refine your search"),
+                )
+            })
     }
 }

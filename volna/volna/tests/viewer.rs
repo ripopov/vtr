@@ -307,6 +307,51 @@ fn run(measure: bool) -> anyhow::Result<()> {
         );
         shot(&mut test, "01b-after-splitter-drag")?;
 
+        // Optional mixed VTR fixture produced by the core hierarchy test.
+        if let Some(path) = std::env::var_os("VOLNA_HIERARCHY_FIXTURE") {
+            use volna_core::data::source::Lookup;
+            use volna_core::{Command, session::OpenSpec};
+            let session = OpenSpec::Path(path.into()).open()?;
+            let scope = |path: &[&str]| match session.hierarchy().find_scope(path) {
+                Lookup::Found(id) => id,
+                other => panic!("missing fixture scope: {other:?}"),
+            };
+            test.update(|cx| workspace.update(cx, |ws, cx| ws.set_session(session.clone(), cx)));
+            for (path, name) in [
+                (&["soc"][..], "hierarchy-variables"),
+                (&["soc", "cpu", "thread0"][..], "hierarchy-pipeline"),
+                (&["soc", "log"][..], "hierarchy-log"),
+            ] {
+                test.update_window(any, |_, w, cx| {
+                    workspace.update(cx, |ws, cx| {
+                        ws.dispatch(Command::SelectScope(scope(path)), Some(w), cx);
+                    })
+                })?;
+                shot(&mut test, name)?;
+            }
+            test.update_window(any, |_, w, cx| {
+                workspace.update(cx, |ws, cx| {
+                    ws.dispatch(Command::SetSearchEverywhere(true), Some(w), cx);
+                    ws.dispatch(Command::SetFilter("read_".into()), Some(w), cx);
+                })
+            })?;
+            assert_eq!(
+                test.update(|cx| workspace.read(cx).app.variables.rows.len()),
+                4
+            );
+            shot(&mut test, "hierarchy-search")?;
+            // Focus transfer and selection run through actual GPUI key routing.
+            key(&mut test, "down");
+            assert_eq!(
+                test.update(|cx| workspace.read(cx).app.variables.selected.len()),
+                1
+            );
+            key(&mut test, "escape");
+            assert!(test.update(|cx| workspace.read(cx).app.variables.selected.is_empty()));
+            key(&mut test, "escape");
+            assert!(test.update(|cx| workspace.read(cx).app.variables.filter.is_empty()));
+        }
+
         // 2. Load the sample trace and add signals from the first scope.
         let example =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/picorv32.vtr");

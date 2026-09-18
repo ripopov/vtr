@@ -10,6 +10,10 @@ design companion lives in [`core/vtr-vdb/`](../core/vtr-vdb/).
 Design and presentation metadata belong to the separate VDB. Viewer layouts,
 selected signals, cursors and markers live in the separate client-owned
 [workspace JSON format](workspaces.html#model), never in VTR.
+Volna's [hierarchy browser](../volna/volna/ARCHITECTURE.md#hierarchy-browser)
+projects existing scope, stream, generator and enum-reference declarations;
+its icons, tints and activation rules add no file fields or encodings. The
+separately versioned raw query transport is documented in [API_RUST.md](API_RUST.md).
 
 Notation: `u8/u16/u32/u64` are unsigned little-endian fixed-width integers;
 `i8`/`i64` signed likewise. `varint` is an unsigned LEB128 integer

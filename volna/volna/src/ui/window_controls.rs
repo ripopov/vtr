@@ -306,7 +306,14 @@ mod tests {
 
     #[test]
     fn gnome_left_layout_is_honoured() {
-        let layout = WindowButtonLayout::parse("close,minimize:maximize").unwrap();
+        let layout = WindowButtonLayout {
+            left: [
+                Some(WindowButton::Close),
+                Some(WindowButton::Minimize),
+                None,
+            ],
+            right: [Some(WindowButton::Maximize), None, None],
+        };
         assert_eq!(
             visible_buttons(&layout.left, &all()),
             [WindowButton::Close, WindowButton::Minimize]

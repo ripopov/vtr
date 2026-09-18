@@ -500,8 +500,8 @@ impl RestorePlan {
         app.sidebar_visible = self.sidebar.visible;
         app.scopes_fraction = self.sidebar.scopes_fraction;
         app.variables.filter = self.sidebar.filter;
-        app.variables.scope = app.scopes.selected;
-        app.variables.rebuild(app.doc.hierarchy());
+        app.variables
+            .set_scope(app.doc.hierarchy(), app.scopes.selected);
         for panel in app.panels.iter() {
             if let Some(w) = panel.kind.waves() {
                 for row in &w.items {

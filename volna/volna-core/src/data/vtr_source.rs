@@ -8,7 +8,8 @@ use anyhow::Context as _;
 use vtr::{NodeData, Reader, SignalData, SignalKind, SignalValue};
 
 use super::history::SignalHistory;
-use super::source::{Hierarchy, SignalRef, TraceInfo, Variable};
+use super::source::{Generator, Hierarchy, ScopeRole, SignalRef, TraceInfo, Variable};
+use super::transactions::TrackRef;
 use super::value::{Bit, SignalShape, WaveValue};
 use crate::session::Session;
 
@@ -88,13 +89,49 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
             .parent
             .and_then(|p| scope_of_node.get(&(p.0 as usize)).copied());
         match node.data {
-            NodeData::Scope { scope_type, .. } => {
+            NodeData::Scope {
+                scope_type,
+                component,
+            } => {
                 let sid = out.push_scope(
                     reader.str(node.name).to_string(),
                     scope_type.name().to_string(),
                     parent_scope,
                 );
                 scope_of_node.insert(id.0 as usize, sid);
+                out.scopes[sid].component = reader.str(component).to_owned();
+            }
+            NodeData::Stream { kind } => {
+                let sid = out.push_scope(
+                    reader.str(node.name).to_owned(),
+                    reader.str(kind).to_owned(),
+                    parent_scope,
+                );
+                out.scopes[sid].role = ScopeRole::Stream {
+                    track: TrackRef(id.0),
+                };
+                scope_of_node.insert(id.0 as usize, sid);
+            }
+            NodeData::Generator => {
+                if let Some(stream) = parent_scope {
+                    let gid = out.generators.len();
+                    out.generators.push(Generator {
+                        name: reader.str(node.name).to_owned(),
+                        stream,
+                        track: TrackRef(id.0),
+                        attributes: node
+                            .attrs
+                            .iter()
+                            .map(|(k, v)| {
+                                (
+                                    reader.str(*k).to_owned(),
+                                    super::vtr_transactions::value(reader, v),
+                                )
+                            })
+                            .collect(),
+                    });
+                    out.scopes[stream].generators.push(gid);
+                }
             }
             NodeData::Var {
                 var_type,
@@ -118,6 +155,15 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
                     var_type: var_type.name().to_string(),
                     direction: direction.into(),
                     signal: SignalRef(signal.0),
+                    enum_table: node.attrs.iter().find_map(|(key, value)| {
+                        if reader.str(*key) == "enum_table"
+                            && let vtr::Value::U64(id) = value
+                        {
+                            u32::try_from(*id).ok()
+                        } else {
+                            None
+                        }
+                    }),
                 });
                 out.scopes[sid].vars.push(vid);
             }

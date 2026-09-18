@@ -1,9 +1,46 @@
 //! Trace metadata and hierarchy model shared by every session.
 
+use super::transactions::{Attributes, TrackRef};
 use super::value::SignalShape;
 
 pub type ScopeId = usize;
 pub type VarId = usize;
+pub type GeneratorId = usize;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ScopeRole {
+    #[default]
+    Scope,
+    Stream {
+        track: TrackRef,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Member {
+    Var(VarId),
+    Generator(GeneratorId),
+    Stream(ScopeId),
+}
+
+impl Member {
+    pub fn var(self) -> Option<VarId> {
+        if let Self::Var(id) = self {
+            Some(id)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Generator {
+    pub name: String,
+    pub stream: ScopeId,
+    pub track: TrackRef,
+    /// Raw declaration attributes, including log-site provenance.
+    pub attributes: Attributes,
+}
 
 /// A durable name must resolve uniquely; ambiguous names never select a
 /// declaration by accident. Runtime IDs remain local to one hierarchy.
@@ -50,11 +87,14 @@ impl From<vtr::Direction> for Direction {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Scope {
     pub name: String,
-    /// Scope kind name (`module`, `task`, ...), used for the icon.
+    /// Raw scope type name or producer-defined stream kind.
     pub kind: String,
     pub parent: Option<ScopeId>,
     pub children: Vec<ScopeId>,
     pub vars: Vec<VarId>,
+    pub role: ScopeRole,
+    pub component: String,
+    pub generators: Vec<GeneratorId>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -66,6 +106,8 @@ pub struct Variable {
     pub var_type: String,
     pub direction: Direction,
     pub signal: SignalRef,
+    /// Source-local enum table identity; tables are type metadata, not members.
+    pub enum_table: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -73,6 +115,7 @@ pub struct Hierarchy {
     pub scopes: Vec<Scope>,
     pub roots: Vec<ScopeId>,
     pub vars: Vec<Variable>,
+    pub generators: Vec<Generator>,
 }
 
 impl Hierarchy {
@@ -85,12 +128,71 @@ impl Hierarchy {
             parent,
             children: Vec::new(),
             vars: Vec::new(),
+            role: ScopeRole::Scope,
+            component: String::new(),
+            generators: Vec::new(),
         });
         match parent {
             Some(p) => self.scopes[p].children.push(id),
             None => self.roots.push(id),
         }
         id
+    }
+
+    pub fn find_generator(&self, path: &[impl AsRef<str>]) -> Lookup<GeneratorId> {
+        let Some((name, stream)) = path.split_last() else {
+            return Lookup::Missing;
+        };
+        match self.find_scope(stream) {
+            Lookup::Found(id) => unique(
+                self.scopes[id]
+                    .generators
+                    .iter()
+                    .copied()
+                    .filter(|&g| self.generators[g].name == name.as_ref()),
+            ),
+            Lookup::Missing => Lookup::Missing,
+            Lookup::Ambiguous => Lookup::Ambiguous,
+        }
+    }
+
+    pub fn member_name(&self, member: Member) -> &str {
+        match member {
+            Member::Var(id) => &self.vars[id].name,
+            Member::Generator(id) => &self.generators[id].name,
+            Member::Stream(id) => &self.scopes[id].name,
+        }
+    }
+
+    pub fn member_path(&self, member: Member) -> String {
+        match member {
+            Member::Var(id) => self.full_name(id),
+            Member::Generator(id) => {
+                let g = &self.generators[id];
+                format!("{}.{}", self.scope_path(g.stream).join("."), g.name)
+            }
+            Member::Stream(id) => self.scope_path(id).join("."),
+        }
+    }
+
+    pub fn member_track(&self, member: Member) -> Option<TrackRef> {
+        match member {
+            Member::Generator(id) => Some(self.generators.get(id)?.track),
+            Member::Stream(id) => match self.scopes.get(id)?.role {
+                ScopeRole::Stream { track } => Some(track),
+                ScopeRole::Scope => None,
+            },
+            Member::Var(_) => None,
+        }
+    }
+
+    pub fn is_log(&self, member: Member) -> bool {
+        let scope = match member {
+            Member::Generator(id) => &self.scopes[self.generators[id].stream],
+            Member::Stream(id) => &self.scopes[id],
+            Member::Var(_) => return false,
+        };
+        matches!(scope.role, ScopeRole::Stream { .. }) && scope.kind == "LOG"
     }
 
     /// Resolve literal path segments, including dots and escaped HDL names.

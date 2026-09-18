@@ -155,6 +155,202 @@ pub(crate) fn icon(p: &Painter, name: IconName, r: Rect, color: Color32) {
         }
     };
     match name {
+        IconName::ChartNoAxesGantt => {
+            polyline(&[(6., 5.), (18., 5.)]);
+            polyline(&[(4., 12.), (14., 12.)]);
+            polyline(&[(12., 19.), (20., 19.)]);
+        }
+        IconName::CircleDot => {
+            p.circle_stroke(at(12., 12.), 10. * s, stroke);
+            p.circle_filled(at(12., 12.), s, color);
+        }
+        IconName::Workflow | IconName::Boxes => {
+            p.rect_stroke(
+                Rect::from_min_max(at(3., 3.), at(11., 11.)),
+                2. * s,
+                stroke,
+                StrokeKind::Inside,
+            );
+            p.rect_stroke(
+                Rect::from_min_max(at(13., 13.), at(21., 21.)),
+                2. * s,
+                stroke,
+                StrokeKind::Inside,
+            );
+            polyline(&[(7., 11.), (7., 17.), (13., 17.)]);
+        }
+        IconName::ScrollText => {
+            polyline(&[
+                (4., 3.),
+                (19., 3.),
+                (19., 17.),
+                (22., 17.),
+                (22., 21.),
+                (6., 21.),
+                (6., 3.),
+                (2., 3.),
+                (2., 7.),
+                (6., 7.),
+            ]);
+            polyline(&[(10., 8.), (15., 8.)]);
+            polyline(&[(10., 12.), (15., 12.)]);
+        }
+        IconName::MessageSquare => polyline(&[
+            (2., 3.),
+            (22., 3.),
+            (22., 18.),
+            (7., 18.),
+            (2., 22.),
+            (2., 3.),
+        ]),
+        IconName::Zap => polyline(&[
+            (14., 2.),
+            (4., 13.),
+            (11., 13.),
+            (9., 22.),
+            (20., 10.),
+            (13., 10.),
+            (14., 2.),
+        ]),
+        IconName::Hash => {
+            polyline(&[(4., 9.), (20., 9.)]);
+            polyline(&[(4., 15.), (20., 15.)]);
+            polyline(&[(10., 3.), (8., 21.)]);
+            polyline(&[(16., 3.), (14., 21.)]);
+        }
+        IconName::Pi => {
+            polyline(&[(4., 7.), (5., 4.), (20., 4.)]);
+            polyline(&[(9., 4.), (9., 20.)]);
+            polyline(&[(15., 4.), (15., 18.), (18., 20.)]);
+        }
+        IconName::Tags => {
+            polyline(&[
+                (6., 2.),
+                (13., 2.),
+                (22., 11.),
+                (15., 18.),
+                (6., 9.),
+                (6., 2.),
+            ]);
+            polyline(&[(2., 7.), (2., 13.), (10., 21.), (13., 21.)]);
+            p.circle_filled(at(10., 6.), s, color);
+        }
+        IconName::Cpu => {
+            p.rect_stroke(
+                Rect::from_min_max(at(4., 4.), at(20., 20.)),
+                s,
+                stroke,
+                StrokeKind::Inside,
+            );
+            p.rect_stroke(
+                Rect::from_min_max(at(8., 8.), at(16., 16.)),
+                s,
+                stroke,
+                StrokeKind::Inside,
+            );
+            for v in [7., 12., 17.] {
+                polyline(&[(v, 2.), (v, 4.)]);
+                polyline(&[(v, 20.), (v, 22.)]);
+                polyline(&[(2., v), (4., v)]);
+                polyline(&[(20., v), (22., v)]);
+            }
+        }
+        IconName::Component => {
+            for (x, y) in [(12., 5.), (5., 12.), (19., 12.), (12., 19.)] {
+                polyline(&[
+                    (x, y - 3.),
+                    (x + 3., y),
+                    (x, y + 3.),
+                    (x - 3., y),
+                    (x, y - 3.),
+                ]);
+            }
+        }
+        IconName::Brackets => {
+            polyline(&[(8., 3.), (4., 3.), (4., 21.), (8., 21.)]);
+            polyline(&[(16., 3.), (20., 3.), (20., 21.), (16., 21.)]);
+        }
+        IconName::Terminal => {
+            polyline(&[(4., 5.), (10., 11.), (4., 17.)]);
+            polyline(&[(12., 19.), (20., 19.)]);
+        }
+        IconName::GitFork => {
+            for (x, y) in [(6., 6.), (18., 6.), (12., 18.)] {
+                p.circle_stroke(at(x, y), 3. * s, stroke);
+            }
+            polyline(&[(6., 9.), (6., 12.), (18., 12.), (18., 9.)]);
+            polyline(&[(12., 12.), (12., 15.)]);
+        }
+        IconName::Layers => {
+            polyline(&[(2., 6.), (12., 2.), (22., 6.), (12., 11.), (2., 6.)]);
+            for y in [12., 17.] {
+                polyline(&[(2., y), (12., y + 5.), (22., y)]);
+            }
+        }
+        IconName::Library => {
+            for (x, y) in [(4., 4.), (8., 8.), (12., 6.)] {
+                polyline(&[(x, y), (x, 20.)]);
+            }
+            polyline(&[(16., 6.), (20., 20.)]);
+        }
+        IconName::Server => {
+            for y in [2., 14.] {
+                p.rect_stroke(
+                    Rect::from_min_max(at(2., y), at(22., y + 8.)),
+                    s,
+                    stroke,
+                    StrokeKind::Inside,
+                );
+                p.circle_filled(at(6., y + 4.), s, color);
+            }
+        }
+        IconName::SquareFunction => {
+            p.rect_stroke(
+                Rect::from_min_max(at(3., 3.), at(21., 21.)),
+                2. * s,
+                stroke,
+                StrokeKind::Inside,
+            );
+            polyline(&[(9., 17.), (11., 16.), (12., 9.), (13., 7.), (16., 7.)]);
+            polyline(&[(9., 11.), (15., 11.)]);
+        }
+        IconName::Cable => {
+            polyline(&[
+                (5., 10.),
+                (5., 19.),
+                (8., 21.),
+                (12., 18.),
+                (12., 6.),
+                (16., 3.),
+                (19., 6.),
+                (19., 14.),
+            ]);
+            for (x, y) in [(2., 5.), (16., 14.)] {
+                p.rect_stroke(
+                    Rect::from_min_max(at(x, y), at(x + 6., y + 5.)),
+                    s,
+                    stroke,
+                    StrokeKind::Inside,
+                );
+            }
+        }
+        IconName::LogIn | IconName::LogOut => {
+            let x = if name == IconName::LogIn { 15. } else { 21. };
+            polyline(&[(x - 12., 12.), (x, 12.), (x - 5., 7.)]);
+            polyline(&[(x, 12.), (x - 5., 17.)]);
+            let x = if name == IconName::LogIn { 21. } else { 3. };
+            polyline(&[(x, 3.), (x, 21.)]);
+        }
+        IconName::ArrowLeftRight => {
+            polyline(&[(8., 3.), (4., 7.), (20., 7.)]);
+            polyline(&[(4., 7.), (8., 11.)]);
+            polyline(&[(16., 13.), (20., 17.), (4., 17.)]);
+            polyline(&[(20., 17.), (16., 21.)]);
+        }
+        IconName::Package => {
+            icon(p, IconName::Box, r, color);
+            polyline(&[(7., 5.), (16., 10.), (16., 14.)]);
+        }
         IconName::Box => {
             // A cube: front square plus the top and side edges.
             polyline(&[

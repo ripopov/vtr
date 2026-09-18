@@ -389,7 +389,7 @@ impl Workspace {
             async {}
         })
         .detach();
-        let filter = cx.new(|cx| TextInput::new("Filter variables", cx));
+        let filter = cx.new(|cx| TextInput::new("Filter members", cx));
         cx.subscribe(&filter, |this, filter, event, cx| match event {
             TextInputEvent::Changed => {
                 let text = filter.read(cx).text().to_owned();
@@ -1327,6 +1327,14 @@ impl Workspace {
         }
         if let Some(s) = status.changes {
             left = left.child(mono(s, colors.text_placeholder));
+        }
+        if let Some(notice) = status.sidebar_notice {
+            right = right.child(
+                div()
+                    .text_size(px(t.ui_size_small))
+                    .text_color(colors.text_muted)
+                    .child(SharedString::from(notice)),
+            );
         }
         if let Some(notice) = status.workspace_notice {
             let details = self.app.workspace.notices.clone();

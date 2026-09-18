@@ -4,7 +4,7 @@
 use super::decode::{Decoder, Reader, Step};
 use super::memory::{MemoryBudget, Reservation};
 use super::objects::Metadata;
-use crate::data::source::{Direction, Scope, Variable};
+use crate::data::source::{Direction, Generator, Scope, ScopeRole, Variable};
 use crate::data::transactions::{AttributeValue, Attributes, Track, TrackKind, TrackRef};
 use crate::data::{Hierarchy, SignalRef, SignalShape, TraceInfo};
 use crate::session::Capabilities;
@@ -76,6 +76,15 @@ async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
                 },
                 children: r.vector(8, || r.usize()).await?,
                 vars: r.vector(8, || r.usize()).await?,
+                role: match r.u32().await? {
+                    0 => ScopeRole::Scope,
+                    1 => ScopeRole::Stream {
+                        track: TrackRef(r.u32().await?),
+                    },
+                    _ => anyhow::bail!("invalid scope role"),
+                },
+                component: r.string().await?,
+                generators: r.vector(8, || r.usize()).await?,
             })
         })
         .await?;
@@ -95,6 +104,21 @@ async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
                     _ => anyhow::bail!("invalid signal direction"),
                 },
                 signal: SignalRef(r.u32().await?),
+                enum_table: if r.boolean().await? {
+                    Some(r.u32().await?)
+                } else {
+                    None
+                },
+            })
+        })
+        .await?;
+    let generators = r
+        .vector(28, || async {
+            Ok(Generator {
+                name: r.string().await?,
+                stream: r.usize().await?,
+                track: TrackRef(r.u32().await?),
+                attributes: attributes(r, 0).await?,
             })
         })
         .await?;
@@ -110,6 +134,7 @@ async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
             scopes,
             roots,
             vars,
+            generators,
         },
         capabilities,
         tracks,
@@ -121,6 +146,7 @@ async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
         .scopes
         .len()
         .checked_add(metadata.hierarchy.vars.len())
+        .and_then(|n| n.checked_add(metadata.hierarchy.generators.len()))
         .and_then(|n| n.checked_add(metadata.hierarchy.roots.len()))
         .and_then(|n| n.checked_add(metadata.tracks.len()))
         .ok_or_else(|| anyhow::anyhow!("metadata workspace size overflow"))?;
@@ -268,6 +294,45 @@ mod tests {
     #[test]
     fn metadata_roundtrip_matches_bincode_across_fragmented_utf8_and_all_attributes() {
         let expected = sample();
+        roundtrip(expected);
+    }
+
+    #[test]
+    fn mixed_hierarchy_roundtrips_through_cooperative_decoder() {
+        let mut expected = sample();
+        let stream = expected
+            .hierarchy
+            .push_scope("log".into(), "LOG".into(), Some(0));
+        expected.hierarchy.scopes[stream].role = ScopeRole::Stream { track: TrackRef(1) };
+        expected.hierarchy.scopes[stream].generators.push(0);
+        expected.hierarchy.generators.push(Generator {
+            name: "site".into(),
+            stream,
+            track: TrackRef(2),
+            attributes: vec![("log.severity".into(), AttributeValue::U64(3))],
+        });
+        expected.hierarchy.vars[0].enum_table = Some(42);
+        expected.hierarchy.scopes[0].component = "top_type".into();
+        expected.tracks.extend([
+            Track {
+                id: TrackRef(1),
+                path: vec!["top".into(), "log".into()],
+                kind: TrackKind::Stream { kind: "LOG".into() },
+                attributes: vec![],
+            },
+            Track {
+                id: TrackRef(2),
+                path: vec!["top".into(), "log".into(), "site".into()],
+                kind: TrackKind::Generator {
+                    stream: TrackRef(1),
+                },
+                attributes: vec![],
+            },
+        ]);
+        roundtrip(expected);
+    }
+
+    fn roundtrip(expected: Metadata) {
         expected.validate().unwrap();
         let bytes = bincode::serialize(&expected).unwrap();
         for size in [1, 7, DATA_BYTES] {

@@ -4,7 +4,7 @@ use crate::data::loaded_tracks::{
     LoadedGenerator, LoadedRelation, LoadedTrack, TransactionLocation,
 };
 use crate::data::transactions::{Track, TrackKind, TrackRef, Transaction, TransactionRef};
-use crate::data::{Hierarchy, TraceInfo};
+use crate::data::{Hierarchy, ScopeRole, TraceInfo};
 use crate::session::{Capabilities, Session};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -111,6 +111,44 @@ impl Metadata {
                 );
             }
         }
+        let mut generators = HashSet::new();
+        let mut hierarchy_tracks = HashSet::new();
+        for (id, scope) in h.scopes.iter().enumerate() {
+            checkpoint().await;
+            match scope.role {
+                ScopeRole::Scope => {
+                    anyhow::ensure!(scope.generators.is_empty(), "generators outside stream")
+                }
+                ScopeRole::Stream { track } => {
+                    anyhow::ensure!(hierarchy_tracks.insert(track), "duplicate hierarchy track");
+                    anyhow::ensure!(
+                        matches!(tracks.get(&track), Some(TrackKind::Stream { kind }) if kind == &scope.kind),
+                        "invalid hierarchy stream"
+                    );
+                }
+            }
+            for &g in &scope.generators {
+                checkpoint().await;
+                anyhow::ensure!(generators.insert(g), "duplicate generator declaration");
+                let g = h
+                    .generators
+                    .get(g)
+                    .ok_or_else(|| anyhow::anyhow!("invalid generator reference"))?;
+                anyhow::ensure!(g.stream == id, "inconsistent generator parent");
+                anyhow::ensure!(
+                    hierarchy_tracks.insert(g.track),
+                    "duplicate hierarchy track"
+                );
+                anyhow::ensure!(
+                    matches!(tracks.get(&g.track), Some(TrackKind::Generator { stream }) if scope.role == ScopeRole::Stream { track: *stream }),
+                    "invalid hierarchy generator"
+                );
+            }
+        }
+        anyhow::ensure!(
+            generators.len() == h.generators.len(),
+            "unreachable generators"
+        );
         anyhow::ensure!(
             self.capabilities.transactions || self.tracks.is_empty(),
             "tracks without transaction capability"

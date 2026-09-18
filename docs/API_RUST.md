@@ -1749,6 +1749,17 @@ request order and per-signal errors. The document batches queued loads, tags
 them with its generation, and rejects stale completions. VTR histories retain
 their shared immutable `SignalData` buffers behind the history interface.
 
+The resident `Hierarchy` contains scopes and streams (`ScopeRole`), variables
+with optional enum-table identities, and generator declarations with raw
+attributes. Stream and generator `TrackRef`s agree with `tracks()`.
+`find_generator` resolves literal path segments with the same
+`Found`/`Missing`/`Ambiguous` rules as `find_scope`. Sidebar `Member` values name
+variables, generators or streams; `MemberListModel` owns mixed-member search
+and selection. `Command::ActivateMembers` adds variables to the focused wave
+panel and reports notices for transaction/log members until their panels exist.
+`SetSearchEverywhere` is transient. No transaction load is issued by these
+notices. `AddVars` remains available for direct host additions.
+
 `capabilities()` reports supported waveform, transaction and relation data,
 not whether a particular trace contains records. VTR supports all three; FST
 supports waveforms. The common records are in `data::transactions`:
@@ -1769,7 +1780,8 @@ supports waveforms. The common records are in `data::transactions`:
   cannot accept superseded results. `Document::track` exposes loading, ready
   and failed states without querying the reader.
 
-`remote::transport` supplies the raw packet codec and pipe framing. `Receiver`
+`remote::transport` supplies the raw packet codec and pipe framing (version 2;
+older peers are rejected). `Receiver`
 validates one request's object identities, sequence numbers, declared sizes and
 completion, yielding decoded chunks for a private object builder. `ResponseWriter`
 serializes into bounded chunks and waits for matching acknowledgements before

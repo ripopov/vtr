@@ -132,7 +132,7 @@ pub(super) fn load_track(session: &LocalSession, track: TrackRef) -> anyhow::Res
     })
 }
 
-fn value(reader: &Reader, v: &Value) -> AttributeValue {
+pub(super) fn value(reader: &Reader, v: &Value) -> AttributeValue {
     match v {
         Value::Null => AttributeValue::Null,
         Value::Bool(x) => AttributeValue::Bool(*x),

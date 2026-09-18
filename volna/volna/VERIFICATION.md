@@ -173,6 +173,35 @@ in one theme and scale. It does not establish large-object performance, other
 themes/scales, or transaction rendering. Animation-frame samples from background
 windows are throttled and must not be used to claim frame-time parity.
 
+## Hierarchy browser checks
+
+`cargo test -p volna-core --test hierarchy` creates a mixed VTR containing RTL,
+pipeline and unknown-kind streams, generators, enum references and log provenance.
+It checks search ordering/caps, notices without transaction loads, leaf navigation,
+saved stream paths, malformed identities and deep trees. Cooperative metadata
+tests cover the same raw fields through fragmented protocol decoding. Rebuild
+both host and client for protocol version 2.
+
+To exercise and capture the mixed browser in the macOS offscreen Metal harness:
+
+```sh
+VOLNA_HIERARCHY_FIXTURE=/tmp/volna-hierarchy.vtr \
+  cargo test -p volna-core --test hierarchy -- --test-threads=1
+VOLNA_WORKSPACE=off VOLNA_HIERARCHY_FIXTURE=/tmp/volna-hierarchy.vtr \
+  VOLNA_SCREENSHOTS=/tmp/volna-hierarchy-shots \
+  cargo test -p volna --features visual-test --test viewer
+```
+
+Inspect `hierarchy-variables`, `hierarchy-pipeline`, `hierarchy-log` and
+`hierarchy-search`: glyphs, port direction, unknown stream tags, log badge/location,
+breadcrumb and full result paths. Check Enter and double-click on a stream or
+generator show a visible notice; plus and unselected Enter add only variables.
+Chevron clicks must not change selection. Tab switches sidebar panes, Down from
+the filter selects the first result, and Escape clears selection then filter.
+Check narrow sidebars, long names, light/dark/high-contrast palettes and the
+5,000-result indicator. egui needs only its existing waveform actions and readable
+shared member rows. Native, standalone web and VS Code use the same core model.
+
 ## Performance checks
 
 ### Shared loading baseline

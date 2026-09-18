@@ -20,8 +20,9 @@ use volna_core::geometry::{Modifiers, MouseButton, Rect as CRect};
 use volna_core::icons::FONTS;
 use volna_core::session::LoadResult;
 use volna_core::sidebar::Key as ListKey;
-use volna_core::sidebar::scopes::scope_icon;
-use volna_core::sidebar::variables::{direction_label, shape_icon};
+use volna_core::sidebar::icons::member_icon;
+use volna_core::sidebar::icons::scope_icon;
+use volna_core::sidebar::members::{direction_label, member_detail};
 use volna_core::wave::PointerEvent;
 use volna_core::{App, Instant, Scene, Theme};
 
@@ -576,7 +577,7 @@ impl VolnaApp {
                     }
                     paint::icon(
                         ui.painter(),
-                        scope_icon(&scope.kind),
+                        scope_icon(scope).0,
                         Rect::from_center_size(
                             Pos2::new(x + 27.0, rect.center().y),
                             Vec2::splat(14.0),
@@ -668,7 +669,7 @@ impl VolnaApp {
         if panel.clicked() {
             ui.memory_mut(|m| m.request_focus(self.ids.variables));
         }
-        let placeholder = self.app.variables.placeholder(self.app.doc.is_loaded());
+        let placeholder = self.app.variables.placeholder(self.app.doc.hierarchy());
         if let Some(text) = placeholder {
             ui.centered_and_justified(|ui| {
                 ui.label(RichText::new(text).small().color(t.panel.text_placeholder));
@@ -690,8 +691,8 @@ impl VolnaApp {
             let small = font_id(volna_core::FontRole::Ui, self.core_theme.ui_size_small);
             scroll.show_rows(ui, row_h, count, |ui, range| {
                 for ix in range {
-                    let var = rows[ix];
-                    let v = &h.vars[var];
+                    let member = rows[ix];
+                    let var = member.var();
                     let selected = self.app.variables.selected.contains(&ix);
                     let (rect, resp) = ui.allocate_exact_size(
                         Vec2::new(ui.available_width(), row_h),
@@ -717,7 +718,7 @@ impl VolnaApp {
                     let mut x = rect.min.x + 8.0;
                     paint::icon(
                         ui.painter(),
-                        shape_icon(v.shape),
+                        member_icon(h, member),
                         Rect::from_center_size(
                             Pos2::new(x + 7.0, rect.center().y),
                             Vec2::splat(14.0),
@@ -729,18 +730,19 @@ impl VolnaApp {
                         ui.painter().text(
                             Pos2::new(x, rect.center().y),
                             Align2::LEFT_CENTER,
-                            direction_label(v.direction),
+                            var.map(|id| direction_label(h.vars[id].direction))
+                                .unwrap_or(""),
                             small.clone(),
                             colors.text_muted,
                         );
                         x += 28.0;
                     }
                     let name = if show_scope {
-                        h.full_name(var)
+                        h.member_path(member)
                     } else {
-                        v.name.clone()
+                        h.member_name(member).to_owned()
                     };
-                    let dims = v.shape.dims();
+                    let dims = member_detail(h, member);
                     let dims_w = if dims.is_empty() {
                         0.0
                     } else {
@@ -766,7 +768,9 @@ impl VolnaApp {
                         mono.clone(),
                         colors.text,
                     );
-                    if resp.double_clicked() {
+                    if resp.double_clicked()
+                        && let Some(var) = var
+                    {
                         commands.push(Command::AddVars(vec![var]));
                     } else if resp.clicked() {
                         ui.memory_mut(|m| m.request_focus(self.ids.variables));

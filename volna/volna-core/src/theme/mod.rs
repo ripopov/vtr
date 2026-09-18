@@ -94,6 +94,8 @@ pub struct Theme<C = Color> {
     pub input_border: C,
     pub scrollbar_thumb: C,
     pub scrollbar_thumb_hover: C,
+    /// Pipeline/input, log/output, generic stream/inout; contrasted against sidebar surfaces.
+    pub sidebar_tints: [C; 3],
     // Waveforms
     pub wave_signal: C,
     pub wave_high_fill: C,
@@ -199,6 +201,7 @@ impl<C: Copy> Theme<C> {
             input_border: f(self.input_border),
             scrollbar_thumb: f(self.scrollbar_thumb),
             scrollbar_thumb_hover: f(self.scrollbar_thumb_hover),
+            sidebar_tints: self.sidebar_tints.map(&f),
             wave_signal: f(self.wave_signal),
             wave_high_fill: f(self.wave_high_fill),
             wave_undef: f(self.wave_undef),
@@ -313,6 +316,7 @@ impl Theme<Color> {
             input_border: c(0x464b57),
             scrollbar_thumb: ca(0xc8ccd4, 0.30),
             scrollbar_thumb_hover: ca(0xc8ccd4, 0.50),
+            sidebar_tints: [c(0xa1c181), c(0xe5c07b), c(0x61afef)],
             wave_signal: c(0xa1c181),
             wave_high_fill: ca(0xa1c181, 0.10),
             wave_undef: c(0xd07277),
@@ -473,6 +477,8 @@ impl Theme<Color> {
                 &backgrounds,
             );
         }
+        t.sidebar_tints = [charts[0], charts[1], charts[3]]
+            .map(|color| stroke(color, &[t.panel.bg, t.selection.bg, t.hover.bg]));
         t.wave_bus_text = t.editor.text;
         t.wave_tick = t.editor.text.with_alpha(if hc { 0.4 } else { 0.12 });
         t.wave_tick_text = t.panel.text_muted;

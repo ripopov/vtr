@@ -1024,7 +1024,11 @@ fn sidebar_models_follow_scope_selection_and_keys() {
     // Filtering across the whole trace when no scope is selected.
     app.variables.set_scope(Some(&h), None);
     app.handle(Command::SetFilter(h.vars[0].name.clone()));
-    assert!(app.variables.rows.contains(&0));
+    assert!(
+        app.variables
+            .rows
+            .contains(&volna_core::data::Member::Var(0))
+    );
     assert!(app.variables.show_scope());
     // Enter adds the selection (or all).
     app.handle(Command::VariablesKey(Key::Down, Modifiers::default()));

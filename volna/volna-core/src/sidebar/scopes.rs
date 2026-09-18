@@ -4,8 +4,7 @@
 use std::collections::HashSet;
 
 use super::Key;
-use crate::data::{Hierarchy, ScopeId};
-use crate::icons::IconName;
+use crate::data::{Hierarchy, Member, ScopeId, ScopeRole};
 
 #[derive(Default)]
 pub struct ScopeTreeModel {
@@ -24,6 +23,7 @@ pub struct ScopeKeyOutcome {
     pub changed: bool,
     /// Row to scroll into view.
     pub reveal: Option<usize>,
+    pub activate: Option<Member>,
 }
 
 impl ScopeTreeModel {
@@ -68,22 +68,18 @@ impl ScopeTreeModel {
     fn rebuild(&mut self, h: Option<&Hierarchy>) {
         self.visible.clear();
         let Some(h) = h else { return };
-        fn walk(
-            h: &Hierarchy,
-            id: ScopeId,
-            depth: usize,
-            expanded: &HashSet<ScopeId>,
-            out: &mut Vec<(ScopeId, usize)>,
-        ) {
-            out.push((id, depth));
-            if expanded.contains(&id) {
-                for &c in &h.scopes[id].children {
-                    walk(h, c, depth + 1, expanded, out);
-                }
+        let mut pending: Vec<_> = h.roots.iter().rev().map(|&id| (id, 0)).collect();
+        while let Some((id, depth)) = pending.pop() {
+            self.visible.push((id, depth));
+            if self.expanded.contains(&id) {
+                pending.extend(
+                    h.scopes[id]
+                        .children
+                        .iter()
+                        .rev()
+                        .map(|&id| (id, depth + 1)),
+                );
             }
-        }
-        for &r in &h.roots {
-            walk(h, r, 0, &self.expanded, &mut self.visible);
         }
     }
 
@@ -141,27 +137,21 @@ impl ScopeTreeModel {
                 self.toggle(h, sel);
             }
             Key::Left => {
-                if self.expanded.contains(&sel) {
+                if has_children && self.expanded.contains(&sel) {
                     self.toggle(h, sel);
                 } else if let Some(p) = h.scopes[sel].parent {
                     out.changed = self.select(p);
+                    out.reveal = self.visible.iter().position(|(id, _)| *id == p);
                 }
             }
             Key::Enter | Key::Space if has_children => {
                 self.toggle(h, sel);
             }
+            Key::Enter | Key::Space if matches!(h.scopes[sel].role, ScopeRole::Stream { .. }) => {
+                out.activate = Some(Member::Stream(sel));
+            }
             _ => {}
         }
         out
-    }
-}
-
-/// Icon for a scope kind name (`module`, `struct`, ...).
-pub fn scope_icon(kind: &str) -> IconName {
-    match kind {
-        "module" | "sc_module" | "core" => IconName::Box,
-        "struct" | "union" | "class" | "interface" | "vhdl_record" => IconName::Braces,
-        "package" | "vhdl_package" => IconName::Folder,
-        _ => IconName::Folder,
     }
 }

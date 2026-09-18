@@ -14,5 +14,6 @@ mod vtr_transactions;
 
 pub use history::SignalHistory;
 pub use source::{Direction, Hierarchy, Scope, ScopeId, SignalRef, TraceInfo, VarId, Variable};
+pub use source::{Generator, GeneratorId, Member, ScopeRole};
 pub use translator::{Translated, Translator, Translators};
 pub use value::{Bit, SignalShape, ValueKind, WaveValue};

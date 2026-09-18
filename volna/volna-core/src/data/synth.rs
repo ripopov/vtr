@@ -176,6 +176,7 @@ impl SynthSource {
                 },
                 direction: dir,
                 signal: SignalRef(id as u32),
+                enum_table: None,
             });
             h.scopes[scope].vars.push(vid);
         };

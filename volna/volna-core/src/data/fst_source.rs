@@ -56,15 +56,23 @@ impl FstSession {
         let mut shapes = BTreeMap::new();
         let mut error = None;
         let mut top = None;
+        let mut enum_tables = BTreeMap::new();
+        let mut pending_enum = None;
         reader
             .read_hierarchy(|entry| match entry {
-                FstHierarchyEntry::Scope { tpe, name, .. } => {
+                FstHierarchyEntry::Scope {
+                    tpe,
+                    name,
+                    component,
+                } => {
                     let id = hierarchy.push_scope(
                         name,
                         vtr::ScopeType::from_code(tpe as u16).name().into(),
                         scopes.last().copied(),
                     );
                     scopes.push(id);
+                    hierarchy.scopes[id].component = component;
+                    pending_enum = None;
                 }
                 FstHierarchyEntry::UpScope if scopes.pop().is_none() => {
                     error = Some(anyhow!("FST hierarchy scope underflow"));
@@ -110,10 +118,18 @@ impl FstSession {
                         scope,
                         shape,
                         signal,
+                        enum_table: pending_enum.take(),
                         var_type: vtr::VarType::from_code(tpe as u16).name().into(),
                         direction: vtr::Direction::from_u8(direction as u8).into(),
                     });
                     hierarchy.scopes[scope].vars.push(id);
+                }
+                FstHierarchyEntry::EnumTable { handle, .. } => {
+                    let id = enum_tables.len() as u32;
+                    enum_tables.insert(handle, id);
+                }
+                FstHierarchyEntry::EnumTableRef { handle } => {
+                    pending_enum = enum_tables.get(&handle).copied();
                 }
                 _ => {}
             })

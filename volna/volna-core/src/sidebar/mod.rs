@@ -1,11 +1,12 @@
-//! Hierarchy browser models: a scope tree and a separate, filterable variable
+//! Hierarchy browser models: a container tree and a separate, filterable member
 //! list. Frontends render these rows with their own list widgets.
 
+pub mod icons;
+pub mod members;
 pub mod scopes;
-pub mod variables;
 
+pub use members::MemberListModel;
 pub use scopes::ScopeTreeModel;
-pub use variables::VariableListModel;
 
 /// A key the list models understand. Frontends translate their own key events.
 #[derive(Clone, Debug, PartialEq, Eq)]
