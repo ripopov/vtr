@@ -1,7 +1,7 @@
 //! Compare repeated raw relations without serializing their attributes again.
 //! Byte comparisons and traversal yield, including within a single large value.
 use crate::data::loaded_tracks::LoadedRelation;
-use crate::data::transactions::{AttributeValue, Attributes};
+use crate::data::transactions::AttributeValue;
 
 enum Work<'a> {
     Bytes(&'a [u8], &'a [u8]),
@@ -28,7 +28,7 @@ pub(super) async fn relation<F: std::future::Future<Output = ()>>(
     }
     let mut work = vec![
         Work::Bytes(a.relation.kind.as_bytes(), b.relation.kind.as_bytes()),
-        attrs(&a.relation.attributes, &b.relation.attributes),
+        Work::Attributes(&a.relation.attributes, &b.relation.attributes),
     ];
     while let Some(item) = work.pop() {
         checkpoint().await;
@@ -111,7 +111,7 @@ pub(super) async fn relation<F: std::future::Future<Output = ()>>(
                         work.push(Work::Bytes(a.as_bytes(), b.as_bytes()));
                     }
                     (List(a), List(b)) => work.push(Work::Values(a, b)),
-                    (Map(a), Map(b)) => work.push(attrs(a, b)),
+                    (Map(a), Map(b)) => work.push(Work::Attributes(a, b)),
                     _ => {
                         if a != b {
                             return false;
@@ -122,10 +122,6 @@ pub(super) async fn relation<F: std::future::Future<Output = ()>>(
         }
     }
     true
-}
-
-fn attrs<'a>(a: &'a Attributes, b: &'a Attributes) -> Work<'a> {
-    Work::Attributes(a, b)
 }
 
 #[cfg(test)]

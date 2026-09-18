@@ -51,11 +51,7 @@ impl RenderOnce for Icon {
                 t.panel.icon_muted
             }
         });
-        svg()
-            .path(self.name.path())
-            .size(size)
-            .flex_none()
-            .text_color(color)
+        icon_svg(self.name, size, color)
     }
 }
 

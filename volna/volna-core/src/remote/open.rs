@@ -4,8 +4,10 @@
 use super::ClientStep;
 use super::memory::MemoryBudget;
 use super::metadata::{MetadataDecoder, MetadataStep, ValidatedMetadata};
+use super::session::RemoteSession;
 use super::transport::{Body, Command, ObjectId, Packet, Receive, Receiver, acknowledgement};
 use crate::session::LoadResult;
+use crate::session::Session;
 use std::sync::Arc;
 
 pub struct OpenTransfer {
@@ -101,15 +103,8 @@ impl OpenTransfer {
                     .decoded
                     .take()
                     .ok_or_else(|| anyhow::anyhow!("metadata validation incomplete"))?;
-                let session = Arc::new(decoded.into_session(self.session)?);
-                self.finished = true;
-                return Ok(ClientStep::Complete {
-                    ack,
-                    result: LoadResult::Opened {
-                        generation: self.generation,
-                        result: Ok(session),
-                    },
-                });
+                let session = RemoteSession::from_decoded(self.session, *decoded)?;
+                return Ok(self.complete(ack, Ok(Arc::new(session))));
             }
             Receive::Failed {
                 object: ObjectId::Metadata,
@@ -117,14 +112,7 @@ impl OpenTransfer {
             } => {
                 self.decoder = None;
                 self.decoded = None;
-                self.finished = true;
-                return Ok(ClientStep::Complete {
-                    ack,
-                    result: LoadResult::Opened {
-                        generation: self.generation,
-                        result: Err(anyhow::anyhow!(message)),
-                    },
-                });
+                return Ok(self.complete(ack, Err(anyhow::anyhow!(message))));
             }
             _ => anyhow::bail!("unexpected Open object"),
         }
@@ -155,6 +143,17 @@ impl OpenTransfer {
             }
         }
         Ok(ClientStep::Ack(self.pending_ack.take().unwrap()))
+    }
+
+    fn complete(&mut self, ack: Packet, result: anyhow::Result<Arc<dyn Session>>) -> ClientStep {
+        self.finished = true;
+        ClientStep::Complete {
+            ack,
+            result: LoadResult::Opened {
+                generation: self.generation,
+                result,
+            },
+        }
     }
 
     fn poison_on_error<T>(&mut self, result: anyhow::Result<T>) -> anyhow::Result<T> {

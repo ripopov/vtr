@@ -138,11 +138,7 @@ fn c(hex: u32) -> Color {
     Color::rgb(hex)
 }
 fn ca(hex: u32, a: f32) -> Color {
-    alpha(c(hex), a)
-}
-fn alpha(mut color: Color, a: f32) -> Color {
-    color.a = a;
-    color
+    c(hex).with_alpha(a)
 }
 
 impl<C: Copy> Theme<C> {
@@ -389,7 +385,7 @@ impl Theme<Color> {
         t.bar = resolve(p.bar, t.panel.bg, t.panel.text);
         t.bar_hover = resolve(
             ColorPair::default(),
-            over(alpha(t.bar.text, 0.1), t.bar.bg),
+            over(t.bar.text.with_alpha(0.1), t.bar.bg),
             t.bar.text,
         );
         t.elevated = resolve(p.elevated, t.panel.bg, t.panel.text);
@@ -400,12 +396,12 @@ impl Theme<Color> {
         };
         t.input = resolve(with_bg(p.input, t.editor.bg), t.panel.bg, t.editor.text);
         t.selection = resolve(
-            with_bg(p.selection, over(alpha(accent, 0.25), t.panel.bg)),
+            with_bg(p.selection, over(accent.with_alpha(0.25), t.panel.bg)),
             t.panel.bg,
             t.panel.text,
         );
         t.hover = resolve(
-            with_bg(p.hover, over(alpha(t.panel.text, 0.08), t.panel.bg)),
+            with_bg(p.hover, over(t.panel.text.with_alpha(0.08), t.panel.bg)),
             t.panel.bg,
             t.panel.text,
         );
@@ -426,12 +422,12 @@ impl Theme<Color> {
         t.badge = t.input;
         t.badge_hover = resolve(
             ColorPair::default(),
-            over(alpha(t.input.text, 0.15), t.input.bg),
+            over(t.input.text.with_alpha(0.15), t.input.bg),
             t.input.text,
         );
         t.border = p
             .border
-            .unwrap_or(over(alpha(t.panel.text, 0.25), t.panel.bg));
+            .unwrap_or(over(t.panel.text.with_alpha(0.25), t.panel.bg));
         t.border_variant = p.panel_border.unwrap_or(t.border);
         t.border_focused = p.focus.unwrap_or(accent);
         t.input_border = p.input_border.unwrap_or(t.border);
@@ -441,15 +437,15 @@ impl Theme<Color> {
             t.border_focused = stroke(t.border_focused, &[t.panel.bg]);
             t.input_border = stroke(p.contrast_border.unwrap_or(t.input_border), &[t.input.bg]);
         }
-        t.scrollbar_thumb = p.scrollbar.unwrap_or(alpha(t.panel.text, 0.4));
-        t.scrollbar_thumb_hover = p.scrollbar_hover.unwrap_or(alpha(t.panel.text, 0.7));
+        t.scrollbar_thumb = p.scrollbar.unwrap_or(t.panel.text.with_alpha(0.4));
+        t.scrollbar_thumb_hover = p.scrollbar_hover.unwrap_or(t.panel.text.with_alpha(0.7));
         if hc {
             t.scrollbar_thumb = stroke(over(t.scrollbar_thumb, t.panel.bg), &[t.panel.bg]);
             t.scrollbar_thumb_hover =
                 stroke(over(t.scrollbar_thumb_hover, t.panel.bg), &[t.panel.bg]);
         }
-        t.wave_row_selected = alpha(accent, if hc { 0.08 } else { 0.10 });
-        t.wave_row_hover = alpha(t.editor.text, 0.04);
+        t.wave_row_selected = accent.with_alpha(if hc { 0.08 } else { 0.10 });
+        t.wave_row_hover = t.editor.text.with_alpha(0.04);
         let backgrounds = [
             t.editor.bg,
             over(t.wave_row_selected, t.editor.bg),
@@ -460,8 +456,8 @@ impl Theme<Color> {
         t.wave_highimp = stroke(charts[2], &backgrounds);
         t.wave_dontcare = stroke(charts[3], &backgrounds);
         t.wave_weak = stroke(opaque(p.muted, t.editor.text), &backgrounds);
-        t.wave_high_fill = alpha(t.wave_signal, 0.10);
-        t.wave_dense = alpha(t.wave_signal, if hc { 0.8 } else { 0.55 });
+        t.wave_high_fill = t.wave_signal.with_alpha(0.10);
+        t.wave_dense = t.wave_signal.with_alpha(if hc { 0.8 } else { 0.55 });
         t.wave_event_coalesced = stroke(charts[3], &backgrounds);
         let hue_gap = (t.wave_event_coalesced.h - t.wave_signal.h).abs();
         if hue_gap.min(1.0 - hue_gap) < 0.08
@@ -478,7 +474,7 @@ impl Theme<Color> {
             );
         }
         t.wave_bus_text = t.editor.text;
-        t.wave_tick = alpha(t.editor.text, if hc { 0.4 } else { 0.12 });
+        t.wave_tick = t.editor.text.with_alpha(if hc { 0.4 } else { 0.12 });
         t.wave_tick_text = t.panel.text_muted;
         t.wave_cursor = stroke(opaque(p.cursor, accent), &backgrounds);
         t.wave_cursor_inactive = t.wave_cursor.with_alpha(0.45);
@@ -552,7 +548,10 @@ fn value_index(kind: ValueKind) -> usize {
     }
 }
 fn opaque(color: Option<Color>, fallback: Color) -> Color {
-    alpha(color.filter(|c| c.a > 0.0).unwrap_or(fallback), 1.0)
+    color
+        .filter(|c| c.a > 0.0)
+        .unwrap_or(fallback)
+        .with_alpha(1.0)
 }
 // Respect the host's chosen contrast (including subdued text). Only invisible
 // supplied foregrounds and missing tokens need fallback repair.

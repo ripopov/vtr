@@ -254,8 +254,8 @@ impl App {
             doc: Document::new(),
             workspace: crate::workspace::State::default(),
             panels: Panels::new(),
-            scopes: ScopeTreeModel::new(),
-            variables: VariableListModel::new(),
+            scopes: ScopeTreeModel::default(),
+            variables: VariableListModel::default(),
             sidebar_width: 280.0,
             sidebar_visible: true,
             scopes_fraction: 0.42,
@@ -287,10 +287,6 @@ impl App {
         self.open(OpenSpec::Synthetic(transitions), true);
     }
 
-    fn open(&mut self, spec: OpenSpec, show_all: bool) {
-        self.open_with_workspace(spec, show_all);
-    }
-
     pub(crate) fn open_now(&mut self, spec: OpenSpec, show_all: bool) {
         self.show_all_on_open = show_all;
         self.doc.open(spec);
@@ -301,10 +297,6 @@ impl App {
     pub fn set_session(&mut self, session: Arc<dyn Session>) {
         self.doc.set_session(session);
         self.on_session_changed();
-    }
-
-    pub fn close_trace(&mut self) {
-        self.close_with_workspace();
     }
 
     pub(crate) fn close_now(&mut self) {
@@ -411,7 +403,7 @@ impl App {
         }
     }
 
-    fn layout_changed(&mut self) {
+    pub(crate) fn layout_changed(&mut self) {
         self.events.push(Event::LayoutChanged {
             revision: self.panels.revision(),
         });
@@ -641,7 +633,7 @@ impl App {
             .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
             .collect();
         if let Some(w) = self.panels.focused_mut().kind.waves_mut() {
-            w.add_vars_with_histories(&mut self.doc, vars, loaded);
+            w.add_vars(&mut self.doc, vars, loaded);
         }
         self.changed();
     }

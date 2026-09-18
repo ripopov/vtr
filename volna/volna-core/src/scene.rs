@@ -190,14 +190,6 @@ impl TextCache {
         self.map.insert(key, w);
         w
     }
-
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
-    }
 }
 
 /// Fixed-advance measurement for tests and headless use: every character is

@@ -17,8 +17,6 @@ pub enum Host {
 pub struct Hosts(u8);
 
 impl Hosts {
-    pub const NATIVE: Hosts = Hosts(1);
-    pub const WEB: Hosts = Hosts(2);
     pub const VSCODE: Hosts = Hosts(4);
     pub const ALL: Hosts = Hosts(7);
     pub const NATIVE_WEB: Hosts = Hosts(3);
@@ -170,8 +168,6 @@ pub struct Spec {
     pub default: Literal,
     pub apply: Apply,
     pub hosts: Hosts,
-    /// The settings file version that introduced this key.
-    pub since: u32,
 }
 
 impl Spec {
@@ -308,10 +304,9 @@ pub static REGISTRY: &[Spec] = &[
             "vscode",
         ],
         kind: Kind::Theme,
-        default: Literal::Text("one-dark"),
+        default: Literal::Text(crate::theme::builtin::ONE_DARK),
         apply: Apply::Live,
         hosts: Hosts::NATIVE_WEB,
-        since: 1,
     },
     Spec {
         id: "appearance.zoom",
@@ -330,7 +325,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Number(1.0),
         apply: Apply::Live,
         hosts: Hosts::ALL,
-        since: 1,
     },
     Spec {
         id: "panels.linkByDefault",
@@ -343,7 +337,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Bool(true),
         apply: Apply::Live,
         hosts: Hosts::ALL,
-        since: 1,
     },
     Spec {
         id: "waves.animation",
@@ -360,7 +353,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Text("on"),
         apply: Apply::Live,
         hosts: Hosts::ALL,
-        since: 1,
     },
     Spec {
         id: "waves.snapPixels",
@@ -377,7 +369,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Integer(6),
         apply: Apply::Live,
         hosts: Hosts::ALL,
-        since: 1,
     },
     Spec {
         id: "workspace.autosave",
@@ -398,7 +389,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Text("sidecar"),
         apply: Apply::OnReopen,
         hosts: Hosts::ALL,
-        since: 1,
     },
     Spec {
         id: "workspace.recentLimit",
@@ -415,7 +405,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Integer(20),
         apply: Apply::Live,
         hosts: Hosts::NATIVE_WEB,
-        since: 1,
     },
     Spec {
         id: "remote.memoryMiB",
@@ -432,7 +421,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Integer(512),
         apply: Apply::OnReopen,
         hosts: Hosts::VSCODE,
-        since: 1,
     },
     Spec {
         id: "remote.objectMiB",
@@ -449,7 +437,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Integer(256),
         apply: Apply::OnReopen,
         hosts: Hosts::VSCODE,
-        since: 1,
     },
     Spec {
         id: "remote.serverPath",
@@ -462,7 +449,6 @@ pub static REGISTRY: &[Spec] = &[
         default: Literal::Text(""),
         apply: Apply::OnReopen,
         hosts: Hosts::VSCODE,
-        since: 1,
     },
 ];
 

@@ -19,7 +19,6 @@ use crate::settings_panel::ToggleSettingsJson;
 /// The palette can only read this entity while the dialog renders, never
 /// the workspace (which is mid-render then), so everything it shows is here.
 pub(crate) struct PaletteModel {
-    query: String,
     commands: Vec<usize>,
     settings: Vec<(&'static settings::Spec, bool)>,
 }
@@ -91,11 +90,7 @@ impl PaletteModel {
                 })
                 .collect()
         };
-        Self {
-            query: query.to_owned(),
-            commands,
-            settings,
-        }
+        Self { commands, settings }
     }
 }
 
@@ -186,7 +181,6 @@ impl Workspace {
                         );
                     }
                     palette = palette.group(group);
-                    let _ = &read.query;
                     content.child(palette)
                 })
         });

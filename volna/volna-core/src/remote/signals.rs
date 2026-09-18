@@ -79,13 +79,7 @@ impl SignalTransfer {
             }
             Receive::Complete(ObjectId::Signal(_)) => {
                 if let Some((id, message)) = self.rejected.take() {
-                    return Ok(ClientStep::Complete {
-                        ack,
-                        result: LoadResult::Signals {
-                            generation: self.generation,
-                            results: vec![(id, Err(anyhow::anyhow!(message)))],
-                        },
-                    });
+                    return Ok(self.failed(ack, id, message));
                 }
                 self.end_ack = Some(ack);
                 return self.step_inner();
@@ -96,13 +90,7 @@ impl SignalTransfer {
             } => {
                 self.builder = None;
                 self.rejected = None;
-                return Ok(ClientStep::Complete {
-                    ack,
-                    result: LoadResult::Signals {
-                        generation: self.generation,
-                        results: vec![(SignalRef(id), Err(anyhow::anyhow!(message)))],
-                    },
-                });
+                return Ok(self.failed(ack, SignalRef(id), message));
             }
             _ => anyhow::bail!("unexpected signal object"),
         }
@@ -136,6 +124,16 @@ impl SignalTransfer {
                 results: vec![(id, Ok(Arc::new(history)))],
             },
         })
+    }
+
+    fn failed(&self, ack: Packet, id: SignalRef, message: String) -> ClientStep {
+        ClientStep::Complete {
+            ack,
+            result: LoadResult::Signals {
+                generation: self.generation,
+                results: vec![(id, Err(anyhow::anyhow!(message)))],
+            },
+        }
     }
 
     fn poison_on_error<T>(&mut self, result: anyhow::Result<T>) -> anyhow::Result<T> {

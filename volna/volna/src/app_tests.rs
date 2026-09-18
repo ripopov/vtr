@@ -59,7 +59,9 @@ fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
             ws.after(None, cx);
         })
         .unwrap();
-    window.update(cx, |ws, _, cx| ws.queue(slow, cx)).unwrap();
+    window
+        .update(cx, |ws, _, cx| ws.spawn_request(slow, cx))
+        .unwrap();
     cx.run_until_parked();
     window
         .update(cx, |ws, _, _| {
@@ -452,7 +454,7 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
     cx.run_until_parked();
     window
         .update(cx, |ws, _, cx| {
-            assert_eq!(crate::theme::zoom(cx), 2.1);
+            assert_eq!(crate::theme::theme(cx).zoom, 2.1);
             assert!(ws.app.settings.text().contains("\"appearance.zoom\": 2.1"));
             assert_eq!(ws.debug_state(), before);
         })
@@ -469,7 +471,7 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
     cx.run_until_parked();
     window
         .update(cx, |ws, _, cx| {
-            assert_eq!(crate::theme::zoom(cx), 1.0);
+            assert_eq!(crate::theme::theme(cx).zoom, 1.0);
             assert_eq!(crate::theme::theme(cx).row_height, design_row);
             assert!(!ws.app.settings.text().contains("appearance.zoom"));
             assert_eq!(

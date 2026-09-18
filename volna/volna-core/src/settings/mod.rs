@@ -10,6 +10,7 @@
 //! - `search`: the ranked fuzzy matcher with `@modified`, `@page:`, `@id:`
 //! - `schema`: JSON Schema, `contributes.configuration`, default document
 //! - `migrate`: `preferences.json` version 1 → `settings.json` + `state.json`
+//! - `controller`: the [`crate::App`] methods that drive the store from commands and hosts
 
 mod controller;
 pub mod jsonc;
@@ -182,7 +183,7 @@ impl ZoomStep {
 }
 
 /// Round a zoom factor to the step and clamp it to the registry range.
-pub fn normalize_zoom(zoom: f64) -> f64 {
+fn normalize_zoom(zoom: f64) -> f64 {
     let zoom = if zoom.is_finite() { zoom } else { 1.0 };
     let steps = (zoom / ZOOM_STEP).round();
     ((steps * ZOOM_STEP * 10.0).round() / 10.0).clamp(ZOOM_MIN, ZOOM_MAX)
@@ -227,7 +228,7 @@ impl Default for Settings {
 
 impl Settings {
     /// Build the typed struct from a resolved generic value per id.
-    pub fn from_values(value: &dyn Fn(&str) -> Value) -> Self {
+    pub(super) fn from_values(value: &dyn Fn(&str) -> Value) -> Self {
         let text = |id: &str| value(id).as_str().unwrap_or_default().to_owned();
         let int = |id: &str| value(id).as_i64().unwrap_or_default();
         Settings {

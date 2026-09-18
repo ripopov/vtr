@@ -27,10 +27,6 @@ pub struct ScopeKeyOutcome {
 }
 
 impl ScopeTreeModel {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Start over for a new hierarchy: expand the first two levels so the
     /// tree is not a bare list of roots, and select the first root.
     pub fn reset(&mut self, h: Option<&Hierarchy>) {

@@ -6,6 +6,7 @@
 //! (an exponential search from the previous column's index), so the cost of a
 //! frame is O(columns x log(changes)) regardless of trace length.
 
+use crate::color::Color;
 use crate::data::{Bit, SignalHistory, SignalShape, Translator, ValueKind, WaveValue};
 use crate::document::Document;
 use crate::geometry::CursorIcon;
@@ -13,7 +14,7 @@ use crate::geometry::{Rect, point, size, snap};
 use crate::icons::IconName;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
-use crate::wave::layout::{SCROLLBAR_W, WaveLayout};
+use crate::wave::layout::SCROLLBAR_W;
 use crate::wave::model::{Drag, RowSource, WaveModel, ZOOM_RANGE_MIN_PX};
 use crate::wave::timeline::{format_time, ticks};
 use crate::wave::viewport::Viewport;
@@ -87,7 +88,6 @@ pub fn paint(
     let viewport = model.viewport(doc);
     let cursor = model.cursor(doc);
     let timescale = doc.timescale();
-    let has_source = doc.is_loaded();
     let waves = layout.waves;
     let wave_wf = layout.wave_width_f64();
 
@@ -140,20 +140,10 @@ pub fn paint(
             p.scene.fill(left_row, t.selection.bg);
             p.scene.fill(wave_row, t.wave_row_selected);
             if t.appearance.is_high_contrast() {
-                p.scene.quad(
-                    left_row,
-                    crate::color::Color::TRANSPARENT,
-                    0.0,
-                    1.0,
-                    t.border_focused,
-                );
-                p.scene.quad(
-                    wave_row,
-                    crate::color::Color::TRANSPARENT,
-                    0.0,
-                    1.0,
-                    t.border_focused,
-                );
+                p.scene
+                    .quad(left_row, Color::TRANSPARENT, 0.0, 1.0, t.border_focused);
+                p.scene
+                    .quad(wave_row, Color::TRANSPARENT, 0.0, 1.0, t.border_focused);
             }
         } else if is_hover {
             p.scene.fill(left_row, t.hover.bg);
@@ -360,7 +350,7 @@ pub fn paint(
     }
 
     // -- empty placeholder -------------------------------------------------
-    if layout.rows.is_empty() && has_source {
+    if layout.rows.is_empty() && doc.is_loaded() {
         let area = Rect::new(
             point(bounds.left(), layout.names.top()),
             size(bounds.width(), layout.names.height()),
@@ -544,8 +534,7 @@ pub fn paint(
         } else {
             marker.background
         };
-        p.scene
-            .quad(*chip, bg, z(3.0), 0.0, crate::color::Color::TRANSPARENT);
+        p.scene.quad(*chip, bg, z(3.0), 0.0, Color::TRANSPARENT);
         let label = format!("M{}", m.id);
         let w = p.width(&label, FontRole::UiSemibold, t.ui_size_small);
         p.scene.text(
@@ -593,13 +582,7 @@ pub fn paint(
                             t.wave_cursor_inactive
                         },
                     );
-                    scene.quad(
-                        chip,
-                        t.wave_cursor,
-                        z(3.0),
-                        0.0,
-                        crate::color::Color::TRANSPARENT,
-                    );
+                    scene.quad(chip, t.wave_cursor, z(3.0), 0.0, Color::TRANSPARENT);
                     scene.text(
                         point(chip.left() + z(5.0), chip.top()),
                         chip.height(),
@@ -677,8 +660,7 @@ pub fn paint(
         } else {
             t.scrollbar_thumb
         };
-        p.scene
-            .quad(thumb, color, z(3.0), 0.0, crate::color::Color::TRANSPARENT);
+        p.scene.quad(thumb, color, z(3.0), 0.0, Color::TRANSPARENT);
     }
 }
 
@@ -759,7 +741,6 @@ pub fn paint_bit_row(
     let top = area.top() + TRACE_PAD * t.zoom;
     let bottom = area.bottom() - TRACE_PAD * t.zoom;
     let mid = snap(top + (bottom - top) / 2.0);
-    // Top of the 1px line for a bit level.
     let y_of = |b: Bit| -> f32 {
         match b {
             Bit::One => top,
@@ -767,10 +748,7 @@ pub fn paint_bit_row(
             _ => mid,
         }
     };
-    let to_u = |tt: f64| -> Option<u64> { (tt >= 0.0).then_some(tt as u64) };
-    let time_at = |x: f64| vp.time_at(x, wf);
-
-    let mut idx = to_u(time_at(0.0)).and_then(|tt| h.index_at(tt));
+    let mut idx = index_at_x(h, vp, wf, 0.0, None);
     let mut bit = h.bit(idx);
     let mut hint = idx.unwrap_or(0);
     let mut run_start = 0usize;
@@ -792,19 +770,23 @@ pub fn paint_bit_row(
         }
     };
 
+    let dense_band = |scene: &mut Scene, xs: usize, xe: usize| {
+        scene.fill(
+            Rect::new(
+                point(x0 + xs as f32, top),
+                size((xe - xs) as f32, bottom - top),
+            ),
+            t.wave_dense,
+        );
+    };
+
     for x in 0..w_px {
-        let idx1 = to_u(time_at((x + 1) as f64)).and_then(|tt| h.index_at_hint(tt, hint));
+        let idx1 = index_at_x(h, vp, wf, (x + 1) as f64, Some(hint));
         let n = changes_between(idx, idx1);
         if n < 2 {
             // A dense region ends at the first column with fewer than two changes.
             if let Some(ds) = dense_start.take() {
-                scene.fill(
-                    Rect::new(
-                        point(x0 + ds as f32, top),
-                        size((x - ds) as f32, bottom - top),
-                    ),
-                    t.wave_dense,
-                );
+                dense_band(scene, ds, x);
             }
         }
         if n == 0 {
@@ -833,15 +815,27 @@ pub fn paint_bit_row(
         hint = idx1.unwrap_or(0);
     }
     if let Some(ds) = dense_start.take() {
-        scene.fill(
-            Rect::new(
-                point(x0 + ds as f32, top),
-                size((w_px - ds).max(1) as f32, bottom - top),
-            ),
-            t.wave_dense,
-        );
+        dense_band(scene, ds, w_px.max(ds + 1));
     }
     emit_run(scene, run_start, w_px, bit);
+}
+
+/// Index of the last change at or before the time under pixel `x`.
+fn index_at_x(
+    h: &dyn SignalHistory,
+    vp: &Viewport,
+    width_px: f64,
+    x: f64,
+    hint: Option<usize>,
+) -> Option<usize> {
+    let t = vp.time_at(x, width_px);
+    if t < 0.0 {
+        return None;
+    }
+    match hint {
+        Some(hint) => h.index_at_hint(t as u64, hint),
+        None => h.index_at(t as u64),
+    }
 }
 
 struct Segment {
@@ -870,16 +864,14 @@ fn paint_bus_row(
     let top = area.top() + TRACE_PAD * t.zoom;
     let bottom = area.bottom() - TRACE_PAD * t.zoom;
     let midf = top + (bottom - top) / 2.0;
-    let to_u = |tt: f64| -> Option<u64> { (tt >= 0.0).then_some(tt as u64) };
-    let time_at = |x: f64| vp.time_at(x, wf);
 
     // Column sampling → segments.
     let mut segments: Vec<Segment> = Vec::new();
-    let mut idx = to_u(time_at(0.0)).and_then(|tt| h.index_at(tt));
+    let mut idx = index_at_x(h, vp, wf, 0.0, None);
     let mut hint = idx.unwrap_or(0);
     let mut cur_start = 0usize;
     for x in 0..w_px {
-        let idx1 = to_u(time_at((x + 1) as f64)).and_then(|tt| h.index_at_hint(tt, hint));
+        let idx1 = index_at_x(h, vp, wf, (x + 1) as f64, Some(hint));
         let n = changes_between(idx, idx1);
         if n == 0 {
             continue;
@@ -958,7 +950,7 @@ fn paint_bus_row(
             if matches!(value, WaveValue::Unavailable) {
                 continue;
             }
-            let kind = value_kind(&value);
+            let kind = value.kind();
             let color = t.value_color(kind);
             let seg_w = xb - xa;
             let tw = slant_w.min(seg_w / 2.0);
@@ -1021,10 +1013,3 @@ fn paint_bus_row(
         }
     });
 }
-
-fn value_kind(v: &WaveValue) -> ValueKind {
-    v.kind()
-}
-
-#[allow(dead_code)]
-fn _layout_is_used(_: &WaveLayout) {}

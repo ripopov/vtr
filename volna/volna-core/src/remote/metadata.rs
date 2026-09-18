@@ -18,14 +18,6 @@ pub struct ValidatedMetadata {
     pub(super) reservation: Reservation,
 }
 
-impl ValidatedMetadata {
-    /// Move the validated object and its reservation into the resident session,
-    /// without a second hierarchy scan or an extra metadata copy.
-    pub fn into_session(self, id: u64) -> anyhow::Result<super::session::RemoteSession> {
-        super::session::RemoteSession::from_decoded(id, self)
-    }
-}
-
 pub enum MetadataStep {
     NeedInput,
     Yield,

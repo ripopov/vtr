@@ -55,6 +55,7 @@ fn stride(shape: SignalShape) -> Option<usize> {
 }
 
 impl PackedHistory {
+    #[cfg(test)]
     pub fn from_history(history: &dyn SignalHistory) -> anyhow::Result<Self> {
         Self::from_history_with_limit(history, u64::MAX)
     }
@@ -96,10 +97,7 @@ impl PackedHistory {
             shape: history.shape(),
             times: Vec::with_capacity(history.len()),
             offsets: Vec::with_capacity(if history.shape() == SignalShape::Text {
-                history
-                    .len()
-                    .checked_add(2)
-                    .ok_or_else(|| anyhow::anyhow!("history too large"))?
+                history.len() + 2
             } else {
                 0
             }),
@@ -262,10 +260,6 @@ impl PackedHistory {
             }
         }
         Ok(())
-    }
-
-    pub fn storage_bytes(&self) -> usize {
-        self.times.capacity() * 8 + self.offsets.capacity() * 8 + self.data.capacity()
     }
 
     fn raw(&self, i: Option<usize>) -> &[u8] {

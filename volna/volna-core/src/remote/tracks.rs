@@ -52,7 +52,7 @@ impl TrackDecoder {
                     }
                     reader.charge(workspace)?;
                     payload
-                        .into_loaded_with(session.tracks(), || reader.checkpoint())
+                        .into_loaded(session.tracks(), || reader.checkpoint())
                         .await
                 })
             },
@@ -65,10 +65,7 @@ impl TrackDecoder {
         Ok(match self.0.step()? {
             Step::NeedInput => TrackStep::NeedInput,
             Step::Yield => TrackStep::Yield,
-            Step::Ready(track, scratch) => {
-                drop(scratch);
-                TrackStep::Decoded(track)
-            }
+            Step::Ready(track, _) => TrackStep::Decoded(track),
         })
     }
 }

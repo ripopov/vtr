@@ -34,7 +34,7 @@ pub struct HistoryDecoder {
 }
 
 impl HistoryDecoder {
-    pub fn new(declared_bytes: u64, max_bytes: u64) -> anyhow::Result<Self> {
+    fn new(declared_bytes: u64, max_bytes: u64) -> anyhow::Result<Self> {
         anyhow::ensure!(
             declared_bytes <= max_bytes && declared_bytes >= 28,
             "signal exceeds limit or has invalid size"

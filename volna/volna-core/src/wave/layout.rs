@@ -13,10 +13,10 @@ use crate::wave::viewport::Viewport;
 // Design-time sizes in logical pixels at zoom 1.0; the layout multiplies
 // them by [`LayoutInput::zoom`] so every rectangle scales with the interface.
 pub const MIN_COLUMN: f32 = 72.0;
-pub const SPLITTER_TOLERANCE: f32 = 4.0;
+const SPLITTER_TOLERANCE: f32 = 4.0;
 pub const SCROLLBAR_W: f32 = 10.0;
-pub const BADGE_W: f32 = 36.0;
-pub const CHIP_W: f32 = 24.0;
+const BADGE_W: f32 = 36.0;
+const CHIP_W: f32 = 24.0;
 
 #[derive(Clone, Debug, Default)]
 pub struct WaveLayout {
@@ -194,7 +194,7 @@ impl WaveLayout {
     }
 }
 
-pub fn marker_chip_bounds(header: Rect, x: f32, chip_w: f32, zoom: f32) -> Rect {
+fn marker_chip_bounds(header: Rect, x: f32, chip_w: f32, zoom: f32) -> Rect {
     Rect::new(
         point(x + 1.0, header.top() + 2.0 * zoom),
         size(chip_w, 14.0 * zoom),

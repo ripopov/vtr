@@ -131,13 +131,17 @@ impl Translator for BitTranslator {
         matches!(shape, SignalShape::Bit | SignalShape::Event)
     }
     fn translate(&self, value: &WaveValue) -> Translated {
-        let Some(bits) = bits_of(value) else {
-            return not_applicable();
-        };
-        Translated {
-            text: bits.to_string(),
-            kind: kind_of_bits(bits.as_bytes()),
-        }
+        raw_bits(value)
+    }
+}
+
+fn raw_bits(value: &WaveValue) -> Translated {
+    let Some(bits) = bits_of(value) else {
+        return not_applicable();
+    };
+    Translated {
+        text: bits.to_string(),
+        kind: kind_of_bits(bits.as_bytes()),
     }
 }
 
@@ -156,13 +160,7 @@ impl Translator for BinaryTranslator {
         shape.is_digital()
     }
     fn translate(&self, value: &WaveValue) -> Translated {
-        let Some(bits) = bits_of(value) else {
-            return not_applicable();
-        };
-        Translated {
-            text: bits.to_string(),
-            kind: kind_of_bits(bits.as_bytes()),
-        }
+        raw_bits(value)
     }
 }
 

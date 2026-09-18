@@ -78,7 +78,7 @@ impl App {
         match command {
             SettingsCommand::Open => {
                 match self.panels.open_settings() {
-                    Ok(true) => self.settings_layout_changed(),
+                    Ok(true) => self.layout_changed(),
                     Ok(false) => {}
                     Err(error) => self.events.push(Event::Notice(error.to_string())),
                 }
@@ -90,14 +90,14 @@ impl App {
                     self.handle_at(crate::Command::Panels(PanelsCommand::Close(id)), now);
                 }
             }
-            SettingsCommand::Set { id, value } => match self.settings.set(&id, value, now) {
-                Ok(keys) => self.settings_changed(keys),
-                Err(error) => self.notice_settings(error.to_string()),
-            },
-            SettingsCommand::Reset { id } => match self.settings.reset(&id, now) {
-                Ok(keys) => self.settings_changed(keys),
-                Err(error) => self.notice_settings(error.to_string()),
-            },
+            SettingsCommand::Set { id, value } => {
+                let result = self.settings.set(&id, value, now);
+                self.settings_edited(result);
+            }
+            SettingsCommand::Reset { id } => {
+                let result = self.settings.reset(&id, now);
+                self.settings_edited(result);
+            }
             SettingsCommand::ReplaceText(text) => match self.settings.replace_text(text, now) {
                 Ok(keys) => {
                     if let Some(error) = self.settings.syntax_error() {
@@ -126,10 +126,7 @@ impl App {
                     self.settings
                         .set("appearance.zoom", Value::Number(next), now)
                 };
-                match result {
-                    Ok(keys) => self.settings_changed(keys),
-                    Err(error) => self.notice_settings(error.to_string()),
-                }
+                self.settings_edited(result);
             }
             SettingsCommand::Reveal { id } => {
                 self.settings_view = SettingsView {
@@ -141,11 +138,11 @@ impl App {
         }
     }
 
-    fn settings_layout_changed(&mut self) {
-        self.events.push(Event::LayoutChanged {
-            revision: self.panels.revision(),
-        });
-        self.changed();
+    fn settings_edited(&mut self, result: anyhow::Result<Vec<&'static str>>) {
+        match result {
+            Ok(keys) => self.settings_changed(keys),
+            Err(error) => self.notice_settings(error.to_string()),
+        }
     }
 
     fn notice_settings(&mut self, text: String) {

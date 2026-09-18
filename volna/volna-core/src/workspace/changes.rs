@@ -3,7 +3,7 @@
 use crate::document::Marker;
 use crate::panels::PanelId;
 use crate::wave::{
-    model::{Link, PointerEvent},
+    model::{DisplayedSignal, Link, PointerEvent},
     viewport::Viewport,
 };
 use crate::{Action, App, Command};
@@ -102,16 +102,7 @@ impl Stamp {
                 columns: (w.names_width, w.values_width),
                 rows: w.items.len(),
                 selected: selection.then(|| w.selected.clone()),
-                formats: formats.then(|| {
-                    w.items
-                        .iter()
-                        .map(|r| {
-                            r.requested_format
-                                .clone()
-                                .unwrap_or_else(|| r.translator.id().into())
-                        })
-                        .collect()
-                }),
+                formats: formats.then(|| w.items.iter().map(DisplayedSignal::format_id).collect()),
             }),
         })
     }

@@ -21,7 +21,7 @@ pub struct Entry {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Document {
     pub entries: Vec<Entry>,
-    pub braces: Option<(usize, usize)>,
+    braces: Option<(usize, usize)>,
 }
 
 impl Document {
@@ -36,7 +36,6 @@ pub struct SyntaxError {
     pub message: String,
     pub offset: usize,
     pub line: usize,
-    pub column: usize,
 }
 
 impl std::fmt::Display for SyntaxError {
@@ -45,22 +44,21 @@ impl std::fmt::Display for SyntaxError {
     }
 }
 
-/// 1-based line and column of a byte offset.
-pub fn line_col(text: &str, offset: usize) -> (usize, usize) {
-    let mut line = 1;
-    let mut col = 1;
-    for (i, c) in text.char_indices() {
-        if i >= offset {
-            break;
-        }
-        if c == '\n' {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
-        }
+/// 1-based line of a byte offset.
+fn line_of(text: &str, offset: usize) -> usize {
+    text[..offset.min(text.len())].matches('\n').count() + 1
+}
+
+/// Offset of the first byte of the line containing `at`.
+fn line_start(text: &str, at: usize) -> usize {
+    text[..at].rfind('\n').map_or(0, |i| i + 1)
+}
+
+fn skip_blanks(bytes: &[u8], mut at: usize) -> usize {
+    while bytes.get(at).is_some_and(|c| matches!(c, b' ' | b'\t')) {
+        at += 1;
     }
-    (line, col)
+    at
 }
 
 struct Parser<'a> {
@@ -74,12 +72,10 @@ const MAX_DEPTH: usize = 64;
 
 impl<'a> Parser<'a> {
     fn error(&self, message: impl Into<String>, at: usize) -> SyntaxError {
-        let (line, column) = line_col(self.text, at);
         SyntaxError {
             message: message.into(),
             offset: at,
-            line,
-            column,
+            line: line_of(self.text, at),
         }
     }
 
@@ -174,7 +170,6 @@ impl<'a> Parser<'a> {
                 }
                 b'\n' => return Err(self.error("unterminated string", start)),
                 _ => {
-                    // Copy one UTF-8 character.
                     let ch = self.text[self.pos..].chars().next().unwrap();
                     out.push(ch);
                     self.pos += ch.len_utf8();
@@ -190,7 +185,7 @@ impl<'a> Parser<'a> {
             Some(b'"') => Ok(serde_json::Value::String(self.string()?)),
             Some(b'{') => {
                 let mut map = serde_json::Map::new();
-                for (key, value) in self.object()? {
+                for (key, value) in self.object(None)? {
                     map.insert(key, value);
                 }
                 Ok(serde_json::Value::Object(map))
@@ -256,11 +251,7 @@ impl<'a> Parser<'a> {
 
     /// Parse `{ ... }` at the cursor; returns (key, value) pairs and records
     /// entries with spans when `record` is set (top level only).
-    fn object(&mut self) -> Result<Vec<(String, serde_json::Value)>, SyntaxError> {
-        self.object_with(None)
-    }
-
-    fn object_with(
+    fn object(
         &mut self,
         mut record: Option<&mut Vec<Entry>>,
     ) -> Result<Vec<(String, serde_json::Value)>, SyntaxError> {
@@ -294,7 +285,7 @@ impl<'a> Parser<'a> {
                     if let Some(entries) = record.as_deref_mut() {
                         entries.push(Entry {
                             key: key.clone(),
-                            line: line_col(self.text, key_start).0,
+                            line: line_of(self.text, key_start),
                             key_span,
                             value_span,
                             value: value.clone(),
@@ -338,7 +329,7 @@ pub fn parse(text: &str) -> Result<Document, SyntaxError> {
     }
     let open = parser.pos;
     let mut entries = Vec::new();
-    parser.object_with(Some(&mut entries))?;
+    parser.object(Some(&mut entries))?;
     let close = parser.pos - 1;
     parser.skip()?;
     if parser.peek().is_some() {
@@ -378,12 +369,9 @@ fn newline(text: &str) -> &'static str {
 }
 
 /// The indentation of the first property, or two spaces.
-pub fn indent(text: &str, doc: &Document) -> String {
+fn indent(text: &str, doc: &Document) -> String {
     if let Some(first) = doc.entries.first() {
-        let line_start = text[..first.key_span.start]
-            .rfind('\n')
-            .map_or(0, |i| i + 1);
-        let prefix = &text[line_start..first.key_span.start];
+        let prefix = &text[line_start(text, first.key_span.start)..first.key_span.start];
         if !prefix.is_empty() && prefix.chars().all(|c| c == ' ' || c == '\t') {
             return prefix.to_owned();
         }
@@ -451,29 +439,22 @@ pub fn remove(text: &str, doc: &Document, key: &str) -> String {
         return text.to_owned();
     };
     let bytes = text.as_bytes();
-    let line_start = text[..entry.key_span.start]
-        .rfind('\n')
-        .map_or(0, |i| i + 1);
+    let line_start = line_start(text, entry.key_span.start);
     let only_ws = text[line_start..entry.key_span.start]
         .chars()
         .all(|c| c == ' ' || c == '\t');
-    let mut start = if only_ws {
+    let start = if only_ws {
         line_start
     } else {
         entry.key_span.start
     };
-    let mut end = entry.value_span.end;
     // `[ \t]*,?[ \t]*(//[^\n]*)?\r?\n?`
-    while bytes.get(end).is_some_and(|c| matches!(c, b' ' | b'\t')) {
-        end += 1;
-    }
+    let mut end = skip_blanks(bytes, entry.value_span.end);
     let had_comma = bytes.get(end) == Some(&b',');
     if had_comma {
         end += 1;
     }
-    while bytes.get(end).is_some_and(|c| matches!(c, b' ' | b'\t')) {
-        end += 1;
-    }
+    end = skip_blanks(bytes, end);
     if text[end..].starts_with("//") {
         while bytes.get(end).is_some_and(|c| *c != b'\n') {
             end += 1;
@@ -504,9 +485,6 @@ pub fn remove(text: &str, doc: &Document, key: &str) -> String {
             out.push_str(&text[end..]);
             return finish_remove(out, open);
         }
-    }
-    if start > line_start && !only_ws {
-        start = entry.key_span.start;
     }
     out.push_str(&text[..start]);
     out.push_str(&text[end..]);

@@ -23,7 +23,7 @@ pub struct Tick {
 /// Choose the display unit for a duration of `units` time units at `timescale`.
 /// Returns the unit exponent and suffix such that the value is in `[1, 1000)`
 /// where possible.
-pub fn choose_unit(units: f64, timescale: i8) -> (i32, &'static str) {
+fn choose_unit(units: f64, timescale: i8) -> (i32, &'static str) {
     if units <= 0.0 || !units.is_finite() {
         return UNITS
             .iter()
@@ -74,14 +74,14 @@ pub fn format_time(t: f64, timescale: i8) -> String {
 }
 
 /// Format a time in a fixed unit (used for tick labels so all share a unit).
-pub fn format_in_unit(t: f64, timescale: i8, exp: i32, decimals: usize) -> String {
+fn format_in_unit(t: f64, timescale: i8, exp: i32, decimals: usize) -> String {
     let v = t * 10f64.powi(timescale as i32 - exp);
     trim_float(v, decimals)
 }
 
 /// Tick step for a viewport: the smallest "nice" step that keeps labels at
 /// least `min_spacing_px` apart.
-pub fn tick_step(viewport: &Viewport, width_px: f64, min_spacing_px: f64) -> f64 {
+fn tick_step(viewport: &Viewport, width_px: f64, min_spacing_px: f64) -> f64 {
     let max_ticks = (width_px / min_spacing_px).max(1.0);
     let raw = viewport.width() / max_ticks;
     let mag = 10f64.powf(raw.log10().floor());

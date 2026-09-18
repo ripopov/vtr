@@ -59,17 +59,17 @@ pub struct Sidebar {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Columns {
-    pub names: f32,
-    pub values: f32,
+struct Columns {
+    names: f32,
+    values: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Row {
-    pub signal: Vec<String>,
+struct Row {
+    signal: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nth: Option<usize>,
-    pub format: String,
+    nth: Option<usize>,
+    format: String,
 }
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
@@ -187,10 +187,7 @@ impl Workspace {
                         Row {
                             signal,
                             nth,
-                            format: item
-                                .requested_format
-                                .clone()
-                                .unwrap_or_else(|| item.translator.id().into()),
+                            format: item.format_id(),
                         }
                     })
                     .collect();
@@ -445,7 +442,7 @@ impl Workspace {
             });
         }
         let panels = Panels::restore(self.layout, panels, self.focused, &app.panels)?;
-        let mut scopes = ScopeTreeModel::new();
+        let mut scopes = ScopeTreeModel::default();
         let selected = match &self.sidebar.selected_scope {
             Some(path) => match h.find_scope(path) {
                 Lookup::Found(id) => Some(id),

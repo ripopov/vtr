@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use super::history::SignalHistory;
-use super::source::{Direction, Hierarchy, Scope, SignalRef, TraceInfo, Variable};
+use super::source::{Direction, Hierarchy, SignalRef, TraceInfo, Variable};
 use super::value::{Bit, SignalShape, WaveValue};
 use crate::session::Session;
 
@@ -40,7 +40,7 @@ enum Pattern {
     Glitchy,
 }
 
-pub struct ProceduralHistory {
+struct ProceduralHistory {
     shape: SignalShape,
     count: usize,
     period: u64,
@@ -152,21 +152,8 @@ impl SynthSource {
         let transitions = transitions.max(2);
         let period = 10u64; // time units per clock half-period
         let mut hierarchy = Hierarchy::default();
-        hierarchy.scopes.push(Scope {
-            name: "synth".into(),
-            kind: "module".into(),
-            parent: None,
-            children: vec![1],
-            vars: Vec::new(),
-        });
-        hierarchy.scopes.push(Scope {
-            name: "core".into(),
-            kind: "module".into(),
-            parent: Some(0),
-            children: Vec::new(),
-            vars: Vec::new(),
-        });
-        hierarchy.roots.push(0);
+        let top = hierarchy.push_scope("synth".into(), "module".into(), None);
+        hierarchy.push_scope("core".into(), "module".into(), Some(top));
 
         let mut signals: Vec<Arc<dyn SignalHistory>> = Vec::new();
         let mut add = |name: &str,

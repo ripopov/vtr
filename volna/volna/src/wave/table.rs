@@ -15,7 +15,7 @@ use volna_core::app::Command;
 use volna_core::geometry::{CursorIcon, Point as CPoint, Rect as CRect};
 use volna_core::scene::{Prim, TextMeasure};
 use volna_core::wave::PointerEvent;
-use volna_core::{FontRole, Instant, Scene};
+use volna_core::{FontRole, Instant};
 
 use crate::app::{TextKey, Workspace, to_modifiers};
 use crate::theme::{Theme, core_theme, hsla, theme};
@@ -469,6 +469,3 @@ impl WaveTable {
         });
     }
 }
-
-#[allow(dead_code)]
-fn _scene_is_send(_: Scene) {}

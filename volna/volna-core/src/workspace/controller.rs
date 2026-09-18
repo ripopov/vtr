@@ -15,7 +15,7 @@ pub struct State {
     pub trace_uri: Option<String>,
     pub notices: Vec<String>,
     pub(crate) loading: bool,
-    pub(crate) opening_uri: Option<String>,
+    opening_uri: Option<String>,
     pending: Option<Transition>,
 }
 
@@ -48,16 +48,18 @@ impl App {
         });
     }
 
-    pub(crate) fn open_with_workspace(&mut self, spec: OpenSpec, show_all: bool) {
+    pub(crate) fn open(&mut self, spec: OpenSpec, show_all: bool) {
         self.transition(Transition::Open {
             spec,
             show_all,
             uri: None,
         });
     }
-    pub(crate) fn close_with_workspace(&mut self) {
+
+    pub fn close_trace(&mut self) {
         self.transition(Transition::Close);
     }
+
     pub fn request_quit(&mut self) {
         self.transition(Transition::Quit);
     }
@@ -85,11 +87,7 @@ impl App {
         if scheduler.outstanding().is_some() {
             return;
         }
-        if scheduler.enabled()
-            && scheduler.dirty()
-            && !scheduler.suspended()
-            && scheduler.target().is_some()
-        {
+        if scheduler.wants_write() {
             self.persist_workspace(Instant::now(), true);
             return;
         }
@@ -100,8 +98,7 @@ impl App {
                 show_all,
                 uri,
             } => {
-                if let Err(error) = self.workspace.scheduler.begin(None, None) {
-                    self.notice(error.to_string());
+                if !self.begin_unsaved() {
                     return;
                 }
                 self.workspace.opening_uri = uri;
@@ -111,8 +108,7 @@ impl App {
                 self.open_now(spec, show_all);
             }
             Transition::Close => {
-                if let Err(error) = self.workspace.scheduler.begin(None, None) {
-                    self.notice(error.to_string());
+                if !self.begin_unsaved() {
                     return;
                 }
                 let trace_uri = self.workspace.trace_uri.take();
@@ -133,13 +129,28 @@ impl App {
                         self.notice(error.to_string());
                     }
                     self.workspace.loading = false;
-                    for text in report.notices {
-                        self.notice(text);
-                    }
+                    self.notice_all(report.notices);
                 }
                 Err(error) => self.notice(error.to_string()),
             },
             Transition::Quit => self.events.push(Event::Quit),
+        }
+    }
+
+    /// Detach the scheduler from its target; false when it refused.
+    fn begin_unsaved(&mut self) -> bool {
+        match self.workspace.scheduler.begin(None, None) {
+            Ok(()) => true,
+            Err(error) => {
+                self.notice(error.to_string());
+                false
+            }
+        }
+    }
+
+    fn notice_all(&mut self, texts: Vec<String>) {
+        for text in texts {
+            self.notice(text);
         }
     }
 
@@ -197,16 +208,12 @@ impl App {
                 .transpose()?;
             if let Some(plan) = plan {
                 let report = plan.commit(self)?;
-                for text in report.notices {
-                    self.notice(text);
-                }
+                self.notice_all(report.notices);
             }
             self.workspace
                 .scheduler
                 .begin(Some(selected.target), selected.supersedes)?;
-            for text in selected.notices {
-                self.notice(text);
-            }
+            self.notice_all(selected.notices);
             Ok(())
         });
         self.workspace.loading = false;
@@ -302,11 +309,6 @@ impl App {
     pub(crate) fn workspace_tick(&mut self, now: Instant) -> bool {
         self.persist_workspace(now, false);
         let s = &self.workspace.scheduler;
-        !self.workspace.loading
-            && s.enabled()
-            && s.dirty()
-            && !s.suspended()
-            && s.outstanding().is_none()
-            && s.target().is_some()
+        !self.workspace.loading && s.wants_write() && s.outstanding().is_none()
     }
 }

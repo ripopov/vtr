@@ -1800,8 +1800,8 @@ bincode schema and cooperatively validates references. `MetadataStep::Yield`
 requires yielding to input/painting; `NeedInput` permits another chunk. Its
 checked collection lengths reserve decoded storage before allocation, including
 conservative validation workspace. Nested attributes are limited to 128 levels.
-`ValidatedMetadata::into_session` moves the metadata and memory reservation into
-the remote session without copying or revalidating. The host must still receive
+`RemoteSession::from_decoded` moves the validated metadata and memory reservation
+into the remote session without copying or revalidating. The host must still receive
 the matching protocol `End` before publishing that session. Dropping an unfinished
 decoder releases its private allocations and reservation.
 `remote::open::OpenTransfer` ties this decoder to one protocol Open response:

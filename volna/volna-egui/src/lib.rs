@@ -30,7 +30,7 @@ use paint::{
 };
 
 /// The bundled faces as egui font families, with egui's defaults as fallbacks.
-pub fn font_definitions() -> FontDefinitions {
+pub(crate) fn font_definitions() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let proportional = fonts
         .families
@@ -118,13 +118,14 @@ impl VolnaApp {
     pub fn new(ctx: &Context) -> Self {
         let core_theme = Theme::one_dark();
         ctx.set_fonts(font_definitions());
-        let app = VolnaApp {
+        let (tx, rx) = mpsc::channel();
+        let mut app = VolnaApp {
             app: App::new(),
             theme: core_theme.map(c32),
             core_theme,
             scene: Scene::default(),
-            tx: mpsc::channel().0,
-            rx: mpsc::channel().1,
+            tx,
+            rx,
             filter: String::new(),
             focus_filter: false,
             reveal_scope: None,
@@ -138,8 +139,6 @@ impl VolnaApp {
                 format_menu: Id::new("volna-format-menu"),
             },
         };
-        let (tx, rx) = mpsc::channel();
-        let mut app = VolnaApp { tx, rx, ..app };
         app.apply_visuals(ctx);
         app
     }
@@ -575,7 +574,7 @@ impl VolnaApp {
                     if has_children {
                         paint::chevron(ui.painter(), chevron.center(), expanded, colors.icon_muted);
                     }
-                    paint::small_icon(
+                    paint::icon(
                         ui.painter(),
                         scope_icon(&scope.kind),
                         Rect::from_center_size(
@@ -716,7 +715,7 @@ impl VolnaApp {
                         );
                     }
                     let mut x = rect.min.x + 8.0;
-                    paint::small_icon(
+                    paint::icon(
                         ui.painter(),
                         shape_icon(v.shape),
                         Rect::from_center_size(
@@ -981,7 +980,7 @@ impl eframe::App for VolnaApp {
     }
 }
 
-pub fn to_modifiers(m: egui::Modifiers) -> Modifiers {
+fn to_modifiers(m: egui::Modifiers) -> Modifiers {
     Modifiers {
         shift: m.shift,
         control: m.ctrl,

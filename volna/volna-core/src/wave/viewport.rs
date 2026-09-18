@@ -77,9 +77,9 @@ impl ViewportState {
 }
 
 /// Fraction of the trace length the view may scroll past either end.
-pub const EDGE_SPACE: f64 = 0.2;
+const EDGE_SPACE: f64 = 0.2;
 /// Narrowest window, in time units.
-pub const MIN_WIDTH: f64 = 0.25;
+const MIN_WIDTH: f64 = 0.25;
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Viewport {
@@ -173,7 +173,7 @@ impl Viewport {
         self.end = self.start + w;
     }
 
-    pub fn lerp(a: &Viewport, b: &Viewport, t: f64) -> Viewport {
+    fn lerp(a: &Viewport, b: &Viewport, t: f64) -> Viewport {
         Viewport {
             start: a.start + (b.start - a.start) * t,
             end: a.end + (b.end - a.end) * t,

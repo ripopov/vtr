@@ -130,14 +130,12 @@ impl JsonView {
         // Follow the core's text unless the user has unsaved edits.
         if core_text != self.synced {
             let local = self.text(cx);
+            self.synced = core_text.clone();
             if local == self.synced || local.is_empty() {
-                self.synced = core_text.clone();
                 let text = core_text.clone();
                 self.editor
                     .update(cx, |state, cx| state.set_value(text, window, cx));
                 self.publish(&diagnostics, cx);
-            } else {
-                self.synced = core_text.clone();
             }
         }
         let dirty = self.text(cx) != core_text;

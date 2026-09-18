@@ -36,6 +36,17 @@ pub enum Direction {
     InOut,
 }
 
+impl From<vtr::Direction> for Direction {
+    fn from(direction: vtr::Direction) -> Self {
+        match direction {
+            vtr::Direction::Input => Self::Input,
+            vtr::Direction::Output => Self::Output,
+            vtr::Direction::InOut => Self::InOut,
+            _ => Self::None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Scope {
     pub name: String,
@@ -65,6 +76,23 @@ pub struct Hierarchy {
 }
 
 impl Hierarchy {
+    /// Append a scope and link it under `parent` or among the roots.
+    pub fn push_scope(&mut self, name: String, kind: String, parent: Option<ScopeId>) -> ScopeId {
+        let id = self.scopes.len();
+        self.scopes.push(Scope {
+            name,
+            kind,
+            parent,
+            children: Vec::new(),
+            vars: Vec::new(),
+        });
+        match parent {
+            Some(p) => self.scopes[p].children.push(id),
+            None => self.roots.push(id),
+        }
+        id
+    }
+
     /// Resolve literal path segments, including dots and escaped HDL names.
     /// Every scope along the path must be unambiguous.
     pub fn find_scope(&self, path: &[impl AsRef<str>]) -> Lookup<ScopeId> {

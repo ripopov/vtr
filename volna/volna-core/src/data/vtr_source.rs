@@ -1,13 +1,14 @@
 //! [`Session`] over a VTR file in this process: memory-mapped from a path
 //! natively, parsed from an in-memory image on wasm.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Context as _;
 use vtr::{NodeData, Reader, SignalData, SignalKind, SignalValue};
 
 use super::history::SignalHistory;
-use super::source::{Direction, Hierarchy, Scope, SignalRef, TraceInfo, Variable};
+use super::source::{Hierarchy, SignalRef, TraceInfo, Variable};
 use super::value::{Bit, SignalShape, WaveValue};
 use crate::session::Session;
 
@@ -80,8 +81,7 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
     let mut out = Hierarchy::default();
     // Map VTR node ids to our scope ids while walking in declaration order
     // (parents are declared before children, so a plain map suffices).
-    let mut scope_of_node: std::collections::HashMap<usize, usize> =
-        std::collections::HashMap::new();
+    let mut scope_of_node: HashMap<usize, usize> = HashMap::new();
     for id in h.ids() {
         let node = h.node(id);
         let parent_scope = node
@@ -89,18 +89,11 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
             .and_then(|p| scope_of_node.get(&(p.0 as usize)).copied());
         match node.data {
             NodeData::Scope { scope_type, .. } => {
-                let sid = out.scopes.len();
-                out.scopes.push(Scope {
-                    name: reader.str(node.name).to_string(),
-                    kind: scope_type.name().to_string(),
-                    parent: parent_scope,
-                    children: Vec::new(),
-                    vars: Vec::new(),
-                });
-                match parent_scope {
-                    Some(p) => out.scopes[p].children.push(sid),
-                    None => out.roots.push(sid),
-                }
+                let sid = out.push_scope(
+                    reader.str(node.name).to_string(),
+                    scope_type.name().to_string(),
+                    parent_scope,
+                );
                 scope_of_node.insert(id.0 as usize, sid);
             }
             NodeData::Var {
@@ -123,12 +116,7 @@ fn build_hierarchy(reader: &Reader) -> Hierarchy {
                     scope: sid,
                     shape: shape_of(kind, h.signal_var_type(signal).expect("declared signal")),
                     var_type: var_type.name().to_string(),
-                    direction: match direction {
-                        vtr::Direction::Input => Direction::Input,
-                        vtr::Direction::Output => Direction::Output,
-                        vtr::Direction::InOut => Direction::InOut,
-                        _ => Direction::None,
-                    },
+                    direction: direction.into(),
                     signal: SignalRef(signal.0),
                 });
                 out.scopes[sid].vars.push(vid);
@@ -144,16 +132,7 @@ fn root_scope(h: &mut Hierarchy) -> usize {
     if let Some(&r) = h.roots.iter().find(|&&r| h.scopes[r].name == "(top)") {
         return r;
     }
-    let sid = h.scopes.len();
-    h.scopes.push(Scope {
-        name: "(top)".into(),
-        kind: "module".into(),
-        parent: None,
-        children: Vec::new(),
-        vars: Vec::new(),
-    });
-    h.roots.push(sid);
-    sid
+    h.push_scope("(top)".into(), "module".into(), None)
 }
 
 impl Session for LocalSession {

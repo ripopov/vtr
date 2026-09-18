@@ -84,9 +84,7 @@ impl SettingsPanelView {
     }
 
     fn dispatch(&self, command: SettingsCommand, window: &mut Window, cx: &mut Context<Self>) {
-        _ = self.ws.update(cx, |ws, cx| {
-            ws.dispatch(Command::Settings(command), Some(window), cx)
-        });
+        dispatch(&self.ws, command, window, cx);
     }
 
     /// Keep the search box in step with the core's query.
@@ -253,15 +251,12 @@ impl SettingsPanelView {
                                     .is_some_and(|ws| ws.read(cx).app.settings.is_modified(spec.id))
                             },
                             move |window, cx| {
-                                _ = reset_ws.update(cx, |ws, cx| {
-                                    ws.dispatch(
-                                        Command::Settings(SettingsCommand::Reset {
-                                            id: spec.id.into(),
-                                        }),
-                                        Some(window),
-                                        cx,
-                                    )
-                                });
+                                dispatch(
+                                    &reset_ws,
+                                    SettingsCommand::Reset { id: spec.id.into() },
+                                    window,
+                                    cx,
+                                );
                             },
                         ),
                     );
@@ -352,6 +347,15 @@ fn render_row(
     let modified = store.is_modified(spec.id);
     let overridden = store.is_overridden(spec.id);
     let editable = store.editable();
+    let chip = |text: &'static str| {
+        div()
+            .px_1p5()
+            .rounded_sm()
+            .bg(t.badge_hover.bg)
+            .text_size(px(t.ui_size_small))
+            .text_color(t.badge_hover.text)
+            .child(text)
+    };
     let value = store
         .value(spec.id)
         .cloned()
@@ -422,28 +426,8 @@ fn render_row(
                                 .items_center()
                                 .gap_2()
                                 .child(title)
-                                .when_some(spec.apply.badge(), |el, badge| {
-                                    el.child(
-                                        div()
-                                            .px_1p5()
-                                            .rounded_sm()
-                                            .bg(t.badge_hover.bg)
-                                            .text_size(px(t.ui_size_small))
-                                            .text_color(t.badge_hover.text)
-                                            .child(badge),
-                                    )
-                                })
-                                .when(overridden, |el| {
-                                    el.child(
-                                        div()
-                                            .px_1p5()
-                                            .rounded_sm()
-                                            .bg(t.badge_hover.bg)
-                                            .text_size(px(t.ui_size_small))
-                                            .text_color(t.badge_hover.text)
-                                            .child("set by the host"),
-                                    )
-                                }),
+                                .when_some(spec.apply.badge(), |el, badge| el.child(chip(badge)))
+                                .when(overridden, |el| el.child(chip("set by the host"))),
                         )
                         .child(
                             div()
@@ -488,6 +472,17 @@ fn strip_markdown(text: &str) -> String {
     text.replace('`', "")
 }
 
+fn dispatch(
+    ws: &WeakEntity<Workspace>,
+    command: SettingsCommand,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    _ = ws.update(cx, |ws, cx| {
+        ws.dispatch(Command::Settings(command), Some(window), cx)
+    });
+}
+
 fn set(
     ws: &WeakEntity<Workspace>,
     id: &'static str,
@@ -495,16 +490,15 @@ fn set(
     window: &mut Window,
     cx: &mut App,
 ) {
-    _ = ws.update(cx, |ws, cx| {
-        ws.dispatch(
-            Command::Settings(SettingsCommand::Set {
-                id: id.into(),
-                value,
-            }),
-            Some(window),
-            cx,
-        )
-    });
+    dispatch(
+        ws,
+        SettingsCommand::Set {
+            id: id.into(),
+            value,
+        },
+        window,
+        cx,
+    );
 }
 
 struct NumberState {
@@ -815,13 +809,12 @@ fn render_actions(
                 PopupMenuItem::new("Reset setting")
                     .disabled(!modified || !editable)
                     .on_click(move |_, window, cx| {
-                        _ = ws_reset.update(cx, |ws, cx| {
-                            ws.dispatch(
-                                Command::Settings(SettingsCommand::Reset { id: id.into() }),
-                                Some(window),
-                                cx,
-                            )
-                        });
+                        dispatch(
+                            &ws_reset,
+                            SettingsCommand::Reset { id: id.into() },
+                            window,
+                            cx,
+                        );
                     }),
             )
             .item(

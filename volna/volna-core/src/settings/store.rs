@@ -7,10 +7,10 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use super::jsonc::{self, Document, SyntaxError};
-use super::registry::{Host, META_KEYS, REGISTRY, RENAMED, Spec, spec};
+use super::registry::{Host, META_KEYS, REGISTRY, RENAMED, spec};
 use super::{Settings, Value};
 use crate::Instant;
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 
 /// A change to the document is written after this idle time.
 pub const WRITE_IDLE: Duration = Duration::from_millis(300);
@@ -54,7 +54,7 @@ pub struct Store {
     next_ticket: u64,
     last_written: Option<String>,
     last_error: Option<String>,
-    /// A read or parse error at start-up makes the file read-only for us.
+    /// A read error at start-up makes the file read-only for us.
     writable: bool,
 }
 
@@ -88,12 +88,12 @@ impl Store {
     }
 
     /// The `$schema` value written into a document created from nothing.
-    pub fn set_schema_uri(&mut self, uri: Option<String>) {
+    pub(crate) fn set_schema_uri(&mut self, uri: Option<String>) {
         self.schema_uri = uri;
     }
 
     /// Palette names the host offers for `appearance.theme`.
-    pub fn set_themes(&mut self, themes: Vec<String>) -> Vec<&'static str> {
+    pub(crate) fn set_themes(&mut self, themes: Vec<String>) -> Vec<&'static str> {
         if self.themes == themes {
             return Vec::new();
         }
@@ -130,6 +130,14 @@ impl Store {
         self.writable
     }
 
+    fn ensure_writable(&self) -> Result<()> {
+        ensure!(
+            self.writable,
+            "settings.json is not writable after a read error"
+        );
+        Ok(())
+    }
+
     pub fn last_error(&self) -> Option<&str> {
         self.last_error.as_deref()
     }
@@ -157,7 +165,7 @@ impl Store {
 
     /// Install the document the host read at start. An unreadable file is
     /// reported through [`Store::mark_unreadable`] instead.
-    pub fn load(&mut self, text: &str) -> Vec<&'static str> {
+    pub(crate) fn load(&mut self, text: &str) -> Vec<&'static str> {
         let text = migrate_names(text);
         self.text = text;
         self.parsed = jsonc::parse(&self.text);
@@ -165,14 +173,17 @@ impl Store {
     }
 
     /// The host could not read the file: keep defaults, never overwrite it.
-    pub fn mark_unreadable(&mut self, error: String) {
+    pub(crate) fn mark_unreadable(&mut self, error: String) {
         self.writable = false;
         self.last_error = Some(error);
     }
 
     /// Values a host owns (VS Code configuration, `--set`). They win over the
     /// document and are never written into it.
-    pub fn set_overrides(&mut self, overrides: BTreeMap<String, Value>) -> Vec<&'static str> {
+    pub(crate) fn set_overrides(
+        &mut self,
+        overrides: BTreeMap<String, Value>,
+    ) -> Vec<&'static str> {
         if self.overrides == overrides {
             return Vec::new();
         }
@@ -182,7 +193,7 @@ impl Store {
 
     /// Bytes reported by the host's file watcher. The store's own write comes
     /// back as an echo and is ignored; unchanged text is not a change either.
-    pub fn external(&mut self, bytes: &[u8]) -> Result<Vec<&'static str>> {
+    pub(crate) fn external(&mut self, bytes: &[u8]) -> Result<Vec<&'static str>> {
         let hash = crate::workspace::persistence::hash(bytes);
         if self.last_written.as_deref() == Some(hash.as_str()) {
             return Ok(Vec::new());
@@ -221,26 +232,27 @@ impl Store {
     }
 
     /// Set `id` in the document with a surgical edit. Returns the changed keys.
-    pub fn set(&mut self, id: &str, value: Value, now: Instant) -> Result<Vec<&'static str>> {
+    pub(crate) fn set(
+        &mut self,
+        id: &str,
+        value: Value,
+        now: Instant,
+    ) -> Result<Vec<&'static str>> {
         let spec = spec(id).ok_or_else(|| anyhow::anyhow!("unknown setting {id}"))?;
         if !spec.available(self.host) {
             bail!("{id} is not available on this host");
         }
         spec.validate(&value, self.host, &self.themes)
             .map_err(|e| anyhow::anyhow!("{id}: {e}"))?;
-        if !self.writable {
-            bail!("settings.json is not writable after a read error");
-        }
+        self.ensure_writable()?;
         let doc = self.document()?;
         let text = jsonc::set(&self.text, doc, id, &value.to_json(), &self.seed());
         self.commit(text, now)
     }
 
     /// Remove `id` from the document.
-    pub fn reset(&mut self, id: &str, now: Instant) -> Result<Vec<&'static str>> {
-        if !self.writable {
-            bail!("settings.json is not writable after a read error");
-        }
+    pub(crate) fn reset(&mut self, id: &str, now: Instant) -> Result<Vec<&'static str>> {
+        self.ensure_writable()?;
         let doc = self.document()?;
         if doc.get(id).is_none() {
             return Ok(Vec::new());
@@ -252,10 +264,8 @@ impl Store {
     /// Replace the whole text (the JSON view's save). A syntax error keeps the
     /// last good resolution and is reported as a diagnostic, but the text is
     /// still written so the user's edit is not lost.
-    pub fn replace_text(&mut self, text: String, now: Instant) -> Result<Vec<&'static str>> {
-        if !self.writable {
-            bail!("settings.json is not writable after a read error");
-        }
+    pub(crate) fn replace_text(&mut self, text: String, now: Instant) -> Result<Vec<&'static str>> {
+        self.ensure_writable()?;
         if text == self.text {
             return Ok(Vec::new());
         }
@@ -273,7 +283,7 @@ impl Store {
     // -- the write queue ----------------------------------------------------------
 
     /// The bytes to write, once idle (or forced) and nothing is in flight.
-    pub fn next_write(&mut self, now: Instant, force: bool) -> Option<(u64, Vec<u8>)> {
+    pub(crate) fn next_write(&mut self, now: Instant, force: bool) -> Option<(u64, Vec<u8>)> {
         if !self.dirty || self.outstanding.is_some() || !self.writable {
             return None;
         }
@@ -294,7 +304,7 @@ impl Store {
     }
 
     /// The host finished the write; a failure keeps the document dirty.
-    pub fn acknowledge(&mut self, ticket: u64, error: Option<String>, now: Instant) -> bool {
+    pub(crate) fn acknowledge(&mut self, ticket: u64, error: Option<String>, now: Instant) -> bool {
         if self.outstanding != Some(ticket) {
             return false;
         }
@@ -361,33 +371,21 @@ impl Store {
                         continue;
                     }
                     if seen.contains(&entry.key.as_str()) {
-                        diagnostics.push(Diagnostic {
-                            severity: Severity::Warning,
-                            key: Some(entry.key.clone()),
-                            line: entry.line,
-                            span: entry.key_span.clone(),
-                            message: format!("duplicate key \"{}\", the last one wins", entry.key),
-                        });
+                        diagnostics.push(warn(
+                            entry,
+                            format!("duplicate key \"{}\", the last one wins", entry.key),
+                        ));
                     }
                     seen.push(&entry.key);
                     let Some(spec) = spec(&entry.key) else {
-                        diagnostics.push(Diagnostic {
-                            severity: Severity::Warning,
-                            key: Some(entry.key.clone()),
-                            line: entry.line,
-                            span: entry.key_span.clone(),
-                            message: format!("unknown setting \"{}\"", entry.key),
-                        });
+                        diagnostics.push(warn(entry, format!("unknown setting \"{}\"", entry.key)));
                         continue;
                     };
                     if !spec.available(self.host) {
-                        diagnostics.push(Diagnostic {
-                            severity: Severity::Warning,
-                            key: Some(entry.key.clone()),
-                            line: entry.line,
-                            span: entry.key_span.clone(),
-                            message: format!("\"{}\" is not used on this host", entry.key),
-                        });
+                        diagnostics.push(warn(
+                            entry,
+                            format!("\"{}\" is not used on this host", entry.key),
+                        ));
                         continue;
                     }
                     let value = json_value(&entry.value);
@@ -478,10 +476,13 @@ fn migrate_names(text: &str) -> String {
     text
 }
 
-impl Spec {
-    /// Whether the value equals the registry default.
-    pub fn is_default(&self, value: &Value) -> bool {
-        &self.default.value() == value
+fn warn(entry: &jsonc::Entry, message: String) -> Diagnostic {
+    Diagnostic {
+        severity: Severity::Warning,
+        key: Some(entry.key.clone()),
+        line: entry.line,
+        span: entry.key_span.clone(),
+        message,
     }
 }
 

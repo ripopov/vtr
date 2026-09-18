@@ -119,7 +119,7 @@ impl Metadata {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct GeneratorPayload {
     #[serde(skip)]
     pub(super) reservation: Option<super::memory::Reservation>,
@@ -129,7 +129,7 @@ pub struct GeneratorPayload {
     pub relations: Vec<LoadedRelation>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct TrackPayload {
     pub track: TrackRef,
     pub generators: Vec<GeneratorPayload>,
@@ -171,18 +171,7 @@ impl TrackPayload {
         }
     }
 
-    pub fn into_loaded(self, catalog: &[Track]) -> anyhow::Result<LoadedTrack> {
-        let mut build = std::pin::pin!(self.into_loaded_with(catalog, || std::future::ready(())));
-        match std::future::Future::poll(
-            build.as_mut(),
-            &mut std::task::Context::from_waker(std::task::Waker::noop()),
-        ) {
-            std::task::Poll::Ready(result) => result,
-            std::task::Poll::Pending => unreachable!("synchronous track construction never yields"),
-        }
-    }
-
-    pub(super) async fn into_loaded_with<F: std::future::Future<Output = ()>>(
+    pub(super) async fn into_loaded<F: std::future::Future<Output = ()>>(
         self,
         catalog: &[Track],
         mut checkpoint: impl FnMut() -> F,

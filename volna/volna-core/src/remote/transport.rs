@@ -90,8 +90,7 @@ fn validate(packet: &Packet) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Encode one bounded packet. The header is checked before invoking either
-/// decompression or bincode, so incompatible versions fail deterministically.
+/// Encode one bounded packet.
 pub fn encode(packet: &Packet) -> anyhow::Result<Vec<u8>> {
     validate(packet)?;
     let size = options().serialized_size(packet)?;

@@ -133,9 +133,9 @@ fn translucent_chart_strokes_and_chips_keep_rgb_not_background_tint() {
         charts: [Some(color); 6],
         ..Default::default()
     });
-    assert_eq!(t.wave_signal, alpha(color, 1.0));
+    assert_eq!(t.wave_signal, color.with_alpha(1.0));
     for marker in t.markers {
-        assert_eq!(marker.background, alpha(color, 1.0));
+        assert_eq!(marker.background, color.with_alpha(1.0));
         assert_eq!(marker.hover, marker.background);
         assert!(contrast(over(marker.text, marker.background), marker.background) >= 4.49);
     }
@@ -148,7 +148,7 @@ fn translucent_chart_strokes_and_chips_keep_rgb_not_background_tint() {
     assert_eq!(t.wave_signal.h, bright.h);
     assert_eq!(t.wave_signal.s, bright.s);
     assert!(t.wave_signal.l < bright.l);
-    assert_eq!(t.markers[0].background, alpha(bright, 1.0));
+    assert_eq!(t.markers[0].background, bright.with_alpha(1.0));
 }
 
 #[test]

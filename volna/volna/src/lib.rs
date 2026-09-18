@@ -18,10 +18,10 @@ pub mod native_workspace;
 mod palette;
 mod settings_json;
 mod settings_panel;
-pub mod sidebar;
+mod sidebar;
 pub mod theme;
-pub mod ui;
-pub mod wave;
+mod ui;
+mod wave;
 #[cfg(all(target_family = "wasm", feature = "remote-profile"))]
 mod web_profile;
 #[cfg(target_family = "wasm")]
@@ -45,7 +45,7 @@ pub fn init_app(cx: &mut App) {
 }
 
 /// The environment variable that overrides [`window_decorations`].
-pub const WINDOW_DECORATIONS_ENV: &str = "VOLNA_WINDOW_DECORATIONS";
+const WINDOW_DECORATIONS_ENV: &str = "VOLNA_WINDOW_DECORATIONS";
 
 /// The decorations the main window asks for on X11 and Wayland (other
 /// platforms ignore the request).
@@ -57,7 +57,7 @@ pub const WINDOW_DECORATIONS_ENV: &str = "VOLNA_WINDOW_DECORATIONS";
 /// that do draw one stack it above Volna's own bar. `server` opts back in to
 /// the window manager's frame; GPUI falls back to it on its own on X11
 /// without a compositor, and Volna then draws no controls.
-pub fn window_decorations(env: Option<&str>) -> WindowDecorations {
+fn window_decorations(env: Option<&str>) -> WindowDecorations {
     match env.map(str::trim) {
         Some("server") => WindowDecorations::Server,
         None | Some("") | Some("client") => WindowDecorations::Client,
@@ -69,7 +69,7 @@ pub fn window_decorations(env: Option<&str>) -> WindowDecorations {
 }
 
 /// Options for the main window on desktop platforms.
-pub fn window_options(cx: &mut App) -> WindowOptions {
+fn window_options(cx: &mut App) -> WindowOptions {
     let bounds = Bounds::centered(None, size(px(1440.0), px(900.0)), cx);
     let decorations = std::env::var(WINDOW_DECORATIONS_ENV).ok();
     WindowOptions {
@@ -245,11 +245,7 @@ pub mod web {
     /// Load a VTR or FST file image after the host receives `volnaReady`.
     #[wasm_bindgen]
     pub fn open_trace(name: String, bytes: Vec<u8>) {
-        HOST_TX.with(|tx| {
-            if let Some(tx) = tx.borrow().as_ref() {
-                tx.unbounded_send(HostEvent::Open(name, bytes)).ok();
-            }
-        });
+        enqueue(HostEvent::Open(name, bytes)).ok();
     }
 
     fn enqueue(event: HostEvent) -> Result<(), JsValue> {
@@ -405,23 +401,13 @@ pub mod web {
     pub fn dispatch_command(name: &str) -> Result<(), JsValue> {
         let command = volna_core::app::Command::named(name)
             .ok_or_else(|| JsValue::from_str("unknown Volna command"))?;
-        HOST_TX.with(|tx| {
-            let tx = tx.borrow();
-            tx.as_ref()
-                .ok_or_else(|| JsValue::from_str("viewer is not ready"))?
-                .unbounded_send(HostEvent::Command(command))
-                .map_err(|_| JsValue::from_str("viewer is closed"))
-        })
+        enqueue(HostEvent::Command(command))
     }
 
     /// Print the one-line viewer state (`Workspace::debug_state`) to the console.
     #[wasm_bindgen]
     pub fn debug_state() {
-        HOST_TX.with(|tx| {
-            if let Some(tx) = tx.borrow().as_ref() {
-                tx.unbounded_send(HostEvent::DebugState).ok();
-            }
-        });
+        enqueue(HostEvent::DebugState).ok();
     }
 
     /// Test-only consumer of complete raw streams: load, state, or release.
@@ -431,13 +417,7 @@ pub mod web {
         if !matches!(action.as_str(), "load" | "state" | "release") {
             return Err(JsValue::from_str("expected load, state, or release"));
         }
-        HOST_TX.with(|tx| {
-            tx.borrow()
-                .as_ref()
-                .ok_or_else(|| JsValue::from_str("viewer is not ready"))?
-                .unbounded_send(HostEvent::ProfileTracks(action))
-                .map_err(|_| JsValue::from_str("viewer is closed"))
-        })
+        enqueue(HostEvent::ProfileTracks(action))
     }
 
     /// Host-neutral JSON palette; malformed input leaves the current theme intact.

@@ -124,7 +124,7 @@ pub struct Workspace {
     pub(crate) scopes_scroll: UniformListScrollHandle,
     pub(crate) variables_scroll: UniformListScrollHandle,
     stress_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
-    /// Mirrors `app.panels.focused_waves().unwrap().menu`: (row, position, popup).
+    /// Mirrors the focused wave panel's menu: (panel, row, position, popup).
     format_menu: Option<(
         volna_core::panels::PanelId,
         usize,
@@ -332,6 +332,19 @@ pub fn init(cx: &mut App) {
     ]);
 }
 
+/// Wire the ⌘1–⌘9 actions to panel focus by index on an element.
+macro_rules! focus_panel_actions {
+    ($el:expr, $cx:expr, [$(($name:ident, $index:expr)),* $(,)?]) => {
+        $el $(.on_action($cx.listener(|this: &mut Workspace, _: &$name, window, cx| {
+            this.dispatch(
+                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex($index)),
+                Some(window),
+                cx,
+            )
+        })))*
+    };
+}
+
 /// Wire every wave action to its core action on an element.
 macro_rules! wave_actions {
     ($el:expr, $cx:expr, [$($name:ident),* $(,)?]) => {
@@ -339,6 +352,22 @@ macro_rules! wave_actions {
             this.dispatch(Command::Action(Action::$name), Some(window), cx)
         })))*
     };
+}
+
+/// A Volna-styled popup menu whose items act in `focus`.
+fn build_popup(
+    items: Vec<PopupMenuItem>,
+    focus: FocusHandle,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> Entity<PopupMenu> {
+    let min_w = theme(cx).px(200.0);
+    PopupMenu::build(window, cx, |mut menu, _, _| {
+        for item in items {
+            menu = menu.item(item);
+        }
+        menu.min_w(min_w).action_context(focus)
+    })
 }
 
 pub(crate) fn to_modifiers(m: gpui_kit::Modifiers) -> volna_core::geometry::Modifiers {
@@ -522,16 +551,25 @@ impl Workspace {
             let Some(request) = self.route_remote(request, cx) else {
                 continue;
             };
-            cx.spawn(async move |this, cx| {
-                let result = cx.background_spawn(async move { request.perform() }).await;
-                this.update(cx, |this, cx| {
-                    this.app.deliver(result);
-                    this.after(None, cx);
-                })
-                .ok();
-            })
-            .detach();
+            self.spawn_request(request, cx);
         }
+    }
+
+    /// Perform one load on the background executor and deliver its result.
+    pub(crate) fn spawn_request(
+        &mut self,
+        request: volna_core::session::LoadRequest,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move { request.perform() }).await;
+            this.update(cx, |this, cx| {
+                this.app.deliver(result);
+                this.after(None, cx);
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Keep the GPUI popup in step with the core's format menu.
@@ -578,14 +616,7 @@ impl Workspace {
                     }))
             })
             .collect();
-        let focus = self.waves_focus.clone();
-        let min_w = theme(cx).px(200.0);
-        let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
-            for item in items {
-                menu = menu.item(item);
-            }
-            menu.min_w(min_w).action_context(focus)
-        });
+        let menu = build_popup(items, self.waves_focus.clone(), window, cx);
         cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
             this.dispatch_if_current(generation, Command::MenuDismiss(panel), None, cx);
         })
@@ -645,25 +676,6 @@ impl Workspace {
     pub fn set_session(&mut self, session: std::sync::Arc<dyn Session>, cx: &mut Context<Self>) {
         self.app.set_session(session);
         self.after(None, cx);
-    }
-
-    /// Run a request the way the load loop would, for tests that need to
-    /// control completion order.
-    #[cfg(test)]
-    pub(crate) fn queue(
-        &mut self,
-        request: volna_core::session::LoadRequest,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move { request.perform() }).await;
-            this.update(cx, |this, cx| {
-                this.app.deliver(result);
-                this.after(None, cx);
-            })
-            .ok();
-        })
-        .detach();
     }
 
     fn open_file_dialog(&mut self, cx: &mut Context<Self>) {
@@ -802,14 +814,7 @@ impl Workspace {
             }))
         })
         .collect();
-        let focus = self.focus_handle.clone();
-        let min_w = theme(cx).px(200.0);
-        let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
-            for item in items {
-                menu = menu.item(item);
-            }
-            menu.min_w(min_w).action_context(focus)
-        });
+        let menu = build_popup(items, self.focus_handle.clone(), window, cx);
         cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
             this.stress_menu = None;
             cx.notify();
@@ -982,12 +987,18 @@ impl Workspace {
                 )
                 .selected(self.app.sidebar_visible)
                 .tooltip("Toggle sidebar (⌘B)")
-                .on_click(cx.listener(|this, _, w, cx| this.toggle_sidebar(&ToggleSidebar, w, cx))),
+                .on_click(
+                    cx.listener(|this, _, w, cx| {
+                        this.dispatch(Command::ToggleSidebar, Some(w), cx)
+                    }),
+                ),
             )
             .child(
                 icon_button("open-file", IconName::FolderOpen, t.bar, t.bar_hover, cx)
                     .tooltip("Open trace (⌘O)")
-                    .on_click(cx.listener(|this, _, w, cx| this.open_file(&OpenFile, w, cx))),
+                    .on_click(cx.listener(|this, _, w, cx| {
+                        this.dispatch(Command::RequestOpenDialog, Some(w), cx)
+                    })),
             )
             .child(
                 icon_button("open-settings", IconName::Settings, t.bar, t.bar_hover, cx)
@@ -1222,7 +1233,9 @@ impl Workspace {
                         .label("Open File…")
                         .icon(gpui_kit::component::Icon::empty().path(IconName::FolderOpen.path()))
                         .primary()
-                        .on_click(cx.listener(|this, _, w, cx| this.open_file(&OpenFile, w, cx))),
+                        .on_click(cx.listener(|this, _, w, cx| {
+                            this.dispatch(Command::RequestOpenDialog, Some(w), cx)
+                        })),
                 ),
             )
             .child(
@@ -1493,69 +1506,21 @@ impl Render for Workspace {
                     }
                 },
             ));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel1, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(0)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel2, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(1)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel3, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(2)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel4, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(3)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel5, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(4)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel6, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(5)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel7, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(6)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel8, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(7)),
-                Some(window),
-                cx,
-            );
-        }));
-        root = root.on_action(cx.listener(|this, _: &FocusPanel9, window, cx| {
-            this.dispatch(
-                Command::Panels(volna_core::panels::PanelsCommand::FocusIndex(8)),
-                Some(window),
-                cx,
-            );
-        }));
+        root = focus_panel_actions!(
+            root,
+            cx,
+            [
+                (FocusPanel1, 0),
+                (FocusPanel2, 1),
+                (FocusPanel3, 2),
+                (FocusPanel4, 3),
+                (FocusPanel5, 4),
+                (FocusPanel6, 5),
+                (FocusPanel7, 6),
+                (FocusPanel8, 7),
+                (FocusPanel9, 8)
+            ]
+        );
         root = root
             .on_action(cx.listener(|this, _: &UiZoomIn, window, cx| {
                 this.dispatch(

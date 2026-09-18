@@ -11,10 +11,10 @@ use volna_core::workspace::{
     state::State,
 };
 
-pub const SETTINGS_FILE: &str = "settings.json";
-pub const STATE_FILE: &str = "state.json";
-pub const SCHEMA_FILE: &str = "settings.schema.json";
-pub const THEMES_DIR: &str = "themes";
+const SETTINGS_FILE: &str = "settings.json";
+const STATE_FILE: &str = "state.json";
+const SCHEMA_FILE: &str = "settings.schema.json";
+const THEMES_DIR: &str = "themes";
 
 pub struct Store {
     pub config_dir: PathBuf,
@@ -61,23 +61,23 @@ impl Store {
         })
     }
 
-    pub fn settings_path(&self) -> PathBuf {
+    fn settings_path(&self) -> PathBuf {
         self.config_dir.join(SETTINGS_FILE)
     }
 
-    pub fn themes_dir(&self) -> PathBuf {
+    fn themes_dir(&self) -> PathBuf {
         self.config_dir.join(THEMES_DIR)
     }
 
     /// The `$schema` value a fresh document points at; the schema file is
     /// regenerated beside it on every start so external editors stay current.
-    pub fn schema_uri() -> String {
+    fn schema_uri() -> String {
         format!("./{SCHEMA_FILE}")
     }
 
     /// Move a version 1 `preferences.json` into `settings.json` and
     /// `state.json` once; the old file is renamed afterwards.
-    pub fn migrate_preferences(&self) -> Result<bool> {
+    fn migrate_preferences(&self) -> Result<bool> {
         let old = self.config_dir.join("preferences.json");
         if !old.exists() || self.settings_path().exists() {
             return Ok(false);
@@ -100,7 +100,7 @@ impl Store {
 
     /// `settings.json` text, `None` when absent. Errors are reported to the
     /// core, which then never writes the file.
-    pub fn read_settings(&self) -> Result<Option<String>> {
+    fn read_settings(&self) -> Result<Option<String>> {
         match read_limited(&self.settings_path(), settings::store::MAX_BYTES)? {
             Some(bytes) => Ok(Some(
                 String::from_utf8(bytes).context("settings.json is not UTF-8")?,
@@ -109,13 +109,13 @@ impl Store {
         }
     }
 
-    pub fn write_settings(&self, bytes: &[u8]) -> Result<()> {
+    fn write_settings(&self, bytes: &[u8]) -> Result<()> {
         std::fs::create_dir_all(&self.config_dir)?;
         atomic_write(&self.settings_path(), bytes)
     }
 
     /// Regenerate the schema external editors read through `$schema`.
-    pub fn write_schema(&self) -> Result<()> {
+    fn write_schema(&self) -> Result<()> {
         std::fs::create_dir_all(&self.config_dir)?;
         let schema = serde_json::to_vec_pretty(&settings::schema::json_schema(Host::Native))?;
         let path = self.config_dir.join(SCHEMA_FILE);
@@ -127,7 +127,7 @@ impl Store {
 
     /// Recent lists. An unreadable or incompatible file yields empty lists and
     /// disables writes so the file is never destroyed.
-    pub fn state(&mut self) -> State {
+    fn state(&mut self) -> State {
         let path = self.config_dir.join(STATE_FILE);
         match read_limited(&path, volna_core::workspace::state::MAX_BYTES)
             .and_then(|bytes| bytes.map(|b| State::parse(&b)).transpose())
@@ -142,7 +142,7 @@ impl Store {
         }
     }
 
-    pub fn save_state(&self, state: &State) -> Result<()> {
+    fn save_state(&self, state: &State) -> Result<()> {
         ensure!(
             self.state_writable,
             "state.json not overwritten after a read or format error"
@@ -152,7 +152,7 @@ impl Store {
     }
 
     /// Palette names: the stems of `themes/*.json`, sorted.
-    pub fn theme_names(&self) -> Vec<String> {
+    fn theme_names(&self) -> Vec<String> {
         let mut names: Vec<String> = std::fs::read_dir(self.themes_dir())
             .into_iter()
             .flatten()
@@ -170,7 +170,7 @@ impl Store {
     }
 
     /// Resolve `appearance.theme` to a core theme; bundled themes need no file.
-    pub fn theme(&self, name: &str) -> Result<volna_core::Theme> {
+    pub(crate) fn theme(&self, name: &str) -> Result<volna_core::Theme> {
         if let Some(theme) = volna_core::Theme::builtin(name) {
             return Ok(theme);
         }
@@ -185,7 +185,7 @@ impl Store {
 
     /// Watch the config directory (settings and themes). The callback runs on
     /// the watcher thread with the paths that changed.
-    pub fn watch(
+    fn watch(
         &self,
         callback: impl Fn(Vec<PathBuf>) + Send + 'static,
     ) -> Result<notify::RecommendedWatcher> {
@@ -210,11 +210,7 @@ impl Store {
         Ok(watcher)
     }
 
-    pub fn candidates(
-        &self,
-        trace_uri: &str,
-        policy: &Persistence,
-    ) -> Result<(Candidate, Candidate)> {
+    fn candidates(&self, trace_uri: &str, policy: &Persistence) -> Result<(Candidate, Candidate)> {
         ensure!(*policy != Persistence::Disabled, "persistence is disabled");
         let trace = path_from_uri(trace_uri)?;
         let mut name = trace.as_os_str().to_owned();
@@ -245,7 +241,7 @@ impl Store {
         Ok((side, back))
     }
 
-    pub fn write(&self, ticket: &SaveTicket, bytes: &[u8]) -> Result<()> {
+    fn write(&self, ticket: &SaveTicket, bytes: &[u8]) -> Result<()> {
         ensure!(bytes.len() <= MAX_BYTES, "workspace exceeds size limit");
         let path = path_from_uri(ticket.target.location())?;
         if matches!(ticket.target, Target::FallbackFile { .. }) {
@@ -279,7 +275,7 @@ fn candidate(target: Target, probe: bool) -> Candidate {
     }
 }
 
-pub fn read_limited(path: &Path, limit: usize) -> Result<Option<Vec<u8>>> {
+fn read_limited(path: &Path, limit: usize) -> Result<Option<Vec<u8>>> {
     use std::io::Read;
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
@@ -296,7 +292,7 @@ pub fn read_limited(path: &Path, limit: usize) -> Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
-pub fn file_uri(path: &Path) -> Result<String> {
+pub(crate) fn file_uri(path: &Path) -> Result<String> {
     let absolute = if path.is_absolute() {
         path.to_owned()
     } else {
@@ -311,7 +307,7 @@ pub fn path_from_uri(uri: &str) -> Result<PathBuf> {
         .to_file_path()
         .map_err(|_| anyhow::anyhow!("not a local file URI: {uri}"))
 }
-pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     let parent = path.parent().context("missing parent directory")?;
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;

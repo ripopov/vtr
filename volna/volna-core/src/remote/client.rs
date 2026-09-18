@@ -38,11 +38,12 @@ pub struct RemoteClient {
 
 impl RemoteClient {
     pub fn new(generation: u64, limit: u64, budget: MemoryBudget) -> anyhow::Result<Self> {
-        let transfer = OpenTransfer::new(1, generation, limit, budget.clone())?;
+        let request = 1;
+        let transfer = OpenTransfer::new(request, generation, limit, budget.clone())?;
         let opening = Some(transfer.command());
         Ok(Self {
             session: None,
-            request: 1,
+            request,
             limit,
             budget,
             active: Some(Active::Open {

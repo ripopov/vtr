@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::data::loaded_tracks::LoadedTrack;
+use crate::data::loaded_tracks::{LoadedGenerator, LoadedTrack};
 use crate::data::transactions::{TrackKind, TrackRef};
 use crate::data::{Hierarchy, SignalRef, Translators};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
@@ -228,22 +228,9 @@ impl Document {
                 })
                 .collect(),
         };
-        let resident: Option<Vec<_>> = ids
-            .iter()
-            .map(|id| {
-                self.tracks.values().find_map(|load| match &load.state {
-                    TrackLoadState::Ready(data) => data
-                        .generators
-                        .iter()
-                        .find(|g| g.generator() == *id)
-                        .cloned(),
-                    _ => None,
-                })
-            })
-            .collect();
-        let request_id = self.next_track_request;
-        self.next_track_request = request_id
-            .checked_add(1)
+        let resident: Option<Vec<_>> = ids.iter().map(|id| self.resident_generator(*id)).collect();
+        let request_id = self
+            .next_track_request_id()
             .ok_or_else(|| anyhow::anyhow!("track request identities exhausted"))?;
         let state = if let Some(generators) = resident {
             TrackLoadState::Ready(LoadedTrack { track, generators })
@@ -265,6 +252,24 @@ impl Document {
             },
         );
         Ok(())
+    }
+
+    /// A generator object already held by another selected track.
+    fn resident_generator(&self, id: TrackRef) -> Option<Arc<LoadedGenerator>> {
+        self.tracks.values().find_map(|load| match &load.state {
+            TrackLoadState::Ready(data) => data
+                .generators
+                .iter()
+                .find(|g| g.generator() == id)
+                .cloned(),
+            _ => None,
+        })
+    }
+
+    fn next_track_request_id(&mut self) -> Option<u64> {
+        let id = self.next_track_request;
+        self.next_track_request = id.checked_add(1)?;
+        Some(id)
     }
 
     pub fn track(&self, track: TrackRef) -> Option<&TrackLoadState> {
@@ -293,15 +298,15 @@ impl Document {
         if !matches!(load.state, TrackLoadState::Failed(_)) {
             return false;
         }
-        let Some(next) = self.next_track_request.checked_add(1) else {
+        let Some(request_id) = self.next_track_request_id() else {
             return false;
         };
-        load.request_id = self.next_track_request;
-        self.next_track_request = next;
+        let load = self.tracks.get_mut(&track).expect("checked above");
+        load.request_id = request_id;
         load.state = TrackLoadState::Loading;
         self.requests.push(LoadRequest::Track {
             generation: self.generation,
-            request_id: load.request_id,
+            request_id,
             session,
             track,
         });
@@ -399,16 +404,7 @@ impl Document {
                         // Reuse objects retained by other selected tracks. The
                         // recording is immutable for this document generation.
                         for generator in &mut loaded.generators {
-                            if let Some(resident) =
-                                self.tracks.values().find_map(|load| match &load.state {
-                                    TrackLoadState::Ready(data) => data
-                                        .generators
-                                        .iter()
-                                        .find(|g| g.generator() == generator.generator())
-                                        .cloned(),
-                                    _ => None,
-                                })
-                            {
+                            if let Some(resident) = self.resident_generator(generator.generator()) {
                                 *generator = resident;
                             }
                         }

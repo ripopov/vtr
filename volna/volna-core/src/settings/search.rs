@@ -10,7 +10,7 @@
 
 use std::ops::Range;
 
-use super::registry::{Host, Page, REGISTRY, Spec};
+use super::registry::{Host, REGISTRY, Spec};
 
 /// Why an entry matched, for the secondary line under the title.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,8 +27,6 @@ pub struct Hit {
     pub score: f64,
     /// Byte ranges in the title to highlight.
     pub title_ranges: Vec<Range<usize>>,
-    /// Byte ranges in the id (with dots replaced by spaces) to highlight.
-    pub id_ranges: Vec<Range<usize>>,
     pub matched: Matched,
 }
 
@@ -170,19 +168,12 @@ fn word_match(hay: &str, term: &str) -> Option<Match> {
 }
 
 fn best(hay: &str, term: &str, weight: f64, allow_fuzzy: bool) -> Option<Match> {
-    if let Some(w) = word_match(hay, term) {
-        return Some(Match {
-            score: w.score * weight,
-            ranges: w.ranges,
-        });
-    }
-    if allow_fuzzy && let Some(f) = fuzzy(hay, term) {
-        return Some(Match {
-            score: f.score * weight,
-            ranges: f.ranges,
-        });
-    }
-    None
+    word_match(hay, term)
+        .or_else(|| allow_fuzzy.then(|| fuzzy(hay, term)).flatten())
+        .map(|m| Match {
+            score: m.score * weight,
+            ranges: m.ranges,
+        })
 }
 
 /// Rank the registry entries available on `host` for `query`. `modified`
@@ -209,7 +200,6 @@ pub fn search(query: &str, host: Host, modified: &dyn Fn(&str) -> bool) -> Vec<H
         }
         let mut total = 0.0;
         let mut title_ranges = Vec::new();
-        let mut id_ranges = Vec::new();
         let mut matched: Option<Matched> = None;
         let id_hay = spec.id.replace('.', " ");
         let mut all = true;
@@ -272,10 +262,8 @@ pub fn search(query: &str, host: Host, modified: &dyn Fn(&str) -> bool) -> Vec<H
                 break;
             };
             total += m.score;
-            match &why {
-                Matched::Title => title_ranges.extend(m.ranges),
-                Matched::Id => id_ranges.extend(m.ranges),
-                _ => {}
+            if why == Matched::Title {
+                title_ranges.extend(m.ranges);
             }
             if !matches!(why, Matched::Title) && matched.is_none() {
                 matched = Some(why);
@@ -289,7 +277,6 @@ pub fn search(query: &str, host: Host, modified: &dyn Fn(&str) -> bool) -> Vec<H
                 spec,
                 score: total,
                 title_ranges: merge(title_ranges),
-                id_ranges: merge(id_ranges),
                 matched: matched.unwrap_or(Matched::Title),
             },
             order,
@@ -305,17 +292,10 @@ pub fn search(query: &str, host: Host, modified: &dyn Fn(&str) -> bool) -> Vec<H
     hits.into_iter().map(|(hit, _)| hit).collect()
 }
 
-/// Hits per page, for the table of contents.
-pub fn count_per_page(hits: &[Hit]) -> Vec<(Page, usize)> {
-    Page::ALL
-        .iter()
-        .map(|page| (*page, hits.iter().filter(|h| h.spec.page == *page).count()))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::registry::Page;
 
     fn none(_: &str) -> bool {
         false

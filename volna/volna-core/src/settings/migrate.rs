@@ -30,7 +30,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             version: 1,
-            theme: "one-dark".into(),
+            theme: crate::theme::builtin::ONE_DARK.into(),
             link_by_default: Link {
                 viewport: true,
                 cursor: true,
@@ -61,7 +61,7 @@ pub fn preferences_v1(bytes: &[u8], schema_uri: Option<&str>) -> Result<Migrated
         entries.push(("$schema", Value::Text(uri.into())));
     }
     let mut keep = |id: &'static str, value: Value| {
-        if !spec(id).unwrap().is_default(&value) {
+        if spec(id).unwrap().default.value() != value {
             entries.push((id, value));
         }
     };
@@ -88,9 +88,9 @@ pub fn preferences_v1(bytes: &[u8], schema_uri: Option<&str>) -> Result<Migrated
     Ok(Migrated {
         settings,
         state: State {
-            version: crate::workspace::state::VERSION,
             recent_traces: prefs.recent_traces,
             recent_workspaces: prefs.recent_workspaces,
+            ..State::new()
         },
     })
 }

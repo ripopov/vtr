@@ -65,6 +65,14 @@ pub struct Panel {
 }
 
 impl Panel {
+    fn new(id: PanelId, kind: PanelKind) -> Self {
+        Self {
+            id,
+            title: None,
+            kind,
+        }
+    }
+
     pub fn title(&self) -> String {
         self.title.clone().unwrap_or_else(|| match self.kind {
             PanelKind::Waves(_) => format!("Waves {}", self.id.0),
@@ -93,14 +101,7 @@ impl Panels {
         let id = PanelId(1);
         Self {
             layout: Layout::single(id),
-            panels: BTreeMap::from([(
-                id,
-                Panel {
-                    id,
-                    title: None,
-                    kind: PanelKind::Waves(Box::default()),
-                },
-            )]),
+            panels: BTreeMap::from([(id, Panel::new(id, PanelKind::Waves(Box::default())))]),
             focused: id,
             next_id: 2,
             revision: 0,
@@ -155,13 +156,9 @@ impl Panels {
             return self.focus(id);
         }
         ensure!(self.len() < MAX_PANELS, "panel limit reached");
-        let next = self
-            .next_id
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("panel IDs exhausted"))?;
-        let id = PanelId(self.next_id);
+        let id = self.unused_id()?;
         self.advance()?;
-        self.next_id = next;
+        self.next_id = id.0 + 1;
         self.insert_settings(id, self.focused, true);
         Ok(true)
     }
@@ -174,14 +171,7 @@ impl Panels {
                 *active = id;
             }
         }
-        self.panels.insert(
-            id,
-            Panel {
-                id,
-                title: None,
-                kind: PanelKind::Settings,
-            },
-        );
+        self.panels.insert(id, Panel::new(id, PanelKind::Settings));
         if focus {
             self.focused = id;
         }
@@ -250,6 +240,14 @@ impl Panels {
 
     fn ids(&self) -> BTreeSet<PanelId> {
         self.panels.keys().copied().collect()
+    }
+
+    /// The next panel ID, reserved by the caller with `next_id = id.0 + 1`.
+    fn unused_id(&self) -> Result<PanelId> {
+        self.next_id
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("panel IDs exhausted"))?;
+        Ok(PanelId(self.next_id))
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -357,10 +355,7 @@ impl Panels {
     /// Splits clone content; new tabs start empty. Both inherit navigation.
     pub fn create(&mut self, source: PanelId, split: Option<Axis>) -> Result<PanelId> {
         ensure!(self.len() < MAX_PANELS, "panel limit reached");
-        let next = self
-            .next_id
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("panel IDs exhausted"))?;
+        let id = self.unused_id()?;
         let src = self
             .panels
             .get(&source)
@@ -370,7 +365,6 @@ impl Panels {
             None if split.is_none() => WaveModel::new(),
             None => bail!("cannot clone an unsupported panel"),
         };
-        let id = PanelId(self.next_id);
         let mut layout = self.layout.clone();
         if let Some(axis) = split {
             layout.split(source, id, axis);
@@ -383,17 +377,11 @@ impl Panels {
         ids.insert(id);
         layout.validate(&ids)?;
         self.advance()?;
-        self.next_id = next;
+        self.next_id = id.0 + 1;
         self.layout = layout;
         self.focused = id;
-        self.panels.insert(
-            id,
-            Panel {
-                id,
-                title: None,
-                kind: PanelKind::Waves(Box::new(waves)),
-            },
-        );
+        self.panels
+            .insert(id, Panel::new(id, PanelKind::Waves(Box::new(waves))));
         Ok(id)
     }
 
@@ -473,24 +461,13 @@ impl Panels {
     /// so delayed pointer events can never address a replacement panel. The
     /// settings tab survives the change.
     pub fn reset(&mut self, limits: Option<(u64, u64)>) -> Result<()> {
-        let next = self
-            .next_id
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("panel IDs exhausted"))?;
+        let id = self.unused_id()?;
         self.advance()?;
         let settings = self.settings_id().map(|id| (id, self.focused == id));
-        let id = PanelId(self.next_id);
-        self.next_id = next;
+        self.next_id = id.0 + 1;
         let mut waves = WaveModel::new();
         waves.reset(limits);
-        self.panels = BTreeMap::from([(
-            id,
-            Panel {
-                id,
-                title: None,
-                kind: PanelKind::Waves(Box::new(waves)),
-            },
-        )]);
+        self.panels = BTreeMap::from([(id, Panel::new(id, PanelKind::Waves(Box::new(waves))))]);
         self.layout = Layout::single(id);
         self.focused = id;
         if let Some((settings, focus)) = settings {

@@ -31,6 +31,14 @@ impl MemoryBudget {
     }
 
     pub fn reserve(&self, bytes: u64) -> anyhow::Result<Reservation> {
+        self.admit(bytes)?;
+        Ok(Reservation {
+            budget: self.clone(),
+            bytes,
+        })
+    }
+
+    fn admit(&self, bytes: u64) -> anyhow::Result<()> {
         let mut used = self.0.used.lock().expect("memory budget lock");
         let next = used.checked_add(bytes).filter(|&next| next <= self.0.limit);
         anyhow::ensure!(
@@ -38,10 +46,7 @@ impl MemoryBudget {
             "client memory budget exceeded; remove tracks or raise the limit"
         );
         *used = next.unwrap();
-        Ok(Reservation {
-            budget: self.clone(),
-            bytes,
-        })
+        Ok(())
     }
 }
 
@@ -72,20 +77,12 @@ impl Reservation {
         })
     }
     /// Extend one object's reservation as its checked decoded lengths arrive.
-    pub fn grow(&mut self, bytes: u64) -> anyhow::Result<()> {
+    pub(crate) fn grow(&mut self, bytes: u64) -> anyhow::Result<()> {
         let total = self
             .bytes
             .checked_add(bytes)
             .ok_or_else(|| anyhow::anyhow!("memory size overflow"))?;
-        let mut used = self.budget.0.used.lock().expect("memory budget lock");
-        let next = used
-            .checked_add(bytes)
-            .filter(|&next| next <= self.budget.0.limit);
-        anyhow::ensure!(
-            next.is_some(),
-            "client memory budget exceeded; remove tracks or raise the limit"
-        );
-        *used = next.unwrap();
+        self.budget.admit(bytes)?;
         self.bytes = total;
         Ok(())
     }

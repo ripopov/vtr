@@ -9,8 +9,6 @@ pub use volna_core::theme::{Appearance, HostPalette, vscode};
 
 /// A resolved surface with GPUI colours.
 pub type Surface = volna_core::theme::Surface<Hsla>;
-/// Marker colours with GPUI colours.
-pub type MarkerColors = volna_core::theme::MarkerColors<Hsla>;
 
 /// The core theme with GPUI colours. Field names match the core theme.
 pub type Theme = volna_core::theme::Theme<Hsla>;
@@ -52,21 +50,20 @@ pub fn hsla(c: volna_core::Color) -> Hsla {
 
 /// Make `core` the current theme without repainting (start-up). The
 /// interface zoom already installed is kept.
-///
-/// gpui-kit's defaults are a light palette; first adopt its own dark or light
-/// base for the appearance, then project every token the chrome reads
-/// (buttons, tabs, sidebar, group boxes, inputs, switches, lists, menus) from
-/// the core surfaces, so components Volna does not restyle still match.
 pub fn set(core: CoreTheme, cx: &mut App) {
     let zoom = cx.try_global::<ThemeGlobal>().map_or(1.0, |g| g.zoom);
     set_zoomed(core, zoom, cx);
 }
 
-/// Install `base` scaled by `zoom`. gpui-kit's `Root` sets the window's rem
-/// size from the component theme's `font_size`, so every rem-based size in
-/// its chrome (the settings editor, inputs, menus, dialogs, the palette)
-/// follows the zoomed UI font size; Volna's own chrome reads the zoomed
-/// metrics and [`ThemePx`].
+/// Install `base` scaled by `zoom`. gpui-kit's defaults are a light palette;
+/// first adopt its own dark or light base for the appearance, then project
+/// every token the chrome reads (buttons, tabs, sidebar, group boxes, inputs,
+/// switches, lists, menus) from the core surfaces, so components Volna does
+/// not restyle still match. gpui-kit's `Root` sets the window's rem size from
+/// the component theme's `font_size`, so every rem-based size in its chrome
+/// (the settings editor, inputs, menus, dialogs, the palette) follows the
+/// zoomed UI font size; Volna's own chrome reads the zoomed metrics and
+/// [`ThemePx`].
 fn set_zoomed(base: CoreTheme, zoom: f32, cx: &mut App) {
     let core = base.zoomed(zoom);
     let zoom = core.zoom;
@@ -200,11 +197,6 @@ pub fn set_zoom(zoom: f32, cx: &mut App) {
     let base = cx.global::<ThemeGlobal>().base;
     set_zoomed(base, zoom, cx);
     cx.refresh_windows();
-}
-
-/// The current interface zoom factor.
-pub fn zoom(cx: &App) -> f32 {
-    cx.global::<ThemeGlobal>().zoom
 }
 
 pub fn theme(cx: &App) -> &Theme {

@@ -5,7 +5,7 @@ use super::memory::{MemoryBudget, Reservation};
 use super::transport::DATA_BYTES;
 use std::future::{Future, poll_fn};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 
 #[derive(Clone)]
@@ -57,7 +57,7 @@ impl<T> Decoder<T> {
 
     pub fn feed(&mut self, bytes: Vec<u8>) -> anyhow::Result<()> {
         anyhow::ensure!(self.parser.is_some(), "decoder finished");
-        let mut input = self.reader.0.lock().expect("decoder lock");
+        let mut input = self.reader.input();
         anyhow::ensure!(
             input.offset == input.chunk.len(),
             "unconsumed decoder input"
@@ -78,7 +78,7 @@ impl<T> Decoder<T> {
     }
 
     pub fn step(&mut self) -> anyhow::Result<Step<T>> {
-        self.reader.0.lock().expect("decoder lock").credits = 1024;
+        self.reader.input().credits = 1024;
         let parser = self
             .parser
             .as_mut()
@@ -90,7 +90,7 @@ impl<T> Decoder<T> {
             Poll::Ready(result) => {
                 self.parser = None;
                 let value = result?;
-                let mut input = self.reader.0.lock().expect("decoder lock");
+                let mut input = self.reader.input();
                 anyhow::ensure!(
                     input.consumed == input.declared,
                     "truncated or trailing object data"
@@ -99,7 +99,7 @@ impl<T> Decoder<T> {
                 Ok(Step::Ready(value, input.reservation.take().unwrap()))
             }
             Poll::Pending => {
-                let input = self.reader.0.lock().expect("decoder lock");
+                let input = self.reader.input();
                 Ok(if input.credits == 0 {
                     Step::Yield
                 } else {
@@ -111,18 +111,16 @@ impl<T> Decoder<T> {
 }
 
 impl Reader {
+    fn input(&self) -> MutexGuard<'_, Input> {
+        self.0.lock().expect("decoder lock")
+    }
+
     pub fn charged(&self) -> u64 {
-        self.0
-            .lock()
-            .expect("decoder lock")
-            .reservation
-            .as_ref()
-            .unwrap()
-            .bytes()
+        self.input().reservation.as_ref().unwrap().bytes()
     }
 
     pub fn take_since(&self, previous: u64) -> anyhow::Result<Reservation> {
-        let mut input = self.0.lock().expect("decoder lock");
+        let mut input = self.input();
         let reservation = input.reservation.as_mut().unwrap();
         let bytes = reservation
             .bytes()
@@ -132,7 +130,7 @@ impl Reader {
     }
     pub async fn checkpoint(&self) {
         poll_fn(|_| {
-            let mut input = self.0.lock().expect("decoder lock");
+            let mut input = self.input();
             if input.credits == 0 {
                 Poll::Pending
             } else {
@@ -144,9 +142,7 @@ impl Reader {
     }
 
     pub fn charge(&self, bytes: usize) -> anyhow::Result<()> {
-        self.0
-            .lock()
-            .expect("decoder lock")
+        self.input()
             .reservation
             .as_mut()
             .unwrap()
@@ -157,7 +153,7 @@ impl Reader {
         self.checkpoint().await;
         let mut written = 0;
         poll_fn(|_| {
-            let mut input = self.0.lock().expect("decoder lock");
+            let mut input = self.input();
             let count = (input.chunk.len() - input.offset).min(output.len() - written);
             output[written..written + count]
                 .copy_from_slice(&input.chunk[input.offset..input.offset + count]);
@@ -203,7 +199,7 @@ impl Reader {
 
     async fn length(&self, minimum: usize) -> anyhow::Result<usize> {
         let count = self.usize().await?;
-        let input = self.0.lock().expect("decoder lock");
+        let input = self.input();
         anyhow::ensure!(
             count
                 .checked_mul(minimum)

@@ -7,10 +7,7 @@ use anyhow::{Context, anyhow, ensure};
 use fst_reader::{FstFilter, FstHierarchyEntry, FstReader, FstSignalHandle, FstSignalValue};
 
 use super::history::VecHistory;
-use super::{
-    Direction, Hierarchy, Scope, SignalHistory, SignalRef, SignalShape, TraceInfo, Variable,
-    WaveValue,
-};
+use super::{Hierarchy, SignalHistory, SignalRef, SignalShape, TraceInfo, Variable, WaveValue};
 use crate::session::{Session, SignalLoads};
 
 pub(crate) trait Input: BufRead + Seek + Send {}
@@ -62,20 +59,11 @@ impl FstSession {
         reader
             .read_hierarchy(|entry| match entry {
                 FstHierarchyEntry::Scope { tpe, name, .. } => {
-                    let parent = scopes.last().copied();
-                    let id = hierarchy.scopes.len();
-                    hierarchy.scopes.push(Scope {
+                    let id = hierarchy.push_scope(
                         name,
-                        kind: vtr::ScopeType::from_code(tpe as u16).name().into(),
-                        parent,
-                        children: Vec::new(),
-                        vars: Vec::new(),
-                    });
-                    if let Some(parent) = parent {
-                        hierarchy.scopes[parent].children.push(id);
-                    } else {
-                        hierarchy.roots.push(id);
-                    }
+                        vtr::ScopeType::from_code(tpe as u16).name().into(),
+                        scopes.last().copied(),
+                    );
                     scopes.push(id);
                 }
                 FstHierarchyEntry::UpScope if scopes.pop().is_none() => {
@@ -113,16 +101,7 @@ impl FstSession {
                     }
                     let scope = scopes.last().copied().unwrap_or_else(|| {
                         *top.get_or_insert_with(|| {
-                            let id = hierarchy.scopes.len();
-                            hierarchy.scopes.push(Scope {
-                                name: "(top)".into(),
-                                kind: "module".into(),
-                                parent: None,
-                                children: Vec::new(),
-                                vars: Vec::new(),
-                            });
-                            hierarchy.roots.push(id);
-                            id
+                            hierarchy.push_scope("(top)".into(), "module".into(), None)
                         })
                     });
                     let id = hierarchy.vars.len();
@@ -132,12 +111,7 @@ impl FstSession {
                         shape,
                         signal,
                         var_type: vtr::VarType::from_code(tpe as u16).name().into(),
-                        direction: match vtr::Direction::from_u8(direction as u8) {
-                            vtr::Direction::Input => Direction::Input,
-                            vtr::Direction::Output => Direction::Output,
-                            vtr::Direction::InOut => Direction::InOut,
-                            _ => Direction::None,
-                        },
+                        direction: vtr::Direction::from_u8(direction as u8).into(),
                     });
                     hierarchy.scopes[scope].vars.push(id);
                 }

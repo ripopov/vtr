@@ -33,10 +33,6 @@ pub struct VarKeyOutcome {
 }
 
 impl VariableListModel {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Start over for a new hierarchy.
     pub fn reset(&mut self, h: Option<&Hierarchy>) {
         self.scope = None;
@@ -85,7 +81,7 @@ impl VariableListModel {
         }
     }
 
-    pub fn is_searching(&self) -> bool {
+    fn is_searching(&self) -> bool {
         !self.filter.is_empty()
     }
 

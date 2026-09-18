@@ -110,7 +110,7 @@ pub fn paint_scene(scene: &Scene, painter: &Painter) {
                 name,
                 rect: r,
                 color,
-            } => paint_icon(p, *name, rect(*r), c32(*color)),
+            } => icon(p, *name, rect(*r), c32(*color)),
             Prim::PushClip(r) => {
                 let next = p.with_clip_rect(rect(*r));
                 stack.push(next);
@@ -143,13 +143,9 @@ pub fn chevron(p: &Painter, center: Pos2, expanded: bool, color: Color32) {
     p.add(egui::Shape::convex_polygon(pts, color, Stroke::NONE));
 }
 
-/// Sidebar icons drawn as strokes, so no font has to carry the glyphs.
-pub fn small_icon(p: &Painter, name: IconName, r: Rect, color: Color32) {
-    paint_icon(p, name, r, color);
-}
-
-/// Icons are drawn as strokes from their Lucide geometry (24-unit view box).
-fn paint_icon(p: &Painter, name: IconName, r: Rect, color: Color32) {
+/// Icons are drawn as strokes from their Lucide geometry (24-unit view box),
+/// so no font has to carry the glyphs.
+pub(crate) fn icon(p: &Painter, name: IconName, r: Rect, color: Color32) {
     let s = r.width() / 24.0;
     let at = |x: f32, y: f32| Pos2::new(r.min.x + x * s, r.min.y + y * s);
     let stroke = Stroke::new((2.0 * s).max(1.0), color);

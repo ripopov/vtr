@@ -98,7 +98,7 @@ impl Headless {
         self.click_with(app, x, y, PointerButton::Primary, Modifiers::NONE);
     }
 
-    pub fn click_with(
+    fn click_with(
         &mut self,
         app: &mut VolnaApp,
         x: f32,
@@ -127,11 +127,6 @@ impl Headless {
                 modifiers,
             }],
         );
-    }
-
-    pub fn double_click(&mut self, app: &mut VolnaApp, x: f32, y: f32) {
-        self.click(app, x, y);
-        self.click(app, x, y);
     }
 
     pub fn drag(&mut self, app: &mut VolnaApp, from: (f32, f32), to: (f32, f32)) {

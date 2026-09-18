@@ -391,15 +391,7 @@ impl WavePanelView {
     ) -> Self {
         let focus = cx.focus_handle();
         cx.on_focus_in(&focus, window, |view, window, cx| {
-            let id = view.id;
-            _ = view.ws.update(cx, |ws, cx| {
-                ws.dispatch_if_current(
-                    view.generation,
-                    Command::Panels(PanelsCommand::Focus(id)),
-                    Some(window),
-                    cx,
-                )
-            });
+            view.dispatch(PanelsCommand::Focus(view.id), window, cx);
         })
         .detach();
         Self {

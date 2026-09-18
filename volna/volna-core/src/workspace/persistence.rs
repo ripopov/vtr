@@ -24,7 +24,7 @@ impl Target {
             Self::Storage { .. } => "storage:workspace",
         }
     }
-    pub fn trace_reference(&self, trace_uri: &str) -> Result<String> {
+    pub(crate) fn trace_reference(&self, trace_uri: &str) -> Result<String> {
         let trace = url::Url::parse(trace_uri).context("invalid trace URI")?;
         if let Self::File { uri } = self {
             let directory = url::Url::parse(uri)?.join(".")?;
@@ -163,14 +163,11 @@ impl Scheduler {
     pub fn target(&self) -> Option<&Target> {
         self.target.as_ref()
     }
-    pub fn supersedes(&self) -> Option<&str> {
+    pub(crate) fn supersedes(&self) -> Option<&str> {
         self.supersedes.as_deref()
     }
     pub fn revision(&self) -> u64 {
         self.revision
-    }
-    pub fn epoch(&self) -> u64 {
-        self.epoch
     }
     pub fn dirty(&self) -> bool {
         self.revision > self.acked
@@ -186,6 +183,10 @@ impl Scheduler {
     }
     pub fn enabled(&self) -> bool {
         self.policy != Persistence::Disabled
+    }
+    /// Unsaved changes exist and a write to the target is allowed.
+    pub(crate) fn wants_write(&self) -> bool {
+        self.enabled() && self.dirty() && !self.suspended && self.target.is_some()
     }
 
     /// Begin a fully loaded workspace, never a partially opened trace.

@@ -47,24 +47,22 @@ pub fn serve(
     let Body::Command(Command::Open { max_object_bytes }) = first.body else {
         anyhow::bail!("first command must be Open");
     };
-    let session = match open().and_then(|session| {
-        check_snapshot()?;
-        Ok(session)
-    }) {
-        Ok(session) => session,
-        Err(error) => {
-            let mut writer =
-                ResponseWriter::new(&mut input, &mut output, session_id, first.request);
-            return reply::<_, _, Metadata>(
-                &mut writer,
-                ObjectId::Metadata,
-                Err(error),
-                max_object_bytes,
-            );
-        }
-    };
-    {
+    let session = {
         let mut writer = ResponseWriter::new(&mut input, &mut output, session_id, first.request);
+        let session = match open().and_then(|session| {
+            check_snapshot()?;
+            Ok(session)
+        }) {
+            Ok(session) => session,
+            Err(error) => {
+                return reply::<_, _, Metadata>(
+                    &mut writer,
+                    ObjectId::Metadata,
+                    Err(error),
+                    max_object_bytes,
+                );
+            }
+        };
         let metadata = Metadata::from_session(session.as_ref());
         metadata.validate()?;
         reply(
@@ -73,7 +71,8 @@ pub fn serve(
             Ok(metadata),
             max_object_bytes,
         )?;
-    }
+        session
+    };
     let mut last_request = first.request;
     while let Some(packet) = read_packet(&mut input)? {
         anyhow::ensure!(

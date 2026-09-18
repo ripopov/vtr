@@ -351,7 +351,7 @@ fn split_copies_rows_but_shares_history_and_clears_transient_input() {
     doc.set_session(source.clone());
     let a = p.focused_id();
     let w = p.focused_mut().kind.waves_mut().unwrap();
-    w.add_vars(&mut doc, &[0, 1]);
+    w.add_vars(&mut doc, &[0, 1], Default::default());
     w.finish_signal(
         source.hierarchy().vars[0].signal,
         source.load_signal(source.hierarchy().vars[0].signal),

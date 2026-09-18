@@ -34,17 +34,7 @@ pub trait SignalHistory: Send + Sync {
         if n == 0 || self.time(0) > t {
             return None;
         }
-        // Invariant: time(lo) <= t, and either hi == n or time(hi) > t.
-        let (mut lo, mut hi) = (0usize, n);
-        while hi - lo > 1 {
-            let mid = lo + (hi - lo) / 2;
-            if self.time(mid) <= t {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
-        Some(lo)
+        Some(bisect(self, 0, n, t))
     }
 
     /// Like [`index_at`](Self::index_at) but starts an exponential search from
@@ -68,16 +58,7 @@ pub trait SignalHistory: Send + Sync {
                     break;
                 }
             }
-            let mut hi = hi.min(n);
-            while hi - lo > 1 {
-                let mid = lo + (hi - lo) / 2;
-                if self.time(mid) <= t {
-                    lo = mid;
-                } else {
-                    hi = mid;
-                }
-            }
-            Some(lo)
+            Some(bisect(self, lo, hi.min(n), t))
         } else {
             // Gallop backward: find lo with time(lo) <= t, or conclude None.
             if self.time(0) > t {
@@ -91,15 +72,7 @@ pub trait SignalHistory: Send + Sync {
                 step <<= 1;
                 lo = hint.saturating_sub(step);
             }
-            while hi - lo > 1 {
-                let mid = lo + (hi - lo) / 2;
-                if self.time(mid) <= t {
-                    lo = mid;
-                } else {
-                    hi = mid;
-                }
-            }
-            Some(lo)
+            Some(bisect(self, lo, hi, t))
         }
     }
 
@@ -129,8 +102,22 @@ pub trait SignalHistory: Send + Sync {
     }
 }
 
-/// A history held entirely in memory as parallel `times`/`values` arrays.
-/// Used by tests and by the synthetic source's in-memory mode.
+/// Narrow `[lo, hi)` to the last index with `time <= t`.
+/// Invariant: `time(lo) <= t`, and either `hi == len` or `time(hi) > t`.
+fn bisect<H: SignalHistory + ?Sized>(h: &H, mut lo: usize, mut hi: usize, t: u64) -> usize {
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if h.time(mid) <= t {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// A history held entirely in memory as parallel `times`/`values` arrays,
+/// used by the FST loader, remote sessions and tests.
 pub struct VecHistory {
     pub shape: SignalShape,
     pub times: Vec<u64>,

@@ -1,8 +1,8 @@
 //! Raw transaction records and catalog. Identities are local to an open session;
 //! names and attribute values are resolved, with no backend string handles.
 
-// These are semantic enums, not reader handles or storage representations.
 use serde::{Deserialize, Serialize};
+// Semantic enums, not reader handles or storage representations.
 pub use vtr::{AttrPhase, TxKind, TxStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

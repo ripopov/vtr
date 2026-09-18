@@ -69,14 +69,6 @@ impl Rect {
     pub fn is_empty(&self) -> bool {
         self.size.width <= 0.0 || self.size.height <= 0.0
     }
-
-    pub fn intersect(&self, other: &Rect) -> Rect {
-        let x0 = self.left().max(other.left());
-        let y0 = self.top().max(other.top());
-        let x1 = self.right().min(other.right());
-        let y1 = self.bottom().min(other.bottom());
-        Rect::from_xywh(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
-    }
 }
 
 /// Keyboard modifiers. `platform` is Command on macOS and the Windows/Super
