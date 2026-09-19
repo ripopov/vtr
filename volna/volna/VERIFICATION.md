@@ -21,6 +21,7 @@ For focused checks:
 cargo test --locked -p volna-core
 cargo test --locked -p volna-core --test fst
 cargo test --locked -p volna-core --test transactions
+cargo test --locked -p volna-core --test pipeline       # pipeline panel: open, load, paint, zoom, sync, save/restore
 cargo test --locked -p volna-core --test settings      # settings.json store, edits, search, the Settings tab
 cargo test --locked -p volna --all-features            # includes the manifest check and the settings render test
 cargo test --locked -p volna-egui --test screenshots
@@ -38,6 +39,7 @@ node --test volna/volna/vscode-ext/trace-host.test.cjs
 | FST input | Plain/gzip fixtures, raw bytes, reals, nine-state values, aliases, EVCD payloads, event occurrences, unavailable samples and explicit unsupported metadata errors |
 | FST/VTR parity | Values at every change timestamp in the committed Verilator features, operators and pipeline recordings |
 | Transactions | Unsupported versus empty capabilities, typed attributes and phases, events, stages, parents, inclusive overlap boundaries, filtering, early stopping and cross-stream relations |
+| Pipeline panel | Enter on a stream or generator opens a panel without a notice and queues one track load; a second panel on a resident track queues nothing; one quad per visible primary-lane stage and one band per overlay; zoom about the pointer keeps the time and row under it at interface zoom 1 and 2; linked wheel zoom moves the wave panel, unlinked does not; trackpad deltas pan; a click sets the shared cursor to the integer cycle and the wave value column follows; density steps bound painted rows by pixels; flushed and open rows differ by colour; workspace round trip, unresolved tracks and invalid saved rows; closing the last panel releases the track and a late delivery is ignored; failed loads retry; the checked-in showcase opens both cores |
 | GPUI adapter | Production loading executor, input filtering/Escape, keyboard popup selection/dismissal, theme changes and nonblank Metal frames |
 | egui adapter | Production loading executor, VTR/FST opening, sidebar/divider dragging, filtering, selection, zoom/pan/fit and software-rendered screenshots |
 | Workspace codec and lifecycle | Exact integer times, unknown panels/formats, unresolved locators, atomic prepare/commit, malformed and oversized inputs, idle revisions, ticket races, fallback precedence, Save As and transition flush failures |
@@ -172,6 +174,32 @@ same cursor values and filtered waveform view. This covers a small RTL recording
 in one theme and scale. It does not establish large-object performance, other
 themes/scales, or transaction rendering. Animation-frame samples from background
 windows are throttled and must not be used to claim frame-time parity.
+
+## Pipeline panel checks
+
+`cargo test -p volna-core --test pipeline` builds a small PIPELINE trace and
+exercises the headless checks listed above; its last test opens the checked-in
+`volna/volna/examples/pipeline_showcase.vtr` (see the examples README). The
+macOS harness (`cargo test -p volna --features visual-test --test viewer`) opens
+that trace, activates both `pipeline` streams from the sidebar, asserts two
+ready panels of more than 500 rows, wheel-zooms about a point, clicks to set
+the cursor and saves `pipeline-two-cores` and `pipeline-zoomed-cursor`. Inspect
+them for: the cycle axis and `cycle` unit in every panel, stage cells in the
+first-appearance ladder colours with names once rows are tall enough, grey
+stall bands over the lower part of rows, red-tinted flushed rows with a tick in
+the label column, the dashed edge of open rows, the shared cursor chip at the
+same cycle in the wave and pipeline panels, and the hover text in the status
+bar (`#row · stage [begin, end) · label`).
+
+In each frontend (native, standalone web, VS Code), open the showcase, double
+click `soc.cpu0.pipeline`, then: wheel over the cells (both axes zoom about the
+pointer, the wave panel follows; in a browser every wheel is a precise scroll,
+so hold Ctrl/⌘ to zoom), two-finger scroll (both axes pan), Shift+wheel
+(time only), left drag (pans; a short press sets the cursor), `↑ ↓`, `= -`,
+`F`, `L` then wheel again (the wave panel stays), `M`, drag the label divider,
+split the panel (`⌘\`, the copy shows the same track without a new load),
+close panels, and restore a saved workspace with a pipeline panel. Rows below
+two pixels must stay responsive over ten thousand rows.
 
 ## Hierarchy browser checks
 
@@ -408,8 +436,9 @@ its change handler, using absolute fixture paths.
 
 ### Browser transaction loading
 
-There is no transaction panel yet. The opt-in `remote-profile` diagnostic
-consumer exercises production document ownership, transport, decoder and indexes:
+The pipeline panel is the production consumer of complete tracks. The opt-in
+`remote-profile` diagnostic consumer still exercises document ownership,
+transport, decoder and indexes without a panel:
 
 ```sh
 VOLNA_WEB_FEATURES=remote-profile volna/volna/web/build.sh

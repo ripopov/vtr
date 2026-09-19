@@ -56,6 +56,11 @@ impl RemoteClient {
         })
     }
 
+    /// The server's identity for the open recording, once it is open.
+    pub fn session(&self) -> Option<u64> {
+        self.session
+    }
+
     /// Submit the same work item used by the local executor. Rejected work
     /// returns a normal completion for the document to deliver.
     pub fn submit(&mut self, request: LoadRequest) -> Result<(), LoadResult> {

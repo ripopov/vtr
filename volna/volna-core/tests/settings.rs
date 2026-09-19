@@ -157,7 +157,7 @@ fn syntax_errors_keep_values_and_block_gui_edits_until_fixed() {
     // New panels take the live default.
     app.open_synthetic(10);
     pump(&mut app);
-    assert!(app.panels.focused_waves().unwrap().link.viewport);
+    assert!(app.panels.focused_waves().unwrap().nav.link.viewport);
 }
 
 #[test]

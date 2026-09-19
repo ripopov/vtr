@@ -9,36 +9,17 @@ use std::sync::Arc;
 use web_time::Instant;
 
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
-use super::viewport::{Viewport, ViewportState};
+use super::viewport::Viewport;
 use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
 use crate::document::Document;
 use crate::geometry::{Modifiers, MouseButton, Point, point};
+use crate::nav::NavState;
+pub use crate::nav::{Link, LinkDim};
 use crate::selection;
 use crate::theme::Theme;
 
 /// A ⌘-drag narrower than this (at zoom 1.0) is a click, not a zoom range.
 pub const ZOOM_RANGE_MIN_PX: f32 = 4.0;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Link {
-    pub viewport: bool,
-    pub cursor: bool,
-}
-
-impl Default for Link {
-    fn default() -> Self {
-        Self {
-            viewport: true,
-            cursor: true,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LinkDim {
-    Viewport,
-    Cursor,
-}
 
 /// A row is either bound to this session or retains an unresolved durable locator.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,12 +121,14 @@ pub enum PointerEvent {
     Up,
     /// The pointer left the panel (or the window).
     Leave,
-    /// Wheel or trackpad scroll in logical pixels.
+    /// Wheel or trackpad scroll in logical pixels. `precise` marks trackpad
+    /// deltas (pixel-exact scrolling) as opposed to mouse wheel notches.
     Wheel {
         position: Point,
         dx: f32,
         dy: f32,
         modifiers: Modifiers,
+        precise: bool,
     },
     /// Trackpad pinch; `delta` is the scale change of this event.
     Pinch {
@@ -158,9 +141,8 @@ pub struct WaveModel {
     pub items: Vec<DisplayedSignal>,
     pub selected: BTreeSet<usize>,
     pub anchor: Option<usize>,
-    pub link: Link,
-    pub local_viewport: ViewportState,
-    pub local_cursor: Option<u64>,
+    /// Link flags and the local viewport/cursor kept while unlinked.
+    pub nav: NavState,
     pub scroll_y: f32,
     pub names_width: f32,
     pub values_width: f32,
@@ -190,57 +172,15 @@ impl Default for WaveModel {
 
 impl WaveModel {
     pub fn viewport(&self, doc: &Document) -> Viewport {
-        self.viewport_state(doc).viewport
-    }
-
-    pub fn viewport_state<'a>(&'a self, doc: &'a Document) -> &'a ViewportState {
-        if self.link.viewport {
-            &doc.shared.viewport
-        } else {
-            &self.local_viewport
-        }
-    }
-
-    fn viewport_state_mut<'a>(&'a mut self, doc: &'a mut Document) -> &'a mut ViewportState {
-        if self.link.viewport {
-            &mut doc.shared.viewport
-        } else {
-            &mut self.local_viewport
-        }
+        self.nav.viewport(doc)
     }
 
     pub fn cursor(&self, doc: &Document) -> Option<u64> {
-        if self.link.cursor {
-            doc.shared.cursor
-        } else {
-            self.local_cursor
-        }
+        self.nav.cursor(doc)
     }
 
     pub fn set_cursor(&mut self, doc: &mut Document, cursor: Option<u64>) -> bool {
-        let current = if self.link.cursor {
-            &mut doc.shared.cursor
-        } else {
-            &mut self.local_cursor
-        };
-        let changed = *current != cursor;
-        *current = cursor;
-        changed
-    }
-
-    pub fn toggle_link(&mut self, doc: &Document, dim: LinkDim) {
-        match dim {
-            LinkDim::Viewport => {
-                // Discard local animation on either edge. Unlink starts at
-                // the exact shared frame, without inheriting an animation.
-                self.local_viewport.set(doc.shared.viewport.viewport);
-                self.link.viewport = !self.link.viewport;
-            }
-            LinkDim::Cursor => {
-                self.local_cursor = doc.shared.cursor;
-                self.link.cursor = !self.link.cursor;
-            }
-        }
+        self.nav.set_cursor(doc, cursor)
     }
 
     /// Copy persistent view content, sharing immutable histories. Pixel
@@ -258,9 +198,7 @@ impl WaveModel {
                 BTreeSet::new()
             },
             anchor: if with_rows { self.anchor } else { None },
-            link: self.link,
-            local_viewport: ViewportState::new(self.local_viewport.viewport),
-            local_cursor: self.local_cursor,
+            nav: self.nav.clone_view(),
             scroll_y: if with_rows { self.scroll_y } else { 0.0 },
             names_width: self.names_width,
             values_width: self.values_width,
@@ -273,9 +211,7 @@ impl WaveModel {
             items: Vec::new(),
             selected: BTreeSet::new(),
             anchor: None,
-            link: Link::default(),
-            local_viewport: ViewportState::new(Viewport::fit((0, 1000))),
-            local_cursor: None,
+            nav: NavState::new(),
             scroll_y: 0.0,
             names_width: 220.0,
             values_width: 120.0,
@@ -296,19 +232,15 @@ impl WaveModel {
 
     /// Forget every row and interaction; called when the document's session changes.
     pub fn reset(&mut self, limits: Option<(u64, u64)>) {
-        self.local_cursor = None;
+        self.nav.reset(limits);
         self.items.clear();
         self.selected.clear();
         self.anchor = None;
         self.scroll_y = 0.0;
-        self.local_viewport.set(self.local_viewport.viewport);
         self.menu = None;
         self.drag = None;
         self.hover_row = None;
         self.badge_hover = None;
-        if let Some(limits) = limits {
-            self.local_viewport.set(Viewport::fit(limits));
-        }
     }
 
     /// The layout of the last frame (see [`WaveModel::layout`]).
@@ -317,11 +249,11 @@ impl WaveModel {
     }
 
     pub fn is_animating(&self) -> bool {
-        !self.link.viewport && self.local_viewport.is_animating()
+        self.nav.is_animating()
     }
 
     pub fn tick(&mut self, now: Instant) -> bool {
-        !self.link.viewport && self.local_viewport.tick(now)
+        self.nav.tick(now)
     }
 
     pub fn loaded_count(&self) -> usize {
@@ -540,91 +472,53 @@ impl WaveModel {
     }
 
     fn animate_to(&mut self, doc: &mut Document, target: Viewport, now: Instant) {
-        let limits = doc.limits();
-        let mode = doc.navigation.animation;
-        self.viewport_state_mut(doc)
-            .animate_to(target, limits, now, mode);
+        self.nav.animate_to(doc, target, now);
     }
 
     /// Immediate zoom (mouse wheel) around a pixel position in the waves column.
     fn zoom_at(&mut self, doc: &mut Document, x_px: f32, factor: f64) {
         let w = self.wave_w();
-        let mut target = self.viewport(doc);
-        target.zoom_about(f64::from(x_px), w, factor, doc.limits());
-        self.viewport_state_mut(doc).set(target);
-    }
-
-    fn zoom_center(&mut self, doc: &mut Document, factor: f64, now: Instant) {
-        let w = self.wave_w();
-        let mut target = self.viewport_state(doc).target();
-        let anchor_x = match self.cursor(doc) {
-            Some(c) => {
-                let x = target.x_of(c as f64, w);
-                if (0.0..=w).contains(&x) { x } else { w / 2.0 }
-            }
-            None => w / 2.0,
-        };
-        target.zoom_about(anchor_x, w, factor, doc.limits());
-        self.animate_to(doc, target, now);
+        self.nav.zoom_at(doc, f64::from(x_px), w, factor);
     }
 
     pub fn zoom_in(&mut self, doc: &mut Document, now: Instant) {
-        self.zoom_center(doc, 2.0, now);
+        let w = self.wave_w();
+        self.nav.zoom_center(doc, w, 2.0, now);
     }
 
     pub fn zoom_out(&mut self, doc: &mut Document, now: Instant) {
-        self.zoom_center(doc, 0.5, now);
+        let w = self.wave_w();
+        self.nav.zoom_center(doc, w, 0.5, now);
     }
 
     pub fn zoom_fit(&mut self, doc: &mut Document, now: Instant) {
-        self.animate_to(doc, Viewport::fit(doc.limits()), now);
+        self.nav.zoom_fit(doc, now);
     }
 
     pub fn zoom_to_cursor(&mut self, doc: &mut Document, now: Instant) {
-        let Some(cursor) = self.cursor(doc) else {
-            return;
-        };
-        let half_width = self.viewport_state(doc).target().width() / 4.0;
-        let target = Viewport {
-            start: cursor as f64 - half_width,
-            end: cursor as f64 + half_width,
-        };
-        self.animate_to(doc, target, now);
+        self.nav.zoom_to_cursor(doc, now);
     }
 
     pub fn go_to_start(&mut self, doc: &mut Document, now: Instant) {
-        let mut target = self.viewport_state(doc).target();
-        target.go_to_start(doc.limits());
-        self.animate_to(doc, target, now);
+        self.nav.go_to_start(doc, now);
     }
 
     pub fn go_to_end(&mut self, doc: &mut Document, now: Instant) {
-        let mut target = self.viewport_state(doc).target();
-        target.go_to_end(doc.limits());
-        self.animate_to(doc, target, now);
+        self.nav.go_to_end(doc, now);
     }
 
     pub fn go_to_cursor(&mut self, doc: &mut Document, now: Instant) {
-        let Some(c) = self.cursor(doc) else { return };
-        let mut target = self.viewport_state(doc).target();
-        target.center_on(c as f64, doc.limits());
-        self.animate_to(doc, target, now);
+        self.nav.go_to_cursor(doc, now);
     }
 
     pub fn pan_fraction(&mut self, doc: &mut Document, frac: f64, now: Instant) {
-        let mut target = self.viewport_state(doc).target();
-        let w = target.width();
-        target.start += w * frac;
-        target.end += w * frac;
-        self.animate_to(doc, target, now);
+        self.nav.pan_fraction(doc, frac, now);
     }
 
     /// Immediate pan by pixels (mouse drag / wheel).
     fn pan_px(&mut self, doc: &mut Document, dx: f32) {
         let w = self.wave_w();
-        let mut target = self.viewport(doc);
-        target.pan_px(f64::from(dx), w, doc.limits());
-        self.viewport_state_mut(doc).set(target);
+        self.nav.pan_px(doc, f64::from(dx), w);
     }
 
     fn edge_history(&self) -> Option<Arc<dyn SignalHistory>> {
@@ -635,16 +529,6 @@ impl WaveModel {
         self.items.get(row)?.history.clone()
     }
 
-    fn reveal_cursor(&mut self, doc: &mut Document, now: Instant) {
-        let Some(c) = self.cursor(doc) else { return };
-        let c = c as f64;
-        let mut target = self.viewport(doc);
-        if c < target.start || c > target.end {
-            target.center_on(c, doc.limits());
-            self.animate_to(doc, target, now);
-        }
-    }
-
     pub fn next_edge(&mut self, doc: &mut Document, now: Instant) {
         let Some(h) = self.edge_history() else { return };
         let from = self
@@ -652,7 +536,7 @@ impl WaveModel {
             .unwrap_or(self.viewport(doc).start.max(0.0) as u64);
         if let Some(t) = h.next_change_after(from) {
             self.set_cursor(doc, Some(t));
-            self.reveal_cursor(doc, now);
+            self.nav.reveal_cursor(doc, now);
         }
     }
 
@@ -663,7 +547,7 @@ impl WaveModel {
             .unwrap_or(self.viewport(doc).end.max(0.0) as u64);
         if let Some(t) = h.prev_change_before(from) {
             self.set_cursor(doc, Some(t));
-            self.reveal_cursor(doc, now);
+            self.nav.reveal_cursor(doc, now);
         }
     }
 
@@ -780,6 +664,7 @@ impl WaveModel {
                 dx,
                 dy,
                 modifiers,
+                ..
             } => {
                 self.wheel(doc, position, dx, dy, modifiers, now);
                 true
@@ -845,7 +730,7 @@ impl WaveModel {
         let snap_px = doc.navigation.snap_px * f64::from(layout.zoom);
         if in_waves_x && button == MouseButton::Left && (modifiers.control || modifiers.platform) {
             let displayed = self.viewport(doc);
-            self.viewport_state_mut(doc).set(displayed);
+            self.nav.viewport_state_mut(doc).set(displayed);
             self.drag = Some(Drag::ZoomRange {
                 start: p,
                 current: p,

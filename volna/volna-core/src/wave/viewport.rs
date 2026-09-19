@@ -1,80 +1,10 @@
 //! The visible time window and its mapping to pixels.
 
-use web_time::Instant;
+use crate::nav::{Lerp, Tween};
 
-/// The animation belongs to the value being animated: linked panels advance
-/// the document's one animation, independent panels advance their own.
-#[derive(Clone)]
-pub struct ViewportState {
-    pub viewport: Viewport,
-    animation: Option<Animation>,
-}
-
-#[derive(Clone)]
-struct Animation {
-    from: Viewport,
-    to: Viewport,
-    start: Instant,
-    duration: std::time::Duration,
-}
-
-impl ViewportState {
-    pub fn new(viewport: Viewport) -> Self {
-        Self {
-            viewport,
-            animation: None,
-        }
-    }
-    pub fn is_animating(&self) -> bool {
-        self.animation.is_some()
-    }
-    pub fn target(&self) -> Viewport {
-        self.animation.as_ref().map_or(self.viewport, |a| a.to)
-    }
-    pub fn set(&mut self, viewport: Viewport) {
-        self.viewport = viewport;
-        self.animation = None;
-    }
-    /// Move to `target` with the user's animation mode; `Off` jumps.
-    pub fn animate_to(
-        &mut self,
-        mut target: Viewport,
-        limits: (u64, u64),
-        now: Instant,
-        mode: crate::settings::Animation,
-    ) {
-        self.tick(now);
-        target.clamp(limits);
-        let Some(duration) = mode.duration() else {
-            self.viewport = target;
-            self.animation = None;
-            return;
-        };
-        self.animation = if self.viewport.approx_eq(&target) {
-            None
-        } else {
-            Some(Animation {
-                from: self.viewport,
-                to: target,
-                start: now,
-                duration,
-            })
-        };
-    }
-    pub fn tick(&mut self, now: Instant) -> bool {
-        let Some(a) = &self.animation else {
-            return false;
-        };
-        let t = (now.saturating_duration_since(a.start).as_secs_f64() / a.duration.as_secs_f64())
-            .min(1.0);
-        self.viewport = Viewport::lerp(&a.from, &a.to, 1.0 - (1.0 - t).powi(3));
-        if t >= 1.0 {
-            self.viewport = a.to;
-            self.animation = None;
-        }
-        self.is_animating()
-    }
-}
+/// The animated time window: linked panels advance the document's one
+/// animation, independent panels advance their own.
+pub type ViewportState = Tween<Viewport>;
 
 /// Fraction of the trace length the view may scroll past either end.
 const EDGE_SPACE: f64 = 0.2;
@@ -172,15 +102,17 @@ impl Viewport {
         }
         self.end = self.start + w;
     }
+}
 
-    fn lerp(a: &Viewport, b: &Viewport, t: f64) -> Viewport {
+impl Lerp for Viewport {
+    fn lerp(&self, to: &Viewport, t: f64) -> Viewport {
         Viewport {
-            start: a.start + (b.start - a.start) * t,
-            end: a.end + (b.end - a.end) * t,
+            start: self.start + (to.start - self.start) * t,
+            end: self.end + (to.end - self.end) * t,
         }
     }
 
-    pub fn approx_eq(&self, other: &Viewport) -> bool {
+    fn approx_eq(&self, other: &Viewport) -> bool {
         let eps = self.width() * 1e-6;
         (self.start - other.start).abs() < eps && (self.end - other.end).abs() < eps
     }

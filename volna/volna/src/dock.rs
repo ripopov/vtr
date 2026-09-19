@@ -26,28 +26,29 @@ use volna_core::{App as CoreApp, Command};
 use crate::app::Workspace;
 use crate::settings_panel::SettingsPanelView;
 
-/// The GPUI view of one core panel, by kind.
+/// The GPUI view of one core panel, by kind: a core-painted canvas (waves,
+/// pipeline, or an unsupported placeholder) or the settings tab.
 pub(crate) enum PanelView {
-    Waves(Entity<WavePanelView>),
+    Canvas(Entity<CanvasPanelView>),
     Settings(Entity<SettingsPanelView>),
 }
 
 impl PanelView {
     fn handle(&self) -> Arc<dyn base::PanelView> {
         match self {
-            Self::Waves(view) => panel_handle(view.clone()),
+            Self::Canvas(view) => panel_handle(view.clone()),
             Self::Settings(view) => panel_handle(view.clone()),
         }
     }
     fn focus(&self, cx: &App) -> FocusHandle {
         match self {
-            Self::Waves(view) => view.read(cx).focus.clone(),
+            Self::Canvas(view) => view.read(cx).focus.clone(),
             Self::Settings(view) => view.read(cx).focus_handle(cx),
         }
     }
     fn entity_id(&self) -> gpui_kit::EntityId {
         match self {
-            Self::Waves(view) => view.entity_id(),
+            Self::Canvas(view) => view.entity_id(),
             Self::Settings(view) => view.entity_id(),
         }
     }
@@ -143,8 +144,16 @@ impl DockHost {
                         cx.new(|cx| SettingsPanelView::new(ws.clone(), panel.id, window, cx)),
                     )
                 } else {
-                    PanelView::Waves(cx.new(|cx| {
-                        WavePanelView::new(ws.clone(), panel.id, app.doc.generation(), window, cx)
+                    let pipeline = panel.kind.pipeline().is_some();
+                    PanelView::Canvas(cx.new(|cx| {
+                        CanvasPanelView::new(
+                            ws.clone(),
+                            panel.id,
+                            app.doc.generation(),
+                            pipeline,
+                            window,
+                            cx,
+                        )
                     }))
                 }
             });
@@ -201,7 +210,7 @@ impl DockHost {
         });
         match view {
             PanelView::Settings(view) => view.clone(),
-            PanelView::Waves(_) => unreachable!("panel {id:?} is not the settings tab"),
+            PanelView::Canvas(_) => unreachable!("panel {id:?} is not the settings tab"),
         }
     }
 
@@ -295,7 +304,10 @@ fn from_dock(state: &base::PanelState) -> Result<Layout> {
 
 fn panel_id(state: &base::PanelState) -> Result<PanelId> {
     ensure!(
-        matches!(state.panel_name.as_ref(), "volna.waves" | "volna.settings"),
+        matches!(
+            state.panel_name.as_ref(),
+            "volna.waves" | "volna.pipeline" | "volna.settings"
+        ),
         "unknown dock widget"
     );
     match &state.info {
@@ -308,14 +320,18 @@ fn panel_id(state: &base::PanelState) -> Result<PanelId> {
     }
 }
 
-pub(crate) struct WavePanelView {
+pub(crate) struct CanvasPanelView {
     ws: WeakEntity<Workspace>,
     id: PanelId,
     generation: u64,
+    /// The dock widget name records the core kind, for diagnostics only. A
+    /// panel never changes kind, so it is fixed at creation: the dock dumps
+    /// its state while the workspace is being rendered and cannot be read.
+    name: &'static str,
     focus: FocusHandle,
 }
 
-impl WavePanelView {
+impl CanvasPanelView {
     fn rename(&self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(owner) = self.ws.upgrade() else {
             return;
@@ -386,6 +402,7 @@ impl WavePanelView {
         ws: WeakEntity<Workspace>,
         id: PanelId,
         generation: u64,
+        pipeline: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -398,20 +415,25 @@ impl WavePanelView {
             ws,
             id,
             generation,
+            name: if pipeline {
+                "volna.pipeline"
+            } else {
+                "volna.waves"
+            },
             focus,
         }
     }
 }
 
-impl EventEmitter<base::PanelEvent> for WavePanelView {}
-impl Focusable for WavePanelView {
+impl EventEmitter<base::PanelEvent> for CanvasPanelView {}
+impl Focusable for CanvasPanelView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
     }
 }
-impl base::Panel for WavePanelView {
+impl base::Panel for CanvasPanelView {
     fn panel_name(&self) -> &'static str {
-        "volna.waves"
+        self.name
     }
     // Core close commands preserve the last waveform panel. Never let the
     // dock delete content behind the core's back.
@@ -419,12 +441,12 @@ impl base::Panel for WavePanelView {
         false
     }
     fn dump(&self, _: &App) -> base::PanelState {
-        let mut state = base::PanelState::new("volna.waves");
+        let mut state = base::PanelState::new(self.name);
         state.info = base::PanelInfo::panel(serde_json::json!({"id": self.id.0}));
         state
     }
 }
-impl Panel for WavePanelView {
+impl Panel for CanvasPanelView {
     fn tab_name(&self, cx: &App) -> Option<gpui_kit::SharedString> {
         self.ws
             .upgrade()?
@@ -443,8 +465,17 @@ impl Panel for WavePanelView {
 
     fn toolbar_buttons(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<Vec<Button>> {
         use gpui_kit::assets::IconName;
-        use volna_core::wave::model::LinkDim;
-        let link = self.ws.upgrade()?.read(cx).app.panels.waves(self.id)?.link;
+        use volna_core::nav::LinkDim;
+        let link = self
+            .ws
+            .upgrade()?
+            .read(cx)
+            .app
+            .panels
+            .get(self.id)?
+            .kind
+            .nav()?
+            .link;
         let link_button = |name, linked, dim, tooltip: &'static str| {
             Button::new(name)
                 .icon(if linked {
@@ -538,12 +569,17 @@ impl Panel for WavePanelView {
         )
     }
 }
-impl Render for WavePanelView {
+impl Render for CanvasPanelView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(ws) = self.ws.upgrade() else {
             return Empty.into_any_element();
         };
-        let unsupported = ws.read(cx).app.panels.waves(self.id).is_none();
+        let unsupported = ws
+            .read(cx)
+            .app
+            .panels
+            .get(self.id)
+            .is_none_or(|p| !p.kind.is_canvas());
         div()
             .id(("wave-panel", self.id.0))
             .size_full()
@@ -557,7 +593,11 @@ impl Render for WavePanelView {
                     .child("Unsupported panel — saved content is preserved")
             })
             .when(!unsupported, |el| {
-                el.child(crate::wave::WaveTable::new(ws, self.id, self.generation))
+                el.child(crate::canvas::PanelCanvas::new(
+                    ws,
+                    self.id,
+                    self.generation,
+                ))
             })
             .into_any_element()
     }

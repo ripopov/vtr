@@ -16,12 +16,12 @@ use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
 use crate::wave::layout::SCROLLBAR_W;
 use crate::wave::model::{Drag, RowSource, WaveModel, ZOOM_RANGE_MIN_PX};
-use crate::wave::timeline::{format_time, ticks};
+use crate::wave::overlay::{self, TextPainter, TimeColumn};
+use crate::wave::timeline::format_time;
 use crate::wave::viewport::Viewport;
 
 // Pixel constants are design sizes at zoom 1.0; the painter multiplies them
 // by the theme's zoom. Hairlines (1 px strokes and borders) stay one pixel.
-const TICK_SPACING_PX: f64 = 96.0;
 /// Vertical inset of the trace inside a row.
 const TRACE_PAD: f32 = 5.0;
 /// Segments narrower than this are drawn as a dense band instead of a hexagon.
@@ -49,20 +49,6 @@ fn changes_between(a: Option<usize>, b: Option<usize>) -> usize {
     }
 }
 
-struct Painter<'a> {
-    theme: &'a Theme,
-    text: &'a mut TextCache,
-    measure: &'a mut dyn TextMeasure,
-    scene: &'a mut Scene,
-    char_w: f32,
-}
-
-impl Painter<'_> {
-    fn width(&mut self, text: &str, font: FontRole, size: f32) -> f32 {
-        self.text.width(self.measure, text, font, size)
-    }
-}
-
 /// Paint `model` using the layout from its last [`WaveModel::layout`] call.
 pub fn paint(
     model: &WaveModel,
@@ -78,18 +64,24 @@ pub fn paint(
     let t = theme;
     let z = |v: f32| v * t.zoom;
     let char_w = text.width(measure, "0", FontRole::Mono, t.mono_size);
-    let mut p = Painter {
+    let mut p = TextPainter {
         theme,
         text,
         measure,
         scene,
-        char_w,
     };
     let viewport = model.viewport(doc);
     let cursor = model.cursor(doc);
-    let timescale = doc.timescale();
+    let base = doc.time_base();
     let waves = layout.waves;
-    let wave_wf = layout.wave_width_f64();
+    let column = TimeColumn {
+        header: Rect::new(
+            point(waves.left(), layout.header.top()),
+            size(waves.width(), layout.header.height()),
+        ),
+        area: waves,
+        viewport,
+    };
 
     // -- backgrounds and chrome ------------------------------------------
     p.scene.fill(bounds, t.editor.bg);
@@ -106,21 +98,8 @@ pub fn paint(
     p.scene.fill(layout.header, t.panel.bg);
 
     // -- tick grid in the waves area ---------------------------------------
-    let (tick_list, unit) = ticks(
-        &viewport,
-        wave_wf,
-        timescale,
-        TICK_SPACING_PX * f64::from(t.zoom),
-    );
-    p.scene.clipped(waves, |scene| {
-        for tick in &tick_list {
-            let x = snap(waves.left() + viewport.x_of(tick.time, wave_wf) as f32);
-            scene.fill(
-                Rect::new(point(x, waves.top()), size(1.0, waves.height())),
-                t.wave_tick,
-            );
-        }
-    });
+    let (tick_list, unit) = column.ticks(base, t.zoom);
+    overlay::grid(&mut p, &column, &tick_list);
 
     // -- rows ----------------------------------------------------------------
     let row_h = layout.row_h;
@@ -304,6 +283,7 @@ pub fn paint(
                     &viewport,
                     wave_row,
                     waves,
+                    char_w,
                     &mut p,
                 ),
             },
@@ -443,7 +423,7 @@ pub fn paint(
     );
     let (value_title, vfont, vsize, vcolor) = match cursor {
         Some(c) => (
-            format_time(c as f64, timescale),
+            format_time(c as f64, base),
             FontRole::Mono,
             t.mono_size,
             panel_theme.text,
@@ -471,130 +451,11 @@ pub fn paint(
             );
         },
     );
-    let header_waves = Rect::new(
-        point(waves.left(), header.top()),
-        size(waves.width(), header.height()),
-    );
-    {
-        let unit_w = (!unit.is_empty()).then(|| p.width(unit, FontRole::Mono, t.ui_size_small));
-        let unit_x = unit_w
-            .map(|w| header_waves.right() - w - z(SCROLLBAR_W + 4.0))
-            .unwrap_or(header_waves.right());
-        let mut labels = Vec::new();
-        for tick in &tick_list {
-            let x = snap(waves.left() + viewport.x_of(tick.time, wave_wf) as f32);
-            let w = p.width(&tick.label, FontRole::Mono, t.ui_size_small);
-            labels.push((x, tick.label.clone(), w));
-        }
-        p.scene.clipped(header_waves, |scene| {
-            for (x, label, w) in labels {
-                scene.fill(
-                    Rect::new(point(x, header.bottom() - z(7.0)), size(1.0, z(6.0))),
-                    panel_theme.text_placeholder,
-                );
-                if x + z(4.0) + w < unit_x - z(8.0) {
-                    scene.text(
-                        point(x + z(4.0), header.top() + z(2.0)),
-                        z(20.0),
-                        label,
-                        FontRole::Mono,
-                        t.ui_size_small,
-                        t.wave_tick_text,
-                    );
-                }
-            }
-            if unit_w.is_some() {
-                scene.text(
-                    point(unit_x, header.top() + z(2.0)),
-                    z(20.0),
-                    unit,
-                    FontRole::Mono,
-                    t.ui_size_small,
-                    panel_theme.text_placeholder,
-                );
-            }
-        });
-    }
+    overlay::header_ticks(&mut p, &column, &tick_list, unit);
 
-    // -- markers -----------------------------------------------------------------
-    for (ix, chip) in &layout.marker_chips {
-        let m = &doc.markers[*ix];
-        let x = snap(waves.left() + viewport.x_of(m.time as f64, wave_wf) as f32);
-        let marker = t.marker(m.id.saturating_sub(1) as usize);
-        let color = marker.stroke;
-        p.scene.clipped(waves, |scene| {
-            scene.fill(
-                Rect::new(point(x, waves.top()), size(1.0, waves.height())),
-                color,
-            );
-        });
-        let hovered = model.pointer.is_some_and(|mp| chip.contains(mp));
-        let bg = if hovered {
-            marker.hover
-        } else {
-            marker.background
-        };
-        p.scene.quad(*chip, bg, z(3.0), 0.0, Color::TRANSPARENT);
-        let label = format!("M{}", m.id);
-        let w = p.width(&label, FontRole::UiSemibold, t.ui_size_small);
-        p.scene.text(
-            point(snap(chip.left() + (chip.width() - w) / 2.0), chip.top()),
-            chip.height(),
-            label,
-            FontRole::UiSemibold,
-            t.ui_size_small,
-            if hovered {
-                marker.hover_text
-            } else {
-                marker.text
-            },
-        );
-        p.scene.cursors.push((*chip, CursorIcon::PointingHand));
-    }
-
-    // -- cursor ------------------------------------------------------------------
-    if let Some(c) = cursor {
-        let xf = viewport.x_of(c as f64, wave_wf);
-        if xf >= -1.0 && xf <= wave_wf + 1.0 {
-            let x = snap(waves.left() + xf as f32);
-            let label = format_time(c as f64, timescale);
-            let label_w = p.width(&label, FontRole::Mono, t.ui_size_small);
-            let chip_w = label_w + z(10.0);
-            let mut cx0 = x + 1.0;
-            if cx0 + chip_w > header_waves.right() - z(SCROLLBAR_W) {
-                cx0 = x - chip_w;
-            }
-            let chip = Rect::new(point(cx0, header.bottom() - z(18.0)), size(chip_w, z(16.0)));
-            p.scene.clipped(
-                Rect::new(
-                    point(waves.left(), header.top()),
-                    size(waves.width(), bounds.height()),
-                ),
-                |scene| {
-                    scene.fill(
-                        Rect::new(
-                            point(x, header.bottom() - z(8.0)),
-                            size(1.0, bounds.bottom() - header.bottom() + z(8.0)),
-                        ),
-                        if focused {
-                            t.wave_cursor
-                        } else {
-                            t.wave_cursor_inactive
-                        },
-                    );
-                    scene.quad(chip, t.wave_cursor, z(3.0), 0.0, Color::TRANSPARENT);
-                    scene.text(
-                        point(chip.left() + z(5.0), chip.top()),
-                        chip.height(),
-                        label,
-                        FontRole::Mono,
-                        t.ui_size_small,
-                        t.wave_cursor_text,
-                    );
-                },
-            );
-        }
-    }
+    // -- markers and cursor --------------------------------------------------------
+    overlay::markers(&mut p, &column, doc, &layout.marker_chips, model.pointer);
+    overlay::cursor(&mut p, &column, cursor, base, focused, z(SCROLLBAR_W));
 
     // -- borders --------------------------------------------------------------
     let drag = model.drag;
@@ -852,7 +713,8 @@ fn paint_bus_row(
     vp: &Viewport,
     area: Rect,
     clip: Rect,
-    p: &mut Painter<'_>,
+    char_w: f32,
+    p: &mut TextPainter<'_>,
 ) {
     let t = p.theme;
     let w_px = area.width().floor().max(0.0) as usize;
@@ -933,7 +795,6 @@ fn paint_bus_row(
     // Paint. Horizontal edges are crisp quads; slants are stroked lines.
     let mut slants: Vec<(ValueKind, Vec<[crate::geometry::Point; 2]>)> = Vec::new();
     let slant_w = 3.0 * t.zoom;
-    let char_w = p.char_w;
     let mut texts = Vec::new();
     p.scene.clipped(clip, |scene| {
         for seg in &segments {

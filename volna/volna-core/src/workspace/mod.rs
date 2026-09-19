@@ -1,11 +1,13 @@
 //! Frontend-neutral workspace files. Parsing and resolution are side-effect free;
 //! a validated plan installs the complete session view in one operation.
 
+use crate::nav::Tween;
 use crate::panels::{Layout, Panel, PanelId, PanelKind, Panels};
+use crate::pipeline::{PipelineModel, RowView, TrackSource};
 use crate::sidebar::ScopeTreeModel;
 use crate::wave::{
     model::{DisplayedSignal, Link, RowSource, WaveModel},
-    viewport::{Viewport, ViewportState},
+    viewport::Viewport,
 };
 use crate::{App, data::source::Lookup, document::Marker};
 use anyhow::{Context, Result, ensure};
@@ -100,6 +102,27 @@ fn present_raw<'de, D: serde::Deserializer<'de>>(
     Box::<RawValue>::deserialize(d).map(Some)
 }
 
+/// A pipeline panel: the track path, its navigation, row axis and label column.
+#[derive(Serialize, Deserialize)]
+struct PipelinePanel {
+    id: PanelId,
+    kind: String,
+    version: u32,
+    title: Option<String>,
+    track: Vec<String>,
+    link: Link,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    viewport: Option<Viewport>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_raw"
+    )]
+    cursor: Option<Box<RawValue>>,
+    rows: RowView,
+    label_width: f32,
+}
+
 #[derive(Deserialize)]
 struct PanelHeader {
     id: PanelId,
@@ -174,10 +197,27 @@ impl Workspace {
             .into_iter()
             .map(|panel| -> Result<_> {
                 let PanelKind::Waves(w) = &panel.kind else {
-                    let PanelKind::Unsupported(raw) = &panel.kind else {
-                        unreachable!("settings panels are not saved")
+                    return match &panel.kind {
+                        PanelKind::Unsupported(raw) => Ok(raw.clone()),
+                        PanelKind::Pipeline(p) => {
+                            Ok(serde_json::value::to_raw_value(&PipelinePanel {
+                                id: panel.id,
+                                kind: "pipeline".into(),
+                                version: 1,
+                                title: panel.title.clone(),
+                                track: p.track.path().to_vec(),
+                                link: p.nav.link,
+                                viewport: (!p.nav.link.viewport)
+                                    .then(|| p.nav.local_viewport.target()),
+                                cursor: (!p.nav.link.cursor)
+                                    .then(|| serde_json::value::to_raw_value(&p.nav.local_cursor))
+                                    .transpose()?,
+                                rows: p.rows.target(),
+                                label_width: p.label_width,
+                            })?)
+                        }
+                        _ => unreachable!("settings panels are not saved"),
                     };
-                    return Ok(raw.clone());
                 };
                 let rows = w
                     .items
@@ -196,10 +236,10 @@ impl Workspace {
                     kind: "waves".into(),
                     version: 1,
                     title: panel.title.clone(),
-                    link: w.link,
-                    viewport: (!w.link.viewport).then(|| w.local_viewport.target()),
-                    cursor: (!w.link.cursor)
-                        .then(|| serde_json::value::to_raw_value(&w.local_cursor))
+                    link: w.nav.link,
+                    viewport: (!w.nav.link.viewport).then(|| w.nav.local_viewport.target()),
+                    cursor: (!w.nav.link.cursor)
+                        .then(|| serde_json::value::to_raw_value(&w.nav.local_cursor))
                         .transpose()?,
                     scroll_y: w.scroll_y,
                     columns: Columns {
@@ -328,6 +368,60 @@ impl Workspace {
         for raw in self.panels {
             let header: PanelHeader =
                 serde_json::from_str(raw.get()).context("invalid panel header")?;
+            if header.kind == "pipeline" && header.version == 1 {
+                let saved: PipelinePanel =
+                    serde_json::from_str(raw.get()).context("invalid pipeline panel")?;
+                ensure!(!saved.track.is_empty(), "empty pipeline track path");
+                ensure!(
+                    saved.rows.top.is_finite()
+                        && saved.rows.row_px.is_finite()
+                        && (crate::pipeline::rows::ROW_PX_MIN..=crate::pipeline::rows::ROW_PX_MAX)
+                            .contains(&saved.rows.row_px),
+                    "invalid pipeline rows"
+                );
+                ensure!(
+                    saved.label_width.is_finite()
+                        && (crate::pipeline::layout::LABEL_W_MIN
+                            ..=crate::pipeline::layout::LABEL_W_MAX)
+                            .contains(&saved.label_width),
+                    "invalid pipeline label width"
+                );
+                ensure!(
+                    saved.link.viewport == saved.viewport.is_none(),
+                    "local viewport must exist exactly when unlinked"
+                );
+                ensure!(
+                    saved.link.cursor == saved.cursor.is_none(),
+                    "local cursor must exist exactly when unlinked"
+                );
+                let track = match session.tracks().iter().find(|t| t.path == saved.track) {
+                    Some(t) => TrackSource::Resolved {
+                        track: t.id,
+                        path: saved.track,
+                    },
+                    None => {
+                        report.push(format!("Missing pipeline track: {:?}", saved.track));
+                        TrackSource::Unresolved { path: saved.track }
+                    }
+                };
+                let mut p = PipelineModel::new(track, saved.link);
+                if let Some(v) = saved.viewport {
+                    valid_viewport(v)?;
+                    p.nav.local_viewport.set(v);
+                }
+                if let Some(c) = saved.cursor {
+                    p.nav.local_cursor =
+                        serde_json::from_str(c.get()).context("invalid local cursor")?;
+                }
+                p.rows.set(saved.rows);
+                p.label_width = saved.label_width;
+                panels.push(Panel {
+                    id: saved.id,
+                    title: saved.title,
+                    kind: PanelKind::Pipeline(Box::new(p)),
+                });
+                continue;
+            }
             if header.kind != "waves" || header.version != 1 {
                 report.push(format!(
                     "Unsupported panel {} ({} version {})",
@@ -367,13 +461,14 @@ impl Workspace {
                 "local cursor must exist exactly when unlinked"
             );
             let mut w = WaveModel::new();
-            w.link = saved.link;
+            w.nav.link = saved.link;
             if let Some(v) = saved.viewport {
                 valid_viewport(v)?;
-                w.local_viewport.set(v);
+                w.nav.local_viewport.set(v);
             }
             if let Some(c) = saved.cursor {
-                w.local_cursor = serde_json::from_str(c.get()).context("invalid local cursor")?;
+                w.nav.local_cursor =
+                    serde_json::from_str(c.get()).context("invalid local cursor")?;
             }
             w.scroll_y = saved.scroll_y;
             w.names_width = saved.columns.names;
@@ -491,10 +586,18 @@ impl RestorePlan {
         let session = app.doc.session().context("no trace open")?.clone();
         // Invalidate earlier history results before installing rows.
         app.doc.set_session(session);
-        app.doc.shared.viewport = ViewportState::new(self.shared.viewport);
+        app.doc.shared.viewport = Tween::new(self.shared.viewport);
         app.doc.shared.cursor = self.shared.cursor;
         app.doc.restore_markers(self.shared.markers);
         app.panels = self.panels;
+        let mut report = self.report;
+        for panel in app.panels.iter_mut() {
+            if let Some(p) = panel.kind.pipeline_mut()
+                && let Err(error) = p.attach(&mut app.doc)
+            {
+                report.push(format!("Pipeline {}: {error:#}", p.track.path().join(".")));
+            }
+        }
         app.scopes = self.scopes;
         app.sidebar_width = self.sidebar.width;
         app.sidebar_visible = self.sidebar.visible;
@@ -512,7 +615,7 @@ impl RestorePlan {
             }
         }
         app.workspace_restored();
-        Ok(self.report)
+        Ok(report)
     }
 }
 

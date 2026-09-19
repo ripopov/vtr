@@ -1,5 +1,41 @@
 # Volna example traces
 
+## Pipeline showcase
+
+`pipeline_showcase.vtr` exercises the pipeline panel: two synthetic cores run
+the same twelve-instruction loop and are recorded as `PIPELINE` streams
+(`soc.cpu0.pipeline` and `soc.cpu1.pipeline`, generator `instruction`) on a
+cycle time base (`time.unit = cycle`, timescale 0). `cpu0` is a five-stage
+in-order core (`F D X M W`); `cpu1` is a two-wide eight-stage core
+(`F Dc Rn Ds Is Rr X Cm`). Every instruction carries `vtr.label` (`pc: mnemonic
+operands`), `insn_id`, `pc` and `iteration` attributes and its stage cells on
+lane `0`. Cache misses extend the memory stage (`miss` stage attribute) and stall
+younger instructions, drawn as `stl` overlays on lane `stall` with a `reason`;
+every fifth (`cpu0`) or seventh (`cpu1`) branch is mispredicted and the younger
+fetched instructions are flushed (`Aborted`). Register read-after-write
+dependencies are `wakeup` relations from producer to consumer; loads and stores
+issue `soc.l2.bus` requests (`read`, `write`) parented to the instruction and
+linked by `causes`. The recording stops while several instructions of each core
+are in flight, which stay `Open`. Waveforms per core: `pc`, `fetch_valid`,
+`stall`, `flush` and `retired`.
+
+Open it, double-click either `pipeline` stream (or use View ▸ Pipeline), then
+add `soc.cpu0.stall` to the wave panel and zoom into a stall burst: the cursor
+and viewport stay linked across the panels.
+
+Regenerate from the repository root:
+
+```sh
+cargo run --locked -p vtr --example pipeline_showcase -- \
+  volna/volna/examples/pipeline_showcase.vtr
+```
+
+The [generator](../../../core/vtr/examples/pipeline_showcase.rs) simulates
+both cores deterministically (a fixed-seed xorshift decides misses), writes
+the waveforms then the transactions, reopens the file and checks the counts,
+statuses and size (below 250,000 bytes). Regenerate rather than preserve an
+older encoding when the writer changes.
+
 ## Feature showcase
 
 `feature_showcase.vtr` is a deterministic, synthetic debugging lab: 2,048 ns of
@@ -35,10 +71,12 @@ catalog, not a model of real hardware. Trace times above are raw ticks, before
 the time-zero offset. Presentation colours, source mappings for HDL, and viewer
 layout are not embedded in VTR.
 
-Volna currently displays waveforms and browses streams, generators and log sites.
-Transaction/log panels and enum-name translation remain future work; use the
-CLI or reader APIs to inspect those recorded details. The writer clips an
-unfinished stage to capture end while preserving its transaction's `Open` status.
+Volna displays waveforms, browses streams, generators and log sites, and shows
+any stream or generator as a pipeline panel (`soc.cpu.thread0` here, and the
+`memory_bus` requests as stage-less cells). Log panels and enum-name translation
+remain future work; use the CLI or reader APIs to inspect those recorded
+details. The writer clips an unfinished stage to capture end while preserving
+its transaction's `Open` status.
 
 This is a **data-model showcase**, not an exhaustive encoding or corruption-test
 corpus. It uses default compression; alternative codecs and crash recovery are

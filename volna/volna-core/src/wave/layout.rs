@@ -7,7 +7,8 @@
 use std::ops::Range;
 
 use crate::document::Marker;
-use crate::geometry::{Point, Rect, point, size, snap};
+use crate::geometry::{Point, Rect, point, size};
+use crate::wave::overlay::marker_chips;
 use crate::wave::viewport::Viewport;
 
 // Design-time sizes in logical pixels at zoom 1.0; the layout multiplies
@@ -16,7 +17,6 @@ pub const MIN_COLUMN: f32 = 72.0;
 const SPLITTER_TOLERANCE: f32 = 4.0;
 pub const SCROLLBAR_W: f32 = 10.0;
 const BADGE_W: f32 = 36.0;
-const CHIP_W: f32 = 24.0;
 
 #[derive(Clone, Debug, Default)]
 pub struct WaveLayout {
@@ -106,15 +106,14 @@ impl WaveLayout {
         }
 
         let wave_wf = f64::from(waves_w).max(1.0);
-        let mut marker_chips = Vec::new();
-        for (ix, m) in input.markers.iter().enumerate() {
-            let x = input.viewport.x_of(m.time as f64, wave_wf);
-            if x < 0.0 || x > wave_wf {
-                continue;
-            }
-            let xp = snap(waves.left() + x as f32);
-            marker_chips.push((ix, marker_chip_bounds(header, xp, z(CHIP_W), zoom)));
-        }
+        let marker_chips = marker_chips(
+            header,
+            waves.left(),
+            wave_wf,
+            input.viewport,
+            input.markers,
+            zoom,
+        );
 
         let scrollbar = if max_scroll > 0.0 && rows_h > 0.0 {
             let track = Rect::new(
@@ -194,16 +193,10 @@ impl WaveLayout {
     }
 }
 
-fn marker_chip_bounds(header: Rect, x: f32, chip_w: f32, zoom: f32) -> Rect {
-    Rect::new(
-        point(x + 1.0, header.top() + 2.0 * zoom),
-        size(chip_w, 14.0 * zoom),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wave::overlay::CHIP_W;
 
     fn layout(zoom: f32, items: usize) -> WaveLayout {
         WaveLayout::compute(LayoutInput {

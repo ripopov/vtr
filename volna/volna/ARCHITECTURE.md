@@ -12,14 +12,16 @@ VDB layer. VDB attachment is not yet implemented.
 volna/volna-core      the viewer, no GUI toolkit (builds and tests on every platform)
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
   src/document.rs        Document: open trace, shared navigation, markers, translators, loads
-  src/panels/            stable IDs, split/tab layout, focus, per-panel wave models
+  src/panels/            stable IDs, split/tab layout, focus, per-panel wave and pipeline models
+  src/nav/               Tween<T> animation, NavState (links, local viewport/cursor) of every timed panel
+  src/pipeline/          RowView row axis, PipelineModel, PipelineLayout, stage palette, painter → Scene
   src/workspace/         JSON codec, restore plans, save tickets, state.json and lifecycle
   src/settings/          registry, settings.json store (JSONC, surgical edits, diagnostics), search, schema
   src/session.rs         Session trait; OpenSpec; batched load requests/results
   src/data/fst_source.rs private fst-reader adapter and mutable reader ownership
   src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
   src/data/              values, histories, translators, hierarchy
-  src/wave/              viewport math, timeline, WaveModel, WaveLayout, painter → Scene
+  src/wave/              viewport math, timeline, WaveModel, WaveLayout, painter → Scene, shared overlay
   src/sidebar/           ScopeTreeModel, MemberListModel, semantic icons and row descriptions
   src/scene.rs           Scene display list, FontRole, TextMeasure, TextCache
   src/theme/             Theme<C> tokens, One Dark, host palettes, VS Code snapshot parser
@@ -34,7 +36,7 @@ volna/volna           GPUI frontend: native macOS app, wasm page, VS Code extens
   src/settings_panel.rs  the Settings tab: gpui-kit pages, search bar, results, item controls
   src/settings_json.rs   the JSON view: Editor with registry completion, hover and diagnostics
   src/palette.rs         the ⌘K command palette over actions and ranked settings
-  src/wave/table.rs      WaveTable element: hitboxes from the layout, paints the Scene
+  src/canvas.rs          PanelCanvas element: hitboxes from the panel layout, paints the Scene
   src/sidebar/           uniform_list rows over the core models
   src/theme.rs           core theme mapped to Hsla once per install
   src/ui/                button styling, popup placement, text input, splitter, icons, headers
@@ -73,17 +75,20 @@ Requests carry the document generation they were made under; a newer open,
 close or session replacement makes late results no-ops. Tests exercise this
 ownership model with a plain loop that performs requests in any order.
 
-**Layout and paint.** Each frame the frontend calls `layout_waves(panel, bounds,
-theme)` and then `render_waves(panel, theme, measure)` (or `render_waves_into` with its
-own buffer). The layout gives the frontend the rectangles it needs for hit
-regions; the `Scene` is a flat display list of `Quad`, `Lines`, `Text`, `Icon`
-and `PushClip`/`PopClip` primitives with resolved colours and font *roles*, plus
-the pointer shapes for hover regions. Text widths come back through the
-`TextMeasure` trait, cached per string in the core so a label is shaped once.
+**Layout and paint.** Each frame the frontend calls `layout_panel(panel, bounds,
+theme)` and then `render_panel(panel, theme, measure)` (or `render_panel_into` with its
+own buffer). The layout (`PanelLayout::Waves` or `::Pipeline`) gives the frontend
+the rectangles it needs for hit regions; the `Scene` is a flat display list of
+`Quad`, `Lines`, `Text`, `Icon` and `PushClip`/`PopClip` primitives with resolved
+colours and font *roles*, plus the pointer shapes for hover regions. Text widths
+come back through the `TextMeasure` trait, cached per string in the core so a
+label is shaped once. One element paints either kind; a frontend never matches on
+what a panel shows.
 
-Animations use an explicit clock: `tick(now)` advances the viewport animation
-and reports whether another frame is needed, so tests are deterministic and a
-frontend only requests frames while something moves.
+Animations use an explicit clock: `tick(now)` advances every `Tween` (the shared
+viewport, local viewports, pipeline row axes) and reports whether another frame
+is needed, so tests are deterministic and a frontend only requests frames while
+something moves.
 
 ## Rendering cost is O(pixels), not O(transitions)
 
@@ -121,13 +126,15 @@ shares, depth and panel count. `debug_state()` reports one line per panel in
 layout order, with its ID, focus and link flags before the waveform state.
 
 `Document` owns the session, shared viewport and cursor, markers with stable IDs
-and optional labels, translators, and load generations. Each `WaveModel` owns
-its rows, selection, columns, scroll and transient input. Its two link flags
-choose between document navigation and local navigation through effective
-accessors. Linked viewports share one animation; `App::tick` advances it once,
-plus every independent animation. Unlink snapshots the displayed shared value;
-relink adopts the retained shared position even if no panels currently follow
-it. Markers always use the focused panel's effective cursor.
+and optional labels, translators, and load generations. Every timed panel embeds
+a `nav::NavState`: two link flags choosing between document navigation and local
+navigation through effective accessors, the local viewport tween and the local
+cursor, and the time-axis commands (zoom about a pixel, fit, go to, pan) every
+panel kind shares. Each `WaveModel` adds its rows, selection, columns, scroll and
+transient input. Linked viewports share one animation; `App::tick` advances it
+once, plus every independent animation. Unlink snapshots the displayed shared
+value; relink adopts the retained shared position even if no panels currently
+follow it. Markers always use the focused panel's effective cursor.
 
 Pointer commands name a panel; keyboard actions and sidebar additions resolve
 focus when handled. Deliveries fan out shared history Arcs to all matching
@@ -163,8 +170,9 @@ mapping and activation. Whole-trace search returns variables, generators, then
 streams, with a combined 5,000-result cap and an explicit truncation indicator.
 Changing containers exits whole-trace search. Enter activates selected members;
 with no selection it adds only listed variables. The plus button always adds
-only variables. Generator and stream activation currently reports a visible
-notice without loading transactions; pipeline and log panels remain future work.
+only variables. Generator and stream activation opens a pipeline panel per
+distinct track (see below); log sites report a notice, log panels remain future
+work.
 
 GPUI paints uniform rows, stream tags, port glyphs, severity badges and the
 selected container breadcrumb. Lucide assets are bundled. Three sidebar tint
@@ -174,10 +182,74 @@ rendering shared members and glyphs without transaction activation UI.
 Tree flattening uses an explicit stack. Saved selected/expanded paths cover
 streams and retain unresolved names. Search-everywhere is transient.
 
-Raw metadata includes container roles, component names, enum references and
-generator declarations/attributes. Remote framing version **2** rejects older
-peers before decoding the changed metadata schema. Icon, tint, badge, selection
-and activation decisions stay on the client.
+Raw metadata includes container roles, component names, enum references,
+generator declarations/attributes and the producer's time unit. Remote framing
+version **3** rejects older peers before decoding the changed metadata schema.
+Icon, tint, badge, selection and activation decisions stay on the client.
+
+## Pipeline panel
+
+`PanelKind::Pipeline(PipelineModel)` draws the transactions of one stream (all
+its generators in catalog order) or one generator as Konata-style rows of stage
+cells: one row per transaction in the resident (begin, end, id) order, one cell
+per stage on the primary lane (`0` when present, else the most used lane), an
+overlay band over the lower part of the row for every other lane, one grey cell
+over the lifetime of a transaction without stages. `TxStatus::Aborted` rows are
+tinted and marked in the label column; `Open` rows end with a dashed edge. The
+label column shows the row index and the joined `vtr.label` text. Any stream
+or generator opens; the `PIPELINE` kind is only a recognition hint for the
+sidebar icon, the View ▸ Pipeline submenu and the command palette. The design
+is [docs/pipeline-view.html](../../docs/pipeline-view.html).
+
+The X axis is the document's time: the panel embeds a `NavState`, so the link
+flags, the shared viewport and cursor, markers and the `waves.animation` setting
+apply exactly as they do to wave panels, and a click sets the cursor to the
+integer cycle under the pointer. The Y axis is local: `pipeline::RowView`
+(fractional top row, row height at interface zoom 1.0) with the same
+zoom-about, pan and 20 % edge-space clamp as `Viewport`, animated through the
+same `Tween`. A mouse wheel zooms both axes about the pointer by one factor
+(`2^(dy/100 px)`, animated to the accumulated target); a trackpad's precise
+deltas pan both axes, and zoom with Ctrl/⌘ held (browsers report every wheel
+as precise pixels); Shift+wheel pans time; pinch zooms both axes immediately;
+a left drag past three pixels pans both axes, a shorter press is a click.
+Keyboard actions are the wave panel's: `= -` zoom both axes, `F C Home End`
+and the arrows move time, `↑ ↓` scroll three rows, `M ⇧M` markers, `L ⇧L`
+links, Escape cancels a drag then the cursor. Row selection, formats and edge
+actions are no-ops. No new settings or actions exist.
+
+`Command::OpenPipeline { track }` (from `ActivateMembers`, the menu, the
+palette) focuses the panel already showing the track or opens one split below
+the focused panel. `PipelineModel::attach` retains the track through
+`Document::retain_track`; a split copies the view and retains it again; closing
+a panel (`Panels::close` returns the removed panels) detaches it, so the last
+consumer releases the load and a late delivery is a no-op. The model never
+copies records: `Rows` is a view over the loaded generators' slices with prefix
+sums, `Loading`, `Failed` (with a retry button), `Unresolved` (a saved path
+that is not a track of this trace) or `Unavailable`. Remote sessions need no
+protocol change: `LoadRequest::Track` already delivers complete objects.
+
+`PipelineLayout` is computed per frame from the bounds, the zoomed row view
+(clamped and written back), the row count and the markers; it yields the
+label, cells and divider rectangles, the marker chips, the visible row range
+and the density step. Below two pixels per row the painter paints every
+`step`-th row at the step's combined height, so the number of painted rows
+never exceeds half the panel height in pixels; a step shows the flush of any
+of its rows. Painting is `O(painted rows × stages per row)`: transactions and
+stages outside the time window are skipped, cells narrower than a pixel are
+widened to one, stage names appear from ten pixels per row in cells wide
+enough for the shaped name, labels from seven. `StagePalette` assigns each
+primary-lane stage name a hue from a ladder by first appearance (a VDB stage
+table later fills the same struct). The header ticks, cursor line and chip,
+and marker lines and chips come from `wave::overlay`, shared with the wave
+painter. Times are formatted through `TimeBase`: the timescale exponent, or
+the producer's `time.unit` file attribute (`cycle`) when it names one.
+
+Workspace files save a `"pipeline"` panel: the track path, links, local
+viewport and cursor, `rows` and `label_width`; restore resolves the path
+against the track catalog and keeps unresolved tracks as an empty state that
+is written back unchanged. The autosave stamp covers the same fields. GPUI
+hosts the panel in the same `PanelCanvas` element and dock view as waves;
+egui builds against the kind and paints whatever the core produces.
 
 ## Workspace persistence
 
@@ -348,7 +420,11 @@ owned copy of their typed attributes.
 
 Both executors consume `LoadRequest` and return `LoadResult`. The remote client
 accepts requests through `submit`; submission failures return ordinary results
-with the original identities. The document owns queued-demand filtering for
+with the original identities. The browser bridge lives as long as the open
+recording: a new open or a close drops it, while a workspace restore, which
+also advances the document generation to invalidate earlier history results,
+keeps the connection because the remote session is unchanged, so restored rows
+and pipeline panels load over the same child. The document owns queued-demand filtering for
 both paths. The browser bridge handles host calls and scheduling, not per-kind
 load policy. `remote::client::RemoteClient` queues one command at a time. Responses carry
 session/request identities and use checksummed LZ4 frames with fixed bincode
@@ -460,7 +536,7 @@ refresh windows, preserving the trace, rows and interaction state.
 | value translator | implement `data::Translator` in `volna-core`, register it in `Translators::builtin` (or at run time with `register`) |
 | signal type | add a `SignalShape` variant, teach `LocalSession::shape_of` to produce it, add a `paint_*_row` branch in `wave/paint.rs` |
 | trace source | implement `session::Session` (info + hierarchy + `load_signal`) and an `OpenSpec` variant, or call `App::set_session` |
-| view | a model in `volna-core` with its own commands and a `render` into `Scene`; each frontend adds a canvas that paints it |
+| view | a `PanelKind` with a model in `volna-core`, a layout in `App::layout_panel` and a painter into `Scene`; the shared `PanelCanvas` paints it (the pipeline panel is the template) |
 | chrome panel | render it in each frontend's chrome from core state; keep the decisions in the core |
 | colour or metric | add a token to `theme::Theme`; the painter and frontends only read tokens |
 | icon | drop the Lucide SVG into `volna-core/assets/icons`, add the variant in `icons.rs`; the egui frontend strokes it in `paint.rs` |

@@ -63,6 +63,11 @@ async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
         } else {
             None
         },
+        time_unit: if r.boolean().await? {
+            Some(r.string().await?)
+        } else {
+            None
+        },
     };
     let scopes = r
         .vector(33, || async {

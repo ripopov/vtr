@@ -41,6 +41,7 @@ pub fn cursor_icon(icon: CursorIcon) -> egui::CursorIcon {
         CursorIcon::PointingHand => egui::CursorIcon::PointingHand,
         CursorIcon::ResizeLeftRight => egui::CursorIcon::ResizeHorizontal,
         CursorIcon::ResizeUpDown => egui::CursorIcon::ResizeVertical,
+        CursorIcon::Grabbing => egui::CursorIcon::Grabbing,
     }
 }
 

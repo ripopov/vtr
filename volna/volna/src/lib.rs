@@ -8,10 +8,11 @@
 //! - `ui`: component styling/placement, text input, splitter, icons and headers
 //! - `sidebar`: scope tree and variable list rows
 //! - `settings_panel`, `settings_json`, `palette`: the Settings tab, its JSON view and ⌘K
-//! - `wave`: the `WaveTable` element that paints the core's display list
+//! - `canvas`: the `PanelCanvas` element that paints the core's display list
 
 pub mod app;
 pub mod assets;
+mod canvas;
 mod dock;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_workspace;
@@ -21,7 +22,6 @@ mod settings_panel;
 mod sidebar;
 pub mod theme;
 mod ui;
-mod wave;
 #[cfg(all(target_family = "wasm", feature = "remote-profile"))]
 mod web_profile;
 #[cfg(target_family = "wasm")]

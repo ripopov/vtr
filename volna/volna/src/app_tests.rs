@@ -93,8 +93,8 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
                 .selected
                 .insert(1);
             ws.app.panels.focused_waves_mut().unwrap().anchor = Some(1);
-            ws.app.doc.shared.viewport.viewport.start = 20.0;
-            ws.app.doc.shared.viewport.viewport.end = 80.0;
+            ws.app.doc.shared.viewport.value.start = 20.0;
+            ws.app.doc.shared.viewport.value.end = 80.0;
             ws.app.panels.focused_waves_mut().unwrap().names_width = 260.0;
             ws.app.panels.focused_waves_mut().unwrap().values_width = 140.0;
             ws.app.panels.focused_waves_mut().unwrap().scroll_y = 24.0;
@@ -347,8 +347,8 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
             ws.app.handle(Command::AddVars(vec![0; 400]));
             ws.after(None, cx);
             ws.app.doc.shared.cursor = Some(42);
-            ws.app.doc.shared.viewport.viewport.start = 20.0;
-            ws.app.doc.shared.viewport.viewport.end = 80.0;
+            ws.app.doc.shared.viewport.value.start = 20.0;
+            ws.app.doc.shared.viewport.value.end = 80.0;
             ws.app.doc.markers.push(volna_core::document::Marker {
                 id: 1,
                 time: 30,

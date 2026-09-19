@@ -7,8 +7,10 @@ use std::sync::Arc;
 use crate::data::loaded_tracks::{LoadedGenerator, LoadedTrack};
 use crate::data::transactions::{TrackKind, TrackRef};
 use crate::data::{Hierarchy, SignalRef, Translators};
+use crate::nav::Tween;
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
-use crate::wave::viewport::{Viewport, ViewportState};
+use crate::wave::timeline::TimeBase;
+use crate::wave::viewport::Viewport;
 
 #[derive(Clone)]
 pub enum TraceState {
@@ -26,14 +28,14 @@ pub struct Marker {
 }
 
 pub struct Shared {
-    pub viewport: ViewportState,
+    pub viewport: Tween<Viewport>,
     pub cursor: Option<u64>,
 }
 
 impl Default for Shared {
     fn default() -> Self {
         Self {
-            viewport: ViewportState::new(Viewport::fit((0, 1000))),
+            viewport: Tween::new(Viewport::fit((0, 1000))),
             cursor: None,
         }
     }
@@ -155,6 +157,18 @@ impl Document {
 
     pub fn timescale(&self) -> i8 {
         self.session().map(|s| s.info().timescale).unwrap_or(-9)
+    }
+
+    /// How times are written: the timescale exponent and the producer's
+    /// unit name when it declared one.
+    pub fn time_base(&self) -> TimeBase<'_> {
+        match self.session() {
+            Some(s) => TimeBase::of(s.info()),
+            None => TimeBase {
+                timescale: -9,
+                unit: None,
+            },
+        }
     }
 
     // -- opening ----------------------------------------------------------------

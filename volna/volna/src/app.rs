@@ -17,6 +17,7 @@ use gpui_kit::{
     UniformListScrollHandle, Window, actions, div, percentage, point, px,
 };
 use volna_core::app::{Action, ChromeDrag, Command, Event, SettingsCommand};
+use volna_core::data::transactions::{TrackKind, TrackRef};
 use volna_core::document::TraceState;
 use volna_core::session::Session;
 use volna_core::settings::ZoomStep;
@@ -60,7 +61,8 @@ actions!(
         FocusPanel6,
         FocusPanel7,
         FocusPanel8,
-        FocusPanel9
+        FocusPanel9,
+        NoPipelines
     ]
 );
 
@@ -98,6 +100,29 @@ actions!(
         MoveSelectionDown,
     ]
 );
+
+/// Open (or focus) the pipeline panel of a stream or generator, by its
+/// catalog identity. Listed in View ▸ Pipeline and the command palette.
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(namespace = waves, no_json)]
+pub struct OpenPipelineTrack {
+    pub track: u32,
+}
+
+/// The recognized PIPELINE streams of the open trace: (dotted path, track).
+pub(crate) fn pipeline_streams(app: &CoreApp) -> Vec<(String, u32)> {
+    app.doc
+        .session()
+        .map(|session| {
+            session
+                .tracks()
+                .iter()
+                .filter(|t| matches!(&t.kind, TrackKind::Stream { kind } if kind == "PIPELINE"))
+                .map(|t| (t.path.join("."), t.id.0))
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// Key of the shaped-text cache used by the wave painter.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -138,6 +163,8 @@ pub struct Workspace {
     pub embedded: bool,
     /// The command line chose the workspace policy; `workspace.autosave` is ignored.
     pub(crate) cli_policy: bool,
+    /// The document generation the application menu was last built for.
+    menu_generation: Option<u64>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) config_watcher: Option<notify::RecommendedWatcher>,
 }
@@ -279,7 +306,27 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("down", MoveSelectionDown, Some("Waves")),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.set_menus(vec![
+    cx.set_menus(menus(&[]));
+}
+
+/// The application menu. View ▸ Pipeline lists the recognized PIPELINE
+/// streams of the open trace as shortcuts; any stream or generator can still
+/// be opened from the sidebar.
+pub(crate) fn menus(pipelines: &[(String, u32)]) -> Vec<Menu> {
+    let pipeline_items = if pipelines.is_empty() {
+        vec![MenuItem::action(
+            "No pipeline streams in the trace",
+            NoPipelines,
+        )]
+    } else {
+        pipelines
+            .iter()
+            .map(|(path, track)| {
+                MenuItem::action(path.clone(), OpenPipelineTrack { track: *track })
+            })
+            .collect()
+    };
+    vec![
         Menu {
             name: "Volna".into(),
             items: vec![
@@ -309,6 +356,11 @@ pub fn init(cx: &mut App) {
                 MenuItem::action("Split Right", SplitRight),
                 MenuItem::action("Split Down", SplitDown),
                 MenuItem::action("New Waveform Tab", NewPanel),
+                MenuItem::submenu(Menu {
+                    name: "Pipeline".into(),
+                    items: pipeline_items,
+                    disabled: false,
+                }),
                 MenuItem::action("Close Panel", ClosePanel),
                 MenuItem::action("Follow Shared Viewport", ToggleViewportLink),
                 MenuItem::action("Follow Shared Cursor", ToggleCursorLink),
@@ -329,7 +381,7 @@ pub fn init(cx: &mut App) {
             ],
             disabled: false,
         },
-    ]);
+    ]
 }
 
 /// Wire the ⌘1–⌘9 actions to panel focus by index on an element.
@@ -422,6 +474,7 @@ impl Workspace {
             shaped: HashMap::new(),
             embedded: false,
             cli_policy: false,
+            menu_generation: None,
             #[cfg(not(target_family = "wasm"))]
             config_watcher: None,
         }
@@ -539,7 +592,19 @@ impl Workspace {
         }
         self.sync_format_menu(window, cx);
         self.sync_filter(cx);
+        self.sync_menus(cx);
         self.run_requests(cx);
+    }
+
+    /// Rebuild the application menu when the trace changes, so View ▸
+    /// Pipeline lists the streams of the open trace.
+    fn sync_menus(&mut self, cx: &mut Context<Self>) {
+        let generation = self.app.doc.generation();
+        if self.embedded || self.menu_generation == Some(generation) {
+            return;
+        }
+        self.menu_generation = Some(generation);
+        cx.set_menus(menus(&pipeline_streams(&self.app)));
     }
 
     /// Perform queued loads on the background executor and deliver the results.
@@ -1068,7 +1133,7 @@ impl Workspace {
             return div().size_full().child(view).into_any_element();
         }
         match self.app.trace_state() {
-            TraceState::Loaded(_) => self.render_waves(window, cx).into_any_element(),
+            TraceState::Loaded(_) => self.render_dock(window, cx).into_any_element(),
             TraceState::Loading { name } => div()
                 .size_full()
                 .flex()
@@ -1099,8 +1164,9 @@ impl Workspace {
         }
     }
 
-    /// The wave panel: the focusable, action-handling host of the `WaveTable` element.
-    fn render_waves(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The dock of canvas panels: the focusable, action-handling host of the
+    /// `PanelCanvas` elements.
+    fn render_dock(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let el = div()
             .id("wave-view")
             .key_context("Waves")
@@ -1328,6 +1394,9 @@ impl Workspace {
         if let Some(s) = status.changes {
             left = left.child(mono(s, colors.text_placeholder));
         }
+        if let Some(hover) = status.hover {
+            right = right.child(mono(hover, colors.text_muted));
+        }
         if let Some(notice) = status.sidebar_notice {
             right = right.child(
                 div()
@@ -1497,6 +1566,15 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::close_trace))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::command_palette))
+            .on_action(cx.listener(|this, action: &OpenPipelineTrack, window, cx| {
+                this.dispatch(
+                    Command::OpenPipeline {
+                        track: TrackRef(action.track),
+                    },
+                    Some(window),
+                    cx,
+                )
+            }))
             .on_action(cx.listener(
                 |this, _: &crate::settings_panel::ToggleSettingsJson, window, cx| {
                     if this.embedded {

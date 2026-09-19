@@ -145,6 +145,7 @@ impl FstSession {
             time_range: (header.start_time, header.end_time),
             signal_count: shapes.len(),
             change_count: None,
+            time_unit: None,
         };
         Ok(Self {
             reader: Mutex::new(reader),

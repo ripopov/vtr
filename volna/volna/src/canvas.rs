@@ -1,6 +1,6 @@
-//! `WaveTable`: the GPUI element that hosts the core's wave panel. It asks the
-//! core for the frame's layout (for hitboxes), paints the display list the
-//! core produces, and forwards pointer input as commands.
+//! `PanelCanvas`: the GPUI element that hosts a core-painted panel (waves or
+//! pipeline). It asks the core for the frame's layout (for hitboxes), paints
+//! the display list the core produces, and forwards pointer input as commands.
 
 use std::collections::HashMap;
 
@@ -8,10 +8,10 @@ use gpui_kit::{
     App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, Font,
     FontStyle, FontWeight, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId,
     IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder,
-    PinchEvent, Pixels, ScrollWheelEvent, ShapedLine, SharedString, Style, TextAlign, TextRun,
-    Window, fill, point, px, quad, size,
+    PinchEvent, Pixels, ScrollDelta, ScrollWheelEvent, ShapedLine, SharedString, Style, TextAlign,
+    TextRun, Window, fill, point, px, quad, size,
 };
-use volna_core::app::Command;
+use volna_core::app::{Command, PanelLayout};
 use volna_core::geometry::{CursorIcon, Point as CPoint, Rect as CRect};
 use volna_core::scene::{Prim, TextMeasure};
 use volna_core::wave::PointerEvent;
@@ -20,15 +20,15 @@ use volna_core::{FontRole, Instant};
 use crate::app::{TextKey, Workspace, to_modifiers};
 use crate::theme::{Theme, core_theme, hsla, theme};
 
-pub struct WaveTable {
+pub struct PanelCanvas {
     ws: Entity<Workspace>,
     panel: volna_core::panels::PanelId,
     generation: u64,
 }
 
-impl WaveTable {
+impl PanelCanvas {
     pub fn new(ws: Entity<Workspace>, panel: volna_core::panels::PanelId, generation: u64) -> Self {
-        WaveTable {
+        PanelCanvas {
             ws,
             panel,
             generation,
@@ -36,14 +36,14 @@ impl WaveTable {
     }
 }
 
-pub struct TablePrepaint {
+pub struct CanvasPrepaint {
     hitbox: Hitbox,
     /// Small interactive rectangles, so GPUI resolves pointer shapes per position.
     regions: Vec<(CRect, Hitbox)>,
     row_h: f32,
 }
 
-impl IntoElement for WaveTable {
+impl IntoElement for PanelCanvas {
     type Element = Self;
     fn into_element(self) -> Self {
         self
@@ -130,6 +130,7 @@ fn cursor_style(icon: CursorIcon) -> CursorStyle {
         CursorIcon::PointingHand => CursorStyle::PointingHand,
         CursorIcon::ResizeLeftRight => CursorStyle::ResizeLeftRight,
         CursorIcon::ResizeUpDown => CursorStyle::ResizeUpDown,
+        CursorIcon::Grabbing => CursorStyle::ClosedHand,
     }
 }
 
@@ -237,9 +238,9 @@ fn paint_prims(
     }
 }
 
-impl Element for WaveTable {
+impl Element for PanelCanvas {
     type RequestLayoutState = ();
-    type PrepaintState = TablePrepaint;
+    type PrepaintState = CanvasPrepaint;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -270,26 +271,34 @@ impl Element for WaveTable {
         _: &mut (),
         window: &mut Window,
         cx: &mut App,
-    ) -> TablePrepaint {
+    ) -> CanvasPrepaint {
         let t = *core_theme(cx);
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-        let (rects, row_h) = self.ws.update(cx, |ws, _| {
-            let Some(layout) = ws.app.layout_waves(self.panel, cbounds(bounds), &t) else {
-                return (Vec::new(), 24.0);
-            };
-            let mut rects = vec![layout.names_split, layout.values_split];
-            rects.extend(layout.badges.iter().map(|(_, b)| *b));
-            rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
-            (rects, layout.row_h)
+        let rects = self.ws.update(cx, |ws, _| {
+            match ws.app.layout_panel(self.panel, cbounds(bounds), &t) {
+                Some(PanelLayout::Waves(layout)) => {
+                    let mut rects = vec![layout.names_split, layout.values_split];
+                    rects.extend(layout.badges.iter().map(|(_, b)| *b));
+                    rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
+                    rects
+                }
+                Some(PanelLayout::Pipeline(layout)) => {
+                    let mut rects = vec![layout.label_split];
+                    rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
+                    rects.extend(layout.retry);
+                    rects
+                }
+                None => Vec::new(),
+            }
         });
         let regions = rects
             .into_iter()
             .map(|r| (r, window.insert_hitbox(gbounds(r), HitboxBehavior::Normal)))
             .collect();
-        TablePrepaint {
+        CanvasPrepaint {
             hitbox,
             regions,
-            row_h,
+            row_h: t.row_height,
         }
     }
 
@@ -299,7 +308,7 @@ impl Element for WaveTable {
         _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
         _: &mut (),
-        prepaint: &mut TablePrepaint,
+        prepaint: &mut CanvasPrepaint,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -312,7 +321,7 @@ impl Element for WaveTable {
             let mut scene = std::mem::take(&mut ws.scene);
             let mut measure = GpuiMeasure { window, theme: &t };
             ws.app
-                .render_waves_into(self.panel, &core, &mut measure, &mut scene);
+                .render_panel_into(self.panel, &core, &mut measure, &mut scene);
             (scene, std::mem::take(&mut ws.shaped))
         });
         let mut i = 0;
@@ -333,15 +342,15 @@ impl Element for WaveTable {
         self.ws.update(cx, |ws, _| {
             ws.scene = scene;
             ws.shaped = shaped;
-            if let Some(w) = ws.app.panels.waves_mut(self.panel) {
-                w.record_frame(ms);
+            if let Some(panel) = ws.app.panels.get_mut(self.panel) {
+                panel.record_frame(ms);
             }
         });
     }
 }
 
-impl WaveTable {
-    fn register_mouse_handlers(&self, prepaint: &TablePrepaint, window: &mut Window) {
+impl PanelCanvas {
+    fn register_mouse_handlers(&self, prepaint: &CanvasPrepaint, window: &mut Window) {
         let ws = self.ws.clone();
         let hitbox = prepaint.hitbox.clone();
         let row_h = prepaint.row_h;
@@ -419,8 +428,8 @@ impl WaveTable {
                     .read(cx)
                     .app
                     .panels
-                    .waves(panel)
-                    .is_some_and(|w| w.drag.is_some())
+                    .get(panel)
+                    .is_some_and(|p| p.dragging())
                 {
                     send(&ws, PointerEvent::Up, window, cx);
                 }
@@ -447,7 +456,8 @@ impl WaveTable {
             }
         });
 
-        // The core resolves wheel zoom, time pan and row scroll from the hit region.
+        // The core resolves wheel zoom, time pan and row scroll from the hit
+        // region and from whether the deltas are a trackpad's exact pixels.
         window.on_mouse_event({
             move |ev: &ScrollWheelEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {
@@ -461,6 +471,7 @@ impl WaveTable {
                         dx: f32::from(delta.x),
                         dy: f32::from(delta.y),
                         modifiers: to_modifiers(ev.modifiers),
+                        precise: matches!(ev.delta, ScrollDelta::Pixels(_)),
                     },
                     window,
                     cx,

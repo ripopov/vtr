@@ -352,6 +352,124 @@ fn run(measure: bool) -> anyhow::Result<()> {
             assert!(test.update(|cx| workspace.read(cx).app.variables.filter.is_empty()));
         }
 
+        // 1c. The pipeline showcase: open both PIPELINE streams from the
+        // sidebar, load them, zoom about the pointer and set the cursor.
+        {
+            use volna_core::Command;
+            use volna_core::data::Member;
+            use volna_core::data::source::Lookup;
+            use volna_core::pipeline::Rows;
+            let showcase = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("examples/pipeline_showcase.vtr");
+            test.update(|cx| workspace.update(cx, |ws, cx| ws.open_path(showcase, cx)));
+            settle(&mut test, 3);
+            for core in ["cpu0", "cpu1"] {
+                test.update_window(any, |_, w, cx| {
+                    workspace.update(cx, |ws, cx| {
+                        let scope = match ws
+                            .app
+                            .doc
+                            .hierarchy()
+                            .unwrap()
+                            .find_scope(&["soc", core, "pipeline"])
+                        {
+                            Lookup::Found(id) => id,
+                            other => panic!("showcase stream: {other:?}"),
+                        };
+                        ws.dispatch(
+                            Command::ActivateMembers(vec![Member::Stream(scope)]),
+                            Some(w),
+                            cx,
+                        );
+                    })
+                })?;
+            }
+            settle(&mut test, 6);
+            test.update(|cx| {
+                let app = &workspace.read(cx).app;
+                assert_eq!(app.panels.len(), 3);
+                let ready = app
+                    .panels
+                    .iter()
+                    .filter_map(|p| p.kind.pipeline())
+                    .filter(|p| matches!(p.rows(&app.doc), Rows::Ready(set) if set.len() > 500))
+                    .count();
+                assert_eq!(ready, 2, "{}", app.debug_state());
+            });
+            expect(
+                &mut test,
+                "pipeline panels",
+                &[
+                    "pipeline track=soc.cpu0.pipeline",
+                    "pipeline track=soc.cpu1.pipeline",
+                ],
+            );
+            shot(&mut test, "pipeline-two-cores")?;
+            // Wheel zoom about a point in the focused (cpu1) panel, then a
+            // click sets the shared cursor to an integer cycle.
+            let cells = test.update(|cx| {
+                let app = &workspace.read(cx).app;
+                app.panels
+                    .focused()
+                    .kind
+                    .pipeline()
+                    .unwrap()
+                    .last_layout()
+                    .cells
+            });
+            let p = Point::new(
+                px(cells.left() + cells.width() * 0.4),
+                px(cells.top() + cells.height() * 0.5),
+            );
+            for _ in 0..4 {
+                test.update_window(any, |_, w, cx| {
+                    w.dispatch_event(
+                        gpui_kit::PlatformInput::ScrollWheel(gpui_kit::ScrollWheelEvent {
+                            position: p,
+                            delta: gpui_kit::ScrollDelta::Lines(gpui_kit::Point::new(0.0, 3.0)),
+                            modifiers: Modifiers::default(),
+                            touch_phase: gpui_kit::TouchPhase::Moved,
+                        }),
+                        cx,
+                    );
+                })?;
+                settle(&mut test, 12);
+            }
+            click(&mut test, p, Modifiers::default());
+            settle(&mut test, 2);
+            test.update(|cx| {
+                let app = &workspace.read(cx).app;
+                let p = app.panels.focused().kind.pipeline().unwrap();
+                assert!(p.rows.value.row_px > 18.0, "{}", app.debug_state());
+                assert!(app.doc.shared.cursor.is_some(), "{}", app.debug_state());
+                assert!(app.status().cursor.unwrap().ends_with("cycle"));
+            });
+            shot(&mut test, "pipeline-zoomed-cursor")?;
+            let pipelines: Vec<_> = test.update(|cx| {
+                workspace
+                    .read(cx)
+                    .app
+                    .panels
+                    .iter()
+                    .filter(|p| p.kind.pipeline().is_some())
+                    .map(|p| p.id)
+                    .collect()
+            });
+            for id in pipelines {
+                test.update_window(any, |_, w, cx| {
+                    workspace.update(cx, |ws, cx| {
+                        ws.dispatch(
+                            Command::Panels(volna_core::panels::PanelsCommand::Close(id)),
+                            Some(w),
+                            cx,
+                        );
+                    })
+                })?;
+            }
+            settle(&mut test, 4);
+            assert_eq!(test.update(|cx| workspace.read(cx).app.panels.len()), 1);
+        }
+
         // 2. Load the sample trace and add signals from the first scope.
         let example =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/picorv32.vtr");
@@ -603,6 +721,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 .panels
                 .focused_waves()
                 .unwrap()
+                .nav
                 .link
                 .viewport
         }));
@@ -804,6 +923,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 app.panels
                     .focused_waves()
                     .unwrap()
+                    .nav
                     .viewport_state(&app.doc)
                     .target()
                     .width()

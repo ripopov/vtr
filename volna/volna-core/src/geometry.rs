@@ -106,6 +106,8 @@ pub enum CursorIcon {
     PointingHand,
     ResizeLeftRight,
     ResizeUpDown,
+    /// A closed hand while a drag pans a canvas.
+    Grabbing,
 }
 
 /// Round to whole logical pixels so 1 px lines are crisp at 1x and 2x.

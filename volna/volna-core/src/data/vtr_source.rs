@@ -38,21 +38,25 @@ impl LocalSession {
 
     fn from_reader(name: String, reader: Reader) -> anyhow::Result<Self> {
         let hierarchy = build_hierarchy(&reader);
-        let info = TraceInfo {
-            name,
-            design_id: reader.meta().attrs.iter().find_map(|(key, value)| {
-                if reader.strings().get(*key) == "design.vdb_id"
+        let file_text = |name: &str| {
+            reader.meta().attrs.iter().find_map(|(key, value)| {
+                if reader.strings().get(*key) == name
                     && let vtr::Value::Str(value) = value
                 {
                     Some(reader.strings().get(*value).to_owned())
                 } else {
                     None
                 }
-            }),
+            })
+        };
+        let info = TraceInfo {
+            name,
+            design_id: file_text("design.vdb_id"),
             timescale: reader.meta().timescale,
             time_range: reader.time_range().unwrap_or((0, 0)),
             signal_count: reader.signal_count() as usize,
             change_count: None,
+            time_unit: file_text("time.unit").filter(|unit| !unit.is_empty()),
         };
         Ok(LocalSession {
             tracks: super::vtr_transactions::tracks(&reader),

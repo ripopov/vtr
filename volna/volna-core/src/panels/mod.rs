@@ -8,8 +8,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
+use web_time::Instant;
 
-use crate::wave::model::{LinkDim, WaveModel};
+use crate::document::Document;
+use crate::nav::{LinkDim, NavState};
+use crate::pipeline::PipelineModel;
+use crate::wave::model::{PointerEvent, WaveModel};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PanelsCommand {
@@ -32,6 +36,8 @@ pub struct PanelId(pub u64);
 
 pub enum PanelKind {
     Waves(Box<WaveModel>),
+    /// Konata-style stage cells over one transaction track.
+    Pipeline(Box<PipelineModel>),
     /// The settings editor: a chrome tab the workspace codec never saves.
     Settings,
     /// Unrecognized panel payloads are preserved by the workspace codec.
@@ -53,8 +59,55 @@ impl PanelKind {
         }
     }
 
+    pub fn pipeline(&self) -> Option<&PipelineModel> {
+        match self {
+            Self::Pipeline(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    pub fn pipeline_mut(&mut self) -> Option<&mut PipelineModel> {
+        match self {
+            Self::Pipeline(p) => Some(p),
+            _ => None,
+        }
+    }
+
     pub fn is_settings(&self) -> bool {
         matches!(self, Self::Settings)
+    }
+
+    /// A panel the core lays out and paints into a `Scene`.
+    pub fn is_canvas(&self) -> bool {
+        matches!(self, Self::Waves(_) | Self::Pipeline(_))
+    }
+
+    /// The navigation of a timed panel.
+    pub fn nav(&self) -> Option<&NavState> {
+        match self {
+            Self::Waves(w) => Some(&w.nav),
+            Self::Pipeline(p) => Some(&p.nav),
+            _ => None,
+        }
+    }
+
+    pub fn nav_mut(&mut self) -> Option<&mut NavState> {
+        match self {
+            Self::Waves(w) => Some(&mut w.nav),
+            Self::Pipeline(p) => Some(&mut p.nav),
+            _ => None,
+        }
+    }
+
+    /// The content a split copies: rows for waves, the track for a pipeline.
+    /// A new tab next to a pipeline starts as an empty wave panel.
+    fn clone_view(&self, split: bool) -> Result<PanelKind> {
+        Ok(match (self, split) {
+            (Self::Waves(w), _) => Self::Waves(Box::new(w.clone_view(split))),
+            (Self::Pipeline(p), true) => Self::Pipeline(Box::new(p.clone_view())),
+            (_, false) => Self::Waves(Box::default()),
+            _ => bail!("cannot split this panel"),
+        })
     }
 }
 
@@ -74,11 +127,66 @@ impl Panel {
     }
 
     pub fn title(&self) -> String {
-        self.title.clone().unwrap_or_else(|| match self.kind {
+        self.title.clone().unwrap_or_else(|| match &self.kind {
             PanelKind::Waves(_) => format!("Waves {}", self.id.0),
+            PanelKind::Pipeline(p) => {
+                format!("Pipeline {} · {}", self.id.0, p.track.path().join("."))
+            }
             PanelKind::Settings => "Settings".into(),
             PanelKind::Unsupported(_) => format!("Unsupported panel {}", self.id.0),
         })
+    }
+
+    /// Route pointer input to the panel's model. Returns true when something
+    /// visible changed.
+    pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent, now: Instant) -> bool {
+        match &mut self.kind {
+            PanelKind::Waves(w) => w.pointer(doc, event, now),
+            PanelKind::Pipeline(p) => p.pointer(doc, event, now),
+            _ => false,
+        }
+    }
+
+    /// Whether a pointer drag is in progress (hosts forward releases then).
+    pub fn dragging(&self) -> bool {
+        match &self.kind {
+            PanelKind::Waves(w) => w.drag.is_some(),
+            PanelKind::Pipeline(p) => p.drag.is_some(),
+            _ => false,
+        }
+    }
+
+    /// Advance the panel's own animations. Returns true while a frame is needed.
+    pub fn tick(&mut self, now: Instant) -> bool {
+        match &mut self.kind {
+            PanelKind::Waves(w) => w.tick(now),
+            PanelKind::Pipeline(p) => p.tick(now),
+            _ => false,
+        }
+    }
+
+    pub fn is_animating(&self) -> bool {
+        match &self.kind {
+            PanelKind::Waves(w) => w.is_animating(),
+            PanelKind::Pipeline(p) => p.is_animating(),
+            _ => false,
+        }
+    }
+
+    pub fn record_frame(&mut self, ms: f32) {
+        match &mut self.kind {
+            PanelKind::Waves(w) => w.record_frame(ms),
+            PanelKind::Pipeline(p) => p.record_frame(ms),
+            _ => {}
+        }
+    }
+
+    pub fn frame_ms_avg(&self) -> f32 {
+        match &self.kind {
+            PanelKind::Waves(w) => w.frame_ms_avg,
+            PanelKind::Pipeline(p) => p.frame_ms_avg,
+            _ => 0.0,
+        }
     }
 }
 
@@ -219,6 +327,34 @@ impl Panels {
     pub fn waves_mut(&mut self, id: PanelId) -> Option<&mut WaveModel> {
         self.get_mut(id)?.kind.waves_mut()
     }
+
+    pub fn pipeline(&self, id: PanelId) -> Option<&PipelineModel> {
+        self.get(id)?.kind.pipeline()
+    }
+
+    pub fn pipeline_mut(&mut self, id: PanelId) -> Option<&mut PipelineModel> {
+        self.get_mut(id)?.kind.pipeline_mut()
+    }
+
+    /// The pipeline panels, for deliveries and track bookkeeping.
+    pub fn pipelines_mut(&mut self) -> impl Iterator<Item = &mut PipelineModel> {
+        self.panels
+            .values_mut()
+            .filter_map(|p| p.kind.pipeline_mut())
+    }
+
+    /// The panel already showing this stream or generator, in layout order.
+    pub fn pipeline_for_track(
+        &self,
+        track: crate::data::transactions::TrackRef,
+    ) -> Option<PanelId> {
+        self.layout.panels().into_iter().find(|id| {
+            self.panels[id]
+                .kind
+                .pipeline()
+                .is_some_and(|p| p.track.track() == Some(track))
+        })
+    }
     pub fn get(&self, id: PanelId) -> Option<&Panel> {
         self.panels.get(&id)
     }
@@ -346,29 +482,44 @@ impl Panels {
     }
 
     pub fn toggle_link(&mut self, id: PanelId, doc: &crate::Document, dim: LinkDim) -> Result<()> {
-        ensure!(self.waves(id).is_some(), "not a waveform panel");
-        self.advance()?;
-        self.waves_mut(id).unwrap().toggle_link(doc, dim);
-        Ok(())
+        let nav = self
+            .get_mut(id)
+            .and_then(|p| p.kind.nav_mut())
+            .ok_or_else(|| anyhow::anyhow!("not a timed panel"))?;
+        nav.toggle_link(doc, dim);
+        self.advance()
     }
 
     /// Splits clone content; new tabs start empty. Both inherit navigation.
     pub fn create(&mut self, source: PanelId, split: Option<Axis>) -> Result<PanelId> {
-        ensure!(self.len() < MAX_PANELS, "panel limit reached");
-        let id = self.unused_id()?;
-        let src = self
+        let kind = self
             .panels
             .get(&source)
-            .ok_or_else(|| anyhow::anyhow!("unknown panel"))?;
-        let waves = match src.kind.waves() {
-            Some(w) => w.clone_view(split.is_some()),
-            None if split.is_none() => WaveModel::new(),
-            None => bail!("cannot clone an unsupported panel"),
-        };
+            .ok_or_else(|| anyhow::anyhow!("unknown panel"))?
+            .kind
+            .clone_view(split.is_some())?;
+        self.place(kind, source, split)
+    }
+
+    /// Open a new panel of any kind beside `beside`: split along `split`,
+    /// or as a new tab of its group. The new panel takes focus.
+    pub fn open(
+        &mut self,
+        kind: PanelKind,
+        beside: PanelId,
+        split: Option<Axis>,
+    ) -> Result<PanelId> {
+        ensure!(self.get(beside).is_some(), "unknown panel");
+        self.place(kind, beside, split)
+    }
+
+    fn place(&mut self, kind: PanelKind, beside: PanelId, split: Option<Axis>) -> Result<PanelId> {
+        ensure!(self.len() < MAX_PANELS, "panel limit reached");
+        let id = self.unused_id()?;
         let mut layout = self.layout.clone();
         if let Some(axis) = split {
-            layout.split(source, id, axis);
-        } else if let Some(Layout::Tabs { tabs, active }) = layout.group_mut(source) {
+            layout.split(beside, id, axis);
+        } else if let Some(Layout::Tabs { tabs, active }) = layout.group_mut(beside) {
             tabs.push(id);
             *active = id;
         }
@@ -380,12 +531,13 @@ impl Panels {
         self.next_id = id.0 + 1;
         self.layout = layout;
         self.focused = id;
-        self.panels
-            .insert(id, Panel::new(id, PanelKind::Waves(Box::new(waves))));
+        self.panels.insert(id, Panel::new(id, kind));
         Ok(id)
     }
 
-    pub fn close(&mut self, id: PanelId) -> Result<()> {
+    /// Close a panel. The last waveform panel is emptied instead. Returns
+    /// the removed panels so the owner can release what they retained.
+    pub fn close(&mut self, id: PanelId) -> Result<Vec<Panel>> {
         let panel = self
             .panels
             .get(&id)
@@ -397,7 +549,7 @@ impl Panels {
             self.advance()?;
             let w = self.panels.get_mut(&id).unwrap().kind.waves_mut().unwrap();
             *w = w.clone_view(false);
-            return Ok(());
+            return Ok(Vec::new());
         }
         let ids = self.layout.panels();
         let ix = ids.iter().position(|p| *p == id).unwrap();
@@ -409,15 +561,17 @@ impl Panels {
         layout.validate(&survivors)?;
         self.advance()?;
         self.layout = layout;
-        self.panels.remove(&id);
+        let removed = self.panels.remove(&id).expect("checked above");
         if self.focused == id {
             self.focused = neighbor.unwrap_or_else(|| ids[(ix + 1) % ids.len()]);
             self.layout.activate(self.focused);
         }
-        Ok(())
+        Ok(vec![removed])
     }
 
-    pub fn close_others(&mut self, id: PanelId) -> Result<()> {
+    /// Close every other panel (a waveform panel is kept if `id` is not
+    /// one). Returns the removed panels.
+    pub fn close_others(&mut self, id: PanelId) -> Result<Vec<Panel>> {
         let panel = self
             .get(id)
             .ok_or_else(|| anyhow::anyhow!("unknown panel"))?;
@@ -426,16 +580,19 @@ impl Panels {
             keep.insert(self.iter().find(|p| p.kind.waves().is_some()).unwrap().id);
         }
         if self.len() == 1 {
-            return Ok(());
+            return Ok(Vec::new());
         }
         self.advance()?;
-        self.panels.retain(|id, _| keep.contains(id));
+        let (kept, removed): (Vec<_>, Vec<_>) = std::mem::take(&mut self.panels)
+            .into_iter()
+            .partition(|(id, _)| keep.contains(id));
+        self.panels = kept.into_iter().collect();
         self.layout = Layout::Tabs {
             tabs: keep.into_iter().collect(),
             active: id,
         };
         self.focused = id;
-        Ok(())
+        Ok(removed.into_iter().map(|(_, panel)| panel).collect())
     }
 
     /// The layout, focus and panels a workspace file records: everything but

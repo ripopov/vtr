@@ -290,4 +290,7 @@ pub struct TraceInfo {
     pub signal_count: usize,
     /// Total value changes when cheaply known.
     pub change_count: Option<u64>,
+    /// A producer-named time unit (`time.unit`, e.g. `cycle`) shown instead
+    /// of SI scaling of `timescale`.
+    pub time_unit: Option<String>,
 }

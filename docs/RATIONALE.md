@@ -31,6 +31,42 @@ exists. Iterative flattening supports deep trees without recursion. The metadata
 extension uses remote protocol version 2; VTR encodings and C/Rust reader APIs
 are unchanged.
 
+## Volna pipeline panel
+
+The panel is one `PanelKind` next to waves and settings, not a viewer mode: the
+dock, focus order, links, markers and workspace files already handle kinds. Its
+time axis is the document's shared `Viewport` because the Kanata importer and
+the showcase write cycles as time units, so linking with the wave panels costs
+nothing and needs no cycle-to-tick mapping until a trace with two time bases
+exists. Rows are a second, local axis (`RowView`) with the same zoom-about,
+pan, edge-space clamp and eased `Tween` as the time axis; one wheel gesture
+applies one factor to both, but a linked wave panel changing the shared time
+axis leaves row heights alone, so cells are square by default, not by
+invariant. Locking both axes (Konata) would either break the link or resize
+rows behind the user's back; a wheel that scrolls rows and zooms only with a
+modifier (Konata's default) would conflict with the wave panel's wheel.
+
+Data is the document's loaded track: rows index the resident
+`LoadedGenerator` slices through prefix sums and the panel retains and
+releases the track like a consumer, so splits share one load and closing the
+last panel frees it; no second index, cache or wire format was added. The
+interval tree is not consulted because rows index records directly; it
+becomes useful for time-to-row queries (cursor follow, search). The stream
+kind is never required: any generator has stages and lifetimes, and gating on
+`PIPELINE` would refuse gem5 or SystemC generators that render as well.
+Painting walks only the visible rows and skips stages outside the window;
+below two pixels per row it paints density steps so the quad count is bounded
+by pixels, which is what keeps ten thousand rows fluid without a row index.
+The stage palette is a ladder by first appearance so a trace needs no VDB to
+be readable; a VDB stage table fills the same struct later.
+
+Times are shown in the producer's named unit when the file declares one
+(`time.unit`), carried in `TraceInfo` and the remote metadata (protocol
+version 3): a pipeline whose cursor reads `476 s` for cycle 476 is wrong in a
+way no theming fixes. Embedding Konata's renderer was rejected because it
+would put viewer logic outside the toolkit-free core and would not run in the
+native window.
+
 ## Volna FST session integration
 
 Volna uses Session and immutable SignalHistory interfaces with batched loads

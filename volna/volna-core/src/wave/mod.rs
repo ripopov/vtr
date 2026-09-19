@@ -3,6 +3,7 @@
 
 pub mod layout;
 pub mod model;
+pub mod overlay;
 pub mod paint;
 pub mod timeline;
 pub mod viewport;

@@ -131,14 +131,17 @@ fn search_order_activation_keyboard_and_notices() {
     assert_eq!(app.panels.focused_waves().unwrap().items.len(), 1);
     app.take_requests();
     app.take_events();
+    // A generator opens a pipeline panel (one track load); a log site only
+    // reports a notice.
     app.handle(Command::ActivateMembers(vec![rows[1], rows[2]]));
-    assert!(app.take_requests().is_empty());
-    assert!(
-        app.status()
-            .sidebar_notice
-            .unwrap()
-            .contains("Pipeline and log")
-    );
+    let requests = app.take_requests();
+    assert!(matches!(
+        requests.as_slice(),
+        [volna_core::session::LoadRequest::Track { .. }]
+    ));
+    assert_eq!(app.panels.len(), 2);
+    assert!(app.panels.focused().kind.pipeline().is_some());
+    assert!(app.status().sidebar_notice.unwrap().contains("Log sites"));
     assert!(
         app.take_events()
             .iter()
@@ -149,7 +152,12 @@ fn search_order_activation_keyboard_and_notices() {
     assert!(!app.variables.search_everywhere);
     app.handle(Command::SetFilter(String::new()));
     app.handle(Command::ScopesKey(Key::Enter));
-    assert!(app.status().sidebar_notice.unwrap().contains("Pipeline"));
+    assert!(app.status().sidebar_notice.is_none());
+    assert_eq!(app.panels.len(), 3);
+    assert_eq!(
+        app.panels.focused().kind.pipeline().unwrap().track.path(),
+        ["soc", "cpu", "thread0"]
+    );
     app.handle(Command::ScopesKey(Key::Left));
     assert_eq!(
         app.scopes.selected,

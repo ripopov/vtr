@@ -341,6 +341,7 @@ impl SynthSource {
             time_range: (0, end),
             signal_count: signals.len(),
             change_count: Some(signals.iter().map(|s| s.len() as u64).sum()),
+            time_unit: None,
         };
         SynthSource {
             info,

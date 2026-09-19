@@ -36,7 +36,7 @@ fn focused_actions_update_one_shared_value_and_unlink_snapshots_the_displayed_fr
     let now = Instant::now();
     app.handle_at(Command::Action(Action::ZoomIn), now);
     assert!(app.tick(now + std::time::Duration::from_millis(50)));
-    let shared = app.doc.shared.viewport.viewport;
+    let shared = app.doc.shared.viewport.value;
     assert_eq!(app.panels.waves(a).unwrap().viewport(&app.doc), shared);
     assert_eq!(app.panels.waves(b).unwrap().viewport(&app.doc), shared);
     panel(
@@ -48,7 +48,7 @@ fn focused_actions_update_one_shared_value_and_unlink_snapshots_the_displayed_fr
     );
     app.tick(now + std::time::Duration::from_secs(1));
     assert_eq!(app.panels.waves(b).unwrap().viewport(&app.doc), shared);
-    let retained = app.doc.shared.viewport.viewport;
+    let retained = app.doc.shared.viewport.value;
     assert_ne!(retained, shared);
     app.handle_at(Command::Action(Action::PanRight), now);
     app.tick(now + std::time::Duration::from_secs(1));
@@ -190,7 +190,8 @@ fn pointer_targets_do_not_drift_when_focus_changes_or_a_trace_is_replaced() {
         },
     );
     let bounds = volna_core::geometry::Rect::from_xywh(0.0, 0.0, 1200.0, 600.0);
-    let layout = app.layout_waves(a, bounds, &theme).unwrap();
+    app.layout_panel(a, bounds, &theme).unwrap();
+    let layout = app.panels.waves(a).unwrap().last_layout().clone();
     let click = PointerEvent::Down {
         position: volna_core::geometry::point(layout.waves.left() + 100.0, layout.row_y(0) + 10.0),
         button: volna_core::geometry::MouseButton::Left,

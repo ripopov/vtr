@@ -115,7 +115,7 @@ a claim of implemented support or a requirement for embedded agent chat.
 | Volna panels, docking and persistent workspace sessions (design proposal) | `docs/workspaces.html` |
 | Volna user settings: `settings.json`, settings editor with fuzzy search on gpui-kit, VS Code parity (design, implemented) | `docs/user-settings.html`, `volna/volna/ARCHITECTURE.md` |
 | Volna hierarchy browser: scopes and streams, mixed member search, semantic icons and log provenance (implemented; transaction panels deferred) | `docs/hierarchy.html`, `volna/volna/ARCHITECTURE.md` |
-| Volna pipeline panel: Konata-style rows of stage cells over any generator or stream, shared time axis with the wave panels, map-like zoom (design proposal) | `docs/pipeline-view.html`, `docs/VDB_KONATA_PLAN.html` |
+| Volna pipeline panel: Konata-style rows of stage cells over any generator or stream, shared time axis with the wave panels, map-like zoom (implemented; design and mock-up) | `docs/pipeline-view.html`, `volna/volna/ARCHITECTURE.md`, `volna/volna/examples/README.md`, `docs/VDB_KONATA_PLAN.html` |
 
 ## Build and test
 

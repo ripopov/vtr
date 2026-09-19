@@ -19,12 +19,27 @@ use crate::settings_panel::ToggleSettingsJson;
 /// The palette can only read this entity while the dialog renders, never
 /// the workspace (which is mid-render then), so everything it shows is here.
 pub(crate) struct PaletteModel {
-    commands: Vec<usize>,
+    commands: Vec<(String, Box<dyn Action>)>,
     settings: Vec<(&'static settings::Spec, bool)>,
 }
 
-/// Every palette command: label and the action it dispatches.
-fn commands() -> Vec<(&'static str, Box<dyn Action>)> {
+/// Every palette command: label and the action it dispatches. The open
+/// trace's PIPELINE streams follow the fixed commands.
+fn commands(app: &CoreApp) -> Vec<(String, Box<dyn Action>)> {
+    let mut all: Vec<(String, Box<dyn Action>)> = fixed_commands()
+        .into_iter()
+        .map(|(label, action)| (label.to_owned(), action))
+        .collect();
+    for (path, track) in app::pipeline_streams(app) {
+        all.push((
+            format!("Open Pipeline: {path}"),
+            Box::new(app::OpenPipelineTrack { track }),
+        ));
+    }
+    all
+}
+
+fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
     vec![
         ("Open Trace…", Box::new(app::OpenFile)),
         ("Close Trace", Box::new(app::CloseTrace)),
@@ -64,14 +79,12 @@ const MAX_SETTINGS: usize = 8;
 impl PaletteModel {
     fn compute(query: &str, app: &CoreApp) -> Self {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        let commands = commands()
-            .iter()
-            .enumerate()
-            .filter(|(_, (label, _))| {
+        let commands = commands(app)
+            .into_iter()
+            .filter(|(label, _)| {
                 let lower = label.to_lowercase();
                 words.iter().all(|w| lower.contains(w))
             })
-            .map(|(ix, _)| ix)
             .collect();
         let store = &app.settings;
         let settings = if query.trim().is_empty() {
@@ -116,7 +129,6 @@ impl Workspace {
                 .overlay_closable(true)
                 .content(move |content, _, cx| {
                     let read = model.read(cx);
-                    let all = commands();
                     let mut palette = Palette::new(&state)
                         .filterable(false)
                         .bordered(false)
@@ -162,11 +174,10 @@ impl Workspace {
                         })
                         .on_cancel(|window, cx| window.close_dialog(cx));
                     let mut group = CommandGroup::new().label("Commands");
-                    for ix in &read.commands {
-                        let (label, action) = &all[*ix];
+                    for (label, action) in &read.commands {
                         group = group.item(
                             CommandItem::new()
-                                .label(*label)
+                                .label(label.clone())
                                 .action(action.boxed_clone()),
                         );
                     }

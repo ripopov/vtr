@@ -30,11 +30,13 @@ fn complete_round_trip_preserves_layout_rows_links_chrome_and_exact_times() {
     app.handle(Command::Action(Action::ToggleCursorLink));
     app.handle(Command::Action(Action::ToggleViewportLink));
     let w = app.panels.focused_waves_mut().unwrap();
-    w.local_cursor = Some((1 << 54) + 19);
-    w.local_viewport.set(volna_core::wave::viewport::Viewport {
-        start: -13.5,
-        end: 420.25,
-    });
+    w.nav.local_cursor = Some((1 << 54) + 19);
+    w.nav
+        .local_viewport
+        .set(volna_core::wave::viewport::Viewport {
+            start: -13.5,
+            end: 420.25,
+        });
     w.scroll_y = 2.5;
     app.doc.shared.cursor = Some(u64::MAX - 1);
     app.doc.add_marker(u64::MAX - 2);
@@ -488,7 +490,7 @@ fn links_on_an_unfocused_panel_are_persistent_edits() {
     }));
     assert_eq!(app.panels.focused_id(), focused);
     assert_eq!(app.workspace.scheduler.revision(), revision + 1);
-    assert!(!app.panels.waves(first).unwrap().link.viewport);
+    assert!(!app.panels.waves(first).unwrap().nav.link.viewport);
 }
 
 #[test]

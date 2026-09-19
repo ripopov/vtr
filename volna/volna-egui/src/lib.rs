@@ -853,16 +853,20 @@ impl VolnaApp {
         let _response = ui.allocate_rect(rect, Sense::click_and_drag());
         let bounds = CRect::from_xywh(rect.min.x, rect.min.y, rect.width(), rect.height());
         let panel = self.app.panels.focused_id();
-        self.app.layout_waves(panel, bounds, &self.core_theme);
+        self.app.layout_panel(panel, bounds, &self.core_theme);
 
         // -- input ------------------------------------------------------------
-        let menu_was_open = self.app.panels.focused_waves().unwrap().menu.is_some();
+        let menu_was_open = self
+            .app
+            .panels
+            .focused_waves()
+            .is_some_and(|w| w.menu.is_some());
         let pos = ctx.input(|i| i.pointer.latest_pos());
         let inside = pos.is_some_and(|p| rect.contains(p));
         let modifiers = to_modifiers(ctx.input(|i| i.modifiers));
         if let Some(p) = pos {
             let position = volna_core::geometry::point(p.x, p.y);
-            if inside || self.app.panels.focused_waves().unwrap().drag.is_some() {
+            if inside || self.app.panels.focused().dragging() {
                 self.dispatch(Command::Pointer(panel, PointerEvent::Move { position }));
             }
             if inside {
@@ -886,6 +890,18 @@ impl VolnaApp {
                 }
                 let scroll = ctx.input(|i| i.smooth_scroll_delta);
                 if scroll != Vec2::ZERO {
+                    // Trackpads report points, mouse wheels report lines.
+                    let precise = ctx.input(|i| {
+                        i.events.iter().any(|e| {
+                            matches!(
+                                e,
+                                egui::Event::MouseWheel {
+                                    unit: egui::MouseWheelUnit::Point,
+                                    ..
+                                }
+                            )
+                        })
+                    });
                     self.dispatch(Command::Pointer(
                         panel,
                         PointerEvent::Wheel {
@@ -893,6 +909,7 @@ impl VolnaApp {
                             dx: scroll.x,
                             dy: scroll.y,
                             modifiers,
+                            precise,
                         },
                     ));
                 }
@@ -912,9 +929,7 @@ impl VolnaApp {
             self.pointer_inside = false;
             self.dispatch(Command::Pointer(panel, PointerEvent::Leave));
         }
-        if ctx.input(|i| i.pointer.any_released())
-            && self.app.panels.focused_waves().unwrap().drag.is_some()
-        {
+        if ctx.input(|i| i.pointer.any_released()) && self.app.panels.focused().dragging() {
             self.dispatch(Command::Pointer(panel, PointerEvent::Up));
         }
 
@@ -923,7 +938,7 @@ impl VolnaApp {
         let mut scene = std::mem::take(&mut self.scene);
         let mut measure = EguiMeasure(&ctx);
         self.app
-            .render_waves_into(panel, &self.core_theme, &mut measure, &mut scene);
+            .render_panel_into(panel, &self.core_theme, &mut measure, &mut scene);
         paint_scene(&scene, &ui.painter().with_clip_rect(rect));
         if let Some(icon) = scene.window_cursor {
             ctx.set_cursor_icon(cursor_icon(icon));
@@ -938,12 +953,11 @@ impl VolnaApp {
         self.scene = scene;
         self.app
             .panels
-            .focused_waves_mut()
-            .unwrap()
+            .focused_mut()
             .record_frame(started.elapsed().as_secs_f32() * 1000.0);
 
         // -- format menu ----------------------------------------------------------
-        if let Some(menu) = self.app.panels.focused_waves().unwrap().menu.clone() {
+        if let Some(menu) = self.app.panels.focused_waves().and_then(|w| w.menu.clone()) {
             let t = self.theme;
             let mut chosen = None;
             let area = Area::new(self.ids.format_menu)

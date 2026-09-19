@@ -46,13 +46,26 @@ impl Drop for Bridge {
 }
 
 impl Workspace {
+    /// The bridge belongs to the open recording. A new open or a close
+    /// changes the document generation and the session, so the connection
+    /// is dropped; a workspace restore also changes the generation (to
+    /// invalidate earlier history results) but keeps the same remote
+    /// session, so the connection is kept and its restored loads run.
     pub(crate) fn sync_remote(&mut self) {
-        if self
-            .remote
-            .as_ref()
-            .is_some_and(|r| r.generation != self.app.doc.generation())
+        if let Some(bridge) = &mut self.remote
+            && bridge.generation != self.app.doc.generation()
         {
-            self.remote = None;
+            let same_recording = self
+                .app
+                .doc
+                .session()
+                .and_then(|session| session.remote_id())
+                .is_some_and(|id| Some(id) == bridge.client.session());
+            if same_recording {
+                bridge.generation = self.app.doc.generation();
+            } else {
+                self.remote = None;
+            }
         }
         if let Some(bridge) = &mut self.remote {
             bridge.client.sync_demand(&mut self.app);

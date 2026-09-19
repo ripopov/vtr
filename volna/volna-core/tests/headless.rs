@@ -12,6 +12,7 @@ use volna_core::data::{
 };
 use volna_core::document::TraceState;
 use volna_core::geometry::{Modifiers, MouseButton, Rect, point};
+use volna_core::nav::Lerp;
 use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use volna_core::sidebar::Key;
@@ -72,12 +73,12 @@ fn pump(app: &mut App) {
 }
 
 fn frame(app: &mut App, theme: &Theme) {
-    app.layout_waves(
+    app.layout_panel(
         app.panels.focused_id(),
         Rect::from_xywh(0.0, 0.0, 1200.0, 600.0),
         theme,
     );
-    app.render_waves(app.panels.focused_id(), theme, &mut MonoMeasure);
+    app.render_panel(app.panels.focused_id(), theme, &mut MonoMeasure);
 }
 
 fn loaded_app(n: usize) -> (App, Arc<Source>) {
@@ -607,6 +608,7 @@ fn shift_wheel_scrolls_rows_without_panning_time() {
                     shift: true,
                     ..Modifiers::default()
                 },
+                precise: false,
             },
         ));
         let w = app.panels.focused_waves().unwrap();
@@ -803,6 +805,7 @@ fn zoom_pan_and_fit_are_deterministic_with_an_explicit_clock() {
                 control: true,
                 ..Default::default()
             },
+            precise: false,
         },
     ));
     assert!(!app.is_animating());
@@ -880,6 +883,7 @@ impl BurstSource {
                 time_range: (0, 100_000),
                 signal_count: 1,
                 change_count: Some(1002),
+                time_unit: None,
             },
             hierarchy,
         })
@@ -921,8 +925,8 @@ fn dense_columns_collapse_into_one_band_and_zooming_in_resolves_edges() {
     );
     // Zoomed in far enough, every change is its own edge and nothing is dense.
     let t0 = Instant::now();
-    app.doc.shared.viewport.viewport.start = 50_100.0;
-    app.doc.shared.viewport.viewport.end = 50_120.0;
+    app.doc.shared.viewport.value.start = 50_100.0;
+    app.doc.shared.viewport.value.end = 50_120.0;
     let _ = t0;
     frame(&mut app, &theme);
     assert!(app.scene().quads().all(|(_, c)| c != theme.wave_dense));
@@ -1061,6 +1065,7 @@ fn layout_hit_regions_and_scene_cursors_agree() {
             dx: 0.0,
             dy: -1e6,
             modifiers: Modifiers::default(),
+            precise: false,
         },
     ));
     frame(&mut app, &theme);

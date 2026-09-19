@@ -1,6 +1,32 @@
 //! Time formatting and tick placement for the timeline header.
 
 use super::viewport::Viewport;
+use crate::data::TraceInfo;
+
+/// How a trace writes time: `10^timescale` seconds per unit, or a
+/// producer-named unit (`cycle`) that is never rescaled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimeBase<'a> {
+    pub timescale: i8,
+    pub unit: Option<&'a str>,
+}
+
+impl<'a> TimeBase<'a> {
+    pub fn of(info: &'a TraceInfo) -> Self {
+        Self {
+            timescale: info.timescale,
+            unit: info.time_unit.as_deref(),
+        }
+    }
+
+    /// SI units without a producer name.
+    pub fn si(timescale: i8) -> Self {
+        Self {
+            timescale,
+            unit: None,
+        }
+    }
+}
 
 const TICK_STEPS: [f64; 4] = [1.0, 2.0, 2.5, 5.0];
 
@@ -59,8 +85,13 @@ fn trim_float(v: f64, max_decimals: usize) -> String {
     }
 }
 
-/// Format an absolute time with an automatically chosen unit, e.g. `1.25 µs`.
-pub fn format_time(t: f64, timescale: i8) -> String {
+/// Format an absolute time with an automatically chosen unit, e.g. `1.25 µs`,
+/// or in the producer's unit (`12 cycle`) when the trace names one.
+pub fn format_time(t: f64, base: TimeBase<'_>) -> String {
+    if let Some(unit) = base.unit {
+        return format!("{} {unit}", trim_float(t, 3));
+    }
+    let timescale = base.timescale;
     let (exp, suffix) = choose_unit(t.abs().max(1.0), timescale);
     let v = t * 10f64.powi(timescale as i32 - exp);
     let decimals = if v.abs() >= 100.0 {
@@ -95,17 +126,21 @@ fn tick_step(viewport: &Viewport, width_px: f64, min_spacing_px: f64) -> f64 {
 }
 
 /// Ticks (time and label) for the visible window. Labels share one unit.
-pub fn ticks(
+pub fn ticks<'a>(
     viewport: &Viewport,
     width_px: f64,
-    timescale: i8,
+    base: TimeBase<'a>,
     min_spacing_px: f64,
-) -> (Vec<Tick>, &'static str) {
+) -> (Vec<Tick>, &'a str) {
     if width_px <= 0.0 {
         return (Vec::new(), "");
     }
     let step = tick_step(viewport, width_px, min_spacing_px);
-    let (exp, suffix) = choose_unit(step, timescale);
+    let timescale = base.timescale;
+    let (exp, suffix) = match base.unit {
+        Some(unit) => (timescale as i32, unit),
+        None => choose_unit(step, timescale),
+    };
     // Decimals needed to distinguish consecutive labels in this unit.
     let step_in_unit = step * 10f64.powi(timescale as i32 - exp);
     let decimals = if step_in_unit >= 1.0 {
@@ -143,11 +178,17 @@ mod tests {
 
     #[test]
     fn formats() {
-        assert_eq!(format_time(1250.0, -9), "1.25 µs");
-        assert_eq!(format_time(958189.0, -9), "958.2 µs");
-        assert_eq!(format_time(0.0, -9), "0 ns");
-        assert_eq!(format_time(5.0, -12), "5 ps");
-        assert_eq!(format_time(3_000_000.0, -9), "3 ms");
+        assert_eq!(format_time(1250.0, TimeBase::si(-9)), "1.25 µs");
+        assert_eq!(format_time(958189.0, TimeBase::si(-9)), "958.2 µs");
+        assert_eq!(format_time(0.0, TimeBase::si(-9)), "0 ns");
+        assert_eq!(format_time(5.0, TimeBase::si(-12)), "5 ps");
+        assert_eq!(format_time(3_000_000.0, TimeBase::si(-9)), "3 ms");
+        let cycles = TimeBase {
+            timescale: 0,
+            unit: Some("cycle"),
+        };
+        assert_eq!(format_time(1250.0, cycles), "1250 cycle");
+        assert_eq!(format_time(0.5, cycles), "0.5 cycle");
     }
 
     #[test]
@@ -158,15 +199,22 @@ mod tests {
         };
         let step = tick_step(&v, 1000.0, 100.0);
         assert_eq!(step, 100.0);
-        let (t, unit) = ticks(&v, 1000.0, -9, 100.0);
+        let (t, unit) = ticks(&v, 1000.0, TimeBase::si(-9), 100.0);
         assert_eq!(unit, "ns");
         assert_eq!(t.len(), 11);
+        assert_eq!(t[1].label, "100");
+        let cycles = TimeBase {
+            timescale: 0,
+            unit: Some("cycle"),
+        };
+        let (t, unit) = ticks(&v, 1000.0, cycles, 100.0);
+        assert_eq!(unit, "cycle");
         assert_eq!(t[1].label, "100");
         let v = Viewport {
             start: 1000.0,
             end: 1250.0,
         };
-        let (t, unit) = ticks(&v, 1000.0, -9, 100.0);
+        let (t, unit) = ticks(&v, 1000.0, TimeBase::si(-9), 100.0);
         assert_eq!(unit, "ns");
         assert_eq!(t[0].label, "1000");
         assert!(t.windows(2).all(|w| w[1].time > w[0].time));
@@ -179,7 +227,7 @@ mod tests {
             start: 0.0,
             end: 2500.0,
         };
-        let (t, unit) = ticks(&v, 1000.0, -12, 100.0);
+        let (t, unit) = ticks(&v, 1000.0, TimeBase::si(-12), 100.0);
         assert_eq!(unit, "ps");
         assert_eq!(t[1].label, "250");
     }

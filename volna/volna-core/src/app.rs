@@ -7,18 +7,20 @@ use std::sync::Arc;
 use web_time::Instant;
 
 use crate::data::Member;
+use crate::data::transactions::TrackRef;
 use crate::data::{ScopeId, VarId};
 use crate::document::{Delivered, Document, TraceState};
 use crate::geometry::{Modifiers, Rect};
-use crate::panels::{PanelId, Panels, PanelsCommand};
+use crate::panels::{Panel, PanelId, PanelKind, Panels, PanelsCommand};
+use crate::pipeline::{PipelineLayout, PipelineModel, TrackSource};
 use crate::scene::{Scene, TextCache, TextMeasure};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::settings::{self, Value};
 use crate::sidebar::{Key, MemberListModel, ScopeTreeModel};
 use crate::theme::Theme;
 use crate::wave::layout::WaveLayout;
-use crate::wave::model::{MenuAction, PointerEvent, WaveModel};
-use crate::wave::timeline::format_time;
+use crate::wave::model::{MenuAction, PointerEvent};
+use crate::wave::timeline::{TimeBase, format_time};
 
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +108,11 @@ pub enum Command {
     /// Add rows for these variables to the wave view.
     AddVars(Vec<VarId>),
     ActivateMembers(Vec<Member>),
+    /// Show a stream or generator as a pipeline panel: focus the panel that
+    /// already shows it, or open one below the focused panel.
+    OpenPipeline {
+        track: TrackRef,
+    },
     SetSearchEverywhere(bool),
     SelectScope(ScopeId),
     ToggleScope(ScopeId),
@@ -214,7 +221,9 @@ pub struct Status {
     pub sidebar_notice: Option<String>,
     pub workspace_notice: Option<String>,
     pub panel: Option<String>,
-    pub links: Option<crate::wave::model::Link>,
+    /// What the pointer is over in the focused pipeline panel.
+    pub hover: Option<String>,
+    pub links: Option<crate::nav::Link>,
     pub file: Option<String>,
     pub time_range: Option<String>,
     pub signals: Option<String>,
@@ -226,6 +235,12 @@ pub struct Status {
 }
 
 pub const SIDEBAR_FRACTION_MIN: f32 = 0.15;
+
+/// The rectangles a frontend needs for hit regions, by panel kind.
+pub enum PanelLayout<'a> {
+    Waves(&'a WaveLayout),
+    Pipeline(&'a PipelineLayout),
+}
 
 pub struct App {
     pub doc: Document,
@@ -314,7 +329,7 @@ impl App {
             self.events.push(Event::Notice(e.to_string()));
         }
         if let Some(w) = self.panels.focused_waves_mut() {
-            w.link = self.settings.resolved().link_by_default();
+            w.nav.link = self.settings.resolved().link_by_default();
         }
         self.layout_changed();
         self.scopes.reset(self.doc.hierarchy());
@@ -368,7 +383,12 @@ impl App {
 
     pub fn deliver(&mut self, result: LoadResult) {
         match self.doc.deliver(result) {
-            Some(Delivered::Track) => self.changed(),
+            Some(Delivered::Track) => {
+                for pipeline in self.panels.pipelines_mut() {
+                    pipeline.refresh(&self.doc);
+                }
+                self.changed();
+            }
             Some(Delivered::Signals(results)) => {
                 for (signal, result) in results {
                     let result = result.map_err(|e| e.to_string());
@@ -414,16 +434,41 @@ impl App {
         self.changed();
     }
 
+    /// A created panel's content may retain document data; a removed
+    /// panel's content releases it.
+    fn created(&mut self, id: PanelId) {
+        if let Some(pipeline) = self.panels.pipeline_mut(id)
+            && let Err(error) = pipeline.attach(&mut self.doc)
+        {
+            self.events.push(Event::Notice(error.to_string()));
+        }
+    }
+
+    fn removed(&mut self, panels: Vec<Panel>) {
+        for mut panel in panels {
+            if let Some(pipeline) = panel.kind.pipeline_mut() {
+                pipeline.detach(&mut self.doc);
+            }
+        }
+    }
+
     fn panel_command(&mut self, command: PanelsCommand) {
         let revision = self.panels.revision();
         let old_focus = self.panels.focused_id();
         let result = match command {
-            PanelsCommand::Split { panel, axis } => {
-                self.panels.create(panel, Some(axis)).map(|_| ())
-            }
-            PanelsCommand::NewTab { group_of } => self.panels.create(group_of, None).map(|_| ()),
-            PanelsCommand::Close(id) => self.panels.close(id),
-            PanelsCommand::CloseOthers(id) => self.panels.close_others(id),
+            PanelsCommand::Split { panel, axis } => self
+                .panels
+                .create(panel, Some(axis))
+                .map(|id| self.created(id)),
+            PanelsCommand::NewTab { group_of } => self
+                .panels
+                .create(group_of, None)
+                .map(|id| self.created(id)),
+            PanelsCommand::Close(id) => self.panels.close(id).map(|removed| self.removed(removed)),
+            PanelsCommand::CloseOthers(id) => self
+                .panels
+                .close_others(id)
+                .map(|removed| self.removed(removed)),
             PanelsCommand::Focus(id) => self.panels.focus(id).map(|_| ()),
             PanelsCommand::FocusNext => self.panels.focus_next(false).map(|_| ()),
             PanelsCommand::FocusPrev => self.panels.focus_next(true).map(|_| ()),
@@ -503,14 +548,15 @@ impl App {
                 if matches!(ev, PointerEvent::Down { .. }) && self.panels.get(id).is_some() {
                     self.panel_command(PanelsCommand::Focus(id));
                 }
-                if let Some(w) = self.panels.waves_mut(id)
-                    && w.pointer(&mut self.doc, ev, now)
+                if let Some(panel) = self.panels.get_mut(id)
+                    && panel.pointer(&mut self.doc, ev, now)
                 {
                     self.changed();
                 }
             }
             Command::AddVars(vars) => self.add_vars(&vars),
             Command::ActivateMembers(members) => self.activate_members(&members),
+            Command::OpenPipeline { track } => self.open_pipeline(track),
             Command::SetSearchEverywhere(search) => {
                 self.variables.search_everywhere = search;
                 self.variables.rebuild(self.doc.hierarchy());
@@ -638,42 +684,91 @@ impl App {
         }
     }
 
+    /// Variables become wave rows, streams and generators become pipeline
+    /// panels (one per distinct track), log sites only report a notice.
     fn activate_members(&mut self, members: &[Member]) {
         let Some(h) = self.doc.hierarchy() else {
             return;
         };
         let mut vars = Vec::new();
-        let mut pipeline = false;
+        let mut tracks = Vec::new();
         let mut log = false;
         for &member in members {
             if let Member::Var(id) = member {
                 if id < h.vars.len() {
                     vars.push(id);
                 }
-            } else if h.member_track(member).is_some() {
+            } else if let Some(track) = h.member_track(member) {
                 if h.is_log(member) {
                     log = true;
-                } else {
-                    pipeline = true;
+                } else if !tracks.contains(&track) {
+                    tracks.push(track);
                 }
             }
         }
         if !vars.is_empty() {
             self.add_vars(&vars);
         }
-        let notice = match (pipeline, log) {
-            (true, true) => Some("Pipeline and log panels are not available yet."),
-            (true, false) => Some("Pipeline panels are not available yet."),
-            (false, true) => {
-                Some("Log sites are listed for inspection; log panels are not available yet.")
-            }
-            _ => None,
-        };
+        let notice =
+            log.then_some("Log sites are listed for inspection; log panels are not available yet.");
         self.variables.notice = notice.map(str::to_owned);
         if let Some(notice) = notice {
             self.events.push(Event::Notice(notice.into()));
         }
+        for track in tracks {
+            self.open_pipeline(track);
+        }
         self.changed();
+    }
+
+    /// Focus the pipeline panel showing `track`, or open one split below
+    /// the focused panel. Any stream or generator of the catalog qualifies;
+    /// the stream kind is never inspected.
+    fn open_pipeline(&mut self, track: TrackRef) {
+        let Some(session) = self.doc.session().cloned() else {
+            return;
+        };
+        if !session.capabilities().transactions {
+            self.events
+                .push(Event::Notice("This trace records no transactions.".into()));
+            return;
+        }
+        let Some(declaration) = session.tracks().iter().find(|t| t.id == track) else {
+            self.events.push(Event::Notice(format!(
+                "Unknown transaction track {}",
+                track.0
+            )));
+            return;
+        };
+        if let Some(id) = self.panels.pipeline_for_track(track) {
+            self.panel_command(PanelsCommand::Focus(id));
+            return;
+        }
+        let model = PipelineModel::new(
+            TrackSource::Resolved {
+                track,
+                path: declaration.path.clone(),
+            },
+            self.settings.resolved().link_by_default(),
+        );
+        let focused = self.panels.focused_id();
+        match self.panels.open(
+            PanelKind::Pipeline(Box::new(model)),
+            focused,
+            Some(crate::panels::Axis::Vertical),
+        ) {
+            Ok(id) => {
+                self.created(id);
+                if let Some(w) = self.panels.waves_mut(focused) {
+                    w.menu_dismiss();
+                }
+                self.layout_changed();
+            }
+            Err(error) => {
+                self.events.push(Event::Notice(error.to_string()));
+                self.changed();
+            }
+        }
     }
 
     fn add_vars(&mut self, vars: &[VarId]) {
@@ -730,44 +825,85 @@ impl App {
             return;
         }
         let doc = &mut self.doc;
-        let Some(w) = self.panels.focused_mut().kind.waves_mut() else {
-            return;
-        };
-        match action {
-            Action::ZoomIn => w.zoom_in(doc, now),
-            Action::ZoomOut => w.zoom_out(doc, now),
-            Action::ZoomFit => w.zoom_fit(doc, now),
-            Action::ZoomToCursor => w.zoom_to_cursor(doc, now),
-            Action::PanPageLeft => w.pan_fraction(doc, -1.0, now),
-            Action::PanPageRight => w.pan_fraction(doc, 1.0, now),
-            Action::GoToStart => w.go_to_start(doc, now),
-            Action::GoToEnd => w.go_to_end(doc, now),
-            Action::GoToCursor => w.go_to_cursor(doc, now),
-            Action::PanLeft => w.pan_fraction(doc, -0.25, now),
-            Action::PanRight => w.pan_fraction(doc, 0.25, now),
-            Action::NextEdge => w.next_edge(doc, now),
-            Action::PrevEdge => w.prev_edge(doc, now),
-            Action::AddMarker => {
-                if let Some(c) = w.cursor(doc) {
-                    doc.add_marker(c);
+        match &mut self.panels.focused_mut().kind {
+            PanelKind::Waves(w) => match action {
+                Action::ZoomIn => w.zoom_in(doc, now),
+                Action::ZoomOut => w.zoom_out(doc, now),
+                Action::ZoomFit => w.zoom_fit(doc, now),
+                Action::ZoomToCursor => w.zoom_to_cursor(doc, now),
+                Action::PanPageLeft => w.pan_fraction(doc, -1.0, now),
+                Action::PanPageRight => w.pan_fraction(doc, 1.0, now),
+                Action::GoToStart => w.go_to_start(doc, now),
+                Action::GoToEnd => w.go_to_end(doc, now),
+                Action::GoToCursor => w.go_to_cursor(doc, now),
+                Action::PanLeft => w.pan_fraction(doc, -0.25, now),
+                Action::PanRight => w.pan_fraction(doc, 0.25, now),
+                Action::NextEdge => w.next_edge(doc, now),
+                Action::PrevEdge => w.prev_edge(doc, now),
+                Action::AddMarker => {
+                    if let Some(c) = w.cursor(doc) {
+                        doc.add_marker(c);
+                    }
                 }
-            }
-            Action::ClearMarkers => doc.clear_markers(),
-            Action::RemoveSelected => w.remove_selected(),
-            Action::SelectAll => w.select_all(),
-            Action::ClearSelection => w.clear_selection(doc),
-            Action::CycleFormat => w.cycle_format(doc),
-            Action::MoveSelectionUp => w.move_selection(-1),
-            Action::MoveSelectionDown => w.move_selection(1),
-            // Panel actions were resolved before borrowing a wave model.
-            Action::SplitRight
-            | Action::SplitDown
-            | Action::NewPanel
-            | Action::ClosePanel
-            | Action::FocusNextPanel
-            | Action::FocusPrevPanel
-            | Action::ToggleViewportLink
-            | Action::ToggleCursorLink => unreachable!(),
+                Action::ClearMarkers => doc.clear_markers(),
+                Action::RemoveSelected => w.remove_selected(),
+                Action::SelectAll => w.select_all(),
+                Action::ClearSelection => w.clear_selection(doc),
+                Action::CycleFormat => w.cycle_format(doc),
+                Action::MoveSelectionUp => w.move_selection(-1),
+                Action::MoveSelectionDown => w.move_selection(1),
+                // Panel actions were resolved before borrowing a wave model.
+                Action::SplitRight
+                | Action::SplitDown
+                | Action::NewPanel
+                | Action::ClosePanel
+                | Action::FocusNextPanel
+                | Action::FocusPrevPanel
+                | Action::ToggleViewportLink
+                | Action::ToggleCursorLink => unreachable!(),
+            },
+            // The same keys, with rows in place of selection: ↑ ↓ scroll rows,
+            // zoom scales both axes, Escape cancels a drag then the cursor.
+            PanelKind::Pipeline(p) => match action {
+                Action::ZoomIn => p.zoom_in(doc, now),
+                Action::ZoomOut => p.zoom_out(doc, now),
+                Action::ZoomFit => p.zoom_fit(doc, now),
+                Action::ZoomToCursor => p.zoom_to_cursor(doc, now),
+                Action::PanPageLeft => p.pan_fraction(doc, -1.0, now),
+                Action::PanPageRight => p.pan_fraction(doc, 1.0, now),
+                Action::GoToStart => p.go_to_start(doc, now),
+                Action::GoToEnd => p.go_to_end(doc, now),
+                Action::GoToCursor => p.go_to_cursor(doc, now),
+                Action::PanLeft => p.pan_fraction(doc, -0.25, now),
+                Action::PanRight => p.pan_fraction(doc, 0.25, now),
+                Action::AddMarker => {
+                    if let Some(c) = p.nav.cursor(doc) {
+                        doc.add_marker(c);
+                    }
+                }
+                Action::ClearMarkers => doc.clear_markers(),
+                Action::ClearSelection => p.escape(doc),
+                Action::MoveSelectionUp => {
+                    p.scroll_rows(doc, -crate::pipeline::model::SCROLL_ROWS, now)
+                }
+                Action::MoveSelectionDown => {
+                    p.scroll_rows(doc, crate::pipeline::model::SCROLL_ROWS, now)
+                }
+                Action::NextEdge
+                | Action::PrevEdge
+                | Action::RemoveSelected
+                | Action::SelectAll
+                | Action::CycleFormat => return,
+                Action::SplitRight
+                | Action::SplitDown
+                | Action::NewPanel
+                | Action::ClosePanel
+                | Action::FocusNextPanel
+                | Action::FocusPrevPanel
+                | Action::ToggleViewportLink
+                | Action::ToggleCursorLink => unreachable!(),
+            },
+            _ => return,
         }
         self.changed();
     }
@@ -778,9 +914,7 @@ impl App {
     pub fn tick(&mut self, now: Instant) -> bool {
         let mut animating = self.doc.shared.viewport.tick(now);
         for panel in self.panels.iter_mut() {
-            if let Some(w) = panel.kind.waves_mut() {
-                animating |= w.tick(now);
-            }
+            animating |= panel.tick(now);
         }
         let waiting_to_save = self.workspace_tick(now);
         let waiting_for_settings = self.settings_tick(now, false);
@@ -788,40 +922,41 @@ impl App {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.doc.shared.viewport.is_animating()
-            || self
-                .panels
-                .iter()
-                .filter_map(|p| p.kind.waves())
-                .any(WaveModel::is_animating)
+        self.doc.shared.viewport.is_animating() || self.panels.iter().any(Panel::is_animating)
     }
 
-    /// Lay the wave panel out in `bounds`; the result feeds hit regions.
-    pub fn layout_waves(
+    /// Lay a canvas panel out in `bounds`; the result feeds hit regions.
+    /// `None` for panels the core does not paint.
+    pub fn layout_panel(
         &mut self,
         id: PanelId,
         bounds: Rect,
         theme: &Theme,
-    ) -> Option<&WaveLayout> {
-        Some(self.panels.waves_mut(id)?.layout(bounds, &self.doc, theme))
+    ) -> Option<PanelLayout<'_>> {
+        let doc = &self.doc;
+        Some(match &mut self.panels.get_mut(id)?.kind {
+            PanelKind::Waves(w) => PanelLayout::Waves(w.layout(bounds, doc, theme)),
+            PanelKind::Pipeline(p) => PanelLayout::Pipeline(p.layout(bounds, doc, theme)),
+            _ => return None,
+        })
     }
 
-    /// Paint the wave panel with the layout from the last [`App::layout_waves`].
-    pub fn render_waves(
+    /// Paint a canvas panel with the layout from the last [`App::layout_panel`].
+    pub fn render_panel(
         &mut self,
         id: PanelId,
         theme: &Theme,
         measure: &mut dyn TextMeasure,
     ) -> &Scene {
         let mut scene = std::mem::take(&mut self.scene);
-        self.render_waves_into(id, theme, measure, &mut scene);
+        self.render_panel_into(id, theme, measure, &mut scene);
         self.scene = scene;
         &self.scene
     }
 
-    /// Like [`App::render_waves`] into a caller-owned buffer, for frontends
+    /// Like [`App::render_panel`] into a caller-owned buffer, for frontends
     /// that must hand the scene to their painter while the app is borrowed.
-    pub fn render_waves_into(
+    pub fn render_panel_into(
         &mut self,
         id: PanelId,
         theme: &Theme,
@@ -829,14 +964,40 @@ impl App {
         scene: &mut Scene,
     ) {
         scene.clear();
-        let Some(w) = self.panels.waves(id) else {
+        let Some(panel) = self.panels.get(id) else {
             return;
         };
         let focused = id == self.panels.focused_id();
-        crate::wave::paint::paint(w, &self.doc, theme, &mut self.text, measure, scene, focused);
+        let bounds = match &panel.kind {
+            PanelKind::Waves(w) => {
+                crate::wave::paint::paint(
+                    w,
+                    &self.doc,
+                    theme,
+                    &mut self.text,
+                    measure,
+                    scene,
+                    focused,
+                );
+                w.last_layout().bounds
+            }
+            PanelKind::Pipeline(p) => {
+                crate::pipeline::paint::paint(
+                    p,
+                    &self.doc,
+                    theme,
+                    &mut self.text,
+                    measure,
+                    scene,
+                    focused,
+                );
+                p.last_layout().bounds
+            }
+            _ => return,
+        };
         if focused && self.panels.len() > 1 {
             scene.quad(
-                w.last_layout().bounds,
+                bounds,
                 crate::Color::TRANSPARENT,
                 0.0,
                 1.0,
@@ -862,37 +1023,35 @@ impl App {
                 .map(str::to_owned)
                 .or_else(|| self.workspace.notices.last().cloned()),
             file: self.doc.name(),
-            frame_ms: format!(
-                "{:.1} ms",
-                self.panels
-                    .focused()
-                    .kind
-                    .waves()
-                    .map_or(0.0, |w| w.frame_ms_avg)
-            ),
+            frame_ms: format!("{:.1} ms", self.panels.focused().frame_ms_avg()),
             ..Default::default()
         };
         if let Some(src) = self.doc.session() {
             let info = src.info();
+            let base = TimeBase::of(info);
             let (a, b) = info.time_range;
             s.time_range = Some(format!(
                 "{} – {}",
-                format_time(a as f64, info.timescale),
-                format_time(b as f64, info.timescale)
+                format_time(a as f64, base),
+                format_time(b as f64, base)
             ));
             s.signals = Some(format!("{} signals", info.signal_count));
             s.changes = info.change_count.map(|n| format!("{n} changes"));
             s.panel = (self.panels.len() > 1).then(|| self.panels.focused().title());
-            let Some(w) = self.panels.focused().kind.waves() else {
-                return s;
+            let focused = self.panels.focused();
+            let (nav, width) = match &focused.kind {
+                PanelKind::Waves(w) => (&w.nav, f64::from(w.wave_width)),
+                PanelKind::Pipeline(p) => {
+                    s.hover = p.hover_text(&self.doc);
+                    (&p.nav, p.last_layout().cells_width_f64())
+                }
+                _ => return s,
             };
-            s.links = Some(w.link);
-            let vp = w.viewport(&self.doc);
-            let px_per = vp.width() / f64::from(w.wave_width).max(1.0);
-            s.px_per = Some(format!("1 px = {}", format_time(px_per, info.timescale)));
-            s.cursor = w
-                .cursor(&self.doc)
-                .map(|c| format_time(c as f64, info.timescale));
+            s.links = Some(nav.link);
+            let vp = nav.viewport(&self.doc);
+            let px_per = vp.width() / width.max(1.0);
+            s.px_per = Some(format!("1 px = {}", format_time(px_per, base)));
+            s.cursor = nav.cursor(&self.doc).map(|c| format_time(c as f64, base));
             if !self.doc.markers.is_empty() {
                 s.markers = Some(format!("{} markers", self.doc.markers.len()));
             }
@@ -908,12 +1067,30 @@ impl App {
     pub fn debug_state(&self) -> String {
         self.panels.layout().panels().into_iter().map(|id| {
         let panel = self.panels.get(id).unwrap();
+        if let Some(p) = panel.kind.pipeline() {
+            let rows = p.rows.target();
+            let (state, count) = match p.rows(&self.doc) {
+                crate::pipeline::Rows::Ready(set) => ("ready", set.len()),
+                crate::pipeline::Rows::Loading => ("loading", 0),
+                crate::pipeline::Rows::Failed(_) => ("failed", 0),
+                crate::pipeline::Rows::Unresolved => ("unresolved", 0),
+                crate::pipeline::Rows::Unavailable => ("unavailable", 0),
+            };
+            return format!(
+                "panel={} pipeline track={} focused={} linked=({},{}) {state} rows={count} top={:.2} row_px={:.2} label_w={} cursor={:?} markers={} viewport=({:.0},{:.0}) hover={:?} drag={:?}",
+                id.0, p.track.path().join("."), id == self.panels.focused_id(), p.nav.link.viewport, p.nav.link.cursor,
+                rows.top, rows.row_px, p.label_width,
+                p.nav.cursor(&self.doc), self.doc.markers.len(),
+                p.nav.viewport(&self.doc).start, p.nav.viewport(&self.doc).end,
+                p.hover, p.drag,
+            );
+        }
         let Some(w) = panel.kind.waves() else {
             return format!("panel={} {}", id.0, if panel.kind.is_settings() { "settings" } else { "unsupported" });
         };
         format!(
             "panel={} focused={} linked=({},{}) items={} loaded={} selected={:?} anchor={:?} cursor={:?} markers={} viewport=({:.0},{:.0}) menu={} drag={:?} sidebar_w={}px scopes_frac={:.2}",
-            id.0, id == self.panels.focused_id(), w.link.viewport, w.link.cursor,
+            id.0, id == self.panels.focused_id(), w.nav.link.viewport, w.nav.link.cursor,
             w.items.len(),
             w.loaded_count(),
             w.selected,

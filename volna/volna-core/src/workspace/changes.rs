@@ -2,6 +2,7 @@
 //! motion never walks signal rows or serializes a workspace.
 use crate::document::Marker;
 use crate::panels::PanelId;
+use crate::pipeline::RowView;
 use crate::wave::{
     model::{DisplayedSignal, Link, PointerEvent},
     viewport::Viewport,
@@ -23,6 +24,15 @@ pub(crate) struct Stamp {
     unresolved_expanded: Option<Vec<Vec<String>>>,
     filter: String,
     wave: Option<WaveStamp>,
+    pipeline: Option<PipelineStamp>,
+}
+#[derive(PartialEq)]
+struct PipelineStamp {
+    link: Link,
+    viewport: Option<Viewport>,
+    cursor: Option<u64>,
+    rows: RowView,
+    label_width: f32,
 }
 #[derive(PartialEq)]
 struct WaveStamp {
@@ -47,9 +57,7 @@ impl Stamp {
         if let Some((id, event)) = pointer {
             match event {
                 PointerEvent::Leave | PointerEvent::Up => return None,
-                PointerEvent::Move { .. }
-                    if app.panels.waves(id).is_none_or(|w| w.drag.is_none()) =>
-                {
+                PointerEvent::Move { .. } if app.panels.get(id).is_none_or(|p| !p.dragging()) => {
                     return None;
                 }
                 _ => {}
@@ -95,14 +103,29 @@ impl Stamp {
             unresolved_expanded: scope.then(|| app.scopes.unresolved_expanded.clone()),
             filter: app.variables.filter.clone(),
             wave: app.panels.waves(panel).map(|w| WaveStamp {
-                link: w.link,
-                viewport: (!w.link.viewport).then(|| w.local_viewport.target()),
-                cursor: if w.link.cursor { None } else { w.local_cursor },
+                link: w.nav.link,
+                viewport: (!w.nav.link.viewport).then(|| w.nav.local_viewport.target()),
+                cursor: if w.nav.link.cursor {
+                    None
+                } else {
+                    w.nav.local_cursor
+                },
                 scroll: w.scroll_y,
                 columns: (w.names_width, w.values_width),
                 rows: w.items.len(),
                 selected: selection.then(|| w.selected.clone()),
                 formats: formats.then(|| w.items.iter().map(DisplayedSignal::format_id).collect()),
+            }),
+            pipeline: app.panels.pipeline(panel).map(|p| PipelineStamp {
+                link: p.nav.link,
+                viewport: (!p.nav.link.viewport).then(|| p.nav.local_viewport.target()),
+                cursor: if p.nav.link.cursor {
+                    None
+                } else {
+                    p.nav.local_cursor
+                },
+                rows: p.rows.target(),
+                label_width: p.label_width,
             }),
         })
     }
