@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Interactive specification of the Volna table panel: UI behavior, data structures and query algorithms.">
+<title>Volna · Table panel specification</title>
+<style>
+:root{color-scheme:light;--bg:#fff;--surface:#fff;--ink:#24303b;--muted:#626d78;--line:#d9dee3;--accent:#285e8e;--soft:#edf3f8;--code:#f3f5f7}
+*{box-sizing:border-box}html{scroll-padding-top:24px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}body.dark{color-scheme:dark;--bg:#172029;--surface:#1b2630;--ink:#e0e6eb;--muted:#a5b1bd;--line:#3a4854;--accent:#98bddc;--soft:#24394b;--code:#202e3a}[hidden]{display:none!important}a{color:var(--accent);text-underline-offset:3px}button,input,select,textarea{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:6px 9px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}button[aria-pressed=true]{border-color:var(--accent);background:var(--soft);color:var(--accent)}:focus-visible{outline:2px solid #d08a24;outline-offset:3px}input[type=checkbox],input[type=range]{accent-color:var(--accent)}
+main{max-width:1160px;margin:auto;padding:0 30px 48px}.masthead{display:flex;justify-content:space-between;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)}.brand{font-weight:600}.mast-controls{display:flex;gap:10px;font-size:13px}header{padding:28px 0 12px}h1,h2,h3{font-weight:600;line-height:1.35;letter-spacing:0}h1{font-size:32px;margin:0 0 20px}h2{font-size:25px;margin:0 0 20px}h3{font-size:19px;margin:30px 0 10px}p{margin:12px 0 17px;max-width:82ch}main>section{padding:32px 0 12px;border-top:1px solid var(--line)}main>section>p,header>p{max-width:82ch}.meta{font-size:14px;color:var(--muted)}.toc{display:grid;grid-template-columns:1fr 1fr;gap:5px 24px;max-width:850px;padding:10px 0 28px;font-size:14px}.toc a{text-decoration:none}.toc a:hover{text-decoration:underline}.table-wrap{overflow:auto;margin:18px 0;max-width:100%}table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);font-size:14px}th{background:var(--code);font-weight:600}td:first-child{font-weight:500}code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-variant-numeric:tabular-nums}code{font-size:.88em;background:var(--code);padding:1px 3px;overflow-wrap:anywhere}pre{padding:16px;background:var(--code);border:1px solid var(--line);font-size:13px;line-height:1.65;overflow:auto;max-width:100%}summary{cursor:pointer;font-weight:500}details{margin:18px 0;padding:12px 0;border-block:1px solid var(--line)}.skip{position:absolute;left:12px;top:-100px;background:var(--surface);padding:12px;z-index:200}.skip:focus{top:12px}
+/* Product mock: the same One Dark tokens and panel grammar as pipeline-view / hierarchy. */
+.guide{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 12px}.guide button{font-size:14px;padding:6px 12px}
+.demo{--surface:#243039;--line:#2c3a42;--ink:#e3ebe7;--muted:#8fa39c;--accent:#4fc3a1;--soft:#263c39;--code:#243039;background:#1d262c;color:var(--ink);border:1px solid #3a4a45;border-radius:9px;overflow:hidden;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:16px 0;box-shadow:0 12px 30px #15232812}
+.demo *{box-sizing:border-box}.demo button,.demo select,.demo input{font:inherit;color:var(--ink);border:1px solid #3a4a45;border-radius:4px;background:#243039;padding:4px 8px}.demo button{display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;min-height:27px}.demo button:hover{background:#2f3e49}.demo button:disabled{opacity:.4}.demo button[aria-pressed=true]{color:#4fc3a1;border-color:#4fc3a1;background:#233532}.demo :focus-visible{outline:2px solid #4fc3a1;outline-offset:-2px}.demo input:focus{border-color:#4fc3a1}.demo input[type=checkbox]{accent-color:#4fc3a1}
+.tp-icon{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}.tp-icon-button{padding:3px 5px!important;min-width:27px}.tp-title{display:flex;align-items:center;gap:9px;padding:7px 11px;background:#161e24;border-bottom:1px solid var(--line);font-size:12px;color:#8fa39c}.tp-title b{color:#e3ebe7;font-weight:600}.tp-title-context{margin-left:auto}.tp-dots{display:flex;gap:5px;margin-right:4px}.tp-dots i{height:9px;width:9px;border-radius:50%;background:#3a4a55}.tp-work{display:flex;height:708px;min-height:0}.tp-sidebar{width:178px;flex:none;background:#161e24;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}.tp-side-head{padding:7px 10px;border-bottom:1px solid var(--line);font-weight:600;font-size:12px;color:#9fb1ab;display:flex;justify-content:space-between}.tp-tree,.tp-tree details{border:0;background:transparent;border-radius:0;margin:0;padding:5px 0;font-size:12px}.tp-tree summary{display:flex;align-items:center;gap:5px;font-weight:400;cursor:pointer;height:24px;list-style:none;padding:0 8px;color:#c9d5d0}.tp-tree summary:before{content:'›';font-size:15px;width:10px}.tp-tree[open]>summary:before,.tp-tree details[open]>summary:before{transform:rotate(90deg)}.tp-tree>details{padding-left:14px}.tp-tree>button{margin-left:16px!important;width:calc(100% - 20px)!important}.tp-tree .tp-source{border:0;border-radius:3px;background:transparent;width:calc(100% - 8px);justify-content:flex-start;text-align:left;padding:2px 8px;margin:0 4px;min-height:25px;color:#c9d5d0}.tp-tree .tp-source[aria-current=true]{background:#2a3a45;color:#e3ebe7}.tp-source .tp-icon{color:#7fb0ef}.tp-source small{margin-left:auto;color:#7fb0ef;font-size:10px;letter-spacing:.04em}.tp-signal{padding:3px 12px 3px 38px;color:#9fb1ab;font:12px ui-monospace,monospace}.tp-glyph{color:#7fb0ef;margin-right:6px}.tp-members-heading{margin-top:20px;border-top:1px solid var(--line)}#member-count{font-weight:400;color:#8fa39c}.tp-crumb{font:11px ui-monospace,monospace;color:#8fa39c;padding:7px 10px;border-bottom:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tp-members{padding:5px 0;overflow:auto}.tp-member{display:flex;gap:7px;align-items:center;padding:4px 11px;font:12px ui-monospace,monospace;color:#c9d5d0}.tp-member .tp-icon{color:#8fa39c;width:13px;height:13px}.tp-side-note{font-size:12px;color:#8fa39c;padding:12px;margin-top:auto;border-top:1px solid var(--line)}.tp-main{padding:6px;display:flex;flex-direction:column;gap:7px;flex:1;min-width:0;min-height:0}.demo section.tp-panel{padding:0;margin:0;border:1px solid var(--line);border-radius:5px;background:#1f2a32;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}.demo .tp-panel.focused{border-color:#4fc3a1}.tp-panel-head{background:#182129;border-bottom:1px solid var(--line);padding:4px 8px;display:flex;gap:7px;align-items:center;flex:none;font-size:12px;min-height:32px}.tp-panel-head b{font-weight:500}.tp-panel-head>.tp-icon{color:#8fa39c}.focused .tp-panel-head>.tp-icon{color:#4fc3a1}.tp-path{font:11px ui-monospace,monospace;color:#8fa39c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.tp-panel-tools{margin-left:auto;display:flex;gap:4px;flex:none}.tp-panel-tools button{border:0;background:transparent}.tp-wave-panel{height:175px;flex:none}.tp-wave-panel canvas{display:block;width:100%;height:140px;min-height:0;flex:1;cursor:crosshair}.tp-table-panel{flex:1}.tp-toolbar{display:flex;gap:5px;align-items:center;padding:6px 7px;border-bottom:1px solid var(--line);flex-wrap:wrap;flex:none}.tp-toolbar>button,.tp-toolbar>.tp-popover-anchor>button{border-color:transparent;background:transparent}.tp-toolbar>button:hover,.tp-toolbar>.tp-popover-anchor>button:hover{background:#2a3a45}.tp-spacer{flex:1}.tp-count{background:#36514b;color:#b1eddb;border-radius:3px;padding:0 4px;font-size:11px}.tp-sampling{display:flex;align-items:center;gap:6px;margin-left:6px;color:#8fa39c;font-size:12px}.tp-sampling select{font-size:12px;padding:3px 6px;max-width:185px}.tp-popover-anchor{position:relative}.tp-popover{position:absolute;z-index:8;top:33px;left:0;min-width:240px;max-height:340px;overflow:auto;background:#202c34;border:1px solid #43555f;border-radius:6px;box-shadow:0 8px 25px #0006;padding:12px}.tp-popover>strong{display:block;font-size:12px;color:#9fb1ab;margin-bottom:8px}.tp-popover label{display:flex;align-items:center;gap:7px;padding:4px 0;font-size:13px}.tp-popover label small{margin-left:auto;color:#8fa39c;font-size:11px}.tp-popover>button{margin-top:8px}.tp-goto{left:auto;right:0;min-width:235px;max-width:280px}.tp-goto select,.tp-goto input{display:block;width:100%}.tp-goto p{color:#f07a76;font-size:12px;margin:7px 0 0}.tp-findbar{display:flex;gap:6px;align-items:center;padding:5px 8px;background:#182129;border-bottom:1px solid var(--line)}.tp-findbar>input{min-width:80px;width:250px;flex:1}.tp-findbar>span{font-size:12px;color:#8fa39c;white-space:nowrap}.tp-findbar button{border:0;background:transparent}.tp-chips{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--line)}.tp-chips button{font-size:11px;min-height:23px;padding:1px 6px;background:#253b36;color:#a4dbc9;border-color:#375149}.tp-query{display:flex;gap:8px;align-items:center;padding:5px 8px;background:#1a302c;border-bottom:1px solid #36544c;font-size:12px}.tp-query progress{width:65px;height:5px;accent-color:#4fc3a1}.tp-query span{flex:1;min-width:0}.tp-query button{min-height:22px;padding:1px 6px;font-size:12px}.tp-table-area{flex:1;min-height:130px;position:relative;display:flex;overflow:hidden}.data-region{flex:1;min-width:0;overflow:hidden;touch-action:pan-x;position:relative}.data-region table{table-layout:fixed;font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;width:100%;border-collapse:collapse}.data-region th,.data-region td{padding:3px 8px;height:25px;font-size:12px;font-weight:400;border-bottom:1px solid #27353d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}.data-region th{height:29px;padding:0;background:#243039;position:relative;border-right:1px solid #31424b;color:#b8c9c2}.data-region th>button,.data-region th>.tp-column-label{display:flex;align-items:center;width:100%;height:29px;border:0;border-radius:0;padding:3px 8px;background:transparent;color:inherit;font:inherit;text-align:left;justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:0}.data-region th>button:hover{background:#2e3f49}.tp-resizer{position:absolute;right:0;top:0;width:6px;height:29px;cursor:col-resize;touch-action:none;z-index:3}.tp-resizer:hover{background:#4fc3a166}.data-region .tp-filter-row th{height:29px;padding:3px 4px;background:#1c2830}.tp-filter-row input,.tp-filter-row select{font:11px ui-monospace,monospace;width:100%;min-width:0;padding:2px 4px;height:23px;background:#19242c;border-color:#354750;box-sizing:border-box}.tp-filter-row [aria-invalid=true]{border-color:#f07a76}.data-region td:first-child{color:#8fa39c}.data-region tr.selected{background:#2a3a45}.data-region tr:hover{background:#263740}.data-region tr.selected:hover{background:#2e424f}.data-region tr.cursor-row td:first-child{box-shadow:inset 3px 0 #f07a76}.data-region tr.find-match{background:#443d272e}.data-region tr.selected.find-match{background:#374644}.data-region td.changed{color:#70d4b4}.data-region td.error{color:#f07a76}.data-region td.numeric{text-align:right}.data-region .tp-rownum{text-align:right;color:#6f8079;background:#18212980;font-size:11px}.data-region mark{background:#b18b364d;color:#f5d48d;border-radius:2px}.tp-tag{font:10px -apple-system,sans-serif;letter-spacing:.04em;border:1px solid #41594d;border-radius:3px;padding:1px 4px;color:#9abfac}.tp-tag.error{border-color:#77504e;color:#f07a76}.tp-tag.retry{border-color:#665936;color:#e0bd73}.tp-vscroll{flex:none;width:13px;background:#182129;position:relative;border-left:1px solid var(--line);touch-action:none;cursor:default}.tp-vscroll>div{position:absolute;left:3px;right:2px;min-height:24px;background:#526369;border-radius:4px}.tp-vscroll:hover>div{background:#758980}.tp-hscroll{height:13px;min-height:13px;overflow-x:auto;overflow-y:hidden;background:#182129;scrollbar-color:#526369 #182129;scrollbar-width:thin}.tp-hscroll>div{height:1px}.tp-notice{padding:6px 10px;font-size:12px;color:#e2b979;background:#302b22;border-top:1px solid #554834}.tp-panel-status,.tp-work-status{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:5px 9px;background:#182129;color:#8fa39c;font-size:11px;border-top:1px solid var(--line);min-height:27px;flex:none}.tp-work-status{background:#161e24}.tp-panel-status span{white-space:nowrap}.tp-panel-status #selection-status{color:#b7c9c1}.tp-inspector{padding:8px 11px;background:#1c2830;border-top:1px solid #3b515b;flex:none}.tp-inspector-head{display:flex;align-items:center;gap:10px;font-size:12px}.tp-inspector-head strong{font:12px ui-monospace,monospace}.tp-inspector-head>span{color:#e0bd73}.tp-inspector-head>button{margin-left:auto;border:0;background:transparent}.tp-inspector dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px 12px;margin:4px 0 8px;font-size:12px}.tp-inspector dl>div{min-width:0}.tp-inspector dt{color:#8fa39c;font-size:11px}.tp-inspector dd{margin:0;font-family:ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tp-inspector>button{font-size:12px;min-height:24px}.empty{position:absolute;left:0;right:0;top:75px;text-align:center;padding:20px;color:#8fa39c}.empty>.tp-icon{width:24px;height:24px}.empty p{margin:10px 0}.empty button{font-size:12px}.copy-box{padding:10px}.copy-box textarea{width:100%;height:85px;font:12px ui-monospace,monospace}.tp-demo-lab .blocks{display:grid;grid-template-columns:repeat(64,1fr);gap:2px;margin:17px 0 8px}.blocks i{height:8px;background:#293950}.blocks i.scanned{background:#5475a2}.blocks i.match{background:#4fc3a1}.tp-demo-lab .calc-controls{font-size:14px}
+.demo .tp-context-menu{position:fixed;z-index:100;min-width:260px;max-width:calc(100vw - 16px);padding:4px;background:#202c34;border:1px solid #43555f;border-radius:6px;box-shadow:0 8px 25px #0006}.demo .tp-context-menu>button{display:flex;align-items:center;justify-content:flex-start;gap:22px;width:100%;padding:6px 10px;border:0;border-radius:3px;background:transparent;text-align:left;font-size:12px;color:#e3ebe7}.demo .tp-context-menu>button:hover,.demo .tp-context-menu>button:focus{background:#2a3a45;outline:1px solid #4fc3a1;outline-offset:-1px}.tp-context-menu kbd{margin-left:auto;font:10px ui-monospace,monospace;color:#8fa39c;white-space:nowrap}
+@media(max-width:900px){.tp-sidebar{width:145px}.tp-title-context{display:none}.tp-toolbar{gap:2px}.tp-toolbar button{font-size:12px}.tp-work{height:760px}.tp-inspector dl{grid-template-columns:repeat(3,minmax(0,1fr))}.tp-path{max-width:180px}}
+@media(max-width:650px){.tp-work{display:block;height:auto}.tp-sidebar{width:100%;display:block;border-right:0;border-bottom:1px solid var(--line)}.tp-sidebar>.tp-side-head:first-child,.tp-members-heading,.tp-crumb,.tp-members,.tp-side-note,.tp-signal,.tp-tree summary{display:none}.tp-tree,.tp-tree details{padding:0;display:contents}.tp-tree .tp-source,.tp-tree>button{display:inline-flex;width:auto!important;margin:5px!important;padding:3px 10px}.tp-source small{margin-left:5px}.tp-main{height:780px}.tp-wave-panel{height:145px}.tp-table-panel .tp-path{max-width:150px}.tp-toolbar{gap:3px;padding:5px}.tp-toolbar>button,.tp-toolbar>.tp-popover-anchor>button{padding:3px 5px}.tp-toolbar .tp-spacer{display:none}.tp-sampling{margin:0}.tp-inspector dl{grid-template-columns:repeat(2,minmax(0,1fr))}.tp-popover{min-width:205px;max-width:230px}.tp-goto{left:auto;right:-40px}.tp-panel-status{gap:5px 10px}.tp-work-status>span:last-child{display:none}.tp-wave-panel canvas{height:110px}.tp-title{font-size:12px}.tp-findbar>input{width:80px}.tp-findbar>span{font-size:11px}}
+@media print{.tp-sidebar,.tp-toolbar,.tp-demo-lab,.guide{display:none}.tp-work,.tp-main{height:auto}.tp-table-area{height:400px;flex:none}.demo{break-inside:avoid}}
+
+
+.memory-calculator{margin:20px 0}.memory-calculator h3{font-size:16px}.calc-controls{display:flex;gap:18px;flex-wrap:wrap;align-items:center}.calc-controls label{display:flex;gap:8px;align-items:center;font-size:14px}.calc-controls input[type=number]{width:90px}.metrics{margin:18px 0}.metrics>div{display:flex;gap:18px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line)}.metrics strong{font:15px ui-monospace,monospace;min-width:130px}.metrics small{font-size:14px;color:var(--muted)}.demo{border-radius:4px;box-shadow:none}.tp-demo-lab{font-size:14px}.tp-demo-lab .calc-controls{margin-top:14px}.guide button{font-size:13px}
+@media(max-width:700px){main{padding:0 16px 30px}.toc{grid-template-columns:1fr}h1{font-size:27px}h2{font-size:22px}.calc-controls{gap:10px}.metrics>div{align-items:flex-start}.metrics strong{min-width:110px}.metrics small{line-height:1.4}}
+@media print{.mast-controls,.skip,.guide,.tp-demo-lab{display:none}body{background:#fff;color:#000}main{max-width:none;padding:0}main>section{padding:20px 0}h1{font-size:26pt}h2{font-size:19pt}h3{break-after:avoid}p{orphans:3;widows:3}pre{white-space:pre-wrap}body.dark{--bg:#fff;--surface:#fff;--ink:#000;--muted:#333;--line:#bbb;--code:#eee}a{color:inherit}.demo{break-inside:avoid}}
+
+/* Explanatory figures belong to the specification, not the product demo. */
+.spec-figure{max-width:860px;margin:22px 0 28px;break-inside:avoid}.spec-figure .diagram-scroll{overflow-x:auto;padding:4px 0}.spec-figure svg{display:block;width:100%;min-width:620px;height:auto;color:var(--ink)}.spec-figure text{fill:var(--ink);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}.spec-figure .fig-label{font-size:15px;font-weight:600}.spec-figure .fig-small{font-size:12px;fill:var(--muted)}.spec-figure .fig-mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}.spec-figure .fig-box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.spec-figure .fig-soft{fill:var(--code);stroke:var(--line);stroke-width:1.5}.spec-figure .fig-accent{fill:var(--soft);stroke:var(--accent);stroke-width:1.5}.spec-figure .fig-line{fill:none;stroke:var(--muted);stroke-width:1.5}.spec-figure .fig-guide{fill:none;stroke:var(--line);stroke-width:1;stroke-dasharray:4 4}.spec-figure .fig-cursor{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:5 3}.spec-figure figcaption{max-width:82ch;margin-top:7px;color:var(--muted);font-size:14px;line-height:1.55}.spec-figure figcaption b{font-weight:600;color:var(--ink)}
+@media print{.spec-figure svg{min-width:0}.spec-figure .diagram-scroll{overflow:visible}}
+</style>
+</head>
+<body>
+<a href="#overview" class="skip"><span>Skip to specification</span></a><main>
+<div class="masthead"><span class="brand">Volna</span><div class="mast-controls"><button id="theme">Dark theme</button></div></div><header>
+<h1>Table panel specification</h1>
+
+<p>This document specifies the proposed table panel: how users inspect trace records, how rows and values are defined, and how the client prepares and queries them. The embedded prototype illustrates the interactions. It does not implement VTR decoding or demonstrate production performance.</p>
+
+</header><nav class="toc" aria-label="Contents">
+<a href="#overview"><span>1. Scope</span></a>
+<a href="#demo"><span>2. UI and interaction</span></a>
+<a href="#semantics"><span>3. Rows, identity and time</span></a>
+<a href="#engine"><span>4. Architecture and data ownership</span></a>
+<a href="#indexes"><span>5. Indexes and viewport access</span></a>
+<a href="#jobs"><span>6. Query execution</span></a>
+<a href="#capacity"><span>7. Memory limits</span></a>
+<a href="#investigation"><span>8. Later extensions</span></a>
+<a href="#delivery"><span>9. Implementation and verification</span></a>
+<a href="#research"><span>10. Design references</span></a>
+</nav><noscript><p>Enable JavaScript to use the interactive examples.</p></noscript>
+<section id="overview" aria-labelledby="overview-title"><h2 id="overview-title"><span>1. Scope</span></h2>
+<p>The table is one panel kind for transaction records, sampled signal values and log records. These sources share navigation, filtering, sorting and selection, but use different rules to define a row. A generated source is also provided for testing the table independently of a trace reader.</p>
+
+<p>The first version supports one selected row, typed column filters, sorting by one column, Find, column visibility and width, row/time navigation, record details, copying and a linked time cursor. Section 2 defines these interactions; sections 3–7 define the data and execution model that supports them.</p>
+<p>A transaction table can include a column showing a signal’s recorded value when each transaction starts. For example, if a transaction starts at 100 ns and <code>core.state</code> is RUN at that time, its row shows RUN in that column. This lets the user compare transaction records with the hardware state at their start times.</p>
+
+<p>Range selection, automatic cursor following, a match-density overview, more complex derived columns and large exports are later extensions. They are described separately in section 8 and are not requirements for the first release.</p>
+
+<p>Both local and remote sessions load complete selected signal histories and transaction tracks. The client performs table queries and presentation; the protocol carries raw trace data. Loading fails explicitly if the selected data exceeds the shared client memory limit. The table does not introduce server-side filtering or remote row paging.</p>
+
+</section>
+<section id="demo" aria-labelledby="demo-title"><h2 id="demo-title"><span>2. UI and interaction</span></h2>
+<h3><span>2.1 Interactive example</span></h3>
+<p>Select a source in the hierarchy to open its records in the table. The waveform panel provides the time context for the selected record. The controls below load either transactions with errors or signal values at rising clock edges; Reset restores the initial example.</p>
+
+<div class="guide">
+<button id="guide-errors"><span>Inspect failed transactions</span></button>
+<button id="guide-signals"><span>Sample signals on clk ↑</span></button>
+<button id="guide-reset"><span>Reset workspace</span></button>
+</div>
+<div class="demo" id="table-workspace">
+  <div class="tp-title"><span class="tp-dots" aria-hidden="true"><i></i><i></i><i></i></span><b>Volna</b><span>— soc_noc.vtr</span><span class="tp-title-context"><span>Waves 1 · Table 2</span></span></div>
+  <div class="tp-work">
+    <aside class="tp-sidebar" aria-label="Sources">
+      <div class="tp-side-head"><span>Hierarchy</span></div>
+      <details class="tp-tree" open><summary><span data-icon="box"></span><span>soc</span></summary>
+        <details open><summary><span data-icon="box"></span><span>noc</span></summary>
+          <button class="tp-source" id="source-transactions"><span data-icon="stream"></span><span>router</span><small>TX</small></button>
+        </details>
+        <button class="tp-source" id="source-signals"><span data-icon="waves"></span><span>bus</span><small>5</small></button>
+        <div class="tp-signal"><span class="tp-glyph">#</span>core.state</div>
+      </details>
+      <div class="tp-side-head tp-members-heading"><span>Members</span><span id="member-count"></span></div>
+      <div class="tp-crumb" id="member-path"></div>
+      <div id="source-members" class="tp-members"></div>
+      <div class="tp-side-note"><span>Select a source to open its table.</span></div>
+    </aside>
+    <div class="tp-main">
+      <section class="tp-panel tp-wave-panel" aria-label="Waves">
+        <div class="tp-panel-head"><span data-icon="waves"></span><b><span>Waves 1</span></b><span class="tp-path" id="wave-path">soc.noc</span><div class="tp-panel-tools"><button id="wave-locate" class="tp-icon-button" data-icon="locate"></button><button id="wave-fit" class="tp-icon-button" data-icon="fit"></button></div></div>
+        <canvas id="timeline" tabindex="0"></canvas>
+      </section>
+      <section class="tp-panel tp-table-panel focused" aria-label="Table">
+        <div class="tp-panel-head"><span data-icon="table"></span><b><span>Table 2</span></b><span class="tp-path" id="source-path"></span><div class="tp-panel-tools"><button id="link" class="tp-icon-button" aria-pressed="true" data-icon="link"></button><button id="details-toggle" class="tp-icon-button" aria-expanded="false" data-icon="panel"></button></div></div>
+        <div class="tp-toolbar">
+          <button id="filters-toggle" aria-pressed="false"><span data-icon="filter"></span><span>Filter</span><span id="filter-count" class="tp-count" hidden></span></button>
+          <button id="find-toggle" aria-expanded="false"><span data-icon="search"></span><span>Find</span></button>
+          <div class="tp-popover-anchor"><button id="columns-toggle" aria-expanded="false"><span data-icon="columns"></span><span>Columns</span></button><div id="columns-menu" class="tp-popover" role="dialog" hidden><strong><span>Visible columns</span></strong><div id="column-options"></div><button id="columns-reset"><span>Reset columns</span></button></div></div>
+          <div class="tp-popover-anchor"><button id="goto-toggle" aria-expanded="false"><span data-icon="goto"></span><span>Go to…</span></button><div id="goto-menu" class="tp-popover tp-goto" role="dialog" hidden><label for="goto-kind"><span>Go to</span></label><select id="goto-kind"></select><label for="goto-value" id="goto-label"></label><input id="goto-value" type="text" inputmode="numeric" value="1"><button id="goto-submit"><span>Go</span></button><p id="goto-error" role="alert"></p></div></div>
+          <label id="sampling-label" class="tp-sampling"><span><span>Rows</span></span><select id="sampling"></select></label>
+          <span class="tp-spacer"></span><button id="locate-cursor"><span data-icon="locate"></span><span>Locate cursor</span></button>
+        </div>
+        <div id="find-bar" class="tp-findbar" hidden><span data-icon="search"></span><input id="find-input" type="search" spellcheck="false"><span id="find-count" aria-live="polite"></span><button id="find-prev" class="tp-icon-button" data-icon="up"></button><button id="find-next" class="tp-icon-button" data-icon="down"></button><button id="find-close" class="tp-icon-button" data-icon="close"></button></div>
+        <div id="filter-chips" class="tp-chips" hidden></div>
+        <div class="tp-query" id="query-bar" hidden><progress id="progress" value="0" max="1"></progress><span id="query-status" role="status" aria-live="polite"></span><button id="cancel"><span>Cancel</span></button></div>
+        <div class="tp-table-area">
+          <div class="data-region" id="data-region" tabindex="0" role="region"><table id="data-table"><thead id="data-head"></thead><tbody id="data-body"></tbody></table><div class="empty" id="empty" hidden><span data-icon="filter"></span><p id="empty-message"></p><button id="clear-empty"><span>Clear filters</span></button></div></div>
+          <div class="tp-vscroll" id="vertical-scroll" role="scrollbar" aria-orientation="vertical" aria-controls="data-region" tabindex="0"><div id="scroll-thumb"></div></div>
+        </div>
+        <div class="tp-hscroll" id="horizontal-scroll" tabindex="0"><div id="horizontal-spacer"></div></div>
+        <div id="demo-error" class="tp-notice" role="status" hidden></div>
+        <div class="tp-inspector" id="inspector" hidden><div class="tp-inspector-head"><strong id="detail-title"></strong><span id="detail-hidden"></span><button id="inspector-close" class="tp-icon-button" data-icon="close"></button></div><dl id="detail-fields"></dl><button id="show-waves"><span data-icon="waves"></span><span>Show interval in waves</span></button></div>
+        <div class="tp-panel-status"><span id="view-status"></span><span id="selection-status"></span><span class="tp-spacer"></span><span id="cursor-detail"></span></div>
+      </section>
+    </div>
+  </div>
+  <div class="tp-work-status"><span id="recording-status"></span><span class="tp-spacer"></span><span><span>↑ ↓ rows · Enter inspect · Ctrl/Cmd+F find</span></span></div>
+  <div id="row-menu" class="tp-context-menu" role="menu" hidden>
+    <button id="copy-row" role="menuitem" tabindex="-1"><span>Copy row</span><kbd>Ctrl/Cmd+C</kbd></button>
+    <button id="copy-headers" role="menuitem" tabindex="-1"><span>Copy with column headers</span></button>
+  </div>
+  <div class="copy-box" id="copy-box" hidden><label for="copy-text"><span>Copy this TSV</span></label><textarea id="copy-text" readonly></textarea></div>
+</div>
+
+<p>The example contains 65,536 generated transactions and a small set of recorded signal histories. The optional 300-million-row source computes rows on demand; it does not hold 300 million trace records in memory. The diagnostic controls exercise query progress, cancellation and failure and are not part of the proposed application toolbar.</p>
+<p>The requirements below describe the intended Volna implementation. The prototype demonstrates the main interactions with local fixtures; it does not implement workspace persistence, the full typed query language or the production memory-budget system.</p>
+
+<details class="tp-demo-lab"><summary><span>Prototype controls & diagnostics — outside the product UI</span></summary><div class="calc-controls"><button id="stress-source"><span>Open 300M-row source</span></button><label><input type="checkbox" id="slow"><span>Slow queries</span></label><button id="reject"><span>Reject next query</span></button></div><div class="blocks" id="blocks" aria-hidden="true"></div><p class="meta" id="scan-detail"></p></details>
+
+<h3><span>2.2 Filtering, sorting and Find</span></h3>
+<p>Filter opens an input beneath each column header. The input uses the column’s type: a status column offers values such as ERROR, while a duration column accepts a condition such as <code>&gt;=120</code>. Conditions on different columns combine with AND. An active filter remains visible as a removable label even if its column is hidden. Only values for which the predicate is true pass the filter; missing values and logic states require explicit operators.</p>
+
+<p>Clicking a sortable column header changes the row order. Sorting uses the complete typed values, not truncated cell text. Equal keys use a stable source-order tie-break. Find searches the displayed representations in enabled columns and moves between matches without removing rows. For example, filtering status to ERROR changes the result set; finding WRITE within that result only highlights and navigates between matching records.</p>
+
+<p>While a new filter or sort is being calculated, the table keeps the last completed result. The status distinguishes the query currently displayed from the query being prepared. An invalid condition, cancellation or insufficient memory leaves the previous result available.</p>
+
+<h3><span>2.3 Selection, cursor and navigation</span></h3>
+<p>The selected row identifies a record. The shared cursor identifies a time in the recording. These are separate values: selecting transaction T42 does not mean that T42 is the only transaction active at the cursor time. When cursor linking is enabled, activating a row moves the cursor to its time anchor, normally the transaction’s begin time. Filtering and sorting do not move the cursor.</p>
+
+<p>Selection is stored by stable row identity, so it survives a reorder. If a filter hides the selected record, the status reports that the record is filtered out. The cursor indicator uses the row with the latest time anchor at or before the cursor, regardless of the current display order. Equal timestamps use a stable source-order tie-break. If that row is filtered out, the panel reports this rather than marking an unrelated row.</p>
+
+<p>Arrow keys move the selection; Page Up/Down, Home and End navigate the current result. Go to accepts a displayed row number or a time. Locate cursor reveals the cursor’s row without changing the waveform scale; if that row is absent from the result, it reports this. A command to find the nearest matching row is a separate operation. Enter opens record details. Show interval in waves explicitly fits the waveform view to the selected interval; merely selecting a row does not change the scale.</p>
+
+<figure class="spec-figure" id="fig-selection">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 225" role="img" aria-labelledby="fig-selection-title fig-selection-desc">
+<title id="fig-selection-title">Selected record and shared time cursor</title><desc id="fig-selection-desc">T42 is selected and spans 100 to 140 ns. T43 spans 120 to 150 ns. The shared cursor is at 125 ns, inside both transactions. Moving the cursor has not changed the selection.</desc>
+<text x="24" y="24" class="fig-label" text-anchor="start">Table selection</text><text x="392" y="24" class="fig-label" text-anchor="start">Time in the recording</text><rect x="24" y="52" width="300" height="35" rx="3" class="fig-soft"/><text x="36" y="75" text-anchor="start">Record</text><text x="174" y="75" text-anchor="start">Begin</text><text x="254" y="75" text-anchor="start">End</text><rect x="24" y="87" width="300" height="40" rx="3" class="fig-accent"/><text x="36" y="112" text-anchor="start">T42 · selected</text><text x="174" y="112" text-anchor="start">100</text><text x="254" y="112" text-anchor="start">140</text><rect x="24" y="127" width="300" height="40" rx="3" class="fig-box"/><text x="36" y="152" text-anchor="start">T43</text><text x="174" y="152" text-anchor="start">120</text><text x="254" y="152" text-anchor="start">150</text><path d="M400 54L400 170" class="fig-guide"/><text x="400" y="47" class="fig-small" text-anchor="middle">100</text><path d="M480 54L480 170" class="fig-guide"/><text x="480" y="47" class="fig-small" text-anchor="middle">110</text><path d="M560 54L560 170" class="fig-guide"/><text x="560" y="47" class="fig-small" text-anchor="middle">120</text><path d="M640 54L640 170" class="fig-guide"/><text x="640" y="47" class="fig-small" text-anchor="middle">130</text><path d="M720 54L720 170" class="fig-guide"/><text x="720" y="47" class="fig-small" text-anchor="middle">140</text><path d="M800 54L800 170" class="fig-guide"/><text x="800" y="47" class="fig-small" text-anchor="middle">150</text><text x="818" y="47" class="fig-small" text-anchor="start">ns</text><rect x="400" y="87" width="320" height="40" rx="3" class="fig-accent"/><text x="410" y="112" text-anchor="start">T42</text><rect x="560" y="137" width="240" height="30" rx="3" class="fig-box"/><text x="572" y="157" text-anchor="start">T43</text><path d="M600 63L600 184" class="fig-cursor"/><text x="600" y="208" class="fig-mono" xml:space="preserve" text-anchor="middle">cursor = 125 ns</text><text x="24" y="208" class="fig-small" text-anchor="start">Selection remains T42.</text>
+</svg></div>
+<figcaption><b>Figure 1.</b> Selecting T42 moves a linked cursor to 100 ns. Moving the cursor afterward to 125 ns leaves T42 selected; both transactions overlap that time.</figcaption></figure>
+
+<h3><span>2.4 Columns and values from another source</span></h3>
+<p>Columns controls which fields are visible; dragging a header divider changes the width. Hiding a column changes presentation, not the row source. A hidden column that still has an active filter continues to participate in the query.</p>
+
+<p>For example, a transaction begins at 100 ns. The signal <code>core.state</code> changes to RUN at 90 ns and to WAIT at 110 ns. A column named <code>core.state @ begin</code> displays RUN for that transaction. It reads the signal history at the transaction’s begin time; it does not add rows for the signal’s changes. The column definition records the signal reference and whether it uses the last value strictly before the anchor or the last value at or before it.</p>
+
+<p>This column therefore depends on both the transaction’s time anchor and the complete selected signal history. The client retains that history while the column is displayed or needed by an active query. Other panels reuse the same immutable history. Section 3 defines the behavior at repeated timestamps and for event signals.</p>
+
+<figure class="spec-figure" id="fig-sampling">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 292" role="img" aria-labelledby="fig-sampling-title fig-sampling-desc">
+<title id="fig-sampling-title">Reading signal state at transaction start</title><desc id="fig-sampling-desc">The signal changes from RESET to RUN at 90 ns, then to WAIT at 110 ns. T42 starts at 100 ns and ends at 135 ns. Its state-at-begin column is RUN because the last signal value recorded at or before 100 ns is RUN.</desc>
+<text x="24" y="26" class="fig-label" text-anchor="start">core.state</text><text x="190" y="53" class="fig-small" text-anchor="middle">80</text><path d="M190 60L190 181" class="fig-guide"/><text x="280" y="53" class="fig-small" text-anchor="middle">90</text><path d="M280 60L280 181" class="fig-guide"/><text x="370" y="53" class="fig-small" text-anchor="middle">100</text><path d="M370 60L370 181" class="fig-guide"/><text x="460" y="53" class="fig-small" text-anchor="middle">110</text><path d="M460 60L460 181" class="fig-guide"/><text x="550" y="53" class="fig-small" text-anchor="middle">120</text><path d="M550 60L550 181" class="fig-guide"/><text x="640" y="53" class="fig-small" text-anchor="middle">130</text><path d="M640 60L640 181" class="fig-guide"/><text x="730" y="53" class="fig-small" text-anchor="middle">140</text><path d="M730 60L730 181" class="fig-guide"/><text x="758" y="53" class="fig-small" text-anchor="start">ns</text><rect x="190" y="68" width="90" height="38" rx="3" class="fig-soft"/><text x="235.0" y="93" class="fig-mono" xml:space="preserve" text-anchor="middle">RESET</text><rect x="280" y="68" width="180" height="38" rx="3" class="fig-accent"/><text x="370.0" y="93" class="fig-mono" xml:space="preserve" text-anchor="middle">RUN</text><rect x="460" y="68" width="270" height="38" rx="3" class="fig-soft"/><text x="595.0" y="93" class="fig-mono" xml:space="preserve" text-anchor="middle">WAIT</text><text x="24" y="148" text-anchor="start">T42</text><rect x="370" y="124" width="315" height="34" rx="3" class="fig-box"/><text x="382" y="147" text-anchor="start">transaction: 100–135 ns</text><path d="M370 62L370 175" class="fig-cursor"/><path d="M370 181L370 209" class="fig-line"/><path d="M366 203L370 209L374 203" class="fig-line"/><rect x="190" y="216" width="540" height="64" rx="3" class="fig-box"/><text x="205" y="239" class="fig-mono" xml:space="preserve" text-anchor="start">Record       Begin        core.state @ begin</text><text x="205" y="263" class="fig-mono" xml:space="preserve" text-anchor="start">T42          100 ns       RUN</text>
+</svg></div>
+<figcaption><b>Figure 2.</b> The column reads the signal at the transaction’s start time. The change to WAIT during T42 does not change its <code>core.state @ begin</code> value or create another transaction row.</figcaption></figure>
+
+<h3><span>2.5 Copying and keyboard access</span></h3>
+<p>Right-clicking a row selects it and opens Copy row and Copy with column headers. Ctrl/Cmd+C copies the selected row without headers. Both commands copy enabled columns in display order as tab-separated values, with quoting for embedded tabs, newlines and quotation marks. Copy is a row action and does not occupy a permanent toolbar button.</p>
+
+<p>Shift+F10 opens the row menu from the keyboard; arrows choose an action and Escape closes the menu. Ctrl/Cmd+F opens Find. Row contents remain readable through a semantic accessibility representation; a canvas alone is insufficient. Long cell values open in record details instead of changing the fixed row height. Clipboard preparation is bounded by a byte limit, and the clipboard is replaced only after the complete copy is ready.</p>
+
+<h3><span>2.6 Saved state</span></h3>
+<p>Opening a table fixes the set of generators or signals used as its source. Later selection changes in the sidebar do not replace that set automatically. A saved workspace identifies the recording by its fingerprint and records source paths with enough information to distinguish repeated occurrences.</p>
+<p>The workspace also stores the version of the rules used to form rows, column keys, typed filters, sort order, numeric formatting, units, cursor links and stable row anchors. It stores these settings rather than computed result buffers.</p>
+
+<p>Restoring a source reports whether its saved reference resolves to exactly one source (Found), no source (Missing), or several candidates (Ambiguous). A changed schema must not silently bind to a similarly named field. Changes in saved-state semantics require a workspace format version change. Future MCP adapters use the same core commands and stable selection snapshots.</p>
+
+</section>
+<section id="semantics" aria-labelledby="semantics-title"><h2 id="semantics-title"><span>3. Rows, identity and time</span></h2>
+<p>A row recipe defines which source records create rows and how each row is identified. The resulting row domain has a canonical order before filtering or sorting. A source ordinal is a row’s position in that domain; a displayed rank is its position in a query result. Neither position replaces the stable row key used for selection and saved state.</p>
+
+<h3><span>3.1 Transactions</span></h3>
+<p>A transaction row is identified by recording, generator and transaction ID. Within a generator, canonical order is <code>(begin, end, id)</code>. A table containing several generators either concatenates their domains using a directory of cumulative row counts or explicitly builds a global time-order permutation. These are different ordering choices and must not be switched implicitly.</p>
+
+<p>The begin time is the navigation anchor; the closed interval <code>[begin, end]</code> is the transaction’s extent. “Begins within the selected interval” and “overlaps the selected interval” are different filters. Repeated attributes are addressed by phase, key and occurrence, so two attributes with the same name are not silently merged. Nested events, stages and relations appear in record details or in a separately defined event-row source.</p>
+
+<h3><span>3.2 Signal changes</span></h3>
+<p>The user explicitly chooses the signals whose recorded changes create rows. The row axis is the union of their distinct timestamps: changes recorded at the same time produce one row. Its key contains the recording, recipe and timestamp. Signals added only as value columns do not add timestamps to this axis.</p>
+
+<p>At time <code>t</code>, an ordinary signal cell shows the last recorded value at or before <code>t</code>. A change mark means that an occurrence was retained at that timestamp, even if the recorded value repeats the previous value. Record details preserve the individual occurrences that were combined into the row.</p>
+
+<h3><span>3.3 Clock-edge sampling</span></h3>
+<p>A clock-edge recipe creates one row per recorded edge occurrence. The strict rising-edge rule accepts <code>0→1</code> and rejects <code>X→1</code>. The row key includes the clock occurrence ordinal: two rising edges with the same timestamp remain two rows. An edge-index map locates the Nth edge; a timestamp lookup alone cannot distinguish these occurrences.</p>
+
+<p>Sampling Before uses the last record with time <code>&lt; t</code>; sampling At time uses the last record with time <code>≤ t</code>. Repeated edges at the same time can therefore display identical sampled values. These rules describe recorded ordering only. They do not establish simulator scheduling regions, cross-signal delta-cycle order or the value actually sampled by a flip-flop. Event signals represent occurrences and must not be carried forward as persistent state.</p>
+
+<figure class="spec-figure" id="fig-row-recipes">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 313" role="img" aria-labelledby="fig-row-recipes-title fig-row-recipes-desc">
+<title id="fig-row-recipes-title">Distinct timestamps versus distinct edge occurrences</title><desc id="fig-row-recipes-desc">Signal histories A: 0,10,10,30 ns and B: 0,20,30 ns produce union rows at 0,10,20,30 ns. A clock with 0-to-1, 1-to-0 and 0-to-1 occurrences at 25 ns produces two rising-edge rows at that timestamp.</desc>
+<text x="24" y="24" class="fig-label" text-anchor="start">Driving signal histories</text><text x="480" y="24" class="fig-label" text-anchor="start">Union timestamp rows</text><text x="24" y="86" text-anchor="start">signal A</text><rect x="124" y="64" width="55" height="34" rx="3" class="fig-soft"/><text x="151" y="86" class="fig-mono" xml:space="preserve" text-anchor="middle">0</text><rect x="189" y="64" width="55" height="34" rx="3" class="fig-soft"/><text x="216" y="86" class="fig-mono" xml:space="preserve" text-anchor="middle">10</text><rect x="254" y="64" width="55" height="34" rx="3" class="fig-soft"/><text x="281" y="86" class="fig-mono" xml:space="preserve" text-anchor="middle">10</text><rect x="319" y="64" width="55" height="34" rx="3" class="fig-soft"/><text x="346" y="86" class="fig-mono" xml:space="preserve" text-anchor="middle">30</text><text x="24" y="130" text-anchor="start">signal B</text><rect x="124" y="108" width="55" height="34" rx="3" class="fig-soft"/><text x="151" y="130" class="fig-mono" xml:space="preserve" text-anchor="middle">0</text><rect x="189" y="108" width="55" height="34" rx="3" class="fig-soft"/><text x="216" y="130" class="fig-mono" xml:space="preserve" text-anchor="middle">20</text><rect x="254" y="108" width="55" height="34" rx="3" class="fig-soft"/><text x="281" y="130" class="fig-mono" xml:space="preserve" text-anchor="middle">30</text><path d="M397 97L452 97" class="fig-line"/><path d="M446 93L452 97L446 101" class="fig-line"/><rect x="480" y="80" width="65" height="36" rx="3" class="fig-accent"/><text x="512" y="104" class="fig-mono" xml:space="preserve" text-anchor="middle">0</text><rect x="560" y="80" width="65" height="36" rx="3" class="fig-accent"/><text x="592" y="104" class="fig-mono" xml:space="preserve" text-anchor="middle">10</text><rect x="640" y="80" width="65" height="36" rx="3" class="fig-accent"/><text x="672" y="104" class="fig-mono" xml:space="preserve" text-anchor="middle">20</text><rect x="720" y="80" width="65" height="36" rx="3" class="fig-accent"/><text x="752" y="104" class="fig-mono" xml:space="preserve" text-anchor="middle">30</text><text x="124" y="166" class="fig-small" text-anchor="start">Repeated 10 ns entries collapse into one row.</text><path d="M24 189L816 189" class="fig-guide"/><text x="24" y="220" class="fig-label" text-anchor="start">Clock occurrences at 25 ns</text><text x="480" y="220" class="fig-label" text-anchor="start">Strict rising-edge rows</text><rect x="24" y="236" width="102" height="36" rx="3" class="fig-soft"/><text x="75" y="260" class="fig-mono" xml:space="preserve" text-anchor="middle">0→1</text><rect x="140" y="236" width="102" height="36" rx="3" class="fig-soft"/><text x="191" y="260" class="fig-mono" xml:space="preserve" text-anchor="middle">1→0</text><rect x="256" y="236" width="102" height="36" rx="3" class="fig-soft"/><text x="307" y="260" class="fig-mono" xml:space="preserve" text-anchor="middle">0→1</text><path d="M397 254L452 254" class="fig-line"/><path d="M446 250L452 254L446 258" class="fig-line"/><rect x="480" y="236" width="146" height="36" rx="3" class="fig-accent"/><text x="553" y="260" class="fig-mono" xml:space="preserve" text-anchor="middle">25 ns · edge #1</text><rect x="643" y="236" width="146" height="36" rx="3" class="fig-accent"/><text x="716" y="260" class="fig-mono" xml:space="preserve" text-anchor="middle">25 ns · edge #2</text><text x="480" y="296" class="fig-small" text-anchor="start">Two occurrences: two distinct row keys.</text>
+</svg></div>
+<figcaption><b>Figure 3.</b> Signal-change rows combine equal timestamps. Clock-edge rows preserve separate qualifying occurrences, even when their timestamps are equal.</figcaption></figure>
+
+<h3><span>3.4 Other sources and value types</span></h3>
+<p>A log row is identified by its recorded occurrence and retains the original log provenance. A derived source has a versioned recipe, stable keys, a finite row count or an explicit building state, and optional time anchors. Time-link controls are unavailable for sources without time anchors.</p>
+
+<p>The value model distinguishes initial values, absent attributes, explicit nulls, unavailable or dump-off data, and logic states such as X and Z. Ticks and identities use u64. Conversion to physical units uses checked exact rational arithmetic; large integers cross the JavaScript boundary as decimal strings. Filters use typed raw values. Formatted-text search explicitly depends on the translator revision. VDB supplies client-side design semantics and presentation, without adding those fields to the raw trace protocol.</p>
+
+</section>
+<section id="engine" aria-labelledby="engine-title"><h2 id="engine-title"><span>4. Architecture and data ownership</span></h2>
+<h3><span>4.1 Component boundaries</span></h3>
+<p>All table behavior belongs in <code>volna-core</code>: source selection, row recipes, queries, navigation, layout and generation of the toolkit-neutral Scene. GPUI paints the prepared scene and hosts native controls. Integration adds <code>PanelKind::Table</code>, <code>PanelLayout::Table</code> and core commands while reusing <code>PanelCanvas</code>, <code>NavState</code>, themes and document load delivery. The egui frontend retains its existing minimal feature set and must continue to build.</p>
+
+<p>The session owns loading. Existing <code>SignalHistory</code> and <code>LoadedGenerator</code> objects own the immutable trace buffers. A table retains references to those objects and adds row indexes and query results; it does not copy every source record into a universal table store. When an adapter needs a missing operation, add it to the owning API instead of duplicating the owner’s data in a side table.</p>
+
+<h3><span>4.2 Snapshots and prepared cells</span></h3>
+<p><code>TableSnapshot</code> binds a source, row domain, schema and source revision. <code>QuerySnapshot</code> retains that input and records which rows passed the filter and in what order they are displayed. <code>ViewportTile</code> contains prepared values for a small rectangle of visible rows and columns. Each result carries a ticket so delivery can reject work for an obsolete request.</p>
+<figure class="spec-figure" id="fig-ownership">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 337" role="img" aria-labelledby="fig-ownership-title fig-ownership-desc">
+<title id="fig-ownership-title">Shared trace ownership and table-specific results</title><desc id="fig-ownership-desc">Immutable source buffers are shared with the wave or pipeline panel. TableSnapshot retains a source reference, domain and schema. QuerySnapshot adds membership and order. A ViewportTile prepares a small visible rectangle for Scene and GPUI rendering.</desc>
+<text x="24" y="24" class="fig-label" text-anchor="start">One loaded source, shared by panels</text><rect x="24" y="44" width="310" height="65" rx="3" class="fig-soft"/><text x="40" y="69" class="fig-mono" xml:space="preserve" text-anchor="start">SignalHistory / LoadedGenerator</text><text x="40" y="93" class="fig-small" text-anchor="start">Own the immutable trace buffers.</text><path d="M334 77L446 77" class="fig-line"/><path d="M440 73L446 77L440 81" class="fig-line"/><text x="390" y="64" class="fig-small" text-anchor="middle">retained</text><rect x="450" y="44" width="366" height="65" rx="3" class="fig-box"/><text x="466" y="69" class="fig-mono" xml:space="preserve" text-anchor="start">TableSnapshot</text><text x="466" y="93" class="fig-small" text-anchor="start">Source reference + row domain + schema</text><path d="M178 109L178 171" class="fig-line"/><path d="M174 165L178 171L182 165" class="fig-line"/><rect x="24" y="177" width="310" height="60" rx="3" class="fig-box"/><text x="40" y="202" text-anchor="start">Wave / pipeline panel</text><text x="40" y="224" class="fig-small" text-anchor="start">Reads the same source objects.</text><path d="M632 109L632 145" class="fig-line"/><path d="M628 139L632 145L636 139" class="fig-line"/><rect x="450" y="151" width="366" height="65" rx="3" class="fig-box"/><text x="466" y="176" class="fig-mono" xml:space="preserve" text-anchor="start">QuerySnapshot</text><text x="466" y="200" class="fig-small" text-anchor="start">Matching row ordinals + display order</text><path d="M632 216L632 251" class="fig-line"/><path d="M628 245L632 251L636 245" class="fig-line"/><rect x="450" y="257" width="366" height="65" rx="3" class="fig-accent"/><text x="466" y="282" class="fig-mono" xml:space="preserve" text-anchor="start">ViewportTile → Scene → GPUI</text><text x="466" y="306" class="fig-small" text-anchor="start">Prepared previews for visible cells only</text><text x="24" y="283" class="fig-small" text-anchor="start">References and indexes avoid a second</text><text x="24" y="302" class="fig-small" text-anchor="start">full copy of the trace records.</text>
+</svg></div>
+<figcaption><b>Figure 4.</b> The table adds row indexes and prepared cell previews around shared source data. Only the final visible previews enter the paint path. Arrows show use of data, not copying of entire buffers.</figcaption></figure>
+
+<pre>// Proposed internal contracts
+TableSnapshot { source: Arc&lt;dyn TableSource&gt;, domain: Arc&lt;RowDomain&gt;,
+                schema: Arc&lt;TableSchema&gt;, revision: SourceRevision }
+QuerySnapshot { input: Arc&lt;TableSnapshot&gt;, members: Arc&lt;RowSet&gt;,
+                order: Order, completeness: Completeness, ticket: QueryTicket }
+ViewportTile  { ticket: TileTicket, rows: Box&lt;[VisibleRow]&gt;,
+                cells: Box&lt;[CellPreview]&gt; }
+
+project(rows, columns, budget) → Ready(tile) | Yield(continuation) | Error
+seek(rank, budget)            → Ready(cursor) | Yield(continuation) | Error
+advance(cursor, budget)       → Ready(row) | Yield(continuation) | End | Error</pre>
+<p>These are proposed internal contracts, not a new public file format. <code>project</code> prepares cell previews, <code>seek</code> positions a source cursor, and <code>advance</code> reads the next row. An operation that exhausts its work budget returns a continuation and resumes later. Sequential cursor access is useful, but neither advancement nor arbitrary sampling is assumed to take constant time for every source.</p>
+
+<h3><span>4.3 Work outside the paint pass</span></h3>
+<p>Value lookup, decoding needed for access, and formatting run asynchronously before painting, with byte, operation and time limits. Paint consumes only ready previews and geometry. A jump to data that has not been prepared may show placeholders. Filtering and sorting can cause many noncontiguous reads, so their work must also be resumable.</p>
+
+<p>The existing owned <code>SignalHistory.value()</code> may clone large values; the owner should provide borrowed or resumable access where needed. If transaction projection needs ordinal lookup, extend <code>LoadedGenerator</code> using its existing ID index. These operations must preserve immutable sharing across panels.</p>
+
+</section>
+<section id="indexes" aria-labelledby="indexes-title"><h2 id="indexes-title"><span>5. Indexes and viewport access</span></h2>
+<h3><span>5.1 Membership and rank/select</span></h3>
+<p>Filtering produces a set of source ordinals. For example, if ordinals 2, 5 and 9 pass, the result contains three rows without copying their records. <code>select(1)</code> returns source ordinal 5 when ranks are zero-based; <code>rank(9)</code> counts the two members before ordinal 9. These operations map between source positions and positions in the filtered source order. Sorting adds the separate permutation described in section 5.3.</p>
+<figure class="spec-figure" id="fig-row-order">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 274" role="img" aria-labelledby="fig-row-order-title fig-row-order-desc">
+<title id="fig-row-order-title">Filtering selects source ordinals; sorting reorders references</title><desc id="fig-row-order-desc">Source ordinals 2,5,9 have ERROR status and durations 30,10,20 ns. Filtering retains them in source order. In that membership, select(1) is 5 and rank(9) is 2. Sorting by ascending duration gives source ordinal permutation 5,9,2.</desc>
+<text x="24" y="24" class="fig-label" text-anchor="start">Immutable source records</text><text x="319" y="24" class="fig-label" text-anchor="start">Filter: status = ERROR</text><text x="592" y="24" class="fig-label" text-anchor="start">Sort: duration ascending</text><rect x="24" y="42" width="220" height="37" rx="3" class="fig-soft"/><rect x="310" y="42" width="220" height="37" rx="3" class="fig-soft"/><rect x="584" y="42" width="232" height="37" rx="3" class="fig-soft"/><text x="36" y="66" class="fig-mono" xml:space="preserve" text-anchor="start">Ordinal  Status  Duration</text><text x="324" y="66" class="fig-mono" xml:space="preserve" text-anchor="start">Rank    Source ordinal</text><text x="598" y="66" class="fig-mono" xml:space="preserve" text-anchor="start">Rank    Source ordinal</text><rect x="24" y="84" width="220" height="35" rx="3" class="fig-box"/><text x="36" y="107" class="fig-mono" xml:space="preserve" text-anchor="start">2        ERROR   30 ns</text><rect x="310" y="84" width="220" height="35" rx="3" class="fig-accent"/><text x="324" y="107" class="fig-mono" xml:space="preserve" text-anchor="start">0       2</text><rect x="24" y="124" width="220" height="35" rx="3" class="fig-box"/><text x="36" y="147" class="fig-mono" xml:space="preserve" text-anchor="start">5        ERROR   10 ns</text><rect x="310" y="124" width="220" height="35" rx="3" class="fig-accent"/><text x="324" y="147" class="fig-mono" xml:space="preserve" text-anchor="start">1       5</text><rect x="24" y="164" width="220" height="35" rx="3" class="fig-box"/><text x="36" y="187" class="fig-mono" xml:space="preserve" text-anchor="start">9        ERROR   20 ns</text><rect x="310" y="164" width="220" height="35" rx="3" class="fig-accent"/><text x="324" y="187" class="fig-mono" xml:space="preserve" text-anchor="start">2       9</text><rect x="584" y="84" width="232" height="35" rx="3" class="fig-box"/><text x="598" y="107" class="fig-mono" xml:space="preserve" text-anchor="start">0       5</text><rect x="584" y="124" width="232" height="35" rx="3" class="fig-box"/><text x="598" y="147" class="fig-mono" xml:space="preserve" text-anchor="start">1       9</text><rect x="584" y="164" width="232" height="35" rx="3" class="fig-box"/><text x="598" y="187" class="fig-mono" xml:space="preserve" text-anchor="start">2       2</text><path d="M253 141L299 141" class="fig-line"/><path d="M293 137L299 141L293 145" class="fig-line"/><path d="M539 141L574 141" class="fig-line"/><path d="M568 137L574 141L568 145" class="fig-line"/><text x="24" y="230" class="fig-small" text-anchor="start">Other source rows fail the filter.</text><text x="310" y="230" class="fig-mono" xml:space="preserve" text-anchor="start">select(1) = 5</text><text x="310" y="254" class="fig-mono" xml:space="preserve" text-anchor="start">rank(9) = 2</text><text x="584" y="230" class="fig-mono" xml:space="preserve" text-anchor="start">permutation = [5, 9, 2]</text><text x="584" y="254" class="fig-small" text-anchor="start">Source records stay in place.</text>
+</svg></div>
+<figcaption><b>Figure 5.</b> The same record can have different positions in the filtered and sorted views. Its source identity does not change. All ranks shown here are zero-based; unrelated source records are omitted for clarity.</figcaption></figure>
+
+<p>Partition the source domain into immutable shards of 65,536 rows. A shard uses All, Empty, sparse u16 local offsets or dense membership bits, according to its contents. Dense shards have local rank directories; the global directory stores u64 cardinalities. Padding in the last shard never represents a row. Begin with a flat immutable directory and publish complete results atomically. A persistent count tree is an optional optimization for workloads that justify shared versions or frequent partial publication.</p>
+
+<h3><span>5.2 Signal time axis</span></h3>
+<p>The initial multi-signal row axis stores the union of timestamps in chunks of u64 values. A compatible single driving signal can reuse its original axis. For K driving histories containing E input occurrences and U distinct timestamps, a heap merge takes <code>O(E log(K+1))</code> work and the timestamp payload occupies <code>8U</code> bytes. Memory is reserved before construction.</p>
+
+<p>An edge-sampled source instead retains an index of qualifying clock occurrences. The index preserves repeated occurrences at the same time, in contrast to the timestamp union. Both representations provide an exact row count once construction finishes.</p>
+
+<h3><span>5.3 Column statistics and sorting order</span></h3>
+<p>Optional statistics summarize a chunk’s projected values: minimum, maximum and the presence of null, missing, unavailable or NaN values. They let a filter skip a chunk only when it can prove that no row matches. A dictionary-presence sketch may produce false positives, but never false negatives. Without statistics the chunk is scanned. Statistics are built only for requested columns and shared by source and expression revision.</p>
+
+<p>Sorting stores a stable permutation of the M surviving source ordinals. The permutation changes display order without rearranging source records. u32 is valid only when the referenced ordinal domain fits in u32; filtering a large domain down to a small result does not make its original ordinals smaller. A separately budgeted indirection can assign compact indices to survivors. Sort keys keep their full types.</p>
+
+<p>An inverse permutation can accelerate locating a selected record, but is not mandatory. When the full sort tuple is available, binary search may locate the record without another full-sized index. The initial sorting algorithm is interruptible stable merge sort; section 6 defines its execution and memory rules.</p>
+
+<h3><span>5.4 Mapping the viewport</span></h3>
+<p>Store vertical position as <code>{top_rank: u64, subrow_px: f64}</code>. Only local row differences are converted into pixel coordinates, avoiding a giant floating-point scroll position. Prefix sums of column widths locate the visible columns. Preparation and painting are limited to the visible rectangle plus a bounded margin.</p>
+
+<p>For R visible rows, C visible columns and preview length capped at L, painting costs <code>O(RCL)</code>. Rank mapping can add <code>O(R log(B+1))</code> for B membership shards; source value lookup has its own cost and is excluded from the paint pass. Tile count, preview bytes, text-shaping cache and pinned-column width all have explicit limits. Releasing large results must also yield or run away from the UI thread.</p>
+
+</section>
+<section id="jobs" aria-labelledby="jobs-title"><h2 id="jobs-title"><span>6. Query execution</span></h2>
+<h3><span>6.1 Building and publishing a result</span></h3>
+<p>A query starts by compiling the typed predicates and reserving its peak memory. It scans the source in bounded batches, builds membership, and finishes the requested ordering. Only after the result is complete and its delivery ticket still matches the current request does it replace the displayed snapshot. Publication is atomic: the grid never combines membership from one query with ordering from another.</p>
+<figure class="spec-figure" id="fig-query-publication">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 310" role="img" aria-labelledby="fig-query-publication-title fig-query-publication-desc">
+<title id="fig-query-publication-title">Prepare a replacement query while retaining the visible result</title><desc id="fig-query-publication-desc">The visible result A remains usable while pending query B compiles, reserves memory, scans and sorts. B replaces A atomically only after its ticket is validated as current and complete. Invalid input, cancellation, failure or an obsolete ticket keeps A unchanged.</desc>
+<text x="24" y="24" class="fig-label" text-anchor="start">What the user sees</text><rect x="24" y="44" width="544" height="51" rx="3" class="fig-accent"/><text x="40" y="75" text-anchor="start">Completed result A stays visible and usable.</text><rect x="664" y="44" width="152" height="51" rx="3" class="fig-accent"/><text x="740" y="75" class="fig-label" text-anchor="middle">Result B</text><path d="M576 69L655 69" class="fig-line"/><path d="M649 65L655 69L649 73" class="fig-line"/><text x="616" y="42" class="fig-small" text-anchor="middle">atomic swap</text><text x="24" y="139" class="fig-label" text-anchor="start">Pending query B</text><rect x="24" y="159" width="170" height="67" rx="3" class="fig-box"/><text x="36" y="184" class="fig-label" text-anchor="start">Compile + reserve</text><text x="36" y="209" class="fig-small" text-anchor="start">Validate input / memory</text><rect x="213" y="159" width="170" height="67" rx="3" class="fig-box"/><text x="225" y="184" class="fig-label" text-anchor="start">Scan</text><text x="225" y="209" class="fig-small" text-anchor="start">Build membership</text><rect x="402" y="159" width="170" height="67" rx="3" class="fig-box"/><text x="414" y="184" class="fig-label" text-anchor="start">Sort</text><text x="414" y="209" class="fig-small" text-anchor="start">Build exact order</text><rect x="591" y="159" width="225" height="67" rx="3" class="fig-box"/><text x="603" y="184" class="fig-label" text-anchor="start">Validate ticket</text><text x="603" y="209" class="fig-small" text-anchor="start">Complete and still current?</text><path d="M197 193L208 193" class="fig-line"/><path d="M202 189L208 193L202 197" class="fig-line"/><path d="M386 193L397 193" class="fig-line"/><path d="M391 189L397 193L391 197" class="fig-line"/><path d="M575 193L586 193" class="fig-line"/><path d="M580 189L586 193L580 197" class="fig-line"/><path d="M740 159L740 104" class="fig-line"/><path d="M736 110L740 104L744 110" class="fig-line"/><text x="754" y="134" class="fig-small" text-anchor="start">yes</text><path d="M109 226L109 263" class="fig-line"/><path d="M487 226L487 263" class="fig-line"/><path d="M109 263L705 263" class="fig-line"/><path d="M705 226L705 263" class="fig-line"/><path d="M701 257L705 263L709 257" class="fig-line"/><text x="24" y="293" class="fig-small" text-anchor="start">Invalid input, cancellation, failure or an obsolete ticket: keep A; do not publish B.</text>
+</svg></div>
+<figcaption><b>Figure 6.</b> The table switches from one complete result to another. Partial scan progress belongs to the pending job and does not change the displayed row count or ordering.</figcaption></figure>
+
+<p>The scan first visits the block containing the current source-row scroll anchor, then the cursor block, and then expands outward without revisiting blocks. This produces useful local evidence early. Progress reports exact inspected and matched counts, but the main grid retains its previous completed result. A later preview may expose local matches separately; it must not present unexamined rows as nonmatches or provisional positions as final ranks.</p>
+
+<p>Sorting initially uses interruptible stable merge sort over the complete filtered set. Reservations include full-width keys and the merge scratch buffer as well as the output permutation. Cancellation checkpoints occur during key extraction and merging, not just between whole phases. An operation that cannot fit its reservation fails with a diagnostic while preserving the committed result.</p>
+
+<h3><span>6.2 Scheduling and cancellation</span></h3>
+<p>Native jobs run on a shared executor with bounded concurrency. Requests for visible cell tiles have priority over background scans. The current wasm host uses unshared memory, so work runs in cooperative steps scheduled through MessageChannel, initially targeting 2 ms slices. Long string comparisons, value formatting, allocations and releases need checkpoints as well. Declaring a CPU loop async does not make it interruptible; copying complete raw objects into workers is not the proposed solution.</p>
+
+<p>A delivery ticket identifies the document, panel, input revisions and individual submission. Cancellation or retry increments the submission number. An identical recipe may reuse cached data, but must not make a cancelled submission current again. Query, tile, Find and export jobs have separate tickets, so changing a query does not accidentally cancel unrelated navigation.</p>
+
+<pre>QueryTicket = (document_generation, panel_id, source_revision,
+               recipe_revision, predicate_revision, order_revision, submission)
+TileTicket  = (QueryTicket, columns_revision, format_revision, request)</pre>
+<p>A mismatched ticket causes the delivered result to be discarded. A failed job leaves the committed snapshot available and reports the failure. A completed current job swaps in the new snapshot and restores the stable row anchor. Progress uses a mailbox that retains the latest update rather than an unbounded event queue; each job may have at most one unacknowledged snapshot. Old snapshots retained for display or export remain charged to the shared memory budget.</p>
+
+</section>
+<section id="capacity" aria-labelledby="capacity-title"><h2 id="capacity-title"><span>7. Memory limits</span></h2>
+<p>A small visible table can refer to a large dataset. Before starting an operation, account for the raw source objects, row domains, current and replacement query results, temporary query buffers, prepared tiles and snapshots retained by exports. Shared allocations are counted once at their owner. The table’s allowance is part of the existing client-wide budget, rather than an independent pool that can exceed it.</p>
+
+<h3><span>7.1 Index-size calculator</span></h3>
+<p>The calculator estimates index payloads, not the total memory required to load a trace. The dense estimate includes one bit per row and a local rank directory. The sparse estimate includes only u16 offsets for matching rows. The sorting estimate includes a permutation and one equal-sized merge buffer. The table below lists additional costs excluded from those estimates.</p>
+
+<div class="memory-calculator"><div class="calc-controls"><label><span>Rows, millions</span><input id="budget-n" type="number" min="1" max="1000" value="300"></label><label><span>Matches, %</span><input id="budget-p" type="number" min="0" max="100" step="0.1" value="1"></label><label><span>Ordinal width</span><select id="budget-width"><option value="4">u32</option><option value="8">u64</option></select></label></div><div class="metrics"><div><strong id="cost-dense"></strong><small><span>Dense bits + local rank directory</span></small></div><div><strong id="cost-sparse"></strong><small><span>Sparse u16 offsets only</span></small></div><div><strong id="cost-sort"></strong><small><span>Permutation + one merge buffer</span></small></div></div><p id="cost-detail" class="meta"></p></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">300M-row case</th><th scope="col">Nominal payload</th><th scope="col">Excluded costs</th></tr></thead><tbody>
+<tr><td>Dense membership + local directory</td><td>≈38.00 MiB</td><td>Shard handles, global counts, allocator overhead, retained versions.</td></tr>
+<tr><td>1% sparse membership</td><td>≈5.72 MiB</td><td>Per-shard metadata; u16 stores only local offsets.</td></tr>
+<tr><td>Full u32 permutation</td><td>≈1.12 GiB; ≈2.24 GiB with a second buffer</td><td>Full-width keys and pinned old result.</td></tr>
+<tr><td>Union timestamps</td><td>≈2.24 GiB</td><td>Original histories and directory.</td></tr>
+<tr><td>Current max-end tree alone</td><td>8 GiB</td><td>Transactions, ID map, strings, nested attributes and relations.</td></tr>
+</tbody></table></div>
+
+
+<h3><span>7.2 Limits of the current transaction owner</span></h3>
+<p>The current <code>LoadedGenerator</code> allocates <code>2 × next_power_of_two(N)</code> u64 entries for its max-end tree. At 300 million records, that tree alone occupies 8 GiB, before transaction records, strings, attributes, relations and ID lookup. A procedural demo with that many logical rows therefore does not imply support for a resident generator of that size in default wasm32.</p>
+
+<p>If real workloads require greater capacity, candidate changes belong in the source owner: borrowed columnar record views, a compact ID index or a block max-end tree. With 4,096 records per leaf, the tree payload at this scale is about 2 MiB, but exact overlap queries must scan candidate blocks and long overlapping intervals can remain expensive. The decoder must build the chosen representation directly rather than retaining two complete copies. Keep the current representation if the alternative regresses required operations.</p>
+
+<p>These are capacity experiments, not prerequisites for the first table panel. Client-local disk spill for sorting is also a later feature; it requires quotas and failure handling and does not remove the requirement to load complete selected raw data. A persistent table cache or new storage format needs a measured use case before adoption.</p>
+
+</section>
+<section id="investigation" aria-labelledby="investigation-title"><h2 id="investigation-title"><span>8. Later extensions</span></h2>
+<p>The following capabilities build on the same source and query model. They are separated from the first-version interaction contract so that future work does not enlarge the initial toolbar or delay basic table navigation.</p>
+
+<h3><span>8.1 Scan coverage and match density</span></h3>
+<p>Scan coverage answers “which source rows have been examined?” Match density answers “how many examined rows matched in this region?” These are different quantities. For example, after scanning source rows 1–1,000, finding no matches says nothing about unexamined rows 1,001–2,000. An overview must distinguish unexamined regions, examined regions with no matches and examined regions containing matches.</p>
+<figure class="spec-figure" id="fig-scan-coverage">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 219" role="img" aria-labelledby="fig-scan-coverage-title fig-scan-coverage-desc">
+<title id="fig-scan-coverage-title">Unexamined regions are not empty results</title><desc id="fig-scan-coverage-desc">Four source ranges show separate scan coverage and match counts. Rows 1–1000 are scanned with zero matches, 1001–2000 are unexamined, 2001–3000 are scanned with 240 matches, and 3001–4000 are unexamined. Unexamined counts are unknown, not zero.</desc>
+<text x="24" y="24" class="fig-label" text-anchor="start">Source row ranges</text><text x="296" y="53" class="fig-small" text-anchor="middle">1–1,000</text><text x="440" y="53" class="fig-small" text-anchor="middle">1,001–2,000</text><text x="584" y="53" class="fig-small" text-anchor="middle">2,001–3,000</text><text x="728" y="53" class="fig-small" text-anchor="middle">3,001–4,000</text><text x="24" y="91" text-anchor="start">Coverage</text><text x="24" y="151" text-anchor="start">Matches found</text><rect x="230" y="66" width="132" height="39" rx="3" class="fig-soft"/><text x="296" y="91" text-anchor="middle">scanned</text><rect x="230" y="126" width="132" height="39" rx="3" class="fig-soft"/><text x="296" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">0</text><rect x="374" y="66" width="132" height="39" rx="3" class="fig-box"/><text x="440" y="91" text-anchor="middle">not scanned</text><rect x="374" y="126" width="132" height="39" rx="3" class="fig-box"/><text x="440" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">unknown</text><rect x="518" y="66" width="132" height="39" rx="3" class="fig-accent"/><text x="584" y="91" text-anchor="middle">scanned</text><rect x="518" y="126" width="132" height="39" rx="3" class="fig-accent"/><text x="584" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">240</text><rect x="662" y="66" width="132" height="39" rx="3" class="fig-box"/><text x="728" y="91" text-anchor="middle">not scanned</text><rect x="662" y="126" width="132" height="39" rx="3" class="fig-box"/><text x="728" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">unknown</text><text x="230" y="202" class="fig-small" text-anchor="start">No matches here.</text><text x="520" y="202" class="fig-small" text-anchor="start">24% matched in this range.</text>
+</svg></div>
+<figcaption><b>Figure 7.</b> A viewport-first scan can examine nonadjacent ranges. Zero means a completed search found no matches; unknown means that range has not been examined. This overview is a later extension, not an additional first-version toolbar control.</figcaption></figure>
+
+<p>For a complete result, a bin covering source positions <code>[a,b)</code> contains <code>rank(b) − rank(a)</code> matches. Every overview must state what its horizontal axis represents: canonical source positions, sorted result ranks or time. A table sorted by duration must not make its row-position overview look like a chronological timeline. Scan coverage is drawn from completed work, never inferred from the absence of matches.</p>
+
+<h3><span>8.2 Additional derived columns</span></h3>
+<p>An in-flight count reports how many transaction intervals contain the row’s time anchor. For closed intervals it is <code>count(begin ≤ t) − count(end &lt; t)</code>. Efficient evaluation requires sorted endpoint indexes or an equivalent source-owner query, with their memory and construction work explicitly budgeted. It is not the same operation as reading one stored cell.</p>
+
+<p>A “difference from previous” column must define previous in source order or in displayed order. In the latter case its values change when the filter or sort changes, so those revisions are dependencies. Such a column cannot define its own sort order circularly. Each derived expression records the source objects and revisions it reads so that loading, reuse and invalidation follow its actual inputs.</p>
+
+<h3><span>8.3 Follow mode, ranges and export</span></h3>
+<p>Automatic Follow moves the table viewport as the shared cursor changes. Manual scrolling suspends Follow; an explicit resume action can use Locate. Follow does not change the selected record merely to keep the cursor visible.</p>
+
+<p>Range selection pins its endpoints to a query snapshot. When a replacement query changes the result, the active row is preserved by key but obsolete ranges are cleared with a notice. Multi-row TSV export uses the pinned snapshot’s display order, quoting and byte limits. Large exports stream to a host-provided file sink rather than building one giant clipboard string. Cell/range keyboard navigation and an accessible paged reading mode extend the first version’s single-row access.</p>
+
+<h3><span>8.4 Progressive result publication</span></h3>
+<p>If the main grid later displays incomplete results, it needs an explicit partial-result mode. Only a contiguous completed prefix in canonical order can be published; out-of-order completed shards wait behind gaps. Counts are lower bounds, End reaches the known prefix, and full-result export is unavailable until completion. A viewport-first scan is biased toward the current location, so its match rate is not a statistically representative estimate of the full result.</p>
+
+<h3><span>8.5 Alternative indexing and sorting algorithms</span></h3>
+<p>A checkpointed signal merge may reduce memory compared with storing every union timestamp. Checkpoints retain source cursor positions and cumulative output ranks. Replay must be bounded by input records consumed, not merely by output rows produced: many repeated input timestamps can collapse into a single output row. Duplicate-run boundaries need an explicit representation or bounded lookup, and long seeks must yield. Compare memory, build time and cold random-access latency before choosing this design.</p>
+
+<p>Bucket-based sorting is another experiment after the stable merge-sort baseline. Ordered buckets may be refined independently, but a bucket becomes visible in exact order only when refinement finishes. Navigating to an unfinished bucket shows a pending tile. Equal-key buckets can avoid comparisons; a skewed bucket containing many distinct keys still requires recursive partitioning, merge sorting or an explicit refusal. Refinement never runs inside paint, and two partition passes do not imply a universal responsiveness guarantee.</p>
+
+</section>
+<section id="delivery" aria-labelledby="delivery-title"><h2 id="delivery-title"><span>9. Implementation and verification</span></h2>
+<h3><span>9.1 Implementation sequence</span></h3>
+<p>Start with source, domain and typed-value contracts in <code>volna-core/table/{source,domain,value}</code>. Add missing source-owner queries where necessary, then transaction, signal and synthetic adapters. Verify row identity and sampling against a simple reference implementation before optimizing access.</p>
+
+<p>Next implement membership, queries, jobs and budget accounting in <code>table/{rowset,query,jobs,budget}</code>. Establish exact rank/select, filtering, stable merge sorting, cancellation and atomic publication. Then add the model, layout and painting in <code>table/{model,layout,paint}</code>, with App delivery and the GPUI canvas and controls. These module names describe proposed ownership boundaries.</p>
+
+<p>Finish the initial integration with versioned workspace settings, unresolved-source handling, selected-row copying and accessibility. Keep egui compatible without adding the table feature there. Checkpoint axes, persistent directories, bucket refinement, compact source owners and local spill follow only if measurements justify them.</p>
+
+<h3><span>9.2 Correctness and interaction checks</span></h3>
+<p>Reference tests cover repeated timestamps, strict clock edges, initial and unavailable values, aliases, repeated attributes and inclusive interval overlap. Membership tests cover all, empty, sparse and dense shards, a partial final shard and source domains beyond 2³² rows. Filter and sort results must agree with the reference implementation.</p>
+
+<p>Job tests cover cancellation, stale delivery and released memory reservations. UI checks cover exact last-row navigation, selection after filter/sort changes, filtered-out cursor rows, input during scans, keyboard copying and context menus, themes, enlarged text and accessibility. Local and remote loading must produce equivalent behavior, including saved-source restoration and disconnection. Count explicit resource refusals as outcomes rather than omitting them from results.</p>
+
+<h3><span>9.3 Performance measurements</span></h3>
+<p>Initial targets are p95 table-owned frame work below 8 ms, no table-owned UI task above 16 ms, and p95 cancellation acknowledgement below 50 ms on declared hardware. These are targets, not measured results. Report cell lookup, formatting, text shaping, Scene generation, GPU presentation and input-to-paint latency separately. A complete scan depends on data size and predicates; there is no universal subsecond target.</p>
+
+<p>Exercise 10,000–300 million logical rows while distinguishing generated rows from resident datasets. Vary column count across 6, 64 and 1,024; navigate to the beginning, middle and end; and vary filter selectivity from 0% to 100%. Include clustered and adversarial sort keys, long strings and buses, duplicate timestamps, long intervals, concurrent panels and export during query replacement. Test native GPUI and the default single-threaded wasm/VS Code host.</p>
+
+<p>For each optimization, compare the baseline and candidate on build time, random-seek latency, complete-query time and peak memory together. Retain the simpler design unless the measurements justify the additional mechanism. Run <code>cargo test -p volna-core</code>, <code>volna/volna/check.sh</code> and the <a href="../volna/volna/VERIFICATION.md">GPUI verification workflow</a> for implementation changes. Encoding or reader-decode changes also require the repository’s previous-commit A/B comparison and full benchmark suite; format changes require versioning, specification updates and round-trip coverage. This document itself changes neither runtime nor trace format.</p>
+
+</section>
+<section id="research" aria-labelledby="research-title"><h2 id="research-title"><span>10. Design references</span></h2>
+<p>The <a href="Astra-table.html">Astra proposal</a> provides the ownership model, immutable query snapshots, prepared cell tiles, cancellation tickets and memory accounting. The <a href="claude-table.html">Claude proposal</a> contributes cross-source columns, viewport-first scanning and the checkpoint and density-overview ideas. This specification keeps those ideas but separates first-version requirements from experiments.</p>
+
+<p>The <a href="egui-table/">Atlas prototype</a> provides reference work on rank/select, two-axis culling, independent Find and filtering, and benchmark methodology. Its storage model and egui measurements are not Volna implementation results. Grid and analytics references discussed in the source proposals inform typed batches, late value projection, adaptive membership and block statistics; this document does not claim a new audit or comparative performance ranking of those projects.</p>
+
+<p>The governing requirements remain <a href="../GOAL.md">GOAL.md</a>, the <a href="../volna/volna/ARCHITECTURE.md">Volna architecture</a> and the <a href="client-server-simple.html">client–server design</a>. Consult <a href="RATIONALE.md">the rationale</a> before retrying previously measured alternatives, and update the architecture and rationale when the design is implemented.</p>
+
+</section>
+</main>
+<script id="table-engine">
+'use strict';
+// Pure trace fixtures and cooperative kernels, shared by the interactive example.
+// These are design probes, not VTR or native viewer benchmarks.
+const TableEngine = (() => {
+  const TX_N = 65536;
+  const durations = Uint16Array.from({length:TX_N}, (_,i) => 8 + (i * 37) % 150);
+  const histories = {
+    clk:[[0,'0'],[5,'1'],[10,'0'],[15,'1'],[20,'0'],[25,'1'],[25,'0'],[25,'1'],[30,'0'],[45,'X'],[50,'1'],[55,'0'],[65,'1'],[70,'0'],[95,'1']],
+    addr:[[0,'0x00'],[12,'0x10'],[25,'0x20'],[25,'0x30'],[48,'0x40'],[78,'0x50']],
+    valid:[[0,'0'],[12,'1'],[35,'0'],[48,'1'],[82,'0']],
+    data:[[0,'Unavailable'],[12,'0xAB'],[25,'0xCD'],[25,'0xEF'],[48,'X'],[60,'0x12'],[78,'Z'],[90,'0xFF']],
+    state:[[0,'RESET'],[16,'RUN'],[25,'WAIT'],[30,'RUN'],[60,'STALL'],[72,'RUN']]
+  };
+  const stateHistory = [[0,'RESET'],[4096,'RUN'],[32768,'WAIT'],[49152,'RUN'],[110000,'STALL'],[115000,'RUN'],[190000,'WAIT'],[200000,'RUN']];
+  function lowerBound(n, value, predicate) {
+    let lo=0,hi=n;
+    while(lo<hi){const m=Math.floor((lo+hi)/2);if(predicate(value(m)))lo=m+1;else hi=m;}
+    return lo;
+  }
+  function sample(history,t,before=false){
+    const i=lowerBound(history.length,i=>history[i][0],x=>before?x<t:x<=t);
+    return i?history[i-1][1]:'Unavailable';
+  }
+  function domain(kind,recipe='changes'){
+    const rows=kind!=='signals'?null:recipe==='edges'
+      ? histories.clk.flatMap(([t,v],i)=>i>0&&histories.clk[i-1][1]==='0'&&v==='1'?[{t,key:i}]:[])
+      : [...new Set(['addr','valid','data'].flatMap(k=>histories[k].map(x=>x[0])))].sort((a,b)=>a-b).map(t=>({t,key:t}));
+    const n=kind==='transactions'?TX_N:kind==='synthetic'?300000000:rows.length;
+    const time=i=>kind==='signals'?rows[i].t:i*4;
+    return {kind,recipe,rows,n,time,
+      value(i,key){
+        if(key==='id')return kind==='signals'?'S'+rows[i].key:'T'+String(i+1).padStart(9,'0');
+        if(key==='time')return time(i);
+        if(kind==='signals')return sample(histories[key],time(i));
+        if(key==='duration')return kind==='transactions'?durations[i]:8+(i*37)%150;
+        if(key==='end')return time(i)+this.value(i,'duration');
+        if(key==='status')return i%97===0?'ERROR':i%7===0?'RETRY':'OK';
+        if(key==='op')return ['READ','WRITE','SNOOP','EVICT'][i%4];
+        if(key==='address')return '0x'+((i*64)%1048576).toString(16).padStart(6,'0');
+        if(key==='state')return sample(stateHistory,time(i));
+        if(key==='owner')return 'soc.noc.g'+(i%8);
+        const col=Number(key.slice(1));return col===0?this.value(i,'status'):col===1?this.value(i,'duration'):(i*17+col*31)%100000;
+      },
+      changed(i,key){return kind==='signals'&&histories[key]?.some(x=>x[0]===time(i));}
+    };
+  }
+  const test=(d,i,f)=>f==='all'||f==='error'&&(d.kind==='signals'?d.value(i,'valid')==='1':i%97===0)||f==='slow'&&(d.kind==='signals'?['X','Z'].includes(d.value(i,'data')):d.value(i,'duration')>=120);
+  function arithmeticMembers(d,f){
+    if(f==='all')return {kind:'all',length:d.n};
+    const period=f==='error'?97:150;
+    const residues=Array.from({length:period},(_,i)=>i).filter(i=>test(d,i,f));
+    const length=Math.floor(d.n/period)*residues.length+residues.filter(i=>i<d.n%period).length;
+    return {kind:'period',period,residues,length};
+  }
+  function memberAt(m,k){
+    if(k<0||k>=m.length)return null;
+    if(m.kind==='ids')return m.ids[k];
+    if(m.kind==='all')return k;
+    return Math.floor(k/m.residues.length)*m.period+m.residues[k%m.residues.length];
+  }
+  function countBefore(m,ordinal){
+    if(m.kind==='all')return Math.max(0,Math.min(m.length,ordinal));
+    if(m.kind==='ids')return lowerBound(m.length,i=>m.ids[i],x=>x<ordinal);
+    const cycles=Math.floor(ordinal/m.period),remainder=ordinal%m.period;
+    return Math.min(m.length,cycles*m.residues.length+m.residues.filter(x=>x<remainder).length);
+  }
+  function compare(d,s,a,b){const x=d.value(a,s.key),y=d.value(b,s.key);return s.dir*(x<y?-1:x>y?1:0)||a-b;}
+  function view(d,m={kind:'all',length:d.n},sort={key:'time',dir:1},order=null){
+    const reversed=d.kind==='synthetic'&&sort.dir<0;
+    const at=k=>order?(k>=0&&k<m.length?order[k]:null):memberAt(m,reversed?m.length-1-k:k);
+    return {d,m,sort,order,length:m.length,at,
+      rank(i){
+        if(i===null||i<0||i>=d.n)return -1;
+        if(order){const k=lowerBound(m.length,k=>order[k],j=>compare(d,sort,j,i)<0);return order[k]===i?k:-1;}
+        const k=countBefore(m,i);return memberAt(m,k)===i?(reversed?m.length-1-k:k):-1;
+      },
+      nearest(t){
+        if(!m.length)return null;
+        const k=lowerBound(m.length,k=>d.time(memberAt(m,k)),x=>x<t);
+        let chosen=k===m.length?k-1:k;
+        if(k>0&&k<m.length&&t-d.time(memberAt(m,k-1))<=d.time(memberAt(m,k))-t)chosen=k-1;
+        const when=d.time(memberAt(m,chosen));
+        chosen=lowerBound(m.length,k=>d.time(memberAt(m,k)),x=>x<when);
+        return memberAt(m,chosen);
+      }
+    };
+  }
+  function blockOrder(n,anchor,cursor){
+    const a=Math.max(0,Math.min(n-1,anchor)),out=[],seen=new Set();
+    const add=i=>{if(i>=0&&i<n&&!seen.has(i)){seen.add(i);out.push(i);}};
+    add(a);add(cursor);
+    for(let distance=1;out.length<n;distance++){add(a-distance);add(a+distance);}
+    return out;
+  }
+  const CANCELLED = Symbol('cancelled');
+  async function mergeSort(ids,d,sort,checkpoint){
+    let a=ids,b=new Uint32Array(ids.length),ops=0;
+    for(let width=1;width<a.length;width*=2){
+      for(let start=0;start<a.length;start+=width*2){
+        const mid=Math.min(start+width,a.length),end=Math.min(start+2*width,a.length);let i=start,j=mid;
+        for(let k=start;k<end;k++){
+          b[k]=j>=end||i<mid&&compare(d,sort,a[i],a[j])<=0?a[i++]:a[j++];
+          if(++ops%2048===0)await checkpoint();
+        }
+      }
+      [a,b]=[b,a];await checkpoint();
+    }
+    return a;
+  }
+  async function query({d,filter,sort,predicate=null,anchor=0,cursor=0,slow=false,alive=()=>true,onProgress=()=>{},yieldTask=()=>new Promise(r=>setTimeout(r,0))}){
+    let deadline=performance.now()+2;
+    const check=()=>{if(!alive())throw CANCELLED;};
+    const checkpoint=async(force=false)=>{check();if(force||performance.now()>=deadline){await yieldTask();deadline=performance.now()+2;check();}};
+    check();
+    if(d.kind==='synthetic'){
+      if(sort.key!=='time'||predicate)throw new Error('sort-budget');
+      await checkpoint(true);
+      const members=arithmeticMembers(d,filter);
+      return view(d,members,sort);
+    }
+    const block=512,blocks=Math.ceil(d.n/block),order=blockOrder(blocks,Math.floor(anchor/block),Math.floor(cursor/block));
+    const chunks=new Array(blocks),scan=new Uint8Array(blocks),hits=new Uint32Array(blocks);let count=0,scanned=0;
+    for(const b of order){
+      check();const out=[],end=Math.min(d.n,(b+1)*block);
+      for(let i=b*block;i<end;i++)if(predicate?predicate(i):test(d,i,filter))out.push(i);
+      chunks[b]=out;hits[b]=out.length;count+=out.length;scanned+=end-b*block;scan[b]=1;
+      onProgress({phase:'scan',scanned,count,scan,hits,block,anchorHits:hits[order[0]],anchorReady:scan[order[0]]===1});
+      if(slow){await new Promise(r=>setTimeout(r,10));check();}else await checkpoint();
+    }
+    const ids=new Uint32Array(count);let p=0;
+    for(const chunk of chunks){ids.set(chunk,p);p+=chunk.length;await checkpoint();}
+    const members={kind:'ids',ids,length:ids.length};let sorted=null;
+    if(sort.key!=='time'||sort.dir!==1){
+      onProgress({phase:'sort',scanned,count,scan,hits,block,anchorHits:hits[order[0]],anchorReady:true});
+      sorted=await mergeSort(ids.slice(),d,sort,checkpoint);
+    }
+    check();return view(d,members,sort,sorted);
+  }
+  return {domain,sample,histories,stateHistory,test,arithmeticMembers,memberAt,countBefore,view,blockOrder,mergeSort,query,CANCELLED};
+})();
+
+</script>
+<script id="table-interface">
+'use strict';
+(() => {
+  const $=id=>document.getElementById(id),E=TableEngine;
+  const paths={box:'M3 7 12 3 21 7 12 11Z M3 7v10l9 4 9-4V7 M12 11v10',stream:'M4 5h16v4H4z M4 15h16v4H4z M8 9v6 M16 9v6',waves:'M2 13h4V5h5v14h6v-8h5',table:'M3 4h18v16H3z M3 9h18 M8 9v11',filter:'M3 5h18l-7 8v6l-4 2v-8Z',search:'M20 20l-5-5 M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',columns:'M3 4h18v16H3z M9 4v16 M15 4v16',goto:'M4 12h14 M12 6l6 6-6 6 M21 4v16',locate:'M12 2v4 M12 18v4 M2 12h4 M18 12h4 M18 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0',fit:'M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6',link:'M10 14l4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0',panel:'M3 4h18v16H3z M3 14h18',copy:'M8 8h13v13H8z M16 8V3H3v13h5',up:'m6 14 6-6 6 6',down:'m6 10 6 6 6-6',close:'m6 6 12 12 M6 18 18 6'};
+  function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('class','tp-icon');svg.setAttribute('aria-hidden','true');const p=document.createElementNS(svg.namespaceURI,'path');p.setAttribute('d',paths[name]||paths.box);svg.append(p);return svg;}
+  document.querySelectorAll('[data-icon]').forEach(el=>el.append(icon(el.dataset.icon)));
+  const num=n=>n.toLocaleString('en-US');
+  const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+  let d=E.domain('transactions'),view=E.view(d),top=8188,selected=8192,cursor=32768,linked=true;
+  let waveRange=[32688,33104],generation=0,pending=false,phase='ready',progress=null,rejectNext=false;
+  let draft={},committed={},wantedSort={key:'time',dir:1},filterError=null,filtersOpen=false,inspectorOpen=false;
+  let widths={},visibleKeys=null,scrollX=0,frame=0,headerSignature='',currentColumns=[],rowCapacity=12;
+  let notice=null,filterTimer=null,findTimer=null,findGeneration=0,findMatches=[],findPending=false,findLimited=false,needle='',copyFallback=false;
+  const txDefault=['id','time','duration','status','op','address'];
+  function columns(){
+    const base=[{key:'id',name:'ID',width:108,kind:'text',pinned:true},{key:'time',name:d.kind==='signals'?'Time, ns':'Begin, ns',width:100,kind:'number',pinned:true}];
+    if(d.kind==='signals')return base.concat(['addr','valid','data','clk','state'].map(key=>({key,name:key==='clk'?'clk':'bus.'+key,width:key==='data'?120:105,kind:'text'})));
+    if(d.kind==='synthetic')return base.concat(Array.from({length:254},(_,i)=>({key:'v'+i,name:'metric['+i+']',width:120,kind:'text'})));
+    return base.concat([
+      {key:'duration',name:'Duration, ns',width:120,kind:'number'},
+      {key:'status',name:'Status',width:85,kind:'enum',values:['OK','RETRY','ERROR']},
+      {key:'op',name:'Operation',width:110,kind:'enum',values:['READ','WRITE','SNOOP','EVICT']},
+      {key:'address',name:'Address',width:110,kind:'text'},
+      {key:'state',name:'core.state @ begin',width:180,kind:'enum',values:['RESET','RUN','WAIT','STALL']},
+      {key:'end',name:'End, ns',width:100,kind:'number'},
+      {key:'owner',name:'Generator',width:130,kind:'text'}]);
+  }
+  function resetColumns(){visibleKeys=d.kind==='transactions'?[...txDefault]:columns().map(c=>c.key);widths={};scrollX=0;$('horizontal-scroll').scrollLeft=0;headerSignature='';}
+  function title(el,text){el.setAttribute('aria-label',text);el.title=text;}
+  function labels(){
+    document.title='Volna · Table panel specification';document.querySelector('meta[name=description]').content='Interactive specification of the Volna table panel: UI behavior, data structures and query algorithms.';
+    $('theme').textContent=document.body.classList.contains('dark')?'Light theme':'Dark theme';
+    for(const [id,label] of [
+      ['link','Link table cursor to waves'],['details-toggle','Toggle record details (Enter)'],
+      ['wave-locate','Locate cursor without changing scale'],['wave-fit','Fit selected interval'],
+      ['row-menu','Row actions'],['find-prev','Previous match (Shift+Enter)'],['find-next','Next match (Enter)'],
+      ['find-close','Close Find (Escape)'],['inspector-close','Close record details'],
+      ['vertical-scroll','Table rows'],['horizontal-scroll','Horizontal table scroll'],
+      ['timeline','Waveforms. Click to move the cursor; left/right keys step time.'],
+      ['data-region','Trace table. Arrows select rows; Enter opens details; Shift+F10 opens row actions; Ctrl/Cmd+C copies the row.'],
+      ['columns-menu','Visible columns'],['goto-menu','Go to a row or time'],['find-input','Find in visible columns']])title($(id),label);
+    $('find-input').placeholder='Find in visible columns…';
+    $('sampling').replaceChildren(...[['changes','All changes'],['edges','Clock ↑ · at time']].map(([value,text])=>{const o=document.createElement('option');o.value=value;o.textContent=text;return o;}));$('sampling').value=d.recipe;
+    const kind=$('goto-kind').value||'row';$('goto-kind').replaceChildren(...[['row','Row number'],['time','Time, ns']].map(([value,text])=>{const o=document.createElement('option');o.value=value;o.textContent=text;return o;}));$('goto-kind').value=kind;gotoLabel();
+    $('reject').textContent=rejectNext?'Next query will be refused':'Reject next query';
+    $('sampling-label').hidden=d.kind!=='signals';
+    $('source-transactions').setAttribute('aria-current',String(d.kind==='transactions'));$('source-signals').setAttribute('aria-current',String(d.kind==='signals'));
+    const path=d.kind==='transactions'?'soc › noc › router':d.kind==='signals'?'soc › bus':'Synthetic source';
+    $('source-path').textContent=path;$('source-path').title=path;$('wave-path').textContent=d.kind==='signals'?'soc.bus':'soc.noc · core.state';
+    $('member-path').textContent=d.kind==='transactions'?'soc.noc.router':'soc.bus';$('member-count').textContent=d.kind==='transactions'?'8':'5';
+    const members=d.kind==='transactions'?Array.from({length:8},(_,i)=>'g'+i):['addr','valid','data','clk','state'];
+    $('source-members').replaceChildren(...members.map(name=>{const el=document.createElement('div');el.className='tp-member';el.append(icon(d.kind==='transactions'?'box':'waves'),document.createTextNode(name));return el;}));
+    if(d.kind==='synthetic'){$('member-path').textContent='synthetic';$('member-count').textContent='256';$('source-members').replaceChildren();}
+    renderColumnsMenu();headerSignature='';
+  }
+  function schedule(){if(!frame)frame=requestAnimationFrame(()=>{frame=0;render();});}
+  function value(i,key){const v=d.value(i,key);return typeof v==='number'?num(v):v==='Unavailable'?'Unavailable':v;}
+  function cursorRow(){let lo=0,hi=d.n;while(lo<hi){const m=Math.floor((lo+hi)/2);if(d.time(m)<=cursor)lo=m+1;else hi=m;}return lo?lo-1:null;}
+  function activeColumns(){return columns().filter(c=>visibleKeys.includes(c.key)).map(c=>({...c,width:widths[c.key]||c.width}));}
+  function layoutColumns(){
+    const cols=activeColumns(),w=$('data-region').clientWidth,gutter=48,pinned=cols.filter(c=>c.pinned),rest=cols.filter(c=>!c.pinned),pw=pinned.reduce((n,c)=>n+c.width,0),total=rest.reduce((n,c)=>n+c.width,0),available=Math.max(0,w-gutter-pw);
+    const max=Math.max(0,total-available);scrollX=clamp(scrollX,0,max);
+    $('horizontal-spacer').style.width=($('horizontal-scroll').clientWidth+max)+'px';
+    if(Math.abs($('horizontal-scroll').scrollLeft-scrollX)>1)$('horizontal-scroll').scrollLeft=scrollX;
+    let offset=0,used=gutter;const out=[{key:'_row',name:'#',width:gutter,kind:'number'}];
+    for(const c of pinned){if(used>=w)break;out.push({...c,width:Math.min(c.width,w-used)});used+=c.width;}
+    for(const c of rest){const end=offset+c.width;if(end>scrollX&&used<w){const cw=Math.min(end-Math.max(scrollX,offset),w-used);out.push({...c,width:cw});used+=cw;}offset=end;}
+    return out;
+  }
+  function header(){
+    const sig=JSON.stringify([currentColumns.map(c=>[c.key,c.width]),view.sort,filtersOpen,d.kind]);if(sig===headerSignature)return;headerSignature=sig;
+    const focused=document.activeElement?.id,selection=document.activeElement?.selectionStart;
+    const h=document.createElement('tr'),f=document.createElement('tr');f.className='tp-filter-row';
+    for(const c of currentColumns){
+      const th=document.createElement('th');th.scope='col';th.style.width=c.width+'px';
+      if(c.key==='_row'){th.textContent='#';th.className='tp-rownum';}
+      else{
+        const btn=document.createElement('button');btn.textContent=c.name+(view.sort.key===c.key?(view.sort.dir===1?' ↑':' ↓'):'');title(btn,'Sort by '+c.name);btn.onclick=()=>{wantedSort={key:c.key,dir:wantedSort.key===c.key?-wantedSort.dir:1};apply();};th.append(btn);
+        if(view.sort.key===c.key)th.setAttribute('aria-sort',view.sort.dir===1?'ascending':'descending');
+        const resize=document.createElement('span');resize.className='tp-resizer';resize.setAttribute('role','separator');resize.setAttribute('aria-orientation','vertical');resize.tabIndex=0;title(resize,'Resize '+c.name);
+        resize.onpointerdown=e=>{e.preventDefault();e.stopPropagation();const origin=e.clientX,initial=widths[c.key]||columns().find(x=>x.key===c.key).width;
+          const move=e=>{widths[c.key]=clamp(initial+e.clientX-origin,65,350);headerSignature='';schedule();};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up,{once:true});};
+        resize.onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();widths[c.key]=clamp((widths[c.key]||c.width)+(e.key==='ArrowRight'?10:-10),65,350);headerSignature='';schedule();}};th.append(resize);
+      }
+      h.append(th);
+      if(filtersOpen){const fc=document.createElement('th');if(c.key!=='_row'&&d.kind!=='synthetic'){
+        const input=document.createElement(c.kind==='enum'?'select':'input');input.id='filter-'+c.key;input.dataset.column=c.key;title(input,'Filter '+c.name);
+        if(c.kind==='enum'){for(const v of ['',...c.values]){const option=document.createElement('option');option.value=v;option.textContent=v||'All';input.append(option);}}
+        else{input.type='text';input.spellcheck=false;input.placeholder=c.kind==='number'?'>=120':'Contains…';}
+        input.value=draft[c.key]||'';input.setAttribute('aria-invalid',String(filterError?.key===c.key));input.oninput=()=>editFilter(c.key,input.value);input.onkeydown=e=>{if(e.key==='Enter'){clearTimeout(filterTimer);apply();}if(e.key==='Escape'){input.blur();$('data-region').focus();}};fc.append(input);
+      }f.append(fc);}
+    }
+    $('data-head').replaceChildren(h,...(filtersOpen?[f]:[]));
+    if(focused?.startsWith('filter-')){const el=$(focused);if(el){el.focus({preventScroll:true});if(el.tagName==='INPUT'&&selection!==null)el.setSelectionRange(selection,selection);}}
+  }
+  function render(){
+    $('link').setAttribute('aria-pressed',String(linked));$('filters-toggle').setAttribute('aria-pressed',String(filtersOpen));$('details-toggle').setAttribute('aria-expanded',String(inspectorOpen));$('inspector').hidden=!inspectorOpen;
+    currentColumns=layoutColumns();header();
+    const headerHeight=filtersOpen?58:29;rowCapacity=Math.max(1,Math.floor(($('data-region').clientHeight-headerHeight)/25));top=clamp(top,0,Math.max(0,view.length-rowCapacity));
+    const cr=cursorRow(),body=document.createDocumentFragment(),findSet=new Set(findMatches);
+    for(let rank=top;rank<Math.min(view.length,top+rowCapacity);rank++){
+      const i=view.at(rank),row=document.createElement('tr');row.dataset.ordinal=String(i);row.setAttribute('aria-rowindex',String(rank+(filtersOpen?3:2)));
+      if(i===selected){row.classList.add('selected');row.setAttribute('aria-selected','true');}if(linked&&i===cr)row.classList.add('cursor-row');if(findSet.has(rank))row.classList.add('find-match');
+      row.onclick=()=>{select(i);$('data-region').focus({preventScroll:true});};row.ondblclick=()=>{select(i);inspectorOpen=true;fitSelection();};
+      for(const c of currentColumns){const td=document.createElement('td');if(c.key==='_row'){td.className='tp-rownum';td.textContent=num(rank+1);}else{
+        const v=value(i,c.key);td.title=v;if(c.kind==='number')td.classList.add('numeric');
+        if(c.key==='status'){const tag=document.createElement('span');tag.className='tp-tag '+String(v).toLowerCase();tag.textContent=v;td.append(tag);}
+        else {const str=(d.changed(i,c.key)?'• ':'')+v,at=needle?str.toLowerCase().indexOf(needle.toLowerCase()):-1;if(at>=0){td.append(document.createTextNode(str.slice(0,at)));const mark=document.createElement('mark');mark.textContent=str.slice(at,at+needle.length);td.append(mark,document.createTextNode(str.slice(at+needle.length)));}else td.textContent=str;}
+        if(d.changed(i,c.key))td.classList.add('changed');
+      }row.append(td);}body.append(row);
+    }
+    $('data-body').replaceChildren(body);$('data-table').setAttribute('aria-rowcount',String(view.length+(filtersOpen?2:1)));$('data-table').setAttribute('aria-label','Trace records');
+    $('empty').hidden=view.length!==0;$('empty-message').textContent='No records match these filters.';
+    $('view-status').textContent=(view.length?num(top+1)+'–'+num(Math.min(view.length,top+rowCapacity)):'0')+' / '+num(view.length)+' rows';
+    $('selection-status').textContent=selected===null?'':d.value(selected,'id')+(view.rank(selected)<0?' · filtered out':'');
+    $('cursor-detail').textContent='Cursor '+num(cursor)+' ns'+(linked?'':' · unlinked');
+    $('recording-status').textContent='soc_noc.vtr · '+num(d.n)+' records';
+    const bar=$('vertical-scroll'),height=bar.clientHeight,thumb=Math.min(height,Math.max(24,height*rowCapacity/Math.max(1,view.length)));$('scroll-thumb').style.height=thumb+'px';$('scroll-thumb').style.top=(view.length>rowCapacity?top/(view.length-rowCapacity)*(height-thumb):0)+'px';
+    bar.setAttribute('aria-valuemin','1');bar.setAttribute('aria-valuemax',String(Math.max(1,view.length)));bar.setAttribute('aria-valuenow',String(view.length?top+1:1));bar.setAttribute('aria-valuetext',num(top+1)+' / '+num(view.length));
+    $('details-toggle').disabled=selected===null;
+    renderStatus();renderChips();renderDetail();drawWaves();renderFindCount();renderLab();renderNotice();
+  }
+  function parseFilters(){
+    const predicates=[];
+    for(const c of columns()){
+      const text=(draft[c.key]||'').trim();if(!text)continue;
+      if(c.kind==='number'){
+        const scalar='(?:0x[0-9a-f]+|\\d+(?:\\.\\d+)?)';const re=new RegExp('^(>=|<=|!=|=|>|<)?\\s*('+scalar+')(?:\\s*ns)?$','i'),range=new RegExp('^('+scalar+')\\s*\\.\\.\\s*('+scalar+')(?:\\s*ns)?$','i');
+        const m=re.exec(text),r=range.exec(text);if(!m&&!r)return {error:{key:c.key}};
+        if(r){const lo=Number(r[1]),hi=Number(r[2]);if(!Number.isSafeInteger(lo)||!Number.isSafeInteger(hi)||lo>hi)return {error:{key:c.key}};predicates.push(i=>{const v=d.value(i,c.key);return v>=lo&&v<=hi;});}
+        else{const v=Number(m[2]),op=m[1]||'=';if(!Number.isSafeInteger(v))return {error:{key:c.key}};predicates.push(i=>{const x=d.value(i,c.key);return op==='='?x===v:op==='!='?x!==v:op==='>'?x>v:op==='>='?x>=v:op==='<'?x<v:x<=v;});}
+      }else if(c.kind==='enum')predicates.push(i=>d.value(i,c.key)===text);
+      else {const search=text.toLowerCase();predicates.push(i=>String(d.value(i,c.key)).toLowerCase().includes(search));}
+    }
+    return {predicate:i=>predicates.every(fn=>fn(i)),empty:predicates.length===0};
+  }
+  function editFilter(key,text){draft[key]=text;clearTimeout(filterTimer);cancel(false);filterError=null;notice=null;phase='edited';filterTimer=setTimeout(apply,200);schedule();}
+  function cancel(announce=true){generation++;pending=false;if(announce){phase='cancelled';wantedSort={...view.sort};notice='cancelled';}schedule();}
+  async function apply(){
+    clearTimeout(filterTimer);const parsed=parseFilters();cancel(false);filterError=parsed.error||null;
+    if(filterError){phase='invalid';headerSignature='';notice='invalid';schedule();return;}
+    const id=generation,sort={...wantedSort},input=d,requested={...draft};notice=null;copyFallback=false;
+    if(rejectNext){rejectNext=false;phase='refused';notice='budget';wantedSort={...view.sort};labels();schedule();return;}
+    pending=true;phase='scan';progress=null;schedule();
+    try{
+      const result=await E.query({d:input,filter:'all',predicate:parsed.empty?null:parsed.predicate,sort,anchor:view.at(top)||0,cursor:cursorRow()||0,slow:$('slow').checked,alive:()=>id===generation,onProgress:p=>{if(id===generation){progress=p;phase=p.phase;schedule();}}});
+      if(id!==generation)return;
+      const anchor=view.at(top);view=result;committed=requested;pending=false;phase='complete';
+      const rank=view.rank(anchor);top=rank>=0?rank:Math.min(E.countBefore(view.m,anchor||0),Math.max(0,view.length-rowCapacity));headerSignature='';schedule();if(needle)runFind();
+    }catch(e){if(id!==generation||e===E.CANCELLED)return;pending=false;phase='refused';notice=e.message==='sort-budget'?'sort-budget':'failed';wantedSort={...view.sort};schedule();}
+  }
+  function renderStatus(){
+    $('query-bar').hidden=!pending;
+    $('query-status').textContent=phase==='sort'?'Sorting… previous result shown':Math.round((progress?.scanned||0)/d.n*100)+'% scanned · previous result shown';
+    $('progress').value=phase==='sort'?0.95:(progress?.scanned||0)/d.n;$('progress').setAttribute('aria-label','Query progress');
+    $('cancel').disabled=!pending;
+  }
+  function renderChips(){
+    const entries=Object.entries(draft).filter(([,v])=>v.trim());$('filter-count').hidden=!entries.length;$('filter-count').textContent=String(entries.length);$('filter-chips').hidden=!entries.length;
+    const fragment=document.createDocumentFragment();for(const [key,val] of entries){const c=columns().find(c=>c.key===key),b=document.createElement('button');b.append(document.createTextNode((c?.name||key)+' '+val+(visibleKeys.includes(key)?'':' (hidden)')),icon('close'));title(b,'Remove filter: '+(c?.name||key));b.onclick=()=>{delete draft[key];headerSignature='';apply();};fragment.append(b);}
+    if(entries.length){const clear=document.createElement('button');clear.textContent='Clear all';clear.onclick=clearFilters;fragment.append(clear);}$('filter-chips').replaceChildren(fragment);
+  }
+  function clearFilters(){draft={};filterError=null;headerSignature='';apply();}
+  function renderColumnsMenu(){
+    const fragment=document.createDocumentFragment();
+    for(const c of columns()){
+      if(d.kind==='synthetic'&&Number(c.key.slice(1))>12)continue;
+      const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.checked=visibleKeys.includes(c.key);input.disabled=!!c.pinned;
+      input.onchange=()=>{if(input.checked)visibleKeys.push(c.key);else visibleKeys=visibleKeys.filter(k=>k!==c.key);headerSignature='';schedule();if(needle)runFind();};label.append(input,document.createTextNode(c.name));
+      if(c.pinned){const small=document.createElement('small');small.textContent='pinned';label.append(small);}fragment.append(label);
+    }
+    $('column-options').replaceChildren(fragment);
+  }
+  function setTop(n){top=clamp(Math.floor(n)||0,0,Math.max(0,view.length-rowCapacity));schedule();}
+  function select(i){selected=i;if(linked&&i!==null)cursor=d.time(i);notice=null;schedule();}
+  function reveal(i){const rank=view.rank(i);if(rank>=0){if(rank<top)top=rank;else if(rank>=top+rowCapacity)top=rank-rowCapacity+1;}schedule();}
+  function openSource(kind,recipe='changes'){
+    clearTimeout(filterTimer);cancel(false);findGeneration++;d=E.domain(kind,recipe);view=E.view(d);top=0;selected=null;cursor=0;draft={};committed={};wantedSort={...view.sort};filterError=null;phase='ready';progress=null;notice=null;copyFallback=false;inspectorOpen=false;needle='';findMatches=[];findPending=false;findLimited=false;$('find-input').value='';filtersOpen=false;waveRange=kind==='signals'?[0,105]:[0,416];resetColumns();closePopovers();labels();schedule();
+  }
+  function gotoLabel(){$('goto-label').textContent=$('goto-kind').value==='time'?'Time in nanoseconds':'Row number, starting at 1';}
+  function jump(){
+    const text=$('goto-value').value.trim(),v=/^\d+$/.test(text)?Number(text):NaN,isTime=$('goto-kind').value==='time';
+    if(!Number.isSafeInteger(v)||v<(isTime?0:1)||!isTime&&v>view.length){$('goto-error').textContent=isTime?'Enter a nonnegative integer time.':'Enter a row from 1 to '+num(view.length)+'.';return;}
+    const i=isTime?view.nearest(v):view.at(v-1);if(i!==null){select(i);top=Math.max(0,view.rank(i));if(isTime)cursor=v;closePopovers();$('data-region').focus();schedule();}
+  }
+  function closeRowMenu(restoreFocus=false){const menu=$('row-menu');if(menu.hidden)return;menu.hidden=true;if(restoreFocus||menu.contains(document.activeElement))$('data-region').focus({preventScroll:true});}
+  function openRowMenu(x,y){
+    if(selected===null)return;closePopovers();const menu=$('row-menu');menu.hidden=false;
+    menu.style.left=clamp(x,8,Math.max(8,window.innerWidth-menu.offsetWidth-8))+'px';menu.style.top=clamp(y,8,Math.max(8,window.innerHeight-menu.offsetHeight-8))+'px';
+    $('copy-row').focus({preventScroll:true});
+  }
+  function closePopovers(){closeRowMenu();for(const k of ['columns','goto']){$(k+'-menu').hidden=true;$(k+'-toggle').setAttribute('aria-expanded','false');}}
+  function togglePopover(k){const open=$(k+'-menu').hidden;closePopovers();$(k+'-menu').hidden=!open;$(k+'-toggle').setAttribute('aria-expanded',String(open));if(open&&k==='goto'){$('goto-error').textContent='';$('goto-value').value=String(top+1);$('goto-value').focus();$('goto-value').select();}if(open&&k==='columns')renderColumnsMenu();}
+  function renderDetail(){
+    $('detail-title').textContent=selected===null?'Record details':d.value(selected,'id');$('detail-hidden').textContent=selected!==null&&view.rank(selected)<0?'Hidden by current filters':'';
+    const f=document.createDocumentFragment();if(selected!==null){for(const c of columns().filter(c=>c.key!=='id').slice(0,8)){const div=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=c.name;dd.textContent=value(selected,c.key);dd.title=dd.textContent;div.append(dt,dd);f.append(div);}}$('detail-fields').replaceChildren(f);$('show-waves').disabled=selected===null;
+  }
+  function drawWaves(){
+    const canvas=$('timeline'),w=canvas.clientWidth,h=canvas.clientHeight,ratio=window.devicePixelRatio||1;if(!w||!h)return;
+    canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);const c=canvas.getContext('2d');c.setTransform(ratio,0,0,ratio,0,0);
+    const labelWidth=Math.min(120,w*.26),start=waveRange[0],end=waveRange[1],plot=w-labelWidth-12,x=t=>labelWidth+(t-start)/(end-start)*plot;
+    c.fillStyle='#1d262c';c.fillRect(0,0,w,h);c.fillStyle='#182129';c.fillRect(0,0,labelWidth,h);c.font='11px ui-monospace';
+    for(let i=0;i<=4;i++){const t=start+(end-start)*i/4,px=x(t);c.strokeStyle='#2c3a42';c.beginPath();c.moveTo(px,21);c.lineTo(px,h);c.stroke();c.fillStyle='#8fa39c';c.textAlign=i===4?'right':'left';c.fillText(num(Math.round(t))+' ns',px+(i===4?-3:3),14);}
+    const laneNames=d.kind==='signals'?['bus.valid','bus.data','clk']:['core.state','router'];
+    const laneHeight=(h-24)/laneNames.length;
+    laneNames.forEach((name,lane)=>{
+      const y=24+lane*laneHeight;c.textAlign='left';c.fillStyle='#c9d5d0';c.fillText(name,8,y+laneHeight/2+4);c.strokeStyle='#2c3a42';c.beginPath();c.moveTo(0,y+laneHeight);c.lineTo(w,y+laneHeight);c.stroke();
+      c.save();c.beginPath();c.rect(labelWidth,y,plot,laneHeight);c.clip();
+      if(name==='router'){
+        const lo=Math.max(0,Math.floor((start-158)/4)),hi=Math.min(d.n,Math.ceil(end/4));
+        for(let i=lo;i<hi;i++){const a=d.time(i),b=d.value(i,'end');if(b<start)continue;const sy=y+7+(i%3)*7;c.fillStyle=i===selected?'#4fc3a1':d.value(i,'status')==='ERROR'?'#b66b67':'#44687a';c.globalAlpha=i===selected?1:.55;c.fillRect(x(a),sy,Math.max(2,x(b)-x(a)),6);}
+        c.globalAlpha=1;if(selected!==null){const a=d.time(selected),b=d.value(selected,'end');c.strokeStyle='#92dfc8';c.strokeRect(x(a),y+5,Math.max(3,x(b)-x(a)),laneHeight-10);}
+      }else{
+        const history=name==='core.state'?E.stateHistory:E.histories[name==='clk'?'clk':name.split('.')[1]],times=[start,...history.filter(([t])=>t>start&&t<end).map(x=>x[0]),end];
+        for(let i=0;i<times.length-1;i++){const a=times[i],b=times[i+1],v=E.sample(history,a),left=x(a),right=x(b),binary=name==='clk'||name==='bus.valid';c.strokeStyle=binary?'#4fc3a1':'#7fb0ef';c.fillStyle=binary?'#4fc3a1':'#7fb0ef';
+          if(binary){const yy=y+(v==='1'?9:laneHeight-9);c.beginPath();c.moveTo(left,i?y+(E.sample(history,a,true)==='1'?9:laneHeight-9):yy);c.lineTo(left,yy);c.lineTo(right,yy);c.stroke();if(!['0','1'].includes(v))c.fillText(v,left+4,y+laneHeight/2+4);}
+          else{c.fillStyle='#7fb0ef18';c.fillRect(left,y+9,right-left,laneHeight-18);c.strokeRect(left,y+9,right-left,laneHeight-18);if(right-left>35){c.fillStyle='#aac9ec';c.fillText(v,left+6,y+laneHeight/2+4);}}
+        }
+      }
+      c.restore();
+    });
+    if(cursor>=start&&cursor<=end){const px=x(cursor);c.strokeStyle='#f07a76';c.beginPath();c.moveTo(px,21);c.lineTo(px,h);c.stroke();c.fillStyle='#f07a76';c.beginPath();c.moveTo(px-4,20);c.lineTo(px+4,20);c.lineTo(px,25);c.fill();}
+  }
+  function fitSelection(){if(selected===null)return;const t=d.time(selected),duration=d.kind==='signals'?0:d.value(selected,'duration'),span=Math.max(80,duration*3);waveRange=[Math.max(0,t-span*.25),Math.max(0,t-span*.25)+span];schedule();}
+  function locateWave(){const span=waveRange[1]-waveRange[0];waveRange=[Math.max(0,cursor-span*.35),Math.max(0,cursor-span*.35)+span];schedule();}
+  function renderNotice(){
+    const messages={cancelled:()=>'Query cancelled. The previous result is still displayed.',invalid:()=>'Invalid numeric filter. Use =, !=, >, >=, <, <= or a..b. Previous result retained.',budget:()=>'Not enough memory for this query. Narrow the source or free another panel; the previous result is retained.','sort-budget':()=>'This procedural stress example supports time ordering only.',failed:()=>'The query failed. Your previous result is retained.',copied:()=>'Row copied.',clipboard:()=>'Clipboard unavailable. Copy the TSV below.',cursor:()=>'The cursor row is hidden by the current filters. Clear filters to reveal it.'};
+    $('demo-error').hidden=!notice;$('demo-error').textContent=notice?(messages[notice]||messages.failed)():'';$('copy-box').hidden=!copyFallback;
+  }
+  function toggleFind(open){$('find-bar').hidden=!open;$('find-toggle').setAttribute('aria-expanded',String(open));if(open)$('find-input').focus();else{needle='';findGeneration++;findMatches=[];findPending=false;$('find-input').value='';$('data-region').focus();}schedule();}
+  async function runFind(){
+    clearTimeout(findTimer);const id=++findGeneration,input=view,keys=visibleKeys.slice(),text=needle.toLowerCase();findMatches=[];findPending=!!text;findLimited=false;schedule();if(!text)return;
+    if(d.kind==='synthetic'){
+      const match=/^t(\d+)$/i.exec(text);if(match){const row=Number(match[1])-1,rank=view.rank(row);if(rank>=0)findMatches=[rank];}else findLimited=true;findPending=false;schedule();return;
+    }
+    const result=[];
+    for(let start=0;start<input.length;start+=1024){if(id!==findGeneration)return;const end=Math.min(input.length,start+1024);for(let rank=start;rank<end;rank++){const i=input.at(rank);if(keys.some(k=>String(input.d.value(i,k)).toLowerCase().includes(text)))result.push(rank);}await new Promise(r=>setTimeout(r,0));}
+    if(id!==findGeneration)return;findMatches=result;findPending=false;schedule();
+  }
+  function renderFindCount(){const rank=view.rank(selected),index=findMatches.indexOf(rank);$('find-count').textContent=findPending?'Searching…':findLimited?'Use an exact record ID':needle?(index>=0?num(index+1)+' / ':'')+num(findMatches.length)+' matches':'';$('find-prev').disabled=$('find-next').disabled=!findMatches.length;}
+  function stepFind(dir){if(!findMatches.length)return;const rank=view.rank(selected);let i=dir>0?findMatches.findIndex(r=>r>rank):-1;if(dir<0){for(let k=findMatches.length-1;k>=0;k--)if(findMatches[k]<rank){i=k;break;}}if(i<0)i=dir>0?0:findMatches.length-1;select(view.at(findMatches[i]));reveal(selected);}
+  function renderLab(){
+    const fragment=document.createDocumentFragment();for(let i=0;i<128;i++){const el=document.createElement('i');if(progress?.scan[i])el.className=progress.hits[i]?'match':'scanned';fragment.append(el);}$('blocks').replaceChildren(fragment);
+    $('scan-detail').textContent=progress?num(progress.scanned)+' / '+num(d.n)+' source rows scanned · '+num(progress.count)+' confirmed matches. These bins use source order.':'Scan coverage appears here while a query runs. Synthetic rows are procedural; navigation does not allocate their logical row count.';
+  }
+  async function copy(withHeaders=false){if(selected===null)return;closeRowMenu(true);copyFallback=false;const quote=x=>/[\t\n\r"]/.test(x)?'"'+x.replaceAll('"','""')+'"':x;const cs=activeColumns(),text=(withHeaders?cs.map(c=>quote(c.name)).join('\t')+'\n':'')+cs.map(c=>quote(String(value(selected,c.key)))).join('\t'),identity=selected,gen=generation;
+    try{await navigator.clipboard.writeText(text);if(gen===generation&&identity===selected){notice='copied';schedule();}}catch{if(gen===generation&&identity===selected){copyFallback=true;notice='clipboard';$('copy-text').value=text;render();$('copy-text').focus();$('copy-text').select();}}
+  }
+  function renderBudget(){const n=clamp(Number($('budget-n').value)||1,1,1000)*1e6,m=Math.floor(n*clamp(Number($('budget-p').value)||0,0,100)/100),w=Number($('budget-width').value),bytes=n=>num(Number((n/1048576).toFixed(2)))+' MiB';$('cost-dense').textContent=bytes(Math.ceil(n/64)*8+Math.ceil(n/512)*4);$('cost-sparse').textContent=bytes(m*2);$('cost-sort').textContent=bytes(m*w*2);$('cost-detail').textContent='Union timestamps: '+bytes(n*8)+'. Excludes raw histories, keys, metadata and retained snapshots.';}
+  $('theme').onclick=()=>{document.body.classList.toggle('dark');try{localStorage.setItem('volna-table-proposal-theme',document.body.classList.contains('dark')?'dark':'light');}catch{}labels();schedule();};
+  $('source-transactions').onclick=()=>openSource('transactions');$('source-signals').onclick=()=>openSource('signals');$('sampling').onchange=()=>openSource('signals',$('sampling').value);
+  $('stress-source').onclick=()=>openSource('synthetic');$('guide-reset').onclick=()=>{openSource('transactions');top=8188;selected=8192;cursor=32768;waveRange=[32688,33104];linked=true;$('find-bar').hidden=true;$('find-toggle').setAttribute('aria-expanded','false');schedule();};
+  $('guide-errors').onclick=()=>{openSource('transactions');filtersOpen=true;draft={status:'ERROR'};headerSignature='';apply();};$('guide-signals').onclick=()=>{openSource('signals','edges');selected=3;cursor=d.time(3);schedule();};
+  $('filters-toggle').onclick=()=>{filtersOpen=!filtersOpen;headerSignature='';schedule();};$('cancel').onclick=()=>cancel();$('clear-empty').onclick=clearFilters;
+  $('columns-toggle').onclick=()=>togglePopover('columns');$('goto-toggle').onclick=()=>togglePopover('goto');$('columns-reset').onclick=()=>{resetColumns();renderColumnsMenu();schedule();if(needle)runFind();};$('goto-kind').onchange=gotoLabel;$('goto-submit').onclick=jump;$('goto-value').onkeydown=e=>{if(e.key==='Enter')jump();};
+  $('link').onclick=()=>{linked=!linked;schedule();};$('locate-cursor').onclick=()=>{const i=cursorRow();if(i!==null&&view.rank(i)>=0){reveal(i);notice=null;}else notice='cursor';schedule();};
+  $('details-toggle').onclick=()=>{inspectorOpen=!inspectorOpen;schedule();};$('inspector-close').onclick=()=>{inspectorOpen=false;schedule();};$('show-waves').onclick=fitSelection;$('wave-fit').onclick=fitSelection;$('wave-locate').onclick=locateWave;
+  $('find-toggle').onclick=()=>toggleFind($('find-bar').hidden);$('find-close').onclick=()=>toggleFind(false);$('find-input').oninput=()=>{needle=$('find-input').value;findGeneration++;findMatches=[];findPending=!!needle;findLimited=false;clearTimeout(findTimer);findTimer=setTimeout(runFind,120);schedule();};$('find-prev').onclick=()=>stepFind(-1);$('find-next').onclick=()=>stepFind(1);$('find-input').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();stepFind(e.shiftKey?-1:1);}if(e.key==='Escape'){e.preventDefault();toggleFind(false);}};
+  $('horizontal-scroll').onscroll=()=>{scrollX=$('horizontal-scroll').scrollLeft;headerSignature='';schedule();};
+  $('data-region').addEventListener('wheel',e=>{if(e.ctrlKey)return;e.preventDefault();if(e.shiftKey||Math.abs(e.deltaX)>Math.abs(e.deltaY)){$('horizontal-scroll').scrollLeft+=(e.deltaX||e.deltaY);}else setTop(top+Math.sign(e.deltaY)*Math.max(1,Math.round(Math.abs(e.deltaY)/25)));},{passive:false});
+  let touch=null;$('data-region').addEventListener('touchstart',e=>{touch={x:e.touches[0].clientX,y:e.touches[0].clientY};},{passive:true});$('data-region').addEventListener('touchmove',e=>{if(!touch)return;const x=e.touches[0].clientX,y=e.touches[0].clientY,dy=touch.y-y,dx=touch.x-x;if(Math.abs(dx)>Math.abs(dy))$('horizontal-scroll').scrollLeft+=dx;else if(Math.abs(dy)>=25)setTop(top+Math.trunc(dy/25));touch={x,y};},{passive:true});
+  $('vertical-scroll').onpointerdown=e=>{e.preventDefault();const bar=e.currentTarget,rect=bar.getBoundingClientRect(),thumb=$('scroll-thumb').getBoundingClientRect(),grab=e.target===$('scroll-thumb')?e.clientY-thumb.top:thumb.height/2;const move=e=>setTop(clamp((e.clientY-rect.top-grab)/Math.max(1,rect.height-thumb.height),0,1)*Math.max(0,view.length-rowCapacity));if(e.target!==$('scroll-thumb'))move(e);bar.setPointerCapture(e.pointerId);bar.onpointermove=move;bar.onpointerup=()=>{bar.onpointermove=null;};bar.onpointercancel=()=>{bar.onpointermove=null;};};
+  function navigate(e){if(!['ArrowUp','ArrowDown','PageUp','PageDown','Home','End'].includes(e.key))return false;e.preventDefault();if(!view.length)return true;let r=view.rank(selected);if(r<0)r=top;r=e.key==='Home'?0:e.key==='End'?view.length-1:clamp(r+({ArrowUp:-1,ArrowDown:1,PageUp:-rowCapacity,PageDown:rowCapacity}[e.key]),0,view.length-1);select(view.at(r));reveal(selected);return true;}
+  $('data-region').addEventListener('contextmenu',e=>{const row=e.target.closest('tr[data-ordinal]');if(!row)return;e.preventDefault();select(Number(row.dataset.ordinal));openRowMenu(e.clientX,e.clientY);});
+  $('data-region').onkeydown=e=>{if(e.target.closest('input,select,button,[role=separator]'))return;if(e.key==='ContextMenu'||e.shiftKey&&e.key==='F10'){e.preventDefault();if(selected!==null){reveal(selected);render();const row=$('data-body').querySelector('tr.selected'),rect=(row||$('data-region')).getBoundingClientRect();openRowMenu(rect.left+24,rect.bottom);}return;}if(navigate(e))return;if(e.key==='Enter'&&selected!==null){e.preventDefault();inspectorOpen=!inspectorOpen;schedule();}};$('vertical-scroll').onkeydown=navigate;
+  $('row-menu').onkeydown=e=>{
+    const items=[$('copy-row'),$('copy-headers')],index=items.indexOf(document.activeElement);
+    if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();e.stopPropagation();items[e.key==='Home'?0:e.key==='End'?items.length-1:(index+(e.key==='ArrowDown'?1:-1)+items.length)%items.length].focus();}
+    else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeRowMenu(true);}
+    else if(e.key==='Tab'){closeRowMenu(true);}
+  };
+  $('table-workspace').addEventListener('keydown',e=>{if(e.key==='Escape'&&(!$('columns-menu').hidden||!$('goto-menu').hidden)){e.preventDefault();const target=!$('columns-menu').hidden?'columns-toggle':'goto-toggle';closePopovers();$(target).focus();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'){e.preventDefault();toggleFind(true);}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='c'&&!e.target.closest('input,textarea,select')){e.preventDefault();copy();}else if(e.key==='Escape'&&!e.target.closest('input,textarea,select')){closePopovers();if(pending)cancel();else if(inspectorOpen){inspectorOpen=false;schedule();}}});
+  document.addEventListener('pointerdown',e=>{if(!e.target.closest('.tp-popover-anchor, #row-menu'))closePopovers();});
+  document.addEventListener('scroll',()=>closeRowMenu(),true);window.addEventListener('resize',()=>closeRowMenu());window.addEventListener('blur',()=>closeRowMenu());
+  $('data-region').addEventListener('wheel',()=>closeRowMenu(),{passive:true});
+  $('timeline').onclick=e=>{const rect=e.currentTarget.getBoundingClientRect(),label=Math.min(120,rect.width*.26);if(e.clientX-rect.left<label)return;cursor=Math.round(waveRange[0]+clamp((e.clientX-rect.left-label)/(rect.width-label-12),0,1)*(waveRange[1]-waveRange[0]));schedule();};$('timeline').onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();cursor=Math.max(0,cursor+(e.key==='ArrowRight'?1:-1));schedule();}};
+  $('copy-row').onclick=()=>copy();$('copy-headers').onclick=()=>copy(true);$('reject').onclick=()=>{rejectNext=!rejectNext;labels();schedule();};for(const id of ['budget-n','budget-p','budget-width'])$(id).oninput=renderBudget;
+  try{if(localStorage.getItem('volna-table-proposal-theme')==='dark')document.body.classList.add('dark');}catch{}
+  new ResizeObserver(schedule).observe($('data-region'));window.addEventListener('pagehide',()=>{generation++;findGeneration++;});
+  resetColumns();labels();renderBudget();render();
+})();
+
+</script>
+</body>
+</html>
