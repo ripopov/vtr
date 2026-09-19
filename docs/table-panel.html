@@ -42,7 +42,7 @@ main{max-width:1160px;margin:auto;padding:0 30px 48px}.masthead{display:flex;jus
 <div><a href="#demo"><span>2. UI and interaction</span></a><a href="#table-sources" class="toc-sub">Source selection and panel integration</a></div>
 <a href="#semantics"><span>3. Rows, identity and time</span></a>
 <a href="#engine"><span>4. Architecture and data ownership</span></a>
-<a href="#indexes"><span>5. Indexes and viewport access</span></a>
+<div><a href="#indexes"><span>5. Indexes and viewport access</span></a><a href="#fast-navigation" class="toc-sub">Fast navigation: time → displayed row</a></div>
 <a href="#jobs"><span>6. Query execution</span></a>
 <a href="#capacity"><span>7. Memory limits</span></a>
 <a href="#investigation"><span>8. Later extensions</span></a>
@@ -151,7 +151,7 @@ main{max-width:1160px;margin:auto;padding:0 30px 48px}.masthead{display:flex;jus
 <h3><span>2.4 Selection, cursor and navigation</span></h3>
 <p>The selected row identifies a record. The shared cursor identifies a time in the recording. These are separate values: selecting transaction T42 does not mean that T42 is the only transaction active at the cursor time. When cursor linking is enabled, activating a row moves the cursor to its time anchor, normally the transaction’s begin time. Filtering and sorting do not move the cursor.</p>
 
-<p>Selection is stored by stable row identity, so it survives a reorder. If a filter hides the selected record, the status reports that the record is filtered out. The cursor indicator uses the row with the latest time anchor at or before the cursor, regardless of the current display order. Equal timestamps use a stable source-order tie-break. If that row is filtered out, the panel reports this rather than marking an unrelated row.</p>
+<p>Selection is stored by stable row identity, so it survives a reorder. If a filter hides the selected record, the status reports that the record is filtered out. The cursor indicator uses the row with the latest time anchor at or before the cursor, regardless of the current display order. Equal timestamps choose the last record in canonical source order (section 3). If that row is filtered out, the panel reports this rather than marking an unrelated row.</p>
 
 <p>Arrow keys move the selection; Page Up/Down, Home and End navigate the current result. Go to accepts a displayed row number or a time. Locate cursor reveals the cursor’s row without changing the waveform scale; if that row is absent from the result, it reports this. A command to find the nearest matching row is a separate operation. Enter opens record details. Show interval in waves explicitly fits the waveform view to the selected interval; merely selecting a row does not change the scale.</p>
 
@@ -273,6 +273,94 @@ advance(cursor, budget)       → Ready(row) | Yield(continuation) | End | Error
 
 <p>For R visible rows, C visible columns and preview length capped at L, painting costs <code>O(RCL)</code>. Rank mapping can add <code>O(R log(B+1))</code> for B membership shards; source value lookup has its own cost and is excluded from the paint pass. Tile count, preview bytes, text-shaping cache and pinned-column width all have explicit limits. Releasing large results must also yield or run away from the UI thread.</p>
 
+
+<h3 id="fast-navigation"><span>5.5 Fast navigation through a filtered and sorted table</span></h3>
+<p>A time jump does not rebuild the query. It locates a source record, checks the completed filter result, finds that record’s position in the completed sort order, and prepares one screen of cells. This assumes that the selected raw data and required indexes are already available. Loading data, building the signal timestamp union, filtering and sorting are separate preparation costs.</p>
+<p>The example below follows <strong>Locate cursor at 125 ns</strong>. The filter is <code>status = ERROR</code>, and the table is sorted by duration. Source ordinal 4 begins at 120 ns and has duration 20 ns. It is the third surviving row in source order, but the second row in display order. Those positions must not be confused.</p>
+<figure class="spec-figure" id="fig-fast-navigation">
+<div class="diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 740" role="img" aria-labelledby="fig-fast-navigation-title fig-fast-navigation-desc">
+<title id="fig-fast-navigation-title">A time jump uses existing indexes to reach a sorted row</title>
+<desc id="fig-fast-navigation-desc">Four steps follow source ordinal 4. First, binary search finds its begin time of 120 ns as the latest at or before the 125 ns cursor. Second, the completed ERROR membership [1, 3, 4] confirms that it passes. Third, searching duration order [3, 4, 1] by the tuple (20 ns, ordinal 4) finds display rank 1. Fourth, the viewport prepares source rows 4 and 1, shown as UI rows 2 and 3. A filtered-out cursor row stops at the membership check. No filter scan or sort runs during this jump.</desc>
+<text x="24" y="26" class="fig-label" text-anchor="start">Locate cursor at 125 ns</text>
+<text x="24" y="50" class="fig-small" text-anchor="start">Completed query: status = ERROR · duration ascending</text>
+<text x="816" y="50" class="fig-small" text-anchor="end">Ordinals and ranks are zero-based.</text>
+<text x="24" y="94" class="fig-label" text-anchor="start">1. Find the time anchor</text>
+<text x="24" y="120" class="fig-small" text-anchor="start">Binary-search begin times.</text>
+<text x="24" y="140" class="fig-small" text-anchor="start">The latest begin ≤ 125 is 120 ns.</text>
+<text x="24" y="160" class="fig-small" text-anchor="start">Keep source ordinal 4.</text>
+<rect x="304" y="74" width="512" height="154" rx="3" class="fig-box"/>
+<rect x="305" y="75" width="510" height="30" rx="3" class="fig-soft"/>
+<text x="320" y="95" class="fig-small" text-anchor="start">Source ordinal</text>
+<text x="490" y="95" class="fig-small" text-anchor="start">Begin, ns</text>
+<text x="670" y="95" class="fig-small" text-anchor="start">Status</text>
+<text x="320" y="126" class="fig-mono" text-anchor="start">2</text>
+<text x="490" y="126" class="fig-mono" text-anchor="start">80</text>
+<text x="670" y="126" class="fig-mono" text-anchor="start">OK</text>
+<text x="320" y="156" class="fig-mono" text-anchor="start">3</text>
+<text x="490" y="156" class="fig-mono" text-anchor="start">100</text>
+<text x="670" y="156" class="fig-mono" text-anchor="start">ERROR</text>
+<rect x="306" y="166" width="508" height="30" rx="3" class="fig-accent"/>
+<text x="320" y="186" class="fig-mono" text-anchor="start">4</text>
+<text x="490" y="186" class="fig-mono" text-anchor="start">120</text>
+<text x="670" y="186" class="fig-mono" text-anchor="start">ERROR</text>
+<text x="320" y="216" class="fig-mono" text-anchor="start">5</text>
+<text x="490" y="216" class="fig-mono" text-anchor="start">140</text>
+<text x="670" y="216" class="fig-mono" text-anchor="start">OK</text>
+<text x="304" y="246" class="fig-small" text-anchor="start">Source excerpt; the displayed sort has no effect here.</text>
+<path d="M560 254V278m-4 -6 4 6 4 -6" class="fig-line"/>
+<text x="24" y="307" class="fig-label" text-anchor="start">2. Check the saved filter</text>
+<text x="24" y="333" class="fig-small" text-anchor="start">Membership contains ordinal 4.</text>
+<text x="24" y="353" class="fig-small" text-anchor="start">No predicates are run again.</text>
+<text x="24" y="373" class="fig-small" text-anchor="start">Its filtered source rank is 2.</text>
+<rect x="304" y="286" width="512" height="94" rx="3" class="fig-soft"/>
+<text x="320" y="310" class="fig-small" text-anchor="start">Matching source ordinals</text>
+<text x="320" y="339" class="fig-mono" text-anchor="start">[1, 3, 4]</text>
+<text x="475" y="339" class="fig-mono" text-anchor="start">contains(4) = true</text>
+<text x="320" y="365" class="fig-small" text-anchor="start">If absent: report “cursor row filtered out” and stop.</text>
+<path d="M560 387V411m-4 -6 4 6 4 -6" class="fig-line"/>
+<text x="24" y="439" class="fig-label" text-anchor="start">3. Locate it in sort order</text>
+<text x="24" y="465" class="fig-small" text-anchor="start">Read its sort key: duration 20 ns.</text>
+<text x="24" y="485" class="fig-small" text-anchor="start">Search by (duration, ordinal).</text>
+<text x="24" y="505" class="fig-small" text-anchor="start">Source 4 is at display rank 1.</text>
+<rect x="304" y="419" width="512" height="124" rx="3" class="fig-box"/>
+<rect x="305" y="420" width="510" height="30" rx="3" class="fig-soft"/>
+<text x="320" y="440" class="fig-small" text-anchor="start">Display rank</text>
+<text x="490" y="440" class="fig-small" text-anchor="start">Source ordinal</text>
+<text x="670" y="440" class="fig-small" text-anchor="start">Duration, ns</text>
+<text x="320" y="471" class="fig-mono" text-anchor="start">0</text>
+<text x="490" y="471" class="fig-mono" text-anchor="start">3</text>
+<text x="670" y="471" class="fig-mono" text-anchor="start">10</text>
+<rect x="306" y="481" width="508" height="30" rx="3" class="fig-accent"/>
+<text x="320" y="501" class="fig-mono" text-anchor="start">1</text>
+<text x="490" y="501" class="fig-mono" text-anchor="start">4</text>
+<text x="670" y="501" class="fig-mono" text-anchor="start">20</text>
+<text x="320" y="531" class="fig-mono" text-anchor="start">2</text>
+<text x="490" y="531" class="fig-mono" text-anchor="start">1</text>
+<text x="670" y="531" class="fig-mono" text-anchor="start">30</text>
+<path d="M560 551V575m-4 -6 4 6 4 -6" class="fig-line"/>
+<text x="24" y="603" class="fig-label" text-anchor="start">4. Prepare the viewport</text>
+<text x="24" y="629" class="fig-small" text-anchor="start">Scroll to display rank 1.</text>
+<text x="24" y="649" class="fig-small" text-anchor="start">Resolve visible row references.</text>
+<text x="24" y="669" class="fig-small" text-anchor="start">Format only visible columns.</text>
+<rect x="304" y="583" width="512" height="114" rx="3" class="fig-box"/>
+<text x="320" y="607" class="fig-mono" text-anchor="start">top_rank = 1 → visible ordinals [4, 1]</text>
+<rect x="318" y="620" width="484" height="30" rx="3" class="fig-accent"/>
+<text x="330" y="640" class="fig-mono" text-anchor="start">Row 2     begin 120 ns     duration 20 ns</text>
+<text x="330" y="675" class="fig-mono" text-anchor="start">Row 3     begin 60 ns      duration 30 ns</text>
+<text x="304" y="720" class="fig-small" text-anchor="start">Two-row viewport for illustration; UI row numbers start at 1.</text>
+</svg></div>
+<figcaption><b>Figure 6.</b> Follow the highlighted record downward: time anchor → filter membership → display position → visible cells. The source record stays in place. Navigation reads the indexes produced by the completed query.</figcaption></figure>
+
+<p><strong>Time → source record.</strong> For a signal table, binary-search the union timestamp axis. For one transaction generator, binary-search its canonical begin-time order. An upper-bound search followed by one step back finds the latest anchor at or before the cursor. Equal anchors choose the last record in canonical source order; a time before the first anchor has no cursor row, and a time after the last uses the last row. A gap between transactions still resolves by begin time: this lookup does not claim that the record overlaps the cursor. For concatenated generators, search each generator’s ordered times and choose the latest candidate, breaking ties by the table’s canonical source ordinal. Never binary-search begin times across a concatenation that is not globally time-ordered. If a global time-order index has already been built, it can serve this lookup instead.</p>
+
+<p><strong>Source record → display position.</strong> Check membership in the record’s shard. If the cursor record was filtered out, report that fact and keep the viewport; Locate cursor does not substitute the nearest surviving record. With no column sort, membership <code>rank</code> gives its position. With a sort, read the record’s complete typed sort key and binary-search the permutation using exactly the sort comparator, including direction, missing-value rules and the source-ordinal tie-break. In the example, searching for <code>(20, 4)</code> returns display rank 1. A separately budgeted inverse permutation can replace this search with a direct lookup when measurements justify its memory cost.</p>
+
+<p><strong>Display position → cells.</strong> Set <code>top_rank</code> to the target rank, clamped near the end so the viewport stays filled. Read the visible range from the sort permutation; without a sort, use membership <code>select</code> to obtain the source ordinals. Project only those rows and visible columns, plus a bounded margin. A scrollbar jump or Go to row starts directly at this step: it already supplies a display rank. Scrolling changes neither the filter membership nor the permutation, and Locate cursor leaves record selection unchanged.</p>
+
+<p><strong>Reuse during scrolling.</strong> Keep a byte-limited cache of prepared tiles for the current query snapshot, keyed by row/column ranges and formatting revision. Reuse tiles that overlap the new viewport; prepare missing tiles asynchronously, prioritizing visible cells before the margin. Pin visible tiles and evict the least recently used unpinned tiles when the budget is reached. A new query or formatting revision cannot reuse incompatible previews. A new viewport request cancels obsolete preparation, and its delivery ticket prevents old tiles from replacing the current view. Unprepared cells show placeholders while bounded projection work completes.</p>
+
+<p><strong>What 100 million rows changes.</strong> For one ordered time axis, the anchor search needs about 27 timestamp comparisons. If a completed filter leaves one million matches, locating the anchor in a column-sorted result needs about 20 additional sort-tuple comparisons, plus the membership lookup. Neither step scans the preceding rows. A 40-row, 10-column viewport prepares at most 400 visible cell previews, plus its configured margin. Comparisons, source access and formatting have their own costs; long values or uncached decoding can dominate. These are operation counts, not measured latency claims or a guarantee that 100 million resident records fit in memory. Section 7 accounts for capacity, and section 9 defines performance measurements.</p>
+
 </section>
 <section id="jobs" aria-labelledby="jobs-title"><h2 id="jobs-title"><span>6. Query execution</span></h2>
 <h3><span>6.1 Building and publishing a result</span></h3>
@@ -282,7 +370,7 @@ advance(cursor, budget)       → Ready(row) | Yield(continuation) | End | Error
 <title id="fig-query-publication-title">Prepare a replacement query while retaining the visible result</title><desc id="fig-query-publication-desc">The visible result A remains usable while pending query B compiles, reserves memory, scans and sorts. B replaces A atomically only after its ticket is validated as current and complete. Invalid input, cancellation, failure or an obsolete ticket keeps A unchanged.</desc>
 <text x="24" y="24" class="fig-label" text-anchor="start">What the user sees</text><rect x="24" y="44" width="544" height="51" rx="3" class="fig-accent"/><text x="40" y="75" text-anchor="start">Completed result A stays visible and usable.</text><rect x="664" y="44" width="152" height="51" rx="3" class="fig-accent"/><text x="740" y="75" class="fig-label" text-anchor="middle">Result B</text><path d="M576 69L655 69" class="fig-line"/><path d="M649 65L655 69L649 73" class="fig-line"/><text x="616" y="42" class="fig-small" text-anchor="middle">atomic swap</text><text x="24" y="139" class="fig-label" text-anchor="start">Pending query B</text><rect x="24" y="159" width="170" height="67" rx="3" class="fig-box"/><text x="36" y="184" class="fig-label" text-anchor="start">Compile + reserve</text><text x="36" y="209" class="fig-small" text-anchor="start">Validate input / memory</text><rect x="213" y="159" width="170" height="67" rx="3" class="fig-box"/><text x="225" y="184" class="fig-label" text-anchor="start">Scan</text><text x="225" y="209" class="fig-small" text-anchor="start">Build membership</text><rect x="402" y="159" width="170" height="67" rx="3" class="fig-box"/><text x="414" y="184" class="fig-label" text-anchor="start">Sort</text><text x="414" y="209" class="fig-small" text-anchor="start">Build exact order</text><rect x="591" y="159" width="225" height="67" rx="3" class="fig-box"/><text x="603" y="184" class="fig-label" text-anchor="start">Validate ticket</text><text x="603" y="209" class="fig-small" text-anchor="start">Complete and still current?</text><path d="M197 193L208 193" class="fig-line"/><path d="M202 189L208 193L202 197" class="fig-line"/><path d="M386 193L397 193" class="fig-line"/><path d="M391 189L397 193L391 197" class="fig-line"/><path d="M575 193L586 193" class="fig-line"/><path d="M580 189L586 193L580 197" class="fig-line"/><path d="M740 159L740 104" class="fig-line"/><path d="M736 110L740 104L744 110" class="fig-line"/><text x="754" y="134" class="fig-small" text-anchor="start">yes</text><path d="M109 226L109 263" class="fig-line"/><path d="M487 226L487 263" class="fig-line"/><path d="M109 263L705 263" class="fig-line"/><path d="M705 226L705 263" class="fig-line"/><path d="M701 257L705 263L709 257" class="fig-line"/><text x="24" y="293" class="fig-small" text-anchor="start">Invalid input, cancellation, failure or an obsolete ticket: keep A; do not publish B.</text>
 </svg></div>
-<figcaption><b>Figure 6.</b> The table switches from one complete result to another. Partial scan progress belongs to the pending job and does not change the displayed row count or ordering.</figcaption></figure>
+<figcaption><b>Figure 7.</b> The table switches from one complete result to another. Partial scan progress belongs to the pending job and does not change the displayed row count or ordering.</figcaption></figure>
 
 <p>The scan first visits the block containing the current source-row scroll anchor, then the cursor block, and then expands outward without revisiting blocks. This produces useful local evidence early. Progress reports exact inspected and matched counts, but the main grid retains its previous completed result. A later preview may expose local matches separately; it must not present unexamined rows as nonmatches or provisional positions as final ranks.</p>
 
@@ -333,7 +421,7 @@ TileTicket  = (QueryTicket, columns_revision, format_revision, request)</pre>
 <title id="fig-scan-coverage-title">Unexamined regions are not empty results</title><desc id="fig-scan-coverage-desc">Four source ranges show separate scan coverage and match counts. Rows 1–1000 are scanned with zero matches, 1001–2000 are unexamined, 2001–3000 are scanned with 240 matches, and 3001–4000 are unexamined. Unexamined counts are unknown, not zero.</desc>
 <text x="24" y="24" class="fig-label" text-anchor="start">Source row ranges</text><text x="296" y="53" class="fig-small" text-anchor="middle">1–1,000</text><text x="440" y="53" class="fig-small" text-anchor="middle">1,001–2,000</text><text x="584" y="53" class="fig-small" text-anchor="middle">2,001–3,000</text><text x="728" y="53" class="fig-small" text-anchor="middle">3,001–4,000</text><text x="24" y="91" text-anchor="start">Coverage</text><text x="24" y="151" text-anchor="start">Matches found</text><rect x="230" y="66" width="132" height="39" rx="3" class="fig-soft"/><text x="296" y="91" text-anchor="middle">scanned</text><rect x="230" y="126" width="132" height="39" rx="3" class="fig-soft"/><text x="296" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">0</text><rect x="374" y="66" width="132" height="39" rx="3" class="fig-box"/><text x="440" y="91" text-anchor="middle">not scanned</text><rect x="374" y="126" width="132" height="39" rx="3" class="fig-box"/><text x="440" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">unknown</text><rect x="518" y="66" width="132" height="39" rx="3" class="fig-accent"/><text x="584" y="91" text-anchor="middle">scanned</text><rect x="518" y="126" width="132" height="39" rx="3" class="fig-accent"/><text x="584" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">240</text><rect x="662" y="66" width="132" height="39" rx="3" class="fig-box"/><text x="728" y="91" text-anchor="middle">not scanned</text><rect x="662" y="126" width="132" height="39" rx="3" class="fig-box"/><text x="728" y="151" class="fig-mono" xml:space="preserve" text-anchor="middle">unknown</text><text x="230" y="202" class="fig-small" text-anchor="start">No matches here.</text><text x="520" y="202" class="fig-small" text-anchor="start">24% matched in this range.</text>
 </svg></div>
-<figcaption><b>Figure 7.</b> A viewport-first scan can examine nonadjacent ranges. Zero means a completed search found no matches; unknown means that range has not been examined. This overview is a later extension, not an additional first-version toolbar control.</figcaption></figure>
+<figcaption><b>Figure 8.</b> A viewport-first scan can examine nonadjacent ranges. Zero means a completed search found no matches; unknown means that range has not been examined. This overview is a later extension, not an additional first-version toolbar control.</figcaption></figure>
 
 <p>For a complete result, a bin covering source positions <code>[a,b)</code> contains <code>rank(b) − rank(a)</code> matches. Every overview must state what its horizontal axis represents: canonical source positions, sorted result ranks or time. A table sorted by duration must not make its row-position overview look like a chronological timeline. Scan coverage is drawn from completed work, never inferred from the absence of matches.</p>
 
@@ -348,7 +436,7 @@ TileTicket  = (QueryTicket, columns_revision, format_revision, request)</pre>
 <title id="fig-sampling-title">Reading signal state at transaction start</title><desc id="fig-sampling-desc">The signal changes from RESET to RUN at 90 ns, then to WAIT at 110 ns. T42 starts at 100 ns and ends at 135 ns. Its state-at-begin column is RUN because the last signal value recorded at or before 100 ns is RUN.</desc>
 <text x="24" y="26" class="fig-label" text-anchor="start">core.state</text><text x="190" y="53" class="fig-small" text-anchor="middle">80</text><path d="M190 60L190 181" class="fig-guide"/><text x="280" y="53" class="fig-small" text-anchor="middle">90</text><path d="M280 60L280 181" class="fig-guide"/><text x="370" y="53" class="fig-small" text-anchor="middle">100</text><path d="M370 60L370 181" class="fig-guide"/><text x="460" y="53" class="fig-small" text-anchor="middle">110</text><path d="M460 60L460 181" class="fig-guide"/><text x="550" y="53" class="fig-small" text-anchor="middle">120</text><path d="M550 60L550 181" class="fig-guide"/><text x="640" y="53" class="fig-small" text-anchor="middle">130</text><path d="M640 60L640 181" class="fig-guide"/><text x="730" y="53" class="fig-small" text-anchor="middle">140</text><path d="M730 60L730 181" class="fig-guide"/><text x="758" y="53" class="fig-small" text-anchor="start">ns</text><rect x="190" y="68" width="90" height="38" rx="3" class="fig-soft"/><text x="235.0" y="93" class="fig-mono" xml:space="preserve" text-anchor="middle">RESET</text><rect x="280" y="68" width="180" height="38" rx="3" class="fig-accent"/><text x="370.0" y="93" class="fig-mono" xml:space="preserve" text-anchor="middle">RUN</text><rect x="460" y="68" width="270" height="38" rx="3" class="fig-soft"/><text x="595.0" y="93" class="fig-mono" xml:space="preserve" text-anchor="middle">WAIT</text><text x="24" y="148" text-anchor="start">T42</text><rect x="370" y="124" width="315" height="34" rx="3" class="fig-box"/><text x="382" y="147" text-anchor="start">transaction: 100–135 ns</text><path d="M370 62L370 175" class="fig-cursor"/><path d="M370 181L370 209" class="fig-line"/><path d="M366 203L370 209L374 203" class="fig-line"/><rect x="190" y="216" width="540" height="64" rx="3" class="fig-box"/><text x="205" y="239" class="fig-mono" xml:space="preserve" text-anchor="start">Record       Begin        core.state @ begin</text><text x="205" y="263" class="fig-mono" xml:space="preserve" text-anchor="start">T42          100 ns       RUN</text>
 </svg></div>
-<figcaption><b>Figure 8.</b> The column reads the signal at the transaction’s start time. The change to WAIT during T42 does not change its <code>core.state @ begin</code> value or create another transaction row.</figcaption></figure>
+<figcaption><b>Figure 9.</b> The column reads the signal at the transaction’s start time. The change to WAIT during T42 does not change its <code>core.state @ begin</code> value or create another transaction row.</figcaption></figure>
 
 
 <p>An in-flight count reports how many transaction intervals contain the row’s time anchor. For closed intervals it is <code>count(begin ≤ t) − count(end &lt; t)</code>. Efficient evaluation requires sorted endpoint indexes or an equivalent source-owner query, with their memory and construction work explicitly budgeted. It is not the same operation as reading one stored cell.</p>
@@ -381,6 +469,9 @@ TileTicket  = (QueryTicket, columns_revision, format_revision, request)</pre>
 <p>Reference tests cover repeated timestamps, strict clock edges, initial and unavailable values, aliases, repeated attributes and inclusive interval overlap. Membership tests cover all, empty, sparse and dense shards, a partial final shard and source domains beyond 2³² rows. Filter and sort results must agree with the reference implementation.</p>
 
 <p>Opening checks cover context-menu selection scope, stream expansion and deduplication, default signal/transaction rows, and preservation of existing Enter/double-click routing. Verify that the source set stays fixed after sidebar selection changes, opening leaves Waves/Pipeline navigation unchanged, closing cancels pending work, and loaded histories are shared.</p>
+
+<p>Navigation checks cover time jumps through filtered and sorted results, duplicate begin times, gaps, times outside the source range, concatenated generators and both sort directions. Check that a filtered-out cursor record leaves the viewport unchanged, sort-tuple search agrees with an inverse-permutation oracle, and scrolling reuses only compatible tiles within the cache budget.
+</p>
 
 <p>Job tests cover cancellation, stale delivery and released memory reservations. UI checks cover exact last-row navigation, selection after filter/sort changes, filtered-out cursor rows, input during scans, keyboard copying and context menus, themes, enlarged text and accessibility. Local and remote loading must produce equivalent behavior, including saved-source restoration and disconnection. Count explicit resource refusals as outcomes rather than omitting them from results.</p>
 
