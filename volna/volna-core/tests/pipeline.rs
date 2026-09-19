@@ -10,7 +10,7 @@ use volna_core::data::source::Lookup;
 use volna_core::data::transactions::TrackRef;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::nav::LinkDim;
-use volna_core::panels::{PanelId, PanelsCommand};
+use volna_core::panels::{Layout, PanelId, PanelsCommand};
 use volna_core::pipeline::{Hit, RowView, Rows, TrackSource};
 use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, OpenSpec, Session};
@@ -127,8 +127,10 @@ fn opened(n: u64) -> (App, Arc<dyn Session>, PanelId, PanelId) {
     let session = fixture(n);
     let mut app = App::new();
     app.set_session(session.clone());
-    let waves = app.panels.focused_id();
+    // The first rows turn the start panel into a waveform panel.
     app.handle(Command::AddVars(vec![0]));
+    let waves = app.panels.focused_id();
+    assert!(app.panels.waves(waves).is_some());
     app.handle(Command::SelectScope(scope(
         session.as_ref(),
         &["cpu", "thread0"],
@@ -896,6 +898,48 @@ fn closing_the_last_panel_releases_the_track_and_late_delivery_is_ignored() {
 }
 
 #[test]
+fn a_stream_opened_first_replaces_the_start_panel_and_rows_find_a_waveform_tab() {
+    let session = fixture(20);
+    let mut app = App::new();
+    app.set_session(session.clone());
+    let start = app.panels.focused_id();
+    assert!(app.panels.focused().kind.is_start());
+    let track = stream_track(session.as_ref(), &["cpu", "thread0"]);
+    app.handle(Command::OpenPipeline { track });
+    assert_eq!(app.panels.len(), 1);
+    let pipeline = app.panels.focused_id();
+    assert_ne!(pipeline, start);
+    assert!(app.panels.pipeline(pipeline).unwrap().is_attached());
+    pump(&mut app);
+    assert!(app.doc.track(track).is_some());
+    // Rows added while the pipeline is focused open a waveform tab beside it.
+    app.handle(Command::AddVars(vec![0]));
+    assert_eq!(app.panels.len(), 2);
+    let waves = app.panels.focused_id();
+    assert_eq!(app.panels.waves(waves).unwrap().items.len(), 1);
+    assert_eq!(
+        app.panels.layout(),
+        &Layout::Tabs {
+            tabs: vec![pipeline, waves],
+            active: waves
+        }
+    );
+    // More rows with the pipeline focused reuse and focus that panel.
+    app.handle(Command::Panels(PanelsCommand::Focus(pipeline)));
+    app.handle(Command::AddVars(vec![0]));
+    assert_eq!(app.panels.len(), 2);
+    assert_eq!(app.panels.focused_id(), waves);
+    assert_eq!(app.panels.waves(waves).unwrap().items.len(), 2);
+    // Closing both leaves a start panel and releases the track.
+    app.handle(Command::Panels(PanelsCommand::Close(waves)));
+    app.handle(Command::Panels(PanelsCommand::Close(pipeline)));
+    assert_eq!(app.panels.len(), 1);
+    assert!(app.panels.focused().kind.is_start());
+    assert!(app.doc.track(track).is_none());
+    app.panels.validate().unwrap();
+}
+
+#[test]
 fn the_checked_in_showcase_has_two_pipeline_streams_on_a_cycle_time_base() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../volna/examples/pipeline_showcase.vtr");
@@ -934,7 +978,10 @@ fn the_checked_in_showcase_has_two_pipeline_streams_on_a_cycle_time_base() {
         );
         assert!(app.scene().texts().any(|t| t.contains(": lw   a1, 0(a2)")));
     }
-    assert_eq!(app.panels.len(), 3);
+    // Without rows, the first stream takes the start panel's place: no
+    // waveform panel is opened for a transaction-only session.
+    assert_eq!(app.panels.len(), 2);
+    assert!(app.panels.iter().all(|p| p.kind.pipeline().is_some()));
     assert!(counts.iter().all(|n| *n > 500), "{counts:?}");
     assert!(app.status().time_range.unwrap().ends_with("cycle"));
 }

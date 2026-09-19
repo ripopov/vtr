@@ -156,6 +156,21 @@ impl Layout {
         };
     }
 
+    /// Put `new` where `id` is, keeping the group, order and activity.
+    pub(crate) fn replace(&mut self, id: PanelId, new: PanelId) {
+        let Some(Self::Tabs { tabs, active }) = self.group_mut(id) else {
+            return;
+        };
+        for tab in tabs.iter_mut() {
+            if *tab == id {
+                *tab = new;
+            }
+        }
+        if *active == id {
+            *active = new;
+        }
+    }
+
     /// Remove a tab without changing a surviving active tab. Return the
     /// next tab in its own group as the preferred focus successor.
     pub(crate) fn remove(&mut self, id: PanelId) -> Option<PanelId> {

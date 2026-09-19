@@ -117,10 +117,16 @@ cache avoids reshaping repeated labels across frames.
 ## Document versus view
 
 `App::panels` owns a toolkit-neutral tree of splits and tab groups, stable
-monotonic panel IDs, panel content, and focus. Split clones rows and formats
+monotonic panel IDs, panel content, and focus. Every trace opens into a
+`Start` panel that names what the trace holds; the first content opened while
+it is focused (sidebar rows, a stream or generator, a new tab or split) takes
+its place under a fresh ID, so a panel never changes kind under a frontend's
+view. Rows added while a pipeline or settings panel is focused go to the first
+waveform panel in layout order, or open one. Split clones rows and formats
 while retaining shared immutable histories; a new tab starts empty. Close
 collapses empty groups and one-child splits, preserving surviving size ratios.
-The last waveform panel is emptied rather than removed. Layout proposals are
+Every panel closes; the last content panel gives way to a start panel, and
+`⌘W` on a lone start panel closes the trace. Layout proposals are
 validated atomically for membership, duplicates, active tabs, finite positive
 shares, depth and panel count. `debug_state()` reports one line per panel in
 layout order, with its ID, focus and link flags before the waveform state.

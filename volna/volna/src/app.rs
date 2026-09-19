@@ -17,7 +17,7 @@ use gpui_kit::{
     UniformListScrollHandle, Window, actions, div, percentage, point, px,
 };
 use volna_core::app::{Action, ChromeDrag, Command, Event, SettingsCommand};
-use volna_core::data::transactions::{TrackKind, TrackRef};
+use volna_core::data::transactions::TrackRef;
 use volna_core::document::TraceState;
 use volna_core::session::Session;
 use volna_core::settings::ZoomStep;
@@ -111,17 +111,10 @@ pub struct OpenPipelineTrack {
 
 /// The recognized PIPELINE streams of the open trace: (dotted path, track).
 pub(crate) fn pipeline_streams(app: &CoreApp) -> Vec<(String, u32)> {
-    app.doc
-        .session()
-        .map(|session| {
-            session
-                .tracks()
-                .iter()
-                .filter(|t| matches!(&t.kind, TrackKind::Stream { kind } if kind == "PIPELINE"))
-                .map(|t| (t.path.join("."), t.id.0))
-                .collect()
-        })
-        .unwrap_or_default()
+    app.pipeline_streams()
+        .into_iter()
+        .map(|(path, track)| (path, track.0))
+        .collect()
 }
 
 /// Key of the shaped-text cache used by the wave painter.
@@ -1269,7 +1262,7 @@ impl Workspace {
             .child(
                 div()
                     .text_color(colors.text_muted)
-                    .child("Open a VTR or FST waveform file to view its signals"),
+                    .child("Open a VTR or FST trace to browse its signals and transactions"),
             )
             .when_some(error, |el, e| {
                 el.child(

@@ -20,6 +20,7 @@ mod palette;
 mod settings_json;
 mod settings_panel;
 mod sidebar;
+mod start_panel;
 pub mod theme;
 mod ui;
 #[cfg(all(target_family = "wasm", feature = "remote-profile"))]

@@ -81,10 +81,13 @@ fn frame(app: &mut App, theme: &Theme) {
     app.render_panel(app.panels.focused_id(), theme, &mut MonoMeasure);
 }
 
+/// A trace with an empty waveform panel where the start panel was.
 fn loaded_app(n: usize) -> (App, Arc<Source>) {
     let source = Source::new(n);
     let mut app = App::new();
     app.set_session(source.clone());
+    app.handle(Command::Action(Action::NewPanel));
+    assert!(app.panels.focused_waves().is_some());
     (app, source)
 }
 
@@ -403,7 +406,7 @@ fn latest_open_wins_and_stale_open_cannot_add_rows() {
         result: Ok(Arc::new(SynthSource::new(100))),
     });
     assert!(matches!(app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current)));
-    assert!(app.panels.focused_waves().unwrap().items.is_empty());
+    assert!(app.panels.focused().kind.is_start(), "no rows were added");
 }
 
 #[test]
@@ -1166,7 +1169,12 @@ fn debug_state_matches_the_documented_format() {
     let mut app = App::new();
     assert_eq!(
         app.debug_state(),
-        "panel=1 focused=true linked=(true,true) items=0 loaded=0 selected={} anchor=None cursor=None markers=0 viewport=(0,1000) menu=false drag=None sidebar_w=280px scopes_frac=0.42"
+        "panel=1 start focused=true drag=None sidebar_w=280px scopes_frac=0.42"
+    );
+    app.handle(Command::Action(Action::NewPanel));
+    assert_eq!(
+        app.debug_state(),
+        "panel=2 focused=true linked=(true,true) items=0 loaded=0 selected={} anchor=None cursor=None markers=0 viewport=(0,1000) menu=false drag=None sidebar_w=280px scopes_frac=0.42"
     );
     app.handle(Command::SetSidebarWidth(340.0));
     app.handle(Command::SetScopesFraction(0.05));

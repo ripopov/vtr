@@ -478,8 +478,27 @@ fn opaque_panel_rename_preserves_unknown_members_and_large_numbers() {
 }
 
 #[test]
+fn a_lone_start_panel_round_trips_and_gives_way_to_a_saved_waveform_panel() {
+    let mut app = App::new();
+    app.set_session(Arc::new(SynthSource::new(100)));
+    assert!(app.panels.focused().kind.is_start());
+    let before = value(&app);
+    assert_eq!(before["panels"][0]["kind"], "start");
+    let plan = prepare(&before, &app).unwrap();
+    assert!(plan.report().notices.is_empty());
+    plan.commit(&mut app).unwrap();
+    assert!(app.panels.focused().kind.is_start());
+    assert_eq!(value(&app), before);
+    app.handle(Command::AddVars(vec![0]));
+    let after = value(&app);
+    assert_eq!(after["panels"].as_array().unwrap().len(), 1);
+    assert_eq!(after["panels"][0]["kind"], "waves");
+}
+
+#[test]
 fn links_on_an_unfocused_panel_are_persistent_edits() {
     let mut app = persistent_app();
+    app.handle(Command::Action(Action::NewPanel));
     let first = app.panels.focused_id();
     app.handle(Command::Action(Action::SplitRight));
     let focused = app.panels.focused_id();

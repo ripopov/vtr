@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use volna_core::Document;
 use volna_core::Session;
+use volna_core::app::SettingsCommand;
 use volna_core::data::source::Lookup;
 use volna_core::data::synth::SynthSource;
 use volna_core::panels::PanelsCommand;
-use volna_core::panels::{Axis, Layout, PanelId, Panels};
+use volna_core::panels::{Axis, Layout, PanelId, PanelKind, Panels};
 use volna_core::wave::model::{LinkDim, PointerEvent};
 use volna_core::{Action, App, Command, Instant};
 
@@ -19,6 +20,14 @@ fn linked_app() -> App {
 
 fn panel(app: &mut App, command: PanelsCommand) {
     app.handle(Command::Panels(command));
+}
+
+/// A collection whose start panel already gave way to a waveform panel.
+fn wave_panels() -> Panels {
+    let mut p = Panels::new();
+    let start = p.focused_id();
+    p.replace(start, PanelKind::Waves(Box::default())).unwrap();
+    p
 }
 
 #[test]
@@ -248,7 +257,7 @@ fn duplicate_variables_require_occurrence_but_duplicate_scopes_cannot_be_guessed
 
 #[test]
 fn split_shares_survive_normalization_and_close() {
-    let mut p = Panels::new();
+    let mut p = wave_panels();
     let a = p.focused_id();
     let b = p.create(a, Some(Axis::Horizontal)).unwrap();
     p.set_layout(
@@ -285,7 +294,7 @@ fn split_shares_survive_normalization_and_close() {
 
 #[test]
 fn closing_inactive_tabs_preserves_active_identity_and_focus_cycles_in_layout_order() {
-    let mut p = Panels::new();
+    let mut p = wave_panels();
     let a = p.focused_id();
     let b = p.create(a, None).unwrap();
     let c = p.create(a, None).unwrap();
@@ -305,7 +314,7 @@ fn closing_inactive_tabs_preserves_active_identity_and_focus_cycles_in_layout_or
 
 #[test]
 fn invalid_and_stale_dock_proposals_are_atomic() {
-    let mut p = Panels::new();
+    let mut p = wave_panels();
     let a = p.focused_id();
     let old = p.revision();
     let b = p.create(a, Some(Axis::Horizontal)).unwrap();
@@ -346,7 +355,7 @@ fn invalid_and_stale_dock_proposals_are_atomic() {
 
 #[test]
 fn split_copies_rows_but_shares_history_and_clears_transient_input() {
-    let mut p = Panels::new();
+    let mut p = wave_panels();
     let mut doc = Document::new();
     let source = Arc::new(SynthSource::new(10));
     doc.set_session(source.clone());
@@ -414,7 +423,7 @@ fn deterministic_random_commands_preserve_invariants_and_never_reuse_ids() {
                 p.focus_next(false).unwrap();
             }
             7 => {
-                p.reset(Some((0, 100))).unwrap();
+                p.reset().unwrap();
                 assert!(seen.insert(p.focused_id()));
             }
             _ => {}
@@ -427,19 +436,62 @@ fn deterministic_random_commands_preserve_invariants_and_never_reuse_ids() {
 }
 
 #[test]
-fn close_others_and_closing_last_wave_preserve_navigation() {
+fn close_others_keeps_any_kind_and_a_lone_settings_tab_gets_a_start_panel() {
     let mut app = linked_app();
     app.handle(Command::Action(Action::SplitRight));
     app.handle(Command::Action(Action::SplitDown));
     let id = app.panels.focused_id();
     app.handle(Command::Panels(PanelsCommand::CloseOthers(id)));
     assert_eq!(app.panels.len(), 1);
+    assert_eq!(app.panels.focused_id(), id);
     app.panels.validate().unwrap();
-    app.handle(Command::Action(Action::ToggleViewportLink));
-    let viewport = app.panels.waves(id).unwrap().viewport(&app.doc);
-    // The panel operation clears the last waveform; the ClosePanel action
-    // additionally closes the trace when it is the only panel.
-    app.panels.close(id).unwrap();
-    assert!(app.panels.waves(id).unwrap().items.is_empty());
-    assert_eq!(app.panels.waves(id).unwrap().viewport(&app.doc), viewport);
+    // From the settings tab, close-others leaves settings plus a start panel.
+    app.handle(Command::Settings(SettingsCommand::Open));
+    let settings = app.panels.settings_id().unwrap();
+    app.handle(Command::Panels(PanelsCommand::CloseOthers(settings)));
+    assert_eq!(app.panels.len(), 2);
+    assert_eq!(app.panels.focused_id(), settings);
+    assert!(app.panels.iter().any(|p| p.kind.is_start()));
+    app.panels.validate().unwrap();
+    // Rows added now go to a waveform panel in the placeholder's spot.
+    app.handle(Command::AddVars(vec![0]));
+    assert_eq!(app.panels.len(), 2);
+    let waves = app.panels.focused_id();
+    assert_eq!(app.panels.waves(waves).unwrap().items.len(), 1);
+    assert!(app.panels.iter().all(|p| !p.kind.is_start()));
+}
+
+#[test]
+fn the_start_panel_gives_way_to_content_and_returns_when_the_last_panel_closes() {
+    let mut app = App::new();
+    app.set_session(Arc::new(SynthSource::new(100)));
+    let start = app.panels.focused_id();
+    assert!(app.panels.focused().kind.is_start());
+    assert_eq!(app.panels.len(), 1);
+    // Splitting the placeholder asks for a waveform panel, not a split.
+    app.handle(Command::Action(Action::SplitRight));
+    let waves = app.panels.focused_id();
+    assert_ne!(waves, start);
+    assert_eq!(app.panels.len(), 1);
+    assert!(app.panels.get(start).is_none());
+    assert!(app.panels.waves(waves).unwrap().nav.link.viewport);
+    // Every panel closes; the last content panel becomes a fresh start panel.
+    app.handle(Command::Action(Action::SplitRight));
+    let second = app.panels.focused_id();
+    app.handle(Command::Panels(PanelsCommand::Close(waves)));
+    assert_eq!(app.panels.layout(), &Layout::single(second));
+    app.handle(Command::Panels(PanelsCommand::Close(second)));
+    assert_eq!(app.panels.len(), 1);
+    let again = app.panels.focused_id();
+    assert!(app.panels.focused().kind.is_start());
+    assert!(again > second);
+    app.panels.validate().unwrap();
+    // Closing the placeholder changes nothing; the app action closes the trace.
+    let revision = app.panels.revision();
+    assert!(app.panels.close(again).unwrap().is_empty());
+    assert_eq!(app.panels.revision(), revision);
+    assert!(app.doc.is_loaded());
+    app.handle(Command::Action(Action::ClosePanel));
+    assert!(!app.doc.is_loaded());
+    assert!(app.panels.focused().kind.is_start());
 }

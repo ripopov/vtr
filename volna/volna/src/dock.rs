@@ -25,11 +25,15 @@ use volna_core::{App as CoreApp, Command};
 
 use crate::app::Workspace;
 use crate::settings_panel::SettingsPanelView;
+use crate::start_panel::StartPanelView;
 
 /// The GPUI view of one core panel, by kind: a core-painted canvas (waves,
-/// pipeline, or an unsupported placeholder) or the settings tab.
+/// pipeline, or an unsupported placeholder), the start panel or the
+/// settings tab. A core panel never changes kind: content replaces the
+/// start panel under a new ID.
 pub(crate) enum PanelView {
     Canvas(Entity<CanvasPanelView>),
+    Start(Entity<StartPanelView>),
     Settings(Entity<SettingsPanelView>),
 }
 
@@ -37,18 +41,21 @@ impl PanelView {
     fn handle(&self) -> Arc<dyn base::PanelView> {
         match self {
             Self::Canvas(view) => panel_handle(view.clone()),
+            Self::Start(view) => panel_handle(view.clone()),
             Self::Settings(view) => panel_handle(view.clone()),
         }
     }
     fn focus(&self, cx: &App) -> FocusHandle {
         match self {
             Self::Canvas(view) => view.read(cx).focus.clone(),
+            Self::Start(view) => view.read(cx).focus_handle(cx),
             Self::Settings(view) => view.read(cx).focus_handle(cx),
         }
     }
     fn entity_id(&self) -> gpui_kit::EntityId {
         match self {
             Self::Canvas(view) => view.entity_id(),
+            Self::Start(view) => view.entity_id(),
             Self::Settings(view) => view.entity_id(),
         }
     }
@@ -143,6 +150,10 @@ impl DockHost {
                     PanelView::Settings(
                         cx.new(|cx| SettingsPanelView::new(ws.clone(), panel.id, window, cx)),
                     )
+                } else if panel.kind.is_start() {
+                    PanelView::Start(cx.new(|cx| {
+                        StartPanelView::new(ws.clone(), panel.id, app.doc.generation(), window, cx)
+                    }))
                 } else {
                     let pipeline = panel.kind.pipeline().is_some();
                     PanelView::Canvas(cx.new(|cx| {
@@ -210,7 +221,7 @@ impl DockHost {
         });
         match view {
             PanelView::Settings(view) => view.clone(),
-            PanelView::Canvas(_) => unreachable!("panel {id:?} is not the settings tab"),
+            _ => unreachable!("panel {id:?} is not the settings tab"),
         }
     }
 
@@ -306,7 +317,7 @@ fn panel_id(state: &base::PanelState) -> Result<PanelId> {
     ensure!(
         matches!(
             state.panel_name.as_ref(),
-            "volna.waves" | "volna.pipeline" | "volna.settings"
+            "volna.waves" | "volna.pipeline" | "volna.start" | "volna.settings"
         ),
         "unknown dock widget"
     );

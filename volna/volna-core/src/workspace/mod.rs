@@ -123,7 +123,8 @@ struct PipelinePanel {
     label_width: f32,
 }
 
-#[derive(Deserialize)]
+/// The fields every saved panel shares; alone, they describe a start panel.
+#[derive(Serialize, Deserialize)]
 struct PanelHeader {
     id: PanelId,
     kind: String,
@@ -216,6 +217,12 @@ impl Workspace {
                                 label_width: p.label_width,
                             })?)
                         }
+                        PanelKind::Start => Ok(serde_json::value::to_raw_value(&PanelHeader {
+                            id: panel.id,
+                            kind: "start".into(),
+                            version: 1,
+                            title: panel.title.clone(),
+                        })?),
                         _ => unreachable!("settings panels are not saved"),
                     };
                 };
@@ -419,6 +426,14 @@ impl Workspace {
                     id: saved.id,
                     title: saved.title,
                     kind: PanelKind::Pipeline(Box::new(p)),
+                });
+                continue;
+            }
+            if header.kind == "start" && header.version == 1 {
+                panels.push(Panel {
+                    id: header.id,
+                    title: header.title,
+                    kind: PanelKind::Start,
                 });
                 continue;
             }

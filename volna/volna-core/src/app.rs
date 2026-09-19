@@ -236,6 +236,20 @@ pub struct Status {
 
 pub const SIDEBAR_FRACTION_MIN: f32 = 0.15;
 
+/// What a start panel shows about the open trace: enough to choose the
+/// first view without a waveform panel being assumed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StartSummary {
+    pub name: String,
+    /// The trace extent as the status bar prints it.
+    pub time_range: String,
+    pub variables: usize,
+    /// Streams and generators of the transaction catalog.
+    pub tracks: usize,
+    /// The recognized PIPELINE streams: (dotted path, track).
+    pub pipelines: Vec<(String, TrackRef)>,
+}
+
 /// The rectangles a frontend needs for hit regions, by panel kind.
 pub enum PanelLayout<'a> {
     Waves(&'a WaveLayout),
@@ -324,12 +338,8 @@ impl App {
     }
 
     fn on_session_changed(&mut self) {
-        let limits = self.doc.session().map(|s| s.info().time_range);
-        if let Err(e) = self.panels.reset(limits) {
+        if let Err(e) = self.panels.reset() {
             self.events.push(Event::Notice(e.to_string()));
-        }
-        if let Some(w) = self.panels.focused_waves_mut() {
-            w.nav.link = self.settings.resolved().link_by_default();
         }
         self.layout_changed();
         self.scopes.reset(self.doc.hierarchy());
@@ -427,7 +437,11 @@ impl App {
         }
     }
 
+    /// Frontends mirror the current layout, so one pending event with the
+    /// latest revision stands for every edit since the last drain.
     pub(crate) fn layout_changed(&mut self) {
+        self.events
+            .retain(|e| !matches!(e, Event::LayoutChanged { .. }));
         self.events.push(Event::LayoutChanged {
             revision: self.panels.revision(),
         });
@@ -452,10 +466,84 @@ impl App {
         }
     }
 
+    /// An empty waveform panel fitted to the trace, linked per the settings.
+    fn fresh_waves(&self) -> PanelKind {
+        let mut waves = crate::wave::model::WaveModel::new();
+        waves.reset(self.doc.session().map(|s| s.info().time_range));
+        waves.nav.link = self.settings.resolved().link_by_default();
+        PanelKind::Waves(Box::new(waves))
+    }
+
+    /// Put `kind` where the panel `id` is (the start panel giving way to
+    /// content). Returns the new panel's ID.
+    fn replace_panel(&mut self, id: PanelId, kind: PanelKind) -> Result<PanelId, String> {
+        match self.panels.replace(id, kind) {
+            Ok((new, removed)) => {
+                self.removed(removed);
+                self.created(new);
+                self.layout_changed();
+                Ok(new)
+            }
+            Err(error) => {
+                self.events.push(Event::Notice(error.to_string()));
+                self.changed();
+                Err(error.to_string())
+            }
+        }
+    }
+
+    /// The waveform panel new rows go to: the focused one, the start panel
+    /// turned into one, the first one in layout order (focused), a start
+    /// panel elsewhere turned into one, or a new tab beside the focused panel.
+    fn waves_target(&mut self) -> Option<PanelId> {
+        let focused = self.panels.focused_id();
+        let kind = &self.panels.focused().kind;
+        if kind.waves().is_some() {
+            return Some(focused);
+        }
+        if kind.is_start() {
+            let waves = self.fresh_waves();
+            return self.replace_panel(focused, waves).ok();
+        }
+        if let Some(id) = self.panels.first_waves() {
+            self.panel_command(PanelsCommand::Focus(id));
+            return Some(id);
+        }
+        if let Some(start) = self.panels.first_start() {
+            let waves = self.fresh_waves();
+            let id = self.replace_panel(start, waves).ok()?;
+            self.panel_command(PanelsCommand::Focus(id));
+            return Some(id);
+        }
+        let waves = self.fresh_waves();
+        match self.panels.open(waves, focused, None) {
+            Ok(id) => {
+                self.layout_changed();
+                Some(id)
+            }
+            Err(error) => {
+                self.events.push(Event::Notice(error.to_string()));
+                self.changed();
+                None
+            }
+        }
+    }
+
     fn panel_command(&mut self, command: PanelsCommand) {
         let revision = self.panels.revision();
         let old_focus = self.panels.focused_id();
+        let start =
+            |panels: &Panels, id: PanelId| panels.get(id).is_some_and(|p| p.kind.is_start());
         let result = match command {
+            // Splitting or tabbing a start panel asks for a waveform panel
+            // where the placeholder is; nothing is left to put beside it.
+            PanelsCommand::Split { panel, .. } | PanelsCommand::NewTab { group_of: panel }
+                if start(&self.panels, panel) =>
+            {
+                let waves = self.fresh_waves();
+                _ = self.replace_panel(panel, waves);
+                return;
+            }
             PanelsCommand::Split { panel, axis } => self
                 .panels
                 .create(panel, Some(axis))
@@ -752,6 +840,10 @@ impl App {
             self.settings.resolved().link_by_default(),
         );
         let focused = self.panels.focused_id();
+        if self.panels.focused().kind.is_start() {
+            _ = self.replace_panel(focused, PanelKind::Pipeline(Box::new(model)));
+            return;
+        }
         match self.panels.open(
             PanelKind::Pipeline(Box::new(model)),
             focused,
@@ -775,6 +867,9 @@ impl App {
         if vars.is_empty() {
             return;
         }
+        let Some(target) = self.waves_target() else {
+            return;
+        };
         // Reuse histories already held in another panel before queuing work.
         let loaded: std::collections::HashMap<_, _> = self
             .panels
@@ -783,7 +878,7 @@ impl App {
             .flat_map(|w| &w.items)
             .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
             .collect();
-        if let Some(w) = self.panels.focused_mut().kind.waves_mut() {
+        if let Some(w) = self.panels.waves_mut(target) {
             w.add_vars(&mut self.doc, vars, loaded);
         }
         self.changed();
@@ -803,7 +898,14 @@ impl App {
                 axis: Axis::Vertical,
             }),
             Action::NewPanel => Some(PanelsCommand::NewTab { group_of: panel }),
-            Action::ClosePanel if self.panels.len() == 1 => {
+            // A lone start panel has nothing left to close but the trace.
+            Action::ClosePanel
+                if self.panels.focused().kind.is_start()
+                    && self
+                        .panels
+                        .iter()
+                        .all(|p| !p.kind.is_content() || p.id == panel) =>
+            {
                 self.close_trace();
                 return;
             }
@@ -1013,6 +1115,41 @@ impl App {
 
     // -- chrome text ------------------------------------------------------------------
 
+    /// The recognized PIPELINE streams of the open trace: (dotted path, track).
+    pub fn pipeline_streams(&self) -> Vec<(String, TrackRef)> {
+        use crate::data::transactions::TrackKind;
+        self.doc
+            .session()
+            .map(|session| {
+                session
+                    .tracks()
+                    .iter()
+                    .filter(|t| matches!(&t.kind, TrackKind::Stream { kind } if kind == "PIPELINE"))
+                    .map(|t| (t.path.join("."), t.id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// What a start panel shows, once a trace is open.
+    pub fn start_summary(&self) -> Option<StartSummary> {
+        let session = self.doc.session()?;
+        let info = session.info();
+        let base = TimeBase::of(info);
+        let (a, b) = info.time_range;
+        Some(StartSummary {
+            name: info.name.clone(),
+            time_range: format!(
+                "{} – {}",
+                format_time(a as f64, base),
+                format_time(b as f64, base)
+            ),
+            variables: session.hierarchy().vars.len(),
+            tracks: session.tracks().len(),
+            pipelines: self.pipeline_streams(),
+        })
+    }
+
     pub fn status(&self) -> Status {
         let mut s = Status {
             sidebar_notice: self.variables.notice.clone(),
@@ -1086,7 +1223,19 @@ impl App {
             );
         }
         let Some(w) = panel.kind.waves() else {
-            return format!("panel={} {}", id.0, if panel.kind.is_settings() { "settings" } else { "unsupported" });
+            let kind = match &panel.kind {
+                PanelKind::Start => "start",
+                PanelKind::Settings => "settings",
+                _ => "unsupported",
+            };
+            return format!(
+                "panel={} {kind} focused={} drag={:?} sidebar_w={}px scopes_frac={:.2}",
+                id.0,
+                id == self.panels.focused_id(),
+                self.drag,
+                self.sidebar_width,
+                self.scopes_fraction
+            );
         };
         format!(
             "panel={} focused={} linked=({},{}) items={} loaded={} selected={:?} anchor={:?} cursor={:?} markers={} viewport=({:.0},{:.0}) menu={} drag={:?} sidebar_w={}px scopes_frac={:.2}",

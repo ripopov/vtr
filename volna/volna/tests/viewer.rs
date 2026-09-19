@@ -244,11 +244,11 @@ fn run(measure: bool) -> anyhow::Result<()> {
             })
         });
         settle(&mut test, 4);
-        // 1. Empty state.
+        // 1. Empty state: no trace, and the start panel stands in the centre.
         expect(
             &mut test,
             "empty",
-            &["items=0 loaded=0", "cursor=None", "markers=0"],
+            &["start focused=true", "sidebar_w=280px"],
         );
         shot(&mut test, "01-empty")?;
         // Splitter drag: grab the sidebar sash and release over the centre panel.
@@ -387,7 +387,9 @@ fn run(measure: bool) -> anyhow::Result<()> {
             settle(&mut test, 6);
             test.update(|cx| {
                 let app = &workspace.read(cx).app;
-                assert_eq!(app.panels.len(), 3);
+                // The first stream took the start panel's place: no wave panel.
+                assert_eq!(app.panels.len(), 2);
+                assert!(app.panels.iter().all(|p| p.kind.pipeline().is_some()));
                 let ready = app
                     .panels
                     .iter()
@@ -467,7 +469,13 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 })?;
             }
             settle(&mut test, 4);
-            assert_eq!(test.update(|cx| workspace.read(cx).app.panels.len()), 1);
+            // Closing the last pipeline panel brings the start panel back.
+            test.update(|cx| {
+                let panels = &workspace.read(cx).app.panels;
+                assert_eq!(panels.len(), 1);
+                assert!(panels.focused().kind.is_start());
+            });
+            shot(&mut test, "start-panel")?;
         }
 
         // 2. Load the sample trace and add signals from the first scope.
@@ -885,11 +893,17 @@ fn run(measure: bool) -> anyhow::Result<()> {
             settle(&mut test, 6);
         }
         test.update(|cx| {
-            let panels = &workspace.read(cx).app.panels;
+            let app = &workspace.read(cx).app;
+            let panels = &app.panels;
             assert_eq!(panels.len(), 1);
             panels.validate().unwrap();
+            assert!(app.doc.is_loaded(), "three closes keep the trace open");
             assert_eq!(
-                panels.focused_waves().unwrap().last_layout().bounds,
+                panels
+                    .focused_waves()
+                    .unwrap_or_else(|| panic!("{}", app.debug_state()))
+                    .last_layout()
+                    .bounds,
                 single_bounds
             );
         });
@@ -906,7 +920,11 @@ fn run(measure: bool) -> anyhow::Result<()> {
         let count = test.update(|cx| workspace.read(cx).app.doc.hierarchy().unwrap().vars.len());
         assert!(count > 0);
         // A newly loaded trace owns keyboard focus without requiring a click
-        // into its replacement dock panel.
+        // into its replacement dock panel: ⌘N turns its start panel into a
+        // waveform panel, and = zooms it.
+        assert!(test.update(|cx| workspace.read(cx).app.panels.focused().kind.is_start()));
+        key(&mut test, "cmd-n");
+        settle(&mut test, 4);
         let fitted_width = test.update(|cx| {
             let app = &workspace.read(cx).app;
             app.panels

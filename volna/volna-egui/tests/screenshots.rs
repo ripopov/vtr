@@ -80,11 +80,7 @@ fn viewer_interactions() {
     let mut h = Headless::new(W, H);
     let mut app = VolnaApp::new(&h.ctx);
     h.settle(&mut app, 2);
-    expect(
-        &app,
-        "empty",
-        &["items=0 loaded=0", "cursor=None", "markers=0"],
-    );
+    expect(&app, "empty", &["start focused=true", "sidebar_w=280px"]);
     shot(&h, "01-empty");
 
     // Open the bundled example and add the first scope's variables with "+".

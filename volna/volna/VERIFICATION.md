@@ -191,15 +191,20 @@ the label column, the dashed edge of open rows, the shared cursor chip at the
 same cycle in the wave and pipeline panels, and the hover text in the status
 bar (`#row · stage [begin, end) · label`).
 
-In each frontend (native, standalone web, VS Code), open the showcase, double
-click `soc.cpu0.pipeline`, then: wheel over the cells (both axes zoom about the
+In each frontend (native, standalone web, VS Code), open the showcase: the
+start panel lists the trace extent, `0 variables`, its transaction tracks and
+both PIPELINE streams as buttons. Double click `soc.cpu0.pipeline` (or press
+its button): the pipeline panel takes the start panel's place and no waveform
+panel appears. Then: wheel over the cells (both axes zoom about the
 pointer, the wave panel follows; in a browser every wheel is a precise scroll,
 so hold Ctrl/⌘ to zoom), two-finger scroll (both axes pan), Shift+wheel
 (time only), left drag (pans; a short press sets the cursor), `↑ ↓`, `= -`,
 `F`, `L` then wheel again (the wave panel stays), `M`, drag the label divider,
 split the panel (`⌘\`, the copy shows the same track without a new load),
-close panels, and restore a saved workspace with a pipeline panel. Rows below
-two pixels must stay responsive over ten thousand rows.
+close panels (closing the last one brings the start panel back; `⌘W` on it
+closes the trace), and restore a saved workspace with a pipeline panel. Rows
+below two pixels must stay responsive over ten thousand rows. The harness
+saves `start-panel` after closing both pipeline panels.
 
 ## Hierarchy browser checks
 

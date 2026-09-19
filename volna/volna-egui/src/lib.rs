@@ -791,6 +791,9 @@ impl VolnaApp {
         CentralPanel::default()
             .frame(Frame::NONE.fill(t.editor.bg))
             .show(root, |ui| match state {
+                TraceState::Loaded(_) if self.app.panels.focused().kind.is_start() => {
+                    self.start_panel(ui)
+                }
                 TraceState::Loaded(_) => self.wave_canvas(ui),
                 TraceState::Loading { name } => {
                     ui.centered_and_justified(|ui| {
@@ -844,6 +847,68 @@ impl VolnaApp {
         });
         if open {
             self.dispatch(Command::RequestOpenDialog);
+        }
+    }
+
+    /// The start panel: what the trace holds and how to open the first view.
+    /// egui shows one panel, so opening content replaces this view.
+    fn start_panel(&mut self, ui: &mut egui::Ui) {
+        let t = self.theme;
+        let Some(summary) = self.app.start_summary() else {
+            return;
+        };
+        let plural =
+            |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        let mut command = None;
+        ui.vertical_centered(|ui| {
+            ui.add_space(ui.available_height() * 0.3);
+            ui.label(
+                RichText::new(summary.name.clone())
+                    .size(16.0)
+                    .strong()
+                    .color(t.editor.text),
+            );
+            ui.label(
+                RichText::new(format!(
+                    "{} · {} · {}",
+                    summary.time_range,
+                    plural(summary.variables, "variable", "variables"),
+                    plural(summary.tracks, "transaction track", "transaction tracks")
+                ))
+                .color(t.editor.text_muted),
+            );
+            ui.add_space(12.0);
+            if summary.variables > 0 {
+                ui.label(
+                    RichText::new(
+                        "Double-click a variable in the sidebar, or select variables and press ⏎, to open a waveform panel",
+                    )
+                    .small()
+                    .color(t.editor.text_muted),
+                );
+            }
+            if summary.tracks > 0 {
+                ui.label(
+                    RichText::new(
+                        "Double-click a stream or generator in the sidebar to open a pipeline panel",
+                    )
+                    .small()
+                    .color(t.editor.text_muted),
+                );
+            }
+            ui.add_space(8.0);
+            for (path, track) in summary.pipelines.iter().take(8) {
+                if ui.button(path).clicked() {
+                    command = Some(Command::OpenPipeline { track: *track });
+                }
+            }
+            ui.add_space(8.0);
+            if ui.button("New waveform panel").clicked() {
+                command = Some(Command::Action(Action::NewPanel));
+            }
+        });
+        if let Some(command) = command {
+            self.dispatch(command);
         }
     }
 

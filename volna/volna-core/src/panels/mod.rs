@@ -38,6 +38,10 @@ pub enum PanelKind {
     Waves(Box<WaveModel>),
     /// Konata-style stage cells over one transaction track.
     Pipeline(Box<PipelineModel>),
+    /// The placeholder every trace opens with: it names what the trace
+    /// holds, and the first content opened while it is focused takes its
+    /// place. It is also what closing the last content panel leaves.
+    Start,
     /// The settings editor: a chrome tab the workspace codec never saves.
     Settings,
     /// Unrecognized panel payloads are preserved by the workspace codec.
@@ -77,6 +81,15 @@ impl PanelKind {
         matches!(self, Self::Settings)
     }
 
+    pub fn is_start(&self) -> bool {
+        matches!(self, Self::Start)
+    }
+
+    /// Content, or the placeholder standing in for it; chrome does not count.
+    pub fn is_content(&self) -> bool {
+        !self.is_settings()
+    }
+
     /// A panel the core lays out and paints into a `Scene`.
     pub fn is_canvas(&self) -> bool {
         matches!(self, Self::Waves(_) | Self::Pipeline(_))
@@ -100,11 +113,13 @@ impl PanelKind {
     }
 
     /// The content a split copies: rows for waves, the track for a pipeline.
-    /// A new tab next to a pipeline starts as an empty wave panel.
+    /// A new tab next to a pipeline starts as an empty wave panel. The start
+    /// panel has nothing to copy: the owner replaces it instead.
     fn clone_view(&self, split: bool) -> Result<PanelKind> {
         Ok(match (self, split) {
             (Self::Waves(w), _) => Self::Waves(Box::new(w.clone_view(split))),
             (Self::Pipeline(p), true) => Self::Pipeline(Box::new(p.clone_view())),
+            (Self::Start, _) => bail!("the start panel has no content to copy"),
             (_, false) => Self::Waves(Box::default()),
             _ => bail!("cannot split this panel"),
         })
@@ -132,6 +147,7 @@ impl Panel {
             PanelKind::Pipeline(p) => {
                 format!("Pipeline {} · {}", self.id.0, p.track.path().join("."))
             }
+            PanelKind::Start => "Start".into(),
             PanelKind::Settings => "Settings".into(),
             PanelKind::Unsupported(_) => format!("Unsupported panel {}", self.id.0),
         })
@@ -209,7 +225,7 @@ impl Panels {
         let id = PanelId(1);
         Self {
             layout: Layout::single(id),
-            panels: BTreeMap::from([(id, Panel::new(id, PanelKind::Waves(Box::default())))]),
+            panels: BTreeMap::from([(id, Panel::new(id, PanelKind::Start))]),
             focused: id,
             next_id: 2,
             revision: 0,
@@ -255,6 +271,28 @@ impl Panels {
     /// The open settings tab, if any.
     pub fn settings_id(&self) -> Option<PanelId> {
         self.iter().find(|p| p.kind.is_settings()).map(|p| p.id)
+    }
+
+    /// Content panels, the start placeholder included.
+    fn content_count(&self) -> usize {
+        self.iter().filter(|p| p.kind.is_content()).count()
+    }
+
+    /// The first waveform panel in layout order.
+    pub fn first_waves(&self) -> Option<PanelId> {
+        self.first(|kind| kind.waves().is_some())
+    }
+
+    /// The first start panel in layout order.
+    pub fn first_start(&self) -> Option<PanelId> {
+        self.first(PanelKind::is_start)
+    }
+
+    fn first(&self, pred: impl Fn(&PanelKind) -> bool) -> Option<PanelId> {
+        self.layout
+            .panels()
+            .into_iter()
+            .find(|id| pred(&self.panels[id].kind))
     }
 
     /// Open the settings tab in the focused group, or focus it. Returns
@@ -393,8 +431,8 @@ impl Panels {
             "focused panel is not visible"
         );
         ensure!(
-            self.panels.values().any(|p| p.kind.waves().is_some()),
-            "workspace requires a waveform panel"
+            self.content_count() > 0,
+            "workspace requires a content panel"
         );
         Ok(())
     }
@@ -513,6 +551,29 @@ impl Panels {
         self.place(kind, beside, split)
     }
 
+    /// Put a new panel of `kind` where `id` is: same group, position and
+    /// activity, a fresh ID (a panel never changes kind under a frontend's
+    /// view). Focus follows. Returns the new ID and the removed panel.
+    pub fn replace(&mut self, id: PanelId, kind: PanelKind) -> Result<(PanelId, Vec<Panel>)> {
+        ensure!(self.panels.contains_key(&id), "unknown panel");
+        let new = self.unused_id()?;
+        let mut layout = self.layout.clone();
+        layout.replace(id, new);
+        let mut ids = self.ids();
+        ids.remove(&id);
+        ids.insert(new);
+        layout.validate(&ids)?;
+        self.advance()?;
+        self.next_id = new.0 + 1;
+        self.layout = layout;
+        if self.focused == id {
+            self.focused = new;
+        }
+        let removed = self.panels.remove(&id).expect("checked above");
+        self.panels.insert(new, Panel::new(new, kind));
+        Ok((new, vec![removed]))
+    }
+
     fn place(&mut self, kind: PanelKind, beside: PanelId, split: Option<Axis>) -> Result<PanelId> {
         ensure!(self.len() < MAX_PANELS, "panel limit reached");
         let id = self.unused_id()?;
@@ -535,21 +596,21 @@ impl Panels {
         Ok(id)
     }
 
-    /// Close a panel. The last waveform panel is emptied instead. Returns
-    /// the removed panels so the owner can release what they retained.
+    /// Close a panel. The last content panel gives way to a start panel
+    /// instead, so the layout never empties. Returns the removed panels so
+    /// the owner can release what they retained.
     pub fn close(&mut self, id: PanelId) -> Result<Vec<Panel>> {
         let panel = self
             .panels
             .get(&id)
             .ok_or_else(|| anyhow::anyhow!("unknown panel"))?;
-        // Keep a usable waveform view, including alongside unknown kinds.
-        if panel.kind.waves().is_some()
-            && self.iter().filter(|p| p.kind.waves().is_some()).count() == 1
-        {
-            self.advance()?;
-            let w = self.panels.get_mut(&id).unwrap().kind.waves_mut().unwrap();
-            *w = w.clone_view(false);
-            return Ok(Vec::new());
+        if panel.kind.is_content() && self.content_count() == 1 {
+            if panel.kind.is_start() {
+                return Ok(Vec::new());
+            }
+            return self
+                .replace(id, PanelKind::Start)
+                .map(|(_, removed)| removed);
         }
         let ids = self.layout.panels();
         let ix = ids.iter().position(|p| *p == id).unwrap();
@@ -569,28 +630,31 @@ impl Panels {
         Ok(vec![removed])
     }
 
-    /// Close every other panel (a waveform panel is kept if `id` is not
-    /// one). Returns the removed panels.
+    /// Close every other panel. A start panel joins a lone settings tab so
+    /// content is never absent. Returns the removed panels.
     pub fn close_others(&mut self, id: PanelId) -> Result<Vec<Panel>> {
         let panel = self
             .get(id)
             .ok_or_else(|| anyhow::anyhow!("unknown panel"))?;
-        let mut keep = BTreeSet::from([id]);
-        if panel.kind.waves().is_none() {
-            keep.insert(self.iter().find(|p| p.kind.waves().is_some()).unwrap().id);
-        }
         if self.len() == 1 {
             return Ok(Vec::new());
         }
+        let start = (!panel.kind.is_content())
+            .then(|| self.unused_id())
+            .transpose()?;
         self.advance()?;
         let (kept, removed): (Vec<_>, Vec<_>) = std::mem::take(&mut self.panels)
             .into_iter()
-            .partition(|(id, _)| keep.contains(id));
+            .partition(|(other, _)| *other == id);
         self.panels = kept.into_iter().collect();
-        self.layout = Layout::Tabs {
-            tabs: keep.into_iter().collect(),
-            active: id,
-        };
+        let mut tabs = vec![id];
+        if let Some(start) = start {
+            self.next_id = start.0 + 1;
+            self.panels
+                .insert(start, Panel::new(start, PanelKind::Start));
+            tabs.push(start);
+        }
+        self.layout = Layout::Tabs { tabs, active: id };
         self.focused = id;
         Ok(removed.into_iter().map(|(_, panel)| panel).collect())
     }
@@ -602,7 +666,7 @@ impl Panels {
         for id in self.iter().filter(|p| p.kind.is_settings()).map(|p| p.id) {
             layout.remove(id);
         }
-        let layout = layout.normalized().expect("a waveform panel remains");
+        let layout = layout.normalized().expect("a content panel remains");
         let focused = if self.panels[&self.focused].kind.is_settings() {
             layout
                 .active_for(self.focused)
@@ -616,15 +680,13 @@ impl Panels {
 
     /// A trace change discards content while keeping the ID allocator alive,
     /// so delayed pointer events can never address a replacement panel. The
-    /// settings tab survives the change.
-    pub fn reset(&mut self, limits: Option<(u64, u64)>) -> Result<()> {
+    /// settings tab survives the change; a start panel takes the centre.
+    pub fn reset(&mut self) -> Result<()> {
         let id = self.unused_id()?;
         self.advance()?;
         let settings = self.settings_id().map(|id| (id, self.focused == id));
         self.next_id = id.0 + 1;
-        let mut waves = WaveModel::new();
-        waves.reset(limits);
-        self.panels = BTreeMap::from([(id, Panel::new(id, PanelKind::Waves(Box::new(waves))))]);
+        self.panels = BTreeMap::from([(id, Panel::new(id, PanelKind::Start))]);
         self.layout = Layout::single(id);
         self.focused = id;
         if let Some((settings, focus)) = settings {
