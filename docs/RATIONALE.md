@@ -1075,7 +1075,7 @@ preferences path) was replaced by a few hundred lines of span-recording parser
 and edit engine, which removes a class of "my comment disappeared" complaints.
 
 The user file deliberately has no version field, an exception to the format
-rule in GOAL.md section 8: a hand-edited file must degrade key by key with a
+versioning rule in `AGENTS.md`: a hand-edited file must degrade key by key with a
 diagnostic, never fail as a whole, or one typo would reset every setting.
 Renamed keys are migrated by a table. The machine-written `state.json` (recent
 lists) follows the rule and is versioned and strict. Recent items left the

@@ -77,7 +77,7 @@ libdl and libm.
   Update callers together and compile against the header matching the library.
 * API/ABI changes are independent of file-format versions. Version formats
   to reject incompatible files clearly; support for older versions is not
-  required (see [GOAL.md section 8](../GOAL.md#8-ground-rules-for-the-agent)).
+  required (see the repository [ground rules](../AGENTS.md#rules)).
 * Initialise `vtr_writer_options` with `vtr_writer_options_default()` to
   obtain the library's default settings.
 * `vtr_version()` returns the library (crate) version string, e.g. `"0.1.0"`.

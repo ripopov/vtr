@@ -1,8 +1,8 @@
 # AGENTS.md
 
-Instructions for coding agents working in this repository. The project's
-purpose, scope, requirements and ground rules are in [GOAL.md](GOAL.md);
-read it first and treat its section 8 as binding.
+Instructions for coding agents working in this repository. Read
+[GOAL.md](GOAL.md) first for the project's purpose, scope and requirements;
+the ground rules for work in the repository are collected here.
 
 ## What this is
 
@@ -171,7 +171,10 @@ performance measurements, and debugging or exploratory checks.
 
 ## Rules
 
-- **Research first; prioritize clean formats and APIs.** We are currently
+- **Research first; prioritize clean formats and APIs.** Research the relevant
+  references before designing a solution. Reuse what they solve well, and
+  record borrowed and rejected approaches in the appropriate design or
+  rationale document. We are currently
   in the research phase, so backward compatibility of the Rust API, C API/ABI,
   and file format is not a requirement. Prioritize clean, coherent formats
   and APIs over preserving existing interfaces or behavior. Favor breaking
@@ -179,7 +182,7 @@ performance measurements, and debugging or exploratory checks.
   Refactor directly rather than adding unnecessary indirection. Aim for the simplest,
   clearest solution, and update affected implementations, callers, tests,
   and documentation together. Version formats to reject incompatible files
-  clearly; support for older versions is not required (GOAL.md section 8).
+  clearly; support for older versions is not required.
 - **Fix missing abstractions at their owning layer.** Before adding a cache,
   side table, flag, or adapter workaround, check whether it duplicates
   information already owned elsewhere. If a consumer needs a missing query
@@ -203,6 +206,8 @@ performance measurements, and debugging or exploratory checks.
   the benchmark files, then confirmed with the full suite before the results
   are updated. Report size, write time and read time together; a change
   must not trade one for another.
+- Every efficiency claim against the requirements in GOAL.md section 4 must
+  be supported by the benchmark report.
 - **Check `docs/RATIONALE.md` before re-trying an idea.** Most obvious
   alternatives have been measured; if you re-test one, record the new
   numbers there.
@@ -219,6 +224,8 @@ performance measurements, and debugging or exploratory checks.
   in the same session.
 - Keep the public API small and the C API a one-to-one projection of the
   Rust one. No presentation or VDB data in the format (GOAL.md section 2).
+- Keep all code, documentation and benchmarks in this repository, and ensure
+  they build or run from a clean checkout.
 - Keep documentation focused on current architecture, behavior, requirements
   and reproducible workflows. Use Git for history; do not append dated progress
   reports, migration diaries or per-change verification records.

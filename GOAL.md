@@ -175,17 +175,3 @@ External:
 - Alternative trace and columnar formats worth studying for encoding and
   indexing ideas, e.g. Apache Arrow/Parquet, Perfetto, Chrome Trace Event
   Format, and the Surfer / wellen waveform readers.
-
-## 8. Ground rules for the agent
-
-- Research the references first; do not reinvent what they already solve
-  well, and document what you borrowed and what you rejected.
-- Do not embed VDB or presentation data in VTR.
-- During research, favor breaking changes over compatibility workarounds when
-  they simplify the design. Version formats to reject incompatible files
-  clearly; support for older versions is not required.
-- Measure before claiming any efficiency win; every claim in section 4 must
-  be backed by the benchmark report.
-- Prefer a clean, small API over feature breadth in the wrapper layers.
-- All code, docs, and benchmarks live in this repository and build from a
-  clean checkout.
