@@ -5,7 +5,8 @@ This document is a reference and tour of the `vtr` crate at `core/vtr`
 API as implemented in the sources; where behaviour is subtle the exact rule
 is spelled out. The on-disk format is specified in
 [`docs/SPEC.md`](SPEC.md); the C binding is documented in
-[`docs/API_C.md`](API_C.md).
+the self-contained public header
+[`core/vtr-capi/include/vtr.h`](../core/vtr-capi/include/vtr.h).
 
 Contents
 
@@ -1643,8 +1644,8 @@ reader needs no configuration.
   encoding, LEB128/zig-zag, CRC and recovery rules. The `block`, `container`,
   `txblock`, `sections`, `strings`, `value` and `varint` modules of this crate
   are its reference implementation.
-* [`docs/API_C.md`](API_C.md) - the C API in `core/vtr-capi`
-  (`vtr_*` functions, header `core/vtr-capi/include/vtr.h`), a thin wrapper
+* [`core/vtr-capi/include/vtr.h`](../core/vtr-capi/include/vtr.h) - the C API
+  in `core/vtr-capi` (`vtr_*` functions), a thin wrapper
   over the `Writer` and `Reader` described here with the same semantics:
   identical option fields, error categories (reported through
   `vtr_last_error`), logic codes, packing rules and query behaviour.

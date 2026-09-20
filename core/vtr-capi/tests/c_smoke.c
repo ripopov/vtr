@@ -34,15 +34,15 @@ int main(int argc, char **argv) {
     vtr_writer *w = vtr_writer_create(path, &o);
     ASSERT(w != NULL);
     CHECK(vtr_writer_set_timescale(w, -12));
-    uint32_t top = vtr_writer_begin_scope(w, "top", 0, "top");
+    uint32_t top = vtr_writer_begin_scope(w, "top", VTR_SCOPE_MODULE, "top");
     ASSERT(top != VTR_NONE);
     uint32_t clk, clk_n, bus, bus_n, r, r_n, s, s_n, wide, wide_n, event, event_n;
-    CHECK(vtr_writer_add_var(w, "clk", 16, 1, 0, 1, 4, &clk_n, &clk));
-    CHECK(vtr_writer_add_var(w, "bus", 5, 0, 0, 16, 4, &bus_n, &bus));
-    CHECK(vtr_writer_add_var(w, "r", 3, 0, 1, 0, 0, &r_n, &r));
-    CHECK(vtr_writer_add_var(w, "s", 21, 0, 2, 0, 0, &s_n, &s));
-    CHECK(vtr_writer_add_var(w, "wide", 23, 0, 0, 96, 4, &wide_n, &wide));
-    CHECK(vtr_writer_add_var(w, "event", 0, 0, 0, 1, 2, &event_n, &event));
+    CHECK(vtr_writer_add_var(w, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT, VTR_SIGNAL_BITS, 1, 4, &clk_n, &clk));
+    CHECK(vtr_writer_add_var(w, "bus", VTR_VAR_REG, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 16, 4, &bus_n, &bus));
+    CHECK(vtr_writer_add_var(w, "r", VTR_VAR_REAL, VTR_DIR_IMPLICIT, VTR_SIGNAL_REAL, 0, 0, &r_n, &r));
+    CHECK(vtr_writer_add_var(w, "s", VTR_VAR_STRING, VTR_DIR_IMPLICIT, VTR_SIGNAL_VARLEN, 0, 0, &s_n, &s));
+    CHECK(vtr_writer_add_var(w, "wide", VTR_VAR_LOGIC, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 96, 4, &wide_n, &wide));
+    CHECK(vtr_writer_add_var(w, "event", VTR_VAR_EVENT, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 1, 2, &event_n, &event));
     vtr_value av; memset(&av, 0, sizeof av); av.tag = VTR_VAL_I64; av.i = -42;
     CHECK(vtr_writer_node_attr(w, bus_n, "msb", &av));
     CHECK(vtr_writer_end_scope(w));
@@ -68,11 +68,11 @@ int main(int argc, char **argv) {
             uint64_t tx;
             CHECK(vtr_writer_begin_tx(w, gen, i * 10, &tx));
             vtr_value pc; memset(&pc, 0, sizeof pc); pc.tag = VTR_VAL_U64; pc.u = 0x1000 + i;
-            CHECK(vtr_writer_tx_attr(w, tx, k_pc, 0, &pc));
+            CHECK(vtr_writer_tx_attr(w, tx, k_pc, VTR_TX_PHASE_BEGIN, &pc));
             CHECK(vtr_writer_tx_stage_begin(w, tx, st_f, lane, i * 10));
             CHECK(vtr_writer_tx_stage_begin(w, tx, st_x, lane, i * 10 + 5));
             if (prev) CHECK(vtr_writer_relate(w, dep, prev, tx, 0, NULL, NULL));
-            CHECK(vtr_writer_end_tx(w, tx, i * 10 + 20, 0));
+            CHECK(vtr_writer_end_tx(w, tx, i * 10 + 20, VTR_TX_STATUS_UNSET));
             prev = tx;
         }
     }
@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
     ASSERT(sig == bus);
     vtr_node_info ni;
     CHECK(vtr_reader_node(rd, bus_n, &ni));
-    ASSERT(ni.kind == 2 && ni.type_code == 5 && ni.signal == bus && ni.attr_count == 1);
+    ASSERT(ni.kind == VTR_NODE_VAR && ni.type_code == VTR_VAR_REG && ni.signal == bus && ni.attr_count == 1);
     uint32_t key; vtr_value v;
     CHECK(vtr_reader_node_attr(rd, bus_n, 0, &key, &v));
     size_t klen; const char *ks = vtr_reader_str(rd, key, &klen);

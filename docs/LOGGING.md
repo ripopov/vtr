@@ -90,7 +90,7 @@ thread that owns the writer.
 
 The header is C++17 and uses only the C API underneath
 (`vtr_writer_add_log_site`, `vtr_writer_log_raw`), so a C or SystemC project
-can call those directly; `API_C.md` documents them.
+can call those directly; `core/vtr-capi/include/vtr.h` documents them.
 
 ## 3. Rust
 

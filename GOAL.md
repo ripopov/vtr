@@ -138,8 +138,8 @@ of out-of-order cores. Synthetic microbenchmarks alone are not sufficient.
 1. **Reference implementation** in Rust with a C ABI wrapper, with tests.
 2. **VTR file format specification** as HTML or Markdown, complete enough
    that an independent implementation can be written from it.
-3. **VTR API specifications** for both the Rust and C APIs, as HTML or
-   Markdown, generated or hand-written.
+3. **VTR API specifications**: a Markdown reference for Rust and a
+   self-contained public header for C, generated or hand-written.
 4. **Application note** explaining how to design a VDB-style database that
    supplements VTR. It must include a worked design of a VDB that implements
    a fully featured Konata-like pipeline viewer on top of a VTR trace, and

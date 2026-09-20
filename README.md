@@ -53,7 +53,7 @@ interactive pipeline viewer and a screenshot-based tutorial. See its
 |---|---|
 | [docs/SPEC.md](docs/SPEC.md) | file format specification (normative) |
 | [docs/API_RUST.md](docs/API_RUST.md) | Rust API reference and tour |
-| [docs/API_C.md](docs/API_C.md) | C API reference |
+| [core/vtr-capi/include/vtr.h](core/vtr-capi/include/vtr.h) | self-contained C API reference and declarations |
 | [docs/LOGGING.md](docs/LOGGING.md) | simulator logging into VTR: log sites and records, the C++ header and Rust API, reading messages back, performance |
 | [docs/VDB_APPNOTE.md](docs/VDB_APPNOTE.md) | designing a VDB (semantics/presentation layer) on top of VTR, with a worked Konata pipeline viewer and the RTL-debugger outline |
 | [docs/VDB_RTL.md](docs/VDB_RTL.md) | slang RTL VDB exporter, module netlist SVGs with timestamped values, and driver tracing CLI |
@@ -136,16 +136,17 @@ let sig = r.find_signal("top.data", '.').unwrap();
 println!("{}", r.value_at(sig, 405)?.to_ascii());
 ```
 
-Writing from C (see `docs/API_C.md`):
+Writing from C (the public header documents the complete API):
 
 ```c
 vtr_writer *w = vtr_writer_create("out.vtr", NULL);
-vtr_writer_begin_scope(w, "top", 0, NULL);
+vtr_writer_begin_scope(w, "top", VTR_SCOPE_MODULE, NULL);
 uint32_t node, clk;
-vtr_writer_add_var(w, "clk", 16, 1, 0, 1, 4, &node, &clk);
+vtr_writer_add_var(w, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT,
+                   VTR_SIGNAL_BITS, 1, 4, &node, &clk);
 vtr_writer_end_scope(w);
-vtr_writer_set_time(w, 0); vtr_writer_emit_bit(w, clk, 0);
-vtr_writer_set_time(w, 5); vtr_writer_emit_bit(w, clk, 1);
+vtr_writer_set_time(w, 0); vtr_writer_emit_bit(w, clk, VTR_LOGIC_0);
+vtr_writer_set_time(w, 5); vtr_writer_emit_bit(w, clk, VTR_LOGIC_1);
 if (vtr_writer_close(w) != VTR_OK) fprintf(stderr, "%s\n", vtr_last_error());
 ```
 

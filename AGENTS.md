@@ -105,7 +105,7 @@ a claim of implemented support or a requirement for embedded agent chat.
 | repository boundaries, layout and integration status | `docs/ARCHITECTURE.md`, `integrations/README.md` |
 | file format (normative) | `docs/SPEC.md` |
 | why things are the way they are, what was tried and rejected | `docs/RATIONALE.md` |
-| APIs | `docs/API_RUST.md`, `docs/API_C.md` |
+| APIs | `docs/API_RUST.md`, `core/vtr-capi/include/vtr.h` |
 | Volna viewer: toolkit-free core, GPUI frontend (native/web/VS Code), egui frontend (native) | `volna/volna/ARCHITECTURE.md`, `volna/volna/README.md`, `volna/volna-egui/README.md`, `volna/volna/VERIFICATION.md` |
 | logging (log sites, `LOG_BLOCK`, C++ header, comparison with NanoLog/binlog/Quill/CLP) | `docs/LOGGING.md`, `bench/log/` |
 | benchmark method / current numbers | `docs/BENCHMARKS.md`, `docs/BENCHMARK_RESULTS.md` |

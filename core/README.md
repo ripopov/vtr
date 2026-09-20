@@ -29,5 +29,5 @@ cargo test -p vtr-vdb
 The default workspace commands also cover the CLI and Rust benchmark drivers,
 without requiring the viewer's platform SDK. See the
 [format specification](../docs/SPEC.md), [Rust API](../docs/API_RUST.md),
-[C API](../docs/API_C.md), [VDB schema](../docs/VDB_RTL.md) and
+[C API header](vtr-capi/include/vtr.h), [VDB schema](../docs/VDB_RTL.md) and
 [VDB application note](../docs/VDB_APPNOTE.md).
