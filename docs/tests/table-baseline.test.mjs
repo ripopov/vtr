@@ -78,6 +78,33 @@ test('baseline demo navigation, exact u64 positions, state handling and clipboar
   assert.equal(await browser.evaluate('document.getElementById("copy-text").value'),copied);
   assert.equal(await browser.evaluate('document.getElementById("copy-text").readOnly'),true);
   await browser.click('#copy-close');await browser.wait('!document.getElementById("copy-dialog").open');
+  // Record details: one row, full attributes, events and stages.
+  await browser.click('#details-toggle');await browser.wait('!document.getElementById("inspector").hidden');
+  assert.equal(await browser.evaluate('document.getElementById("detail-crumb").textContent'),'soc.noc.router.request · ID 1234');
+  assert.match(await browser.evaluate('document.getElementById("detail-body").textContent'),/Attributes · 26[\s\S]*Events · 12[\s\S]*Stages · 4/);
+  // 20 items per list by default: attributes are cut and say so, shorter lists are not.
+  assert.match(await browser.evaluate('document.getElementById("detail-body").textContent'),/vtr\.label[\s\S]*Showing 20 of 26/);
+  assert.equal(await browser.evaluate('document.querySelectorAll("#detail-body .more").length'),1);
+  assert.equal(await browser.evaluate('document.querySelectorAll("#detail-body table")[0].rows.length'),20);
+  // The global setting changes the limit live for every list.
+  await browser.click('#settings-toggle');await browser.wait('!document.getElementById("settings-menu").hidden');
+  await browser.evaluate('document.getElementById("detail-items").value="3";document.getElementById("detail-items").dispatchEvent(new Event("input"))');
+  await browser.wait('document.querySelectorAll("#detail-body .more").length===3');
+  assert.deepEqual(await browser.evaluate('[...document.querySelectorAll("#detail-body .more")].map(p=>p.textContent.split(";")[0])'),
+    ['Showing 3 of 26','Showing 3 of 12','Showing 3 of 4']);
+  await browser.evaluate('document.getElementById("detail-items").value="0";document.getElementById("detail-items").dispatchEvent(new Event("input"))');
+  assert.match(await browser.evaluate('document.getElementById("feedback").textContent'),/whole number of items/);
+  assert.equal(await browser.evaluate('document.querySelectorAll("#detail-body .more").length'),3,'an invalid limit leaves the previous one in force');
+  await browser.evaluate('document.getElementById("detail-items").value="20";document.getElementById("detail-items").dispatchEvent(new Event("input"))');
+  await browser.wait('document.querySelectorAll("#detail-body .more").length===1');
+  await browser.click('#source-path');await browser.wait('document.getElementById("settings-menu").hidden');
+  await browser.click('#next');await browser.wait('document.getElementById("detail-crumb").textContent==="soc.noc.router.request · ID 1235"');
+  await browser.click('#inspector-close');await browser.wait('document.getElementById("inspector").hidden');
+  assert.equal(await browser.evaluate('document.getElementById("details-toggle").getAttribute("aria-expanded")'),'false');
+  await browser.evaluate('document.getElementById("grid").focus()');await key('Enter','Enter',13);
+  await browser.wait('!document.getElementById("inspector").hidden');
+  await key('Escape','Escape',27);await browser.wait('document.getElementById("inspector").hidden');
+  assert.notEqual(await selected(),undefined,'Escape closes details before it clears the selection');
   for(const scenario of ['loading','empty','error']){
     await browser.click(`[data-scenario="${scenario}"]`);await browser.wait(`document.getElementById('state-cover').dataset.state==='${scenario}'`);
     assert.equal(await browser.evaluate('document.querySelectorAll("#rows tr").length'),0);
@@ -89,25 +116,25 @@ test('baseline demo navigation, exact u64 positions, state handling and clipboar
   assert.equal(await browser.evaluate('document.querySelectorAll("#rows tr").length'),0);
   await browser.click('#retry-load');await browser.wait('document.querySelectorAll("#rows tr").length===12');
   await browser.click('[data-source="response"]');await browser.wait('document.getElementById("source-path").textContent.endsWith("response")');
-  assert.equal(await browser.evaluate('document.querySelector("#rows tr").children[1].textContent'),'1002');
+  assert.equal(await browser.evaluate('document.querySelector("#rows tr").children[2].textContent'),'1002');
   await browser.evaluate('document.querySelector("[data-source=request]").focus()');await key('F10','F10',121,8);
   await browser.wait('!document.getElementById("source-menu").hidden');assert.equal(await browser.evaluate('document.activeElement.id'),'open-table');await key('Enter','Enter',13);
   await browser.wait('document.getElementById("source-path").textContent.endsWith("request")');
   assert.equal(await browser.evaluate('document.getElementById("source-menu").hidden'),true);
   const headers=()=>browser.evaluate('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")');
-  assert.equal(await headers(),'Row|Begin · ns|Duration · ns|Label · vtr.label|Status|Attributes · preview');
+  assert.equal(await headers(),'Row|Label · vtr.label|Begin · ns|Duration · ns|Status|Attributes · preview');
   await browser.click('#columns-toggle');await browser.wait('!document.getElementById("columns-menu").hidden');
   assert.equal(await browser.evaluate('document.querySelector("#column-options [data-column=id]").checked'),false);
   await browser.click('#column-options [data-column=id]');
   await browser.wait('document.querySelectorAll("#records th").length===7');
-  assert.equal(await headers(),'Row|Begin · ns|Duration · ns|ID|Label · vtr.label|Status|Attributes · preview');
+  assert.equal(await headers(),'Row|Label · vtr.label|Begin · ns|Duration · ns|ID|Status|Attributes · preview');
   assert.equal(await browser.evaluate('document.querySelectorAll("#rows td").length'),84);
   assert.equal(await browser.evaluate('document.querySelector("#records").getAttribute("aria-colcount")'),'7');
   await browser.click('#column-options [data-column=label]');
   await browser.wait('document.querySelectorAll("#records th").length===6');
   assert.equal(await headers(),'Row|Begin · ns|Duration · ns|ID|Status|Attributes · preview');
   await browser.click('#columns-reset');
-  await browser.wait('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")==="Row|Begin · ns|Duration · ns|Label · vtr.label|Status|Attributes · preview"');
+  await browser.wait('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")==="Row|Label · vtr.label|Begin · ns|Duration · ns|Status|Attributes · preview"');
   assert.equal(await browser.evaluate('document.querySelectorAll("#rows td").length'),72);
   await browser.click('#source-path');await browser.wait('document.getElementById("columns-menu").hidden');
   assert.equal(await browser.evaluate('document.getElementById("columns-toggle").getAttribute("aria-expanded")'),'false');
@@ -149,6 +176,11 @@ test('signal tables open from a signal selection and merge change timestamps',{t
   await browser.wait('document.getElementById("feedback").textContent.includes("Copied standard fields")');
   assert.equal(await browser.evaluate('navigator.clipboard.readText()'),
     'Time\tbus.clk\tbus.valid\tbus.addr[31:0]\n1008\t0\t0\t0x80000040');
+  await browser.click('#details-toggle');await browser.wait('!document.getElementById("inspector").hidden');
+  assert.equal(await browser.evaluate('document.getElementById("detail-crumb").textContent'),'soc.bus · 3 signals · @1008 ns');
+  assert.match(await browser.evaluate('document.getElementById("detail-body").textContent'),/bus\.clk0changed here/);
+  assert.match(await browser.evaluate('document.getElementById("detail-body").textContent'),/bus\.valid0held from an earlier change/);
+  await browser.click('#inspector-close');await browser.wait('document.getElementById("inspector").hidden');
   // Exact navigation and the column menu work the same way over the merged axis.
   await browser.evaluate('document.getElementById("goto").value="10000"');await browser.click('#go');
   await browser.wait('document.querySelector("#rows tr[aria-selected=true]")?.dataset.ordinal === "9999"');
@@ -160,7 +192,7 @@ test('signal tables open from a signal selection and merge change timestamps',{t
   await browser.click('[data-source=request]');
   await browser.wait('document.getElementById("records").getAttribute("aria-rowcount")==="1000001"');
   assert.equal(await browser.evaluate('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")'),
-    'Row|Begin · ns|Duration · ns|Label · vtr.label|Status|Attributes · preview');
+    'Row|Label · vtr.label|Begin · ns|Duration · ns|Status|Attributes · preview');
   assert.equal(await browser.evaluate('document.getElementById("order-label").textContent'),'Source order · begin / end / ID');
   assert.deepEqual(browser.exceptions,[]);
 });
