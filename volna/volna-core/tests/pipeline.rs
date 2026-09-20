@@ -659,14 +659,20 @@ fn linked_navigation_moves_the_wave_panel_and_unlinked_navigation_does_not() {
     );
     assert!(p.rows.value.top > rows_before.top);
     assert_eq!(p.rows.value.row_px, rows_before.row_px);
-    // Ctrl with precise deltas zooms (browsers report every wheel as precise).
+    // Ctrl with precise deltas zooms only time, exactly like the wave panel.
+    let viewport_before = p.nav.viewport(&app.doc);
+    let anchor_x = cells.left() + 200.0;
+    let time_before = p.last_layout().time_at(&viewport_before, anchor_x);
+    let rows_before = p.rows.value;
+    app.panels.pipeline_mut(pipeline).unwrap().follow =
+        volna_core::pipeline::FollowActivity::Following;
     app.handle_at(
         Command::Pointer(
             pipeline,
             PointerEvent::Wheel {
-                position: point(cells.left() + 200.0, cells.top() + 50.0),
+                position: point(anchor_x, cells.top() + 50.0),
                 dx: 0.0,
-                dy: 100.0,
+                dy: 120.0,
                 modifiers: Modifiers {
                     control: true,
                     ..Modifiers::default()
@@ -676,9 +682,15 @@ fn linked_navigation_moves_the_wave_panel_and_unlinked_navigation_does_not() {
         ),
         now,
     );
-    app.tick(now + Duration::from_secs(1));
     let p = app.panels.pipeline(pipeline).unwrap();
-    assert!((p.rows.value.row_px - (rows_before.row_px * 2.0).min(48.0)).abs() < 1e-3);
+    let viewport_after = p.nav.viewport(&app.doc);
+    assert!((viewport_after.width() - viewport_before.width() / 2.0).abs() < 1e-6);
+    assert!(
+        (p.last_layout().time_at(&viewport_after, anchor_x) - time_before).abs() < 1e-6,
+        "time under the pointer"
+    );
+    assert_eq!(p.rows.value, rows_before);
+    assert_eq!(p.follow, volna_core::pipeline::FollowActivity::Following);
     let rows_before = p.rows.value;
     // Keyboard: ↓ scrolls rows, = zooms both axes.
     app.handle_at(Command::Action(Action::MoveSelectionDown), now);

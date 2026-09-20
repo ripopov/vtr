@@ -485,6 +485,13 @@ impl PipelineModel {
         }
     }
 
+    /// Immediate time-axis-only zoom matching the waveform panel's modified
+    /// wheel gesture. The local row view and follow mode are unaffected.
+    fn zoom_time_at(&mut self, doc: &mut Document, p: Point, factor: f64) {
+        let x = f64::from((p.x - self.layout.cells.left()).max(0.0));
+        self.nav.zoom_at(doc, x, self.cells_w(), factor);
+    }
+
     /// Zoom both axes by `factor` about a panel position; animated when
     /// `now` is given, otherwise immediate.
     pub fn zoom_about(&mut self, doc: &mut Document, p: Point, factor: f64, now: Option<Instant>) {
@@ -755,14 +762,16 @@ impl PipelineModel {
         precise: bool,
         now: Instant,
     ) {
-        if modifiers.shift {
+        if modifiers.control || modifiers.platform {
+            let factor = 2f64.powf(f64::from(dy) / 120.0);
+            self.zoom_time_at(doc, p, factor);
+        } else if modifiers.shift {
             // Some hosts translate Shift-wheel's vertical delta to horizontal.
             self.pan_px(doc, -(dx + dy), 0.0);
-        } else if precise && !(modifiers.control || modifiers.platform) {
+        } else if precise {
             self.pan_px(doc, -dx, -dy);
         } else {
-            // A mouse wheel zooms; Ctrl/⌘ makes trackpad deltas zoom too, since
-            // browsers report every wheel as precise pixels.
+            // An unmodified mouse wheel zooms both axes.
             let factor = 2f64.powf(f64::from(dy.clamp(-100.0, 100.0)) / 100.0);
             self.zoom_about(doc, p, factor, Some(now));
         }

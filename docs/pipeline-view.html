@@ -227,7 +227,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     <tr><td>Opening</td><td class="v1"><code>OpenPipeline { track }</code> accepts any stream or generator: double-click or Enter on the node, the sidebar action, or View ▸ Pipeline, which lists the recognized <code>PIPELINE</code> streams as shortcuts. It takes the place of a focused start panel, otherwise opens a panel split below the focused panel, or focuses the panel already showing that track. The core never checks the stream kind.</td><td>Open from a transaction reference elsewhere (a relation, a table row, an MCP command) with the same command.</td></tr>
     <tr><td>Rows</td><td class="v1">One row per transaction of the opened generator, or of every generator of the opened stream in catalog order, each in the resident <code>(begin, end, id)</code> order. A transaction without stages is one cell spanning its lifetime. Label column on the left: row index and the <code>vtr.label</code> text.</td><td>Row order by attribute, hide flushed, filter, multiple threads as row groups: a <code>RowIndex</code> between the loaded objects and the model.</td></tr>
     <tr><td>Cells</td><td class="v1">Each stage is a filled cell on lane <code>"0"</code>, coloured by stage name, separated from its neighbour by a gap and an edge stroke. Other lanes are drawn as a grey band over the lower part of the row. Flushed transactions (<code>TxStatus::Aborted</code>) get a tinted row.</td><td>VDB stage table (colour, role, long name), custom colour schemes, split lanes, lane heights: all through <code>StagePalette</code> and <code>LaneLayout</code>.</td></tr>
-    <tr><td>Zoom and pan</td><td class="v1">Wheel and pinch zoom about the pointer in both axes; drag pans in both; keyboard zoom and pan reuse the wave panel's actions; ↑ ↓ scroll rows. Animated with the document's <code>waves.animation</code> setting.</td><td>Zoom presets, bookmarks, fit rows: commands over the same <code>RowView</code>.</td></tr>
+    <tr><td>Zoom and pan</td><td class="v1">An unmodified wheel and pinch zoom about the pointer in both axes; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms only time like the wave panel; drag pans in both; keyboard zoom and pan reuse the wave panel's actions; ↑ ↓ scroll rows. Animated with the document's <code>waves.animation</code> setting.</td><td>Zoom presets, bookmarks, fit rows: commands over the same <code>RowView</code>.</td></tr>
     <tr><td>Sync</td><td class="v1">Viewport and cursor follow the shared document values unless the panel unlinks them from its header. Markers are document markers. Click sets the cursor to the cycle under the pointer.</td><td>Cursor-follow (scroll rows so the cursor's instruction is visible), cycle-to-tick clock mapping for traces whose waveform time base differs.</td></tr>
     <tr><td>Hover</td><td class="v1">The hovered row is highlighted; the status bar names the instruction and the stage under the pointer.</td><td>Tooltips with <code>detail</code> and per-stage labels, from the same hit test.</td></tr>
     <tr><td>Persistence</td><td class="v1">Workspace entry <code>kind: "pipeline"</code> with the track path (stream or generator), link flags, local viewport and cursor, row view and label width. Unresolved tracks survive saves.</td><td>Nothing else needs saving until bookmarks exist.</td></tr>
@@ -258,13 +258,13 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
       <button data-act="marker">Marker at cursor (M)</button>
       <button data-act="layout">Side by side</button>
       <button data-act="reset">Reset</button>
-      <span class="pv-hint">wheel · zoom about the pointer · drag · pan · click · cursor · ⇧wheel · pan · ↑ ↓ rows · ← → pan · Home End · C go to cursor · Tab other panel</span>
+      <span class="pv-hint">wheel · zoom both axes · Ctrl/⌘+wheel · zoom time · drag · pan · click · cursor · ⇧wheel · pan · ↑ ↓ rows · ← → pan · Home End · C go to cursor · Tab other panel</span>
     </div>
     <div class="pv-work"><div class="pv-sidebar"><div class="pv-side-title">Scopes</div><div class="pv-tree"></div><div class="pv-side-title" style="margin-top:8px"><span class="pv-vars-title">Variables</span> <small class="pv-side-sub"></small></div><div class="pv-vars"></div></div><div class="pv-main"></div></div>
     <div class="pv-status"></div>
   </div>
   <div class="pv-legend" id="pv-legend"></div>
-  <p class="pv-note"><strong>What the mock implements versus what is proposed.</strong> The mock runs the same viewport math as <code>wave/viewport.rs</code> (ported line by line, including edge space and clamping), the proposed <code>RowView</code> and <code>Tween</code>, the link semantics of <code>WaveModel::toggle_link</code>, the density rule and the stage separation rule. It draws with the HTML canvas instead of a <code>Scene</code>; a browser cannot tell a mouse wheel from a trackpad scroll, so here every wheel zooms and <kbd>⇧</kbd>+wheel pans, whereas the GPUI element receives precise trackpad deltas and pinch gestures and can pan on scroll. Stage colours are the v1 ladder by first appearance, not a VDB profile. The mock has no load states, no unresolved tracks and no workspace file.</p>
+  <p class="pv-note"><strong>What the mock implements versus what is proposed.</strong> The mock runs the same viewport math as <code>wave/viewport.rs</code> (ported line by line, including edge space and clamping), the proposed <code>RowView</code> and <code>Tween</code>, the link semantics of <code>WaveModel::toggle_link</code>, the density rule and the stage separation rule. It draws with the HTML canvas instead of a <code>Scene</code>; a browser cannot tell a mouse wheel from a trackpad scroll, so here every unmodified wheel zooms both axes, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms time only, and <kbd>⇧</kbd>+wheel pans, whereas the GPUI element receives precise trackpad deltas and pinch gestures and can pan on scroll. Stage colours are the v1 ladder by first appearance, not a VDB profile. The mock has no load states, no unresolved tracks and no workspace file.</p>
 </div></section>
 
 <section id="foundation"><div class="wrap">
@@ -320,7 +320,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
       <p class="mini">Width used for the math is the cells column, not the panel: the label column is excluded, like the names and values columns of the wave panel.</p></div>
     <div class="box"><h4>Y · rows · <code>RowView</code> <span class="badge prop">proposed</span></h4>
       <p><code>top: f64</code> is the fractional row index at the top edge of the cells area; <code>row_px: f32</code> is the row height at interface zoom 1.0. <code>row_at(y)</code>, <code>y_of(row)</code>, <code>zoom_about(y, factor, height)</code> and <code>pan_px(dy, height)</code> mirror the time axis. <code>clamp</code> allows 20 % over-scroll at both ends and keeps <code>row_px</code> within <code>[0.5, 48]</code> design pixels.</p>
-      <p class="mini">One zoom gesture applies the same factor to both axes, so cells keep their aspect while the user zooms here. If another panel changes the shared X viewport, rows keep their height; the aspect is a default, not an invariant.</p></div>
+      <p class="mini">An unmodified wheel, pinch, or keyboard zoom applies the same factor to both axes, so cells keep their aspect while the user zooms here. <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel changes only time. If another panel changes the shared X viewport, rows keep their height; the aspect is a default, not an invariant.</p></div>
   </div>
   <div class="callout"><p><strong>Tween replaces ViewportState.</strong> <code>ViewportState</code> is an animation over one <code>Viewport</code>. The row axis needs the same eased animation with the same explicit clock, so the animation becomes <code>Tween&lt;T: Lerp&gt;</code> in <code>nav/tween.rs</code> and <code>ViewportState</code> becomes <code>Tween&lt;Viewport&gt;</code>. The wave model does not change behaviour; its tests keep passing. <code>App::tick</code> advances the shared tween once plus every local tween, as it does today.</p></div>
 
@@ -443,6 +443,7 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
         <tr><th>Input</th><th>Effect</th></tr>
         <tr><td>Mouse wheel</td><td>Zoom about the pointer, both axes; factor <code>2^(−Δy / 100 px)</code>, clamped per event, animated to the accumulated target.</td></tr>
         <tr><td>Trackpad scroll (precise deltas)</td><td>Pan both axes, no animation.</td></tr>
+        <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + wheel</td><td>Zoom the time axis only about the pointer, immediately, matching the wave panel.</td></tr>
         <tr><td><kbd>⇧</kbd> + wheel</td><td>Pan time only.</td></tr>
         <tr><td>Pinch (<code>PointerEvent::Pinch</code>)</td><td>Zoom about the pointer by the gesture's scale.</td></tr>
         <tr><td>Drag in the cells area</td><td>Pan both axes; pointer becomes a grab hand after a 3 px threshold.</td></tr>
@@ -709,9 +710,12 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
     waveX0() { return 0; }
     waveW() { return Math.max(1, this.w - this.waveX0()); }
     // -- navigation commands (Action::* in the core)
-    zoomAt(x, y, f, dur) {
+    zoomTimeAt(x, f, dur) {
       const st = this.vpState(); const t = st.target().clone().zoomAbout(x - this.waveX0(), this.waveW(), f);
-      st.animateTo(t, now(), dur); this.zoomRowsAt(y, f, dur); invalidate();
+      if (dur) st.animateTo(t, now(), dur); else st.set(t);
+    }
+    zoomAt(x, y, f, dur) {
+      this.zoomTimeAt(x, f, dur); this.zoomRowsAt(y, f, dur); invalidate();
     }
     zoomRowsAt() {}
     zoomCenter(f) { this.zoomAt(this.waveX0() + this.waveW() / 2, this.bodyH() / 2, f, ANIM_MS); }
@@ -754,6 +758,7 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
     }
     click(p) { if (p.x < this.waveX0()) return; const t = Math.floor(this.vp().timeAt(p.x - this.waveX0(), this.waveW())); this.setCursor(Math.min(LIM[1], Math.max(LIM[0], t))); }
     wheel(p, dx, dy, e) {
+      if (e.ctrlKey || e.metaKey) { this.zoomTimeAt(p.x, Math.pow(2, -dy / 120), 0); invalidate(); return; }
       if (e.shiftKey || (Math.abs(dx) > Math.abs(dy))) { this.panPx(e.shiftKey ? dy : dx); return; }
       const f = Math.pow(2, -Math.max(-100, Math.min(100, dy)) / 100);
       this.zoomAt(p.x, p.y, f, WHEEL_MS);

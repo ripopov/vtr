@@ -40,8 +40,9 @@ the showcase write cycles as time units, so linking with the wave panels costs
 nothing and needs no cycle-to-tick mapping until a trace with two time bases
 exists. Rows are a second, local axis (`RowView`) with the same zoom-about,
 pan, edge-space clamp and eased `Tween` as the time axis; one wheel gesture
-applies one factor to both, but a linked wave panel changing the shared time
-axis leaves row heights alone, so cells are square by default, not by
+applies one factor to both when unmodified, while Ctrl/Command+wheel follows
+the wave panel and zooms time only. A linked wave panel changing the shared
+time axis leaves row heights alone, so cells are square by default, not by
 invariant. Locking both axes (Konata) would either break the link or resize
 rows behind the user's back; a wheel that scrolls rows and zooms only with a
 modifier (Konata's default) would conflict with the wave panel's wheel.
@@ -75,11 +76,12 @@ The middle 60% is a safe band: a candidate already there causes no movement.
 Idle windows retain rows and show the direction of activity. Following changes
 only row top, never height, cursor or shared time. Immediate row placement
 avoids a second lagging animation while shared time itself animates.
-Vertical pan, row keys and two-axis zoom suspend following; horizontal input
-does not. Explicit resume and one-shot edge navigation avoid silently taking
-control back after manual inspection. Follow state is saved per panel and
-copied on split. Native toolbar equivalents expose the canvas edge actions to
-keyboard and accessibility users. Protocols and VTR/VDB data stay unchanged.
+Vertical pan, row keys and two-axis zoom suspend following; horizontal input,
+including Ctrl/Command+wheel time zoom, does not. Explicit resume and one-shot
+edge navigation avoid silently taking control back after manual inspection.
+Follow state is saved per panel and copied on split. Native toolbar equivalents
+expose the canvas edge actions to keyboard and accessibility users. Protocols
+and VTR/VDB data stay unchanged.
 
 ## Volna baseline table panel
 

@@ -242,8 +242,9 @@ integer cycle under the pointer. The Y axis is local: `pipeline::RowView`
 zoom-about, pan and 20 % edge-space clamp as `Viewport`, animated through the
 same `Tween`. A mouse wheel zooms both axes about the pointer by one factor
 (`2^(dy/100 px)`, animated to the accumulated target); a trackpad's precise
-deltas pan both axes, and zoom with Ctrl/⌘ held (browsers report every wheel
-as precise pixels); Shift+wheel pans time; pinch zooms both axes immediately;
+deltas pan both axes. Ctrl/⌘+wheel zooms only the time axis, with the same
+immediate pointer-anchored behavior as the wave panel; Shift+wheel pans time;
+pinch zooms both axes immediately;
 a left drag past three pixels pans both axes, a shorter press is a click.
 Keyboard actions are the wave panel's: `= -` zoom both axes, `F C Home End`
 and the arrows move time, `↑ ↓` scroll three rows, `M ⇧M` markers, `L ⇧L`
@@ -256,7 +257,8 @@ anchors a resident interval query. The nearest intersecting lifetimes are
 ranked by distance to the current row center. Rows move only when that candidate
 leaves the middle 60% safe band; row height and document navigation stay fixed.
 Vertical pan, row-navigation keys and two-axis zoom suspend follow until the
-toolbar's **Resume follow** is activated. Horizontal navigation keeps it active.
+toolbar's **Resume follow** is activated. Horizontal navigation, including
+Ctrl/⌘+wheel time zoom, keeps it active.
 Top/bottom indicators count off-screen intersecting rows and reveal the nearest
 one without enabling follow; toolbar equivalents support native accessibility.
 Idle time windows retain the row position and display earlier/later activity
