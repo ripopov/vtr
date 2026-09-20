@@ -116,6 +116,7 @@ a claim of implemented support or a requirement for embedded agent chat.
 | Volna user settings: `settings.json`, settings editor with fuzzy search on gpui-kit, VS Code parity (design, implemented) | `docs/user-settings.html`, `volna/volna/ARCHITECTURE.md` |
 | Volna hierarchy browser: scopes and streams, mixed member search, semantic icons and log provenance (implemented; transaction panels deferred) | `docs/hierarchy.html`, `volna/volna/ARCHITECTURE.md` |
 | Volna pipeline panel: Konata-style rows of stage cells over any generator or stream, shared time axis with the wave panels, map-like zoom (implemented; design and mock-up) | `docs/pipeline-view.html`, `volna/volna/ARCHITECTURE.md`, `volna/volna/examples/README.md`, `docs/VDB_KONATA_PLAN.html` |
+| Volna table baseline: reduced initial scope, immutable single-generator data model, bounded viewport work and performance gates (proposal with interactive demo) | `docs/table-baseline.html` |
 
 ## Build and test
 
@@ -136,6 +137,37 @@ trace.vtr` or `cargo run -p volna-egui --profile viewer -- trace.vtr`;
 viewer currently displays VTR and FST waveforms; VDB integration is planned and must
 preserve the VTR/VDB split. Changes to the viewer should move it toward, not
 away from, the intents in "Volna direction" above.
+
+### Automated, headless testing only
+
+All testing and verification must be headless, fully automated, and runnable
+unattended in GitHub Actions CI. This applies to unit and integration tests,
+native and browser UI tests, accessibility checks, visual regression tests,
+performance measurements, and debugging or exploratory checks.
+
+- **Do not open browsers or applications manually, use computer-use tools,
+  or interact with a desktop to test or verify changes.** Manual clicking,
+  typing, screenshot inspection, and an agent driving an interactive browser
+  are not permitted testing methods.
+- Run tests through checked-in commands: `cargo test` for Rust and native
+  headless harnesses, and automated JavaScript/TypeScript test runners for
+  browser and host integration. Browser tests must launch their own headless
+  browser and drive it programmatically, with assertions determining success.
+- Test runners must provision fixtures, start and stop required servers and
+  browser processes, use isolated temporary state, enforce timeouts, and
+  return a nonzero exit status on failure. Do not depend on an already open
+  application, personal browser profile, interactive login, or user input.
+- Use dependencies and rendering backends that can be installed and run on
+  the selected GitHub Actions runner. Platform-specific coverage belongs in
+  an explicit CI matrix; a test working only on the developer's desktop is
+  insufficient. Missing prerequisites must be reported explicitly, not
+  silently counted as passing coverage.
+- Assert behavior, semantic accessibility data, rendered output, and measured
+  performance programmatically as appropriate. Screenshots, traces, and logs
+  may be saved as CI diagnostics; manual review must not be a passing gate.
+- If a required check lacks an automated harness, implement or extend the
+  harness rather than performing the check manually. Existing documentation
+  describing manual verification does not override this rule.
 
 ## Rules
 
