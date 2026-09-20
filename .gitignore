@@ -32,5 +32,8 @@ __pycache__/
 # Viewer workspaces beside bundled example traces.
 /volna/volna/examples/*.volna.json
 
+# Large local C910 CoreMark example artifacts.
+/volna/volna/examples/c910_coremark.*
+
 # macOS Finder folder metadata.
 .DS_Store
