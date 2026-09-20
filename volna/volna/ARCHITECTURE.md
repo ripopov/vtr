@@ -305,7 +305,7 @@ invalid value falls back to its default with a diagnostic naming the line; a
 syntax error keeps the last good values and makes the editor read-only until
 the JSON view fixes it. Renamed ids are rewritten once with a comment. The
 file has no version field on purpose: each key degrades on its own, so a typo
-never resets every setting (the GOAL.md rule applies to the machine-written
+never resets every setting (the AGENTS.md versioning rule applies to the machine-written
 `state.json`, which is versioned and strict).
 
 The store also owns the write queue: one write in flight, acknowledged by

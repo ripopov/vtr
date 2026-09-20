@@ -1,235 +1,128 @@
 # AGENTS.md
 
 Instructions for coding agents working in this repository. Read
-[GOAL.md](GOAL.md) first for the project's purpose, scope and requirements;
-the ground rules for work in the repository are collected here.
+[README.md](README.md) first: it is the canonical source for project purpose,
+requirements, architecture direction, repository layout, documentation links,
+and build commands. This file contains the ground rules for making changes.
 
-## What this is
+## Scope and ownership
 
-A unified hardware debugging environment for RTL and ESL models, built around
-VTR runtime traces, separate VDB design metadata, and the Volna UI. SystemC,
-gem5 and wavepeek integration are part of the direction; see
-`docs/ARCHITECTURE.md` for current support and planned work.
+Add first-party code under the component that owns it. Do not work around a
+missing abstraction in a consumer when the information belongs in a lower
+layer. Keep shared benchmarks in `bench/`; keep standalone Python exporters in
+`integrations/slang`; keep Verilator integration tooling in
+`integrations/verilator` rather than in the pinned `ext/verilator` submodule
+unless the backend itself must change.
 
-One Rust workspace with nine crates grouped by responsibility:
-`core/` contains `vtr`, `vtr-capi` and `vtr-vdb`; `tools/` contains `vtr-cli`
-and the headless `volna-server`;
-`bench/` contains `vtr-bench`; `volna/` contains `volna-core`, `volna` (GPUI)
-and `volna-egui`. Standalone Python exporters live in `integrations/slang`.
-The Verilator backend is in the pinned `ext/verilator` submodule, with build
-tools in `integrations/verilator`.
-Shared benchmarks remain in `bench/`. Add first-party code under its owning
-component.
+For viewer work, follow the three Volna intents in README.md:
 
-## Long-term RTL VDB goal
+- Put viewer behavior, state, input interpretation, loading, viewport math,
+  and toolkit-neutral painting in `volna-core` with headless tests.
+- Treat GPUI `volna` as the feature frontend. Keep `volna-egui` building and
+  preserve its current minimal behavior, but do not add feature parity work.
+- Keep local and remote loading behind the same session interface and return
+  the same immutable data objects. Protocols carry raw trace data only;
+  presentation rules, VDB profiles, and annotations stay client-side.
 
-Generate VDB alongside Verilator builds from elaborated RTL before aggressive
-optimization, preserving module hierarchy, specialized types, and source semantics.
-Export an explicit mapping to traced signals and a shared VDB/VTR build identity
-so debugging reflects the simulated design. Keep VDB separate from VTR, with a
-simulator-independent schema and a slang adapter for standalone design browsing
-and other simulation backends.
+MCP and other agent adapters must remain thin wrappers over toolkit-independent
+core commands and query APIs and must preserve the VTR/VDB boundary.
 
-## Long-term VDB scope
+## Automated, headless testing only
 
-Evolve VDB beyond RTL debugging to support Konata-like pipeline traces,
-Gantt-chart-like transaction views, and other trace domains and visualizations.
-Keep its format flexible, versioned, and extensible so new domain semantics
-and presentation metadata can be added without forcing them into an RTL-only
-model. VDB remains separate from the runtime trace data in VTR.
+All testing and verification must be headless, fully automated, runnable
+unattended in GitHub Actions CI, and invoked through checked-in commands. This
+applies to unit and integration tests, native and browser UI tests,
+accessibility checks, visual regressions, performance measurements, and
+exploratory debugging.
 
-## Volna direction
-
-Volna is the official viewer and is expected to outgrow its current shape
-(one GPUI wave view over an in-memory or memory-mapped file). Three intents
-guide its evolution; they describe direction, not a fixed object tree, and
-`volna/volna/ARCHITECTURE.md` records the current state.
-
-1. **Toolkit-independent core.** Everything that decides what is shown and
-   what an input does (document state, view models, viewport math, cursor
-   and selection, load scheduling, painting into a toolkit-neutral display
-   list) belongs in a core that imports no GUI toolkit and is testable
-   headless on every platform. Frontends paint and host native widgets;
-   they do not hold viewer logic. `volna/volna-core` is that core; keep
-   new viewer behaviour there, not in a frontend.
-2. **Several frontends over one core.** `volna` (GPUI, native and wasm) is
-   the main viewer and the target for new features. `volna-egui` exists to
-   prove that `volna-core` is toolkit-independent, not to provide a second
-   feature-complete viewer. Do not add new features to `volna-egui` or
-   require feature parity with `volna`. As the core and main viewer evolve,
-   keep `volna-egui` building and working with its current minimal feature
-   set, making only the compatibility fixes and maintenance needed to
-   preserve that functionality. Other frontends should be
-   thin adapters of the same core, not forks of the viewer. Shared code is
-   the dense data canvases (waves, tables, pipeline timelines); the chrome
-   (trees, lists, menus, dialogs) uses each toolkit's own widgets. Saved
-   viewer state (open trace, tabs, displayed signals, cursor, markers,
-   layout) is core data in a frontend-neutral format, so a session saved
-   in one frontend can be read by another without requiring that frontend
-   to implement every view or feature in the session.
-3. **Client-server split for remote files.** The main use case is VS Code
-   in remote mode (`vscode-server` over SSH, tunnels, containers) opening
-   very large VTR files that live on the remote host, without transferring
-   the file to the client. The reader runs beside the file and supplies
-   complete metadata, complete selected signal histories and complete
-   selected transaction tracks. Navigation, search over loaded data,
-   summaries, analysis and presentation run on the client. Native local
-   loading and remote loading deliver the same immutable objects; native
-   loading shares buffers directly without serialization. Transfer and
-   client memory scale with complete selected data, not the visible time
-   window. Loading must stay asynchronous and fail explicitly when data
-   exceeds configured limits. See `docs/client-server-simple.html`.
-
-Constraints that follow: the query library and the protocol carry raw
-trace data only; presentation rules, VDB profiles and user annotations stay
-on the client (GOAL.md section 2 applies to the wire as much as to the
-file). The native app keeps working over a memory-mapped file through the
-local session, with no second code path.
-
-## Long-term agent-driven debugging
-
-Support MCP (Model Context Protocol) so an AI agent can drive an investigation
-from its existing conversation, query traces, and launch or control Volna to
-show hypotheses and evidence. Users should be able to select signals or time
-regions and add comments in Volna to steer that same investigation. An initial
-feedback path can compose a message to copy into the agent conversation,
-including a stable selection snapshot and readable trace, signal and time
-references. Keep MCP adapters thin over toolkit-independent core commands and
-query APIs, preserving the VTR/VDB split. This is a long-term direction, not
-a claim of implemented support or a requirement for embedded agent chat.
-
-## Where to look
-
-| need | file |
-|---|---|
-| repository boundaries, layout and integration status | `docs/ARCHITECTURE.md`, `integrations/README.md` |
-| file format (normative) | `docs/SPEC.md` |
-| why things are the way they are, what was tried and rejected | `docs/RATIONALE.md` |
-| APIs | `docs/API_RUST.md`, `core/vtr-capi/include/vtr.h` |
-| Volna viewer: toolkit-free core, GPUI frontend (native/web/VS Code), egui frontend (native) | `volna/volna/ARCHITECTURE.md`, `volna/volna/README.md`, `volna/volna-egui/README.md`, `volna/volna/VERIFICATION.md` |
-| logging (log sites, `LOG_BLOCK`, C++ header, comparison with NanoLog/binlog/Quill/CLP) | `docs/LOGGING.md`, `bench/log/` |
-| benchmark method / current numbers | `docs/BENCHMARKS.md`, `docs/BENCHMARK_RESULTS.md` |
-| RTL VDB schema, Verilator/pyslang exporters, Surfer attachment | `docs/VDB_RTL.md` |
-| VDB source index (`verilator_vdb_index`, slang submodule of the Verilator fork) and Surfer's source tile | `integrations/verilator/README.md`, `docs/VDB_RTL.md`, `ext/surfer/docs/html/source-code.html` |
-| open ideas ranked by measured headroom | `docs/SOTA_REVIEW_2026.md` |
-| Volna panels, docking and persistent workspace sessions (design proposal) | `docs/workspaces.html` |
-| Volna user settings: `settings.json`, settings editor with fuzzy search on gpui-kit, VS Code parity (design, implemented) | `docs/user-settings.html`, `volna/volna/ARCHITECTURE.md` |
-| Volna hierarchy browser: scopes and streams, mixed member search, semantic icons and log provenance (implemented; transaction panels deferred) | `docs/hierarchy.html`, `volna/volna/ARCHITECTURE.md` |
-| Volna pipeline panel: Konata-style rows of stage cells over any generator or stream, shared time axis with the wave panels, map-like zoom (implemented; design and mock-up) | `docs/pipeline-view.html`, `volna/volna/ARCHITECTURE.md`, `volna/volna/examples/README.md`, `docs/VDB_KONATA_PLAN.html` |
-| Volna table baseline: reduced initial scope, immutable single-generator data model, bounded viewport work and performance gates (proposal with interactive demo) | `docs/table-baseline.html` |
-
-## Build and test
-
-```sh
-cargo build --release          # library, libvtr.{a,so}, vtr CLI, vtr-bench
-cargo test                     # unit, round-trip, converter and C-ABI tests
-cargo clippy --release
-volna/volna/check.sh           # viewer crates (core, GPUI, egui); uses pinned nightly and platform SDK
-python3 bench/run.py all --scale small   # quick benchmark (minutes)
-python3 bench/run.py all                 # full suite (~1 h), regenerates docs/BENCHMARK_RESULTS.md
-```
-
-The viewer crates (`volna-core`, `volna`, `volna-egui`) are explicit workspace
-members, excluded from `default-members` to keep the core build independent of
-GUI dependencies. Run a frontend with `cargo run -p volna --profile viewer --
-trace.vtr` or `cargo run -p volna-egui --profile viewer -- trace.vtr`;
-`cargo test -p volna-core` runs the headless viewer tests on any platform. The
-viewer currently displays VTR and FST waveforms; VDB integration is planned and must
-preserve the VTR/VDB split. Changes to the viewer should move it toward, not
-away from, the intents in "Volna direction" above.
-
-### Automated, headless testing only
-
-All testing and verification must be headless, fully automated, and runnable
-unattended in GitHub Actions CI. This applies to unit and integration tests,
-native and browser UI tests, accessibility checks, visual regression tests,
-performance measurements, and debugging or exploratory checks.
-
-- **Do not open browsers or applications manually, use computer-use tools,
-  or interact with a desktop to test or verify changes.** Manual clicking,
-  typing, screenshot inspection, and an agent driving an interactive browser
-  are not permitted testing methods.
-- Run tests through checked-in commands: `cargo test` for Rust and native
-  headless harnesses, and automated JavaScript/TypeScript test runners for
-  browser and host integration. Browser tests must launch their own headless
-  browser and drive it programmatically, with assertions determining success.
-- Test runners must provision fixtures, start and stop required servers and
-  browser processes, use isolated temporary state, enforce timeouts, and
-  return a nonzero exit status on failure. Do not depend on an already open
-  application, personal browser profile, interactive login, or user input.
-- Use dependencies and rendering backends that can be installed and run on
-  the selected GitHub Actions runner. Platform-specific coverage belongs in
-  an explicit CI matrix; a test working only on the developer's desktop is
-  insufficient. Missing prerequisites must be reported explicitly, not
-  silently counted as passing coverage.
+- Do not open browsers or applications manually, use computer-use tools, or
+  interact with a desktop to verify a change. Manual clicking, typing, and
+  screenshot inspection are not valid test methods.
+- Use `cargo test` and native headless harnesses for Rust/native behavior. Use
+  automated JavaScript/TypeScript runners for browser and host integration;
+  they must launch and drive their own headless browser and determine success
+  with assertions.
+- Test runners must provision fixtures, servers, and browser processes; use
+  isolated temporary state; enforce timeouts; clean up; and return nonzero on
+  failure. They must not depend on an open application, personal profile,
+  interactive login, or user input.
+- Dependencies and rendering backends must install and run on the selected
+  GitHub Actions runner. Put platform coverage in an explicit CI matrix and
+  report missing prerequisites as failures, not passes.
 - Assert behavior, semantic accessibility data, rendered output, and measured
   performance programmatically as appropriate. Screenshots, traces, and logs
-  may be saved as CI diagnostics; manual review must not be a passing gate.
-- If a required check lacks an automated harness, implement or extend the
-  harness rather than performing the check manually. Existing documentation
-  describing manual verification does not override this rule.
+  may be saved only as diagnostics; manual review cannot be a passing gate.
+- If a required check lacks an automated harness, implement or extend one.
+  Older documentation describing manual verification does not override this
+  rule.
 
-## Rules
+Use the commands in README.md for normal checks. Viewer crates are explicit
+workspace members but excluded from `default-members`; `cargo test -p
+volna-core` provides platform-independent headless coverage, while
+`volna/volna/check.sh` checks all viewer crates and the VS Code adapter.
 
-- **Research first; prioritize clean formats and APIs.** Research the relevant
+## Design and implementation rules
+
+- **Research first; prioritize clean formats and APIs.** Research relevant
   references before designing a solution. Reuse what they solve well, and
   record borrowed and rejected approaches in the appropriate design or
-  rationale document. We are currently
-  in the research phase, so backward compatibility of the Rust API, C API/ABI,
-  and file format is not a requirement. Prioritize clean, coherent formats
-  and APIs over preserving existing interfaces or behavior. Favor breaking
-  changes over compatibility workarounds when they simplify the design.
-  Refactor directly rather than adding unnecessary indirection. Aim for the simplest,
-  clearest solution, and update affected implementations, callers, tests,
-  and documentation together. Version formats to reject incompatible files
-  clearly; support for older versions is not required.
+  rationale document. Check `docs/RATIONALE.md` before retrying an idea; when
+  retesting one, record the new measurements there.
+- **Prefer coherent breaking changes during the research phase.** Backward
+  compatibility of the Rust API, C API/ABI, and file format is not required.
+  Prefer a simpler design over compatibility indirection. Update affected
+  implementations, callers, tests, and documentation together. Version
+  formats so incompatible files fail clearly; old-version support is not
+  required.
 - **Fix missing abstractions at their owning layer.** Before adding a cache,
-  side table, flag, or adapter workaround, check whether it duplicates
-  information already owned elsewhere. If a consumer needs a missing query
-  over that information, prefer adding a small, coherent API at the owning
-  layer and updating callers. Keep derived caches only when they serve a
-  demonstrated performance need, with clear ownership and consistency rules.
-- **Reassess design when scope changes.** When a task expands across
-  components, revisit earlier implementation choices. Do not preserve a local
-  workaround merely because it was already implemented or committed.
-  Minimizing the diff is secondary to achieving the simplest coherent design
-  across the affected components.
-- **The reader targets read-only use.** Consumers inspect immutable trace
-  data; modifying reader results is not a target use case. Design reader
-  results for immutable access and shared storage where useful, including
-  repeated requests for the same signal. Do not duplicate buffers merely
-  to preserve independently mutable results. Consumers that need to
-  transform data can explicitly create their own mutable copies.
-- **Measure, don't assume.** Any change to encoding, compression, block or
-  run sizes, transforms, or the reader's decode path must be A/B'd against a
-  build of the previous commit (a `git worktree` of HEAD is the pattern) on
-  the benchmark files, then confirmed with the full suite before the results
-  are updated. Report size, write time and read time together; a change
-  must not trade one for another.
-- Every efficiency claim against the requirements in GOAL.md section 4 must
-  be supported by the benchmark report.
-- **Check `docs/RATIONALE.md` before re-trying an idea.** Most obvious
-  alternatives have been measured; if you re-test one, record the new
-  numbers there.
-- **Format changes** need: a new code in `docs/SPEC.md`, reader support,
-  a round-trip test in `core/vtr/tests/`, and a rationale entry. Breaking
-  changes must use an appropriate format version or code so incompatible
-  files are rejected clearly; regenerate affected fixtures as needed.
-- **Simulator-integrated numbers** depend on the Verilator models linked
-  against `libvtr.a`; their Makefiles do not track the library, so delete
-  `bench/workloads/gen/*/obj_vtr/{Vtop,rsa_tb}` after changing the writer
-  before running the suite.
-- **Benchmarks are noisy at the few-percent level**: pin to P-cores
-  (`taskset -c 0-7`), run best-of-N, and compare against a baseline binary
-  in the same session.
-- Keep the public API small and the C API a one-to-one projection of the
-  Rust one. No presentation or VDB data in the format (GOAL.md section 2).
-- Keep all code, documentation and benchmarks in this repository, and ensure
-  they build or run from a clean checkout.
-- Keep documentation focused on current architecture, behavior, requirements
-  and reproducible workflows. Use Git for history; do not append dated progress
-  reports, migration diaries or per-change verification records.
-- Docs are part of the deliverable: update `SPEC.md`, `RATIONALE.md` and
-  the API references in the same change as the code.
-- Commit messages describe what changed and the measured effect; no
-  attribution trailers.
+  side table, flag, or adapter workaround, check whether it duplicates data
+  owned elsewhere. Add a small coherent query to the owning layer and update
+  callers. Retain derived caches only for a demonstrated performance need,
+  with explicit ownership and consistency rules.
+- **Reassess design when scope changes.** If work expands across components,
+  revisit earlier choices. Do not preserve a local workaround merely because
+  it was already implemented or committed. A small diff is secondary to the
+  simplest coherent cross-component design.
+- **Design reader results for immutable access.** Readers serve inspection,
+  not mutation. Share storage for repeated requests where useful rather than
+  duplicating buffers to preserve independent mutability. Consumers that need
+  transformations can explicitly copy.
+- **Keep the public API small.** The C API is a one-to-one projection of the
+  Rust API, with clear ownership and no hidden global state. VTR contains no
+  presentation or design-source semantics beyond the documented log-site
+  provenance exception; see README.md's “VTR/VDB boundary.”
+
+## Format and documentation changes
+
+A format change requires all of the following in the same change:
+
+1. A new or changed code in `docs/SPEC.md`, with an appropriate format version
+   when the change is incompatible.
+2. Reader support and a round-trip test in `core/vtr/tests/`.
+3. A rationale entry in `docs/RATIONALE.md`.
+4. Regenerated fixtures where applicable.
+
+Update `docs/SPEC.md`, `docs/RATIONALE.md`, API references, implementations,
+and callers together. Keep documentation focused on current architecture,
+behavior, requirements, and reproducible workflows. Use Git for history; do
+not append dated progress reports, migration diaries, or per-change
+verification records.
+
+Keep all code, documentation, and benchmarks in this repository and make sure
+they work from a clean checkout. Commit messages describe what changed and its
+measured effect and contain no attribution trailers.
+
+## Performance and benchmarks
+
+- **Measure rather than assume.** Any encoding, compression, block/run-size,
+  transform, or reader decode-path change must be A/B tested against the
+  previous commit, normally via a worktree of `HEAD`, on benchmark files. Run
+  the full suite before updating results and report size, write time, and read
+  time together; do not trade one away silently.
+- Every claim against README.md's efficiency requirements must be supported by
+  the benchmark report.
+- Simulator-integrated workloads link Verilator models against `libvtr.a`, but
+  their Makefiles do not track the library. After changing the writer, delete
+  `bench/workloads/gen/*/obj_vtr/{Vtop,rsa_tb}` before running the suite.
+- Measurements vary by a few percent. Pin to P-cores (`taskset -c 0-7`), use
+  best-of-N, and compare with a baseline binary in the same session.

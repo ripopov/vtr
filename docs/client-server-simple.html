@@ -89,7 +89,7 @@
     <h3>Cross-track relations do not recursively load the graph</h3>
     <p>Each relation has a stable session-local ID, endpoint transaction IDs, endpoint generator IDs, raw kind and attributes. Repeated copies from different track loads share that identity; distinct parallel relations remain distinct. If the reader has no stable relation identity or endpoint-owner lookup, add that small API at the reader’s owning layer rather than deduplicating by content or scanning every track per relation.</p>
     <p>A relation or parent may point into an unloaded generator. Retain the reference and show “track not loaded”; following it loads that generator in full. Parent references also include the owning generator ID. The server does not recursively transfer referenced transactions. An absent endpoint in a completed owner track is missing data, not another pending load.</p>
-    <p>Supported-but-empty is a successful complete object. Unsupported operations are explicit capability/error results. Data must never silently lose attributes or relations to satisfy a size limit. VDB, source interpretation, user comments, colors and visual row packing remain on the client and outside the raw trace protocol, following <a href="../GOAL.md">GOAL.md section 2</a>.</p>
+    <p>Supported-but-empty is a successful complete object. Unsupported operations are explicit capability/error results. Data must never silently lose attributes or relations to satisfy a size limit. VDB, source interpretation, user comments, colors and visual row packing remain on the client and outside the raw trace protocol, following the <a href="../README.md#vtrvdb-boundary">VTR/VDB boundary</a>.</p>
   </section>
 
   <section id="protocol">

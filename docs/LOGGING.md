@@ -27,7 +27,8 @@ its arguments as attributes. Records are stored in `LOG_BLOCK` sections that
 hold only the argument values, column-wise, with a per-block dictionary for
 repeated strings, compressed with the file's codec.
 
-Log-site source locations are permitted provenance in VTR (GOAL.md section 2).
+Log-site source locations are permitted provenance in VTR under the
+[VTR/VDB boundary](../README.md#vtrvdb-boundary).
 Design source mappings, specialized types and driver/load relationships remain
 in the separate VDB.
 

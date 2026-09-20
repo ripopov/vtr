@@ -2,7 +2,7 @@
 
 VTR stores runtime traces; VDB supplies separate design metadata and domain
 semantics. Their libraries share a directory and a workspace, while retaining
-the trace/design boundary defined in [GOAL.md](../GOAL.md).
+the trace/design boundary defined in the [project README](../README.md#vtrvdb-boundary).
 
 | Package | Responsibility |
 |---|---|

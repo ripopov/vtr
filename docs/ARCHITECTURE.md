@@ -58,7 +58,7 @@ backpressure and remote admission limits stay in the protocol adapter. See
 | Surfer | Pinned external VTR/VDB consumer and source-view integration | Existing integration remains usable; Volna is the official UI |
 
 See [integrations/README.md](../integrations/README.md) for entry points and
-[GOAL.md](../GOAL.md) for requirements.
+the [project README](../README.md#project-requirements) for requirements.
 
 ## Workspace and supporting material
 

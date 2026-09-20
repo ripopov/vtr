@@ -370,8 +370,8 @@ that is what a VDB binds to and what survives across runs. A producer with
 no per-instance name omits the key rather than repeating the generator name.
 The value is text only: it carries no colour, ordering, grouping or layout,
 and a VDB may override or ignore it. A producer-chosen name for one recorded
-item is identity data, permitted under GOAL.md section 2 on the same footing
-as node, event, stage and relation names; presentation stays in VDB.
+item is identity data, permitted by the README's VTR/VDB boundary on the same
+footing as node, event, stage and relation names; presentation stays in VDB.
 
 ## 6. SIGNAL_BLOCK (kind 4)
 
@@ -641,8 +641,9 @@ attributes are:
 | `log.file`, `log.line`, `log.func` | str, u64, str | producer log-site source location, optional |
 
 These source-location attributes identify where a runtime message originated.
-They are permitted log-site provenance under GOAL.md section 2; design source
-mappings, specialized types and driver/load relationships remain in VDB.
+They are permitted log-site provenance under the README's VTR/VDB boundary;
+design source mappings, specialized types and driver/load relationships remain
+in VDB.
 
 Format strings use `{}` placeholders with an optional index and
 specification, `{2}`, `{:#010x}`, `{:>8.3}`, and `{{`/`}}` for literal

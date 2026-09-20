@@ -433,7 +433,7 @@ local; the contents are stored as 24 columns compressed as one blob.
   pay an interned string id per transaction, producers that do not pay
   nothing. Reserving the key rather than leaving it a convention is what
   lets a viewer caption a bar without a VDB; it stays a name, not styling,
-  so the VTR/VDB split (GOAL.md section 2) holds.
+  so the [VTR/VDB split](../README.md#vtrvdb-boundary) holds.
 * `vtr.label` is prefixed rather than the bare `label` the Kanata converter
   used to write, because the importers pass foreign attribute keys through
   verbatim (`otlp.rs` interns an OTLP span attribute key as-is, as does the
