@@ -290,7 +290,6 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     w.tx_attr(
         y,
         key,
-        vtr::AttrPhase::Record,
         &vtr::Value::Bytes(vec![0, 255]),
     )
     .unwrap();

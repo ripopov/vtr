@@ -2,8 +2,8 @@
 //!
 //! Mapping (see docs/VDB_APPNOTE.md for the viewer side):
 //! * one stream per thread id, generator "instruction"
-//! * `I`  -> begin transaction; attrs `insn_id_in_sim` (begin phase), `line`
-//! * `L 0/1` -> attrs `vtr.label` / `detail` (record phase, appended)
+//! * `I`  -> begin transaction; attrs `insn_id_in_sim`, `line`
+//! * `L 0/1` -> attrs `vtr.label` / `detail` (newline-joined)
 //! * `L 2` -> attr `vtr.label` on the most recently started stage
 //! * `S`/`E` -> stages on lane `lane`
 //! * `R`  -> end; attrs `retire_id`; status Aborted for flush
@@ -12,7 +12,14 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
-use vtr::{AttrPhase, FileType, NodeId, ScopeType, StrId, TxId, TxStatus, Value, Writer};
+use vtr::{FileType, NodeId, ScopeType, StrId, TxId, TxStatus, Value, Writer};
+
+fn append_line(dst: &mut String, text: &str) {
+    if !dst.is_empty() {
+        dst.push('\n');
+    }
+    dst.push_str(text);
+}
 
 struct Op {
     tx: TxId,
@@ -72,11 +79,11 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
         if let Some(op) = ops.remove(&id) {
             if !op.label.is_empty() {
                 let s = w.intern(&op.label);
-                w.tx_attr(op.tx, k_label, AttrPhase::Record, &Value::Str(s))?;
+                w.tx_attr(op.tx, k_label, &Value::Str(s))?;
             }
             if !op.detail.is_empty() {
                 let s = w.intern(&op.detail);
-                w.tx_attr(op.tx, k_detail, AttrPhase::Record, &Value::Str(s))?;
+                w.tx_attr(op.tx, k_detail, &Value::Str(s))?;
             }
             w.end_tx(op.tx, op.retire_cycle, op.status)?;
         }
@@ -111,8 +118,8 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
                     Thread { stream, gen }
                 });
                 let tx = w.begin_tx(th.gen, cycle.max(0) as u64)?;
-                w.tx_attr(tx, k_gid, AttrPhase::Begin, &Value::I64(gid))?;
-                w.tx_attr(tx, k_line, AttrPhase::Begin, &Value::U64(line_no))?;
+                w.tx_attr(tx, k_gid, &Value::I64(gid))?;
+                w.tx_attr(tx, k_line, &Value::U64(line_no))?;
                 ops.insert(id, Op { tx, label: String::new(), detail: String::new(), retired: false, retire_cycle: 0, status: TxStatus::Unset });
             }
             "L" => {
@@ -122,12 +129,12 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
                 let text = text.as_str();
                 if let Some(op) = ops.get_mut(&id) {
                     match ty {
-                        0 => op.label.push_str(text),
-                        1 => op.detail.push_str(text),
+                        0 => append_line(&mut op.label, text),
+                        1 => append_line(&mut op.detail, text),
                         2 => {
                             let s = w.intern(text);
                             if w.tx_stage_attr(op.tx, k_label, &Value::Str(s)).is_err() {
-                                op.detail.push_str(text);
+                                append_line(&mut op.detail, text);
                             }
                         }
                         _ => {}
@@ -165,9 +172,9 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
                     op.retired = true;
                     op.retire_cycle = cycle.max(0) as u64;
                     op.status = if ty == 1 { TxStatus::Aborted } else { TxStatus::Unset };
-                    w.tx_attr(op.tx, k_rid, AttrPhase::End, &Value::I64(rid))?;
+                    w.tx_attr(op.tx, k_rid, &Value::I64(rid))?;
                     if ty != 0 && ty != 1 {
-                        w.tx_attr(op.tx, k_type, AttrPhase::End, &Value::I64(ty))?;
+                        w.tx_attr(op.tx, k_type, &Value::I64(ty))?;
                     }
                     retired.push_back(id);
                     if retired.len() > RETIRE_LAG {
@@ -204,11 +211,11 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
         let op = ops.get_mut(&id).unwrap();
         if !op.label.is_empty() {
             let s = w.intern(&op.label);
-            w.tx_attr(op.tx, k_label, AttrPhase::Record, &Value::Str(s))?;
+            w.tx_attr(op.tx, k_label, &Value::Str(s))?;
         }
         if !op.detail.is_empty() {
             let s = w.intern(&op.detail);
-            w.tx_attr(op.tx, k_detail, AttrPhase::Record, &Value::Str(s))?;
+            w.tx_attr(op.tx, k_detail, &Value::Str(s))?;
         }
         // Left open: the writer records status Open at close.
     }

@@ -276,8 +276,8 @@ fn transactions_roundtrip() {
     let mut ids = Vec::new();
     for i in 0..500u64 {
         let t = w.begin_tx(gen_i, i).unwrap();
-        w.tx_attr(t, k_pc, AttrPhase::Begin, &Value::U64(0x1000 + i * 4)).unwrap();
-        w.tx_attr(t, k_lbl, AttrPhase::Record, &Value::Str(s_add)).unwrap();
+        w.tx_attr(t, k_pc, &Value::U64(0x1000 + i * 4)).unwrap();
+        w.tx_attr(t, k_lbl, &Value::Str(s_add)).unwrap();
         w.tx_stage_begin(t, s_f, lane0, i).unwrap();
         w.tx_stage_begin(t, s_x, lane0, i + 1).unwrap();
         w.tx_stage_attr(t, k_lbl, &Value::I64(-3)).unwrap();
@@ -311,7 +311,6 @@ fn transactions_roundtrip() {
     assert_eq!(t7.generator, gen_i);
     assert_eq!(t7.parent, Some(ids[0]));
     assert_eq!(t7.attrs.len(), 2);
-    assert_eq!(t7.attrs[0].phase, AttrPhase::Begin);
     assert_eq!(t7.attrs[0].value, Value::U64(0x1000 + 28));
     assert_eq!(rd.str(t7.attrs[1].key), "label");
     assert_eq!(t7.stages.len(), 2);
@@ -338,6 +337,56 @@ fn transactions_roundtrip() {
     // begin in 97..=105 overlap [100,105]
     assert_eq!(win.len(), 9);
     assert_eq!(rd.time_range(), Some((0, 600)));
+}
+
+#[test]
+fn writer_rejects_duplicate_attribute_keys_per_item() {
+    let path = tmp("duplicate_attribute_keys.vtr");
+    let mut w = Writer::create(&path).unwrap();
+    let node = w.begin_scope("top", ScopeType::Module, "top");
+    w.node_attr(node, "key", Value::U64(1)).unwrap();
+    assert!(w.node_attr(node, "key", Value::U64(2)).is_err());
+    let stream = w.add_stream(Some(node), "stream", "test");
+    let generator = w.add_generator(stream, "generator");
+    w.end_scope().unwrap();
+    let key = w.intern("key");
+    let event = w.intern("event");
+    let stage = w.intern("stage");
+    let lane = w.intern("lane");
+    let relation = w.intern("relation");
+    let tx = w.begin_tx(generator, 0).unwrap();
+    w.tx_attr(tx, key, &Value::U64(1)).unwrap();
+    assert!(w.tx_attr(tx, key, &Value::U64(2)).is_err());
+    assert!(w.tx_event(tx, 0, event, &[(key, Value::U64(1)), (key, Value::U64(2))]).is_err());
+    assert!(w.tx_stage(tx, stage, lane, 0, 1, &[(key, Value::U64(1)), (key, Value::U64(2))]).is_err());
+    w.tx_stage_begin(tx, stage, lane, 0).unwrap();
+    w.tx_stage_attr(tx, key, &Value::U64(1)).unwrap();
+    assert!(w.tx_stage_attr(tx, key, &Value::U64(2)).is_err());
+    assert!(w.relate(relation, tx, tx, &[(key, Value::U64(1)), (key, Value::U64(2))]).is_err());
+    w.end_tx(tx, 1, TxStatus::Ok).unwrap();
+
+    let log = w.add_log_stream(None, "log");
+    assert!(w
+        .add_log_site(
+            &LogSiteSpec::new(log, Severity::Info, "{} {}", &[LogArgType::U64, LogArgType::U64])
+                .names(&["same", "same"]),
+        )
+        .is_err());
+    assert!(w
+        .add_log_site(
+            &LogSiteSpec::new(log, Severity::Info, "{} {}", &[LogArgType::U64, LogArgType::U64])
+                .names(&["1"]),
+        )
+        .is_err());
+    w.close().unwrap();
+
+    let r = Reader::open(&path).unwrap();
+    let tx = r.transaction(tx).unwrap().unwrap();
+    assert_eq!(tx.attrs.len(), 1);
+    assert!(tx.events.is_empty());
+    assert_eq!(tx.stages.len(), 1);
+    assert_eq!(tx.stages[0].attrs.len(), 1);
+    assert_eq!(r.tx_counts(), (1, 0));
 }
 
 #[test]
@@ -598,12 +647,12 @@ fn logs_roundtrip() {
     let gen_rd = w.add_generator(bus, "read");
     let buslog = w.add_log_stream(Some(soc), "buslog");
     w.end_scope().unwrap();
-    let s_fetch = w.add_log_site(&LogSiteSpec::new(log, Severity::Debug, "fetch pc={:#x} inst={:#010x}", &[LogArgType::U64, LogArgType::U64]).names(&["pc", "inst"]).location("cpu.cpp", 42).func("fetch"));
-    let s_warn = w.add_log_site(&LogSiteSpec::new(log, Severity::Warn, "{}: stall {} cycles ({:.1}%)", &[LogArgType::Text, LogArgType::I64, LogArgType::F64]));
-    let s_plain = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Info, "bus idle", &[]));
-    let s_err = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Error, "{} bad {} at {} {}", &[LogArgType::Bool, LogArgType::Bytes, LogArgType::Time, LogArgType::Pointer]));
+    let s_fetch = w.add_log_site(&LogSiteSpec::new(log, Severity::Debug, "fetch pc={:#x} inst={:#010x}", &[LogArgType::U64, LogArgType::U64]).names(&["pc", "inst"]).location("cpu.cpp", 42).func("fetch")).unwrap();
+    let s_warn = w.add_log_site(&LogSiteSpec::new(log, Severity::Warn, "{}: stall {} cycles ({:.1}%)", &[LogArgType::Text, LogArgType::I64, LogArgType::F64])).unwrap();
+    let s_plain = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Info, "bus idle", &[])).unwrap();
+    let s_err = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Error, "{} bad {} at {} {}", &[LogArgType::Bool, LogArgType::Bytes, LogArgType::Time, LogArgType::Pointer])).unwrap();
     let interned = w.intern("slave0");
-    let s_str = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Info, "target {}", &[LogArgType::Str]));
+    let s_str = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Info, "target {}", &[LogArgType::Str])).unwrap();
     let fetch_node = w.log_site_node(s_fetch).unwrap();
     let mut expect: Vec<(u64, u64, String, u8)> = Vec::new(); // (id, time, text, severity)
     let mut tx_ids = Vec::new();
@@ -618,7 +667,7 @@ fn logs_roundtrip() {
         }
         if i % 100 == 0 {
             let tx = w.begin_tx(gen_rd, t).unwrap();
-            w.tx_attr(tx, interned, AttrPhase::Begin, &Value::Text(format!("unique text {i}"))).unwrap();
+            w.tx_attr(tx, interned, &Value::Text(format!("unique text {i}"))).unwrap();
             let id = w.log_with_parent(s_plain, t + 2, Some(tx), &[]).unwrap();
             expect.push((id, t + 2, "bus idle".into(), 2));
             let id = w.log(s_err, t + 3, &[LogArg::Bool(true), LogArg::Bytes(&[0xde, 0xad]), LogArg::Time(t), LogArg::Pointer(0x1000)]).unwrap();
@@ -738,7 +787,7 @@ fn log_raw_matches_log() {
     for (path, raw) in [(&a, false), (&b, true)] {
         let mut w = Writer::create_with(path, opts.clone()).unwrap();
         let st = w.add_log_stream(None, "log");
-        let site = w.add_log_site(&LogSiteSpec::new(st, Severity::Info, "{} {} {} {} {} {}", &types));
+        let site = w.add_log_site(&LogSiteSpec::new(st, Severity::Info, "{} {} {} {} {} {}", &types)).unwrap();
         for i in 0..300u64 {
             let text = if i % 3 == 0 { "alpha" } else { "beta" };
             let args = [LogArg::Text(text), LogArg::I64(-(i as i64) * 1000), LogArg::U64(i << 40), LogArg::F64(i as f64 * 0.25), LogArg::Bool(i % 2 == 0), LogArg::Bytes(&[i as u8, 7])];

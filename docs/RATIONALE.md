@@ -399,8 +399,8 @@ decompressed pieces; a global time table built on demand.
 ## 6. Transactions
 
 **Chosen**: transactions carry begin/end, generator, status, kind, an
-optional structural parent, typed attributes with FTR's begin/record/end
-phases, point *events* (OpenTelemetry), sub-interval *stages* on lanes
+optional structural parent, typed attributes with keys unique within each
+item, point *events* (OpenTelemetry), sub-interval *stages* on lanes
 (Kanata), and typed *relations* live separately. Blocks are ordered by
 end time (as FTR) but carry id, time and relation ranges so lookups are
 local; the contents are stored as 24 columns compressed as one blob.
@@ -445,6 +445,13 @@ local; the contents are stored as 24 columns compressed as one blob.
   of bare words. It is `label`, not `name`, because everything else VTR
   calls a name is stable identity that a VDB binds to; a per-instance
   caption is not, and an OTel span's own `name` is already the generator's.
+* FTR's begin/record/end attribute phase was removed. A phase did not identify
+  a separate value semantically and allowed ambiguous duplicate keys, while a
+  list or map expresses an intentional multi-value attribute directly. The FTR
+  converter keeps the first source key unchanged and adds `.begin`, `.record`
+  or `.end` only when folding phases creates an actual collision. The file's
+  attribute-tag byte now spends only its low five bits on the value tag and
+  reserves the upper three bits.
 * Ids are assigned by the writer (dense, monotonic) so id lookups can
   use per-block ranges; producer ids are attributes. FTR's global counter
   works the same way; OpenTelemetry's 16+8-byte ids would defeat

@@ -248,20 +248,17 @@ impl PipelineModel {
         }
     }
 
-    /// The caption of a transaction: its `vtr.label` text attributes, joined.
+    /// The caption of a transaction from its single `vtr.label` attribute.
+    /// Both VTR `str` and `text` values are resolved to [`AttributeValue::Text`]
+    /// at the session boundary.
     pub fn label(tx: &Transaction) -> String {
-        let mut label = String::new();
-        for attribute in &tx.attributes {
-            if attribute.key == LABEL_ATTRIBUTE
-                && let AttributeValue::Text(text) = &attribute.value
-            {
-                if !label.is_empty() {
-                    label.push(' ');
-                }
-                label.push_str(text.trim_end_matches('\n'));
-            }
-        }
-        label
+        tx.attributes
+            .iter()
+            .find_map(|attribute| match (&*attribute.key, &attribute.value) {
+                (LABEL_ATTRIBUTE, AttributeValue::Text(text)) => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     /// The end of a stage: its own, or its transaction's while still open.

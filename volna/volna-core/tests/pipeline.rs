@@ -11,7 +11,7 @@ use volna_core::data::transactions::TrackRef;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::nav::LinkDim;
 use volna_core::panels::{Layout, PanelId, PanelsCommand};
-use volna_core::pipeline::{Hit, RowView, Rows, TrackSource};
+use volna_core::pipeline::{Hit, PipelineModel, RowView, Rows, TrackSource};
 use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, OpenSpec, Session};
 use volna_core::sidebar::Key;
@@ -26,7 +26,7 @@ const STAGES: [&str; 3] = ["F", "D", "X"];
 /// one left open), an unrecognized stream with one stage-less record, and a
 /// counter signal on the same cycle time base.
 fn fixture(n: u64) -> Arc<dyn Session> {
-    use vtr::{AttrPhase, Direction, ScopeType, SignalKind, TxStatus, Value, VarType};
+    use vtr::{Direction, ScopeType, SignalKind, TxStatus, Value, VarType};
     let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
     let mut w = vtr::Writer::create(file.path()).unwrap();
     w.set_timescale(0).unwrap();
@@ -59,9 +59,13 @@ fn fixture(n: u64) -> Arc<dyn Session> {
     let names: Vec<_> = STAGES.iter().map(|s| w.intern(s)).collect();
     for i in 0..n {
         let tx = w.begin_tx(insn, i).unwrap();
-        let text = w.intern(&format!("{:08x}: op{i}", 0x1000 + 4 * i));
-        w.tx_attr(tx, label, AttrPhase::Record, &Value::Str(text))
-            .unwrap();
+        let caption = format!("{:08x}: op{i}", 0x1000 + 4 * i);
+        let value = if i == 0 {
+            Value::Text(caption)
+        } else {
+            Value::Str(w.intern(&caption))
+        };
+        w.tx_attr(tx, label, &value).unwrap();
         let flushed = i == 3;
         let open = i + 1 == n;
         let count = if flushed { 2 } else { 3 };
@@ -189,6 +193,8 @@ fn enter_on_a_stream_opens_a_panel_loads_the_track_once_and_paints_cells() {
         panic!("loaded")
     };
     assert_eq!(set.len(), 40);
+    assert_eq!(PipelineModel::label(set.get(0).unwrap().1), "00001000: op0");
+    assert_eq!(PipelineModel::label(set.get(1).unwrap().1), "00001004: op1");
     assert_eq!(p.palette().names(), STAGES);
     let fills: Vec<_> = STAGES.iter().map(|s| p.palette().style(s).fill).collect();
     let layout = p.last_layout().clone();

@@ -96,7 +96,7 @@ does today (`tools/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
 | streams (id, name, kind) | stream node; `kind` string; attribute `ftr.id` keeps the original id |
 | generators (id, name, stream) | generator node under the stream; `ftr.id` |
 | transaction: id, generator, start, end | transaction: writer id, generator node, begin, end; original id kept as attribute `ftr.id` |
-| BEGIN / RECORD / END attributes | `AttrPhase` begin/record/end on every attribute |
+| BEGIN / RECORD / END attributes | folded into one key namespace; the first occurrence keeps its key and an actual collision gains its source phase suffix (`addr`, `addr.end`) |
 | attribute types: BOOLEAN, ENUMERATION, INTEGER, UNSIGNED, FLOATING_POINT, BIT_VECTOR, LOGIC_VECTOR, FIXED_POINT, UNSIGNED_FIXED_POINT, POINTER, STRING, TIME | `Value` tags bool, enum, i64, u64, f64, bits, logic, fixed/ufixed (FTR itself stores fixed point as a double, so the converter keeps `f64`), pointer, str, time |
 | nested `object` values flattened to dotted names | dotted keys preserved; VTR additionally offers `Value::Map` for native producers |
 | `sc_bv`/`sc_lv` recorded as strings | converted to packed `bits`/`logic` values (width = string length) |
@@ -116,7 +116,7 @@ does today (`tools/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
 | `C= n` absolute start cycle (discarded by Konata itself) | file attribute `kanata.start_cycle`; all times absolute cycles (`time.unit = cycle`) |
 | `C n` cycle advance | absolute cycle on every transaction, stage, event |
 | `I id gid tid` | transaction (begin = cycle) on stream `thread<tid>` of the `instruction` generator; `insn_id_in_sim` attribute; `line` attribute |
-| `L id 0 text` label | attribute `vtr.label` (appended, `\n` unescaped) |
+| `L id 0 text` label | one attribute `vtr.label`; multiple lines are accumulated and newline-joined (`\n` unescaped) before transaction close |
 | `L id 1 text` detail | attribute `detail` |
 | `L id 2 text` stage label | attribute `vtr.label` on the most recently started stage |
 | `S id lane stage` | stage `{name, lane, begin}`; opening a stage on a lane closes the open one (Konata semantics) |

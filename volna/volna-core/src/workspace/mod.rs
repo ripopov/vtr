@@ -16,7 +16,7 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeSet, HashSet};
 
 pub const FORMAT: &str = "volna-workspace";
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_ROWS: usize = 100_000;
 

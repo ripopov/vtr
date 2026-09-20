@@ -13,7 +13,7 @@ use crate::logblock::{self, LogArg, LogBlockInput, LogSiteEnc, LogSiteId, LogSit
 use crate::sections::{self, Blackout, FileType, Meta};
 use crate::signal;
 use crate::strings::{Interner, StrId};
-use crate::txblock::{self, AttrPhase, TxBlockInput, TxId, TxKind, TxStatus};
+use crate::txblock::{self, TxBlockInput, TxId, TxKind, TxStatus};
 use crate::value::{packed_len, Value};
 use crate::varint;
 use std::fs::File;
@@ -22,6 +22,20 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
+
+fn ensure_unique_key(keys: impl IntoIterator<Item = StrId>, key: StrId) -> Result<()> {
+    if keys.into_iter().any(|existing| existing == key) {
+        return Err(Error::invalid(format!("duplicate attribute key {}", key.0)));
+    }
+    Ok(())
+}
+
+fn ensure_unique_attrs(attrs: &[(StrId, Value)]) -> Result<()> {
+    for (i, (key, _)) in attrs.iter().enumerate() {
+        ensure_unique_key(attrs[..i].iter().map(|(existing, _)| *existing), *key)?;
+    }
+    Ok(())
+}
 
 /// Writer configuration.
 #[derive(Clone, Debug)]
@@ -417,6 +431,7 @@ struct StageRec {
     begin: u64,
     end: u64, // u64::MAX = open
     attrs: Vec<u8>,
+    attr_keys: Vec<StrId>,
     n_attrs: u32,
 }
 
@@ -428,6 +443,7 @@ struct OpenTx {
     kind: u8,
     parent: u64,
     attrs: Vec<u8>,
+    attr_keys: Vec<StrId>,
     n_attrs: u32,
     events: Vec<u8>,
     n_events: u32,
@@ -440,6 +456,7 @@ impl OpenTx {
         self.kind = 0;
         self.parent = 0;
         self.attrs.clear();
+        self.attr_keys.clear();
         self.n_attrs = 0;
         self.events.clear();
         self.n_events = 0;
@@ -882,7 +899,9 @@ impl Writer {
             return Err(Error::State("node attributes must be added before the node is flushed"));
         }
         let k = self.strings.intern(key);
-        self.pending_nodes[(node.0 - first_pending) as usize].attrs.push((k, value));
+        let attrs = &mut self.pending_nodes[(node.0 - first_pending) as usize].attrs;
+        ensure_unique_key(attrs.iter().map(|(key, _)| *key), k)?;
+        attrs.push((k, value));
         Ok(())
     }
 
@@ -1546,17 +1565,19 @@ impl Writer {
 
     /// Records an attribute on an open transaction.
     #[inline]
-    pub fn tx_attr(&mut self, tx: TxId, key: StrId, phase: AttrPhase, value: &Value) -> Result<()> {
+    pub fn tx_attr(&mut self, tx: TxId, key: StrId, value: &Value) -> Result<()> {
         let t = self.open.get(tx)?;
+        ensure_unique_key(t.attr_keys.iter().copied(), key)?;
         varint::put_u64(&mut t.attrs, key.0 as u64);
-        t.attrs.push(phase as u8);
         value.encode(&mut t.attrs);
+        t.attr_keys.push(key);
         t.n_attrs += 1;
         Ok(())
     }
 
     /// Records a timestamped event on an open transaction.
     pub fn tx_event(&mut self, tx: TxId, time: u64, name: StrId, attrs: &[(StrId, Value)]) -> Result<()> {
+        ensure_unique_attrs(attrs)?;
         let t = self.open.get(tx)?;
         varint::put_u64(&mut t.events, time);
         varint::put_u64(&mut t.events, name.0 as u64);
@@ -1574,7 +1595,15 @@ impl Writer {
                 break;
             }
         }
-        t.stages.push(StageRec { name: name.0, lane: lane.0, begin: time, end: u64::MAX, attrs: Vec::new(), n_attrs: 0 });
+        t.stages.push(StageRec {
+            name: name.0,
+            lane: lane.0,
+            begin: time,
+            end: u64::MAX,
+            attrs: Vec::new(),
+            attr_keys: Vec::new(),
+            n_attrs: 0,
+        });
         Ok(())
     }
 
@@ -1592,11 +1621,19 @@ impl Writer {
 
     /// Records a complete stage.
     pub fn tx_stage(&mut self, tx: TxId, name: StrId, lane: StrId, begin: u64, end: u64, attrs: &[(StrId, Value)]) -> Result<()> {
+        ensure_unique_attrs(attrs)?;
         let t = self.open.get(tx)?;
-        let mut rec = StageRec { name: name.0, lane: lane.0, begin, end: end.max(begin), attrs: Vec::new(), n_attrs: attrs.len() as u32 };
+        let mut rec = StageRec {
+            name: name.0,
+            lane: lane.0,
+            begin,
+            end: end.max(begin),
+            attrs: Vec::new(),
+            attr_keys: attrs.iter().map(|(key, _)| *key).collect(),
+            n_attrs: attrs.len() as u32,
+        };
         for (k, v) in attrs {
             varint::put_u64(&mut rec.attrs, k.0 as u64);
-            rec.attrs.push(AttrPhase::Record as u8);
             v.encode(&mut rec.attrs);
         }
         t.stages.push(rec);
@@ -1607,9 +1644,10 @@ impl Writer {
     pub fn tx_stage_attr(&mut self, tx: TxId, key: StrId, value: &Value) -> Result<()> {
         let t = self.open.get(tx)?;
         let s = t.stages.last_mut().ok_or(Error::State("transaction has no stage"))?;
+        ensure_unique_key(s.attr_keys.iter().copied(), key)?;
         varint::put_u64(&mut s.attrs, key.0 as u64);
-        s.attrs.push(AttrPhase::Record as u8);
         value.encode(&mut s.attrs);
+        s.attr_keys.push(key);
         s.n_attrs += 1;
         Ok(())
     }
@@ -1630,6 +1668,7 @@ impl Writer {
 
     /// Records a relation of kind `kind` from transaction `from` to `to`.
     pub fn relate(&mut self, kind: StrId, from: TxId, to: TxId, attrs: &[(StrId, Value)]) -> Result<()> {
+        ensure_unique_attrs(attrs)?;
         varint::put_u64(&mut self.rel_rows, kind.0 as u64);
         varint::put_u64(&mut self.rel_rows, from);
         varint::put_u64(&mut self.rel_rows, to);
@@ -1672,7 +1711,15 @@ impl Writer {
     /// format string and carrying the severity, argument types and names and
     /// the source location as attributes (`log.*`). Register each call site
     /// once and keep the returned handle; `log` then costs a few bytes per call.
-    pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> LogSiteId {
+    pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> Result<LogSiteId> {
+        let resolved_names: Vec<String> = (0..spec.args.len())
+            .map(|i| spec.names.get(i).map_or_else(|| i.to_string(), |name| (*name).to_owned()))
+            .collect();
+        for (i, name) in resolved_names.iter().enumerate() {
+            if resolved_names[..i].contains(name) {
+                return Err(Error::invalid(format!("duplicate log argument name {name:?}")));
+            }
+        }
         let name = self.strings.intern(spec.fmt);
         let mut attrs: Vec<(StrId, Value)> = Vec::with_capacity(6);
         let k = self.strings.intern(logblock::KEY_SEVERITY);
@@ -1680,11 +1727,8 @@ impl Writer {
         let k = self.strings.intern(logblock::KEY_ARGS);
         attrs.push((k, Value::List(spec.args.iter().map(|t| Value::U64(*t as u8 as u64)).collect())));
         let mut names = Vec::with_capacity(spec.args.len());
-        for i in 0..spec.args.len() {
-            let id = match spec.names.get(i) {
-                Some(n) => self.strings.intern(n),
-                None => self.strings.intern(&i.to_string()),
-            };
+        for name in &resolved_names {
+            let id = self.strings.intern(name);
             names.push(Value::Str(id));
         }
         let k = self.strings.intern(logblock::KEY_NAMES);
@@ -1706,7 +1750,7 @@ impl Writer {
         let node = self.push_node(Node { parent: Some(spec.stream), name, data: NodeData::Generator, attrs });
         self.log_sites.push(LogSiteEnc { node: node.0, args: spec.args.to_vec() });
         self.log_sites_arc = None;
-        LogSiteId(self.log_sites.len() as u32 - 1)
+        Ok(LogSiteId(self.log_sites.len() as u32 - 1))
     }
 
     /// Generator node of a registered log site.

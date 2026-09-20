@@ -110,18 +110,15 @@ fn vtr_transaction_semantics_survive_the_common_contract() {
     let edge = w.intern("causes");
     let parent = w.begin_tx(gen_a, 10).unwrap();
     w.set_tx_kind(parent, TxKind::Producer).unwrap();
-    for phase in [AttrPhase::Begin, AttrPhase::Record, AttrPhase::End] {
-        w.tx_attr(
-            parent,
+    w.tx_attr(
+        parent,
+        key,
+        &Value::Map(vec![(
             key,
-            phase,
-            &Value::Map(vec![(
-                key,
-                Value::List(vec![Value::Str(text), Value::Bytes(vec![0, 255])]),
-            )]),
-        )
-        .unwrap();
-    }
+            Value::List(vec![Value::Str(text), Value::Bytes(vec![0, 255])]),
+        )]),
+    )
+    .unwrap();
     w.tx_event(parent, 12, event, &[(key, Value::U64(42))])
         .unwrap();
     w.tx_stage(parent, stage, lane, 12, 18, &[(key, Value::Bool(true))])
@@ -167,10 +164,7 @@ fn vtr_transaction_semantics_survive_the_common_contract() {
         (p.begin, p.end, p.status, p.kind),
         (10, 20, TxStatus::Aborted, TxKind::Producer)
     );
-    assert_eq!(
-        p.attributes.iter().map(|a| a.phase).collect::<Vec<_>>(),
-        [AttrPhase::Begin, AttrPhase::Record, AttrPhase::End]
-    );
+    assert_eq!(p.attributes.len(), 1);
     assert_eq!(
         p.attributes[0].value,
         AttributeValue::Map(vec![(

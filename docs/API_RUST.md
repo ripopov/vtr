@@ -48,7 +48,7 @@ hierarchy types they share.
 | `Hierarchy`, `Node`, `NodeData`, `NodeId`, `NodeKind`, `ScopeType`, `VarType`, `Direction`, `SignalId`, `SignalKind` | `hierarchy` | Design hierarchy and signal typing |
 | `Value` | `value` | Typed attribute values |
 | `SignalValue`, `OwnedSignalValue` | `signal` | Signal values (borrowed / owned) |
-| `Transaction`, `TxAttr`, `TxEvent`, `TxStage`, `Relation`, `TxId`, `TxStatus`, `TxKind`, `AttrPhase` | `txblock` | Transaction model |
+| `Transaction`, `TxAttr`, `TxEvent`, `TxStage`, `Relation`, `TxId`, `TxStatus`, `TxKind` | `txblock` | Transaction model |
 | `Meta`, `FileType`, `Blackout` | `sections` | File metadata, dump on/off intervals |
 | `Codec`, `Compression` | `codec` | Compression settings |
 | `StrId` | `strings` | Interned string handle |
@@ -237,7 +237,7 @@ fn read_waveform(path: &str) -> vtr::Result<()> {
 ### 2.3 Transactions
 
 ```rust
-use vtr::{AttrPhase, Reader, ScopeType, TxQuery, TxStatus, Value, Writer};
+use vtr::{Reader, ScopeType, TxQuery, TxStatus, Value, Writer};
 
 fn write_tx(path: &str) -> vtr::Result<()> {
     let mut w = Writer::create(path)?;
@@ -256,7 +256,7 @@ fn write_tx(path: &str) -> vtr::Result<()> {
     let mut prev = None;
     for i in 0..100u64 {
         let tx = w.begin_tx(insn, i)?;
-        w.tx_attr(tx, k_pc, AttrPhase::Begin, &Value::U64(0x1000 + i * 4))?;
+        w.tx_attr(tx, k_pc, &Value::U64(0x1000 + i * 4))?;
         w.tx_stage_begin(tx, st_f, lane0, i)?;      // stage F on lane 0
         w.tx_stage_begin(tx, st_x, lane0, i + 1)?;  // closes F at i+1, opens X
         w.tx_event(tx, i + 2, ev_retire, &[])?;
@@ -275,7 +275,7 @@ fn read_tx(path: &str) -> vtr::Result<()> {
     let q = TxQuery { window: Some((10, 12)), ..Default::default() };
     rd.visit_transactions(&q, |tx| {
         println!("tx {} [{}, {}] gen={} status={}", tx.id, tx.begin, tx.end, rd.name(tx.generator), tx.status.name());
-        for a in &tx.attrs { println!("  {} = {:?} ({:?})", rd.str(a.key), a.value, a.phase); }
+        for a in &tx.attrs { println!("  {} = {:?}", rd.str(a.key), a.value); }
         for s in &tx.stages { println!("  stage {} lane {} {}..{:?}", rd.str(s.name), rd.str(s.lane), s.begin, s.end); }
         true // keep going
     })?;
@@ -675,14 +675,11 @@ has already ended. `TxKind`: `Unspecified` (0, default), `Internal` (1),
 `Server` (2), `Client` (3), `Producer` (4), `Consumer` (5).
 
 ```rust
-pub fn tx_attr(&mut self, tx: TxId, key: StrId, phase: AttrPhase, value: &Value) -> Result<()>
+pub fn tx_attr(&mut self, tx: TxId, key: StrId, value: &Value) -> Result<()>
 ```
 
-Appends an attribute. `AttrPhase` records *when* the attribute was captured
-relative to the transaction's lifetime (FTR semantics): `Begin` (0),
-`Record` (1, default), `End` (2). The phase is a tag only; attributes are
-returned in call order regardless of phase. Keys are not deduplicated: calling
-`tx_attr` twice with the same key stores two attributes.
+Appends an attribute. Keys are unique per transaction; calling `tx_attr` twice
+with the same key returns `Error::Invalid` and preserves the first value.
 
 ```rust
 pub fn tx_event(&mut self, tx: TxId, time: u64, name: StrId, attrs: &[(StrId, Value)]) -> Result<()>
@@ -708,7 +705,7 @@ arbitrary interned strings such as `"0"`).
   `name` **and** `lane` at `max(time, stage.begin)`; returns `Ok(false)` (not
   an error) when no such stage is open.
 * `tx_stage` records a complete stage with `end` clamped to `>= begin` and
-  its attributes (all tagged `AttrPhase::Record`).
+  its attributes.
 * `tx_stage_attr` appends an attribute to the **most recently begun** stage
   (open or not); `Error::State("transaction has no stage")` if there is none.
 
@@ -799,7 +796,7 @@ argument values.
 
 ```rust
 pub fn add_log_stream(&mut self, parent: Option<NodeId>, name: &str) -> NodeId
-pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> LogSiteId
+pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> Result<LogSiteId>
 pub fn log_site_node(&self, site: LogSiteId) -> Option<NodeId>
 pub fn log_site_count(&self) -> u32
 ```
@@ -809,7 +806,9 @@ creates a generator of `spec.stream` named by the format string and carrying
 `log.severity`, `log.args` (the types), `log.names` (the argument names, or
 `"0"`, `"1"`, ... when `spec.names` is empty), and `log.file` / `log.line` /
 `log.func` when given. It returns a dense `LogSiteId` (the handle `log`
-takes); the generator node is `log_site_node`.
+takes); the generator node is `log_site_node`. Resolved argument names must be
+unique because they become transaction attribute keys; duplicates return
+`Error::Invalid`.
 
 ```rust
 pub struct LogSiteSpec<'a> { pub stream: NodeId, pub severity: Severity, pub fmt: &'a str, pub args: &'a [LogArgType],
@@ -1302,7 +1301,7 @@ pub struct Transaction {
     pub events: Vec<TxEvent>,                // call order
     pub stages: Vec<TxStage>,                // call order
 }
-pub struct TxAttr  { pub key: StrId, pub phase: AttrPhase, pub value: Value }
+pub struct TxAttr  { pub key: StrId, pub value: Value }
 pub struct TxEvent { pub time: u64, pub name: StrId, pub attrs: Vec<(StrId, Value)> }
 pub struct TxStage { pub name: StrId, pub lane: StrId, pub begin: u64, pub end: Option<u64>, pub attrs: Vec<(StrId, Value)> }
 pub struct Relation { pub kind: StrId, pub from: TxId, pub to: TxId, pub attrs: Vec<(StrId, Value)> }
@@ -1314,8 +1313,7 @@ crate always yield `Some(end)`. Code tables: `TxStatus` `Unset` = 0, `Ok` = 1,
 `Error` = 2, `Aborted` = 3, `Open` = 4 (`from_u8` maps unknown codes to
 `Unset`; `name()` gives `"unset" | "ok" | "error" | "aborted" | "open"`);
 `TxKind` `Unspecified` = 0, `Internal` = 1, `Server` = 2, `Client` = 3,
-`Producer` = 4, `Consumer` = 5; `AttrPhase` `Begin` = 0, `Record` = 1,
-`End` = 2 (unknown codes decode as `Record`).
+`Producer` = 4, `Consumer` = 5.
 
 ### 4.8 Sections (tools)
 
@@ -1864,7 +1862,7 @@ endpoint owners; consumers can inspect either incoming or outgoing edges.
 `parent(id)` retains the parent's owner even if its track is not loaded.
 
 Common records resolve names and recursively typed attributes, retaining
-attribute phases, transaction parents, statuses, kinds, events, stages and
+transaction attributes, parents, statuses, kinds, events, stages and
 cross-stream relations. `TrackRef` and `TransactionRef` belong to the opened
 session; they must not be reused after replacing it. VDB/presentation rules
 remain on the client. Backend loads are blocking and must run off native UI

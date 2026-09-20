@@ -105,7 +105,7 @@ fn invalid_restores_are_atomic_and_unlinked_null_cursor_is_required() {
     let mut invalid = Vec::new();
     for (key, val) in [
         ("format", json!("other")),
-        ("version", json!(2)),
+        ("version", json!(1)),
         ("focused", json!(999)),
     ] {
         let mut v = original.clone();

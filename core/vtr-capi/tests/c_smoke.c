@@ -18,8 +18,8 @@ static int tx_cb(void *user, const vtr_tx *tx) {
     const vtr_reader *r = (const vtr_reader *)user;
     if (vtr_tx_get(r, tx, &info) != VTR_OK) return 1;
     if (info.id == 1) {
-        uint32_t key; uint8_t phase; vtr_value v;
-        if (info.attr_count != 1 || vtr_tx_attr(tx, 0, &key, &phase, &v) != VTR_OK) return 1;
+        uint32_t key; vtr_value v;
+        if (info.attr_count != 1 || vtr_tx_attr(tx, 0, &key, &v) != VTR_OK) return 1;
         if (v.tag != VTR_VAL_U64 || v.u != 0x1000) return 1;
         if (info.stage_count != 2) return 1;
     }
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
             uint64_t tx;
             CHECK(vtr_writer_begin_tx(w, gen, i * 10, &tx));
             vtr_value pc; memset(&pc, 0, sizeof pc); pc.tag = VTR_VAL_U64; pc.u = 0x1000 + i;
-            CHECK(vtr_writer_tx_attr(w, tx, k_pc, VTR_TX_PHASE_BEGIN, &pc));
+            CHECK(vtr_writer_tx_attr(w, tx, k_pc, &pc));
             CHECK(vtr_writer_tx_stage_begin(w, tx, st_f, lane, i * 10));
             CHECK(vtr_writer_tx_stage_begin(w, tx, st_x, lane, i * 10 + 5));
             if (prev) CHECK(vtr_writer_relate(w, dep, prev, tx, 0, NULL, NULL));

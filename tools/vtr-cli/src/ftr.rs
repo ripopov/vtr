@@ -1,7 +1,26 @@
 //! FTR (LWTR4SC Fast Transaction Recording, CBOR) -> VTR conversion.
 
-use std::collections::HashMap;
-use vtr::{AttrPhase, FileType, NodeId, StrId, TxId, TxStatus, Value, Writer};
+use std::collections::{HashMap, HashSet};
+use vtr::{FileType, NodeId, StrId, TxId, TxStatus, Value, Writer};
+
+fn unique_attr_key(base: &str, tag: u64, keys: &mut HashSet<String>) -> String {
+    let mut name = base.to_owned();
+    if keys.contains(&name) {
+        let suffix = match tag {
+            7 => "begin",
+            8 => "record",
+            _ => "end",
+        };
+        name = format!("{base}.{suffix}");
+        let mut ordinal = 2;
+        while keys.contains(&name) {
+            name = format!("{base}.{suffix}.{ordinal}");
+            ordinal += 1;
+        }
+    }
+    keys.insert(name.clone());
+    name
+}
 
 #[derive(Debug, Clone)]
 enum Cbor {
@@ -313,7 +332,7 @@ pub fn convert_ftr(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::error
                             Cbor::Array(v) => v,
                             _ => continue,
                         };
-                        let mut cur: Option<(TxId, u64)> = None;
+                        let mut cur: Option<(TxId, u64, HashSet<String>)> = None;
                         for it in items {
                             if let Cbor::Tag(t, inner) = it {
                                 if let Cbor::Array(f) = *inner {
@@ -324,25 +343,20 @@ pub fn convert_ftr(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::error
                                             let start = as_u64(&f[2]);
                                             let end = as_u64(&f[3]).max(start);
                                             let vid = w.begin_tx(gen, start)?;
-                                            w.tx_attr(vid, k_ftr_id, AttrPhase::Begin, &Value::U64(id))?;
+                                            w.tx_attr(vid, k_ftr_id, &Value::U64(id))?;
                                             txids.insert(id, vid);
                                             last_time = last_time.max(end);
-                                            cur = Some((vid, end));
+                                            cur = Some((vid, end, HashSet::from(["ftr.id".to_owned()])));
                                         }
                                         7 | 8 | 9 => {
-                                            if let Some((vid, _)) = cur {
+                                            if let Some((vid, _, keys)) = &mut cur {
                                                 let name_id = as_u64(&f[0]);
-                                                let key = *strs.entry(name_id).or_insert_with(|| {
-                                                    let n = dict.get(&name_id).cloned().unwrap_or_default();
-                                                    w.intern(&n)
-                                                });
-                                                let phase = match t {
-                                                    7 => AttrPhase::Begin,
-                                                    8 => AttrPhase::Record,
-                                                    _ => AttrPhase::End,
-                                                };
+                                                let base = dict.get(&name_id).cloned().unwrap_or_default();
+                                                let name = unique_attr_key(&base, t, keys);
+                                                let key = w.intern(&name);
+                                                strs.entry(name_id).or_insert(key);
                                                 let value = ftr_value(w, as_u64(&f[1]), &f[2], &dict, &mut strs);
-                                                w.tx_attr(vid, key, phase, &value)?;
+                                                w.tx_attr(*vid, key, &value)?;
                                             }
                                         }
                                         _ => {}
@@ -350,7 +364,7 @@ pub fn convert_ftr(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::error
                                 }
                             }
                         }
-                        if let Some((vid, end)) = cur {
+                        if let Some((vid, end, _)) = cur {
                             w.end_tx(vid, end, TxStatus::Unset)?;
                         }
                     }
@@ -395,6 +409,20 @@ pub fn convert_ftr(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::error
     }
     w.set_time(last_time)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ftr_phase_suffixes_appear_only_on_collision() {
+        let mut keys = HashSet::new();
+        assert_eq!(unique_attr_key("addr", 7, &mut keys), "addr");
+        assert_eq!(unique_attr_key("addr", 9, &mut keys), "addr.end");
+        assert_eq!(unique_attr_key("addr", 9, &mut keys), "addr.end.2");
+        assert_eq!(unique_attr_key("response", 9, &mut keys), "response");
+    }
 }
 
 fn ftr_value(w: &mut Writer, type_code: u64, v: &Cbor, dict: &HashMap<u64, String>, strs: &mut HashMap<u64, StrId>) -> Value {

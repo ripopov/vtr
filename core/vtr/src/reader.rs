@@ -1636,7 +1636,7 @@ mod cache_tests {
         let (_, signal) = writer.add_bits("counter", 8, 2);
         let stream = writer.add_stream(None, "requests", "test");
         let generator = writer.add_generator(stream, "request");
-        let site = writer.add_log_site(&LogSiteSpec::new(stream, Severity::Info, "value={}", &[LogArgType::U64]));
+        let site = writer.add_log_site(&LogSiteSpec::new(stream, Severity::Info, "value={}", &[LogArgType::U64])).unwrap();
         writer.set_time(1).unwrap();
         writer.emit_u64(signal, 42).unwrap();
         let tx = writer.begin_tx(generator, 1).unwrap();

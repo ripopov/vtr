@@ -17,7 +17,7 @@ use crate::codec::{Compression, Compressor, Decompressor};
 use crate::error::{Error, Result};
 use crate::hierarchy::NodeId;
 use crate::strings::StrId;
-use crate::txblock::{AttrPhase, Transaction, TxAttr, TxId, TxKind, TxStatus};
+use crate::txblock::{Transaction, TxAttr, TxId, TxKind, TxStatus};
 use crate::value::{Value, ValueTag};
 use crate::varint::{self, Reader};
 use crate::logfmt::ParsedFmt;
@@ -750,7 +750,7 @@ impl<'a> LogRecord<'a> {
         let attrs = self
             .args()
             .enumerate()
-            .map(|(i, a)| TxAttr { key: self.site.names.get(i).copied().unwrap_or(StrId(0)), phase: AttrPhase::Record, value: a.to_value() })
+            .map(|(i, a)| TxAttr { key: self.site.names.get(i).copied().unwrap_or(StrId(0)), value: a.to_value() })
             .collect();
         Transaction {
             id: self.id,

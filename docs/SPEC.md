@@ -78,10 +78,9 @@ identity or the per-block dynamic alias rules in section 6.6.
 | 12 | 4 | `u32` flags, must be 0 |
 | 16 | 16 | reserved, must be 0 |
 
-A reader must reject a file whose major version is greater than the one it
-implements and must accept any minor version within a supported major version.
-Minor versions may only add optional sections or metadata that readers can
-safely skip. New value tags require a major version bump (section 9).
+A reader may reject an encoding it does not implement. The version fields
+identify the current encoding but do not constrain how the format may change
+while it is under definition; section 9 defines the current policy.
 A reader that encounters an unknown value tag must report the file as
 unreadable rather than guess. The current format defines value tag 17 (text)
 and the optional LOG_BLOCK section.
@@ -354,11 +353,16 @@ attributes. Producers that copy attributes from another format must not
 strip or add a reserved prefix, so a foreign key never acquires reserved
 meaning by accident.
 
+Attribute keys are unique within each item: a transaction, event, stage,
+relation or hierarchy node cannot contain the same key twice. A writer must
+reject a duplicate rather than silently replace or discard either value. Lists
+(tag 15) and maps (tag 16) are available when one key needs multiple or
+structured values.
+
 The reserved key `vtr.label` carries a human-readable name for the *single*
 item that holds it — a transaction, an event, a stage, a relation or a
-hierarchy node. Its value is a *str* or *text* (tag 5 or 17); on a
-transaction the phase is free (7.2), and a reader that finds several
-`vtr.label` attributes on one item uses the first. A viewer displays it
+hierarchy node. Its value is a *str* or *text* (tag 5 or 17) and it follows
+the same uniqueness rule as every other key. A viewer displays it
 wherever it names that item — the caption of a transaction bar in a Gantt or
 pipeline row, its entry in a transaction list, the title of a tooltip or
 detail panel — and falls back to the generator's name (section 5) when the
@@ -564,7 +568,7 @@ from each relevant column. Columns, in order:
 | 5 | parent | transaction | `varint`: 0 = none, else `(zigzag(id - parent) << 1) \| 1` |
 | 6 | attr count | attribute list | `varint n` — one item per attribute list, in this order: the transaction's attributes, then each event's, then each stage's; after all transactions, each relation's |
 | 7 | attr key | attribute | `varint` string id |
-| 8 | attr tag | attribute | `u8`: `phase << 5 \| value tag` (phase 0 begin, 1 record, 2 end) |
+| 8 | attr tag | attribute | `u8`: bare value tag; upper three bits are reserved and written zero |
 | 9 | attr numeric | attribute | `u8` for bool; `svarint` for i64 and enum value; `varint` for u64/time/pointer/ufixed raw; `svarint raw, svarint scale` for fixed; `varint raw, svarint scale` for ufixed |
 | 10 | attr f64 | attribute | 8 bytes binary64 LE |
 | 11 | attr string | attribute | `varint` string id for str and for the enum literal |
@@ -710,13 +714,14 @@ skipped without decompression. *Record by id*: blocks whose
 
 ## 9. Extensibility and versioning
 
-* Minor versions may only add optional sections or metadata that readers can
-  safely skip.
-* New section kinds must be marked optional unless the major version is
-  bumped.
-* New attribute keys never require a version change.
-* New value tags, node kinds, signal kinds or column layouts require a new
-  major version. Readers must reject unknown value tags and node kinds.
+The format is under definition and may change freely. The major and minor
+fields remain `1.1` for now and are identifiers, not a compatibility promise or
+a restriction on which parts of the encoding may change. Producers and readers
+in one checkout implement the specification in that checkout; compatibility
+with files produced by an earlier definition is not required.
+
+Unknown optional sections can be skipped. Readers reject unknown value tags and
+node kinds because their payload size or structure cannot be inferred.
 * Unknown scope/var type codes, status/kind codes and file types are
   preserved and passed through.
 * Producers should keep `group_size` between 64 and 1024; readers must

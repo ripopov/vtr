@@ -3,7 +3,7 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 pub const MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,8 +61,8 @@ mod tests {
         State::remember(&mut state.recent_traces, "file:///2.vtr".into(), 3);
         assert_eq!(state.recent_traces[0], "file:///2.vtr");
         assert_eq!(State::parse(&state.to_bytes()).unwrap(), state);
-        assert!(State::parse(b"{\"version\":2}").is_err());
+        assert!(State::parse(b"{\"version\":1}").is_err());
         assert!(State::parse(b"nope").is_err());
-        assert_eq!(State::parse(b"{\"version\":1}").unwrap(), State::new());
+        assert_eq!(State::parse(b"{\"version\":2}").unwrap(), State::new());
     }
 }

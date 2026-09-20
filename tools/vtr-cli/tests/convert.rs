@@ -36,12 +36,16 @@ fn ftr_fixture() {
     assert_eq!(r.generators().count(), 13);
     assert_eq!(r.meta().timescale, -9);
     let all = r.transactions(&TxQuery::default()).unwrap();
+    for tx in &all {
+        let mut keys = std::collections::HashSet::new();
+        assert!(tx.attrs.iter().all(|attr| keys.insert(attr.key)));
+    }
     let t = &all[0];
-    // FTR ids are preserved as attributes and the three attribute phases survive.
-    let names: Vec<(&str, vtr::AttrPhase)> = t.attrs.iter().map(|a| (r.str(a.key), a.phase)).collect();
-    assert!(names.contains(&("ftr.id", vtr::AttrPhase::Begin)));
-    assert!(names.iter().any(|(n, p)| *n == "addr" && *p == vtr::AttrPhase::Begin));
-    assert!(names.iter().any(|(n, p)| *n == "response" && *p == vtr::AttrPhase::End));
+    // FTR ids are preserved, and source phase suffixes appear only on collisions.
+    let names: Vec<&str> = t.attrs.iter().map(|a| r.str(a.key)).collect();
+    assert!(names.contains(&"ftr.id"));
+    assert!(names.contains(&"addr"));
+    assert!(names.contains(&"response"));
     assert!(t.attrs.iter().any(|a| matches!(a.value, Value::Str(_))));
     assert!(t.attrs.iter().any(|a| matches!(a.value, Value::U64(_))));
     // Relations reference converted ids and carry the FTR stream ids.
@@ -115,6 +119,8 @@ fn kanata_sample() {
     assert!(stage_names.contains(&"F"));
     assert!(t.attrs.iter().any(|a| r.str(a.key) == "insn_id_in_sim"));
     assert!(t.attrs.iter().any(|a| r.str(a.key) == "retire_id"));
+    let mut keys = std::collections::HashSet::new();
+    assert!(t.attrs.iter().all(|attr| keys.insert(attr.key)));
     // Labels get their escaped newlines back.
     let detail = t.attrs.iter().find(|a| r.str(a.key) == "detail").map(|a| match a.value {
         Value::Str(s) => r.str(s).to_string(),
@@ -122,6 +128,29 @@ fn kanata_sample() {
     });
     assert!(detail.map(|d| d.contains('\n')).unwrap_or(false));
     assert!(r.meta().attrs.iter().any(|(k, _)| r.str(*k) == "kanata.start_cycle"));
+}
+
+#[test]
+fn kanata_labels_are_newline_joined_into_one_attribute() {
+    let src = tmp("labels.kanata");
+    std::fs::write(
+        &src,
+        "Kanata\t0004\nC=\t0\nI\t1\t10\t0\nL\t1\t0\tfirst\nL\t1\t0\tsecond\nR\t1\t0\t0\n",
+    )
+    .unwrap();
+    let out = tmp("labels.vtr");
+    let mut w = writer(&out);
+    vtr_cli::kanata::convert_kanata(src.to_str().unwrap(), &mut w).unwrap();
+    w.close().unwrap();
+    let r = Reader::open(&out).unwrap();
+    let tx = r.transaction(1).unwrap().unwrap();
+    let labels: Vec<_> = tx
+        .attrs
+        .iter()
+        .filter(|attr| r.str(attr.key) == "vtr.label")
+        .collect();
+    assert_eq!(labels.len(), 1);
+    assert!(matches!(labels[0].value, Value::Str(value) if r.str(value) == "first\nsecond"));
 }
 
 #[test]

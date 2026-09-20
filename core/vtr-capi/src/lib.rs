@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::ptr;
 use vtr::{
-    AttrPhase, Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
+    Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
     SignalKind, StrId, Transaction, TxKind, TxQuery, TxStatus, Value, VarType, Writer, WriterOptions,
 };
 
@@ -590,15 +590,14 @@ pub unsafe extern "C" fn vtr_writer_set_tx_parent(w: *mut vtr_writer, tx: u64, p
 pub unsafe extern "C" fn vtr_writer_set_tx_kind(w: *mut vtr_writer, tx: u64, kind: u8) -> c_int {
     status(need!(w).0.set_tx_kind(tx, TxKind::from_u8(kind)))
 }
-/// `phase`: 0 = begin, 1 = record, 2 = end.
 #[no_mangle]
-pub unsafe extern "C" fn vtr_writer_tx_attr(w: *mut vtr_writer, tx: u64, key: u32, phase: u8, v: *const vtr_value) -> c_int {
+pub unsafe extern "C" fn vtr_writer_tx_attr(w: *mut vtr_writer, tx: u64, key: u32, v: *const vtr_value) -> c_int {
     let v = need_ref!(v);
     let val = match to_value(v) {
         Ok(v) => v,
         Err(e) => return status(Err(e)),
     };
-    status(need!(w).0.tx_attr(tx, StrId(key), AttrPhase::from_u8(phase), &val))
+    status(need!(w).0.tx_attr(tx, StrId(key), &val))
 }
 #[no_mangle]
 pub unsafe extern "C" fn vtr_writer_tx_event(w: *mut vtr_writer, tx: u64, time: u64, name: u32, n: usize, keys: *const u32, values: *const vtr_value) -> c_int {
@@ -725,7 +724,13 @@ pub unsafe extern "C" fn vtr_writer_add_log_site(
     spec.file = cstr(file).unwrap_or("");
     spec.line = line;
     spec.func = cstr(func).unwrap_or("");
-    w.0.add_log_site(&spec).0
+    match w.0.add_log_site(&spec) {
+        Ok(site) => site.0,
+        Err(error) => {
+            set_error(&error.to_string());
+            VTR_NONE
+        }
+    }
 }
 
 /// Generator node of a log site (VTR_NONE if unknown).
@@ -1462,15 +1467,12 @@ pub unsafe extern "C" fn vtr_tx_get(r: *const vtr_reader, tx: *const vtr_tx, out
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn vtr_tx_attr(tx: *const vtr_tx, i: u32, key_out: *mut u32, phase_out: *mut u8, v_out: *mut vtr_value) -> c_int {
+pub unsafe extern "C" fn vtr_tx_attr(tx: *const vtr_tx, i: u32, key_out: *mut u32, v_out: *mut vtr_value) -> c_int {
     let t = &need_ref!(tx).0;
     match t.attrs.get(i as usize) {
         Some(a) => {
             if let Some(o) = key_out.as_mut() {
                 *o = a.key.0;
-            }
-            if let Some(o) = phase_out.as_mut() {
-                *o = a.phase as u8;
             }
             if let Some(o) = v_out.as_mut() {
                 *o = from_value(&a.value);

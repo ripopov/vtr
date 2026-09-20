@@ -9,7 +9,7 @@
 
 use serde_json::Value as J;
 use std::collections::HashMap;
-use vtr::{AttrPhase, FileType, NodeId, ScopeType, StrId, TxId, TxKind, TxStatus, Value, Writer};
+use vtr::{FileType, NodeId, ScopeType, StrId, TxId, TxKind, TxStatus, Value, Writer};
 
 fn any_value(w: &mut Writer, v: &J) -> Value {
     // OTLP JSON encodes AnyValue as {"stringValue": ..} etc.
@@ -198,27 +198,27 @@ pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std:
                 let trace_id = id_bytes(s.get("traceId").and_then(|x| x.as_str()).unwrap_or(""));
                 let span_id = id_bytes(s.get("spanId").and_then(|x| x.as_str()).unwrap_or(""));
                 let parent = id_bytes(s.get("parentSpanId").and_then(|x| x.as_str()).unwrap_or(""));
-                w.tx_attr(tx, k_trace, AttrPhase::Begin, &Value::Bytes(trace_id))?;
-                w.tx_attr(tx, k_span, AttrPhase::Begin, &Value::Bytes(span_id.clone()))?;
+                w.tx_attr(tx, k_trace, &Value::Bytes(trace_id))?;
+                w.tx_attr(tx, k_span, &Value::Bytes(span_id.clone()))?;
                 if let Some(ts) = s.get("traceState").and_then(|x| x.as_str()) {
                     if !ts.is_empty() {
                         let v = w.intern(ts);
-                        w.tx_attr(tx, k_state, AttrPhase::Begin, &Value::Str(v))?;
+                        w.tx_attr(tx, k_state, &Value::Str(v))?;
                     }
                 }
                 let flags = u64_of(s.get("flags"));
                 if flags != 0 {
-                    w.tx_attr(tx, k_flags, AttrPhase::Begin, &Value::U64(flags))?;
+                    w.tx_attr(tx, k_flags, &Value::U64(flags))?;
                 }
                 if let Some(a) = s.get("attributes").and_then(|x| x.as_array()) {
                     for (k, v) in kv_list(w, a) {
-                        w.tx_attr(tx, k, AttrPhase::Record, &v)?;
+                        w.tx_attr(tx, k, &v)?;
                     }
                 }
                 for (key, field) in [(k_da, "droppedAttributesCount"), (k_de, "droppedEventsCount"), (k_dl, "droppedLinksCount")] {
                     let n = u64_of(s.get(field));
                     if n != 0 {
-                        w.tx_attr(tx, key, AttrPhase::Record, &Value::U64(n))?;
+                        w.tx_attr(tx, key, &Value::U64(n))?;
                     }
                 }
                 for e in s.get("events").and_then(|x| x.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
@@ -272,7 +272,7 @@ pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std:
                 if let Some(m) = msg {
                     if !m.is_empty() {
                         let ms = w.intern(&m);
-                        w.tx_attr(tx, k_msg, AttrPhase::End, &Value::Str(ms))?;
+                        w.tx_attr(tx, k_msg, &Value::Str(ms))?;
                     }
                 }
                 by_id.insert(span_id.clone(), tx);

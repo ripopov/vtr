@@ -167,11 +167,6 @@ async fn transaction(r: &Reader) -> anyhow::Result<Transaction> {
             .vector(13, || async {
                 Ok(TransactionAttribute {
                     key: r.string().await?,
-                    phase: {
-                        let code = r.u8().await?;
-                        anyhow::ensure!(code <= 2, "unknown attribute phase");
-                        AttrPhase::from_u8(code)
-                    },
                     value: attribute(r, 0).await?,
                 })
             })
@@ -219,9 +214,8 @@ mod tests {
                 kind: TxKind::from_u8((id % 6) as u8),
                 parent: (id > 0).then_some(TransactionRef(0)),
                 attributes: (0..3)
-                    .map(|phase| TransactionAttribute {
-                        key: "phase".into(),
-                        phase: AttrPhase::from_u8(phase),
+                    .map(|index| TransactionAttribute {
+                        key: format!("attribute{index}"),
                         value: AttributeValue::F64(f64::NAN),
                     })
                     .collect(),

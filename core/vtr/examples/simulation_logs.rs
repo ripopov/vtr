@@ -1,6 +1,6 @@
 //! Reproducible simulation-log fixtures and million-message viewer workload.
 //! cargo run --release -p vtr --example simulation_logs -- output.vtr [count]
-use vtr::{LogArg, LogArgType, LogSiteSpec, Severity, Writer};
+use vtr::{LogArg, LogArgType, LogQuery, LogSiteSpec, Reader, Severity, Value, Writer};
 fn main() -> vtr::Result<()> {
     let path = std::env::args().nth(1).expect("output.vtr [count]");
     let count: u64 = std::env::args()
@@ -8,7 +8,7 @@ fn main() -> vtr::Result<()> {
         .unwrap_or_else(|| "2000".into())
         .parse()
         .expect("count");
-    let mut writer = Writer::create(path)?;
+    let mut writer = Writer::create(&path)?;
     writer.set_timescale(-9)?;
     let stream = writer.add_log_stream(None, "simulation_log");
     let sites: Vec<_> = [
@@ -22,17 +22,17 @@ fn main() -> vtr::Result<()> {
     .into_iter()
     .map(|level| {
         writer.add_log_site(
-            &LogSiteSpec::new(stream, level, "{}", &[LogArgType::Text]).names(&["message"]),
+            &LogSiteSpec::new(stream, level, "{}", &[LogArgType::Text]).names(&["vtr.label"]),
         )
     })
-    .collect();
+    .collect::<vtr::Result<Vec<_>>>()?;
     let other = writer.add_log_stream(None, "firmware_log");
     let firmware = writer.add_log_site(&LogSiteSpec::new(
         other,
         Severity::Info,
         "firmware checkpoint {}",
-        &[LogArgType::U64],
-    ));
+        &[LogArgType::U64, LogArgType::Text],
+    ).names(&["checkpoint", "vtr.label"]))?;
     for n in 0..count {
         let (severity, message) = match n % 11 {
             0 => (2, format!("CPU0 retired instruction {n}: ADD x4, x2, x3")),
@@ -58,8 +58,19 @@ fn main() -> vtr::Result<()> {
         };
         writer.log(sites[severity], n * 10, &[LogArg::Text(&message)])?;
         if n % 100 == 0 {
-            writer.log(firmware, n * 10, &[LogArg::U64(n)])?;
+            let caption = format!("firmware checkpoint {n}");
+            writer.log(firmware, n * 10, &[LogArg::U64(n), LogArg::Text(&caption)])?;
         }
     }
-    writer.close()
+    writer.close()?;
+    let reader = Reader::open(path)?;
+    reader.visit_log(&LogQuery::default(), |record| {
+        let tx = record.to_transaction();
+        assert!(tx.attrs.iter().any(|attr| {
+            reader.str(attr.key) == "vtr.label"
+                && matches!(attr.value, Value::Str(_) | Value::Text(_))
+        }));
+        true
+    })?;
+    Ok(())
 }

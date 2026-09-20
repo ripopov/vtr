@@ -186,9 +186,6 @@ const char *vtr_version(void);
 #define VTR_LOGIC_DONT_CARE 8
 
 /* Transaction attributes, status and OpenTelemetry span kind. */
-#define VTR_TX_PHASE_BEGIN  0
-#define VTR_TX_PHASE_RECORD 1
-#define VTR_TX_PHASE_END    2
 #define VTR_TX_STATUS_UNSET   0
 #define VTR_TX_STATUS_OK      1
 #define VTR_TX_STATUS_ERROR   2
@@ -344,7 +341,9 @@ int vtr_writer_flush(vtr_writer *w);                             /* force a bloc
 /* Transactions are intervals on a generator. Any number may overlap. Their
  * names, attribute keys, stage names/lanes and relation kinds are interned
  * string ids. Attribute/event/relation arrays are parallel and may be NULL
- * when n == 0. Times are explicit; end times before begin are clamped.
+ * when n == 0. Attribute keys must be unique within each transaction, event,
+ * stage, relation and hierarchy node; duplicates return VTR_ERR_INVALID.
+ * Times are explicit; end times before begin are clamped.
  *
  * stage_begin() closes an open stage on the same lane before opening the new
  * one. stage_end() returns NOT_FOUND if the named stage/lane is not open.
@@ -353,7 +352,7 @@ int vtr_writer_flush(vtr_writer *w);                             /* force a bloc
 int vtr_writer_begin_tx(vtr_writer *w, uint32_t generator, uint64_t time, uint64_t *tx_out);
 int vtr_writer_set_tx_parent(vtr_writer *w, uint64_t tx, uint64_t parent);
 int vtr_writer_set_tx_kind(vtr_writer *w, uint64_t tx, uint8_t kind);
-int vtr_writer_tx_attr(vtr_writer *w, uint64_t tx, uint32_t key, uint8_t phase, const vtr_value *v);
+int vtr_writer_tx_attr(vtr_writer *w, uint64_t tx, uint32_t key, const vtr_value *v);
 int vtr_writer_tx_event(vtr_writer *w, uint64_t tx, uint64_t time, uint32_t name, size_t n, const uint32_t *keys, const vtr_value *values);
 int vtr_writer_tx_stage_begin(vtr_writer *w, uint64_t tx, uint32_t name, uint32_t lane, uint64_t time);
 int vtr_writer_tx_stage_end(vtr_writer *w, uint64_t tx, uint32_t name, uint32_t lane, uint64_t time); /* VTR_ERR_NOT_FOUND if none open */
@@ -500,7 +499,7 @@ int             vtr_reader_blackout(const vtr_reader *r, uint32_t i, uint64_t *t
 
 /* Transactions. The tx and all values borrowed from it are valid only inside
  * the callback. Indexed accessors accept nullable outputs and return NOT_FOUND
- * past the end. status, kind and attribute phase use VTR_TX_* constants. */
+ * past the end. status and kind use VTR_TX_* constants. */
 typedef struct vtr_tx vtr_tx;   /* valid only inside the callback */
 typedef struct vtr_tx_info {
     uint64_t id;
@@ -513,7 +512,7 @@ typedef struct vtr_tx_info {
 } vtr_tx_info;
 
 int vtr_tx_get(const vtr_reader *r, const vtr_tx *tx, vtr_tx_info *out);
-int vtr_tx_attr(const vtr_tx *tx, uint32_t i, uint32_t *key_out, uint8_t *phase_out, vtr_value *v_out);
+int vtr_tx_attr(const vtr_tx *tx, uint32_t i, uint32_t *key_out, vtr_value *v_out);
 int vtr_tx_event(const vtr_tx *tx, uint32_t i, uint64_t *time_out, uint32_t *name_out, uint32_t *attr_count_out);
 int vtr_tx_event_attr(const vtr_tx *tx, uint32_t i, uint32_t j, uint32_t *key_out, vtr_value *v_out);
 int vtr_tx_stage(const vtr_tx *tx, uint32_t i, uint32_t *name_out, uint32_t *lane_out, uint64_t *begin_out, uint64_t *end_out, int *has_end_out, uint32_t *attr_count_out);

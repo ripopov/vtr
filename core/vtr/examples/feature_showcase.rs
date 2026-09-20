@@ -3,7 +3,7 @@
 
 use std::path::Path;
 use vtr::{
-    AttrPhase, Direction, LogArg, LogArgType, LogQuery, LogSiteSpec, NodeData, Reader, ScopeType,
+    Direction, LogArg, LogArgType, LogQuery, LogSiteSpec, NodeData, Reader, ScopeType,
     Severity, SignalId, SignalKind, TxKind, TxQuery, TxStatus, Value, VarType, Writer,
     WriterOptions,
 };
@@ -199,12 +199,12 @@ fn write(path: &Path) -> vtr::Result<()> {
                     logs,
                     severity,
                     &format!("{}: cycle={{}} phase={{}}", severity.name()),
-                    &[LogArgType::U64, LogArgType::Text],
+                    &[LogArgType::U64, LogArgType::Text, LogArgType::Text],
                 )
-                .names(&["cycle", "phase"])
+                .names(&["cycle", "phase", "vtr.label"])
                 .location("debug_lab.cpp", 40 + i as u32)
                 .func("tick"),
-            ),
+            )?,
         );
     }
     let typed_site = w.add_log_site(
@@ -222,11 +222,13 @@ fn write(path: &Path) -> vtr::Result<()> {
                 LogArgType::Time,
                 LogArgType::Pointer,
                 LogArgType::Text,
+                LogArgType::Text,
             ],
         )
+        .names(&["bool", "i64", "u64", "f64", "str", "bytes", "time", "pointer", "text", "vtr.label"])
         .location("debug_lab.cpp", 80)
         .func("inspect_packet"),
-    );
+    )?;
 
     // A compact declaration gallery: all standard scope/variable codes plus an
     // unknown producer code. The useful design remains at the top of the tree.
@@ -397,6 +399,7 @@ fn write(path: &Path) -> vtr::Result<()> {
     let memory = w.intern("memory");
     let dependency = w.intern("dependency");
     let request = w.intern("request");
+    let label_key = w.intern("vtr.label");
     let pc_key = w.intern("pc");
     let fault = w.intern("fault_injected");
     let mut previous = None;
@@ -413,48 +416,64 @@ fn write(path: &Path) -> vtr::Result<()> {
         w.tx_attr(
             tx,
             pc_key,
-            AttrPhase::Begin,
             &Value::U64(0x8000_0000 + i * 4),
         )?;
-        w.tx_stage(tx, fetch, lane, begin, begin + 8, &[])?;
-        w.tx_stage(tx, decode, lane, begin + 8, begin + 16, &[])?;
+        let tx_label = w.intern(&format!("pc 0x{:08x}", 0x8000_0000 + i * 4));
+        w.tx_attr(tx, label_key, &Value::Str(tx_label))?;
+        let fetch_label = w.intern(&format!("fetch pc 0x{:08x}", 0x8000_0000 + i * 4));
+        w.tx_stage(tx, fetch, lane, begin, begin + 8, &[(label_key, Value::Str(fetch_label))])?;
+        let decode_label = w.intern(&format!("decode pc 0x{:08x}", 0x8000_0000 + i * 4));
+        w.tx_stage(tx, decode, lane, begin + 8, begin + 16, &[(label_key, Value::Str(decode_label))])?;
         w.tx_stage_begin(tx, execute, lane, begin + 16)?;
+        let execute_label = w.intern(&format!("execute pc 0x{:08x}", 0x8000_0000 + i * 4));
+        w.tx_stage_attr(tx, label_key, &Value::Str(execute_label))?;
         w.tx_stage_attr(tx, fault, &Value::Bool(i == 22))?;
         w.tx_stage_end(tx, execute, lane, begin + 32)?;
-        w.tx_event(tx, begin + 32, retire, &[])?;
+        let retire_label = w.intern(&format!("retire pc 0x{:08x}", 0x8000_0000 + i * 4));
+        w.tx_event(tx, begin + 32, retire, &[(label_key, Value::Str(retire_label))])?;
         if let Some(prev) = previous {
-            w.relate(dependency, prev, tx, &[])?;
+            let dependency_label = w.intern(&format!("dependency {prev} to {tx}"));
+            w.relate(dependency, prev, tx, &[(label_key, Value::Str(dependency_label))])?;
         }
         previous = Some(tx);
         if i % 4 == 0 {
             let span = w.begin_tx(spans, begin)?;
             w.set_tx_kind(span, TxKind::Client)?;
+            let span_label = w.intern(&format!("submission {i}"));
+            w.tx_attr(span, label_key, &Value::Str(span_label))?;
             let transfer = w.begin_tx(if i % 8 == 0 { reads } else { writes }, begin + 16)?;
             w.set_tx_parent(transfer, span)?;
             w.set_tx_kind(transfer, TxKind::Consumer)?;
-            for (j, (key, value)) in attrs.iter().enumerate() {
-                w.tx_attr(
-                    transfer,
-                    *key,
-                    [AttrPhase::Begin, AttrPhase::Record, AttrPhase::End][j % 3],
-                    value,
-                )?;
+            let transfer_label = w.intern(&format!("DMA transfer {i}"));
+            w.tx_attr(transfer, label_key, &Value::Str(transfer_label))?;
+            for (key, value) in &attrs {
+                w.tx_attr(transfer, *key, value)?;
             }
+            let memory_label = w.intern(&format!("DMA memory access {i}"));
+            let mut stage_attrs = attrs[..2].to_vec();
+            stage_attrs.push((label_key, Value::Str(memory_label)));
             w.tx_stage(
                 transfer,
                 execute,
                 memory,
                 begin + 16,
                 begin + 56,
-                &attrs[..2],
+                &stage_attrs,
             )?;
-            w.tx_event(transfer, begin + 40, request, &attrs[2..4])?;
-            w.relate(request, tx, transfer, &attrs[4..6])?;
+            let request_label = w.intern(&format!("DMA request {i}"));
+            let mut event_attrs = attrs[2..4].to_vec();
+            event_attrs.push((label_key, Value::Str(request_label)));
+            w.tx_event(transfer, begin + 40, request, &event_attrs)?;
+            let relation_label = w.intern(&format!("instruction {i} starts DMA transfer"));
+            let mut relation_attrs = attrs[4..6].to_vec();
+            relation_attrs.push((label_key, Value::Str(relation_label)));
+            w.relate(request, tx, transfer, &relation_attrs)?;
+            let log_label = format!("DMA issue log {i}");
             w.log_with_parent(
                 sites[2],
                 begin + 20,
                 Some(transfer),
-                &[LogArg::U64(i), LogArg::Text("DMA issued")],
+                &[LogArg::U64(i), LogArg::Text("DMA issued"), LogArg::Text(&log_label)],
             )?;
             w.end_tx(
                 transfer,
@@ -478,12 +497,14 @@ fn write(path: &Path) -> vtr::Result<()> {
         )?;
     }
     for (i, site) in sites.into_iter().enumerate() {
+        let log_label = format!("injected fault log {i}");
         w.log(
             site,
             768 + i as u64 * 16,
             &[
                 LogArg::U64(96 + i as u64 * 2),
                 LogArg::Text("injected fault / recovery"),
+                LogArg::Text(&log_label),
             ],
         )?;
     }
@@ -501,6 +522,7 @@ fn write(path: &Path) -> vtr::Result<()> {
             LogArg::Time(900),
             LogArg::Pointer(0x2000),
             LogArg::Text("café ✓"),
+            LogArg::Text("typed argument sample"),
         ],
     )?;
     // All span kinds and an unfinished operation/stage at capture end.
@@ -516,6 +538,8 @@ fn write(path: &Path) -> vtr::Result<()> {
     {
         let tx = w.begin_tx(spans, 1800 + i as u64 * 16)?;
         w.set_tx_kind(tx, kind)?;
+        let kind_label = w.intern(&format!("span instance {i}"));
+        w.tx_attr(tx, label_key, &Value::Str(kind_label))?;
         w.end_tx(
             tx,
             1808 + i as u64 * 16,
@@ -527,7 +551,11 @@ fn write(path: &Path) -> vtr::Result<()> {
         )?;
     }
     let open = w.begin_tx(writes, 2000)?;
+    let open_label = w.intern("unfinished write 0");
+    w.tx_attr(open, label_key, &Value::Str(open_label))?;
     w.tx_stage_begin(open, execute, memory, 2000)?;
+    let open_stage_label = w.intern("unfinished memory access 0");
+    w.tx_stage_attr(open, label_key, &Value::Str(open_stage_label))?;
     w.close()?;
     verify(path)
 }
@@ -554,6 +582,16 @@ fn verify(path: &Path) -> vtr::Result<()> {
         changes += r.load_signal(SignalId(id))?.len();
     }
     let transactions = r.transactions(&TxQuery::default())?;
+    let has_label = |attrs: &[(vtr::StrId, Value)]| {
+        attrs.iter().any(|(key, value)| {
+            r.str(*key) == "vtr.label" && matches!(value, Value::Str(_) | Value::Text(_))
+        })
+    };
+    for tx in &transactions {
+        assert!(tx.attrs.iter().any(|attr| r.str(attr.key) == "vtr.label" && matches!(attr.value, Value::Str(_) | Value::Text(_))), "transaction {} lacks vtr.label", tx.id);
+        assert!(tx.events.iter().all(|event| has_label(&event.attrs)), "transaction {} has an unlabeled event", tx.id);
+        assert!(tx.stages.iter().all(|stage| has_label(&stage.attrs)), "transaction {} has an unlabeled stage", tx.id);
+    }
     let statuses: std::collections::BTreeSet<_> =
         transactions.iter().map(|t| t.status as u8).collect();
     assert_eq!(statuses, (0..=4).collect());
@@ -571,7 +609,8 @@ fn verify(path: &Path) -> vtr::Result<()> {
         .windows(2)
         .any(|times| times[0] == times[1]));
     let mut relations = 0;
-    r.visit_relations(|_| {
+    r.visit_relations(|relation| {
+        assert!(has_label(&relation.attrs), "relation {} -> {} lacks vtr.label", relation.from, relation.to);
         relations += 1;
         true
     })?;

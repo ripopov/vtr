@@ -10,7 +10,7 @@ use bincode::Options;
 use lz4_flex::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 use serde::{Deserialize, Serialize};
 
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const DATA_BYTES: usize = 256 * 1024;
 pub const MAX_BATCH: usize = 64;

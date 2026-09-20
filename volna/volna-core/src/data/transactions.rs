@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 // Semantic enums, not reader handles or storage representations.
-pub use vtr::{AttrPhase, TxKind, TxStatus};
+pub use vtr::{TxKind, TxStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TransactionRef(pub u64);
@@ -63,8 +63,6 @@ pub struct Track {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TransactionAttribute {
     pub key: String,
-    #[serde(with = "phase_code")]
-    pub phase: AttrPhase,
     pub value: AttributeValue,
 }
 
@@ -132,6 +130,5 @@ macro_rules! wire_code {
         }
     };
 }
-wire_code!(phase_code, AttrPhase, 2);
 wire_code!(status_code, TxStatus, 4);
 wire_code!(kind_code, TxKind, 5);

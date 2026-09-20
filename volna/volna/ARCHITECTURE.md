@@ -397,7 +397,7 @@ metadata limitations and explicit unsupported cases.
 content. VTR supports transactions and relations even for an empty recording;
 FST and the synthetic waveform source support waveforms only. `tracks()` is
 resident metadata. `load_track()` is the single backend operation for a complete
-stream or generator, including records, typed attributes, phases, events,
+stream or generator, including records, typed attributes, events,
 stages, parent locations and incident relations.
 
 Both local and remote consumers query the resulting immutable `LoadedGenerator`

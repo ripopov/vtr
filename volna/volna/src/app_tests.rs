@@ -68,7 +68,10 @@ fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
             assert!(
                 matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current))
             );
-            assert!(ws.app.panels.focused_waves().unwrap().items.is_empty());
+            assert!(matches!(
+                ws.app.panels.focused().kind,
+                volna_core::panels::PanelKind::Start
+            ));
         })
         .unwrap();
 }

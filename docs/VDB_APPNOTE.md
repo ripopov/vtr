@@ -67,8 +67,8 @@ through `vtr_writer_*`) produces:
 * one transaction per instruction: `begin` = fetch cycle, `end` = retire
   cycle, `status` = `unset` (retired) / `aborted` (flushed) / `open` (never
   retired);
-* attributes: `insn_id_in_sim` (begin), `line` (begin), `vtr.label` and
-  `detail` (record, text with real newlines), `retire_id` (end);
+* attributes: `insn_id_in_sim`, `line`, `vtr.label`, `detail` (text with real
+  newlines), and `retire_id`; keys are unique and carry no lifecycle phase;
 * stages: one per Kanata `S` line: `name` (e.g. `F`, `Dc`, `X`), `lane`
   (`0`, `1`, ...), `[begin, end]`; a stage started while another stage on
   the same lane is open closes that one (Kanata semantics); type-2 labels

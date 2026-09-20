@@ -301,7 +301,7 @@ fn cmd_tx(args: &[String]) {
         let stream = r.generator_stream(tx.generator).map(|s| r.full_path(s, ".")).unwrap_or_default();
         println!("tx {} {stream}/{gen} [{} .. {}] status={} kind={:?}{}", tx.id, tx.begin, tx.end, tx.status.name(), tx.kind, tx.parent.map(|p| format!(" parent={p}")).unwrap_or_default());
         for a in &tx.attrs {
-            println!("    {:?} {} = {}", a.phase, r.str(a.key), fmt_value(&r, &a.value));
+            println!("    {} = {}", r.str(a.key), fmt_value(&r, &a.value));
         }
         for e in &tx.events {
             println!("    event @{} {} {}", e.time, r.str(e.name), fmt_value(&r, &Value::Map(e.attrs.clone())));

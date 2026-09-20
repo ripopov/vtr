@@ -34,6 +34,6 @@ pub use reader::{LogQuery, ReadOptions, Reader, SignalData, TxQuery};
 pub use sections::{Blackout, FileType, Meta};
 pub use signal::{OwnedSignalValue, SignalValue};
 pub use strings::StrId;
-pub use txblock::{AttrPhase, Relation, Transaction, TxAttr, TxEvent, TxId, TxKind, TxStage, TxStatus};
+pub use txblock::{Relation, Transaction, TxAttr, TxEvent, TxId, TxKind, TxStage, TxStatus};
 pub use value::Value;
 pub use writer::{Writer, WriterOptions, WriterStats};

@@ -9,7 +9,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use vtr::{
-    AttrPhase, Direction, Reader, ScopeType, SignalId, SignalKind, StrId, TxId, TxQuery, TxStatus,
+    Direction, Reader, ScopeType, SignalId, SignalKind, StrId, TxId, TxQuery, TxStatus,
     Value, VarType, Writer, WriterOptions,
 };
 
@@ -434,11 +434,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ids.push(tx);
             let op = &PROGRAM[insn.op];
             let label = w.intern(&format!("{:08x}: {}", insn.pc, op.text));
-            w.tx_attr(tx, k_label, AttrPhase::Record, &Value::Str(label))?;
-            w.tx_attr(tx, k_index, AttrPhase::Begin, &Value::U64(insn.index as u64))?;
-            w.tx_attr(tx, k_pc, AttrPhase::Begin, &Value::U64(insn.pc))?;
+            w.tx_attr(tx, k_label, &Value::Str(label))?;
+            w.tx_attr(tx, k_index, &Value::U64(insn.index as u64))?;
+            w.tx_attr(tx, k_pc, &Value::U64(insn.pc))?;
             let iteration = ((insn.pc - 0x8000_0000) / 4) / PROGRAM.len() as u64;
-            w.tx_attr(tx, k_iteration, AttrPhase::Begin, &Value::U64(iteration))?;
+            w.tx_attr(tx, k_iteration, &Value::U64(iteration))?;
             for (k, (b, e)) in insn.stages.iter().enumerate() {
                 if *b > cutoff {
                     break;
@@ -452,7 +452,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if in_flight && *e > cutoff {
                     // Still in this stage when the recording stopped.
                     w.tx_stage_begin(tx, name, lane0, *b)?;
+                    let stage_label = w.intern(&format!("{} for instruction {}", cfg.stages[k], insn.index));
+                    w.tx_stage_attr(tx, k_label, &Value::Str(stage_label))?;
                 } else {
+                    let stage_label = w.intern(&format!("{} for instruction {}", cfg.stages[k], insn.index));
+                    let mut attrs = attrs;
+                    attrs.push((k_label, Value::Str(stage_label)));
                     w.tx_stage(tx, name, lane0, *b, *e, &attrs)?;
                 }
             }
@@ -465,26 +470,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     reason_dep
                 };
+                let stall_label = w.intern(&format!("stall for instruction {}", insn.index));
                 w.tx_stage(
                     tx,
                     stall_name,
                     lane_stall,
                     *b,
                     (*e).min(cutoff),
-                    &[(k_reason, Value::Str(reason))],
+                    &[(k_reason, Value::Str(reason)), (k_label, Value::Str(stall_label))],
                 )?;
             }
             for &producer in &insn.deps {
                 if let Some(&producer) = ids.get(producer) {
-                    w.relate(k_wakeup, producer, tx, &[])?;
+                    let edge_label = w.intern(&format!("wakeup {producer} to {tx}"));
+                    w.relate(k_wakeup, producer, tx, &[(k_label, Value::Str(edge_label))])?;
                 }
             }
             if let Some((b, e, is_write)) = insn.request.filter(|(b, ..)| *b <= cutoff) {
                 let request = w.begin_tx(if is_write { writes } else { reads }, b)?;
                 w.set_tx_parent(request, tx)?;
                 let address = 0x1000_0000 + 16 * iteration + if is_write { 4 } else { 0 };
-                w.tx_attr(request, k_addr, AttrPhase::Begin, &Value::U64(address))?;
-                w.relate(k_causes, tx, request, &[])?;
+                w.tx_attr(request, k_addr, &Value::U64(address))?;
+                let request_label = w.intern(&format!("{} 0x{address:08x}", if is_write { "write" } else { "read" }));
+                w.tx_attr(request, k_label, &Value::Str(request_label))?;
+                let cause_label = w.intern(&format!("instruction {} causes request", insn.index));
+                w.relate(k_causes, tx, request, &[(k_label, Value::Str(cause_label))])?;
                 if e <= cutoff {
                     w.end_tx(request, e, TxStatus::Ok)?;
                 }
@@ -492,7 +502,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if insn.status == TxStatus::Aborted {
                 let detail = w.intern("squashed by a mispredicted branch");
-                w.tx_attr(tx, k_detail, AttrPhase::Record, &Value::Str(detail))?;
+                w.tx_attr(tx, k_detail, &Value::Str(detail))?;
                 w.end_tx(tx, insn.end, TxStatus::Aborted)?;
                 totals.1 += 1;
             } else if !in_flight {
@@ -520,6 +530,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut open = 0;
     let mut with_stalls = 0;
     rd.visit_transactions(&TxQuery::default(), |tx| {
+        assert!(tx.attrs.iter().any(|attr| rd.str(attr.key) == "vtr.label" && matches!(attr.value, Value::Str(_) | Value::Text(_))), "transaction {} lacks vtr.label", tx.id);
+        assert!(tx.stages.iter().all(|stage| stage.attrs.iter().any(|(key, value)| rd.str(*key) == "vtr.label" && matches!(value, Value::Str(_) | Value::Text(_)))), "transaction {} has an unlabeled stage", tx.id);
         *per_generator
             .entry(rd.name(tx.generator).to_owned())
             .or_default() += 1;
@@ -531,6 +543,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if tx.stages.iter().any(|s| rd.str(s.lane) == "stall") {
             with_stalls += 1;
         }
+        true
+    })?;
+    rd.visit_relations(|relation| {
+        assert!(relation.attrs.iter().any(|(key, value)| rd.str(*key) == "vtr.label" && matches!(value, Value::Str(_) | Value::Text(_))), "relation {} -> {} lacks vtr.label", relation.from, relation.to);
         true
     })?;
     assert_eq!(n_tx as usize, totals.0 + totals.3);

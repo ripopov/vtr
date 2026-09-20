@@ -7,7 +7,7 @@ use crate::util::{file_size, Stopwatch};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::{BufWriter, Write};
-use vtr::{AttrPhase, NodeId, Reader, StrId, TxId, TxQuery, TxStatus, Value, Writer, WriterOptions};
+use vtr::{NodeId, Reader, StrId, TxId, TxQuery, TxStatus, Value, Writer, WriterOptions};
 
 // ---------------------------------------------------------------------------
 // Kanata generator
@@ -156,7 +156,7 @@ fn get_varint(b: &[u8], p: &mut usize) -> u64 {
 pub enum TxOp {
     Begin { id: u64, gen: u32, time: u64 },
     /// type: 0 bool 1 i64 2 u64 3 f64 4 str
-    Attr { id: u64, key: u32, phase: u8, ty: u8, v: u64 },
+    Attr { id: u64, key: u32, ty: u8, v: u64 },
     End { id: u64, time: u64 },
     Rel { kind: u32, from: u64, to: u64 },
 }
@@ -171,7 +171,7 @@ pub struct TxReplay {
 impl TxReplay {
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let mut w = BufWriter::with_capacity(1 << 20, std::fs::File::create(path)?);
-        w.write_all(b"VTRTXR01")?;
+        w.write_all(b"VTRTXR02")?;
         let mut b = Vec::new();
         put_varint(&mut b, self.strings.len() as u64);
         for s in &self.strings {
@@ -198,11 +198,10 @@ impl TxReplay {
                     put_varint(&mut b, *gen as u64);
                     put_varint(&mut b, *time);
                 }
-                TxOp::Attr { id, key, phase, ty, v } => {
+                TxOp::Attr { id, key, ty, v } => {
                     b.push(2);
                     put_varint(&mut b, *id);
                     put_varint(&mut b, *key as u64);
-                    b.push(*phase);
                     b.push(*ty);
                     if *ty == 3 {
                         b.extend_from_slice(&v.to_le_bytes());
@@ -233,7 +232,7 @@ impl TxReplay {
 
     pub fn load(path: &str) -> std::io::Result<TxReplay> {
         let data = std::fs::read(path)?;
-        if &data[..8] != b"VTRTXR01" {
+        if data.len() < 8 || &data[..8] != b"VTRTXR02" {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "not a tx replay"));
         }
         let mut p = 8;
@@ -268,9 +267,8 @@ impl TxReplay {
                 2 => {
                     let id = get_varint(&data, &mut p);
                     let key = get_varint(&data, &mut p) as u32;
-                    let phase = data[p];
-                    let ty = data[p + 1];
-                    p += 2;
+                    let ty = data[p];
+                    p += 1;
                     let v = if ty == 3 {
                         let v = u64::from_le_bytes(data[p..p + 8].try_into().unwrap());
                         p += 8;
@@ -278,7 +276,7 @@ impl TxReplay {
                     } else {
                         get_varint(&data, &mut p)
                     };
-                    TxOp::Attr { id, key, phase, ty, v }
+                    TxOp::Attr { id, key, ty, v }
                 }
                 3 => {
                     let id = get_varint(&data, &mut p);
@@ -369,9 +367,9 @@ pub fn gen_tlm(n: u64, seed: u64) -> TxReplay {
         let addr = 0x8000_0000 + rng.below(1 << 20) * 64;
         let size = [4u64, 8, 16, 64][rng.below(4) as usize];
         push(&mut ev, t, TxOp::Begin { id, gen, time: t });
-        push(&mut ev, t, TxOp::Attr { id, key: k_pc, phase: 0, ty: 2, v: pcs[c] });
-        push(&mut ev, t, TxOp::Attr { id, key: k_addr, phase: 0, ty: 2, v: addr });
-        push(&mut ev, t, TxOp::Attr { id, key: k_size, phase: 0, ty: 2, v: size });
+        push(&mut ev, t, TxOp::Attr { id, key: k_pc, ty: 2, v: pcs[c] });
+        push(&mut ev, t, TxOp::Attr { id, key: k_addr, ty: 2, v: addr });
+        push(&mut ev, t, TxOp::Attr { id, key: k_size, ty: 2, v: size });
         pcs[c] += 4;
         if cpu_last[c] != 0 {
             push(&mut ev, t, TxOp::Rel { kind: r_pred, from: cpu_last[c], to: id });
@@ -383,9 +381,9 @@ pub fn gen_tlm(n: u64, seed: u64) -> TxReplay {
         let tn = t + 2;
         let slave = (addr >> 18) as u64 % n_slave;
         push(&mut ev, tn, TxOp::Begin { id: pid, gen: g_noc, time: tn });
-        push(&mut ev, tn, TxOp::Attr { id: pid, key: k_src, phase: 0, ty: 2, v: c as u64 });
-        push(&mut ev, tn, TxOp::Attr { id: pid, key: k_dst, phase: 0, ty: 2, v: slave });
-        push(&mut ev, tn, TxOp::Attr { id: pid, key: k_len, phase: 0, ty: 2, v: size });
+        push(&mut ev, tn, TxOp::Attr { id: pid, key: k_src, ty: 2, v: c as u64 });
+        push(&mut ev, tn, TxOp::Attr { id: pid, key: k_dst, ty: 2, v: slave });
+        push(&mut ev, tn, TxOp::Attr { id: pid, key: k_len, ty: 2, v: size });
         push(&mut ev, tn, TxOp::Rel { kind: r_parent, from: id, to: pid });
         // Slave access
         let sid = next_id;
@@ -393,22 +391,22 @@ pub fn gen_tlm(n: u64, seed: u64) -> TxReplay {
         let ts = tn + 3 + rng.below(3);
         let lat = 3 + rng.below(28);
         push(&mut ev, ts, TxOp::Begin { id: sid, gen: g_slave[slave as usize], time: ts });
-        push(&mut ev, ts, TxOp::Attr { id: sid, key: k_addr, phase: 0, ty: 2, v: addr });
-        push(&mut ev, ts, TxOp::Attr { id: sid, key: k_len, phase: 0, ty: 2, v: size });
+        push(&mut ev, ts, TxOp::Attr { id: sid, key: k_addr, ty: 2, v: addr });
+        push(&mut ev, ts, TxOp::Attr { id: sid, key: k_len, ty: 2, v: size });
         push(&mut ev, ts, TxOp::Rel { kind: r_parent, from: pid, to: sid });
         let te = ts + lat;
         let data = rng.next();
         let err = rng.below(200) == 0;
-        push(&mut ev, te, TxOp::Attr { id: sid, key: k_data, phase: 2, ty: 2, v: data });
-        push(&mut ev, te, TxOp::Attr { id: sid, key: k_lat, phase: 2, ty: 3, v: (lat as f64 * 0.5).to_bits() });
+        push(&mut ev, te, TxOp::Attr { id: sid, key: k_data, ty: 2, v: data });
+        push(&mut ev, te, TxOp::Attr { id: sid, key: k_lat, ty: 3, v: (lat as f64 * 0.5).to_bits() });
         push(&mut ev, te, TxOp::End { id: sid, time: te });
         let tne = te + 2;
-        push(&mut ev, tne, TxOp::Attr { id: pid, key: k_resp, phase: 2, ty: 4, v: if err { s_err } else { s_exok } as u64 });
+        push(&mut ev, tne, TxOp::Attr { id: pid, key: k_resp, ty: 4, v: if err { s_err } else { s_exok } as u64 });
         push(&mut ev, tne, TxOp::End { id: pid, time: tne });
         let tie = tne + 1;
-        push(&mut ev, tie, TxOp::Attr { id, key: k_data, phase: 2, ty: 2, v: data });
-        push(&mut ev, tie, TxOp::Attr { id, key: k_resp, phase: 2, ty: 4, v: if err { s_err } else { s_ok } as u64 });
-        push(&mut ev, tie, TxOp::Attr { id, key: k_err, phase: 1, ty: 0, v: err as u64 });
+        push(&mut ev, tie, TxOp::Attr { id, key: k_data, ty: 2, v: data });
+        push(&mut ev, tie, TxOp::Attr { id, key: k_resp, ty: 4, v: if err { s_err } else { s_ok } as u64 });
+        push(&mut ev, tie, TxOp::Attr { id, key: k_err, ty: 0, v: err as u64 });
         push(&mut ev, tie, TxOp::End { id, time: tie });
         cpu_time[c] = t + 1 + rng.below(10);
     }
@@ -433,7 +431,7 @@ pub fn tx_write_vtr(rp: &TxReplay, out: &str, opts: WriterOptions, label: &str) 
                 ids[*id as usize] = w.begin_tx(gens[*gen as usize], *time).unwrap();
                 ntx += 1;
             }
-            TxOp::Attr { id, key, phase, ty, v } => {
+            TxOp::Attr { id, key, ty, v } => {
                 let val = match ty {
                     0 => Value::Bool(*v != 0),
                     1 => Value::I64(*v as i64),
@@ -441,7 +439,7 @@ pub fn tx_write_vtr(rp: &TxReplay, out: &str, opts: WriterOptions, label: &str) 
                     3 => Value::F64(f64::from_bits(*v)),
                     _ => Value::Str(strs[*v as usize]),
                 };
-                w.tx_attr(ids[*id as usize], strs[*key as usize], AttrPhase::from_u8(*phase), &val).unwrap();
+                w.tx_attr(ids[*id as usize], strs[*key as usize], &val).unwrap();
                 nattr += 1;
             }
             TxOp::End { id, time } => w.end_tx(ids[*id as usize], *time, TxStatus::Unset).unwrap(),

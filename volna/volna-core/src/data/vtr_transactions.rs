@@ -229,7 +229,6 @@ fn transaction(reader: &Reader, tx: &vtr::Transaction) -> Transaction {
             .iter()
             .map(|a| TransactionAttribute {
                 key: reader.str(a.key).into(),
-                phase: a.phase,
                 value: value(reader, &a.value),
             })
             .collect(),

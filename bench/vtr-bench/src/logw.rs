@@ -250,7 +250,7 @@ fn args(m: &Msg, out: &mut [LogArg<'static>; 5]) -> usize {
 /// ordinary zero-duration transactions with one attribute per argument (the
 /// encoding a producer would use without log support), for the rationale.
 pub fn run_write_as_tx(n: u64, path: &str, opts: WriterOptions) -> serde_json::Value {
-    use vtr::{AttrPhase, TxStatus, Value};
+    use vtr::{TxStatus, Value};
     let mut w = Writer::create_with(path, opts).unwrap();
     w.set_timescale(-9).unwrap();
     let top = w.begin_scope("top", ScopeType::Generic, "sim");
@@ -272,7 +272,7 @@ pub fn run_write_as_tx(n: u64, path: &str, opts: WriterOptions) -> serde_json::V
                 LogArg::Text(s) => Value::Text(s.to_string()),
                 other => other.to_value(),
             };
-            w.tx_attr(tx, keys[i], AttrPhase::Record, &v).unwrap();
+            w.tx_attr(tx, keys[i], &v).unwrap();
         }
         w.end_tx(tx, m.t, TxStatus::Unset).unwrap();
     }
@@ -289,7 +289,9 @@ pub fn run_write(n: u64, path: &str, opts: WriterOptions, label: &str) -> serde_
     let top = w.begin_scope("top", ScopeType::Generic, "sim");
     let stream = w.add_log_stream(Some(top), "log");
     w.end_scope().unwrap();
-    let sites: Vec<LogSiteId> = (0..13).map(|k| w.add_log_site(&LogSiteSpec::new(stream, SEVS[k], FMTS[k], TYPES[k]).location("workload.hpp", 60 + k as u32))).collect();
+    let sites: Vec<LogSiteId> = (0..13)
+        .map(|k| w.add_log_site(&LogSiteSpec::new(stream, SEVS[k], FMTS[k], TYPES[k]).location("workload.hpp", 60 + k as u32)).unwrap())
+        .collect();
     let mut gen = Generator::new(42);
     let mut m = Msg::default();
     let mut a = [LogArg::Bool(false); 5];

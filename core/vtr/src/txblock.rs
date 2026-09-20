@@ -79,30 +79,9 @@ impl TxKind {
     }
 }
 
-/// When an attribute was recorded relative to the transaction lifetime (FTR semantics).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-#[repr(u8)]
-pub enum AttrPhase {
-    Begin = 0,
-    #[default]
-    Record = 1,
-    End = 2,
-}
-
-impl AttrPhase {
-    pub fn from_u8(v: u8) -> AttrPhase {
-        match v {
-            0 => AttrPhase::Begin,
-            2 => AttrPhase::End,
-            _ => AttrPhase::Record,
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct TxAttr {
     pub key: StrId,
-    pub phase: AttrPhase,
     pub value: Value,
 }
 
@@ -151,12 +130,11 @@ pub struct Relation {
 // Row format (writer scratch and block input)
 // ---------------------------------------------------------------------------
 
-/// Writes an attribute list (`count`, then key/phase/value triples) in row form.
+/// Writes an attribute list (`count`, then key/value pairs) in row form.
 pub fn row_attrs(out: &mut Vec<u8>, attrs: &[(StrId, Value)]) {
     varint::put_u64(out, attrs.len() as u64);
     for (k, v) in attrs {
         varint::put_u64(out, k.0 as u64);
-        out.push(AttrPhase::Record as u8);
         v.encode(out);
     }
 }
@@ -173,7 +151,6 @@ pub fn encode_tx_row(tx: &Transaction, out: &mut Vec<u8>) {
     varint::put_u64(out, tx.attrs.len() as u64);
     for a in &tx.attrs {
         varint::put_u64(out, a.key.0 as u64);
-        out.push(a.phase as u8);
         a.value.encode(out);
     }
     varint::put_u64(out, tx.events.len() as u64);
@@ -200,9 +177,8 @@ fn decode_row_attrs(r: &mut Reader) -> Result<Vec<TxAttr>> {
     let mut v = Vec::with_capacity(n);
     for _ in 0..n {
         let key = StrId(r.u32()?);
-        let phase = AttrPhase::from_u8(r.u8()?);
         let value = Value::decode(r)?;
-        v.push(TxAttr { key, phase, value });
+        v.push(TxAttr { key, value });
     }
     Ok(v)
 }
@@ -388,9 +364,9 @@ impl Columns {
         Columns { c: (0..N_COLS).map(|_| Vec::new()).collect(), prev_id: 0, prev_begin: 0, prev_from: 0 }
     }
 
-    fn put_attr_value(&mut self, key: StrId, phase: u8, v: &Value) {
+    fn put_attr_value(&mut self, key: StrId, v: &Value) {
         varint::put_u64(&mut self.c[C_AKEY], key.0 as u64);
-        self.c[C_ATAG].push((phase << 5) | v.tag() as u8);
+        self.c[C_ATAG].push(v.tag() as u8);
         match v {
             Value::Null => {}
             Value::Bool(b) => self.c[C_ANUM].push(*b as u8),
@@ -417,14 +393,14 @@ impl Columns {
     fn put_attrs(&mut self, attrs: &[TxAttr]) {
         varint::put_u64(&mut self.c[C_ACOUNT], attrs.len() as u64);
         for a in attrs {
-            self.put_attr_value(a.key, a.phase as u8, &a.value);
+            self.put_attr_value(a.key, &a.value);
         }
     }
 
     fn put_kv(&mut self, attrs: &[(StrId, Value)]) {
         varint::put_u64(&mut self.c[C_ACOUNT], attrs.len() as u64);
         for (k, v) in attrs {
-            self.put_attr_value(*k, AttrPhase::Record as u8, v);
+            self.put_attr_value(*k, v);
         }
     }
 
@@ -434,10 +410,9 @@ impl Columns {
         varint::put_u64(&mut self.c[C_ACOUNT], n as u64);
         for _ in 0..n {
             let key = StrId(r.u32()?);
-            let phase = r.u8()?;
             let tag = ValueTag::from_u8(r.u8()?)?;
             varint::put_u64(&mut self.c[C_AKEY], key.0 as u64);
-            self.c[C_ATAG].push((phase << 5) | tag as u8);
+            self.c[C_ATAG].push(tag as u8);
             match tag {
                 ValueTag::Null => {}
                 ValueTag::Bool => self.c[C_ANUM].push(r.u8()?),
@@ -677,8 +652,10 @@ struct ColReaders<'a> {
 }
 
 impl<'a> ColReaders<'a> {
-    fn attr_value(&mut self, tagbyte: u8) -> Result<(AttrPhase, Value)> {
-        let phase = AttrPhase::from_u8(tagbyte >> 5);
+    fn attr_value(&mut self, tagbyte: u8) -> Result<Value> {
+        if tagbyte & 0xe0 != 0 {
+            return Err(Error::Corrupt("reserved attribute tag bits are nonzero"));
+        }
         let tag = ValueTag::from_u8(tagbyte & 31)?;
         let v = match tag {
             ValueTag::Null => Value::Null,
@@ -706,7 +683,7 @@ impl<'a> ColReaders<'a> {
             }
             other => Value::decode_payload(other, &mut self.r[C_AMISC])?,
         };
-        Ok((phase, v))
+        Ok(v)
     }
 
     fn attrs(&mut self) -> Result<Vec<TxAttr>> {
@@ -715,8 +692,8 @@ impl<'a> ColReaders<'a> {
         for _ in 0..n {
             let key = StrId(self.r[C_AKEY].u32()?);
             let tb = self.r[C_ATAG].u8()?;
-            let (phase, value) = self.attr_value(tb)?;
-            v.push(TxAttr { key, phase, value });
+            let value = self.attr_value(tb)?;
+            v.push(TxAttr { key, value });
         }
         Ok(v)
     }
@@ -818,9 +795,9 @@ mod tests {
                 kind: TxKind::Client,
                 parent: None,
                 attrs: vec![
-                    TxAttr { key: StrId(1), phase: AttrPhase::Begin, value: Value::U64(42) },
-                    TxAttr { key: StrId(2), phase: AttrPhase::End, value: Value::F64(1.5) },
-                    TxAttr { key: StrId(3), phase: AttrPhase::Record, value: Value::List(vec![Value::Bool(true)]) },
+                    TxAttr { key: StrId(1), value: Value::U64(42) },
+                    TxAttr { key: StrId(2), value: Value::F64(1.5) },
+                    TxAttr { key: StrId(3), value: Value::List(vec![Value::Bool(true)]) },
                 ],
                 events: vec![TxEvent { time: 120, name: StrId(7), attrs: vec![(StrId(8), Value::Str(StrId(9)))] }],
                 stages: vec![

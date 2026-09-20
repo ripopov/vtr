@@ -19,7 +19,7 @@ template <bool C> static void run(const TxReplay &rp, const char *out, uint64_t 
         switch (o.op) {
         case 1: tx_stream[o.id] = gen_stream[o.gen_or_key]; w.startTransaction(o.id, gen_id[o.gen_or_key], gen_stream[o.gen_or_key], o.time); ntx++; break;
         case 2: {
-            auto ev = o.phase == 0 ? ftr::event_type::BEGIN : o.phase == 2 ? ftr::event_type::END : ftr::event_type::RECORD;
+            auto ev = ftr::event_type::RECORD;
             const char *key = rp.strings[o.gen_or_key].c_str();
             switch (o.ty) {
             case 0: w.writeAttribute(o.id, ev, key, ftr::data_type::BOOLEAN, (bool)(o.v != 0)); break;
