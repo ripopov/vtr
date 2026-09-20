@@ -49,9 +49,9 @@ modifier (Konata's default) would conflict with the wave panel's wheel.
 Data is the document's loaded track: rows index the resident
 `LoadedGenerator` slices through prefix sums and the panel retains and
 releases the track like a consumer, so splits share one load and closing the
-last panel frees it; no second index, cache or wire format was added. The
-interval tree is not consulted because rows index records directly; it
-becomes useful for time-to-row queries (cursor follow, search). The stream
+last panel frees it; no second index, cache or wire format was added. Painting
+indexes rows directly; follow activity queries the resident interval tree to
+retain long overlaps and point transactions without a second index. The stream
 kind is never required: any generator has stages and lifetimes, and gating on
 `PIPELINE` would refuse gem5 or SystemC generators that render as well.
 Painting walks only the visible rows and skips stages outside the window;
@@ -66,6 +66,20 @@ version 3): a pipeline whose cursor reads `476 s` for cycle 476 is wrong in a
 way no theming fixes. Embedding Konata's renderer was rejected because it
 would put viewer logic outside the toolkit-free core and would not run in the
 native window.
+
+Follow activity borrows the separate time link and local row policy from
+[`follow-activity.html`](follow-activity.html). The visible effective cursor
+anchors the query, falling back to the viewport center; intersecting lifetimes
+nearest that anchor win, with ties resolved toward the current row center.
+The middle 60% is a safe band: a candidate already there causes no movement.
+Idle windows retain rows and show the direction of activity. Following changes
+only row top, never height, cursor or shared time. Immediate row placement
+avoids a second lagging animation while shared time itself animates.
+Vertical pan, row keys and two-axis zoom suspend following; horizontal input
+does not. Explicit resume and one-shot edge navigation avoid silently taking
+control back after manual inspection. Follow state is saved per panel and
+copied on split. Native toolbar equivalents expose the canvas edge actions to
+keyboard and accessibility users. Protocols and VTR/VDB data stay unchanged.
 
 ## Volna baseline table panel
 

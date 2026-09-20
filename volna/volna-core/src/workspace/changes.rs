@@ -28,6 +28,7 @@ pub(crate) struct Stamp {
 }
 #[derive(PartialEq)]
 struct PipelineStamp {
+    follow: crate::pipeline::FollowActivity,
     link: Link,
     viewport: Option<Viewport>,
     cursor: Option<u64>,
@@ -77,6 +78,7 @@ impl Stamp {
         }
         let panel = match command {
             Command::Pointer(id, _)
+            | Command::PipelineActivity(id, _)
             | Command::MenuSelect(id, _)
             | Command::Panels(crate::panels::PanelsCommand::ToggleLink { panel: id, .. }) => *id,
             _ => app.panels.focused_id(),
@@ -117,6 +119,7 @@ impl Stamp {
                 formats: formats.then(|| w.items.iter().map(DisplayedSignal::format_id).collect()),
             }),
             pipeline: app.panels.pipeline(panel).map(|p| PipelineStamp {
+                follow: p.follow,
                 link: p.nav.link,
                 viewport: (!p.nav.link.viewport).then(|| p.nav.local_viewport.target()),
                 cursor: if p.nav.link.cursor {

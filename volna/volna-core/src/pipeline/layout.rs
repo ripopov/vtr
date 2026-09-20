@@ -24,6 +24,7 @@ pub const DENSITY_PX: f32 = 2.0;
 
 #[derive(Clone, Debug, Default)]
 pub struct PipelineLayout {
+    pub activity_controls: Vec<(super::ActivityCommand, Rect, String)>,
     pub bounds: Rect,
     pub header: Rect,
     /// The label column below the header.
@@ -45,6 +46,7 @@ pub struct PipelineLayout {
     pub retry: Option<Rect>,
 }
 
+#[derive(Clone, Copy)]
 pub struct LayoutInput<'a> {
     pub bounds: Rect,
     /// Already zoomed (the theme's `timeline_height`).
@@ -114,6 +116,7 @@ impl PipelineLayout {
             size(z(2.0 * SPLITTER_TOLERANCE), bounds.height()),
         );
         Self {
+            activity_controls: Vec::new(),
             bounds,
             header,
             labels,

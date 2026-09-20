@@ -52,6 +52,7 @@ impl TrackSource {
 /// What the pointer is over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hit {
+    Activity(super::ActivityCommand),
     Row(usize),
     Cell { row: usize, stage: usize },
     LabelSplit,
@@ -130,6 +131,7 @@ impl<'a> RowSet<'a> {
 }
 
 pub struct PipelineModel {
+    pub follow: super::FollowActivity,
     pub track: TrackSource,
     pub nav: NavState,
     /// The row axis at interface zoom 1.0.
@@ -155,6 +157,7 @@ impl PipelineModel {
         nav.link = link;
         Self {
             track,
+            follow: super::FollowActivity::default(),
             nav,
             rows: Tween::new(RowView::default()),
             label_width: LABEL_W_DEFAULT,
@@ -174,6 +177,7 @@ impl PipelineModel {
     pub fn clone_view(&self) -> Self {
         Self {
             track: self.track.clone(),
+            follow: self.follow,
             nav: self.nav.clone_view(),
             rows: Tween::new(self.rows.target()),
             label_width: self.label_width,
@@ -348,7 +352,7 @@ impl PipelineModel {
             Rows::Failed(_) => (0, true),
             _ => (0, false),
         };
-        let layout = PipelineLayout::compute(LayoutInput {
+        let input = LayoutInput {
             bounds,
             header_h: theme.timeline_height,
             zoom: theme.zoom,
@@ -358,12 +362,51 @@ impl PipelineModel {
             markers: &doc.markers,
             viewport: self.nav.viewport(doc),
             failed,
-        });
+        };
+        self.layout = PipelineLayout::compute(input);
+        self.follow_activity(doc);
+        let layout = if self.rows.value != input.rows {
+            PipelineLayout::compute(LayoutInput {
+                rows: self.rows.value,
+                ..input
+            })
+        } else {
+            self.layout.clone()
+        };
         // The clamp is part of the view: keep it once nothing animates.
         if !self.rows.is_animating() {
             self.rows.set(layout.rows.unzoomed(layout.zoom));
         }
         self.layout = layout;
+        let activity = self.activity(doc);
+        let area = self.layout.cells;
+        let z = theme.zoom;
+        let width = (170.0 * z).min(area.width());
+        let x = area.left() + (area.width() - width) * 0.5;
+        if area.height() >= 80.0 * z {
+            for (command, count, y, direction) in [
+                (
+                    super::ActivityCommand::RevealAbove,
+                    activity.above,
+                    area.top() + 6.0 * z,
+                    "↑",
+                ),
+                (
+                    super::ActivityCommand::RevealBelow,
+                    activity.below,
+                    area.bottom() - 28.0 * z,
+                    "↓",
+                ),
+            ] {
+                if count > 0 {
+                    self.layout.activity_controls.push((
+                        command,
+                        crate::geometry::Rect::from_xywh(x, y, width, 22.0 * z),
+                        format!("{direction} {count} relevant rows"),
+                    ));
+                }
+            }
+        }
         self.hover = self.pointer.and_then(|p| self.hit_at(p, doc));
         &self.layout
     }
@@ -372,6 +415,13 @@ impl PipelineModel {
         let layout = &self.layout;
         if !layout.bounds.contains(p) {
             return None;
+        }
+        if let Some((command, _, _)) = layout
+            .activity_controls
+            .iter()
+            .find(|(_, rect, _)| rect.contains(p))
+        {
+            return Some(Hit::Activity(*command));
         }
         if layout.label_split.contains(p) {
             return Some(Hit::LabelSplit);
@@ -438,6 +488,7 @@ impl PipelineModel {
     /// Zoom both axes by `factor` about a panel position; animated when
     /// `now` is given, otherwise immediate.
     pub fn zoom_about(&mut self, doc: &mut Document, p: Point, factor: f64, now: Option<Instant>) {
+        self.suspend_follow();
         let x = f64::from((p.x - self.layout.cells.left()).max(0.0));
         let y = (p.y - self.layout.cells.top()).max(0.0);
         let w = self.cells_w();
@@ -463,6 +514,7 @@ impl PipelineModel {
     /// Keyboard zoom: time about the cursor when visible (else the centre),
     /// rows about the middle of the cells area.
     fn zoom_center(&mut self, doc: &mut Document, factor: f64, now: Instant) {
+        self.suspend_follow();
         let w = self.cells_w();
         self.nav.zoom_center(doc, w, factor, now);
         let mut rows = self.rows_target();
@@ -510,6 +562,9 @@ impl PipelineModel {
 
     /// Scroll the rows by `rows` (animated).
     pub fn scroll_rows(&mut self, doc: &mut Document, rows: f64, now: Instant) {
+        if rows != 0.0 {
+            self.suspend_follow();
+        }
         let mut target = self.rows_target();
         target.top += rows;
         self.set_rows(doc, target, Some(now));
@@ -522,6 +577,7 @@ impl PipelineModel {
             self.nav.pan_px(doc, f64::from(dx), w);
         }
         if dy != 0.0 {
+            self.suspend_follow();
             let mut rows = self.rows.value.zoomed(self.layout.zoom);
             rows.pan_px(dy, self.cells_h(), self.row_count(doc), self.layout.zoom);
             self.set_rows(doc, rows, None);
@@ -605,6 +661,12 @@ impl PipelineModel {
         modifiers: Modifiers,
     ) {
         self.pointer = Some(p);
+        if button == MouseButton::Left
+            && let Some(Hit::Activity(command)) = self.hit_at(p, doc)
+        {
+            self.activity_command(doc, command);
+            return;
+        }
         let layout = &self.layout;
         if button == MouseButton::Left {
             if layout.label_split.contains(p) {

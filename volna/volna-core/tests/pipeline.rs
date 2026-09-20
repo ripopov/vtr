@@ -143,7 +143,254 @@ fn opened(n: u64) -> (App, Arc<dyn Session>, PanelId, PanelId) {
     app.handle(Command::ScopesKey(Key::Enter));
     let pipeline = app.panels.focused_id();
     assert_ne!(pipeline, waves);
+    // These baseline painting/input tests inspect explicitly positioned rows.
+    // Follow behavior is exercised separately below.
+    app.handle(Command::PipelineActivity(
+        pipeline,
+        volna_core::pipeline::ActivityCommand::Toggle,
+    ));
     (app, session, waves, pipeline)
+}
+
+#[test]
+fn activity_follows_cursor_then_view_center_and_preserves_other_axes() {
+    use volna_core::pipeline::{ActivityCommand, FollowActivity};
+    use volna_core::wave::viewport::Viewport;
+    let (mut app, _, waves, pipeline) = opened(1000);
+    pump(&mut app);
+    let theme = Theme::one_dark();
+    app.doc.shared.viewport.set(Viewport {
+        start: 100.0,
+        end: 900.0,
+    });
+    app.doc.shared.cursor = Some(200);
+    frame(&mut app, pipeline, &theme);
+    let row_px = app.panels.pipeline(pipeline).unwrap().rows.value.row_px;
+    let wave_rows = app.panels.waves(waves).unwrap().scroll_y;
+    app.handle(Command::PipelineActivity(pipeline, ActivityCommand::Toggle));
+    frame(&mut app, pipeline, &theme);
+    let p = app.panels.pipeline(pipeline).unwrap();
+    assert_eq!(p.follow, FollowActivity::Following);
+    assert!(p.last_layout().row_range.contains(&200));
+    let top = p.rows.value.top;
+    frame(&mut app, pipeline, &theme);
+    assert_eq!(app.panels.pipeline(pipeline).unwrap().rows.value.top, top);
+    app.doc.shared.cursor = Some(1); // outside the view: anchor its center
+    frame(&mut app, pipeline, &theme);
+    let p = app.panels.pipeline(pipeline).unwrap();
+    assert!(p.last_layout().row_range.contains(&500));
+    assert_eq!(p.rows.value.row_px, row_px);
+    assert_eq!(app.doc.shared.cursor, Some(1));
+    assert_eq!(
+        app.doc.shared.viewport.value,
+        Viewport {
+            start: 100.0,
+            end: 900.0
+        }
+    );
+    assert_eq!(app.panels.waves(waves).unwrap().scroll_y, wave_rows);
+    // Local links use the same policy without mutating shared navigation.
+    app.handle(Command::Panels(PanelsCommand::ToggleLink {
+        panel: pipeline,
+        dim: LinkDim::Viewport,
+    }));
+    app.handle(Command::Panels(PanelsCommand::ToggleLink {
+        panel: pipeline,
+        dim: LinkDim::Cursor,
+    }));
+    let p = app.panels.pipeline_mut(pipeline).unwrap();
+    p.nav.local_viewport.set(Viewport {
+        start: 700.0,
+        end: 900.0,
+    });
+    p.nav.local_cursor = Some(750);
+    frame(&mut app, pipeline, &theme);
+    assert!(
+        app.panels
+            .pipeline(pipeline)
+            .unwrap()
+            .last_layout()
+            .row_range
+            .contains(&750)
+    );
+    assert_eq!(app.doc.shared.cursor, Some(1));
+}
+
+#[test]
+fn activity_vertical_override_edges_resume_and_idle_are_explicit() {
+    use volna_core::pipeline::{ActivityCommand, FollowActivity};
+    use volna_core::wave::viewport::Viewport;
+    let (mut app, _, _, pipeline) = opened(1000);
+    pump(&mut app);
+    let theme = Theme::one_dark();
+    app.doc.shared.viewport.set(Viewport {
+        start: 400.0,
+        end: 450.0,
+    });
+    app.doc.shared.cursor = None;
+    frame(&mut app, pipeline, &theme);
+    app.handle(Command::PipelineActivity(pipeline, ActivityCommand::Toggle));
+    let area = cells(&mut app, pipeline, &theme);
+    let position = point(area.left() + 100.0, area.top() + 100.0);
+    let wheel = |dx, dy| {
+        Command::Pointer(
+            pipeline,
+            PointerEvent::Wheel {
+                position,
+                dx,
+                dy,
+                precise: true,
+                modifiers: Modifiers::default(),
+            },
+        )
+    };
+    app.handle(wheel(5.0, 0.0));
+    assert_eq!(
+        app.panels.pipeline(pipeline).unwrap().follow,
+        FollowActivity::Following
+    );
+    app.handle(wheel(0.0, 2000.0));
+    frame(&mut app, pipeline, &theme);
+    let p = app.panels.pipeline(pipeline).unwrap();
+    assert_eq!(p.follow, FollowActivity::Suspended);
+    let top = p.rows.value.top;
+    app.doc.shared.cursor = Some(440);
+    frame(&mut app, pipeline, &theme);
+    assert_eq!(app.panels.pipeline(pipeline).unwrap().rows.value.top, top);
+    let p = app.panels.pipeline(pipeline).unwrap();
+    assert!(p.activity(&app.doc).below > 0);
+    let (_, rect, _) = p
+        .last_layout()
+        .activity_controls
+        .iter()
+        .find(|(command, _, _)| *command == ActivityCommand::RevealBelow)
+        .unwrap();
+    app.handle(Command::Pointer(
+        pipeline,
+        PointerEvent::Down {
+            position: point(rect.left() + 10.0, rect.top() + 10.0),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    frame(&mut app, pipeline, &theme);
+    let p = app.panels.pipeline(pipeline).unwrap();
+    assert_eq!(p.follow, FollowActivity::Suspended);
+    assert!(p.activity(&app.doc).visible > 0);
+    app.handle(Command::PipelineActivity(pipeline, ActivityCommand::Toggle));
+    assert_eq!(
+        app.panels.pipeline(pipeline).unwrap().follow,
+        FollowActivity::Following
+    );
+    let top = app.panels.pipeline(pipeline).unwrap().rows.value.top;
+    app.doc.shared.viewport.set(Viewport {
+        start: 2000.0,
+        end: 2100.0,
+    });
+    frame(&mut app, pipeline, &theme);
+    assert_eq!(app.panels.pipeline(pipeline).unwrap().rows.value.top, top);
+    let scene = app.render_panel(pipeline, &theme, &mut MonoMeasure);
+    assert!(scene.prims.iter().any(|prim| matches!(prim, Prim::Text { text, .. } if text.contains("No pipeline activity") && text.contains('←'))));
+}
+
+#[test]
+fn activity_state_survives_workspace_and_split() {
+    use volna_core::pipeline::FollowActivity;
+    for follow in [
+        FollowActivity::Off,
+        FollowActivity::Following,
+        FollowActivity::Suspended,
+    ] {
+        let (mut app, session, _, pipeline) = opened(100);
+        pump(&mut app);
+        app.panels.pipeline_mut(pipeline).unwrap().follow = follow;
+        assert_eq!(
+            app.panels.pipeline(pipeline).unwrap().clone_view().follow,
+            follow
+        );
+        let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
+        let mut restored = App::new();
+        restored.set_session(session);
+        Workspace::parse(&saved.to_bytes().unwrap())
+            .unwrap()
+            .prepare(
+                &restored,
+                "file:///tmp/trace.vtr",
+                "file:///tmp/trace.vtr.volna.json",
+            )
+            .unwrap()
+            .commit(&mut restored)
+            .unwrap();
+        assert_eq!(restored.panels.pipeline(pipeline).unwrap().follow, follow);
+    }
+}
+
+#[test]
+fn activity_keeps_long_overlaps_points_and_generator_row_offsets() {
+    use volna_core::wave::viewport::Viewport;
+    let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
+    let mut writer = vtr::Writer::create(file.path()).unwrap();
+    let stream = writer.add_stream(None, "pipeline", "PIPELINE");
+    let first = writer.add_generator(stream, "first");
+    let second = writer.add_generator(stream, "second");
+    let long = writer.begin_tx(first, 0).unwrap();
+    writer.end_tx(long, 1000, vtr::TxStatus::Ok).unwrap();
+    for i in 1..100 {
+        let tx = writer.begin_tx(first, i).unwrap();
+        writer.end_tx(tx, i, vtr::TxStatus::Ok).unwrap();
+    }
+    let point_tx = writer.begin_tx(second, 500).unwrap();
+    writer.end_tx(point_tx, 500, vtr::TxStatus::Ok).unwrap();
+    writer.set_time(1000).unwrap();
+    writer.close().unwrap();
+    let session = OpenSpec::Path(file.path().into()).open().unwrap();
+    let track = stream_track(session.as_ref(), &["pipeline"]);
+    let mut app = App::new();
+    app.set_session(session);
+    app.handle(Command::OpenPipeline { track });
+    let panel = app.panels.focused_id();
+    app.doc.shared.viewport.set(Viewport {
+        start: 500.0,
+        end: 500.5,
+    });
+    app.doc.shared.cursor = Some(500);
+    let theme = Theme::one_dark();
+    frame(&mut app, panel, &theme); // follow tolerates an undelivered track
+    pump(&mut app);
+    frame(&mut app, panel, &theme);
+    let p = app.panels.pipeline(panel).unwrap();
+    let activity = p.activity(&app.doc);
+    assert_eq!(activity.visible + activity.above + activity.below, 2);
+    assert_eq!(
+        activity.target,
+        Some(0),
+        "nearest visible overlap stays put"
+    );
+    assert_eq!(
+        activity.nearest_below,
+        Some(100),
+        "second generator follows first's rows"
+    );
+    app.doc.shared.viewport.set(Viewport {
+        start: 500.1,
+        end: 500.9,
+    });
+    frame(&mut app, panel, &theme);
+    let activity = app.panels.pipeline(panel).unwrap().activity(&app.doc);
+    assert_eq!(activity.visible + activity.above + activity.below, 1);
+    assert_eq!(
+        activity.target,
+        Some(0),
+        "fractional windows still contain long lifetimes"
+    );
+    app.doc.shared.viewport.set(Viewport {
+        start: -2.0,
+        end: -1.0,
+    });
+    frame(&mut app, panel, &theme);
+    let activity = app.panels.pipeline(panel).unwrap().activity(&app.doc);
+    assert_eq!(activity.target, None);
+    assert!(activity.later);
 }
 
 fn cells(app: &mut App, id: PanelId, theme: &Theme) -> Rect {

@@ -224,7 +224,7 @@ requirement for embedded chat.
 | Panels, docking, and persistent workspace sessions (proposal) | [Workspaces](docs/workspaces.html) |
 | `settings.json`, fuzzy-search editor, and VS Code parity (implemented design) | [Settings](docs/user-settings.html), [Volna architecture](volna/volna/ARCHITECTURE.md) |
 | Mixed scope/stream hierarchy, member search, semantic icons, and log provenance (implemented; transaction panels deferred) | [Hierarchy](docs/hierarchy.html), [Volna architecture](volna/volna/ARCHITECTURE.md) |
-| Konata-style pipeline rows with a shared time axis and map-like zoom (implemented) | [Pipeline](docs/pipeline-view.html), [examples](volna/volna/examples/README.md), [Konata plan](docs/VDB_KONATA_PLAN.html) |
+| Konata-style pipeline rows with a shared time axis and map-like zoom (implemented) | [Pipeline](docs/pipeline-view.html), [follow activity demo](docs/follow-activity.html), [examples](volna/volna/examples/README.md), [Konata plan](docs/VDB_KONATA_PLAN.html) |
 | General table panel over transactions, signal groups, logs, and synthetic rows (proposal) | [Full proposal](docs/table-panel.html), `docs/egui-table/` measured prototype, `docs/table/` superseded sketches |
 | Reduced immutable single-generator table with bounded viewport work (proposal/demo) | [Baseline](docs/table-baseline.html) |
 | Transaction generator lanes in the wave panel with stacking and density (proposal/demo) | [Proposal](docs/transaction-waveforms.html), [investigation](docs/transaction-waveforms-investigation.md) |

@@ -339,6 +339,7 @@ impl Element for PanelCanvas {
                     let mut rects = vec![layout.label_split];
                     rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
                     rects.extend(layout.retry);
+                    rects.extend(layout.activity_controls.iter().map(|(_, rect, _)| *rect));
                     rects
                 }
                 Some(PanelLayout::Table(_)) => Vec::new(),

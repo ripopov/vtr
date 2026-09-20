@@ -541,6 +541,69 @@ impl Panel for CanvasPanelView {
                     view.dispatch(PanelsCommand::Close(view.id), window, cx)
                 })),
         ];
+        if let Some((follow, activity)) = self.ws.upgrade().and_then(|owner| {
+            let ws = owner.read(cx);
+            let pipeline = ws.app.panels.pipeline(self.id)?;
+            Some((pipeline.follow, pipeline.activity(&ws.app.doc)))
+        }) {
+            use volna_core::pipeline::{ActivityCommand, FollowActivity};
+            let mut controls = vec![(
+                "follow-activity",
+                match follow {
+                    FollowActivity::Following => "Following activity",
+                    FollowActivity::Suspended => "Resume follow",
+                    FollowActivity::Off => "Follow activity",
+                }
+                .to_string(),
+                ActivityCommand::Toggle,
+            )];
+            if activity.above > 0 {
+                controls.push((
+                    "activity-above",
+                    format!("↑ {} above", activity.above),
+                    ActivityCommand::RevealAbove,
+                ));
+            }
+            if activity.below > 0 {
+                controls.push((
+                    "activity-below",
+                    format!("↓ {} below", activity.below),
+                    ActivityCommand::RevealBelow,
+                ));
+            }
+            for (name, label, command) in controls.into_iter().rev() {
+                let owner = self.ws.clone();
+                let generation = self.generation;
+                let panel = self.id;
+                buttons.insert(
+                    0,
+                    Button::new(name)
+                        .label(label)
+                        .ghost()
+                        .when(
+                            name == "follow-activity" && follow == FollowActivity::Suspended,
+                            |button| button.warning(),
+                        )
+                        .xsmall()
+                        .selected(name == "follow-activity" && follow == FollowActivity::Following)
+                        .tooltip(if name == "follow-activity" {
+                            "Follow activity; manual vertical navigation suspends following"
+                        } else {
+                            "Reveal relevant rows without enabling follow"
+                        })
+                        .on_click(move |_, window, cx| {
+                            _ = owner.update(cx, |ws, cx| {
+                                ws.dispatch_if_current(
+                                    generation,
+                                    Command::PipelineActivity(panel, command),
+                                    Some(window),
+                                    cx,
+                                );
+                            });
+                        }),
+                );
+            }
+        }
         let table_eligible = self
             .ws
             .upgrade()

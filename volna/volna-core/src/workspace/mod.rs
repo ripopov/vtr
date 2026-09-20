@@ -107,6 +107,8 @@ fn present_raw<'de, D: serde::Deserializer<'de>>(
 /// A pipeline panel: the track path, its navigation, row axis and label column.
 #[derive(Serialize, Deserialize)]
 struct PipelinePanel {
+    #[serde(default)]
+    follow: crate::pipeline::FollowActivity,
     id: PanelId,
     kind: String,
     version: u32,
@@ -229,6 +231,7 @@ impl Workspace {
                         PanelKind::Unsupported(raw) => Ok(raw.clone()),
                         PanelKind::Pipeline(p) => {
                             Ok(serde_json::value::to_raw_value(&PipelinePanel {
+                                follow: p.follow,
                                 id: panel.id,
                                 kind: "pipeline".into(),
                                 version: 1,
@@ -484,6 +487,7 @@ impl Workspace {
                     }
                 };
                 let mut p = PipelineModel::new(track, saved.link);
+                p.follow = saved.follow;
                 if let Some(v) = saved.viewport {
                     valid_viewport(v)?;
                     p.nav.local_viewport.set(v);

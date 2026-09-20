@@ -368,6 +368,47 @@ pub fn paint(
         }
     }
 
+    if matches!(&rows, Rows::Ready(set) if !set.is_empty()) {
+        let activity = model.activity(doc);
+        if activity.visible == 0 {
+            let message = if activity.above + activity.below == 0 {
+                match (activity.earlier, activity.later) {
+                    (true, true) => "No pipeline activity in this time window · activity ← and →",
+                    (true, false) => "No pipeline activity in this time window · activity ←",
+                    (false, true) => "No pipeline activity in this time window · activity →",
+                    _ => "No pipeline activity in this time window",
+                }
+            } else {
+                "No activity in these rows · reveal rows above/below or resume follow"
+            };
+            p.scene.clipped(cells, |scene| {
+                scene.text(
+                    point(cells.left() + z(12.0), cells.top() + cells.height() * 0.5),
+                    z(22.0),
+                    message,
+                    FontRole::Ui,
+                    t.ui_size_small,
+                    t.editor.text_muted,
+                );
+            });
+        }
+    }
+
+    for (_, rect, label) in &layout.activity_controls {
+        p.scene
+            .quad(*rect, t.button.bg, z(6.0), 1.0, t.border_variant);
+        let width = p.width(label, FontRole::UiMedium, t.ui_size_small);
+        p.scene.text(
+            point(rect.left() + (rect.width() - width) * 0.5, rect.top()),
+            rect.height(),
+            label.clone(),
+            FontRole::UiMedium,
+            t.ui_size_small,
+            t.button.text,
+        );
+        p.scene.cursors.push((*rect, CursorIcon::PointingHand));
+    }
+
     // -- header: column titles, tick labels, unit ------------------------------
     p.scene.clipped(
         Rect::new(header.origin, size(labels.width(), header.height())),

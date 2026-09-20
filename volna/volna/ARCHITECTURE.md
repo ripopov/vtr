@@ -248,7 +248,21 @@ a left drag past three pixels pans both axes, a shorter press is a click.
 Keyboard actions are the wave panel's: `= -` zoom both axes, `F C Home End`
 and the arrows move time, `↑ ↓` scroll three rows, `M ⇧M` markers, `L ⇧L`
 links, Escape cancels a drag then the cursor. Row selection, formats and edge
-actions are no-ops. No new settings or actions exist.
+actions are no-ops.
+
+Pipeline panels start with **Follow activity** enabled, independently of both
+navigation links. The effective visible cursor, or otherwise viewport center,
+anchors a resident interval query. The nearest intersecting lifetimes are
+ranked by distance to the current row center. Rows move only when that candidate
+leaves the middle 60% safe band; row height and document navigation stay fixed.
+Vertical pan, row-navigation keys and two-axis zoom suspend follow until the
+toolbar's **Resume follow** is activated. Horizontal navigation keeps it active.
+Top/bottom indicators count off-screen intersecting rows and reveal the nearest
+one without enabling follow; toolbar equivalents support native accessibility.
+Idle time windows retain the row position and display earlier/later activity
+directions. Follow state persists in the pipeline workspace payload and splits.
+All policy and commands live in `pipeline::activity` in `volna-core`; see the
+[interaction design](../../docs/follow-activity.html).
 
 `Command::OpenPipeline { track }` (from `ActivateMembers`, the menu, the
 palette) focuses the panel already showing the track or opens one split below

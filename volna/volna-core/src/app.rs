@@ -128,6 +128,7 @@ pub enum Command {
         row: Option<usize>,
     },
     Table(PanelId, crate::table::TableCommand),
+    PipelineActivity(PanelId, crate::pipeline::ActivityCommand),
     SetSearchEverywhere(bool),
     SelectScope(ScopeId),
     ToggleScope(ScopeId),
@@ -712,6 +713,12 @@ impl App {
             Command::OpenPipeline { track } => self.open_pipeline(track),
             Command::OpenTable { selected, clicked } => self.open_table(&selected, clicked),
             Command::OpenTableFromPanel { panel, row } => self.open_table_from_panel(panel, row),
+            Command::PipelineActivity(panel, command) => {
+                if let Some(pipeline) = self.panels.pipeline_mut(panel) {
+                    pipeline.activity_command(&self.doc, command);
+                    self.changed();
+                }
+            }
             Command::Table(panel, command) => {
                 if let Some(table) = self.panels.get_mut(panel).and_then(|p| p.kind.table_mut())
                     && table.command(&mut self.doc, command, now)
