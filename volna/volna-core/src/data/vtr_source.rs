@@ -18,25 +18,28 @@ pub struct LocalSession {
     pub(super) tracks: Vec<super::transactions::Track>,
     info: TraceInfo,
     hierarchy: Hierarchy,
+    source_bytes: u64,
 }
 
 impl LocalSession {
     #[cfg(not(target_family = "wasm"))]
     pub fn open(path: &std::path::Path) -> anyhow::Result<Self> {
+        let source_bytes = std::fs::metadata(path)?.len();
         let reader = Reader::open(path).with_context(|| format!("open {}", path.display()))?;
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Self::from_reader(name, reader)
+        Self::from_reader(name, reader, source_bytes)
     }
 
     pub fn from_bytes(name: impl Into<String>, bytes: Vec<u8>) -> anyhow::Result<Self> {
+        let source_bytes = bytes.capacity() as u64;
         let reader = Reader::from_bytes(bytes).context("parse VTR image")?;
-        Self::from_reader(name.into(), reader)
+        Self::from_reader(name.into(), reader, source_bytes)
     }
 
-    fn from_reader(name: String, reader: Reader) -> anyhow::Result<Self> {
+    fn from_reader(name: String, reader: Reader, source_bytes: u64) -> anyhow::Result<Self> {
         let hierarchy = build_hierarchy(&reader);
         let file_text = |name: &str| {
             reader.meta().attrs.iter().find_map(|(key, value)| {
@@ -63,6 +66,7 @@ impl LocalSession {
             reader,
             info,
             hierarchy,
+            source_bytes,
         })
     }
 }
@@ -186,6 +190,9 @@ fn root_scope(h: &mut Hierarchy) -> usize {
 }
 
 impl Session for LocalSession {
+    fn resident_bytes(&self) -> u64 {
+        self.source_bytes
+    }
     fn load_track(
         &self,
         track: super::transactions::TrackRef,
@@ -253,6 +260,31 @@ fn first_bit(v: SignalValue<'_>) -> Bit {
 }
 
 impl SignalHistory for VtrHistory {
+    fn value_view(&self, i: Option<usize>) -> super::value_view::ValueView<'_> {
+        use super::value_view::{LogicView, ValueView};
+        match i.map_or_else(|| self.data.initial(), |i| self.data.get(i)) {
+            SignalValue::Bits {
+                width,
+                states,
+                data,
+            } => ValueView::Logic(LogicView::packed_lsb(width, states, data)),
+            SignalValue::Real(value) => ValueView::Real(value),
+            SignalValue::VarLen(bytes) => ValueView::Bytes(bytes.into()),
+        }
+    }
+    fn resident_bytes(&self) -> u64 {
+        let value_bytes = match self.shape {
+            SignalShape::Bit | SignalShape::Event => 1,
+            SignalShape::Vector { width } => u64::from(width).div_ceil(2).max(1),
+            SignalShape::Real => 8,
+            // Variable-length data has backend-owned offsets as well as bytes;
+            // use a conservative fixed floor when the opaque reader does not
+            // expose allocation capacities.
+            SignalShape::Text => 24,
+        };
+        (self.data.len() as u64).saturating_mul(8 + value_bytes)
+    }
+
     fn shape(&self) -> SignalShape {
         self.shape
     }

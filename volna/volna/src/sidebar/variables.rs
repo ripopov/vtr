@@ -2,6 +2,7 @@
 //! filter text box.
 
 use gpui_kit::component::Disableable;
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -42,6 +43,25 @@ impl Workspace {
             return;
         }
         let ks = &ev.keystroke;
+        if ks.key == "f10" && ks.modifiers.shift {
+            let selected = self
+                .app
+                .variables
+                .selected
+                .iter()
+                .filter_map(|&index| self.app.variables.rows.get(index).copied())
+                .collect();
+            self.dispatch(
+                Command::OpenTable {
+                    selected,
+                    clicked: None,
+                },
+                Some(window),
+                cx,
+            );
+            cx.stop_propagation();
+            return;
+        }
         let key = match ks.key.as_str() {
             "enter" => Key::Enter,
             "down" => Key::Down,
@@ -127,6 +147,7 @@ impl Workspace {
                 };
                 range
                     .map(|ix| {
+                        let owner = cx.entity().downgrade();
                         let member = this.app.variables.rows[ix];
                         let selected = this.app.variables.selected.contains(&ix);
                         let colors = t.row(selected, false);
@@ -230,6 +251,32 @@ impl Workspace {
                                     .text_color(colors.text_muted)
                                     .child(dims),
                             )
+                            .context_menu(move |menu, _, _cx| {
+                                let owner = owner.clone();
+                                menu.item(PopupMenuItem::new("Open in table").on_click(
+                                    move |_, window, cx| {
+                                        _ = owner.update(cx, |workspace, cx| {
+                                            let selected = workspace
+                                                .app
+                                                .variables
+                                                .selected
+                                                .iter()
+                                                .filter_map(|&index| {
+                                                    workspace.app.variables.rows.get(index).copied()
+                                                })
+                                                .collect();
+                                            workspace.dispatch(
+                                                Command::OpenTable {
+                                                    selected,
+                                                    clicked: Some(member),
+                                                },
+                                                Some(window),
+                                                cx,
+                                            );
+                                        });
+                                    },
+                                ))
+                            })
                     })
                     .collect()
             }),

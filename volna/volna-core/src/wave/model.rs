@@ -87,6 +87,7 @@ pub enum Drag {
 pub enum MenuAction {
     Format(String),
     RetryLoad,
+    OpenTable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -437,6 +438,14 @@ impl WaveModel {
                 checked: false,
             });
         }
+        if item.source.signal().is_some() {
+            items.push(MenuItem {
+                action: MenuAction::OpenTable,
+                label: "Open in table".into(),
+                badge: None,
+                checked: false,
+            });
+        }
         self.menu = Some(FormatMenu {
             row,
             position,
@@ -448,6 +457,9 @@ impl WaveModel {
     /// Return a failed canonical signal to retry through the document owner.
     pub fn menu_select(&mut self, doc: &Document, action: &MenuAction) -> Option<SignalRef> {
         let menu = self.menu.take()?;
+        if matches!(action, MenuAction::OpenTable) {
+            return None;
+        }
         let MenuAction::Format(id) = action else {
             let row = self.items.get(menu.row)?;
             return row.error.as_ref().and_then(|_| row.source.signal());

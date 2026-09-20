@@ -41,6 +41,12 @@ impl RemoteSession {
 }
 
 impl Session for RemoteSession {
+    fn memory_budget(&self) -> Option<super::memory::MemoryBudget> {
+        self._reservation
+            .as_ref()
+            .map(|reservation| reservation.budget())
+    }
+
     fn remote_id(&self) -> Option<u64> {
         Some(self.id)
     }

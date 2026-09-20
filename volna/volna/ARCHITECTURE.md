@@ -12,9 +12,10 @@ VDB layer. VDB attachment is not yet implemented.
 volna/volna-core      the viewer, no GUI toolkit (builds and tests on every platform)
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
   src/document.rs        Document: open trace, shared navigation, markers, translators, loads
-  src/panels/            stable IDs, split/tab layout, focus, per-panel wave and pipeline models
+  src/panels/            stable IDs, split/tab layout, focus, per-panel wave, pipeline and table models
   src/nav/               Tween<T> animation, NavState (links, local viewport/cursor) of every timed panel
   src/pipeline/          RowView row axis, PipelineModel, PipelineLayout, stage palette, painter → Scene
+  src/table/             fixed sources/columns, exact row viewport, bounded preparation/details, painter → Scene
   src/workspace/         JSON codec, restore plans, save tickets, state.json and lifecycle
   src/settings/          registry, settings.json store (JSONC, surgical edits, diagnostics), search, schema
   src/session.rs         Session trait; OpenSpec; batched load requests/results
@@ -36,7 +37,9 @@ volna/volna           GPUI frontend: native macOS app, wasm page, VS Code extens
   src/settings_panel.rs  the Settings tab: gpui-kit pages, search bar, results, item controls
   src/settings_json.rs   the JSON view: Editor with registry completion, hover and diagnostics
   src/palette.rs         the ⌘K command palette over actions and ranked settings
-  src/canvas.rs          PanelCanvas element: hitboxes from the panel layout, paints the Scene
+  src/canvas.rs          PanelCanvas element: hitboxes/accessibility from panel layout, paints the Scene
+  src/table_panel.rs     GPUI table controls, Go to dialog and details inspector
+  src/table_clipboard.*  browser clipboard rejection recovery without table semantics
   src/sidebar/           uniform_list rows over the core models
   src/theme.rs           core theme mapped to Hsla once per install
   src/ui/                button styling, popup placement, text input, splitter, icons, headers
@@ -77,13 +80,37 @@ ownership model with a plain loop that performs requests in any order.
 
 **Layout and paint.** Each frame the frontend calls `layout_panel(panel, bounds,
 theme)` and then `render_panel(panel, theme, measure)` (or `render_panel_into` with its
-own buffer). The layout (`PanelLayout::Waves` or `::Pipeline`) gives the frontend
+own buffer). The layout (`PanelLayout::Waves`, `::Pipeline` or `::Table`) gives the frontend
 the rectangles it needs for hit regions; the `Scene` is a flat display list of
 `Quad`, `Lines`, `Text`, `Icon` and `PushClip`/`PopClip` primitives with resolved
 colours and font *roles*, plus the pointer shapes for hover regions. Text widths
 come back through the `TextMeasure` trait, cached per string in the core so a
 label is shaped once. One element paints either kind; a frontend never matches on
 what a panel shows.
+
+## Baseline table panel
+
+`PanelKind::Table(TableModel)` presents one generator or an ordered fixed signal
+set. `TableSource` persists declaration paths and resolves them through the same
+session hierarchy used by Waves and Pipeline. Generator rows borrow the
+document's `LoadedGenerator`; signal rows borrow shared `SignalHistory` owners.
+Only a multi-signal table owns a row axis: the distinct union of change times,
+admitted at exactly eight bytes per final timestamp and constructed in bounded
+animation ticks. Closing or replacing the panel drops an unfinished builder.
+
+`RowViewport` keeps the first row as `u64` and converts only the viewport-local
+remainder to pixels. Layout exposes vertical and horizontal tracks/thumbs and
+only intersecting columns. Preparation is capped at 256 rows (visible rows plus
+overscan), 256 bytes per value preview and eight attribute previews. Details
+and complete TSV copy are separate selected-row operations; details are
+superseded by identity and copy is refused above 64 KiB. The accessible GPUI
+projection contains only the recycled visible `ListBox`/`Option` rows.
+
+The session memory budget is common to remote and native owners. Native input
+images, decoded histories and generator indexes retain reservations in the
+same ledger used by the table's 4 MiB panel reservation and optional signal
+axis. This makes two tables, Waves and Pipeline share raw data without charging
+or copying it twice.
 
 Animations use an explicit clock: `tick(now)` advances every `Tween` (the shared
 viewport, local viewports, pipeline row axes) and reports whether another frame

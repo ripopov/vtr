@@ -8,6 +8,12 @@
 use super::value::{Bit, SignalShape, WaveValue};
 
 pub trait SignalHistory: Send + Sync {
+    /// Bytes owned by this completed history, excluding the `Arc` header.
+    /// Local-session admission uses this before publishing the owner.
+    fn resident_bytes(&self) -> u64 {
+        0
+    }
+
     fn shape(&self) -> SignalShape;
 
     /// Number of value changes.
@@ -22,6 +28,12 @@ pub trait SignalHistory: Send + Sync {
 
     /// Value after change `i`; `None` is the value before the first change.
     fn value(&self, i: Option<usize>) -> WaveValue;
+
+    /// Borrowed projection for bounded consumers. Procedural histories may use
+    /// the owned default when their generated values are intrinsically small.
+    fn value_view(&self, i: Option<usize>) -> super::value_view::ValueView<'_> {
+        super::value_view::ValueView::owned(self.value(i))
+    }
 
     /// Fast path for 1-bit signals: the bit after change `i`.
     /// Vectors and reals return [`Bit::Other`].
@@ -126,6 +138,23 @@ pub struct VecHistory {
 }
 
 impl SignalHistory for VecHistory {
+    fn resident_bytes(&self) -> u64 {
+        let values = self.values.iter().fold(0u64, |bytes, value| {
+            bytes.saturating_add(match value {
+                WaveValue::Bits(text) | WaveValue::Text(text) => text.capacity() as u64,
+                WaveValue::Bytes(value) => value.capacity() as u64,
+                WaveValue::Unavailable | WaveValue::Real(_) => 0,
+            })
+        });
+        (self.times.capacity() as u64)
+            .saturating_mul(std::mem::size_of::<u64>() as u64)
+            .saturating_add(
+                (self.values.capacity() as u64)
+                    .saturating_mul(std::mem::size_of::<WaveValue>() as u64),
+            )
+            .saturating_add(values)
+    }
+
     fn shape(&self) -> SignalShape {
         self.shape
     }
@@ -140,6 +169,12 @@ impl SignalHistory for VecHistory {
             None => self.initial.clone(),
             Some(i) => self.values[i].clone(),
         }
+    }
+    fn value_view(&self, i: Option<usize>) -> super::value_view::ValueView<'_> {
+        super::value_view::ValueView::borrowed(match i {
+            None => &self.initial,
+            Some(i) => &self.values[i],
+        })
     }
     fn bit(&self, i: Option<usize>) -> Bit {
         match self.value(i) {

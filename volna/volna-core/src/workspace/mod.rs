@@ -5,6 +5,8 @@ use crate::nav::Tween;
 use crate::panels::{Layout, Panel, PanelId, PanelKind, Panels};
 use crate::pipeline::{PipelineModel, RowView, TrackSource};
 use crate::sidebar::ScopeTreeModel;
+use crate::table::columns::{ColumnSet, TransactionColumn};
+use crate::table::{SignalSource, TableModel, TableSource};
 use crate::wave::{
     model::{DisplayedSignal, Link, RowSource, WaveModel},
     viewport::Viewport,
@@ -123,6 +125,31 @@ struct PipelinePanel {
     label_width: f32,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum SavedTableSource {
+    Generator { path: Vec<String> },
+    Signals { signals: Vec<SavedTableSignal> },
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedTableSignal {
+    path: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nth: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TablePanel {
+    id: PanelId,
+    kind: String,
+    version: u32,
+    title: Option<String>,
+    source: SavedTableSource,
+    columns: Vec<String>,
+    link: Link,
+}
+
 /// The fields every saved panel shares; alone, they describe a start panel.
 #[derive(Serialize, Deserialize)]
 struct PanelHeader {
@@ -215,6 +242,51 @@ impl Workspace {
                                     .transpose()?,
                                 rows: p.rows.target(),
                                 label_width: p.label_width,
+                            })?)
+                        }
+                        PanelKind::Table(table) => {
+                            let source = match &table.source {
+                                TableSource::Generator(track) => SavedTableSource::Generator {
+                                    path: track.path().to_vec(),
+                                },
+                                TableSource::Signals(signals) => SavedTableSource::Signals {
+                                    signals: signals
+                                        .iter()
+                                        .map(|signal| SavedTableSignal {
+                                            path: signal.path.clone(),
+                                            nth: signal.nth,
+                                        })
+                                        .collect(),
+                                },
+                            };
+                            let columns = match &table.columns {
+                                ColumnSet::Transactions(visible) => visible
+                                    .iter()
+                                    .map(|column| column.key().to_owned())
+                                    .collect(),
+                                ColumnSet::Signals { time, visible } => {
+                                    let mut keys = Vec::new();
+                                    if *time {
+                                        keys.push("time".into());
+                                    }
+                                    keys.extend(
+                                        visible
+                                            .iter()
+                                            .enumerate()
+                                            .filter(|(_, visible)| **visible)
+                                            .map(|(index, _)| format!("signal:{index}")),
+                                    );
+                                    keys
+                                }
+                            };
+                            Ok(serde_json::value::to_raw_value(&TablePanel {
+                                id: panel.id,
+                                kind: "table".into(),
+                                version: 2,
+                                title: panel.title.clone(),
+                                source,
+                                columns,
+                                link: table.nav.link,
                             })?)
                         }
                         PanelKind::Start => Ok(serde_json::value::to_raw_value(&PanelHeader {
@@ -429,6 +501,88 @@ impl Workspace {
                 });
                 continue;
             }
+            if header.kind == "table" && header.version == 2 {
+                let saved: TablePanel =
+                    serde_json::from_str(raw.get()).context("invalid table panel")?;
+                let source = match saved.source {
+                    SavedTableSource::Generator { path } => {
+                        ensure!(!path.is_empty(), "empty table generator path");
+                        match h.find_generator(&path) {
+                            Lookup::Found(generator) => {
+                                TableSource::Generator(TrackSource::Resolved {
+                                    track: h.generators[generator].track,
+                                    path,
+                                })
+                            }
+                            other => {
+                                report.push(format!("{other:?} table generator: {path:?}"));
+                                TableSource::Generator(TrackSource::Unresolved { path })
+                            }
+                        }
+                    }
+                    SavedTableSource::Signals { signals } => {
+                        ensure!(!signals.is_empty(), "empty table signal set");
+                        let mut restored = Vec::with_capacity(signals.len());
+                        for signal in signals {
+                            ensure!(!signal.path.is_empty(), "empty table signal path");
+                            let found = h.find_var(&signal.path, signal.nth);
+                            let (var, reference, name) = match found {
+                                Lookup::Found(var) => {
+                                    (Some(var), Some(h.vars[var].signal), h.full_name(var))
+                                }
+                                other => {
+                                    report
+                                        .push(format!("{other:?} table signal: {:?}", signal.path));
+                                    (None, None, signal.path.join("."))
+                                }
+                            };
+                            restored.push(SignalSource {
+                                path: signal.path,
+                                nth: signal.nth,
+                                var,
+                                signal: reference,
+                                name,
+                            });
+                        }
+                        TableSource::Signals(restored)
+                    }
+                };
+                let mut table = TableModel::new(
+                    source,
+                    saved.link,
+                    app.table_memory_budget(),
+                    app.settings.resolved().table.detail_items,
+                );
+                match &mut table.columns {
+                    ColumnSet::Transactions(visible) => {
+                        *visible = TransactionColumn::ALL
+                            .into_iter()
+                            .filter(|column| saved.columns.iter().any(|key| key == column.key()))
+                            .collect();
+                        if visible.is_empty() {
+                            *visible = TransactionColumn::DEFAULT.to_vec();
+                        }
+                    }
+                    ColumnSet::Signals { time, visible } => {
+                        *time = saved.columns.iter().any(|key| key == "time");
+                        for (index, value) in visible.iter_mut().enumerate() {
+                            *value = saved
+                                .columns
+                                .iter()
+                                .any(|key| key == &format!("signal:{index}"));
+                        }
+                        if !*time && !visible.iter().any(|value| *value) {
+                            *time = true;
+                        }
+                    }
+                }
+                panels.push(Panel {
+                    id: saved.id,
+                    title: saved.title,
+                    kind: PanelKind::Table(Box::new(table)),
+                });
+                continue;
+            }
             if header.kind == "start" && header.version == 1 {
                 panels.push(Panel {
                     id: header.id,
@@ -611,6 +765,14 @@ impl RestorePlan {
                 && let Err(error) = p.attach(&mut app.doc)
             {
                 report.push(format!("Pipeline {}: {error:#}", p.track.path().join(".")));
+            }
+        }
+        let resident = std::collections::HashMap::new();
+        for panel in app.panels.iter_mut() {
+            if let Some(table) = panel.kind.table_mut()
+                && let Err(error) = table.attach(&mut app.doc, &resident)
+            {
+                report.push(format!("Table: {error:#}"));
             }
         }
         app.scopes = self.scopes;

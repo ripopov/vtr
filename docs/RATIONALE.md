@@ -67,6 +67,48 @@ way no theming fixes. Embedding Konata's renderer was rejected because it
 would put viewer logic outside the toolkit-free core and would not run in the
 native window.
 
+## Volna baseline table panel
+
+The first table release implements the reduced contract in
+[`table-baseline.html`](table-baseline.html): one transaction generator, or one
+fixed ordered set of signals. It deliberately does not revive the archived
+full-table prototype's generic row domains, filtering, sorting, search,
+relations, computed columns or multiple-generator merge. Those abstractions had
+no second implemented use case and obscured the ownership boundary. A durable
+`TableSource` stores declaration paths; resolved IDs, selection, viewport and
+prepared text remain session state. The reduced payload is table panel version
+2, so version-1 full-prototype workspaces remain explicit unsupported panels.
+
+Rows continue to live in their immutable owners. Generator ordinals index the
+resident `LoadedGenerator`; one signal uses its history directly. Multiple
+signals admit one exact 8-byte-per-distinct-time merged axis, built by a heap in
+bounded cooperative slices. The panel prepares only the visible rows plus two
+rows of overscan on each side, capped at 256. Transaction identity is the
+writer's ID and signal identity is the exact timestamp, so hiding columns or
+moving the viewport cannot change selection. Scrollbar normalization is visual;
+the logical row is recovered with `u128` integer arithmetic, including values
+above JavaScript's exact-number range.
+
+The design follows the existing wave and pipeline ownership model rather than
+adding a table cache. Local VTR/FST session images, decoded histories and loaded
+generators now reserve the same session ledger already used by remote owners;
+each table reserves 4 MiB for its window/details/clipboard work, and a
+multi-signal axis adds its declared storage. Repeated panels share raw `Arc`
+owners. Admission failure publishes no partial axis, Retry re-enters admission,
+and cancellation drops private builders and reservations. A separate native
+table-only cap was rejected because it could admit a table after raw data had
+already exhausted the process budget.
+
+Details are a separate superseding request, limited by `table.detailItems` and
+the panel byte reservation; closing the inspector or selecting another row
+invalidates the pending identity. Copy uses fixed standard fields rather than
+visible columns, refuses rows above 64 KiB before touching the host clipboard,
+and keeps the complete TSV in a selectable browser dialog with Retry when a web
+or VS Code host rejects the gesture. The GPUI layer owns controls, clipboard and
+synthetic accessibility nodes; source semantics, navigation, preparation,
+painting and persistence remain in `volna-core`. Adding the same surface to the
+minimal egui frontend was rejected by the repository's frontend direction.
+
 ## Volna FST session integration
 
 Volna uses Session and immutable SignalHistory interfaces with batched loads

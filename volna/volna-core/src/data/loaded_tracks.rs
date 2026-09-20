@@ -40,6 +40,50 @@ pub struct LoadedGenerator {
 }
 
 impl LoadedGenerator {
+    pub(crate) fn resident_bytes(&self) -> u64 {
+        let fixed = (self.transactions.capacity() as u64)
+            .saturating_mul(std::mem::size_of::<Transaction>() as u64)
+            .saturating_add((self.by_id.capacity() as u64).saturating_mul(
+                (std::mem::size_of::<TransactionRef>() + std::mem::size_of::<usize>()) as u64,
+            ))
+            .saturating_add(
+                (self.max_end.capacity() as u64).saturating_mul(std::mem::size_of::<u64>() as u64),
+            )
+            .saturating_add((self.parents.capacity() as u64).saturating_mul(
+                (std::mem::size_of::<TransactionRef>() + std::mem::size_of::<TransactionLocation>())
+                    as u64,
+            ))
+            .saturating_add(
+                (self.relations.capacity() as u64)
+                    .saturating_mul(std::mem::size_of::<LoadedRelation>() as u64),
+            );
+        let transactions =
+            self.transactions.iter().fold(fixed, |bytes, tx| {
+                bytes
+                    .saturating_add(transaction_attributes_bytes(&tx.attributes))
+                    .saturating_add((tx.events.capacity() as u64).saturating_mul(
+                        std::mem::size_of::<super::transactions::TransactionEvent>() as u64,
+                    ))
+                    .saturating_add(tx.events.iter().fold(0, |sum, event| {
+                        sum.saturating_add(event.name.capacity() as u64)
+                            .saturating_add(attributes_bytes(&event.attributes))
+                    }))
+                    .saturating_add((tx.stages.capacity() as u64).saturating_mul(
+                        std::mem::size_of::<super::transactions::TransactionStage>() as u64,
+                    ))
+                    .saturating_add(tx.stages.iter().fold(0, |sum, stage| {
+                        sum.saturating_add(stage.name.capacity() as u64)
+                            .saturating_add(stage.lane.capacity() as u64)
+                            .saturating_add(attributes_bytes(&stage.attributes))
+                    }))
+            });
+        self.relations.iter().fold(transactions, |bytes, edge| {
+            bytes
+                .saturating_add(edge.relation.kind.capacity() as u64)
+                .saturating_add(attributes_bytes(&edge.relation.attributes))
+        })
+    }
+
     /// Validate and index a complete payload before publishing it. Parent
     /// locations are keyed by child ID; every parent reference must resolve
     /// to a generator, even if that generator is not part of this load.
@@ -178,6 +222,12 @@ impl LoadedGenerator {
         self.by_id.get(&id).map(|&index| &self.transactions[index])
     }
 
+    /// Position in canonical `(begin, end, id)` order, using the owner's
+    /// existing identity index rather than a table-owned inverse map.
+    pub fn transaction_ordinal(&self, id: TransactionRef) -> Option<usize> {
+        self.by_id.get(&id).copied()
+    }
+
     /// Inclusive overlap, including point events at either boundary. Returns
     /// false if the visitor stopped early. Results are in begin/end/ID order.
     pub fn visit_window(
@@ -209,6 +259,55 @@ impl LoadedGenerator {
         let mid = lo + (hi - lo) / 2;
         self.visit_node(node * 2, lo, mid, start, limit, visitor)
             && self.visit_node(node * 2 + 1, mid, hi, start, limit, visitor)
+    }
+}
+
+fn transaction_attributes_bytes(attributes: &[super::transactions::TransactionAttribute]) -> u64 {
+    let fixed = (attributes.len() as u64)
+        .saturating_mul(std::mem::size_of::<super::transactions::TransactionAttribute>() as u64);
+    attributes.iter().fold(fixed, |bytes, attribute| {
+        bytes
+            .saturating_add(attribute.key.capacity() as u64)
+            .saturating_add(attribute_value_bytes(&attribute.value))
+    })
+}
+
+fn attributes_bytes(attributes: &super::transactions::Attributes) -> u64 {
+    let fixed = (attributes.capacity() as u64)
+        .saturating_mul(
+            std::mem::size_of::<(String, super::transactions::AttributeValue)>() as u64,
+        );
+    attributes.iter().fold(fixed, |bytes, (key, value)| {
+        bytes
+            .saturating_add(key.capacity() as u64)
+            .saturating_add(attribute_value_bytes(value))
+    })
+}
+
+fn attribute_value_bytes(value: &super::transactions::AttributeValue) -> u64 {
+    use super::transactions::AttributeValue;
+    match value {
+        AttributeValue::Text(value) => value.capacity() as u64,
+        AttributeValue::Bytes(value) => value.capacity() as u64,
+        AttributeValue::Logic { data, .. } => data.capacity() as u64,
+        AttributeValue::Enum { name, .. } => name.capacity() as u64,
+        AttributeValue::List(values) => {
+            let fixed = (values.capacity() as u64)
+                .saturating_mul(std::mem::size_of::<AttributeValue>() as u64);
+            values.iter().fold(fixed, |bytes, value| {
+                bytes.saturating_add(attribute_value_bytes(value))
+            })
+        }
+        AttributeValue::Map(values) => attributes_bytes(values),
+        AttributeValue::Null
+        | AttributeValue::Bool(_)
+        | AttributeValue::I64(_)
+        | AttributeValue::U64(_)
+        | AttributeValue::F64(_)
+        | AttributeValue::Time(_)
+        | AttributeValue::Pointer(_)
+        | AttributeValue::Fixed { .. }
+        | AttributeValue::UFixed { .. } => 0,
     }
 }
 

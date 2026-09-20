@@ -22,6 +22,7 @@ cargo test --locked -p volna-core
 cargo test --locked -p volna-core --test fst
 cargo test --locked -p volna-core --test transactions
 cargo test --locked -p volna-core --test pipeline       # pipeline panel: open, load, paint, zoom, sync, save/restore
+cargo test --locked -p volna-core --test table_baseline # reduced table: sources, bounds, identity, copy, details, restore
 cargo test --locked -p volna-core --test settings      # settings.json store, edits, search, the Settings tab
 cargo test --locked -p volna --all-features            # includes the manifest check and the settings render test
 cargo test --locked -p volna-egui --test screenshots
@@ -29,6 +30,7 @@ node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspa
 cargo test --locked -p volna-server
 cargo clippy --locked -p volna-server --all-targets -- -D warnings
 node --test volna/volna/vscode-ext/trace-host.test.cjs
+node --test volna/volna/tools/table-clipboard.test.mjs
 ```
 
 | Area | Coverage |
@@ -40,6 +42,7 @@ node --test volna/volna/vscode-ext/trace-host.test.cjs
 | FST/VTR parity | Values at every change timestamp in the committed Verilator features, operators and pipeline recordings |
 | Transactions | Unsupported versus empty capabilities, typed attributes and phases, events, stages, parents, inclusive overlap boundaries, filtering, early stopping and cross-stream relations |
 | Pipeline panel | Enter on a stream or generator opens a panel without a notice and queues one track load; a second panel on a resident track queues nothing; one quad per visible primary-lane stage and one band per overlay; zoom about the pointer keeps the time and row under it at interface zoom 1 and 2; linked wheel zoom moves the wave panel, unlinked does not; trackpad deltas pan; a click sets the shared cursor to the integer cycle and the wave value column follows; density steps bound painted rows by pixels; flushed and open rows differ by colour; workspace round trip, unresolved tracks and invalid saved rows; closing the last panel releases the track and a late delivery is ignored; failed loads retry; the checked-in showcase opens both cores |
+| Baseline table panel | Generator and fixed-signal sources; shared raw ownership and native/remote admission; distinct merged timestamps and one-signal zero-axis path; bounded 256-row preparation; exact `u64` navigation and scrollbar endpoints; fixed columns; stable selection/cursor linking; details limits and cancellation; 64 KiB complete TSV; visible-row accessibility; loading/cancel/retry/refusal; versioned workspace restore at row one; browser clipboard rejection with selectable TSV and Retry |
 | GPUI adapter | Production loading executor, input filtering/Escape, keyboard popup selection/dismissal, theme changes and nonblank Metal frames |
 | egui adapter | Production loading executor, VTR/FST opening, sidebar/divider dragging, filtering, selection, zoom/pan/fit and software-rendered screenshots |
 | Workspace codec and lifecycle | Exact integer times, unknown panels/formats, unresolved locators, atomic prepare/commit, malformed and oversized inputs, idle revisions, ticket races, fallback precedence, Save As and transition flush failures |

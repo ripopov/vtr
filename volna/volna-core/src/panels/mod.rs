@@ -13,6 +13,7 @@ use web_time::Instant;
 use crate::document::Document;
 use crate::nav::{LinkDim, NavState};
 use crate::pipeline::PipelineModel;
+use crate::table::TableModel;
 use crate::wave::model::{PointerEvent, WaveModel};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,6 +39,8 @@ pub enum PanelKind {
     Waves(Box<WaveModel>),
     /// Konata-style stage cells over one transaction track.
     Pipeline(Box<PipelineModel>),
+    /// Virtualized records from one immutable generator or fixed signal set.
+    Table(Box<TableModel>),
     /// The placeholder every trace opens with: it names what the trace
     /// holds, and the first content opened while it is focused takes its
     /// place. It is also what closing the last content panel leaves.
@@ -77,6 +80,20 @@ impl PanelKind {
         }
     }
 
+    pub fn table(&self) -> Option<&TableModel> {
+        match self {
+            Self::Table(table) => Some(table),
+            _ => None,
+        }
+    }
+
+    pub fn table_mut(&mut self) -> Option<&mut TableModel> {
+        match self {
+            Self::Table(table) => Some(table),
+            _ => None,
+        }
+    }
+
     pub fn is_settings(&self) -> bool {
         matches!(self, Self::Settings)
     }
@@ -92,7 +109,7 @@ impl PanelKind {
 
     /// A panel the core lays out and paints into a `Scene`.
     pub fn is_canvas(&self) -> bool {
-        matches!(self, Self::Waves(_) | Self::Pipeline(_))
+        matches!(self, Self::Waves(_) | Self::Pipeline(_) | Self::Table(_))
     }
 
     /// The navigation of a timed panel.
@@ -100,6 +117,7 @@ impl PanelKind {
         match self {
             Self::Waves(w) => Some(&w.nav),
             Self::Pipeline(p) => Some(&p.nav),
+            Self::Table(t) => Some(&t.nav),
             _ => None,
         }
     }
@@ -108,6 +126,7 @@ impl PanelKind {
         match self {
             Self::Waves(w) => Some(&mut w.nav),
             Self::Pipeline(p) => Some(&mut p.nav),
+            Self::Table(t) => Some(&mut t.nav),
             _ => None,
         }
     }
@@ -119,6 +138,7 @@ impl PanelKind {
         Ok(match (self, split) {
             (Self::Waves(w), _) => Self::Waves(Box::new(w.clone_view(split))),
             (Self::Pipeline(p), true) => Self::Pipeline(Box::new(p.clone_view())),
+            (Self::Table(t), true) => Self::Table(Box::new(t.clone_view())),
             (Self::Start, _) => bail!("the start panel has no content to copy"),
             (_, false) => Self::Waves(Box::default()),
             _ => bail!("cannot split this panel"),
@@ -147,6 +167,14 @@ impl Panel {
             PanelKind::Pipeline(p) => {
                 format!("Pipeline {} · {}", self.id.0, p.track.path().join("."))
             }
+            PanelKind::Table(t) => match &t.source {
+                crate::table::TableSource::Generator(source) => {
+                    format!("Table {} · {}", self.id.0, source.path().join("."))
+                }
+                crate::table::TableSource::Signals(signals) => {
+                    format!("Table {} · {} signals", self.id.0, signals.len())
+                }
+            },
             PanelKind::Start => "Start".into(),
             PanelKind::Settings => "Settings".into(),
             PanelKind::Unsupported(_) => format!("Unsupported panel {}", self.id.0),
@@ -159,6 +187,7 @@ impl Panel {
         match &mut self.kind {
             PanelKind::Waves(w) => w.pointer(doc, event, now),
             PanelKind::Pipeline(p) => p.pointer(doc, event, now),
+            PanelKind::Table(t) => t.pointer(doc, event, now),
             _ => false,
         }
     }
@@ -168,6 +197,7 @@ impl Panel {
         match &self.kind {
             PanelKind::Waves(w) => w.drag.is_some(),
             PanelKind::Pipeline(p) => p.drag.is_some(),
+            PanelKind::Table(t) => t.dragging(),
             _ => false,
         }
     }
@@ -177,6 +207,7 @@ impl Panel {
         match &mut self.kind {
             PanelKind::Waves(w) => w.tick(now),
             PanelKind::Pipeline(p) => p.tick(now),
+            PanelKind::Table(t) => t.tick(now),
             _ => false,
         }
     }
@@ -185,6 +216,7 @@ impl Panel {
         match &self.kind {
             PanelKind::Waves(w) => w.is_animating(),
             PanelKind::Pipeline(p) => p.is_animating(),
+            PanelKind::Table(t) => t.is_animating(),
             _ => false,
         }
     }

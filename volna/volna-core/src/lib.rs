@@ -29,6 +29,7 @@ pub mod selection;
 pub mod session;
 pub mod settings;
 pub mod sidebar;
+pub mod table;
 pub mod theme;
 pub mod wave;
 

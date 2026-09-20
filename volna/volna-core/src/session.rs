@@ -33,6 +33,20 @@ pub struct Capabilities {
 }
 
 pub trait Session: Send + Sync {
+    /// Bytes retained by the opened session before on-demand signal/track
+    /// owners are loaded (mapped/input image, hierarchy and backend indexes).
+    fn resident_bytes(&self) -> u64 {
+        0
+    }
+
+    /// Shared admission pool for resident raw data and client-side indexes.
+    /// Local sessions may return `None`; the application then supplies its
+    /// process-local pool so native and remote table construction use the
+    /// same ownership path.
+    fn memory_budget(&self) -> Option<crate::remote::memory::MemoryBudget> {
+        None
+    }
+
     /// Server identity for asynchronous executor routing. Local sessions return
     /// None and use the blocking load methods on a background executor.
     fn remote_id(&self) -> Option<u64> {
@@ -82,6 +96,140 @@ pub trait Session: Send + Sync {
                 )
             })
             .collect()
+    }
+}
+
+/// Give an in-process backend the same admission owner used by remote data and
+/// table allocations. Remote sessions already return a budget and are kept as
+/// they are.
+pub(crate) fn account_local_session(
+    session: Arc<dyn Session>,
+    budget: crate::remote::memory::MemoryBudget,
+) -> anyhow::Result<Arc<dyn Session>> {
+    if session.memory_budget().is_some() {
+        return Ok(session);
+    }
+    let resident_bytes = session.resident_bytes();
+    // Procedural/test sessions with no resident raw owner need no wrapper;
+    // App's fallback still gives their tables this same process-local budget.
+    if resident_bytes == 0 {
+        return Ok(session);
+    }
+    let reservation = budget.reserve(resident_bytes)?;
+    Ok(Arc::new(AccountedSession {
+        inner: session,
+        budget,
+        _reservation: reservation,
+    }))
+}
+
+struct AccountedSession {
+    inner: Arc<dyn Session>,
+    budget: crate::remote::memory::MemoryBudget,
+    _reservation: crate::remote::memory::Reservation,
+}
+
+impl Session for AccountedSession {
+    fn resident_bytes(&self) -> u64 {
+        self.inner.resident_bytes()
+    }
+    fn memory_budget(&self) -> Option<crate::remote::memory::MemoryBudget> {
+        Some(self.budget.clone())
+    }
+    fn tracks(&self) -> &[crate::data::transactions::Track] {
+        self.inner.tracks()
+    }
+    fn capabilities(&self) -> Capabilities {
+        self.inner.capabilities()
+    }
+    fn info(&self) -> &TraceInfo {
+        self.inner.info()
+    }
+    fn hierarchy(&self) -> &Hierarchy {
+        self.inner.hierarchy()
+    }
+    fn load_track(
+        &self,
+        track: crate::data::transactions::TrackRef,
+    ) -> anyhow::Result<crate::data::loaded_tracks::LoadedTrack> {
+        let mut loaded = self.inner.load_track(track)?;
+        for generator in &mut loaded.generators {
+            let Some(generator) = Arc::get_mut(generator) else {
+                anyhow::bail!("new local track unexpectedly shared its generator owner");
+            };
+            if generator.reservation.is_none() {
+                generator.reservation = Some(self.budget.reserve(generator.resident_bytes())?);
+            }
+        }
+        Ok(loaded)
+    }
+    fn load_signal(&self, signal: SignalRef) -> anyhow::Result<Arc<dyn SignalHistory>> {
+        let history = self.inner.load_signal(signal)?;
+        account_history(history, &self.budget)
+    }
+    fn load_signals(&self, signals: &[SignalRef]) -> SignalLoads {
+        let mut accounted = std::collections::BTreeMap::new();
+        self.inner
+            .load_signals(signals)
+            .into_iter()
+            .map(|(signal, result)| {
+                let result = match accounted.get(&signal) {
+                    Some(history) => Ok(Arc::clone(history)),
+                    None => result
+                        .and_then(|history| account_history(history, &self.budget))
+                        .inspect(|history| {
+                            accounted.insert(signal, Arc::clone(history));
+                        }),
+                };
+                (signal, result)
+            })
+            .collect()
+    }
+}
+
+fn account_history(
+    inner: Arc<dyn SignalHistory>,
+    budget: &crate::remote::memory::MemoryBudget,
+) -> anyhow::Result<Arc<dyn SignalHistory>> {
+    let reservation = budget.reserve(inner.resident_bytes())?;
+    Ok(Arc::new(AccountedHistory {
+        inner,
+        _reservation: reservation,
+    }))
+}
+
+struct AccountedHistory {
+    inner: Arc<dyn SignalHistory>,
+    _reservation: crate::remote::memory::Reservation,
+}
+
+impl SignalHistory for AccountedHistory {
+    fn resident_bytes(&self) -> u64 {
+        self.inner.resident_bytes()
+    }
+    fn shape(&self) -> crate::data::SignalShape {
+        self.inner.shape()
+    }
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+    fn time(&self, index: usize) -> u64 {
+        self.inner.time(index)
+    }
+    fn value(&self, index: Option<usize>) -> crate::data::WaveValue {
+        self.inner.value(index)
+    }
+    fn value_view(&self, index: Option<usize>) -> crate::data::value_view::ValueView<'_> {
+        self.inner.value_view(index)
+    }
+    fn bit(&self, index: Option<usize>) -> crate::data::Bit {
+        self.inner.bit(index)
+    }
+    fn index_at(&self, time: u64) -> Option<usize> {
+        self.inner.index_at(time)
+    }
+    fn index_at_hint(&self, time: u64, hint: usize) -> Option<usize> {
+        self.inner.index_at_hint(time, hint)
     }
 }
 

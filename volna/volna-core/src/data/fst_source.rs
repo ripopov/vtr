@@ -18,10 +18,13 @@ pub(crate) struct FstSession {
     info: TraceInfo,
     hierarchy: Hierarchy,
     shapes: BTreeMap<SignalRef, SignalShape>,
+    source_bytes: u64,
 }
 
 impl FstSession {
     pub(crate) fn open(name: String, mut input: Box<dyn Input>) -> anyhow::Result<Self> {
+        let mut source_bytes = input.seek(SeekFrom::End(0))?;
+        input.rewind()?;
         validate_sections(&mut *input)?;
         let mut tag = [0];
         input.read_exact(&mut tag)?;
@@ -31,6 +34,7 @@ impl FstSession {
             let mut lengths = [0; 16];
             input.read_exact(&mut lengths)?;
             let expected = u64::from_be_bytes(lengths[8..].try_into().unwrap());
+            source_bytes = source_bytes.saturating_add(expected);
             let limit = expected
                 .checked_add(1)
                 .ok_or_else(|| anyhow!("FST wrapper length overflow"))?;
@@ -152,6 +156,7 @@ impl FstSession {
             info,
             hierarchy,
             shapes,
+            source_bytes,
         })
     }
 
@@ -283,6 +288,9 @@ fn validate_sections(input: &mut dyn Input) -> anyhow::Result<()> {
 }
 
 impl Session for FstSession {
+    fn resident_bytes(&self) -> u64 {
+        self.source_bytes
+    }
     fn info(&self) -> &TraceInfo {
         &self.info
     }

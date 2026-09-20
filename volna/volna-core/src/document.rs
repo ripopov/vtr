@@ -269,7 +269,7 @@ impl Document {
     }
 
     /// A generator object already held by another selected track.
-    fn resident_generator(&self, id: TrackRef) -> Option<Arc<LoadedGenerator>> {
+    pub fn resident_generator(&self, id: TrackRef) -> Option<Arc<LoadedGenerator>> {
         self.tracks.values().find_map(|load| match &load.state {
             TrackLoadState::Ready(data) => data
                 .generators

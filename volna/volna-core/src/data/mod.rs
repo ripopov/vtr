@@ -9,6 +9,7 @@ pub mod synth;
 pub mod transactions;
 pub mod translator;
 pub mod value;
+pub mod value_view;
 pub mod vtr_source;
 mod vtr_transactions;
 

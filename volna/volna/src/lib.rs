@@ -21,6 +21,9 @@ mod settings_json;
 mod settings_panel;
 mod sidebar;
 mod start_panel;
+#[cfg(target_arch = "wasm32")]
+mod table_clipboard;
+mod table_panel;
 pub mod theme;
 mod ui;
 #[cfg(all(target_family = "wasm", feature = "remote-profile"))]

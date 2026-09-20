@@ -203,6 +203,10 @@ pub struct WorkspaceSettings {
     pub recent_limit: usize,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableSettings {
+    pub detail_items: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteSettings {
     pub memory_mib: u64,
     pub object_mib: u64,
@@ -217,6 +221,7 @@ pub struct Settings {
     pub panels: PanelSettings,
     pub waves: WaveSettings,
     pub workspace: WorkspaceSettings,
+    pub table: TableSettings,
     pub remote: RemoteSettings,
 }
 
@@ -246,6 +251,9 @@ impl Settings {
             workspace: WorkspaceSettings {
                 autosave: Autosave::parse(&text("workspace.autosave")),
                 recent_limit: int("workspace.recentLimit").max(1) as usize,
+            },
+            table: TableSettings {
+                detail_items: int("table.detailItems").clamp(1, 1000) as usize,
             },
             remote: RemoteSettings {
                 memory_mib: int("remote.memoryMiB").max(1) as u64,

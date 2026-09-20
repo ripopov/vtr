@@ -60,6 +60,24 @@ impl Drop for Reservation {
 }
 
 impl Reservation {
+    /// The admission pool already paying for this immutable owner.
+    pub(crate) fn budget(&self) -> MemoryBudget {
+        self.budget.clone()
+    }
+
+    /// Release bytes no longer owned after a pessimistically admitted build.
+    pub(crate) fn shrink(&mut self, bytes: u64) -> anyhow::Result<()> {
+        self.bytes = self
+            .bytes
+            .checked_sub(bytes)
+            .ok_or_else(|| anyhow::anyhow!("reservation shrink exceeds ownership"))?;
+        let mut used = self.budget.0.used.lock().expect("memory budget lock");
+        *used = used
+            .checked_sub(bytes)
+            .expect("balanced memory reservation");
+        Ok(())
+    }
+
     pub(crate) fn bytes(&self) -> u64 {
         self.bytes
     }

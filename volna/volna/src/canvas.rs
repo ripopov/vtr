@@ -24,6 +24,7 @@ pub struct PanelCanvas {
     ws: Entity<Workspace>,
     panel: volna_core::panels::PanelId,
     generation: u64,
+    table_focus: Option<gpui_kit::FocusHandle>,
 }
 
 impl PanelCanvas {
@@ -32,7 +33,13 @@ impl PanelCanvas {
             ws,
             panel,
             generation,
+            table_focus: None,
         }
+    }
+
+    pub fn table(mut self, focus: gpui_kit::FocusHandle) -> Self {
+        self.table_focus = Some(focus);
+        self
     }
 }
 
@@ -41,6 +48,12 @@ pub struct CanvasPrepaint {
     /// Small interactive rectangles, so GPUI resolves pointer shapes per position.
     regions: Vec<(CRect, Hitbox)>,
     row_h: f32,
+    accessible: Vec<(
+        volna_core::table::AccessibleRow,
+        Option<gpui_kit::accesskit::NodeId>,
+    )>,
+    table_status: Option<String>,
+    scale: f64,
 }
 
 impl IntoElement for PanelCanvas {
@@ -243,7 +256,47 @@ impl Element for PanelCanvas {
     type PrepaintState = CanvasPrepaint;
 
     fn id(&self) -> Option<ElementId> {
-        None
+        self.table_focus
+            .as_ref()
+            .map(|_| ElementId::Name("table-rows".into()))
+    }
+
+    fn a11y_role(&self) -> Option<gpui_kit::Role> {
+        self.table_focus.as_ref().map(|_| gpui_kit::Role::ListBox)
+    }
+
+    fn a11y_synthetic_children(
+        &mut self,
+        prepaint: &mut CanvasPrepaint,
+        builder: &mut gpui_kit::A11ySubtreeBuilder,
+    ) {
+        use gpui_kit::accesskit::{Action, Node, Rect, Role};
+        builder
+            .parent_node()
+            .set_label(prepaint.table_status.as_deref().unwrap_or("Table rows"));
+        builder.parent_node().set_description(
+            "Arrow keys navigate rows. Enter opens record details. Only visible rows are exposed.",
+        );
+        for (row, id) in &mut prepaint.accessible {
+            let node_id = builder.synthetic_node_id((self.generation, self.panel.0, row.ordinal));
+            let mut node = Node::new(Role::ListBoxOption);
+            node.set_label(row.label.clone());
+            node.set_selected(row.selected);
+            node.set_row_index_text(row.ordinal.saturating_add(1).to_string());
+            node.set_bounds(Rect::new(
+                row.bounds.left() as f64 * prepaint.scale,
+                row.bounds.top() as f64 * prepaint.scale,
+                row.bounds.right() as f64 * prepaint.scale,
+                row.bounds.bottom() as f64 * prepaint.scale,
+            ));
+            node.add_action(Action::Click);
+            node.add_action(Action::Focus);
+            if row.selected {
+                builder.parent_node().set_active_descendant(node_id);
+            }
+            builder.push_child(node_id, node);
+            *id = Some(node_id);
+        }
     }
 
     fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
@@ -288,6 +341,7 @@ impl Element for PanelCanvas {
                     rects.extend(layout.retry);
                     rects
                 }
+                Some(PanelLayout::Table(_)) => Vec::new(),
                 None => Vec::new(),
             }
         });
@@ -295,10 +349,26 @@ impl Element for PanelCanvas {
             .into_iter()
             .map(|r| (r, window.insert_hitbox(gbounds(r), HitboxBehavior::Normal)))
             .collect();
+        let table = window
+            .is_a11y_active()
+            .then(|| {
+                self.ws
+                    .read(cx)
+                    .app
+                    .panels
+                    .get(self.panel)
+                    .and_then(|panel| panel.kind.table())
+            })
+            .flatten();
         CanvasPrepaint {
             hitbox,
             regions,
             row_h: t.row_height,
+            accessible: table
+                .map(|table| table.accessible_rows().map(|row| (row, None)).collect())
+                .unwrap_or_default(),
+            table_status: table.map(|table| format!("Table rows. {}", table.status())),
+            scale: window.scale_factor() as f64,
         }
     }
 
@@ -313,6 +383,35 @@ impl Element for PanelCanvas {
         cx: &mut App,
     ) {
         let started = Instant::now();
+        if let Some(focus) = &self.table_focus {
+            for (row, node_id) in &prepaint.accessible {
+                let Some(node_id) = node_id else { continue };
+                for action in [
+                    gpui_kit::AccessibleAction::Click,
+                    gpui_kit::AccessibleAction::Focus,
+                ] {
+                    let owner = self.ws.clone();
+                    let focus = focus.clone();
+                    let generation = self.generation;
+                    let panel = self.panel;
+                    let ordinal = row.ordinal;
+                    window.on_a11y_action(*node_id, action, move |_, window, cx| {
+                        owner.update(cx, |ws, cx| {
+                            ws.dispatch_if_current(
+                                generation,
+                                Command::Table(
+                                    panel,
+                                    volna_core::table::TableCommand::Select(ordinal),
+                                ),
+                                Some(window),
+                                cx,
+                            )
+                        });
+                        window.focus(&focus, cx);
+                    });
+                }
+            }
+        }
         let t = *theme(cx);
         let core = *core_theme(cx);
         // Build the display list, then paint it. The scene buffer and the

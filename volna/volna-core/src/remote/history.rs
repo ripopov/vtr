@@ -272,6 +272,27 @@ impl PackedHistory {
 }
 
 impl SignalHistory for PackedHistory {
+    fn value_view(&self, i: Option<usize>) -> crate::data::value_view::ValueView<'_> {
+        use crate::data::value_view::{LogicView, ValueView};
+        let data = self.raw(i);
+        match data[0] {
+            0 => ValueView::Unavailable,
+            1 => ValueView::Logic(LogicView::nibbles_msb(
+                self.shape.width().max(1) as usize,
+                &data[1..],
+            )),
+            2 => ValueView::Real(f64::from_bits(u64::from_le_bytes(
+                data[1..].try_into().expect("validated real"),
+            ))),
+            3 => ValueView::Text(
+                std::str::from_utf8(&data[1..])
+                    .expect("validated UTF-8")
+                    .into(),
+            ),
+            4 => ValueView::Bytes(data[1..].into()),
+            _ => unreachable!("validated value tag"),
+        }
+    }
     fn shape(&self) -> SignalShape {
         self.shape
     }

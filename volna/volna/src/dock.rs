@@ -155,13 +155,19 @@ impl DockHost {
                         StartPanelView::new(ws.clone(), panel.id, app.doc.generation(), window, cx)
                     }))
                 } else {
-                    let pipeline = panel.kind.pipeline().is_some();
+                    let name = if panel.kind.pipeline().is_some() {
+                        "volna.pipeline"
+                    } else if panel.kind.table().is_some() {
+                        "volna.table"
+                    } else {
+                        "volna.waves"
+                    };
                     PanelView::Canvas(cx.new(|cx| {
                         CanvasPanelView::new(
                             ws.clone(),
                             panel.id,
                             app.doc.generation(),
-                            pipeline,
+                            name,
                             window,
                             cx,
                         )
@@ -317,7 +323,7 @@ fn panel_id(state: &base::PanelState) -> Result<PanelId> {
     ensure!(
         matches!(
             state.panel_name.as_ref(),
-            "volna.waves" | "volna.pipeline" | "volna.start" | "volna.settings"
+            "volna.waves" | "volna.pipeline" | "volna.table" | "volna.start" | "volna.settings"
         ),
         "unknown dock widget"
     );
@@ -332,14 +338,14 @@ fn panel_id(state: &base::PanelState) -> Result<PanelId> {
 }
 
 pub(crate) struct CanvasPanelView {
-    ws: WeakEntity<Workspace>,
-    id: PanelId,
-    generation: u64,
+    pub(crate) ws: WeakEntity<Workspace>,
+    pub(crate) id: PanelId,
+    pub(crate) generation: u64,
     /// The dock widget name records the core kind, for diagnostics only. A
     /// panel never changes kind, so it is fixed at creation: the dock dumps
     /// its state while the workspace is being rendered and cannot be read.
     name: &'static str,
-    focus: FocusHandle,
+    pub(crate) focus: FocusHandle,
 }
 
 impl CanvasPanelView {
@@ -413,7 +419,7 @@ impl CanvasPanelView {
         ws: WeakEntity<Workspace>,
         id: PanelId,
         generation: u64,
-        pipeline: bool,
+        name: &'static str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -426,11 +432,7 @@ impl CanvasPanelView {
             ws,
             id,
             generation,
-            name: if pipeline {
-                "volna.pipeline"
-            } else {
-                "volna.waves"
-            },
+            name,
             focus,
         }
     }
@@ -509,7 +511,7 @@ impl Panel for CanvasPanelView {
                     )
                 }))
         };
-        Some(vec![
+        let mut buttons = vec![
             link_button(
                 "link-view",
                 link.viewport,
@@ -538,7 +540,62 @@ impl Panel for CanvasPanelView {
                 .on_click(cx.listener(|view, _, window, cx| {
                     view.dispatch(PanelsCommand::Close(view.id), window, cx)
                 })),
-        ])
+        ];
+        let table_eligible = self
+            .ws
+            .upgrade()
+            .and_then(|owner| {
+                let workspace = owner.read(cx);
+                let track = workspace
+                    .app
+                    .panels
+                    .get(self.id)?
+                    .kind
+                    .pipeline()?
+                    .track
+                    .track()?;
+                workspace
+                    .app
+                    .doc
+                    .session()?
+                    .tracks()
+                    .iter()
+                    .find(|declaration| declaration.id == track)
+                    .map(|declaration| {
+                        matches!(
+                            declaration.kind,
+                            volna_core::data::transactions::TrackKind::Generator { .. }
+                        )
+                    })
+            })
+            .unwrap_or(false);
+        if table_eligible {
+            let id = self.id;
+            let generation = self.generation;
+            let owner = self.ws.clone();
+            buttons.insert(
+                0,
+                Button::new("open-table")
+                    .label("Table")
+                    .ghost()
+                    .xsmall()
+                    .tooltip("Open this generator in a table")
+                    .on_click(move |_, window, cx| {
+                        _ = owner.update(cx, |ws, cx| {
+                            ws.dispatch_if_current(
+                                generation,
+                                Command::OpenTableFromPanel {
+                                    panel: id,
+                                    row: None,
+                                },
+                                Some(window),
+                                cx,
+                            )
+                        });
+                    }),
+            );
+        }
+        Some(buttons)
     }
 
     fn dropdown_menu(
@@ -581,7 +638,7 @@ impl Panel for CanvasPanelView {
     }
 }
 impl Render for CanvasPanelView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(ws) = self.ws.upgrade() else {
             return Empty.into_any_element();
         };
@@ -591,6 +648,15 @@ impl Render for CanvasPanelView {
             .panels
             .get(self.id)
             .is_none_or(|p| !p.kind.is_canvas());
+        if ws
+            .read(cx)
+            .app
+            .panels
+            .get(self.id)
+            .is_some_and(|panel| panel.kind.table().is_some())
+        {
+            return self.render_table(window, cx);
+        }
         div()
             .id(("wave-panel", self.id.0))
             .size_full()

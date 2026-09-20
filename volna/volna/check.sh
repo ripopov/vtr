@@ -10,3 +10,4 @@ cargo test --locked -p volna --all-features
 cargo test --locked -p volna-egui
 
 node --test vscode-ext/theme.test.mjs vscode-ext/workspace.test.cjs vscode-ext/trace-host.test.cjs
+node --test tools/table-clipboard.test.mjs

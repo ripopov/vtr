@@ -92,6 +92,9 @@ pub enum ChromeDrag {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// Frontend-owned operations (clipboard, dialogs) report a concise error
+    /// through the same accessible notice path as core failures.
+    Notice(String),
     /// Start opening a trace.
     Open(OpenSpec),
     /// Ask the frontend for a file (it answers with [`Command::Open`]).
@@ -113,6 +116,18 @@ pub enum Command {
     OpenPipeline {
         track: TrackRef,
     },
+    /// Capture one generator or an all-signal selection and open the reduced
+    /// immutable table view below the invoking content panel.
+    OpenTable {
+        selected: Vec<Member>,
+        clicked: Option<Member>,
+    },
+    /// Open from a Waves selection or a single-generator Pipeline panel.
+    OpenTableFromPanel {
+        panel: PanelId,
+        row: Option<usize>,
+    },
+    Table(PanelId, crate::table::TableCommand),
     SetSearchEverywhere(bool),
     SelectScope(ScopeId),
     ToggleScope(ScopeId),
@@ -254,6 +269,7 @@ pub struct StartSummary {
 pub enum PanelLayout<'a> {
     Waves(&'a WaveLayout),
     Pipeline(&'a PipelineLayout),
+    Table(&'a crate::table::TableLayout),
 }
 
 pub struct App {
@@ -273,6 +289,7 @@ pub struct App {
     pub(crate) events: Vec<Event>,
     text: TextCache,
     scene: Scene,
+    table_budget: crate::remote::memory::MemoryBudget,
 }
 
 impl Default for App {
@@ -299,6 +316,7 @@ impl App {
             events: Vec::new(),
             text: TextCache::default(),
             scene: Scene::default(),
+            table_budget: crate::remote::memory::MemoryBudget::new(512 * 1024 * 1024),
         }
     }
 
@@ -328,6 +346,19 @@ impl App {
 
     /// Replace the session immediately (tests and hosts that hold one).
     pub fn set_session(&mut self, session: Arc<dyn Session>) {
+        let session = if session.memory_budget().is_none() {
+            match crate::session::account_local_session(session, self.table_budget.clone()) {
+                Ok(session) => session,
+                Err(error) => {
+                    self.events.push(Event::Notice(format!(
+                        "Trace exceeds the memory budget: {error:#}"
+                    )));
+                    return;
+                }
+            }
+        } else {
+            session
+        };
         self.doc.set_session(session);
         self.on_session_changed();
     }
@@ -388,14 +419,31 @@ impl App {
             .filter_map(|panel| panel.kind.waves())
             .flat_map(|waves| &waves.items)
             .filter_map(|row| row.source.signal())
+            .chain(
+                self.panels
+                    .iter()
+                    .filter_map(|panel| panel.kind.table())
+                    .flat_map(|table| table.signal_demand()),
+            )
             .collect()
     }
 
-    pub fn deliver(&mut self, result: LoadResult) {
+    pub fn deliver(&mut self, mut result: LoadResult) {
+        if let LoadResult::Opened { result: opened, .. } = &mut result
+            && opened
+                .as_ref()
+                .is_ok_and(|session| session.memory_budget().is_none())
+        {
+            let session = opened.as_ref().expect("checked successful open").clone();
+            *opened = crate::session::account_local_session(session, self.table_budget.clone());
+        }
         match self.doc.deliver(result) {
             Some(Delivered::Track) => {
                 for pipeline in self.panels.pipelines_mut() {
                     pipeline.refresh(&self.doc);
+                }
+                for table in self.panels.iter_mut().filter_map(|p| p.kind.table_mut()) {
+                    table.refresh(&self.doc);
                 }
                 self.changed();
             }
@@ -405,6 +453,10 @@ impl App {
                     for panel in self.panels.iter_mut() {
                         if let Some(w) = panel.kind.waves_mut() {
                             w.finish_signal(signal, result.clone().map_err(anyhow::Error::msg));
+                        }
+                        if let Some(table) = panel.kind.table_mut() {
+                            table.finish_signal(signal, result.clone());
+                            table.refresh(&self.doc);
                         }
                     }
                 }
@@ -451,6 +503,12 @@ impl App {
     /// A created panel's content may retain document data; a removed
     /// panel's content releases it.
     fn created(&mut self, id: PanelId) {
+        let resident = self.resident_histories();
+        if let Some(table) = self.panels.get_mut(id).and_then(|p| p.kind.table_mut())
+            && let Err(error) = table.attach(&mut self.doc, &resident)
+        {
+            table.state = crate::table::TableState::Failed(error.to_string());
+        }
         if let Some(pipeline) = self.panels.pipeline_mut(id)
             && let Err(error) = pipeline.attach(&mut self.doc)
         {
@@ -460,6 +518,9 @@ impl App {
 
     fn removed(&mut self, panels: Vec<Panel>) {
         for mut panel in panels {
+            if let Some(table) = panel.kind.table_mut() {
+                table.detach(&mut self.doc);
+            }
             if let Some(pipeline) = panel.kind.pipeline_mut() {
                 pipeline.detach(&mut self.doc);
             }
@@ -607,6 +668,10 @@ impl App {
         let before = crate::workspace::Stamp::capture(self, &command);
         let tracked = before.as_ref().map(|_| command.clone());
         match command {
+            Command::Notice(message) => {
+                self.events.push(Event::Notice(message));
+                self.changed();
+            }
             Command::Open(spec) => self.open(spec, false),
             Command::RequestOpenDialog => self.events.push(Event::OpenFileDialog),
             Command::RequestOpenWorkspace | Command::RequestSaveWorkspaceAs => {
@@ -645,6 +710,15 @@ impl App {
             Command::AddVars(vars) => self.add_vars(&vars),
             Command::ActivateMembers(members) => self.activate_members(&members),
             Command::OpenPipeline { track } => self.open_pipeline(track),
+            Command::OpenTable { selected, clicked } => self.open_table(&selected, clicked),
+            Command::OpenTableFromPanel { panel, row } => self.open_table_from_panel(panel, row),
+            Command::Table(panel, command) => {
+                if let Some(table) = self.panels.get_mut(panel).and_then(|p| p.kind.table_mut())
+                    && table.command(&mut self.doc, command, now)
+                {
+                    self.changed();
+                }
+            }
             Command::SetSearchEverywhere(search) => {
                 self.variables.search_everywhere = search;
                 self.variables.rebuild(self.doc.hierarchy());
@@ -722,6 +796,18 @@ impl App {
                 }
             }
             Command::MenuSelect(panel, action) => {
+                if matches!(action, MenuAction::OpenTable) {
+                    let row = self
+                        .panels
+                        .waves(panel)
+                        .and_then(|waves| waves.menu.as_ref().map(|menu| menu.row));
+                    self.open_table_from_panel(panel, row);
+                    if let Some(waves) = self.panels.waves_mut(panel) {
+                        waves.menu_dismiss();
+                    }
+                    self.changed();
+                    return;
+                }
                 let retry = self
                     .panels
                     .waves_mut(panel)
@@ -812,6 +898,134 @@ impl App {
     /// Focus the pipeline panel showing `track`, or open one split below
     /// the focused panel. Any stream or generator of the catalog qualifies;
     /// the stream kind is never inspected.
+    fn resident_histories(
+        &self,
+    ) -> std::collections::HashMap<crate::data::SignalRef, Arc<dyn crate::data::SignalHistory>>
+    {
+        self.panels
+            .iter()
+            .filter_map(|panel| panel.kind.waves())
+            .flat_map(|waves| &waves.items)
+            .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
+            .chain(
+                self.panels
+                    .iter()
+                    .filter_map(|panel| panel.kind.table())
+                    .flat_map(|table| table.histories()),
+            )
+            .collect()
+    }
+
+    pub(crate) fn table_memory_budget(&self) -> crate::remote::memory::MemoryBudget {
+        self.doc
+            .session()
+            .and_then(|session| session.memory_budget())
+            .unwrap_or_else(|| self.table_budget.clone())
+    }
+
+    fn open_table(&mut self, selected: &[Member], clicked: Option<Member>) {
+        let Some(session) = self.doc.session() else {
+            return;
+        };
+        let clicked_only;
+        let members = match clicked {
+            Some(member) if !selected.contains(&member) => {
+                clicked_only = [member];
+                &clicked_only[..]
+            }
+            _ => selected,
+        };
+        let source = if !members.is_empty() && members.iter().all(|m| matches!(m, Member::Var(_))) {
+            let vars = members.iter().filter_map(|m| m.var()).collect::<Vec<_>>();
+            crate::table::TableSource::signals(session.hierarchy(), &vars)
+        } else if members.len() == 1 {
+            let track = session
+                .hierarchy()
+                .member_track(members[0])
+                .ok_or_else(|| anyhow::anyhow!("Choose one generator, or only signals."));
+            track.and_then(|track| {
+                crate::table::TableSource::generator(session.hierarchy(), session.tracks(), track)
+            })
+        } else {
+            Err(anyhow::anyhow!("Choose one generator, or only signals."))
+        };
+        match source {
+            Ok(source) => self.open_table_source(source, self.panels.focused_id()),
+            Err(error) => {
+                self.events.push(Event::Notice(error.to_string()));
+                self.changed();
+            }
+        }
+    }
+
+    fn open_table_from_panel(&mut self, panel: PanelId, row: Option<usize>) {
+        let Some(session) = self.doc.session() else {
+            return;
+        };
+        let source = if let Some(waves) = self.panels.get(panel).and_then(|p| p.kind.waves()) {
+            let rows = match row {
+                Some(row) if !waves.selected.contains(&row) => vec![row],
+                _ => waves.selected.iter().copied().collect(),
+            };
+            let vars = rows
+                .into_iter()
+                .filter_map(|index| match waves.items.get(index)?.source {
+                    crate::wave::model::RowSource::Resolved { var, .. } => Some(var),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            crate::table::TableSource::signals(session.hierarchy(), &vars)
+        } else if let Some(track) = self
+            .panels
+            .get(panel)
+            .and_then(|p| p.kind.pipeline())
+            .and_then(|pipeline| pipeline.track.track())
+        {
+            crate::table::TableSource::generator(session.hierarchy(), session.tracks(), track)
+        } else {
+            return;
+        };
+        match source {
+            Ok(source) => self.open_table_source(source, panel),
+            Err(error) => {
+                self.events.push(Event::Notice(error.to_string()));
+                self.changed();
+            }
+        }
+    }
+
+    fn open_table_source(&mut self, source: crate::table::TableSource, beside: PanelId) {
+        let mut table = crate::table::TableModel::new(
+            source,
+            self.settings.resolved().link_by_default(),
+            self.table_memory_budget(),
+            self.settings.resolved().table.detail_items,
+        );
+        table.nav.reset(Some(self.doc.limits()));
+        let kind = PanelKind::Table(Box::new(table));
+        if self
+            .panels
+            .get(beside)
+            .is_some_and(|panel| panel.kind.is_start())
+        {
+            _ = self.replace_panel(beside, kind);
+            return;
+        }
+        match self
+            .panels
+            .open(kind, beside, Some(crate::panels::Axis::Vertical))
+        {
+            Ok(id) => {
+                self.created(id);
+                self.layout_changed();
+            }
+            Err(error) => {
+                self.events.push(Event::Notice(error.to_string()));
+                self.changed();
+            }
+        }
+    }
+
     fn open_pipeline(&mut self, track: TrackRef) {
         let Some(session) = self.doc.session().cloned() else {
             return;
@@ -871,13 +1085,7 @@ impl App {
             return;
         };
         // Reuse histories already held in another panel before queuing work.
-        let loaded: std::collections::HashMap<_, _> = self
-            .panels
-            .iter()
-            .filter_map(|p| p.kind.waves())
-            .flat_map(|w| &w.items)
-            .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
-            .collect();
+        let loaded = self.resident_histories();
         if let Some(w) = self.panels.waves_mut(target) {
             w.add_vars(&mut self.doc, vars, loaded);
         }
@@ -928,6 +1136,48 @@ impl App {
         }
         let doc = &mut self.doc;
         match &mut self.panels.focused_mut().kind {
+            PanelKind::Table(table) => match action {
+                Action::GoToStart => {
+                    table.command(doc, crate::table::TableCommand::First, now);
+                }
+                Action::GoToEnd => {
+                    table.command(doc, crate::table::TableCommand::Last, now);
+                }
+                Action::MoveSelectionUp => {
+                    table.command(doc, crate::table::TableCommand::Previous, now);
+                }
+                Action::MoveSelectionDown => {
+                    table.command(doc, crate::table::TableCommand::Next, now);
+                }
+                Action::ClearSelection => {
+                    table.selected = None;
+                    table.details = None;
+                }
+                Action::GoToCursor
+                | Action::ZoomIn
+                | Action::ZoomOut
+                | Action::ZoomFit
+                | Action::ZoomToCursor
+                | Action::PanPageLeft
+                | Action::PanPageRight
+                | Action::PanLeft
+                | Action::PanRight
+                | Action::NextEdge
+                | Action::PrevEdge
+                | Action::AddMarker
+                | Action::ClearMarkers
+                | Action::RemoveSelected
+                | Action::SelectAll
+                | Action::CycleFormat => return,
+                Action::SplitRight
+                | Action::SplitDown
+                | Action::NewPanel
+                | Action::ClosePanel
+                | Action::FocusNextPanel
+                | Action::FocusPrevPanel
+                | Action::ToggleViewportLink
+                | Action::ToggleCursorLink => unreachable!(),
+            },
             PanelKind::Waves(w) => match action {
                 Action::ZoomIn => w.zoom_in(doc, now),
                 Action::ZoomOut => w.zoom_out(doc, now),
@@ -1039,6 +1289,7 @@ impl App {
         Some(match &mut self.panels.get_mut(id)?.kind {
             PanelKind::Waves(w) => PanelLayout::Waves(w.layout(bounds, doc, theme)),
             PanelKind::Pipeline(p) => PanelLayout::Pipeline(p.layout(bounds, doc, theme)),
+            PanelKind::Table(table) => PanelLayout::Table(table.layout(bounds, theme)),
             _ => return None,
         })
     }
@@ -1094,6 +1345,10 @@ impl App {
                     focused,
                 );
                 p.last_layout().bounds
+            }
+            PanelKind::Table(table) => {
+                crate::table::paint::paint(table, theme, scene);
+                table.layout.bounds
             }
             _ => return,
         };
@@ -1182,6 +1437,7 @@ impl App {
                     s.hover = p.hover_text(&self.doc);
                     (&p.nav, p.last_layout().cells_width_f64())
                 }
+                PanelKind::Table(table) => (&table.nav, f64::from(table.layout.body.width())),
                 _ => return s,
             };
             s.links = Some(nav.link);
@@ -1220,6 +1476,17 @@ impl App {
                 p.nav.cursor(&self.doc), self.doc.markers.len(),
                 p.nav.viewport(&self.doc).start, p.nav.viewport(&self.doc).end,
                 p.hover, p.drag,
+            );
+        }
+        if let Some(table) = panel.kind.table() {
+            return format!(
+                "panel={} table focused={} rows={} top={} selected={:?} status={}",
+                id.0,
+                id == self.panels.focused_id(),
+                table.len(),
+                table.viewport.top,
+                table.selected,
+                table.status()
             );
         }
         let Some(w) = panel.kind.waves() else {

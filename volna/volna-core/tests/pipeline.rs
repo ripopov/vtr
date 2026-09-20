@@ -149,7 +149,7 @@ fn opened(n: u64) -> (App, Arc<dyn Session>, PanelId, PanelId) {
 fn cells(app: &mut App, id: PanelId, theme: &Theme) -> Rect {
     match app.layout_panel(id, BOUNDS, theme).unwrap() {
         PanelLayout::Pipeline(l) => l.cells,
-        PanelLayout::Waves(_) => panic!("not a pipeline panel"),
+        PanelLayout::Waves(_) | PanelLayout::Table(_) => panic!("not a pipeline panel"),
     }
 }
 
