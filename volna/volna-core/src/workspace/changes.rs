@@ -67,6 +67,7 @@ impl Stamp {
         if matches!(
             command,
             Command::MenuDismiss(_)
+                | Command::OpenSignalMenu(_)
                 | Command::SelectVar { .. }
                 | Command::ChromeDragStart(_)
                 | Command::ChromeDragEnd

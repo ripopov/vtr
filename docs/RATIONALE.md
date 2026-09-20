@@ -115,6 +115,13 @@ and cancellation drops private builders and reservations. A separate native
 table-only cap was rejected because it could admit a table after raw data had
 already exhausted the process budget.
 
+Signal-level commands live in the signal-name context menu because they act on
+row identity and selection. The value badge remains limited to presentation
+formats and recovery of a failed value load. Right-click and Shift+F10 preserve
+an existing group when invoked on one of its rows; an unselected row becomes a
+single-row selection. This gives **Open in table** and **Remove signal** one
+shared selection rule without mixing navigation into the format control.
+
 Details are a separate superseding request, limited by `table.detailItems` and
 the panel byte reservation; closing the inspector or selecting another row
 invalidates the pending identity. Copy uses fixed standard fields rather than

@@ -37,7 +37,7 @@ node --test volna/volna/tools/table-clipboard.test.mjs
 |---|---|
 | Document and loading | Latest open wins, close invalidates pending results, stale successes/errors are ignored, failed loads can retry through the row menu without adding rows or replacing unrelated histories, duplicate/alias rows share histories, queued demand is removed with its last consumer, and active signal loads survive removal/re-add |
 | Panel model | Literal hierarchy paths and duplicate-name ambiguity; split/close/focus/layout validation; 5,000 generated command sequences; shared and independent navigation; cross-panel load reuse and stale pointer rejection |
-| Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, format menu, sidebar filtering/keys, layout hit regions and repaint coalescing |
+| Headless interaction | Cursor, markers, selection, deterministic zoom/pan/fit, dense-column rendering, value-format menu, signal-name context menu over one row or a selected group, sidebar filtering/keys, layout hit regions and repaint coalescing |
 | FST input | Plain/gzip fixtures, raw bytes, reals, nine-state values, aliases, EVCD payloads, event occurrences, unavailable samples and explicit unsupported metadata errors |
 | FST/VTR parity | Values at every change timestamp in the committed Verilator features, operators and pipeline recordings |
 | Transactions | Unsupported versus empty capabilities, typed attributes and phases, events, stages, parents, inclusive overlap boundaries, filtering, early stopping and cross-stream relations |
@@ -132,7 +132,9 @@ Exercise the following in each target frontend:
   Inspect the preview before release and the resulting time bounds afterward.
   Check that small/vertical-only drags do not zoom, Escape cancels selection,
   middle/right-drag pans, and linked versus independent panels behave correctly.
-- Open the format menu, switch translators and drag the column/sidebar dividers.
+- Open the value-format menu and switch translators. Right-click a selected
+  signal name, then open the selected group in a table and remove it; repeat
+  with Shift+F10. Drag the column/sidebar dividers.
 - Open another recording and verify that pending results cannot populate it.
 - Check empty/loading states, text at 1× and 2×, and nonblank waveform rendering.
 

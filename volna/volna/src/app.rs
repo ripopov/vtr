@@ -93,6 +93,7 @@ actions!(
         AddMarker,
         ClearMarkers,
         RemoveSelected,
+        OpenSignalMenu,
         SelectAll,
         ClearSelection,
         CycleFormat,
@@ -142,13 +143,8 @@ pub struct Workspace {
     pub(crate) scopes_scroll: UniformListScrollHandle,
     pub(crate) variables_scroll: UniformListScrollHandle,
     stress_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
-    /// Mirrors the focused wave panel's menu: (panel, row, position, popup).
-    format_menu: Option<(
-        volna_core::panels::PanelId,
-        usize,
-        gpui_kit::Point<Pixels>,
-        Entity<PopupMenu>,
-    )>,
+    /// Mirrors the focused wave panel's menu.
+    wave_menu: Option<HostedWaveMenu>,
     /// Display list buffer and shaped-text cache, reused across frames.
     pub(crate) scene: Scene,
     pub(crate) shaped: HashMap<TextKey, ShapedLine>,
@@ -160,6 +156,14 @@ pub struct Workspace {
     menu_generation: Option<u64>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) config_watcher: Option<notify::RecommendedWatcher>,
+}
+
+struct HostedWaveMenu {
+    panel: volna_core::panels::PanelId,
+    row: usize,
+    kind: volna_core::wave::WaveMenuKind,
+    position: gpui_kit::Point<Pixels>,
+    popup: Entity<PopupMenu>,
 }
 
 impl Focusable for Workspace {
@@ -291,6 +295,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("shift-m", ClearMarkers, Some("Waves")),
         KeyBinding::new("backspace", RemoveSelected, Some("Waves")),
         KeyBinding::new("delete", RemoveSelected, Some("Waves")),
+        KeyBinding::new("shift-f10", OpenSignalMenu, Some("Waves")),
         KeyBinding::new("cmd-a", SelectAll, Some("Waves")),
         KeyBinding::new("ctrl-a", SelectAll, Some("Waves")),
         KeyBinding::new("escape", ClearSelection, Some("Waves")),
@@ -462,7 +467,7 @@ impl Workspace {
             scopes_scroll: UniformListScrollHandle::new(),
             variables_scroll: UniformListScrollHandle::new(),
             stress_menu: None,
-            format_menu: None,
+            wave_menu: None,
             scene: Scene::default(),
             shaped: HashMap::new(),
             embedded: false,
@@ -583,7 +588,7 @@ impl Workspace {
                 }
             }
         }
-        self.sync_format_menu(window, cx);
+        self.sync_wave_menu(window, cx);
         self.sync_filter(cx);
         self.sync_menus(cx);
         self.run_requests(cx);
@@ -630,8 +635,8 @@ impl Workspace {
         .detach();
     }
 
-    /// Keep the GPUI popup in step with the core's format menu.
-    fn sync_format_menu(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
+    /// Keep the GPUI popup in step with the core's wave-row menu.
+    fn sync_wave_menu(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
         let panel = self.app.panels.focused_id();
         let Some(m) = self
             .app
@@ -639,13 +644,13 @@ impl Workspace {
             .focused_waves()
             .and_then(|w| w.menu.as_ref())
         else {
-            self.format_menu = None;
+            self.wave_menu = None;
             return;
         };
         if self
-            .format_menu
+            .wave_menu
             .as_ref()
-            .is_some_and(|(id, row, _, _)| *id == panel && *row == m.row)
+            .is_some_and(|menu| menu.panel == panel && menu.row == m.row && menu.kind == m.kind)
         {
             return;
         }
@@ -679,7 +684,13 @@ impl Workspace {
             this.dispatch_if_current(generation, Command::MenuDismiss(panel), None, cx);
         })
         .detach();
-        self.format_menu = Some((panel, row, position, menu));
+        self.wave_menu = Some(HostedWaveMenu {
+            panel,
+            row,
+            kind: m.kind,
+            position,
+            popup: menu,
+        });
         cx.notify();
     }
 
@@ -1165,6 +1176,10 @@ impl Workspace {
             .key_context("Waves")
             .size_full()
             .relative();
+        let el = el.on_action(cx.listener(|this, _: &OpenSignalMenu, window, cx| {
+            let panel = this.app.panels.focused_id();
+            this.dispatch(Command::OpenSignalMenu(panel), Some(window), cx);
+        }));
         let el = wave_actions!(
             el,
             cx,
@@ -1514,7 +1529,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_format_menu(Some(window), cx);
+        self.sync_wave_menu(Some(window), cx);
         let was_animating = self.app.is_animating();
         if self.app.tick(Instant::now()) {
             window.request_animation_frame();
@@ -1680,9 +1695,9 @@ impl Render for Workspace {
         )
         .child(self.render_statusbar(cx))
         .children(
-            self.format_menu
+            self.wave_menu
                 .as_ref()
-                .map(|(_, _, p, m)| popup_at(*p, m.clone(), window, cx)),
+                .map(|menu| popup_at(menu.position, menu.popup.clone(), window, cx)),
         )
         .children(
             self.stress_menu

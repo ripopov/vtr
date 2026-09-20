@@ -247,8 +247,8 @@ The panel menu also provides rename and close-other-panel actions.
 | Pan | wheel/trackpad over waves, middle/right-drag | `←` `→`, `PageUp` later / `PageDown` earlier, `Home`/`S` start, `End`/`E` end, `C` centre on cursor |
 | Markers | click a chip to jump, `shift`-click to remove | `M` add at cursor, `shift-M` clear |
 | Value format | click the badge in the values column | `T` cycles binary / hex / decimal / signed / float |
-| Rows | click, `shift`/`⌘` multi-select, drag the column dividers | `↑` `↓`, `⌫` remove, `⌘A`, `esc` |
-| Open table | right-click a signal/generator, or use a Waves/Pipeline row menu | |
+| Signal rows | click, `shift`/`⌘` multi-select; right-click a signal name for row actions; drag the column dividers | `↑` `↓`, `⌫` remove, `⌘A`, `esc`; `shift-F10` row actions |
+| Open table | choose **Open in table** from a selected signal-name, sidebar signal/generator, or Pipeline row menu | |
 | Table rows | wheel/trackpad or drag either scrollbar; click selects without changing the source | `Home`/`End`, `↑`/`↓`, `PageUp`/`PageDown`, `Enter` details, `⌘C`/`ctrl-C` complete TSV |
 | Sidebar | drag the dividers | `⌘B` toggle |
 | Files | drag a `.vtr` or `.fst` onto the window | `⌘O` |

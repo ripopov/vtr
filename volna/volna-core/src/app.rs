@@ -19,7 +19,7 @@ use crate::settings::{self, Value};
 use crate::sidebar::{Key, MemberListModel, ScopeTreeModel};
 use crate::theme::Theme;
 use crate::wave::layout::WaveLayout;
-use crate::wave::model::{MenuAction, PointerEvent};
+use crate::wave::model::{MenuAction, PointerEvent, WaveMenuKind};
 use crate::wave::timeline::{TimeBase, format_time};
 
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
@@ -144,7 +144,8 @@ pub enum Command {
     /// Enter in the filter box: add the selected variables, or all.
     AddSelectedOrAllVars,
     VariablesKey(Key, Modifiers),
-    /// The format menu's popup reported a choice / was dismissed.
+    /// Open the selected signal's row menu, or report a wave-row menu choice.
+    OpenSignalMenu(PanelId),
     MenuSelect(PanelId, MenuAction),
     MenuDismiss(PanelId),
     SetSidebarWidth(f32),
@@ -802,17 +803,41 @@ impl App {
                     self.changed();
                 }
             }
+            Command::OpenSignalMenu(panel) => {
+                if let Some(waves) = self.panels.waves_mut(panel) {
+                    waves.open_selected_signal_menu();
+                    if waves.menu.is_some() {
+                        self.changed();
+                    }
+                }
+            }
             Command::MenuSelect(panel, action) => {
                 if matches!(action, MenuAction::OpenTable) {
                     let row = self
                         .panels
                         .waves(panel)
-                        .and_then(|waves| waves.menu.as_ref().map(|menu| menu.row));
-                    self.open_table_from_panel(panel, row);
+                        .and_then(|waves| waves.menu.as_ref())
+                        .filter(|menu| menu.kind == WaveMenuKind::Signal)
+                        .map(|menu| menu.row);
+                    let Some(row) = row else { return };
+                    self.open_table_from_panel(panel, Some(row));
                     if let Some(waves) = self.panels.waves_mut(panel) {
                         waves.menu_dismiss();
                     }
                     self.changed();
+                    return;
+                }
+                if matches!(action, MenuAction::RemoveSignals) {
+                    if let Some(waves) = self.panels.waves_mut(panel)
+                        && waves
+                            .menu
+                            .as_ref()
+                            .is_some_and(|menu| menu.kind == WaveMenuKind::Signal)
+                    {
+                        waves.menu_dismiss();
+                        waves.remove_selected();
+                        self.changed();
+                    }
                     return;
                 }
                 let retry = self

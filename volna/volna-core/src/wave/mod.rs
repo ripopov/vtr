@@ -9,5 +9,5 @@ pub mod timeline;
 pub mod viewport;
 
 pub use layout::WaveLayout;
-pub use model::{DisplayedSignal, Drag, FormatMenu, MenuItem, PointerEvent, WaveModel};
+pub use model::{DisplayedSignal, Drag, MenuItem, PointerEvent, WaveMenu, WaveMenuKind, WaveModel};
 pub use viewport::Viewport;

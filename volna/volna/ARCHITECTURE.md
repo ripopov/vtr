@@ -169,6 +169,14 @@ once, plus every independent animation. Unlink snapshots the displayed shared
 value; relink adopts the retained shared position even if no panels currently
 follow it. Markers always use the focused panel's effective cursor.
 
+The value badge opens only value translators plus **Retry loading** after a
+failed load. Right-clicking a signal name opens its row menu with **Open in
+table** and **Remove signal**; when that row is already part of a selection,
+both commands apply to the complete selection. Right-clicking an unselected row
+makes it the sole selection first. Shift+F10 opens the same menu for the
+keyboard selection. The core owns menu contents and selection semantics; GPUI
+only hosts the popup.
+
 Pointer commands name a panel; keyboard actions and sidebar additions resolve
 focus when handled. Deliveries fan out shared history Arcs to all matching
 panels. Adding a loaded signal in another panel reuses the history without

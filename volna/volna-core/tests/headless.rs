@@ -13,10 +13,11 @@ use volna_core::data::{
 use volna_core::document::TraceState;
 use volna_core::geometry::{Modifiers, MouseButton, Rect, point};
 use volna_core::nav::Lerp;
+use volna_core::panels::PanelsCommand;
 use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use volna_core::sidebar::Key;
-use volna_core::wave::PointerEvent;
+use volna_core::wave::{PointerEvent, WaveMenuKind};
 use volna_core::{Instant, Theme};
 
 /// A synthetic source that counts loads, can fail on demand, and has an
@@ -972,7 +973,13 @@ fn format_menu_and_translator_cycle() {
         .menu
         .clone()
         .expect("menu opened");
+    assert_eq!(menu.kind, WaveMenuKind::Format);
     assert!(menu.items.iter().any(|i| i.checked));
+    assert!(menu.items.iter().all(|item| matches!(
+        item.action,
+        volna_core::wave::model::MenuAction::Format(_)
+            | volna_core::wave::model::MenuAction::RetryLoad
+    )));
     assert!(app.debug_state().contains("menu=true"));
     let before = app.panels.focused_waves().unwrap().items[0].translator.id();
     let other = menu
@@ -1013,6 +1020,70 @@ fn format_menu_and_translator_cycle() {
     app.handle(Command::Action(Action::ClearSelection));
     assert!(app.panels.focused_waves().unwrap().menu.is_none());
     assert!(!app.panels.focused_waves().unwrap().selected.is_empty());
+}
+
+#[test]
+fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
+    use volna_core::table::TableSource;
+    use volna_core::wave::model::MenuAction;
+
+    let (mut app, _) = loaded_app(100);
+    app.handle(Command::AddVars(vec![0, 1, 2]));
+    pump(&mut app);
+    frame(&mut app, &Theme::one_dark());
+    let waves = app.panels.focused_id();
+    let position = {
+        let layout = app.panels.waves(waves).unwrap().last_layout();
+        point(
+            layout.names.left() + 20.0,
+            layout.row_y(1) + layout.row_h / 2.0,
+        )
+    };
+    app.handle(Command::Pointer(
+        waves,
+        PointerEvent::Down {
+            position,
+            button: MouseButton::Right,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    let panel = app.panels.waves(waves).unwrap();
+    assert_eq!(
+        panel.selected.iter().copied().collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    let menu = panel.menu.as_ref().expect("signal menu opened");
+    assert_eq!(menu.kind, WaveMenuKind::Signal);
+    assert_eq!(
+        menu.items
+            .iter()
+            .map(|item| (&item.action, item.label.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (&MenuAction::OpenTable, "Open in table"),
+            (&MenuAction::RemoveSignals, "Remove signal"),
+        ]
+    );
+
+    app.handle(Command::MenuSelect(waves, MenuAction::OpenTable));
+    let table = app.panels.focused().kind.table().expect("table opened");
+    let TableSource::Signals(signals) = &table.source else {
+        panic!("signal table");
+    };
+    assert_eq!(signals.len(), 3);
+    assert!(app.panels.waves(waves).unwrap().menu.is_none());
+
+    app.handle(Command::Panels(PanelsCommand::Focus(waves)));
+    app.handle(Command::OpenSignalMenu(waves));
+    assert_eq!(
+        app.panels.waves(waves).unwrap().menu.as_ref().unwrap().kind,
+        WaveMenuKind::Signal
+    );
+    app.handle(Command::MenuSelect(waves, MenuAction::RemoveSignals));
+    let panel = app.panels.waves(waves).unwrap();
+    assert!(panel.items.is_empty());
+    assert!(panel.selected.is_empty());
+    assert!(panel.menu.is_none());
 }
 
 #[test]

@@ -1,5 +1,5 @@
 //! `WaveModel`: the state of the waveform panel (displayed signals, selection,
-//! viewport, scroll, hover, drags, the format menu) and every input rule that
+//! viewport, scroll, hover, drags, and row menus) and every input rule that
 //! mutates it. Navigation reads through the document while linked; markers
 //! always belong to the document.
 
@@ -88,6 +88,7 @@ pub enum MenuAction {
     Format(String),
     RetryLoad,
     OpenTable,
+    RemoveSignals,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,10 +99,17 @@ pub struct MenuItem {
     pub checked: bool,
 }
 
-/// The row menu for value formats and failed-load retry. The frontend shows
-/// its own popup widget at the panel position and reports the typed choice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaveMenuKind {
+    Format,
+    Signal,
+}
+
+/// A format-badge or signal-name menu. The frontend shows its own popup widget
+/// at the panel position and reports the typed choice.
 #[derive(Clone, Debug)]
-pub struct FormatMenu {
+pub struct WaveMenu {
+    pub kind: WaveMenuKind,
     pub row: usize,
     pub position: Point,
     pub items: Vec<MenuItem>,
@@ -159,7 +167,7 @@ pub struct WaveModel {
     pub frames_painted: u64,
     pub frame_ms: f32,
     pub frame_ms_avg: f32,
-    pub menu: Option<FormatMenu>,
+    pub menu: Option<WaveMenu>,
     /// Last known pointer position over the panel.
     pub pointer: Option<Point>,
     layout: WaveLayout,
@@ -438,26 +446,67 @@ impl WaveModel {
                 checked: false,
             });
         }
-        if item.source.signal().is_some() {
-            items.push(MenuItem {
-                action: MenuAction::OpenTable,
-                label: "Open in table".into(),
-                badge: None,
-                checked: false,
-            });
-        }
-        self.menu = Some(FormatMenu {
+        self.menu = Some(WaveMenu {
+            kind: WaveMenuKind::Format,
             row,
             position,
             items,
         });
     }
 
+    /// Open the signal-name context menu. Right-clicking within an existing
+    /// selection preserves the group; an unselected row becomes the selection.
+    pub fn open_signal_menu(&mut self, row: usize, position: Point) {
+        if row >= self.items.len() {
+            return;
+        }
+        if !self.selected.contains(&row) {
+            self.select_row(row, Modifiers::default());
+        }
+        self.menu = Some(WaveMenu {
+            kind: WaveMenuKind::Signal,
+            row,
+            position,
+            items: vec![
+                MenuItem {
+                    action: MenuAction::OpenTable,
+                    label: "Open in table".into(),
+                    badge: None,
+                    checked: false,
+                },
+                MenuItem {
+                    action: MenuAction::RemoveSignals,
+                    label: "Remove signal".into(),
+                    badge: None,
+                    checked: false,
+                },
+            ],
+        });
+    }
+
+    /// Open the signal menu for the keyboard selection, positioned beside its
+    /// name cell. Off-screen selections use the nearest panel edge.
+    pub fn open_selected_signal_menu(&mut self) {
+        let Some(row) = self
+            .anchor
+            .filter(|row| self.selected.contains(row))
+            .or_else(|| self.selected.iter().next().copied())
+        else {
+            return;
+        };
+        let y = (self.layout.row_y(row) + self.layout.row_h)
+            .clamp(self.layout.names.top(), self.layout.names.bottom());
+        self.open_signal_menu(
+            row,
+            point(self.layout.names.left() + 8.0 * self.layout.zoom, y),
+        );
+    }
+
     /// The frontend's popup reported a choice.
     /// Return a failed canonical signal to retry through the document owner.
     pub fn menu_select(&mut self, doc: &Document, action: &MenuAction) -> Option<SignalRef> {
         let menu = self.menu.take()?;
-        if matches!(action, MenuAction::OpenTable) {
+        if matches!(action, MenuAction::OpenTable | MenuAction::RemoveSignals) {
             return None;
         }
         let MenuAction::Format(id) = action else {
@@ -776,6 +825,14 @@ impl WaveModel {
                 MouseButton::Middle | MouseButton::Right => {
                     self.drag = Some(Drag::Pan { last_x: p.x });
                 }
+            }
+            return;
+        }
+        // Signal-name context menu. Preserve a group when the clicked row is
+        // already selected; otherwise make this the single selected row.
+        if button == MouseButton::Right && layout.names.contains(p) {
+            if let Some(row) = row {
+                self.open_signal_menu(row, p);
             }
             return;
         }

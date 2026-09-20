@@ -87,7 +87,7 @@ struct Ids {
     scopes: Id,
     variables: Id,
     filter: Id,
-    format_menu: Id,
+    wave_menu: Id,
 }
 
 /// Which panel keyboard input goes to this frame.
@@ -137,7 +137,7 @@ impl VolnaApp {
                 scopes: Id::new("volna-scopes"),
                 variables: Id::new("volna-variables"),
                 filter: Id::new("volna-filter"),
-                format_menu: Id::new("volna-format-menu"),
+                wave_menu: Id::new("volna-wave-menu"),
             },
         };
         app.apply_visuals(ctx);
@@ -1021,11 +1021,11 @@ impl VolnaApp {
             .focused_mut()
             .record_frame(started.elapsed().as_secs_f32() * 1000.0);
 
-        // -- format menu ----------------------------------------------------------
+        // -- wave row menu --------------------------------------------------------
         if let Some(menu) = self.app.panels.focused_waves().and_then(|w| w.menu.clone()) {
             let t = self.theme;
             let mut chosen = None;
-            let area = Area::new(self.ids.format_menu)
+            let area = Area::new(self.ids.wave_menu)
                 .order(Order::Foreground)
                 .fixed_pos(Pos2::new(menu.position.x, menu.position.y))
                 .show(&ctx, |ui| {
