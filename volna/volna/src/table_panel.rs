@@ -16,6 +16,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Empty, Focusable, Window, div, px};
 use volna_core::Command;
+use volna_core::icons::IconName;
 use volna_core::table::columns::{ColumnSet, TransactionColumn};
 use volna_core::table::{DetailList, Details, TableCommand, TableState};
 
@@ -87,25 +88,50 @@ impl CanvasPanelView {
             .px_2()
             .h(px(32.0 * t.zoom))
             .flex_none();
-        for (name, label, command) in [
-            ("table-first", "First", TableCommand::First),
-            ("table-previous", "Previous", TableCommand::Previous),
-            ("table-next", "Next", TableCommand::Next),
-            ("table-last", "Last", TableCommand::Last),
+        for (name, icon, tooltip, command) in [
+            (
+                "table-first",
+                IconName::TableFirst,
+                "First row (Home)",
+                TableCommand::First,
+            ),
+            (
+                "table-previous",
+                IconName::TablePrevious,
+                "Previous row (Arrow Up)",
+                TableCommand::Previous,
+            ),
+            (
+                "table-next",
+                IconName::TableNext,
+                "Next row (Arrow Down)",
+                TableCommand::Next,
+            ),
+            (
+                "table-last",
+                IconName::TableLast,
+                "Last row (End)",
+                TableCommand::Last,
+            ),
         ] {
             let owner = owner.clone();
-            toolbar = toolbar.child(Button::new(name).label(label).ghost().small().on_click(
-                move |_, window, cx| {
-                    owner.update(cx, |ws, cx| {
-                        ws.dispatch_if_current(
-                            generation,
-                            Command::Table(id, command.clone()),
-                            Some(window),
-                            cx,
-                        )
-                    })
-                },
-            ));
+            toolbar = toolbar.child(
+                Button::new(name)
+                    .icon(gpui_kit::component::Icon::empty().path(icon.path()))
+                    .tooltip(tooltip)
+                    .ghost()
+                    .small()
+                    .on_click(move |_, window, cx| {
+                        owner.update(cx, |ws, cx| {
+                            ws.dispatch_if_current(
+                                generation,
+                                Command::Table(id, command.clone()),
+                                Some(window),
+                                cx,
+                            )
+                        })
+                    }),
+            );
         }
         toolbar = toolbar
             .child(
@@ -117,6 +143,7 @@ impl CanvasPanelView {
             )
             .child(
                 Button::new("table-columns")
+                    .icon(gpui_kit::component::Icon::empty().path(IconName::TableColumns.path()))
                     .label("Columns")
                     .ghost()
                     .small()
@@ -163,6 +190,7 @@ impl CanvasPanelView {
             )
             .child(
                 Button::new("table-details")
+                    .icon(gpui_kit::component::Icon::empty().path(IconName::TableDetails.path()))
                     .label("Details")
                     .ghost()
                     .small()
