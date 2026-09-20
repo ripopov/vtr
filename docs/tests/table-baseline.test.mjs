@@ -57,22 +57,31 @@ test('baseline demo navigation, exact u64 positions, state handling and clipboar
   await browser.wait('document.getElementById("rows").firstChild.dataset.ordinal === "5"');
   assert.equal(await selected(),before);assert.equal(await browser.evaluate('document.getElementById("cursor-time").textContent'),cursor);
   await browser.click('#waves');await browser.wait(`document.getElementById('cursor-time').textContent!==${JSON.stringify(cursor)}`);assert.equal(await selected(),before);
-  await browser.click('#reveal-record');assert.match(await browser.evaluate('document.getElementById("time-window").textContent'),/ns/);
+  const window_=()=>browser.evaluate('document.getElementById("time-window").textContent');
+  const inside=await window_();
+  await browser.click('#rows tr:nth-child(3)');
+  assert.equal(await window_(),inside,'selecting a record already inside the window does not move the timeline');
+  await browser.evaluate('document.getElementById("goto").value="4000"');await browser.click('#go');
+  await browser.wait('document.querySelector("#rows tr[aria-selected=true]")?.dataset.ordinal === "3999"');
+  const followed=await window_();
+  assert.notEqual(followed,inside,'a selection outside the window pans the timeline to follow the cursor');
+  assert.equal(await browser.evaluate(`(()=>{const [a,b]=document.getElementById('time-window').textContent.replace(' ns','').split('–').map(Number);const c=Number(document.getElementById('cursor-time').textContent.match(/\\d+/)[0]);return c>=a&&c<=b})()`),true,'the cursor is inside the followed window');
+  assert.equal(await browser.evaluate('document.getElementById("cursor-time").textContent.includes("outside view")'),false);
   await browser.evaluate('document.getElementById("goto").value="1234"');await browser.click('#go');
   await browser.wait('document.querySelector("#rows tr[aria-selected=true]")?.dataset.ordinal === "1233"');
-  await browser.click('#copy');
+  await browser.evaluate('document.getElementById("grid").focus()');await key('c','KeyC',67,2);
   await browser.wait('document.getElementById("feedback").textContent.includes("Copied standard fields")');
   const copied=await browser.evaluate('navigator.clipboard.readText()');
   assert.equal(copied,'Generator\tID\tBegin\tEnd\tDuration\tStatus\nsoc.noc.router.request\t1234\t5932\t5944\t12\tOK');
   await browser.evaluate('navigator.clipboard.writeText=()=>Promise.reject(new DOMException("Test denial","NotAllowedError"))');
-  await browser.click('#copy');await browser.wait('document.getElementById("copy-dialog").open');
+  await key('c','KeyC',67,2);await browser.wait('document.getElementById("copy-dialog").open');
   assert.equal(await browser.evaluate('document.getElementById("copy-text").value'),copied);
   assert.equal(await browser.evaluate('document.getElementById("copy-text").readOnly'),true);
   await browser.click('#copy-close');await browser.wait('!document.getElementById("copy-dialog").open');
   for(const scenario of ['loading','empty','error']){
     await browser.click(`[data-scenario="${scenario}"]`);await browser.wait(`document.getElementById('state-cover').dataset.state==='${scenario}'`);
     assert.equal(await browser.evaluate('document.querySelectorAll("#rows tr").length'),0);
-    assert.equal(await browser.evaluate('document.getElementById("copy").disabled'),true);
+    assert.equal(await browser.evaluate('document.getElementById("selected-record").textContent'),'—');
   }
   await browser.click('#retry-load');await browser.wait('document.querySelectorAll("#rows tr").length===12');
   await browser.click('[data-scenario=loading]');await browser.wait('!!document.getElementById("cancel-load")');
@@ -85,7 +94,73 @@ test('baseline demo navigation, exact u64 positions, state handling and clipboar
   await browser.wait('!document.getElementById("source-menu").hidden');assert.equal(await browser.evaluate('document.activeElement.id'),'open-table');await key('Enter','Enter',13);
   await browser.wait('document.getElementById("source-path").textContent.endsWith("request")');
   assert.equal(await browser.evaluate('document.getElementById("source-menu").hidden'),true);
+  const headers=()=>browser.evaluate('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")');
+  assert.equal(await headers(),'Row|Begin · ns|Duration · ns|Label · vtr.label|Status|Attributes · preview');
+  await browser.click('#columns-toggle');await browser.wait('!document.getElementById("columns-menu").hidden');
+  assert.equal(await browser.evaluate('document.querySelector("#column-options [data-column=id]").checked'),false);
+  await browser.click('#column-options [data-column=id]');
+  await browser.wait('document.querySelectorAll("#records th").length===7');
+  assert.equal(await headers(),'Row|Begin · ns|Duration · ns|ID|Label · vtr.label|Status|Attributes · preview');
+  assert.equal(await browser.evaluate('document.querySelectorAll("#rows td").length'),84);
+  assert.equal(await browser.evaluate('document.querySelector("#records").getAttribute("aria-colcount")'),'7');
+  await browser.click('#column-options [data-column=label]');
+  await browser.wait('document.querySelectorAll("#records th").length===6');
+  assert.equal(await headers(),'Row|Begin · ns|Duration · ns|ID|Status|Attributes · preview');
+  await browser.click('#columns-reset');
+  await browser.wait('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")==="Row|Begin · ns|Duration · ns|Label · vtr.label|Status|Attributes · preview"');
+  assert.equal(await browser.evaluate('document.querySelectorAll("#rows td").length'),72);
+  await browser.click('#source-path');await browser.wait('document.getElementById("columns-menu").hidden');
+  assert.equal(await browser.evaluate('document.getElementById("columns-toggle").getAttribute("aria-expanded")'),'false');
   await browser.evaluate('document.getElementById("resident-rows").value="300000000";document.getElementById("resident-rows").dispatchEvent(new Event("input"))');
   assert.match(await browser.evaluate('document.getElementById("memory-verdict").textContent'),/^Refuse/);
+  assert.deepEqual(browser.exceptions,[]);
+});
+
+test('signal tables open from a signal selection and merge change timestamps',{timeout:40000},async t=>{
+  const browser=await browserTest(routes);t.after(()=>browser.close());
+  const key=async(key,code,vk,modifiers=0)=>{
+    for(const type of ['keyDown','keyUp'])await browser.send('Input.dispatchKeyEvent',{type,key,code,windowsVirtualKeyCode:vk,modifiers});
+  };
+  const cells=n=>browser.evaluate(`[...document.querySelectorAll('#rows tr')[${n}].children].map(td=>td.textContent).join('|')`);
+  await browser.click('[data-signal=addr]');
+  await browser.wait('document.querySelector("[data-signal=addr]").getAttribute("aria-pressed")==="true"');
+  await browser.evaluate('document.querySelector("[data-signal=clk]").focus()');await key('F10','F10',121,8);
+  await browser.wait('!document.getElementById("source-menu").hidden');
+  assert.equal(await browser.evaluate('document.getElementById("open-table-label").textContent'),'Open 3 signals in table');
+  await key('Enter','Enter',13);
+  await browser.wait('document.getElementById("records").getAttribute("aria-rowcount")==="10001"');
+  assert.equal(await browser.evaluate('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")'),
+    'Row|Time · ns|bus.clk|bus.valid|bus.addr[31:0]');
+  assert.equal(await browser.evaluate('document.getElementById("source-path").textContent'),'soc.bus · 3 signals');
+  assert.match(await browser.evaluate('document.getElementById("total-label").textContent'),/^10,000 rows · 80,000 B axis$/);
+  // A row before a signal's first change shows no recorded value, never a zero.
+  assert.equal(await cells(0),'1|1000|0|—|0x80000000');
+  assert.equal(await browser.evaluate('document.querySelectorAll("#rows tr")[0].querySelectorAll("td.missing").length'),1);
+  // Distinct change times only: 1002 is valid's change, 1004 clk alone,
+  // 1008 clk and addr together collapsed into one row with two marked cells.
+  assert.equal(await cells(1),'2|1002|0|0|0x80000000');
+  assert.equal(await cells(2),'3|1004|1|0|0x80000000');
+  assert.equal(await cells(3),'4|1008|0|0|0x80000040');
+  assert.equal(await browser.evaluate('document.querySelectorAll("#rows tr")[3].querySelectorAll("td.changed").length'),2);
+  // Selection moves the cursor to the row's timestamp; copy carries every selected signal.
+  await browser.click('#rows tr:nth-child(4)');
+  await browser.wait('document.getElementById("cursor-time").textContent.startsWith("Cursor 1008 ns")');
+  await browser.evaluate('document.getElementById("grid").focus()');await key('c','KeyC',67,2);
+  await browser.wait('document.getElementById("feedback").textContent.includes("Copied standard fields")');
+  assert.equal(await browser.evaluate('navigator.clipboard.readText()'),
+    'Time\tbus.clk\tbus.valid\tbus.addr[31:0]\n1008\t0\t0\t0x80000040');
+  // Exact navigation and the column menu work the same way over the merged axis.
+  await browser.evaluate('document.getElementById("goto").value="10000"');await browser.click('#go');
+  await browser.wait('document.querySelector("#rows tr[aria-selected=true]")?.dataset.ordinal === "9999"');
+  await browser.click('#columns-toggle');await browser.wait('!document.getElementById("columns-menu").hidden');
+  assert.equal(await browser.evaluate('[...document.querySelectorAll("#column-options input")].map(i=>i.dataset.column).join(",")'),'time,clk,valid,addr');
+  await browser.click('#column-options [data-column=clk]');
+  await browser.wait('document.querySelectorAll("#records th").length===4');
+  // Opening a generator again restores the transaction catalogue.
+  await browser.click('[data-source=request]');
+  await browser.wait('document.getElementById("records").getAttribute("aria-rowcount")==="1000001"');
+  assert.equal(await browser.evaluate('[...document.querySelectorAll("#records th")].map(th=>th.textContent).join("|")'),
+    'Row|Begin · ns|Duration · ns|Label · vtr.label|Status|Attributes · preview');
+  assert.equal(await browser.evaluate('document.getElementById("order-label").textContent'),'Source order · begin / end / ID');
   assert.deepEqual(browser.exceptions,[]);
 });
