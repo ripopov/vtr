@@ -35,5 +35,8 @@ __pycache__/
 # Large local C910 CoreMark example artifacts.
 /volna/volna/examples/c910_coremark.*
 
+# Generated local stress trace (see generate_large_vtr.rs).
+/volna/volna/examples/large.vtr
+
 # macOS Finder folder metadata.
 .DS_Store

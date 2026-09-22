@@ -5,6 +5,7 @@ license.workspace = true
 repository.workspace = true
 edition = "2024"
 rust-version = "1.96"
+autoexamples = false
 default-run = "volna"
 description = "Volna: the official VTR/VDB viewer. GPUI frontend for native, web and VS Code over volna-core"
 
