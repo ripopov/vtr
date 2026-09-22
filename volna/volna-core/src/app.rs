@@ -20,7 +20,7 @@ use crate::sidebar::{Key, MemberListModel, ScopeTreeModel};
 use crate::theme::Theme;
 use crate::transaction::{TransactionCommand, TransactionModel};
 use crate::wave::layout::WaveLayout;
-use crate::wave::model::{MenuAction, PointerEvent, WaveMenuKind};
+use crate::wave::model::{MenuAction, PointerEvent, WaveMenuKind, WaveRow};
 use crate::wave::timeline::{TimeBase, format_time};
 
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
@@ -121,6 +121,9 @@ pub enum Command {
     Panels(PanelsCommand),
     /// Add rows for these variables to the wave view.
     AddVars(Vec<VarId>),
+    /// Add members to the wave view: variables as signal rows, generators as
+    /// transaction lanes. Streams and log sites have no row form.
+    AddToWaves(Vec<Member>),
     ActivateMembers(Vec<Member>),
     /// Show a stream or generator as a pipeline panel: focus the panel that
     /// already shows it, or open one below the focused panel.
@@ -450,6 +453,9 @@ pub struct App {
     text: TextCache,
     scene: Scene,
     table_budget: crate::remote::memory::MemoryBudget,
+    /// Generators retained for wave lanes, one document retain each, for
+    /// the document generation that granted them.
+    lane_tracks: (u64, std::collections::HashSet<TrackRef>),
 }
 
 impl Default for App {
@@ -485,6 +491,7 @@ impl App {
                 budget.set_object_limit(object_limit);
                 budget
             },
+            lane_tracks: Default::default(),
         }
     }
 
@@ -549,6 +556,7 @@ impl App {
     }
 
     pub(crate) fn workspace_restored(&mut self) {
+        self.sync_lane_tracks();
         self.drag = None;
         self.layout_changed();
         self.changed();
@@ -586,7 +594,7 @@ impl App {
             .iter()
             .filter_map(|panel| panel.kind.waves())
             .flat_map(|waves| &waves.items)
-            .filter_map(|row| row.source.signal())
+            .filter_map(WaveRow::signal_ref)
             .chain(
                 self.panels
                     .iter()
@@ -609,6 +617,10 @@ impl App {
             Some(Delivered::Track) => {
                 for pipeline in self.panels.pipelines_mut() {
                     pipeline.refresh(&self.doc);
+                }
+                let Self { panels, doc, .. } = self;
+                for waves in panels.iter_mut().filter_map(|p| p.kind.waves_mut()) {
+                    waves.fit_lanes(doc);
                 }
                 for table in self.panels.iter_mut().filter_map(|p| p.kind.table_mut()) {
                     table.refresh(&self.doc);
@@ -844,6 +856,7 @@ impl App {
         let before = crate::workspace::Stamp::capture(self, &command);
         let tracked = before.as_ref().map(|_| command.clone());
         let selection = self.doc.selection();
+        let pointer = matches!(command, Command::Pointer(..));
         match command {
             Command::Notice(message) => {
                 self.events.push(Event::Notice(message));
@@ -885,6 +898,7 @@ impl App {
                 }
             }
             Command::AddVars(vars) => self.add_vars(&vars),
+            Command::AddToWaves(members) => self.add_to_waves(&members),
             Command::ActivateMembers(members) => self.activate_members(&members),
             Command::OpenPipeline { track } => self.open_pipeline(track),
             Command::OpenTable { selected, clicked } => self.open_table(&selected, clicked),
@@ -1063,7 +1077,7 @@ impl App {
                 {
                     for panel in self.panels.iter_mut() {
                         if let Some(waves) = panel.kind.waves_mut() {
-                            for row in &mut waves.items {
+                            for row in waves.items.iter_mut().filter_map(WaveRow::signal_mut) {
                                 if row.source.signal() == Some(signal) {
                                     row.error = None;
                                 }
@@ -1096,6 +1110,10 @@ impl App {
                 self.changed();
             }
             Command::Settings(command) => self.settings_command(command, now),
+        }
+        // Pointer input moves rows but never adds or removes them.
+        if !pointer {
+            self.sync_lane_tracks();
         }
         if self.doc.selection() != selection {
             self.sync_selection();
@@ -1263,6 +1281,7 @@ impl App {
             .iter()
             .filter_map(|panel| panel.kind.waves())
             .flat_map(|waves| &waves.items)
+            .filter_map(WaveRow::signal)
             .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
             .chain(
                 self.panels
@@ -1363,13 +1382,24 @@ impl App {
                 _ => waves.selected.iter().copied().collect(),
             };
             let vars = rows
-                .into_iter()
-                .filter_map(|index| match waves.items.get(index)?.source {
+                .iter()
+                .filter_map(|&index| match waves.signal(index)?.source {
                     crate::wave::model::RowSource::Resolved { var, .. } => Some(var),
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            crate::table::TableSource::signals(session.hierarchy(), &vars)
+            // Lanes alone open their generator's table.
+            let lane = rows
+                .iter()
+                .find_map(|&index| waves.items.get(index)?.lane_track());
+            match lane {
+                Some(track) if vars.is_empty() => crate::table::TableSource::generator(
+                    session.hierarchy(),
+                    session.tracks(),
+                    track,
+                ),
+                _ => crate::table::TableSource::signals(session.hierarchy(), &vars),
+            }
         } else if let Some(track) = self
             .panels
             .get(panel)
@@ -1484,6 +1514,77 @@ impl App {
             w.add_vars(&mut self.doc, vars, loaded);
         }
         self.changed();
+    }
+
+    /// Signal rows for variables and lanes for generators, in the wave panel
+    /// that receives new signals.
+    fn add_to_waves(&mut self, members: &[Member]) {
+        let Some(h) = self.doc.hierarchy() else {
+            return;
+        };
+        let vars: Vec<VarId> = members.iter().filter_map(|m| m.var()).collect();
+        let mut tracks = Vec::new();
+        for &member in members {
+            if matches!(member, Member::Generator(_))
+                && !h.is_log(member)
+                && let Some(track) = h.member_track(member)
+                && !tracks.contains(&track)
+            {
+                tracks.push(track);
+            }
+        }
+        self.add_vars(&vars);
+        if tracks.is_empty() {
+            return;
+        }
+        let Some(target) = self.waves_target() else {
+            return;
+        };
+        let Self { panels, doc, .. } = self;
+        if let Some(w) = panels.waves_mut(target) {
+            w.add_lanes(doc, &tracks);
+        }
+        self.sync_lane_tracks();
+        self.changed();
+    }
+
+    /// Hold one document retain for every generator a wave lane shows, and
+    /// release those no lane shows any more. A new session drops earlier
+    /// retains with its tracks.
+    pub(crate) fn sync_lane_tracks(&mut self) {
+        let generation = self.doc.generation();
+        if self.lane_tracks.0 != generation {
+            self.lane_tracks = (generation, Default::default());
+        }
+        let wanted: std::collections::HashSet<TrackRef> = self
+            .panels
+            .iter()
+            .filter_map(|panel| panel.kind.waves())
+            .flat_map(|waves| &waves.items)
+            .filter_map(WaveRow::lane_track)
+            .collect();
+        let held = &mut self.lane_tracks.1;
+        if *held == wanted {
+            return;
+        }
+        for &track in held.difference(&wanted) {
+            self.doc.release_track(track);
+        }
+        held.retain(|track| wanted.contains(track));
+        let mut added = false;
+        for &track in &wanted {
+            if !held.contains(&track) && self.doc.retain_track(track).is_ok() {
+                held.insert(track);
+                added = true;
+            }
+        }
+        // Records another panel already holds are ready at once.
+        if added {
+            let Self { panels, doc, .. } = self;
+            for waves in panels.iter_mut().filter_map(|p| p.kind.waves_mut()) {
+                waves.fit_lanes(doc);
+            }
+        }
     }
 
     /// Paste the document clipboard into a wave panel, sharing histories

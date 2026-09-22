@@ -8,13 +8,17 @@ use std::sync::Arc;
 
 use web_time::Instant;
 
+use super::lane::{self, LaneGeometry, TxLane};
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
 use super::viewport::Viewport;
+use crate::data::loaded_tracks::LoadedGenerator;
+use crate::data::transactions::TrackRef;
 use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
-use crate::document::Document;
+use crate::document::{Document, TxSelection};
 use crate::geometry::{Modifiers, MouseButton, Point, point};
 use crate::nav::NavState;
 pub use crate::nav::{Link, LinkDim};
+use crate::panels::PanelId;
 use crate::selection;
 use crate::theme::Theme;
 
@@ -138,6 +142,79 @@ impl DisplayedSignal {
             .clone()
             .unwrap_or_else(|| self.translator.id().into())
     }
+}
+
+/// One row of the waveform panel: a signal, or a transaction generator
+/// shown as a lane of bars. Both share the row operations (selection,
+/// reordering, clipboard, heights, removal and workspace entries).
+#[derive(Clone)]
+pub enum WaveRow {
+    Signal(DisplayedSignal),
+    Lane(TxLane),
+}
+
+impl WaveRow {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Signal(s) => &s.name,
+            Self::Lane(l) => &l.name,
+        }
+    }
+
+    pub fn height(&self) -> RowHeight {
+        match self {
+            Self::Signal(s) => s.height,
+            Self::Lane(l) => l.height,
+        }
+    }
+
+    /// Set the height; a lane keeps an explicit choice from then on.
+    pub fn set_height(&mut self, height: RowHeight) {
+        match self {
+            Self::Signal(s) => s.height = height,
+            Self::Lane(l) => {
+                l.height = height;
+                l.auto_height = false;
+            }
+        }
+    }
+
+    pub fn signal(&self) -> Option<&DisplayedSignal> {
+        match self {
+            Self::Signal(s) => Some(s),
+            Self::Lane(_) => None,
+        }
+    }
+
+    pub fn signal_mut(&mut self) -> Option<&mut DisplayedSignal> {
+        match self {
+            Self::Signal(s) => Some(s),
+            Self::Lane(_) => None,
+        }
+    }
+
+    pub fn lane(&self) -> Option<&TxLane> {
+        match self {
+            Self::Lane(l) => Some(l),
+            Self::Signal(_) => None,
+        }
+    }
+
+    /// The loaded signal of a signal row.
+    pub fn signal_ref(&self) -> Option<SignalRef> {
+        self.signal()?.source.signal()
+    }
+
+    /// The generator of a resolved lane.
+    pub fn lane_track(&self) -> Option<TrackRef> {
+        self.lane()?.track()
+    }
+}
+
+/// What the cursor snaps to and steps through on a row.
+enum EdgeSource<'a> {
+    History(Arc<dyn SignalHistory>),
+    Lane(&'a LoadedGenerator),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -268,7 +345,7 @@ pub enum PointerEvent {
 }
 
 pub struct WaveModel {
-    pub items: Vec<DisplayedSignal>,
+    pub items: Vec<WaveRow>,
     pub selected: BTreeSet<usize>,
     pub anchor: Option<usize>,
     /// Link flags and the local viewport/cursor kept while unlinked.
@@ -291,6 +368,9 @@ pub struct WaveModel {
     pub menu: Option<WaveMenu>,
     /// Last known pointer position over the panel.
     pub pointer: Option<Point>,
+    /// The last press landed on a lane bar and selected its record, so a
+    /// second click opens it.
+    pub pressed_record: bool,
     layout: WaveLayout,
 }
 
@@ -356,6 +436,7 @@ impl WaveModel {
             frame_ms_avg: 0.0,
             menu: None,
             pointer: None,
+            pressed_record: false,
             layout: WaveLayout::default(),
         }
     }
@@ -388,7 +469,15 @@ impl WaveModel {
     }
 
     pub fn loaded_count(&self) -> usize {
-        self.items.iter().filter(|i| i.history.is_some()).count()
+        self.items
+            .iter()
+            .filter(|i| i.signal().is_some_and(|s| s.history.is_some()))
+            .count()
+    }
+
+    /// The signal of row `row`, if it is a signal row.
+    pub fn signal(&self, row: usize) -> Option<&DisplayedSignal> {
+        self.items.get(row)?.signal()
     }
 
     // -- items ---------------------------------------------------------------
@@ -412,7 +501,7 @@ impl WaveModel {
             // Variable identity/format stay per row; aliases share immutable data.
             let history = loaded.get(&v.signal).cloned();
             let needs_load = history.is_none();
-            self.items.push(DisplayedSignal {
+            self.items.push(WaveRow::Signal(DisplayedSignal {
                 source: RowSource::Resolved {
                     var,
                     signal: v.signal,
@@ -425,7 +514,7 @@ impl WaveModel {
                 history,
                 error: None,
                 height: RowHeight::DEFAULT,
-            });
+            }));
             if needs_load {
                 doc.request_signal(v.signal);
             }
@@ -434,6 +523,32 @@ impl WaveModel {
             self.selected.clear();
             self.selected.extend(first_new..self.items.len());
             self.anchor = Some(first_new);
+        }
+    }
+
+    /// Append a lane for each generator in `tracks` and select them. A lane
+    /// takes the default height for its depth as soon as its records are
+    /// resident; the app retains them for as long as a lane shows them.
+    pub fn add_lanes(&mut self, doc: &Document, tracks: &[TrackRef]) {
+        let first_new = self.items.len();
+        self.items.extend(
+            tracks
+                .iter()
+                .filter_map(|&track| TxLane::new(doc, track))
+                .map(WaveRow::Lane),
+        );
+        if self.items.len() > first_new {
+            self.selected = (first_new..self.items.len()).collect();
+            self.anchor = Some(first_new);
+        }
+    }
+
+    /// Records arrived: new lanes take their default height.
+    pub fn fit_lanes(&mut self, doc: &Document) {
+        for row in &mut self.items {
+            if let WaveRow::Lane(lane) = row {
+                lane.fit_height(doc);
+            }
         }
     }
 
@@ -447,6 +562,7 @@ impl WaveModel {
         for item in self
             .items
             .iter_mut()
+            .filter_map(WaveRow::signal_mut)
             .filter(|i| i.source.signal() == Some(signal))
         {
             item.history = result.as_ref().ok().cloned();
@@ -478,16 +594,20 @@ impl WaveModel {
             .selected
             .iter()
             .filter_map(|&row| self.items.get(row))
-            .map(|item| DisplayedSignal {
-                history: None,
-                // A resolved row reloads on paste; an unresolved one keeps its reason.
-                error: item
-                    .source
-                    .signal()
-                    .is_none()
-                    .then(|| item.error.clone())
-                    .flatten(),
-                ..item.clone()
+            .map(|row| match row {
+                WaveRow::Signal(item) => WaveRow::Signal(DisplayedSignal {
+                    history: None,
+                    // A resolved row reloads on paste; an unresolved one keeps its reason.
+                    error: item
+                        .source
+                        .signal()
+                        .is_none()
+                        .then(|| item.error.clone())
+                        .flatten(),
+                    ..item.clone()
+                }),
+                // Lanes hold no data; the document keeps what lanes show.
+                WaveRow::Lane(lane) => WaveRow::Lane(lane.clone()),
             })
             .collect();
     }
@@ -554,7 +674,7 @@ impl WaveModel {
             .last()
             .map_or(self.items.len(), |&row| (row + 1).min(self.items.len()));
         let mut rows = doc.copied_rows.clone();
-        for row in &mut rows {
+        for row in rows.iter_mut().filter_map(WaveRow::signal_mut) {
             if let Some(signal) = row.source.signal() {
                 row.history = loaded.get(&signal).cloned();
                 if row.history.is_none() {
@@ -616,7 +736,7 @@ impl WaveModel {
             return;
         };
         for &row in rows {
-            if let Some(item) = self.items.get_mut(row)
+            if let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut)
                 && t.applies(item.shape)
             {
                 item.translator = t.clone();
@@ -628,7 +748,7 @@ impl WaveModel {
     pub fn cycle_format(&mut self, doc: &Document) {
         let rows: Vec<usize> = self.selected.iter().copied().collect();
         for row in rows {
-            let Some(item) = self.items.get(row) else {
+            let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut) else {
                 continue;
             };
             let options = doc.translators.applicable(item.shape);
@@ -639,15 +759,14 @@ impl WaveModel {
                 .iter()
                 .position(|t| t.id() == item.translator.id())
                 .unwrap_or(0);
-            let next = options[(pos + 1) % options.len()].clone();
-            self.items[row].translator = next;
-            self.items[row].requested_format = None;
+            item.translator = options[(pos + 1) % options.len()].clone();
+            item.requested_format = None;
         }
     }
 
     /// Open the format menu for `row` at a panel position.
     pub fn open_format_menu(&mut self, doc: &Document, row: usize, position: Point) {
-        let Some(item) = self.items.get(row) else {
+        let Some(item) = self.signal(row) else {
             return;
         };
         let current = item.translator.id();
@@ -691,7 +810,7 @@ impl WaveModel {
         let mut heights = self
             .menu_rows(row)
             .into_iter()
-            .map(|r| self.items[r].height);
+            .map(|r| self.items[r].height());
         let first = heights.next();
         let shared = first.filter(|h| heights.all(|other| other == *h));
         let heights = RowHeight::PRESETS
@@ -732,7 +851,14 @@ impl WaveModel {
                 items: heights,
             },
             MenuEntry::Separator,
-            MenuEntry::Item(MenuItem::plain(MenuAction::RemoveSignals, "Remove signal")),
+            MenuEntry::Item(MenuItem::plain(
+                MenuAction::RemoveSignals,
+                if self.items[row].lane().is_some() {
+                    "Remove lane"
+                } else {
+                    "Remove signal"
+                },
+            )),
         ]);
     }
 
@@ -774,7 +900,7 @@ impl WaveModel {
             MenuAction::Format(id) => self.set_translator(doc, &rows, id),
             MenuAction::RowHeight(height) => self.resize_rows(&rows, menu.row, |_| *height),
             _ => {
-                let row = self.items.get(menu.row)?;
+                let row = self.signal(menu.row)?;
                 return row.error.as_ref().and_then(|_| row.source.signal());
             }
         }
@@ -796,7 +922,7 @@ impl WaveModel {
     fn row_units_before(&self, row: usize) -> u32 {
         self.items[..row.min(self.items.len())]
             .iter()
-            .map(|item| u32::from(item.height.multiple()))
+            .map(|item| u32::from(item.height().multiple()))
             .sum()
     }
 
@@ -810,7 +936,7 @@ impl WaveModel {
         let before = self.row_units_before(anchor);
         for &row in rows {
             if let Some(item) = self.items.get_mut(row) {
-                item.height = height(item.height);
+                item.set_height(height(item.height()));
             }
         }
         let shift = self.row_units_before(anchor) as f32 - before as f32;
@@ -897,31 +1023,48 @@ impl WaveModel {
         self.nav.pan_px(doc, f64::from(dx), w);
     }
 
-    fn edge_history(&self) -> Option<Arc<dyn SignalHistory>> {
-        let row = self
-            .anchor
-            .filter(|r| self.selected.contains(r))
-            .or_else(|| self.selected.iter().next().copied())?;
-        self.items.get(row)?.history.clone()
+    /// What row `row` snaps to: a signal's changes or a lane's record
+    /// begins and ends.
+    fn edge_source<'a>(&self, doc: &'a Document, row: usize) -> Option<EdgeSource<'a>> {
+        match self.items.get(row)? {
+            WaveRow::Signal(s) => s.history.clone().map(EdgeSource::History),
+            WaveRow::Lane(l) => l.generator(doc).map(EdgeSource::Lane),
+        }
     }
 
+    fn edge_row(&self) -> Option<usize> {
+        self.anchor
+            .filter(|r| self.selected.contains(r))
+            .or_else(|| self.selected.iter().next().copied())
+    }
+
+    /// Step the cursor to the selected row's next edge: a signal's next
+    /// value change, or a lane's next record begin or end.
     pub fn next_edge(&mut self, doc: &mut Document, now: Instant) {
-        let Some(h) = self.edge_history() else { return };
         let from = self
             .cursor(doc)
             .unwrap_or(self.viewport(doc).start.max(0.0) as u64);
-        if let Some(t) = h.next_change_after(from) {
+        let next = match self.edge_row().and_then(|row| self.edge_source(doc, row)) {
+            Some(EdgeSource::History(h)) => h.next_change_after(from),
+            Some(EdgeSource::Lane(g)) => g.next_boundary(from),
+            None => return,
+        };
+        if let Some(t) = next {
             self.set_cursor(doc, Some(t));
             self.nav.reveal_cursor(doc, now);
         }
     }
 
     pub fn prev_edge(&mut self, doc: &mut Document, now: Instant) {
-        let Some(h) = self.edge_history() else { return };
         let from = self
             .cursor(doc)
             .unwrap_or(self.viewport(doc).end.max(0.0) as u64);
-        if let Some(t) = h.prev_change_before(from) {
+        let prev = match self.edge_row().and_then(|row| self.edge_source(doc, row)) {
+            Some(EdgeSource::History(h)) => h.prev_change_before(from),
+            Some(EdgeSource::Lane(g)) => g.prev_boundary(from),
+            None => return,
+        };
+        if let Some(t) = prev {
             self.set_cursor(doc, Some(t));
             self.nav.reveal_cursor(doc, now);
         }
@@ -960,7 +1103,7 @@ impl WaveModel {
             zoom: theme.zoom,
             names_width: self.names_width,
             values_width: self.values_width,
-            row_tops: super::layout::row_tops(self.items.iter().map(|item| item.height)),
+            row_tops: super::layout::row_tops(self.items.iter().map(WaveRow::height)),
             scroll_y: self.scroll_y,
             markers: &doc.markers,
             viewport: self.viewport(doc),
@@ -968,6 +1111,11 @@ impl WaveModel {
         self.scroll_y = layout.scroll_y;
         self.wave_width = layout.waves.width();
         self.layout = layout;
+        // Only signal rows have a format.
+        let items = &self.items;
+        self.layout
+            .badges
+            .retain(|(ix, _)| items.get(*ix).is_some_and(|row| row.signal().is_some()));
         self.update_hover();
         self.update_row_drag();
         &self.layout
@@ -1057,6 +1205,37 @@ impl WaveModel {
         self.scroll_y != before || dt == 0.0
     }
 
+    /// The record of lane row `row` under panel point `p`, when bars are
+    /// drawn (not the density strip).
+    pub fn lane_hit(
+        &self,
+        doc: &Document,
+        row: usize,
+        p: Point,
+    ) -> Option<(TrackRef, crate::data::transactions::TransactionRef)> {
+        let lane = self.items.get(row)?.lane()?;
+        let generator = lane.generator(doc)?;
+        let layout = &self.layout;
+        let viewport = self.viewport(doc);
+        let width = layout.wave_width_f64();
+        let ppu = viewport.px_per_unit(width);
+        if lane::is_density(generator, ppu) {
+            return None;
+        }
+        let geometry = LaneGeometry::new(
+            layout.row_y(row),
+            layout.row_height(row),
+            layout.row_h,
+            lane.height,
+        );
+        let sub = geometry.sub_at(p.y)?;
+        let time = viewport.time_at(f64::from(p.x - layout.waves.left()), width);
+        let tolerance = 3.0 * f64::from(layout.zoom) / ppu;
+        let ordinal = lane::hit(generator, lane.height, sub, time, tolerance)?;
+        let tx = &generator.transactions()[ordinal];
+        Some((tx.generator, tx.id))
+    }
+
     fn update_hover(&mut self) {
         let (hover_row, badge_hover) = match self.pointer {
             Some(p) if self.layout.bounds.contains(p) && p.y >= self.layout.names.top() => {
@@ -1085,15 +1264,22 @@ impl WaveModel {
 
     // -- pointer input -------------------------------------------------------------
 
-    /// Handle pointer input. Returns true when something visible changed.
-    pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent, now: Instant) -> bool {
+    /// Handle pointer input over panel `panel`. Returns true when something
+    /// visible changed.
+    pub fn pointer(
+        &mut self,
+        doc: &mut Document,
+        panel: PanelId,
+        event: PointerEvent,
+        now: Instant,
+    ) -> bool {
         match event {
             PointerEvent::Down {
                 position,
                 button,
                 modifiers,
             } => {
-                self.pointer_down(doc, position, button, modifiers);
+                self.pointer_down(doc, panel, position, button, modifiers);
                 true
             }
             PointerEvent::Move { position } => self.pointer_move(doc, position),
@@ -1151,6 +1337,7 @@ impl WaveModel {
     fn pointer_down(
         &mut self,
         doc: &mut Document,
+        panel: PanelId,
         p: Point,
         button: MouseButton,
         modifiers: Modifiers,
@@ -1158,6 +1345,7 @@ impl WaveModel {
         let layout = self.layout.clone();
         self.pointer = Some(p);
         self.menu = None;
+        self.pressed_record = false;
         if button == MouseButton::Left {
             if layout.names_split.contains(p) {
                 self.drag = Some(Drag::NamesSplit);
@@ -1221,8 +1409,24 @@ impl WaveModel {
             match button {
                 MouseButton::Left => {
                     let x = f64::from(p.x - layout.waves.left());
-                    let hist = row.and_then(|r| self.items[r].history.clone());
-                    let t = snapped_time(&self.viewport(doc), hist.as_deref(), x, wave_wf, snap_px);
+                    let t = snapped_time(
+                        &self.viewport(doc),
+                        row.and_then(|r| self.edge_source(doc, r)).as_ref(),
+                        x,
+                        wave_wf,
+                        snap_px,
+                    );
+                    // A press on a lane selects the record under it for
+                    // every panel, or clears the selection over empty space.
+                    if let Some(r) = row.filter(|r| self.items[*r].lane().is_some()) {
+                        let hit = self.lane_hit(doc, r, p);
+                        doc.select(hit.map(|(track, id)| TxSelection {
+                            track,
+                            id,
+                            origin: panel,
+                        }));
+                        self.pressed_record = hit.is_some();
+                    }
                     self.set_cursor(doc, Some(t));
                     self.drag = Some(Drag::Cursor);
                     if let Some(r) = row
@@ -1290,10 +1494,9 @@ impl WaveModel {
             Some(Drag::Cursor) => {
                 let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
                 let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
-                let hist = row.and_then(|r| self.items[r].history.clone());
                 let t = snapped_time(
                     &self.viewport(doc),
-                    hist.as_deref(),
+                    row.and_then(|r| self.edge_source(doc, r)).as_ref(),
                     x,
                     wave_wf,
                     doc.navigation.snap_px * f64::from(layout.zoom),
@@ -1388,20 +1591,30 @@ impl WaveModel {
 }
 
 /// Where a click on the waves at `x_px` lands after snapping to the nearest
-/// transition of `history` within `snap_px` pixels (0 disables snapping).
+/// edge of the row within `snap_px` pixels (0 disables snapping): a signal
+/// transition, or a lane's record begin or end.
 fn snapped_time(
     vp: &Viewport,
-    history: Option<&dyn SignalHistory>,
+    edges: Option<&EdgeSource<'_>>,
     x_px: f64,
     width_px: f64,
     snap_px: f64,
 ) -> u64 {
     let raw = vp.time_at(x_px, width_px).round().max(0.0);
-    let Some(h) = history else { return raw as u64 };
+    let Some(edges) = edges else {
+        return raw as u64;
+    };
     if snap_px <= 0.0 {
         return raw as u64;
     }
     let tol = snap_px / vp.px_per_unit(width_px);
+    let h = match edges {
+        EdgeSource::History(h) => h.as_ref(),
+        EdgeSource::Lane(g) => {
+            let exact = vp.time_at(x_px, width_px).max(0.0);
+            return lane::nearest_boundary(g, exact, tol).unwrap_or(raw as u64);
+        }
+    };
     let t = raw as u64;
     let mut best: Option<(f64, u64)> = None;
     let mut consider = |cand: u64| {

@@ -69,7 +69,7 @@ fn missing_rows_scopes_and_unknown_translators_survive_without_guessing() {
     let plan = prepare(&saved, &app).unwrap();
     assert_eq!(plan.report().notices.len(), 5);
     plan.commit(&mut app).unwrap();
-    let row = &app.panels.focused_waves().unwrap().items[0];
+    let row = app.panels.focused_waves().unwrap().signal(0).unwrap();
     assert!(row.source.signal().is_none());
     assert!(row.history.is_none());
     assert_eq!(value(&app), saved);
@@ -538,7 +538,7 @@ fn row_heights(app: &App) -> Vec<u8> {
         .unwrap()
         .items
         .iter()
-        .map(|item| item.height.multiple())
+        .map(|item| item.height().multiple())
         .collect()
 }
 

@@ -500,12 +500,11 @@ impl PanelCanvas {
                 );
                 // A second click on a record-bearing panel opens what the
                 // first click selected; the core decides where.
-                let selects = ws
-                    .read(cx)
-                    .app
-                    .panels
-                    .get(panel)
-                    .is_some_and(|p| p.kind.pipeline().is_some() || p.kind.table().is_some());
+                let selects = ws.read(cx).app.panels.get(panel).is_some_and(|p| {
+                    p.kind.pipeline().is_some()
+                        || p.kind.table().is_some()
+                        || p.kind.waves().is_some_and(|w| w.pressed_record)
+                });
                 if ev.click_count >= 2
                     && button == volna_core::geometry::MouseButton::Left
                     && selects

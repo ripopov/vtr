@@ -7,15 +7,18 @@
 //! frame is O(columns x log(changes)) regardless of trace length.
 
 use crate::color::Color;
+use crate::data::transactions::TxStatus;
 use crate::data::{Bit, SignalHistory, SignalShape, Translator, ValueKind, WaveValue};
 use crate::document::Document;
 use crate::geometry::CursorIcon;
-use crate::geometry::{Rect, point, size, snap};
+use crate::geometry::{Point, Rect, point, size, snap};
 use crate::icons::IconName;
+use crate::pipeline::PipelineModel;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
-use crate::wave::layout::SCROLLBAR_W;
-use crate::wave::model::{Drag, RowSource, WaveModel, ZOOM_RANGE_MIN_PX};
+use crate::wave::lane::{self, LaneData, LaneGeometry, TxLane};
+use crate::wave::layout::{SCROLLBAR_W, WaveLayout};
+use crate::wave::model::{Drag, RowSource, WaveModel, WaveRow, ZOOM_RANGE_MIN_PX};
 use crate::wave::overlay::{self, TextPainter, TimeColumn};
 use crate::wave::timeline::format_time;
 use crate::wave::viewport::Viewport;
@@ -106,7 +109,7 @@ pub fn paint(
     // their full height.
     let row_h = layout.row_h;
     for ix in layout.rows.clone() {
-        let Some(item) = model.items.get(ix) else {
+        let Some(row) = model.items.get(ix) else {
             continue;
         };
         let y = layout.row_y(ix);
@@ -132,6 +135,21 @@ pub fn paint(
             p.scene.fill(wave_row, t.wave_row_hover);
         }
         let colors = t.row(is_selected, is_hover);
+        let item = match row {
+            WaveRow::Signal(item) => item,
+            WaveRow::Lane(lane) => {
+                let cells = LaneCells {
+                    layout: &layout,
+                    ix,
+                    viewport,
+                    cursor,
+                    text: colors.text,
+                    muted: colors.text_placeholder,
+                };
+                paint_lane_row(lane, doc, &cells, &mut p);
+                continue;
+            }
+        };
 
         // Name column: leaf name, then a muted range badge for vectors.
         {
@@ -900,6 +918,363 @@ fn paint_bus_row(
                 t.mono_size,
                 color,
             );
+        }
+    });
+}
+
+/// Where one lane row is painted and what it reads.
+struct LaneCells<'a> {
+    layout: &'a WaveLayout,
+    ix: usize,
+    viewport: Viewport,
+    cursor: Option<u64>,
+    text: Color,
+    muted: Color,
+}
+
+/// A bar prepared for painting: its lifetime, the solid stage spans inside
+/// it, and a caption when one fits.
+struct Bar {
+    rect: Rect,
+    color: Color,
+    solid: Vec<Rect>,
+    label: Option<(Point, String)>,
+    selected: bool,
+}
+
+/// Paint a transaction lane: the generator name (with the number of folded
+/// sub-rows), the records open at the cursor, and the bars or, zoomed out,
+/// the density strip. One window visit per frame bounds the work by the
+/// visible records.
+fn paint_lane_row(lane: &TxLane, doc: &Document, cells: &LaneCells<'_>, p: &mut TextPainter<'_>) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let layout = cells.layout;
+    let (names, values, waves) = (layout.names, layout.values, layout.waves);
+    let row_h = layout.row_h;
+    let y = layout.row_y(cells.ix);
+    let full_h = layout.row_height(cells.ix);
+    let data = lane.data(doc);
+    let generator = match data {
+        LaneData::Ready(g) => Some(g),
+        _ => None,
+    };
+    let folded = generator.map_or(0, |g| lane::folded(g.depth(), lane.height));
+
+    // Name column: the generator, a "+N" chip while sub-rows are folded,
+    // and on taller rows the record count and the stacking.
+    let pad = z(12.0);
+    let name_w = p.width(&lane.name, FontRole::Mono, t.mono_size);
+    let name_color = if lane.track().is_some() {
+        cells.text
+    } else {
+        cells.muted
+    };
+    let name = lane.name.clone();
+    p.scene.clipped(names, |scene| {
+        scene.text(
+            point(names.left() + pad, y),
+            row_h,
+            name,
+            FontRole::Mono,
+            t.mono_size,
+            name_color,
+        );
+    });
+    if folded > 0 {
+        let chip = format!("+{folded}");
+        let chip_w = p.width(&chip, FontRole::UiMedium, t.ui_size_small) + z(8.0);
+        let rect = Rect::from_xywh(
+            names.left() + pad + name_w + z(6.0),
+            y + z(5.0),
+            chip_w,
+            row_h - z(10.0),
+        );
+        p.scene.clipped(names, |scene| {
+            scene.quad(rect, t.badge.bg, z(3.0), 1.0, t.border_variant);
+            scene.text(
+                point(rect.left() + z(4.0), rect.top()),
+                rect.height(),
+                chip,
+                FontRole::UiMedium,
+                t.ui_size_small,
+                t.badge.text_muted,
+            );
+        });
+    }
+    if let Some(g) = generator {
+        let mut lines = Vec::new();
+        if full_h >= 2.0 * row_h {
+            let n = g.transactions().len();
+            lines.push(format!("{n} record{}", if n == 1 { "" } else { "s" }));
+        }
+        if full_h >= 3.0 * row_h {
+            lines.push(if folded > 0 {
+                format!(
+                    "{folded} sub-row{} folded",
+                    if folded == 1 { "" } else { "s" }
+                )
+            } else {
+                format!(
+                    "{} sub-row{}",
+                    g.depth(),
+                    if g.depth() == 1 { "" } else { "s" }
+                )
+            });
+        }
+        for (k, line) in lines.into_iter().enumerate() {
+            let origin = point(names.left() + pad, y + row_h * (k + 1) as f32);
+            p.scene.clipped(names, |scene| {
+                scene.text(
+                    origin,
+                    row_h,
+                    line,
+                    FontRole::Ui,
+                    t.ui_size_small,
+                    cells.muted,
+                );
+            });
+        }
+    }
+
+    // Values column: the records open at the cursor.
+    let (value, value_color) = match data {
+        LaneData::Ready(g) => match cells.cursor {
+            Some(c) => {
+                let (text, failed) = lane::value_text(g, c);
+                (text, if failed { t.editor.error } else { cells.text })
+            }
+            None => (String::new(), cells.text),
+        },
+        LaneData::Loading => ("loading…".into(), cells.muted),
+        LaneData::Unresolved => ("not in trace".into(), cells.muted),
+        LaneData::Failed(_) | LaneData::Unavailable => ("–".into(), cells.muted),
+    };
+    let char_w = p.width("0", FontRole::Mono, t.mono_size).max(1.0);
+    let max_chars = ((values.width() - z(16.0)) / char_w).floor().max(0.0) as usize;
+    if let Some(text) = truncate_chars(&value, max_chars) {
+        p.scene.clipped(values, |scene| {
+            scene.text(
+                point(values.left() + z(8.0), y),
+                row_h,
+                text,
+                FontRole::Mono,
+                t.mono_size,
+                value_color,
+            );
+        });
+    }
+
+    // Waves column.
+    let status = match data {
+        LaneData::Ready(g) => {
+            let width = f64::from(waves.width()).max(1.0);
+            if lane::is_density(g, cells.viewport.px_per_unit(width)) {
+                paint_lane_density(
+                    g,
+                    &cells.viewport,
+                    Rect::from_xywh(waves.left(), y, waves.width(), full_h),
+                    p,
+                );
+            } else {
+                let geometry = LaneGeometry::new(y, full_h, row_h, lane.height);
+                paint_lane_bars(lane, g, doc, &cells.viewport, waves, &geometry, p);
+            }
+            return;
+        }
+        LaneData::Loading => None,
+        LaneData::Failed(error) => Some((format!("Failed to load: {error}"), t.editor.error)),
+        LaneData::Unresolved => Some(("not in trace".to_owned(), cells.muted)),
+        LaneData::Unavailable => Some(("records unavailable".to_owned(), cells.muted)),
+    };
+    match status {
+        Some((label, color)) => p.scene.clipped(waves, |scene| {
+            scene.text(
+                point(waves.left() + z(8.0), y),
+                row_h,
+                label,
+                FontRole::Ui,
+                t.ui_size_small,
+                color,
+            )
+        }),
+        None => {
+            let bar = Rect::new(
+                point(waves.left() + z(8.0), y + full_h / 2.0),
+                size(z(96.0), 1.0),
+            );
+            p.scene.clipped(waves, |scene| scene.fill(bar, t.border));
+        }
+    }
+}
+
+fn paint_lane_bars(
+    lane: &TxLane,
+    generator: &crate::data::loaded_tracks::LoadedGenerator,
+    doc: &Document,
+    viewport: &Viewport,
+    waves: Rect,
+    geometry: &LaneGeometry,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let width = f64::from(waves.width()).max(1.0);
+    // Clamp far-off-screen coordinates so rectangles stay finite and small.
+    let x_of = |time: u64| {
+        (waves.left() + viewport.x_of(time as f64, width) as f32)
+            .clamp(waves.left() - z(8.0), waves.right() + z(8.0))
+    };
+    let inset = z(2.0);
+    let bar_h = (geometry.sub_h - 2.0 * inset).max(1.0);
+    let font = (bar_h * 0.9).min(t.mono_size);
+    let last = geometry.capacity - 1;
+    let folds = generator.depth() > geometry.capacity;
+    let selected = doc
+        .selection()
+        .filter(|s| Some(s.track) == lane.track())
+        .map(|s| s.id);
+    let (start, end) = lane::window(viewport);
+    let mut raw = Vec::new();
+    _ = generator.visit_window_ordinals(start, end, |ordinal, tx| {
+        raw.push((ordinal, tx));
+        true
+    });
+    let mut bars = Vec::with_capacity(raw.len());
+    for (ordinal, tx) in raw {
+        let sub = lane::shown_sub_row(generator.sub_row(ordinal), lane.height);
+        let xa = x_of(tx.begin);
+        let xb = x_of(tx.end).max(xa + z(2.0));
+        let rect = Rect::from_xywh(xa, geometry.sub_top(sub) + inset, xb - xa, bar_h);
+        let color = if tx.status == TxStatus::Error {
+            t.editor.error
+        } else {
+            t.wave_signal
+        };
+        let solid = if tx.stages.is_empty() {
+            vec![rect]
+        } else {
+            tx.stages
+                .iter()
+                .map(|stage| {
+                    let a = x_of(stage.begin).max(xa);
+                    let b = x_of(PipelineModel::stage_end(tx, stage)).min(xb);
+                    Rect::from_xywh(a, rect.top(), (b - a).max(1.0), bar_h)
+                })
+                .collect()
+        };
+        let in_fold = folds && sub == last;
+        let label = (!in_fold && bar_h >= z(8.0))
+            .then(|| {
+                let text = lane::label(tx);
+                let lx = xa.max(waves.left()) + z(4.0);
+                let w = p.width(&text, FontRole::Mono, font);
+                (xb - lx >= w + z(4.0)).then(|| (point(lx, rect.top()), text))
+            })
+            .flatten();
+        bars.push(Bar {
+            rect,
+            color,
+            solid,
+            label,
+            selected: selected == Some(tx.id),
+        });
+    }
+    let hatch = lane::fold_overlaps(generator, viewport, lane.height);
+    let fold_top = geometry.sub_top(last) + inset;
+    let text_color = t.editor.bg;
+    p.scene.clipped(waves, |scene| {
+        for bar in &bars {
+            scene.fill(bar.rect, bar.color.with_alpha(0.4));
+            for solid in &bar.solid {
+                scene.fill(*solid, bar.color);
+            }
+            scene.quad(bar.rect, Color::TRANSPARENT, z(2.0), 1.0, bar.color);
+            if let Some((origin, text)) = &bar.label {
+                scene.text(
+                    *origin,
+                    bar_h,
+                    text.clone(),
+                    FontRole::Mono,
+                    font,
+                    text_color,
+                );
+            }
+        }
+        // Folded bars overlap where hatched.
+        let step = z(4.0).max(3.0);
+        for (a, b) in hatch {
+            let (xa, xb) = (x_of(a), x_of(b));
+            let area = Rect::from_xywh(xa, fold_top, (xb - xa).max(1.0), bar_h);
+            let mut segments = Vec::new();
+            let mut x = area.left() - bar_h;
+            while x < area.right() {
+                segments.push([point(x, area.bottom()), point(x + bar_h, area.top())]);
+                x += step;
+            }
+            scene.clipped(area, |scene| {
+                scene.lines(segments, t.editor.bg.with_alpha(0.7), 1.0);
+            });
+        }
+        for bar in bars.iter().filter(|bar| bar.selected) {
+            let r = bar.rect;
+            scene.quad(
+                Rect::from_xywh(
+                    r.left() - 2.0,
+                    r.top() - 2.0,
+                    r.width() + 4.0,
+                    r.height() + 4.0,
+                ),
+                Color::TRANSPARENT,
+                z(3.0),
+                2.0,
+                t.border_focused,
+            );
+        }
+    });
+}
+
+/// One column per pixel: its height is the share of the generator's depth
+/// open there, and a red cap marks a failed record.
+fn paint_lane_density(
+    generator: &crate::data::loaded_tracks::LoadedGenerator,
+    viewport: &Viewport,
+    area: Rect,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let columns = lane::density(generator, viewport, area.width().max(0.0).round() as usize);
+    let depth = f32::from(generator.depth().max(1));
+    let base = area.bottom() - z(3.0);
+    let full = (area.height() - z(6.0)).max(1.0);
+    let px = area.width() / columns.len().max(1) as f32;
+    p.scene.clipped(area, |scene| {
+        scene.fill(
+            Rect::from_xywh(area.left(), base, area.width(), 1.0),
+            t.border_variant,
+        );
+        let mut x = 0;
+        while x < columns.len() {
+            let column = columns[x];
+            let run = columns[x..].iter().take_while(|c| **c == column).count();
+            if column.open > 0 {
+                let share = (column.open as f32 / depth).min(1.0);
+                let h = (full * share).max(2.0);
+                let left = area.left() + x as f32 * px;
+                let w = run as f32 * px;
+                scene.fill(
+                    Rect::from_xywh(left, base - h, w, h),
+                    t.wave_signal.with_alpha(0.45 + 0.5 * share),
+                );
+                if column.failed {
+                    scene.fill(
+                        Rect::from_xywh(left, base - h - z(3.0), w.max(2.0), z(3.0)),
+                        t.editor.error,
+                    );
+                }
+            }
+            x += run;
         }
     });
 }

@@ -139,7 +139,7 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
             .unwrap()
             .items
             .iter()
-            .all(|row| row.history.is_none())
+            .all(|row| row.signal().unwrap().history.is_none())
     );
     pump(&mut app);
     assert_eq!(app.doc.pending_count(), 0);
@@ -149,7 +149,7 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
             .unwrap()
             .items
             .iter()
-            .all(|row| row.history.is_some())
+            .all(|row| row.signal().unwrap().history.is_some())
     );
 }
 
@@ -176,6 +176,8 @@ fn removing_queued_signals_clears_demand_but_active_loads_survive_readd() {
     app.deliver(active.perform());
     assert!(
         app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
             .history
             .is_some()
     );
@@ -193,6 +195,8 @@ fn removing_one_alias_keeps_the_other_alias_queued() {
     assert_eq!(app.panels.focused_waves().unwrap().items.len(), 1);
     assert!(
         app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
             .history
             .is_some()
     );
@@ -217,14 +221,14 @@ fn aliases_share_pending_and_loaded_histories() {
         app.take_requests().is_empty(),
         "loaded histories are reused"
     );
-    assert_eq!(app.panels.focused_waves().unwrap().items[1].name, "alias");
+    assert_eq!(app.panels.focused_waves().unwrap().items[1].name(), "alias");
     assert!(
         app.panels
             .focused_waves()
             .unwrap()
             .items
             .iter()
-            .all(|i| Arc::ptr_eq(&history, i.history.as_ref().unwrap()))
+            .all(|i| Arc::ptr_eq(&history, i.signal().unwrap().history.as_ref().unwrap()))
     );
     let weak = Arc::downgrade(&history);
     let before = weak.strong_count();
@@ -257,13 +261,23 @@ fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
     assert!(app.doc.is_pending(signal));
     assert!(
         app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
             .history
             .is_none()
     );
-    assert!(app.panels.focused_waves().unwrap().items[0].error.is_none());
+    assert!(
+        app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
+            .error
+            .is_none()
+    );
     pump(&mut app);
     assert!(
         app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
             .history
             .is_some()
     );
@@ -281,6 +295,8 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     pump(&mut app);
     let panel = app.panels.focused_id();
     let ready = app.panels.waves(panel).unwrap().items[2]
+        .signal()
+        .unwrap()
         .history
         .clone()
         .unwrap();
@@ -300,12 +316,11 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     );
     app.handle(Command::MenuSelect(panel, MenuAction::RetryLoad));
     assert!(
-        app.panels
-            .waves(panel)
+        app.panels.waves(panel).unwrap().items.iter().all(|row| row
+            .signal()
             .unwrap()
-            .items
-            .iter()
-            .all(|row| row.error.is_none())
+            .error
+            .is_none())
     );
     assert_eq!(app.panels.waves(panel).unwrap().items.len(), 3);
     let mut requests = app.take_requests();
@@ -318,10 +333,13 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     app.deliver(request.perform());
     let rows = &app.panels.waves(panel).unwrap().items;
     assert!(Arc::ptr_eq(
-        rows[0].history.as_ref().unwrap(),
-        rows[1].history.as_ref().unwrap()
+        rows[0].signal().unwrap().history.as_ref().unwrap(),
+        rows[1].signal().unwrap().history.as_ref().unwrap()
     ));
-    assert!(Arc::ptr_eq(rows[2].history.as_ref().unwrap(), &ready));
+    assert!(Arc::ptr_eq(
+        rows[2].signal().unwrap().history.as_ref().unwrap(),
+        &ready
+    ));
     assert_eq!(source.loads.load(SeqCst), 3);
     app.panels
         .waves_mut(panel)
@@ -351,24 +369,23 @@ fn failed_loads_can_retry_for_all_alias_rows() {
     app.handle(Command::AddVars(vec![0, 0]));
     pump(&mut app);
     assert!(
-        app.panels
-            .focused_waves()
+        app.panels.focused_waves().unwrap().items.iter().all(|i| i
+            .signal()
             .unwrap()
-            .items
-            .iter()
-            .all(|i| i.error.is_some())
+            .error
+            .is_some())
     );
     source.fail.store(false, SeqCst);
     app.handle(Command::AddVars(vec![0]));
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 2);
     assert!(
-        app.panels
-            .focused_waves()
+        app.panels.focused_waves().unwrap().items.iter().all(|i| i
+            .signal()
             .unwrap()
-            .items
-            .iter()
-            .all(|i| i.error.is_none() && i.history.is_some())
+            .error
+            .is_none()
+            && i.signal().unwrap().history.is_some())
     );
 }
 
@@ -979,7 +996,11 @@ fn format_menu_and_translator_cycle() {
             | volna_core::wave::model::MenuAction::RetryLoad
     )));
     assert!(app.debug_state().contains("menu=true"));
-    let before = app.panels.focused_waves().unwrap().items[0].translator.id();
+    let before = app.panels.focused_waves().unwrap().items[0]
+        .signal()
+        .unwrap()
+        .translator
+        .id();
     let other = menu.items().find(|i| !i.checked).unwrap().action.clone();
     let volna_core::wave::model::MenuAction::Format(ref format) = other else {
         panic!("format choice");
@@ -987,16 +1008,28 @@ fn format_menu_and_translator_cycle() {
     app.handle(Command::MenuSelect(app.panels.focused_id(), other.clone()));
     assert!(app.panels.focused_waves().unwrap().menu.is_none());
     assert_eq!(
-        app.panels.focused_waves().unwrap().items[0].translator.id(),
+        app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
+            .translator
+            .id(),
         format
     );
     assert_ne!(
-        app.panels.focused_waves().unwrap().items[0].translator.id(),
+        app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
+            .translator
+            .id(),
         before
     );
     app.handle(Command::Action(Action::CycleFormat));
     assert_ne!(
-        app.panels.focused_waves().unwrap().items[0].translator.id(),
+        app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
+            .translator
+            .id(),
         format
     );
     // Escape closes an open menu before touching the selection.
@@ -1122,7 +1155,7 @@ fn heights(app: &App) -> Vec<u8> {
         .unwrap()
         .items
         .iter()
-        .map(|item| item.height.multiple())
+        .map(|item| item.height().multiple())
         .collect()
 }
 
@@ -1223,7 +1256,7 @@ fn height_submenu_resizes_the_selection_and_rows_lay_out_paint_and_hit_test_tall
 
     // The selected row's highlight and its waveform span all eight lines;
     // its name stays on the first line.
-    let name = app.panels.waves(waves).unwrap().items[2].name.clone();
+    let name = app.panels.waves(waves).unwrap().items[2].name().to_owned();
     let scene = app.render_panel(waves, &theme, &mut MonoMeasure);
     let wave_row = Rect::new(
         point(layout.waves.left(), layout.row_y(2)),
@@ -1311,7 +1344,7 @@ fn row_names(app: &App, panel: volna_core::panels::PanelId) -> Vec<String> {
         .unwrap()
         .items
         .iter()
-        .map(|item| item.name.clone())
+        .map(|item| item.name().to_owned())
         .collect()
 }
 
@@ -1465,7 +1498,9 @@ fn dragging_rows_past_an_edge_scrolls_and_keeps_heights_with_their_rows() {
         app.handle(Command::Action(Action::IncreaseRowHeight));
     }
     frame(&mut app, &theme);
-    let first = app.panels.focused_waves().unwrap().items[0].name.clone();
+    let first = app.panels.focused_waves().unwrap().items[0]
+        .name()
+        .to_owned();
 
     press_row(&mut app, 0, 0.5, Modifiers::default());
     let bottom = app
@@ -1498,8 +1533,8 @@ fn dragging_rows_past_an_edge_scrolls_and_keeps_heights_with_their_rows() {
     };
     release(&mut app);
     let w = app.panels.focused_waves().unwrap();
-    assert_eq!(w.items[gap - 1].name, first);
-    assert_eq!(w.items[gap - 1].height.multiple(), 4);
+    assert_eq!(w.items[gap - 1].name(), first);
+    assert_eq!(w.items[gap - 1].height().multiple(), 4);
     assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [gap - 1]);
     assert_eq!(row_names(&app, waves).len(), 40);
 }
@@ -1538,8 +1573,8 @@ fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
         ]
     );
     assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [3]);
-    let clock = &w.items[0];
-    for copy in &w.items[1..4] {
+    let clock = w.signal(0).unwrap();
+    for copy in w.items[1..4].iter().map(|row| row.signal().unwrap()) {
         assert_eq!(copy.source, clock.source);
         assert_eq!(copy.format_id(), clock.format_id());
         assert_eq!(copy.height, clock.height);
@@ -1553,7 +1588,10 @@ fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
         "duplicates reuse loaded data"
     );
     assert!(
-        app.doc.copied_rows.iter().all(|row| row.history.is_none()),
+        app.doc
+            .copied_rows
+            .iter()
+            .all(|row| row.signal().unwrap().history.is_none()),
         "the clipboard does not hold trace data"
     );
 
@@ -1594,12 +1632,11 @@ fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 6);
     assert!(
-        app.panels
-            .waves(other)
+        app.panels.waves(other).unwrap().items.iter().all(|row| row
+            .signal()
             .unwrap()
-            .items
-            .iter()
-            .all(|row| row.history.is_some())
+            .history
+            .is_some())
     );
 
     // The signal menu offers Paste only with rows on the clipboard.

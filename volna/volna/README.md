@@ -257,6 +257,7 @@ The panel menu also provides rename and close-other-panel actions.
 | Signal rows | click, `shift`/`⌘` multi-select; right-click a signal name for row actions; drag the column dividers | `↑` `↓`, `⌫` remove, `⌘A`, `esc`; `shift-F10` row actions |
 | Reorder rows | drag a signal name (or a selected group) up or down; a line marks the drop point, and the edges of the rows scroll | `esc` cancels the drag |
 | Duplicate rows | right-click a signal name, **Copy** / **Cut**, then **Paste** in any waveform panel | `⌘C` `⌘X` `⌘V`; pasted rows share the original's data |
+| Transaction lanes | right-click a generator in the sidebar, **Add to Waves**; click a bar to select its record (**Enter** or a double-click opens the Transaction panel), click empty lane space to clear | `shift-←/→` on a lane steps through record begins and ends |
 | Row height | right-click a signal name, **Height** ▸ 1×, 2×, 3×, 4× or 8× (applies to the selection) | command palette: Increase / Decrease / Reset Row Height |
 | Open table | choose **Open in table** from a selected signal-name, sidebar signal/generator, or Pipeline row menu | |
 | Table rows | wheel/trackpad or drag either scrollbar; click selects without changing the source | `Home`/`End`, `↑`/`↓`, `PageUp`/`PageDown`, `Enter` details, `⌘C`/`ctrl-C` complete TSV |

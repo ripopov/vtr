@@ -354,7 +354,11 @@ fn bus_trace(changes: u64) -> tempfile::NamedTempFile {
 }
 
 fn row_error(app: &App) -> Option<String> {
-    app.panels.focused_waves().unwrap().items[0].error.clone()
+    app.panels.focused_waves().unwrap().items[0]
+        .signal()
+        .unwrap()
+        .error
+        .clone()
 }
 
 fn set(app: &mut App, id: &str, mib: i64) {

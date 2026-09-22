@@ -1328,3 +1328,67 @@ Not implemented from the proposal: the MCP wrappers (no MCP adapter exists
 yet), hover highlighting of a stage across the lifeline and the pipeline, and
 a context-menu entry; the GPUI lifeline is laid out with elements from the
 core's fractions rather than painted into a `Scene`.
+
+## Volna transaction lanes
+
+A generator can be a row of the waveform panel
+([docs/transaction-waveforms.html](transaction-waveforms.html)): `WaveRow`
+is `Signal` or `Lane`, and every row operation (selection, drag reordering,
+clipboard, Height, removal, workspace entries) handles both. The two rejected
+shapes of the proposal stay rejected: a lane attached under a signal group
+needs durable group identity, and a shelf at the bottom of the panel is a
+second panel inside the first. The proposal's separate `move_rows` was not
+needed: drag reordering already moves any row kind.
+
+Stacking is greedy interval partitioning in canonical begin order over
+half-open lifetimes (optimal: its depth is the deepest overlap). It runs once
+in `LoadedGenerator::from_sorted`, which local and remote loads share, and is
+stored as a `u16` sub-row per record plus the depth and the median lifetime,
+2 bytes per record counted in `resident_bytes`. It is not in VTR or the
+protocol: it is a viewer decision over immutable records. Edge steps do not
+need a sorted end index (8 bytes per record): the next boundary is the next
+begin or an end of a record open at the cursor, and the previous one is the
+previous begin or an end of a record open there, so both queries cost the
+records open at one time.
+
+Sub-row geometry is in row units (a sub-row is 2/3 of a 1× row, with 1/8 of a
+row padding) so it follows the interface zoom and presets hold 1, 2, 4, 5 and
+11 sub-rows. A new lane takes the smallest preset up to 4× that fits its
+depth when its records arrive; an explicit or restored height is kept. Stage
+spans are solid over a faded lifetime, which shows the address-to-data wait of
+the proposal without knowing stage names; a record without stages is solid.
+The density switch is the proposal's median lifetime × px/unit < 4 px.
+
+Retention is one `retain_track` per generator any lane shows, reconciled by
+`App` after every non-pointer command and workspace restore, rather than attach/detach on
+each row: rows appear and vanish through add, remove, cut, paste, split,
+close and restore, and a per-row owner would need a hook on every one. The
+waves workspace panel moved to version 2 with typed rows
+(`{"type": "signal"}` / `{"type": "lane", "generator": [...]}`); version-1
+panels are reported as unsupported.
+
+`visit_window` now scans subtrees of at most 32 records flat instead of
+descending to each leaf. Same results and order; a whole-window visit of 10⁶
+records dropped from 9.4 to 4.7 ms, which every window query (pipeline,
+table, lanes) benefits from.
+
+Measurements (`lane_cost`, `volna/volna/VERIFICATION.md`; Intel Core Ultra 7
+265K pinned to P-cores, `nightly-2026-04-14`, release, best of 5–7). The index
+build is `LoadedGenerator::new` over the same records, against a worktree of
+the previous commit:
+
+| Records | Index build, before → after, ms | Lane load, ms | Bars frame, ms | Folded 1× frame, ms | Density frame, ms |
+|---:|---:|---:|---:|---:|---:|
+| 10⁴ | – | 5.4 | 0.06 | 0.04 | 0.09–0.19 |
+| 10⁵ | 2.2 → 4.5 | 58 | 0.06 | 0.04 | 0.9 |
+| 10⁶ | 44 → 71 | 690 | 0.06 | 0.04 | 9.0–10.5 |
+
+Stacking and the median add about 27 ms per 10⁶ records, about 4% of the lane
+load. Bar frames are bounded by the visible records. Per-frame density binning
+is linear in the records in the window; at 10⁶ it fits a 16 ms frame
+(11.6 ms before the flat leaf scan), so no persistent per-generator summary
+was built. A generator an order of magnitude larger would need one (a
+per-generator count pyramid). The proposal's validation study (linked Waves
+and Pipeline panels versus a lane, on a real AXI trace) is a manual comparison
+and was not run; hover outlines and dragging generators onto the waves are not
+implemented.

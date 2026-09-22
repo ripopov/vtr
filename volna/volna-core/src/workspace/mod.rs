@@ -9,10 +9,11 @@ use crate::table::columns::{ColumnSet, TransactionColumn};
 use crate::table::{SignalSource, TableModel, TableSource};
 use crate::transaction::{ShownRecord, TransactionModel, ViewPrefs, view::SectionKey};
 use crate::wave::{
-    model::{DisplayedSignal, Link, RowHeight, RowSource, WaveModel},
+    lane::TxLane,
+    model::{DisplayedSignal, Link, RowHeight, RowSource, WaveModel, WaveRow},
     viewport::Viewport,
 };
-use crate::{App, data::source::Lookup, document::Marker};
+use crate::{App, data::source::Lookup, data::transactions::TrackKind, document::Marker};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -69,15 +70,27 @@ struct Columns {
     values: f32,
 }
 
+/// A wave row: a signal with its format, or a generator's transaction lane.
 #[derive(Debug, Serialize, Deserialize)]
-struct Row {
-    signal: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    nth: Option<usize>,
-    format: String,
-    #[serde(default, skip_serializing_if = "RowHeight::is_default")]
-    height: RowHeight,
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Row {
+    Signal {
+        signal: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<usize>,
+        format: String,
+        #[serde(default, skip_serializing_if = "RowHeight::is_default")]
+        height: RowHeight,
+    },
+    Lane {
+        generator: Vec<String>,
+        #[serde(default, skip_serializing_if = "RowHeight::is_default")]
+        height: RowHeight,
+    },
 }
+
+/// The wave panel format: version 2 added transaction lanes as typed rows.
+const WAVES_VERSION: u32 = 2;
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
 #[derive(Serialize, Deserialize)]
@@ -373,20 +386,26 @@ impl Workspace {
                 let rows = w
                     .items
                     .iter()
-                    .map(|item| {
-                        let (signal, nth) = item.source.locator(h);
-                        Row {
-                            signal,
-                            nth,
-                            format: item.format_id(),
-                            height: item.height,
+                    .map(|row| match row {
+                        WaveRow::Signal(item) => {
+                            let (signal, nth) = item.source.locator(h);
+                            Row::Signal {
+                                signal,
+                                nth,
+                                format: item.format_id(),
+                                height: item.height,
+                            }
                         }
+                        WaveRow::Lane(lane) => Row::Lane {
+                            generator: lane.source.path().to_vec(),
+                            height: lane.height,
+                        },
                     })
                     .collect();
                 Ok(serde_json::value::to_raw_value(&WavePanel {
                     id: panel.id,
                     kind: "waves".into(),
-                    version: 1,
+                    version: WAVES_VERSION,
                     title: panel.title.clone(),
                     link: w.nav.link,
                     viewport: (!w.nav.link.viewport).then(|| w.nav.local_viewport.target()),
@@ -710,7 +729,7 @@ impl Workspace {
                 });
                 continue;
             }
-            if header.kind != "waves" || header.version != 1 {
+            if header.kind != "waves" || header.version != WAVES_VERSION {
                 report.push(format!(
                     "Unsupported panel {} ({} version {})",
                     header.id.0, header.kind, header.version
@@ -764,8 +783,37 @@ impl Workspace {
             w.selected = saved.selected;
             w.anchor = w.selected.first().copied();
             for row in saved.rows {
-                ensure!(!row.signal.is_empty(), "empty signal path");
-                let found = h.find_var(&row.signal, row.nth);
+                let (signal, nth, format, height) = match row {
+                    Row::Signal {
+                        signal,
+                        nth,
+                        format,
+                        height,
+                    } => (signal, nth, format, height),
+                    Row::Lane { generator, height } => {
+                        ensure!(!generator.is_empty(), "empty lane generator path");
+                        let track = session.tracks().iter().find(|t| {
+                            t.path == generator && matches!(t.kind, TrackKind::Generator { .. })
+                        });
+                        let lane = match track {
+                            Some(track) => TxLane {
+                                height,
+                                auto_height: false,
+                                ..TxLane::new(&app.doc, track.id)
+                                    .context("lane generator vanished")?
+                            },
+                            None => {
+                                report.push(format!("Missing lane generator: {generator:?}"));
+                                TxLane::unresolved(generator, height)
+                            }
+                        };
+                        w.items.push(WaveRow::Lane(lane));
+                        continue;
+                    }
+                };
+                let row_signal = signal;
+                ensure!(!row_signal.is_empty(), "empty signal path");
+                let found = h.find_var(&row_signal, nth);
                 let (source, name, scope, shape) = match found {
                     Lookup::Found(var) => {
                         let v = &h.vars[var];
@@ -784,14 +832,14 @@ impl Workspace {
                         report.push(format!(
                             "{} signal: {:?}",
                             if ambiguous { "Ambiguous" } else { "Missing" },
-                            row.signal
+                            row_signal
                         ));
-                        let name = row.signal.last().unwrap().clone();
-                        let scope = row.signal[..row.signal.len() - 1].join(".");
+                        let name = row_signal.last().unwrap().clone();
+                        let scope = row_signal[..row_signal.len() - 1].join(".");
                         (
                             RowSource::Unresolved {
-                                path: row.signal,
-                                nth: row.nth,
+                                path: row_signal,
+                                nth,
                                 ambiguous,
                             },
                             name,
@@ -800,24 +848,24 @@ impl Workspace {
                         )
                     }
                 };
-                let requested = app.doc.translators.get(&row.format);
+                let requested = app.doc.translators.get(&format);
                 let translator = requested
                     .clone()
                     .unwrap_or_else(|| app.doc.translators.default_for(shape));
                 if requested.is_none() {
-                    report.push(format!("Unknown translator: {}", row.format));
+                    report.push(format!("Unknown translator: {format}"));
                 }
-                w.items.push(DisplayedSignal {
+                w.items.push(WaveRow::Signal(DisplayedSignal {
                     source,
-                    requested_format: requested.is_none().then_some(row.format),
+                    requested_format: requested.is_none().then_some(format),
                     name,
                     scope,
                     shape,
                     translator,
                     history: None,
                     error: None,
-                    height: row.height,
-                });
+                    height,
+                }));
             }
             panels.push(Panel {
                 id: saved.id,
@@ -905,7 +953,7 @@ impl RestorePlan {
         for panel in app.panels.iter() {
             if let Some(w) = panel.kind.waves() {
                 for row in &w.items {
-                    if let Some(signal) = row.source.signal() {
+                    if let Some(signal) = row.signal_ref() {
                         app.doc.request_signal(signal);
                     }
                 }

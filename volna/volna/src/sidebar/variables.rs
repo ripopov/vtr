@@ -163,6 +163,10 @@ impl Workspace {
                             .and_then(|id| direction_icon(h.vars[id].direction));
                         let tooltip = describe(h, member);
                         let severity = log_site(h, member).map(|s| s.severity);
+                        // Variables and non-log generators have a wave row form.
+                        let addable = member.var().is_some()
+                            || (matches!(member, volna_core::data::Member::Generator(_))
+                                && !h.is_log(member));
                         let mut row = div()
                             .id(("var", ix))
                             .w_full()
@@ -253,6 +257,31 @@ impl Workspace {
                             )
                             .context_menu(move |menu, _, _cx| {
                                 let owner = owner.clone();
+                                let add_owner = owner.clone();
+                                let menu = if addable {
+                                    menu.item(PopupMenuItem::new("Add to Waves").on_click(
+                                        move |_, window, cx| {
+                                            _ = add_owner.update(cx, |workspace, cx| {
+                                                let list = &workspace.app.variables;
+                                                let members = if list.selected.contains(&ix) {
+                                                    list.selected
+                                                        .iter()
+                                                        .filter_map(|&i| list.rows.get(i).copied())
+                                                        .collect()
+                                                } else {
+                                                    vec![member]
+                                                };
+                                                workspace.dispatch(
+                                                    Command::AddToWaves(members),
+                                                    Some(window),
+                                                    cx,
+                                                );
+                                            });
+                                        },
+                                    ))
+                                } else {
+                                    menu
+                                };
                                 menu.item(PopupMenuItem::new("Open in table").on_click(
                                     move |_, window, cx| {
                                         _ = owner.update(cx, |workspace, cx| {

@@ -142,10 +142,14 @@ fn pending_and_loaded_histories_are_shared_across_all_panels() {
         app.deliver(r.perform());
     }
     let first = app.panels.waves(a).unwrap().items[0]
+        .signal()
+        .unwrap()
         .history
         .clone()
         .unwrap();
     let second = app.panels.waves(b).unwrap().items[0]
+        .signal()
+        .unwrap()
         .history
         .clone()
         .unwrap();
@@ -159,6 +163,8 @@ fn pending_and_loaded_histories_are_shared_across_all_panels() {
     assert!(Arc::ptr_eq(
         &first,
         app.panels.focused_waves().unwrap().items[0]
+            .signal()
+            .unwrap()
             .history
             .as_ref()
             .unwrap()
@@ -372,8 +378,8 @@ fn split_copies_rows_but_shares_history_and_clears_transient_input() {
     let wb = p.get(b).unwrap().kind.waves().unwrap();
     assert_eq!(wa.items.len(), wb.items.len());
     assert!(Arc::ptr_eq(
-        wa.items[0].history.as_ref().unwrap(),
-        wb.items[0].history.as_ref().unwrap()
+        wa.items[0].signal().unwrap().history.as_ref().unwrap(),
+        wb.items[0].signal().unwrap().history.as_ref().unwrap()
     ));
     assert_eq!(wb.drag, None);
     let c = p.create(b, None).unwrap();

@@ -739,7 +739,7 @@ fn click_sets_the_shared_cursor_to_the_cycle_and_the_wave_value_follows() {
     );
     frame(&mut app, waves, &theme);
     let value = {
-        let row = &app.panels.waves(waves).unwrap().items[0];
+        let row = app.panels.waves(waves).unwrap().signal(0).unwrap();
         let history = row.history.as_ref().unwrap();
         row.translator
             .translate(&history.value(history.index_at(expected)))

@@ -209,7 +209,7 @@ impl Panel {
     pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent, now: Instant) -> bool {
         let id = self.id;
         match &mut self.kind {
-            PanelKind::Waves(w) => w.pointer(doc, event, now),
+            PanelKind::Waves(w) => w.pointer(doc, id, event, now),
             PanelKind::Pipeline(p) => p.pointer(doc, id, event, now),
             PanelKind::Table(t) => t.pointer(doc, id, event, now),
             _ => false,

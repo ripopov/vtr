@@ -4,7 +4,7 @@ use crate::document::Marker;
 use crate::panels::PanelId;
 use crate::pipeline::RowView;
 use crate::wave::{
-    model::{Link, PointerEvent, RowHeight},
+    model::{Link, PointerEvent, RowHeight, WaveRow},
     viewport::Viewport,
 };
 use crate::{Action, App, Command};
@@ -127,7 +127,15 @@ impl Stamp {
                 styles: styles.then(|| {
                     w.items
                         .iter()
-                        .map(|item| (item.format_id(), item.height))
+                        .map(|row| {
+                            let style = match row {
+                                WaveRow::Signal(item) => item.format_id(),
+                                WaveRow::Lane(lane) => {
+                                    format!("lane:{}", lane.source.path().join("."))
+                                }
+                            };
+                            (style, row.height())
+                        })
                         .collect()
                 }),
             }),

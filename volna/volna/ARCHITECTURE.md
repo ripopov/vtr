@@ -177,7 +177,8 @@ follow it. Markers always use the focused panel's effective cursor.
 
 The value badge opens only value translators plus **Retry loading** after a
 failed load. Right-clicking a signal name opens its row menu with **Open in
-table**, **Cut**, **Copy**, **Paste**, a **Height** submenu and **Remove signal**; when that row is already
+table**, **Cut**, **Copy**, **Paste**, a **Height** submenu and **Remove signal** (**Remove lane** on a lane,
+whose **Open in table** opens its generator); when that row is already
 part of a selection, every command applies to the complete selection.
 Right-clicking an unselected row makes it the sole selection first. Shift+F10
 opens the same menu for the keyboard selection. The core owns menu contents
@@ -210,6 +211,35 @@ tall row paints its highlight and waveform at full height; its name, value and
 format badge stay on the first line. Resizing keeps the menu row, or the
 keyboard anchor, at the same place on screen. The Increase, Decrease and Reset
 Row Height actions step the selection through the same presets.
+
+Rows are `WaveRow`s: a signal (`DisplayedSignal`) or a transaction lane
+(`wave::lane::TxLane`), a generator shown as one row of bars over record
+lifetimes. Selection, reordering, the clipboard, heights, removal and
+workspace entries treat both kinds alike; formats and badges belong to signals
+only. **Add to Waves** on a sidebar generator sends `Command::AddToWaves`;
+activating a generator still opens its Pipeline panel. A lane holds no
+records: it reads the document's resident `LoadedGenerator`, and `App` keeps
+one `retain_track` per generator any lane shows, reconciled after every
+non-pointer command and workspace restore, so every row path (add, remove, cut, paste,
+split, close, restore) shares one ownership rule and a Pipeline or Transaction
+panel over the same generator shares the same object. Overlapping records
+stack into sub-rows computed once when the generator is built
+(`LoadedGenerator::sub_row`, `depth`); a sub-row is two thirds of a 1× row, so
+presets 1×–8× hold 1, 2, 4, 5 and 11 sub-rows. A new lane takes the smallest
+preset up to 4× that fits its depth once its records arrive; at a smaller
+height deeper sub-rows fold into the last one, overlaps there are hatched and
+the name cell shows `+N`. Address and data stages paint solid over a faded
+lifetime, failed records use the error colour, and captions (`vtr.label`, else
+the record id) appear where they fit. When the median lifetime is narrower
+than 4 px the lane paints a density strip instead: one column per pixel from a
+single window visit with difference arrays. A press on a bar sets the
+document `TxSelection` (the Transaction panel and pipelines follow) and
+`pressed_record`, which the GPUI canvas uses to open the Transaction panel on
+a double-click; a press on empty lane space clears it. Cursor clicks snap to
+record begins and ends, and Shift+←/→ on a lane step through them with
+`LoadedGenerator::next_boundary`/`prev_boundary`, which cost the records open
+at the cursor. The value column lists the records open at the cursor. The
+design is [docs/transaction-waveforms.html](../../docs/transaction-waveforms.html).
 
 Pointer commands name a panel; keyboard actions and sidebar additions resolve
 focus when handled. Deliveries fan out shared history Arcs to all matching

@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 use super::transactions::{Relation, TrackRef, Transaction, TransactionRef};
 
+/// Interval-tree subtrees with at most this many leaves are scanned flat.
+const SCAN_LEAVES: usize = 32;
+
 /// A reference remains useful when its generator has not been loaded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct TransactionLocation {
@@ -42,6 +45,13 @@ pub struct LoadedGenerator {
     // begin-time binary search, this retains long overlapping transactions.
     max_end: Vec<u64>,
     leaves: usize,
+    /// Sub-row of each record in canonical order when overlapping records
+    /// stack, from one greedy pass at load (see [`LoadedGenerator::sub_row`]).
+    sub_rows: Vec<u16>,
+    /// Sub-rows the stacking uses: the deepest overlap.
+    depth: u16,
+    /// Median `end - begin`, which sets when a lane is too dense for bars.
+    median_lifetime: u64,
 }
 
 impl LoadedGenerator {
@@ -53,6 +63,9 @@ impl LoadedGenerator {
             ))
             .saturating_add(
                 (self.max_end.capacity() as u64).saturating_mul(std::mem::size_of::<u64>() as u64),
+            )
+            .saturating_add(
+                (self.sub_rows.capacity() as u64).saturating_mul(std::mem::size_of::<u16>() as u64),
             )
             .saturating_add((self.parents.capacity() as u64).saturating_mul(
                 (std::mem::size_of::<TransactionRef>() + std::mem::size_of::<TransactionLocation>())
@@ -232,6 +245,43 @@ impl LoadedGenerator {
             checkpoint().await;
             max_end[i] = max_end[i * 2].max(max_end[i * 2 + 1]);
         }
+        // Greedy interval partitioning in begin order over half-open
+        // lifetimes: each record takes the lowest sub-row free at its begin.
+        let mut sub_rows = Vec::new();
+        sub_rows.try_reserve_exact(transactions.len())?;
+        let mut open = std::collections::BinaryHeap::new();
+        let mut free = std::collections::BinaryHeap::new();
+        let mut depth = 0u16;
+        for tx in &transactions {
+            checkpoint().await;
+            while let Some(&std::cmp::Reverse((end, row))) = open.peek() {
+                if end > tx.begin {
+                    break;
+                }
+                open.pop();
+                free.push(std::cmp::Reverse(row));
+            }
+            let row = match free.pop() {
+                Some(std::cmp::Reverse(row)) => row,
+                None => {
+                    // Past u16::MAX sub-rows, the deepest one is shared.
+                    let row = depth;
+                    depth = depth.saturating_add(1);
+                    row.min(u16::MAX - 1)
+                }
+            };
+            sub_rows.push(row);
+            open.push(std::cmp::Reverse((tx.end, row)));
+        }
+        let median_lifetime = {
+            let mut lifetimes: Vec<u64> = transactions.iter().map(|tx| tx.end - tx.begin).collect();
+            let mid = lifetimes.len() / 2;
+            if lifetimes.is_empty() {
+                0
+            } else {
+                *lifetimes.select_nth_unstable(mid).1
+            }
+        };
         Ok(Self {
             reservation: None,
             generator,
@@ -243,6 +293,9 @@ impl LoadedGenerator {
             by_endpoint,
             max_end,
             leaves,
+            sub_rows,
+            depth,
+            median_lifetime,
         })
     }
 
@@ -281,33 +334,95 @@ impl LoadedGenerator {
         self.by_id.get(&id).copied()
     }
 
+    /// The sub-row of the record at canonical `ordinal` when overlapping
+    /// records stack: no two records on one sub-row overlap (a record may
+    /// begin where the previous one ends).
+    pub fn sub_row(&self, ordinal: usize) -> u16 {
+        self.sub_rows.get(ordinal).copied().unwrap_or(0)
+    }
+
+    /// Sub-rows the stacking uses; 0 for an empty generator.
+    pub fn depth(&self) -> u16 {
+        self.depth
+    }
+
+    /// Median record lifetime, in trace time units.
+    pub fn median_lifetime(&self) -> u64 {
+        self.median_lifetime
+    }
+
+    /// The first record begin or end strictly after `time`. Ends after
+    /// `time` that precede the next begin belong to records open at `time`,
+    /// so the query costs the records open there, not the generator.
+    pub fn next_boundary(&self, time: u64) -> Option<u64> {
+        let next = self.transactions.partition_point(|tx| tx.begin <= time);
+        let mut best = self.transactions.get(next).map(|tx| tx.begin);
+        _ = self.visit_window(time, time, |tx| {
+            if tx.end > time && best.is_none_or(|b| tx.end < b) {
+                best = Some(tx.end);
+            }
+            true
+        });
+        best
+    }
+
+    /// The last record begin or end strictly before `time`. An end between
+    /// the previous begin and `time` belongs to a record open at that begin.
+    pub fn prev_boundary(&self, time: u64) -> Option<u64> {
+        let before = self.transactions.partition_point(|tx| tx.begin < time);
+        let begin = self.transactions[..before].last()?.begin;
+        let mut best = begin;
+        _ = self.visit_window(begin, time.saturating_sub(1), |tx| {
+            if tx.end < time && tx.end > best {
+                best = tx.end;
+            }
+            true
+        });
+        Some(best)
+    }
+
     /// Inclusive overlap, including point events at either boundary. Returns
     /// false if the visitor stopped early. Results are in begin/end/ID order.
-    pub fn visit_window(
-        &self,
+    pub fn visit_window<'a>(
+        &'a self,
         start: u64,
         end: u64,
-        mut visitor: impl FnMut(&Transaction) -> bool,
+        mut visitor: impl FnMut(&'a Transaction) -> bool,
+    ) -> anyhow::Result<bool> {
+        self.visit_window_ordinals(start, end, |_, tx| visitor(tx))
+    }
+
+    /// [`LoadedGenerator::visit_window`] with each record's canonical ordinal.
+    pub fn visit_window_ordinals<'a>(
+        &'a self,
+        start: u64,
+        end: u64,
+        mut visitor: impl FnMut(usize, &'a Transaction) -> bool,
     ) -> anyhow::Result<bool> {
         anyhow::ensure!(start <= end, "transaction window is reversed");
         let limit = self.transactions.partition_point(|tx| tx.begin <= end);
         Ok(self.visit_node(1, 0, self.leaves, start, limit, &mut visitor))
     }
 
-    fn visit_node(
-        &self,
+    fn visit_node<'a>(
+        &'a self,
         node: usize,
         lo: usize,
         hi: usize,
         start: u64,
         limit: usize,
-        visitor: &mut impl FnMut(&Transaction) -> bool,
+        visitor: &mut impl FnMut(usize, &'a Transaction) -> bool,
     ) -> bool {
         if lo >= limit || self.max_end[node] < start {
             return true;
         }
-        if hi - lo == 1 {
-            return visitor(&self.transactions[lo]);
+        // Small subtrees are scanned: a flat pass over a few records costs
+        // less than descending to each leaf.
+        if hi - lo <= SCAN_LEAVES {
+            return (lo..hi.min(limit)).all(|i| {
+                let tx = &self.transactions[i];
+                tx.end < start || visitor(i, tx)
+            });
         }
         let mid = lo + (hi - lo) / 2;
         self.visit_node(node * 2, lo, mid, start, limit, visitor)
@@ -438,6 +553,69 @@ mod tests {
         );
         assert_eq!(count, 1);
         assert!(loaded.visit_window(2, 1, |_| true).is_err());
+    }
+
+    #[test]
+    fn stacking_boundaries_and_median_match_a_scan() {
+        let mut records = vec![tx(0, 0, 400)];
+        for id in 1..300 {
+            let begin = (id * 37) % 250;
+            records.push(tx(id, begin, begin + (id * 13) % 40));
+        }
+        let loaded = LoadedGenerator::new(TrackRef(1), records, HashMap::new(), vec![]).unwrap();
+        let txs = loaded.transactions();
+        // No two records on one sub-row overlap, and the depth is the
+        // deepest overlap of half-open lifetimes.
+        let mut deepest = 0;
+        for (i, a) in txs.iter().enumerate() {
+            let open = txs
+                .iter()
+                .filter(|b| b.begin <= a.begin && a.begin < b.end.max(b.begin + 1))
+                .count();
+            deepest = deepest.max(open);
+            for (j, b) in txs.iter().enumerate().skip(i + 1) {
+                if loaded.sub_row(i) == loaded.sub_row(j) {
+                    assert!(a.end <= b.begin || b.end <= a.begin, "{a:?} {b:?}");
+                }
+            }
+        }
+        assert!(usize::from(loaded.depth()) <= deepest);
+        assert!(
+            txs.iter()
+                .enumerate()
+                .all(|(i, _)| loaded.sub_row(i) < loaded.depth())
+        );
+        let mut lifetimes: Vec<_> = txs.iter().map(|t| t.end - t.begin).collect();
+        lifetimes.sort();
+        assert_eq!(loaded.median_lifetime(), lifetimes[lifetimes.len() / 2]);
+        let mut bounds: Vec<u64> = txs.iter().flat_map(|t| [t.begin, t.end]).collect();
+        bounds.sort();
+        bounds.dedup();
+        for time in 0..420 {
+            assert_eq!(
+                loaded.next_boundary(time),
+                bounds.iter().copied().find(|b| *b > time),
+                "next after {time}"
+            );
+            assert_eq!(
+                loaded.prev_boundary(time),
+                bounds.iter().copied().rev().find(|b| *b < time),
+                "prev before {time}"
+            );
+        }
+        let mut ordinals = vec![];
+        loaded
+            .visit_window_ordinals(100, 120, |ordinal, tx| {
+                assert_eq!(&txs[ordinal], tx);
+                ordinals.push(ordinal);
+                true
+            })
+            .unwrap();
+        assert!(!ordinals.is_empty());
+        let empty = LoadedGenerator::new(TrackRef(1), vec![], HashMap::new(), vec![]).unwrap();
+        assert_eq!((empty.depth(), empty.median_lifetime()), (0, 0));
+        assert_eq!(empty.next_boundary(0), None);
+        assert_eq!(empty.prev_boundary(5), None);
     }
 
     #[test]

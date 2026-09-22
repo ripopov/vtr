@@ -91,8 +91,9 @@ pub struct Document {
     next_track_request: u64,
     selection: Option<TxSelection>,
     /// Wave rows copied for pasting into any wave panel of this trace. They
-    /// hold no histories; a paste shares resident data or loads it again.
-    pub copied_rows: Vec<crate::wave::DisplayedSignal>,
+    /// hold no histories or records; a paste shares resident data or loads
+    /// it again.
+    pub copied_rows: Vec<crate::wave::WaveRow>,
 }
 
 /// A selected track has one document-owned load, shared by its consumers.

@@ -70,7 +70,7 @@ fn fst_opens_and_loads_on_frontend_executor() {
             .unwrap()
             .items
             .iter()
-            .all(|row| row.history.is_some())
+            .all(|row| row.signal().unwrap().history.is_some())
     );
     assert!(h.is_nonblank());
 }

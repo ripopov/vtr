@@ -114,6 +114,8 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
             (
                 ws.debug_state(),
                 ws.app.panels.focused_waves().unwrap().items[0]
+                    .signal()
+                    .unwrap()
                     .history
                     .clone()
                     .unwrap(),
@@ -143,7 +145,10 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
                 );
                 assert_eq!(ws.debug_state(), before);
                 let w = &ws.app.panels.focused_waves().unwrap();
-                assert!(Arc::ptr_eq(w.items[0].history.as_ref().unwrap(), &history));
+                assert!(Arc::ptr_eq(
+                    w.items[0].signal().unwrap().history.as_ref().unwrap(),
+                    &history
+                ));
                 assert_eq!(w.names_width, 260.0);
                 assert_eq!(w.values_width, 140.0);
                 assert_eq!(w.scroll_y, 24.0);
@@ -595,7 +600,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
                     .unwrap()
                     .items
                     .iter()
-                    .map(|item| item.height.multiple())
+                    .map(|item| item.height().multiple())
                     .collect::<Vec<_>>()
             })
             .unwrap()
@@ -671,7 +676,7 @@ fn wave_copy_paste_keys_duplicate_rows(cx: &mut TestAppContext) {
                     .unwrap()
                     .items
                     .iter()
-                    .map(|item| item.name.clone())
+                    .map(|item| item.name().to_owned())
                     .collect::<Vec<_>>()
             })
             .unwrap()
@@ -700,8 +705,8 @@ fn wave_copy_paste_keys_duplicate_rows(cx: &mut TestAppContext) {
         .update(&mut vcx, |ws, _, _| {
             let rows = &ws.app.panels.focused_waves().unwrap().items;
             assert!(rows[..3].iter().all(|row| Arc::ptr_eq(
-                row.history.as_ref().unwrap(),
-                rows[0].history.as_ref().unwrap()
+                row.signal().unwrap().history.as_ref().unwrap(),
+                rows[0].signal().unwrap().history.as_ref().unwrap()
             )));
         })
         .unwrap();

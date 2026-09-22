@@ -78,6 +78,9 @@ test('pointer and keyboard follow the wave panel rules', {timeout: 40000}, async
   await b.send('Emulation.setDeviceMetricsOverride', {width: 1280, height: 900, deviceScaleFactor: 1, mobile: false});
   await b.wait('window.ready === true');
   await b.evaluate('document.getElementById("pv").scrollIntoView({block: "center", behavior: "instant"})');
+  // Let fonts and the scrolled layout settle before reading coordinates.
+  await b.evaluate('document.fonts.ready.then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))');
+  await settled(b);
 
   // A bar click selects that transaction and moves the cursor onto it.
   const p0 = await b.evaluate('TXW.barPoint("T0")');
