@@ -3,13 +3,25 @@
 
 use std::sync::{Arc, Mutex};
 
+const MIB: u64 = 1024 * 1024;
+
 #[derive(Clone, Debug)]
 pub struct MemoryBudget(Arc<Budget>);
 
+/// Both limits can change while the pool is live (the `memory.budgetMiB` and
+/// `memory.objectMiB` settings). Lowering one never evicts: existing
+/// reservations stay and only new admissions are refused.
 #[derive(Debug)]
 struct Budget {
+    state: Mutex<State>,
+}
+
+#[derive(Debug)]
+struct State {
     limit: u64,
-    used: Mutex<u64>,
+    /// Largest single object an in-process load may admit.
+    object_limit: u64,
+    used: u64,
 }
 
 #[derive(Debug)]
@@ -21,13 +33,42 @@ pub struct Reservation {
 impl MemoryBudget {
     pub fn new(limit: u64) -> Self {
         Self(Arc::new(Budget {
-            limit,
-            used: Mutex::new(0),
+            state: Mutex::new(State {
+                limit,
+                object_limit: u64::MAX,
+                used: 0,
+            }),
         }))
     }
 
+    fn state(&self) -> std::sync::MutexGuard<'_, State> {
+        self.0.state.lock().expect("memory budget lock")
+    }
+
+    pub fn limit(&self) -> u64 {
+        self.state().limit
+    }
+
+    pub fn set_limit(&self, limit: u64) {
+        self.state().limit = limit;
+    }
+
+    pub fn object_limit(&self) -> u64 {
+        self.state().object_limit
+    }
+
+    pub fn set_object_limit(&self, limit: u64) {
+        self.state().object_limit = limit;
+    }
+
     pub fn used(&self) -> u64 {
-        *self.0.used.lock().expect("memory budget lock")
+        self.state().used
+    }
+
+    /// Admit one in-process object under the current object limit.
+    pub(crate) fn reserve_object(&self, what: &str, bytes: u64) -> anyhow::Result<Reservation> {
+        check_object(what, bytes, self.object_limit(), "retry")?;
+        self.reserve(bytes)
     }
 
     pub fn reserve(&self, bytes: u64) -> anyhow::Result<Reservation> {
@@ -39,21 +80,38 @@ impl MemoryBudget {
     }
 
     fn admit(&self, bytes: u64) -> anyhow::Result<()> {
-        let mut used = self.0.used.lock().expect("memory budget lock");
-        let next = used.checked_add(bytes).filter(|&next| next <= self.0.limit);
+        let mut state = self.state();
+        let next = state.used.checked_add(bytes).filter(|&n| n <= state.limit);
         anyhow::ensure!(
             next.is_some(),
-            "client memory budget exceeded; remove tracks or raise the limit"
+            "memory budget exceeded: {} MiB more would pass the {} MiB budget; \
+             remove signals or raise memory.budgetMiB",
+            bytes.div_ceil(MIB),
+            state.limit / MIB
         );
-        *used = next.unwrap();
+        state.used = next.unwrap();
         Ok(())
     }
 }
 
+/// Refuse one decoded object above `limit`; `then` says what follows raising
+/// the setting (a retry, or reopening a remote trace that negotiated it).
+pub(crate) fn check_object(what: &str, bytes: u64, limit: u64, then: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        bytes <= limit,
+        "{what} is {} MiB, over the {} MiB object size limit; \
+         raise memory.objectMiB and {then}",
+        bytes.div_ceil(MIB),
+        limit / MIB
+    );
+    Ok(())
+}
+
 impl Drop for Reservation {
     fn drop(&mut self) {
-        let mut used = self.budget.0.used.lock().expect("memory budget lock");
-        *used = used
+        let mut state = self.budget.state();
+        state.used = state
+            .used
             .checked_sub(self.bytes)
             .expect("balanced memory reservation");
     }
@@ -71,8 +129,9 @@ impl Reservation {
             .bytes
             .checked_sub(bytes)
             .ok_or_else(|| anyhow::anyhow!("reservation shrink exceeds ownership"))?;
-        let mut used = self.budget.0.used.lock().expect("memory budget lock");
-        *used = used
+        let mut state = self.budget.state();
+        state.used = state
+            .used
             .checked_sub(bytes)
             .expect("balanced memory reservation");
         Ok(())
@@ -124,6 +183,22 @@ mod tests {
         assert_eq!(budget.used(), 7);
         drop(reservation);
         assert_eq!(budget.used(), 0);
+    }
+
+    #[test]
+    fn a_live_limit_change_admits_or_refuses_only_new_reservations() {
+        let budget = MemoryBudget::new(10);
+        let held = budget.reserve(8).unwrap();
+        let error = budget.reserve(4).unwrap_err().to_string();
+        assert!(error.contains("memory budget exceeded"), "{error}");
+        assert!(error.contains("memory.budgetMiB"), "{error}");
+        budget.set_limit(12);
+        let more = budget.reserve(4).unwrap();
+        budget.set_limit(1);
+        assert_eq!(budget.used(), 12, "lowering never evicts");
+        assert!(budget.reserve(1).is_err());
+        drop((held, more));
+        budget.reserve(1).unwrap();
     }
 
     #[test]

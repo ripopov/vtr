@@ -532,7 +532,7 @@ pub mod web {
                                         volna_core::session::OpenSpec::Remote { name, .. } => {
                                             volna_core::session::OpenSpec::Remote {
                                                 name,
-                                                limits: resolved.remote_limits(),
+                                                limits: resolved.limits(),
                                             }
                                         }
                                         spec => spec,

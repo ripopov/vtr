@@ -77,7 +77,8 @@ mod tests {
         let schema = json_schema(Host::Native);
         let properties = schema["properties"].as_object().unwrap();
         assert!(properties.contains_key("waves.snapPixels"));
-        assert!(!properties.contains_key("remote.memoryMiB"));
+        assert!(!properties.contains_key("remote.serverPath"));
+        assert_eq!(properties["memory.budgetMiB"]["maximum"], 262144);
         assert_eq!(properties["waves.snapPixels"]["maximum"], 24);
         assert_eq!(
             properties["waves.animation"]["enum"]
@@ -94,14 +95,14 @@ mod tests {
                 .filter(|s| s.available(Host::Vscode))
                 .count()
         );
-        assert_eq!(doc.get("remote.memoryMiB").unwrap().value, 512);
+        assert_eq!(doc.get("memory.budgetMiB").unwrap().value, 512);
         let contribution = vscode_configuration();
         assert_eq!(
             contribution["properties"]["volna.remote.serverPath"]["scope"],
             "machine"
         );
         assert!(
-            contribution["properties"]["volna.remote.memoryMiB"]["markdownDescription"]
+            contribution["properties"]["volna.workspace.autosave"]["markdownDescription"]
                 .as_str()
                 .unwrap()
                 .ends_with("Reopen the trace to apply.")

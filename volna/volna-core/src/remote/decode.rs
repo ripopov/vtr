@@ -39,7 +39,8 @@ impl<T> Decoder<T> {
         budget: &MemoryBudget,
         parse: impl FnOnce(Reader) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>,
     ) -> anyhow::Result<Self> {
-        anyhow::ensure!(declared <= limit, "object exceeds transfer limit");
+        // Remote traces negotiate this limit with the server when they open.
+        super::memory::check_object("the object", declared, limit, "reopen the trace")?;
         // One incoming chunk and bounded string/scalar scratch. Decoded vector
         // allocations are charged separately, before reserving their storage.
         let reader = Reader(Arc::new(Mutex::new(Input {

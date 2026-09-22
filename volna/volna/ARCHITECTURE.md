@@ -111,7 +111,12 @@ The session memory budget is common to remote and native owners. Native input
 images, decoded histories and generator indexes retain reservations in the
 same ledger used by the table's 4 MiB panel reservation and optional signal
 axis. This makes two tables, Waves and Pipeline share raw data without charging
-or copying it twice.
+or copying it twice. The ledger's limit is the `memory.budgetMiB` setting on
+every host and follows it live. `memory.objectMiB` caps one decoded history,
+generator or remote object; the ledger also holds it, so local loads use the
+current value, while a remote trace keeps the value it negotiated at open. `App::status`
+reports the ledger for the status-bar meter, and `App::memory_menu` supplies
+the meter's preset menu; the GPUI layer only draws both.
 
 Animations use an explicit clock: `tick(now)` advances every `Tween` (the shared
 viewport, local viewports, pipeline row axes) and reports whether another frame

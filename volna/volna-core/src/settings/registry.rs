@@ -4,6 +4,9 @@
 
 use super::Value;
 
+/// Upper bound of both memory settings, in MiB (256 GiB).
+pub const MAX_MEMORY_MIB: i64 = 256 * 1024;
+
 /// The host the viewer runs on. Entries and enum members can be limited to hosts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Host {
@@ -57,18 +60,25 @@ pub enum Page {
     Appearance,
     Waves,
     Workspace,
+    Memory,
     Remote,
 }
 
 impl Page {
-    pub const ALL: &'static [Page] =
-        &[Page::Appearance, Page::Waves, Page::Workspace, Page::Remote];
+    pub const ALL: &'static [Page] = &[
+        Page::Appearance,
+        Page::Waves,
+        Page::Workspace,
+        Page::Memory,
+        Page::Remote,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Page::Appearance => "appearance",
             Page::Waves => "waves",
             Page::Workspace => "workspace",
+            Page::Memory => "memory",
             Page::Remote => "remote",
         }
     }
@@ -77,6 +87,7 @@ impl Page {
             Page::Appearance => "Appearance",
             Page::Waves => "Waves",
             Page::Workspace => "Workspace",
+            Page::Memory => "Memory",
             Page::Remote => "Remote",
         }
     }
@@ -85,7 +96,8 @@ impl Page {
             Page::Appearance => "Theme and chrome.",
             Page::Waves => "Waveform panels and navigation.",
             Page::Workspace => "How sessions are saved beside traces.",
-            Page::Remote => "Limits and the server for traces on a remote host.",
+            Page::Memory => "How much loaded trace data the viewer may hold.",
+            Page::Remote => "The server for traces on a remote host.",
         }
     }
     pub fn icon(self) -> crate::icons::IconName {
@@ -94,6 +106,7 @@ impl Page {
             Page::Appearance => IconName::Type,
             Page::Waves => IconName::AudioWaveform,
             Page::Workspace => IconName::Folder,
+            Page::Memory => IconName::Cpu,
             Page::Remote => IconName::Box,
         }
     }
@@ -430,36 +443,36 @@ pub static REGISTRY: &[Spec] = &[
         hosts: Hosts::ALL,
     },
     Spec {
-        id: "remote.memoryMiB",
-        page: Page::Remote,
+        id: "memory.budgetMiB",
+        page: Page::Memory,
         group: "Limits",
         title: "Memory budget",
-        description: "Client admission budget for loaded trace data and decoding workspace, in MiB. This does not bound total browser memory.",
-        keywords: &["budget", "limit", "admission", "ram"],
+        description: "Loaded trace data the viewer may hold, in MiB: the open trace, signal histories, tracks and table workspace. Raising it applies at once; lowering it refuses new loads until enough is removed. It does not bound total process or browser memory.",
+        keywords: &["budget", "limit", "admission", "ram", "exceeded"],
         kind: Kind::Integer {
             min: 1,
-            max: 16384,
-            step: 64,
+            max: MAX_MEMORY_MIB,
+            step: 256,
         },
         default: Literal::Integer(512),
-        apply: Apply::OnReopen,
-        hosts: Hosts::VSCODE,
+        apply: Apply::Live,
+        hosts: Hosts::ALL,
     },
     Spec {
-        id: "remote.objectMiB",
-        page: Page::Remote,
+        id: "memory.objectMiB",
+        page: Page::Memory,
         group: "Limits",
         title: "Object size limit",
-        description: "Maximum decoded wire size of one complete metadata, signal or track object, in MiB.",
-        keywords: &["limit", "signal", "track", "size"],
+        description: "Largest single signal history, track or remote metadata object the viewer loads, in MiB. It applies to the next load; a remote trace applies it when reopened.",
+        keywords: &["limit", "signal", "track", "size", "object"],
         kind: Kind::Integer {
             min: 1,
-            max: 16384,
+            max: MAX_MEMORY_MIB,
             step: 64,
         },
         default: Literal::Integer(256),
-        apply: Apply::OnReopen,
-        hosts: Hosts::VSCODE,
+        apply: Apply::Live,
+        hosts: Hosts::ALL,
     },
     Spec {
         id: "remote.serverPath",
@@ -487,6 +500,8 @@ pub const META_KEYS: &[&str] = &["$schema"];
 pub const RENAMED: &[(&str, &str)] = &[
     ("serverPath", "remote.serverPath"),
     ("table.detailItems", "transaction.detailItems"),
+    ("remote.memoryMiB", "memory.budgetMiB"),
+    ("remote.objectMiB", "memory.objectMiB"),
 ];
 
 #[cfg(test)]

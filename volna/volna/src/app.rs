@@ -152,7 +152,7 @@ pub struct Workspace {
     pub(crate) filter: Entity<TextInput>,
     pub(crate) scopes_scroll: UniformListScrollHandle,
     pub(crate) variables_scroll: UniformListScrollHandle,
-    stress_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
+    status_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
     /// Mirrors the focused wave panel's menu.
     wave_menu: Option<HostedWaveMenu>,
     /// Display list buffer and shaped-text cache, reused across frames.
@@ -415,6 +415,74 @@ macro_rules! wave_actions {
     };
 }
 
+/// Width of the status bar's memory pill at zoom 1.0; fixed so the fill is
+/// a true proportion and the bar does not jitter as the numbers change.
+pub(crate) const MEMORY_PILL_W: f32 = 112.0;
+
+/// The status bar's memory budget meter: a pill whose tinted fill grows from
+/// the left behind the centred `used / limit` label. Near the limit the fill,
+/// border and label take the error colour.
+fn memory_meter(
+    memory: volna_core::app::MemoryStatus,
+    t: &crate::theme::Theme,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let full = memory.nearly_full();
+    let (tint, border, text) = if full {
+        (
+            t.editor.error.alpha(0.28),
+            t.editor.error.alpha(0.7),
+            t.editor.error,
+        )
+    } else {
+        (t.bar.icon_accent.alpha(0.24), t.border, t.bar.text)
+    };
+    // A sliver stays visible once anything is loaded.
+    let filled = if memory.used == 0 {
+        0.0
+    } else {
+        (memory.fraction() * MEMORY_PILL_W).max(3.0)
+    };
+    let detail = SharedString::from(memory.detail());
+    div()
+        .id("status-memory")
+        .debug_selector(|| "status-memory".into())
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .w(t.px(MEMORY_PILL_W))
+        .h(t.px(16.0))
+        .rounded_full()
+        .overflow_hidden()
+        .border_1()
+        .border_color(border)
+        .bg(t.bar.text.alpha(0.05))
+        .cursor(CursorStyle::PointingHand)
+        .hover(move |s| s.bg(t.bar.text.alpha(0.1)).border_color(t.border_focused))
+        .tooltip(move |w, cx| Tooltip::new(detail.clone()).build(w, cx))
+        .child(
+            div()
+                .debug_selector(|| "status-memory-fill".into())
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left_0()
+                .w(t.px(filled))
+                .bg(tint),
+        )
+        .child(
+            div()
+                .debug_selector(|| "status-memory-label".into())
+                .relative()
+                .font_family(t.mono_font)
+                .text_size(px(t.ui_size_small * 0.92))
+                .line_height(t.px(14.0))
+                .text_color(text)
+                .child(SharedString::from(memory.label())),
+        )
+}
+
 /// A Volna-styled popup menu whose items act in `focus`.
 fn build_popup(
     items: Vec<PopupMenuItem>,
@@ -477,7 +545,7 @@ impl Workspace {
             filter,
             scopes_scroll: UniformListScrollHandle::new(),
             variables_scroll: UniformListScrollHandle::new(),
-            stress_menu: None,
+            status_menu: None,
             wave_menu: None,
             scene: Scene::default(),
             shaped: HashMap::new(),
@@ -893,7 +961,7 @@ impl Workspace {
         }
     }
 
-    fn open_stress_menu(
+    fn open_status_menu(
         &mut self,
         position: gpui_kit::Point<Pixels>,
         window: &mut Window,
@@ -908,17 +976,96 @@ impl Workspace {
         .map(|(n, label)| {
             PopupMenuItem::new(label).on_click(cx.listener(move |this, _, _, cx| {
                 this.open_synthetic(n, cx);
-                this.stress_menu = None;
+                this.status_menu = None;
             }))
         })
         .collect();
         let menu = build_popup(items, self.focus_handle.clone(), window, cx);
         cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
-            this.stress_menu = None;
+            this.status_menu = None;
             cx.notify();
         })
         .detach();
-        self.stress_menu = Some((position, menu));
+        self.status_menu = Some((position, menu));
+        cx.notify();
+    }
+
+    /// The memory meter's menu: both limits as preset submenus, then the
+    /// Memory settings page. Choices edit settings through the core.
+    pub(crate) fn open_memory_menu(
+        &mut self,
+        position: gpui_kit::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let model = self.app.memory_menu();
+        let workspace = cx.entity().downgrade();
+        let run = move |command: Command| {
+            let workspace = workspace.clone();
+            move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                let command = command.clone();
+                workspace
+                    .update(cx, |this, cx| {
+                        this.status_menu = None;
+                        this.dispatch(command, Some(window), cx);
+                    })
+                    .ok();
+            }
+        };
+        let focus = self.focus_handle.clone();
+        let min_w = theme(cx).px(200.0);
+        let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
+            let presets = |choices: Vec<volna_core::app::MemoryChoice>,
+                           note: Option<&'static str>| {
+                let (run, locked, focus) = (run.clone(), model.locked.is_some(), focus.clone());
+                move |mut sub: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
+                    for choice in &choices {
+                        sub = sub.item(
+                            PopupMenuItem::new(choice.label.clone())
+                                .checked(choice.checked)
+                                .disabled(locked)
+                                .on_click(run(choice.command())),
+                        );
+                    }
+                    if let Some(note) = note {
+                        sub = sub.separator().item(PopupMenuItem::label(note));
+                    }
+                    sub.action_context(focus.clone())
+                }
+            };
+            let mut menu = menu
+                .submenu(
+                    model.budget_title.clone(),
+                    window,
+                    cx,
+                    presets(model.budget.clone(), None),
+                )
+                .submenu(
+                    model.object_title.clone(),
+                    window,
+                    cx,
+                    presets(model.object.clone(), model.object_note),
+                )
+                .separator();
+            if let Some(locked) = model.locked {
+                menu = menu.item(PopupMenuItem::label(locked));
+            }
+            menu.item(
+                PopupMenuItem::new("Memory Settings…").on_click(run(Command::Settings(
+                    SettingsCommand::Reveal {
+                        id: "memory".into(),
+                    },
+                ))),
+            )
+            .min_w(min_w)
+            .action_context(focus.clone())
+        });
+        cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
+            this.status_menu = None;
+            cx.notify();
+        })
+        .detach();
+        self.status_menu = Some((position, menu));
         cx.notify();
     }
 
@@ -1520,6 +1667,15 @@ impl Workspace {
         if let Some(m) = status.markers {
             left = left.child(mono(m, colors.text_placeholder));
         }
+        if let Some(memory) = status.memory {
+            right = right.child(memory_meter(memory, &t).on_click(cx.listener(
+                |this, ev: &gpui_kit::ClickEvent, window, cx| {
+                    let p = ev.position();
+                    let t = theme(cx);
+                    this.open_memory_menu(point(p.x - t.px(100.0), p.y - t.px(96.0)), window, cx);
+                },
+            )));
+        }
         right = right.child(mono(status.frame_ms, colors.text_placeholder));
         right = right.child(
             div()
@@ -1537,7 +1693,7 @@ impl Workspace {
                 .on_click(cx.listener(|this, ev: &gpui_kit::ClickEvent, window, cx| {
                     let p = ev.position();
                     let t = theme(cx);
-                    this.open_stress_menu(point(p.x - t.px(160.0), p.y - t.px(120.0)), window, cx);
+                    this.open_status_menu(point(p.x - t.px(160.0), p.y - t.px(120.0)), window, cx);
                 }))
                 .child(
                     Icon::new(IconName::Activity)
@@ -1736,7 +1892,7 @@ impl Render for Workspace {
                 .map(|menu| popup_at(menu.position, menu.popup.clone(), window, cx)),
         )
         .children(
-            self.stress_menu
+            self.status_menu
                 .as_ref()
                 .map(|(p, m)| popup_at(*p, m.clone(), window, cx)),
         )

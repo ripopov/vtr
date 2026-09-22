@@ -1825,9 +1825,13 @@ unfinished loads while completed histories remain owned by their consumers.
 The GPUI web driver routes `OpenSpec::Remote` and remote signal/track loads through
 this queue; local and byte-image loads retain their existing executor.
 `OpenSpec::Remote` carries `remote::limits::Limits`, expressed in MiB and checked
-before starting a connection. VS Code forwards its resource-scoped
-`volna.remote.memoryMiB` and `volna.remote.objectMiB` settings at open; defaults
-are 512 and 256 MiB, respectively. Changing settings affects the next open.
+before starting a connection. Every host takes them from the `memory.budgetMiB`
+and `memory.objectMiB` settings (`Settings::limits`); VS Code forwards its
+resource-scoped `volna.memory.*` configuration. Defaults are 512 and 256 MiB,
+and both accept up to 262144 MiB. Both change live through
+`MemoryBudget::set_limit` and `set_object_limit`: raising one admits new loads
+at once, and lowering one never evicts. A remote trace keeps the object limit
+it negotiated with the server when it opened.
 `remote::session::RemoteSession` owns validated metadata and a nonzero server
 identity. `Session::remote_id()` distinguishes it for asynchronous executor
 routing; local sessions return `None`. Its blocking load methods return an

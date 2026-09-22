@@ -341,10 +341,14 @@ mod tests {
         let hits = search("@page:work", Host::Native, &none);
         assert!(hits.iter().all(|h| h.spec.page == Page::Workspace));
         assert_eq!(search("@id:waves.snap", Host::Native, &none).len(), 1);
-        assert!(search("memory", Host::Native, &none).is_empty());
+        assert!(search("server path", Host::Native, &none).is_empty());
         assert_eq!(
-            search("memory", Host::Vscode, &none)[0].spec.id,
-            "remote.memoryMiB"
+            search("server path", Host::Vscode, &none)[0].spec.id,
+            "remote.serverPath"
+        );
+        assert_eq!(
+            search("memory", Host::Native, &none)[0].spec.id,
+            "memory.budgetMiB"
         );
         assert_eq!(
             search("", Host::Native, &none).len(),
@@ -361,8 +365,8 @@ mod tests {
         let a = ids(search("limit", Host::Vscode, &none));
         let b = ids(search("limit", Host::Vscode, &none));
         assert_eq!(a, b);
-        let modified = |id: &str| id == "remote.objectMiB";
-        let hits = search("@page:remote limit", Host::Vscode, &modified);
-        assert_eq!(hits[0].spec.id, "remote.objectMiB");
+        let modified = |id: &str| id == "memory.objectMiB";
+        let hits = search("@page:memory limit", Host::Native, &modified);
+        assert_eq!(hits[0].spec.id, "memory.objectMiB");
     }
 }

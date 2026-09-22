@@ -1276,6 +1276,28 @@ The release A/B method, current frame costs and raw samples are in
 Both baseline and candidate benchmarks require a canvas repaint on each timed
 keyboard frame; cached frames are not navigation measurements.
 
+## Volna memory limits
+
+The memory budget and object size limit were VS Code-only settings, while
+native and web traces used a fixed 512 MiB ledger that no setting could
+raise. Both are now general `memory.*` settings read on every host, and the
+old `remote.*` names migrate in `settings.json`. The budget is a live limit
+on the shared ledger: raising it lets a failed load succeed on retry without
+reopening, and lowering it refuses new admissions but never evicts, because
+displayed data must not disappear silently. The object limit lives in the same
+ledger and is live for local traces, so raising it lets a refused signal load
+on retry. Capturing it at open was tried first and rejected: a user who raised
+it and retried still saw the old limit. A remote trace still keeps the value
+it negotiated with the server when it connected, and its error and the
+memory menu say to reopen.
+
+The status bar meter reports the ledger and opens a small menu of presets for
+both limits, plus a link to the Memory settings page. Presets were preferred
+over an inline number field because the useful values are powers of two and
+a menu needs no focus or validation handling in the status bar. When VS Code
+owns the values, the menu shows them without allowing edits, matching the
+Settings page.
+
 ## Volna transaction panel
 
 One `PanelKind::Transaction` serves every selecting panel instead of a

@@ -567,7 +567,8 @@ mod tests {
         assert_eq!(store.last_error(), Some("disk full"));
         // Values are validated before they reach the document.
         assert!(store.set("waves.snapPixels", 99.into(), t0).is_err());
-        assert!(store.set("remote.memoryMiB", 1.into(), t0).is_err());
+        assert!(store.set("memory.budgetMiB", 0.into(), t0).is_err());
+        assert!(store.set("remote.serverPath", "x".into(), t0).is_err());
         assert!(store.set("nope", true.into(), t0).is_err());
         // A first edit seeds the schema line.
         let mut fresh = Store::new(Host::Native);
@@ -615,10 +616,10 @@ mod tests {
         assert_eq!(changed, vec!["waves.animation"]);
         let mut overrides = BTreeMap::new();
         overrides.insert("waves.snapPixels".to_owned(), Value::Integer(2));
-        overrides.insert("remote.memoryMiB".to_owned(), Value::Integer(64));
+        overrides.insert("memory.budgetMiB".to_owned(), Value::Integer(64));
         overrides.insert("bogus".to_owned(), Value::Integer(64));
         let changed = store.set_overrides(overrides.clone());
-        assert_eq!(changed, vec!["remote.memoryMiB", "waves.snapPixels"]);
+        assert_eq!(changed, vec!["memory.budgetMiB", "waves.snapPixels"]);
         assert_eq!(store.resolved().waves.snap_pixels, 2);
         assert!(store.is_overridden("waves.snapPixels"));
         assert!(store.set_overrides(overrides).is_empty());

@@ -274,6 +274,134 @@ pub struct Status {
     pub cursor: Option<String>,
     pub markers: Option<String>,
     pub frame_ms: String,
+    /// Decoded trace data against the open trace's memory budget.
+    pub memory: Option<MemoryStatus>,
+}
+
+/// How much of the client memory budget loaded trace data holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MemoryStatus {
+    pub used: u64,
+    pub limit: u64,
+}
+
+impl MemoryStatus {
+    /// From this fraction on, the indicator warns that loads may fail.
+    pub const NEARLY_FULL: f32 = 0.9;
+
+    pub fn fraction(self) -> f32 {
+        if self.limit == 0 {
+            return 1.0;
+        }
+        (self.used as f64 / self.limit as f64).clamp(0.0, 1.0) as f32
+    }
+
+    pub fn nearly_full(self) -> bool {
+        self.fraction() >= Self::NEARLY_FULL
+    }
+
+    /// Compact "used / limit" in the limit's unit, e.g. `412 / 512 MiB`.
+    pub fn label(self) -> String {
+        let (unit, scale) = byte_unit(self.limit);
+        format!(
+            "{} / {} {unit}",
+            short_amount(self.used as f64 / scale),
+            short_amount(self.limit as f64 / scale)
+        )
+    }
+
+    /// The indicator's tooltip.
+    pub fn detail(self) -> String {
+        let (unit, scale) = byte_unit(self.limit);
+        format!(
+            "Memory budget: {:.1} of {} {unit} used ({:.0}%) by loaded trace data. \
+             Loads that would exceed the budget fail. Click to change the limits.",
+            self.used as f64 / scale,
+            short_amount(self.limit as f64 / scale),
+            f64::from(self.fraction()) * 100.0
+        )
+    }
+}
+
+/// One preset in the status bar's memory menu: choosing it sets `id` to `mib`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemoryChoice {
+    pub id: &'static str,
+    pub mib: u64,
+    pub label: String,
+    pub checked: bool,
+}
+
+impl MemoryChoice {
+    pub fn command(&self) -> Command {
+        Command::Settings(SettingsCommand::Set {
+            id: self.id.into(),
+            value: settings::Value::Integer(self.mib as i64),
+        })
+    }
+}
+
+/// The memory menu the status bar meter opens: presets for both limits. A
+/// value the host owns (VS Code's `volna.memory.*`) is shown but not editable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemoryMenu {
+    pub budget_title: String,
+    pub budget: Vec<MemoryChoice>,
+    pub object_title: String,
+    pub object: Vec<MemoryChoice>,
+    /// Shown under the object presets.
+    pub object_note: Option<&'static str>,
+    /// Why the presets are disabled, when the host owns the values.
+    pub locked: Option<&'static str>,
+}
+
+pub const BUDGET_PRESETS_MIB: [u64; 8] = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768];
+pub const OBJECT_PRESETS_MIB: [u64; 7] = [64, 128, 256, 512, 1024, 2048, 4096];
+
+/// `512 MiB`, `2 GiB`, `1.5 GiB`.
+pub fn format_mib(mib: u64) -> String {
+    if mib >= 1024 {
+        format!("{} GiB", short_amount(mib as f64 / 1024.0))
+    } else {
+        format!("{mib} MiB")
+    }
+}
+
+fn memory_choices(id: &'static str, presets: &[u64], current: u64) -> Vec<MemoryChoice> {
+    let mut values = presets.to_vec();
+    // A hand-written value keeps its place and its check mark.
+    if !values.contains(&current) {
+        values.push(current);
+        values.sort_unstable();
+    }
+    values
+        .into_iter()
+        .map(|mib| MemoryChoice {
+            id,
+            mib,
+            label: format_mib(mib),
+            checked: mib == current,
+        })
+        .collect()
+}
+
+fn byte_unit(bytes: u64) -> (&'static str, f64) {
+    const MIB: f64 = 1024.0 * 1024.0;
+    if bytes as f64 >= 1024.0 * MIB {
+        ("GiB", 1024.0 * MIB)
+    } else {
+        ("MiB", MIB)
+    }
+}
+
+/// One decimal below 10 (`0.3`, `1.5`), whole numbers above; no trailing `.0`.
+fn short_amount(value: f64) -> String {
+    let text = if value < 10.0 {
+        format!("{value:.1}")
+    } else {
+        format!("{value:.0}")
+    };
+    text.strip_suffix(".0").map(str::to_owned).unwrap_or(text)
 }
 
 pub const SIDEBAR_FRACTION_MIN: f32 = 0.15;
@@ -343,7 +471,15 @@ impl App {
             events: Vec::new(),
             text: TextCache::default(),
             scene: Scene::default(),
-            table_budget: crate::remote::memory::MemoryBudget::new(512 * 1024 * 1024),
+            table_budget: {
+                let (limit, object_limit) = settings::Settings::default()
+                    .limits()
+                    .bytes()
+                    .expect("valid defaults");
+                let budget = crate::remote::memory::MemoryBudget::new(limit);
+                budget.set_object_limit(object_limit);
+                budget
+            },
         }
     }
 
@@ -374,7 +510,7 @@ impl App {
     /// Replace the session immediately (tests and hosts that hold one).
     pub fn set_session(&mut self, session: Arc<dyn Session>) {
         let session = if session.memory_budget().is_none() {
-            match crate::session::account_local_session(session, self.table_budget.clone()) {
+            match self.account_local_session(session) {
                 Ok(session) => session,
                 Err(error) => {
                     self.events.push(Event::Notice(format!(
@@ -462,7 +598,7 @@ impl App {
                 .is_ok_and(|session| session.memory_budget().is_none())
         {
             let session = opened.as_ref().expect("checked successful open").clone();
-            *opened = crate::session::account_local_session(session, self.table_budget.clone());
+            *opened = self.account_local_session(session);
         }
         match self.doc.deliver(result) {
             Some(Delivered::Track) => {
@@ -1110,6 +1246,44 @@ impl App {
             .collect()
     }
 
+    /// Charge a newly opened local trace to the process budget.
+    fn account_local_session(&self, session: Arc<dyn Session>) -> anyhow::Result<Arc<dyn Session>> {
+        crate::session::account_local_session(session, self.table_budget.clone())
+    }
+
+    pub fn memory_menu(&self) -> MemoryMenu {
+        let memory = &self.settings.resolved().memory;
+        let locked = ["memory.budgetMiB", "memory.objectMiB"]
+            .iter()
+            .any(|id| self.settings.is_overridden(id));
+        MemoryMenu {
+            budget_title: format!("Memory budget: {}", format_mib(memory.budget_mib)),
+            budget: memory_choices("memory.budgetMiB", &BUDGET_PRESETS_MIB, memory.budget_mib),
+            object_title: format!("Object size limit: {}", format_mib(memory.object_mib)),
+            object: memory_choices("memory.objectMiB", &OBJECT_PRESETS_MIB, memory.object_mib),
+            // Only a remote trace fixes the object limit when it connects.
+            object_note: self
+                .doc
+                .session()
+                .is_some_and(|s| s.remote_id().is_some())
+                .then_some("This remote trace applies it when reopened"),
+            locked: locked.then_some("Set in VS Code settings (volna.memory.*)"),
+        }
+    }
+
+    /// Apply the `memory.*` settings live: to the process budget local traces
+    /// and procedural sessions use, and to an open remote trace's own budget.
+    /// A remote trace keeps the object limit it negotiated when it opened.
+    pub(crate) fn apply_memory_limits(&self) {
+        let Ok((limit, object_limit)) = self.settings.resolved().limits().bytes() else {
+            return;
+        };
+        for budget in [self.table_budget.clone(), self.table_memory_budget()] {
+            budget.set_limit(limit);
+            budget.set_object_limit(object_limit);
+        }
+    }
+
     pub(crate) fn table_memory_budget(&self) -> crate::remote::memory::MemoryBudget {
         self.doc
             .session()
@@ -1616,6 +1790,11 @@ impl App {
             ..Default::default()
         };
         if let Some(src) = self.doc.session() {
+            let budget = self.table_memory_budget();
+            s.memory = Some(MemoryStatus {
+                used: budget.used(),
+                limit: budget.limit(),
+            });
             let info = src.info();
             let base = TimeBase::of(info);
             let (a, b) = info.time_range;

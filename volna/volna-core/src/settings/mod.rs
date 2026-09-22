@@ -21,7 +21,8 @@ pub mod search;
 pub mod store;
 
 pub use registry::{
-    Apply, Choice, Host, Hosts, Kind, Page, REGISTRY, Spec, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP, spec,
+    Apply, Choice, Host, Hosts, Kind, MAX_MEMORY_MIB, Page, REGISTRY, Spec, ZOOM_MAX, ZOOM_MIN,
+    ZOOM_STEP, spec,
 };
 pub use search::{Hit, Matched, search};
 pub use store::{Diagnostic, Severity, Store, WRITE_IDLE};
@@ -207,9 +208,12 @@ pub struct TransactionSettings {
     pub detail_items: usize,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RemoteSettings {
-    pub memory_mib: u64,
+pub struct MemorySettings {
+    pub budget_mib: u64,
     pub object_mib: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteSettings {
     pub server_path: String,
 }
 
@@ -222,6 +226,7 @@ pub struct Settings {
     pub waves: WaveSettings,
     pub workspace: WorkspaceSettings,
     pub transaction: TransactionSettings,
+    pub memory: MemorySettings,
     pub remote: RemoteSettings,
 }
 
@@ -255,9 +260,11 @@ impl Settings {
             transaction: TransactionSettings {
                 detail_items: int("transaction.detailItems").clamp(1, 1000) as usize,
             },
+            memory: MemorySettings {
+                budget_mib: int("memory.budgetMiB").max(1) as u64,
+                object_mib: int("memory.objectMiB").max(1) as u64,
+            },
             remote: RemoteSettings {
-                memory_mib: int("remote.memoryMiB").max(1) as u64,
-                object_mib: int("remote.objectMiB").max(1) as u64,
                 server_path: text("remote.serverPath"),
             },
         }
@@ -271,10 +278,11 @@ impl Settings {
         }
     }
 
-    pub fn remote_limits(&self) -> crate::remote::limits::Limits {
+    /// The memory limits a trace is opened with.
+    pub fn limits(&self) -> crate::remote::limits::Limits {
         crate::remote::limits::Limits {
-            memory_mib: self.remote.memory_mib,
-            object_mib: self.remote.object_mib,
+            memory_mib: self.memory.budget_mib,
+            object_mib: self.memory.object_mib,
         }
     }
 }

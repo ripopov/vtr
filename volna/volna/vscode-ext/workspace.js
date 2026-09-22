@@ -116,7 +116,7 @@ function createWorkspaceHost(vscode, context, panel, uri) {
 
 // The keys the extension contributes (see package.json `contributes.configuration`),
 // read resource-scoped so folder settings apply to the trace's folder.
-const SETTING_KEYS = ["appearance.zoom", "workspace.autosave", "panels.linkByDefault", "waves.animation", "waves.snapPixels", "remote.memoryMiB", "remote.objectMiB"];
+const SETTING_KEYS = ["appearance.zoom", "workspace.autosave", "panels.linkByDefault", "waves.animation", "waves.snapPixels", "memory.budgetMiB", "memory.objectMiB"];
 function collectSettings(vscode, uri) {
   const config = vscode.workspace.getConfiguration("volna", uri);
   const out = {};

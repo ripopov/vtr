@@ -1301,6 +1301,64 @@ fn row_height_actions_step_presets_and_keep_the_anchor_row_on_screen() {
 }
 
 #[test]
+fn status_reports_memory_budget_use_as_signals_load_and_unload() {
+    use volna_core::app::MemoryStatus;
+    // A real VTR trace: procedural sessions own no resident data to account.
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let mut writer = vtr::Writer::create(file.path()).unwrap();
+    let (_, bus) = writer.add_var(
+        "bus",
+        vtr::VarType::Wire,
+        vtr::Direction::Output,
+        vtr::SignalKind::Bits {
+            width: 32,
+            states: 2,
+        },
+    );
+    for time in 0..10_000u64 {
+        writer.set_time(time).unwrap();
+        writer.emit_u64(bus, time * 7).unwrap();
+    }
+    writer.close().unwrap();
+
+    let mut app = App::new();
+    assert_eq!(app.status().memory, None, "no trace, no budget");
+    app.set_session(OpenSpec::Path(file.path().into()).open().unwrap());
+    let opened = app.status().memory.expect("an open trace has a budget");
+    assert_eq!(opened.limit, 512 * 1024 * 1024);
+    assert!(opened.used > 0, "the resident trace is accounted");
+    app.handle(Command::AddVars(vec![0]));
+    pump(&mut app);
+    let loaded = app.status().memory.unwrap();
+    assert!(loaded.used > opened.used, "{loaded:?} after {opened:?}");
+    app.handle(Command::Action(Action::SelectAll));
+    app.handle(Command::Action(Action::RemoveSelected));
+    assert_eq!(app.status().memory.unwrap().used, opened.used);
+
+    let mib = 1024 * 1024;
+    let status = |used: u64, limit: u64| MemoryStatus { used, limit };
+    assert_eq!(status(0, 512 * mib).label(), "0 / 512 MiB");
+    assert_eq!(status(mib * 3 / 10, 512 * mib).label(), "0.3 / 512 MiB");
+    assert_eq!(
+        status(412 * mib + mib / 3, 512 * mib).label(),
+        "412 / 512 MiB"
+    );
+    assert_eq!(status(1536 * mib, 4096 * mib).label(), "1.5 / 4 GiB");
+    assert_eq!(
+        status(20 * 1024 * mib, 64 * 1024 * mib).label(),
+        "20 / 64 GiB"
+    );
+    assert!(!status(460 * mib, 512 * mib).nearly_full());
+    assert!(status(461 * mib, 512 * mib).nearly_full());
+    assert_eq!(status(1, 0).fraction(), 1.0);
+    assert_eq!(
+        status(384 * mib, 512 * mib).detail(),
+        "Memory budget: 384.0 of 512 MiB used (75%) by loaded trace data. \
+         Loads that would exceed the budget fail. Click to change the limits."
+    );
+}
+
+#[test]
 fn sidebar_models_follow_scope_selection_and_keys() {
     let (mut app, _) = loaded_app(20);
     let h = app.doc.hierarchy().unwrap().clone();

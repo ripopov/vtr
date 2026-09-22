@@ -169,6 +169,9 @@ impl App {
                 snap_px: f64::from(settings.waves.snap_pixels),
             };
         }
+        if keys.contains(&"memory.budgetMiB") || keys.contains(&"memory.objectMiB") {
+            self.apply_memory_limits();
+        }
         if keys.contains(&"transaction.detailItems") {
             for (_, model) in self.panels.transactions_mut() {
                 model.set_detail_items(settings.transaction.detail_items);

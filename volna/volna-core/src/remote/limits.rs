@@ -1,4 +1,4 @@
-//! User-configurable admission limits, shared by remote hosts.
+//! The `memory.*` settings a trace is opened with, for local and remote traces.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(default)]
@@ -22,13 +22,14 @@ impl Limits {
     /// These bound admitted data, not the browser's total process RSS. A host
     /// can still run out of address space below a user-selected large limit.
     pub fn bytes(self) -> anyhow::Result<(u64, u64)> {
+        let max = crate::settings::MAX_MEMORY_MIB as u64;
         anyhow::ensure!(
-            (1..=16384).contains(&self.memory_mib),
-            "remote memory limit must be between 1 and 16384 MiB"
+            (1..=max).contains(&self.memory_mib),
+            "memory budget must be between 1 and {max} MiB"
         );
         anyhow::ensure!(
-            (1..=16384).contains(&self.object_mib),
-            "remote object limit must be between 1 and 16384 MiB"
+            (1..=max).contains(&self.object_mib),
+            "object size limit must be between 1 and {max} MiB"
         );
         Ok((self.memory_mib * 1024 * 1024, self.object_mib * 1024 * 1024))
     }
@@ -49,7 +50,7 @@ mod tests {
             custom.bytes().unwrap(),
             (64 * 1024 * 1024, 16 * 1024 * 1024)
         );
-        for invalid in [0, 16385, u64::MAX] {
+        for invalid in [0, 256 * 1024 + 1, u64::MAX] {
             assert!(
                 Limits {
                     memory_mib: invalid,

@@ -66,10 +66,10 @@ test("remote memory limits are forwarded from resource-scoped settings", async (
   f.vscode.workspace.getConfiguration = (section, uri) => {
     assert.equal(section, "volna");
     assert.equal(uri, f.uri);
-    return { get: (key, fallback) => ({ "workspace.autosave": "off", "remote.memoryMiB": 64, "remote.objectMiB": 16, "waves.snapPixels": 0 }[key] ?? fallback) };
+    return { get: (key, fallback) => ({ "workspace.autosave": "off", "memory.budgetMiB": 64, "memory.objectMiB": 16, "waves.snapPixels": 0 }[key] ?? fallback) };
   };
   await f.host.receive({ type: "ready" });
-  assert.deepEqual(f.posted[0].settings, { "workspace.autosave": "off", "remote.memoryMiB": 64, "remote.objectMiB": 16, "waves.snapPixels": 0 });
+  assert.deepEqual(f.posted[0].settings, { "workspace.autosave": "off", "memory.budgetMiB": 64, "memory.objectMiB": 16, "waves.snapPixels": 0 });
   assert.deepEqual(f.read, []);
   // A configuration change pushes the fresh values without reopening.
   await f.host.settingsChanged();

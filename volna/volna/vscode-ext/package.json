@@ -286,21 +286,19 @@
           "default": 20,
           "markdownDescription": "Maximum attributes, stages, events, or related records listed in each section of the Transaction panel. The admitted byte budget may truncate earlier."
         },
-        "volna.remote.memoryMiB": {
+        "volna.memory.budgetMiB": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 16384,
+          "maximum": 262144,
           "default": 512,
-          "markdownDescription": "Client admission budget for loaded trace data and decoding workspace, in MiB. This does not bound total browser memory. Reopen the trace to apply.",
-          "scope": "resource"
+          "markdownDescription": "Loaded trace data the viewer may hold, in MiB: the open trace, signal histories, tracks and table workspace. Raising it applies at once; lowering it refuses new loads until enough is removed. It does not bound total process or browser memory."
         },
-        "volna.remote.objectMiB": {
+        "volna.memory.objectMiB": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 16384,
+          "maximum": 262144,
           "default": 256,
-          "markdownDescription": "Maximum decoded wire size of one complete metadata, signal or track object, in MiB. Reopen the trace to apply.",
-          "scope": "resource"
+          "markdownDescription": "Largest single signal history, track or remote metadata object the viewer loads, in MiB. It applies to the next load; a remote trace applies it when reopened."
         },
         "volna.remote.serverPath": {
           "type": "string",

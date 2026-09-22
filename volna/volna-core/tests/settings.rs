@@ -168,7 +168,7 @@ fn host_overrides_win_and_are_never_written() {
     events(&mut app);
     let mut overrides = std::collections::BTreeMap::new();
     overrides.insert("waves.snapPixels".to_owned(), Value::Integer(9));
-    overrides.insert("remote.memoryMiB".to_owned(), Value::Integer(64));
+    overrides.insert("memory.budgetMiB".to_owned(), Value::Integer(64));
     overrides.insert(
         "workspace.autosave".to_owned(),
         Value::Text("vscode".into()),
@@ -177,9 +177,9 @@ fn host_overrides_win_and_are_never_written() {
     let keys = changed_keys(&events(&mut app));
     assert_eq!(
         keys,
-        vec!["remote.memoryMiB", "waves.snapPixels", "workspace.autosave"]
+        vec!["memory.budgetMiB", "waves.snapPixels", "workspace.autosave"]
     );
-    assert_eq!(app.settings.resolved().remote_limits().memory_mib, 64);
+    assert_eq!(app.settings.resolved().limits().memory_mib, 64);
     assert_eq!(app.doc.navigation.snap_px, 9.0);
     assert_eq!(app.settings.text(), "{\"waves.snapPixels\": 3}");
     assert!(!app.settings.pending_write());
@@ -268,7 +268,7 @@ fn the_settings_tab_is_chrome_that_survives_traces_and_never_reaches_a_workspace
 #[test]
 fn theme_names_validate_the_theme_key_and_unavailable_keys_are_diagnosed() {
     let mut app = app();
-    app.settings_loaded("{\"appearance.theme\": \"paper\", \"remote.memoryMiB\": 4}");
+    app.settings_loaded("{\"appearance.theme\": \"paper\", \"remote.serverPath\": \"x\"}");
     events(&mut app);
     assert_eq!(app.settings.resolved().appearance.theme, "one-dark");
     assert_eq!(app.settings.diagnostics().len(), 2);
@@ -330,4 +330,137 @@ fn zoom_steps_write_the_setting_and_reset_removes_it() {
     events(&mut app);
     assert_eq!(app.settings.resolved().appearance.zoom, 1.0);
     assert!(!app.settings.diagnostics().is_empty());
+}
+
+/// A VTR trace with one 32-bit bus of `changes` values.
+fn bus_trace(changes: u64) -> tempfile::NamedTempFile {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let mut writer = vtr::Writer::create(file.path()).unwrap();
+    let (_, bus) = writer.add_var(
+        "bus",
+        vtr::VarType::Wire,
+        vtr::Direction::Output,
+        vtr::SignalKind::Bits {
+            width: 32,
+            states: 2,
+        },
+    );
+    for time in 0..changes {
+        writer.set_time(time).unwrap();
+        writer.emit_u64(bus, time.wrapping_mul(2654435761)).unwrap();
+    }
+    writer.close().unwrap();
+    file
+}
+
+fn row_error(app: &App) -> Option<String> {
+    app.panels.focused_waves().unwrap().items[0].error.clone()
+}
+
+fn set(app: &mut App, id: &str, mib: i64) {
+    app.handle(Command::Settings(SettingsCommand::Set {
+        id: id.into(),
+        value: Value::Integer(mib),
+    }));
+}
+
+#[test]
+fn old_remote_limit_names_migrate_to_the_general_memory_settings() {
+    let mut app = app();
+    app.settings_loaded("{\"remote.memoryMiB\": 2048, \"remote.objectMiB\": 1024}");
+    let memory = &app.settings.resolved().memory;
+    assert_eq!((memory.budget_mib, memory.object_mib), (2048, 1024));
+    assert!(app.settings.text().contains("\"memory.budgetMiB\": 2048"));
+    assert!(app.settings.diagnostics().is_empty());
+}
+
+#[test]
+fn memory_limits_apply_live_so_a_failed_load_succeeds_on_retry() {
+    let trace = bus_trace(400_000);
+    let mut app = app();
+    app.set_session(OpenSpec::Path(trace.path().into()).open().unwrap());
+    app.handle(Command::Action(volna_core::Action::NewPanel));
+    let resident = app.status().memory.unwrap().used;
+    let retry = |app: &mut App| {
+        app.handle(Command::Action(volna_core::Action::RemoveSelected));
+        app.handle(Command::AddVars(vec![0]));
+        pump(app);
+    };
+
+    // Below one history the load fails and says what to raise.
+    set(&mut app, "memory.budgetMiB", 1);
+    assert_eq!(app.status().memory.unwrap().limit, 1024 * 1024);
+    app.handle(Command::AddVars(vec![0]));
+    pump(&mut app);
+    let error = row_error(&app).expect("over budget");
+    assert!(error.contains("memory.budgetMiB"), "{error}");
+    assert_eq!(app.status().memory.unwrap().used, resident);
+
+    // Raising it applies at once, without reopening the trace.
+    set(&mut app, "memory.budgetMiB", 64);
+    assert_eq!(app.status().memory.unwrap().limit, 64 * 1024 * 1024);
+    retry(&mut app);
+    assert_eq!(row_error(&app), None);
+    assert!(app.status().memory.unwrap().used > resident);
+
+    // The object limit is live for a local trace too.
+    set(&mut app, "memory.objectMiB", 1);
+    retry(&mut app);
+    let error = row_error(&app).expect("over the object limit");
+    assert!(error.contains("object size limit"), "{error}");
+    assert!(
+        error.contains("raise memory.objectMiB and retry"),
+        "{error}"
+    );
+    set(&mut app, "memory.objectMiB", 64);
+    retry(&mut app);
+    assert_eq!(row_error(&app), None);
+    assert_eq!(app.memory_menu().object_note, None, "local: no reopen note");
+}
+
+#[test]
+fn memory_menu_offers_checked_presets_and_respects_host_owned_values() {
+    use std::collections::BTreeMap;
+    let mut app = app();
+    let menu = app.memory_menu();
+    assert_eq!(menu.budget_title, "Memory budget: 512 MiB");
+    assert_eq!(menu.object_title, "Object size limit: 256 MiB");
+    assert_eq!(
+        menu.budget
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "256 MiB", "512 MiB", "1 GiB", "2 GiB", "4 GiB", "8 GiB", "16 GiB", "32 GiB"
+        ]
+    );
+    let checked = |choices: &[volna_core::app::MemoryChoice]| {
+        choices
+            .iter()
+            .filter(|c| c.checked)
+            .map(|c| c.mib)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(checked(&menu.budget), [512]);
+    assert_eq!(checked(&menu.object), [256]);
+    assert_eq!(menu.locked, None);
+
+    // Choosing a preset writes the setting.
+    app.handle(menu.budget[4].command());
+    assert_eq!(app.settings.resolved().memory.budget_mib, 4096);
+    // A hand-written value is listed in order and checked.
+    set(&mut app, "memory.objectMiB", 300);
+    let menu = app.memory_menu();
+    assert_eq!(menu.object_title, "Object size limit: 300 MiB");
+    assert_eq!(checked(&menu.object), [300]);
+    assert_eq!(menu.object[3].mib, 300);
+    assert_eq!(menu.object[3].label, "300 MiB");
+
+    // In VS Code the values belong to the host's configuration.
+    let mut overrides = BTreeMap::new();
+    overrides.insert("memory.budgetMiB".to_owned(), Value::Integer(1536));
+    app.set_host_settings(overrides);
+    let menu = app.memory_menu();
+    assert_eq!(menu.budget_title, "Memory budget: 1.5 GiB");
+    assert!(menu.locked.unwrap().contains("VS Code"));
 }

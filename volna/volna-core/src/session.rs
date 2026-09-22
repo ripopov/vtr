@@ -123,6 +123,8 @@ pub(crate) fn account_local_session(
     }))
 }
 
+/// A local trace charged to the shared budget. Loads check the budget's
+/// current object limit, so a raised `memory.objectMiB` applies on retry.
 struct AccountedSession {
     inner: Arc<dyn Session>,
     budget: crate::remote::memory::MemoryBudget,
@@ -158,7 +160,10 @@ impl Session for AccountedSession {
                 anyhow::bail!("new local track unexpectedly shared its generator owner");
             };
             if generator.reservation.is_none() {
-                generator.reservation = Some(self.budget.reserve(generator.resident_bytes())?);
+                generator.reservation = Some(
+                    self.budget
+                        .reserve_object("a generator", generator.resident_bytes())?,
+                );
             }
         }
         Ok(loaded)
@@ -191,7 +196,7 @@ fn account_history(
     inner: Arc<dyn SignalHistory>,
     budget: &crate::remote::memory::MemoryBudget,
 ) -> anyhow::Result<Arc<dyn SignalHistory>> {
-    let reservation = budget.reserve(inner.resident_bytes())?;
+    let reservation = budget.reserve_object("the signal history", inner.resident_bytes())?;
     Ok(Arc::new(AccountedHistory {
         inner,
         _reservation: reservation,

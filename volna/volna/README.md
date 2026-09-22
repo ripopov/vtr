@@ -138,9 +138,10 @@ Only complete metadata and selected histories/tracks cross the relay; the
 extension does not read and send the whole trace file. Navigation over loaded
 data is local to the viewer.
 
-`volna.remote.memoryMiB` controls client admission (default 512 MiB), and
-`volna.remote.objectMiB` limits each decoded wire object (default 256 MiB).
-Reopen the trace after changing either setting. A load that cannot fit fails
+The memory settings apply to remote traces as to local ones:
+`volna.memory.budgetMiB` limits loaded trace data (default 512 MiB, applied at
+once) and `volna.memory.objectMiB` limits each decoded object (default
+256 MiB; a remote trace applies it when reopened). A load that cannot fit fails
 explicitly; remove loaded data or raise the limit. For a failed signal, click
 its format badge and choose **Retry loading**. This retries the complete signal
 for all alias rows without adding rows; other loaded signals remain available.
@@ -214,7 +215,9 @@ time axis has its own zoom (`=` / `-` in the waves) and is unaffected.
 | `waves.snapPixels` | 0–24 | live |
 | `workspace.autosave` | `sidecar`, `vscode` (VS Code only), `off` | next trace open |
 | `workspace.recentLimit` | 5–50 | live (native, web) |
-| `remote.memoryMiB`, `remote.objectMiB`, `remote.serverPath` | see the VS Code contribution | next trace open (VS Code only) |
+| `memory.budgetMiB` | 1–262144 MiB, default 512: loaded trace data the viewer may hold | live |
+| `memory.objectMiB` | 1–262144 MiB, default 256: largest single signal, track or remote object | live (remote: next trace open) |
+| `remote.serverPath` | see the VS Code contribution | next trace open (VS Code only) |
 
 Recent traces and workspaces are machine state, kept in `state.json` and never
 in settings. Inside VS Code the extension owns the settings UI: `⌘,` opens
@@ -258,8 +261,10 @@ The panel menu also provides rename and close-other-panel actions.
 | Sidebar | drag the dividers | `⌘B` toggle |
 | Files | drag a `.vtr` or `.fst` onto the window | `⌘O` |
 
-The status bar shows the trace range, cursor time, pixel resolution and the
-smoothed paint time of the wave table.
+The status bar shows the trace range, cursor time, pixel resolution, the
+memory budget meter (loaded trace data used / budget, red from 90%, details in
+its tooltip; click it to pick the budget or object size limit, or open the
+Memory settings) and the smoothed paint time of the wave table.
 
 `⌘`/`ctrl` + left-drag selects a time range in either direction. Vertical
 movement does not change the action; a shaded preview shows the selected range

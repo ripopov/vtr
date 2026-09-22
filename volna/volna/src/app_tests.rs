@@ -638,6 +638,104 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
     assert_eq!(heights(&mut vcx), [1, 1, 1]);
 }
 
+/// The status bar meter appears with a trace and fills with the used share.
+#[gpui_kit::test]
+fn status_bar_memory_meter_tracks_the_budget(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    let bounds = |vcx: &mut VisualTestContext, selector: &'static str| {
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.debug_bounds(selector)
+    };
+    assert!(bounds(&mut vcx, "status-memory").is_none(), "no trace");
+    let trace = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr");
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            let session = OpenSpec::Path(trace.into()).open().unwrap();
+            ws.set_session(session, cx);
+            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    let memory = window
+        .update(&mut vcx, |ws, _, _| ws.app.status().memory.unwrap())
+        .unwrap();
+    assert!(memory.used > 0);
+    // The label sits inside the pill, on top of the fill.
+    let pill = bounds(&mut vcx, "status-memory").unwrap();
+    assert_eq!(f32::from(pill.size.width), MEMORY_PILL_W);
+    let label = bounds(&mut vcx, "status-memory-label").unwrap();
+    assert!(
+        label.left() > pill.left() && label.right() < pill.right(),
+        "{label:?} inside {pill:?}"
+    );
+    assert!(
+        f32::from((label.center().x - pill.center().x).abs()) < 1.0,
+        "centred"
+    );
+    let fill = bounds(&mut vcx, "status-memory-fill").unwrap();
+    let expected = (memory.fraction() * MEMORY_PILL_W).max(3.0);
+    assert!(
+        (f32::from(fill.size.width) - expected).abs() < 0.5,
+        "{fill:?} for {memory:?}"
+    );
+
+    // Clicking the meter opens its menu; Memory budget ▸ 1 GiB applies live.
+    use gpui_kit::Modifiers;
+    vcx.simulate_click(pill.center(), Modifiers::default());
+    vcx.run_until_parked();
+    // Keep the pointer off the popup so hover cannot steer the keyboard.
+    vcx.simulate_mouse_move(
+        gpui_kit::point(gpui_kit::px(1.0), gpui_kit::px(1.0)),
+        None,
+        Modifiers::default(),
+    );
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, _| ws.status_menu.is_some())
+            .unwrap()
+    );
+    // At the right edge of the window the submenus open to the left.
+    vcx.simulate_keystrokes("down left down down enter");
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert_eq!(ws.app.settings.resolved().memory.budget_mib, 1024);
+            assert_eq!(ws.app.status().memory.unwrap().limit, 1024 * 1024 * 1024);
+            assert!(ws.status_menu.is_none());
+        })
+        .unwrap();
+    let pill = bounds(&mut vcx, "status-memory").unwrap();
+    let label = window
+        .update(&mut vcx, |ws, _, _| ws.app.status().memory.unwrap().label())
+        .unwrap();
+    assert!(label.ends_with("/ 1 GiB"), "{label}");
+
+    // Memory Settings… opens the Settings tab filtered to the memory page.
+    vcx.simulate_click(pill.center(), Modifiers::default());
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("up enter");
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert!(ws.app.panels.settings_id().is_some());
+            assert_eq!(ws.app.settings_view.query, "@id:memory");
+        })
+        .unwrap();
+}
+
 struct RootWindow {
     root: gpui_kit::WindowHandle<gpui_kit::component::Root>,
     workspace: gpui_kit::Entity<Workspace>,
