@@ -23,7 +23,7 @@ use volna_core::sidebar::Key as ListKey;
 use volna_core::sidebar::icons::member_icon;
 use volna_core::sidebar::icons::scope_icon;
 use volna_core::sidebar::members::{direction_label, member_detail};
-use volna_core::wave::PointerEvent;
+use volna_core::wave::{MenuEntry, MenuItem, PointerEvent};
 use volna_core::{App, Instant, Scene, Theme};
 
 use paint::{
@@ -1034,13 +1034,28 @@ impl VolnaApp {
                         .stroke(Stroke::new(1.0, t.border))
                         .show(ui, |ui| {
                             ui.set_min_width(180.0);
-                            for item in &menu.items {
+                            let mut choice = |ui: &mut egui::Ui, item: &MenuItem| {
                                 let label = match &item.badge {
                                     Some(b) => format!("{}    {}", item.label, b),
                                     None => item.label.clone(),
                                 };
                                 if ui.selectable_label(item.checked, label).clicked() {
                                     chosen = Some(item.action.clone());
+                                }
+                            };
+                            for entry in &menu.entries {
+                                match entry {
+                                    MenuEntry::Item(item) => choice(ui, item),
+                                    MenuEntry::Separator => {
+                                        ui.separator();
+                                    }
+                                    MenuEntry::Submenu { label, items } => {
+                                        ui.menu_button(label, |ui| {
+                                            for item in items {
+                                                choice(ui, item);
+                                            }
+                                        });
+                                    }
                                 }
                             }
                         });

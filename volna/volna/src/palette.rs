@@ -70,6 +70,9 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Go to Start", Box::new(app::GoToStart)),
         ("Go to End", Box::new(app::GoToEnd)),
         ("Show Transaction", Box::new(app::ShowTransaction)),
+        ("Increase Row Height", Box::new(app::IncreaseRowHeight)),
+        ("Decrease Row Height", Box::new(app::DecreaseRowHeight)),
+        ("Reset Row Height", Box::new(app::ResetRowHeight)),
         ("Add Marker at Cursor", Box::new(app::AddMarker)),
         ("Clear Markers", Box::new(app::ClearMarkers)),
     ]

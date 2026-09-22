@@ -72,10 +72,16 @@ pub fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn parse(candidate: &Candidate) -> Result<Option<Workspace>> {
-    match &candidate.content {
+/// Read a restore candidate. One saved by an older version counts as missing,
+/// so the next save overwrites it; a newer or malformed one is an error.
+pub(crate) fn read(content: &Content, notices: &mut Vec<String>) -> Result<Option<Workspace>> {
+    match content {
         Content::Missing => Ok(None),
         Content::Error(error) => anyhow::bail!("cannot read workspace: {error}"),
+        Content::Bytes(bytes) if Workspace::is_outdated(bytes) => {
+            notices.push("Discarded a workspace saved by an older Volna version".into());
+            Ok(None)
+        }
         Content::Bytes(bytes) => Workspace::parse(bytes).map(Some),
     }
 }
@@ -83,13 +89,13 @@ fn parse(candidate: &Candidate) -> Result<Option<Workspace>> {
 /// Fallbacks identify the exact sidecar they were based on, not its timestamp.
 /// The chosen target remains authoritative until a successful explicit change.
 pub fn select(sidecar: Candidate, fallback: Candidate, storage: bool) -> Result<Selection> {
-    let side = parse(&sidecar)?;
-    let back = parse(&fallback)?;
+    let mut notices = Vec::new();
+    let side = read(&sidecar.content, &mut notices)?;
+    let back = read(&fallback.content, &mut notices)?;
     let base = match &sidecar.content {
         Content::Bytes(bytes) => Some(hash(bytes)),
         _ => None,
     };
-    let mut notices = Vec::new();
     if let Some(back) = back {
         if side.is_none() || back.supersedes == base {
             return Ok(Selection {

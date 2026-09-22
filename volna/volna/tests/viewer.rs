@@ -652,7 +652,9 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 .menu
                 .as_ref()
                 .unwrap();
-            let volna_core::wave::model::MenuAction::Format(id) = &menu.items[1].action else {
+            let volna_core::wave::model::MenuAction::Format(id) =
+                &menu.items().nth(1).unwrap().action
+            else {
                 panic!("expected format choice");
             };
             (menu.row, id.clone())

@@ -4,7 +4,7 @@ use crate::document::Marker;
 use crate::panels::PanelId;
 use crate::pipeline::RowView;
 use crate::wave::{
-    model::{DisplayedSignal, Link, PointerEvent},
+    model::{Link, PointerEvent, RowHeight},
     viewport::Viewport,
 };
 use crate::{Action, App, Command};
@@ -44,7 +44,8 @@ struct WaveStamp {
     columns: (f32, f32),
     rows: usize,
     selected: Option<BTreeSet<usize>>,
-    formats: Option<Vec<String>>,
+    /// Per-row format and height, compared only for commands that set them.
+    styles: Option<Vec<(String, RowHeight)>>,
 }
 impl Stamp {
     pub(crate) fn capture(app: &App, command: &Command) -> Option<Self> {
@@ -85,9 +86,15 @@ impl Stamp {
             _ => app.panels.focused_id(),
         };
         let selection = pointer.is_none_or(|(_, event)| matches!(event, PointerEvent::Down { .. }));
-        let formats = matches!(
+        let styles = matches!(
             command,
-            Command::MenuSelect(..) | Command::Action(Action::CycleFormat)
+            Command::MenuSelect(..)
+                | Command::Action(
+                    Action::CycleFormat
+                        | Action::IncreaseRowHeight
+                        | Action::DecreaseRowHeight
+                        | Action::ResetRowHeight
+                )
         );
         let scope = matches!(
             command,
@@ -117,7 +124,12 @@ impl Stamp {
                 columns: (w.names_width, w.values_width),
                 rows: w.items.len(),
                 selected: selection.then(|| w.selected.clone()),
-                formats: formats.then(|| w.items.iter().map(DisplayedSignal::format_id).collect()),
+                styles: styles.then(|| {
+                    w.items
+                        .iter()
+                        .map(|item| (item.format_id(), item.height))
+                        .collect()
+                }),
             }),
             pipeline: app.panels.pipeline(panel).map(|p| PipelineStamp {
                 follow: p.follow,

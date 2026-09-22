@@ -9,7 +9,7 @@ use crate::table::columns::{ColumnSet, TransactionColumn};
 use crate::table::{SignalSource, TableModel, TableSource};
 use crate::transaction::{ShownRecord, TransactionModel, ViewPrefs, view::SectionKey};
 use crate::wave::{
-    model::{DisplayedSignal, Link, RowSource, WaveModel},
+    model::{DisplayedSignal, Link, RowHeight, RowSource, WaveModel},
     viewport::Viewport,
 };
 use crate::{App, data::source::Lookup, document::Marker};
@@ -19,7 +19,7 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeSet, HashSet};
 
 pub const FORMAT: &str = "volna-workspace";
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_ROWS: usize = 100_000;
 
@@ -75,6 +75,8 @@ struct Row {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     nth: Option<usize>,
     format: String,
+    #[serde(default, skip_serializing_if = "RowHeight::is_default")]
+    height: RowHeight,
 }
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
@@ -236,6 +238,19 @@ impl Workspace {
         serde_json::from_slice(bytes).context("invalid workspace")
     }
 
+    /// A workspace of this format saved by an older version. During the
+    /// research phase such files are discarded rather than migrated.
+    pub fn is_outdated(bytes: &[u8]) -> bool {
+        #[derive(Deserialize)]
+        struct Header {
+            format: String,
+            version: u32,
+        }
+        bytes.len() <= MAX_BYTES
+            && serde_json::from_slice::<Header>(bytes)
+                .is_ok_and(|h| h.format == FORMAT && h.version < VERSION)
+    }
+
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         Ok(serde_json::to_vec_pretty(self)?)
     }
@@ -364,6 +379,7 @@ impl Workspace {
                             signal,
                             nth,
                             format: item.format_id(),
+                            height: item.height,
                         }
                     })
                     .collect();
@@ -800,6 +816,7 @@ impl Workspace {
                     translator,
                     history: None,
                     error: None,
+                    height: row.height,
                 });
             }
             panels.push(Panel {

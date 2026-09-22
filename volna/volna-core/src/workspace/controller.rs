@@ -2,7 +2,7 @@
 //! write and choose locations; interpretation and save ordering stay here.
 use super::{
     RestorePlan, Workspace,
-    persistence::{self, Candidate, Content, Persistence, SaveTicket, Scheduler, Target},
+    persistence::{self, Candidate, Persistence, SaveTicket, Scheduler, Target},
 };
 use crate::session::OpenSpec;
 use crate::{App, Event, Instant};
@@ -178,25 +178,18 @@ impl App {
                 self.workspace.loading = false;
                 return;
             }
-            Persistence::Explicit(_) => match &sidecar.content {
-                Content::Bytes(bytes) => {
-                    Workspace::parse(bytes).map(|workspace| persistence::Selection {
-                        workspace: Some(workspace),
+            Persistence::Explicit(_) => {
+                let mut notices = Vec::new();
+                persistence::read(&sidecar.content, &mut notices).map(|workspace| {
+                    persistence::Selection {
+                        workspace,
                         origin: sidecar.target.clone(),
                         target: sidecar.target.clone(),
                         supersedes: None,
-                        notices: vec![],
-                    })
-                }
-                Content::Missing => Ok(persistence::Selection {
-                    workspace: None,
-                    origin: sidecar.target.clone(),
-                    target: sidecar.target.clone(),
-                    supersedes: None,
-                    notices: vec![],
-                }),
-                Content::Error(error) => Err(anyhow::anyhow!(error.clone())),
-            },
+                        notices,
+                    }
+                })
+            }
             policy => {
                 persistence::select(sidecar.clone(), fallback, *policy == Persistence::Storage)
             }

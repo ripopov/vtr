@@ -454,7 +454,7 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
   <p>A JSON document owned by <code>volna-core::workspace</code>, written with serde_json, human-readable and diffable so colleagues can share and review it. Cursor, marker and trace-range timestamps are <code>u64</code> integers in trace ticks. Viewport bounds retain the current finite <code>f64</code> representation, including fractional ticks and negative edge space; require <code>start &lt; end</code>. Signals are referenced by their hierarchy path as an array of segments, the same segments <code>scope_path</code> and the variable name produce today. A dot-joined string is deliberately not used: escaped HDL identifiers can contain dots, and the segment form needs no escaping contract.</p>
   <pre><code>{
   "format": "volna-workspace",
-  "version": 1,
+  "version": 3,
   "trace": {
     "path": "picorv32.vtr",                    <span class="c">// relative to this file when possible, else a durable URI; identifies the trace in both hosts</span>
     "name": "picorv32.vtr",
@@ -471,7 +471,7 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
       "scroll_y": 0.0,
       "columns": { "names": 220.0, "values": 120.0 },
       "rows": [ { "signal": ["testbench", "top", "clk"], "format": "bit" },
-                { "signal": ["testbench", "top", "mem_addr"], "format": "hex" } ],
+                { "signal": ["testbench", "top", "mem_addr"], "format": "hex", "height": 2 } ],
       "selected": [1] },
     { "id": 3, "kind": "waves", "version": 1, "title": "decode window",
       "link": { "viewport": false, "cursor": true },
@@ -485,7 +485,7 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
                "selected_scope": ["testbench", "top"], "expanded": [["testbench"], ["testbench", "top"]], "filter": "" }
 }</code></pre>
   <div class="tablewrap"><table><thead><tr><th>Field</th><th>Rule</th></tr></thead><tbody>
-    <tr><td><code>format</code>, <code>version</code></td><td>Both checked before anything else. A different format string or a newer major version rejects the file with a notice; older versions are not migrated during the research phase (the repository ground rules in <code>AGENTS.md</code>). The file is left untouched.</td></tr>
+    <tr><td><code>format</code>, <code>version</code></td><td>Both checked before anything else. A different format string or a newer version rejects the file with a notice and leaves it untouched. Older versions are not migrated during the research phase (the repository ground rules in <code>AGENTS.md</code>): an automatic restore discards an older file with a notice, starts fresh and lets the next save overwrite it, so bumping <code>VERSION</code> retires every saved session. Explicitly opening an older file fails without changing anything.</td></tr>
     <tr><td><code>trace</code></td><td>Identity of the trace the workspace was captured from. On restore the name and timescale are compared: a different timescale warns and restores times unchanged; a different name warns but proceeds, because renamed traces are common. <code>design_id</code> is compared when both sides have it.</td></tr>
     <tr><td><code>layout</code>, <code>focused</code></td><td>The same tree as <code>Panels::layout</code>; sizes are fractions; <code>active</code> and <code>focused</code> are panel ids (the core keeps an index). An invalid tree (unknown or duplicate id, empty group, an <code>active</code> that is not a member) fails prepare as a whole and reports why; nothing live changes.</td></tr>
     <tr><td><code>supersedes</code></td><td>Fallback base: a lowercase SHA-256 hex string, or <code>null</code> for no base. Omitted for other workspace files. Core uses it for <a href="#persist">restore selection</a>; hosts carry the JSON unchanged.</td></tr>
@@ -493,6 +493,7 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
     <tr><td><code>panels[].kind</code>, <code>version</code></td><td>Panels are decoded into <code>PanelKind</code> by name; an unknown kind or newer version is kept as raw JSON (<code>serde_json::value::RawValue</code>) in a placeholder panel that draws "unsupported panel" and is written back verbatim unless explicitly renamed (only the title changes), so a workspace saved by a newer Volna survives a round trip through an older one.</td></tr>
     <tr><td><code>rows[].signal</code></td><td>Resolved by <code>Hierarchy::find_var(path, nth)</code> over path segments. It returns <code>Found</code>, <code>Missing</code> or <code>Ambiguous</code>. Optional zero-based <code>nth</code> selects a declaration among same-name variables in an unambiguous scope; without it, require exactly one match. Missing/ambiguous rows remain placeholders with their original locator and format, never load a guessed signal, and are reported separately.</td></tr>
     <tr><td><code>rows[].format</code></td><td>A translator id (<code>"bit"</code>, <code>"hex"</code>, …) looked up with <code>Translators::get</code>; unknown ids display the signal's default translator and are reported; retain the requested id on save until the user changes it.</td></tr>
+    <tr><td><code>rows[].height</code></td><td>Row height as a whole multiple of the theme row height: one of 1, 2, 3, 4 or 8. Omitted for the default 1×. Any other value fails prepare as a whole. Multiples keep rows on the grid and follow the interface zoom; pixel heights are not stored.</td></tr>
     <tr><td><code>viewport</code>, <code>cursor</code>, <code>markers</code></td><td>Restored as saved even when outside the trace's time range; drawing intersects the visible range and a marker beyond the end stays addressable.</td></tr>
     <tr><td><code>shared</code></td><td>The shared viewport and cursor plus markers. A panel omits its local <code>viewport</code> or <code>cursor</code> field while that link is on; while off, the field is required (<code>null</code> is a valid cursor). Unlinking always snapshots the current shared value. There is no saved pre-link position to revive.</td></tr>
     <tr><td><code>sidebar</code></td><td>Session chrome: geometry, filter, selected scope as a segment array (or <code>null</code>), expanded scopes as arrays of segments. Scope resolution also reports ambiguity; unresolved saved paths survive without selecting an arbitrary scope. Global look and feel is not here.</td></tr>
@@ -539,6 +540,7 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
   <h3>Error handling and unavailable state</h3>
   <div class="tablewrap"><table><thead><tr><th>Situation</th><th>Behaviour</th></tr></thead><tbody>
     <tr><td>No workspace file</td><td>Start with one start panel.</td></tr>
+    <tr><td>Automatic file from an older version</td><td>Discarded with a notice; start fresh; autosave stays on and overwrites it at the next save.</td></tr>
     <tr><td>Automatic file unreadable, wrong format or newer version</td><td>Notice in the status bar with the reason; start fresh; <strong>autosave is suspended for this trace</strong> until the user saves explicitly or removes the file, so a file from a newer Volna is never overwritten silently.</td></tr>
     <tr><td>Explicitly opened workspace fails to prepare</td><td>The live workspace is untouched: prepare rejected the file before anything was committed. Notice with the reason; the current save target and autosave continue unchanged.</td></tr>
     <tr><td>Trace referenced by an explicitly opened workspace differs from the open trace</td><td>Resolve the saved trace reference against the workspace location and reject a different resource before commit; a notice directs the user to open that trace first. With no trace open natively, open the referenced trace. Do not import another trace's state and then autosave over its workspace.</td></tr>

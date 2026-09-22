@@ -51,6 +51,64 @@ impl RowSource {
     }
 }
 
+/// A row's height as a whole multiple of the theme's row height, so rows keep
+/// the grid rhythm and follow the interface zoom. Only [`RowHeight::PRESETS`]
+/// exist; workspaces store the multiple.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "u8", into = "u8")]
+pub struct RowHeight(u8);
+
+impl RowHeight {
+    pub const PRESETS: [RowHeight; 5] = [
+        RowHeight(1),
+        RowHeight(2),
+        RowHeight(3),
+        RowHeight(4),
+        RowHeight(8),
+    ];
+    pub const DEFAULT: RowHeight = RowHeight(1);
+
+    pub fn multiple(self) -> u8 {
+        self.0
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::DEFAULT
+    }
+
+    fn preset_index(self) -> usize {
+        Self::PRESETS.iter().position(|p| *p == self).unwrap_or(0)
+    }
+
+    /// The next preset up (`1`) or down (`-1`), saturating at the ends.
+    pub fn step(self, delta: isize) -> Self {
+        let ix = self.preset_index() as isize + delta;
+        Self::PRESETS[ix.clamp(0, Self::PRESETS.len() as isize - 1) as usize]
+    }
+}
+
+impl Default for RowHeight {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl TryFrom<u8> for RowHeight {
+    type Error = String;
+    fn try_from(multiple: u8) -> Result<Self, Self::Error> {
+        Self::PRESETS
+            .into_iter()
+            .find(|p| p.0 == multiple)
+            .ok_or_else(|| format!("unsupported row height {multiple}"))
+    }
+}
+
+impl From<RowHeight> for u8 {
+    fn from(height: RowHeight) -> u8 {
+        height.0
+    }
+}
+
 #[derive(Clone)]
 pub struct DisplayedSignal {
     pub source: RowSource,
@@ -62,6 +120,7 @@ pub struct DisplayedSignal {
     pub translator: Arc<dyn Translator>,
     pub history: Option<Arc<dyn SignalHistory>>,
     pub error: Option<String>,
+    pub height: RowHeight,
 }
 
 impl DisplayedSignal {
@@ -89,6 +148,7 @@ pub enum MenuAction {
     RetryLoad,
     OpenTable,
     RemoveSignals,
+    RowHeight(RowHeight),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -97,6 +157,25 @@ pub struct MenuItem {
     pub label: String,
     pub badge: Option<String>,
     pub checked: bool,
+}
+
+/// A menu entry: a choice, a labelled submenu of choices, or a group divider.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MenuEntry {
+    Item(MenuItem),
+    Submenu { label: String, items: Vec<MenuItem> },
+    Separator,
+}
+
+impl MenuItem {
+    fn plain(action: MenuAction, label: &str) -> Self {
+        Self {
+            action,
+            label: label.into(),
+            badge: None,
+            checked: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,7 +191,18 @@ pub struct WaveMenu {
     pub kind: WaveMenuKind,
     pub row: usize,
     pub position: Point,
-    pub items: Vec<MenuItem>,
+    pub entries: Vec<MenuEntry>,
+}
+
+impl WaveMenu {
+    /// Every choice, with submenus flattened in order.
+    pub fn items(&self) -> impl Iterator<Item = &MenuItem> {
+        self.entries.iter().flat_map(|entry| match entry {
+            MenuEntry::Item(item) => std::slice::from_ref(item),
+            MenuEntry::Submenu { items, .. } => items.as_slice(),
+            MenuEntry::Separator => &[],
+        })
+    }
 }
 
 /// Pointer input over the wave panel, in the same coordinate space as the
@@ -302,6 +392,7 @@ impl WaveModel {
                 translator,
                 history,
                 error: None,
+                height: RowHeight::DEFAULT,
             });
             if needs_load {
                 doc.request_signal(v.signal);
@@ -427,30 +518,30 @@ impl WaveModel {
             return;
         };
         let current = item.translator.id();
-        let mut items: Vec<_> = doc
+        let mut entries: Vec<_> = doc
             .translators
             .applicable(item.shape)
             .into_iter()
-            .map(|t| MenuItem {
-                action: MenuAction::Format(t.id().into()),
-                label: t.name().into(),
-                badge: Some(t.badge().into()),
-                checked: t.id() == current,
+            .map(|t| {
+                MenuEntry::Item(MenuItem {
+                    action: MenuAction::Format(t.id().into()),
+                    label: t.name().into(),
+                    badge: Some(t.badge().into()),
+                    checked: t.id() == current,
+                })
             })
             .collect();
         if item.error.is_some() && item.source.signal().is_some() {
-            items.push(MenuItem {
-                action: MenuAction::RetryLoad,
-                label: "Retry loading".into(),
-                badge: None,
-                checked: false,
-            });
+            entries.push(MenuEntry::Item(MenuItem::plain(
+                MenuAction::RetryLoad,
+                "Retry loading",
+            )));
         }
         self.menu = Some(WaveMenu {
             kind: WaveMenuKind::Format,
             row,
             position,
-            items,
+            entries,
         });
     }
 
@@ -463,23 +554,39 @@ impl WaveModel {
         if !self.selected.contains(&row) {
             self.select_row(row, Modifiers::default());
         }
+        // A preset is checked only when every target row already has it.
+        let mut heights = self
+            .menu_rows(row)
+            .into_iter()
+            .map(|r| self.items[r].height);
+        let first = heights.next();
+        let shared = first.filter(|h| heights.all(|other| other == *h));
+        let heights = RowHeight::PRESETS
+            .into_iter()
+            .map(|height| MenuItem {
+                action: MenuAction::RowHeight(height),
+                label: if height.is_default() {
+                    "1× (Default)".into()
+                } else {
+                    format!("{}×", height.multiple())
+                },
+                badge: None,
+                checked: shared == Some(height),
+            })
+            .collect();
         self.menu = Some(WaveMenu {
             kind: WaveMenuKind::Signal,
             row,
             position,
-            items: vec![
-                MenuItem {
-                    action: MenuAction::OpenTable,
-                    label: "Open in table".into(),
-                    badge: None,
-                    checked: false,
+            entries: vec![
+                MenuEntry::Item(MenuItem::plain(MenuAction::OpenTable, "Open in table")),
+                MenuEntry::Separator,
+                MenuEntry::Submenu {
+                    label: "Height".into(),
+                    items: heights,
                 },
-                MenuItem {
-                    action: MenuAction::RemoveSignals,
-                    label: "Remove signal".into(),
-                    badge: None,
-                    checked: false,
-                },
+                MenuEntry::Separator,
+                MenuEntry::Item(MenuItem::plain(MenuAction::RemoveSignals, "Remove signal")),
             ],
         });
     }
@@ -494,7 +601,7 @@ impl WaveModel {
         else {
             return;
         };
-        let y = (self.layout.row_y(row) + self.layout.row_h)
+        let y = (self.layout.row_y(row) + self.layout.row_height(row))
             .clamp(self.layout.names.top(), self.layout.names.bottom());
         self.open_signal_menu(
             row,
@@ -509,17 +616,72 @@ impl WaveModel {
         if matches!(action, MenuAction::OpenTable | MenuAction::RemoveSignals) {
             return None;
         }
-        let MenuAction::Format(id) = action else {
-            let row = self.items.get(menu.row)?;
-            return row.error.as_ref().and_then(|_| row.source.signal());
-        };
-        let rows: Vec<usize> = if self.selected.contains(&menu.row) {
+        let rows = self.menu_rows(menu.row);
+        match action {
+            MenuAction::Format(id) => self.set_translator(doc, &rows, id),
+            MenuAction::RowHeight(height) => self.resize_rows(&rows, menu.row, |_| *height),
+            _ => {
+                let row = self.items.get(menu.row)?;
+                return row.error.as_ref().and_then(|_| row.source.signal());
+            }
+        }
+        None
+    }
+
+    /// The rows a menu opened on `row` acts on: the selection containing it, or itself.
+    fn menu_rows(&self, row: usize) -> Vec<usize> {
+        if self.selected.contains(&row) {
             self.selected.iter().copied().collect()
         } else {
-            vec![menu.row]
+            vec![row]
+        }
+    }
+
+    // -- row heights -------------------------------------------------------------
+
+    /// Top of `row` in multiples of the base row height.
+    fn row_units_before(&self, row: usize) -> u32 {
+        self.items[..row.min(self.items.len())]
+            .iter()
+            .map(|item| u32::from(item.height.multiple()))
+            .sum()
+    }
+
+    /// Resize `rows`, keeping `anchor`'s top where it is on screen.
+    fn resize_rows(
+        &mut self,
+        rows: &[usize],
+        anchor: usize,
+        height: impl Fn(RowHeight) -> RowHeight,
+    ) {
+        let before = self.row_units_before(anchor);
+        for &row in rows {
+            if let Some(item) = self.items.get_mut(row) {
+                item.height = height(item.height);
+            }
+        }
+        let shift = self.row_units_before(anchor) as f32 - before as f32;
+        self.scroll_y = (self.scroll_y + shift * self.layout.row_h).max(0.0);
+    }
+
+    /// Step every selected row to the next larger (`1`) or smaller (`-1`)
+    /// preset; `0` resets them to the default height.
+    pub fn step_row_height(&mut self, delta: isize) {
+        let Some(anchor) = self
+            .anchor
+            .filter(|row| self.selected.contains(row))
+            .or_else(|| self.selected.first().copied())
+        else {
+            return;
         };
-        self.set_translator(doc, &rows, id);
-        None
+        let rows: Vec<usize> = self.selected.iter().copied().collect();
+        self.resize_rows(&rows, anchor, |h| {
+            if delta == 0 {
+                RowHeight::DEFAULT
+            } else {
+                h.step(delta)
+            }
+        });
     }
 
     pub fn menu_dismiss(&mut self) {
@@ -645,7 +807,7 @@ impl WaveModel {
             zoom: theme.zoom,
             names_width: self.names_width,
             values_width: self.values_width,
-            item_count: self.items.len(),
+            row_tops: super::layout::row_tops(self.items.iter().map(|item| item.height)),
             scroll_y: self.scroll_y,
             markers: &doc.markers,
             viewport: self.viewport(doc),

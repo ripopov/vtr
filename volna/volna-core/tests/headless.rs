@@ -17,7 +17,7 @@ use volna_core::panels::PanelsCommand;
 use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use volna_core::sidebar::Key;
-use volna_core::wave::{PointerEvent, WaveMenuKind};
+use volna_core::wave::{MenuEntry, PointerEvent, RowHeight, WaveMenuKind};
 use volna_core::{Instant, Theme};
 
 /// A synthetic source that counts loads, can fail on demand, and has an
@@ -295,8 +295,7 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
             .menu
             .as_ref()
             .unwrap()
-            .items
-            .iter()
+            .items()
             .any(|item| item.action == MenuAction::RetryLoad)
     );
     app.handle(Command::MenuSelect(panel, MenuAction::RetryLoad));
@@ -335,8 +334,7 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
             .menu
             .as_ref()
             .unwrap()
-            .items
-            .iter()
+            .items()
             .any(|item| item.action == MenuAction::RetryLoad)
     );
     app.handle(Command::MenuSelect(panel, MenuAction::RetryLoad));
@@ -974,21 +972,15 @@ fn format_menu_and_translator_cycle() {
         .clone()
         .expect("menu opened");
     assert_eq!(menu.kind, WaveMenuKind::Format);
-    assert!(menu.items.iter().any(|i| i.checked));
-    assert!(menu.items.iter().all(|item| matches!(
+    assert!(menu.items().any(|i| i.checked));
+    assert!(menu.items().all(|item| matches!(
         item.action,
         volna_core::wave::model::MenuAction::Format(_)
             | volna_core::wave::model::MenuAction::RetryLoad
     )));
     assert!(app.debug_state().contains("menu=true"));
     let before = app.panels.focused_waves().unwrap().items[0].translator.id();
-    let other = menu
-        .items
-        .iter()
-        .find(|i| !i.checked)
-        .unwrap()
-        .action
-        .clone();
+    let other = menu.items().find(|i| !i.checked).unwrap().action.clone();
     let volna_core::wave::model::MenuAction::Format(ref format) = other else {
         panic!("format choice");
     };
@@ -1055,15 +1047,32 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
     let menu = panel.menu.as_ref().expect("signal menu opened");
     assert_eq!(menu.kind, WaveMenuKind::Signal);
     assert_eq!(
-        menu.items
-            .iter()
+        menu.items()
             .map(|item| (&item.action, item.label.as_str()))
             .collect::<Vec<_>>(),
         [
             (&MenuAction::OpenTable, "Open in table"),
+            (
+                &MenuAction::RowHeight(RowHeight::PRESETS[0]),
+                "1× (Default)"
+            ),
+            (&MenuAction::RowHeight(RowHeight::PRESETS[1]), "2×"),
+            (&MenuAction::RowHeight(RowHeight::PRESETS[2]), "3×"),
+            (&MenuAction::RowHeight(RowHeight::PRESETS[3]), "4×"),
+            (&MenuAction::RowHeight(RowHeight::PRESETS[4]), "8×"),
             (&MenuAction::RemoveSignals, "Remove signal"),
         ]
     );
+    assert!(matches!(
+        &menu.entries[..],
+        [
+            MenuEntry::Item(_),
+            MenuEntry::Separator,
+            MenuEntry::Submenu { label, .. },
+            MenuEntry::Separator,
+            MenuEntry::Item(_),
+        ] if label == "Height"
+    ));
 
     app.handle(Command::MenuSelect(waves, MenuAction::OpenTable));
     let table = app.panels.focused().kind.table().expect("table opened");
@@ -1084,6 +1093,211 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
     assert!(panel.items.is_empty());
     assert!(panel.selected.is_empty());
     assert!(panel.menu.is_none());
+}
+
+fn height_checks(app: &App) -> Vec<u8> {
+    app.panels
+        .focused_waves()
+        .unwrap()
+        .menu
+        .as_ref()
+        .unwrap()
+        .items()
+        .filter(|item| item.checked)
+        .map(|item| match item.action {
+            volna_core::wave::model::MenuAction::RowHeight(h) => h.multiple(),
+            _ => panic!("only heights are checkable here"),
+        })
+        .collect()
+}
+
+fn heights(app: &App) -> Vec<u8> {
+    app.panels
+        .focused_waves()
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| item.height.multiple())
+        .collect()
+}
+
+#[test]
+fn height_submenu_resizes_the_selection_and_rows_lay_out_paint_and_hit_test_tall() {
+    use volna_core::wave::model::MenuAction;
+    let theme = Theme::one_dark();
+    let (mut app, _) = loaded_app(100);
+    app.handle(Command::AddVars(vec![0, 1, 2, 3]));
+    pump(&mut app);
+    frame(&mut app, &theme);
+    let waves = app.panels.focused_id();
+    let row_h = app.panels.waves(waves).unwrap().last_layout().row_h;
+
+    // A plain right-click on row 1 selects it alone; 1× is checked.
+    app.handle(Command::Action(Action::ClearSelection));
+    let layout = app.panels.waves(waves).unwrap().last_layout().clone();
+    app.handle(Command::Pointer(
+        waves,
+        PointerEvent::Down {
+            position: point(layout.names.left() + 20.0, layout.row_y(1) + row_h / 2.0),
+            button: MouseButton::Right,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    assert_eq!(height_checks(&app), [1]);
+    app.handle(Command::MenuSelect(
+        waves,
+        MenuAction::RowHeight(RowHeight::try_from(4).unwrap()),
+    ));
+    assert!(app.panels.waves(waves).unwrap().menu.is_none());
+    assert_eq!(heights(&app), [1, 4, 1, 1]);
+
+    // Mixed heights check nothing; a choice applies to the whole group.
+    app.handle(Command::Action(Action::SelectAll));
+    app.handle(Command::OpenSignalMenu(waves));
+    assert_eq!(height_checks(&app), Vec::<u8>::new());
+    app.handle(Command::MenuSelect(
+        waves,
+        MenuAction::RowHeight(RowHeight::try_from(2).unwrap()),
+    ));
+    assert_eq!(heights(&app), [2, 2, 2, 2]);
+    app.handle(Command::OpenSignalMenu(waves));
+    assert_eq!(height_checks(&app), [2]);
+    app.handle(Command::MenuDismiss(waves));
+
+    // Only row 2 becomes 8×. Everything below it moves down, and a click
+    // anywhere in its height lands on it.
+    app.handle(Command::Action(Action::ClearSelection));
+    frame(&mut app, &theme);
+    let layout = app.panels.waves(waves).unwrap().last_layout().clone();
+    app.handle(Command::Pointer(
+        waves,
+        PointerEvent::Down {
+            position: point(layout.names.left() + 20.0, layout.row_y(2) + row_h),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    assert_eq!(
+        app.panels
+            .waves(waves)
+            .unwrap()
+            .selected
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        [2]
+    );
+    app.handle(Command::OpenSignalMenu(waves));
+    app.handle(Command::MenuSelect(
+        waves,
+        MenuAction::RowHeight(RowHeight::try_from(8).unwrap()),
+    ));
+    assert_eq!(heights(&app), [2, 2, 8, 2]);
+    frame(&mut app, &theme);
+    let layout = app.panels.waves(waves).unwrap().last_layout().clone();
+    let top = layout.names.top();
+    assert_eq!(
+        (0..4)
+            .map(|row| (layout.row_y(row) - top) / row_h)
+            .collect::<Vec<_>>(),
+        [0.0, 2.0, 4.0, 12.0]
+    );
+    assert_eq!(layout.row_height(2), 8.0 * row_h);
+    assert_eq!(layout.row_at(layout.row_y(2) + 7.5 * row_h), Some(2));
+    assert_eq!(layout.row_at(layout.row_y(3) + 0.5 * row_h), Some(3));
+    app.handle(Command::Pointer(
+        waves,
+        PointerEvent::Down {
+            position: point(layout.waves.left() + 50.0, layout.row_y(2) + 7.5 * row_h),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    app.handle(Command::Pointer(waves, PointerEvent::Up));
+    assert!(app.panels.waves(waves).unwrap().selected.contains(&2));
+
+    // The selected row's highlight and its waveform span all eight lines;
+    // its name stays on the first line.
+    let name = app.panels.waves(waves).unwrap().items[2].name.clone();
+    let scene = app.render_panel(waves, &theme, &mut MonoMeasure);
+    let wave_row = Rect::new(
+        point(layout.waves.left(), layout.row_y(2)),
+        volna_core::geometry::size(layout.waves.width(), 8.0 * row_h),
+    );
+    assert!(scene.prims.iter().any(|prim| matches!(
+        prim,
+        Prim::Quad { rect, fill, .. } if *rect == wave_row && *fill == theme.wave_row_selected
+    )));
+    let name_line = scene.prims.iter().find_map(|prim| match prim {
+        Prim::Text {
+            origin,
+            height,
+            text,
+            ..
+        } if *text == name => Some((origin.y, *height)),
+        _ => None,
+    });
+    assert_eq!(name_line, Some((layout.row_y(2), row_h)));
+    let trace_bottom = scene
+        .prims
+        .iter()
+        .filter_map(|prim| match prim {
+            Prim::Quad { rect, .. }
+                if rect.left() >= layout.waves.left()
+                    && rect.top() >= wave_row.top()
+                    && rect.bottom() <= wave_row.bottom() =>
+            {
+                Some(rect.bottom())
+            }
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    assert!(
+        trace_bottom > layout.row_y(2) + 6.0 * row_h,
+        "the waveform fills the tall row"
+    );
+}
+
+#[test]
+fn row_height_actions_step_presets_and_keep_the_anchor_row_on_screen() {
+    let theme = Theme::one_dark();
+    let (mut app, _) = loaded_app(100);
+    // Aliased rows of one variable are independent rows.
+    app.handle(Command::AddVars(vec![0; 60]));
+    pump(&mut app);
+    frame(&mut app, &theme);
+    let waves = app.panels.focused_id();
+    let row_h = app.panels.waves(waves).unwrap().last_layout().row_h;
+    {
+        let w = app.panels.focused_waves_mut().unwrap();
+        w.scroll_y = 20.0 * row_h;
+        w.selected = [5, 30].into();
+        w.anchor = Some(30);
+    }
+    frame(&mut app, &theme);
+    let before = app.panels.waves(waves).unwrap().last_layout().row_y(30);
+    for (action, expected) in [
+        (Action::IncreaseRowHeight, 2),
+        (Action::IncreaseRowHeight, 3),
+        (Action::IncreaseRowHeight, 4),
+        (Action::IncreaseRowHeight, 8),
+        (Action::IncreaseRowHeight, 8),
+        (Action::DecreaseRowHeight, 4),
+        (Action::ResetRowHeight, 1),
+        (Action::DecreaseRowHeight, 1),
+        (Action::IncreaseRowHeight, 2),
+    ] {
+        app.handle(Command::Action(action));
+        let h = heights(&app);
+        assert_eq!((h[5], h[30], h[6]), (expected, expected, 1), "{action:?}");
+        frame(&mut app, &theme);
+        // Row 5 grew above the viewport; row 30 did not move on screen.
+        assert_eq!(
+            app.panels.waves(waves).unwrap().last_layout().row_y(30),
+            before,
+            "{action:?}"
+        );
+    }
 }
 
 #[test]

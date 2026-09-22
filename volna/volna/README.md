@@ -252,6 +252,7 @@ The panel menu also provides rename and close-other-panel actions.
 | Markers | click a chip to jump, `shift`-click to remove | `M` add at cursor, `shift-M` clear |
 | Value format | click the badge in the values column | `T` cycles binary / hex / decimal / signed / float |
 | Signal rows | click, `shift`/`⌘` multi-select; right-click a signal name for row actions; drag the column dividers | `↑` `↓`, `⌫` remove, `⌘A`, `esc`; `shift-F10` row actions |
+| Row height | right-click a signal name, **Height** ▸ 1×, 2×, 3×, 4× or 8× (applies to the selection) | command palette: Increase / Decrease / Reset Row Height |
 | Open table | choose **Open in table** from a selected signal-name, sidebar signal/generator, or Pipeline row menu | |
 | Table rows | wheel/trackpad or drag either scrollbar; click selects without changing the source | `Home`/`End`, `↑`/`↓`, `PageUp`/`PageDown`, `Enter` details, `⌘C`/`ctrl-C` complete TSV |
 | Sidebar | drag the dividers | `⌘B` toggle |

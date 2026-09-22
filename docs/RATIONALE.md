@@ -119,8 +119,20 @@ Signal-level commands live in the signal-name context menu because they act on
 row identity and selection. The value badge remains limited to presentation
 formats and recovery of a failed value load. Right-click and Shift+F10 preserve
 an existing group when invoked on one of its rows; an unselected row becomes a
-single-row selection. This gives **Open in table** and **Remove signal** one
-shared selection rule without mixing navigation into the format control.
+single-row selection. This gives **Open in table**, **Height** and **Remove
+signal** one shared selection rule without mixing navigation into the format
+control.
+
+Row height is a small set of whole multiples of the theme row height (1, 2, 3,
+4 and 8) chosen from a submenu, similar to Surfer's per-variable height scaling.
+Arbitrary pixel heights and a numeric dialog were rejected. Multiples keep rows
+on the grid, follow the interface zoom without conversion, and are stored as a
+small integer. The layout switches from `row_h * index` to prefix sums over the
+multiples. That costs one pass over the rows per layout, which is negligible
+against the painted range even at the 100 000-row workspace limit. The height
+lives on the displayed row rather than in a side table keyed by row index, so
+removing and reordering rows cannot desynchronize it. Edge-drag resizing is
+deferred; it would snap to the same presets.
 
 The table's selected-row inspector was replaced by the shared Transaction
 panel (see "Volna transaction panel"). Copy uses fixed standard fields rather than
@@ -1224,6 +1236,12 @@ segmented signal locators, complete layout validation, and restore selection.
 Preparing a restore does not touch live state. Commit replaces the view and
 invalidates old signal-load results. Unresolved rows own their saved locators,
 and unknown panels retain raw JSON so another viewer can recover their content.
+
+While Volna is a research prototype, workspace files are not migrated. An
+automatic restore discards a file with an older `VERSION`, reports it, and lets
+the next save overwrite it; bumping `VERSION` therefore retires every saved
+session without leaving autosave paused. Newer, foreign and malformed files
+still pause autosave so that an older build cannot silently destroy them.
 
 A revision/epoch/destination ticket identifies each write. Serializing writes
 also orders Save As behind earlier saves; switching the destination requires a

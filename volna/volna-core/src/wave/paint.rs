@@ -102,19 +102,22 @@ pub fn paint(
     overlay::grid(&mut p, &column, &tick_list);
 
     // -- rows ----------------------------------------------------------------
+    // Text sits on a row's first line (`row_h`); tall rows give the waveform
+    // their full height.
     let row_h = layout.row_h;
     for ix in layout.rows.clone() {
         let Some(item) = model.items.get(ix) else {
             continue;
         };
         let y = layout.row_y(ix);
+        let full_h = layout.row_height(ix);
         let is_selected = model.selected.contains(&ix);
         let is_hover = model.hover_row == Some(ix);
         let left_row = Rect::new(
             point(bounds.left(), y),
-            size(layout.names.width() + layout.values.width(), row_h),
+            size(layout.names.width() + layout.values.width(), full_h),
         );
-        let wave_row = Rect::new(point(waves.left(), y), size(waves.width(), row_h));
+        let wave_row = Rect::new(point(waves.left(), y), size(waves.width(), full_h));
         if is_selected {
             p.scene.fill(left_row, t.selection.bg);
             p.scene.fill(wave_row, t.wave_row_selected);
@@ -321,7 +324,7 @@ pub fn paint(
             (None, None) => {
                 // Loading: a thin muted bar where the trace will be.
                 let bar = Rect::new(
-                    point(waves.left() + z(8.0), y + row_h / 2.0),
+                    point(waves.left() + z(8.0), y + full_h / 2.0),
                     size(z(96.0), 1.0),
                 );
                 p.scene.clipped(waves, |scene| scene.fill(bar, t.border));

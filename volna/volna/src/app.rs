@@ -21,6 +21,7 @@ use volna_core::data::transactions::TrackRef;
 use volna_core::document::TraceState;
 use volna_core::session::Session;
 use volna_core::settings::ZoomStep;
+use volna_core::wave::MenuEntry;
 use volna_core::{App as CoreApp, FontRole, Instant, Scene};
 
 use crate::theme::{ThemePx, theme};
@@ -97,6 +98,9 @@ actions!(
         SelectAll,
         ClearSelection,
         CycleFormat,
+        IncreaseRowHeight,
+        DecreaseRowHeight,
+        ResetRowHeight,
         MoveSelectionUp,
         MoveSelectionDown,
     ]
@@ -665,28 +669,46 @@ impl Workspace {
         let row = m.row;
         let generation = self.app.doc.generation();
         let position = point(px(m.position.x), px(m.position.y));
-        let items: Vec<_> = m
-            .items
-            .iter()
-            .map(|item| {
-                let id = item.action.clone();
-                let label = match &item.badge {
-                    Some(badge) => format!("{} ({badge})", item.label),
-                    None => item.label.clone(),
+        let workspace = cx.entity().downgrade();
+        let item = move |item: &volna_core::wave::MenuItem| {
+            let workspace = workspace.clone();
+            let id = item.action.clone();
+            let label = match &item.badge {
+                Some(badge) => format!("{} ({badge})", item.label),
+                None => item.label.clone(),
+            };
+            PopupMenuItem::new(label)
+                .checked(item.checked)
+                .on_click(move |_, window, cx| {
+                    let command = Command::MenuSelect(panel, id.clone());
+                    workspace
+                        .update(cx, |this, cx| {
+                            this.dispatch_if_current(generation, command, Some(window), cx)
+                        })
+                        .ok();
+                })
+        };
+        let entries = m.entries.clone();
+        let focus = self.waves_focus.clone();
+        let min_w = theme(cx).px(200.0);
+        let menu = PopupMenu::build(window, cx, move |mut menu, window, cx| {
+            for entry in &entries {
+                menu = match entry {
+                    MenuEntry::Item(entry) => menu.item(item(entry)),
+                    MenuEntry::Separator => menu.separator(),
+                    MenuEntry::Submenu { label, items } => {
+                        let (items, item, focus) = (items.clone(), item.clone(), focus.clone());
+                        menu.submenu(label.clone(), window, cx, move |mut sub, _, _| {
+                            for entry in &items {
+                                sub = sub.item(item(entry));
+                            }
+                            sub.action_context(focus.clone())
+                        })
+                    }
                 };
-                PopupMenuItem::new(label)
-                    .checked(item.checked)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.dispatch_if_current(
-                            generation,
-                            Command::MenuSelect(panel, id.clone()),
-                            Some(window),
-                            cx,
-                        );
-                    }))
-            })
-            .collect();
-        let menu = build_popup(items, self.waves_focus.clone(), window, cx);
+            }
+            menu.min_w(min_w).action_context(focus.clone())
+        });
         cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
             this.dispatch_if_current(generation, Command::MenuDismiss(panel), None, cx);
         })
@@ -1214,6 +1236,9 @@ impl Workspace {
                 SelectAll,
                 ClearSelection,
                 CycleFormat,
+                IncreaseRowHeight,
+                DecreaseRowHeight,
+                ResetRowHeight,
                 MoveSelectionUp,
                 MoveSelectionDown,
             ]

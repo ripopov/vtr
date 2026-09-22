@@ -562,6 +562,82 @@ fn tab_close_buttons_and_middle_click_close_their_own_tab(cx: &mut TestAppContex
         .unwrap();
 }
 
+/// The signal menu's Height submenu is reachable from the keyboard, and the
+/// row-height actions reach the core through GPUI's action dispatch.
+#[gpui_kit::test]
+fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0, 1, 2]), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let heights = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                ws.app
+                    .panels
+                    .focused_waves()
+                    .unwrap()
+                    .items
+                    .iter()
+                    .map(|item| item.height.multiple())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    };
+    // All three new rows are selected: Shift+F10, then Height ▸ 2×.
+    vcx.simulate_keystrokes("shift-f10");
+    vcx.run_until_parked();
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, _| ws.wave_menu.is_some())
+            .unwrap(),
+        "the popup is hosted"
+    );
+    vcx.simulate_keystrokes("down down right down enter");
+    vcx.run_until_parked();
+    assert_eq!(heights(&mut vcx), [2, 2, 2]);
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert!(ws.app.panels.focused_waves().unwrap().menu.is_none());
+            assert!(ws.wave_menu.is_none());
+        })
+        .unwrap();
+    // Palette actions act on the selection.
+    vcx.update(|window, cx| {
+        window.dispatch_action(Box::new(IncreaseRowHeight), cx);
+    });
+    vcx.run_until_parked();
+    assert_eq!(heights(&mut vcx), [3, 3, 3]);
+    vcx.update(|window, cx| {
+        window.dispatch_action(Box::new(DecreaseRowHeight), cx);
+        window.dispatch_action(Box::new(DecreaseRowHeight), cx);
+    });
+    vcx.run_until_parked();
+    assert_eq!(heights(&mut vcx), [1, 1, 1]);
+    vcx.update(|window, cx| {
+        window.dispatch_action(Box::new(IncreaseRowHeight), cx);
+        window.dispatch_action(Box::new(ResetRowHeight), cx);
+    });
+    vcx.run_until_parked();
+    assert_eq!(heights(&mut vcx), [1, 1, 1]);
+}
+
 struct RootWindow {
     root: gpui_kit::WindowHandle<gpui_kit::component::Root>,
     workspace: gpui_kit::Entity<Workspace>,

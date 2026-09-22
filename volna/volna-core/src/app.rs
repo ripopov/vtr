@@ -53,6 +53,11 @@ pub enum Action {
     SelectAll,
     ClearSelection,
     CycleFormat,
+    /// Step the selected rows to the next larger / smaller height preset,
+    /// or back to the default height.
+    IncreaseRowHeight,
+    DecreaseRowHeight,
+    ResetRowHeight,
     MoveSelectionUp,
     MoveSelectionDown,
 }
@@ -1355,7 +1360,10 @@ impl App {
                 | Action::ClearMarkers
                 | Action::RemoveSelected
                 | Action::SelectAll
-                | Action::CycleFormat => return,
+                | Action::CycleFormat
+                | Action::IncreaseRowHeight
+                | Action::DecreaseRowHeight
+                | Action::ResetRowHeight => return,
                 Action::SplitRight
                 | Action::SplitDown
                 | Action::NewPanel
@@ -1389,6 +1397,9 @@ impl App {
                 Action::SelectAll => w.select_all(),
                 Action::ClearSelection => w.clear_selection(doc),
                 Action::CycleFormat => w.cycle_format(doc),
+                Action::IncreaseRowHeight => w.step_row_height(1),
+                Action::DecreaseRowHeight => w.step_row_height(-1),
+                Action::ResetRowHeight => w.step_row_height(0),
                 Action::MoveSelectionUp => w.move_selection(-1),
                 Action::MoveSelectionDown => w.move_selection(1),
                 // Panel actions were resolved before borrowing a wave model.
@@ -1428,7 +1439,10 @@ impl App {
                 | Action::PrevEdge
                 | Action::RemoveSelected
                 | Action::SelectAll
-                | Action::CycleFormat => return,
+                | Action::CycleFormat
+                | Action::IncreaseRowHeight
+                | Action::DecreaseRowHeight
+                | Action::ResetRowHeight => return,
                 Action::SplitRight
                 | Action::SplitDown
                 | Action::NewPanel

@@ -172,11 +172,20 @@ follow it. Markers always use the focused panel's effective cursor.
 
 The value badge opens only value translators plus **Retry loading** after a
 failed load. Right-clicking a signal name opens its row menu with **Open in
-table** and **Remove signal**; when that row is already part of a selection,
-both commands apply to the complete selection. Right-clicking an unselected row
-makes it the sole selection first. Shift+F10 opens the same menu for the
-keyboard selection. The core owns menu contents and selection semantics; GPUI
-only hosts the popup.
+table**, a **Height** submenu and **Remove signal**; when that row is already
+part of a selection, every command applies to the complete selection.
+Right-clicking an unselected row makes it the sole selection first. Shift+F10
+opens the same menu for the keyboard selection. The core owns menu contents
+(`MenuEntry` items, submenus and separators) and selection semantics; GPUI only
+hosts the popup.
+
+Each row has a `RowHeight`: a whole multiple (1, 2, 3, 4 or 8) of the theme row
+height. `WaveLayout` keeps prefix sums of the multiples, so row positions,
+hit-testing, the visible range and the scrollbar all come from one table. A
+tall row paints its highlight and waveform at full height; its name, value and
+format badge stay on the first line. Resizing keeps the menu row, or the
+keyboard anchor, at the same place on screen. The Increase, Decrease and Reset
+Row Height actions step the selection through the same presets.
 
 Pointer commands name a panel; keyboard actions and sidebar additions resolve
 focus when handled. Deliveries fan out shared history Arcs to all matching

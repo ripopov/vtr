@@ -531,3 +531,188 @@ fn stale_panel_input_cannot_target_reused_saved_ids_and_new_ids_keep_increasing(
     assert!(app.handle_if_current(app.doc.generation(), Command::Action(Action::NewPanel)));
     assert!(app.panels.focused_id() > highest);
 }
+
+fn row_heights(app: &App) -> Vec<u8> {
+    app.panels
+        .focused_waves()
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| item.height.multiple())
+        .collect()
+}
+
+#[test]
+fn row_heights_round_trip_and_restore_tall_row_geometry() {
+    use volna_core::Theme;
+    use volna_core::geometry::Rect;
+    let mut app = app();
+    let theme = Theme::one_dark();
+    let w = app.panels.focused_waves_mut().unwrap();
+    w.selected = [1].into();
+    w.anchor = Some(1);
+    app.handle(Command::Action(Action::IncreaseRowHeight));
+    app.handle(Command::Action(Action::IncreaseRowHeight));
+    let w = app.panels.focused_waves_mut().unwrap();
+    w.selected = [2].into();
+    w.anchor = Some(2);
+    for _ in 0..4 {
+        app.handle(Command::Action(Action::IncreaseRowHeight));
+    }
+    assert_eq!(row_heights(&app), [1, 3, 8]);
+    let saved = value(&app);
+    // The default height is implied; taller rows store their multiple.
+    let rows = &saved["panels"][0]["rows"];
+    assert!(rows[0].get("height").is_none());
+    assert_eq!(
+        (&rows[1]["height"], &rows[2]["height"]),
+        (&json!(3), &json!(8))
+    );
+
+    // Restore into a fresh session: heights, geometry and the file agree.
+    let mut restored = App::new();
+    restored.set_session(Arc::new(SynthSource::new(100)));
+    prepare(&saved, &restored)
+        .unwrap()
+        .commit(&mut restored)
+        .unwrap();
+    assert_eq!(row_heights(&restored), [1, 3, 8]);
+    assert_eq!(value(&restored), saved);
+    let id = restored.panels.focused_id();
+    restored.layout_panel(id, Rect::from_xywh(0.0, 0.0, 1200.0, 800.0), &theme);
+    let layout = restored.panels.focused_waves().unwrap().last_layout();
+    let top = layout.names.top();
+    assert_eq!(
+        (0..3)
+            .map(|row| (layout.row_y(row) - top) / layout.row_h)
+            .collect::<Vec<_>>(),
+        [0.0, 1.0, 4.0]
+    );
+    assert_eq!(layout.row_height(2), 8.0 * layout.row_h);
+}
+
+#[test]
+fn unsupported_row_heights_reject_the_whole_restore() {
+    let app = app();
+    for height in [json!(0), json!(5), json!(9), json!("2"), json!(2.5)] {
+        let mut saved = value(&app);
+        saved["panels"][0]["rows"][0]["height"] = height.clone();
+        assert!(prepare(&saved, &app).is_err(), "{height}");
+    }
+}
+
+#[test]
+fn row_height_changes_schedule_an_autosave() {
+    use volna_core::wave::{RowHeight, model::MenuAction};
+    let mut app = persistent_app();
+    let now = Instant::now();
+    app.handle_at(Command::AddVars(vec![0, 1]), now);
+    for command in [
+        Command::Action(Action::IncreaseRowHeight),
+        Command::Action(Action::DecreaseRowHeight),
+        Command::Action(Action::IncreaseRowHeight),
+        Command::Action(Action::ResetRowHeight),
+    ] {
+        let revision = app.workspace.scheduler.revision();
+        app.handle_at(command.clone(), now);
+        assert!(app.workspace.scheduler.revision() > revision, "{command:?}");
+    }
+    let panel = app.panels.focused_id();
+    app.handle_at(Command::OpenSignalMenu(panel), now);
+    let revision = app.workspace.scheduler.revision();
+    app.handle_at(
+        Command::MenuSelect(panel, MenuAction::RowHeight(RowHeight::PRESETS[3])),
+        now,
+    );
+    assert!(app.workspace.scheduler.revision() > revision);
+    app.tick(now + IDLE * 2);
+    let (_, bytes) = emitted_save(&mut app);
+    let saved: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(saved["panels"][0]["rows"][1]["height"], json!(4));
+}
+
+fn restoring_app(policy: Persistence) -> App {
+    let mut app = App::new();
+    app.configure_persistence(policy);
+    app.open_resource(volna_core::session::OpenSpec::Synthetic(100), TRACE.into());
+    for request in app.take_requests() {
+        app.deliver(request.perform());
+    }
+    app
+}
+
+/// During the research phase an older workspace is discarded, not migrated:
+/// restore starts fresh, keeps autosave running and overwrites the file.
+#[test]
+fn older_workspace_versions_are_discarded_and_overwritten() {
+    let mut old = value(&app());
+    old["version"] = json!(volna_core::workspace::VERSION - 1);
+    let old = serde_json::to_vec(&old).unwrap();
+    assert!(Workspace::is_outdated(&old));
+    assert!(Workspace::parse(&old).is_err());
+    let missing = || Candidate {
+        target: Target::Storage { key: TRACE.into() },
+        content: Content::Missing,
+        writable: true,
+    };
+    for (policy, sidecar, fallback) in [
+        (
+            Persistence::Auto,
+            Content::Bytes(old.clone()),
+            Content::Missing,
+        ),
+        (
+            Persistence::Auto,
+            Content::Missing,
+            Content::Bytes(old.clone()),
+        ),
+        (
+            Persistence::Explicit(file(LOCATION)),
+            Content::Bytes(old.clone()),
+            Content::Missing,
+        ),
+    ] {
+        let mut app = restoring_app(policy.clone());
+        app.restore_candidates(
+            TRACE,
+            Candidate {
+                target: file(LOCATION),
+                content: sidecar,
+                writable: true,
+            },
+            Candidate {
+                content: fallback,
+                ..missing()
+            },
+        );
+        assert!(!app.workspace.scheduler.suspended(), "{policy:?}");
+        assert!(
+            app.workspace
+                .notices
+                .iter()
+                .any(|n| n.contains("older Volna")),
+            "{policy:?}: {:?}",
+            app.workspace.notices
+        );
+        assert_eq!(app.workspace.scheduler.target(), Some(&file(LOCATION)));
+        app.handle(Command::AddVars(vec![0]));
+        app.tick(Instant::now() + IDLE * 2);
+        let (ticket, bytes) = emitted_save(&mut app);
+        assert_eq!(ticket.target, file(LOCATION));
+        assert_eq!(
+            Workspace::parse(&bytes).unwrap().version,
+            volna_core::workspace::VERSION
+        );
+    }
+    // A newer or foreign file is not "older".
+    let mut newer = value(&app());
+    newer["version"] = json!(volna_core::workspace::VERSION + 1);
+    assert!(!Workspace::is_outdated(
+        &serde_json::to_vec(&newer).unwrap()
+    ));
+    newer["version"] = json!(1);
+    newer["format"] = json!("other");
+    assert!(!Workspace::is_outdated(
+        &serde_json::to_vec(&newer).unwrap()
+    ));
+}
