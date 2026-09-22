@@ -50,6 +50,11 @@ pub enum Action {
     AddMarker,
     ClearMarkers,
     RemoveSelected,
+    /// Copy the selected wave rows to the document clipboard; cut also
+    /// removes them. Paste inserts copies below the selection, sharing data.
+    CopySignals,
+    CutSignals,
+    PasteSignals,
     SelectAll,
     ClearSelection,
     CycleFormat,
@@ -992,7 +997,7 @@ impl App {
             }
             Command::OpenSignalMenu(panel) => {
                 if let Some(waves) = self.panels.waves_mut(panel) {
-                    waves.open_selected_signal_menu();
+                    waves.open_selected_signal_menu(&self.doc);
                     if waves.menu.is_some() {
                         self.changed();
                     }
@@ -1010,6 +1015,28 @@ impl App {
                     self.open_table_from_panel(panel, Some(row));
                     if let Some(waves) = self.panels.waves_mut(panel) {
                         waves.menu_dismiss();
+                    }
+                    self.changed();
+                    return;
+                }
+                if let Some(clipboard) = match action {
+                    MenuAction::CopySignals => Some(Action::CopySignals),
+                    MenuAction::CutSignals => Some(Action::CutSignals),
+                    MenuAction::PasteSignals => Some(Action::PasteSignals),
+                    _ => None,
+                } {
+                    let Some(waves) = self.panels.waves_mut(panel).filter(|w| {
+                        w.menu
+                            .as_ref()
+                            .is_some_and(|m| m.kind == WaveMenuKind::Signal)
+                    }) else {
+                        return;
+                    };
+                    waves.menu_dismiss();
+                    match clipboard {
+                        Action::CopySignals => waves.copy_selected(&mut self.doc),
+                        Action::CutSignals => waves.cut_selected(&mut self.doc),
+                        _ => self.paste_signals(panel),
                     }
                     self.changed();
                     return;
@@ -1459,6 +1486,19 @@ impl App {
         self.changed();
     }
 
+    /// Paste the document clipboard into a wave panel, sharing histories
+    /// resident in any panel before queuing loads.
+    fn paste_signals(&mut self, panel: PanelId) {
+        if self.doc.copied_rows.is_empty() || self.panels.waves(panel).is_none() {
+            return;
+        }
+        let loaded = self.resident_histories();
+        if let Some(w) = self.panels.waves_mut(panel) {
+            w.paste(&mut self.doc, &loaded);
+        }
+        self.changed();
+    }
+
     fn action(&mut self, action: Action, now: Instant) {
         use crate::panels::Axis;
         use crate::wave::model::LinkDim;
@@ -1501,6 +1541,10 @@ impl App {
             self.panel_command(command);
             return;
         }
+        if action == Action::PasteSignals {
+            self.paste_signals(panel);
+            return;
+        }
         let doc = &mut self.doc;
         match &mut self.panels.focused_mut().kind {
             PanelKind::Table(table) => match action {
@@ -1533,6 +1577,9 @@ impl App {
                 | Action::AddMarker
                 | Action::ClearMarkers
                 | Action::RemoveSelected
+                | Action::CopySignals
+                | Action::CutSignals
+                | Action::PasteSignals
                 | Action::SelectAll
                 | Action::CycleFormat
                 | Action::IncreaseRowHeight
@@ -1568,6 +1615,8 @@ impl App {
                 }
                 Action::ClearMarkers => doc.clear_markers(),
                 Action::RemoveSelected => w.remove_selected(),
+                Action::CopySignals => w.copy_selected(doc),
+                Action::CutSignals => w.cut_selected(doc),
                 Action::SelectAll => w.select_all(),
                 Action::ClearSelection => w.clear_selection(doc),
                 Action::CycleFormat => w.cycle_format(doc),
@@ -1576,8 +1625,9 @@ impl App {
                 Action::ResetRowHeight => w.step_row_height(0),
                 Action::MoveSelectionUp => w.move_selection(-1),
                 Action::MoveSelectionDown => w.move_selection(1),
-                // Panel actions were resolved before borrowing a wave model.
-                Action::SplitRight
+                // Panel actions and paste were resolved before borrowing a wave model.
+                Action::PasteSignals
+                | Action::SplitRight
                 | Action::SplitDown
                 | Action::NewPanel
                 | Action::ClosePanel
@@ -1612,6 +1662,9 @@ impl App {
                 Action::NextEdge
                 | Action::PrevEdge
                 | Action::RemoveSelected
+                | Action::CopySignals
+                | Action::CutSignals
+                | Action::PasteSignals
                 | Action::SelectAll
                 | Action::CycleFormat
                 | Action::IncreaseRowHeight

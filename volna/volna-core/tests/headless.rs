@@ -1052,6 +1052,8 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
             .collect::<Vec<_>>(),
         [
             (&MenuAction::OpenTable, "Open in table"),
+            (&MenuAction::CutSignals, "Cut"),
+            (&MenuAction::CopySignals, "Copy"),
             (
                 &MenuAction::RowHeight(RowHeight::PRESETS[0]),
                 "1× (Default)"
@@ -1066,6 +1068,9 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
     assert!(matches!(
         &menu.entries[..],
         [
+            MenuEntry::Item(_),
+            MenuEntry::Separator,
+            MenuEntry::Item(_),
             MenuEntry::Item(_),
             MenuEntry::Separator,
             MenuEntry::Submenu { label, .. },
@@ -1298,6 +1303,138 @@ fn row_height_actions_step_presets_and_keep_the_anchor_row_on_screen() {
             "{action:?}"
         );
     }
+}
+
+fn row_names(app: &App, panel: volna_core::panels::PanelId) -> Vec<String> {
+    app.panels
+        .waves(panel)
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| item.name.clone())
+        .collect()
+}
+
+#[test]
+fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
+    use volna_core::wave::model::MenuAction;
+    let (mut app, source) = loaded_app(10);
+    let waves = app.panels.focused_id();
+    app.handle(Command::AddVars(vec![0, 1, 2]));
+    pump(&mut app);
+    assert_eq!(source.loads.load(SeqCst), 3);
+    let names = row_names(&app, waves);
+    // Paste with an empty clipboard is a no-op.
+    app.handle(Command::Action(Action::PasteSignals));
+    assert_eq!(row_names(&app, waves), names);
+
+    // Style the "clock" row, then duplicate it three times.
+    app.panels.focused_waves_mut().unwrap().selected = [0].into();
+    app.handle(Command::Action(Action::CycleFormat));
+    app.handle(Command::Action(Action::IncreaseRowHeight));
+    app.handle(Command::Action(Action::CopySignals));
+    for _ in 0..3 {
+        app.handle(Command::Action(Action::PasteSignals));
+    }
+    let w = app.panels.waves(waves).unwrap();
+    assert_eq!(
+        row_names(&app, waves),
+        [
+            names[0].as_str(),
+            names[0].as_str(),
+            names[0].as_str(),
+            names[0].as_str(),
+            names[1].as_str(),
+            names[2].as_str()
+        ]
+    );
+    assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [3]);
+    let clock = &w.items[0];
+    for copy in &w.items[1..4] {
+        assert_eq!(copy.source, clock.source);
+        assert_eq!(copy.format_id(), clock.format_id());
+        assert_eq!(copy.height, clock.height);
+        assert!(Arc::ptr_eq(
+            copy.history.as_ref().unwrap(),
+            clock.history.as_ref().unwrap()
+        ));
+    }
+    assert!(
+        app.take_requests().is_empty(),
+        "duplicates reuse loaded data"
+    );
+    assert!(
+        app.doc.copied_rows.iter().all(|row| row.history.is_none()),
+        "the clipboard does not hold trace data"
+    );
+
+    // Paste goes below the selection and works in another wave panel.
+    app.panels.focused_waves_mut().unwrap().selected = [1, 2].into();
+    app.handle(Command::Action(Action::CopySignals));
+    app.handle(Command::Action(Action::NewPanel));
+    let other = app.panels.focused_id();
+    assert_ne!(other, waves);
+    app.handle(Command::AddVars(vec![2]));
+    app.handle(Command::Action(Action::PasteSignals));
+    assert_eq!(
+        row_names(&app, other),
+        [names[2].as_str(), names[0].as_str(), names[0].as_str()]
+    );
+    assert!(app.take_requests().is_empty());
+
+    // Cut and paste moves rows; data dropped meanwhile loads again.
+    app.handle(Command::Action(Action::SelectAll));
+    app.handle(Command::Action(Action::CutSignals));
+    assert!(row_names(&app, other).is_empty());
+    app.handle(Command::Panels(PanelsCommand::Focus(waves)));
+    app.handle(Command::Action(Action::SelectAll));
+    app.handle(Command::Action(Action::CutSignals));
+    app.handle(Command::Panels(PanelsCommand::Focus(other)));
+    app.handle(Command::Action(Action::PasteSignals));
+    assert_eq!(
+        row_names(&app, other),
+        [
+            names[0].as_str(),
+            names[0].as_str(),
+            names[0].as_str(),
+            names[0].as_str(),
+            names[1].as_str(),
+            names[2].as_str()
+        ]
+    );
+    pump(&mut app);
+    assert_eq!(source.loads.load(SeqCst), 6);
+    assert!(
+        app.panels
+            .waves(other)
+            .unwrap()
+            .items
+            .iter()
+            .all(|row| row.history.is_some())
+    );
+
+    // The signal menu offers Paste only with rows on the clipboard.
+    app.handle(Command::OpenSignalMenu(other));
+    let has_paste = |app: &App| {
+        app.panels
+            .waves(other)
+            .unwrap()
+            .menu
+            .as_ref()
+            .unwrap()
+            .items()
+            .any(|item| item.action == MenuAction::PasteSignals)
+    };
+    assert!(has_paste(&app));
+    app.handle(Command::MenuSelect(other, MenuAction::PasteSignals));
+    assert_eq!(row_names(&app, other).len(), 12);
+    assert!(app.panels.waves(other).unwrap().menu.is_none());
+
+    app.close_trace();
+    assert!(
+        app.doc.copied_rows.is_empty(),
+        "the clipboard belongs to the trace"
+    );
 }
 
 #[test]

@@ -177,12 +177,22 @@ follow it. Markers always use the focused panel's effective cursor.
 
 The value badge opens only value translators plus **Retry loading** after a
 failed load. Right-clicking a signal name opens its row menu with **Open in
-table**, a **Height** submenu and **Remove signal**; when that row is already
+table**, **Cut**, **Copy**, **Paste**, a **Height** submenu and **Remove signal**; when that row is already
 part of a selection, every command applies to the complete selection.
 Right-clicking an unselected row makes it the sole selection first. Shift+F10
 opens the same menu for the keyboard selection. The core owns menu contents
 (`MenuEntry` items, submenus and separators) and selection semantics; GPUI only
 hosts the popup.
+
+Copy and Cut put the selected rows, in display order, on the document's
+clipboard (`Document::copied_rows`), so a paste works in any waveform panel of
+the same trace and the clipboard is cleared with it. Copied rows keep their
+source, format and height but no history, so the clipboard never holds trace
+data against the memory budget. Paste inserts them below the selection (or at
+the end) and selects them; like added variables, each row shares a resident
+history for its signal or queues one load. Paste appears in the menu only
+while the clipboard has rows. This is not the system clipboard: rows carry
+session-bound identity and styling that text would lose.
 
 Each row has a `RowHeight`: a whole multiple (1, 2, 3, 4 or 8) of the theme row
 height. `WaveLayout` keeps prefix sums of the multiples, so row positions,

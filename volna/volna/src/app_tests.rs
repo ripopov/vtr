@@ -609,7 +609,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
             .unwrap(),
         "the popup is hosted"
     );
-    vcx.simulate_keystrokes("down down right down enter");
+    vcx.simulate_keystrokes("down down down down right down enter");
     vcx.run_until_parked();
     assert_eq!(heights(&mut vcx), [2, 2, 2]);
     window
@@ -636,6 +636,81 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
     });
     vcx.run_until_parked();
     assert_eq!(heights(&mut vcx), [1, 1, 1]);
+}
+
+/// ⌘C / ⌘V (ctrl on Linux) on the wave panel duplicate rows that share data,
+/// and ⌘X removes them.
+#[gpui_kit::test]
+fn wave_copy_paste_keys_duplicate_rows(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0, 1, 2]), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let names = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                ws.app
+                    .panels
+                    .focused_waves()
+                    .unwrap()
+                    .items
+                    .iter()
+                    .map(|item| item.name.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    };
+    let original = names(&mut vcx);
+    window
+        .update(&mut vcx, |ws, _, _| {
+            ws.app.panels.focused_waves_mut().unwrap().selected = [0].into();
+        })
+        .unwrap();
+    let (copy, cut, paste) = if cfg!(target_os = "macos") {
+        ("cmd-c", "cmd-x", "cmd-v")
+    } else {
+        ("ctrl-c", "ctrl-x", "ctrl-v")
+    };
+    vcx.simulate_keystrokes(copy);
+    vcx.simulate_keystrokes(paste);
+    vcx.simulate_keystrokes(paste);
+    vcx.run_until_parked();
+    let clk = original[0].as_str();
+    assert_eq!(
+        names(&mut vcx),
+        [clk, clk, clk, original[1].as_str(), original[2].as_str()]
+    );
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let rows = &ws.app.panels.focused_waves().unwrap().items;
+            assert!(rows[..3].iter().all(|row| Arc::ptr_eq(
+                row.history.as_ref().unwrap(),
+                rows[0].history.as_ref().unwrap()
+            )));
+        })
+        .unwrap();
+    vcx.simulate_keystrokes(cut);
+    vcx.run_until_parked();
+    assert_eq!(
+        names(&mut vcx),
+        [clk, clk, original[1].as_str(), original[2].as_str()]
+    );
 }
 
 /// The status bar meter appears with a trace and fills with the used share.

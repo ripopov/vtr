@@ -147,6 +147,9 @@ pub enum MenuAction {
     Format(String),
     RetryLoad,
     OpenTable,
+    CopySignals,
+    CutSignals,
+    PasteSignals,
     RemoveSignals,
     RowHeight(RowHeight),
 }
@@ -436,6 +439,66 @@ impl WaveModel {
         self.anchor = None;
     }
 
+    /// Copy the selected rows, in display order, to the document clipboard.
+    /// Rows keep their format and height; histories stay with the panels.
+    pub fn copy_selected(&self, doc: &mut Document) {
+        if self.selected.is_empty() {
+            return;
+        }
+        doc.copied_rows = self
+            .selected
+            .iter()
+            .filter_map(|&row| self.items.get(row))
+            .map(|item| DisplayedSignal {
+                history: None,
+                // A resolved row reloads on paste; an unresolved one keeps its reason.
+                error: item
+                    .source
+                    .signal()
+                    .is_none()
+                    .then(|| item.error.clone())
+                    .flatten(),
+                ..item.clone()
+            })
+            .collect();
+    }
+
+    pub fn cut_selected(&mut self, doc: &mut Document) {
+        self.copy_selected(doc);
+        self.remove_selected();
+    }
+
+    /// Insert the document clipboard below the selection (or at the end) and
+    /// select the new rows. Duplicates share `loaded` histories for the same
+    /// signal; the rest load once, like newly added variables.
+    pub fn paste(
+        &mut self,
+        doc: &mut Document,
+        loaded: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
+    ) {
+        if doc.copied_rows.is_empty() {
+            return;
+        }
+        let at = self
+            .selected
+            .last()
+            .map_or(self.items.len(), |&row| (row + 1).min(self.items.len()));
+        let mut rows = doc.copied_rows.clone();
+        for row in &mut rows {
+            if let Some(signal) = row.source.signal() {
+                row.history = loaded.get(&signal).cloned();
+                if row.history.is_none() {
+                    doc.request_signal(signal);
+                }
+            }
+        }
+        let count = rows.len();
+        self.items.splice(at..at, rows);
+        self.selected = (at..at + count).collect();
+        self.anchor = Some(at);
+        self.menu = None;
+    }
+
     pub fn select_all(&mut self) {
         self.selected = (0..self.items.len()).collect();
     }
@@ -547,7 +610,7 @@ impl WaveModel {
 
     /// Open the signal-name context menu. Right-clicking within an existing
     /// selection preserves the group; an unselected row becomes the selection.
-    pub fn open_signal_menu(&mut self, row: usize, position: Point) {
+    pub fn open_signal_menu(&mut self, doc: &Document, row: usize, position: Point) {
         if row >= self.items.len() {
             return;
         }
@@ -581,19 +644,31 @@ impl WaveModel {
             entries: vec![
                 MenuEntry::Item(MenuItem::plain(MenuAction::OpenTable, "Open in table")),
                 MenuEntry::Separator,
-                MenuEntry::Submenu {
-                    label: "Height".into(),
-                    items: heights,
-                },
-                MenuEntry::Separator,
-                MenuEntry::Item(MenuItem::plain(MenuAction::RemoveSignals, "Remove signal")),
+                MenuEntry::Item(MenuItem::plain(MenuAction::CutSignals, "Cut")),
+                MenuEntry::Item(MenuItem::plain(MenuAction::CopySignals, "Copy")),
             ],
         });
+        let menu = self.menu.as_mut().expect("just opened");
+        if !doc.copied_rows.is_empty() {
+            menu.entries.push(MenuEntry::Item(MenuItem::plain(
+                MenuAction::PasteSignals,
+                "Paste",
+            )));
+        }
+        menu.entries.extend([
+            MenuEntry::Separator,
+            MenuEntry::Submenu {
+                label: "Height".into(),
+                items: heights,
+            },
+            MenuEntry::Separator,
+            MenuEntry::Item(MenuItem::plain(MenuAction::RemoveSignals, "Remove signal")),
+        ]);
     }
 
     /// Open the signal menu for the keyboard selection, positioned beside its
     /// name cell. Off-screen selections use the nearest panel edge.
-    pub fn open_selected_signal_menu(&mut self) {
+    pub fn open_selected_signal_menu(&mut self, doc: &Document) {
         let Some(row) = self
             .anchor
             .filter(|row| self.selected.contains(row))
@@ -604,6 +679,7 @@ impl WaveModel {
         let y = (self.layout.row_y(row) + self.layout.row_height(row))
             .clamp(self.layout.names.top(), self.layout.names.bottom());
         self.open_signal_menu(
+            doc,
             row,
             point(self.layout.names.left() + 8.0 * self.layout.zoom, y),
         );
@@ -613,7 +689,14 @@ impl WaveModel {
     /// Return a failed canonical signal to retry through the document owner.
     pub fn menu_select(&mut self, doc: &Document, action: &MenuAction) -> Option<SignalRef> {
         let menu = self.menu.take()?;
-        if matches!(action, MenuAction::OpenTable | MenuAction::RemoveSignals) {
+        if matches!(
+            action,
+            MenuAction::OpenTable
+                | MenuAction::CopySignals
+                | MenuAction::CutSignals
+                | MenuAction::PasteSignals
+                | MenuAction::RemoveSignals
+        ) {
             return None;
         }
         let rows = self.menu_rows(menu.row);
@@ -994,7 +1077,7 @@ impl WaveModel {
         // already selected; otherwise make this the single selected row.
         if button == MouseButton::Right && layout.names.contains(p) {
             if let Some(row) = row {
-                self.open_signal_menu(row, p);
+                self.open_signal_menu(doc, row, p);
             }
             return;
         }
