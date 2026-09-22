@@ -228,6 +228,7 @@ requirement for embedded chat.
 | General table panel over transactions, signal groups, logs, and synthetic rows (proposal) | [Full proposal](docs/table-panel.html), `docs/egui-table/` measured prototype, `docs/table/` superseded sketches |
 | Reduced immutable single-generator table with bounded viewport work (proposal/demo) | [Baseline](docs/table-baseline.html) |
 | Transaction generator lanes in the wave panel with stacking and density (proposal/demo) | [Proposal](docs/transaction-waveforms.html), [investigation](docs/transaction-waveforms-investigation.md) |
+| Shared transaction detail panel for table and pipeline selections: lifeline, typed attributes, stages, events, related records (proposal/demo) | [Transaction panel](docs/tx-detail.html) |
 
 ## Building and testing
 
