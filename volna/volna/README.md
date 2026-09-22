@@ -44,6 +44,10 @@ list) and dockable waveform panels with three pixel-aligned columns (names,
 values, waves), timelines, linked or independent navigation and shared numbered
 markers. Split a panel to clone its rows, or create an empty tab. Drag tabs to
 rearrange groups; the last remaining panel hides its tab header.
+Pipeline and table panels select records; ⏎, a double-click or **Details**
+shows the selection in a Transaction panel (identity, timing, lifeline,
+typed attributes, stages, events and related records that jump on click; pin
+a panel to compare two records). See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 The `gpui-kit` 0.6.1 umbrella supplies the runtime, assets and components.
 Standard buttons, tooltips and popup menus use its component module.

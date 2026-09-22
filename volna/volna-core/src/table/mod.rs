@@ -11,7 +11,7 @@ pub mod source;
 
 pub use layout::{ColumnRect, RowViewport, TableLayout};
 pub use model::{
-    AccessibleRow, DetailList, DetailRow, Details, PreparedCell, PreparedRow, PreparedWindow,
-    RowIdentity, TableCommand, TableModel, TableState,
+    AccessibleRow, PreparedCell, PreparedRow, PreparedWindow, RowIdentity, TableCommand,
+    TableModel, TableState,
 };
 pub use source::{SignalSource, TableSource};

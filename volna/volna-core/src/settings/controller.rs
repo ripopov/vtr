@@ -169,13 +169,9 @@ impl App {
                 snap_px: f64::from(settings.waves.snap_pixels),
             };
         }
-        if keys.contains(&"table.detailItems") {
-            for table in self
-                .panels
-                .iter_mut()
-                .filter_map(|panel| panel.kind.table_mut())
-            {
-                table.set_detail_items(settings.table.detail_items);
+        if keys.contains(&"transaction.detailItems") {
+            for (_, model) in self.panels.transactions_mut() {
+                model.set_detail_items(settings.transaction.detail_items);
             }
         }
     }

@@ -14,6 +14,7 @@ use crate::document::Document;
 use crate::nav::{LinkDim, NavState};
 use crate::pipeline::PipelineModel;
 use crate::table::TableModel;
+use crate::transaction::TransactionModel;
 use crate::wave::model::{PointerEvent, WaveModel};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +42,9 @@ pub enum PanelKind {
     Pipeline(Box<PipelineModel>),
     /// Virtualized records from one immutable generator or fixed signal set.
     Table(Box<TableModel>),
+    /// One selected record: its identity, timing, lifeline, attributes,
+    /// stages, events and every record it is related to.
+    Transaction(Box<TransactionModel>),
     /// The placeholder every trace opens with: it names what the trace
     /// holds, and the first content opened while it is focused takes its
     /// place. It is also what closing the last content panel leaves.
@@ -94,6 +98,20 @@ impl PanelKind {
         }
     }
 
+    pub fn transaction(&self) -> Option<&TransactionModel> {
+        match self {
+            Self::Transaction(model) => Some(model),
+            _ => None,
+        }
+    }
+
+    pub fn transaction_mut(&mut self) -> Option<&mut TransactionModel> {
+        match self {
+            Self::Transaction(model) => Some(model),
+            _ => None,
+        }
+    }
+
     pub fn is_settings(&self) -> bool {
         matches!(self, Self::Settings)
     }
@@ -139,6 +157,7 @@ impl PanelKind {
             (Self::Waves(w), _) => Self::Waves(Box::new(w.clone_view(split))),
             (Self::Pipeline(p), true) => Self::Pipeline(Box::new(p.clone_view())),
             (Self::Table(t), true) => Self::Table(Box::new(t.clone_view())),
+            (Self::Transaction(model), true) => Self::Transaction(Box::new(model.clone_view())),
             (Self::Start, _) => bail!("the start panel has no content to copy"),
             (_, false) => Self::Waves(Box::default()),
             _ => bail!("cannot split this panel"),
@@ -175,6 +194,10 @@ impl Panel {
                     format!("Table {} · {} signals", self.id.0, signals.len())
                 }
             },
+            PanelKind::Transaction(model) => match model.shown() {
+                Some(shown) => format!("Transaction {} · #{}", self.id.0, shown.id.0),
+                None => format!("Transaction {}", self.id.0),
+            },
             PanelKind::Start => "Start".into(),
             PanelKind::Settings => "Settings".into(),
             PanelKind::Unsupported(_) => format!("Unsupported panel {}", self.id.0),
@@ -184,10 +207,11 @@ impl Panel {
     /// Route pointer input to the panel's model. Returns true when something
     /// visible changed.
     pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent, now: Instant) -> bool {
+        let id = self.id;
         match &mut self.kind {
             PanelKind::Waves(w) => w.pointer(doc, event, now),
-            PanelKind::Pipeline(p) => p.pointer(doc, event, now),
-            PanelKind::Table(t) => t.pointer(doc, event, now),
+            PanelKind::Pipeline(p) => p.pointer(doc, id, event, now),
+            PanelKind::Table(t) => t.pointer(doc, id, event, now),
             _ => false,
         }
     }
@@ -413,6 +437,32 @@ impl Panels {
             .filter_map(|p| p.kind.pipeline_mut())
     }
 
+    pub fn transaction(&self, id: PanelId) -> Option<&TransactionModel> {
+        self.get(id)?.kind.transaction()
+    }
+
+    pub fn transaction_mut(&mut self, id: PanelId) -> Option<&mut TransactionModel> {
+        self.get_mut(id)?.kind.transaction_mut()
+    }
+
+    /// The transaction panels, for selection delivery and bookkeeping.
+    pub fn transactions_mut(&mut self) -> impl Iterator<Item = (PanelId, &mut TransactionModel)> {
+        self.panels
+            .values_mut()
+            .filter_map(|p| Some((p.id, p.kind.transaction_mut()?)))
+    }
+
+    /// The first transaction panel that is not pinned, in layout order: the
+    /// one a new record is shown in.
+    pub fn first_free_transaction(&self) -> Option<PanelId> {
+        self.layout.panels().into_iter().find(|id| {
+            self.panels[id]
+                .kind
+                .transaction()
+                .is_some_and(|model| !model.pinned)
+        })
+    }
+
     /// The panel already showing this stream or generator, in layout order.
     pub fn pipeline_for_track(
         &self,
@@ -425,6 +475,21 @@ impl Panels {
                 .is_some_and(|p| p.track.track() == Some(track))
         })
     }
+    /// The pipeline panel that has a row for this record, in layout order.
+    pub fn pipeline_showing(
+        &self,
+        doc: &Document,
+        track: crate::data::transactions::TrackRef,
+        id: crate::data::transactions::TransactionRef,
+    ) -> Option<PanelId> {
+        self.layout.panels().into_iter().find(|panel| {
+            self.panels[panel].kind.pipeline().is_some_and(|p| {
+                matches!(p.rows(doc), crate::pipeline::Rows::Ready(set)
+                    if set.row_of(track, id).is_some())
+            })
+        })
+    }
+
     pub fn get(&self, id: PanelId) -> Option<&Panel> {
         self.panels.get(&id)
     }

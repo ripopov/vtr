@@ -407,11 +407,11 @@ pub static REGISTRY: &[Spec] = &[
         hosts: Hosts::NATIVE_WEB,
     },
     Spec {
-        id: "table.detailItems",
+        id: "transaction.detailItems",
         page: Page::Workspace,
-        group: "Table",
+        group: "Transaction",
         title: "Detail items per list",
-        description: "Maximum attributes, events, stages, or signal values shown in each selected-row detail list. The admitted byte budget may truncate earlier.",
+        description: "Maximum attributes, stages, events, or related records listed in each section of the Transaction panel. The admitted byte budget may truncate earlier.",
         keywords: &[
             "record",
             "attributes",
@@ -484,7 +484,10 @@ pub fn spec(id: &str) -> Option<&'static Spec> {
 pub const META_KEYS: &[&str] = &["$schema"];
 
 /// Renamed ids: the store rewrites the old name to the new one once.
-pub const RENAMED: &[(&str, &str)] = &[("serverPath", "remote.serverPath")];
+pub const RENAMED: &[(&str, &str)] = &[
+    ("serverPath", "remote.serverPath"),
+    ("table.detailItems", "transaction.detailItems"),
+];
 
 #[cfg(test)]
 mod tests {

@@ -7,6 +7,7 @@ use crate::pipeline::{PipelineModel, RowView, TrackSource};
 use crate::sidebar::ScopeTreeModel;
 use crate::table::columns::{ColumnSet, TransactionColumn};
 use crate::table::{SignalSource, TableModel, TableSource};
+use crate::transaction::{ShownRecord, TransactionModel, ViewPrefs, view::SectionKey};
 use crate::wave::{
     model::{DisplayedSignal, Link, RowSource, WaveModel},
     viewport::Viewport,
@@ -152,6 +153,29 @@ struct TablePanel {
     link: Link,
 }
 
+/// A pinned transaction panel remembers exactly which record it froze on.
+#[derive(Serialize, Deserialize)]
+struct SavedRecord {
+    track: Vec<String>,
+    id: u64,
+}
+
+/// A transaction panel: the reader's choices, and the record when pinned.
+/// An unpinned panel restores empty and waits for the next selection.
+#[derive(Serialize, Deserialize)]
+struct TransactionPanel {
+    id: PanelId,
+    kind: String,
+    version: u32,
+    title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pinned: Option<SavedRecord>,
+    #[serde(default)]
+    collapsed: Vec<String>,
+    #[serde(default)]
+    radix: std::collections::BTreeMap<String, String>,
+}
+
 /// The fields every saved panel shares; alone, they describe a start panel.
 #[derive(Serialize, Deserialize)]
 struct PanelHeader {
@@ -290,6 +314,36 @@ impl Workspace {
                                 source,
                                 columns,
                                 link: table.nav.link,
+                            })?)
+                        }
+                        PanelKind::Transaction(model) => {
+                            let shown = model.shown();
+                            Ok(serde_json::value::to_raw_value(&TransactionPanel {
+                                id: panel.id,
+                                kind: "transaction".into(),
+                                version: 1,
+                                title: panel.title.clone(),
+                                pinned: model
+                                    .pinned
+                                    .then(|| {
+                                        shown.map(|record| SavedRecord {
+                                            track: record.track.path().to_vec(),
+                                            id: record.id.0,
+                                        })
+                                    })
+                                    .flatten(),
+                                collapsed: model
+                                    .prefs
+                                    .collapsed
+                                    .iter()
+                                    .map(|section| section.key().to_owned())
+                                    .collect(),
+                                radix: model
+                                    .prefs
+                                    .radix
+                                    .iter()
+                                    .map(|(key, radix)| (key.clone(), radix.name().to_owned()))
+                                    .collect(),
                             })?)
                         }
                         PanelKind::Start => Ok(serde_json::value::to_raw_value(&PanelHeader {
@@ -551,12 +605,7 @@ impl Workspace {
                         TableSource::Signals(restored)
                     }
                 };
-                let mut table = TableModel::new(
-                    source,
-                    saved.link,
-                    app.table_memory_budget(),
-                    app.settings.resolved().table.detail_items,
-                );
+                let mut table = TableModel::new(source, saved.link, app.table_memory_budget());
                 match &mut table.columns {
                     ColumnSet::Transactions(visible) => {
                         *visible = TransactionColumn::ALL
@@ -584,6 +633,56 @@ impl Workspace {
                     id: saved.id,
                     title: saved.title,
                     kind: PanelKind::Table(Box::new(table)),
+                });
+                continue;
+            }
+            if header.kind == "transaction" && header.version == 1 {
+                let saved: TransactionPanel =
+                    serde_json::from_str(raw.get()).context("invalid transaction panel")?;
+                let mut model = TransactionModel::new(
+                    app.table_memory_budget(),
+                    app.settings.resolved().transaction.detail_items,
+                );
+                let mut prefs = ViewPrefs::default();
+                for key in &saved.collapsed {
+                    let section = SectionKey::parse(key)
+                        .ok_or_else(|| anyhow::anyhow!("unknown transaction section {key:?}"))?;
+                    prefs.collapsed.insert(section);
+                }
+                for (key, name) in &saved.radix {
+                    let radix = crate::data::text::Radix::parse(name)
+                        .ok_or_else(|| anyhow::anyhow!("unknown radix {name:?}"))?;
+                    prefs.radix.insert(key.clone(), radix);
+                }
+                let record = match saved.pinned {
+                    Some(pinned) => {
+                        ensure!(!pinned.track.is_empty(), "empty transaction track path");
+                        let track = match session.tracks().iter().find(|t| t.path == pinned.track) {
+                            Some(t) => TrackSource::Resolved {
+                                track: t.id,
+                                path: pinned.track,
+                            },
+                            None => {
+                                report
+                                    .push(format!("Missing transaction track: {:?}", pinned.track));
+                                TrackSource::Unresolved { path: pinned.track }
+                            }
+                        };
+                        Some(ShownRecord {
+                            track,
+                            id: crate::data::transactions::TransactionRef(pinned.id),
+                        })
+                    }
+                    None => None,
+                };
+                match record {
+                    Some(record) => model.restore(record, true, prefs),
+                    None => model.restore_prefs(prefs),
+                }
+                panels.push(Panel {
+                    id: saved.id,
+                    title: saved.title,
+                    kind: PanelKind::Transaction(Box::new(model)),
                 });
                 continue;
             }

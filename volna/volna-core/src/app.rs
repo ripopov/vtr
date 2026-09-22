@@ -7,7 +7,7 @@ use std::sync::Arc;
 use web_time::Instant;
 
 use crate::data::Member;
-use crate::data::transactions::TrackRef;
+use crate::data::transactions::{TrackRef, TransactionRef};
 use crate::data::{ScopeId, VarId};
 use crate::document::{Delivered, Document, TraceState};
 use crate::geometry::{Modifiers, Rect};
@@ -18,6 +18,7 @@ use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::settings::{self, Value};
 use crate::sidebar::{Key, MemberListModel, ScopeTreeModel};
 use crate::theme::Theme;
+use crate::transaction::{TransactionCommand, TransactionModel};
 use crate::wave::layout::WaveLayout;
 use crate::wave::model::{MenuAction, PointerEvent, WaveMenuKind};
 use crate::wave::timeline::{TimeBase, format_time};
@@ -128,6 +129,25 @@ pub enum Command {
         row: Option<usize>,
     },
     Table(PanelId, crate::table::TableCommand),
+    /// Make one record the document selection, optionally moving the
+    /// originating panel's cursor to the time under the pointer.
+    SelectTransaction {
+        panel: PanelId,
+        track: TrackRef,
+        id: TransactionRef,
+        cursor: Option<u64>,
+    },
+    /// Show the selection in a Transaction panel: focus the first one that is
+    /// not pinned, or open one beside the panel that asked.
+    ShowTransaction {
+        from: PanelId,
+    },
+    Transaction(PanelId, TransactionCommand),
+    /// Scroll the pipeline showing this panel's record to its row and fit the
+    /// time axis to its lifetime, or open that track as a pipeline.
+    RevealTransaction {
+        panel: PanelId,
+    },
     PipelineActivity(PanelId, crate::pipeline::ActivityCommand),
     SetSearchEverywhere(bool),
     SelectScope(ScopeId),
@@ -516,6 +536,11 @@ impl App {
         {
             self.events.push(Event::Notice(error.to_string()));
         }
+        if let Some(model) = self.panels.transaction_mut(id)
+            && let Err(error) = model.attach(&mut self.doc)
+        {
+            self.events.push(Event::Notice(error.to_string()));
+        }
     }
 
     fn removed(&mut self, panels: Vec<Panel>) {
@@ -525,6 +550,9 @@ impl App {
             }
             if let Some(pipeline) = panel.kind.pipeline_mut() {
                 pipeline.detach(&mut self.doc);
+            }
+            if let Some(model) = panel.kind.transaction_mut() {
+                model.detach(&mut self.doc);
             }
         }
     }
@@ -669,6 +697,7 @@ impl App {
     pub fn handle_at(&mut self, command: Command, now: Instant) {
         let before = crate::workspace::Stamp::capture(self, &command);
         let tracked = before.as_ref().map(|_| command.clone());
+        let selection = self.doc.selection();
         match command {
             Command::Notice(message) => {
                 self.events.push(Event::Notice(message));
@@ -721,12 +750,29 @@ impl App {
                 }
             }
             Command::Table(panel, command) => {
-                if let Some(table) = self.panels.get_mut(panel).and_then(|p| p.kind.table_mut())
-                    && table.command(&mut self.doc, command, now)
+                let Self { panels, doc, .. } = self;
+                if let Some(table) = panels.get_mut(panel).and_then(|p| p.kind.table_mut())
+                    && table.command(doc, panel, command, now)
                 {
                     self.changed();
                 }
             }
+            Command::SelectTransaction {
+                panel,
+                track,
+                id,
+                cursor,
+            } => self.select_transaction(panel, track, id, cursor),
+            Command::ShowTransaction { from } => self.show_transaction(from),
+            Command::Transaction(panel, command) => {
+                let Self { panels, doc, .. } = self;
+                if let Some(model) = panels.transaction_mut(panel)
+                    && model.command(doc, panel, command, now)
+                {
+                    self.changed();
+                }
+            }
+            Command::RevealTransaction { panel } => self.reveal_transaction(panel, now),
             Command::SetSearchEverywhere(search) => {
                 self.variables.search_everywhere = search;
                 self.variables.rebuild(self.doc.hierarchy());
@@ -883,11 +929,122 @@ impl App {
             }
             Command::Settings(command) => self.settings_command(command, now),
         }
+        if self.doc.selection() != selection {
+            self.sync_selection();
+        }
         if let Some(command) = tracked
             && before != crate::workspace::Stamp::capture(self, &command)
         {
             self.workspace.scheduler.changed(now);
         }
+    }
+
+    // -- the selected record ---------------------------------------------------------
+
+    /// Hand the document selection to every panel that reads it: the
+    /// transaction panels that are not pinned, and the tables whose
+    /// generator holds the record.
+    pub(crate) fn sync_selection(&mut self) {
+        let Self { panels, doc, .. } = self;
+        for (_, model) in panels.transactions_mut() {
+            model.follow_selection(doc);
+        }
+        let Self { panels, doc, .. } = self;
+        for table in panels.iter_mut().filter_map(|p| p.kind.table_mut()) {
+            table.follow_selection(doc);
+        }
+        self.changed();
+    }
+
+    fn select_transaction(
+        &mut self,
+        panel: PanelId,
+        track: TrackRef,
+        id: TransactionRef,
+        cursor: Option<u64>,
+    ) {
+        let Self { panels, doc, .. } = self;
+        doc.select(Some(crate::document::TxSelection {
+            track,
+            id,
+            origin: panel,
+        }));
+        if let Some(time) = cursor
+            && let Some(nav) = panels.get_mut(panel).and_then(|p| p.kind.nav_mut())
+        {
+            nav.set_cursor(doc, Some(time));
+        }
+        self.changed();
+    }
+
+    /// Enter, a double-click, the Details button and the palette all land
+    /// here: focus a transaction panel that is free, or open one.
+    fn show_transaction(&mut self, from: PanelId) {
+        if self.doc.selection().is_none() {
+            self.events
+                .push(Event::Notice("Select a record first.".into()));
+            self.changed();
+            return;
+        }
+        if let Some(id) = self.panels.first_free_transaction() {
+            self.panel_command(PanelsCommand::Focus(id));
+            self.sync_selection();
+            return;
+        }
+        let model = TransactionModel::new(
+            self.table_memory_budget(),
+            self.settings.resolved().transaction.detail_items,
+        );
+        let kind = PanelKind::Transaction(Box::new(model));
+        if self
+            .panels
+            .get(from)
+            .is_some_and(|panel| panel.kind.is_start())
+        {
+            _ = self.replace_panel(from, kind);
+            self.sync_selection();
+            return;
+        }
+        match self
+            .panels
+            .open(kind, from, Some(crate::panels::Axis::Horizontal))
+        {
+            Ok(id) => {
+                self.created(id);
+                self.layout_changed();
+                self.sync_selection();
+            }
+            Err(error) => {
+                self.events.push(Event::Notice(error.to_string()));
+                self.changed();
+            }
+        }
+    }
+
+    /// Reveal the panel's record where it is drawn: the pipeline that already
+    /// has a row for it, or a new pipeline over its track.
+    fn reveal_transaction(&mut self, panel: PanelId, now: Instant) {
+        let Some(shown) = self
+            .panels
+            .transaction(panel)
+            .and_then(|model| model.shown().cloned())
+        else {
+            return;
+        };
+        let Some(track) = shown.track.track() else {
+            return;
+        };
+        let target = self.panels.pipeline_showing(&self.doc, track, shown.id);
+        let Some(target) = target else {
+            self.open_pipeline(track);
+            return;
+        };
+        self.panel_command(PanelsCommand::Focus(target));
+        let Self { panels, doc, .. } = self;
+        if let Some(pipeline) = panels.pipeline_mut(target) {
+            pipeline.reveal_record(doc, track, shown.id, now);
+        }
+        self.changed();
     }
 
     /// Variables become wave rows, streams and generators become pipeline
@@ -1031,7 +1188,6 @@ impl App {
             source,
             self.settings.resolved().link_by_default(),
             self.table_memory_budget(),
-            self.settings.resolved().table.detail_items,
         );
         table.nav.reset(Some(self.doc.limits()));
         let kind = PanelKind::Table(Box::new(table));
@@ -1170,20 +1326,19 @@ impl App {
         match &mut self.panels.focused_mut().kind {
             PanelKind::Table(table) => match action {
                 Action::GoToStart => {
-                    table.command(doc, crate::table::TableCommand::First, now);
+                    table.command(doc, panel, crate::table::TableCommand::First, now);
                 }
                 Action::GoToEnd => {
-                    table.command(doc, crate::table::TableCommand::Last, now);
+                    table.command(doc, panel, crate::table::TableCommand::Last, now);
                 }
                 Action::MoveSelectionUp => {
-                    table.command(doc, crate::table::TableCommand::Previous, now);
+                    table.command(doc, panel, crate::table::TableCommand::Previous, now);
                 }
                 Action::MoveSelectionDown => {
-                    table.command(doc, crate::table::TableCommand::Next, now);
+                    table.command(doc, panel, crate::table::TableCommand::Next, now);
                 }
                 Action::ClearSelection => {
-                    table.selected = None;
-                    table.details = None;
+                    table.command(doc, panel, crate::table::TableCommand::ClearSelection, now);
                 }
                 Action::GoToCursor
                 | Action::ZoomIn
@@ -1267,12 +1422,8 @@ impl App {
                 }
                 Action::ClearMarkers => doc.clear_markers(),
                 Action::ClearSelection => p.escape(doc),
-                Action::MoveSelectionUp => {
-                    p.scroll_rows(doc, -crate::pipeline::model::SCROLL_ROWS, now)
-                }
-                Action::MoveSelectionDown => {
-                    p.scroll_rows(doc, crate::pipeline::model::SCROLL_ROWS, now)
-                }
+                Action::MoveSelectionUp => p.move_selection(doc, panel, -1, now),
+                Action::MoveSelectionDown => p.move_selection(doc, panel, 1, now),
                 Action::NextEdge
                 | Action::PrevEdge
                 | Action::RemoveSelected
@@ -1508,6 +1659,26 @@ impl App {
                 p.nav.cursor(&self.doc), self.doc.markers.len(),
                 p.nav.viewport(&self.doc).start, p.nav.viewport(&self.doc).end,
                 p.hover, p.drag,
+            );
+        }
+        if let Some(model) = panel.kind.transaction() {
+            let state = match model.state(&self.doc) {
+                crate::transaction::TxPanelState::Empty => "empty",
+                crate::transaction::TxPanelState::Refused(_) => "refused",
+                crate::transaction::TxPanelState::Loading => "loading",
+                crate::transaction::TxPanelState::Failed(_) => "failed",
+                crate::transaction::TxPanelState::Missing => "missing",
+                crate::transaction::TxPanelState::Ready(_) => "ready",
+            };
+            return format!(
+                "panel={} transaction focused={} {state} record={:?} pinned={} back={} forward={} selection={:?}",
+                id.0,
+                id == self.panels.focused_id(),
+                model.shown().map(|shown| (shown.track.path().join("."), shown.id.0)),
+                model.pinned,
+                model.can_go_back(),
+                model.can_go_forward(),
+                self.doc.selection().map(|s| s.id.0),
             );
         }
         if let Some(table) = panel.kind.table() {

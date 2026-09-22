@@ -279,12 +279,12 @@
           "markdownDescription": "Save the session beside the trace as `<trace>.volna.json`, in VS Code workspace storage, or disable workspace persistence. Reopen the trace to apply.",
           "scope": "resource"
         },
-        "volna.table.detailItems": {
+        "volna.transaction.detailItems": {
           "type": "integer",
           "minimum": 1,
           "maximum": 1000,
           "default": 20,
-          "markdownDescription": "Maximum attributes, events, stages, or signal values shown in each selected-row detail list. The admitted byte budget may truncate earlier."
+          "markdownDescription": "Maximum attributes, stages, events, or related records listed in each section of the Transaction panel. The admitted byte budget may truncate earlier."
         },
         "volna.remote.memoryMiB": {
           "type": "integer",

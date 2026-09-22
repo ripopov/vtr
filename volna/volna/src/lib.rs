@@ -25,6 +25,7 @@ mod start_panel;
 mod table_clipboard;
 mod table_panel;
 pub mod theme;
+mod transaction_panel;
 mod ui;
 #[cfg(all(target_family = "wasm", feature = "remote-profile"))]
 mod web_profile;

@@ -102,6 +102,12 @@ actions!(
     ]
 );
 
+/// Show the selected record in a Transaction panel (⏎, or a double-click on
+/// a pipeline row). The core chooses which panel, or opens one.
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(namespace = waves, no_json)]
+pub struct ShowTransaction;
+
 /// Open (or focus) the pipeline panel of a stream or generator, by its
 /// catalog identity. Listed in View ▸ Pipeline and the command palette.
 #[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
@@ -300,6 +306,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-a", SelectAll, Some("Waves")),
         KeyBinding::new("escape", ClearSelection, Some("Waves")),
         KeyBinding::new("t", CycleFormat, Some("Waves")),
+        KeyBinding::new("enter", ShowTransaction, Some("Waves")),
         KeyBinding::new("up", MoveSelectionUp, Some("Waves")),
         KeyBinding::new("down", MoveSelectionDown, Some("Waves")),
     ]);
@@ -1179,6 +1186,10 @@ impl Workspace {
         let el = el.on_action(cx.listener(|this, _: &OpenSignalMenu, window, cx| {
             let panel = this.app.panels.focused_id();
             this.dispatch(Command::OpenSignalMenu(panel), Some(window), cx);
+        }));
+        let el = el.on_action(cx.listener(|this, _: &ShowTransaction, window, cx| {
+            let panel = this.app.panels.focused_id();
+            this.dispatch(Command::ShowTransaction { from: panel }, Some(window), cx);
         }));
         let el = wave_actions!(
             el,

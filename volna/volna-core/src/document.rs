@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::data::loaded_tracks::{LoadedGenerator, LoadedTrack};
-use crate::data::transactions::{TrackKind, TrackRef};
+use crate::data::transactions::{TrackKind, TrackRef, TransactionRef};
 use crate::data::{Hierarchy, SignalRef, Translators};
 use crate::nav::Tween;
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
@@ -25,6 +25,16 @@ pub struct Marker {
     pub id: u64,
     pub time: u64,
     pub label: Option<String>,
+}
+
+/// The record every panel over the open trace agrees is selected: which
+/// generator holds it, which record it is, and the panel that chose it.
+/// Panels that cannot show that generator simply show no highlight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TxSelection {
+    pub track: TrackRef,
+    pub id: TransactionRef,
+    pub origin: crate::panels::PanelId,
 }
 
 pub struct Shared {
@@ -79,6 +89,7 @@ pub struct Document {
     requests: Vec<LoadRequest>,
     tracks: HashMap<TrackRef, TrackLoad>,
     next_track_request: u64,
+    selection: Option<TxSelection>,
 }
 
 /// A selected track has one document-owned load, shared by its consumers.
@@ -114,7 +125,23 @@ impl Document {
             requests: Vec::new(),
             tracks: HashMap::new(),
             next_track_request: 1,
+            selection: None,
         }
+    }
+
+    // -- selection -----------------------------------------------------------------
+
+    /// The selected record, or none. Writers are the table and pipeline
+    /// panels and the transaction panel's own jumps.
+    pub fn selection(&self) -> Option<TxSelection> {
+        self.selection
+    }
+
+    /// Select a record, or clear the selection. Returns whether it changed.
+    pub fn select(&mut self, selection: Option<TxSelection>) -> bool {
+        let changed = self.selection != selection;
+        self.selection = selection;
+        changed
     }
 
     pub fn state(&self) -> &TraceState {
@@ -200,6 +227,7 @@ impl Document {
 
     fn reset_state(&mut self) {
         self.tracks.clear();
+        self.selection = None;
         self.pending.clear();
         self.requests
             .retain(|r| matches!(r, LoadRequest::Open { .. }));
@@ -266,6 +294,21 @@ impl Document {
             },
         );
         Ok(())
+    }
+
+    /// Every generator object currently held by a selected track, once per
+    /// object: the same generator reached through a stream and on its own is
+    /// one shared object.
+    pub fn resident_generators(&self) -> impl Iterator<Item = &Arc<LoadedGenerator>> {
+        let mut seen = std::collections::HashSet::new();
+        self.tracks
+            .values()
+            .filter_map(|load| match &load.state {
+                TrackLoadState::Ready(data) => Some(data.generators.iter()),
+                _ => None,
+            })
+            .flatten()
+            .filter(move |g| seen.insert(g.generator()))
     }
 
     /// A generator object already held by another selected track.

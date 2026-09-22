@@ -26,6 +26,7 @@ use volna_core::{App as CoreApp, Command};
 use crate::app::Workspace;
 use crate::settings_panel::SettingsPanelView;
 use crate::start_panel::StartPanelView;
+use crate::transaction_panel::TransactionPanelView;
 
 /// The GPUI view of one core panel, by kind: a core-painted canvas (waves,
 /// pipeline, or an unsupported placeholder), the start panel or the
@@ -33,6 +34,7 @@ use crate::start_panel::StartPanelView;
 /// start panel under a new ID.
 pub(crate) enum PanelView {
     Canvas(Entity<CanvasPanelView>),
+    Transaction(Entity<TransactionPanelView>),
     Start(Entity<StartPanelView>),
     Settings(Entity<SettingsPanelView>),
 }
@@ -41,6 +43,7 @@ impl PanelView {
     fn handle(&self) -> Arc<dyn base::PanelView> {
         match self {
             Self::Canvas(view) => panel_handle(view.clone()),
+            Self::Transaction(view) => panel_handle(view.clone()),
             Self::Start(view) => panel_handle(view.clone()),
             Self::Settings(view) => panel_handle(view.clone()),
         }
@@ -48,6 +51,7 @@ impl PanelView {
     fn focus(&self, cx: &App) -> FocusHandle {
         match self {
             Self::Canvas(view) => view.read(cx).focus.clone(),
+            Self::Transaction(view) => view.read(cx).focus.clone(),
             Self::Start(view) => view.read(cx).focus_handle(cx),
             Self::Settings(view) => view.read(cx).focus_handle(cx),
         }
@@ -55,6 +59,7 @@ impl PanelView {
     fn entity_id(&self) -> gpui_kit::EntityId {
         match self {
             Self::Canvas(view) => view.entity_id(),
+            Self::Transaction(view) => view.entity_id(),
             Self::Start(view) => view.entity_id(),
             Self::Settings(view) => view.entity_id(),
         }
@@ -150,6 +155,16 @@ impl DockHost {
                     PanelView::Settings(
                         cx.new(|cx| SettingsPanelView::new(ws.clone(), panel.id, window, cx)),
                     )
+                } else if panel.kind.transaction().is_some() {
+                    PanelView::Transaction(cx.new(|cx| {
+                        TransactionPanelView::new(
+                            ws.clone(),
+                            panel.id,
+                            app.doc.generation(),
+                            window,
+                            cx,
+                        )
+                    }))
                 } else if panel.kind.is_start() {
                     PanelView::Start(cx.new(|cx| {
                         StartPanelView::new(ws.clone(), panel.id, app.doc.generation(), window, cx)
@@ -232,6 +247,9 @@ impl DockHost {
     }
 
     pub fn invalidate_panels(&self, cx: &mut App) {
+        // Tab titles follow panel content (a transaction panel names its
+        // record), so the tab bars redraw with the panels.
+        cx.notify(self.area.entity_id());
         for view in self.views.values() {
             // Focus/menu callbacks may already hold the panel entity. Mark
             // it dirty without borrowing it again.
@@ -323,7 +341,12 @@ fn panel_id(state: &base::PanelState) -> Result<PanelId> {
     ensure!(
         matches!(
             state.panel_name.as_ref(),
-            "volna.waves" | "volna.pipeline" | "volna.table" | "volna.start" | "volna.settings"
+            "volna.waves"
+                | "volna.pipeline"
+                | "volna.table"
+                | "volna.transaction"
+                | "volna.start"
+                | "volna.settings"
         ),
         "unknown dock widget"
     );
@@ -603,6 +626,39 @@ impl Panel for CanvasPanelView {
                         }),
                 );
             }
+        }
+        // A pipeline row that is selected can be read in a Transaction panel.
+        let selected_here = self
+            .ws
+            .upgrade()
+            .and_then(|owner| {
+                let ws = owner.read(cx);
+                let pipeline = ws.app.panels.pipeline(self.id)?;
+                Some(pipeline.selected_row(&ws.app.doc).is_some())
+            })
+            .unwrap_or(false);
+        if selected_here {
+            let id = self.id;
+            let generation = self.generation;
+            let owner = self.ws.clone();
+            buttons.insert(
+                0,
+                Button::new("show-transaction")
+                    .label("Details")
+                    .ghost()
+                    .xsmall()
+                    .tooltip("Show the selected record in a Transaction panel (⏎)")
+                    .on_click(move |_, window, cx| {
+                        _ = owner.update(cx, |ws, cx| {
+                            ws.dispatch_if_current(
+                                generation,
+                                Command::ShowTransaction { from: id },
+                                Some(window),
+                                cx,
+                            )
+                        });
+                    }),
+            );
         }
         let table_eligible = self
             .ws

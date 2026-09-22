@@ -6,6 +6,7 @@ pub mod history;
 pub mod loaded_tracks;
 pub mod source;
 pub mod synth;
+pub mod text;
 pub mod transactions;
 pub mod translator;
 pub mod value;

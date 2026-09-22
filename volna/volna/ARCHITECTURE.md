@@ -11,17 +11,18 @@ VDB layer. VDB attachment is not yet implemented.
 ```
 volna/volna-core      the viewer, no GUI toolkit (builds and tests on every platform)
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
-  src/document.rs        Document: open trace, shared navigation, markers, translators, loads
-  src/panels/            stable IDs, split/tab layout, focus, per-panel wave, pipeline and table models
+  src/document.rs        Document: open trace, shared navigation, markers, selection, translators, loads
+  src/panels/            stable IDs, split/tab layout, focus, per-panel wave, pipeline, table and transaction models
   src/nav/               Tween<T> animation, NavState (links, local viewport/cursor) of every timed panel
   src/pipeline/          RowView row axis, PipelineModel, PipelineLayout, stage palette, painter → Scene
-  src/table/             fixed sources/columns, exact row viewport, bounded preparation/details, painter → Scene
+  src/table/             fixed sources/columns, exact row viewport, bounded preparation, painter → Scene
+  src/transaction/       TxView of one record (pure, bounded), TransactionModel: history, pin, prefs
   src/workspace/         JSON codec, restore plans, save tickets, state.json and lifecycle
   src/settings/          registry, settings.json store (JSONC, surgical edits, diagnostics), search, schema
   src/session.rs         Session trait; OpenSpec; batched load requests/results
   src/data/fst_source.rs private fst-reader adapter and mutable reader ownership
   src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
-  src/data/              values, histories, translators, hierarchy
+  src/data/              values, histories, translators, hierarchy, bounded record text (text.rs)
   src/wave/              viewport math, timeline, WaveModel, WaveLayout, painter → Scene, shared overlay
   src/sidebar/           ScopeTreeModel, MemberListModel, semantic icons and row descriptions
   src/scene.rs           Scene display list, FontRole, TextMeasure, TextCache
@@ -101,9 +102,9 @@ animation ticks. Closing or replacing the panel drops an unfinished builder.
 `RowViewport` keeps the first row as `u64` and converts only the viewport-local
 remainder to pixels. Layout exposes vertical and horizontal tracks/thumbs and
 only intersecting columns. Preparation is capped at 256 rows (visible rows plus
-overscan), 256 bytes per value preview and eight attribute previews. Details
-and complete TSV copy are separate selected-row operations; details are
-superseded by identity and copy is refused above 64 KiB. The accessible GPUI
+overscan), 256 bytes per value preview and eight attribute previews. A
+selected generator row is the document selection (see the Transaction panel);
+complete TSV copy is refused above 64 KiB. The accessible GPUI
 projection contains only the recycled visible `ListBox`/`Option` rows.
 
 The session memory budget is common to remote and native owners. Native input
@@ -254,10 +255,16 @@ deltas pan both axes. Ctrl/⌘+wheel zooms only the time axis, with the same
 immediate pointer-anchored behavior as the wave panel; Shift+wheel pans time;
 pinch zooms both axes immediately;
 a left drag past three pixels pans both axes, a shorter press is a click.
-Keyboard actions are the wave panel's: `= -` zoom both axes, `F C Home End`
-and the arrows move time, `↑ ↓` scroll three rows, `M ⇧M` markers, `L ⇧L`
-links, Escape cancels a drag then the cursor. Row selection, formats and edge
-actions are no-ops.
+A click on a row or cell also makes that record the document selection (a
+click in the label column selects without moving the cursor; below the rows it
+clears the selection). Keyboard actions are the wave panel's: `= -` zoom both
+axes, `F C Home End` and the arrows move time, `↑ ↓` move the selection by one
+row and keep it visible (without one they scroll three rows), `⏎` shows the
+selection in a Transaction panel, `M ⇧M` markers, `L ⇧L` links, Escape cancels
+a drag, then clears the selection, then the cursor. Formats and edge actions
+are no-ops. The painter outlines the selected row and draws only its own
+relations as arrows (`tx_relation_in` into it, `tx_relation_out` out of it),
+from `LoadedGenerator::relations_of`, so the cost is that record's edges.
 
 Pipeline panels start with **Follow activity** enabled, independently of both
 navigation links. The effective visible cursor, or otherwise viewport center,
@@ -307,6 +314,49 @@ against the track catalog and keeps unresolved tracks as an empty state that
 is written back unchanged. The autosave stamp covers the same fields. GPUI
 hosts the panel in the same `PanelCanvas` element and dock view as waves;
 egui builds against the kind and paints whatever the core produces.
+
+## Transaction panel
+
+The selected record is the document's: `Document::selection()` holds one
+`TxSelection { track, id, origin }` where `track` is the record's generator.
+Pipeline clicks and arrow keys, table rows and the transaction panel's own
+jumps write it (`Command::SelectTransaction` for hosts and agents); every
+panel over that generator highlights it and the others do nothing. `App`
+hands a changed selection to every reader after the command that changed it.
+
+`PanelKind::Transaction(TransactionModel)` shows one record. The content is
+`transaction::view(doc, track, id, prefs) -> TxView`, a pure function of the
+resident generator: identity (stream › generator, row ordinal, id, `vtr.label`
+as the title, status word with the raw `TxStatus` name, span kind, parent),
+timing in the trace's time base (never a fabricated end for an open record),
+a lifeline of lane rows with cells as fractions of the lifetime in the
+pipeline's `StagePalette` colours, event ticks and the cursor, then the
+Attributes, Stages (grouped by lane, primary first, with shares and attribute
+chips), Events and Related sections. Related lists the parent, children in
+any resident generator (`LoadedGenerator::children`), and relations grouped
+by kind and direction; a target whose generator is not resident is marked
+not loaded. Every section states the recorded total and at most
+`transaction.detailItems` rows; all strings pass one 128 KiB ledger
+(`VIEW_BYTES`, reserved from the session budget when the panel opens).
+Integers render in a per-key radix the reader cycles; folded FTR phase
+suffixes (`addr.end`) become a phase tag. Formatting is shared with the table
+through `data::text`.
+
+The model keeps a history of shown records (Back/Forward, 64 entries), a pin
+that makes it ignore the selection, the reader's preferences (radix map,
+collapsed sections, filter) and one retained track: it retains the shown
+record's generator through `Document::retain_track` and releases the previous
+one, so it outlives the panel that selected the record, and a jump to an
+unloaded generator loads it through the ordinary `LoadRequest::Track`.
+`Command::ShowTransaction { from }` focuses the first unpinned transaction panel
+or opens one split right of `from`; `Command::RevealTransaction` scrolls the
+pipeline that has the record's row and fits its time axis, or opens the track
+as a pipeline. Workspace entries (`kind: "transaction"`, version 1) keep the
+radix map, the collapsed sections and, when pinned, the record's track path
+and id; an unpinned panel restores empty. The GPUI `TransactionPanelView`
+draws the prepared view with gpui-kit elements and forwards commands;
+volna-egui ignores the panel kind. The design is
+[docs/tx-detail.html](../../docs/tx-detail.html).
 
 ## Workspace persistence
 

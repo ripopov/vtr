@@ -122,9 +122,8 @@ an existing group when invoked on one of its rows; an unselected row becomes a
 single-row selection. This gives **Open in table** and **Remove signal** one
 shared selection rule without mixing navigation into the format control.
 
-Details are a separate superseding request, limited by `table.detailItems` and
-the panel byte reservation; closing the inspector or selecting another row
-invalidates the pending identity. Copy uses fixed standard fields rather than
+The table's selected-row inspector was replaced by the shared Transaction
+panel (see "Volna transaction panel"). Copy uses fixed standard fields rather than
 visible columns, refuses rows above 64 KiB before touching the host clipboard,
 and keeps the complete TSV in a selectable browser dialog with Retry when a web
 or VS Code host rejects the gesture. The GPUI layer owns controls, clipboard and
@@ -1258,3 +1257,34 @@ The release A/B method, current frame costs and raw samples are in
 [Volna verification](../volna/volna/VERIFICATION.md#performance-checks).
 Both baseline and candidate benchmarks require a canvas repaint on each timed
 keyboard frame; cached frames are not navigation measurements.
+
+## Volna transaction panel
+
+One `PanelKind::Transaction` serves every selecting panel instead of a
+details strip per panel ([docs/tx-detail.html](tx-detail.html)). The table's
+360 px strip and its `Details`/`DetailList`/`ToggleDetails`/`CloseDetails`
+types were removed rather than kept beside it: two owners of record
+presentation would diverge, neither could show a record from another track,
+and neither survived its panel. For signal tables the strip only repeated the
+selected row's cells, so nothing is lost there. `table.detailItems` became
+`transaction.detailItems` through the settings rename table.
+
+Selection moved to the document (`TxSelection`, keyed by the record's
+generator), following Perfetto's details panel; clearing it does not blank
+the panel, a rejected Perfetto behaviour, because a reader who clears a
+highlight has not finished reading. Pinning replaces a comparison feature.
+
+Children and per-record relations became owner-layer queries on
+`LoadedGenerator` (`children`, `relations_of`), built once with the other
+indexes and counted in `resident_bytes`, so neither the view nor the
+pipeline's arrows scan a generator. VTR records child→parent only, so a child
+is listed only when its generator is resident; the panel says what it knows
+rather than loading every track. Only the selected row's relations are drawn
+in the pipeline: Konata's arrows for every visible instruction are the wall of
+lines the prototype avoided. Attribute phases are not a VTR field; the folded
+`.end`/`.record` key suffix of `docs/COVERAGE.md` is shown as a tag.
+
+Not implemented from the proposal: the MCP wrappers (no MCP adapter exists
+yet), hover highlighting of a stage across the lifeline and the pipeline, and
+a context-menu entry; the GPUI lifeline is laid out with elements from the
+core's fractions rather than painted into a `Scene`.

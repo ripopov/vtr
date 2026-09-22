@@ -9,7 +9,8 @@ use super::columns::{ColumnSet, TransactionColumn};
 use super::layout::{MAX_PREPARED_ROWS, ROW_HEIGHT, RowViewport, TableLayout};
 use super::source::TableSource;
 use crate::data::loaded_tracks::LoadedGenerator;
-use crate::data::transactions::{AttributeValue, Transaction, TransactionRef};
+use crate::data::text::{append_exact, format_attribute, push_limited, truncate, truncate_ref};
+use crate::data::transactions::{Transaction, TransactionRef};
 use crate::data::value_view::ValueView;
 use crate::data::{SignalHistory, SignalRef};
 use crate::document::{Document, TrackLoadState};
@@ -19,9 +20,9 @@ use crate::remote::memory::{MemoryBudget, Reservation};
 use crate::theme::Theme;
 use crate::wave::model::PointerEvent;
 
+pub use crate::data::text::{COPY_BYTES, PREVIEW_BYTES};
+
 pub const PANEL_BYTES: u64 = 4 * 1024 * 1024;
-pub const COPY_BYTES: usize = 64 * 1024;
-pub const PREVIEW_BYTES: usize = 256;
 pub const PREVIEW_ATTRIBUTES: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,27 +60,6 @@ pub struct AccessibleRow {
     pub label: String,
     pub selected: bool,
     pub bounds: Rect,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DetailRow {
-    pub name: String,
-    pub value: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DetailList {
-    pub title: String,
-    pub total: usize,
-    pub rows: Vec<DetailRow>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Details {
-    pub identity: String,
-    pub fields: Vec<DetailRow>,
-    pub lists: Vec<DetailList>,
-    pub truncated_bytes: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,8 +110,7 @@ pub enum TableCommand {
     ToggleTransactionColumn(TransactionColumn),
     ToggleSignalColumn(usize),
     ResetColumns,
-    ToggleDetails,
-    CloseDetails,
+    ClearSelection,
     Cancel,
     Retry,
 }
@@ -144,10 +123,6 @@ pub struct TableModel {
     pub selected: Option<RowIdentity>,
     pub nav: NavState,
     pub window: PreparedWindow,
-    pub details_open: bool,
-    pub details: Option<Details>,
-    details_pending: Option<RowIdentity>,
-    pub detail_items: usize,
     pub horizontal: f32,
     pub layout: TableLayout,
     pub request: u64,
@@ -161,7 +136,7 @@ pub struct TableModel {
 }
 
 impl TableModel {
-    pub fn new(source: TableSource, link: Link, budget: MemoryBudget, detail_items: usize) -> Self {
+    pub fn new(source: TableSource, link: Link, budget: MemoryBudget) -> Self {
         let columns = match &source {
             TableSource::Generator(_) => ColumnSet::transactions_default(),
             TableSource::Signals(signals) => ColumnSet::signals(signals.len()),
@@ -183,10 +158,6 @@ impl TableModel {
             selected: None,
             nav,
             window: PreparedWindow::default(),
-            details_open: false,
-            details: None,
-            details_pending: None,
-            detail_items: detail_items.clamp(1, 1000),
             horizontal: 0.0,
             layout: TableLayout::default(),
             request: 0,
@@ -204,12 +175,7 @@ impl TableModel {
     /// document again when the split is installed; viewport and selection
     /// intentionally reopen at row one.
     pub fn clone_view(&self) -> Self {
-        let mut clone = Self::new(
-            self.source.clone(),
-            self.nav.link,
-            self.budget.clone(),
-            self.detail_items,
-        );
+        let mut clone = Self::new(self.source.clone(), self.nav.link, self.budget.clone());
         clone.columns = self.columns.clone();
         clone
     }
@@ -269,8 +235,6 @@ impl TableModel {
         self.axis_build = None;
         self.signal_results.clear();
         self.window = PreparedWindow::default();
-        self.details = None;
-        self.details_pending = None;
         self.request = self.request.wrapping_add(1);
     }
 
@@ -494,14 +458,7 @@ impl TableModel {
     /// animation tick, so wasm and native never merge an unbounded axis in one
     /// UI task; dropping the panel drops the builder and its reservation.
     pub fn tick(&mut self, now: Instant) -> bool {
-        let mut changed = self.nav.tick(now);
-        if let Some(identity) = self.details_pending.take()
-            && self.details_open
-            && self.selected.as_ref() == Some(&identity)
-        {
-            self.details = self.build_details();
-            changed = true;
-        }
+        let changed = self.nav.tick(now);
         if self.axis_build.is_none() {
             return changed;
         }
@@ -525,7 +482,7 @@ impl TableModel {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.axis_build.is_some() || self.details_pending.is_some() || self.nav.is_animating()
+        self.axis_build.is_some() || self.nav.is_animating()
     }
 
     fn invalidate_window(&mut self) {
@@ -609,10 +566,26 @@ impl TableModel {
             .and_then(|identity| self.ordinal_of(identity))
     }
 
-    pub fn select(&mut self, doc: &mut Document, ordinal: u64, now: Instant) -> bool {
+    pub fn select(
+        &mut self,
+        doc: &mut Document,
+        panel: crate::panels::PanelId,
+        ordinal: u64,
+        now: Instant,
+    ) -> bool {
         let Some((identity, time)) = self.identity_and_time(ordinal) else {
             return false;
         };
+        // A selected record is the document's, so every panel over the same
+        // generator highlights it and the transaction panel shows it.
+        if let (RowIdentity::Transaction(id), Rows::Generator(generator)) = (&identity, &self.rows)
+        {
+            doc.select(Some(crate::document::TxSelection {
+                track: generator.generator(),
+                id: *id,
+                origin: panel,
+            }));
+        }
         self.selected = Some(identity);
         self.viewport.reveal(
             ordinal,
@@ -622,10 +595,25 @@ impl TableModel {
         );
         self.nav.set_cursor(doc, Some(time));
         self.nav.reveal_cursor(doc, now);
-        if self.details_open {
-            self.request_details();
-        }
         true
+    }
+
+    /// Adopt the document selection when it names a record of this table.
+    /// Returns whether the highlighted row changed.
+    pub fn follow_selection(&mut self, doc: &Document) -> bool {
+        let Rows::Generator(generator) = &self.rows else {
+            return false;
+        };
+        let wanted = match doc.selection() {
+            Some(selection) if selection.track == generator.generator() => {
+                Some(RowIdentity::Transaction(selection.id))
+            }
+            Some(_) => return false,
+            None => None,
+        };
+        let changed = self.selected != wanted;
+        self.selected = wanted;
+        changed
     }
 
     fn identity_and_time(&self, ordinal: u64) -> Option<(RowIdentity, u64)> {
@@ -643,7 +631,13 @@ impl TableModel {
         }
     }
 
-    pub fn command(&mut self, doc: &mut Document, command: TableCommand, now: Instant) -> bool {
+    pub fn command(
+        &mut self,
+        doc: &mut Document,
+        panel: crate::panels::PanelId,
+        command: TableCommand,
+        now: Instant,
+    ) -> bool {
         match command {
             TableCommand::Scroll(pixels) => {
                 self.viewport.scroll(
@@ -655,22 +649,24 @@ impl TableModel {
                 self.prepare_visible();
                 true
             }
-            TableCommand::Select(row) | TableCommand::GoTo(row) => self.select(doc, row, now),
-            TableCommand::First => self.select(doc, 0, now),
+            TableCommand::Select(row) | TableCommand::GoTo(row) => {
+                self.select(doc, panel, row, now)
+            }
+            TableCommand::First => self.select(doc, panel, 0, now),
             TableCommand::Last => self
                 .len()
                 .checked_sub(1)
-                .is_some_and(|row| self.select(doc, row, now)),
+                .is_some_and(|row| self.select(doc, panel, row, now)),
             TableCommand::Previous => self
                 .selected_ordinal()
                 .and_then(|r| r.checked_sub(1))
-                .is_some_and(|r| self.select(doc, r, now)),
+                .is_some_and(|r| self.select(doc, panel, r, now)),
             TableCommand::Next => self
                 .selected_ordinal()
                 .unwrap_or(0)
                 .checked_add(1)
                 .filter(|&r| r < self.len())
-                .is_some_and(|r| self.select(doc, r, now)),
+                .is_some_and(|r| self.select(doc, panel, r, now)),
             TableCommand::Page(direction) => {
                 let page = RowViewport::visible_rows(
                     self.layout.body.height(),
@@ -685,7 +681,7 @@ impl TableModel {
                         .saturating_add(page)
                         .min(self.len().saturating_sub(1))
                 };
-                self.select(doc, target, now)
+                self.select(doc, panel, target, now)
             }
             TableCommand::ToggleTransactionColumn(column) => {
                 let changed = self.columns.toggle_transaction(column);
@@ -722,21 +718,12 @@ impl TableModel {
                 self.invalidate_window();
                 true
             }
-            TableCommand::ToggleDetails => {
-                self.details_open = !self.details_open;
-                if self.details_open {
-                    self.request_details();
-                } else {
-                    self.details = None;
-                    self.details_pending = None;
+            TableCommand::ClearSelection => {
+                let changed = self.selected.take().is_some();
+                if changed && doc.selection().is_some_and(|s| s.origin == panel) {
+                    doc.select(None);
                 }
-                true
-            }
-            TableCommand::CloseDetails => {
-                self.details_open = false;
-                self.details = None;
-                self.details_pending = None;
-                true
+                changed
             }
             TableCommand::Cancel => {
                 self.detach(doc);
@@ -793,7 +780,13 @@ impl TableModel {
         }
     }
 
-    pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent, now: Instant) -> bool {
+    pub fn pointer(
+        &mut self,
+        doc: &mut Document,
+        panel: crate::panels::PanelId,
+        event: PointerEvent,
+        now: Instant,
+    ) -> bool {
         match event {
             PointerEvent::Down {
                 position,
@@ -832,7 +825,7 @@ impl TableModel {
                 let y = position.y - self.layout.body.top();
                 self.viewport
                     .row_at(y, self.len(), self.layout.row_height)
-                    .is_some_and(|row| self.select(doc, row, now))
+                    .is_some_and(|row| self.select(doc, panel, row, now))
             }
             PointerEvent::Wheel { dx, dy, .. } => {
                 self.horizontal = (self.horizontal + dx).max(0.0);
@@ -1249,205 +1242,6 @@ impl TableModel {
         }
         Ok(text)
     }
-
-    pub fn set_detail_items(&mut self, value: usize) {
-        self.detail_items = value.clamp(1, 1000);
-        if self.details_open {
-            self.request_details();
-        }
-    }
-
-    fn request_details(&mut self) {
-        self.details = None;
-        self.details_pending = self.selected.clone();
-    }
-
-    fn build_details(&self) -> Option<Details> {
-        let ordinal = self.selected_ordinal()?;
-        let index = usize::try_from(ordinal).ok()?;
-        match (&self.rows, &self.source) {
-            (Rows::Generator(generator), TableSource::Generator(source)) => {
-                let tx = generator.transactions().get(index)?;
-                let mut remaining = (PANEL_BYTES as usize).saturating_sub(self.window.bytes);
-                let mut truncated_bytes = false;
-                let fields = vec![
-                    DetailRow {
-                        name: "Generator".into(),
-                        value: join_path_limited(source.path(), remaining, &mut truncated_bytes),
-                    },
-                    DetailRow {
-                        name: "ID".into(),
-                        value: tx.id.0.to_string(),
-                    },
-                    DetailRow {
-                        name: "Begin".into(),
-                        value: tx.begin.to_string(),
-                    },
-                    DetailRow {
-                        name: "End".into(),
-                        value: tx.end.to_string(),
-                    },
-                    DetailRow {
-                        name: "Duration".into(),
-                        value: tx.end.saturating_sub(tx.begin).to_string(),
-                    },
-                    DetailRow {
-                        name: "Status".into(),
-                        value: tx.status.name().into(),
-                    },
-                    DetailRow {
-                        name: "Kind".into(),
-                        value: format!("{:?}", tx.kind),
-                    },
-                    DetailRow {
-                        name: "Parent".into(),
-                        value: tx.parent.map_or_else(|| "—".into(), |p| p.0.to_string()),
-                    },
-                ];
-                for field in &fields {
-                    remaining = remaining.saturating_sub(field.name.len() + field.value.len());
-                }
-                let limit = self.detail_items;
-                let mut attribute_rows = Vec::new();
-                for attribute in tx.attributes.iter().take(limit) {
-                    if remaining == 0 {
-                        truncated_bytes = true;
-                        break;
-                    }
-                    let name = truncate_ref(&attribute.key, remaining.min(PREVIEW_BYTES));
-                    remaining = remaining.saturating_sub(name.len());
-                    let value = format_attribute(&attribute.value, remaining);
-                    truncated_bytes |= attribute_value_min_bytes(&attribute.value) > value.len();
-                    remaining = remaining.saturating_sub(value.len());
-                    attribute_rows.push(DetailRow { name, value });
-                }
-                let attributes = DetailList {
-                    title: "Attributes".into(),
-                    total: tx.attributes.len(),
-                    rows: attribute_rows,
-                };
-                let mut event_rows = Vec::new();
-                for event in tx.events.iter().take(limit) {
-                    if remaining == 0 {
-                        truncated_bytes = true;
-                        break;
-                    }
-                    let name = truncate_ref(
-                        &format!(
-                            "{} @{}",
-                            truncate_ref(&event.name, PREVIEW_BYTES),
-                            event.time
-                        ),
-                        remaining.min(PREVIEW_BYTES),
-                    );
-                    remaining = remaining.saturating_sub(name.len());
-                    let (value, cut) = format_attributes(&event.attributes, remaining);
-                    truncated_bytes |= cut;
-                    remaining = remaining.saturating_sub(value.len());
-                    event_rows.push(DetailRow { name, value });
-                }
-                let events = DetailList {
-                    title: "Events".into(),
-                    total: tx.events.len(),
-                    rows: event_rows,
-                };
-                let mut stage_rows = Vec::new();
-                for stage in tx.stages.iter().take(limit) {
-                    if remaining == 0 {
-                        truncated_bytes = true;
-                        break;
-                    }
-                    let name = truncate_ref(
-                        &format!(
-                            "{} · lane {}",
-                            truncate_ref(&stage.name, PREVIEW_BYTES / 2),
-                            truncate_ref(&stage.lane, PREVIEW_BYTES / 2)
-                        ),
-                        remaining.min(PREVIEW_BYTES),
-                    );
-                    remaining = remaining.saturating_sub(name.len());
-                    let prefix = format!(
-                        "{}–{}",
-                        stage.begin,
-                        stage
-                            .end
-                            .map_or_else(|| "open".into(), |value| value.to_string())
-                    );
-                    let (attrs, cut) = format_attributes(
-                        &stage.attributes,
-                        remaining.saturating_sub(prefix.len() + 3),
-                    );
-                    truncated_bytes |= cut;
-                    let value = truncate(format!("{prefix} · {attrs}"), remaining);
-                    remaining = remaining.saturating_sub(value.len());
-                    stage_rows.push(DetailRow { name, value });
-                }
-                let stages = DetailList {
-                    title: "Stages".into(),
-                    total: tx.stages.len(),
-                    rows: stage_rows,
-                };
-                let identity = format!(
-                    "{} · ID {}",
-                    join_path_limited(source.path(), 240, &mut truncated_bytes),
-                    tx.id.0
-                );
-                Some(Details {
-                    identity,
-                    fields,
-                    lists: vec![attributes, events, stages],
-                    truncated_bytes,
-                })
-            }
-            (Rows::Signals { histories, .. }, TableSource::Signals(signals)) => {
-                let time = self.row_time(ordinal)?;
-                let mut remaining = (PANEL_BYTES as usize).saturating_sub(self.window.bytes);
-                let mut truncated_bytes = false;
-                let mut rows = Vec::new();
-                for (source, history) in signals.iter().zip(histories).take(self.detail_items) {
-                    if remaining == 0 {
-                        truncated_bytes = true;
-                        break;
-                    }
-                    let name = truncate_ref(&source.name, remaining.min(PREVIEW_BYTES));
-                    truncated_bytes |= name.len() < source.name.len();
-                    remaining = remaining.saturating_sub(name.len());
-                    let sample = history.index_at(time);
-                    let changed = sample.is_some_and(|i| history.time(i) == time);
-                    let state = if sample.is_none() {
-                        " · no recorded value"
-                    } else if changed {
-                        " · changed here"
-                    } else {
-                        " · held from an earlier change"
-                    };
-                    let (mut value, cut) = if sample.is_none() {
-                        ("—".into(), false)
-                    } else {
-                        bounded_view(
-                            history.value_view(sample),
-                            remaining.saturating_sub(state.len()),
-                        )
-                    };
-                    truncated_bytes |= cut;
-                    push_limited(&mut value, state, remaining);
-                    remaining = remaining.saturating_sub(value.len());
-                    rows.push(DetailRow { name, value });
-                }
-                Some(Details {
-                    identity: format!("{} signals · @{time}", signals.len()),
-                    fields: vec![],
-                    lists: vec![DetailList {
-                        title: "Signal values".into(),
-                        total: signals.len(),
-                        rows,
-                    }],
-                    truncated_bytes,
-                })
-            }
-            _ => None,
-        }
-    }
 }
 
 fn transaction_cell(tx: &Transaction, column: TransactionColumn) -> String {
@@ -1543,132 +1337,6 @@ fn bounded_view(value: ValueView<'_>, limit: usize) -> (String, bool) {
     }
 }
 
-fn format_attribute(value: &AttributeValue, limit: usize) -> String {
-    let text = match value {
-        AttributeValue::Null => "null".into(),
-        AttributeValue::Bool(v) => v.to_string(),
-        AttributeValue::I64(v) => v.to_string(),
-        AttributeValue::U64(v) | AttributeValue::Time(v) | AttributeValue::Pointer(v) => {
-            v.to_string()
-        }
-        AttributeValue::F64(v) => v.to_string(),
-        AttributeValue::Text(v) => return truncate_ref(v, limit),
-        AttributeValue::Bytes(v) => format!("{} bytes", v.len()),
-        AttributeValue::Logic { width, states, .. } => format!("logic[{width}]/{states}-state"),
-        AttributeValue::Enum { value, name } => format!("{name} ({value})"),
-        AttributeValue::Fixed { raw, scale } => format!("{raw}e{scale}"),
-        AttributeValue::UFixed { raw, scale } => format!("{raw}e{scale}"),
-        AttributeValue::List(values) => format!("list[{}]", values.len()),
-        AttributeValue::Map(values) => format!("map[{}]", values.len()),
-    };
-    truncate(text, limit)
-}
-
-fn attribute_value_min_bytes(value: &AttributeValue) -> usize {
-    match value {
-        AttributeValue::Text(value) => value.len(),
-        _ => 0,
-    }
-}
-
-fn format_attributes(attributes: &[(String, AttributeValue)], limit: usize) -> (String, bool) {
-    if attributes.is_empty() {
-        return ("no attributes".into(), false);
-    }
-    let mut out = String::new();
-    let mut cut = false;
-    for (index, (key, value)) in attributes.iter().enumerate() {
-        if index > 0 {
-            push_limited(&mut out, " · ", limit);
-        }
-        let before = out.len();
-        push_limited(&mut out, key, limit);
-        cut |= out.len().saturating_sub(before) < key.len();
-        push_limited(&mut out, "=", limit);
-        let remaining = limit.saturating_sub(out.len());
-        let formatted = format_attribute(value, remaining);
-        cut |= attribute_value_min_bytes(value) > formatted.len();
-        push_limited(&mut out, &formatted, limit);
-        if out.len() >= limit {
-            cut |= index + 1 < attributes.len();
-            break;
-        }
-    }
-    (out, cut)
-}
-
-fn join_path_limited(path: &[String], limit: usize, truncated: &mut bool) -> String {
-    let mut out = String::new();
-    for (index, part) in path.iter().enumerate() {
-        if index > 0 {
-            push_limited(&mut out, ".", limit);
-        }
-        let before = out.len();
-        push_limited(&mut out, part, limit);
-        if out.len() - before < part.len() {
-            *truncated = true;
-            break;
-        }
-    }
-    out
-}
-
-fn truncate(mut text: String, limit: usize) -> String {
-    if text.len() <= limit {
-        return text;
-    }
-    let suffix = "…";
-    let mut end = limit.saturating_sub(suffix.len()).min(text.len());
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text.truncate(end);
-    text.push_str(suffix);
-    text
-}
-
-fn truncate_ref(text: &str, limit: usize) -> String {
-    if text.len() <= limit {
-        return text.to_owned();
-    }
-    let suffix = "…";
-    let mut end = limit.saturating_sub(suffix.len()).min(text.len());
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    let mut out = String::with_capacity(end + suffix.len());
-    out.push_str(&text[..end]);
-    out.push_str(suffix);
-    out
-}
-
-fn push_limited(out: &mut String, value: &str, limit: usize) {
-    if out.len() >= limit {
-        return;
-    }
-    let room = limit - out.len();
-    if value.len() <= room {
-        out.push_str(value);
-        return;
-    }
-    let mut end = room;
-    while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    out.push_str(&value[..end]);
-}
-
-fn append_exact(out: &mut String, value: &str, limit: usize) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        out.len()
-            .checked_add(value.len())
-            .is_some_and(|size| size <= limit),
-        "Row exceeds the 64 KiB clipboard limit."
-    );
-    out.push_str(value);
-    Ok(())
-}
-
 /// Convert a normalized scrollbar coordinate to an exact row using integer
 /// arithmetic. Floating point only quantizes the finite pixel input; it never
 /// represents the possibly full-width `u64` logical row count.
@@ -1687,7 +1355,7 @@ fn normalized_u64(offset: f32, track: f32, maximum: u64) -> u64 {
 mod tests {
     use super::*;
     use crate::data::history::VecHistory;
-    use crate::data::transactions::{TransactionAttribute, TxKind, TxStatus};
+    use crate::data::transactions::{AttributeValue, TransactionAttribute, TxKind, TxStatus};
     use crate::data::{SignalShape, WaveValue};
     use crate::pipeline::TrackSource;
     use crate::table::SignalSource;
@@ -1719,7 +1387,6 @@ mod tests {
             TableSource::Signals(vec![signal_source("a", 1), signal_source("b", 2)]),
             Link::default(),
             budget,
-            20,
         )
     }
 
@@ -1750,7 +1417,6 @@ mod tests {
             TableSource::Signals(vec![signal_source("a", 1)]),
             Link::default(),
             budget.clone(),
-            20,
         );
         model
             .build_signal_rows(vec![history(&[2, 8], &["0", "1"])])
@@ -1793,7 +1459,12 @@ mod tests {
         assert!(budget.used() > PANEL_BYTES);
 
         model.attached = true;
-        assert!(model.command(&mut Document::new(), TableCommand::Cancel, Instant::now()));
+        assert!(model.command(
+            &mut Document::new(),
+            crate::panels::PanelId(1),
+            TableCommand::Cancel,
+            Instant::now(),
+        ));
         assert!(model.axis_build.is_none());
         assert_eq!(budget.used(), PANEL_BYTES);
     }
@@ -1808,7 +1479,6 @@ mod tests {
             TableSource::Signals(sources),
             Link::default(),
             MemoryBudget::new(16 * 1024 * 1024),
-            20,
         );
         model.build_signal_rows(histories).unwrap();
         model.state = TableState::Ready;
@@ -1876,7 +1546,6 @@ mod tests {
             TableSource::Signals(vec![signal_source("wide", 1)]),
             Link::default(),
             MemoryBudget::new(16 * 1024 * 1024),
-            20,
         );
         model
             .build_signal_rows(vec![Arc::new(BorrowOnly {
@@ -1935,7 +1604,6 @@ mod tests {
             }),
             Link::default(),
             MemoryBudget::new(16 * 1024 * 1024),
-            20,
         );
         model.rows = Rows::Generator(generator);
         model.state = TableState::Ready;
@@ -1949,9 +1617,6 @@ mod tests {
             model.copy_tsv().unwrap(),
             "Generator\tID\tBegin\tEnd\tDuration\tStatus\nsoc.request\t900\t3600\t3608\t8\tok"
         );
-        let details = model.build_details().unwrap();
-        assert_eq!(details.identity, "soc.request · ID 900");
-        assert_eq!(details.lists[0].total, 2);
     }
 
     #[test]
@@ -1983,7 +1648,6 @@ mod tests {
             TableSource::Signals(vec![signal_source("a", 1)]),
             Link::default(),
             budget.clone(),
-            20,
         );
         assert!(matches!(model.state, TableState::Refused(_)));
         drop(blocker);

@@ -114,6 +114,10 @@ pub struct Theme<C = Color> {
     pub wave_cursor: C,
     pub wave_cursor_inactive: C,
     pub wave_cursor_text: C,
+    /// Relation arrows drawn for the selected pipeline row: edges that end
+    /// at it, and edges that start from it.
+    pub tx_relation_in: C,
+    pub tx_relation_out: C,
     pub markers: [MarkerColors<C>; 6],
 
     // Typography (font families are the bundled faces, see `icons::FONTS`)
@@ -218,6 +222,8 @@ impl<C: Copy> Theme<C> {
             wave_cursor: f(self.wave_cursor),
             wave_cursor_inactive: f(self.wave_cursor_inactive),
             wave_cursor_text: f(self.wave_cursor_text),
+            tx_relation_in: f(self.tx_relation_in),
+            tx_relation_out: f(self.tx_relation_out),
             markers: self.markers.map(|m| m.map(f)),
             ui_font: self.ui_font,
             mono_font: self.mono_font,
@@ -333,6 +339,8 @@ impl Theme<Color> {
             wave_cursor: c(0x74ade8),
             wave_cursor_inactive: c(0x74ade8).with_alpha(0.45),
             wave_cursor_text: c(0x282c33),
+            tx_relation_in: c(0x74ade8),
+            tx_relation_out: c(0x5ec9b0),
             markers: [0xbf956a, 0xb477cf, 0x6eb4bf, 0xd07277, 0xdec184, 0xa1c181].map(|hex| {
                 MarkerColors {
                     stroke: c(hex),
@@ -485,6 +493,8 @@ impl Theme<Color> {
         t.wave_cursor = stroke(opaque(p.cursor, accent), &backgrounds);
         t.wave_cursor_inactive = t.wave_cursor.with_alpha(0.45);
         t.wave_cursor_text = fallback_text(t.editor.text, t.wave_cursor);
+        t.tx_relation_in = stroke(charts[3], &backgrounds);
+        t.tx_relation_out = stroke(charts[0], &backgrounds);
         t.markers = [4, 5, 3, 1, 2, 0].map(|i| MarkerColors {
             stroke: stroke(charts[i], &backgrounds),
             background: charts[i],

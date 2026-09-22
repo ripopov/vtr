@@ -27,6 +27,19 @@ const LABEL_MIN_PX: f32 = 7.0;
 /// Dash length of an open transaction's trailing edge.
 const DASH_PX: f32 = 3.0;
 
+/// The two short segments of an arrow head at the `to` end of a segment.
+fn arrow_head(from: Point, to: Point, size: f32) -> [[Point; 2]; 2] {
+    let (dx, dy) = (to.x - from.x, to.y - from.y);
+    let length = dx.hypot(dy).max(f32::EPSILON);
+    let (ux, uy) = (dx / length, dy / length);
+    let base = point(to.x - ux * size, to.y - uy * size);
+    let half = size * 0.45;
+    [
+        [to, point(base.x - uy * half, base.y + ux * half)],
+        [to, point(base.x + uy * half, base.y - ux * half)],
+    ]
+}
+
 /// Paint `model` using the layout from its last [`PipelineModel::layout`] call.
 pub fn paint(
     model: &PipelineModel,
@@ -75,6 +88,7 @@ pub fn paint(
         Some(Hit::Row(row) | Hit::Cell { row, .. }) => Some(row),
         _ => None,
     };
+    let selected_row = model.selected_row(doc);
     match &rows {
         Rows::Ready(set) if !set.is_empty() => {
             let row_px = layout.rows.row_px;
@@ -219,6 +233,55 @@ pub fn paint(
                 scene.lines(open_edges, text_color_default, 1.0);
             });
 
+            // -- the selection: an outline, and its relations as arrows ----------
+            if let Some(row) = selected_row {
+                let y = layout.row_y(row);
+                let rect = Rect::new(point(cells.left(), y), size(cells.width(), row_px));
+                let focus = t.border_focused;
+                let (into, out) = (t.tx_relation_in, t.tx_relation_out);
+                let selection = doc.selection();
+                p.scene.clipped(cells, |scene| {
+                    scene.quad(rect, Color::TRANSPARENT, 0.0, 1.0, focus);
+                    // Arrows for one row are a fact about that row; arrows for
+                    // every row would be a wall of lines.
+                    let Some(selection) = selection else { return };
+                    let Some(generator) = doc.resident_generator(selection.track) else {
+                        return;
+                    };
+                    let center = |r: usize| layout.row_y(r) + row_px * 0.5;
+                    let anchor = |r: usize, time: u64| point(x_of(time), center(r));
+                    let here = anchor(row, set.get(row).map_or(0, |(_, tx)| tx.begin));
+                    let mut incoming = Vec::new();
+                    let mut outgoing = Vec::new();
+                    for edge in generator.relations_of(selection.id) {
+                        let forward = edge.relation.from == selection.id
+                            && edge.from_generator == selection.track;
+                        let (other, other_generator) = if forward {
+                            (edge.relation.to, edge.to_generator)
+                        } else {
+                            (edge.relation.from, edge.from_generator)
+                        };
+                        let Some(other_row) = set.row_of(other_generator, other) else {
+                            continue;
+                        };
+                        let Some((_, tx)) = set.get(other_row) else {
+                            continue;
+                        };
+                        let far = anchor(other_row, tx.begin);
+                        let (from, to) = if forward { (here, far) } else { (far, here) };
+                        let target = if forward {
+                            &mut outgoing
+                        } else {
+                            &mut incoming
+                        };
+                        target.push([from, to]);
+                        target.extend(arrow_head(from, to, z(5.0)));
+                    }
+                    scene.lines(incoming, into, 1.0);
+                    scene.lines(outgoing, out, 1.0);
+                });
+            }
+
             // -- label column ---------------------------------------------------------
             let label_font = (row_px * 0.62).clamp(z(7.0), t.mono_size);
             let digits = set.len().max(1).to_string().len();
@@ -235,6 +298,12 @@ pub fn paint(
                         fills.push((
                             Rect::new(point(labels.left(), y), size(labels.width(), row_px)),
                             t.hover.bg,
+                        ));
+                    }
+                    if selected_row == Some(r) {
+                        fills.push((
+                            Rect::new(point(labels.left(), y), size(labels.width(), row_px)),
+                            t.wave_row_selected,
                         ));
                     }
                     let index = r.to_string();

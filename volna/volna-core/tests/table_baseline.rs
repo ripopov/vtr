@@ -83,22 +83,25 @@ fn generator_table_loads_selects_follows_copies_and_keeps_bounded_rows() {
             .starts_with("Generator\tID\tBegin\tEnd\tDuration\tStatus\n")
     );
 
-    app.handle(Command::Table(panel, TableCommand::ToggleDetails));
-    assert!(app.tick(Instant::now()));
+    // Selecting a row is a document-wide selection, not a private strip.
+    let selection = app.doc.selection().expect("the row is the selection");
+    assert_eq!(selection.origin, panel);
+    assert_eq!(
+        Some(volna_core::table::RowIdentity::Transaction(selection.id)),
+        app.panels
+            .get(panel)
+            .unwrap()
+            .kind
+            .table()
+            .unwrap()
+            .selected
+    );
     app.handle(Command::Table(
         panel,
         TableCommand::ToggleTransactionColumn(TransactionColumn::Id),
     ));
     frame(&mut app, panel);
     let table = app.panels.get(panel).unwrap().kind.table().unwrap();
-    assert!(table.details.as_ref().is_some_and(|details| {
-        details
-            .lists
-            .iter()
-            .map(|list| list.title.as_str())
-            .collect::<Vec<_>>()
-            == ["Attributes", "Events", "Stages"]
-    }));
     assert!(
         table.accessible_rows().count() <= volna_core::table::layout::MAX_PREPARED_ROWS as usize
     );

@@ -12,11 +12,12 @@ use super::palette::StagePalette;
 use super::rows::RowView;
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::{
-    AttributeValue, TrackRef, Transaction, TransactionStage, TxStatus,
+    AttributeValue, TrackRef, Transaction, TransactionRef, TransactionStage, TxStatus,
 };
-use crate::document::{Document, TrackLoadState};
+use crate::document::{Document, TrackLoadState, TxSelection};
 use crate::geometry::{Modifiers, MouseButton, Point};
 use crate::nav::{Link, NavState, Tween};
+use crate::panels::PanelId;
 use crate::theme::Theme;
 use crate::wave::model::PointerEvent;
 
@@ -118,6 +119,15 @@ impl<'a> RowSet<'a> {
 
     pub fn generators(&self) -> &'a [Arc<LoadedGenerator>] {
         self.generators
+    }
+
+    /// The row of one record, when this track holds its generator.
+    pub fn row_of(&self, generator: TrackRef, id: TransactionRef) -> Option<usize> {
+        let g = self
+            .generators
+            .iter()
+            .position(|c| c.generator() == generator)?;
+        Some(self.starts[g] + self.generators[g].transaction_ordinal(id)?)
     }
 
     /// Row `row` as its generator index and record.
@@ -294,6 +304,126 @@ impl PipelineModel {
         } else {
             self.frame_ms_avg * 0.9 + ms * 0.1
         };
+    }
+
+    // -- selection ---------------------------------------------------------------
+
+    /// The row of the document's selected record, when this panel shows it.
+    pub fn selected_row(&self, doc: &Document) -> Option<usize> {
+        let selection = doc.selection()?;
+        let Rows::Ready(set) = self.rows(doc) else {
+            return None;
+        };
+        set.row_of(selection.track, selection.id)
+    }
+
+    /// Make row `row` the document selection. Returns whether it changed.
+    pub fn select_row(&mut self, doc: &mut Document, panel: PanelId, row: usize) -> bool {
+        let selection = {
+            let Rows::Ready(set) = self.rows(doc) else {
+                return false;
+            };
+            let Some((_, tx)) = set.get(row) else {
+                return false;
+            };
+            TxSelection {
+                track: tx.generator,
+                id: tx.id,
+                origin: panel,
+            }
+        };
+        doc.select(Some(selection))
+    }
+
+    /// ↑ ↓ with a selection: move it by one row and keep it visible. Without
+    /// one, the rows scroll, as they always have.
+    pub fn move_selection(
+        &mut self,
+        doc: &mut Document,
+        panel: PanelId,
+        delta: isize,
+        now: Instant,
+    ) {
+        let Some(row) = self.selected_row(doc) else {
+            self.scroll_rows(doc, delta as f64 * SCROLL_ROWS, now);
+            return;
+        };
+        let count = self.row_count(doc);
+        let next = row
+            .saturating_add_signed(delta)
+            .min(count.saturating_sub(1));
+        if !self.select_row(doc, panel, next) {
+            return;
+        }
+        self.reveal_row(doc, next);
+    }
+
+    /// Scroll to the record's row and fit the time axis to its lifetime.
+    /// Returns whether the panel shows the record at all.
+    pub fn reveal_record(
+        &mut self,
+        doc: &mut Document,
+        track: TrackRef,
+        id: TransactionRef,
+        now: Instant,
+    ) -> bool {
+        let Some((row, begin, end)) = ({
+            let Rows::Ready(set) = self.rows(doc) else {
+                return false;
+            };
+            set.row_of(track, id).and_then(|row| {
+                let (_, tx) = set.get(row)?;
+                Some((row, tx.begin, tx.end))
+            })
+        }) else {
+            return false;
+        };
+        self.suspend_follow();
+        self.center_row(doc, row);
+        let pad = ((end.saturating_sub(begin)) as f64 * 0.05).max(1.0);
+        self.nav.animate_to(
+            doc,
+            crate::wave::viewport::Viewport {
+                start: begin as f64 - pad,
+                end: end as f64 + pad,
+            },
+            now,
+        );
+        true
+    }
+
+    /// Put `row` in the middle of the cells area.
+    fn center_row(&mut self, doc: &Document, row: usize) {
+        let zoom = self.layout.zoom.max(f32::EPSILON);
+        let height = self.layout.cells.height();
+        if height <= 0.0 {
+            return;
+        }
+        let mut rows = self.rows.target().zoomed(zoom);
+        rows.top = row as f64 + 0.5 - f64::from(height / rows.row_px) * 0.5;
+        rows.clamp(height, self.row_count(doc), zoom);
+        self.rows.set(rows.unzoomed(zoom));
+    }
+
+    /// Scroll only far enough to bring `row` back inside the cells area.
+    fn reveal_row(&mut self, doc: &Document, row: usize) {
+        let zoom = self.layout.zoom.max(f32::EPSILON);
+        let height = self.layout.cells.height();
+        if height <= 0.0 {
+            return;
+        }
+        let mut rows = self.rows.target().zoomed(zoom);
+        let visible = f64::from(height / rows.row_px);
+        let position = row as f64;
+        if position < rows.top {
+            rows.top = position;
+        } else if position + 1.0 > rows.top + visible {
+            rows.top = position + 1.0 - visible;
+        } else {
+            return;
+        }
+        rows.clamp(height, self.row_count(doc), zoom);
+        self.rows.set(rows.unzoomed(zoom));
     }
 
     /// Text for the status bar about what the pointer is over.
@@ -591,10 +721,13 @@ impl PipelineModel {
         }
     }
 
-    /// Escape: cancel a drag, else clear the cursor.
+    /// Escape: cancel a drag, then clear the selection, then the cursor.
+    /// Clearing the highlight never blanks a transaction panel.
     pub fn escape(&mut self, doc: &mut Document) {
         if self.drag.is_some() {
             self.drag = None;
+        } else if self.selected_row(doc).is_some() {
+            doc.select(None);
         } else {
             self.nav.set_cursor(doc, None);
         }
@@ -609,15 +742,22 @@ impl PipelineModel {
 
     // -- pointer input -----------------------------------------------------------
 
-    /// Handle pointer input. Returns true when something visible changed.
-    pub fn pointer(&mut self, doc: &mut Document, event: PointerEvent, now: Instant) -> bool {
+    /// Handle pointer input. `panel` owns the selection a click writes.
+    /// Returns true when something visible changed.
+    pub fn pointer(
+        &mut self,
+        doc: &mut Document,
+        panel: PanelId,
+        event: PointerEvent,
+        now: Instant,
+    ) -> bool {
         match event {
             PointerEvent::Down {
                 position,
                 button,
                 modifiers,
             } => {
-                self.pointer_down(doc, position, button, modifiers);
+                self.pointer_down(doc, panel, position, button, modifiers);
                 true
             }
             PointerEvent::Move { position } => self.pointer_move(doc, position),
@@ -631,8 +771,18 @@ impl PipelineModel {
                 }) = drag
                     && self.layout.cells.contains(start)
                 {
+                    // A click on a row selects it and puts the cursor on the
+                    // cycle under the pointer; below the rows, cursor only.
                     let cycle = self.cycle_at(doc, start.x);
                     self.nav.set_cursor(doc, Some(cycle));
+                    match self.layout.row_at(start.y) {
+                        Some(row) => {
+                            self.select_row(doc, panel, row);
+                        }
+                        None => {
+                            doc.select(None);
+                        }
+                    }
                 }
                 drag.is_some()
             }
@@ -663,6 +813,7 @@ impl PipelineModel {
     fn pointer_down(
         &mut self,
         doc: &mut Document,
+        panel: PanelId,
         p: Point,
         button: MouseButton,
         modifiers: Modifiers,
@@ -697,6 +848,14 @@ impl PipelineModel {
                 let cycle = self.cycle_at(doc, p.x);
                 self.nav.set_cursor(doc, Some(cycle));
                 self.drag = Some(Drag::Cursor);
+                return;
+            }
+            // The label column has no time under the pointer, so a click
+            // there selects the row without moving the cursor.
+            if layout.labels.contains(p)
+                && let Some(row) = layout.row_at(p.y)
+            {
+                self.select_row(doc, panel, row);
                 return;
             }
         }

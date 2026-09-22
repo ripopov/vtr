@@ -11,6 +11,7 @@
 //! - `data`: values, histories, translators, hierarchy
 //! - `wave`: viewport math, timeline, the wave panel model, layout and painter
 //! - `settings`: the registry, `settings.json` store, search and generated schema
+//! - `transaction`: the prepared view of one record and the panel that shows it
 //! - `sidebar`: scope tree and variable list models
 //! - `scene`, `geometry`, `color`, `theme`, `icons`: the toolkit-neutral presentation types
 
@@ -31,6 +32,7 @@ pub mod settings;
 pub mod sidebar;
 pub mod table;
 pub mod theme;
+pub mod transaction;
 pub mod wave;
 
 pub use app::{Action, App, Command, Event};

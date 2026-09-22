@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::transactions::{Relation, TrackRef, Transaction, TransactionRef};
 
 /// A reference remains useful when its generator has not been loaded.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct TransactionLocation {
     pub transaction: TransactionRef,
     pub generator: TrackRef,
@@ -32,7 +32,12 @@ pub struct LoadedGenerator {
     transactions: Vec<Transaction>,
     by_id: HashMap<TransactionRef, usize>,
     parents: HashMap<TransactionRef, TransactionLocation>,
+    /// Children of one parent, in this generator, in record order. VTR links
+    /// a child to its parent only, so the reverse edge is indexed here once.
+    children: HashMap<TransactionLocation, Vec<TransactionRef>>,
     relations: Vec<LoadedRelation>,
+    /// Relations touching one local transaction, as indices into `relations`.
+    by_endpoint: HashMap<TransactionRef, Vec<u32>>,
     // Balanced max-end tree over records ordered by begin time. Unlike a
     // begin-time binary search, this retains long overlapping transactions.
     max_end: Vec<u64>,
@@ -56,7 +61,19 @@ impl LoadedGenerator {
             .saturating_add(
                 (self.relations.capacity() as u64)
                     .saturating_mul(std::mem::size_of::<LoadedRelation>() as u64),
-            );
+            )
+            .saturating_add(index_bytes(
+                self.children.capacity(),
+                std::mem::size_of::<TransactionLocation>(),
+                self.children.values().map(Vec::capacity).sum(),
+                std::mem::size_of::<TransactionRef>(),
+            ))
+            .saturating_add(index_bytes(
+                self.by_endpoint.capacity(),
+                std::mem::size_of::<TransactionRef>(),
+                self.by_endpoint.values().map(Vec::capacity).sum(),
+                std::mem::size_of::<u32>(),
+            ));
         let transactions =
             self.transactions.iter().fold(fixed, |bytes, tx| {
                 bytes
@@ -172,6 +189,27 @@ impl LoadedGenerator {
                 "missing relation target"
             );
         }
+        let mut children: HashMap<TransactionLocation, Vec<TransactionRef>> = HashMap::new();
+        for tx in &transactions {
+            checkpoint().await;
+            if let Some(parent) = parents.get(&tx.id) {
+                children.entry(*parent).or_default().push(tx.id);
+            }
+        }
+        let mut by_endpoint: HashMap<TransactionRef, Vec<u32>> = HashMap::new();
+        for (index, edge) in relations.iter().enumerate() {
+            checkpoint().await;
+            let index = u32::try_from(index).map_err(|_| anyhow::anyhow!("too many relations"))?;
+            if edge.from_generator == generator {
+                by_endpoint
+                    .entry(edge.relation.from)
+                    .or_default()
+                    .push(index);
+            }
+            if edge.to_generator == generator && edge.relation.to != edge.relation.from {
+                by_endpoint.entry(edge.relation.to).or_default().push(index);
+            }
+        }
         let leaves = transactions
             .len()
             .max(1)
@@ -200,7 +238,9 @@ impl LoadedGenerator {
             transactions,
             by_id,
             parents,
+            children,
             relations,
+            by_endpoint,
             max_end,
             leaves,
         })
@@ -217,6 +257,19 @@ impl LoadedGenerator {
     }
     pub fn parent(&self, child: TransactionRef) -> Option<TransactionLocation> {
         self.parents.get(&child).copied()
+    }
+    /// Children of `parent` recorded in this generator, in record order. The
+    /// parent may live in any generator, loaded or not.
+    pub fn children(&self, parent: TransactionLocation) -> &[TransactionRef] {
+        self.children.get(&parent).map_or(&[], Vec::as_slice)
+    }
+    /// Relations with `id` as either endpoint, in recording order.
+    pub fn relations_of(&self, id: TransactionRef) -> impl Iterator<Item = &LoadedRelation> {
+        self.by_endpoint
+            .get(&id)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .map(|&index| &self.relations[index as usize])
     }
     pub fn transaction(&self, id: TransactionRef) -> Option<&Transaction> {
         self.by_id.get(&id).map(|&index| &self.transactions[index])
@@ -260,6 +313,13 @@ impl LoadedGenerator {
         self.visit_node(node * 2, lo, mid, start, limit, visitor)
             && self.visit_node(node * 2 + 1, mid, hi, start, limit, visitor)
     }
+}
+
+/// Resident bytes of a `HashMap<K, Vec<V>>` index.
+fn index_bytes(entries: usize, key: usize, values: usize, value: usize) -> u64 {
+    (entries as u64)
+        .saturating_mul((key + std::mem::size_of::<Vec<u8>>()) as u64)
+        .saturating_add((values as u64).saturating_mul(value as u64))
 }
 
 fn transaction_attributes_bytes(attributes: &[super::transactions::TransactionAttribute]) -> u64 {

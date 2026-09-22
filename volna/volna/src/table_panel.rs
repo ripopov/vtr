@@ -1,24 +1,24 @@
 //! GPUI chrome for the reduced table. Row decisions, bounded preparation and
-//! exact identities stay in `volna-core`; this module hosts controls,
-//! clipboard integration and the selected-record inspector.
+//! exact identities stay in `volna-core`; this module hosts the controls and
+//! the clipboard integration. The selected record is read in the Transaction
+//! panel, which every selecting panel shares.
 
 use crate::dock::CanvasPanelView;
 use crate::theme::theme;
 #[cfg(not(target_arch = "wasm32"))]
 use gpui_kit::ClipboardItem;
 use gpui_kit::component::{
-    Disableable, Selectable, Sizable, WindowExt,
+    Disableable, Sizable, WindowExt,
     button::{Button, ButtonVariants},
     input::{Input, InputState},
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
-    scroll::ScrollableElement,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Empty, Focusable, Window, div, px};
 use volna_core::Command;
 use volna_core::icons::IconName;
 use volna_core::table::columns::{ColumnSet, TransactionColumn};
-use volna_core::table::{DetailList, Details, TableCommand, TableState};
+use volna_core::table::{TableCommand, TableState};
 
 impl CanvasPanelView {
     fn table_command(&self, command: TableCommand, window: &mut Window, cx: &mut Context<Self>) {
@@ -51,8 +51,6 @@ impl CanvasPanelView {
         };
         let t = *theme(cx);
         let has_selection = table.selected.is_some();
-        let details_open = table.details_open;
-        let details = table.details.clone();
         let failed = matches!(table.state, TableState::Failed(_) | TableState::Refused(_));
         let loading = matches!(table.state, TableState::Loading);
         let column_items: Vec<(String, bool, TableCommand)> = match &table.columns {
@@ -194,11 +192,9 @@ impl CanvasPanelView {
                     .label("Details")
                     .ghost()
                     .small()
-                    .selected(details_open)
                     .disabled(!has_selection)
-                    .on_click(cx.listener(|view, _, window, cx| {
-                        view.table_command(TableCommand::ToggleDetails, window, cx)
-                    })),
+                    .tooltip("Show this record in a Transaction panel (Enter)")
+                    .on_click(cx.listener(|view, _, window, cx| view.show_transaction(window, cx))),
             );
         if failed || loading {
             let command = if loading {
@@ -221,10 +217,7 @@ impl CanvasPanelView {
             crate::canvas::PanelCanvas::new(owner.clone(), id, generation)
                 .table(self.focus.clone()),
         );
-        let body = div().flex().flex_1().min_h_0().child(canvas).when_some(
-            details_open.then_some(details).flatten(),
-            |element, details| element.child(render_details(details, t.zoom)),
-        );
+        let body = div().flex().flex_1().min_h_0().child(canvas);
 
         div()
             .id(("table-panel", id.0))
@@ -244,11 +237,13 @@ impl CanvasPanelView {
                         "down" => Some(TableCommand::Next),
                         "pageup" => Some(TableCommand::Page(-1)),
                         "pagedown" => Some(TableCommand::Page(1)),
-                        "enter" => Some(TableCommand::ToggleDetails),
-                        "escape" => Some(TableCommand::CloseDetails),
+                        "escape" => Some(TableCommand::ClearSelection),
                         _ => None,
                     };
-                    if let Some(command) = command {
+                    if key == "enter" {
+                        view.show_transaction(window, cx);
+                        cx.stop_propagation();
+                    } else if let Some(command) = command {
                         view.table_command(command, window, cx);
                         cx.stop_propagation();
                     } else if key.eq_ignore_ascii_case("c") && modifiers.secondary() {
@@ -260,6 +255,19 @@ impl CanvasPanelView {
             .child(toolbar)
             .child(body)
             .into_any_element()
+    }
+
+    /// Enter, the Details button and a double-click all open the record in a
+    /// Transaction panel: the first one that is not pinned, or a new one.
+    fn show_transaction(&self, window: &mut Window, cx: &mut Context<Self>) {
+        _ = self.ws.update(cx, |ws, cx| {
+            ws.dispatch_if_current(
+                self.generation,
+                Command::ShowTransaction { from: self.id },
+                Some(window),
+                cx,
+            )
+        });
     }
 
     fn copy_table_row(&self, cx: &mut Context<Self>) {
@@ -342,58 +350,4 @@ impl CanvasPanelView {
         });
         window.focus(&input_focus, cx);
     }
-}
-
-fn render_details(details: Details, zoom: f32) -> impl IntoElement {
-    let mut body = div().flex().flex_col().gap_2().p_3();
-    for field in details.fields {
-        body = body.child(
-            div()
-                .flex()
-                .gap_2()
-                .child(div().w(px(90.0 * zoom)).child(field.name))
-                .child(div().flex_1().child(field.value)),
-        );
-    }
-    for list in details.lists {
-        body = body.child(render_detail_list(list, zoom));
-    }
-    if details.truncated_bytes {
-        body = body.child("Details were truncated at the admitted byte limit.");
-    }
-    div()
-        .w(px(360.0 * zoom))
-        .h_full()
-        .flex_none()
-        .overflow_y_scrollbar()
-        .border_l_1()
-        .child(
-            div()
-                .p_3()
-                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                .child(details.identity),
-        )
-        .child(body)
-}
-
-fn render_detail_list(list: DetailList, zoom: f32) -> impl IntoElement {
-    let shown = list.rows.len();
-    let mut element = div().flex().flex_col().gap_1().mt_2().child(
-        div()
-            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-            .child(format!("{} · {}", list.title, list.total)),
-    );
-    for row in list.rows {
-        element = element.child(
-            div()
-                .flex()
-                .gap_2()
-                .child(div().w(px(120.0 * zoom)).child(row.name))
-                .child(div().flex_1().min_w_0().child(row.value)),
-        );
-    }
-    if shown < list.total {
-        element = element.child(format!("Showing the first {shown} of {}", list.total));
-    }
-    element
 }

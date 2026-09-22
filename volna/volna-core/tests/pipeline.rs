@@ -815,7 +815,12 @@ fn click_sets_the_shared_cursor_to_the_cycle_and_the_wave_value_follows() {
     let hover = app.status().hover.unwrap();
     assert!(hover.starts_with(&format!("#{row} · D [")), "{hover}");
     assert!(hover.contains("op"), "{hover}");
-    // Escape clears the cursor when nothing is dragged.
+    // The click also selected the row it landed on, and Escape unwinds the
+    // selection before the cursor.
+    assert!(app.doc.selection().is_some());
+    app.handle(Command::Action(Action::ClearSelection));
+    assert_eq!(app.doc.selection(), None);
+    assert_eq!(app.doc.shared.cursor, Some(expected));
     app.handle(Command::Action(Action::ClearSelection));
     assert_eq!(app.doc.shared.cursor, None);
     // The label divider resizes the label column, stored at zoom 1.0.

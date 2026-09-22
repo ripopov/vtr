@@ -498,6 +498,27 @@ impl PanelCanvas {
                     window,
                     cx,
                 );
+                // A second click on a record-bearing panel opens what the
+                // first click selected; the core decides where.
+                let selects = ws
+                    .read(cx)
+                    .app
+                    .panels
+                    .get(panel)
+                    .is_some_and(|p| p.kind.pipeline().is_some() || p.kind.table().is_some());
+                if ev.click_count >= 2
+                    && button == volna_core::geometry::MouseButton::Left
+                    && selects
+                {
+                    ws.update(cx, |ws, cx| {
+                        ws.dispatch_if_current(
+                            generation,
+                            Command::ShowTransaction { from: panel },
+                            Some(window),
+                            cx,
+                        )
+                    });
+                }
             }
         });
 
