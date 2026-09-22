@@ -1315,6 +1315,195 @@ fn row_names(app: &App, panel: volna_core::panels::PanelId) -> Vec<String> {
         .collect()
 }
 
+/// Point on the name cell of `row`, `frac` of the way down it.
+fn name_point(app: &App, row: usize, frac: f32) -> volna_core::geometry::Point {
+    let layout = app.panels.focused_waves().unwrap().last_layout();
+    point(
+        layout.names.left() + 20.0,
+        layout.row_y(row) + layout.row_height(row) * frac,
+    )
+}
+
+fn press(app: &mut App, position: volna_core::geometry::Point, modifiers: Modifiers) {
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Down {
+            position,
+            button: MouseButton::Left,
+            modifiers,
+        },
+    ));
+}
+
+fn move_to(app: &mut App, position: volna_core::geometry::Point) {
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Move { position },
+    ));
+}
+
+fn press_row(app: &mut App, row: usize, frac: f32, modifiers: Modifiers) {
+    press(app, name_point(app, row, frac), modifiers);
+}
+
+fn move_row(app: &mut App, row: usize, frac: f32) {
+    move_to(app, name_point(app, row, frac));
+}
+
+fn release(app: &mut App) {
+    app.handle(Command::Pointer(app.panels.focused_id(), PointerEvent::Up));
+}
+
+fn drop_line(app: &App, theme: &Theme) -> Option<f32> {
+    let names = app.panels.focused_waves().unwrap().last_layout().names;
+    app.scene().prims.iter().find_map(|p| match p {
+        Prim::Quad { rect, fill, .. }
+            if *fill == theme.border_focused && rect.width() > names.width() * 2.0 =>
+        {
+            Some(rect.top() + rect.height() / 2.0)
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn dragging_signal_names_reorders_rows_and_keeps_them_selected() {
+    let theme = Theme::one_dark();
+    let (mut app, _) = loaded_app(10);
+    let waves = app.panels.focused_id();
+    app.handle(Command::AddVars(vec![0, 1, 2, 3, 4, 5]));
+    pump(&mut app);
+    frame(&mut app, &theme);
+    let names = row_names(&app, waves);
+    let order = |ix: &[usize]| ix.iter().map(|&i| names[i].clone()).collect::<Vec<_>>();
+
+    // A press that barely moves is a click: it selects without a drop line.
+    press_row(&mut app, 4, 0.5, Modifiers::default());
+    move_row(&mut app, 4, 0.6);
+    frame(&mut app, &theme);
+    assert_eq!(drop_line(&app, &theme), None);
+    assert!(app.scene().window_cursor.is_none());
+    release(&mut app);
+    assert_eq!(row_names(&app, waves), names);
+    let w = app.panels.focused_waves().unwrap();
+    assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [4]);
+
+    // Drag row 4 into the upper half of row 1: the line marks the gap above
+    // row 1 and the drop inserts it there.
+    press_row(&mut app, 4, 0.5, Modifiers::default());
+    move_row(&mut app, 2, 0.5);
+    move_row(&mut app, 1, 0.25);
+    frame(&mut app, &theme);
+    let gap_y = app.panels.focused_waves().unwrap().last_layout().row_y(1);
+    assert_eq!(drop_line(&app, &theme), Some(gap_y));
+    assert_eq!(
+        app.scene().window_cursor,
+        Some(volna_core::geometry::CursorIcon::Grabbing)
+    );
+    release(&mut app);
+    assert_eq!(row_names(&app, waves), order(&[0, 4, 1, 2, 3, 5]));
+    let w = app.panels.focused_waves().unwrap();
+    assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [1]);
+    assert_eq!(w.anchor, Some(1));
+    assert!(w.drag.is_none());
+
+    // A scattered group moves together, in order, to the end. Pressing on a
+    // selected row keeps the group; the lower half of the last row is the end.
+    press_row(&mut app, 0, 0.5, Modifiers::default());
+    release(&mut app);
+    let ctrl = Modifiers {
+        control: !cfg!(target_os = "macos"),
+        platform: cfg!(target_os = "macos"),
+        ..Modifiers::default()
+    };
+    press_row(&mut app, 3, 0.5, ctrl);
+    release(&mut app);
+    frame(&mut app, &theme);
+    press_row(&mut app, 3, 0.5, Modifiers::default());
+    move_row(&mut app, 5, 0.9);
+    frame(&mut app, &theme);
+    let layout = app.panels.focused_waves().unwrap().last_layout().clone();
+    assert_eq!(drop_line(&app, &theme), Some(layout.row_y(6)));
+    release(&mut app);
+    assert_eq!(row_names(&app, waves), order(&[4, 1, 3, 5, 0, 2]));
+    let w = app.panels.focused_waves().unwrap();
+    assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [4, 5]);
+
+    // A drop that would not change the order shows no line and is a click:
+    // the group narrows to the pressed row.
+    frame(&mut app, &theme);
+    press_row(&mut app, 5, 0.5, Modifiers::default());
+    move_row(&mut app, 4, 0.3);
+    frame(&mut app, &theme);
+    assert_eq!(drop_line(&app, &theme), None);
+    release(&mut app);
+    assert_eq!(row_names(&app, waves), order(&[4, 1, 3, 5, 0, 2]));
+    let w = app.panels.focused_waves().unwrap();
+    assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [5]);
+
+    // Escape cancels a drag in flight.
+    frame(&mut app, &theme);
+    press_row(&mut app, 5, 0.5, Modifiers::default());
+    move_row(&mut app, 0, 0.1);
+    app.handle(Command::Action(Action::ClearSelection));
+    release(&mut app);
+    assert_eq!(row_names(&app, waves), order(&[4, 1, 3, 5, 0, 2]));
+}
+
+#[test]
+fn dragging_rows_past_an_edge_scrolls_and_keeps_heights_with_their_rows() {
+    let theme = Theme::one_dark();
+    let (mut app, _) = loaded_app(10);
+    let waves = app.panels.focused_id();
+    app.handle(Command::AddVars((0..40).map(|i| i % 8).collect()));
+    pump(&mut app);
+    // Row 0 is 4× tall; it keeps its height wherever it goes.
+    frame(&mut app, &theme);
+    press_row(&mut app, 0, 0.5, Modifiers::default());
+    release(&mut app);
+    for _ in 0..3 {
+        app.handle(Command::Action(Action::IncreaseRowHeight));
+    }
+    frame(&mut app, &theme);
+    let first = app.panels.focused_waves().unwrap().items[0].name.clone();
+
+    press_row(&mut app, 0, 0.5, Modifiers::default());
+    let bottom = app
+        .panels
+        .focused_waves()
+        .unwrap()
+        .last_layout()
+        .names
+        .bottom();
+    move_to(&mut app, point(40.0, bottom + 30.0));
+    assert!(app.is_animating(), "an edge drag auto-scrolls");
+    let start = Instant::now();
+    for ms in [0, 50, 100, 150, 200] {
+        app.tick(start + Duration::from_millis(ms));
+        frame(&mut app, &theme);
+    }
+    let w = app.panels.focused_waves().unwrap();
+    assert!(w.scroll_y > 0.0, "scrolled down");
+    let Some(volna_core::wave::Drag::Rows { gap: Some(gap), .. }) = w.drag else {
+        panic!("dragging with a gap");
+    };
+    assert!(gap > 20, "gap follows the scroll: {gap}");
+    // Leaving the edge zone stops scrolling.
+    move_to(&mut app, point(40.0, bottom - 100.0));
+    frame(&mut app, &theme);
+    assert!(!app.is_animating());
+    let gap = match app.panels.focused_waves().unwrap().drag {
+        Some(volna_core::wave::Drag::Rows { gap: Some(gap), .. }) => gap,
+        other => panic!("{other:?}"),
+    };
+    release(&mut app);
+    let w = app.panels.focused_waves().unwrap();
+    assert_eq!(w.items[gap - 1].name, first);
+    assert_eq!(w.items[gap - 1].height.multiple(), 4);
+    assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [gap - 1]);
+    assert_eq!(row_names(&app, waves).len(), 40);
+}
+
 #[test]
 fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
     use volna_core::wave::model::MenuAction;

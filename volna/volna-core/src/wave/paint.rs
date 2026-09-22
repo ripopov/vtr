@@ -368,6 +368,30 @@ pub fn paint(
         );
     }
 
+    // Where dragged rows will land: a line across every column at the gap.
+    if let Some(Drag::Rows { gap: Some(gap), .. }) = model.drag {
+        let rows_area = Rect::new(
+            layout.names.origin,
+            size(bounds.width(), layout.names.height()),
+        );
+        let y = snap(layout.row_y(gap)).clamp(rows_area.top() + 1.0, rows_area.bottom() - 1.0);
+        let w = z(2.0).max(2.0);
+        p.scene.clipped(rows_area, |scene| {
+            scene.fill(
+                Rect::from_xywh(bounds.left(), y - w / 2.0, bounds.width(), w),
+                t.border_focused,
+            );
+            let knob = z(6.0);
+            scene.quad(
+                Rect::from_xywh(bounds.left() + z(2.0), y - knob / 2.0, knob, knob),
+                t.border_focused,
+                knob / 2.0,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        });
+    }
+
     if let Some(Drag::ZoomRange { start, current }) = model.drag {
         let label = "Zoom to selected area · Esc to cancel";
         let label_width = p.width(label, FontRole::Ui, t.ui_size);
@@ -503,6 +527,8 @@ pub fn paint(
     // only an active drag pins the resize cursor.
     if matches!(drag, Some(Drag::NamesSplit | Drag::ValuesSplit)) {
         p.scene.window_cursor = Some(CursorIcon::ResizeLeftRight);
+    } else if matches!(drag, Some(Drag::Rows { started: true, .. })) {
+        p.scene.window_cursor = Some(CursorIcon::Grabbing);
     } else {
         p.scene
             .cursors

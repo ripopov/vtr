@@ -184,6 +184,15 @@ opens the same menu for the keyboard selection. The core owns menu contents
 (`MenuEntry` items, submenus and separators) and selection semantics; GPUI only
 hosts the popup.
 
+Dragging a signal name moves rows. A press inside the selection keeps the
+group (a release without movement then narrows it to the pressed row), a press
+elsewhere selects first, and after a few pixels `Drag::Rows` tracks the
+insertion gap nearest the pointer. The gap is recomputed at every layout, so
+it follows the rows while an edge auto-scroll advances them from `tick`. A
+gap that would not change the order is dropped, which hides the drop line.
+The release moves the selected rows, in order, to the gap and leaves them
+selected; they keep their format and height.
+
 Copy and Cut put the selected rows, in display order, on the document's
 clipboard (`Document::copied_rows`), so a paste works in any waveform panel of
 the same trace and the clipboard is cleared with it. Copied rows keep their

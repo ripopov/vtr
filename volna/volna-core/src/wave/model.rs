@@ -20,6 +20,14 @@ use crate::theme::Theme;
 
 /// A ⌘-drag narrower than this (at zoom 1.0) is a click, not a zoom range.
 pub const ZOOM_RANGE_MIN_PX: f32 = 4.0;
+/// A press on a signal name must travel this far (at zoom 1.0) to start
+/// moving rows; shorter presses are clicks.
+pub const ROW_DRAG_MIN_PX: f32 = 4.0;
+/// While moving rows, the pointer this close to the top or bottom edge of the
+/// rows (in rows) scrolls them, faster the deeper it goes.
+const ROW_DRAG_EDGE_ROWS: f32 = 1.0;
+/// Auto-scroll speed in rows per second per row of depth into the edge zone.
+const ROW_DRAG_SCROLL_RATE: f32 = 12.0;
 
 /// A row is either bound to this session or retains an unresolved durable locator.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -135,11 +143,31 @@ impl DisplayedSignal {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Drag {
     Cursor,
-    ZoomRange { start: Point, current: Point },
-    Pan { last_x: f32 },
+    ZoomRange {
+        start: Point,
+        current: Point,
+    },
+    Pan {
+        last_x: f32,
+    },
     NamesSplit,
     ValuesSplit,
-    Scroll { grab: f32 },
+    Scroll {
+        grab: f32,
+    },
+    /// Moving the selected rows by their names. `gap` is the insertion point
+    /// (a row index, or the row count for the end) once the press has moved
+    /// far enough and the drop would change the order. A plain press on an
+    /// already selected row keeps the group for dragging and narrows the
+    /// selection to `collapse` only if it ends as a click.
+    Rows {
+        press_y: f32,
+        started: bool,
+        gap: Option<usize>,
+        collapse: Option<usize>,
+        /// Last auto-scroll step, while the pointer is in an edge zone.
+        scrolled_at: Option<Instant>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -351,11 +379,12 @@ impl WaveModel {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.nav.is_animating()
+        self.nav.is_animating() || self.row_drag_scroll_speed() != 0.0
     }
 
     pub fn tick(&mut self, now: Instant) -> bool {
-        self.nav.tick(now)
+        let animated = self.nav.tick(now);
+        animated | self.row_drag_scroll(now)
     }
 
     pub fn loaded_count(&self) -> usize {
@@ -466,6 +495,47 @@ impl WaveModel {
     pub fn cut_selected(&mut self, doc: &mut Document) {
         self.copy_selected(doc);
         self.remove_selected();
+    }
+
+    /// Where the selected rows land, in display order, if moved to `gap`
+    /// (`0..=len`), or `None` when that would not change the order.
+    fn move_target(&self, gap: usize) -> Option<usize> {
+        let first = *self.selected.first()?;
+        let last = *self.selected.last()?;
+        if last >= self.items.len() {
+            return None;
+        }
+        let gap = gap.min(self.items.len());
+        let at = gap - self.selected.range(..gap).count();
+        let contiguous = last - first + 1 == self.selected.len();
+        (!contiguous || at != first).then_some(at)
+    }
+
+    /// Move the selected rows, keeping their order, to the insertion point
+    /// `gap` (`0..=len`, counted before the move); they stay selected.
+    /// Returns whether the order changed.
+    pub fn move_selected_to(&mut self, gap: usize) -> bool {
+        let Some(at) = self.move_target(gap) else {
+            return false;
+        };
+        let anchor = self
+            .anchor
+            .and_then(|a| self.selected.iter().position(|row| *row == a));
+        let (mut moved, mut rest) = (Vec::new(), Vec::new());
+        for (ix, item) in std::mem::take(&mut self.items).into_iter().enumerate() {
+            if self.selected.contains(&ix) {
+                moved.push(item);
+            } else {
+                rest.push(item);
+            }
+        }
+        let count = moved.len();
+        rest.splice(at..at, moved);
+        self.items = rest;
+        self.selected = (at..at + count).collect();
+        self.anchor = Some(at + anchor.unwrap_or(0));
+        self.menu = None;
+        true
     }
 
     /// Insert the document clipboard below the selection (or at the end) and
@@ -899,7 +969,92 @@ impl WaveModel {
         self.wave_width = layout.waves.width();
         self.layout = layout;
         self.update_hover();
+        self.update_row_drag();
         &self.layout
+    }
+
+    // -- moving rows by drag ---------------------------------------------------
+
+    /// Follow the pointer during a row drag: start once it has moved far
+    /// enough, then track the insertion gap under it.
+    fn update_row_drag(&mut self) {
+        let (
+            Some(Drag::Rows {
+                press_y,
+                started,
+                collapse,
+                scrolled_at,
+                ..
+            }),
+            Some(p),
+        ) = (self.drag, self.pointer)
+        else {
+            return;
+        };
+        let layout = &self.layout;
+        let started = started || (p.y - press_y).abs() >= ROW_DRAG_MIN_PX * layout.zoom;
+        let gap = started
+            .then(|| self.gap_at(p.y))
+            .and_then(|gap| self.move_target(gap).map(|_| gap));
+        self.drag = Some(Drag::Rows {
+            press_y,
+            started,
+            gap,
+            collapse,
+            scrolled_at,
+        });
+    }
+
+    /// The insertion gap nearest to `y`, which is clamped to the rows area.
+    fn gap_at(&self, y: f32) -> usize {
+        let layout = &self.layout;
+        let len = self.items.len();
+        let y = y.clamp(layout.names.top(), layout.names.bottom() - 1.0);
+        match layout.row_at(y).filter(|row| *row < len) {
+            Some(row) if y >= layout.row_y(row) + layout.row_height(row) / 2.0 => row + 1,
+            Some(row) => row,
+            None => len,
+        }
+    }
+
+    /// Auto-scroll speed in pixels per second while a started row drag holds
+    /// the pointer near the top (negative) or bottom (positive) edge.
+    fn row_drag_scroll_speed(&self) -> f32 {
+        let (Some(Drag::Rows { started: true, .. }), Some(p)) = (self.drag, self.pointer) else {
+            return 0.0;
+        };
+        let layout = &self.layout;
+        let zone = ROW_DRAG_EDGE_ROWS * layout.row_h;
+        if zone <= 0.0 || layout.max_scroll <= 0.0 {
+            return 0.0;
+        }
+        let rows_per_s = |depth: f32| (depth / zone).min(4.0) * ROW_DRAG_SCROLL_RATE;
+        let top = layout.names.top() + zone - p.y;
+        let bottom = p.y - (layout.names.bottom() - zone);
+        if top > 0.0 && self.scroll_y > 0.0 {
+            -rows_per_s(top) * layout.row_h
+        } else if bottom > 0.0 && self.scroll_y < layout.max_scroll {
+            rows_per_s(bottom) * layout.row_h
+        } else {
+            0.0
+        }
+    }
+
+    /// Advance the row-drag auto-scroll; the next layout moves the gap.
+    fn row_drag_scroll(&mut self, now: Instant) -> bool {
+        let speed = self.row_drag_scroll_speed();
+        let Some(Drag::Rows { scrolled_at, .. }) = &mut self.drag else {
+            return false;
+        };
+        if speed == 0.0 {
+            *scrolled_at = None;
+            return false;
+        }
+        let dt = scrolled_at.map_or(0.0, |at| now.saturating_duration_since(at).as_secs_f32());
+        *scrolled_at = Some(now);
+        let before = self.scroll_y;
+        self.scroll_y = (self.scroll_y + speed * dt.min(0.1)).clamp(0.0, self.layout.max_scroll);
+        self.scroll_y != before || dt == 0.0
     }
 
     fn update_hover(&mut self) {
@@ -944,7 +1099,16 @@ impl WaveModel {
             PointerEvent::Move { position } => self.pointer_move(doc, position),
             PointerEvent::Up => {
                 let had = self.drag.is_some();
-                if let Some(Drag::ZoomRange { start, current }) = self.drag.take()
+                if let Some(Drag::Rows { gap, collapse, .. }) = self.drag {
+                    self.drag = None;
+                    match (gap, collapse) {
+                        (Some(gap), _) => {
+                            self.move_selected_to(gap);
+                        }
+                        (None, Some(row)) => self.select_row(row, Modifiers::default()),
+                        (None, None) => {}
+                    }
+                } else if let Some(Drag::ZoomRange { start, current }) = self.drag.take()
                     && (current.x - start.x).abs() >= ZOOM_RANGE_MIN_PX * self.layout.zoom
                 {
                     let layout = &self.layout;
@@ -1093,9 +1257,24 @@ impl WaveModel {
             self.open_format_menu(doc, ix, pos);
             return;
         }
-        match row {
-            Some(r) => self.select_row(r, modifiers),
-            None => self.selected.clear(),
+        let Some(r) = row else {
+            self.selected.clear();
+            return;
+        };
+        // A plain press inside the selection keeps the group so it can be
+        // dragged; releasing without a drag then selects just this row.
+        let keep_group = self.selected.contains(&r) && !modifiers.shift && !modifiers.secondary();
+        if !keep_group {
+            self.select_row(r, modifiers);
+        }
+        if self.selected.contains(&r) {
+            self.drag = Some(Drag::Rows {
+                press_y: p.y,
+                started: false,
+                gap: None,
+                collapse: keep_group.then_some(r),
+                scrolled_at: None,
+            });
         }
     }
 
@@ -1136,6 +1315,11 @@ impl WaveModel {
             Some(Drag::ValuesSplit) => {
                 self.values_width = ((p.x - layout.names.right()) / layout.zoom).max(MIN_COLUMN);
                 true
+            }
+            Some(Drag::Rows { gap, started, .. }) => {
+                self.update_row_drag();
+                !matches!(self.drag, Some(Drag::Rows { gap: g, started: s, .. }) if g == gap && s == started)
+                    || self.row_drag_scroll_speed() != 0.0
             }
             Some(Drag::Scroll { grab }) => {
                 if let Some((track, thumb)) = layout.scrollbar {
