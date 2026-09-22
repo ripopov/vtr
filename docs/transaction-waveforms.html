@@ -2,410 +2,307 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Volna Transaction Lanes in Waves</title>
-<meta name="description" content="Design proposal: transaction lanes as rows in Volna's waveform panel. One working demo over an AXI example, the row, hit-test, loading and density design, and the comparison with the existing time-linked Waves and Pipeline panels.">
+<title>Volna Transaction Lanes</title>
+<meta name="description" content="Design proposal: show a transaction generator as a row in Volna's waveform panel, next to the signals it correlates with. Interactive demo, behaviour, and what it builds on.">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
-
 :root{
-  --bg:#f2f4f3;--paper:#fbfcfb;--ink:#1a252c;--muted:#5b6a70;--line:#d2dad7;--line-strong:#b6c2be;
-  --accent:#1f7f6a;--accent-ink:#135846;--accent-soft:#dff0ea;--amber:#b5761c;--amber-soft:#f6e9d2;
-  --exist:#e6ebf4;--exist-ink:#3a4f78;--prop:#dff0ea;--prop-ink:#135846;
-  --code-bg:#1d262c;--code-ink:#e3ebe7;--code-dim:#8fa39c;--focus:#1f7f6a;
-  --wave:#2f9d7f;--wave-bus:#3b7dd8;--cursor:#d9534f;--marker:#b5761c;
+  --bg:#f4f6f5;--paper:#fcfdfc;--ink:#18232a;--muted:#5a686e;--line:#d5ddda;--line-strong:#b9c4c0;
+  --accent:#1d7a66;--accent-ink:#135846;--soft:#e2f0eb;--new:#1d7a66;--changed:#a2660f;--exists:#5a686e;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c3a42;--line-strong:#3d4b52;
-  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
-  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
-  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
-  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
 }}
 :root[data-theme="dark"]{
-  --bg:#151a1e;--paper:#1c2328;--ink:#e4eae7;--muted:#9aaaa6;--line:#2c3a42;--line-strong:#3d4b52;
-  --accent:#4fc3a1;--accent-ink:#8fe0c6;--accent-soft:#1d3a33;--amber:#e0a94a;--amber-soft:#3a2f1a;
-  --exist:#243044;--exist-ink:#a9bde6;--prop:#1d3a33;--prop-ink:#8fe0c6;
-  --code-bg:#10161a;--code-ink:#dfe7e3;--code-dim:#7f918b;--focus:#4fc3a1;
-  --wave:#4fc3a1;--wave-bus:#7fb0ef;--cursor:#f07a76;--marker:#e0a94a;
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:70px}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;padding-inline:0}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
 a{color:var(--accent-ink);text-underline-offset:3px}
-code,pre,kbd,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-code{font-size:.88em;background:color-mix(in srgb,var(--line) 45%,transparent);padding:1px 5px;border-radius:4px}
-pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;font-size:12.5px;line-height:1.6;overflow-x:auto;margin:14px 0}
-pre code{background:none;padding:0;font-size:inherit;color:inherit}
-pre .c{color:var(--code-dim);font-style:italic}
-kbd{font-size:.8em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper)}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
 header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
-.bar{max-width:1180px;margin:auto;padding:12px 24px;display:flex;align-items:center;gap:20px}
-.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap;letter-spacing:-.2px}
+.bar{max-width:1180px;margin:auto;padding:11px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
 .brand span{color:var(--accent)}
-nav{margin-left:auto;display:flex;gap:16px;overflow:auto;scrollbar-width:none}
-nav a{font-size:12.5px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav{margin-left:auto;display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
 nav a:hover{color:var(--ink)}
-.wrap{max-width:1180px;margin:auto;padding-inline:24px}
-section{padding-block:44px;border-bottom:1px solid var(--line)}
-.hero{padding-top:52px}
-h1{font-size:clamp(30px,4.6vw,50px);letter-spacing:-1.4px;line-height:1.08;font-weight:600;margin:0 0 18px;text-wrap:balance}
+#theme{font:inherit;font-size:12px;background:none;border:1px solid var(--line-strong);color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer;flex:none}
+.wrap{max-width:1180px;margin:auto;padding-inline:16px}
+.prose{max-width:760px}
+section{padding-block:40px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(30px,4.4vw,46px);letter-spacing:-1.2px;line-height:1.1;font-weight:600;margin:0 0 16px;text-wrap:balance}
 h1 em{font-style:normal;color:var(--accent)}
-h2{font-size:26px;letter-spacing:-.6px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
-h3{font-size:17px;margin:26px 0 10px;text-wrap:balance}
-h4{font-size:14.5px;margin:18px 0 6px}
-p{margin:0 0 12px;max-width:74ch}
-.lede{font-size:18px;color:var(--muted);max-width:70ch}
-.eyebrow{font-size:11px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
-.small,small{font-size:12.5px;color:var(--muted)}
-ul,ol{padding-left:22px;max-width:80ch}li{margin:5px 0}
-.grid{display:grid;gap:16px}.two{grid-template-columns:1fr 1fr}.three{grid-template-columns:repeat(3,1fr)}
-@media (max-width:820px){.two,.three{grid-template-columns:1fr}}
-.card{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
-.card p:last-child{margin-bottom:0}
-.callout{background:var(--accent-soft);border-left:3px solid var(--accent);padding:14px 18px;margin:18px 0;font-size:14px;border-radius:0 6px 6px 0}
-.callout.warn{background:var(--amber-soft);border-color:var(--amber)}
-.callout p{max-width:none}
-.badge{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;padding:1px 7px;border-radius:3px;vertical-align:middle;margin-right:4px}
-.badge.exist{background:var(--exist);color:var(--exist-ink)}
-.badge.prop{background:var(--prop);color:var(--prop-ink)}
-.badge.lib{background:var(--amber-soft);color:var(--amber)}
-.badge.data{background:color-mix(in srgb,var(--line) 60%,transparent);color:var(--muted)}
-body.only-proposed .exist-block{opacity:.38}
-.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:16px 0;background:var(--paper)}
-table{width:100%;border-collapse:collapse;font-size:13.5px}
-th,td{text-align:left;vertical-align:top;padding:10px 13px;border-bottom:1px solid var(--line)}
-th{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--line) 35%,transparent)}
+h2{font-size:25px;letter-spacing:-.5px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 8px}
+p{margin:0 0 14px}
+.lede{font-size:19px;color:var(--muted);max-width:720px}
+.meta{font-size:13.5px;color:var(--muted);max-width:760px}
+ul,ol{padding-left:22px}li{margin:6px 0}
+.rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
+.rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules b{display:block;font-size:17px;margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 13px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
 tr:last-child td{border-bottom:0}
-td code{white-space:nowrap}
-.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px;margin:16px 0}
-.toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px}
-.toggle input{accent-color:var(--accent)}
-details{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:0 18px;margin:10px 0}
-details summary{cursor:pointer;padding:12px 0;font-weight:500;list-style:none;display:flex;gap:10px;align-items:center}
-details summary::before{content:"";width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}
-details[open] summary::before{transform:rotate(45deg)}
-details > :not(summary){margin-bottom:14px}
-.steps{counter-reset:s;list-style:none;padding:0;max-width:none}
-.steps li{counter-increment:s;position:relative;padding-left:38px;margin:10px 0}
-.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace}
-.cite{font-size:12px;color:var(--muted)}
-.cite code,td .cite code{font-size:11.5px;white-space:normal;overflow-wrap:anywhere}
-td:last-child.cite{min-width:180px}
-.keys{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;align-items:baseline;max-width:640px}
-.keys kbd{white-space:nowrap}
-footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
-@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto}}
-:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-/* ---- interactive mock (always dark, like the Volna One Dark chrome) ---- */
-.pv{border:1px solid var(--line-strong);border-radius:10px;background:#1d262c;color:#e3ebe7;font-size:12px;overflow:hidden;margin:18px 0;--pv-bg:#1d262c;--pv-panel:#1f2a32;--pv-bar:#182129;--pv-line:#2c3a42;--pv-muted:#8fa39c;--pv-text:#e3ebe7;--pv-focus:#4fc3a1;--pv-cursor:#f07a76;--pv-cursor-dim:rgba(240,122,118,.45);--pv-marker:#e0a94a;--pv-hover:rgba(255,255,255,.05);--pv-wave:#4fc3a1;--pv-bus:#7fb0ef}
+td:first-child{white-space:nowrap;font-weight:500}
+.st{font-size:12px;font-weight:600;white-space:nowrap}
+.st.new{color:var(--new)}.st.changed{color:var(--changed)}.st.exists{color:var(--exists)}
+footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}
+footer ul{margin:6px 0 0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
+
+/* ---- demo steps ---- */
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.steps button{flex:1 1 170px}
+.steps button{font:inherit;font-size:14px;text-align:left;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.35}
+.steps button span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.steps button:hover{border-color:var(--accent)}
+.steps button.on{border-color:var(--accent);background:var(--soft)}
+.steps button.reset{flex:0 0 auto;align-self:stretch;text-align:center;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted);margin:10px 0 0}
+.legend i{display:inline-block;width:18px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+
+/* ---- the mock: always dark, like Volna's One Dark chrome ---- */
+.pv{--b:#1b242a;--p:#1f2a31;--bar:#172026;--ln:#2c3a42;--mu:#8d9f99;--tx:#e2eae6;--ac:#4fc3a1;
+  border:1px solid var(--line-strong);border-radius:10px;background:var(--b);color:var(--tx);font-size:12px;overflow:hidden;margin:0;outline:none}
 .pv *{box-sizing:border-box}
-.pv[data-focus="1"]{border-color:var(--pv-focus)}
-.pv-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-bottom:1px solid var(--pv-line);background:var(--pv-bar)}
-.pv-toolbar button,.pv button{font:inherit;font-size:12px;background:#243039;color:var(--pv-text);border:1px solid #3a4a55;border-radius:4px;padding:3px 9px;cursor:pointer}
-.pv button:hover{background:#2f3e49}
-.pv button:focus-visible{outline:2px solid var(--pv-focus)}
-.pv button.on{border-color:var(--pv-focus);color:var(--pv-focus)}
+.pv:focus-visible{border-color:var(--ac)}
+.pv button{font:inherit;font-size:11.5px;background:#243039;color:var(--tx);border:1px solid #394954;border-radius:4px;padding:2px 8px;cursor:pointer}
+.pv button:hover{background:#2e3c46}
 .pv button:disabled{opacity:.45;cursor:default}
-.pv-hint{margin-left:auto;font-family:"IBM Plex Sans",sans-serif;color:var(--pv-muted);font-size:11.5px}
-.pv-title{display:flex;align-items:center;gap:10px;padding:5px 10px;background:#161e24;border-bottom:1px solid var(--pv-line);font-size:11.5px;color:var(--pv-muted)}
-.pv-title b{color:var(--pv-text);font-weight:600}
-.pv-title .dots{display:inline-flex;gap:6px;margin-right:4px}
-.pv-title .dots i{width:10px;height:10px;border-radius:50%;background:#3a4a55;display:inline-block}
-.pv-work{display:flex;height:560px;min-height:0}
-.pv-work.h450{height:450px}.pv-work.h470{height:470px}.pv-work.h520{height:520px}
-.pv-sidebar{width:196px;flex:none;border-right:1px solid var(--pv-line);padding:8px;overflow:auto;background:#161e24;font-size:11.5px}
-.pv-side-title{font-weight:500;margin-bottom:6px;color:#9fb1ab}
-.pv-side-sub{font-weight:400;color:#6f8079;font-size:10.5px;margin-left:4px}
-.pv-node{display:flex;align-items:center;gap:5px;padding:2px 4px;border-radius:3px;cursor:pointer;white-space:nowrap;font-family:"IBM Plex Mono",monospace;font-size:11px;color:#c9d5d0}
-.pv-node:hover{background:#243039}.pv-node.sel{background:#2a3a45;color:var(--pv-text)}
-.pv-node svg{width:13px;height:13px;flex:none;stroke:#9fb1ab;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.pv-node.gen{cursor:default}.pv-node.gen:hover{background:#243039}
-.pv-node .k{margin-left:auto;font-size:9.5px;color:#6f8079;font-family:"IBM Plex Sans",sans-serif}
-.pv-var{padding:2px 6px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:#c9d5d0}
-.pv-open{margin:6px 0;display:flex;flex-direction:column;gap:6px;color:#9fb1ab;font-size:11.5px}
-.pv-open button{align-self:flex-start}
-.pv-main{display:flex;flex-direction:column;gap:6px;padding:6px;flex:1;min-width:0;min-height:0}
-.pv-panel{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--pv-line);border-radius:6px;background:var(--pv-panel);outline:1px solid transparent;position:relative}
-.pv-panel.focused{outline-color:var(--pv-focus);border-color:var(--pv-focus)}
-.pv-header{display:flex;align-items:center;gap:8px;padding:3px 8px;border-bottom:1px solid var(--pv-line);background:var(--pv-bar);font-size:11.5px;flex:none}
-.pv-header .t{color:var(--pv-muted)}.pv-panel.focused .pv-header .t{color:var(--pv-text)}
-.pv-tools{margin-left:auto;display:flex;gap:4px}
-.pv-tool{padding:1px 6px !important;display:inline-flex;gap:3px;align-items:center;font-size:11px !important}
-.pv-tool.off{opacity:.65}.pv-tool.off b{text-decoration:line-through;font-weight:400}
-.pv-body{flex:1;min-height:0;position:relative;overflow:hidden;cursor:crosshair}
-.pv-body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-.pv-body.grab{cursor:grabbing}
-.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--pv-line);background:var(--pv-bar);color:var(--pv-muted);font-family:"IBM Plex Mono",monospace;font-size:11px;align-items:center;min-height:27px}
-.pv-status .k{color:#6f8079}
-.pv-status .v{color:var(--pv-text)}
-.pv-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;margin:8px 0 0;color:var(--muted)}
-.pv-legend i{display:inline-block;width:12px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
-.guide{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
-.guide button{font:inherit;font-size:13px;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:6px;padding:5px 12px;cursor:pointer}
-.guide button:hover{border-color:var(--accent);color:var(--accent-ink)}
-.pv-note{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+.pv-title{display:flex;align-items:center;gap:10px;padding:5px 10px;background:#151c21;border-bottom:1px solid var(--ln);color:var(--mu);font-size:11.5px}
+.pv-title b{color:var(--tx);font-weight:600}
+.pv-title .dots{display:inline-flex;gap:6px}
+.pv-title .dots i{width:10px;height:10px;border-radius:50%;background:#394954;display:inline-block}
+.pv-title .data{margin-left:auto;font-size:10.5px;color:#6f817a}
+.pv-work{display:flex;height:480px;min-height:0}
+.pv-side{width:190px;flex:none;border-right:1px solid var(--ln);background:#161e23;padding:8px;overflow:auto;font-size:11.5px}
+.pv-side h4{margin:2px 0 6px;font-size:11px;font-weight:600;color:#9fb1ab}
+.pv-side h4 small{font-weight:400;color:#6f817a;margin-left:4px}
+.node{display:flex;align-items:center;gap:6px;padding:2px 5px;border-radius:3px;cursor:pointer;white-space:nowrap;font-family:"IBM Plex Mono",monospace;font-size:11px;color:#c9d5d0}
+.node:hover{background:#233039}.node.sel{background:#2a3b46;color:var(--tx)}
+.node svg{width:13px;height:13px;flex:none;stroke:#9fb1ab;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.node .k{margin-left:auto;font-size:9.5px;color:#6f817a;font-family:"IBM Plex Sans",sans-serif}
+.member{padding:1px 6px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:#b7c4bf}
+.gen{margin-top:4px;padding:6px;border:1px solid var(--ln);border-radius:5px;background:#1b252c}
+.gen .node{cursor:default;padding:0 0 6px}.gen .node:hover{background:none}
+.gen .acts{display:flex;flex-direction:column;gap:5px}
+.gen .acts button{text-align:left}
+.gen .acts button.primary{border-color:var(--ac);color:var(--ac)}
+.gen p{margin:6px 0 0;color:#7f918b;font-size:10.5px;line-height:1.4}
+.pv-main{display:flex;flex:1;min-width:0;min-height:0;gap:6px;padding:6px}
+.panel{display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--ln);border-radius:6px;background:var(--p)}
+.panel.focus{border-color:var(--ac)}
+.panel.waves{flex:1}
+.tabs{display:flex;align-items:center;gap:6px;padding:0 6px 0 0;background:var(--bar);border-bottom:1px solid var(--ln);flex:none;min-height:28px}
+.tab{padding:5px 10px;font-size:11.5px;color:var(--mu);border-right:1px solid var(--ln)}
+.panel.focus .tab{color:var(--tx);box-shadow:inset 0 -2px 0 var(--ac)}
+.tabs .tools{margin-left:auto;display:flex;gap:4px}
+.tabs .tools button{padding:1px 7px}
+.body{flex:1;min-height:0;position:relative;overflow:hidden;cursor:text}
+.body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tip{position:absolute;pointer-events:none;background:#0f161a;border:1px solid #3a4a54;border-radius:5px;padding:6px 8px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.45;color:var(--tx);box-shadow:0 6px 18px rgba(0,0,0,.35);white-space:nowrap;z-index:3}
+.tip b{font-weight:600}.tip .e{color:#f07a76}.tip .d{color:var(--mu)}
+.menu{position:absolute;z-index:4;min-width:168px;background:#172026;border:1px solid #3a4a54;border-radius:6px;padding:4px;box-shadow:0 10px 24px rgba(0,0,0,.4);font-size:12px}
+.menu button{display:flex;width:100%;border:0;background:none;padding:4px 8px;border-radius:4px;text-align:left;justify-content:space-between;gap:16px}
+.menu button:hover,.menu button:focus-visible{background:#2a3b46;outline:none}
+.menu button kbd{background:none;border:0;color:var(--mu);font-size:10.5px;padding:0}
+.menu hr{border:0;border-top:1px solid var(--ln);margin:4px 2px}
+.menu .hl{padding:3px 8px 2px;color:var(--mu);font-size:11px}
+.menu .heights{display:flex;gap:3px;padding:2px 6px 4px}
+.menu .heights button{justify-content:center;border:1px solid #394954;padding:1px 0;width:34px}
+.menu .heights button.on{border-color:var(--ac);color:var(--ac)}
+.panel.txp{width:262px;flex:none}
+.txbody{flex:1;overflow:auto;padding:10px 12px;font-size:12px}
+.txbody .empty{color:var(--mu);line-height:1.5;margin-top:24px;text-align:center}
+.txh{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.txh b{font-size:15px;font-family:"IBM Plex Mono",monospace}
+.pill{font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;border-radius:3px;padding:1px 6px;background:#243a52;color:#9cc4f2}
+.pill.err{background:#4a2624;color:#f5a19d}
+.txsub{color:var(--mu);font-size:11px;margin:2px 0 10px}
+.txsub.dim{font-style:italic}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+.tiles div{background:#1a242a;border:1px solid var(--ln);border-radius:5px;padding:4px 6px}
+.tiles small{display:block;color:var(--mu);font-size:10px}
+.tiles span{font-family:"IBM Plex Mono",monospace;font-size:12px}
+.life{position:relative;height:22px;display:flex;border-radius:4px;overflow:hidden;margin-bottom:4px;background:#1a242a}
+.life i{display:block;height:100%;font-style:normal;font-size:9.5px;font-family:"IBM Plex Mono",monospace;color:#f3f7fb;line-height:22px;text-align:center;overflow:hidden;white-space:nowrap}
+.life .cur{position:absolute;top:0;bottom:0;width:2px;background:#f07a76}
+.txbody h5{font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--mu);margin:12px 0 4px;font-weight:600}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.kv span:nth-child(odd){color:var(--mu)}
+.kv .e{color:#f5a19d}
+.txnote{color:#6f817a;font-size:10.5px;line-height:1.45;margin-top:12px}
+.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--ln);background:var(--bar);color:var(--mu);font-family:"IBM Plex Mono",monospace;font-size:11px;min-height:27px}
+.pv-status b{color:var(--tx);font-weight:400}
+.pv-status .sel{margin-left:auto;color:#e0a94a}
+.panel.flash{animation:flash .6s ease-out}
+@keyframes flash{from{box-shadow:0 0 0 3px rgba(79,195,161,.55)}to{box-shadow:0 0 0 0 rgba(79,195,161,0)}}
+@media (max-width:900px){.pv-side{display:none}}
+@media (max-width:700px){
+  .pv-work{height:auto}.pv-main{flex-direction:column}
+  .panel.waves{height:400px;flex:none}.panel.txp{width:auto}
+  .pv-status .sel{margin-left:0}
+}
 #selftest{display:none}
-.mini{font-size:12.5px;color:var(--muted)}
-.v1{color:var(--accent-ink);font-weight:600}
-.later{color:var(--amber);font-weight:600}
 </style>
 </head>
 <body>
 <header><div class="bar">
-  <a class="brand" href="#top">Volna <span>Transaction Lanes</span></a>
+  <a class="brand" href="#top">Volna <span>transaction lanes</span></a>
   <nav>
-    <a href="#summary">Summary</a><a href="#example">The example</a><a href="#existing">Status quo</a><a href="#lane">The lane</a><a href="#shared">Data &amp; boundaries</a><a href="#interaction">Interaction</a><a href="#comparison">Comparison</a><a href="#proposal">First version</a><a href="#deferred">Deferred</a><a href="#experiments">Experiments</a><a href="#sources">References</a>
+    <a href="#demo">Demo</a><a href="#behaviour">How it works</a><a href="#builds-on">What it builds on</a><a href="#why">Why a row</a><a href="#plan">Plan</a>
   </nav>
+  <button id="theme" type="button" aria-label="Toggle light or dark page theme">Theme</button>
 </div></header>
 
 <main id="top">
-<section class="hero"><div class="wrap">
-  <div class="eyebrow">Design proposal · volna-core · waveform panel</div>
-  <h1>Transaction lanes as <em>rows</em> in the waveform panel</h1>
-  <p class="lede">VTR traces carry transactions next to signals, and the hierarchy browser already lists their generators. Today the only way to see them is a separate Pipeline panel — stage cells, one row per transaction. This proposal adds the missing view: a transaction's <em>lifetime</em>, drawn as a lane beside the signals it correlates with, by making the generator one more row kind in the wave panel. The page carries a working demo over an AXI read scenario, the row, hit-test and loading design, and the comparison with the linked panels it complements.</p>
-  <div class="legend">
-    <span><span class="badge exist">existing</span> already in the repository, reused as is</span>
-    <span><span class="badge prop">proposed</span> the first version described here</span>
-    <span><span class="badge lib">later</span> deliberately left out, with its seam named</span>
-    <span><span class="badge data">generated demo data</span> scripted for this page, not a recorded trace</span>
+<section><div class="wrap">
+  <h1>Transactions as <em>rows</em> in the waveform panel</h1>
+  <p class="lede">Add a transaction generator to the Waves panel the way you add a signal. It becomes one more row: each transaction is a bar over its lifetime, lined up with the handshakes that produced it.</p>
+  <p class="meta">Design proposal, not implemented. Transactions are visible today only in the Pipeline, Table and Transaction panels. Next to the signals, you can answer questions such as <em>which read owns this <code>rvalid</code> plateau?</em> without comparing two panels. The proposal builds on the Transaction panel, per-row heights and the row clipboard that Volna already has. Related documents: <a href="pipeline-view.html">pipeline-view.html</a>, <a href="tx-detail.html">tx-detail.html</a>, <a href="hierarchy.html">hierarchy.html</a>.</p>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <h2>Try it</h2>
+  <p class="prose">This is a mock of the Waves panel with one AXI read generator, <code>axi_rd</code>, added as a lane below its channel signals. The trace is generated for this page. It opens with four hand-written reads that overlap. One read waits on the address channel, and one meets backpressure and ends in <code>SLVERR</code>. After them come <span id="tx-count">about a hundred</span> generated reads over 6&nbsp;µs. The Transaction panel on the right follows the selection, as it does in Volna.</p>
+  <div class="steps" role="group" aria-label="Guided scenarios">
+    <button type="button" data-guide="error">1 · Find the failing read<span>Zoom to the error and select it</span></button>
+    <button type="button" data-guide="move">2 · Move the lane<span>Put it right under the AR channel</span></button>
+    <button type="button" data-guide="fold">3 · Fold to one row<span>Height 1×: overlaps are hatched</span></button>
+    <button type="button" data-guide="zoomout">4 · Zoom out to the whole trace<span>Bars become a density strip</span></button>
+    <button type="button" data-guide="step">5 · Step through boundaries<span><kbd>Shift</kbd>+<kbd>→</kbd> on the lane</span></button>
+    <button type="button" data-guide="reset" class="reset">Reset</button>
   </div>
-  <p class="small">Companion to <a href="pipeline-view.html">pipeline-view.html</a> (the implemented Pipeline panel this builds on), <a href="hierarchy.html">hierarchy.html</a> (the browser generators open from) and <a href="workspaces.html">workspaces.html</a> (panels and persistence). Status: design proposal — nothing here is implemented; the demo is an HTML canvas mock that mirrors the proposed core models. Ground rules applied: no presentation or VDB data in VTR or on the wire (the <a href="../README.md#vtrvdb-boundary">VTR/VDB boundary</a>), breaking changes are acceptable in this research phase (<a href="../AGENTS.md#design-and-implementation-rules">agent rules</a>), and no performance claim appears without a measurement — the <a href="#experiments">experiments section</a> lists what must be measured before any cost statement becomes one.</p>
-</div></section>
 
-<section id="summary"><div class="wrap">
-  <div class="eyebrow">Summary</div>
-  <h2>The design: a generator is just another wave row</h2>
-  <p>Debugging a handshake stall or an error response is a correlation task: <em>which transaction owns this <code>rvalid</code> plateau, and what was its address phase?</em> That question is awkward today because the two artifacts that answer it — the transaction's lifetime and the channel's signals — live in different panels at different row scales. The Pipeline panel answers stage-level questions (<em>where inside the transaction did time go</em>) better than any lane could; it is the wrong tool for <em>which bar lines up with this signal edge</em>.</p>
-  <p>A transaction lane is a new row kind in the wave panel's existing row list: a generator sits next to signal rows, at any position, dragged there by its name cell like any row reorder. Zoomed in, the lane draws each transaction as a rounded bar over its lifetime, stacking overlapping transactions into sub-rows; zoomed out past the density threshold it collapses to an aggregate strip; the row's × removes the lane and releases the track. Because the lane lives inside the wave panel, it shares the panel's viewport, cursor, markers and gestures for free — synchronization is not a feature that had to be built. And it is the smallest shape that answers the correlation question: a row enum arm, a lane painter and a <code>move_row</code> primitive, with loading, interval queries, selection and persistence reusing machinery the Pipeline panel already exercises.</p>
-  <p>Two materially different shapes were prototyped and rejected during the investigation that produced this design: an <strong>attached overlay lane</strong> pinned beneath a signal group, and a <strong>transaction shelf</strong> splitting the panel's bottom. Both pay structural costs the row does not — row groups and per-row heights for the overlay, a second in-panel region with a sash for the shelf — while their one genuinely valuable idea, selection cross-highlight on the related signal rows, is a selection overlay this design can grow later. The <a href="#comparison">comparison</a> records the verdicts so they are not re-litigated without new evidence, and <a href="#experiments">experiments</a> lists the measurements that could still change the plan.</p>
-</div></section>
-
-<section id="example"><div class="wrap">
-  <div class="eyebrow">The example</div>
-  <h2>One AXI read episode, one demo</h2>
-  <p><span class="badge data">generated demo data</span> The demo renders a hand-written event script (embedded in this file, ~40 events), chosen to exercise every interaction the design must answer: overlapping lifetimes, an address stall, data backpressure and an error response. The scenario is a manager issuing four overlapping AXI read bursts on one channel, 1&nbsp;ns resolution, clock period 2&nbsp;ns. The recorded trace is taken to span 0–1200&nbsp;ns with the episode occupying 0–46&nbsp;ns, so that <em>zooming all the way out</em> is a meaningful gesture that reaches the density regime — in a real trace the interesting episode is likewise a sliver of the total.</p>
-  <div class="tablewrap"><table>
-    <thead><tr><th>Transaction</th><th>Attributes</th><th>Lifetime</th><th>Stages (<code>TransactionStage</code>)</th><th>What it demonstrates</th></tr></thead>
-    <tbody>
-    <tr><td><code>T0</code></td><td>id 0x0 · addr 0x00001000 · len 3 · resp OKAY</td><td>[4, 20) ns</td><td>ADDR 4–6 · WAIT 6–12 · DATA 12–20</td><td>Clean burst; overlaps T1 and (briefly) T2.</td></tr>
-    <tr><td><code>T1</code></td><td>id 0x1 · addr 0x00002000 · len 1 · resp OKAY</td><td>[8, 26) ns</td><td>ADDR 8–16 · WAIT 16–22 · DATA 22–26</td><td>AR stall: <code>arvalid</code> high while <code>arready</code> is low for three posedges (8–14).</td></tr>
-    <tr><td><code>T2</code></td><td>id 0x2 · addr 0x00003000 · len 3 · resp <b>SLVERR</b></td><td>[18, 40) ns</td><td>ADDR 18–20 · WAIT 20–28 · DATA 28–40</td><td>R backpressure: <code>rready</code> low 32–36 while <code>rvalid</code> holds a beat; last beat answers SLVERR → <code>TxStatus::Error</code>, tinted red.</td></tr>
-    <tr><td><code>T3</code></td><td>id 0x0 · addr 0x00004000 · len 0 · resp OKAY</td><td>[34, 46) ns</td><td>ADDR 34–36 · WAIT 36–44 · DATA 44–46</td><td>Same id as T0, overlapping T2: id reuse forces lifetime (not id) to be the row identity.</td></tr>
-    </tbody></table></div>
-  <p>Signals: <code>clk</code>, the AR group (<code>arvalid</code> <code>arready</code> <code>araddr</code> <code>arid</code>), the R group (<code>rvalid</code> <code>rready</code> <code>rdata</code> <code>rid</code> <code>rresp</code>), and the idle write-channel pair <code>awvalid</code>/<code>awready</code> dimmed for context. Transactions carry the attributes above plus stage annotations (<code>ADDR</code>, <code>WAIT</code>, <code>DATA</code>) precisely so the prose can discuss reusing Pipeline panel machinery — a lane bar is the same <code>Transaction</code> record the Pipeline panel draws as stage cells. The deepest overlap is three transactions (T0/T1/T2 at 18–20&nbsp;ns), which is what drives the lane's sub-row stacking.</p>
-  <div class="pv-legend" id="shared-legend"></div>
-  <p class="pv-note">Zoomed out past ~0.8 px/ns, individual bars stop being distinguishable and the lane switches to a <strong>density strip</strong>: one aggregate per pixel column. What is retained per column: how many transactions overlap it (drawn as opacity), the peak concurrency (drawn as fill height), and whether any of them ended in an error (drawn as a red cap). What is dropped: individual identities, attributes and stage boundaries — the strip answers <em>where is there activity, and is any of it bad</em>, and zooming in restores full detail. The demo data has only four transactions, so columns rarely aggregate more than three; with a real generator of thousands, each column may summarize dozens.</p>
-</div></section>
-
-<section id="existing"><div class="wrap">
-  <div class="eyebrow">The existing alternative</div>
-  <h2><span class="badge exist">existing</span> Time-linked Waves and Pipeline panels</h2>
-  <p>The repository's current answer is two panel kinds over one document. A wave panel shows the signals; a Pipeline panel (<code>PanelKind::Pipeline(PipelineModel)</code>, implemented in <code>volna-core/src/pipeline/</code> per <a href="pipeline-view.html">pipeline-view.html</a>) shows the transactions of a stream or generator as Konata-style rows of stage cells. The panels synchronize for free: both embed a <code>nav::NavState</code>, so the <code>Link { viewport, cursor }</code> flags tie them to the document's shared <code>Viewport</code> tween, cursor and markers. A click in either moves the one cursor; zooming one zooms the other while linked.</p>
-  <p>This is genuinely good for stage-level questions — flushes, per-stage occupancy, long instruction windows — and it cost no changes to the wave panel. It is weak exactly where this design starts:</p>
-  <ul>
-    <li><strong>No spatial adjacency.</strong> The transaction and the signals it must be compared with are in different panels, separated by chrome; the eye must carry a time position across a panel boundary. A shared cursor helps, but scanning <em>shape</em> (a bar plateau against a handshake plateau) across panels is markedly harder than across adjacent rows.</li>
-    <li><strong>Different row semantics.</strong> Pipeline rows are one per transaction in <code>(begin, end, id)</code> order at a panel-wide row pitch; wave rows are signals. There is no way to pin <code>axi_rd</code> directly under <code>arid</code> and keep it there while scrolling.</li>
-    <li><strong>Granularity mismatch.</strong> For a four-burst AXI episode the Pipeline panel's stage cells are more detail than the correlation question needs; the user wants lifetimes.</li>
-  </ul>
-  <p>The design below keeps this two-panel workflow intact — the Pipeline panel remains the right tool for stage analysis, and the lane deliberately reuses its loader path, its palette idea and its overlay painting. It adds one capability: the wave panel can <em>also</em> host a generator as a row, next to the signals it correlates with.</p>
-</div></section>
-
-<section id="lane"><div class="wrap">
-  <div class="eyebrow">The design · lane-as-row · proposed first version</div>
-  <h2><span class="badge prop">proposed</span> A generator is just another wave row</h2>
-  <p>A transaction lane is a new row kind in the wave panel's existing row list — next to signal rows, at any position, dragged there by its name cell like any row reorder. Zoomed in, the lane draws each transaction as a rounded bar over its lifetime, stacking overlaps into sub-rows (T0/T1/T2 are three deep at 18–20&nbsp;ns); stage boundaries show as ticks inside the bar; the SLVERR transaction is red. Zoomed out past the density threshold, the lane collapses to the aggregate strip described above. The row header's × (or right-click) removes the lane and releases the track; the sidebar adds it back. Nothing about how signals render, zoom, pan or select changes.</p>
-  <div class="guide">
-    <button data-guide="slverr">Zoom to the SLVERR burst</button>
-    <button data-guide="position">Drag the lane under the AR group (programmatically)</button>
-    <button data-guide="density">Zoom all the way out (density mode)</button>
-    <button data-guide="remove">Remove the lane, then restore</button>
-    <button data-guide="reset">Reset</button>
-  </div>
-  <div class="pv" id="pvA" tabindex="0" aria-label="Mock: transaction lane as a wave row">
-    <div class="pv-title"><span class="dots"><i></i><i></i><i></i></span><b>Volna</b> — axi_rd.vtr · <span>Waves 1</span> · <span class="badge data">generated demo data</span></div>
-    <div class="pv-toolbar">
-      <button data-act="zin">Zoom in (=)</button>
-      <button data-act="zout">Zoom out (−)</button>
-      <button data-act="fit">Fit (F)</button>
-      <button data-act="lane">Remove lane</button>
-      <button data-act="reset">Reset</button>
-      <span class="pv-hint">wheel · zoom about pointer · ⇧wheel · pan · drag · pan · click bar · select · click waves · cursor · drag lane name · reorder · ↑ ↓ · prev/next transaction</span>
-    </div>
-    <div class="pv-work h470"><div class="pv-sidebar"><div class="pv-side-title">Scopes</div><div class="pv-tree"></div><div class="pv-side-title" style="margin-top:8px"><span class="pv-vars-title">Variables</span> <small class="pv-side-sub"></small></div><div class="pv-vars"></div></div><div class="pv-main"><div class="pv-panel waves focused"><div class="pv-header"><span class="t">Waves 1 · cpu.axi</span></div><div class="pv-body"><canvas></canvas></div></div></div></div>
-    <div class="pv-status"></div>
-  </div>
-  <p class="pv-note"><strong>What the mock implements versus what is proposed.</strong> The viewport math is ported from <code>wave/viewport.rs</code> (edge space, clamping, eased tweens); row heights, lane stacking, lane reorder by drag, density aggregation and hit testing run the same pure functions the selftest at the bottom of this file asserts in node. The lane renders with the HTML canvas instead of <code>Scene</code> quads. Not mocked: load states (the generator is instantly resident), unresolved tracks, workspace persistence, and the ⌘-drag zoom-range gesture, which the design keeps untouched on signal rows.</p>
-
-  <h3>Row and lane layout</h3>
-  <p><code>WaveModel.items</code> is today a <code>Vec&lt;DisplayedSignal&gt;</code>. The minimal change is a row enum, <code>WaveRow { Signal(DisplayedSignal), TxLane(TxLane) }</code>, where <code>TxLane</code> holds a <code>TrackSource</code>-style locator (resolved <code>TrackRef</code> + path, or an unresolved saved path), the prepared sub-row assignment, and transient hover/selection. Everything row-shaped the panel already does — the name and value columns, hover highlight, selection, <code>remove_selected</code>, workspace save of row locators — works over the enum with a signal-only fallback arm. A lane has no value column; its cell shows the transaction under the cursor, if any.</p>
-  <p>One honest complication: <code>wave/layout.rs</code> assumes a <em>uniform</em> row height (<code>row_at</code> is a division by the theme's <code>row_height</code>). A lane that grows with its overlap depth breaks that invariant. The v1 answer is to cap a lane at four sub-rows (5 × <code>row_height</code> with padding, still fixed multiples of the unit) and scroll deeper stacks inside the lane; generalizing layout to per-row heights is measured first (see <a href="#experiments">experiments</a>) and is only needed if the cap proves annoying. In density mode the lane is exactly one row tall.</p>
-  <h3>Hit testing</h3>
-  <p>The painter already enumerates the visible transactions to draw them, so the hit test reuses that enumeration rather than querying again: pointer y picks the row and sub-row, pointer x becomes a time, and the topmost bar whose <code>[begin, end]</code> contains it wins, with a ±2&nbsp;px edge tolerance for one-pixel bars. Cost is bounded by painted bars, never by generator size. In density mode there is nothing to hit below column granularity: a click sets the cursor and the status line reports the column's aggregate (count, any-error).</p>
-  <h3>Interval queries</h3>
-  <p>Visible transactions come from <code>LoadedGenerator::visit_window(vp.start, vp.end, …)</code>, the balanced max-end interval tree that already exists for exactly this query — inclusive overlap, results in canonical <code>(begin, end, id)</code> order, and it retains long transactions that a begin-time binary search would miss. Paint and hit test share one visitor. The tree is <em>not</em> consulted for sub-row assignment (that is a property of the whole generator, computed once) nor in density mode below the aggregation threshold, where the same visitor feeds the per-column bins with an early exit once every column is saturated.</p>
-  <h3>Asynchronous preparation</h3>
-  <p>Opening the lane retains the track through <code>Document::retain_track</code> — the same <code>LoadRequest::Track</code> path the Pipeline panel uses, with its generation checks and remote memory reservations — and the lane row shows the existing loading/failed row states until delivery. On <code>Delivered::Track</code> the model computes the sub-row assignment: one greedy pass in begin order, O(n) in the generator's transaction count, producing one <code>u16</code> lane index per transaction plus the depth. For the generators seen so far this is trivially fast enough to run on delivery; if a measurement ever says otherwise, the pass moves into the same cancellable background-job seam the table proposal uses, and the lane draws flat until it lands. No part of preparation touches the paint path.</p>
-  <h3>Memory costs</h3>
-  <p>Zero copies of trace data: the lane reads the resident immutable <code>Transaction</code> records shared with any Pipeline panel on the same track (consumer counting makes the second consumer free). Added state per lane: the locator and view state (tens of bytes), the lane-index vector (2&nbsp;bytes per transaction), and the shared text-shaping cache entries for labels actually drawn. Density bins are computed per frame into a reused column buffer (O(width)); no persistent pyramid in v1.</p>
-  <h3>Bounded rendering work</h3>
-  <p>Per frame: visible rows are bounded by panel height ÷ row height; per lane, painted bars are bounded by <code>visit_window</code> results clipped to the viewport, with bars narrower than a pixel widened to one and text gated on shaped-width like the wave painter's bus segments. In density mode work is O(visible transactions + width) with the early exit above. Worst case is therefore proportional to pixels, not to generator size — the same contract the wave painter already keeps (<code>O(pixels)</code>, ARCHITECTURE.md). This is a bound on work, not a measured frame time; the numbers are owed by <a href="#experiments">experiment E2</a>.</p>
-</div></section>
-
-<section id="shared"><div class="wrap">
-  <div class="eyebrow">Shared design</div>
-  <h2>Data ownership, boundaries, and what Pipeline already built</h2>
-  <p>The lane's substrate is deliberately boring because the Pipeline panel already built it — a lane differs from a Pipeline row in what it paints, not in what it reads:</p>
-  <div class="tablewrap"><table>
-    <thead><tr><th>Piece</th><th>What it gives a transaction lane</th><th class="cite">Where</th></tr></thead>
-    <tbody>
-    <tr><td><span class="badge exist">existing</span> <code>Transaction</code>, <code>TransactionStage</code>, <code>TxStatus</code></td><td>Immutable records: <code>(begin, end)</code> lifetime, attributes with phases, stages with lanes, status (<code>Error</code> → the SLVERR tint). Reused as is; no lane-specific data ever enters VTR (README.md “VTR/VDB boundary”).</td><td class="cite"><code>volna-core/src/data/transactions.rs</code>, <code>core/vtr/src/txblock.rs</code></td></tr>
-    <tr><td><span class="badge exist">existing</span> <code>LoadedGenerator</code></td><td>Transactions in canonical <code>(begin, end, id)</code> order and <code>visit_window</code> over the balanced max-end tree for inclusive-overlap interval queries; the same objects serve a Pipeline panel on the same track.</td><td class="cite"><code>volna-core/src/data/loaded_tracks.rs</code></td></tr>
-    <tr><td><span class="badge exist">existing</span> <code>Document::retain_track</code> / consumer counting</td><td>Lane lifetime tied to the load: add retains, remove releases, last consumer drops the load and late deliveries are no-ops. Remote sessions unchanged — <code>LoadRequest::Track</code> already delivers complete objects under the client memory budget.</td><td class="cite"><code>volna-core/src/document.rs</code>, <code>session.rs</code>, <code>remote/</code></td></tr>
-    <tr><td><span class="badge exist">existing</span> <code>nav::NavState</span>, <code>Link</code>, shared <code>Viewport</code> tween, markers</td><td>The lane is inside the wave panel, so synchronization is not a feature at all: one panel, one nav state, gestures and links untouched. This is the row shape's quiet advantage over any separate-region arrangement.</td><td class="cite"><code>volna-core/src/nav/mod.rs</code>, <code>wave/viewport.rs</code></td></tr>
-    <tr><td><span class="badge exist">existing</span> <code>wave::overlay</code> (ticks, cursor, markers), <code>Scene</code>, <code>TextMeasure</code>, <code>Theme</code></td><td>The lane painter emits ordinary quads and text through the same helpers; shaped-label caching and pixel snapping apply unchanged.</td><td class="cite"><code>volna-core/src/wave/overlay.rs</code>, <code>scene.rs</code></td></tr>
-    <tr><td><span class="badge exist">existing</span> <code>StagePalette</code> ladder idea</td><td>Lane bars use a fixed status palette in v1 (normal / error), with stage ticks in a darkened shade — the same ladder-by-first-appearance fallback the Pipeline palette uses before a VDB stage table exists.</td><td class="cite"><code>volna-core/src/pipeline/palette.rs</code></td></tr>
-    <tr><td><span class="badge exist">existing</span> Hierarchy browser activation</td><td>Streams are scope rows, generators are members; Enter/double-click routes through <code>App::activate_members</code>. A lane adds one more outcome for a generator activation (today: open Pipeline panel; proposed: a modifier or a drop target chooses the lane).</td><td class="cite"><code>volna-core/src/sidebar/</code>, <code>app.rs</code></td></tr>
-    </tbody></table></div>
-
-  <h3>Missing owner APIs the design surfaces</h3>
-  <div class="tablewrap"><table>
-    <thead><tr><th>Missing</th><th>Owner layer</th><th>Needed by</th><th>Shape of the fix</th></tr></thead>
-    <tbody>
-    <tr><td>A row kind that is not a signal</td><td><code>wave/model.rs</code> — <code>items: Vec&lt;DisplayedSignal&gt;</code></td><td>the lane</td><td><code>enum WaveRow { Signal(..), TxLane(..) }</code>; selection, removal, workspace locators and the value column each gain a lane arm.</td></tr>
-    <tr><td>Row reordering</td><td><code>wave/model.rs</code></td><td>the lane's drag reorder</td><td>Today rows can be added and removed but not moved (<code>move_selection</code> moves the <em>selection</em>). A <code>move_row(from, to)</code> adjusting selection indices is small and independently useful.</td></tr>
-    <tr><td>Per-row heights</td><td><code>wave/layout.rs</code> — <code>row_at</code> divides by a uniform <code>row_height</code></td><td>lanes deeper than the four-sub-row cap</td><td>v1 avoids it with the height cap; a prefix-heights layout is the general fix, gated on a measurement (E4).</td></tr>
-    <tr><td>A bar-level transaction selection shared across panels</td><td><code>document.rs</code> or per-panel view state</td><td>the deferred selection overlay</td><td>v1: per-panel selection (a <code>TransactionRef</code> + track), like wave row selection. A document-level selection is a workspaces.html conversation, deferred.</td></tr>
-    </tbody></table></div>
-
-  <h3>Boundaries that do not move</h3>
-  <ul>
-    <li><strong>VTR/VDB.</strong> The lane reads lifetimes, stages, attributes and status — all raw trace facts. Colours, the decision that <code>rresp = SLVERR</code> means <code>TxStatus::Error</code> (a producer choice recorded as status), grouping heuristics and leader-line routing are viewer concerns; a VDB profile may later recolour bars exactly as it would recolour pipeline stages. Nothing is added to the format.</li>
-    <li><strong>Client/server.</strong> The query library and protocol keep carrying raw trace data only. Lane assignment, density aggregation, tints and selection run on the client over the resident immutable objects; a remote lane loads through the existing <code>LoadRequest::Track</code> with its explicit size failure, and a native lane shares the buffers without serialization.</li>
-    <li><strong>volna-core, not the frontends.</strong> Row model, lane assignment, density bins, hit testing and selection live in <code>volna-core</code> and are headless-testable; the GPUI element gains lane hitboxes the way it gained pipeline hitboxes. <code>volna-egui</code> builds against the new row enum and otherwise does not grow, per AGENTS.md.</li>
-  </ul>
-</div></section>
-
-<section id="interaction"><div class="wrap">
-  <div class="eyebrow">Interaction</div>
-  <h2>Existing wave gestures stay predictable</h2>
-  <p>The first rule of the design: a user who never opens a lane cannot tell the feature exists. Lane interactions live in places wave gestures do not — the name cell (drag to reorder, × to remove), the bars themselves (click to select) — while the wave area's contract is unchanged.</p>
-  <div class="grid two">
-    <div class="card"><h4 style="margin-top:0">Unchanged wave gestures</h4>
-      <div class="tablewrap"><table>
-        <tr><th>Input</th><th>Effect (as today)</th></tr>
-        <tr><td>Wheel / pinch</td><td>Zoom time about the pointer, animated to the accumulated target.</td></tr>
-        <tr><td>⇧ + wheel, trackpad scroll</td><td>Pan time / scroll rows.</td></tr>
-        <tr><td>Drag in the wave area</td><td>Pan; ⌘-drag still zooms a range — lanes never capture it.</td></tr>
-        <tr><td>Click on a signal row's wave</td><td>Cursor to the time under the pointer; clears any transaction selection.</td></tr>
-        <tr><td>Click on empty lane area</td><td>Cursor, exactly as a signal row. Only a bar click selects.</td></tr>
-        <tr><td>Escape</td><td>Cancel drag → clear transaction selection → clear cursor (the existing order, one step inserted).</td></tr>
-      </table></div>
-    </div>
-    <div class="card"><h4 style="margin-top:0">New, lane-scoped gestures</h4>
-      <div class="keys">
-        <kbd>click bar</kbd> <span>select the transaction; status/detail shows id, attributes, stages</span>
-        <kbd>drag name cell</kbd> <span>reorder the lane among the signal rows</span>
-        <kbd>× / right-click name</kbd> <span>remove the lane and release the track</span>
-        <kbd>↑ ↓</kbd> <span>with a lane focused: previous/next transaction in begin order; without a lane: existing row-selection move</span>
-        <kbd>double-click generator</kbd> <span>unchanged: opens the Pipeline panel; adding a lane is a sidebar action or a drop target, so the two never fight over one gesture</span>
+  <div class="pv" id="pv" tabindex="0" role="application" aria-label="Interactive mock of the Volna Waves panel with a transaction lane">
+    <div class="pv-title"><span class="dots"><i></i><i></i><i></i></span><b>Volna</b> — axi_rd.vtr <span class="data">generated demo data</span></div>
+    <div class="pv-work">
+      <aside class="pv-side" aria-label="Hierarchy">
+        <h4>Scopes</h4><div id="tree"></div>
+        <h4 style="margin-top:10px"><span id="members-title">Members</span><small id="members-sub"></small></h4><div id="members"></div>
+      </aside>
+      <div class="pv-main">
+        <div class="panel waves focus" id="waves">
+          <div class="tabs"><span class="tab">Waves 1</span>
+            <span class="tools"><button type="button" data-act="zin" title="Zoom in (=)" aria-label="Zoom in">＋</button><button type="button" data-act="zout" title="Zoom out (−)" aria-label="Zoom out">−</button><button type="button" data-act="fit" title="Zoom to fit (F)">Fit</button></span></div>
+          <div class="body" id="wbody"><canvas aria-hidden="true"></canvas><div class="tip" hidden></div><div class="menu" role="menu" hidden></div></div>
+        </div>
+        <div class="panel txp" id="txpanel" aria-live="polite">
+          <div class="tabs"><span class="tab">Transaction</span></div>
+          <div class="txbody" id="txbody"></div>
+        </div>
       </div>
-      <p class="mini" style="margin-top:12px">No new keyboard bindings and no new settings in v1. Bar clicks deliberately do <em>not</em> move the cursor; the two targets are visually distinct, and the demo above behaves this way.</p>
     </div>
+    <div class="pv-status" id="status"></div>
+  </div>
+  <div class="legend" id="legend"></div>
+  <p class="hint">Mouse: <b>click</b> a bar to select it · <b>drag</b> in the waves to move the cursor · <b>wheel</b> pans · <kbd>Ctrl</kbd>+wheel zooms · <kbd>Ctrl</kbd>+drag zooms to a range · right-drag pans · drag a <b>name</b> to move rows · right-click a name for Height, Cut/Copy/Paste and Remove.<br>Keys, with the mock focused: <kbd>=</kbd> <kbd>−</kbd> <kbd>F</kbd> zoom · <kbd>←</kbd> <kbd>→</kbd> pan · <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> previous/next edge · <kbd>↑</kbd> <kbd>↓</kbd> row selection · <kbd>Enter</kbd> show transaction · <kbd>Del</kbd> remove rows · <kbd>Esc</kbd> clear.</p>
+</div></section>
+
+<section id="behaviour"><div class="wrap">
+  <h2>How it works</h2>
+  <ol class="rules">
+    <li><b>A lane is a row.</b>A lane sits in the panel's row list next to the signals. It supports the same row operations: select, drag to reorder, cut, copy and paste, the Height menu, and Remove. Workspaces save it like any other row. To add one, choose <em>Add to Waves</em> on a generator in the hierarchy browser. Double-clicking a generator still opens the Pipeline panel.</li>
+    <li><b>Each bar is a transaction's lifetime.</b>A bar runs from begin to end. The address and data stages are solid and the wait between them is faded, so a stall shows at a glance. Errors are red. When a bar is wide enough, it shows the transaction id and address. Overlapping transactions stack into sub-rows. The stacking is computed once when the generator loads, so bars never move while you pan.</li>
+    <li><b>Lanes use ordinary row heights.</b>A new lane gets the smallest height preset that fits its deepest overlap, up to 4×. If you choose a smaller height, the deeper sub-rows fold into the bottom one. Hatching marks where folded bars overlap, and the name cell shows how many sub-rows are folded.</li>
+    <li><b>Zoomed out, the lane becomes a density strip.</b>When a typical transaction would be narrower than about 4&nbsp;px, bars are no longer readable. The lane then draws one column per pixel. Column height shows how many transactions are open at that time, and a red cap means at least one of them failed. Zoom in and the bars return.</li>
+    <li><b>Selection is shared with the other panels.</b>Clicking a lane works like clicking a signal: the cursor moves to the pointer and snaps to the nearest transaction boundary. If the click lands on a bar, that transaction becomes the document selection, the same selection the Pipeline and Table panels set. The Transaction panel then shows it, and every other panel highlights it. Clicking empty lane space clears the selection. <kbd>Enter</kbd> or a double-click opens the Transaction panel.</li>
+    <li><b>Everything else stays the same.</b>Signal rows, zoom, pan, markers and <kbd>Ctrl</kbd>+drag range zoom work as they do today. The value column lists the transactions open at the cursor. On a signal, <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> jumps to the previous or next value change. On a lane, the same keys jump between transaction begins and ends.</li>
+  </ol>
+</div></section>
+
+<section id="builds-on"><div class="wrap">
+  <h2>What it builds on</h2>
+  <p class="prose">Most of the machinery already exists, so the lane needs one new row kind and one painter. Loading, window queries, heights, selection and the detail view are shared with panels that ship today.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Piece</th><th></th><th>In <code>volna-core</code></th></tr></thead>
+    <tbody>
+    <tr><td>Row list</td><td><span class="st changed">changed</span></td><td><code>WaveModel.items</code> becomes <code>Vec&lt;WaveRow&gt;</code> with <code>WaveRow::{Signal, TxLane}</code>. Selection, removal, row menus and workspace saving each gain a lane case.</td></tr>
+    <tr><td>Row heights</td><td><span class="st exists">exists</span></td><td>The <code>RowHeight</code> presets (1×–8×) and the prefix <code>row_tops</code> layout. The lane only chooses its default.</td></tr>
+    <tr><td>Clipboard</td><td><span class="st changed">changed</span></td><td><code>Document::copied_rows</code> holds <code>WaveRow</code>s, so lanes cut and paste together with signals.</td></tr>
+    <tr><td>Drag to reorder</td><td><span class="st new">new</span></td><td><code>move_rows(selection, to)</code> works for every row kind. Today rows move only by cut and paste.</td></tr>
+    <tr><td>Loading</td><td><span class="st exists">exists</span></td><td><code>Document::retain_track</code> over <code>LoadRequest::Track</code>. A lane shares one resident copy of the generator with the Pipeline and Transaction panels, locally and remotely.</td></tr>
+    <tr><td>Window queries</td><td><span class="st exists">exists</span></td><td><code>LoadedGenerator::visit_window</code>, the max-end interval tree. Painting, hit testing and density bins share one visit per frame, so the work is bounded by the visible bars rather than by the size of the generator.</td></tr>
+    <tr><td>Sub-row stacking</td><td><span class="st new">new</span></td><td>One greedy pass in begin order when the generator is delivered, storing 2&nbsp;bytes per transaction. It never runs in the paint path.</td></tr>
+    <tr><td>Selection</td><td><span class="st exists">exists</span></td><td><code>Document::select(TxSelection { track, id, origin })</code>. The Transaction panel, pipeline and table already follow it.</td></tr>
+    <tr><td>Edge navigation</td><td><span class="st changed">changed</span></td><td><code>next_edge</code> and <code>prev_edge</code> ask the selected row for its next boundary. A lane answers with transaction begins and ends.</td></tr>
+    <tr><td>Painting</td><td><span class="st new">new</span></td><td>A lane painter that emits <code>Scene</code> quads and text through the existing overlay helpers. It is covered by headless scene tests.</td></tr>
+    <tr><td>Adding a lane</td><td><span class="st new">new</span></td><td>An <em>Add to Waves</em> item for generators in the hierarchy browser. <code>activate_members</code> keeps opening the Pipeline panel.</td></tr>
+    </tbody></table></div>
+  <p class="prose">Nothing is added to VTR or to the client–server protocol. Stacking, folding, density and colours are viewer decisions, computed in <code>volna-core</code> over the immutable transaction records. A remote lane loads through the same <code>LoadRequest::Track</code> under the client memory budget. <code>volna-egui</code> only has to build against the new row enum.</p>
+</div></section>
+
+<section id="why"><div class="wrap">
+  <div class="prose">
+  <h2>Why a row</h2>
+  <p>Today you can dock a Pipeline panel under the waves and link the two viewports. That is the right tool for stage analysis and long instruction streams. It is the wrong tool for correlating transactions with signals, because the transactions sit in another panel, at another row pitch, one row per transaction. Your eye has to carry every time position across a panel border.</p>
+  <p>A lane puts the lifetime directly beside the signals and inherits the panel's viewport, cursor, markers and gestures, with nothing new to keep in sync. The Pipeline panel stays the tool for stage-level questions.</p>
+  <p>Two other shapes were prototyped and rejected:</p>
+  <ul>
+    <li><strong>A lane attached under a signal group.</strong> This needs row groups with a durable anchor identity. Its best idea, highlighting the related signals of the selected transaction, can be added later as a selection overlay on the plain row.</li>
+    <li><strong>A transaction shelf at the bottom of the waves panel.</strong> This is a second panel inside the first, with its own sash, scrolling and persistence. Docking a Pipeline panel below the waves already produces that layout.</li>
+  </ul>
   </div>
 </div></section>
 
-<section id="comparison"><div class="wrap">
-  <div class="eyebrow">Comparison</div>
-  <h2>The lane and the linked panels, side by side</h2>
-  <div class="tablewrap"><table>
-    <thead><tr><th></th><th>Status quo: linked Waves + Pipeline</th><th>Lane-as-row (proposed)</th></tr></thead>
-    <tbody>
-    <tr><td>Delta to existing code</td><td>None (implemented)</td><td>Row enum + lane painter + <code>move_row</code>; uniform heights kept (cap)</td></tr>
-    <tr><td>Transaction beside its signals</td><td>No — separate panel</td><td>Yes, at any row position</td></tr>
-    <tr><td>Overlap handling</td><td>One row per transaction (no overlap possible)</td><td>Sub-row stacking, capped, inner scroll</td></tr>
-    <tr><td>Density story</td><td>Row-step density (pipeline)</td><td>Per-column aggregate strip</td></tr>
-    <tr><td>Correlation cues</td><td>Shared cursor only</td><td>Adjacency; selection detail (cross-highlight deferred)</td></tr>
-    <tr><td>Gesture risk</td><td>None</td><td>Low — new gestures confined to name cell and bars</td></tr>
-    <tr><td>Workspace/persistence</td><td>Existing panel entries</td><td>Row locator entries (like unresolved signal rows)</td></tr>
-    <tr><td>When it wins</td><td>Stage-level analysis, many transactions, flushes</td><td>Correlating a few transactions with signals — the v1 target</td></tr>
-    </tbody></table></div>
-
-  <h3>Shapes considered and rejected</h3>
-  <p><strong>Attached overlay lane.</strong> A strip pinned beneath the signal group the generator was derived from, expanding accordion-style on click, with stage tints and dashed leader lines tying a selected transaction to its channel rows. The correlation cues are real, but they are a selection overlay this design can grow later, while the entry price is not deferrable: a row-group model with a durable anchor identity, plus per-row heights — changes to <code>wave/layout.rs</code>'s uniform-height core invariant rather than a new arm of a row enum. Rejected as the first version; any revival is gated on the same per-row-heights measurement (E4) as removing the sub-row cap.</p>
-  <p><strong>Transaction shelf.</strong> A horizontally split region at the bottom of the wave panel, one row per open generator — the SimVision/Verdi arrangement. Comfortable and familiar, but it grows a second panel inside the first: a new region layout, a sash, per-generator rows with their own scrolling, focus and persistence — most of a panel's machinery without a panel's reuse of <code>Panels</code>, docking and persistence, which already produce this arrangement (with stage cells instead of lifetime bars) by docking a Pipeline panel below a wave panel. Its distinctive feature, cross-highlight on selection, is likewise a selection overlay. Rejected; revisit only with evidence that survives this argument.</p>
-</div></section>
-
-<section id="proposal"><div class="wrap">
-  <div class="eyebrow">Proposed first version</div>
-  <h2>Build the lane, scoped tight</h2>
-  <ol class="steps">
-    <li><strong>Row enum and lane model.</strong> <code>WaveRow { Signal, TxLane }</code> in <code>wave/model.rs</code>; <code>TxLane</code> holds the track locator, prepared lanes and selection; sidebar activation gains an "add as lane" outcome (drop target or modifier; double-click still opens the Pipeline panel). <code>move_row(from, to)</code> lands here as the reorder primitive.</li>
-    <li><strong>Lane painter.</strong> Stacked bars from <code>visit_window</code> over the viewport, stage ticks, status palette, sub-row cap of four with inner scroll, density strip below 0.8&nbsp;px/ns equivalent; emits <code>Scene</code> quads/text via <code>wave::overlay</code> conventions. Headless tests assert on the scene.</li>
-    <li><strong>Hit testing and selection.</strong> Paint-enumeration hit test, per-panel transaction selection, Escape order, status-line detail; GPUI hitboxes in the wave element.</li>
-    <li><strong>Persistence.</strong> Workspace row entries for lanes with durable track locators; unresolved lanes restore as empty rows, mirroring unresolved signal rows.</li>
-    <li><strong>Validate, then measure.</strong> Run experiment E1 — the task-based comparison against the linked panels — before writing row-enum code; then run the remaining experiments below before any cost claim is written into docs, recording numbers in <code>docs/RATIONALE.md</code> style alongside the change.</li>
+<section id="plan"><div class="wrap">
+  <div class="prose">
+  <h2>Plan</h2>
+  <ol>
+    <li><strong>Validate first.</strong> Compare the lane with linked Waves and Pipeline panels on two tasks over a real AXI trace: find the stalled read's address, and find the read that failed. If the linked panels do as well, do not build the lane.</li>
+    <li><strong>Row model.</strong> Add <code>WaveRow</code>, the lane state, <code>move_rows</code>, a clipboard of <code>WaveRow</code>s and workspace entries. Unresolved lanes restore as empty rows, like unresolved signals.</li>
+    <li><strong>Painting.</strong> Draw bars, stage shading, folding and the density strip, with headless scene tests.</li>
+    <li><strong>Interaction.</strong> Add the hit test, click snapping, <code>TxSelection</code>, edge navigation, the row menu and <em>Add to Waves</em>.</li>
+    <li><strong>Measure.</strong> Time sub-row stacking and paint per frame on the largest generators available: <code>pipeline_showcase.vtr</code> and a Verilator AXI trace with 10⁴–10⁶ transactions. Compare against a build without lanes and record the results in <code>docs/RATIONALE.md</code>.</li>
   </ol>
-  <p>The rejected shapes' stage tints, leader lines and cross-highlight are kept as this design's <em>later</em> selection overlay rather than a second lane mechanism; the verdicts are recorded in the comparison above so they are not re-litigated without new evidence.</p>
-</div></section>
-
-<section id="deferred"><div class="wrap">
-  <div class="eyebrow">Deferred features</div>
-  <h2>Named seams, not forgotten ideas</h2>
+  <h3>Open questions</h3>
   <ul>
-    <li><span class="badge lib">later</span> <strong>Selection cross-highlight, stage tints and leader lines</strong> as an overlay on the lane's selection; needs a "related rows" mapping, which is VDB-attachable metadata, not a format change.</li>
-    <li><span class="badge lib">later</span> <strong>VDB colour profiles for lanes</strong> — fill the status/stage palette from a profile, same seam as <code>StagePalette</code>.</li>
-    <li><span class="badge lib">later</span> <strong>Multiple generators per lane, lane filtering, and attribute-driven bar labels</strong> — a lane-row index between the generator and the painter, mirroring the Pipeline panel's deferred <code>RowIndex</code>.</li>
-    <li><span class="badge lib">later</span> <strong>Relation arrows between bars</strong> — the resident <code>relations()</code> already support the Pipeline panel's deferred arrows; same second pass here.</li>
-    <li><span class="badge lib">later</span> <strong>Per-row heights</strong> — a prefix-heights layout that removes the four-sub-row cap, gated on experiment E4; also the prerequisite for any attached-overlay revival.</li>
-    <li><span class="badge lib">later</span> <strong>Density pyramid</strong> — a persistent per-generator aggregation for million-transaction generators, only if E3 shows per-frame binning insufficient.</li>
-    <li><span class="badge lib">later</span> <strong>Tooltips, search-into-lane, cursor-follow</strong> — same shapes as the Pipeline panel's deferred list.</li>
+    <li>Is per-frame density binning fast enough at 10⁶ transactions, or does the lane need a persistent per-generator summary?</li>
+    <li>Is “narrower than 4&nbsp;px” the right point to switch to the density strip, or should it be a per-lane choice?</li>
+    <li>Should dragging a generator from the hierarchy onto the waves also add a lane?</li>
   </ul>
-</div></section>
-
-<section id="experiments"><div class="wrap">
-  <div class="eyebrow">Open uncertainties</div>
-  <h2>Experiments, the validation gate first</h2>
-  <ul>
-    <li><strong>E1 · Does the lane actually beat the linked panels?</strong> A small task-based comparison (find the stalled burst's address; find which transaction errored) between linked Waves+Pipeline and the lane, on a realistic trace. This runs <em>before</em> any implementation: if the linked panels tie, the honest outcome is to ship nothing.</li>
-    <li><strong>E2 · Paint and preparation cost at scale.</strong> Lane-assignment time and per-frame paint time on the largest real generators available (the checked-in <code>pipeline_showcase.vtr</code>, and a Verilator AXI trace with 10⁴–10⁶ transactions), A/B against a build without the lane, best-of-N on pinned cores per AGENTS.md. Claims in this document are bounds, not measurements, until this runs.</li>
-    <li><strong>E3 · Density aggregation strategy.</strong> Per-frame per-column binning via <code>visit_window</code> versus a persistent pyramid, at 10⁶ transactions: frame time and memory for both. Decides whether the pyramid stays deferred.</li>
-    <li><strong>E4 · Uniform-height assumption.</strong> Audit and measure <code>wave/layout.rs</code> for a prefix-heights variant; if the capped lane (4 sub-rows) proves limiting in use, this decides the cost of removing the cap — and is also the prerequisite for revisiting an attached-overlay lane.</li>
-    <li><strong>E5 · Hit-test enumeration threshold.</strong> At what visible-transaction count does re-walking <code>visit_window</code> for the hit test beat reusing the paint enumeration? Sets whether the two share a visitor cache.</li>
-    <li><strong>E6 · Activation UX.</strong> Drop target versus modifier-click versus sidebar button for "add as lane", tried on the wave panel's real sidebar; the mock's sidebar button is a placeholder, not a decision.</li>
-  </ul>
-</div></section>
-
-<section id="sources"><div class="wrap">
-  <div class="eyebrow">References</div>
-  <h2>Files behind this investigation</h2>
-  <ul>
-    <li>Task and ground rules: <code>docs/transaction-waveforms-investigation.md</code>, <a href="../README.md#vtrvdb-boundary">README.md VTR/VDB boundary</a>, and repository <code>AGENTS.md</code> (design and measurement rules).</li>
-    <li>Volna core: <code>volna/volna/ARCHITECTURE.md</code> (core contract, document vs view, pipeline panel), <code>volna/volna-core/src/{app.rs, document.rs, nav/mod.rs, panels/mod.rs}</code>, <code>wave/{model.rs, layout.rs, viewport.rs, overlay.rs, paint.rs}</code>, <code>pipeline/{model.rs, rows.rs, paint.rs, palette.rs}</code>, <code>data/{transactions.rs, loaded_tracks.rs}</code>.</li>
-    <li>Pipeline design and UI conventions: <a href="pipeline-view.html">docs/pipeline-view.html</a> (implemented since), <a href="hierarchy.html">docs/hierarchy.html</a>, <a href="workspaces.html">docs/workspaces.html</a>.</li>
-    <li>Format side: <code>core/vtr/src/txblock.rs</code> (<code>TxStatus</code>, transaction blocks), <code>docs/SPEC.md</code>.</li>
-  </ul>
-  <p class="small">Self-contained HTML. The mock runs locally on generated demo data scripted in this file; no network requests beyond the font links, no persistent state. A hidden <code>#selftest</code> element and the same script under node assert the pure logic (lane assignment, interval queries, density aggregation, hit testing).</p>
+  <h3>Later</h3>
+  <p>Possible follow-ups: several generators in one lane, relation arrows between bars, bar labels and colours from VDB profiles, and highlighting the related signal rows of the selected transaction.</p>
+  </div>
 </div></section>
 </main>
-<footer><div class="wrap">Volna transaction waveforms investigation · 2026-09-19 · state of the tree at commit <code>2218190</code>.</div></footer>
+
+<footer><div class="wrap">
+  Sources: <code>volna/volna-core/src/wave/{model,layout}.rs</code>, <code>document.rs</code> (<code>TxSelection</code>), <code>data/loaded_tracks.rs</code> (<code>visit_window</code>), <code>transaction/</code>, <code>pipeline/</code>, and README.md's <a href="../README.md#vtrvdb-boundary">VTR/VDB boundary</a>. State of the tree at <code>53bed84</code>.<br>
+  The demo is self-contained and uses generated data. Its pure logic is checked by a built-in self-test, and <code>node --test docs/tests/transaction-waveforms.test.mjs</code> drives it in headless Chrome.
+</div></footer>
 <pre id="selftest"></pre>
 
 <script>
 /* ============================================================================
-   Generated demo data (NOT a recorded trace): one hand-written event script
-   describing four overlapping AXI read bursts — an AR stall, R-channel
-   backpressure, and one SLVERR — plus the pure functions the demo and the
-   node selftest share: change-list building, value lookup, sub-row ("lane")
-   assignment, interval queries, density aggregation, and bar hit testing.
-   This block is DOM-free so `node` can execute it directly.
+   Demo data and pure logic (DOM-free). Generated data, not a recorded trace:
+   four hand-written overlapping AXI reads (AR stall, R backpressure, SLVERR),
+   then seeded bursts of generated reads with consistent channel signals.
    ============================================================================ */
 const TXD = (() => {
 'use strict';
-
-// The trace is taken to span 0–1200 ns; the episode occupies 0–46 ns so that
-// zooming all the way out reaches the density regime.
-const LIMITS = [0, 1200];
+const LIMITS = [0, 6000];
+const ROW_H = 22, SUB_H = 16, LANE_PAD = 3, HEIGHTS = [1, 2, 3, 4, 8];
+const DENSITY_PX = 4;                       // typical bar narrower than this → density strip
+const hex = (v, w) => '0x' + (Math.floor(v) >>> 0).toString(16).padStart(w, '0');
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
 
 const SIGNAL_DEFS = [
   { name: 'clk',     kind: 'clock' },
@@ -422,882 +319,943 @@ const SIGNAL_DEFS = [
   { name: 'awready', kind: 'bit', init: 0, idle: true },
 ];
 
-/* Hand-written event script: [time ns, signal, value]. A value persists until
-   the next event on the same signal. Clock posedges are at even ns; signal
-   updates are drawn at the posedge where the transfer completes. */
-const SCRIPT = [
-  // T0: id 0, addr 0x1000, 4 beats, clean.
-  [4,  'arvalid', 1], [4, 'arid', '0x0'], [4, 'araddr', '0x00001000'],
-  [6,  'arvalid', 0],                                    // AR accepted
-  // T1: id 1, addr 0x2000 — the subordinate stalls the AR channel.
-  [8,  'arvalid', 1], [8, 'arid', '0x1'], [8, 'araddr', '0x00002000'],
-  [8,  'arready', 0],                                    // stall begins
-  // T0 data beats at 12/14/16/18.
-  [12, 'rvalid', 1], [12, 'rid', '0x0'], [12, 'rdata', '0x0000a010'], [12, 'rresp', 'OKAY'],
-  [14, 'rdata', '0x0000a011'],
-  [14, 'arready', 1],                                    // stall ends
-  [16, 'arvalid', 0],                                    // T1 AR accepted
-  [16, 'rdata', '0x0000a012'],
-  // T2: id 2, addr 0x3000.
-  [18, 'arvalid', 1], [18, 'arid', '0x2'], [18, 'araddr', '0x00003000'],
-  [18, 'rdata', '0x0000a013'],
-  [20, 'arvalid', 0],                                    // T2 AR accepted
-  [20, 'rvalid', 0],                                     // T0 data complete
-  // T1 data beats at 22/24.
+// The hand-written episode: [time ns, signal, value]; a value holds until the
+// next event on that signal. Posedges are at even ns.
+const EPISODE = [
+  [4, 'arvalid', 1], [4, 'arid', '0x0'], [4, 'araddr', '0x00001000'],
+  [6, 'arvalid', 0],
+  [8, 'arvalid', 1], [8, 'arid', '0x1'], [8, 'araddr', '0x00002000'], [8, 'arready', 0],
+  [12, 'rvalid', 1], [12, 'rid', '0x0'], [12, 'rdata', '0x0000a010'],
+  [14, 'rdata', '0x0000a011'], [14, 'arready', 1],
+  [16, 'arvalid', 0], [16, 'rdata', '0x0000a012'],
+  [18, 'arvalid', 1], [18, 'arid', '0x2'], [18, 'araddr', '0x00003000'], [18, 'rdata', '0x0000a013'],
+  [20, 'arvalid', 0], [20, 'rvalid', 0],
   [22, 'rvalid', 1], [22, 'rid', '0x1'], [22, 'rdata', '0x0000b020'],
   [24, 'rdata', '0x0000b021'],
-  [26, 'rvalid', 0],                                     // T1 data complete
-  // T2 data beats at 28/30, then the manager applies backpressure.
+  [26, 'rvalid', 0],
   [28, 'rvalid', 1], [28, 'rid', '0x2'], [28, 'rdata', '0x0000c030'],
   [30, 'rdata', '0x0000c031'],
-  [32, 'rdata', '0x0000c032'], [32, 'rready', 0],        // held beat
-  // T3: id 0 (reuse), addr 0x4000, 1 beat.
+  [32, 'rdata', '0x0000c032'], [32, 'rready', 0],
   [34, 'arvalid', 1], [34, 'arid', '0x0'], [34, 'araddr', '0x00004000'],
-  [36, 'rready', 1], [36, 'arvalid', 0],                 // held beat + T3 AR accepted
-  [38, 'rdata', '0x0000c033'], [38, 'rresp', 'SLVERR'],  // T2 last beat: error
-  [40, 'rvalid', 0], [40, 'rresp', 'OKAY'],              // T2 data complete
+  [36, 'rready', 1], [36, 'arvalid', 0],
+  [38, 'rdata', '0x0000c033'], [38, 'rresp', 'SLVERR'],
+  [40, 'rvalid', 0], [40, 'rresp', 'OKAY'],
   [44, 'rvalid', 1], [44, 'rid', '0x0'], [44, 'rdata', '0x0000d040'],
-  [46, 'rvalid', 0],                                     // T3 data complete
+  [46, 'rvalid', 0],
+];
+const tx = (name, begin, end, status, id, addr, len, arEnd, dataStart) => ({
+  name, begin, end, status,
+  attrs: { id, addr, len, size: '4B', resp: status === 'error' ? 'SLVERR' : 'OKAY' },
+  stages: [['ADDR', begin, arEnd], ['WAIT', arEnd, dataStart], ['DATA', dataStart, end]],
+});
+const EPISODE_TXS = [
+  tx('T0', 4, 20, 'ok', '0x0', '0x00001000', 3, 6, 12),
+  tx('T1', 8, 26, 'ok', '0x1', '0x00002000', 1, 16, 22),
+  tx('T2', 18, 40, 'error', '0x2', '0x00003000', 3, 20, 28),
+  tx('T3', 34, 46, 'ok', '0x0', '0x00004000', 0, 36, 44),
 ];
 
-/* Transactions: the same shape as volna-core's Transaction records —
-   (begin, end, id) order, status, attributes, stage annotations. */
-const TXS = [
-  { id: 'T0', txid: 1, begin: 4,  end: 20, status: 'ok',
-    attrs: { id: '0x0', addr: '0x00001000', len: 3, size: '4B', resp: 'OKAY' },
-    stages: [ ['ADDR', 4, 6], ['WAIT', 6, 12], ['DATA', 12, 20] ] },
-  { id: 'T1', txid: 2, begin: 8,  end: 26, status: 'ok',
-    attrs: { id: '0x1', addr: '0x00002000', len: 1, size: '4B', resp: 'OKAY' },
-    stages: [ ['ADDR', 8, 16], ['WAIT', 16, 22], ['DATA', 22, 26] ] },
-  { id: 'T2', txid: 3, begin: 18, end: 40, status: 'error',
-    attrs: { id: '0x2', addr: '0x00003000', len: 3, size: '4B', resp: 'SLVERR' },
-    stages: [ ['ADDR', 18, 20], ['WAIT', 20, 28], ['DATA', 28, 40] ] },
-  { id: 'T3', txid: 4, begin: 34, end: 46, status: 'ok',
-    attrs: { id: '0x0', addr: '0x00004000', len: 0, size: '4B', resp: 'OKAY' },
-    stages: [ ['ADDR', 34, 36], ['WAIT', 36, 44], ['DATA', 44, 46] ] },
-];
+// Seeded bursts of reads. AR and R are each serialized with an idle cycle
+// between handshakes, and at most three reads are outstanding.
+function generate() {
+  const rnd = mulberry32(20260922), even = v => 2 * Math.ceil(v / 2);
+  const script = [], txs = [], ends = EPISODE_TXS.map(t => t.end);
+  let t = 120, arFree = 36, rFree = 46;
+  while (t < LIMITS[1] - 300) {
+    const burst = 2 + Math.floor(rnd() * 6);
+    for (let k = 0; k < burst; k++) {
+      const begin = even(Math.max(t, arFree + 2, ends[ends.length - 3]));
+      const stall = rnd() < 0.22 ? 2 * (1 + Math.floor(rnd() * 3)) : 0;
+      const arEnd = begin + 2 + stall;
+      const beats = 1 + Math.floor(rnd() * 4);
+      const dataStart = Math.max(arEnd + 4 + 2 * Math.floor(rnd() * 4), rFree + 2);
+      const bpBeat = rnd() < 0.18 ? Math.floor(rnd() * beats) : -1;
+      const bp = bpBeat >= 0 ? 2 * (1 + Math.floor(rnd() * 2)) : 0;
+      const error = rnd() < 0.05;
+      const id = hex(Math.floor(rnd() * 4), 1), addr = hex(0x10000 + Math.floor(rnd() * 0x3000) * 0x40, 8);
+      script.push([begin, 'arvalid', 1], [begin, 'arid', id], [begin, 'araddr', addr]);
+      if (stall) script.push([begin, 'arready', 0], [begin + stall, 'arready', 1]);
+      script.push([arEnd, 'arvalid', 0], [dataStart, 'rvalid', 1], [dataStart, 'rid', id]);
+      let bt = dataStart;
+      for (let b = 0; b < beats; b++) {
+        script.push([bt, 'rdata', hex(rnd() * 4294967296, 8)]);
+        if (b === beats - 1 && error) script.push([bt, 'rresp', 'SLVERR']);
+        if (b === bpBeat) { script.push([bt, 'rready', 0], [bt + bp, 'rready', 1]); bt += bp; }
+        bt += 2;
+      }
+      const end = bt;
+      script.push([end, 'rvalid', 0]);
+      if (error) script.push([end, 'rresp', 'OKAY']);
+      txs.push(tx('T' + (EPISODE_TXS.length + txs.length), begin, end, error ? 'error' : 'ok', id, addr, beats - 1, arEnd, dataStart));
+      ends.push(end); arFree = arEnd; rFree = end;
+      t = arEnd + 2 + 2 * Math.floor(rnd() * 4);
+    }
+    t += 2 * (20 + Math.floor(rnd() * 110));
+  }
+  return { script, txs };
+}
+const GEN = generate();
+const SCRIPT = EPISODE.concat(GEN.script);
+const TXS = EPISODE_TXS.concat(GEN.txs);     // canonical (begin, end, id) order
 
-// ---------------------------------------------------------------- change lists
 function buildSignals() {
-  const sorted = SCRIPT.slice().sort((a, b) => a[0] - b[0]);
+  const sorted = SCRIPT.slice().sort((a, b) => a[0] - b[0]);   // stable
   return SIGNAL_DEFS.map(def => {
     const changes = [[0, def.kind === 'clock' ? 1 : def.init]];
-    if (def.kind === 'clock') {
-      // 1 ns half-period: posedges at even ns, high on [even, odd)
-      for (let t = 1; t <= LIMITS[1]; t++) changes.push([t, t % 2 ? 0 : 1]);
-    } else {
-      for (const [t, sig, val] of sorted) if (sig === def.name) changes.push([t, val]);
-    }
+    if (def.kind === 'clock') for (let t = 1; t <= LIMITS[1]; t++) changes.push([t, t % 2 ? 0 : 1]);
+    else for (const [t, s, v] of sorted) if (s === def.name) changes.push([t, v]);
     return { name: def.name, kind: def.kind, idle: !!def.idle, changes };
   });
 }
 const SIGNALS = buildSignals();
 
-// Index of the first change strictly after t (upper bound).
+// Index of the first change strictly after t.
 function upperBound(changes, t) {
   let lo = 0, hi = changes.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (changes[m][0] <= t) lo = m + 1; else hi = m; }
   return lo;
 }
-function valueAt(row, t) {
-  if (row.kind === 'clock') return t == null ? '' : (Math.floor(t) % 2 ? 0 : 1);
+function valueAt(sig, t) {
   if (t == null) return '';
-  const k = Math.max(0, upperBound(row.changes, t) - 1);
-  return row.changes[k][1];
+  return sig.changes[Math.max(0, upperBound(sig.changes, t) - 1)][1];
 }
 
-// ------------------------------------------------------- sub-row ("lane") pack
-// Greedy interval partitioning over records in canonical (begin, end, id)
-// order — half-open lifetimes, so a transaction beginning exactly when another
-// ends reuses its sub-row. In the core this runs once per LoadedGenerator on
-// delivery, never per frame.
+// Sub-rows: greedy interval partitioning in begin order over half-open
+// lifetimes. Runs once when the generator is delivered, never per frame.
 function assignLanes(txs) {
   const ends = [];
-  const lanes = txs.map(tx => {
-    let l = ends.findIndex(e => tx.begin >= e);
+  const lanes = txs.map(t => {
+    let l = ends.findIndex(e => t.begin >= e);
     if (l < 0) { l = ends.length; ends.push(0); }
-    ends[l] = tx.end;
-    return l;
+    ends[l] = t.end; return l;
   });
   return { lanes, depth: ends.length };
 }
+const LANE = assignLanes(TXS);
+const MEDIAN = (() => { const d = TXS.map(t => t.end - t.begin).sort((a, b) => a - b); return d[d.length >> 1]; })();
+const BOUNDS = [...new Set(TXS.flatMap(t => [t.begin, t.end]))].sort((a, b) => a - b);
 
-// ------------------------------------------------------------- interval query
-// Inclusive overlap, the semantics of LoadedGenerator::visit_window (which
-// adds the max-end tree so long overlapping records are retained). Here a
-// linear scan over four records is the honest equivalent.
-function queryWindow(txs, start, end) {
+// Row heights: capacity in sub-rows, and the default preset for a depth.
+function capacity(mult) { return Math.max(1, Math.floor((mult * ROW_H - 2 * LANE_PAD) / SUB_H)); }
+function defaultHeight(depth) { return [1, 2, 3, 4].find(m => capacity(m) >= depth) || 4; }
+function shownSub(i, cap) { return Math.min(LANE.lanes[i], cap - 1); }
+function isDensity(pxPerNs) { return MEDIAN * pxPerNs < DENSITY_PX; }
+
+// Inclusive overlap, the semantics of LoadedGenerator::visit_window.
+function queryWindow(start, end) {
   const out = [];
-  for (let i = 0; i < txs.length; i++) {
-    const tx = txs[i];
-    if (tx.begin <= end && tx.end >= start) out.push(i);
-  }
+  for (let i = 0; i < TXS.length && TXS[i].begin <= end; i++) if (TXS[i].end >= start) out.push(i);
   return out;
 }
 
-// ------------------------------------------------------- density aggregation
-// One aggregate per pixel column over [start, end]: how many transactions
-// overlap the column's time span (opacity), the peak concurrency (height),
-// and whether any of them errored (red cap). Computed per frame into reused
-// buffers; O(visible bars + width).
-function densityColumns(txs, start, end, w) {
-  const count = new Float32Array(w), err = new Uint8Array(w), conc = new Float32Array(w);
-  const span = Math.max(1e-9, end - start);
-  for (const tx of txs) {
-    const xa = Math.max(0, Math.floor((tx.begin - start) / span * w));
-    const xb = Math.min(w - 1, Math.ceil((tx.end - start) / span * w));
-    for (let x = xa; x <= xb; x++) {
-      count[x]++;
-      if (tx.status === 'error') err[x] = 1;
-    }
+// One aggregate per pixel column: open transactions and any error.
+function densityColumns(idx, start, end, w) {
+  const count = new Uint16Array(w), err = new Uint8Array(w), span = Math.max(1e-9, end - start);
+  for (const i of idx) {
+    const t = TXS[i];
+    const xa = Math.max(0, Math.floor((t.begin - start) / span * w)), xb = Math.min(w - 1, Math.floor((t.end - start) / span * w));
+    for (let x = xa; x <= xb; x++) { count[x]++; if (t.status === 'error') err[x] = 1; }
   }
-  // peak concurrency per column: a column's count is already the number of
-  // overlapping bars; concurrency == count here by construction.
-  let max = 0;
-  for (let x = 0; x < w; x++) { conc[x] = count[x]; if (count[x] > max) max = count[x]; }
-  return { count, err, conc, max };
+  return { count, err };
 }
 
-// ----------------------------------------------------------------- hit test
-// Stacked bars: sub-row from y, time from x; the bar on that sub-row whose
-// [begin, end] contains the time wins, with an edgeTolerancePx fallback for
-// one-pixel bars. xOf/timeAt are supplied by the caller (viewport geometry).
-function hitBars(txs, lanes, t, subRow, x, xOf, edgeTolerancePx) {
-  let best = -1;
-  for (let i = 0; i < txs.length; i++) {
-    if (lanes[i] !== subRow) continue;
-    const tx = txs[i];
-    if (t >= tx.begin && t <= tx.end) return i;             // sub-rows never overlap
-    const d = Math.min(Math.abs(x - xOf(tx.begin)), Math.abs(x - xOf(tx.end)));
-    if (d <= edgeTolerancePx && (best < 0 || d < Math.min(Math.abs(x - xOf(txs[best].begin)), Math.abs(x - xOf(txs[best].end))))) best = i;
-  }
-  return best;
+// Spans where two or more folded bars overlap (drawn hatched).
+function foldOverlaps(idx, cap) {
+  const ev = [];
+  for (const i of idx) if (LANE.lanes[i] >= cap - 1) ev.push([TXS[i].begin, 1], [TXS[i].end, -1]);
+  ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const out = []; let n = 0, from = 0;
+  for (const [t, d] of ev) { if (n < 2 && n + d >= 2) from = t; if (n >= 2 && n + d < 2 && t > from) out.push([from, t]); n += d; }
+  return out;
 }
 
-// ------------------------------------------------------------------ selftest
+// Bar under the pointer on a shown sub-row: the latest-painted bar containing
+// t, else the nearest bar end within tolerance.
+function hitBar(t, sub, cap, xOf, x, tolPx) {
+  let hit = -1, near = -1, nearD = Infinity;
+  for (let i = 0; i < TXS.length; i++) {
+    if (shownSub(i, cap) !== sub) continue;
+    const b = TXS[i];
+    if (t >= b.begin && t <= b.end) hit = i;
+    const d = Math.min(Math.abs(x - xOf(b.begin)), Math.abs(x - xOf(b.end)));
+    if (d <= tolPx && d < nearD) { near = i; nearD = d; }
+  }
+  return hit >= 0 ? hit : near;
+}
+function openAt(t) { const out = []; for (let i = 0; i < TXS.length && TXS[i].begin <= t; i++) if (t < TXS[i].end) out.push(i); return out; }
+function nextBound(t) { return BOUNDS.find(b => b > t); }
+function prevBound(t) { for (let k = BOUNDS.length - 1; k >= 0; k--) if (BOUNDS[k] < t) return BOUNDS[k]; }
+function stageAt(t, time) { const s = t.stages.find(s => time >= s[1] && time < s[2]); return s ? s[0] : null; }
+
 function selfTests() {
-  const lines = [];
-  const eq = (name, got, want) => {
-    const ok = JSON.stringify(got) === JSON.stringify(want);
-    lines.push((ok ? 'ok' : 'FAIL') + ' ' + name + (ok ? '' : ' — got ' + JSON.stringify(got) + ', want ' + JSON.stringify(want)));
-    return ok;
-  };
-  let all = true;
-  // change lists and values
+  const lines = []; let all = true;
+  const eq = (name, got, want) => { const ok = JSON.stringify(got) === JSON.stringify(want); all = all && ok;
+    lines.push((ok ? 'ok ' : 'FAIL ') + name + (ok ? '' : ' — got ' + JSON.stringify(got) + ', want ' + JSON.stringify(want))); };
   const sig = n => SIGNALS.find(s => s.name === n);
-  all = eq('arready low during the AR stall', valueAt(sig('arready'), 10), 0) && all;
-  all = eq('arvalid held during the AR stall', valueAt(sig('arvalid'), 10), 1) && all;
-  all = eq('rready low under backpressure', valueAt(sig('rready'), 34), 0) && all;
-  all = eq('rvalid held under backpressure', valueAt(sig('rvalid'), 34), 1) && all;
-  all = eq('rresp is SLVERR at 39', valueAt(sig('rresp'), 39), 'SLVERR') && all;
-  all = eq('rresp recovers at 41', valueAt(sig('rresp'), 41), 'OKAY') && all;
-  all = eq('araddr before any transfer', valueAt(sig('araddr'), 2), '0x00000000') && all;
-  all = eq('arid holds last driven value', valueAt(sig('arid'), 30), '0x2') && all;
-  all = eq('clk high at an even posedge', valueAt(sig('clk'), 2), 1) && all;
-  all = eq('clk low at an odd time', valueAt(sig('clk'), 3), 0) && all;
-  all = eq('awvalid idle throughout', valueAt(sig('awvalid'), 500), 0) && all;
-  // lane assignment: three deep at 18–20 ns; T3 (34–46) reuses T0's freed sub-row
-  const { lanes, depth } = assignLanes(TXS);
-  all = eq('sub-row assignment', lanes, [0, 1, 2, 0]) && all;
-  all = eq('sub-row depth', depth, 3) && all;
-  // interval queries (inclusive overlap, like visit_window)
-  const q = (s, e) => queryWindow(TXS, s, e).map(i => TXS[i].id);
-  all = eq('window covering everything', q(0, 50), ['T0', 'T1', 'T2', 'T3']) && all;
-  all = eq('only T2 alive at 27', q(27, 27), ['T2']) && all;
-  all = eq('triple overlap at 18–20', q(19, 19), ['T0', 'T1', 'T2']) && all;
-  all = eq('empty window', q(50, 60), []) && all;
-  all = eq('boundary inclusion', q(20, 20), ['T0', 'T1', 'T2']) && all;
-  // density aggregation
-  const d = densityColumns(TXS, 0, 60, 60);   // 1 ns per column
-  all = eq('density column count at 19', d.count[19], 3) && all;
-  all = eq('density error flag at 39', d.err[39], 1) && all;
-  all = eq('density error flag absent at 10', d.err[10], 0) && all;
-  all = eq('density empty tail', d.count[59], 0) && all;
-  all = eq('density peak', d.max, 3) && all;
-  // hit testing (identity geometry: x == t)
-  all = eq('hit topmost sub-row at t=19', hitBars(TXS, lanes, 19, 2, 19, t => t, 0), 2) && all;
-  all = eq('hit sub-row 0 at t=19', hitBars(TXS, lanes, 19, 0, 19, t => t, 0), 0) && all;
-  all = eq('miss in the gap at t=21 sub-row 0', hitBars(TXS, lanes, 21, 0, 21, t => t, 0), -1) && all;
-  all = eq('edge tolerance grabs a bar end', hitBars(TXS, lanes, 21, 0, 20.5, t => t, 1), 0) && all;
-  // stage sanity: stages lie inside their transaction
-  const stagesOk = TXS.every(tx => tx.stages.every(s => s[1] >= tx.begin && s[2] <= tx.end));
-  all = eq('stages within lifetimes', stagesOk, true) && all;
+  eq('arready low during the AR stall', valueAt(sig('arready'), 10), 0);
+  eq('rready low under backpressure', valueAt(sig('rready'), 34), 0);
+  eq('rresp is SLVERR on the last beat', valueAt(sig('rresp'), 39), 'SLVERR');
+  eq('rresp recovers', valueAt(sig('rresp'), 41), 'OKAY');
+  eq('clk high at a posedge', valueAt(sig('clk'), 2), 1);
+  eq('episode sub-rows', LANE.lanes.slice(0, 4), [0, 1, 2, 0]);
+  eq('generator depth', LANE.depth, 3);
+  eq('default height fits the depth', defaultHeight(LANE.depth), 3);
+  eq('capacity per preset', HEIGHTS.map(capacity), [1, 2, 3, 5, 10]);
+  eq('generated reads', GEN.txs.length > 80, true);
+  eq('canonical order', TXS.every((t, i) => !i || TXS[i - 1].begin <= t.begin), true);
+  eq('stages tile each lifetime', TXS.every(t => t.stages[0][1] === t.begin && t.stages[2][2] === t.end && t.stages[0][2] < t.stages[1][2]), true);
+  eq('rid matches each read during data', TXS.every(t => valueAt(sig('rid'), t.stages[2][1]) === t.attrs.id), true);
+  eq('rvalid high through each data stage', TXS.every(t => valueAt(sig('rvalid'), t.stages[2][1]) === 1 && valueAt(sig('rvalid'), t.end - 1) === 1), true);
+  eq('errors carry SLVERR on the wire', TXS.filter(t => t.status === 'error').every(t => SIGNALS[9].changes.some(c => c[0] >= t.stages[2][1] && c[0] < t.end && c[1] === 'SLVERR')), true);
+  eq('window query at 19', queryWindow(19, 19).map(i => TXS[i].name), ['T0', 'T1', 'T2']);
+  eq('window query boundary inclusive', queryWindow(20, 20).map(i => TXS[i].name), ['T0', 'T1', 'T2']);
+  eq('open at 20 (half-open)', openAt(20).map(i => TXS[i].name), ['T1', 'T2']);
+  const d = densityColumns(queryWindow(0, 60), 0, 60, 60);
+  eq('density count at 19', d.count[19], 3);
+  eq('density error at 39', d.err[39], 1);
+  eq('fold overlaps at 1×', foldOverlaps(queryWindow(0, 60), 1), [[8, 26], [34, 40]]);
+  const id = v => v;
+  eq('hit sub-row 2 at 19', hitBar(19, 2, 3, id, 19, 0), 2);
+  eq('hit folded row at 19 picks the latest bar', hitBar(19, 0, 1, id, 19, 0), 2);
+  eq('miss in a gap', hitBar(21, 0, 3, id, 21, 0), -1);
+  eq('edge tolerance', hitBar(21, 0, 3, id, 20.5, 1), 0);
+  eq('next boundary', nextBound(20), 26);
+  eq('previous boundary', prevBound(20), 18);
+  eq('density switch', [isDensity(10), isDensity(0.1)], [false, true]);
   lines.push(all ? 'selftest: all passed' : 'selftest: FAILURES ABOVE');
   return { lines, ok: all };
 }
 
-return { LIMITS, SIGNALS, TXS, SCRIPT, upperBound, valueAt, assignLanes, queryWindow, densityColumns, hitBars, selfTests };
+return { LIMITS, ROW_H, SUB_H, LANE_PAD, HEIGHTS, SIGNALS, TXS, LANE, MEDIAN, BOUNDS, upperBound, valueAt,
+  capacity, defaultHeight, shownSub, isDensity, queryWindow, densityColumns, foldOverlaps, hitBar, openAt,
+  nextBound, prevBound, stageAt, selfTests };
 })();
-
-// Run under node (no DOM) or into the hidden #selftest element in the browser.
-if (typeof window === 'undefined') {
-  const r = TXD.selfTests();
-  console.log(r.lines.join('\n'));
-  if (!r.ok) process.exit(1);
-} else {
-  window.addEventListener('DOMContentLoaded', () => {
-    const el = document.getElementById('selftest');
-    if (el) el.textContent = TXD.selfTests().lines.join('\n');
-  });
-}
 </script>
 
 <script>
 /* ============================================================================
-   Shared viewer framework for the mock: the Viewport port of
-   volna-core/src/wave/viewport.rs, the Tween, the One Dark theme, signal/lane/
-   density painters, and the Mock base class (canvas, HiDPI resize, pointer,
-   keyboard, toolbar, guides, status bar). The demo subclasses Mock.
+   The mock: Waves panel with a lane, hierarchy sidebar, Transaction panel.
+   Viewport math follows volna-core/src/wave/viewport.rs; gestures follow
+   WaveModel::pointer (drag = cursor, wheel = pan, Ctrl+wheel = zoom).
    ============================================================================ */
-const FRAME = (() => {
+(() => {
 'use strict';
-const D = TXD, LIM = D.LIMITS, TXS = D.TXS;
-const LANE = D.assignLanes(TXS);            // { lanes, depth } — the "prepared" state
-const EDGE_SPACE = 0.2, MIN_WIDTH = 0.5;
-const ANIM_MS = 140, WHEEL_MS = 90;
-const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
-const SANS = '"IBM Plex Sans", system-ui, sans-serif';
+const D = TXD, TXS = D.TXS, LANE = D.LANE, LIM = D.LIMITS, ROW_H = D.ROW_H, SUB_H = D.SUB_H;
+const HDR = 22, SNAP_PX = 6, EDGE_SPACE = 0.2, MIN_W = 2, ANIM = 160;
+let NAME_W = 132, VAL_W = 96;          // narrower on phones, see resize()
+const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace', SANS = '"IBM Plex Sans", system-ui, sans-serif';
+const C = {
+  panel: '#1f2a31', bar: '#172026', line: '#2c3a42', grid: 'rgba(255,255,255,.04)', tick: '#5d6f77', tickText: '#8d9f99',
+  text: '#e2eae6', muted: '#8d9f99', dim: '#5d6f77', idle: '#4e5f66', cursor: '#f07a76', marker: '#e0a94a',
+  hover: 'rgba(255,255,255,.045)', rowSel: 'rgba(79,195,161,.13)', wave: '#4fc3a1', bus: '#7fb0ef', busFill: 'rgba(127,176,239,.14)',
+  ok: '#4a88d6', err: '#d4554f', barText: '#f3f7fb', sel: '#f2c46b', density: '#6ea8ec', drop: '#4fc3a1', zoomRange: 'rgba(79,195,161,.14)',
+};
 const easeOut = t => 1 - Math.pow(1 - t, 3);
-const HDR = 20, NAME_W = 118, VAL_W = 86, ROW_H = 22, SUB_H = 16;
-const DENSITY_PPU = 0.8;                    // below this px/ns, lanes aggregate
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const fmt = t => String(Math.round(t * 10) / 10);
 
-// ---------------------------------------------------------------- Viewport
-// Port of volna-core/src/wave/viewport.rs (the time axis), as in pipeline-view.html.
 class Viewport {
   constructor(s, e) { this.start = s; this.end = e; }
-  static fit() { return new Viewport(LIM[0], LIM[1]); }
-  clone() { return new Viewport(this.start, this.end); }
   width() { return this.end - this.start; }
-  pxPerUnit(w) { return w / this.width(); }
+  ppu(w) { return w / this.width(); }
   timeAt(x, w) { return this.start + x / w * this.width(); }
   xOf(t, w) { return (t - this.start) / this.width() * w; }
-  zoomAbout(x, w, f) {
-    const anchor = this.timeAt(x, w);
-    const nw = Math.max(this.width() / f, MIN_WIDTH);
-    const frac = w > 0 ? x / w : 0.5;
-    this.start = anchor - nw * frac; this.end = this.start + nw; return this.clamp();
-  }
-  panPx(dx, w) { const dt = dx / w * this.width(); this.start += dt; this.end += dt; return this.clamp(); }
-  centerOn(t) { const w = this.width(); this.start = t - w / 2; this.end = t + w / 2; return this.clamp(); }
-  goToStart() { const w = this.width(); this.start = LIM[0]; this.end = this.start + w; return this.clamp(); }
-  goToEnd() { const w = this.width(); this.end = LIM[1]; this.start = this.end - w; return this.clamp(); }
+  clone() { return new Viewport(this.start, this.end); }
+  zoomAbout(x, w, f) { const a = this.timeAt(x, w), nw = Math.max(this.width() / f, MIN_W); this.start = a - nw * (x / w); this.end = this.start + nw; return this.clamp(); }
+  pan(dt) { this.start += dt; this.end += dt; return this.clamp(); }
+  center(t) { const w = this.width(); this.start = t - w / 2; this.end = t + w / 2; return this.clamp(); }
   clamp() {
-    const a = LIM[0], b = LIM[1], span = Math.max(b - a, 1);
-    const lo = a - span * EDGE_SPACE, hi = b + span * EDGE_SPACE;
-    let w = Math.min(Math.max(this.width(), MIN_WIDTH), hi - lo);
-    if (!isFinite(w)) w = span;
-    if (this.start < lo) { this.start = lo; this.end = lo + w; }
-    if (this.end > hi) { this.end = hi; this.start = hi - w; }
+    const span = LIM[1] - LIM[0], lo = LIM[0] - span * EDGE_SPACE, hi = LIM[1] + span * EDGE_SPACE;
+    const w = Math.min(Math.max(this.width(), MIN_W), hi - lo);
     if (this.start < lo) this.start = lo;
+    if (this.start + w > hi) this.start = hi - w;
     this.end = this.start + w; return this;
   }
   lerp(b, t) { return new Viewport(this.start + (b.start - this.start) * t, this.end + (b.end - this.end) * t); }
-  approxEq(o) { const eps = this.width() * 1e-6; return Math.abs(this.start - o.start) < eps && Math.abs(this.end - o.end) < eps; }
 }
-
-// -------------------------------------------------------------------- Tween
 class Tween {
   constructor(v) { this.value = v; this.anim = null; }
   target() { return this.anim ? this.anim.to : this.value; }
   set(v) { this.value = v; this.anim = null; }
-  animateTo(v, now, dur) {
-    this.tick(now);
-    if (!dur || this.value.approxEq(v)) { this.set(v); return; }
-    this.anim = { from: this.value.clone(), to: v, start: now, dur };
-  }
+  to(v, now, dur) { this.tick(now); this.anim = dur ? { from: this.value.clone(), to: v, t0: now, dur } : null; if (!dur) this.value = v; }
   tick(now) {
     if (!this.anim) return false;
-    const t = Math.min(1, (now - this.anim.start) / this.anim.dur);
-    this.value = this.anim.from.lerp(this.anim.to, easeOut(t));
-    if (t >= 1) { this.value = this.anim.to; this.anim = null; }
+    const k = Math.min(1, (now - this.anim.t0) / this.anim.dur);
+    this.value = this.anim.from.lerp(this.anim.to, easeOut(k));
+    if (k >= 1) { this.value = this.anim.to; this.anim = null; }
     return !!this.anim;
   }
 }
-
-
-// -------------------------------------------------------------------- theme
-const THEME = {
-  panel: '#1f2a32', bar: '#182129', line: '#2c3a42', grid: 'rgba(255,255,255,.045)', tick: '#5d6f77', tickText: '#8fa39c',
-  text: '#e3ebe7', muted: '#8fa39c', dim: '#5d6f77', idle: '#55666e', cursor: '#f07a76', cursorDim: 'rgba(240,122,118,.5)',
-  marker: '#e0a94a', hover: 'rgba(255,255,255,.06)', wave: '#4fc3a1', bus: '#7fb0ef', busFill: 'rgba(127,176,239,.16)',
-  txOk: '#7fb0ef', txOkEdge: '#3d5f8e', txErr: '#f07a76', txErrEdge: '#96423f', txText: '#101820',
-  stageSep: 'rgba(16,24,32,.5)', sel: '#e0a94a', density: '#4fc3a1', densityErr: '#f07a76',
-  leader: '#e0a94a', tintAddr: 'rgba(79,195,161,.10)', tintData: 'rgba(127,176,239,.12)', dropLine: '#4fc3a1',
-};
-
-// --------------------------------------------------------------- paint utils
 function roundRect(ctx, x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
-function chip(ctx, x, y, text, bg, fg) {
+function chip(ctx, x, y, text, bg) {
   ctx.font = '600 10px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  const tw = ctx.measureText(text).width + 8;
-  ctx.fillStyle = bg; roundRect(ctx, x, y, tw, 14, 3); ctx.fill();
-  ctx.fillStyle = fg; ctx.fillText(text, x + 4, y + 7.5);
+  const w = ctx.measureText(text).width + 8;
+  ctx.fillStyle = bg; roundRect(ctx, x, y, w, 15, 3); ctx.fill();
+  ctx.fillStyle = '#10181d'; ctx.fillText(text, x + 4, y + 8);
 }
 function niceStep(ppu, minPx) {
-  const raw = minPx / ppu; const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const raw = minPx / ppu, p = Math.pow(10, Math.floor(Math.log10(raw)));
   for (const m of [1, 2, 5, 10]) if (m * p >= raw) return m * p;
   return 10 * p;
 }
-function fmtT(t) { return String(Math.round(t * 10) / 10); }
-function paintTimeline(ctx, x0, w, h, vp) {
-  ctx.save(); ctx.beginPath(); ctx.rect(x0, 0, w, h); ctx.clip();
-  ctx.fillStyle = THEME.bar; ctx.fillRect(x0, 0, w, HDR);
-  const step = niceStep(vp.pxPerUnit(w), 70);
-  const first = Math.floor(vp.start / step) * step;
-  ctx.font = '10.5px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  for (let t = first; t <= vp.end; t += step) {
-    const x = Math.round(x0 + vp.xOf(t, w)) + 0.5;
-    ctx.fillStyle = THEME.grid; ctx.fillRect(x - 0.5, HDR, 1, h - HDR);
-    ctx.fillStyle = THEME.tick; ctx.fillRect(x - 0.5, HDR - 5, 1, 5);
-    ctx.fillStyle = THEME.tickText; ctx.fillText(fmtT(t), x + 3, HDR / 2);
-  }
-  ctx.fillStyle = THEME.line; ctx.fillRect(x0, HDR - 1, w, 1);
-  ctx.restore();
-}
-function paintCursorAndMarkers(ctx, mock, x0, w, h) {
-  const vp = mock.vpv();
-  for (const m of mock.markers) {
-    const x = Math.round(x0 + vp.xOf(m.time, w)) + 0.5; if (x < x0 || x > x0 + w) continue;
-    ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = THEME.marker; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, HDR); ctx.lineTo(x, h); ctx.stroke(); ctx.restore();
-    chip(ctx, x + 2, 3, 'M' + m.id, THEME.marker, '#1d262c');
-  }
-  const c = mock.cursor;
-  if (c != null) {
-    const x = Math.round(x0 + vp.xOf(c, w)) + 0.5;
-    if (x >= x0 && x <= x0 + w) {
-      ctx.fillStyle = THEME.cursor; ctx.fillRect(x - 1, HDR, 1.5, h - HDR);
-      chip(ctx, x + 2, 3, fmtT(c), THEME.cursor, '#1d262c');
-    }
-  }
+function hatchPattern(ctx) {
+  const c = document.createElement('canvas'); c.width = c.height = 6;
+  const g = c.getContext('2d'); g.strokeStyle = 'rgba(14,22,28,.55)'; g.lineWidth = 1.4;
+  g.beginPath(); g.moveTo(-1, 7); g.lineTo(7, -1); g.moveTo(5, 7); g.lineTo(7, 5); g.moveTo(-1, 1); g.lineTo(1, -1); g.stroke();
+  return ctx.createPattern(c, 'repeat');
 }
 
-// ------------------------------------------------------------ signal painter
-// Port of the wave painter's per-row logic (clock / bit / bus), per-pixel-column
-// bounded; idle rows (awvalid/awready here) render dimmed.
-function paintSignal(ctx, row, y, rh, x0, ww, vp) {
-  const top = y + 4, bot = y + rh - 4;
-  const wave = row.idle ? THEME.idle : THEME.wave, bus = row.idle ? THEME.idle : THEME.bus;
-  const ppu = vp.pxPerUnit(ww);
-  ctx.save(); ctx.beginPath(); ctx.rect(x0, y, ww, rh); ctx.clip();
-  if (row.kind === 'clock' && ppu < 4) {
-    ctx.fillStyle = row.idle ? THEME.idle : 'rgba(79,195,161,.35)'; ctx.fillRect(x0, top, ww, bot - top);
-  } else if (row.kind === 'bit' || row.kind === 'clock') {
-    ctx.strokeStyle = wave; ctx.lineWidth = 1.2; ctx.beginPath();
-    const ch = row.changes; let k = Math.max(0, D.upperBound(ch, vp.start) - 1);
-    let prevY = ch[k][1] ? top : bot; ctx.moveTo(x0 + Math.max(-1, vp.xOf(ch[k][0], ww)), prevY);
-    for (k = k + 1; k < ch.length && ch[k][0] <= vp.end; k++) {
-      const x = x0 + vp.xOf(ch[k][0], ww); const yy = ch[k][1] ? top : bot;
-      ctx.lineTo(x, prevY); ctx.lineTo(x, yy); prevY = yy;
-    }
-    ctx.lineTo(x0 + ww + 1, prevY); ctx.stroke();
-  } else {
-    const ch = row.changes; let k = Math.max(0, D.upperBound(ch, vp.start) - 1);
-    ctx.font = '10px ' + MONO; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    for (; k < ch.length && ch[k][0] <= vp.end; k++) {
-      const xa = x0 + vp.xOf(ch[k][0], ww), xb = x0 + (k + 1 < ch.length ? vp.xOf(ch[k + 1][0], ww) : ww + 2);
-      const wseg = xb - xa; if (wseg < 1) { ctx.fillStyle = bus; ctx.fillRect(xa, top, 1, bot - top); continue; }
-      ctx.fillStyle = row.idle ? 'rgba(85,102,110,.14)' : THEME.busFill; ctx.strokeStyle = bus; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(xa, (top + bot) / 2); ctx.lineTo(xa + 3, top); ctx.lineTo(xb - 3, top);
-      ctx.lineTo(xb, (top + bot) / 2); ctx.lineTo(xb - 3, bot); ctx.lineTo(xa + 3, bot); ctx.closePath(); ctx.fill(); ctx.stroke();
-      const txt = String(ch[k][1]); if (wseg > ctx.measureText(txt).width + 10) { ctx.fillStyle = row.idle ? THEME.idle : THEME.text; ctx.fillText(txt, xa + 6, (top + bot) / 2); }
-    }
-  }
-  ctx.restore();
-}
+const ICON = {
+  module: '<svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>',
+  stream: '<svg viewBox="0 0 24 24"><path d="M8 6h10"/><path d="M6 12h9"/><path d="M11 18h7"/></svg>',
+  gen: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.5"/></svg>',
+};
+const TREE = [
+  { name: 'cpu', icon: 'module', depth: 0 },
+  { name: 'axi', path: 'cpu.axi', icon: 'module', depth: 1, members: D.SIGNALS.map(s => s.name) },
+  { name: 'rd_ch', path: 'cpu.axi.rd_ch', icon: 'stream', depth: 1, kind: 'AXI4', gen: 'axi_rd' },
+  { name: 'wr_ch', path: 'cpu.axi.wr_ch', icon: 'stream', depth: 1, kind: 'AXI4' },
+];
 
-// ------------------------------------------------------ transaction painting
-function txColors(tx) {
-  return tx.status === 'error'
-    ? { fill: THEME.txErr, edge: THEME.txErrEdge }
-    : { fill: THEME.txOk, edge: THEME.txOkEdge };
-}
-function txLabel(tx) { return tx.id + ' · ' + tx.attrs.addr.replace(/^0x0+/, '0x'); }
-// Stacked bars over sub-rows. opts: { hover, sel, labels } (indices into TXS).
-function paintTxBars(ctx, x0, ww, vp, y0, subH, opts) {
-  const o = opts || {};
-  ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, ww, LANE.depth * subH + 4); ctx.clip();
-  for (let i = 0; i < TXS.length; i++) {
-    const tx = TXS[i];
-    if (tx.end < vp.start || tx.begin > vp.end) continue;   // visit_window clip
-    const col = txColors(tx);
-    let xa = x0 + vp.xOf(tx.begin, ww), xb = x0 + vp.xOf(tx.end, ww);
-    if (xb - xa < 2) xb = xa + 2;
-    const pad = subH >= 10 ? 2 : 1;
-    const y = y0 + LANE.lanes[i] * subH + pad, h = Math.max(1, subH - 2 * pad);
-    ctx.fillStyle = col.fill; roundRect(ctx, xa, y, xb - xa, h, 3); ctx.fill();
-    // stage boundaries as ticks inside a tall-enough bar
-    if (subH >= 10 && xb - xa > 8) {
-      ctx.fillStyle = THEME.stageSep;
-      for (const s of tx.stages) {
-        const x = x0 + vp.xOf(s[2], ww);
-        if (x > xa + 1 && x < xb - 1) ctx.fillRect(x, y + 1, 1, h - 2);
-      }
-    }
-    if (o.labels !== false && subH >= 10) {
-      ctx.font = '600 9.5px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      const label = txLabel(tx);
-      const lx = Math.max(xa + 5, x0 + 4);                  // keep the label visible on clipped bars
-      if (xb - lx > ctx.measureText(label).width + 4) { ctx.fillStyle = THEME.txText; ctx.fillText(label, lx, y + h / 2 + 0.5); }
-    }
-    if (o.sel === i || o.hover === i) {
-      ctx.strokeStyle = o.sel === i ? THEME.sel : '#e3ebe7'; ctx.lineWidth = o.sel === i ? 2 : 1;
-      roundRect(ctx, xa - 1, y - 1, xb - xa + 2, h + 2, 4); ctx.stroke();
-    }
-  }
-  ctx.restore();
-}
-// Density strip: per-pixel-column aggregate (count → opacity, concurrency →
-// height, any error → red cap). What is retained vs dropped is explained in
-// the "shared example" section.
-function paintDensity(ctx, x0, ww, vp, y, h) {
-  const w = Math.max(1, Math.round(ww));
-  const d = D.densityColumns(TXS, vp.start, vp.end, w);
-  ctx.save(); ctx.beginPath(); ctx.rect(x0, y, ww, h); ctx.clip();
-  ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fillRect(x0, y + h - 2, ww, 1);
-  for (let x = 0; x < w; x++) {
-    if (!d.count[x]) continue;
-    const frac = d.max ? d.conc[x] / d.max : 0;
-    const bh = Math.max(2, Math.round((h - 4) * (0.35 + 0.65 * frac)));
-    ctx.fillStyle = THEME.density; ctx.globalAlpha = Math.min(1, 0.25 + 0.55 * (d.count[x] / (d.max || 1)));
-    ctx.fillRect(x0 + x, y + h - 2 - bh, 1, bh);
-    if (d.err[x]) { ctx.globalAlpha = 0.95; ctx.fillStyle = THEME.densityErr; ctx.fillRect(x0 + x, y + h - 2 - bh, 1, 3); }
-  }
-  ctx.globalAlpha = 1; ctx.restore();
-  return d;
-}
-function stageAt(tx, t) {
-  for (const s of tx.stages) if (t >= s[1] && t < s[2]) return s[0];
-  return null;
-}
-function txSummary(i) {
-  const tx = TXS[i], a = tx.attrs;
-  return tx.id + ' · id ' + a.id + ' · addr ' + a.addr + ' · len ' + a.len + ' · resp ' + a.resp +
-    ' · [' + tx.begin + ', ' + tx.end + ') ns · ' + tx.stages.map(s => s[0] + ' ' + s[1] + '–' + s[2]).join(' · ');
-}
-
-// --------------------------------------------------------------- Mock base
-class Mock {
-  constructor(id) {
-    this.root = document.getElementById(id);
-    this.body = this.root.querySelector('.pv-body');
-    this.canvas = this.body.querySelector('canvas');
-    this.ctx = this.canvas.getContext('2d');
-    this.status = this.root.querySelector('.pv-status');
-    this.panelEl = this.root.querySelector('.pv-panel');
-    this.vp = new Tween(new Viewport(0, 60));
-    this.cursor = null; this.markers = []; this.nextMarker = 1;
-    this.hoverTx = null; this.selTx = null; this.hoverRow = null; this.hoverNote = null;
-    this.drag = null; this.pointer = null; this.w = 0; this.h = 0;
-    this._dirty = false; this._req = 0; this._now = 0;
+class Demo {
+  constructor() {
+    this.root = document.getElementById('pv');
+    this.body = document.getElementById('wbody');
+    this.canvas = this.body.querySelector('canvas'); this.ctx = this.canvas.getContext('2d');
+    this.tip = this.body.querySelector('.tip'); this.menuEl = this.body.querySelector('.menu');
+    this.txBody = document.getElementById('txbody'); this.statusEl = document.getElementById('status');
+    this.hatch = hatchPattern(this.ctx);
+    this.w = 0; this.h = 0; this.req = 0; this.timers = [];
+    this.tree = 2; this.clipboard = [];
+    this.reset(true);
     this.bindPointer(); this.bindKeys(); this.bindChrome();
     new ResizeObserver(es => { for (const e of es) this.resize(e.contentRect.width, e.contentRect.height); }).observe(this.body);
+    this.renderSidebar(); this.renderTx();
   }
+  // ---------------------------------------------------------------- state
+  reset(first) {
+    this.timers.forEach(clearTimeout); this.timers = [];
+    this.rows = D.SIGNALS.map((s, i) => ({ kind: 'sig', sig: i, h: 1 }));
+    this.rows.splice(10, 0, { kind: 'lane', h: D.defaultHeight(LANE.depth) });   // below the R channel
+    this.vp = new Tween(new Viewport(0, 60));
+    this.cursor = null; this.markers = []; this.selRows = new Set(); this.anchor = null;
+    this.selTx = null; this.shownTx = null; this.hoverTx = null; this.pointer = null;
+    this.drag = null; this.dropAt = null; this.scrollY = 0; this.flashRow = null; this.closeMenu();
+    if (!first) { this.renderSidebar(); this.renderTx(); this.invalidate(); }
+  }
+  lanes() { return this.rows.filter(r => r.kind === 'lane'); }
+  x0() { return NAME_W + VAL_W; }
+  ww() { return Math.max(1, this.w - this.x0()); }
   vpv() { return this.vp.value; }
-  waveX0() { return NAME_W + VAL_W; }
-  waveW() { return Math.max(1, this.w - this.waveX0()); }
-  ppu() { return this.vpv().pxPerUnit(this.waveW()); }
-  density() { return this.ppu() < DENSITY_PPU; }
-  now() { return this._now || performance.now(); }
-  invalidate() { this._dirty = true; if (!this._req) this._req = requestAnimationFrame(ts => this.frame(ts)); }
-  frame(ts) {
-    this._req = 0; this._now = ts || performance.now();
-    const animating = this.vp.tick(this._now) || (this.tickExtra ? this.tickExtra(this._now) : false);
-    if (this.w > 0) this.paint();
-    this.paintStatus(); this._dirty = false; this._now = 0;
-    if (animating) this.invalidate();
+  density() { return D.isDensity(this.vpv().ppu(this.ww())); }
+  now() { return performance.now(); }
+  layout() {
+    let y = HDR - this.scrollY; const out = [];
+    for (const r of this.rows) { const h = r.h * ROW_H; out.push({ r, y, h }); y += h; }
+    return out;
   }
-  tickExtra() { return false; }
-  // -- navigation (the wave panel's actions)
-  zoomAt(x, f, dur) { const st = this.vp; st.animateTo(st.target().clone().zoomAbout(x - this.waveX0(), this.waveW(), f), this.now(), dur); this.invalidate(); }
-  zoomCenter(f) { this.zoomAt(this.waveX0() + this.waveW() / 2, f, ANIM_MS); }
-  fit() { this.vp.animateTo(Viewport.fit(), this.now(), ANIM_MS); this.invalidate(); }
-  panPx(dx) { const st = this.vp; st.set(st.target().clone().panPx(dx, this.waveW())); this.invalidate(); }
-  panFraction(frac) { const st = this.vp; st.animateTo(st.target().clone().panPx(frac * this.waveW(), this.waveW()), this.now(), ANIM_MS); this.invalidate(); }
-  goToStart() { const st = this.vp; st.animateTo(st.target().clone().goToStart(), this.now(), ANIM_MS); this.invalidate(); }
-  goToEnd() { const st = this.vp; st.animateTo(st.target().clone().goToEnd(), this.now(), ANIM_MS); this.invalidate(); }
-  goToCursor() { if (this.cursor == null) return; const st = this.vp; st.animateTo(st.target().clone().centerOn(this.cursor), this.now(), ANIM_MS); this.invalidate(); }
-  // -- pointer
+  contentH() { return this.rows.reduce((a, r) => a + r.h * ROW_H, 0); }
+  clampScroll() { this.scrollY = Math.max(0, Math.min(this.scrollY, this.contentH() - (this.h - HDR))); }
+  rowAt(y) { if (y < HDR) return null; return this.layout().find(e => y >= e.y && y < e.y + e.h) || null; }
+  invalidate() { if (!this.req) this.req = requestAnimationFrame(ts => this.frame(ts)); }
+  frame(ts) {
+    this.req = 0;
+    const anim = this.vp.tick(ts || this.now()) || (this.flashRow && this.now() < this.flashRow.until);
+    if (this.w > 0) this.paint();
+    this.paintStatus();
+    if (anim) this.invalidate();
+    window.ready = true;
+  }
+  resize(w, h) {
+    NAME_W = w < 560 ? 96 : 132; VAL_W = w < 560 ? 68 : 96;
+    this.w = w; this.h = h; const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = Math.max(1, Math.round(w * dpr)); this.canvas.height = Math.max(1, Math.round(h * dpr));
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.clampScroll(); this.invalidate();
+  }
+  // ----------------------------------------------------------- navigation
+  animate(v, dur = ANIM) { this.vp.to(v.clamp(), this.now(), dur); this.invalidate(); }
+  zoomAt(x, f, dur = ANIM) { this.animate(this.vp.target().clone().zoomAbout(Math.max(0, x - this.x0()), this.ww(), f), dur); }
+  zoomCenter(f) { this.zoomAt(this.x0() + this.ww() / 2, f); }
+  fit() { this.animate(new Viewport(LIM[0], LIM[1])); }
+  panFrac(f, dur = ANIM) { const v = this.vp.target().clone(); this.animate(v.pan(f * v.width()), dur); }
+  reveal(t) { const v = this.vp.target(); if (t < v.start || t > v.end) this.animate(v.clone().center(t)); }
+  setCursor(t) { this.cursor = Math.max(LIM[0], Math.min(LIM[1], Math.round(t))); }
+  // Snap to the nearest value change (signal) or transaction boundary (lane).
+  snapTime(row, x) {
+    const vp = this.vpv(), w = this.ww(), t = vp.timeAt(x, w);
+    let cands = [];
+    if (row && row.kind === 'sig') {
+      const ch = D.SIGNALS[row.sig].changes, k = D.upperBound(ch, t);
+      cands = [ch[k - 1], ch[k]].filter(Boolean).map(c => c[0]);
+    } else if (row && row.kind === 'lane' && !this.density()) {
+      const nb = D.nextBound(t), pb = D.prevBound(t + 1e-9);
+      cands = [nb, pb].filter(v => v != null);
+    }
+    let best = t, bd = SNAP_PX;
+    for (const c of cands) { const d = Math.abs(vp.xOf(c, w) - x); if (d <= bd) { bd = d; best = c; } }
+    return best;
+  }
+  // ------------------------------------------------------------ selection
+  selectTx(i) {
+    this.selTx = i;
+    if (i != null) this.shownTx = i;
+    this.renderTx();
+  }
+  selectRow(row, mods) {
+    if (mods && (mods.ctrlKey || mods.metaKey)) { this.selRows.has(row) ? this.selRows.delete(row) : this.selRows.add(row); this.anchor = row; return; }
+    if (mods && mods.shiftKey && this.anchor && this.rows.includes(this.anchor)) {
+      const a = this.rows.indexOf(this.anchor), b = this.rows.indexOf(row);
+      for (let k = Math.min(a, b); k <= Math.max(a, b); k++) this.selRows.add(this.rows[k]);
+      return;
+    }
+    this.selRows = new Set([row]); this.anchor = row;
+  }
+  focusedRow() { const sel = this.rows.filter(r => this.selRows.has(r)); return sel[sel.length - 1] || null; }
+  laneHit(e, p) {
+    const vp = this.vpv(), w = this.ww();
+    if (this.density()) {
+      const cx = Math.floor(p.x - this.x0()), idx = D.queryWindow(vp.timeAt(cx, w), vp.timeAt(cx + 1, w));
+      return { column: { t: vp.timeAt(cx + 0.5, w), n: idx.length, err: idx.some(i => TXS[i].status === 'error') } };
+    }
+    const cap = D.capacity(e.r.h), sub = Math.floor((p.y - e.y - D.LANE_PAD) / SUB_H);
+    if (sub < 0 || sub >= Math.min(cap, LANE.depth)) return null;
+    const i = D.hitBar(vp.timeAt(p.x - this.x0(), w), sub, cap, t => vp.xOf(t, w), p.x - this.x0(), 2);
+    return i >= 0 ? { tx: i } : null;
+  }
+  // -------------------------------------------------------------- rows ops
+  removeRows(set) {
+    this.rows = this.rows.filter(r => !set.has(r)); this.selRows = new Set();
+    if (!this.lanes().length) { this.hoverTx = null; }
+    this.clampScroll(); this.renderSidebar();
+  }
+  copyRows() { this.clipboard = this.rows.filter(r => this.selRows.has(r)).map(r => ({ ...r })); }
+  paste() {
+    if (!this.clipboard.length) return;
+    const sel = this.rows.filter(r => this.selRows.has(r)), at = sel.length ? this.rows.indexOf(sel[sel.length - 1]) + 1 : this.rows.length;
+    const add = this.clipboard.map(r => ({ ...r }));
+    this.rows.splice(at, 0, ...add); this.selRows = new Set(add); this.anchor = add[0]; this.renderSidebar();
+  }
+  moveRows(set, to) {            // move_rows(selection, to): `to` indexes the list before the move
+    const moving = this.rows.filter(r => set.has(r));
+    const before = this.rows.slice(0, to).filter(r => !set.has(r)).length;
+    const rest = this.rows.filter(r => !set.has(r));
+    rest.splice(before, 0, ...moving); this.rows = rest;
+  }
+  addLane() {
+    if (this.lanes().length) return;
+    const at = this.rows.findIndex(r => r.kind === 'sig' && r.sig === 10);
+    const lane = { kind: 'lane', h: D.defaultHeight(LANE.depth) };
+    this.rows.splice(at < 0 ? this.rows.length : at, 0, lane);
+    this.selRows = new Set([lane]); this.anchor = lane; this.flash(lane); this.renderSidebar();
+  }
+  flash(row) { this.flashRow = { row, until: this.now() + 900 }; this.invalidate(); }
+  // --------------------------------------------------------------- pointer
+  pos(e) { const r = this.body.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   bindPointer() {
     const b = this.body;
-    b.addEventListener('mousedown', e => { if (e.button !== 0) return; const p = this.pos(e); this.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, moved: false, kind: this.regionAt(p).kind, data: this.regionAt(p) }; e.preventDefault(); });
-    window.addEventListener('mousemove', e => { if (!this.drag && !this.body.matches(':hover')) return; this.move(this.pos(e), e); });
+    b.addEventListener('mousedown', e => {
+      if (!this.menuEl.hidden && !this.menuEl.contains(e.target)) this.closeMenu();
+      if (this.menuEl.contains(e.target)) return;
+      this.root.focus({ preventScroll: true });
+      const p = this.pos(e); this.down(p, e); e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => { if (this.drag || this.body.matches(':hover')) this.move(this.pos(e)); });
     window.addEventListener('mouseup', e => { if (this.drag) this.up(this.pos(e)); });
-    b.addEventListener('mouseleave', () => { if (!this.drag) { this.pointer = null; this.hoverTx = null; this.hoverRow = null; this.hoverNote = null; this.invalidate(); } });
-    b.addEventListener('wheel', e => { e.preventDefault(); this.wheel(this.pos(e), e.deltaX, e.deltaY, e); }, { passive: false });
-    b.addEventListener('contextmenu', e => { const p = this.pos(e); if (this.contextMenu && this.contextMenu(p)) { e.preventDefault(); this.invalidate(); } });
+    b.addEventListener('mouseleave', () => { if (!this.drag) { this.pointer = null; this.hoverTx = null; this.hoverNote = null; this.tip.hidden = true; this.invalidate(); } });
+    b.addEventListener('wheel', e => { e.preventDefault(); this.wheel(this.pos(e), e); }, { passive: false });
+    b.addEventListener('contextmenu', e => e.preventDefault());
+    b.addEventListener('dblclick', e => {
+      const p = this.pos(e), ent = this.rowAt(p.y);
+      if (ent && ent.r.kind === 'lane' && p.x >= this.x0()) { const h = this.laneHit(ent, p); if (h && h.tx != null) this.showTransaction(); }
+    });
   }
-  pos(e) { const r = this.body.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
-  regionAt() { return { kind: 'pan' }; }                 // override: row-drag
+  down(p, e) {
+    const ent = this.rowAt(p.y), inWaves = p.x >= this.x0();
+    if (e.button === 1 || (e.button === 2 && inWaves)) { this.drag = { kind: 'pan', x: p.x, moved: false }; return; }
+    if (e.button === 2) { if (ent) this.openMenu(ent.r, p); return; }
+    if (e.button !== 0) return;
+    if (inWaves && (e.ctrlKey || e.metaKey)) { this.drag = { kind: 'zoom', x0: p.x, x: p.x }; return; }
+    if (p.y < HDR) { if (inWaves) { this.setCursor(this.vpv().timeAt(p.x - this.x0(), this.ww())); this.drag = { kind: 'cursor' }; } this.invalidate(); return; }
+    if (!ent) { if (!inWaves) this.selRows = new Set(); this.invalidate(); return; }
+    if (inWaves) {
+      this.setCursor(this.snapTime(ent.r, p.x - this.x0()));
+      this.drag = { kind: 'cursor' };
+      if (!this.selRows.has(ent.r) || e.shiftKey || e.ctrlKey || e.metaKey) this.selectRow(ent.r, e);
+      if (ent.r.kind === 'lane') { const h = this.laneHit(ent, p); this.selectTx(h && h.tx != null ? h.tx : null); }
+    } else {
+      if (!this.selRows.has(ent.r) || e.shiftKey || e.ctrlKey || e.metaKey) this.selectRow(ent.r, e);
+      this.drag = { kind: 'row', row: ent.r, y0: p.y, moved: false };
+    }
+    this.invalidate(); this.renderTx();
+  }
   move(p) {
-    this.pointer = p;
-    if (this.drag) {
-      const d = this.drag;
-      if (!d.moved && Math.hypot(p.x - d.x0, p.y - d.y0) > 3) { d.moved = true; if (d.kind === 'pan') this.body.classList.add('grab'); }
-      if (d.moved) this.dragMove(p, p.x - d.x, p.y - d.y);
-      d.x = p.x; d.y = p.y;
+    this.pointer = p; const d = this.drag;
+    if (d) {
+      if (d.kind === 'cursor' && p.x >= this.x0() - 4) { const ent = this.rowAt(p.y); this.setCursor(this.snapTime(ent && ent.r, Math.max(0, p.x - this.x0()))); }
+      else if (d.kind === 'pan') { const dx = p.x - d.x; d.x = p.x; d.moved = true; const v = this.vp.target().clone(); this.vp.set(v.pan(-dx / this.ww() * v.width())); }
+      else if (d.kind === 'zoom') d.x = p.x;
+      else if (d.kind === 'row') {
+        if (!d.moved && Math.abs(p.y - d.y0) > 4) d.moved = true;
+        if (d.moved) { const L = this.layout(); let at = L.length; for (let k = 0; k < L.length; k++) if (p.y < L[k].y + L[k].h / 2) { at = k; break; } this.dropAt = at; }
+      }
     }
-    const h = this.hitAt(p);
-    this.hoverTx = h && h.tx != null ? h.tx : null;
-    this.hoverRow = h && h.row != null ? h.row : null;
-    this.hoverNote = h && h.note != null ? h.note : null;
-    this.invalidate();
+    this.hover(p); this.invalidate();
   }
-  dragMove(p, dx) { if (this.drag.kind === 'pan') this.panPx(-dx); }
   up(p) {
-    const d = this.drag; this.drag = null; this.body.classList.remove('grab');
-    if (d && !d.moved) this.clickAt(p);
-    else if (d && this.dragEnd) this.dragEnd(d, p);
-    this.invalidate();
-  }
-  clickAt(p) {
-    const h = this.hitAt(p);
-    if (h && h.tx != null) { this.selTx = this.selTx === h.tx ? null : h.tx; return; }
-    if (p.x >= this.waveX0() && p.y >= HDR) {
-      const t = Math.floor(this.vpv().timeAt(p.x - this.waveX0(), this.waveW()));
-      this.cursor = Math.min(LIM[1], Math.max(LIM[0], t));
-      this.selTx = null;
+    const d = this.drag; this.drag = null;
+    if (d && d.kind === 'zoom') {
+      const a = Math.min(d.x0, d.x) - this.x0(), b = Math.max(d.x0, d.x) - this.x0(), vp = this.vpv(), w = this.ww();
+      if (b - a > 4) this.animate(new Viewport(vp.timeAt(a, w), vp.timeAt(b, w)));
+    } else if (d && d.kind === 'row' && d.moved && this.dropAt != null) {
+      this.moveRows(this.selRows, this.dropAt);
     }
+    this.dropAt = null; this.hover(p); this.invalidate();
   }
-  wheel(p, dx, dy, e) {
-    if (e.shiftKey || Math.abs(dx) > Math.abs(dy)) { this.panPx(e.shiftKey ? dy : dx); return; }
-    const f = Math.pow(2, -Math.max(-100, Math.min(100, dy)) / 100);
-    this.zoomAt(p.x, f, WHEEL_MS);
+  hover(p) {
+    this.hoverTx = null; this.hoverNote = null; this.hoverRow = null;
+    const ent = this.rowAt(p.y);
+    if (ent && !this.drag) {
+      this.hoverRow = ent.r;
+      if (ent.r.kind === 'lane' && p.x >= this.x0()) {
+        const h = this.laneHit(ent, p);
+        if (h && h.tx != null) this.hoverTx = h.tx;
+        else if (h && h.column) this.hoverNote = h.column;
+      }
+    }
+    this.renderTip(p);
   }
-  hitAt() { return null; }                               // override
-  stepSel(dir) {                                         // ↑ ↓: previous/next transaction in begin order
-    if (this.selTx == null) { this.selTx = dir > 0 ? 0 : TXS.length - 1; }
-    else this.selTx = Math.min(TXS.length - 1, Math.max(0, this.selTx + dir));
-    this.invalidate();
+  wheel(p, e) {
+    this.closeMenu();
+    const dy = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY, dx = e.deltaMode === 1 ? e.deltaX * 20 : e.deltaX;
+    if (e.ctrlKey || e.metaKey) this.zoomAt(p.x, Math.pow(2, -dy / 120), 90);
+    else if (e.shiftKey || p.x < this.x0()) { this.scrollY += dy + (e.shiftKey ? dx : 0); this.clampScroll(); if (p.x < this.x0() && dx) this.panFrac(dx / 1000, 0); }
+    else this.panFrac((dx + dy) / 1000, 0);
+    this.hover(p); this.invalidate();
   }
-  // -- keyboard
+  // -------------------------------------------------------------- keyboard
   bindKeys() {
     this.root.addEventListener('keydown', e => {
-      let handled = true;
-      switch (e.key) {
+      if (!this.menuEl.hidden && e.key !== 'Escape') return;
+      const mod = e.ctrlKey || e.metaKey; let ok = true;
+      if (mod && (e.key === 'c' || e.key === 'x' || e.key === 'v')) {
+        if (e.key === 'c') this.copyRows();
+        if (e.key === 'x') { this.copyRows(); this.removeRows(this.selRows); }
+        if (e.key === 'v') this.paste();
+      } else switch (e.key) {
         case '=': case '+': this.zoomCenter(2); break;
         case '-': case '_': this.zoomCenter(0.5); break;
         case 'f': case 'F': this.fit(); break;
-        case 'ArrowLeft': this.panFraction(-0.1); break;
-        case 'ArrowRight': this.panFraction(0.1); break;
-        case 'ArrowUp': this.stepSel(-1); break;
-        case 'ArrowDown': this.stepSel(1); break;
-        case 'Home': this.goToStart(); break;
-        case 'End': this.goToEnd(); break;
-        case 'c': case 'C': this.goToCursor(); break;
-        case 'm': if (this.cursor != null && !this.markers.some(m => m.time === this.cursor)) this.markers.push({ id: this.nextMarker++, time: this.cursor }); this.invalidate(); break;
-        case 'M': this.markers = []; this.invalidate(); break;
-        case 'Escape': if (this.selTx != null) this.selTx = null; else this.cursor = null; this.invalidate(); break;
-        default: handled = false;
+        case 'ArrowLeft': e.shiftKey ? this.edge(-1) : this.panFrac(-0.1); break;
+        case 'ArrowRight': e.shiftKey ? this.edge(1) : this.panFrac(0.1); break;
+        case 'ArrowUp': this.moveSel(-1); break;
+        case 'ArrowDown': this.moveSel(1); break;
+        case 'Enter': this.showTransaction(); break;
+        case 'm': if (this.cursor != null && !this.markers.includes(this.cursor)) this.markers.push(this.cursor); break;
+        case 'M': this.markers = []; break;
+        case 'Delete': case 'Backspace': this.removeRows(this.selRows); break;
+        case 'Escape': this.escape(); break;
+        default: ok = false;
       }
-      if (handled) e.preventDefault();
+      if (ok) { e.preventDefault(); this.invalidate(); }
     });
-    this.root.addEventListener('focus', () => this.root.dataset.focus = '1');
-    this.root.addEventListener('blur', () => this.root.dataset.focus = '0');
   }
-  // -- toolbar + guides
-  bindChrome() {
-    this.root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
-      const a = b.dataset.act;
-      if (a === 'zin') this.zoomCenter(2);
-      else if (a === 'zout') this.zoomCenter(0.5);
-      else if (a === 'fit') this.fit();
-      else if (a === 'reset') this.reset();
-      else if (this.act) this.act(a, b);
-      this.root.focus({ preventScroll: true }); this.invalidate();
-    }));
-    const sec = this.root.closest('section');
-    if (sec) sec.querySelectorAll('[data-guide]').forEach(b => b.addEventListener('click', () => {
-      if (this.guide) this.guide(b.dataset.guide);
-      this.root.focus({ preventScroll: true }); this.invalidate();
-    }));
+  moveSel(dir) {
+    if (!this.rows.length) return;
+    const cur = this.focusedRow(), k = cur ? this.rows.indexOf(cur) + dir : (dir > 0 ? 0 : this.rows.length - 1);
+    const r = this.rows[Math.max(0, Math.min(this.rows.length - 1, k))]; this.selRows = new Set([r]); this.anchor = r;
   }
-  act() {} reset() {} guide() {}
-  resize(w, h) {
-    this.w = w; this.h = h; const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = Math.max(1, Math.round(w * dpr)); this.canvas.height = Math.max(1, Math.round(h * dpr));
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.invalidate();
-  }
-  // -- status bar
-  paintStatus() {
-    const vp = this.vpv();
-    let extra = '';
-    if (this.selTx != null) extra = '<span class="v" style="margin-left:auto">selected ' + esc(txSummary(this.selTx)) + '</span>';
-    else if (this.hoverTx != null) {
-      const tx = TXS[this.hoverTx], st = stageAt(tx, this.pointer ? this.vpv().timeAt(this.pointer.x - this.waveX0(), this.waveW()) : tx.begin);
-      extra = '<span class="v" style="margin-left:auto">' + esc(tx.id + ' · ' + tx.attrs.addr + ' · [' + tx.begin + ', ' + tx.end + ') ns' + (st ? ' · ' + st : '')) + '</span>';
-    } else if (this.hoverNote != null) {
-      extra = '<span class="v" style="margin-left:auto">' + esc(this.hoverNote) + '</span>';
-    } else if (this.hoverRow != null && D.SIGNALS[this.hoverRow]) {
-      extra = '<span class="v" style="margin-left:auto">' + esc(D.SIGNALS[this.hoverRow].name) + '</span>';
+  // Shift+←/→: the selected row's previous/next edge.
+  edge(dir) {
+    const row = this.focusedRow(); if (!row) return;
+    const from = this.cursor != null ? this.cursor : (dir > 0 ? this.vpv().start : this.vpv().end);
+    let t;
+    if (row.kind === 'lane') t = dir > 0 ? D.nextBound(from) : D.prevBound(from);
+    else {
+      const ch = D.SIGNALS[row.sig].changes, k = D.upperBound(ch, from);
+      t = dir > 0 ? (ch[k] || [])[0] : (() => { for (let j = k - 1; j >= 0; j--) if (ch[j][0] < from) return ch[j][0]; })();
     }
-    this.status.innerHTML =
-      '<span><span class="k">viewport</span> <span class="v">' + fmtT(Math.round(vp.start * 10) / 10) + ' – ' + fmtT(Math.round(vp.end * 10) / 10) + ' ns</span></span>' +
-      '<span><span class="k">cursor</span> <span class="v">' + (this.cursor == null ? '—' : fmtT(this.cursor)) + '</span></span>' +
-      '<span><span class="k">scale</span> <span class="v">' + this.ppu().toFixed(2) + ' px/ns' + (this.density() ? ' · density' : '') + '</span></span>' +
-      '<span><span class="k">markers</span> <span class="v">' + this.markers.length + '</span></span>' + extra;
+    if (t == null) return;
+    this.cursor = t; this.reveal(t);
   }
-  // name + value columns for one signal row
-  paintSignalRow(row, i, y, rh) {
-    const ctx = this.ctx, c = this.cursor;
-    if (this.hoverRow === i) { ctx.fillStyle = THEME.hover; ctx.fillRect(0, y, this.w, rh); }
-    ctx.font = '11px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-    ctx.fillStyle = row.idle ? THEME.idle : THEME.text; ctx.fillText(row.name, 8, y + rh / 2);
-    ctx.fillStyle = row.idle ? THEME.idle : (row.kind === 'bus' ? THEME.bus : THEME.wave);
-    const v = D.valueAt(row, c); ctx.fillText(v == null ? '' : String(v), NAME_W + 6, y + rh / 2);
-    paintSignal(ctx, row, y, rh, this.waveX0(), this.waveW(), this.vpv());
+  escape() {
+    if (!this.menuEl.hidden) this.closeMenu();
+    else if (this.drag) { this.drag = null; this.dropAt = null; }
+    else if (this.selTx != null) this.selectTx(null);
+    else if (this.selRows.size) this.selRows = new Set();
+    else this.cursor = null;
   }
-  paintColumnHeaders() {
-    const ctx = this.ctx, x0 = this.waveX0();
-    ctx.fillStyle = THEME.bar; ctx.fillRect(0, 0, x0, HDR);
-    ctx.font = '10.5px ' + SANS; ctx.fillStyle = THEME.muted; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-    ctx.fillText('Signal', 8, HDR / 2); ctx.fillText(this.cursor == null ? 'Value' : 'Value @ ' + fmtT(this.cursor), NAME_W + 6, HDR / 2);
-    ctx.fillStyle = THEME.line; ctx.fillRect(0, HDR - 1, x0, 1); ctx.fillRect(NAME_W - 1, 0, 1, this.h); ctx.fillRect(x0 - 1, 0, 1, this.h);
+  showTransaction() {
+    if (this.selTx == null) return;
+    const p = document.getElementById('txpanel');
+    p.classList.remove('flash'); void p.offsetWidth; p.classList.add('flash');
   }
-}
-function esc(s) { return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]); }
-
-// -------------------------------------------------------------- sidebar kit
-// The hierarchy browser as implemented (hierarchy.html): streams are scope
-// rows, generators are members. Only the activation outcome differs per demo.
-const ICONS = {
-  module: '<svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>',
-  stream: '<svg viewBox="0 0 24 24"><path d="M8 6h10"/><path d="M6 12h9"/><path d="M11 18h7"/></svg>',
-  generator: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.5"/></svg>',
-};
-const TREE = [
-  { path: 'cpu', kind: 'module', depth: 0 },
-  { path: 'cpu.axi', kind: 'module', depth: 1, vars: D.SIGNALS.map(s => s.name) },
-  { path: 'cpu.axi.rd_ch', kind: 'AXI4', depth: 1, stream: true, gens: ['axi_rd'] },
-  { path: 'cpu.axi.wr_ch', kind: 'AXI4', depth: 1, stream: true, gens: ['axi_wr'], empty: true },
-];
-function initSidebar(mock, actionHtml) {
-  const treeEl = mock.root.querySelector('.pv-tree'), varsEl = mock.root.querySelector('.pv-vars');
-  const subEl = mock.root.querySelector('.pv-side-sub'), varsTitle = mock.root.querySelector('.pv-vars-title');
-  let selected = TREE[1];
-  function render() {
-    treeEl.innerHTML = TREE.map((n, i) =>
-      '<div class="pv-node' + (n === selected ? ' sel' : '') + '" data-node="' + i + '" style="padding-left:' + (4 + n.depth * 12) + 'px" title="' + n.path + (n.stream ? ' — stream, kind ' + n.kind + ' (tagged)' : '') + '">' +
-      (ICONS[n.kind] || ICONS.stream) + '<span>' + n.path.split('.').pop() + '</span>' +
-      (n.stream ? '<span class="k">' + n.kind + '</span>' : '') + '</div>').join('');
-    subEl.textContent = selected.path + ' · ' + selected.kind;
-    if (selected.stream) {
-      varsTitle.textContent = 'Generators';
-      varsEl.innerHTML = selected.gens.map(g =>
-        '<div class="pv-node gen" title="generator of ' + selected.path + '">' + ICONS.generator + '<span>' + g + '</span><span class="k">generator</span></div>').join('') +
-        '<div class="pv-open">' + actionHtml(selected) + '</div>';
-    } else {
-      varsTitle.textContent = 'Variables';
-      varsEl.innerHTML = (selected.vars || []).map(v => '<div class="pv-var">' + v + '</div>').join('');
-    }
-  }
-  treeEl.addEventListener('click', e => { const n = e.target.closest('[data-node]'); if (!n) return; selected = TREE[+n.dataset.node]; render(); });
-  render();
-  return render;
-}
-
-return { Viewport, Tween, THEME, LIM, TXS, LANE, D, HDR, NAME_W, VAL_W, ROW_H, SUB_H, DENSITY_PPU,
-         paintTimeline, paintCursorAndMarkers, paintSignal, paintTxBars, paintDensity, txColors, txLabel, stageAt, txSummary,
-         chip, roundRect, fmtT, esc, Mock, initSidebar, TREE };
-})();
-</script>
-
-<script>
-/* ============================================================================
-   The lane demo — lane-as-row. The generator is one more row kind in the wave
-   panel's row list: draggable among the signal rows, stacking overlaps into
-   sub-rows, collapsing to a density strip when zoomed out, removable from its
-   row header. Mirrors the proposed WaveRow::{Signal, TxLane} enum.
-   ============================================================================ */
-(() => {
-'use strict';
-const F = FRAME, D = F.D, TXS = F.TXS, LANE = F.LANE, THEME = F.THEME;
-const { HDR, NAME_W, VAL_W, ROW_H, SUB_H } = F;
-
-class DemoA extends F.Mock {
-  constructor() {
-    super('pvA');
-    this.defaultRows(); this.renderSidebar();
-    this.syncLaneButton();
-  }
-  defaultRows() {
-    // Default view: the lane sits right below the R group, beside its signals.
-    this.rows = D.SIGNALS.map((s, i) => ({ k: 'sig', i }));
-    this.rows.splice(10, 0, { k: 'lane' });       // after rresp, before the idle aw pair
-  }
-  lanePos() { return this.rows.findIndex(r => r.k === 'lane'); }
-  laneHeight() { return this.density() ? ROW_H : LANE.depth * SUB_H + 10; }
-  layoutRows() {
-    let y = HDR; const out = [];
-    for (const r of this.rows) { const h = r.k === 'lane' ? this.laneHeight() : ROW_H; out.push({ r, y, h }); y += h; }
-    return out;
-  }
-  laneGeom() { const p = this.layoutRows().find(e => e.r.k === 'lane'); return p || null; }
-  // -- lane add/remove (retain/release the track, in core terms)
-  removeLane() { const i = this.lanePos(); if (i >= 0) this.rows.splice(i, 1); this.selTx = null; this.syncLaneButton(); this.renderSidebar(); }
-  addLane(at) { if (this.lanePos() >= 0) return; this.rows.splice(at == null ? Math.min(10, this.rows.length) : at, 0, { k: 'lane' }); this.syncLaneButton(); this.renderSidebar(); }
-  act(a, b) { if (a === 'lane') { this.lanePos() >= 0 ? this.removeLane() : this.addLane(); } }
-  syncLaneButton() {
-    const b = this.root.querySelector('[data-act="lane"]'); if (b) b.textContent = this.lanePos() >= 0 ? 'Remove lane' : 'Add lane: axi_rd';
-  }
-  // -- regions: the lane's name cell is a drag grip; the × removes
-  regionAt(p) {
-    const g = this.laneGeom();
-    if (g && p.y >= g.y && p.y < g.y + g.h && p.x < NAME_W) return { kind: 'rowdrag' };
-    return { kind: 'pan' };
-  }
-  dragMove(p, dx) {
-    if (this.drag.kind === 'rowdrag') { this.dropAt = this.dropIndex(p); return; }
-    this.panPx(-dx);
-  }
-  dropIndex(p) {
-    const L = this.layoutRows(); let di = L.length;
-    for (let i = 0; i < L.length; i++) if (p.y < L[i].y + L[i].h / 2) { di = i; break; }
-    return di;
-  }
-  dragEnd(d, p) {
-    if (d.kind !== 'rowdrag' || this.dropAt == null) return;
-    const from = this.lanePos(); let to = this.dropAt; this.dropAt = null;
-    if (to > from) to--;
-    if (to === from || to < 0) return;
-    const lane = this.rows.splice(from, 1)[0]; this.rows.splice(to, 0, lane);
-  }
-  contextMenu(p) {
-    const g = this.laneGeom();
-    if (g && p.y >= g.y && p.y < g.y + g.h && p.x < this.waveX0()) { this.removeLane(); return true; }
-    return false;
-  }
-  clickAt(p) {
-    const g = this.laneGeom();
-    if (g && p.y >= g.y && p.y < g.y + g.h && p.x >= NAME_W - 20 && p.x < NAME_W - 4) { this.removeLane(); return; }
-    super.clickAt(p);
-  }
-  hitAt(p) {
-    if (p.y < HDR) return null;
-    for (const e of this.layoutRows()) {
-      if (p.y < e.y || p.y >= e.y + e.h) continue;
-      if (e.r.k === 'sig') return { row: e.r.i };
-      // lane row
-      if (p.x < this.waveX0()) return { note: 'axi_rd · 4 transactions · drag to reorder · × removes' };
-      const vp = this.vpv(), ww = this.waveW();
-      if (this.density()) {
-        const d = D.densityColumns(TXS, vp.start, vp.end, Math.max(1, Math.round(ww)));
-        const cx = Math.min(d.count.length - 1, Math.max(0, Math.floor(p.x - this.waveX0())));
-        return d.count[cx] ? { note: 'column ≈ ' + Math.round(vp.start + (cx + 0.5) / d.count.length * vp.width()) + ' ns · ' + d.count[cx] + ' tx overlapping' + (d.err[cx] ? ' · includes an error' : '') } : { note: 'no transactions in this column' };
-      }
-      const sub = Math.min(LANE.depth - 1, Math.max(0, Math.floor((p.y - e.y - 5) / SUB_H)));
-      const t = vp.timeAt(p.x - this.waveX0(), ww);
-      const i = D.hitBars(TXS, LANE.lanes, t, sub, p.x - this.waveX0(), tt => vp.xOf(tt, ww), 2);
-      return i >= 0 ? { tx: i } : null;
-    }
-    return null;
-  }
-  // -- chrome
-  reset() {
-    this.defaultRows(); this.vp.set(new F.Viewport(0, 60)); this.cursor = null; this.selTx = null;
-    this.markers = []; this.nextMarker = 1; this.dropAt = null; this.syncLaneButton(); this.renderSidebar(); this.invalidate();
-  }
-  guide(g) {
-    if (g === 'reset') return this.reset();
-    if (g === 'slverr') { this.reset(); this.vp.animateTo(new F.Viewport(14, 44), this.now(), F_LERP); this.cursor = 38; this.selTx = 2; }
-    if (g === 'position') { const from = this.lanePos(); if (from < 0) this.addLane(5); else { const lane = this.rows.splice(from, 1)[0]; this.rows.splice(this.rows.findIndex(r => r.k === 'sig' && r.i === 4) + 1, 0, lane); } }  // under arid
-    if (g === 'density') { this.reset(); this.vp.animateTo(F.Viewport.fit(), this.now(), F_LERP); }
-    if (g === 'remove') { this.removeLane(); setTimeout(() => { this.addLane(); this.invalidate(); }, 900); }
+  // ------------------------------------------------------------------ menu
+  openMenu(row, p) {
+    if (!this.selRows.has(row)) this.selectRow(row, null);
+    const targets = this.rows.filter(r => this.selRows.has(r));
+    const hs = new Set(targets.map(r => r.h)), shared = hs.size === 1 ? [...hs][0] : null;
+    const isLane = targets.length === 1 && row.kind === 'lane';
+    this.menuEl.innerHTML =
+      '<button data-m="cut" role="menuitem">Cut<kbd>Ctrl+X</kbd></button><button data-m="copy" role="menuitem">Copy<kbd>Ctrl+C</kbd></button>' +
+      (this.clipboard.length ? '<button data-m="paste" role="menuitem">Paste<kbd>Ctrl+V</kbd></button>' : '') +
+      '<hr><div class="hl">Height</div><div class="heights">' +
+      D.HEIGHTS.map(m => '<button data-h="' + m + '" role="menuitemradio" aria-checked="' + (shared === m) + '" class="' + (shared === m ? 'on' : '') + '">' + m + '×</button>').join('') +
+      '</div><hr><button data-m="remove" role="menuitem">' + (isLane ? 'Remove lane' : targets.length > 1 ? 'Remove rows' : 'Remove signal') + '<kbd>Del</kbd></button>';
+    this.menuEl.hidden = false;
+    const mw = this.menuEl.offsetWidth, mh = this.menuEl.offsetHeight;
+    this.menuEl.style.left = Math.min(p.x + 2, this.w - mw - 4) + 'px';
+    this.menuEl.style.top = Math.max(4, Math.min(p.y + 2, this.h - mh - 4)) + 'px';
     this.invalidate();
   }
+  closeMenu() { if (this.menuEl) { this.menuEl.hidden = true; this.menuEl.innerHTML = ''; } }
+  // -------------------------------------------------------- chrome + guides
+  bindChrome() {
+    this.menuEl.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.h) this.rows.filter(r => this.selRows.has(r)).forEach(r => r.h = +b.dataset.h);
+      else if (b.dataset.m === 'cut') { this.copyRows(); this.removeRows(this.selRows); }
+      else if (b.dataset.m === 'copy') this.copyRows();
+      else if (b.dataset.m === 'paste') this.paste();
+      else if (b.dataset.m === 'remove') this.removeRows(this.selRows);
+      this.closeMenu(); this.clampScroll(); this.root.focus({ preventScroll: true }); this.invalidate();
+    });
+    this.root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+      const a = b.dataset.act;
+      if (a === 'zin') this.zoomCenter(2); else if (a === 'zout') this.zoomCenter(0.5); else this.fit();
+      this.root.focus({ preventScroll: true });
+    }));
+    document.querySelectorAll('[data-guide]').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('[data-guide]').forEach(o => o.classList.toggle('on', o === b && b.dataset.guide !== 'reset'));
+      this.guide(b.dataset.guide); this.root.focus({ preventScroll: true });
+    }));
+    document.getElementById('tree').addEventListener('click', e => { const n = e.target.closest('[data-node]'); if (n) { this.tree = +n.dataset.node; this.renderSidebar(); } });
+    document.getElementById('members').addEventListener('click', e => {
+      const b = e.target.closest('[data-side]'); if (!b) return;
+      if (b.dataset.side === 'add') this.addLane(); else this.removeRows(new Set(this.lanes()));
+      this.invalidate(); this.renderTx();
+    });
+  }
+  guide(g) {
+    const lane = () => this.lanes()[0];
+    if (g === 'reset') return this.reset();
+    if (g === 'error') {
+      this.reset(); const i = TXS.findIndex(t => t.name === 'T2');
+      this.animate(new Viewport(10, 48), 420); this.setCursor(38); this.selRows = new Set([lane()]); this.anchor = lane(); this.selectTx(i);
+    }
+    if (g === 'move') {
+      if (!lane()) this.addLane();
+      const l = lane(); this.moveRows(new Set([l]), this.rows.findIndex(r => r.kind === 'sig' && r.sig === 5));
+      this.selRows = new Set([l]); this.anchor = l; this.scrollY = 0; this.flash(l);
+    }
+    if (g === 'fold') {
+      if (!lane()) this.addLane();
+      lane().h = 1; this.selRows = new Set([lane()]); this.anchor = lane(); this.clampScroll(); this.flash(lane());
+      this.animate(new Viewport(0, 60), 300);
+    }
+    if (g === 'zoomout') { if (!lane()) this.addLane(); this.animate(new Viewport(LIM[0], LIM[1]), 600); }
+    if (g === 'step') {
+      if (!lane()) this.addLane();
+      this.selectTx(null); this.selRows = new Set([lane()]); this.anchor = lane(); this.cursor = 0; this.animate(new Viewport(0, 60), 300);
+      this.timers.forEach(clearTimeout); this.timers = [];
+      for (let k = 1; k <= 6; k++) this.timers.push(setTimeout(() => { this.edge(1); this.invalidate(); }, 300 + k * 420));
+    }
+    this.renderSidebar(); this.renderTx(); this.invalidate();
+  }
+  // --------------------------------------------------------------- sidebar
   renderSidebar() {
-    const self = this;
-    if (!this._sidebar) this._sidebar = F.initSidebar(this, node =>
-      node.path === 'cpu.axi.rd_ch'
-        ? (self.lanePos() >= 0
-          ? '<span>Lane added to Waves 1 — drag its name cell to reorder, × or right-click to remove.</span><button data-side="rm">Remove lane</button>'
-          : '<button data-side="add">Add lane: axi_rd to Waves 1</button>')
-        : '<span>No read transactions in this demo.</span>');
-    this._sidebar();
-    const varsEl = this.root.querySelector('.pv-vars');
-    if (!this._sideBound) {
-      this._sideBound = true;
-      varsEl.addEventListener('click', e => {
-        const b = e.target.closest('[data-side]'); if (!b) return;
-        b.dataset.side === 'add' ? this.addLane() : this.removeLane();
-        this.invalidate();
-      });
-    }
+    const tree = document.getElementById('tree'), mem = document.getElementById('members'), node = TREE[this.tree];
+    tree.innerHTML = TREE.map((n, i) => '<div class="node' + (i === this.tree ? ' sel' : '') + '" data-node="' + i + '" style="padding-left:' + (5 + n.depth * 12) + 'px">' +
+      ICON[n.icon] + '<span>' + n.name + '</span>' + (n.kind ? '<span class="k">' + n.kind + '</span>' : '') + '</div>').join('');
+    document.getElementById('members-title').textContent = node.gen || node.kind ? 'Generators' : 'Variables';
+    document.getElementById('members-sub').textContent = node.path || '';
+    if (node.gen) {
+      const has = this.lanes().length > 0;
+      mem.innerHTML = '<div class="gen"><div class="node">' + ICON.gen + '<span>' + node.gen + '</span><span class="k">' + TXS.length + ' tx</span></div><div class="acts">' +
+        '<button type="button" disabled title="Existing behaviour, not part of this mock">Open Pipeline</button>' +
+        (has ? '<button type="button" data-side="remove">Remove from Waves 1</button>' : '<button type="button" class="primary" data-side="add">Add to Waves 1</button>') +
+        '</div><p>' + (has ? 'Shown as a lane in Waves 1.' : 'Proposed: adds a lane below the selected rows.') + '</p></div>';
+    } else if (node.kind) mem.innerHTML = '<div class="member" style="color:#6f817a">No transactions recorded.</div>';
+    else mem.innerHTML = (node.members || []).map(m => '<div class="member">' + m + '</div>').join('') || '<div class="member" style="color:#6f817a">—</div>';
   }
-  // -- paint
+  // ------------------------------------------------------ transaction panel
+  renderTx() {
+    const i = this.shownTx;
+    if (i == null) { this.txBody.innerHTML = '<div class="empty">No transaction selected.<br>Click a bar in the <b>axi_rd</b> lane.</div>'; return; }
+    const t = TXS[i], a = t.attrs, span = t.end - t.begin, err = t.status === 'error';
+    const life = t.stages.map(s => '<i style="width:' + ((s[2] - s[1]) / span * 100) + '%;background:' + (err ? C.err : C.ok) + ';' + (s[0] === 'WAIT' ? 'opacity:.45;' : '') + (s[0] === 'DATA' ? '' : 'border-right:1px solid #0e161c') + '" title="' + s[0] + '">' + s[0] + '</i>').join('');
+    const cur = this.cursor != null && this.cursor >= t.begin && this.cursor <= t.end ? '<span class="cur" style="left:calc(' + ((this.cursor - t.begin) / span * 100) + '% - 1px)"></span>' : '';
+    this.txBody.innerHTML =
+      '<div class="txh"><b>' + t.name + '</b><span class="pill' + (err ? ' err' : '') + '">' + (err ? 'error' : 'ok') + '</span></div>' +
+      '<div class="txsub' + (this.selTx === i ? '' : ' dim') + '">axi_rd · cpu.axi.rd_ch' + (this.selTx === i ? '' : ' · not selected') + '</div>' +
+      '<div class="tiles"><div><small>begin</small><span>' + t.begin + ' ns</span></div><div><small>end</small><span>' + t.end + ' ns</span></div><div><small>duration</small><span>' + span + ' ns</span></div></div>' +
+      '<div class="life">' + life + cur + '</div>' +
+      '<h5>Stages</h5><div class="kv">' + t.stages.map(s => '<span>' + s[0] + '</span><span>' + s[1] + '–' + s[2] + ' ns · ' + (s[2] - s[1]) + ' ns</span>').join('') + '</div>' +
+      '<h5>Attributes</h5><div class="kv">' + Object.entries(a).map(([k, v]) => '<span>' + k + '</span><span' + (k === 'resp' && v !== 'OKAY' ? ' class="e"' : '') + '>' + esc(v) + '</span>').join('') + '</div>' +
+      '<div class="txnote">The same document selection highlights this record in any Pipeline or Table panel on axi_rd.</div>';
+  }
+  // ---------------------------------------------------------------- tooltip
+  renderTip(p) {
+    const i = this.hoverTx, n = this.hoverNote;
+    if (i == null && !n) { this.tip.hidden = true; return; }
+    if (i != null) {
+      const t = TXS[i], st = D.stageAt(t, this.vpv().timeAt(p.x - this.x0(), this.ww()));
+      this.tip.innerHTML = '<b>' + t.name + '</b> · ' + t.attrs.addr + (t.status === 'error' ? ' · <span class="e">SLVERR</span>' : '') +
+        '<br><span class="d">' + t.begin + ' → ' + t.end + ' ns · ' + (t.end - t.begin) + ' ns' + (st ? ' · ' + st : '') + '</span>';
+    } else {
+      this.tip.innerHTML = n.n ? '<b>' + n.n + '</b> open near ' + Math.round(n.t) + ' ns' + (n.err ? '<br><span class="e">includes an error</span>' : '') : '<span class="d">no transactions near ' + Math.round(n.t) + ' ns</span>';
+    }
+    this.tip.hidden = false;
+    const tw = this.tip.offsetWidth, th = this.tip.offsetHeight;
+    this.tip.style.left = Math.min(p.x + 14, this.w - tw - 6) + 'px';
+    this.tip.style.top = (p.y + 18 + th > this.h ? p.y - th - 10 : p.y + 18) + 'px';
+  }
+  // ----------------------------------------------------------------- status
+  paintStatus() {
+    const vp = this.vpv(), lane = this.lanes()[0];
+    const mode = !lane ? 'no lane' : this.density() ? 'density' : D.capacity(lane.h) < LANE.depth ? 'bars · folded' : 'bars';
+    this.statusEl.innerHTML =
+      '<span>view <b>' + fmt(vp.start) + ' – ' + fmt(vp.end) + ' ns</b></span>' +
+      '<span>cursor <b>' + (this.cursor == null ? '—' : this.cursor + ' ns') + '</b></span>' +
+      '<span>scale <b>' + vp.ppu(this.ww()).toFixed(2) + ' px/ns</b></span>' +
+      '<span>lane <b>' + mode + '</b></span>' +
+      (this.selTx != null ? '<span class="sel">selected ' + TXS[this.selTx].name + ' · ' + TXS[this.selTx].attrs.addr + '</span>' : '');
+    this.root.dataset.mode = mode;
+  }
+  // ------------------------------------------------------------------ paint
   paint() {
-    const ctx = this.ctx, w = this.w, h = this.h, x0 = this.waveX0(), ww = this.waveW(), vp = this.vpv();
-    ctx.clearRect(0, 0, w, h); ctx.fillStyle = THEME.panel; ctx.fillRect(0, 0, w, h);
-    F.paintTimeline(ctx, x0, ww, h, vp);
-    this.paintColumnHeaders();
-    const L = this.layoutRows();
+    const ctx = this.ctx, w = this.w, h = this.h, x0 = this.x0(), ww = this.ww(), vp = this.vpv();
+    ctx.fillStyle = C.panel; ctx.fillRect(0, 0, w, h);
+    const L = this.layout();
+    ctx.save(); ctx.beginPath(); ctx.rect(0, HDR, w, h - HDR); ctx.clip();
+    this.paintGrid(x0, ww, h, vp);
     for (const e of L) {
-      if (e.r.k === 'sig') { this.paintSignalRow(D.SIGNALS[e.r.i], e.r.i, e.y, e.h); continue; }
-      this.paintLaneRow(e, vp, x0, ww, w);
+      if (e.y + e.h < HDR || e.y > h) continue;
+      const sel = this.selRows.has(e.r);
+      if (sel) { ctx.fillStyle = C.rowSel; ctx.fillRect(0, e.y, x0, e.h); ctx.fillStyle = 'rgba(79,195,161,.045)'; ctx.fillRect(x0, e.y, ww, e.h); }
+      else if (this.hoverRow === e.r) { ctx.fillStyle = C.hover; ctx.fillRect(0, e.y, w, e.h); }
+      if (this.flashRow && this.flashRow.row === e.r && this.now() < this.flashRow.until) {
+        ctx.fillStyle = 'rgba(79,195,161,' + (0.28 * (this.flashRow.until - this.now()) / 900) + ')'; ctx.fillRect(0, e.y, w, e.h);
+      }
+      if (e.r.kind === 'sig') this.paintSignalRow(e, vp, x0, ww);
+      else this.paintLane(e, vp, x0, ww);
+      ctx.fillStyle = 'rgba(255,255,255,.035)'; ctx.fillRect(0, e.y + e.h - 1, w, 1);
     }
-    if (this.drag && this.drag.kind === 'rowdrag' && this.drag.moved && this.dropAt != null) {
+    if (this.dropAt != null && this.drag && this.drag.moved) {
       const gy = this.dropAt >= L.length ? L[L.length - 1].y + L[L.length - 1].h : L[this.dropAt].y;
-      ctx.fillStyle = THEME.dropLine; ctx.fillRect(0, gy - 1, w, 2);
+      ctx.fillStyle = C.drop; ctx.fillRect(0, gy - 1, w, 2);
     }
-    F.paintCursorAndMarkers(ctx, this, x0, ww, h);
-  }
-  paintLaneRow(e, vp, x0, ww, w) {
-    const ctx = this.ctx;
-    // row hover tint + name cell
-    ctx.save(); ctx.beginPath(); ctx.rect(0, e.y, x0, e.h); ctx.clip();
-    if (this.isLaneHover(e)) { ctx.fillStyle = THEME.hover; ctx.fillRect(0, e.y, w, e.h); }
-    // drag grip (six dots)
-    ctx.fillStyle = THEME.dim;
-    for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) ctx.fillRect(8 + c * 5, e.y + e.h / 2 - 5 + r * 5, 2, 2);
-    const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace', SANS = '"IBM Plex Sans", system-ui, sans-serif';
-    ctx.font = '600 11px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-    ctx.fillStyle = THEME.text; ctx.fillText('◈ axi_rd', 22, e.y + e.h / 2);
-    ctx.font = '9.5px ' + SANS; ctx.fillStyle = THEME.dim;
-    if (e.h > ROW_H) ctx.fillText('4 tx · ' + LANE.depth + ' sub-rows', 22, e.y + e.h / 2 + 13);
-    // value column: the transactions under the cursor
-    const c = this.cursor;
-    let under = null;
-    if (c != null) for (let i = 0; i < TXS.length; i++) if (c >= TXS[i].begin && c <= TXS[i].end) under = (under ? under + ' ' : '') + TXS[i].id;
-    ctx.font = '10.5px ' + MONO; ctx.fillStyle = THEME.bus;
-    if (under) ctx.fillText(under, NAME_W + 6, e.y + Math.min(e.h, ROW_H) / 2);
-    // remove ×
-    ctx.fillStyle = THEME.dim; ctx.font = '11px ' + SANS;
-    ctx.fillText('✕', NAME_W - 16, e.y + Math.min(e.h, ROW_H) / 2);
     ctx.restore();
-    ctx.fillStyle = THEME.line; ctx.fillRect(0, e.y + e.h - 0.5, w, 0.5);
-    // bars or density
-    if (this.density()) F.paintDensity(ctx, x0, ww, vp, e.y + 2, e.h - 4);
-    else F.paintTxBars(ctx, x0, ww, vp, e.y + 5, SUB_H, { hover: this.hoverTx, sel: this.selTx });
+    this.paintHeader(x0, ww, vp);
+    ctx.fillStyle = C.line; ctx.fillRect(NAME_W - 1, 0, 1, h); ctx.fillRect(x0 - 1, 0, 1, h);
+    if (this.drag && this.drag.kind === 'zoom') {
+      const a = Math.max(x0, Math.min(this.drag.x0, this.drag.x)), b = Math.max(this.drag.x0, this.drag.x);
+      ctx.fillStyle = C.zoomRange; ctx.fillRect(a, HDR, b - a, h - HDR); ctx.fillStyle = C.wave; ctx.fillRect(a, HDR, 1, h - HDR); ctx.fillRect(b, HDR, 1, h - HDR);
+    }
+    this.paintCursor(x0, ww, h, vp);
+    if (!this.rows.length) { ctx.fillStyle = C.muted; ctx.font = '12px ' + SANS; ctx.textAlign = 'center'; ctx.fillText('No rows. Add signals or a lane from the hierarchy.', x0 + ww / 2, h / 2); ctx.textAlign = 'left'; }
   }
-  isLaneHover(e) {
-    const p = this.pointer; return p && p.y >= e.y && p.y < e.y + e.h && p.x < this.waveX0();
+  paintGrid(x0, ww, h, vp) {
+    const ctx = this.ctx, step = niceStep(vp.ppu(ww), 80);
+    for (let t = Math.ceil(vp.start / step) * step; t <= vp.end; t += step) { ctx.fillStyle = C.grid; ctx.fillRect(Math.round(x0 + vp.xOf(t, ww)), HDR, 1, h - HDR); }
+  }
+  paintHeader(x0, ww, vp) {
+    const ctx = this.ctx;
+    ctx.fillStyle = C.bar; ctx.fillRect(0, 0, this.w, HDR);
+    ctx.font = '10.5px ' + SANS; ctx.fillStyle = C.muted; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText('Name', 10, HDR / 2); ctx.fillText(this.cursor == null ? 'Value' : 'Value @ ' + this.cursor, NAME_W + 8, HDR / 2);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, 0, ww, HDR); ctx.clip();
+    const step = niceStep(vp.ppu(ww), 80); ctx.font = '10.5px ' + MONO;
+    for (let t = Math.ceil(vp.start / step) * step; t <= vp.end; t += step) {
+      const x = Math.round(x0 + vp.xOf(t, ww)) + 0.5;
+      ctx.fillStyle = C.tick; ctx.fillRect(x - 0.5, HDR - 5, 1, 5);
+      ctx.fillStyle = C.tickText; ctx.fillText(fmt(t), x + 3, HDR / 2);
+    }
+    ctx.restore();
+    ctx.fillStyle = C.line; ctx.fillRect(0, HDR - 1, this.w, 1);
+  }
+  paintCursor(x0, ww, h, vp) {
+    const ctx = this.ctx;
+    for (const m of this.markers) {
+      const x = Math.round(x0 + vp.xOf(m, ww)) + 0.5; if (x < x0 || x > x0 + ww) continue;
+      ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = C.marker; ctx.beginPath(); ctx.moveTo(x, HDR); ctx.lineTo(x, h); ctx.stroke(); ctx.restore();
+    }
+    if (this.cursor == null) return;
+    const x = Math.round(x0 + vp.xOf(this.cursor, ww));
+    if (x < x0 || x > x0 + ww) return;
+    ctx.fillStyle = C.cursor; ctx.fillRect(x, HDR, 1.5, h - HDR);
+    chip(ctx, Math.min(x + 3, x0 + ww - 44), 3, String(this.cursor), C.cursor);
+  }
+  paintSignalRow(e, vp, x0, ww) {
+    const ctx = this.ctx, s = D.SIGNALS[e.r.sig], cy = e.y + Math.min(e.h, ROW_H) / 2;
+    if (this.hoverRow === e.r && this.pointer && this.pointer.x < NAME_W) this.grip(e);
+    ctx.font = '11px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillStyle = s.idle ? C.idle : C.text; ctx.fillText(s.name, 20, cy);
+    const v = D.valueAt(s, this.cursor);
+    ctx.fillStyle = s.idle ? C.idle : (s.kind === 'bus' ? (v === 'SLVERR' ? C.err : C.bus) : C.wave); ctx.fillText(String(v), NAME_W + 8, cy);
+    this.paintWave(s, e.y, e.h, x0, ww, vp);
+  }
+  grip(e) { const ctx = this.ctx; ctx.fillStyle = C.dim; for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) ctx.fillRect(7 + c * 4, e.y + Math.min(e.h, ROW_H) / 2 - 4 + r * 4, 2, 2); }
+  paintWave(s, y, rh, x0, ww, vp) {
+    const ctx = this.ctx, top = y + 5, bot = y + rh - 5, ppu = vp.ppu(ww);
+    const wave = s.idle ? C.idle : C.wave, bus = s.idle ? C.idle : C.bus;
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, y, ww, rh); ctx.clip();
+    const ch = s.changes; let k = Math.max(0, D.upperBound(ch, vp.start) - 1);
+    if (s.kind === 'clock' && ppu < 3) {
+      ctx.fillStyle = 'rgba(79,195,161,.28)'; ctx.fillRect(x0, top, ww, bot - top);
+    } else if (s.kind !== 'bus') {
+      // bit/clock: one vertical per pixel column when changes are denser than pixels
+      ctx.strokeStyle = wave; ctx.lineWidth = 1.25; ctx.beginPath();
+      let prevY = ch[k][1] ? top : bot; ctx.moveTo(x0 - 1, prevY);
+      let lastX = -Infinity, hiStart = ch[k][1] ? x0 - 1 : null;
+      for (k = k + 1; k < ch.length && ch[k][0] <= vp.end; k++) {
+        const x = Math.round(x0 + vp.xOf(ch[k][0], ww)) + 0.5, ny = ch[k][1] ? top : bot;
+        if (x - lastX < 1 && ny !== prevY) { ctx.lineTo(x, top); ctx.lineTo(x, bot); ctx.moveTo(x, ny); prevY = ny; continue; }
+        ctx.lineTo(x, prevY); ctx.lineTo(x, ny);
+        if (!s.idle && s.kind === 'bit') { if (ny === top) hiStart = x; else if (hiStart != null) { ctx.fillStyle = 'rgba(79,195,161,.10)'; ctx.fillRect(hiStart, top, x - hiStart, bot - top); hiStart = null; } }
+        prevY = ny; lastX = x;
+      }
+      ctx.lineTo(x0 + ww + 1, prevY); ctx.stroke();
+      if (!s.idle && s.kind === 'bit' && hiStart != null) { ctx.fillStyle = 'rgba(79,195,161,.10)'; ctx.fillRect(hiStart, top, x0 + ww - hiStart, bot - top); }
+    } else {
+      ctx.font = '10px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      const mid = (top + bot) / 2;
+      for (; k < ch.length && ch[k][0] <= vp.end; k++) {
+        const xa = x0 + vp.xOf(ch[k][0], ww), xb = x0 + (k + 1 < ch.length ? vp.xOf(ch[k + 1][0], ww) : ww + 4), sw = xb - xa;
+        if (sw < 2) { ctx.fillStyle = bus; ctx.fillRect(Math.round(xa), top, 1, bot - top); continue; }
+        const e = String(ch[k][1]) === 'SLVERR', col = e ? C.err : bus, sl = Math.min(3, sw / 2);
+        ctx.fillStyle = e ? 'rgba(239,123,118,.16)' : s.idle ? 'rgba(78,95,102,.12)' : C.busFill; ctx.strokeStyle = col; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(xa, mid); ctx.lineTo(xa + sl, top); ctx.lineTo(xb - sl, top); ctx.lineTo(xb, mid); ctx.lineTo(xb - sl, bot); ctx.lineTo(xa + sl, bot); ctx.closePath(); ctx.fill(); ctx.stroke();
+        const txt = String(ch[k][1]), lx = Math.max(xa + 6, x0 + 4);
+        if (xb - lx > ctx.measureText(txt).width + 6) { ctx.fillStyle = s.idle ? C.idle : e ? C.err : C.text; ctx.fillText(txt, lx, mid + 0.5); }
+      }
+    }
+    ctx.restore();
+  }
+  paintLane(e, vp, x0, ww) {
+    const ctx = this.ctx, cap = D.capacity(e.r.h), shown = Math.min(cap, LANE.depth), folded = LANE.depth - shown;
+    const cy = e.y + Math.min(e.h, ROW_H) / 2;
+    // name cell
+    if (this.hoverRow === e.r && this.pointer && this.pointer.x < NAME_W) this.grip(e);
+    ctx.strokeStyle = C.bus; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(24, cy, 4.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = C.bus; ctx.fillRect(23, cy - 1, 2, 2);
+    ctx.font = '600 11px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillStyle = C.text; ctx.fillText('axi_rd', 34, cy);
+    if (folded) chip(ctx, 34 + ctx.measureText('axi_rd').width + 6, cy - 7.5, '+' + folded, '#8d9f99');
+    if (e.h > ROW_H) {
+      ctx.font = '10px ' + SANS; ctx.fillStyle = C.dim;
+      ctx.fillText(TXS.length + ' reads', 20, cy + 15);
+      if (e.h > 2 * ROW_H) ctx.fillText(folded ? folded + ' sub-row' + (folded > 1 ? 's' : '') + ' folded' : LANE.depth + ' sub-rows', 20, cy + 28);
+    }
+    // value: the transactions open at the cursor
+    if (this.cursor != null) {
+      const open = D.openAt(this.cursor);
+      ctx.font = '10.5px ' + MONO; ctx.fillStyle = open.some(i => TXS[i].status === 'error') ? C.err : C.bus;
+      const txt = !open.length ? '—' : open.length === 1 ? TXS[open[0]].name + ' ' + (D.stageAt(TXS[open[0]], this.cursor) || '') : open.map(i => TXS[i].name).join(' ');
+      ctx.fillText(txt, NAME_W + 8, cy, VAL_W - 12);
+    }
+    // waves column
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, e.y, ww, e.h); ctx.clip();
+    const idx = D.queryWindow(vp.start, vp.end);
+    if (this.density()) this.paintDensity(idx, e, vp, x0, ww);
+    else {
+      const y0 = e.y + D.LANE_PAD;
+      for (const i of idx) this.paintBar(i, x0 + vp.xOf(TXS[i].begin, ww), x0 + vp.xOf(TXS[i].end, ww), y0 + D.shownSub(i, cap) * SUB_H, vp, x0, ww, folded > 0 && LANE.lanes[i] >= cap - 1);
+      if (folded) {
+        const fy = y0 + (cap - 1) * SUB_H + 2;
+        ctx.fillStyle = this.hatch;
+        for (const [a, b] of D.foldOverlaps(idx, cap)) { const xa = x0 + vp.xOf(a, ww), xb = x0 + vp.xOf(b, ww); ctx.fillRect(xa, fy, xb - xa, SUB_H - 4); }
+      }
+      for (const i of [this.hoverTx, this.selTx]) if (i != null && idx.includes(i)) this.outline(i, y0 + D.shownSub(i, cap) * SUB_H, vp, x0, ww);
+    }
+    ctx.restore();
+  }
+  paintBar(i, xa, xb, y, vp, x0, ww, inFold) {
+    const ctx = this.ctx, t = TXS[i], err = t.status === 'error', fill = err ? C.err : C.ok;
+    if (xb - xa < 2) xb = xa + 2;
+    const h = SUB_H - 4, by = y + 2;
+    ctx.save(); roundRect(ctx, xa, by, xb - xa, h, 3); ctx.clip();
+    for (const [name, a, b] of t.stages) {
+      const sa = x0 + vp.xOf(a, ww), sb = x0 + vp.xOf(b, ww);
+      ctx.globalAlpha = name === 'WAIT' ? 0.4 : 1; ctx.fillStyle = fill; ctx.fillRect(sa, by, Math.max(1, sb - sa), h);
+    }
+    ctx.globalAlpha = 1;
+    if (xb - xa > 10) { ctx.fillStyle = 'rgba(14,22,28,.45)'; for (const s of t.stages.slice(1)) { const x = Math.round(x0 + vp.xOf(s[1], ww)); if (x > xa + 2 && x < xb - 2) ctx.fillRect(x, by, 1, h); } }
+    ctx.restore();
+    ctx.strokeStyle = fill; ctx.globalAlpha = 0.9; ctx.lineWidth = 1; roundRect(ctx, xa + 0.5, by + 0.5, xb - xa - 1, h - 1, 3); ctx.stroke(); ctx.globalAlpha = 1;
+    const label = t.name + ' ' + t.attrs.addr.replace(/^0x0+/, '0x');
+    ctx.font = '600 9.5px ' + MONO; ctx.textBaseline = 'middle';
+    const lx = Math.max(xa + 5, x0 + 4);
+    if (!inFold && xb - lx > ctx.measureText(label).width + 6) {
+      ctx.fillStyle = C.barText; ctx.fillText(label, lx, by + h / 2 + 1);
+    }
+  }
+  outline(i, y, vp, x0, ww) {
+    const ctx = this.ctx, t = TXS[i], xa = x0 + vp.xOf(t.begin, ww), xb = Math.max(xa + 2, x0 + vp.xOf(t.end, ww)), sel = i === this.selTx;
+    ctx.strokeStyle = sel ? C.sel : 'rgba(226,234,230,.85)'; ctx.lineWidth = sel ? 2 : 1;
+    roundRect(ctx, xa - 1.5, y + 0.5, xb - xa + 3, SUB_H - 1, 4); ctx.stroke();
+  }
+  paintDensity(idx, e, vp, x0, ww) {
+    const ctx = this.ctx, w = Math.max(1, Math.round(ww)), d = D.densityColumns(idx, vp.start, vp.end, w);
+    const base = e.y + e.h - 4, full = e.h - 8;
+    ctx.fillStyle = 'rgba(255,255,255,.05)'; ctx.fillRect(x0, base, ww, 1);
+    for (let x = 0; x < w; x++) {
+      const n = d.count[x]; if (!n) continue;
+      const bh = Math.max(2, Math.round(full * Math.min(1, n / LANE.depth)));
+      ctx.fillStyle = C.density; ctx.globalAlpha = 0.45 + 0.5 * Math.min(1, n / LANE.depth);
+      ctx.fillRect(x0 + x, base - bh, 1, bh);
+      if (d.err[x]) { ctx.globalAlpha = 1; ctx.fillStyle = C.err; ctx.fillRect(x0 + x - 1, base - bh - 3, 3, 4); }
+    }
+    ctx.globalAlpha = 1;
   }
 }
-const F_LERP = 140;
-const demoA = new DemoA();
-(window.TXW = window.TXW || {}).a = demoA;
-})();
-</script>
 
-<script>
-// Shared legend under "the shared example", from the same palette the mocks use.
-(() => {
-  const T = FRAME.THEME;
-  const el = document.getElementById('shared-legend');
-  if (!el) return;
-  el.innerHTML =
-    '<span><i style="background:' + T.txOk + ';border:1px solid ' + T.txOkEdge + '"></i>transaction bar (OKAY)</span>' +
-    '<span><i style="background:' + T.txErr + ';border:1px solid ' + T.txErrEdge + '"></i>error transaction (SLVERR, TxStatus::Error)</span>' +
-    '<span><i style="background:' + T.density + '"></i>density column (opacity = count, height = concurrency)</span>' +
-    '<span><i style="background:' + T.densityErr + '"></i>density column containing an error</span>' +
-    '<span><i style="background:' + T.tintAddr + ';border:1px solid ' + T.leader + '"></i>selection stage tint / leader line (deferred selection overlay)</span>' +
-    '<span><i style="background:' + T.busFill + ';border:1px solid ' + T.bus + '"></i>bus segment</span>' +
-    '<span><i style="background:' + T.wave + '"></i>bit / clock waveform</span>';
+const demo = new Demo();
+document.getElementById('tx-count').textContent = 'about ' + Math.round((TXS.length - 4) / 10) * 10;
+
+// Legend, drawn from the same palette as the mock.
+document.getElementById('legend').innerHTML = [
+  ['linear-gradient(90deg,' + C.ok + ' 0 25%,rgba(74,136,214,.4) 25% 60%,' + C.ok + ' 60%)', 'read: address · wait (faded) · data'],
+  [C.err, 'read that ended in SLVERR'],
+  ['repeating-linear-gradient(135deg,' + C.ok + ' 0 3px,#23384f 3px 5px)', 'folded bars overlapping'],
+  ['linear-gradient(0deg,' + C.density + ' 0 70%,transparent 70%)', 'density column (height = open reads)'],
+  ['transparent;outline:2px solid ' + C.sel, 'selected transaction'],
+].map(([bg, label]) => '<span><i style="background:' + bg + '"></i>' + label + '</span>').join('');
+
+// Page theme toggle (the mock stays dark).
+document.getElementById('theme').addEventListener('click', () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+});
+
+// Hooks for docs/tests/transaction-waveforms.test.mjs.
+window.TXW = {
+  demo,
+  state: () => ({
+    rows: demo.rows.map(r => r.kind === 'lane' ? 'lane:' + r.h : D.SIGNALS[r.sig].name),
+    selTx: demo.selTx == null ? null : TXS[demo.selTx].name, cursor: demo.cursor,
+    mode: demo.root.dataset.mode, view: [demo.vpv().start, demo.vpv().end], animating: !!demo.vp.anim,
+    txPanel: document.getElementById('txbody').textContent, menu: !demo.menuEl.hidden,
+  }),
+  // Client coordinates of a transaction bar's middle, or of a row's name cell.
+  barPoint(name) {
+    const i = TXS.findIndex(t => t.name === name), e = demo.layout().find(e => e.r.kind === 'lane'); if (i < 0 || !e) return null;
+    const vp = demo.vpv(), r = demo.body.getBoundingClientRect(), t = TXS[i], cap = D.capacity(e.r.h);
+    const mid = (Math.max(t.begin, vp.start) + Math.min(t.end, vp.end)) / 2;
+    return { x: r.left + demo.x0() + vp.xOf(mid, demo.ww()), y: r.top + e.y + D.LANE_PAD + D.shownSub(i, cap) * D.SUB_H + D.SUB_H / 2 };
+  },
+  namePoint(row) {
+    const e = demo.layout().find(e => (e.r.kind === 'lane' ? 'lane' : D.SIGNALS[e.r.sig].name) === row); if (!e) return null;
+    const r = demo.body.getBoundingClientRect(); return { x: r.left + 60, y: r.top + e.y + Math.min(e.h, D.ROW_H) / 2 };
+  },
+  pixel(x, y) { const r = demo.body.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; return [...demo.ctx.getImageData(Math.round((x - r.left) * dpr), Math.round((y - r.top) * dpr), 1, 1).data]; },
+};
 })();
+
+// Self-test of the pure logic into the hidden #selftest element.
+document.getElementById('selftest').textContent = TXD.selfTests().lines.join('\n');
 </script>
 </body>
 </html>
