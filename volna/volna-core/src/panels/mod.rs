@@ -329,6 +329,14 @@ impl Panels {
         self.iter().find(|p| p.kind.is_settings()).map(|p| p.id)
     }
 
+    /// Whether [`PanelsCommand::Close`] would change anything: every panel
+    /// closes except the start placeholder standing in for the last
+    /// content, which [`Self::close`] keeps.
+    pub fn can_close(&self, id: PanelId) -> bool {
+        self.get(id)
+            .is_some_and(|panel| !(panel.kind.is_start() && self.content_count() == 1))
+    }
+
     /// Content panels, the start placeholder included.
     fn content_count(&self) -> usize {
         self.iter().filter(|p| p.kind.is_content()).count()

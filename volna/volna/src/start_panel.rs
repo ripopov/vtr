@@ -79,11 +79,8 @@ impl base::Panel for StartPanelView {
     }
 }
 impl Panel for StartPanelView {
-    fn tab_name(&self, _: &App) -> Option<SharedString> {
-        Some("Start".into())
-    }
-    fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        "Start"
+    fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::dock::tab_title(&self.ws, self.id, Some(self.generation), cx)
     }
     fn inner_padding(&self, _: &App) -> bool {
         false

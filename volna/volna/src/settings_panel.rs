@@ -851,26 +851,11 @@ impl base::Panel for SettingsPanelView {
     }
 }
 impl Panel for SettingsPanelView {
-    fn tab_name(&self, _: &App) -> Option<SharedString> {
-        Some("Settings".into())
-    }
-    fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        "Settings"
+    fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::dock::tab_title(&self.ws, self.id, None, cx)
     }
     fn inner_padding(&self, _: &App) -> bool {
         false
-    }
-    fn toolbar_buttons(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<Vec<Button>> {
-        Some(vec![
-            Button::new("close-settings")
-                .icon(gpui_kit::assets::IconName::X)
-                .ghost()
-                .xsmall()
-                .tooltip("Close settings")
-                .on_click(cx.listener(|view, _, window, cx| {
-                    view.dispatch(SettingsCommand::Close, window, cx)
-                })),
-        ])
     }
 }
 

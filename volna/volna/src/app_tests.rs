@@ -486,6 +486,82 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
 }
 
 /// A workspace hosted inside the component `Root`, updated like a plain window.
+/// Tabs close from their own close button after the title, as in Zed, and
+/// from a middle click; the toolbar no longer carries a close button.
+#[gpui_kit::test]
+fn tab_close_buttons_and_middle_click_close_their_own_tab(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, MouseButton, VisualTestContext};
+    use volna_core::app::SettingsCommand;
+    use volna_core::panels::PanelsCommand;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let (first, second, settings) = window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.app.handle(Command::AddVars(vec![0; 4]));
+            let first = ws.app.panels.focused_id();
+            ws.dispatch(
+                Command::Panels(PanelsCommand::NewTab { group_of: first }),
+                Some(window),
+                cx,
+            );
+            let second = ws.app.panels.focused_id();
+            ws.dispatch(Command::Settings(SettingsCommand::Open), Some(window), cx);
+            (first, second, ws.app.panels.settings_id().unwrap())
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    let bounds = |vcx: &mut VisualTestContext, selector: String| {
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.debug_bounds(Box::leak(selector.into_boxed_str()))
+    };
+    for id in [first, second, settings] {
+        assert!(
+            bounds(&mut vcx, format!("tab-{}", id.0)).is_some(),
+            "tab {id:?}"
+        );
+    }
+    // Press the second tab's close button.
+    let tab = bounds(&mut vcx, format!("tab-{}", second.0)).unwrap();
+    let close = bounds(&mut vcx, format!("tab-close-{}", second.0)).expect("close button");
+    assert!(
+        close.left() >= tab.center().x,
+        "the close button follows the title"
+    );
+    vcx.simulate_mouse_move(close.center(), None, Modifiers::default());
+    vcx.simulate_click(close.center(), Modifiers::default());
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert!(ws.app.panels.get(second).is_none());
+            assert!(ws.app.panels.get(first).is_some());
+            assert_eq!(ws.app.panels.settings_id(), Some(settings));
+        })
+        .unwrap();
+    // A middle click on the title closes a tab too.
+    let tab = bounds(&mut vcx, format!("tab-{}", settings.0)).unwrap();
+    vcx.simulate_mouse_move(tab.center(), None, Modifiers::default());
+    vcx.simulate_mouse_down(tab.center(), MouseButton::Middle, Modifiers::default());
+    vcx.simulate_mouse_up(tab.center(), MouseButton::Middle, Modifiers::default());
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert_eq!(ws.app.panels.settings_id(), None);
+            assert_eq!(ws.app.panels.len(), 1);
+        })
+        .unwrap();
+}
+
 struct RootWindow {
     root: gpui_kit::WindowHandle<gpui_kit::component::Root>,
     workspace: gpui_kit::Entity<Workspace>,

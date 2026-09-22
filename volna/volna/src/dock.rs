@@ -66,6 +66,74 @@ impl PanelView {
     }
 }
 
+/// A tab's label as Zed draws it: the core title followed by a close button,
+/// with a middle click closing the tab too. Panels return this from
+/// `Panel::title` and no `tab_name`, since the stock tab bar prefers a plain
+/// `tab_name` over the title element.
+///
+/// `generation` pins a trace-bound panel to its trace; the settings tab,
+/// which outlives traces, passes `None`.
+pub(crate) fn tab_title(
+    ws: &WeakEntity<Workspace>,
+    id: PanelId,
+    generation: Option<u64>,
+    cx: &App,
+) -> AnyElement {
+    use gpui_kit::MouseButton;
+    use gpui_kit::assets::IconName;
+    let Some(owner) = ws.upgrade() else {
+        return Empty.into_any_element();
+    };
+    let panels = &owner.read(cx).app.panels;
+    let Some(panel) = panels.get(id) else {
+        return Empty.into_any_element();
+    };
+    let title = gpui_kit::SharedString::from(panel.title());
+    if !panels.can_close(id) {
+        return title.into_any_element();
+    }
+    let close = {
+        let ws = ws.clone();
+        move |window: &mut Window, cx: &mut App| {
+            _ = ws.update(cx, |ws, cx| {
+                let generation = generation.unwrap_or(ws.app.doc.generation());
+                ws.dispatch_if_current(
+                    generation,
+                    Command::Panels(PanelsCommand::Close(id)),
+                    Some(window),
+                    cx,
+                );
+            });
+        }
+    };
+    let middle = close.clone();
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .debug_selector(|| format!("tab-{}", id.0))
+        .on_mouse_down(MouseButton::Middle, move |_, window, cx| {
+            cx.stop_propagation();
+            middle(window, cx);
+        })
+        .child(title)
+        .child(
+            Button::new(("close-tab", id.0 as usize))
+                .icon(IconName::X)
+                .ghost()
+                .xsmall()
+                .tab_stop(false)
+                .tooltip("Close tab")
+                .debug_selector(|| format!("tab-close-{}", id.0))
+                .on_click(move |_, window, cx| {
+                    // The tab under the button would select itself.
+                    cx.stop_propagation();
+                    close(window, cx);
+                }),
+        )
+        .into_any_element()
+}
+
 pub(crate) struct DockHost {
     pub area: Entity<base::DockArea>,
     views: BTreeMap<PanelId, PanelView>,
@@ -483,17 +551,8 @@ impl base::Panel for CanvasPanelView {
     }
 }
 impl Panel for CanvasPanelView {
-    fn tab_name(&self, cx: &App) -> Option<gpui_kit::SharedString> {
-        self.ws
-            .upgrade()?
-            .read(cx)
-            .app
-            .panels
-            .get(self.id)
-            .map(|p| p.title().into())
-    }
     fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.tab_name(cx).unwrap_or_default()
+        tab_title(&self.ws, self.id, Some(self.generation), cx)
     }
     fn inner_padding(&self, _: &App) -> bool {
         false
@@ -554,14 +613,6 @@ impl Panel for CanvasPanelView {
                 .tooltip("New waveform tab")
                 .on_click(cx.listener(|view, _, window, cx| {
                     view.dispatch(PanelsCommand::NewTab { group_of: view.id }, window, cx)
-                })),
-            Button::new("close-panel")
-                .icon(IconName::X)
-                .ghost()
-                .xsmall()
-                .tooltip("Close panel")
-                .on_click(cx.listener(|view, _, window, cx| {
-                    view.dispatch(PanelsCommand::Close(view.id), window, cx)
                 })),
         ];
         if let Some((follow, activity)) = self.ws.upgrade().and_then(|owner| {

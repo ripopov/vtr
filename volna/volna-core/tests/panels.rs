@@ -451,7 +451,10 @@ fn close_others_keeps_any_kind_and_a_lone_settings_tab_gets_a_start_panel() {
     app.handle(Command::Panels(PanelsCommand::CloseOthers(settings)));
     assert_eq!(app.panels.len(), 2);
     assert_eq!(app.panels.focused_id(), settings);
-    assert!(app.panels.iter().any(|p| p.kind.is_start()));
+    let start = app.panels.iter().find(|p| p.kind.is_start()).unwrap().id;
+    // The placeholder is the last content: its tab offers no close.
+    assert!(app.panels.can_close(settings));
+    assert!(!app.panels.can_close(start));
     app.panels.validate().unwrap();
     // Rows added now go to a waveform panel in the placeholder's spot.
     app.handle(Command::AddVars(vec![0]));
@@ -478,6 +481,7 @@ fn the_start_panel_gives_way_to_content_and_returns_when_the_last_panel_closes()
     // Every panel closes; the last content panel becomes a fresh start panel.
     app.handle(Command::Action(Action::SplitRight));
     let second = app.panels.focused_id();
+    assert!(app.panels.can_close(waves) && app.panels.can_close(second));
     app.handle(Command::Panels(PanelsCommand::Close(waves)));
     assert_eq!(app.panels.layout(), &Layout::single(second));
     app.handle(Command::Panels(PanelsCommand::Close(second)));
@@ -487,6 +491,7 @@ fn the_start_panel_gives_way_to_content_and_returns_when_the_last_panel_closes()
     assert!(again > second);
     app.panels.validate().unwrap();
     // Closing the placeholder changes nothing; the app action closes the trace.
+    assert!(!app.panels.can_close(again));
     let revision = app.panels.revision();
     assert!(app.panels.close(again).unwrap().is_empty());
     assert_eq!(app.panels.revision(), revision);

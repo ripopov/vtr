@@ -163,20 +163,8 @@ impl base::Panel for TransactionPanelView {
     }
 }
 impl Panel for TransactionPanelView {
-    fn tab_name(&self, cx: &App) -> Option<SharedString> {
-        Some(
-            self.ws
-                .upgrade()?
-                .read(cx)
-                .app
-                .panels
-                .get(self.id)?
-                .title()
-                .into(),
-        )
-    }
     fn title(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.tab_name(cx).unwrap_or_default()
+        crate::dock::tab_title(&self.ws, self.id, Some(self.generation), cx)
     }
     fn inner_padding(&self, _: &App) -> bool {
         false
@@ -218,14 +206,6 @@ impl Panel for TransactionPanelView {
                 })
                 .on_click(cx.listener(move |view, _, window, cx| {
                     view.dispatch(TransactionCommand::Pin(!pinned), window, cx)
-                })),
-            Button::new("tx-close")
-                .icon(KitIcon::X)
-                .ghost()
-                .xsmall()
-                .tooltip("Close panel")
-                .on_click(cx.listener(|view, _, window, cx| {
-                    view.panels(PanelsCommand::Close(view.id), window, cx)
                 })),
         ])
     }
