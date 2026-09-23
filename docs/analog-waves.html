@@ -1,0 +1,1260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna Analog Waves</title>
+<meta name="description" content="Design proposal: draw a bus or real signal as an analog plot in its own row of Volna's waveform panel. Interactive demo, behaviour, research and implementation plan.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f4f5f7;--paper:#fcfcfd;--ink:#1a1f27;--muted:#5b6472;--line:#d8dce3;--line-strong:#bcc3ce;
+  --accent:#2d6cb0;--accent-ink:#1f5189;--soft:#e3edf8;--new:#2d6cb0;--changed:#a2660f;--exists:#5b6472;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#1d2026;--paper:#23272e;--ink:#e3e6eb;--muted:#9ba3b0;--line:#323741;--line-strong:#434955;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--new:#74ade8;--changed:#e0b35e;--exists:#9ba3b0;
+}}
+:root[data-theme="dark"]{
+  --bg:#1d2026;--paper:#23272e;--ink:#e3e6eb;--muted:#9ba3b0;--line:#323741;--line-strong:#434955;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--new:#74ade8;--changed:#e0b35e;--exists:#9ba3b0;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:11px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+#theme{font:inherit;font-size:12px;background:none;border:1px solid var(--line-strong);color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer;flex:none}
+.wrap{max-width:1180px;margin:auto;padding-inline:16px}
+.prose{max-width:760px}
+section{padding-block:40px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(30px,4.4vw,46px);letter-spacing:-1.2px;line-height:1.1;font-weight:600;margin:0 0 16px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:25px;letter-spacing:-.5px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 8px}
+p{margin:0 0 14px}
+.lede{font-size:19px;color:var(--muted);max-width:720px}
+.meta{font-size:13.5px;color:var(--muted);max-width:760px}
+ul,ol{padding-left:22px}li{margin:6px 0}
+.rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
+.rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules b{display:block;font-size:17px;margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 13px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap;font-weight:500}
+.st{font-size:12px;font-weight:600;white-space:nowrap}
+.st.new{color:var(--new)}.st.changed{color:var(--changed)}.st.exists{color:var(--exists)}
+footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
+
+/* ---- demo steps ---- */
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.steps button{flex:1 1 170px;font:inherit;font-size:14px;text-align:left;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.35}
+.steps button span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.steps button:hover{border-color:var(--accent)}
+.steps button.on{border-color:var(--accent);background:var(--soft)}
+.steps button.reset{flex:0 0 auto;align-self:stretch;text-align:center;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0}
+
+/* ---- the mock: always dark, Volna's One Dark theme ---- */
+.pv{--b:#21252b;--p:#282c33;--bar:#2f343e;--ln:#3a3f4a;--mu:#a9afbc;--tx:#dce0e5;--ac:#74ade8;
+  border:1px solid var(--line-strong);border-radius:10px;background:var(--b);color:var(--tx);font-size:12px;overflow:hidden;margin:0;outline:none}
+.pv *{box-sizing:border-box}
+.pv:focus-visible{border-color:var(--ac)}
+.pv button{font:inherit;font-size:11.5px;background:#353b45;color:var(--tx);border:1px solid #464b57;border-radius:4px;padding:2px 8px;cursor:pointer}
+.pv button:hover{background:#3d4450}
+.pv-title{display:flex;align-items:center;gap:10px;padding:5px 10px;background:#1b1e23;border-bottom:1px solid var(--ln);color:var(--mu);font-size:11.5px}
+.pv-title b{color:var(--tx);font-weight:600}
+.pv-title .dots{display:inline-flex;gap:6px}
+.pv-title .dots i{width:10px;height:10px;border-radius:50%;background:#464b57;display:inline-block}
+.pv-title .data{margin-left:auto;font-size:10.5px;color:#7d8491}
+.pv-main{padding:6px}
+.panel{display:flex;flex-direction:column;min-width:0;border:1px solid var(--ln);border-radius:6px;background:var(--p)}
+.panel.focus{border-color:#47679e}
+.tabs{display:flex;align-items:center;gap:6px;padding:0 6px 0 0;background:var(--bar);border-bottom:1px solid var(--ln);flex:none;min-height:28px;border-radius:6px 6px 0 0}
+.tab{padding:5px 10px;font-size:11.5px;color:var(--tx);border-right:1px solid var(--ln);box-shadow:inset 0 -2px 0 var(--ac)}
+.tabs .tools{margin-left:auto;display:flex;gap:4px}
+.tabs .tools button{padding:1px 7px}
+.body{height:430px;position:relative;overflow:hidden;border-radius:0 0 6px 6px}
+.body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tip{position:absolute;pointer-events:none;background:#1b1e23;border:1px solid #4b5260;border-radius:5px;padding:5px 8px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.45;color:var(--tx);box-shadow:0 6px 18px rgba(0,0,0,.35);white-space:nowrap;z-index:3}
+.tip b{font-weight:600;color:#a1c181}.tip .d{color:var(--mu)}
+.menu{position:absolute;z-index:4;min-width:196px;background:#2f343e;border:1px solid #464b57;border-radius:6px;padding:4px;box-shadow:0 10px 24px rgba(0,0,0,.4);font-size:12px}
+.menu button{display:flex;width:100%;border:0;background:none;padding:3px 8px 3px 22px;border-radius:4px;text-align:left;justify-content:space-between;gap:16px;position:relative}
+.menu button[aria-checked="true"]::before{content:"✓";position:absolute;left:7px;color:var(--ac)}
+.menu button:hover,.menu button:focus-visible{background:#3d4450;outline:none}
+.menu button:disabled{color:#6b7280;background:none;cursor:default}
+.menu button kbd{background:none;border:0;color:var(--mu);font-size:10.5px;padding:0}
+.menu hr{border:0;border-top:1px solid var(--ln);margin:4px 2px}
+.menu .hl{padding:3px 8px 1px;color:var(--mu);font-size:10.5px;letter-spacing:.3px}
+.menu .heights{display:flex;gap:3px;padding:2px 6px 4px}
+.menu .heights button{justify-content:center;border:1px solid #464b57;padding:1px 0;width:36px}
+.menu .heights button::before{content:none !important}
+.menu .heights button.on{border-color:var(--ac);color:var(--ac)}
+.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--ln);background:#1b1e23;color:var(--mu);font-family:"IBM Plex Mono",monospace;font-size:11px;min-height:27px}
+.pv-status b{color:var(--tx);font-weight:400}
+.pv-status .sel{margin-left:auto;color:#a1c181}
+@media (max-width:700px){.body{height:470px}.pv-status .sel{margin-left:0}}
+
+/* ---- figures ---- */
+.figs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0 8px;max-width:980px}
+.figs figure{margin:0}
+.figs canvas{width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--line-strong);background:#282c33}
+.figs figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+.figs figcaption b{color:var(--ink);font-weight:600}
+@media (max-width:700px){.figs{grid-template-columns:1fr}}
+#selftest{display:none}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">Volna <span>analog waves</span></a>
+  <nav>
+    <a href="#demo">Demo</a><a href="#behaviour">How it works</a><a href="#drawing">Drawing</a><a href="#research">Other viewers</a><a href="#builds-on">Implementation</a><a href="#plan">Plan</a>
+  </nav>
+  <button id="theme" type="button" aria-label="Toggle light or dark page theme">Theme</button>
+</div></header>
+
+<main id="top">
+<section><div class="wrap">
+  <h1><em>Analog</em> plots in the waveform panel</h1>
+  <p class="lede">Draw a bus or a real signal as a line plot in its own row, on the same time axis as the digital signals around it. One key turns it on, and the format the row already has decides the numbers.</p>
+  <p class="meta">Implemented in Volna; measurements and deviations are in <code>docs/RATIONALE.md</code> (“Volna analog waves”). Before it, a 16-bit filter output showed as a band of hexadecimal values that was too dense to read. Questions such as <em>where does the amplitude drop?</em> or <em>does the FIFO fill before every overflow?</em> needed an export and an external plot. The design reuses the row list, the height presets, the format menu and the wave gestures that already exist, and it adds one drawing mode. Related documents: <a href="transaction-waveforms.html">transaction-waveforms.html</a> (another row kind on the same canvas) and <a href="user-settings.html">user-settings.html</a>.</p>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <h2>Try it</h2>
+  <p class="prose">This is a mock of the Waves panel on a small receive chain. <code>adc_in</code> is a real-valued input from a behavioural model: a 250&nbsp;kHz tone that fades at 55&nbsp;µs, with a one-sample glitch at 42.01&nbsp;µs. <code>adc_code</code> is its 12-bit signed sample, <code>fir_out</code> is an 8-tap filter of that sample, and <code>agc_gain</code> reacts to the fade. A FIFO fill level runs next to its <code>overflow</code> flag. The trace is generated for this page: 100&nbsp;µs with a new sample every 10&nbsp;ns.</p>
+  <div class="steps" role="group" aria-label="Guided scenarios">
+    <button type="button" data-guide="plot">1 · Plot a bus<span>Select <code>fir_out</code> and press <kbd>A</kbd></span></button>
+    <button type="button" data-guide="signed">2 · Read it as signed<span>Format ▸ Signed decimal</span></button>
+    <button type="button" data-guide="zoomout">3 · Zoom out to the whole trace<span>The glitch survives the zoom</span></button>
+    <button type="button" data-guide="window">4 · Fit the visible window<span>Read the weak signal after the fade</span></button>
+    <button type="button" data-guide="glitch">5 · Inspect the glitch<span>Step for registers, linear for reals</span></button>
+    <button type="button" data-guide="reset" class="reset">Reset</button>
+  </div>
+
+  <div class="pv" id="pv" tabindex="0" role="application" aria-label="Interactive mock of the Volna Waves panel with analog rows">
+    <div class="pv-title"><span class="dots"><i></i><i></i><i></i></span><b>Volna</b> — rx_chain.vtr <span class="data">generated demo data</span></div>
+    <div class="pv-main">
+      <div class="panel focus" id="waves">
+        <div class="tabs"><span class="tab">Waves 1</span>
+          <span class="tools"><button type="button" data-act="zin" title="Zoom in (=)" aria-label="Zoom in">＋</button><button type="button" data-act="zout" title="Zoom out (−)" aria-label="Zoom out">−</button><button type="button" data-act="fit" title="Zoom to fit (F)">Fit</button></span></div>
+        <div class="body" id="wbody"><canvas aria-hidden="true"></canvas><div class="tip" hidden></div><div class="menu" role="menu" hidden></div></div>
+      </div>
+    </div>
+    <div class="pv-status" id="status"></div>
+  </div>
+  <p class="hint">Mouse: click a row's <b>format badge</b> for Format, Draw and Range · drag a row's <b>bottom edge</b> in the name column to resize it · <b>hover</b> a plot to read it · <b>drag</b> in the waves to move the cursor · <b>wheel</b> pans · <kbd>Ctrl</kbd>+wheel zooms · <kbd>Ctrl</kbd>+drag zooms to a range · right-drag pans · right-click a name for Height and Analog.<br>Keys, with the mock focused: <kbd>A</kbd> analog on/off · <kbd>T</kbd> next format · <kbd>=</kbd> <kbd>−</kbd> <kbd>F</kbd> zoom · <kbd>←</kbd> <kbd>→</kbd> pan · <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> previous/next change · <kbd>↑</kbd> <kbd>↓</kbd> row selection · <kbd>Esc</kbd> clear.</p>
+</div></section>
+
+<section id="behaviour"><div class="wrap">
+  <h2>How it works</h2>
+  <ol class="rules">
+    <li><b>Analog is a way to draw a row.</b>Press <kbd>A</kbd> on the selected rows, or choose <em>Analog</em> in the Draw section of the format menu, which opens from the row's format badge. The row keeps everything else: selection, drag to reorder, cut, copy and paste, the Height menu, removal and its workspace entry. Only vectors and reals can be drawn this way. Bit, event and text rows show no Draw section, and <kbd>A</kbd> skips them. Real signals are added as plots from the start, because a column of floating-point text is rarely readable. <kbd>A</kbd> turns one back into text.</li>
+    <li><b>The format decides the numbers.</b>Unsigned, Hexadecimal and Binary plot the unsigned value, Signed plots the two's-complement value, and IEEE float and Real plot the float. The value column and the axis labels use the same format. A signed bus left in Hexadecimal therefore plots as a sawtooth that wraps at zero. Vivado and Questa both warn about this trap. Here the fix is two lines lower in the same menu, and the plot glides to its new range.</li>
+    <li><b>A taller row from the same presets.</b>Turning analog on makes a 1× row 3×, and turning it off restores 1×. Heights stay the ordinary presets (1×, 2×, 3×, 4× and 8×), so rows keep the grid rhythm. A new gesture works for every row: drag the bottom edge of a name cell to resize it. It snaps to the presets and applies to the whole selection. Axis labels appear from 2× up.</li>
+    <li><b>Step or linear.</b>Step (sample-and-hold) is the default for vectors. A register holds its value until the next change, and step draws exactly that. Linear joins consecutive samples and is the default for reals, which usually sample a continuous quantity. When you zoom in far enough, linear marks every sample with a dot, so an interpolated segment is never mistaken for recorded data.</li>
+    <li><b>Three ranges, all automatic.</b><em>Whole trace</em> is the default. It fits the signal's minimum and maximum over the whole recording, so the plot does not move while you pan. <em>Visible window</em> fits only what is on screen and glides to the new range as you pan or zoom. Use it to read a small signal in a quiet stretch. <em>Type limits</em> uses the full range of the vector type, for example 0 to 63 for a 6-bit fill level, which suits levels and counters. Labels at the top and bottom show the range, and a dashed line marks zero when zero lies inside it. None of the three ranges ever clips a value.</li>
+    <li><b>Nothing is lost when you zoom out.</b>When several changes fall into one pixel column, the column is drawn from its minimum to its maximum and joins its neighbours at its entry and exit values. The picture is the same as drawing every sample, so a one-sample glitch stays visible at any zoom. Undefined (X or Z) stretches break the line and are painted in the undefined colour, as on buses.</li>
+    <li><b>Reading values.</b>The cursor puts a dot on every plot, and the value column shows the value at the cursor in the row's format. Hovering shows the value under the pointer. In a column that holds many changes, it shows that column's minimum and maximum and the number of changes instead. Click snapping, <kbd>T</kbd> and <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> work as they do on digital rows.</li>
+  </ol>
+</div></section>
+
+<section id="drawing"><div class="wrap">
+  <h2>Drawing a million samples in a thousand pixels</h2>
+  <p class="prose">The input <code>adc_in</code> holds 10,000 samples, and the demo draws them into a few hundred pixels. There are two common ways to reduce them, and only one of them is honest. Both figures below draw the same data with the same range.</p>
+  <div class="figs">
+    <figure><canvas id="fig-m4" width="480" height="150" aria-label="The whole adc_in trace drawn with a min/max envelope per pixel; the glitch at 42.01 µs is visible"></canvas>
+      <figcaption><b>Proposed: minimum and maximum per pixel column.</b> Each column draws from its minimum to its maximum and joins its neighbours at its entry and exit values. The glitch is there.</figcaption></figure>
+    <figure><canvas id="fig-naive" width="480" height="150" aria-label="The same trace drawn with one sample per pixel; the glitch is missing"></canvas>
+      <figcaption><b>Rejected: one sample per pixel column.</b> This is cheaper, but it keeps about 1 sample in 20 here. The glitch and the noise floor disappear, and a different zoom level shows a different signal.</figcaption></figure>
+  </div>
+  <div class="prose">
+  <p>The proposed method is M4 (Jugel et al., VLDB 2014). For each pixel column it keeps the first, last, minimum and maximum values, which is provably enough to draw a line chart with no pixel error. It is also how Volna's bus and bit painters treat dense columns today: a column with many changes becomes a band instead of being sampled. GTKWave skips samples, much like the right-hand figure. LTTB-style downsampling looks smooth but is not pixel-exact and can drop a spike. Surfer and PulseView both draw per-column min/max, from a precomputed min/max structure.</p>
+  <p>The painter chooses between two paths each frame. If the visible changes number fewer than a quarter of the plot width, it draws every sample exactly: step corners at their real time, linear points at their samples. Otherwise it draws one min/max column per pixel. In both paths the painter's work is bounded by the pixels, apart from the cost of finding each column's minimum and maximum. The <a href="#builds-on">summary</a> below removes that cost for long histories.</p>
+  </div>
+</div></section>
+
+<section id="research"><div class="wrap">
+  <h2>What other viewers do</h2>
+  <p class="prose">Every major waveform viewer has an analog mode. The tools agree on the basics: a per-row toggle on a shared time axis, step and linear drawing, numbers taken from the existing radix, a taller row, and an automatic range.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Viewer</th><th>Drawing</th><th>Vertical range</th><th>Height</th><th>Zoomed out</th></tr></thead>
+    <tbody>
+    <tr><td>GTKWave</td><td>Data Format ▸ Analog: Step, Interpolated, Interpolated Annotated (marks samples)</td><td>Resizing: Screen Data or All Data</td><td>Insert Analog Height Extension adds blank rows</td><td>Skips samples; peaks can vanish</td></tr>
+    <tr><td>Surfer</td><td>Analog: Off, Step, Interpolated</td><td>Viewport, Global, Type Limits</td><td>4× on enable, then the height presets</td><td>Per-pixel min/max from a background-built cache (about 16&nbsp;B per sample)</td></tr>
+    <tr><td>Vivado</td><td>Waveform Style ▸ Analog; Interpolation: Linear or Hold</td><td>Auto or Fixed min/max; Off Scale: Hide, Clip or Overlap; optional reference line</td><td>Row Height in px (100 for analog); drag the separator</td><td>Not documented</td></tr>
+    <tr><td>Questa</td><td>Analog: step, interpolated, backstep</td><td>Automatic or custom min/max; clamps by default</td><td>Height in px; hover sidebar toggles height and rescales</td><td>Not documented</td></tr>
+    <tr><td>PulseView</td><td>Polyline; optional sample points</td><td>Volts per division and division count; autoranging</td><td>Divisions × division height</td><td>Min/max envelope from a mipmap above 64 samples per px</td></tr>
+    </tbody></table></div>
+  <div class="prose">
+  <p>Verdi and SimVision offer the same step and linear styles with automatic or manual ranges. Their manuals are not public, so they are left out of the table.</p>
+  <p><strong>Taken:</strong> Surfer's three automatic ranges and its rule that the translator supplies the number. The min/max column drawing of Surfer and PulseView. Taller rows that stay on the preset grid. Vivado's drag to resize. The sample marks of GTKWave and PulseView, shown automatically instead of as a separate style.</p>
+  <p><strong>Left out for now:</strong> fixed min/max ranges and their off-scale policies, which exist mainly to compare rows with a shared scale. Y-zoom gestures. Questa's backstep. Several signals overlaid in one row. Threshold conversion back to logic. None of them is needed for the first version, and each can be added later without changing the rules above.</p>
+  </div>
+</div></section>
+
+<section id="builds-on"><div class="wrap">
+  <h2>Implementation</h2>
+  <p class="prose">The work fits in <code>volna-core</code>: one row setting, one numeric query on translators, one painter, one drag gesture and a derived summary that is built only if measurements call for it. <code>volna</code> binds the key and shows the menu sections. <code>volna-egui</code> only has to build.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Piece</th><th></th><th>In <code>volna-core</code></th></tr></thead>
+    <tbody>
+    <tr><td>Row state</td><td><span class="st changed">changed</span></td><td><code>DisplayedSignal</code> gains <code>analog: Option&lt;Analog { draw: Step | Linear, range: Trace | Window | Type }&gt;</code>. It is saved in the waves workspace entry, which moves to panel version 3.</td></tr>
+    <tr><td>Numbers</td><td><span class="st new">new</span></td><td><code>Translator::numeric_kind()</code>, from which <code>numeric(&amp;ValueView) -&gt; Option&lt;f64&gt;</code> and <code>limits(SignalShape)</code> follow. Unsigned, hex and binary read the unsigned value, signed reads two's complement, and float and real read the float. Text, bit and enum translators return <code>None</code>, which hides the Draw section. The <code>ValueView</code> borrow keeps the paint path free of allocation.</td></tr>
+    <tr><td>Row heights</td><td><span class="st exists">exists</span></td><td>The <code>RowHeight</code> presets and prefix layout. Toggling analog on moves 1× to 3× and remembers the old height.</td></tr>
+    <tr><td>Height drag</td><td><span class="st new">new</span></td><td><code>Drag::RowHeight</code> in <code>WaveModel::pointer</code>, for every row kind. It snaps to the presets and applies to the selection.</td></tr>
+    <tr><td>Painter</td><td><span class="st new">new</span></td><td><code>paint_analog_row</code> in <code>wave/paint.rs</code>: an exact path below width/4 visible changes, otherwise first/min/max/last per column. It adds X/Z spans in the value colours, range labels, the zero line and sample dots, and it is covered by headless <code>Scene</code> tests.</td></tr>
+    <tr><td>Ranges</td><td><span class="st new">new</span></td><td>Whole trace, visible window and type limits. The window range eases in <code>WaveModel::tick</code>, like the viewport animation.</td></tr>
+    <tr><td>Summary</td><td><span class="st new">new</span></td><td>Minimum, maximum and undefined per block of 64 changes, with a binary tree above the blocks, keyed by signal and numeric kind. It is built by <code>LoadRequest::Summary</code> on the load worker when a history of at least 16,384 changes first turns analog, shared through the <code>Document</code>, counted by the memory meter and released with its plot. At about 0.75&nbsp;B per change it is far smaller than a full <code>f64</code> copy. It serves the whole-trace range, window ranges and dense columns in O(log n); a zoomed-out frame at 10⁷ changes went from 580&nbsp;ms to 1.1&nbsp;ms.</td></tr>
+    <tr><td>Cursor and hover</td><td><span class="st changed">changed</span></td><td>The overlay draws the cursor dot, and the hover readout reports a sample or a column's minimum and maximum. Edge navigation and snapping are unchanged.</td></tr>
+    <tr><td>Commands</td><td><span class="st new">new</span></td><td><code>Action::ToggleAnalog</code> (bound to <kbd>a</kbd>), plus <code>MenuAction::Draw</code> and <code>MenuAction::Range</code> as sections of the existing format menu.</td></tr>
+    </tbody></table></div>
+  <p class="prose">Nothing changes in VTR or in the client–server protocol. Analog drawing is presentation: the row settings live in the workspace, and every number is derived in the client from the immutable histories that local and remote sessions already deliver. A VDB profile could later suggest analog rows, as <code>docs/VDB_APPNOTE.md</code> already anticipates with its “analog rendering hints”.</p>
+</div></section>
+
+<section id="plan"><div class="wrap">
+  <div class="prose">
+  <h2>Plan</h2>
+  <ol>
+    <li><strong>Numbers and state.</strong> Add <code>Translator::numeric</code> and <code>limits</code>, the row setting, <code>ToggleAnalog</code>, the menu sections and the workspace field, with headless model tests.</li>
+    <li><strong>Painter.</strong> Implement the exact and per-column paths, X/Z spans, labels and the cursor dot, with scene tests. These include a glitch that must survive every zoom level.</li>
+    <li><strong>Measure.</strong> Time paint per frame at full zoom-out on a procedural 10⁷-change signal (<code>analog_cost</code>) and compare against the same view drawn digitally. Direct scans cost 58&nbsp;ms per 10⁶ changes, far over 4&nbsp;ms, so the block summary was built. Both results are in <code>docs/RATIONALE.md</code>. The C910 CoreMark buses are still to be measured.</li>
+    <li><strong>Ranges and gestures.</strong> Add the window range with its easing, the height drag for all rows and the hover readout.</li>
+  </ol>
+  <h3>Open questions</h3>
+  <ul>
+    <li>Should real signals open as plots by default, or should that be a setting in <code>settings.json</code>?</li>
+    <li>Is 3× the right height for a new analog row? Surfer uses 4× and Vivado about 4.5 rows.</li>
+    <li>When a vector shown as Hexadecimal plots as a sawtooth that wraps at zero, should the row suggest Signed?</li>
+  </ul>
+  <h3>Later</h3>
+  <p>Possible follow-ups: fixed min/max ranges shared by selected rows, overlaying a reference signal in the same row, fixed-point scaling and units from VDB profiles, and a vertical zoom gesture.</p>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  Sources: <code>volna/volna-core/src/wave/{model,paint,layout}.rs</code>, <code>data/{translator,history,value_view}.rs</code>, Surfer's <code>libsurfer/src/{analog_renderer,analog_signal_cache,displayed_item}.rs</code> in <code>ext/surfer</code>, GTKWave's <code>src/menu.c</code>, AMD UG900 (<em>Using Analog Waveforms</em>), the Questa SIM GUI and command references (2024.2), PulseView's <code>pv/views/trace/analogsignal.cpp</code>, and Jugel et al., <em>M4: A Visualization-Oriented Time Series Data Aggregation</em>, PVLDB 7(10), 2014. State of the tree at <code>8595fda</code>.<br>
+  The demo is self-contained and uses generated data. Its pure logic is checked by a built-in self-test, and <code>node --test docs/tests/analog-waves.test.mjs</code> drives it in headless Chrome.
+</div></footer>
+<pre id="selftest"></pre>
+
+<script>
+/* ============================================================================
+   Demo data and pure logic (DOM-free). Generated data, not a recorded trace:
+   a 250 kHz tone that fades at 55 µs (real), its 12-bit signed sample, an
+   8-tap filter, an AGC loop and a FIFO level with an overflow flag.
+   ============================================================================ */
+const AWD = (() => {
+'use strict';
+const T_END = 100000, TS = 10, RESET_END = 150, GLITCH_T = 42010, GLITCH_V = 1.32;
+const HEIGHTS = [1, 2, 3, 4, 8], EXACT_RATIO = 0.25;
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const rnd = mulberry32(0x5eed1e);
+const gauss = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+const smooth = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+const amp = t => 0.9 - 0.7 * smooth((t - 55000) / 6000);
+const W0 = 2 * Math.PI * 250e3 * 1e-9;           // 250 kHz in rad/ns
+
+// A change list: times non-decreasing, a value holds until the next change.
+class Changes {
+  constructor() { this.t = []; this.v = []; }
+  push(t, v) {
+    const n = this.v.length;
+    if (n && this.v[n - 1] === v) return;
+    if (n && this.t[n - 1] === t) { this.v[n - 1] = v; return; }
+    this.t.push(t); this.v.push(v);
+  }
+}
+
+function build() {
+  const clk = new Changes(), rst = new Changes(), ain = new Changes(), code = new Changes(), fir = new Changes();
+  for (let k = 0; k * 5 <= T_END; k++) clk.push(k * 5, k % 2 ? 0 : 1);
+  rst.push(0, 0); rst.push(RESET_END, 1);
+  const codes = []; let prevIn = 0, sum = 0;
+  for (let n = 0; n * TS < T_END; n++) {
+    const t = n * TS, a = amp(t);
+    let v = a * Math.sin(W0 * t) + 0.1 * a * Math.sin(3 * W0 * t + 0.5) + 0.012 * gauss();
+    if (t === GLITCH_T) v = GLITCH_V;
+    v = Math.round(v * 1e4) / 1e4;
+    ain.push(t, v);
+    // fir_out: 8-tap sum of the registered codes, one cycle behind.
+    fir.push(t, codes.length >= 8 ? sum & 0xffff : null);
+    if (t <= RESET_END) code.push(t, null);
+    else {
+      const c = Math.max(-2048, Math.min(2047, Math.round(prevIn / 1.4 * 2047)));
+      code.push(t, c & 0xfff); codes.push(c); sum += c; if (codes.length > 8) sum -= codes[codes.length - 9];
+    }
+    prevIn = v;
+  }
+  // AGC: a gain update every 2 µs towards 57.6 / measured amplitude.
+  const gain = new Changes(), state = new Changes();
+  gain.push(0, null); state.push(0, 'RESET');
+  let g = 16, mode = 'ACQUIRE';
+  gain.push(RESET_END, g); state.push(RESET_END, mode);
+  for (let t = RESET_END + 2000; t < T_END; t += 2000) {
+    const meas = amp(t - 1500) * (1 + 0.015 * gauss()), target = 57.6 / meas;
+    const ng = Math.max(0, Math.min(255, Math.round(g + (target - g) * 0.5)));
+    const m = ng === 255 && target > 255 ? 'LIMIT' : Math.abs(target - ng) <= 2 ? 'TRACK' : mode === 'ACQUIRE' ? 'ACQUIRE' : 'BOOST';
+    g = ng; mode = m; gain.push(t, g); state.push(t, m);
+  }
+  // FIFO: bursts of writes (+1 per 40 ns), then a drain (−2 per 40 ns).
+  const lvl = new Changes(), ovf = new Changes();
+  lvl.push(0, null); ovf.push(0, 0); lvl.push(200, 0);
+  let L = 0, fill = true, left = 40;
+  for (let t = 240; t < T_END; t += 40) {
+    let o = 0;
+    if (fill) { if (L < 63) L++; else o = 1; if (--left <= 0) fill = false; }
+    else { L = Math.max(0, L - 2); if (L <= Math.floor(rnd() * 6)) { fill = true; left = 18 + Math.floor(rnd() * 64); } }
+    lvl.push(t, L); ovf.push(t, o);
+  }
+  const S = (name, kind, ch, extra) => ({ name, kind, t: ch.t, v: ch.v, ...extra });
+  return [
+    S('clk', 'bit', clk, { clock: true }),
+    S('rst_n', 'bit', rst),
+    S('adc_in', 'real', ain),
+    S('adc_code', 'vec', code, { width: 12 }),
+    S('fir_out', 'vec', fir, { width: 16 }),
+    S('agc_gain', 'vec', gain, { width: 8 }),
+    S('state', 'text', state),
+    S('fifo_level', 'vec', lvl, { width: 6 }),
+    S('overflow', 'bit', ovf),
+  ];
+}
+const SIGNALS = build();
+const byName = n => SIGNALS.find(s => s.name === n);
+
+// ---- formats: the translator decides the number (rule 2)
+const FORMATS = {
+  vec: [['hex', 'Hexadecimal'], ['dec', 'Unsigned decimal'], ['sdec', 'Signed decimal']],
+  real: [['real', 'Real']], bit: [['bit', 'Bit']], text: [['str', 'Text']],
+};
+const defaultFormat = s => FORMATS[s.kind][0][0];
+const canAnalog = s => s.kind === 'vec' || s.kind === 'real';
+const label = s => s.width ? s.name + '[' + (s.width - 1) + ':0]' : s.name;
+function numeric(s, fmt, raw) {
+  if (raw == null) return null;
+  if (s.kind === 'real') return raw;
+  if (s.kind !== 'vec') return null;
+  return fmt === 'sdec' && raw >= 2 ** (s.width - 1) ? raw - 2 ** s.width : raw;
+}
+function fmtReal(v) { const a = Math.abs(v); return (a !== 0 && (a < 1e-3 || a >= 1e5) ? v.toExponential(3) : String(+v.toFixed(4))).replace('-', '−'); }
+function fmtNumber(s, fmt, x) {                  // an axis label or readout number in the row's format
+  if (s.kind === 'real') return fmtReal(x);
+  const r = Math.round(x);
+  if (fmt === 'hex') return (r < 0 ? r + 2 ** s.width : r).toString(16).padStart(Math.ceil(s.width / 4), '0');
+  return String(r).replace('-', '−');
+}
+function text(s, fmt, raw) {
+  if (raw === undefined) return '';
+  if (raw == null) return s.kind === 'vec' ? (fmt === 'hex' ? 'x'.repeat(Math.ceil(s.width / 4)) : 'UNDEF') : s.kind === 'text' ? '' : 'x';
+  if (s.kind === 'vec' || s.kind === 'real') return fmtNumber(s, fmt, numeric(s, fmt, raw));
+  return String(raw);
+}
+const fmtTime = t => Math.abs(t) >= 1000 ? (+(t / 1000).toFixed(3)) + ' µs' : (+t.toFixed(1)) + ' ns';
+
+// ---- history queries (volna-core: SignalHistory::index_at)
+function indexAt(s, t) { const a = s.t; let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] <= t) lo = m + 1; else hi = m; } return lo - 1; }
+function rawAt(s, t) { const i = indexAt(s, t); return i < 0 ? undefined : s.v[i]; }
+function rangeOf(s, fmt, i0, i1) {
+  let lo = Infinity, hi = -Infinity;
+  for (let i = Math.max(0, i0); i <= i1 && i < s.v.length; i++) { const x = numeric(s, fmt, s.v[i]); if (x == null) continue; if (x < lo) lo = x; if (x > hi) hi = x; }
+  return lo <= hi ? [lo, hi] : null;
+}
+const traceCache = new Map();
+function traceRange(s, fmt) {
+  const k = s.name + '/' + fmt;
+  if (!traceCache.has(k)) traceCache.set(k, rangeOf(s, fmt, 0, s.v.length - 1));
+  return traceCache.get(k);
+}
+function windowRange(s, fmt, a, b) { return rangeOf(s, fmt, indexAt(s, a), indexAt(s, b)); }
+function typeRange(s, fmt) { return s.kind !== 'vec' ? null : fmt === 'sdec' ? [-(2 ** (s.width - 1)), 2 ** (s.width - 1) - 1] : [0, 2 ** s.width - 1]; }
+function plotRange(s, fmt, mode, a, b) {
+  let r = mode === 'type' ? typeRange(s, fmt) : mode === 'window' ? windowRange(s, fmt, a, b) : null;
+  r = r || traceRange(s, fmt) || [0, 1];
+  let [lo, hi] = r;
+  if (hi - lo < 1e-9) { const d = s.kind === 'real' ? Math.max(0.05, Math.abs(lo) * 0.05) : 0.5; lo -= d; hi += d; }
+  return [lo, hi];
+}
+function stats(s, fmt, a, b) { const i0 = indexAt(s, a), i1 = indexAt(s, b); return { n: Math.max(0, i1 - i0), range: rangeOf(s, fmt, i0, i1) }; }
+function visibleChanges(s, a, b) { return Math.max(0, indexAt(s, b) - indexAt(s, a)); }
+function drawMode(s, a, b, w) { return visibleChanges(s, a, b) <= w * EXACT_RATIO ? 'exact' : 'envelope'; }
+
+// Per-column M4 aggregate: entry (first), min, max and exit (last) values.
+function columns(s, fmt, start, end, w) {
+  const n = Math.max(1, Math.floor(w)), dt = (end - start) / n, len = s.t.length;
+  const cnt = new Int32Array(n), first = new Float64Array(n), last = new Float64Array(n), mn = new Float64Array(n), mx = new Float64Array(n), undef = new Uint8Array(n);
+  let j = indexAt(s, start);
+  for (let x = 0; x < n; x++) {
+    const t1 = start + (x + 1) * dt;
+    const e = j >= 0 ? numeric(s, fmt, s.v[j]) : null;
+    let lo = e == null ? Infinity : e, hi = e == null ? -Infinity : e, k = 0, u = j >= 0 && e == null ? 1 : 0, cur = e;
+    while (j + 1 < len && s.t[j + 1] < t1) {
+      j++; k++; cur = numeric(s, fmt, s.v[j]);
+      if (cur == null) u = 1; else { if (cur < lo) lo = cur; if (cur > hi) hi = cur; }
+    }
+    cnt[x] = k; undef[x] = u;
+    first[x] = e == null ? NaN : e; last[x] = cur == null ? NaN : cur;
+    mn[x] = lo <= hi ? lo : NaN; mx[x] = lo <= hi ? hi : NaN;
+    if (j < 0) { mn[x] = mx[x] = NaN; }
+  }
+  return { n, cnt, first, last, mn, mx, undef };
+}
+
+// Build the drawable geometry of an analog plot. Pure: returns runs of points
+// (broken at undefined values), undefined spans and sample dots.
+function analogGeometry(P) {
+  const { s, fmt, style, lo, hi, start, end, x0, w, top, bot } = P, len = s.t.length;
+  const yOf = v => bot - (v - lo) / (hi - lo) * (bot - top);
+  const X = t => x0 + (t - start) / (end - start) * w;
+  const runs = [], undef = [], dots = [];
+  let mode = P.naive ? 'naive' : drawMode(s, start, end, w), run = null;
+  const addUndef = (a, b) => { const u = undef[undef.length - 1]; if (u && a <= u[1] + 0.5) u[1] = Math.max(u[1], b); else undef.push([a, b]); };
+  if (mode === 'naive') {
+    const n = Math.floor(w), dt = (end - start) / n;
+    for (let x = 0; x < n; x++) {
+      const v = numeric(s, fmt, rawAt(s, start + (x + 0.5) * dt));
+      if (v == null) { run = null; continue; }
+      if (!run) runs.push(run = []);
+      run.push([x0 + x + 0.5, yOf(v)]);
+    }
+  } else if (mode === 'exact') {
+    const i0 = Math.max(0, indexAt(s, start)), i1 = Math.min(len - 1, indexAt(s, end) + 1);
+    const spacing = w / Math.max(1, i1 - i0);
+    for (let i = i0; i <= i1; i++) {
+      const v = numeric(s, fmt, s.v[i]), xa = X(s.t[i]), xb = i + 1 < len ? X(s.t[i + 1]) : X(T_END);
+      if (v == null) { run = null; addUndef(xa, xb); continue; }
+      const y = yOf(v);
+      if (!run) runs.push(run = []);
+      if (style === 'step') { run.push([xa, y], [xb, y]); continue; }
+      run.push([xa, y]);
+      if (spacing >= 9 && xa >= x0 - 2 && xa <= x0 + w + 2) dots.push([xa, y]);
+      const next = i + 1 < len ? numeric(s, fmt, s.v[i + 1]) : null;
+      if (next == null) run.push([xb, y]);          // hold before an X or the end of the trace
+    }
+  } else {
+    const c = columns(s, fmt, start, end, w);
+    for (let x = 0; x < c.n; x++) {
+      const xc = x0 + x + 0.5;
+      if (c.undef[x]) addUndef(x0 + x, x0 + x + 1);
+      if (isNaN(c.mn[x])) { run = null; continue; }
+      if (isNaN(c.first[x])) run = null;
+      if (!run) runs.push(run = []);
+      if (!isNaN(c.first[x])) run.push([xc, yOf(c.first[x])]);
+      if (c.cnt[x]) run.push([xc, yOf(c.mn[x])], [xc, yOf(c.mx[x])]);
+      if (!isNaN(c.last[x])) run.push([xc, yOf(c.last[x])]); else run = null;
+    }
+  }
+  return { mode, runs, undef, dots, yOf };
+}
+
+function selfTests() {
+  const lines = []; let fails = 0;
+  const ok = (c, m) => { lines.push((c ? 'ok   ' : 'FAIL ') + m); if (!c) fails++; };
+  const fir = byName('fir_out'), ain = byName('adc_in'), code = byName('adc_code'), lvl = byName('fifo_level');
+  ok(indexAt(ain, -1) === -1 && indexAt(ain, 0) === 0 && indexAt(ain, 15) === 1, 'indexAt finds the change at or before t');
+  ok(numeric(fir, 'sdec', 0xffff) === -1 && numeric(fir, 'hex', 0xffff) === 65535, 'signed reads two\'s complement, hex reads unsigned');
+  ok(text(fir, 'hex', 0x1f) === '001f' && text(fir, 'sdec', 0xfffe) === '−2' && text(code, 'hex', null) === 'xxx', 'values are formatted like the value column');
+  const hx = traceRange(fir, 'hex'), sd = traceRange(fir, 'sdec');
+  ok(hx[0] < 500 && hx[1] > 65000, 'a signed bus read as hex spans the whole unsigned range (wraps at zero)');
+  ok(sd[0] < -8000 && sd[1] > 8000 && sd[1] < 16376, 'the same bus read as signed is centred on zero');
+  const ty = typeRange(lvl, 'dec'), ts = typeRange(fir, 'sdec');
+  ok(ty[0] === 0 && ty[1] === 63 && ts[0] === -32768 && ts[1] === 32767, 'type limits follow width and signedness');
+  const c = columns(ain, 'real', 0, T_END, 480);
+  let lo = Infinity, hi = -Infinity; for (let x = 0; x < c.n; x++) if (!isNaN(c.mn[x])) { lo = Math.min(lo, c.mn[x]); hi = Math.max(hi, c.mx[x]); }
+  const tr = traceRange(ain, 'real');
+  ok(lo === tr[0] && hi === tr[1], 'the column envelope keeps the exact minimum and maximum');
+  const gx = Math.floor(GLITCH_T / (T_END / 480));
+  ok(c.mx[gx] === GLITCH_V, 'the one-sample glitch survives in its pixel column');
+  const naive = analogGeometry({ s: ain, fmt: 'real', style: 'linear', lo: tr[0], hi: tr[1], start: 0, end: T_END, x0: 0, w: 480, top: 0, bot: 100, naive: true });
+  ok(Math.min(...naive.runs.flat().map(p => p[1])) > naive.yOf(1.15), 'one-sample-per-pixel decimation loses the glitch');
+  let continuous = true; for (let x = 1; x < c.n; x++) if (c.first[x] !== c.last[x - 1]) continuous = false;
+  ok(continuous, 'each column enters at the value the previous column left');
+  const u = columns(code, 'sdec', 0, 400, 400);
+  ok(u.undef[0] === 1 && u.undef[300] === 0, 'undefined samples before reset are flagged');
+  const g = analogGeometry({ s: code, fmt: 'sdec', style: 'step', lo: -2048, hi: 2047, start: 0, end: 400, x0: 0, w: 400, top: 0, bot: 100 });
+  ok(g.mode === 'exact' && g.undef.length === 1 && g.undef[0][1] >= 159, 'X before reset breaks the line into an undefined span');
+  ok(drawMode(ain, 0, T_END, 800) === 'envelope' && drawMode(ain, 41100, 41400, 800) === 'exact', 'dense views draw columns, sparse views draw every sample');
+  const lin = analogGeometry({ s: ain, fmt: 'real', style: 'linear', lo: -1, hi: 1.4, start: 41930, end: 42110, x0: 0, w: 600, top: 0, bot: 100 });
+  ok(lin.dots.length >= 15, 'linear drawing marks samples when zoomed in');
+  const win = windowRange(fir, 'sdec', 64000, 80000);
+  ok(win[1] - win[0] < (sd[1] - sd[0]) * 0.4, 'the visible-window range is tighter after the fade');
+  ok(SIGNALS[5].v.includes(255) && SIGNALS[6].v.includes('LIMIT') && SIGNALS[8].v.includes(1), 'AGC saturates and the FIFO overflows');
+  lines.unshift(fails ? 'selftest: ' + fails + ' FAILED' : 'selftest: all passed');
+  return { lines, fails };
+}
+
+return { T_END, TS, GLITCH_T, GLITCH_V, HEIGHTS, SIGNALS, FORMATS, byName, defaultFormat, canAnalog, label, numeric, text, fmtNumber,
+  fmtTime, indexAt, rawAt, traceRange, windowRange, typeRange, plotRange, stats, drawMode, columns, analogGeometry, selfTests };
+})();
+</script>
+
+<script>
+/* ============================================================================
+   The mock: Waves panel with analog rows. Viewport math follows
+   volna-core/src/wave/viewport.rs; gestures follow WaveModel::pointer
+   (drag = cursor, wheel = pan, Ctrl+wheel = zoom). Colours are One Dark.
+   ============================================================================ */
+const AWV = (() => {
+'use strict';
+const D = AWD, LIM = [0, D.T_END];
+const ROW_H = 22, HDR = 24, PAD = 5, SNAP_PX = 6, EDGE_SPACE = 0.05, MIN_W = 20, ANIM = 160, EDGE_GRAB = 4;
+const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace', SANS = '"IBM Plex Sans", system-ui, sans-serif';
+const C = {
+  bg: '#282c33', header: '#2f343e', line: '#3a3f4a', grid: 'rgba(200,204,212,.045)', tick: 'rgba(200,204,212,.25)', tickText: '#a9afbc',
+  text: '#dce0e5', muted: '#a9afbc', dim: '#7d8491', signal: '#a1c181', fill: 'rgba(161,193,129,.10)', dense: 'rgba(161,193,129,.45)',
+  undef: '#d07277', undefFill: 'rgba(208,114,119,.14)', cursor: '#74ade8', rowSel: 'rgba(116,173,232,.10)', hover: 'rgba(200,204,212,.04)',
+  badge: 'rgba(200,204,212,.07)', badgeHover: 'rgba(200,204,212,.16)', guide: 'rgba(200,204,212,.07)', zero: 'rgba(200,204,212,.22)',
+  label: 'rgba(40,44,51,.82)', zoomRange: 'rgba(116,173,232,.14)',
+};
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+class Viewport {
+  constructor(s, e) { this.start = s; this.end = e; }
+  width() { return this.end - this.start; }
+  ppu(w) { return w / this.width(); }
+  timeAt(x, w) { return this.start + x / w * this.width(); }
+  xOf(t, w) { return (t - this.start) / this.width() * w; }
+  clone() { return new Viewport(this.start, this.end); }
+  zoomAbout(x, w, f) { const a = this.timeAt(x, w), nw = Math.max(this.width() / f, MIN_W); this.start = a - nw * (x / w); this.end = this.start + nw; return this.clamp(); }
+  pan(dt) { this.start += dt; this.end += dt; return this.clamp(); }
+  center(t) { const w = this.width(); this.start = t - w / 2; this.end = t + w / 2; return this.clamp(); }
+  clamp() {
+    const span = LIM[1] - LIM[0], lo = LIM[0] - span * EDGE_SPACE, hi = LIM[1] + span * EDGE_SPACE;
+    const w = Math.min(Math.max(this.width(), MIN_W), hi - lo);
+    if (this.start < lo) this.start = lo;
+    if (this.start + w > hi) this.start = hi - w;
+    this.end = this.start + w; return this;
+  }
+  lerp(b, t) { return new Viewport(this.start + (b.start - this.start) * t, this.end + (b.end - this.end) * t); }
+}
+class Tween {
+  constructor(v) { this.value = v; this.anim = null; }
+  target() { return this.anim ? this.anim.to : this.value; }
+  set(v) { this.value = v; this.anim = null; }
+  to(v, now, dur) { this.tick(now); this.anim = dur ? { from: this.value.clone(), to: v, t0: now, dur } : null; if (!dur) this.value = v; }
+  tick(now) {
+    if (!this.anim) return false;
+    const k = Math.min(1, (now - this.anim.t0) / this.anim.dur);
+    this.value = this.anim.from.lerp(this.anim.to, easeOut(k));
+    if (k >= 1) { this.value = this.anim.to; this.anim = null; }
+    return !!this.anim;
+  }
+}
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function niceStep(ppu, minPx) {
+  const raw = minPx / ppu, p = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 5, 10]) if (m * p >= raw) return m * p;
+  return 10 * p;
+}
+// The step and linear glyphs drawn in a badge.
+function glyph(ctx, x, y, style, color) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1.3; ctx.lineJoin = 'round'; ctx.beginPath();
+  if (style === 'step') { ctx.moveTo(x, y + 7); ctx.lineTo(x + 3, y + 7); ctx.lineTo(x + 3, y + 2); ctx.lineTo(x + 7, y + 2); ctx.lineTo(x + 7, y + 5); ctx.lineTo(x + 10, y + 5); }
+  else { ctx.moveTo(x, y + 6); ctx.lineTo(x + 3, y + 1.5); ctx.lineTo(x + 6.5, y + 7); ctx.lineTo(x + 10, y + 3); }
+  ctx.stroke(); ctx.restore();
+}
+
+// Paint an analog plot (shared by the mock and the figures).
+function paintAnalog(ctx, P) {
+  const g = D.analogGeometry(P), base = P.lo <= 0 && P.hi >= 0 ? g.yOf(0) : P.bot;
+  for (const [a, b] of g.undef) {
+    const xa = Math.max(a, P.x0 - 2), xb = Math.min(b, P.x0 + P.w + 2); if (xb <= xa) continue;
+    ctx.fillStyle = C.undefFill; ctx.fillRect(xa, P.top, xb - xa, P.bot - P.top);
+    ctx.fillStyle = C.undef; ctx.fillRect(xa, P.top, xb - xa, 1); ctx.fillRect(xa, P.bot - 1, xb - xa, 1);
+  }
+  for (const run of g.runs) {
+    if (run.length < 2) continue;
+    ctx.beginPath(); ctx.moveTo(run[0][0], base);
+    for (const [x, y] of run) ctx.lineTo(x, y);
+    ctx.lineTo(run[run.length - 1][0], base); ctx.closePath();
+    ctx.fillStyle = P.fill || C.fill; ctx.fill();
+  }
+  ctx.strokeStyle = P.color || C.signal; ctx.lineWidth = g.mode === 'exact' ? 1.35 : 1; ctx.lineJoin = 'round';
+  for (const run of g.runs) {
+    if (!run.length) continue;
+    ctx.beginPath(); ctx.moveTo(run[0][0], run[0][1]);
+    for (let k = 1; k < run.length; k++) ctx.lineTo(run[k][0], run[k][1]);
+    if (run.length === 1) ctx.lineTo(run[0][0] + 1, run[0][1]);
+    ctx.stroke();
+  }
+  ctx.fillStyle = P.color || C.signal;
+  for (const [x, y] of g.dots) { ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill(); }
+  return g;
+}
+
+class Demo {
+  constructor() {
+    this.root = document.getElementById('pv');
+    this.body = document.getElementById('wbody');
+    this.canvas = this.body.querySelector('canvas'); this.ctx = this.canvas.getContext('2d');
+    this.tip = this.body.querySelector('.tip'); this.menuEl = this.body.querySelector('.menu');
+    this.statusEl = document.getElementById('status');
+    this.w = 0; this.h = 0; this.req = 0; this.lastTs = 0; this.nameW = 172; this.valW = 88;
+    this.reset(true);
+    this.bindPointer(); this.bindKeys(); this.bindChrome();
+    new ResizeObserver(es => { for (const e of es) this.resize(e.contentRect.width, e.contentRect.height); }).observe(this.body);
+  }
+  // ---------------------------------------------------------------- state
+  row(name, o = {}) { const sig = D.SIGNALS.findIndex(s => s.name === name), s = D.SIGNALS[sig]; return { sig, h: 1, fmt: D.defaultFormat(s), analog: null, prevH: null, cur: null, tgt: null, drawMode: null, ...o }; }
+  reset(first) {
+    this.rows = [
+      this.row('clk'), this.row('rst_n'),
+      this.row('adc_in', { h: 3, analog: { style: 'linear', range: 'trace' } }),
+      this.row('adc_code'), this.row('fir_out'),
+      this.row('agc_gain', { h: 2, fmt: 'dec', analog: { style: 'step', range: 'trace' } }),
+      this.row('state'),
+      this.row('fifo_level', { h: 2, fmt: 'dec', analog: { style: 'step', range: 'type' } }),
+      this.row('overflow'),
+    ];
+    this.vp = new Tween(new Viewport(36000, 46000));
+    this.cursor = 40000; this.selRows = new Set(); this.anchor = null; this.hoverRow = null; this.pointer = null; this.hoverInfo = null;
+    this.drag = null; this.scrollY = 0; this.flashRow = null; this.closeMenu();
+    if (!first) this.invalidate();
+  }
+  sigOf(r) { return D.SIGNALS[r.sig]; }
+  rowByName(n) { return this.rows.find(r => this.sigOf(r).name === n); }
+  x0() { return this.nameW + this.valW; }
+  ww() { return Math.max(1, this.w - this.x0()); }
+  vpv() { return this.vp.value; }
+  now() { return performance.now(); }
+  layout() {
+    let y = HDR - this.scrollY; const out = [];
+    for (const r of this.rows) { const h = r.h * ROW_H; out.push({ r, y, h }); y += h; }
+    return out;
+  }
+  contentH() { return this.rows.reduce((a, r) => a + r.h * ROW_H, 0); }
+  clampScroll() { this.scrollY = Math.max(0, Math.min(this.scrollY, this.contentH() - (this.h - HDR))); }
+  rowAt(y) { if (y < HDR) return null; return this.layout().find(e => y >= e.y && y < e.y + e.h) || null; }
+  invalidate() { if (!this.req) this.req = requestAnimationFrame(ts => this.frame(ts)); }
+  frame(ts) {
+    this.req = 0;
+    const now = ts || this.now(), dt = this.lastTs ? Math.min(100, now - this.lastTs) : 0;
+    let anim = this.vp.tick(now);
+    if (this.tickRanges(dt)) anim = true;
+    if (this.flashRow && this.now() < this.flashRow.until) anim = true;
+    if (this.w > 0) this.paint();
+    this.paintStatus();
+    this.lastTs = anim ? now : 0;
+    this.animating = anim;
+    if (anim) this.invalidate();
+    window.ready = true;
+  }
+  // Ranges glide towards their target (rule 5); the window range follows the viewport.
+  tickRanges(dt) {
+    const vp = this.vpv(); let moving = false;
+    for (const r of this.rows) {
+      if (!r.analog) { r.cur = r.tgt = null; continue; }
+      const tgt = D.plotRange(this.sigOf(r), r.fmt, r.analog.range, vp.start, vp.end);
+      r.tgt = tgt;
+      if (!r.cur) { r.cur = tgt.slice(); continue; }
+      const k = 1 - Math.exp(-dt / 65), span = Math.max(1e-9, tgt[1] - tgt[0]);
+      for (let i = 0; i < 2; i++) {
+        const d = tgt[i] - r.cur[i];
+        if (Math.abs(d) <= span * 2e-3) r.cur[i] = tgt[i]; else { r.cur[i] += d * k; moving = true; }
+      }
+    }
+    return moving;
+  }
+  resize(w, h) {
+    this.nameW = w < 560 ? 124 : 172; this.valW = w < 560 ? 62 : 88;
+    this.w = w; this.h = h; const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = Math.max(1, Math.round(w * dpr)); this.canvas.height = Math.max(1, Math.round(h * dpr));
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.clampScroll(); this.invalidate();
+  }
+  // ----------------------------------------------------------- navigation
+  animate(v, dur = ANIM) { this.vp.to(v.clamp(), this.now(), dur); this.invalidate(); }
+  zoomAt(x, f, dur = ANIM) { this.animate(this.vp.target().clone().zoomAbout(Math.max(0, x - this.x0()), this.ww(), f), dur); }
+  zoomCenter(f) { this.zoomAt(this.x0() + this.ww() / 2, f); }
+  fit() { this.animate(new Viewport(LIM[0], LIM[1])); }
+  panFrac(f, dur = ANIM) { const v = this.vp.target().clone(); this.animate(v.pan(f * v.width()), dur); }
+  reveal(t) { const v = this.vp.target(); if (t < v.start || t > v.end) this.animate(v.clone().center(t)); }
+  setCursor(t) { this.cursor = Math.max(LIM[0], Math.min(LIM[1], Math.round(t))); }
+  // Snap to the nearest value change within a few pixels, unless the row is a dense envelope.
+  snapTime(row, x) {
+    const vp = this.vpv(), w = this.ww(), t = vp.timeAt(x, w);
+    if (!row || (row.analog && row.drawMode === 'envelope')) return t;
+    const s = this.sigOf(row), k = D.indexAt(s, t);
+    let best = t, bd = SNAP_PX;
+    for (const i of [k, k + 1]) if (i >= 0 && i < s.t.length) { const d = Math.abs(vp.xOf(s.t[i], w) - x); if (d <= bd) { bd = d; best = s.t[i]; } }
+    return best;
+  }
+  // ----------------------------------------------------------- row actions
+  selectRow(row, mods) {
+    if (mods && (mods.ctrlKey || mods.metaKey)) { this.selRows.has(row) ? this.selRows.delete(row) : this.selRows.add(row); this.anchor = row; return; }
+    if (mods && mods.shiftKey && this.anchor && this.rows.includes(this.anchor)) {
+      const a = this.rows.indexOf(this.anchor), b = this.rows.indexOf(row);
+      for (let k = Math.min(a, b); k <= Math.max(a, b); k++) this.selRows.add(this.rows[k]);
+      return;
+    }
+    this.selRows = new Set([row]); this.anchor = row;
+  }
+  selected() { return this.rows.filter(r => this.selRows.has(r)); }
+  focusedRow() { const sel = this.selected(); return this.anchor && this.selRows.has(this.anchor) ? this.anchor : sel[sel.length - 1] || null; }
+  // Rule 1 and 3: analog on makes a 1× row 3×; off restores the height it replaced.
+  setAnalog(r, style) {
+    const s = this.sigOf(r); if (!D.canAnalog(s)) return;
+    if (style) {
+      if (!r.analog) { r.analog = { style, range: 'trace' }; if (r.h === 1) { r.prevH = 1; r.h = 3; } }
+      else r.analog.style = style;
+    } else if (r.analog) {
+      r.analog = null; r.cur = null;
+      if (r.prevH != null && r.h === 3) r.h = r.prevH;
+      r.prevH = null;
+    }
+  }
+  toggleAnalog(rows) {
+    rows = rows.filter(r => D.canAnalog(this.sigOf(r))); if (!rows.length) return;
+    const on = rows.some(r => !r.analog);
+    for (const r of rows) this.setAnalog(r, on ? (r.analog ? r.analog.style : this.sigOf(r).kind === 'real' ? 'linear' : 'step') : null);
+    this.clampScroll(); rows.forEach(r => this.flash(r));
+  }
+  setFormat(rows, f) { for (const r of rows) if (D.FORMATS[this.sigOf(r).kind].some(o => o[0] === f)) r.fmt = f; }
+  cycleFormat(rows) {
+    for (const r of rows) { const fs = D.FORMATS[this.sigOf(r).kind], k = fs.findIndex(o => o[0] === r.fmt); r.fmt = fs[(k + 1) % fs.length][0]; }
+  }
+  setRange(rows, m) { for (const r of rows) if (r.analog && (m !== 'type' || this.sigOf(r).kind === 'vec')) r.analog.range = m; }
+  setHeight(rows, h) { for (const r of rows) { r.h = h; r.prevH = null; } this.clampScroll(); }
+  menuTargets(row) { return this.selRows.has(row) ? this.selected() : [row]; }
+  flash(row) { this.flashRow = { row, until: this.now() + 700 }; this.invalidate(); }
+  // -------------------------------------------------------------- hit tests
+  badgeRect(e) {
+    const r = e.r, ctx = this.ctx;
+    ctx.font = '10px ' + MONO;
+    const tw = ctx.measureText(r.fmt).width;
+    const w = Math.round(tw + 12 + (r.analog ? 15 : 0));
+    return { x: this.nameW - 8 - w, y: e.y + (ROW_H - 16) / 2, w, h: 16 };
+  }
+  badgeAt(p) {
+    if (p.x >= this.nameW) return null;
+    const e = this.rowAt(p.y); if (!e) return null;
+    const b = this.badgeRect(e);
+    return p.x >= b.x - 2 && p.x <= b.x + b.w + 2 && p.y >= b.y - 2 && p.y <= b.y + b.h + 2 ? e : null;
+  }
+  edgeAt(p) {
+    if (p.x >= this.nameW) return null;
+    return this.layout().find(e => Math.abs(p.y - (e.y + e.h)) <= EDGE_GRAB && e.y + e.h > HDR) || null;
+  }
+  // What the pointer reads on an analog row (rule 7).
+  analogHover(e, p) {
+    const r = e.r, s = this.sigOf(r), vp = this.vpv(), w = this.ww(), x = p.x - this.x0();
+    if (x < 0 || !r.cur) return null;
+    const t = vp.timeAt(x, w);
+    if (r.drawMode === 'envelope') {
+      const cx = Math.floor(x), ta = vp.timeAt(cx, w), tb = vp.timeAt(cx + 1, w), st = D.stats(s, r.fmt, ta, tb);
+      if (!st.range) return null;
+      return { kind: 'column', row: r, x: this.x0() + cx + 0.5, ta, tb, n: st.n, lo: st.range[0], hi: st.range[1] };
+    }
+    let i = D.indexAt(s, t);
+    if (r.analog.style === 'linear' && i + 1 < s.t.length && Math.abs(vp.xOf(s.t[i + 1], w) - x) < Math.abs(vp.xOf(s.t[Math.max(0, i)], w) - x)) i++;
+    if (i < 0) return null;
+    const v = D.numeric(s, r.fmt, s.v[i]);
+    if (v == null) return { kind: 'undef', row: r, t, i };
+    const px = r.analog.style === 'linear' ? this.x0() + vp.xOf(s.t[i], w) : p.x;
+    return { kind: 'sample', row: r, t: r.analog.style === 'linear' ? s.t[i] : t, i, v, px };
+  }
+  // --------------------------------------------------------------- pointer
+  pos(e) { const r = this.body.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  bindPointer() {
+    const b = this.body;
+    b.addEventListener('mousedown', e => {
+      if (this.menuEl.contains(e.target)) return;
+      if (!this.menuEl.hidden) this.closeMenu();
+      this.root.focus({ preventScroll: true });
+      this.down(this.pos(e), e); e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => { if (this.drag || this.body.matches(':hover')) this.move(this.pos(e)); });
+    window.addEventListener('mouseup', e => { if (this.drag) this.up(this.pos(e)); });
+    b.addEventListener('mouseleave', () => { if (!this.drag) { this.pointer = null; this.hoverRow = null; this.hoverInfo = null; this.tip.hidden = true; this.invalidate(); } });
+    b.addEventListener('wheel', e => { e.preventDefault(); this.wheel(this.pos(e), e); }, { passive: false });
+    b.addEventListener('contextmenu', e => e.preventDefault());
+  }
+  down(p, e) {
+    const ent = this.rowAt(p.y), inWaves = p.x >= this.x0();
+    if (e.button === 1 || (e.button === 2 && inWaves)) { this.drag = { kind: 'pan', x: p.x }; return; }
+    if (e.button === 2) { if (ent) this.openRowMenu(ent.r, p); return; }
+    if (e.button !== 0) return;
+    const edge = this.edgeAt(p);
+    if (edge) { this.drag = { kind: 'height', row: edge.r, top: edge.y }; return; }
+    const badge = this.badgeAt(p);
+    if (badge) { if (!this.selRows.has(badge.r)) this.selectRow(badge.r, e); const b = this.badgeRect(badge); this.openFormatMenu(badge.r, { x: b.x, y: b.y + b.h + 3 }); this.invalidate(); return; }
+    if (inWaves && (e.ctrlKey || e.metaKey)) { this.drag = { kind: 'zoom', x0: p.x, x: p.x }; return; }
+    if (p.y < HDR) { if (inWaves) { this.setCursor(this.vpv().timeAt(p.x - this.x0(), this.ww())); this.drag = { kind: 'cursor' }; } this.invalidate(); return; }
+    if (!ent) { this.selRows = new Set(); this.invalidate(); return; }
+    this.selectRow(ent.r, e);
+    if (inWaves) { this.setCursor(this.snapTime(ent.r, p.x - this.x0())); this.drag = { kind: 'cursor' }; }
+    this.invalidate();
+  }
+  move(p) {
+    this.pointer = p; const d = this.drag;
+    if (d) {
+      if (d.kind === 'cursor' && p.x >= this.x0() - 4) { const ent = this.rowAt(p.y); this.setCursor(this.snapTime(ent && ent.r, Math.max(0, p.x - this.x0()))); }
+      else if (d.kind === 'pan') { const dx = p.x - d.x; d.x = p.x; const v = this.vp.target().clone(); this.vp.set(v.pan(-dx / this.ww() * v.width())); }
+      else if (d.kind === 'zoom') d.x = p.x;
+      else if (d.kind === 'height') {
+        const want = (p.y - d.top) / ROW_H;
+        const h = D.HEIGHTS.reduce((a, b) => Math.abs(b - want) < Math.abs(a - want) ? b : a);
+        const targets = this.menuTargets(d.row);
+        if (targets.some(r => r.h !== h)) this.setHeight(targets, h);
+        d.h = h;
+      }
+    }
+    this.hover(p); this.invalidate();
+  }
+  up(p) {
+    const d = this.drag; this.drag = null;
+    if (d && d.kind === 'zoom') {
+      const a = Math.min(d.x0, d.x) - this.x0(), b = Math.max(d.x0, d.x) - this.x0(), vp = this.vpv(), w = this.ww();
+      if (b - a > 4) this.animate(new Viewport(vp.timeAt(Math.max(0, a), w), vp.timeAt(b, w)));
+    }
+    this.hover(p); this.invalidate();
+  }
+  hover(p) {
+    this.hoverRow = null; this.hoverInfo = null;
+    const ent = this.rowAt(p.y);
+    let cursor = p.x >= this.x0() ? 'crosshair' : 'default';
+    if (this.drag && this.drag.kind === 'height') cursor = 'ns-resize';
+    else if (!this.drag && this.edgeAt(p)) cursor = 'ns-resize';
+    else if (!this.drag && this.badgeAt(p)) cursor = 'pointer';
+    this.body.style.cursor = cursor;
+    if (ent) {
+      this.hoverRow = ent.r;
+      if (ent.r.analog && p.x >= this.x0() && (!this.drag || this.drag.kind === 'cursor')) this.hoverInfo = this.analogHover(ent, p);
+    }
+    this.renderTip(p);
+  }
+  wheel(p, e) {
+    this.closeMenu();
+    const dy = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY, dx = e.deltaMode === 1 ? e.deltaX * 20 : e.deltaX;
+    if (e.ctrlKey || e.metaKey) this.zoomAt(p.x, Math.pow(2, -dy / 120), 90);
+    else if (e.shiftKey || p.x < this.x0()) { this.scrollY += dy + (e.shiftKey ? dx : 0); this.clampScroll(); }
+    else this.panFrac((dx + dy) / 1000, 0);
+    this.hover(p); this.invalidate();
+  }
+  // -------------------------------------------------------------- keyboard
+  bindKeys() {
+    this.root.addEventListener('keydown', e => {
+      if (!this.menuEl.hidden && e.key !== 'Escape') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      let ok = true;
+      switch (e.key) {
+        case 'a': case 'A': this.toggleAnalog(this.selected()); break;
+        case 't': case 'T': this.cycleFormat(this.selected()); break;
+        case '=': case '+': this.zoomCenter(2); break;
+        case '-': case '_': this.zoomCenter(0.5); break;
+        case 'f': case 'F': this.fit(); break;
+        case 'ArrowLeft': e.shiftKey ? this.edge(-1) : this.panFrac(-0.1); break;
+        case 'ArrowRight': e.shiftKey ? this.edge(1) : this.panFrac(0.1); break;
+        case 'ArrowUp': this.moveSel(-1); break;
+        case 'ArrowDown': this.moveSel(1); break;
+        case 'Escape': this.escape(); break;
+        default: ok = false;
+      }
+      if (ok) { e.preventDefault(); this.invalidate(); }
+    });
+  }
+  moveSel(dir) {
+    const cur = this.focusedRow(), k = cur ? this.rows.indexOf(cur) + dir : (dir > 0 ? 0 : this.rows.length - 1);
+    const r = this.rows[Math.max(0, Math.min(this.rows.length - 1, k))]; this.selRows = new Set([r]); this.anchor = r;
+  }
+  // Shift+←/→: the selected row's previous/next value change.
+  edge(dir) {
+    const row = this.focusedRow(); if (!row) return;
+    const s = this.sigOf(row), from = this.cursor != null ? this.cursor : (dir > 0 ? this.vpv().start : this.vpv().end);
+    const k = D.indexAt(s, from);
+    const t = dir > 0 ? s.t[k + 1] : (k >= 0 && s.t[k] < from ? s.t[k] : s.t[k - 1]);
+    if (t == null) return;
+    this.cursor = t; this.reveal(t);
+  }
+  escape() {
+    if (!this.menuEl.hidden) this.closeMenu();
+    else if (this.drag) this.drag = null;
+    else if (this.selRows.size) this.selRows = new Set();
+    else this.cursor = null;
+  }
+  // ------------------------------------------------------------------ menus
+  item(attrs, label, checked, extra = '', disabled = false) {
+    return '<button type="button" ' + attrs + ' role="menuitemradio" aria-checked="' + !!checked + '"' + (disabled ? ' disabled' : '') + '>' + label + extra + '</button>';
+  }
+  // The format badge menu: Format, then Draw and Range for numeric rows.
+  openFormatMenu(row, p) {
+    const s = this.sigOf(row), targets = this.menuTargets(row);
+    let html = '<div class="hl">Format</div>' + D.FORMATS[s.kind].map(([id, name]) => this.item('data-fmt="' + id + '"', name, row.fmt === id, '<kbd>' + id + '</kbd>')).join('');
+    if (D.canAnalog(s)) {
+      const a = row.analog;
+      html += '<hr><div class="hl">Draw</div>' +
+        this.item('data-draw="digital"', 'Digital', !a, s.kind === 'real' ? '' : '<kbd>A</kbd>') +
+        this.item('data-draw="step"', 'Analog · step', a && a.style === 'step', s.kind === 'vec' ? '<kbd>A</kbd>' : '') +
+        this.item('data-draw="linear"', 'Analog · linear', a && a.style === 'linear', s.kind === 'real' ? '<kbd>A</kbd>' : '');
+      if (a) html += '<hr><div class="hl">Range</div>' +
+        this.item('data-range="trace"', 'Whole trace', a.range === 'trace') +
+        this.item('data-range="window"', 'Visible window', a.range === 'window') +
+        this.item('data-range="type"', 'Type limits', a.range === 'type', s.kind === 'vec' ? '<kbd>' + D.typeRange(s, row.fmt).map(v => D.fmtNumber(s, row.fmt, v)).join('…') + '</kbd>' : '', s.kind !== 'vec');
+    }
+    this.showMenu(html, p, { kind: 'format', row, targets });
+  }
+  openRowMenu(row, p) {
+    if (!this.selRows.has(row)) this.selectRow(row, null);
+    const targets = this.selected(), hs = new Set(targets.map(r => r.h)), shared = hs.size === 1 ? [...hs][0] : null;
+    const any = targets.some(r => D.canAnalog(this.sigOf(r))), on = targets.some(r => r.analog);
+    const html = this.item('data-m="analog"', 'Show as analog', on, '<kbd>A</kbd>', !any) +
+      '<hr><div class="hl">Height</div><div class="heights">' +
+      D.HEIGHTS.map(m => '<button type="button" data-h="' + m + '" role="menuitemradio" aria-checked="' + (shared === m) + '" class="' + (shared === m ? 'on' : '') + '">' + m + '×</button>').join('') + '</div>';
+    this.showMenu(html, { x: p.x + 2, y: p.y + 2 }, { kind: 'row', row, targets });
+  }
+  showMenu(html, p, ctx) {
+    this.menuCtx = ctx; this.menuEl.innerHTML = html; this.menuEl.hidden = false;
+    const mw = this.menuEl.offsetWidth, mh = this.menuEl.offsetHeight;
+    this.menuEl.style.left = Math.max(4, Math.min(p.x, this.w - mw - 4)) + 'px';
+    this.menuEl.style.top = Math.max(4, Math.min(p.y, this.h - mh - 4)) + 'px';
+    this.invalidate();
+  }
+  closeMenu() { if (this.menuEl) { this.menuEl.hidden = true; this.menuEl.innerHTML = ''; this.menuCtx = null; } }
+  bindChrome() {
+    this.menuEl.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b || b.disabled || !this.menuCtx) return;
+      const { row, targets } = this.menuCtx, ds = b.dataset;
+      if (ds.fmt) this.setFormat(targets, ds.fmt);
+      else if (ds.draw) { for (const r of targets) this.setAnalog(r, ds.draw === 'digital' ? null : ds.draw); this.clampScroll(); this.flash(row); }
+      else if (ds.range) this.setRange(targets, ds.range);
+      else if (ds.h) this.setHeight(targets, +ds.h);
+      else if (ds.m === 'analog') this.toggleAnalog(targets);
+      this.closeMenu(); this.root.focus({ preventScroll: true }); this.invalidate();
+    });
+    this.root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+      const a = b.dataset.act;
+      if (a === 'zin') this.zoomCenter(2); else if (a === 'zout') this.zoomCenter(0.5); else this.fit();
+      this.root.focus({ preventScroll: true });
+    }));
+    document.querySelectorAll('[data-guide]').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('[data-guide]').forEach(o => o.classList.toggle('on', o === b && b.dataset.guide !== 'reset'));
+      this.guide(b.dataset.guide); this.root.focus({ preventScroll: true });
+    }));
+  }
+  select(r) { this.selRows = new Set([r]); this.anchor = r; }
+  guide(g) {
+    const fir = () => this.rowByName('fir_out');
+    const plotted = () => { const r = fir(); if (!r.analog) { this.select(r); this.toggleAnalog([r]); } return r; };
+    const signed = () => { const r = plotted(); r.fmt = 'sdec'; return r; };
+    this.closeMenu();
+    if (g === 'reset') return this.reset();
+    if (g === 'plot') {
+      this.reset(); this.animate(new Viewport(36000, 46000), 0);
+      const r = fir(); this.select(r); this.toggleAnalog([r]);
+    }
+    if (g === 'signed') { const r = signed(); this.select(r); this.flash(r); }
+    if (g === 'zoomout') { signed(); this.select(this.rowByName('adc_in')); this.cursor = D.GLITCH_T; this.animate(new Viewport(LIM[0], LIM[1]), 520); }
+    if (g === 'window') {
+      const r = signed(); r.analog.range = 'window'; this.select(r); this.flash(r);
+      this.cursor = 70000; this.animate(new Viewport(64000, 80000), 520);
+    }
+    if (g === 'glitch') {
+      signed();
+      const code = this.rowByName('adc_code'); code.fmt = 'sdec'; if (!code.analog) this.setAnalog(code, 'step'); code.h = 2;
+      this.select(this.rowByName('adc_in')); this.cursor = D.GLITCH_T; this.animate(new Viewport(41890, 42130), 520);
+    }
+    this.clampScroll(); this.invalidate();
+  }
+  // ---------------------------------------------------------------- tooltip
+  renderTip(p) {
+    const d = this.drag;
+    let html = null;
+    if (d && d.kind === 'height') html = 'Height <b>' + d.row.h + '×</b>' + (this.menuTargets(d.row).length > 1 ? ' · ' + this.menuTargets(d.row).length + ' rows' : '');
+    else if (this.hoverInfo) {
+      const h = this.hoverInfo, s = this.sigOf(h.row), n = x => D.fmtNumber(s, h.row.fmt, x);
+      if (h.kind === 'column') html = '<b>' + s.name + '</b> ' + n(h.lo) + ' … ' + n(h.hi) + '<br><span class="d">' + h.n + ' change' + (h.n === 1 ? '' : 's') + ' in ' + D.fmtTime(h.tb - h.ta) + ' · ' + D.fmtTime(h.ta) + '</span>';
+      else if (h.kind === 'undef') html = '<b>' + s.name + '</b> <span style="color:#d07277">' + D.text(s, h.row.fmt, null) + '</span><br><span class="d">' + D.fmtTime(h.t) + '</span>';
+      else html = '<b>' + s.name + '</b> ' + n(h.v) + '<br><span class="d">' + (h.row.analog.style === 'linear' ? 'sample at ' : 'at ') + D.fmtTime(h.t) + '</span>';
+    }
+    if (!html) { this.tip.hidden = true; return; }
+    this.tip.innerHTML = html; this.tip.hidden = false;
+    const tw = this.tip.offsetWidth, th = this.tip.offsetHeight;
+    this.tip.style.left = Math.max(4, Math.min(p.x + 14, this.w - tw - 6)) + 'px';
+    this.tip.style.top = (p.y + 18 + th > this.h ? p.y - th - 10 : p.y + 18) + 'px';
+  }
+  // ----------------------------------------------------------------- status
+  paintStatus() {
+    const vp = this.vpv(), r = this.focusedRow(), spp = vp.width() / D.TS / this.ww();
+    let sel = '';
+    if (r) {
+      const s = this.sigOf(r);
+      sel = s.name + ' · ' + (r.analog ? 'analog ' + r.analog.style + ' · ' + { trace: 'whole trace', window: 'visible window', type: 'type limits' }[r.analog.range] +
+        ' · ' + (r.drawMode === 'envelope' ? 'min/max per pixel' : 'every sample') : D.canAnalog(s) ? 'digital · press A to plot' : 'digital');
+    }
+    this.statusEl.innerHTML =
+      '<span>view <b>' + D.fmtTime(vp.start) + ' – ' + D.fmtTime(vp.end) + '</b></span>' +
+      '<span>cursor <b>' + (this.cursor == null ? '—' : D.fmtTime(this.cursor)) + '</b></span>' +
+      '<span>samples/px <b>' + spp.toFixed(spp < 1 ? 2 : 1) + '</b></span>' +
+      (sel ? '<span class="sel">' + esc(sel) + '</span>' : '');
+  }
+  // ------------------------------------------------------------------ paint
+  paint() {
+    const ctx = this.ctx, w = this.w, h = this.h, x0 = this.x0(), ww = this.ww(), vp = this.vpv();
+    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, w, h);
+    const L = this.layout();
+    ctx.save(); ctx.beginPath(); ctx.rect(0, HDR, w, h - HDR); ctx.clip();
+    this.paintGrid(x0, ww, h, vp);
+    for (const e of L) {
+      if (e.y + e.h < HDR || e.y > h) continue;
+      if (this.selRows.has(e.r)) { ctx.fillStyle = C.rowSel; ctx.fillRect(0, e.y, w, e.h); }
+      else if (this.hoverRow === e.r) { ctx.fillStyle = C.hover; ctx.fillRect(0, e.y, w, e.h); }
+      if (this.flashRow && this.flashRow.row === e.r && this.now() < this.flashRow.until) {
+        ctx.fillStyle = 'rgba(116,173,232,' + (0.22 * (this.flashRow.until - this.now()) / 700) + ')'; ctx.fillRect(0, e.y, w, e.h);
+      }
+      this.paintRow(e, vp, x0, ww);
+      ctx.fillStyle = 'rgba(200,204,212,.05)'; ctx.fillRect(0, e.y + e.h - 1, w, 1);
+      if (this.drag && this.drag.kind === 'height' && this.menuTargets(this.drag.row).includes(e.r)) { ctx.fillStyle = C.cursor; ctx.fillRect(0, e.y + e.h - 1.5, this.nameW, 2); }
+    }
+    const edge = !this.drag && this.pointer && this.edgeAt(this.pointer);
+    if (edge) { ctx.fillStyle = 'rgba(116,173,232,.6)'; ctx.fillRect(0, edge.y + edge.h - 1.5, this.nameW, 2); }
+    ctx.restore();
+    this.paintHeader(x0, ww, vp);
+    ctx.fillStyle = C.line; ctx.fillRect(this.nameW - 1, 0, 1, h); ctx.fillRect(x0 - 1, 0, 1, h);
+    if (this.drag && this.drag.kind === 'zoom') {
+      const a = Math.max(x0, Math.min(this.drag.x0, this.drag.x)), b = Math.max(this.drag.x0, this.drag.x);
+      ctx.fillStyle = C.zoomRange; ctx.fillRect(a, HDR, b - a, h - HDR); ctx.fillStyle = C.cursor; ctx.fillRect(a, HDR, 1, h - HDR); ctx.fillRect(b, HDR, 1, h - HDR);
+    }
+    this.paintCursor(x0, ww, h, vp, L);
+  }
+  paintGrid(x0, ww, h, vp) {
+    const ctx = this.ctx, step = niceStep(vp.ppu(ww), 90);
+    for (let t = Math.ceil(vp.start / step) * step; t <= vp.end; t += step) { ctx.fillStyle = C.grid; ctx.fillRect(Math.round(x0 + vp.xOf(t, ww)), HDR, 1, h - HDR); }
+  }
+  paintHeader(x0, ww, vp) {
+    const ctx = this.ctx;
+    ctx.fillStyle = C.header; ctx.fillRect(0, 0, this.w, HDR);
+    ctx.font = '10.5px ' + SANS; ctx.fillStyle = C.muted; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText('Name', 10, HDR / 2); ctx.fillText('Value', this.nameW + 8, HDR / 2);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, 0, ww, HDR); ctx.clip();
+    const step = niceStep(vp.ppu(ww), 90); ctx.font = '10.5px ' + MONO;
+    for (let t = Math.ceil(vp.start / step) * step; t <= vp.end; t += step) {
+      const x = Math.round(x0 + vp.xOf(t, ww)) + 0.5;
+      ctx.fillStyle = C.tick; ctx.fillRect(x - 0.5, HDR - 5, 1, 5);
+      ctx.fillStyle = C.tickText; ctx.fillText(D.fmtTime(t), x + 3, HDR / 2);
+    }
+    ctx.restore();
+    ctx.fillStyle = C.line; ctx.fillRect(0, HDR - 1, this.w, 1);
+  }
+  paintCursor(x0, ww, h, vp, L) {
+    if (this.cursor == null) return;
+    const ctx = this.ctx, x = Math.round(x0 + vp.xOf(this.cursor, ww));
+    if (x < x0 || x > x0 + ww) return;
+    ctx.fillStyle = C.cursor; ctx.fillRect(x, HDR, 1.5, h - HDR);
+    // Dots where the cursor crosses each plot (rule 7).
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, HDR, ww, h - HDR); ctx.clip();
+    for (const e of L) {
+      const r = e.r; if (!r.analog || !r.cur || e.y + e.h < HDR || e.y > h) continue;
+      const y = this.plotY(e, this.cursor); if (y == null) continue;
+      ctx.beginPath(); ctx.arc(x + 0.75, y, 3.4, 0, Math.PI * 2); ctx.fillStyle = C.signal; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = C.bg; ctx.stroke();
+    }
+    ctx.restore();
+    ctx.font = '600 10px ' + MONO; ctx.textBaseline = 'middle';
+    const label = D.fmtTime(this.cursor), tw = ctx.measureText(label).width + 8, cx = Math.min(x + 3, x0 + ww - tw - 2);
+    ctx.fillStyle = C.cursor; roundRect(ctx, cx, 4, tw, 16, 3); ctx.fill();
+    ctx.fillStyle = '#282c33'; ctx.fillText(label, cx + 4, 12.5);
+  }
+  plotBox(e) { return { top: e.y + PAD, bot: e.y + e.h - PAD }; }
+  // The y of an analog row's curve at time t: the held value, or the line between samples.
+  plotY(e, t) {
+    const r = e.r, s = this.sigOf(r), [lo, hi] = r.cur, { top, bot } = this.plotBox(e), i = D.indexAt(s, t);
+    if (i < 0) return null;
+    let v = D.numeric(s, r.fmt, s.v[i]); if (v == null) return null;
+    if (r.analog.style === 'linear' && r.drawMode === 'exact' && i + 1 < s.t.length) {
+      const v1 = D.numeric(s, r.fmt, s.v[i + 1]);
+      if (v1 != null) v += (v1 - v) * (t - s.t[i]) / (s.t[i + 1] - s.t[i]);
+    }
+    return bot - (v - lo) / (hi - lo) * (bot - top);
+  }
+  paintRow(e, vp, x0, ww) {
+    const ctx = this.ctx, r = e.r, s = this.sigOf(r), cy = e.y + ROW_H / 2;
+    // name and format badge
+    const b = this.badgeRect(e), hb = this.pointer && !this.drag ? this.badgeAt(this.pointer) : null, hot = !!hb && hb.r === r;
+    ctx.font = '11.5px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillStyle = C.text;
+    const room = Math.max(20, b.x - 16), full = D.label(s);
+    ctx.fillText(ctx.measureText(full).width <= room ? full : s.name, 10, cy, room);
+    ctx.fillStyle = hot ? C.badgeHover : C.badge; roundRect(ctx, b.x, b.y, b.w, b.h, 4); ctx.fill();
+    let bx = b.x + 6;
+    if (r.analog) { glyph(ctx, bx, b.y + 4, r.analog.style, C.signal); bx += 15; }
+    ctx.font = '10px ' + MONO; ctx.fillStyle = r.analog ? C.text : C.muted; ctx.fillText(r.fmt, bx, b.y + b.h / 2 + 0.5);
+    if (r.analog && e.h >= 2 * ROW_H) {
+      ctx.font = '10.5px ' + SANS; ctx.fillStyle = C.dim;
+      ctx.fillText(r.analog.style + ' · ' + { trace: 'whole trace', window: 'visible window', type: 'type limits' }[r.analog.range], 10, cy + 17, this.nameW - 18);
+    }
+    // value at the cursor
+    if (this.cursor != null) {
+      const raw = D.rawAt(s, this.cursor), txt = D.text(s, r.fmt, raw);
+      ctx.font = '11px ' + MONO; ctx.fillStyle = raw === null ? C.undef : s.kind === 'bit' ? C.signal : C.text;
+      ctx.fillText(txt, this.nameW + 8, cy, this.valW - 14);
+    }
+    // waves
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, e.y, ww, e.h); ctx.clip();
+    if (r.analog) this.paintAnalogRow(e, vp, x0, ww);
+    else if (s.kind === 'bit') this.paintBit(s, e, vp, x0, ww);
+    else this.paintBus(s, r.fmt, e, vp, x0, ww);
+    ctx.restore();
+  }
+  paintAnalogRow(e, vp, x0, ww) {
+    const ctx = this.ctx, r = e.r, s = this.sigOf(r), [lo, hi] = r.cur, { top, bot } = this.plotBox(e);
+    ctx.fillStyle = C.guide; ctx.fillRect(x0, top, ww, 1); ctx.fillRect(x0, bot, ww, 1);
+    if (lo < 0 && hi > 0) {
+      const zy = Math.round(bot - (0 - lo) / (hi - lo) * (bot - top)) + 0.5;
+      ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = C.zero; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, zy); ctx.lineTo(x0 + ww, zy); ctx.stroke(); ctx.restore();
+    }
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, e.y + 1, ww, e.h - 2); ctx.clip();
+    const g = paintAnalog(ctx, { s, fmt: r.fmt, style: r.analog.style, lo, hi, start: vp.start, end: vp.end, x0, w: ww, top, bot });
+    r.drawMode = g.mode;
+    // hover readout marks
+    const h = this.hoverInfo;
+    if (h && h.row === r) {
+      if (h.kind === 'column') {
+        const ya = g.yOf(h.hi), yb = g.yOf(h.lo);
+        ctx.fillStyle = 'rgba(220,224,229,.9)'; ctx.fillRect(h.x - 1, ya - 1, 2, yb - ya + 2);
+      } else if (h.kind === 'sample') {
+        ctx.beginPath(); ctx.arc(h.px, g.yOf(h.v), 3.6, 0, Math.PI * 2); ctx.fillStyle = C.bg; ctx.fill();
+        ctx.lineWidth = 1.6; ctx.strokeStyle = C.text; ctx.stroke();
+      }
+    }
+    ctx.restore();
+    // range labels at the top and bottom (from 2×)
+    if (e.h >= 2 * ROW_H) {
+      const t = r.tgt || r.cur;
+      ctx.font = '9.5px ' + MONO; ctx.textBaseline = 'middle';
+      for (const [v, y] of [[t[1], top + 6], [t[0], bot - 6]]) {
+        const txt = D.fmtNumber(s, r.fmt, v), tw = ctx.measureText(txt).width + 8;
+        ctx.fillStyle = C.label; roundRect(ctx, x0 + 4, y - 6.5, tw, 13, 3); ctx.fill();
+        ctx.fillStyle = C.muted; ctx.fillText(txt, x0 + 8, y + 0.5);
+      }
+    }
+  }
+  // 1-bit rows: one column per pixel, a dense band where changes are closer than a pixel.
+  paintBit(s, e, vp, x0, ww) {
+    const ctx = this.ctx, top = e.y + PAD, bot = e.y + Math.min(e.h, ROW_H) - PAD, n = Math.floor(ww), dt = vp.width() / n, len = s.t.length;
+    const Y = v => v === 1 ? top : v === 0 ? bot : (top + bot) / 2;
+    let j = D.indexAt(s, vp.start), val = j >= 0 ? s.v[j] : null, runStart = 0, dense = -1;
+    const lines = [], highs = [], bands = [];
+    const run = (a, b) => { if (b <= a || j < 0 && val == null) return; lines.push([a, Y(val), b, Y(val)]); if (val === 1) highs.push([a, b]); };
+    for (let x = 0; x < n; x++) {
+      const t1 = vp.start + (x + 1) * dt; let k = 0, nv = val;
+      while (j + 1 < len && s.t[j + 1] < t1) { j++; k++; nv = s.v[j]; }
+      if (k >= 2) { if (dense < 0) { run(runStart, x); dense = x; } val = nv; continue; }
+      if (dense >= 0) { bands.push([dense, x]); dense = -1; runStart = x; }
+      if (k === 1) { run(runStart, x + 0.5); lines.push([x + 0.5, Y(val), x + 0.5, Y(nv)]); val = nv; runStart = x + 0.5; }
+    }
+    if (dense >= 0) bands.push([dense, n]); else run(runStart, n);
+    ctx.fillStyle = C.fill; for (const [a, b] of highs) ctx.fillRect(x0 + a, top, b - a, bot - top);
+    ctx.fillStyle = C.dense; for (const [a, b] of bands) ctx.fillRect(x0 + a, top, b - a, bot - top);
+    ctx.strokeStyle = C.signal; ctx.lineWidth = 1; ctx.beginPath();
+    for (const [a, ya, b, yb] of lines) { ctx.moveTo(x0 + a, Math.round(ya) + 0.5); ctx.lineTo(x0 + b, Math.round(yb) + 0.5); }
+    ctx.stroke();
+  }
+  // Vectors and text: hexagon segments with values, a band where segments are too narrow.
+  paintBus(s, fmt, e, vp, x0, ww) {
+    const ctx = this.ctx, top = e.y + PAD, bot = e.y + Math.min(e.h, ROW_H) - PAD, mid = (top + bot) / 2, len = s.t.length;
+    const X = t => x0 + vp.xOf(t, ww);
+    let i = Math.max(0, D.indexAt(s, vp.start)), da = null, db = 0;
+    ctx.font = '10.5px ' + MONO; ctx.textBaseline = 'middle';
+    const band = (a, b) => { ctx.fillStyle = C.dense; ctx.fillRect(a, top, Math.max(1, b - a), bot - top); };
+    for (; i < len && s.t[i] <= vp.end; i++) {
+      const xa = X(s.t[i]), xb = i + 1 < len ? X(s.t[i + 1]) : X(D.T_END);
+      if (xb - xa < 5) { if (da == null) da = xa; db = xb; continue; }
+      if (da != null) { band(da, Math.max(db, xa)); da = null; }
+      const raw = s.v[i]; if (s.kind === 'text' && raw == null) continue;
+      const col = raw == null ? C.undef : C.signal, sl = Math.min(3, (xb - xa) / 2);
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath();
+      ctx.moveTo(xa, mid); ctx.lineTo(xa + sl, top + 0.5); ctx.lineTo(xb - sl, top + 0.5); ctx.lineTo(xb, mid); ctx.lineTo(xb - sl, bot - 0.5); ctx.lineTo(xa + sl, bot - 0.5); ctx.closePath();
+      if (raw == null) { ctx.fillStyle = C.undefFill; ctx.fill(); }
+      ctx.stroke();
+      const txt = D.text(s, fmt, raw), lx = Math.max(xa + 6, x0 + 4), room = xb - lx - 6;
+      if (room > 12) {
+        ctx.fillStyle = raw == null ? C.undef : C.text;
+        let t = txt; if (ctx.measureText(t).width > room) { while (t.length > 1 && ctx.measureText(t + '…').width > room) t = t.slice(0, -1); t += '…'; }
+        if (t.length > 1 || txt.length === 1) ctx.fillText(t, lx, mid + 0.5);
+      }
+    }
+    if (da != null) band(da, db);
+  }
+}
+
+// ---- the page's figures: min/max columns against one sample per pixel
+function paintFigure(id, naive) {
+  const cv = document.getElementById(id), ctx = cv.getContext('2d'), W = cv.width, H = cv.height, s = D.byName('adc_in');
+  const [lo, hi] = D.traceRange(s, 'real'), top = 14, bot = H - 26;
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const zy = Math.round(bot - (0 - lo) / (hi - lo) * (bot - top)) + 0.5;
+  ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = C.zero; ctx.beginPath(); ctx.moveTo(0, zy); ctx.lineTo(W, zy); ctx.stroke(); ctx.restore();
+  paintAnalog(ctx, { s, fmt: 'real', style: 'linear', lo, hi, start: 0, end: D.T_END, x0: 0, w: W, top, bot, naive });
+  const gx = D.GLITCH_T / D.T_END * W, gy = bot - (D.GLITCH_V - lo) / (hi - lo) * (bot - top);
+  ctx.strokeStyle = 'rgba(224,179,94,.9)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(gx, gy, 6, 0, Math.PI * 2); ctx.stroke();
+  ctx.font = '10px ' + MONO; ctx.fillStyle = C.muted; ctx.textBaseline = 'middle';
+  ctx.fillText('glitch at 42.01 µs', gx + 10, gy + 1);
+  ctx.fillStyle = C.dim; ctx.fillText('0', 4, H - 10); ctx.textAlign = 'right'; ctx.fillText('100 µs', W - 4, H - 10); ctx.textAlign = 'center';
+  ctx.fillText(naive ? '480 of 10,000 samples' : '480 columns, first/min/max/last each', W / 2, H - 10); ctx.textAlign = 'left';
+}
+
+const demo = new Demo();
+const figures = () => { paintFigure('fig-m4', false); paintFigure('fig-naive', true); };
+(document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(() => { figures(); demo.invalidate(); });
+figures();
+document.getElementById('theme').addEventListener('click', () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+});
+// Hooks for docs/tests/analog-waves.test.mjs.
+const client = (x, y) => { const r = demo.body.getBoundingClientRect(); return { x: r.left + x, y: r.top + y }; };
+const entry = n => demo.layout().find(e => demo.sigOf(e.r).name === n);
+window.AW = {
+  demo,
+  state: () => ({
+    rows: demo.rows.map(r => ({ name: demo.sigOf(r).name, h: r.h, fmt: r.fmt, analog: r.analog ? r.analog.style : null, range: r.analog ? r.analog.range : null,
+      drawMode: r.analog ? r.drawMode : null, cur: r.cur && r.cur.slice(), tgt: r.tgt && r.tgt.slice(),
+      value: demo.cursor == null ? '' : D.text(demo.sigOf(r), r.fmt, D.rawAt(demo.sigOf(r), demo.cursor)) })),
+    selected: demo.selected().map(r => demo.sigOf(r).name), view: [demo.vpv().start, demo.vpv().end], cursor: demo.cursor,
+    animating: !!demo.animating || !!demo.vp.anim || !!demo.req, menu: !demo.menuEl.hidden, menuText: demo.menuEl.textContent, tip: demo.tip.hidden ? null : demo.tip.textContent,
+  }),
+  row: n => window.AW.state().rows.find(r => r.name === n),
+  namePoint(n) { const e = entry(n); return e && client(40, e.y + ROW_H / 2); },
+  badgePoint(n) { const e = entry(n); if (!e) return null; const b = demo.badgeRect(e); return client(b.x + b.w / 2, b.y + b.h / 2); },
+  edgePoint(n) { const e = entry(n); return e && client(40, e.y + e.h - 1); },
+  wavePoint(n, t) { const e = entry(n); return e && client(demo.x0() + demo.vpv().xOf(t, demo.ww()), e.y + e.h / 2); },
+  plotPoint(n, t) { const e = entry(n); if (!e || !e.r.cur) return null; const y = demo.plotY(e, t); return y == null ? null : client(demo.x0() + demo.vpv().xOf(t, demo.ww()), y); },
+  pixel(x, y) { const r = demo.body.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; return [...demo.ctx.getImageData(Math.round((x - r.left) * dpr), Math.round((y - r.top) * dpr), 1, 1).data]; },
+  // Brightest green-ish pixel in a small column around (x, y0..y1), client coordinates.
+  greenIn(x, y0, y1) {
+    const r = demo.body.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    const d = demo.ctx.getImageData(Math.round((x - r.left) * dpr) - 1, Math.round((y0 - r.top) * dpr), 3, Math.max(1, Math.round((y1 - y0) * dpr))).data;
+    let best = 0; for (let k = 0; k < d.length; k += 4) best = Math.max(best, d[k + 1] - (d[k] + d[k + 2]) / 2);
+    return best;
+  },
+};
+return window.AW;
+})();
+document.getElementById('selftest').textContent = AWD.selfTests().lines.join('\n');
+</script>
+</body>
+</html>
