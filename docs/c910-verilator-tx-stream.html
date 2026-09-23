@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C910 Pipeline Tracing</title>
+<meta name="description" content="Design proposal: record every instruction's pipeline lifecycle from Verilator into VTR beside the waveforms, with a reusable SystemVerilog tracer API; openC910 CoreMark as the proof of concept. Includes a demo on recorded C910 data.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f4f6f5;--paper:#fcfdfc;--ink:#18232a;--muted:#5a686e;--line:#d5ddda;--line-strong:#b9c4c0;
+  --accent:#1d7a66;--accent-ink:#135846;--soft:#e2f0eb;--new:#1d7a66;--changed:#a2660f;--exists:#5a686e;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+}}
+:root[data-theme="dark"]{
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:11px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+#theme{font:inherit;font-size:12px;background:none;border:1px solid var(--line-strong);color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer;flex:none}
+.wrap{max-width:1180px;margin:auto;padding-inline:16px}
+.prose{max-width:760px}
+section{padding-block:40px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(30px,4.4vw,46px);letter-spacing:-1.2px;line-height:1.1;font-weight:600;margin:0 0 16px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:25px;letter-spacing:-.5px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 8px}
+p{margin:0 0 14px}
+.lede{font-size:19px;color:var(--muted);max-width:720px}
+.meta{font-size:13.5px;color:var(--muted);max-width:760px}
+ul,ol{padding-left:22px}li{margin:6px 0}
+.rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
+.rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules b{display:block;font-size:17px;margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 13px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap;font-weight:500}
+.st{font-size:12px;font-weight:600;white-space:nowrap}
+.st.new{color:var(--new)}.st.changed{color:var(--changed)}.st.exists{color:var(--exists)}
+footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}
+footer ul{margin:6px 0 0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
+
+/* ---- demo steps ---- */
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.steps button{flex:1 1 170px}
+.steps button{font:inherit;font-size:14px;text-align:left;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.35}
+.steps button span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.steps button:hover{border-color:var(--accent)}
+.steps button.on{border-color:var(--accent);background:var(--soft)}
+.steps button.reset{flex:0 0 auto;align-self:stretch;text-align:center;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted);margin:10px 0 0}
+.legend i{display:inline-block;width:18px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+
+
+pre{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.5;margin:14px 0 18px}
+pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
+.diagram{margin:18px 0 8px;border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:10px;overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:640px;height:auto;font-family:"IBM Plex Sans",sans-serif}
+.dg-box rect{fill:var(--bg);stroke:var(--line-strong);stroke-width:1.2}
+.dg-box text{fill:var(--muted);font-size:12.5px;text-anchor:middle}
+.dg-box text.dg-t{fill:var(--ink);font-weight:600;font-size:14px}
+.dg-new rect{stroke:var(--new);stroke-width:1.6}
+.dg-changed rect{stroke:var(--changed);stroke-width:1.6}
+.dg-core rect{stroke:var(--ink);stroke-dasharray:4 3}
+.dg-edge path{fill:none;stroke:var(--muted);stroke-width:1.4}
+.dg-arrowhead{fill:var(--muted)}
+.dg-l{fill:var(--muted);font-size:11px;text-anchor:middle}
+.prose h3{margin-top:28px}
+
+/* ---- the mock: always dark, like Volna's One Dark chrome ---- */
+.pv{--b:#1b242a;--p:#1f2a31;--ln:#2c3a42;--mu:#8d9f99;--tx:#e2eae6;--ac:#4fc3a1;
+  border:1px solid var(--line-strong);border-radius:10px;background:var(--b);color:var(--tx);font-size:12px;overflow:hidden;margin:0;outline:none}
+.pv:focus-visible{border-color:var(--ac)}
+.pv-title{display:flex;align-items:center;gap:10px;padding:5px 10px;background:#151c21;border-bottom:1px solid var(--ln);color:var(--mu);font-size:11.5px;min-width:0}
+.pv-title b{color:var(--tx);font-weight:600;white-space:nowrap}
+.pv-title span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-title .dots{display:inline-flex;gap:6px;flex:none}
+.pv-title .dots i{width:10px;height:10px;border-radius:50%;background:#394954;display:inline-block}
+.pv-title .data{margin-left:auto;font-size:10.5px;color:#6f817a}
+.pv-work{display:flex;min-height:0}
+.pv-main{position:relative;flex:1;min-width:0}
+.pv-main canvas{display:block;width:100%;height:520px;cursor:default;touch-action:none}
+.pv-side{width:270px;flex:none;border-left:1px solid var(--ln);background:#161e23;padding:9px 11px;overflow:auto;height:520px;font-size:11.5px}
+.pv-side h4{margin:0 0 8px;font-size:11px;font-weight:600;color:#9fb1ab;text-transform:uppercase;letter-spacing:.6px}
+.pv-side .empty{color:#6f817a;margin:0}
+.pv-side .tt{font:600 13px/1.35 "IBM Plex Mono",monospace;color:var(--tx);margin:0 0 3px;overflow-wrap:anywhere}
+.pv-side .st{display:inline-block;font-size:10.5px;border-radius:3px;padding:0 6px;margin:2px 0 8px}
+.pv-side .st.ok{background:#1f3a31;color:#8fe0c6}.pv-side .st.aborted{background:#3d2226;color:#f19a9a}.pv-side .st.open{background:#3a3421;color:#e8cf86}
+.pv-side dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:0 0 10px}
+.pv-side dt{color:#7d8f89}.pv-side dd{margin:0;font-family:"IBM Plex Mono",monospace;overflow-wrap:anywhere}
+.pv-side table{font-size:11px;border:0;width:100%}
+.pv-side th,.pv-side td{padding:1px 4px;border:0;font-weight:400;white-space:nowrap}
+.pv-side th{color:#7d8f89;font-size:10.5px}
+.pv-side td:first-child{font-weight:600}
+.pv-side .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.pv-side .grp{margin:0 0 10px;color:#9fb1ab}
+.pv-side .grp div{font-family:"IBM Plex Mono",monospace;color:var(--tx);cursor:pointer}
+.pv-side .grp div:hover{color:var(--ac)}
+.pv-foot{display:flex;gap:16px;padding:4px 10px;border-top:1px solid var(--ln);background:#151c21;color:var(--mu);font-size:11px;white-space:nowrap;overflow:hidden}
+.pv-foot b{color:var(--tx);font-weight:500}
+.pv-tip{position:absolute;pointer-events:none;background:#0f1519;border:1px solid #3a4a53;border-radius:6px;padding:6px 8px;font-size:11px;line-height:1.45;color:var(--tx);max-width:260px;z-index:3;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.pv-tip b{font-family:"IBM Plex Mono",monospace;font-weight:600}
+.pv-tip span{color:#8d9f99}
+@media (max-width:820px){.pv-work{flex-direction:column}.pv-side{width:auto;height:auto;max-height:340px;border-left:0;border-top:1px solid var(--ln)}.pv-main canvas{height:460px}}
+#selftest{display:none}
+.prose pre{width:min(1148px,calc(100vw - 32px))}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">VTR <span>pipeline tracing</span></a>
+  <nav>
+    <a href="#demo">Demo</a><a href="#workflow">Workflow</a><a href="#rules">Design</a><a href="#architecture">Architecture</a><a href="#api">API</a><a href="#c910">C910</a><a href="#time">Time</a><a href="#verification">Verification</a><a href="#cost">Cost</a><a href="#alternatives">Alternatives</a><a href="#plan">Plan</a>
+  </nav>
+  <button id="theme" type="button" aria-label="Toggle light or dark page theme">Theme</button>
+</div></header>
+
+<main id="top">
+<section><div class="wrap">
+  <h1>Pipeline traces from <em>Verilator</em>, proven on the C910</h1>
+  <p class="lede">A small SystemVerilog tracer, attached to an unchanged design, records every instruction as a VTR transaction with its stages, identifiers and flushes. The Verilator fork writes those transactions into the file that already holds the waveforms and the simulation log. Volna's Pipeline and Waves panels then read one run on one timeline.</p>
+  <p class="meta">Proposal, 23 September 2026. The openC910 CoreMark workload is the proof of concept; nothing that runs inside a simulator exists yet. The only implemented piece is the offline replay that produced the demo below, <code>bench/workloads/c910/pipeline_replay.py</code>. The proposal builds on the VTR transaction writer (stages on lanes, status, relations), the fork's <code>--trace-vtr</code> backend and its log sink, and Volna's Pipeline panel. Related: <a href="pipeline-view.html">pipeline-view.html</a>, <a href="tx-detail.html">tx-detail.html</a>, <a href="VDB_APPNOTE.md">VDB_APPNOTE.md</a> §2, <a href="../integrations/verilator/README.md">integrations/verilator</a>.</p>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <h2>Try it</h2>
+  <p class="prose">The instructions below come from the real C910 run, not from a mock. They cover 150 cycles of the CoreMark matrix kernel, cycles 150,200 to 150,350 of the benchmark recording <code>c910_coremark.vtr</code>. The replay rebuilt them from 94 recorded probe signals, using the identity logic the proposed tracer will run inside the simulator. There are <span id="n-rows">322</span> rows: <span id="n-ok">207</span> instructions retire, <span id="n-ab">111</span> are wrong-path instructions killed by branch mispredictions, and <span id="n-open">4</span> are still in flight at the right edge. The wave rows at the bottom are the recorded flush and retire signals of the same cycles.</p>
+  <div class="steps" role="group" aria-label="Guided scenarios">
+    <button type="button" data-guide="steady">1 · Steady state<span>Three instructions per cycle, in order in, in order out</span></button>
+    <button type="button" data-guide="fold">2 · Folded ROB entry<span>Three instructions share one IID</span></button>
+    <button type="button" data-guide="load">3 · A load<span>AG, DC, DA, WB in the LSU pipe</span></button>
+    <button type="button" data-guide="flush">4 · Mispredict flush<span>The branch retires, then the ROB flushes</span></button>
+    <button type="button" data-guide="wrong">5 · Wrong path<span>Executed, never retired</span></button>
+    <button type="button" class="reset" data-guide="fit" aria-label="Fit the whole window">Fit</button>
+  </div>
+  <figure class="pv" id="pv" tabindex="0" aria-label="Pipeline panel mock with recorded C910 data">
+    <div class="pv-title"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><b>c910_coremark.vtr</b><span>x_ct_core · pipeline</span><span class="data">recorded signals, replayed identity</span></div>
+    <div class="pv-work">
+      <div class="pv-main" id="pvmain"><canvas id="cv" aria-label="Pipeline rows and waves"></canvas><div class="pv-tip" id="tip" hidden></div></div>
+      <aside class="pv-side" id="side" aria-live="polite"><h4>Transaction</h4><div id="txbody"><p class="empty">Click a row.</p></div></aside>
+    </div>
+    <div class="pv-foot" id="foot"></div>
+  </figure>
+  <div class="legend" id="legend"></div>
+  <p class="hint">Wheel scrolls rows, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms time, <kbd>Shift</kbd>+wheel pans time, drag pans. Click selects an instruction and places the cursor. <kbd>↑</kbd><kbd>↓</kbd> step through instructions, <kbd>←</kbd><kbd>→</kbd> move the cursor, <kbd>F</kbd> fits, <kbd>Esc</kbd> clears.</p>
+  <p class="prose">The mock draws in the style of Volna's Pipeline panel so the result is easy to picture. The data is what matters. Every stage boundary comes from a recorded register load, IIDs come from the ROB create ports, and each retired PC was compared with the core's own retire PC signal. The replay's known shortcuts are listed under <a href="#c910">the C910 proof of concept</a>.</p>
+</div></section>
+
+<section id="workflow"><div class="wrap"><div class="prose">
+  <h2>What a user does</h2>
+  <p>For the proof of concept, one extra switch on the existing capture script builds the C910 model with the tracer and runs one CoreMark iteration. The recording gains a <code>pipeline</code> stream under the core scope, next to the signals it was derived from:</p>
+<pre><code>bench/workloads/c910/capture.sh --pipeline
+# volna/volna/examples/c910_coremark.vtr: waves, simulation log and
+# TOP.top…x_ct_core.pipeline (kind PIPELINE, generator "instruction")</code></pre>
+  <p>In Volna, the stream appears in the scope tree with the pipeline icon and under View ▸ Pipeline. Opening it shows the panel above, linked to the Waves panel's time axis. Clicking an instruction selects it for the Transaction panel. <code>vtr tx</code> and the Rust and C readers see ordinary transactions.</p>
+  <p>Another project using the fork does three things. It writes a tracer module for its core; the <a href="#api">API section</a> shows a complete one for a five-stage pipeline. It adds one <code>bind</code> line. And it lists both files, plus the package that ships with the VTR C API, on its Verilator command line:</p>
+<pre><code>verilator --cc --exe --trace-vtr \
+    $VTR/core/vtr-capi/include/vtr_trace.sv \
+    my_core_tracer.sv my_core_bind.sv  &lt;design files&gt;  main.cpp</code></pre>
+  <p>The C++ harness does not change. The usual <code>VerilatedVtrC</code> <code>open()</code> attaches the tracer's calls to the same file. A run that only needs the pipeline opens the writer without registering the model's signals. The file then holds only transactions and log records, which suits runs of millions of cycles. Leaving the tracer files off the command line removes every trace of the feature from the model.</p>
+</div></div></section>
+
+<section id="rules"><div class="wrap">
+  <h2>Design in seven rules</h2>
+  <ol class="rules">
+    <li><b>One run, one file, one timeline.</b> Transactions go through the <code>vtr_writer</code> that already holds the waveforms and the <code>$display</code> log. Their times are simulation times in the file's unit, the same numbers the waves use, so linking the panels needs no conversion.</li>
+    <li><b>The design stays untouched.</b> A tracer is an ordinary SystemVerilog module whose inputs are probe signals. It is attached with <code>bind</code> to a module name, or instantiated from the testbench with hierarchical port expressions. Nothing in the RTL changes, and nothing is compiled unless the tracer files are listed.</li>
+    <li><b>Tracers describe hardware events; the library owns identity.</b> SystemVerilog code never sees a transaction id. It names instructions by the identifiers the hardware already has: a sequence number the tracer counts, a ROB index, a queue slot, a physical register. A keyed tracker in C++ maps those keys to open transactions and handles re-naming, folding, ordered flushes and reuse.</li>
+    <li><b>A call at a clock edge describes what that edge loads.</b> The tracer runs in <code>always @(posedge clk)</code> and sees pre-edge values, which are the load conditions of the pipeline registers. A stage therefore begins at the edge where its register is loaded, and a cell lines up exactly with the waveform of that register.</li>
+    <li><b>Record the wrong path.</b> Flushed instructions end with status <code>aborted</code> at the flush edge rather than disappearing. Anything still in flight when the file closes keeps status <code>open</code>. Wrong-path work is much of what a pipeline view is for.</li>
+    <li><b>Names in VTR, meaning in VDB.</b> The trace carries a <code>PIPELINE</code> stream, an <code>instruction</code> generator, the stage names of the core's own manual, and identifiers as attributes. Colours, stage roles, dependency anchors and hiding rules belong to a VDB profile. No format change is needed: every item already exists in SPEC §7.</li>
+    <li><b>Portable by construction, fastest on the fork.</b> The package uses only standard DPI-C, so the same tracer compiles in any simulator. There, a small standalone library writes its own VTR file. With the fork, the calls join the waveform file and cost a few direct function calls per instruction.</li>
+  </ol>
+</div></section>
+
+<section id="architecture"><div class="wrap">
+  <h2>Architecture</h2>
+  <p class="prose">Four layers separate the core-specific part from the reusable part. Only the tracer module knows the C910. The package and the tracker know pipelines but no particular core. The sink is the only simulator-specific part.</p>
+  <figure class="diagram" aria-label="Data flow from the design to Volna">
+  <svg viewBox="0 0 980 300" role="img" aria-labelledby="archt"><title id="archt">Probe signals flow from the unchanged design through the tracer module, the vtr_trace package and the keyed tracker into a sink and the VTR file.</title>
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="dg-arrowhead"/></marker></defs>
+    <g class="dg-box"><rect x="10" y="30" width="170" height="92" rx="8"/><text x="95" y="58" class="dg-t">Design RTL</text><text x="95" y="80">unchanged</text><text x="95" y="100">C910 · your core</text></g>
+    <g class="dg-box dg-core"><rect x="222" y="30" width="170" height="92" rx="8"/><text x="307" y="58" class="dg-t">Tracer module</text><text x="307" y="80">per core, SystemVerilog</text><text x="307" y="100">bind or testbench</text></g>
+    <g class="dg-box dg-new"><rect x="434" y="30" width="170" height="92" rx="8"/><text x="519" y="58" class="dg-t">vtr_trace.sv</text><text x="519" y="80">DPI-C package</text><text x="519" y="100">keys · stages · aborts</text></g>
+    <g class="dg-box dg-new"><rect x="646" y="30" width="170" height="92" rx="8"/><text x="731" y="58" class="dg-t">vtr_track.hpp</text><text x="731" y="80">keyed tracker</text><text x="731" y="100">over the C API</text></g>
+    <g class="dg-box dg-changed"><rect x="560" y="178" width="200" height="92" rx="8"/><text x="660" y="206" class="dg-t">Verilator fork sink</text><text x="660" y="228">VerilatedVtrC writer</text><text x="660" y="248">waves + log + tx</text></g>
+    <g class="dg-box dg-new"><rect x="780" y="178" width="190" height="92" rx="8"/><text x="875" y="206" class="dg-t">Standalone sink</text><text x="875" y="228">other simulators</text><text x="875" y="248">+vtr_trace=file.vtr</text></g>
+    <g class="dg-box"><rect x="300" y="178" width="200" height="92" rx="8"/><text x="400" y="206" class="dg-t">run.vtr</text><text x="400" y="228">PIPELINE stream</text><text x="400" y="248">beside the signals</text></g>
+    <g class="dg-box"><rect x="10" y="178" width="230" height="92" rx="8"/><text x="125" y="206" class="dg-t">Volna · vtr tx · readers</text><text x="125" y="228">Pipeline + Waves panels</text><text x="125" y="248">VDB profile: colours, roles</text></g>
+    <g class="dg-edge"><path d="M180 76H218" marker-end="url(#ah)"/><path d="M392 76H430" marker-end="url(#ah)"/><path d="M604 76H642" marker-end="url(#ah)"/><path d="M731 122V150H660V174" marker-end="url(#ah)"/><path d="M731 122V150H875V174" marker-end="url(#ah)"/><path d="M560 224H504" marker-end="url(#ah)"/><path d="M300 224H244" marker-end="url(#ah)"/></g>
+    <text x="199" y="68" class="dg-l">probes</text><text x="411" y="68" class="dg-l">events</text><text x="623" y="68" class="dg-l">keys</text>
+  </svg>
+  </figure>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Piece</th><th>Location</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><code>vtr_track.hpp</code></td><td>Header-only C++17 keyed lifecycle tracker over the C API: key spaces, groups, ordered aborts, buffered attributes, diagnostics. Also usable from SystemC and gem5 producers. <code>core/vtr-capi/include/</code>, beside <code>vtr_log.hpp</code>.</td><td><span class="st new">new</span></td></tr>
+      <tr><td><code>vtr_trace.sv</code>, <code>vtr_trace_dpi.hpp</code></td><td>The SystemVerilog projection of the tracker: a package of DPI-C imports and their implementation, parameterised by a sink. Also in <code>core/vtr-capi/include/</code>, which the fork already finds through <code>VTR_INCLUDE</code>.</td><td><span class="st new">new</span></td></tr>
+      <tr><td>Verilator sink</td><td><code>VerilatedVtr::open</code> registers its writer, time source and scope-path map for the calling context, as it registers the log sink today. <code>verilated.mk</code> compiles the DPI layer when <code>VM_TRACE_VTR=1</code>. <code>ext/verilator/include/verilated_vtr_c.{h,cpp}</code>, new <code>verilated_vtr_tx.cpp</code>.</td><td><span class="st changed">changed</span></td></tr>
+      <tr><td>Standalone sink</td><td>Opens <code>+vtr_trace=&lt;file&gt;</code> and reads time through <code>vpi_get_time</code>, for simulators other than the fork. <code>integrations/systemverilog/</code>.</td><td><span class="st new">new</span></td></tr>
+      <tr><td>Toy-core smoke test</td><td>An in-order and a small out-of-order toy core with known schedules, exact expected transactions, one and two threads. <code>integrations/verilator/pipeline/</code>.</td><td><span class="st new">new</span></td></tr>
+      <tr><td>C910 proof of concept</td><td>Tracer, bind file, disassembly label hook, <code>PIPELINE=1</code> model build, <code>capture.sh --pipeline</code>, the offline replay as a differential checker. <code>bench/workloads/c910/</code>.</td><td><span class="st new">new</span></td></tr>
+      <tr><td>Volna</td><td>Cycle quantum from stage boundaries; a palette for a dozen stage names; measured behaviour at half a million rows. <code>volna/volna-core/src/pipeline/</code>.</td><td><span class="st changed">changed</span></td></tr>
+      <tr><td>Documentation</td><td>A SPEC producer example "SystemVerilog pipeline tracers" (like the Verilator log example), a RATIONALE entry, and the Verilator integration guide.</td><td><span class="st changed">changed</span></td></tr>
+    </tbody>
+  </table></div>
+</div></section>
+
+<section id="api"><div class="wrap"><div class="prose">
+  <h2>The SystemVerilog API</h2>
+  <p>The package is deliberately small. Handles are small integers, keys are 64-bit values, and every call does nothing when no sink is attached, so a tracer needs no enable flag. All calls act at the current simulation time; the <code>_at</code> forms take a time returned earlier by <code>vtr_now()</code> for the few events a tracer can only date after the fact.</p>
+<pre><code>package vtr_trace;
+  typedef int unsigned     handle_t;             // tracker or key space; 0 = none
+  typedef longint unsigned key_t;                // a hardware identifier
+  localparam byte VTR_OK = 1, VTR_ERROR = 2, VTR_ABORTED = 3;
+
+  // Setup: a stream under the tracer's parent scope, one generator, key spaces.
+  import "DPI-C" function handle_t vtr_tracker(string scope, string stream, string kind, string generator);
+  import "DPI-C" function handle_t vtr_pipeline(string stream);  // kind PIPELINE, generator "instruction"
+  import "DPI-C" function handle_t vtr_keyspace(handle_t trk, string name);
+  import "DPI-C" function longint unsigned vtr_now();
+
+  // Lifecycle, addressed by (space, key). A key may name one item or a group.
+  import "DPI-C" function void vtr_open    (handle_t trk, handle_t sp, key_t k, string stage);
+  import "DPI-C" function void vtr_open_at (handle_t trk, handle_t sp, key_t k, string stage, longint unsigned t);
+  import "DPI-C" function void vtr_bind    (handle_t trk, handle_t sp, key_t k, handle_t to_sp, key_t to_k);
+  import "DPI-C" function int  vtr_bind_oldest(handle_t trk, handle_t sp, int n, handle_t to_sp, key_t to_k);
+  import "DPI-C" function void vtr_stage   (handle_t trk, handle_t sp, key_t k, string stage);
+  import "DPI-C" function void vtr_stage_at(handle_t trk, handle_t sp, key_t k, string stage, longint unsigned t);
+  import "DPI-C" function void vtr_lane    (handle_t trk, handle_t sp, key_t k, string lane, string stage);
+  import "DPI-C" function void vtr_event   (handle_t trk, handle_t sp, key_t k, string name);
+  import "DPI-C" function void vtr_attr_u64(handle_t trk, handle_t sp, key_t k, string key, longint unsigned v);
+  import "DPI-C" function void vtr_attr_str(handle_t trk, handle_t sp, key_t k, string key, string v);
+  import "DPI-C" function void vtr_label   (handle_t trk, handle_t sp, key_t k, string text);
+  import "DPI-C" function void vtr_close   (handle_t trk, handle_t sp, key_t k, byte status);
+
+  // Flushes, in the hardware's own terms.
+  import "DPI-C" function int  vtr_abort_younger(handle_t trk, handle_t sp, key_t k);  // opened after k
+  import "DPI-C" function int  vtr_abort_space  (handle_t trk, handle_t sp);           // everything named in sp
+  import "DPI-C" function int  vtr_abort_all    (handle_t trk);
+
+  // Links between items, also across trackers (an instruction and its bus request).
+  import "DPI-C" function void vtr_relate(string kind, handle_t ta, handle_t sa, key_t ka,
+                                                        handle_t tb, handle_t sb, key_t kb);
+  import "DPI-C" function void vtr_parent(handle_t ta, handle_t sa, key_t ka,
+                                           handle_t tb, handle_t sb, key_t kb);
+endpackage</code></pre>
+  <p>The semantics that make tracers short:</p>
+  <ol>
+    <li><strong>Key spaces are namespaces of hardware identifiers</strong>, such as <code>seq</code>, <code>iid</code>, <code>preg</code> or <code>lq</code>. Opening on a key that is still bound aborts the stale item and counts a diagnostic, which covers wrapped ROB indices and missed retirements.</li>
+    <li><strong><code>vtr_bind</code> gives an item a second name</strong>, for example when rename assigns a ROB index. <code>vtr_bind_oldest</code> moves the <i>n</i> oldest items of a space under one new key. This is how an in-order front end hands instructions to a ROB entry; with <i>n</i> &gt; 1, the entry is a folded group.</li>
+    <li><strong>Stage, attribute, event and close calls on a key apply to every item it names.</strong> A stage on the default lane closes the previous one, which is the Kanata rule VTR already implements. <code>vtr_lane</code> adds parallel lanes such as <code>stall</code> or <code>mem</code>.</li>
+    <li><strong>Aborts follow the hardware's flush rules.</strong> The options are <code>vtr_abort_younger</code> for everything opened after a key, <code>vtr_abort_space</code> for everything still named in a space (for example, not yet dispatched), and <code>vtr_abort_all</code>. Each returns how many items it ended.</li>
+    <li><strong>Attributes are buffered until close</strong>, so later values replace earlier ones. A partial PC seen at decode can be replaced by the full PC at retire without breaking the writer's unique-key rule.</li>
+    <li><strong>Diagnostics go into the file.</strong> Unknown keys, rebinds and oversized groups are counted per call site and written at close as warnings in the simulation log stream. A tracer bug then shows up in <code>vtr log</code> and in Volna's log view, not only on stderr.</li>
+  </ol>
+  <h3>A complete tracer for a five-stage core</h3>
+  <p>This is the whole reusable story in one screen. The ports are the core's pipeline register load enables. The tracer keeps a shadow of "which instruction is in which stage" as keys, and the hardware's squash rule becomes one call:</p>
+<pre><code>module rv5_vtr_tracer (
+  input logic        clk,
+  input logic        if_fire,  input logic [31:0] if_pc,  // fetch accepts a PC
+  input logic        id_load, ex_load, mem_load, wb_load,  // pipeline registers load an instruction
+  input logic        retire,   input logic [31:0] wb_insn,
+  input logic        squash                                // taken branch in EX kills IF and ID
+);
+  import vtr_trace::*;
+  handle_t p, sn;
+  key_t n = 0, k_f, k_d, k_x, k_m, k_w;                    // identity of each stage's occupant
+
+  initial begin
+    p  = vtr_pipeline("pipeline");
+    sn = vtr_keyspace(p, "sn");
+  end
+
+  always @(posedge clk) begin                              // oldest first
+    if (retire)   begin vtr_attr_u64(p, sn, k_w, "insn", wb_insn); vtr_close(p, sn, k_w, VTR_OK); end
+    if (wb_load)  begin vtr_stage(p, sn, k_m, "W"); k_w = k_m; end
+    if (mem_load) begin vtr_stage(p, sn, k_x, "M"); k_m = k_x; end
+    if (squash)   void'(vtr_abort_younger(p, sn, k_x));    // the branch itself survives
+    else begin
+      if (ex_load) begin vtr_stage(p, sn, k_d, "X"); k_x = k_d; end
+      if (id_load) begin vtr_stage(p, sn, k_f, "D"); k_d = k_f; end
+      if (if_fire) begin k_f = ++n; vtr_open(p, sn, k_f, "F"); vtr_attr_u64(p, sn, k_f, "pc", if_pc); end
+    end
+  end
+endmodule
+
+// rv5_bind.sv: port expressions resolve inside rv5_core, so the core is not edited.
+bind rv5_core rv5_vtr_tracer u_vtr (.clk, .if_fire(if_req &amp;&amp; if_gnt), .if_pc(if_addr),
+    .id_load(ifid_en &amp;&amp; ifid_vld_d), .ex_load(idex_en &amp;&amp; idex_vld_d), .mem_load(exmem_en &amp;&amp; exmem_vld_d),
+    .wb_load(memwb_en &amp;&amp; memwb_vld_d), .retire(wb_vld), .wb_insn(wb_insn), .squash(ex_taken));</code></pre>
+  <p>Verilator binds by module name, not by instance path, and resolves the port expressions in the target's scope. That is enough for a single core or for every instance of one core. A tracer that needs signals from several units, like the C910 one, is bound to the module that contains them all, or is instantiated from the testbench with absolute paths. The existing C910 testbench already reads core internals by hierarchical path for its retire counter.</p>
+</div></div></section>
+
+<section id="c910"><div class="wrap">
+  <h2>The C910 proof of concept</h2>
+  <div class="prose">
+  <p>The C910 is a hard first customer, which is why it is a good one. It decodes three instructions per cycle, renames and dispatches four, folds up to three instructions into one ROB entry, and runs eight execution pipes. It retires three ROB entries per cycle and flushes in two steps. Its identifiers change on the way. The front end is strictly in order and carries only bits 15:1 of the PC. The 7-bit IID (six index bits and a wrap bit) is assigned at dispatch. All IIDs restart from zero after every ROB flush (<code>ct_rtu_rob.v:4318</code>). The full PC only reappears at retire.</p>
+  <p>The tracer follows that chain with three key spaces. Decode opens each instruction under <code>fe</code>, a sequence number the tracer counts. Rename and issue move the oldest instructions along. ROB create port <i>k</i> calls <code>vtr_bind_oldest(fe, inst_num, iid, iid_k)</code>, so a folded entry becomes a group. The destination physical register gives each folded member its own name in <code>preg</code>, because the ALU pipes report that register rather than the IID alone. Retire closes the group. A branch cancel aborts the <code>fe</code> space; the ROB flush that follows when the branch retires aborts the <code>iid</code> space. IID reuse after a flush is therefore harmless, because every key is released first.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Stage</th><th>Probe signals (under <code>x_ct_core</code>)</th><th>Tracer action</th></tr></thead>
+    <tbody>
+      <tr><td><code>ID</code></td><td><code>x_ct_idu_id_ctrl.id_inst{0..2}_vld</code>, <code>ctrl_id_pipedown_stall</code>; <code>x_ct_idu_id_dp.id_inst{k}_data</code> (opcode [31:0], PC[15:1] at [63:49])</td><td>open under <code>fe</code>, attributes <code>insn</code>, partial <code>pc</code></td></tr>
+      <tr><td><code>IR</code></td><td><code>x_ct_idu_ir_ctrl.ctrl_id_pipedown_inst{0..3}_vld</code>, <code>ctrl_ir_stall</code>; <code>x_ct_idu_ir_dp.ir_inst{k}_data</code></td><td>stage; split instructions open extra uops (<code>uop</code> attribute)</td></tr>
+      <tr><td><code>IS</code></td><td><code>x_ct_idu_is_ctrl.ctrl_ir_pipedown_inst{0..3}_vld</code>, <code>ctrl_is_dis_stall</code></td><td>stage</td></tr>
+      <tr><td><code>IQ</code></td><td><code>idu_rtu_rob_create{0..3}_en</code>, <code>idu_rtu_rob_create{k}_data[18:17]</code> (instructions in the entry), <code>rtu_idu_rob_inst{k}_iid</code></td><td><code>vtr_bind_oldest(fe → iid)</code>, stage; attributes <code>iid</code>, <code>fold</code></td></tr>
+      <tr><td><code>RF</code></td><td><code>x_ct_idu_rf_ctrl.rf_pipe{0..7}_inst_vld</code>, <code>ctrl_rf_pipe{N}_lch_fail</code>, <code>idu_{iu,lsu,vfpu}_rf_pipe{N}_iid</code></td><td>stage; a launch failure is a <code>replay</code> event and a return to <code>IQ</code></td></tr>
+      <tr><td><code>EX</code> <code>BJ</code> <code>FX</code></td><td>pipes 0 and 1 (ALU, multiplier, divider), pipe 2 (branch unit), pipes 6 and 7 (floating point)</td><td>stage; attribute <code>pipe</code></td></tr>
+      <tr><td><code>AG DC DA WB</code></td><td><code>x_ct_lsu_{ld,st}_{ag,dc,da,wb}.{ld,st}_*_inst_vld</code>, <code>*_iid</code></td><td>stages of the load and store pipes</td></tr>
+      <tr><td><code>CM</code></td><td><code>iu_rtu_pipe{0,1,2}_cmplt</code>/<code>_iid</code>, <code>lsu_rtu_wb_pipe{3,4}_…</code>, <code>vfpu_rtu_pipe{6,7}_…</code></td><td>stage: complete, waiting in the ROB</td></tr>
+      <tr><td><code>RT</code></td><td><code>x_ct_rtu_rob_rt.retire_inst{0..2}_vld</code>, <code>_iid</code>, <code>retire_inst0_cur_pc</code>, <code>rob_retire_inst{1,2}_cur_pc</code></td><td>stage, full <code>pc</code>, <code>retire</code> order, close <code>ok</code></td></tr>
+      <tr><td>flush</td><td><code>iu_yy_xx_cancel</code>, <code>rtu_idu_flush_fe</code>; <code>x_ct_rtu_retire.retire_rob_flush</code></td><td><code>vtr_abort_space(fe)</code>; <code>vtr_abort_space(iid)</code></td></tr>
+      <tr><td><code>IF IP IB LB</code></td><td><code>x_ct_ifu_ifctrl.if_vld</code>, <code>x_ct_ifu_pcgen.pcgen_ifdp_pc</code>, <code>x_ct_ifu_ipctrl.ip_vld</code>, <code>ipctrl_ibctrl_vld</code>, <code>x_ct_ifu_ibctrl.{ibuf,lbuf,bypass}_inst_vld</code></td><td>phase 4: back-dated fetch-block stages, loop buffer</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>The heart of the C910 tracer is short, because the tracker does the bookkeeping:</p>
+<pre><code>always @(posedge clk) begin
+  // 1. Retire, oldest slot first. Each slot is one ROB entry of one to three instructions.
+  for (int k = 0; k &lt; 3; k++) if (rt_vld[k]) begin
+    vtr_stage_at(p, iid, rt_iid[k], "RT", t_prev);
+    vtr_close   (p, iid, rt_iid[k], VTR_OK);
+  end
+  // 2. Flushes: the ROB after the mispredicted branch has retired, the front end at the cancel.
+  if (retire_rob_flush)                 void'(vtr_abort_space(p, iid));
+  // 3. Dispatch: create port k names the next inst_num front-end instructions by their IID.
+  for (int k = 0; k &lt; 4; k++) if (create_en[k]) begin
+    void'(vtr_bind_oldest(p, fe, create_num[k], iid, create_iid[k]));
+    vtr_stage(p, iid, create_iid[k], "IQ");
+  end
+  if (iu_yy_xx_cancel || rtu_idu_flush_fe) void'(vtr_abort_space(p, fe));
+  // … RF, execute, complete, IS, IR and ID follow the same pattern …
+  t_prev = vtr_now();
+end</code></pre>
+  <h3>What the replay already proves</h3>
+  <p>To check the probe map before any simulator work, the identity logic was replayed offline over the benchmark recording. The replay, <code>bench/workloads/c910/pipeline_replay.py</code>, reads only the 94 probe signals through <code>vtr value</code> and <code>vtr changes</code> and runs exactly the rules above. Over 20,000 cycles of CoreMark (cycles 150,000 to 170,000) it produced these results:</p>
+  <ul>
+    <li><b>Instructions:</b> 36,851 retired from 21,200 ROB entries, of which 10,005 were folded groups. That is 1.84 instructions per cycle.</li>
+    <li><b>PCs:</b> the reconstructed PC of the first instruction of every entry matches the core's own <code>retire_inst{k}_cur_pc</code> in 21,200 of 21,200 cases.</li>
+    <li><b>Program order:</b> in retirement order, each PC follows the previous one sequentially 35,342 times and after a control-flow instruction 1,508 times. It breaks 0 times. This is the strongest check that fold groups and the front-end order are right.</li>
+    <li><b>Wrong path:</b> 1,669 instructions ended aborted.</li>
+    <li><b>Lifetimes:</b> the median decode-to-retire lifetime is 19 cycles (90th percentile 22). No stage ever starts before its predecessor.</li>
+    <li><b>Speed:</b> the replay takes 3 s in Python.</li>
+  </ul>
+  <p>The replay also shows what the tracer must do better. It matches folded members by program order instead of by destination register. As a result, about 2.5% of rows show no execute stage, and a member occasionally borrows its sibling's pipe cycle. Multiply and divide report ROB completion when they are selected, so their execute stage is one cycle; the real result time comes from the write-back ports keyed by physical register. The store-data pipe carries no IID and is not shown. Fetch stages and launch-failure replays are not reconstructed yet. Each of these has a probe in the table above and a place in the <a href="#plan">plan</a>.</p>
+  <h3>Hard cases and how they map</h3>
+  <p><b>Split instructions.</b> AMOs, <code>jal</code>/<code>jalr</code> with a link register and some T-Head loads and stores become several uops. Each uop has its own IID; only the last advances the PC. Each uop is its own row with a <code>uop</code> attribute and a <code>uop_of</code> relation to the first uop.</p>
+  <p><b>Stores after retire.</b> Stores commit at retire but drain later through the store queue and the write-merge buffer, which are keyed by entry index, not IID. They become <code>store</code> transactions on an LSU stream, with the instruction as parent. AXI transactions on a bus stream are parented to those in turn, which gives the instruction → memory request → bus beat chain the README asks for.</p>
+  <p><b>PCs.</b> Decode carries PC[15:1]. The tracer records it and replaces it at retire with the full PC: the entry PC plus the lengths of the members before it. Wrong-path rows keep the 16-bit value with <code>pc_partial</code> set. Labels such as <code>0x2c04 lh a6,0(t1)</code> come from a small vendored RISC-V disassembler behind a C++ hook in the proof of concept. Each label is interned once per static instruction, so the string table grows with code size rather than run length.</p>
+  </div>
+</div></section>
+
+<section id="time"><div class="wrap"><div class="prose">
+  <h2>Time, edges and cycles</h2>
+  <p>Verilator's DPI calls for time <i>t</i> run inside <code>eval()</code>, and <code>dump(t)</code> follows it. A tracer in <code>always @(posedge clk)</code> therefore sees the values that held during the cycle ending at <i>t</i>, the same values the waveform shows just before the edge. Those are the load enables of the next pipeline registers, so "stage begins now" is exact. When a tracer can only observe a registered valid, it records the stage with <code>vtr_stage_at(…, t_prev)</code>. The C910 retire slot is an example: it knows at edge <i>t</i> that the entry sat in the retire stage during the previous cycle.</p>
+  <p>In the C910 harness one clock period is two time units of 100 ps, and every stage boundary is an even number. Volna's Pipeline panel currently assumes one time unit per cycle. The fix belongs in Volna: take the greatest common divisor of stage-boundary spacings in the loaded track as its cycle quantum. The panel then snaps the cursor, labels the ruler and counts stage lengths in cycles. This needs no format change and no clock declaration from the tracer, and a multi-clock design simply gets a quantum per stream.</p>
+  <p>Transaction times are independent of signal time in the writer (SPEC §7). A back-dated stage costs nothing, and transactions reach the file when they end, in end order, as VTR already specifies.</p>
+</div></div></section>
+
+<section id="verification"><div class="wrap"><div class="prose">
+  <h2>Verification</h2>
+  <p>Every check is headless, runs in CI and fails on a missing prerequisite, as AGENTS.md requires.</p>
+  <ol>
+    <li><b>Tracker unit tests.</b> These are C++ tests in <code>core/vtr-capi/tests</code>, read back with the Rust reader. They cover folding, <code>bind_oldest</code> order, ordered aborts, stale-key diagnostics, attribute replacement and open items at close.</li>
+    <li><b>Fork regression.</b> <code>test_regress/t/t_trace_vtr_tx</code> checks that tracer calls land in the waveform file, on the waveform timeline, and in both thread modes.</li>
+    <li><b>Toy cores.</b> <code>integrations/verilator/pipeline/run.py</code> builds an in-order and a small out-of-order toy core with a deterministic program. It compares every recorded transaction, stage, status and time with an expected list.</li>
+    <li><b>C910 differential check.</b> A 20,000-cycle run with the tracer and the full dump must give, from the same file, identical stage lists from the live tracer and from the offline replay of the probe signals. The run must also satisfy the invariants above: retired PCs equal to the retire PC signals, unbroken program order, and zero diagnostics. The job installs <code>gcc-riscv64-unknown-elf</code> from Ubuntu and builds the model once.</li>
+    <li><b>Volna.</b> A headless test opens a small committed C910 pipeline example, then checks that the stream is recognised, that the quantum is two units, and that selection feeds the Transaction panel.</li>
+    <li><b>This page.</b> <code>node --test docs/tests/c910-verilator-tx-stream.test.mjs</code> drives the demo in headless Chrome, and a workflow runs it when the page changes.</li>
+  </ol>
+</div></div></section>
+
+<section id="cost"><div class="wrap"><div class="prose">
+  <h2>Cost</h2>
+  <p>These numbers are estimates from measured neighbours until phase 3 measures them. One CoreMark iteration is about 252,000 cycles. At the replay's 1.84 instructions per cycle, that is about 460,000 retired instructions plus about 20,000 on the wrong path, with around eight stages each. The synthetic <code>ooo_1m</code> benchmark stores a million instructions with 8 million stages and 9 million relations in 31.7 MiB and writes them in 2.9 s. So the C910 pipeline should add roughly 10 to 15 MiB beside 243 MiB of waveforms, and between one and two seconds of writer time. That is against 86 s for the traced run and 35.5 s untraced.</p>
+  <p>The tracer makes about 25 DPI calls per cycle. Each is a direct, non-context import in Verilator with 64-bit arguments and a hash lookup behind it.</p>
+  <p>The acceptance gates follow the benchmark rules: A/B against the previous commit, best of three, pinned to P-cores.</p>
+  <ul>
+    <li>A pipeline-only run must stay within 1.10× of the untraced model's wall time.</li>
+    <li>The full dump plus the pipeline must stay within 1.03× of the full dump alone.</li>
+    <li>File size, write time and read time are reported together in <code>docs/BENCHMARK_RESULTS.md</code>.</li>
+  </ul>
+</div></div></section>
+
+<section id="alternatives"><div class="wrap"><div class="prose">
+  <h2>Alternatives considered</h2>
+  <p><b>Native system tasks in the fork</b> (<code>$vtr_begin</code> and similar), lowered like <code>$display</code>. These could shave call overhead. But they need parser and AST work, produce Verilator-only source, and gain little, because a non-context DPI import with scalar arguments already compiles to a direct call. They are reconsidered only if the cost gate fails.</p>
+  <p><b>Extracting pipelines from waveforms after the run.</b> CVA6Flow rebuilds CVA6 pipelines from a VCD this way, and this proposal's replay does the same. It needs no rebuild and works on any simulator's FST. But it needs a full dump of every probe signal (243 MiB for one iteration), it cannot serve long pipeline-only runs, and every core still needs hand-written identity logic. It stays as a research and checking tool.</p>
+  <p><b>Host C++ sampling of public signals.</b> RSD and NaxRiscv do this. It needs no SystemVerilog, but <code>public</code> signals limit Verilator's optimisation, the code is Verilator-only, and it lives in each harness rather than beside the design.</p>
+  <p><b>A text log as an intermediate.</b> RSD, BOOM and gem5 use Kanata or O3PipeView text. That adds a conversion pass and loses typed attributes and alignment with the waves. VTR already imports both formats for existing tools.</p>
+  <p><b>A debug sequence number carried in the RTL.</b> BOOM's <code>fetch_seq</code>, XiangShan's <code>seqNum</code> and RSD's <code>sid</code> are the simplest identity, but they change the design. Key chaining reaches the same result from identifiers the hardware already has. A design that does carry such a number simply uses one key space.</p>
+  <p><b>Recording only retired instructions.</b> XiangShan's PerfCCT, NaxRiscv and CVA6 do this. It is cheaper, but it hides the wrong path, which is what a pipeline view is mostly for.</p>
+  <p><b>Questa's transaction tasks as the API.</b> <code>$create_transaction_stream</code>, <code>$begin_transaction</code> and <code>$add_relation</code> match VTR's stream, transaction and relation model, and the package mirrors it. They have no keys, stages or ordered aborts, however, which are exactly what pipeline tracers need.</p>
+</div></div></section>
+
+<section id="plan"><div class="wrap"><div class="prose">
+  <h2>Plan</h2>
+  <ol>
+    <li><b>Tracker and SystemVerilog binding.</b> <code>vtr_track.hpp</code>, <code>vtr_trace.sv</code> and <code>vtr_trace_dpi.hpp</code>, with the unit tests, the SPEC producer example and a RATIONALE entry. <i>Exit:</i> the unit tests pass.</li>
+    <li><b>Fork sink.</b> The context registration in <code>VerilatedVtr</code>, the <code>verilated.mk</code> plumbing, the fork regression test and the toy-core smoke test in one and two threads. <i>Exit:</i> the toy traces match exactly.</li>
+    <li><b>C910 from decode to retire.</b> The tracer and bind file, <code>PIPELINE=1</code>, <code>capture.sh --pipeline</code>, disassembly labels, <code>pipeline_replay.py</code> promoted to the differential checker, and the A/B benchmark. <i>Exit:</i> the differential check is identical on 20,000 cycles, the cost gates hold, and an example sits in <code>volna/volna/examples</code>.</li>
+    <li><b>Deeper C910.</b> Fetch stages and the loop buffer, a stall lane, member matching by physical register, split uops, replay and mispredict events, dependency relations from source registers, and LSU and AXI streams with parent links.</li>
+    <li><b>Volna and VDB.</b> The cycle quantum, a palette for a dozen stages, measured behaviour at half a million rows, and a <code>c910.pipeline</code> VDB profile with stage roles and colours.</li>
+    <li><b>Other simulators.</b> The standalone sink with VPI time. Its CI job runs through upstream Verilator with <code>--vpi</code>, so the portable path is tested without a commercial simulator.</li>
+  </ol>
+</div></div></section>
+</main>
+
+<footer><div class="wrap">
+  Sources: <code>core/vtr-capi/include/vtr.h</code> (transactions, stages, lanes, relations), <code>ext/verilator/include/verilated_vtr_c.cpp</code> (writer and log sink), <code>bench/workloads/c910/</code>, the openC910 RTL under <code>ext/pulp-c910/vendor/thead_openc910/C910_RTL_FACTORY/gen_rtl</code>, <code>docs/SPEC.md</code> §7, <code>docs/VDB_APPNOTE.md</code> §2, and <code>docs/BENCHMARK_RESULTS.md</code> (<code>ooo_1m</code>, <code>c910_coremark</code>).<br>
+  Prior art: <a href="https://github.com/rsd-devel/rsd">RSD</a> (Konata's reference core), XiangShan ChiselDB and PerfCCT, <a href="https://github.com/SpinalHDL/NaxRiscv">NaxRiscv</a> and VexiiRiscv, <a href="https://github.com/riscv-boom/riscv-boom/issues/477">BOOM O3PipeView</a>, the CVA6 and Ibex tracers, <a href="https://github.com/FaMAF-CVA6-Project/CVA6Flow">CVA6Flow</a>, Questa transaction recording (<a href="https://dvcon-proceedings.org/wp-content/uploads/transaction-recording-anywhere-anytime.pdf">DVCon paper</a>), UVM <code>uvm_tr_database</code>, SCV and <code>ext/LWTR4SC</code>, and the Kanata format in <code>ext/Konata/docs</code>.<br>
+  The demo data comes from <code>python3 bench/workloads/c910/pipeline_replay.py bench/results/latest/c910_coremark.vtr &lt;coremark.dis&gt; --from 300400 --to 300700 --demo-js data.js</code>; the page is self-contained. A built-in self-test checks its logic, and <code>node --test docs/tests/c910-verilator-tx-stream.test.mjs</code> drives it in headless Chrome.
+</div></footer>
+<pre id="selftest"></pre>
+
+<script>
+const DATA = {"cycle0":150200,"cycles":150,"stages":["ID","IR","IS","IQ","RF","EX","BJ","AG","DC","DA","WB","CM","RT"],"texts":["addiw a5,a5,1","sw t3,0(t1)","slli t4,a5,0x20","srli t5,t4,0x20","slli a3,t5,0x1","add t1,s2,a3","lh a6,0(t1)","slli t6,t5,0x2","add t0,s1,t6","mulw t2,a6,a4","sw t2,0(t0)","slli a7,a5,0x20","srli t3,a7,0x20","slli t6,t3,0x1","add t0,s2,t6","lh a3,0(t0)","slli t4,t3,0x2","add t5,s1,t4","mulw t1,a3,a4","sw t1,0(t5)","slli a6,a5,0x20","srli t2,a6,0x20","slli t4,t2,0x1","add t5,s2,t4","lh t6,0(t5)","slli a7,t2,0x2","add t3,s1,a7","mulw t0,t6,a4","sw t0,0(t3)","beq a2,a5,2cb8 <core_bench_matrix+0x324>","addiw a3,a0,1","addw a1,a1,s0","addw a2,a2,s0","beq s6,a0,2cc8 <core_bench_matrix+0x334>","mv a0,a3","j 2b28 <core_bench_matrix+0x194>","sub t5,a2,a1","andi t6,t5,7","mv a5,a1","beqz t6,2c6a <core_bench_matrix+0x2d6>","li a3,1","beq t6,a3,2c40 <core_bench_matrix+0x2ac>","mv a1,s0","li a6,0","li t3,0","li a5,0","li a0,0","li a7,0","sub t1,a1,a6","andi t2,t1,3","mv a2,a6","beqz t2,2d88 <core_bench_matrix+0x3f4>","li t4,1","beq t2,t4,2d52 <core_bench_matrix+0x3be>","slli t6,a2,0x20","mv t5,t3","srli t3,t6,0x1e","add t0,s1,t3","lw t3,0(t0)","slli a4,a0,0x30","srli a0,a4,0x30","addw a5,t3,a5","bge s3,a5,2eac <core_bench_matrix+0x518>","addiw a5,a0,10","slliw t4,a5,0x10","sraiw a0,t4,0x10","addiw a2,a2,1","beq a2,a1,2e52 <core_bench_matrix+0x4be>","slli t0,a2,0x20","srli t2,t0,0x1e","add t4,s1,t2","lw t1,0(t4)","srli t5,a4,0x30","addw t2,t1,a5","blt s3,t2,2e8a <core_bench_matrix+0x4f6>","addiw a5,t5,10","slliw a0,a5,0x10","sraiw t0,a0,0x10","li t2,0","j 2db8 <core_bench_matrix+0x424>","addiw t4,a2,1","slli a2,t4,0x20","srli a4,a2,0x1e","add t5,s1,a4","lw t3,0(t5)","slli a3,t0,0x30","srli a5,a3,0x30","addw t6,t3,t2","bge s3,t6,2e78 <core_bench_matrix+0x4e4>","addiw a2,a5,10","slliw a4,a2,0x10","sraiw t2,a4,0x10","li t6,0","addiw t4,t4,1","slli t5,t4,0x20","srli a3,t5,0x1e","add a5,s1,a3","lw t0,0(a5)","slli t1,t2,0x30","srli a0,t1,0x30","addw t6,t0,t6","bge s3,t6,2e9a <core_bench_matrix+0x506>","addiw t5,a0,10","slliw a3,t5,0x10","sraiw a4,a3,0x10","addiw a2,t4,1","slli t4,a2,0x20","srli a5,t4,0x1e","add t1,s1,a5","lw t3,0(t1)","addw a5,t3,t6","slli t6,a4,0x30","srli t2,t6,0x30","bge s3,a5,2e66 <core_bench_matrix+0x4d2>","addiw t5,t2,10","sraiw a0,a3,0x10","bne a2,a1,2d88 <core_bench_matrix+0x3f4>","addiw t5,a7,1","addw a1,s0,a2","addw a6,s0,a6","beq s6,a7,2ee2 <core_bench_matrix+0x54e>","mv a7,t5","j 2cd4 <core_bench_matrix+0x340>","li t5,2","beq t2,t5,2d20 <core_bench_matrix+0x38c>","mv t6,t3","slli t3,a6,0x20","srli t0,t3,0x1e","add a4,s1,t0","lw t3,0(a4)","slli a0,a0,0x30","srli a3,a0,0x30","bge s3,a5,2ed0 <core_bench_matrix+0x53c>","addiw a5,a3,10","slt t3,t3,t1","addw t6,t3,t5","slliw a3,t6,0x10","sraiw t0,a3,0x10"],"rows":[[409,11246,0,0,54,1,[[0,0,1],[1,1,3],[2,3,4],[3,4,5],[4,5,6],[5,6,7],[11,7,16],[12,16,17]]],[410,11248,1,0,55,1,[[0,0,1],[1,1,3],[2,3,4],[3,4,11],[4,11,12],[7,12,13],[8,13,14],[9,14,16],[11,16,17],[12,17,18]]],[411,11252,2,0,56,1,[[0,0,1],[1,1,3],[2,3,4],[3,4,8],[4,8,9],[5,9,10],[11,10,17],[12,17,18]]],[412,11256,3,0,57,3,[[0,1,3],[1,3,4],[2,4,5],[3,5,11],[4,11,12],[5,12,13],[11,13,17],[12,17,18]]],[413,11260,4,0,57,3,[[0,1,3],[1,3,4],[2,4,5],[3,5,12],[4,12,13],[5,13,14],[11,14,17],[12,17,18]]],[414,11264,5,0,57,3,[[0,1,3],[1,3,4],[2,4,5],[3,5,13],[4,13,14],[5,14,15],[11,15,17],[12,17,18]]],[415,11268,6,0,58,1,[[0,3,4],[1,4,5],[2,5,7],[3,7,14],[4,14,15],[7,15,16],[8,16,17],[9,17,18],[10,18,19],[11,19,19],[12,19,20]]],[416,11272,7,0,59,2,[[0,3,4],[1,4,5],[2,5,7],[3,7,12],[4,12,13],[5,13,14],[11,14,19],[12,19,20]]],[417,11276,8,0,59,2,[[0,3,4],[1,4,5],[2,5,7],[3,7,13],[4,13,14],[5,14,15],[11,15,19],[12,19,20]]],[418,11280,9,0,60,2,[[0,4,5],[1,5,7],[2,7,8],[3,8,14],[4,14,15],[5,15,16],[11,16,19],[12,19,20]]],[419,11284,0,0,60,2,[[0,4,5],[1,5,7],[2,7,8],[3,8,17],[4,17,18],[5,18,19],[11,19,19],[12,19,20]]],[420,11286,10,0,61,1,[[0,4,5],[1,5,7],[2,7,8],[3,8,14],[4,14,15],[7,15,16],[8,16,17],[9,17,19],[11,19,20],[12,20,21]]],[421,11290,11,0,62,3,[[0,5,7],[1,7,8],[2,8,10],[3,10,15],[4,15,16],[5,16,17],[11,17,21],[12,21,22]]],[422,11294,12,0,62,3,[[0,5,7],[1,7,8],[2,8,10],[3,10,18],[4,18,19],[5,19,20],[11,20,21],[12,21,22]]],[423,11298,13,0,62,3,[[0,5,7],[1,7,8],[2,8,10],[3,10,19],[4,19,20],[5,20,21],[11,21,21],[12,21,22]]],[424,11302,14,0,63,1,[[0,7,8],[1,8,10],[2,10,11],[3,11,20],[4,20,21],[5,21,22],[11,22,22],[12,22,23]]],[425,11306,15,0,64,1,[[0,7,8],[1,8,10],[2,10,11],[3,11,21],[4,21,22],[7,22,23],[8,23,24],[9,24,25],[10,25,26],[11,26,26],[12,26,27]]],[426,11310,16,0,65,1,[[0,7,8],[1,8,10],[2,10,11],[3,11,20],[4,20,21],[5,21,22],[11,22,26],[12,26,27]]],[427,11314,17,0,66,3,[[0,8,10],[1,10,11],[2,11,13],[3,13,16],[4,16,17],[5,17,18],[11,18,26],[12,26,27]]],[428,11318,18,0,66,3,[[0,8,10],[1,10,11],[2,11,13],[3,13,21],[4,21,22],[5,22,23],[11,23,26],[12,26,27]]],[429,11322,0,0,66,3,[[0,8,10],[1,10,11],[2,11,13],[3,13,24],[4,24,25],[5,25,26],[11,26,26],[12,26,27]]],[430,11324,19,0,67,1,[[0,10,11],[1,11,13],[2,13,14],[3,14,22],[4,22,23],[7,23,24],[8,24,25],[9,25,27],[11,27,27],[12,27,28]]],[431,11328,20,0,68,2,[[0,10,11],[1,11,13],[2,13,14],[3,14,17],[4,17,18],[5,18,19],[11,19,27],[12,27,28]]],[432,11332,21,0,68,2,[[0,10,11],[1,11,13],[2,13,14],[3,14,21],[4,21,22],[5,22,23],[11,23,27],[12,27,28]]],[433,11336,22,0,69,2,[[0,11,13],[1,13,14],[2,14,15],[3,15,22],[4,22,23],[5,23,24],[11,24,27],[12,27,28]]],[434,11340,23,0,69,2,[[0,11,13],[1,13,14],[2,14,15],[3,15,23],[4,23,24],[5,24,25],[11,25,27],[12,27,28]]],[435,11344,24,0,70,1,[[0,11,13],[1,13,14],[2,14,15],[3,15,24],[4,24,25],[7,25,26],[8,26,27],[9,27,28],[10,28,29],[11,29,29],[12,29,30]]],[436,11348,25,0,71,3,[[0,13,14],[1,14,15],[2,15,17],[3,17,23],[4,23,24],[5,24,25],[11,25,29],[12,29,30]]],[437,11352,26,0,71,3,[[0,13,14],[1,14,15],[2,15,17],[3,17,24],[4,24,24],[5,24,26],[11,26,29],[12,29,30]]],[438,11356,27,0,71,3,[[0,13,14],[1,14,15],[2,15,17],[3,17,27],[4,27,28],[5,28,29],[11,29,29],[12,29,30]]],[439,11360,0,0,72,1,[[0,14,15],[1,15,17],[2,17,18],[3,18,25],[4,25,26],[5,26,27],[11,27,29],[12,29,30]]],[440,11362,28,0,73,1,[[0,14,15],[1,15,17],[2,17,18],[3,18,25],[4,25,26],[7,26,27],[8,27,28],[9,28,30],[11,30,30],[12,30,31]]],[441,11366,29,0,74,1,[[0,14,15],[1,15,17],[2,17,18],[3,18,26],[4,26,27],[6,27,29],[11,29,30],[12,30,31]]],[442,11448,30,0,75,3,[[0,15,17],[1,17,18],[2,18,21],[3,21,22],[4,22,23],[5,23,24],[11,24,30],[12,30,31]]],[443,11452,31,0,75,3,[[0,15,17],[1,17,18],[2,18,21],[3,21,26],[4,26,27],[5,27,28],[11,28,30],[12,30,31]]],[444,11454,32,0,75,3,[[0,15,17],[1,17,18],[2,18,21],[3,21,27],[4,27,27],[5,27,29],[11,29,30],[12,30,31]]],[445,11456,33,0,76,1,[[0,17,18],[1,18,21],[2,21,22],[3,22,23],[4,23,24],[6,24,26],[11,26,31],[12,31,32]]],[446,11460,34,1,77,1,[[0,17,18],[1,18,21],[2,21,22],[3,22,28],[4,28,29],[5,29,30],[11,30,32]]],[447,11462,35,1,78,1,[[0,17,18],[1,18,21],[2,21,22],[3,22,24],[4,24,25],[6,25,27],[11,27,32]]],[448,11048,36,1,79,3,[[0,18,21],[1,21,22],[2,22,23],[3,23,28],[4,28,29],[5,29,30],[11,30,32]]],[449,11052,37,1,79,3,[[0,18,21],[1,21,22],[2,22,23],[3,23,29],[4,29,30],[5,30,31],[11,31,32]]],[450,11056,38,1,79,3,[[0,18,21],[1,21,22],[2,22,23],[3,23,30],[4,30,31],[5,31,32]]],[451,11058,39,1,80,1,[[0,21,22],[1,22,23],[2,23,24],[3,24,31],[4,31,32]]],[452,11062,40,1,81,1,[[0,21,22],[1,22,23],[2,23,24],[3,24,25],[4,25,26],[5,26,27],[11,27,32]]],[453,11064,41,1,82,1,[[0,21,22],[1,22,23],[2,23,24],[3,24,32]]],[454,11328,20,1,83,3,[[0,22,23],[1,23,24],[2,24,25],[3,25,31],[4,31,32]]],[455,11332,21,1,83,3,[[0,22,23],[1,23,24],[2,24,25],[3,25,32]]],[456,11336,22,1,83,3,[[0,22,23],[1,23,24],[2,24,25],[3,25,32]]],[457,11340,23,1,84,1,[[0,23,24],[1,24,25],[2,25,26],[3,26,32]]],[458,11344,24,1,85,1,[[0,23,24],[1,24,25],[2,25,26],[3,26,32]]],[459,11348,25,1,86,1,[[0,23,24],[1,24,25],[2,25,26],[3,26,32]]],[460,11352,26,1,-1,1,[[0,24,25],[1,25,26]]],[461,11356,27,1,-1,1,[[0,24,25],[1,25,26]]],[462,11360,0,1,-1,1,[[0,24,25],[1,25,26]]],[463,11362,28,1,-1,1,[[0,25,26]]],[464,11366,29,1,-1,1,[[0,25,26]]],[465,11370,20,1,-1,1,[[0,25,26]]],[466,11464,42,0,0,3,[[0,29,30],[1,30,37],[2,37,38],[3,38,39],[4,39,39],[5,39,40],[11,40,41],[12,41,42]]],[467,11466,43,0,0,3,[[0,29,30],[1,30,37],[2,37,38],[3,38,40],[11,40,41],[12,41,42]]],[468,11468,44,0,0,3,[[0,29,30],[1,30,37],[2,37,38],[3,38,41],[11,41,41],[12,41,42]]],[469,11470,45,0,1,3,[[0,30,37],[1,37,38],[2,38,39],[3,39,40],[4,40,41],[11,41,43],[12,43,44]]],[470,11472,46,0,1,3,[[0,30,37],[1,37,38],[2,38,39],[3,39,41],[4,41,41],[5,41,42],[11,42,43],[12,43,44]]],[471,11474,47,0,1,3,[[0,30,37],[1,37,38],[2,38,39],[3,39,43],[11,43,43],[12,43,44]]],[472,11476,48,0,2,3,[[0,37,38],[1,38,39],[2,39,40],[3,40,42],[4,42,43],[5,43,44],[11,44,45],[12,45,46]]],[473,11480,49,0,2,3,[[0,37,38],[1,38,39],[2,39,40],[3,40,43],[4,43,43],[5,43,45],[11,45,45],[12,45,46]]],[474,11484,50,0,2,3,[[0,37,38],[1,38,39],[2,39,40],[3,40,43],[4,43,44],[5,44,45],[11,45,45],[12,45,46]]],[475,11486,51,0,3,1,[[0,38,39],[1,39,40],[2,40,41],[3,41,44],[4,44,45],[6,45,47],[11,47,47],[12,47,48]]],[476,11490,52,0,4,1,[[0,38,39],[1,39,40],[2,40,41],[3,41,42],[4,42,43],[5,43,44],[11,44,47],[12,47,48]]],[477,11492,53,0,5,1,[[0,38,39],[1,39,40],[2,40,41],[3,41,45],[4,45,46],[6,46,48],[11,48,48],[12,48,49]]],[478,11602,54,0,6,3,[[0,39,40],[1,40,41],[2,41,42],[3,42,44],[4,44,45],[5,45,46],[11,46,48],[12,48,49]]],[479,11606,55,0,6,3,[[0,39,40],[1,40,41],[2,41,42],[3,42,45],[4,45,46],[5,46,47],[11,47,48],[12,48,49]]],[480,11608,56,0,6,3,[[0,39,40],[1,40,41],[2,41,42],[3,42,45],[4,45,45],[5,45,47],[11,47,48],[12,48,49]]],[481,11612,57,0,7,1,[[0,40,41],[1,41,42],[2,42,43],[3,43,46],[4,46,47],[5,47,48],[11,48,48],[12,48,49]]],[482,11616,58,0,8,1,[[0,40,41],[1,41,42],[2,42,43],[3,43,47],[4,47,48],[7,48,49],[8,49,50],[9,50,51],[10,51,52],[11,52,52],[12,52,53]]],[483,11620,59,0,9,1,[[0,40,41],[1,41,42],[2,42,43],[3,43,46],[4,46,47],[5,47,48],[11,48,52],[12,52,53]]],[484,11624,60,0,10,2,[[0,41,42],[1,42,43],[2,43,44],[3,44,47],[4,47,48],[5,48,49],[11,49,52],[12,52,53]]],[485,11628,61,0,10,2,[[0,41,42],[1,42,43],[2,43,44],[3,44,50],[4,50,51],[5,51,52],[11,52,52],[12,52,53]]],[486,11632,62,0,11,1,[[0,41,42],[1,42,43],[2,43,44],[3,44,51],[4,51,52],[6,52,54],[11,54,54],[12,54,55]]],[487,11636,63,0,12,3,[[0,42,43],[1,43,44],[2,44,45],[3,45,48],[4,48,49],[5,49,50],[11,50,54],[12,54,55]]],[488,11640,64,0,12,3,[[0,42,43],[1,43,44],[2,44,45],[3,45,49],[4,49,50],[5,50,51],[11,51,54],[12,54,55]]],[489,11644,65,0,12,3,[[0,42,43],[1,43,44],[2,44,45],[3,45,50],[4,50,51],[5,51,52],[11,52,54],[12,54,55]]],[490,11648,45,0,13,2,[[0,43,44],[1,44,45],[2,45,46],[3,46,47],[4,47,48],[5,48,49],[11,49,54],[12,54,55]]],[491,11650,66,0,13,2,[[0,43,44],[1,44,45],[2,45,46],[3,46,49],[4,49,50],[5,50,51],[11,51,54],[12,54,55]]],[492,11652,67,0,14,1,[[0,43,44],[1,44,45],[2,45,46],[3,46,48],[4,48,49],[6,49,51],[11,51,55],[12,55,56]]],[493,11656,68,0,15,3,[[0,44,45],[1,45,46],[2,46,47],[3,47,51],[4,51,52],[5,52,53],[11,53,55],[12,55,56]]],[494,11660,69,0,15,3,[[0,44,45],[1,45,46],[2,46,47],[3,47,52],[4,52,53],[5,53,54],[11,54,55],[12,55,56]]],[495,11664,70,0,15,3,[[0,44,45],[1,45,46],[2,46,47],[3,47,53],[4,53,54],[5,54,55],[11,55,55],[12,55,56]]],[496,11668,71,0,16,1,[[0,45,46],[1,46,47],[2,47,48],[3,48,54],[4,54,55],[7,55,56],[8,56,57],[9,57,58],[10,58,59],[11,59,59],[12,59,60]]],[497,11672,59,0,17,2,[[0,45,46],[1,46,47],[2,47,48],[3,48,52],[4,52,53],[5,53,54],[11,54,59],[12,59,60]]],[498,11676,72,0,17,2,[[0,45,46],[1,46,47],[2,47,48],[3,48,53],[4,53,54],[5,54,55],[11,55,59],[12,59,60]]],[499,11680,73,0,18,1,[[0,46,47],[1,47,48],[2,48,49],[3,49,57],[4,57,58],[5,58,59],[11,59,59],[12,59,60]]],[500,11684,74,0,19,1,[[0,46,47],[1,47,48],[2,48,49],[3,49,58],[4,58,59],[6,59,61],[11,61,61],[12,61,62]]],[501,11914,75,0,20,1,[[0,46,47],[1,47,48],[2,48,49],[3,49,54],[4,54,55],[5,55,56],[11,56,61],[12,61,62]]],[502,11918,76,0,21,3,[[0,47,48],[1,48,49],[2,49,50],[3,50,54],[4,54,55],[5,55,56],[11,56,61],[12,61,62]]],[503,11922,77,0,21,3,[[0,47,48],[1,48,49],[2,49,50],[3,50,55],[4,55,56],[5,56,57],[11,57,61],[12,61,62]]],[504,11926,78,0,21,3,[[0,47,48],[1,48,49],[2,49,50],[3,50,56],[4,56,56],[5,56,58],[11,58,61],[12,61,62]]],[505,11928,79,0,22,1,[[0,48,49],[1,49,50],[2,50,51],[3,51,52],[4,52,53],[6,53,55],[11,55,62],[12,62,63]]],[506,11704,80,0,23,2,[[0,48,49],[1,49,50],[2,50,51],[3,51,55],[4,55,56],[5,56,57],[11,57,62],[12,62,63]]],[507,11708,81,0,23,2,[[0,48,49],[1,49,50],[2,50,51],[3,51,58],[4,58,59],[5,59,60],[11,60,62],[12,62,63]]],[508,11712,82,0,24,2,[[0,49,50],[1,50,51],[2,51,52],[3,52,59],[4,59,60],[5,60,61],[11,61,62],[12,62,63]]],[509,11716,83,0,24,2,[[0,49,50],[1,50,51],[2,51,52],[3,52,60],[4,60,61],[5,61,62],[11,62,62],[12,62,63]]],[510,11720,84,0,25,1,[[0,49,50],[1,50,51],[2,51,52],[3,52,61],[4,61,62],[7,62,63],[8,63,64],[9,64,65],[10,65,66],[11,66,66],[12,66,67]]],[511,11724,85,0,26,3,[[0,50,51],[1,51,52],[2,52,54],[3,54,57],[4,57,58],[5,58,59],[11,59,66],[12,66,67]]],[512,11728,86,0,26,3,[[0,50,51],[1,51,52],[2,52,54],[3,54,59],[4,59,60],[5,60,61],[11,61,66],[12,66,67]]],[513,11732,87,0,26,3,[[0,50,51],[1,51,52],[2,52,54],[3,54,64],[4,64,65],[5,65,66],[11,66,66],[12,66,67]]],[514,11736,88,0,27,1,[[0,51,52],[1,52,54],[2,54,55],[3,55,65],[4,65,66],[6,66,68],[11,68,68],[12,68,69]]],[515,11740,89,0,28,2,[[0,51,52],[1,52,54],[2,54,55],[3,55,60],[4,60,61],[5,61,62],[11,62,68],[12,68,69]]],[516,11744,90,0,28,2,[[0,51,52],[1,52,54],[2,54,55],[3,55,61],[4,61,62],[5,62,63],[11,63,68],[12,68,69]]],[517,11748,91,0,29,3,[[0,52,54],[1,54,55],[2,55,56],[3,56,58],[4,58,59],[5,59,60],[11,60,68],[12,68,69]]],[518,11752,92,0,29,3,[[0,52,54],[1,54,55],[2,55,56],[3,56,62],[4,62,63],[5,63,64],[11,64,68],[12,68,69]]],[519,11754,93,0,29,3,[[0,52,54],[1,54,55],[2,55,56],[3,56,62],[4,62,63],[5,63,64],[11,64,68],[12,68,69]]],[520,11756,94,0,30,3,[[0,54,55],[1,55,56],[2,56,57],[3,57,61],[4,61,62],[5,62,63],[11,63,69],[12,69,70]]],[521,11760,95,0,30,3,[[0,54,55],[1,55,56],[2,56,57],[3,57,63],[4,63,64],[5,64,65],[11,65,69],[12,69,70]]],[522,11764,96,0,30,3,[[0,54,55],[1,55,56],[2,56,57],[3,57,65],[4,65,66],[5,66,67],[11,67,69],[12,69,70]]],[523,11768,97,0,31,1,[[0,55,56],[1,56,57],[2,57,59],[3,59,66],[4,66,67],[7,67,68],[8,68,69],[9,69,70],[10,70,71],[11,71,71],[12,71,72]]],[524,11772,98,0,32,2,[[0,55,56],[1,56,57],[2,57,59],[3,59,63],[4,63,64],[5,64,65],[11,65,71],[12,71,72]]],[525,11776,99,0,32,2,[[0,55,56],[1,56,57],[2,57,59],[3,59,64],[4,64,65],[5,65,66],[11,66,71],[12,71,72]]],[526,11780,100,0,33,1,[[0,56,57],[1,57,59],[2,59,60],[3,60,69],[4,69,70],[5,70,71],[11,71,71],[12,71,72]]],[527,11784,101,0,34,1,[[0,56,57],[1,57,59],[2,59,60],[3,60,70],[4,70,71],[6,71,73],[11,73,73],[12,73,74]]],[528,11788,102,0,35,1,[[0,56,57],[1,57,59],[2,59,60],[3,60,65],[4,65,66],[5,66,67],[11,67,73],[12,73,74]]],[529,11792,103,0,36,3,[[0,57,59],[1,59,60],[2,60,62],[3,62,66],[4,66,67],[5,67,68],[11,68,73],[12,73,74]]],[530,11796,104,0,36,3,[[0,57,59],[1,59,60],[2,60,62],[3,62,67],[4,67,67],[5,67,69],[11,69,73],[12,73,74]]],[531,11800,92,0,36,3,[[0,57,59],[1,59,60],[2,60,62],[3,62,67],[4,67,68],[5,68,69],[11,69,73],[12,73,74]]],[532,11802,105,0,37,3,[[0,59,60],[1,60,62],[2,62,64],[3,64,68],[4,68,69],[5,69,70],[11,70,74],[12,74,75]]],[533,11806,106,0,37,3,[[0,59,60],[1,60,62],[2,62,64],[3,64,69],[4,69,70],[5,70,71],[11,71,74],[12,74,75]]],[534,11810,107,0,37,3,[[0,59,60],[1,60,62],[2,62,64],[3,64,70],[4,70,71],[5,71,72],[11,72,74],[12,74,75]]],[535,11814,108,0,38,1,[[0,60,62],[1,62,64],[2,64,65],[3,65,71],[4,71,72],[5,72,73],[11,73,74],[12,74,75]]],[536,11818,109,0,39,1,[[0,60,62],[1,62,64],[2,64,65],[3,65,72],[4,72,73],[7,73,74],[8,74,75],[9,75,76],[10,76,77],[11,77,77],[12,77,78]]],[537,11822,110,0,40,1,[[0,60,62],[1,62,64],[2,64,65],[3,65,75],[4,75,76],[5,76,77],[11,77,77],[12,77,78]]],[538,11826,111,0,41,2,[[0,62,64],[1,64,65],[2,65,66],[3,66,68],[4,68,69],[5,69,70],[11,70,77],[12,77,78]]],[539,11830,112,0,41,2,[[0,62,64],[1,64,65],[2,65,66],[3,66,70],[4,70,71],[5,71,72],[11,72,77],[12,77,78]]],[540,11834,113,0,42,1,[[0,62,64],[1,64,65],[2,65,66],[3,66,76],[4,76,77],[6,77,79],[11,79,79],[12,79,80]]],[541,11838,114,0,43,3,[[0,64,65],[1,65,66],[2,66,67],[3,67,71],[4,71,72],[5,72,73],[11,73,79],[12,79,80]]],[542,11842,103,0,43,3,[[0,64,65],[1,65,66],[2,66,67],[3,67,72],[4,72,72],[5,72,74],[11,74,79],[12,79,80]]],[543,11846,66,0,43,3,[[0,64,65],[1,65,66],[2,66,67],[3,67,72],[4,72,73],[5,73,74],[11,74,79],[12,79,80]]],[544,11848,115,0,44,2,[[0,65,66],[1,66,67],[2,67,68],[3,68,73],[4,73,74],[5,74,75],[11,75,79],[12,79,80]]],[545,11852,45,0,44,2,[[0,65,66],[1,66,67],[2,67,68],[3,68,73],[4,73,74],[5,74,75],[11,75,79],[12,79,80]]],[546,11854,116,0,45,1,[[0,65,66],[1,66,67],[2,67,68],[3,68,73],[4,73,74],[6,74,76],[11,76,80],[12,80,81]]],[547,11858,117,1,46,3,[[0,66,67],[1,67,68],[2,68,69],[3,69,74],[4,74,75],[5,75,76],[11,76,81]]],[548,11862,118,1,46,3,[[0,66,67],[1,67,68],[2,68,69],[3,69,74],[4,74,75],[5,75,76],[11,76,81]]],[549,11866,119,1,46,3,[[0,66,67],[1,67,68],[2,68,69],[3,69,75],[4,75,75],[5,75,77],[11,77,81]]],[550,11870,120,1,47,1,[[0,67,68],[1,68,69],[2,69,70],[3,70,71],[4,71,72],[6,72,74],[11,74,81]]],[551,11874,121,1,48,1,[[0,67,68],[1,68,69],[2,69,70],[3,70,76],[4,76,77],[5,77,78],[11,78,81]]],[552,11876,122,1,49,1,[[0,67,68],[1,68,69],[2,69,70],[3,70,72],[4,72,73],[6,73,75],[11,75,81]]],[553,11476,48,1,50,3,[[0,68,69],[1,69,70],[2,70,72],[3,72,77],[4,77,78],[5,78,79],[11,79,81]]],[554,11480,49,1,50,3,[[0,68,69],[1,69,70],[2,70,72],[3,72,78],[4,78,78],[5,78,80],[11,80,81]]],[555,11484,50,1,50,3,[[0,68,69],[1,69,70],[2,70,72],[3,72,78],[4,78,79],[5,79,80],[11,80,81]]],[556,11486,51,1,51,1,[[0,69,70],[1,70,72],[2,72,73],[3,73,79],[4,79,80],[6,80,81]]],[557,11490,52,1,52,1,[[0,69,70],[1,70,72],[2,72,73],[3,73,79],[4,79,80],[5,80,81]]],[558,11492,53,1,53,1,[[0,69,70],[1,70,72],[2,72,73],[3,73,80],[4,80,81]]],[559,11496,123,1,54,1,[[0,70,72],[1,72,73],[2,73,74],[3,74,76],[4,76,77],[5,77,78],[11,78,81]]],[560,11498,124,1,55,1,[[0,70,72],[1,72,73],[2,73,74],[3,74,81]]],[561,11502,125,1,56,1,[[0,70,72],[1,72,73],[2,73,74],[3,74,77],[4,77,78],[5,78,79],[11,79,81]]],[562,11504,126,1,57,3,[[0,72,73],[1,73,74],[2,74,75],[3,75,79],[4,79,80],[5,80,81]]],[563,11508,127,1,57,3,[[0,72,73],[1,73,74],[2,74,75],[3,75,80],[4,80,80],[5,80,81]]],[564,11512,128,1,57,3,[[0,72,73],[1,73,74],[2,74,75],[3,75,81]]],[565,11516,129,1,58,1,[[0,73,74],[1,74,75],[2,75,76],[3,76,81]]],[566,11520,130,1,59,2,[[0,73,74],[1,74,75],[2,75,76],[3,76,80],[4,80,81]]],[567,11522,131,1,59,2,[[0,73,74],[1,74,75],[2,75,76],[3,76,81]]],[568,11526,61,1,-1,1,[[0,74,75],[1,75,76]]],[569,11530,132,1,-1,1,[[0,74,75],[1,75,76]]],[570,11534,133,1,-1,1,[[0,74,75],[1,75,76]]],[571,11538,64,1,-1,1,[[0,75,76]]],[572,11542,65,1,-1,1,[[0,75,76]]],[573,11546,45,1,-1,1,[[0,75,76]]],[574,11656,68,0,0,2,[[0,79,80],[1,80,84],[2,84,85],[3,85,86],[4,86,87],[11,87,88],[12,88,89]]],[575,11660,69,0,0,2,[[0,79,80],[1,80,84],[2,84,85],[3,85,88],[11,88,88],[12,88,89]]],[576,11664,70,0,1,1,[[0,80,84],[1,84,85],[2,85,86],[3,86,87],[4,87,88],[5,88,89],[11,89,89],[12,89,90]]],[577,11668,71,0,2,1,[[0,80,84],[1,84,85],[2,85,86],[3,86,88],[4,88,89],[7,89,90],[8,90,91],[9,91,92],[10,92,93],[11,93,93],[12,93,94]]],[578,11672,59,0,3,1,[[0,80,84],[1,84,85],[2,85,86],[3,86,87],[4,87,88],[5,88,89],[11,89,93],[12,93,94]]],[579,11676,72,0,4,2,[[0,84,85],[1,85,86],[2,86,87],[3,87,88],[4,88,89],[5,89,90],[11,90,93],[12,93,94]]],[580,11680,73,0,4,2,[[0,84,85],[1,85,86],[2,86,87],[3,87,91],[4,91,92],[5,92,93],[11,93,93],[12,93,94]]],[581,11684,74,0,5,1,[[0,84,85],[1,85,86],[2,86,87],[3,87,92],[4,92,93],[6,93,95],[11,95,95],[12,95,96]]],[582,11688,134,1,6,3,[[0,85,86],[1,86,87],[2,87,88],[3,88,91],[4,91,92],[5,92,93],[11,93,96]]],[583,11692,135,1,6,3,[[0,85,86],[1,86,87],[2,87,88],[3,88,92],[4,92,93],[5,93,94],[11,94,96]]],[584,11696,136,1,6,3,[[0,85,86],[1,86,87],[2,87,88],[3,88,93],[4,93,94],[5,94,95],[11,95,96]]],[585,11700,137,1,7,3,[[0,86,87],[1,87,88],[2,88,89],[3,89,90],[4,90,91],[5,91,92],[11,92,96]]],[586,11704,80,1,7,3,[[0,86,87],[1,87,88],[2,88,89],[3,89,92],[4,92,93],[5,93,94],[11,94,96]]],[587,11708,81,1,7,3,[[0,86,87],[1,87,88],[2,88,89],[3,89,94],[4,94,95],[5,95,96]]],[588,11712,82,1,8,2,[[0,87,88],[1,88,89],[2,89,90],[3,90,95],[4,95,96]]],[589,11716,83,1,8,2,[[0,87,88],[1,88,89],[2,89,90],[3,90,96]]],[590,11720,84,1,9,1,[[0,87,88],[1,88,89],[2,89,90],[3,90,96]]],[591,11724,85,1,10,3,[[0,88,89],[1,89,90],[2,90,91],[3,91,96]]],[592,11728,86,1,10,3,[[0,88,89],[1,89,90],[2,90,91],[3,91,96]]],[593,11732,87,1,10,3,[[0,88,89],[1,89,90],[2,90,91],[3,91,96]]],[594,11736,88,1,11,1,[[0,89,90],[1,90,91],[2,91,92],[3,92,96]]],[595,11740,89,1,12,2,[[0,89,90],[1,90,91],[2,91,92],[3,92,96]]],[596,11744,90,1,12,2,[[0,89,90],[1,90,91],[2,91,92],[3,92,96]]],[597,11748,91,1,13,3,[[0,90,91],[1,91,92],[2,92,93],[3,93,94],[4,94,95],[5,95,96]]],[598,11752,92,1,13,3,[[0,90,91],[1,91,92],[2,92,93],[3,93,96]]],[599,11754,93,1,13,3,[[0,90,91],[1,91,92],[2,92,93],[3,93,96]]],[600,11756,94,1,14,3,[[0,91,92],[1,92,93],[2,93,94],[3,94,96]]],[601,11760,95,1,14,3,[[0,91,92],[1,92,93],[2,93,94],[3,94,96]]],[602,11764,96,1,14,3,[[0,91,92],[1,92,93],[2,93,94],[3,94,96]]],[603,11768,97,1,-1,1,[[0,92,93],[1,93,94],[2,94,95]]],[604,11772,98,1,-1,1,[[0,92,93],[1,93,94],[2,94,95]]],[605,11776,99,1,-1,1,[[0,92,93],[1,93,94],[2,94,95]]],[606,11780,100,1,-1,1,[[0,93,94],[1,94,95]]],[607,11784,101,1,-1,1,[[0,93,94],[1,94,95]]],[608,11788,102,1,-1,1,[[0,93,94],[1,94,95]]],[609,11792,103,1,-1,1,[[0,94,95]]],[610,11796,104,1,-1,1,[[0,94,95]]],[611,11800,92,1,-1,1,[[0,94,95]]],[612,11914,75,0,0,1,[[0,98,99],[1,99,100],[2,100,101],[3,101,103],[11,103,103],[12,103,104]]],[613,11918,76,0,1,3,[[0,99,100],[1,100,101],[2,101,102],[3,102,103],[4,103,104],[5,104,105],[11,105,106],[12,106,107]]],[614,11922,77,0,1,3,[[0,99,100],[1,100,101],[2,101,102],[3,102,104],[4,104,104],[5,104,106],[11,106,106],[12,106,107]]],[615,11926,78,0,1,3,[[0,99,100],[1,100,101],[2,101,102],[3,102,104],[4,104,105],[5,105,106],[11,106,106],[12,106,107]]],[616,11928,79,0,2,1,[[0,100,101],[1,101,102],[2,102,103],[3,103,106],[11,106,106],[12,106,107]]],[617,11704,80,0,3,2,[[0,100,101],[1,101,102],[2,102,103],[3,103,105],[4,105,106],[5,106,107],[11,107,108],[12,108,109]]],[618,11708,81,0,3,2,[[0,100,101],[1,101,102],[2,102,103],[3,103,106],[4,106,107],[5,107,108],[11,108,108],[12,108,109]]],[619,11712,82,0,4,2,[[0,101,102],[1,102,103],[2,103,104],[3,104,107],[4,107,108],[5,108,109],[11,109,110],[12,110,111]]],[620,11716,83,0,4,2,[[0,101,102],[1,102,103],[2,103,104],[3,104,108],[4,108,109],[5,109,110],[11,110,110],[12,110,111]]],[621,11720,84,0,5,1,[[0,101,102],[1,102,103],[2,103,104],[3,104,109],[4,109,110],[7,110,111],[8,111,112],[9,112,113],[10,113,114],[11,114,114],[12,114,115]]],[622,11724,85,0,6,3,[[0,102,103],[1,103,104],[2,104,105],[3,105,106],[4,106,107],[5,107,108],[11,108,114],[12,114,115]]],[623,11728,86,0,6,3,[[0,102,103],[1,103,104],[2,104,105],[3,105,107],[4,107,108],[5,108,109],[11,109,114],[12,114,115]]],[624,11732,87,0,6,3,[[0,102,103],[1,103,104],[2,104,105],[3,105,112],[4,112,113],[5,113,114],[11,114,114],[12,114,115]]],[625,11736,88,0,7,1,[[0,103,104],[1,104,105],[2,105,106],[3,106,113],[4,113,114],[6,114,116],[11,116,116],[12,116,117]]],[626,11740,89,0,8,2,[[0,103,104],[1,104,105],[2,105,106],[3,106,108],[4,108,109],[5,109,110],[11,110,116],[12,116,117]]],[627,11744,90,0,8,2,[[0,103,104],[1,104,105],[2,105,106],[3,106,109],[4,109,110],[5,110,111],[11,111,116],[12,116,117]]],[628,11748,91,0,9,3,[[0,104,105],[1,105,106],[2,106,107],[3,107,109],[4,109,110],[5,110,111],[11,111,116],[12,116,117]]],[629,11752,92,0,9,3,[[0,104,105],[1,105,106],[2,106,107],[3,107,110],[4,110,110],[5,110,112],[11,112,116],[12,116,117]]],[630,11754,93,0,9,3,[[0,104,105],[1,105,106],[2,106,107],[3,107,110],[4,110,111],[5,111,112],[11,112,116],[12,116,117]]],[631,11756,94,0,10,3,[[0,105,106],[1,106,107],[2,107,108],[3,108,111],[4,111,112],[5,112,113],[11,113,117],[12,117,118]]],[632,11760,95,0,10,3,[[0,105,106],[1,106,107],[2,107,108],[3,108,112],[4,112,113],[5,113,114],[11,114,117],[12,117,118]]],[633,11764,96,0,10,3,[[0,105,106],[1,106,107],[2,107,108],[3,108,113],[4,113,114],[5,114,115],[11,115,117],[12,117,118]]],[634,11768,97,0,11,1,[[0,106,107],[1,107,108],[2,108,109],[3,109,114],[4,114,115],[7,115,116],[8,116,117],[9,117,118],[10,118,119],[11,119,119],[12,119,120]]],[635,11772,98,0,12,2,[[0,106,107],[1,107,108],[2,108,109],[3,109,114],[4,114,115],[5,115,116],[11,116,119],[12,119,120]]],[636,11776,99,0,12,2,[[0,106,107],[1,107,108],[2,108,109],[3,109,115],[4,115,116],[5,116,117],[11,117,119],[12,119,120]]],[637,11780,100,0,13,1,[[0,107,108],[1,108,109],[2,109,110],[3,110,117],[4,117,118],[5,118,119],[11,119,119],[12,119,120]]],[638,11784,101,0,14,1,[[0,107,108],[1,108,109],[2,109,110],[3,110,118],[4,118,119],[6,119,121],[11,121,121],[12,121,122]]],[639,11788,102,0,15,1,[[0,107,108],[1,108,109],[2,109,110],[3,110,116],[4,116,117],[5,117,118],[11,118,121],[12,121,122]]],[640,11792,103,0,16,3,[[0,108,109],[1,109,110],[2,110,111],[3,111,115],[4,115,116],[5,116,117],[11,117,121],[12,121,122]]],[641,11796,104,0,16,3,[[0,108,109],[1,109,110],[2,110,111],[3,111,118],[4,118,119],[5,119,120],[11,120,121],[12,121,122]]],[642,11800,92,0,16,3,[[0,108,109],[1,109,110],[2,110,111],[3,111,119],[4,119,119],[5,119,121],[11,121,121],[12,121,122]]],[643,11802,105,0,17,3,[[0,109,110],[1,110,111],[2,111,112],[3,112,116],[4,116,117],[5,117,118],[11,118,123],[12,123,124]]],[644,11806,106,0,17,3,[[0,109,110],[1,110,111],[2,111,112],[3,112,120],[4,120,121],[5,121,122],[11,122,123],[12,123,124]]],[645,11810,107,0,17,3,[[0,109,110],[1,110,111],[2,111,112],[3,112,121],[4,121,122],[5,122,123],[11,123,123],[12,123,124]]],[646,11814,108,0,18,1,[[0,110,111],[1,111,112],[2,112,113],[3,113,122],[4,122,123],[5,123,124],[11,124,124],[12,124,125]]],[647,11818,109,0,19,1,[[0,110,111],[1,111,112],[2,112,113],[3,113,123],[4,123,124],[7,124,125],[8,125,126],[9,126,127],[10,127,128],[11,128,128],[12,128,129]]],[648,11822,110,0,20,1,[[0,110,111],[1,111,112],[2,112,113],[3,113,126],[4,126,127],[5,127,128],[11,128,128],[12,128,129]]],[649,11826,111,0,21,2,[[0,111,112],[1,112,113],[2,113,114],[3,114,120],[4,120,121],[5,121,122],[11,122,128],[12,128,129]]],[650,11830,112,0,21,2,[[0,111,112],[1,112,113],[2,113,114],[3,114,121],[4,121,122],[5,122,123],[11,123,128],[12,128,129]]],[651,11834,113,0,22,1,[[0,111,112],[1,112,113],[2,113,114],[3,114,127],[4,127,128],[6,128,130],[11,130,130],[12,130,131]]],[652,11838,114,0,23,3,[[0,112,113],[1,113,114],[2,114,117],[3,117,118],[4,118,119],[5,119,120],[11,120,130],[12,130,131]]],[653,11842,103,0,23,3,[[0,112,113],[1,113,114],[2,114,117],[3,117,123],[4,123,124],[5,124,125],[11,125,130],[12,130,131]]],[654,11846,66,0,23,3,[[0,112,113],[1,113,114],[2,114,117],[3,117,124],[4,124,125],[5,125,126],[11,126,130],[12,130,131]]],[655,11848,115,0,24,2,[[0,113,114],[1,114,117],[2,117,118],[3,118,122],[4,122,123],[5,123,124],[11,124,130],[12,130,131]]],[656,11852,45,0,24,2,[[0,113,114],[1,114,117],[2,117,118],[3,118,125],[4,125,126],[5,126,127],[11,127,130],[12,130,131]]],[657,11854,116,0,25,1,[[0,113,114],[1,114,117],[2,117,118],[3,118,119],[4,119,120],[6,120,122],[11,122,131],[12,131,132]]],[658,11858,117,0,26,3,[[0,114,117],[1,117,118],[2,118,119],[3,119,123],[4,123,124],[5,124,125],[11,125,131],[12,131,132]]],[659,11862,118,0,26,3,[[0,114,117],[1,117,118],[2,118,119],[3,119,124],[4,124,125],[5,125,126],[11,126,131],[12,131,132]]],[660,11866,119,0,26,3,[[0,114,117],[1,117,118],[2,118,119],[3,119,126],[4,126,127],[5,127,128],[11,128,131],[12,131,132]]],[661,11870,120,0,27,1,[[0,117,118],[1,118,119],[2,119,120],[3,120,121],[4,121,122],[6,122,124],[11,124,131],[12,131,132]]],[662,11874,121,0,28,1,[[0,117,118],[1,118,119],[2,119,120],[3,120,127],[4,127,128],[5,128,129],[11,129,132],[12,132,133]]],[663,11876,122,0,29,1,[[0,117,118],[1,118,119],[2,119,120],[3,120,122],[4,122,123],[6,123,125],[11,125,132],[12,132,133]]],[664,11476,48,0,30,3,[[0,118,119],[1,119,120],[2,120,123],[3,123,128],[4,128,129],[5,129,130],[11,130,132],[12,132,133]]],[665,11480,49,0,30,3,[[0,118,119],[1,119,120],[2,120,123],[3,123,129],[4,129,129],[5,129,131],[11,131,132],[12,132,133]]],[666,11484,50,0,30,3,[[0,118,119],[1,119,120],[2,120,123],[3,123,129],[4,129,130],[5,130,131],[11,131,132],[12,132,133]]],[667,11486,51,0,31,1,[[0,119,120],[1,120,123],[2,123,124],[3,124,130],[4,130,131],[6,131,133],[11,133,133],[12,133,134]]],[668,11490,52,0,32,1,[[0,119,120],[1,120,123],[2,123,124],[3,124,125],[4,125,126],[5,126,127],[11,127,133],[12,133,134]]],[669,11492,53,0,33,1,[[0,119,120],[1,120,123],[2,123,124],[3,124,131],[4,131,132],[6,132,134],[11,134,134],[12,134,135]]],[670,11602,54,0,34,3,[[0,120,123],[1,123,124],[2,124,125],[3,125,127],[4,127,128],[5,128,129],[11,129,134],[12,134,135]]],[671,11606,55,0,34,3,[[0,120,123],[1,123,124],[2,124,125],[3,125,130],[4,130,131],[5,131,132],[11,132,134],[12,134,135]]],[672,11608,56,0,34,3,[[0,120,123],[1,123,124],[2,124,125],[3,125,131],[4,131,132],[5,132,133],[11,133,134],[12,134,135]]],[673,11612,57,0,35,1,[[0,123,124],[1,124,125],[2,125,126],[3,126,132],[4,132,133],[5,133,134],[11,134,134],[12,134,135]]],[674,11616,58,0,36,1,[[0,123,124],[1,124,125],[2,125,126],[3,126,133],[4,133,134],[7,134,135],[8,135,136],[9,136,137],[10,137,138],[11,138,138],[12,138,139]]],[675,11620,59,0,37,1,[[0,123,124],[1,124,125],[2,125,126],[3,126,128],[4,128,129],[5,129,130],[11,130,138],[12,138,139]]],[676,11624,60,0,38,2,[[0,124,125],[1,125,126],[2,126,127],[3,127,130],[4,130,131],[5,131,132],[11,132,138],[12,138,139]]],[677,11628,61,0,38,2,[[0,124,125],[1,125,126],[2,126,127],[3,127,136],[4,136,137],[5,137,138],[11,138,138],[12,138,139]]],[678,11632,62,0,39,1,[[0,124,125],[1,125,126],[2,126,127],[3,127,137],[4,137,138],[6,138,140],[11,140,140],[12,140,141]]],[679,11636,63,0,40,3,[[0,125,126],[1,126,127],[2,127,128],[3,128,132],[4,132,133],[5,133,134],[11,134,140],[12,140,141]]],[680,11640,64,0,40,3,[[0,125,126],[1,126,127],[2,127,128],[3,128,133],[4,133,134],[5,134,135],[11,135,140],[12,140,141]]],[681,11644,65,0,40,3,[[0,125,126],[1,126,127],[2,127,128],[3,128,134],[4,134,135],[5,135,136],[11,136,140],[12,140,141]]],[682,11648,45,0,41,2,[[0,126,127],[1,127,128],[2,128,129],[3,129,131],[4,131,132],[5,132,133],[11,133,140],[12,140,141]]],[683,11650,66,0,41,2,[[0,126,127],[1,127,128],[2,128,129],[3,129,133],[4,133,134],[5,134,135],[11,135,140],[12,140,141]]],[684,11652,67,0,42,1,[[0,126,127],[1,127,128],[2,128,129],[3,129,132],[4,132,133],[6,133,135],[11,135,141],[12,141,142]]],[685,11656,68,0,43,3,[[0,127,128],[1,128,129],[2,129,130],[3,130,135],[4,135,136],[5,136,137],[11,137,141],[12,141,142]]],[686,11660,69,0,43,3,[[0,127,128],[1,128,129],[2,129,130],[3,130,137],[4,137,138],[5,138,139],[11,139,141],[12,141,142]]],[687,11664,70,0,43,3,[[0,127,128],[1,128,129],[2,129,130],[3,130,138],[4,138,139],[5,139,140],[11,140,141],[12,141,142]]],[688,11668,71,0,44,1,[[0,128,129],[1,129,130],[2,130,131],[3,131,139],[4,139,140],[7,140,141],[8,141,142],[9,142,143],[10,143,144],[11,144,144],[12,144,145]]],[689,11672,59,0,45,2,[[0,128,129],[1,129,130],[2,130,131],[3,131,136],[4,136,137],[5,137,138],[11,138,144],[12,144,145]]],[690,11676,72,0,45,2,[[0,128,129],[1,129,130],[2,130,131],[3,131,138],[4,138,139],[5,139,140],[11,140,144],[12,144,145]]],[691,11680,73,0,46,1,[[0,129,130],[1,130,131],[2,131,132],[3,132,142],[4,142,143],[5,143,144],[11,144,144],[12,144,145]]],[692,11684,74,0,47,1,[[0,129,130],[1,130,131],[2,131,132],[3,132,143],[4,143,144],[6,144,146],[11,146,146],[12,146,147]]],[693,11688,134,1,48,1,[[0,129,130],[1,130,131],[2,131,132],[3,132,142],[4,142,143],[5,143,144],[11,144,147]]],[694,11692,135,1,49,3,[[0,130,131],[1,131,132],[2,132,134],[3,134,143],[4,143,144],[5,144,145],[11,145,147]]],[695,11696,136,1,49,3,[[0,130,131],[1,131,132],[2,132,134],[3,134,144],[4,144,145],[5,145,146],[11,146,147]]],[696,11700,137,1,49,3,[[0,130,131],[1,131,132],[2,132,134],[3,134,145],[4,145,146],[5,146,147]]],[697,11704,80,1,50,3,[[0,131,132],[1,132,134],[2,134,136],[3,136,137],[4,137,138],[5,138,139],[11,139,147]]],[698,11708,81,1,50,3,[[0,131,132],[1,132,134],[2,134,136],[3,136,139],[4,139,140],[5,140,141],[11,141,147]]],[699,11712,82,1,50,3,[[0,131,132],[1,132,134],[2,134,136],[3,136,140],[4,140,141],[5,141,142],[11,142,147]]],[700,11716,83,1,51,1,[[0,132,134],[1,134,136],[2,136,137],[3,137,141],[4,141,142],[5,142,143],[11,143,147]]],[701,11720,84,1,52,1,[[0,132,134],[1,134,136],[2,136,137],[3,137,142],[4,142,143],[7,143,144],[8,144,145],[9,145,146],[10,146,147]]],[702,11724,85,1,53,1,[[0,132,134],[1,134,136],[2,136,137],[3,137,146],[4,146,147]]],[703,11728,86,1,54,2,[[0,134,136],[1,136,137],[2,137,138],[3,138,145],[4,145,146],[5,146,147]]],[704,11732,87,1,54,2,[[0,134,136],[1,136,137],[2,137,138],[3,138,147]]],[705,11736,88,1,55,1,[[0,134,136],[1,136,137],[2,137,138],[3,138,146],[4,146,147]]],[706,11740,89,1,56,3,[[0,136,137],[1,137,138],[2,138,140],[3,140,147]]],[707,11744,90,1,56,3,[[0,136,137],[1,137,138],[2,138,140],[3,140,147]]],[708,11748,91,1,56,3,[[0,136,137],[1,137,138],[2,138,140],[3,140,147]]],[709,11752,92,1,57,3,[[0,137,138],[1,138,140],[2,140,143],[3,143,144],[4,144,145],[5,145,146],[11,146,147]]],[710,11754,93,1,57,3,[[0,137,138],[1,138,140],[2,140,143],[3,143,147]]],[711,11756,94,1,57,3,[[0,137,138],[1,138,140],[2,140,143],[3,143,147]]],[712,11760,95,1,58,2,[[0,138,140],[1,140,143],[2,143,144],[3,144,147]]],[713,11764,96,1,58,2,[[0,138,140],[1,140,143],[2,143,144],[3,144,147]]],[714,11768,97,1,59,1,[[0,138,140],[1,140,143],[2,143,144],[3,144,147]]],[715,11772,98,1,60,3,[[0,140,143],[1,143,144],[2,144,145],[3,145,147]]],[716,11776,99,1,60,3,[[0,140,143],[1,143,144],[2,144,145],[3,145,147]]],[717,11780,100,1,60,3,[[0,140,143],[1,143,144],[2,144,145],[3,145,147]]],[718,11784,101,1,61,1,[[0,143,144],[1,144,145],[2,145,146],[3,146,147]]],[719,11788,102,1,62,2,[[0,143,144],[1,144,145],[2,145,146],[3,146,147]]],[720,11792,103,1,62,2,[[0,143,144],[1,144,145],[2,145,146],[3,146,147]]],[721,11796,104,1,-1,1,[[0,144,145],[1,145,146]]],[722,11800,92,1,-1,1,[[0,144,145],[1,145,146]]],[723,11802,105,1,-1,1,[[0,144,145],[1,145,146]]],[724,11806,106,1,-1,1,[[0,145,146]]],[725,11810,107,1,-1,1,[[0,145,146]]],[726,11814,108,1,-1,1,[[0,145,146]]],[727,11914,75,2,-1,1,[[0,149,150],[1,150,150]]],[728,11918,76,2,-1,1,[[0,150,150]]],[729,11922,77,2,-1,1,[[0,150,150]]],[730,11926,78,2,-1,1,[[0,150,150]]]],"waves":[["iu_yy_xx_cancel",[[0,0],[25,1],[26,0],[75,1],[76,0],[94,1],[95,0],[145,1],[146,0]]],["retire_rob_flush",[[0,0],[31,1],[33,0],[80,1],[82,0],[95,1],[97,0],[146,1],[148,0]]],["retire_inst0_vld",[[0,1],[2,0],[4,1],[8,0],[11,1],[12,0],[13,1],[14,0],[16,1],[18,0],[19,1],[23,0],[26,1],[28,0],[29,1],[32,0],[41,1],[42,0],[43,1],[44,0],[45,1],[46,0],[47,1],[49,0],[52,1],[53,0],[54,1],[56,0],[59,1],[60,0],[61,1],[63,0],[66,1],[67,0],[68,1],[70,0],[71,1],[72,0],[73,1],[75,0],[77,1],[78,0],[79,1],[81,0],[88,1],[90,0],[93,1],[94,0],[95,1],[96,0],[103,1],[104,0],[106,1],[107,0],[108,1],[109,0],[110,1],[111,0],[114,1],[115,0],[116,1],[118,0],[119,1],[120,0],[121,1],[122,0],[123,1],[125,0],[128,1],[129,0],[130,1],[135,0],[138,1],[139,0],[140,1],[142,0],[144,1],[145,0],[146,1],[147,0]]],["retire_inst1_vld",[[0,1],[2,0],[4,1],[5,0],[11,1],[12,0],[13,1],[14,0],[16,1],[18,0],[19,1],[20,0],[26,1],[28,0],[29,1],[31,0],[47,1],[49,0],[52,1],[53,0],[54,1],[56,0],[59,1],[60,0],[61,1],[63,0],[66,1],[67,0],[68,1],[69,0],[71,1],[72,0],[73,1],[75,0],[77,1],[78,0],[79,1],[80,0],[93,1],[94,0],[106,1],[107,0],[114,1],[115,0],[116,1],[117,0],[119,1],[120,0],[121,1],[122,0],[128,1],[129,0],[130,1],[135,0],[138,1],[139,0],[140,1],[142,0],[144,1],[145,0]]],["retire_inst2_vld",[[0,1],[2,0],[4,1],[5,0],[11,1],[12,0],[13,1],[14,0],[16,1],[18,0],[19,1],[20,0],[26,1],[28,0],[29,1],[31,0],[48,1],[49,0],[52,1],[53,0],[54,1],[55,0],[59,1],[60,0],[61,1],[63,0],[68,1],[69,0],[71,1],[72,0],[73,1],[74,0],[77,1],[78,0],[79,1],[80,0],[93,1],[94,0],[116,1],[117,0],[119,1],[120,0],[121,1],[122,0],[128,1],[129,0],[130,1],[133,0],[134,1],[135,0],[138,1],[139,0],[140,1],[141,0],[144,1],[145,0]]],["retire_inst0_iid",[[0,34],[1,37],[4,40],[5,43],[6,44],[7,45],[11,46],[13,49],[16,52],[17,55],[19,58],[20,61],[21,62],[22,63],[26,64],[27,67],[29,70],[30,73],[31,76],[32,77],[41,0],[43,1],[45,2],[47,3],[48,5],[52,8],[54,11],[55,14],[59,16],[61,19],[62,22],[66,25],[68,27],[69,30],[71,31],[73,34],[74,37],[77,39],[79,42],[80,45],[81,46],[88,0],[89,1],[93,2],[95,5],[96,6],[103,0],[106,1],[108,3],[110,4],[114,5],[116,7],[117,10],[119,11],[121,14],[123,17],[124,18],[128,19],[130,22],[131,25],[132,28],[133,31],[134,33],[138,36],[140,39],[141,42],[144,44],[146,47],[147,48]]]],"checks":{"retire_slots":395,"retired":615,"retire_pc_match":377,"retire_pc_mismatch":0,"unknown_iid":18,"fold_groups":172,"program_order":{"sequential":588,"after_control_flow":26,"broken":0}}};
+/* ============================================================================
+   Pipeline panel mock over recorded C910 data. DATA (above) is produced by the
+   offline replay of the probe signals of bench c910_coremark.vtr; cycles are
+   relative to DATA.cycle0. Pure logic first (DOM-free), then the canvas view.
+   ============================================================================ */
+const C9L = (() => {
+'use strict';
+const D = DATA;
+const STATUS = ['ok', 'aborted', 'open'];
+const COL = {ID: '#5b8def', IR: '#4c9fe2', IS: '#3cb1cf', IQ: '#3a4a55', RF: '#44b59c', EX: '#5cc06e',
+  BJ: '#a8d255', FX: '#7fd0b0', AG: '#e8b650', DC: '#e79b46', DA: '#e3803f', WB: '#d9663c', CM: '#2d5b51', RT: '#f1d05c'};
+const LONG = {ID: 'decode', IR: 'rename', IS: 'dispatch', IQ: 'in issue queue', RF: 'register read, launch',
+  EX: 'ALU / multiply execute', BJ: 'branch unit', FX: 'floating point', AG: 'address generation', DC: 'data cache access',
+  DA: 'data arrival', WB: 'load write-back', CM: 'complete, waiting in ROB', RT: 'retire slot'};
+const rows = D.rows.map((r, i) => {
+  const stages = r[6].map(([s, b, e]) => ({name: D.stages[s], b, e}));
+  return {i, seq: r[0], pc: r[1], text: D.texts[r[2]], status: STATUS[r[3]], iid: r[4], fold: r[5], stages,
+    begin: stages[0].b, end: Math.max(...stages.map(s => s.e))};
+});
+const bySeq = new Map(rows.map(r => [r.seq, r]));
+/** Members of the same ROB entry: same IID and the same end (IIDs are reused). */
+function group(r) {
+  if (r.iid < 0) return [r];
+  return rows.filter(o => o.iid === r.iid && o.end === r.end && o.status === r.status);
+}
+const hex = v => '0x' + v.toString(16);
+const counts = () => rows.reduce((m, r) => (m[r.status]++, m), {ok: 0, aborted: 0, open: 0});
+
+/** View geometry: x0 = cycle at the plot's left edge, pxc = px per cycle, top = first row (float). */
+function makeView(width, height) {
+  const narrow = width < 600;
+  const g = {W: width, H: height, LW: narrow ? 116 : 232, AX: 22, RH: 16, WR: 17};
+  g.WH = D.waves.length * g.WR + 10;
+  g.plotW = g.W - g.LW;
+  g.rowsH = g.H - g.AX - g.WH;
+  g.visRows = g.rowsH / g.RH;
+  g.minPxc = g.plotW / (D.cycles + 2);
+  return g;
+}
+const xOf = (v, g, c) => g.LW + (c - v.x0) * v.pxc;
+const cycleAt = (v, g, x) => v.x0 + (x - g.LW) / v.pxc;
+function clampView(v, g) {
+  v.pxc = Math.min(90, Math.max(g.minPxc, v.pxc));
+  const span = g.plotW / v.pxc;
+  v.x0 = Math.min(Math.max(v.x0, -1), Math.max(-1, D.cycles + 1 - span));
+  v.top = Math.min(Math.max(v.top, 0), Math.max(0, rows.length - g.visRows + 0.5));
+  return v;
+}
+function zoomAbout(v, g, x, f) {
+  const c = cycleAt(v, g, x);
+  v.pxc *= f;
+  clampView(v, g);
+  v.x0 = c - (x - g.LW) / v.pxc;
+  return clampView(v, g);
+}
+function fit(v, g) { v.x0 = -1; v.pxc = g.minPxc; return clampView(v, g); }
+/** Show cycles [a, b] and put row index r about `above` rows from the top. */
+function frame(v, g, a, b, r, above = 4) {
+  v.pxc = g.plotW / (b - a); v.x0 = a; v.top = Math.max(0, r - above);
+  return clampView(v, g);
+}
+const GUIDES = {
+  steady: () => ({seq: rows[0].seq, a: -1, b: 44, cursor: 6}),
+  fold: () => ({seq: 412, a: -1, b: 28, cursor: 13}),
+  load: () => ({seq: 415, a: 1, b: 30, cursor: 15}),
+  flush: () => ({seq: 445, a: 12, b: 44, cursor: 31}),
+  wrong: () => {
+    const r = rows.find(o => o.status === 'aborted' && o.stages.some(s => s.name === 'EX'));
+    return {seq: r.seq, a: 12, b: 44, cursor: r.end};
+  },
+};
+
+function selfTests() {
+  const out = []; let ok = true;
+  const check = (name, cond) => { out.push((cond ? 'ok   ' : 'FAIL ') + name); ok = ok && !!cond; };
+  const c = counts();
+  check('status counts cover every row', c.ok + c.aborted + c.open === rows.length);
+  check('replay found wrong-path instructions', c.aborted > 50);
+  check('every stage starts after its predecessor and has end >= begin',
+    rows.every(r => r.stages.every((s, k) => s.e >= s.b && (k === 0 || s.b >= r.stages[k - 1].b))));
+  check('retired rows end with RT', rows.filter(r => r.status === 'ok').every(r => r.stages.at(-1).name === 'RT'));
+  check('replay: no retire PC mismatch', D.checks.retire_pc_mismatch === 0 && D.checks.retire_pc_match > 300);
+  check('replay: program order unbroken', D.checks.program_order.broken === 0);
+  check('fold groups never exceed their recorded size', rows.every(r => group(r).length <= r.fold));
+  check('a three-instruction ROB entry exists', rows.some(r => r.status === 'ok' && group(r).length === 3));
+  const g = makeView(900, 520), v = fit({x0: 0, pxc: 1, top: 0}, g);
+  check('fit shows the whole window', cycleAt(v, g, g.W) >= D.cycles);
+  check('xOf and cycleAt are inverse', Math.abs(cycleAt(v, g, xOf(v, g, 37.5)) - 37.5) < 1e-9);
+  const before = cycleAt(v, g, 500); zoomAbout(v, g, 500, 3);
+  check('zoom keeps the cycle under the pointer', Math.abs(cycleAt(v, g, 500) - before) < 1e-6);
+  check('guides point at existing rows', Object.values(GUIDES).every(f => bySeq.has(f().seq)));
+  check('the flush guide selects a retired branch', /^b/.test(bySeq.get(445).text) && bySeq.get(445).status === 'ok');
+  out.push(ok ? 'selftest: all passed' : 'selftest: FAILURES ABOVE');
+  return {ok, lines: out};
+}
+return {D, rows, bySeq, COL, LONG, group, hex, counts, makeView, xOf, cycleAt, clampView, zoomAbout, fit, frame, GUIDES, selfTests};
+})();
+
+/* ============================================================================
+   Canvas view
+   ============================================================================ */
+const demo = (() => {
+'use strict';
+const L = C9L, D = L.D, rows = L.rows;
+const root = document.getElementById('pv'), cv = document.getElementById('cv'), tip = document.getElementById('tip');
+const body = document.getElementById('txbody'), foot = document.getElementById('foot');
+const ctx = cv.getContext('2d');
+const st = {v: {x0: -1, pxc: 1, top: 0}, g: null, sel: null, cursor: null, hover: null, drag: null, guide: null};
+let dpr = 1;
+
+function resize() {
+  const r = cv.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  const old = st.g;
+  st.g = L.makeView(r.width, r.height);
+  if (!old) L.frame(st.v, st.g, -1, 44, 0, 0);
+  else { st.v.pxc *= st.g.plotW / old.plotW; L.clampView(st.v, st.g); }   // keep the visible cycle span
+  draw();
+}
+
+function niceStep(pxc) {
+  for (const s of [1, 2, 5, 10, 20, 25, 50, 100]) if (s * pxc >= 46) return s;
+  return 100;
+}
+
+function draw() {
+  const {g, v} = st; if (!g) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#1b242a'; ctx.fillRect(0, 0, g.W, g.H);
+  const rowY = i => g.AX + (i - v.top) * g.RH;
+  const first = Math.max(0, Math.floor(v.top)), last = Math.min(rows.length - 1, Math.ceil(v.top + g.visRows));
+  const selGroup = st.sel == null ? [] : L.group(rows[st.sel]);
+  const inGroup = new Set(selGroup.map(r => r.i));
+
+  // rows area
+  ctx.save(); ctx.beginPath(); ctx.rect(0, g.AX, g.W, g.rowsH); ctx.clip();
+  // cycle grid
+  const step = niceStep(v.pxc);
+  ctx.strokeStyle = '#243039'; ctx.lineWidth = 1;
+  for (let c = Math.ceil(L.cycleAt(v, g, g.LW) / step) * step; c <= L.cycleAt(v, g, g.W); c += step) {
+    const x = Math.round(L.xOf(v, g, c)) + .5; ctx.beginPath(); ctx.moveTo(x, g.AX); ctx.lineTo(x, g.AX + g.rowsH); ctx.stroke();
+  }
+  ctx.font = '11px "IBM Plex Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
+  for (let i = first; i <= last; i++) {
+    const r = rows[i], y = rowY(i);
+    if (i === st.sel) { ctx.fillStyle = '#2a3a44'; ctx.fillRect(0, y, g.W, g.RH); }
+    else if (inGroup.has(i)) { ctx.fillStyle = '#23323a'; ctx.fillRect(0, y, g.W, g.RH); }
+    else if (r.status === 'aborted') { ctx.fillStyle = 'rgba(214,90,90,0.07)'; ctx.fillRect(g.LW, y, g.plotW, g.RH); }
+    // cells
+    ctx.save(); ctx.beginPath(); ctx.rect(g.LW, y, g.plotW, g.RH); ctx.clip();
+    for (const s of r.stages) {
+      if (s.e <= s.b) continue;
+      const x1 = L.xOf(v, g, s.b), x2 = L.xOf(v, g, s.e);
+      if (x2 < g.LW || x1 > g.W) continue;
+      ctx.globalAlpha = r.status === 'aborted' ? 0.42 : 1;
+      ctx.fillStyle = L.COL[s.name] || '#888';
+      ctx.fillRect(x1 + .5, y + 2, Math.max(1, x2 - x1 - 1), g.RH - 4);
+      ctx.globalAlpha = 1;
+      if (x2 - x1 >= 20) {
+        ctx.fillStyle = (s.name === 'IQ' || s.name === 'CM') ? '#aebdb8' : '#10181c';
+        ctx.textAlign = 'center'; ctx.fillText(s.name, (x1 + x2) / 2, y + g.RH / 2 + .5);
+      }
+    }
+    if (r.status === 'aborted') {
+      const x = L.xOf(v, g, r.end);
+      ctx.strokeStyle = '#e06c6c'; ctx.lineWidth = 1.6; ctx.beginPath();
+      ctx.moveTo(x - 3.5, y + 4); ctx.lineTo(x + 3.5, y + g.RH - 4); ctx.moveTo(x + 3.5, y + 4); ctx.lineTo(x - 3.5, y + g.RH - 4); ctx.stroke();
+    }
+    ctx.restore();
+    if (inGroup.has(i) && selGroup.length > 1) {
+      ctx.strokeStyle = '#e2eae6'; ctx.lineWidth = 1;
+      ctx.strokeRect(L.xOf(v, g, r.begin) + .5, y + 1.5, L.xOf(v, g, r.end) - L.xOf(v, g, r.begin) - 1, g.RH - 3);
+    }
+    // label pane
+    ctx.fillStyle = '#172026'; ctx.fillRect(0, y, g.LW, g.RH);
+    if (i === st.sel) { ctx.fillStyle = '#2a3a44'; ctx.fillRect(0, y, g.LW, g.RH); }
+    ctx.textAlign = 'left';
+    const narrow = g.LW < 200;
+    ctx.fillStyle = '#6f817a'; if (!narrow) ctx.fillText(L.hex(r.pc).padStart(6), 8, y + g.RH / 2 + .5);
+    ctx.fillStyle = r.status === 'aborted' ? '#e39a9a' : r.status === 'open' ? '#e8cf86' : '#d7e1dd';
+    const t = r.text.replace(/\s*<.*$/, '');
+    ctx.fillText(t.length > (narrow ? 14 : 24) ? t.slice(0, narrow ? 13 : 23) + '…' : t, narrow ? 6 : 62, y + g.RH / 2 + .5);
+  }
+  // flush markers from the recorded waves
+  for (const [name, color] of [['retire_rob_flush', '#e06c6c'], ['iu_yy_xx_cancel', '#e0a94a']]) {
+    const w = D.waves.find(x => x[0] === name)[1];
+    for (const [c, val] of w) if (val) {
+      const x = Math.round(L.xOf(v, g, c)) + .5; if (x < g.LW) continue;
+      ctx.strokeStyle = color; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, g.AX); ctx.lineTo(x, g.AX + g.rowsH); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  ctx.restore();
+
+  // axis
+  ctx.fillStyle = '#151c21'; ctx.fillRect(0, 0, g.W, g.AX);
+  ctx.fillStyle = '#8d9f99'; ctx.font = '10.5px "IBM Plex Mono", monospace'; ctx.textAlign = 'left';
+  ctx.fillText(g.LW < 200 ? 'cycle' : 'instruction          cycle →', 8, g.AX / 2 + .5);
+  ctx.textAlign = 'center';
+  for (let c = Math.ceil(L.cycleAt(v, g, g.LW + 20) / step) * step; c <= L.cycleAt(v, g, g.W - 20); c += step)
+    if (st.cursor == null || Math.abs(L.xOf(v, g, c) - L.xOf(v, g, st.cursor)) > 40)
+      ctx.fillText(String(D.cycle0 + c), L.xOf(v, g, c), g.AX / 2 + .5);
+  ctx.strokeStyle = '#2c3a42'; ctx.beginPath(); ctx.moveTo(0, g.AX - .5); ctx.lineTo(g.W, g.AX - .5); ctx.moveTo(g.LW - .5, 0); ctx.lineTo(g.LW - .5, g.H); ctx.stroke();
+
+  // waves
+  const wy0 = g.AX + g.rowsH;
+  ctx.fillStyle = '#161e23'; ctx.fillRect(0, wy0, g.W, g.WH);
+  ctx.strokeStyle = '#2c3a42'; ctx.beginPath(); ctx.moveTo(0, wy0 + .5); ctx.lineTo(g.W, wy0 + .5); ctx.stroke();
+  D.waves.forEach(([name, ch], k) => {
+    const y = wy0 + 6 + k * g.WR, hi = y + 2, lo = y + g.WR - 4;
+    ctx.fillStyle = '#9fb1ab'; ctx.textAlign = 'left'; ctx.font = '10.5px "IBM Plex Mono", monospace';
+    ctx.fillText(g.LW < 200 ? name.replace('retire_', 'rt_').slice(0, 15) : name, 8, (hi + lo) / 2);
+    ctx.save(); ctx.beginPath(); ctx.rect(g.LW, y, g.plotW, g.WR); ctx.clip();
+    const bus = name.endsWith('iid');
+    ctx.strokeStyle = bus ? '#7fb8e8' : '#5cc06e'; ctx.lineWidth = 1.2;
+    for (let j = 0; j < ch.length; j++) {
+      const [c, val] = ch[j], next = j + 1 < ch.length ? ch[j + 1][0] : D.cycles + 2;
+      const x1 = L.xOf(v, g, c), x2 = L.xOf(v, g, next);
+      if (x2 < g.LW || x1 > g.W) continue;
+      if (bus) {
+        ctx.beginPath(); ctx.moveTo(x1 + 2, hi); ctx.lineTo(x2 - 2, hi); ctx.moveTo(x1 + 2, lo); ctx.lineTo(x2 - 2, lo);
+        ctx.moveTo(x1, (hi + lo) / 2); ctx.lineTo(x1 + 2, hi); ctx.moveTo(x1, (hi + lo) / 2); ctx.lineTo(x1 + 2, lo); ctx.stroke();
+        if (x2 - x1 > 22) { ctx.fillStyle = '#cfe3f5'; ctx.textAlign = 'center'; ctx.fillText(String(val), (x1 + x2) / 2, (hi + lo) / 2 + .5); }
+      } else {
+        const yy = val ? hi : lo;
+        ctx.beginPath(); ctx.moveTo(x1, j ? (ch[j - 1][1] ? hi : lo) : yy); ctx.lineTo(x1, yy); ctx.lineTo(x2, yy); ctx.stroke();
+        if (val) { ctx.fillStyle = 'rgba(92,192,110,0.14)'; ctx.fillRect(x1, hi, x2 - x1, lo - hi); }
+      }
+    }
+    ctx.restore();
+  });
+
+  // cursor
+  if (st.cursor != null) {
+    const x = Math.round(L.xOf(v, g, st.cursor)) + .5;
+    if (x >= g.LW) {
+      ctx.strokeStyle = '#f1d05c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, g.AX); ctx.lineTo(x, g.H); ctx.stroke();
+      ctx.fillStyle = '#f1d05c'; ctx.fillRect(x - 22, 3, 44, g.AX - 6);
+      ctx.fillStyle = '#10181c'; ctx.textAlign = 'center'; ctx.font = '600 10.5px "IBM Plex Mono", monospace';
+      ctx.fillText(String(D.cycle0 + st.cursor), x, g.AX / 2 + .5);
+    }
+  }
+  const sel = st.sel == null ? null : rows[st.sel];
+  foot.innerHTML = `<span>cursor <b>${st.cursor == null ? '—' : D.cycle0 + st.cursor}</b></span>`
+    + `<span>rows <b>${rows.length}</b></span><span>zoom <b>${v.pxc.toFixed(1)} px/cycle</b></span>`
+    + `<span>selected <b>${sel ? L.hex(sel.pc) + ' ' + sel.text.split(' ')[0] : '—'}</b></span>`;
+}
+
+function detail() {
+  if (st.sel == null) { body.innerHTML = '<p class="empty">Click a row.</p>'; return; }
+  const r = rows[st.sel], grp = L.group(r);
+  const label = {ok: 'retired', aborted: 'aborted (flushed)', open: 'open at window end'}[r.status];
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  let h = `<p class="tt">${L.hex(r.pc)} ${esc(r.text)}</p><span class="st ${r.status}">${label}</span>`;
+  h += `<dl><dt>generator</dt><dd>instruction</dd><dt>pc</dt><dd>${L.hex(r.pc)}</dd>`
+    + `<dt>insn seq</dt><dd>${r.seq}</dd><dt>iid</dt><dd>${r.iid < 0 ? '— (never dispatched)' : r.iid}</dd>`
+    + `<dt>fold</dt><dd>${r.iid < 0 ? '—' : r.fold}</dd><dt>begin</dt><dd>cycle ${D.cycle0 + r.begin}</dd>`
+    + `<dt>end</dt><dd>cycle ${D.cycle0 + r.end}</dd><dt>lifetime</dt><dd>${r.end - r.begin} cycles</dd></dl>`;
+  if (grp.length > 1) {
+    h += '<div class="grp">ROB entry shared with' + grp.filter(o => o !== r)
+      .map(o => `<div data-row="${o.i}">${L.hex(o.pc)} ${esc(o.text)}</div>`).join('') + '</div>';
+  }
+  h += '<table><thead><tr><th>stage</th><th>cycle</th><th>len</th></tr></thead><tbody>'
+    + r.stages.map(s => `<tr><td><span class="sw" style="background:${L.COL[s.name]}"></span>${s.name}</td>`
+      + `<td>${D.cycle0 + s.b}</td><td>${s.e - s.b}</td></tr>`).join('') + '</tbody></table>';
+  body.innerHTML = h;
+}
+
+function select(i, {scroll = true} = {}) {
+  st.sel = i;
+  if (i != null && scroll) {
+    const {v, g} = st;
+    if (i < v.top) v.top = i; else if (i > v.top + g.visRows - 1.5) v.top = i - g.visRows + 1.5;
+    L.clampView(v, g);
+  }
+  detail(); draw();
+}
+function guide(name) {
+  const {v, g} = st;
+  if (name === 'fit') { L.fit(v, g); v.top = 0; st.cursor = null; select(null); }
+  else {
+    const q = L.GUIDES[name](), r = L.bySeq.get(q.seq);
+    L.frame(v, g, q.a, q.b, r.i, 5); st.cursor = q.cursor; select(r.i, {scroll: false});
+  }
+  st.guide = name;
+  document.querySelectorAll('[data-guide]').forEach(b => b.classList.toggle('on', b.dataset.guide === name && name !== 'fit'));
+}
+
+function hit(x, y) {
+  const {g, v} = st;
+  if (y < g.AX || y >= g.AX + g.rowsH) return null;
+  const i = Math.floor(v.top + (y - g.AX) / g.RH);
+  return i >= 0 && i < rows.length ? i : null;
+}
+function local(e) { const r = cv.getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; }
+
+function showTip(p) {
+  const i = hit(p.x, p.y);
+  if (i == null || p.x < st.g.LW) { tip.hidden = true; return; }
+  const r = rows[i], c = L.cycleAt(st.v, st.g, p.x);
+  const s = r.stages.find(o => c >= o.b && c < o.e);
+  tip.innerHTML = `<b>${L.hex(r.pc)} ${r.text.replace(/</g, '&lt;')}</b><br>`
+    + (s ? `${s.name} <span>${L.LONG[s.name]}, ${s.e - s.b} cycle${s.e - s.b === 1 ? '' : 's'}</span><br>` : '')
+    + `<span>${r.status === 'aborted' ? 'flushed at' : r.status === 'ok' ? 'retired at' : 'open at'} cycle ${D.cycle0 + r.end}${r.iid >= 0 ? ' · iid ' + r.iid : ''}</span>`;
+  tip.hidden = false;
+  const W = st.g.W;
+  tip.style.left = Math.min(p.x + 14, W - 270) + 'px'; tip.style.top = (p.y + 16) + 'px';
+}
+
+cv.addEventListener('pointerdown', e => {
+  const p = local(e); st.drag = {p, v: {...st.v}, moved: false};
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  const p = local(e);
+  if (st.drag) {
+    const dx = p.x - st.drag.p.x, dy = p.y - st.drag.p.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) st.drag.moved = true;
+    if (st.drag.moved) {
+      st.v.x0 = st.drag.v.x0 - dx / st.v.pxc; st.v.top = st.drag.v.top - dy / st.g.RH;
+      L.clampView(st.v, st.g); tip.hidden = true; draw(); return;
+    }
+  }
+  showTip(p);
+});
+cv.addEventListener('pointerup', e => {
+  const d = st.drag; st.drag = null;
+  if (!d || d.moved) return;
+  const p = local(e);
+  if (p.x >= st.g.LW) st.cursor = Math.max(0, Math.min(D.cycles, Math.floor(L.cycleAt(st.v, st.g, p.x))));
+  const i = hit(p.x, p.y);
+  if (i != null) select(i, {scroll: false}); else draw();
+  root.focus({preventScroll: true});
+});
+cv.addEventListener('pointerleave', () => { tip.hidden = true; });
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const p = local(e), d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  if (e.ctrlKey || e.metaKey) L.zoomAbout(st.v, st.g, Math.max(p.x, st.g.LW), Math.exp(-d / 300));
+  else if (e.shiftKey) { st.v.x0 += (d || e.deltaX) / st.v.pxc; L.clampView(st.v, st.g); }
+  else { st.v.top += d / st.g.RH; L.clampView(st.v, st.g); }
+  tip.hidden = true; draw();
+}, {passive: false});
+root.addEventListener('keydown', e => {
+  const k = e.key;
+  if (k === 'ArrowDown' || k === 'ArrowUp') {
+    const i = st.sel == null ? Math.floor(st.v.top) : Math.max(0, Math.min(rows.length - 1, st.sel + (k === 'ArrowDown' ? 1 : -1)));
+    select(i);
+  } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+    st.cursor = Math.max(0, Math.min(D.cycles, (st.cursor ?? Math.round(L.cycleAt(st.v, st.g, st.g.LW + 40))) + (k === 'ArrowRight' ? 1 : -1)));
+    draw();
+  } else if (k === 'f' || k === 'F') guide('fit');
+  else if (k === 'Escape') { if (st.sel != null) select(null); else { st.cursor = null; draw(); } }
+  else return;
+  e.preventDefault();
+});
+body.addEventListener('click', e => {
+  const t = e.target.closest('[data-row]'); if (t) select(Number(t.dataset.row));
+});
+document.querySelectorAll('[data-guide]').forEach(b => b.addEventListener('click', () => guide(b.dataset.guide)));
+new ResizeObserver(resize).observe(cv);
+resize();
+return {st, draw, guide, select, rowY: i => st.g.AX + (i - st.v.top) * st.g.RH, ctx: () => ctx, dpr: () => dpr};
+})();
+
+// Counts in the prose and the stage legend come from the data.
+(() => {
+  const c = C9L.counts();
+  document.getElementById('n-rows').textContent = C9L.rows.length;
+  document.getElementById('n-ok').textContent = c.ok;
+  document.getElementById('n-ab').textContent = c.aborted;
+  document.getElementById('n-open').textContent = c.open;
+  document.getElementById('legend').innerHTML = C9L.D.stages.map(s =>
+    `<span title="${C9L.LONG[s]}"><i style="background:${C9L.COL[s]}"></i>${s} · ${C9L.LONG[s]}</span>`).join('')
+    + '<span><i style="background:transparent;border-top:2px dashed #e0a94a;height:0"></i>branch cancel</span>'
+    + '<span><i style="background:transparent;border-top:2px dashed #e06c6c;height:0"></i>ROB flush</span>';
+})();
+
+// Page theme toggle (the mock stays dark).
+document.getElementById('theme').addEventListener('click', () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+});
+
+// Hooks for docs/tests/c910-verilator-tx-stream.test.mjs.
+window.C9 = {
+  state: () => {
+    const s = demo.st, r = s.sel == null ? null : C9L.rows[s.sel];
+    return {sel: r && r.seq, selText: r && r.text, selStatus: r && r.status, cursor: s.cursor, x0: s.v.x0, pxc: s.v.pxc,
+      top: s.v.top, guide: s.guide, detail: document.getElementById('txbody').textContent};
+  },
+  guide: name => demo.guide(name),
+  /** Client coordinates of the middle of a row's stage cell. */
+  cellPoint: (seq, stage) => {
+    const r = C9L.bySeq.get(seq), s = r.stages.find(o => o.name === stage), st = demo.st;
+    const rect = document.getElementById('cv').getBoundingClientRect();
+    return {x: rect.left + C9L.xOf(st.v, st.g, (s.b + s.e) / 2), y: rect.top + demo.rowY(r.i) + st.g.RH / 2};
+  },
+  /** Canvas pixel at client coordinates, as [r, g, b]. */
+  pixel: (x, y) => {
+    const rect = document.getElementById('cv').getBoundingClientRect(), d = demo.dpr();
+    return [...demo.ctx().getImageData(Math.round((x - rect.left) * d), Math.round((y - rect.top) * d), 1, 1).data.slice(0, 3)];
+  },
+  color: stage => C9L.COL[stage],
+};
+document.getElementById('selftest').textContent = C9L.selfTests().lines.join('\n');
+window.ready = true;
+</script>
+</body>
+</html>
