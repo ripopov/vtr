@@ -107,3 +107,21 @@ cargo run -p vtr-cli --bin vtr -- log volna/volna/examples/feature_showcase.vtr 
 cargo run -p vtr-cli --bin vtr -- tx volna/volna/examples/feature_showcase.vtr --max 12
 cargo run -p volna --profile viewer -- volna/volna/examples/feature_showcase.vtr
 ```
+
+## Large FST stress trace
+
+`large_fst.fst` (about 550 MB, not committed) is for manual performance
+testing of FST loading and analog rows. Every signal samples once per 1 ns
+tick: 32-bit signed sine waves `sine_1m`, `sine_10m` and `sine_100m` with 1M,
+10M and 100M samples (periods of 1,000, 20,000 and 1,000,000 samples; each
+holds its last value after its samples end) and a `clk` toggling on each of
+100M ticks. Generate it from the repository root (about 7 s):
+
+```sh
+cc -O2 volna/volna/examples/generate_large_fst.c \
+  ext/libfstwriter/integration_test/verilator_share/gtkwave/fstapi.c \
+  -Iext/libfstwriter/integration_test/verilator_share/gtkwave \
+  $(pkg-config --cflags --libs liblz4 zlib) -lm -o /tmp/generate-large-fst
+/tmp/generate-large-fst volna/volna/examples/large_fst.fst
+cargo run -p volna --profile viewer -- volna/volna/examples/large_fst.fst
+```

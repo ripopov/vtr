@@ -494,6 +494,19 @@ the same bars folded to 1×, and the whole trace as a density strip. Results
 and the A/B against the build without lanes are in `docs/RATIONALE.md`
 ("Volna transaction lanes").
 
+### Signal histories
+
+```sh
+taskset -c 0-7 cargo run --release -p volna-core --example history_cost -- \
+  volna/volna/examples/large_fst.fst clk sine_100m
+```
+
+`history_cost` opens an FST or VTR trace, loads the named signals in one
+batch and prints load time, RSS growth, counted bytes, random point queries,
+1400-column frame sweeps (whole signal and 1/100 of it), a sequential time
+scan and random and sequential numeric decodes. Run one configuration per
+process. Results are in `docs/RATIONALE.md` ("Volna FST signal histories").
+
 ### Analog waves
 
 ```sh

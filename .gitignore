@@ -37,6 +37,9 @@ __pycache__/
 
 # Generated local stress trace (see generate_large_vtr.rs).
 /volna/volna/examples/large.vtr
+# Generated local FST stress trace (see generate_large_fst.c).
+/volna/volna/examples/large_fst.fst
+/volna/volna/examples/large_fst.fst.volna.json
 
 # macOS Finder folder metadata.
 .DS_Store

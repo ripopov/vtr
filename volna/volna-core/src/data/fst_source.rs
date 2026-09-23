@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, anyhow, ensure};
 use fst_reader::{FstFilter, FstHierarchyEntry, FstReader, FstSignalHandle, FstSignalValue};
 
+use super::compact::CompactBuilder;
 use super::history::VecHistory;
 use super::{Hierarchy, SignalHistory, SignalRef, SignalShape, TraceInfo, Variable, WaveValue};
 use crate::session::{Session, SignalLoads};
@@ -169,11 +170,18 @@ impl FstSession {
             let Some(&shape) = self.shapes.get(signal) else {
                 continue;
             };
-            histories.entry(*signal).or_insert_with(|| VecHistory {
-                shape,
-                times: Vec::new(),
-                values: Vec::new(),
-                initial: WaveValue::Unavailable,
+            histories.entry(*signal).or_insert_with(|| {
+                CompactBuilder::new(shape).map_or_else(
+                    || {
+                        Loading::Vec(VecHistory {
+                            shape,
+                            times: Vec::new(),
+                            values: Vec::new(),
+                            initial: WaveValue::Unavailable,
+                        })
+                    },
+                    Loading::Compact,
+                )
             });
         }
         if histories.is_empty() {
@@ -195,42 +203,52 @@ impl FstSession {
                 let history = histories
                     .get_mut(&signal)
                     .ok_or_else(|| anyhow!("FST returned an unrequested signal"))?;
-                ensure!(
-                    history.times.last().is_none_or(|&last| last <= time),
-                    "FST signal times are not ordered"
-                );
-                let value = match value {
-                    FstSignalValue::Real(value) => WaveValue::Real(value),
-                    FstSignalValue::String(bytes) => {
-                        if history.shape == SignalShape::Text {
-                            WaveValue::Bytes(bytes.to_vec())
-                        } else {
-                            let text = std::str::from_utf8(bytes)
-                                .context("FST logic value is not ASCII")?
-                                .to_owned();
-                            ensure!(
-                                text.len() == history.shape.width() as usize
-                                    || history.shape == SignalShape::Event,
-                                "FST logic value width differs from its declaration"
-                            );
-                            ensure!(
-                                text.bytes().all(|b| b"01xXzZuUwWlLhH-".contains(&b)),
-                                "FST logic value contains an unsupported state"
-                            );
-                            WaveValue::Bits(text)
-                        }
+                match (history, value) {
+                    (Loading::Compact(b), FstSignalValue::Real(v)) => b.push_real(time, v),
+                    (Loading::Compact(b), FstSignalValue::String(bytes)) => {
+                        b.push_logic(time, bytes).map_err(|e| anyhow!("FST {e}"))
                     }
-                };
-                history.times.push(time);
-                history.values.push(value);
-                Ok(())
+                    (Loading::Vec(h), value) => {
+                        ensure!(
+                            h.times.last().is_none_or(|&last| last <= time),
+                            "FST signal times are not ordered"
+                        );
+                        h.values.push(match value {
+                            FstSignalValue::Real(v) => WaveValue::Real(v),
+                            FstSignalValue::String(bytes) if h.shape == SignalShape::Text => {
+                                WaveValue::Bytes(bytes.to_vec())
+                            }
+                            // Events: one occurrence per change.
+                            FstSignalValue::String(bytes) => WaveValue::Bits(
+                                std::str::from_utf8(bytes)
+                                    .context("FST logic value is not ASCII")?
+                                    .to_owned(),
+                            ),
+                        });
+                        h.times.push(time);
+                        Ok(())
+                    }
+                }
             })
             .map_err(|error| anyhow!("read FST signals: {error:?}"))?;
         Ok(histories
             .into_iter()
-            .map(|(s, h)| (s, Arc::new(h) as Arc<dyn SignalHistory>))
+            .map(|(s, h)| {
+                let h: Arc<dyn SignalHistory> = match h {
+                    Loading::Compact(b) => Arc::new(b.finish()),
+                    Loading::Vec(h) => Arc::new(h),
+                };
+                (s, h)
+            })
             .collect())
     }
+}
+
+/// A history being loaded: packed for logic and reals, owned values for
+/// text and events.
+enum Loading {
+    Compact(CompactBuilder),
+    Vec(VecHistory),
 }
 
 // fst-reader seeks over sections while discovering metadata. A seek beyond

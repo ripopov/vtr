@@ -1469,3 +1469,51 @@ The zoomed-out cost is now bounded by pixels (about 1 ms at any length); the
 threshold, so it scans them (1.4 ms). The window and type ranges cost the same
 as the whole-trace range with the summary. The digital bus stays far cheaper
 because dense columns become a band without reading values.
+
+## Volna FST signal histories
+
+The FST loader stored every change as a `WaveValue::Bits(String)` in a
+`VecHistory`: a `u64` time, a 32-byte enum slot and one heap allocation per
+change, in vectors left at their doubled capacity. A 100M-change clock counted
+5.2 GiB, past any sensible object limit, while wellen loads the same file's
+four signals in about 3 GB. The plan and its layout study are in
+[fst-loading-optimization.md](fst-loading-optimization.md). That study also
+measured wellen's shared time table: it costs 763 MiB and 0.75 s at open and is
+2.7–23× slower for point queries. It remains rejected (see "Volna FST session
+integration").
+
+Logic and real FST signals now load into `data::compact::CompactHistory`:
+`u64` times plus fixed-stride packed values in VTR's logic codes (1, 2 or 4 bits
+per bit for 2, 4 or 9 states). Entries of at most 8 bits take a power-of-two slot
+inside a byte, so a two-state clock costs one bit per change. Wider entries are
+byte-aligned, so a `ValueView` borrows them in place. A signal starts two-state
+and is repacked to 4 or 9 states when a value needs them. Buffers are trimmed
+after the load, and `resident_bytes` counts real capacities. Text and event
+signals keep `VecHistory`. The two-state fast path packs each value
+branch-free: with a per-character `match` on `'0'`/`'1'`, unpredictable data
+bits made the sine load twice as slow (8.6 s against 4.4 s).
+
+Measurements (`history_cost` on `volna/volna/examples/large_fst.fst`; Intel
+Core Ultra 7 265K pinned to P-cores, release, one configuration per process;
+100M changes per signal unless noted). fst-reader alone decodes `clk` in 0.9 s
+and `sine_100m` in 2.7 s.
+
+| Load | Before: time, RSS, counted | After: time, RSS, counted |
+|---|---|---|
+| `clk` (1-bit) | 3.4 s, 72.3 B/change, 54.7 B/change | 1.36 s, 8.6 B/change, 8.12 B/change |
+| `sine_100m` (32-bit) | 10.7 s, 88.4 B/change, 85.7 B/change | 4.4 s, 12.05 B/change, 12.0 B/change |
+| All four (211M changes) | 16.0 s, +16.2 GiB, 14.1 GiB counted | 5.8 s, +2.1 GiB, 2.0 GiB counted |
+
+| Query per signal, before → after | `clk` | `sine_100m` |
+|---|---|---|
+| Random point query | 382 → 407 ns | 382 → 409 ns |
+| 1400-column frame sweep, full view / 1/100 | 93 / 14 → 104 / 16 µs | 93 / 14 → 97 / 15 µs |
+| Sequential time scan | 0.97 → 0.93 ns | 0.90 → 0.91 ns |
+| Numeric decode, random / sequential | 101 / 6.1 → 8 / 4.1 ns | 608 / 91 → 51 / 5.8 ns |
+
+Time queries are unchanged within noise, since both layouts keep `u64` times.
+Value decodes no longer chase a heap string per change. For comparison, the
+VTR twin of the file (`vtr convert`, 4-state vectors) loads `clk` in 0.68 s at
+18 B/change of RSS (9 counted) and all four signals in 2.2 s at +3.9 GiB.
+The next steps of the plan (compact times, bit-packed VTR 1-bit values,
+accurate VTR accounting) target that path.
