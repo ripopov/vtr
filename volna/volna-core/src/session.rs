@@ -342,6 +342,14 @@ pub enum LoadRequest {
         session: Arc<dyn Session>,
         signals: Vec<SignalRef>,
     },
+    /// Summarize a resident history for analog drawing (client-side work).
+    Summary {
+        generation: u64,
+        signal: SignalRef,
+        history: Arc<dyn crate::data::SignalHistory>,
+        kind: crate::data::NumericKind,
+        budget: crate::remote::memory::MemoryBudget,
+    },
 }
 
 impl LoadRequest {
@@ -350,7 +358,7 @@ impl LoadRequest {
     pub fn remote_id(&self) -> Option<u64> {
         match self {
             Self::Signals { session, .. } | Self::Track { session, .. } => session.remote_id(),
-            Self::Open { .. } => None,
+            Self::Open { .. } | Self::Summary { .. } => None,
         }
     }
 
@@ -383,6 +391,19 @@ impl LoadRequest {
                 track,
                 result: Err(error),
             },
+            Self::Summary {
+                generation,
+                signal,
+                history,
+                kind,
+                ..
+            } => LoadResult::Summary {
+                generation,
+                signal,
+                kind,
+                history: crate::wave::analog::history_identity(&history),
+                result: Err(error),
+            },
         }
     }
 
@@ -412,6 +433,21 @@ impl LoadRequest {
                 generation,
                 results: session.load_signals(&signals),
             },
+            LoadRequest::Summary {
+                generation,
+                signal,
+                history,
+                kind,
+                budget,
+            } => LoadResult::Summary {
+                generation,
+                signal,
+                kind,
+                history: crate::wave::analog::history_identity(&history),
+                result: crate::wave::analog::AnalogSummary::build(&history, kind)
+                    .account(&budget)
+                    .map(Arc::new),
+            },
         }
     }
 }
@@ -431,5 +467,13 @@ pub enum LoadResult {
     Opened {
         generation: u64,
         result: anyhow::Result<Arc<dyn Session>>,
+    },
+    Summary {
+        generation: u64,
+        signal: SignalRef,
+        kind: crate::data::NumericKind,
+        /// Identity of the summarized history.
+        history: usize,
+        result: anyhow::Result<Arc<crate::wave::analog::AnalogSummary>>,
     },
 }

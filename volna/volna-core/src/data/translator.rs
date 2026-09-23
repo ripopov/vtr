@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use super::value::{SignalShape, ValueKind, WaveValue, kind_of_bits};
+use super::value_view::ValueView;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Translated {
@@ -32,6 +33,119 @@ pub trait Translator: Send + Sync {
     /// Whether the translator can display signals of this shape.
     fn applies(&self, shape: SignalShape) -> bool;
     fn translate(&self, value: &WaveValue) -> Translated;
+    /// How the translator reads a value as a number, for analog drawing.
+    /// `None` for translators that do not show a number.
+    fn numeric_kind(&self) -> Option<NumericKind> {
+        None
+    }
+    /// The number this translator shows for `value`; `None` for undefined
+    /// (X, Z, non-finite) values and non-numeric translators.
+    fn numeric(&self, value: &ValueView<'_>) -> Option<f64> {
+        self.numeric_kind()?.read(value)
+    }
+    /// The full range of numbers a signal of `shape` can show.
+    fn limits(&self, shape: SignalShape) -> Option<(f64, f64)> {
+        self.numeric_kind()?.limits(shape)
+    }
+}
+
+/// How a numeric translator reads logic or real values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NumericKind {
+    /// The bits as an unsigned integer (hexadecimal, binary, unsigned).
+    Unsigned,
+    /// The bits as a two's-complement integer.
+    Signed,
+    /// The bits as an IEEE 754 half, single or double.
+    Float,
+    /// An IEEE double signal.
+    Real,
+}
+
+impl NumericKind {
+    pub fn read(self, value: &ValueView<'_>) -> Option<f64> {
+        let bits = match (self, value) {
+            (Self::Real, ValueView::Real(v)) => return v.is_finite().then_some(*v),
+            (Self::Real, _) => return None,
+            (_, ValueView::Logic(bits)) if bits.width > 0 => bits,
+            _ => return None,
+        };
+        let w = bits.width;
+        let bit = |i: usize| match bits.bit(i) {
+            b'0' => Some(0u64),
+            b'1' => Some(1),
+            _ => None,
+        };
+        if w > 64 {
+            // Wide vectors lose precision beyond 53 bits, as any f64 plot does.
+            let mut acc = 0.0f64;
+            for i in 0..w {
+                acc = acc * 2.0 + bit(i)? as f64;
+            }
+            return match self {
+                Self::Unsigned => Some(acc),
+                Self::Signed if bits.bit(0) == b'1' => Some(acc - 2f64.powi(w as i32)),
+                Self::Signed => Some(acc),
+                _ => None,
+            };
+        }
+        let raw = bits.to_u64()?;
+        let v = match self {
+            Self::Unsigned => raw as f64,
+            Self::Signed if w == 64 => raw as i64 as f64,
+            Self::Signed if (raw >> (w - 1)) & 1 == 1 => raw as f64 - 2f64.powi(w as i32),
+            Self::Signed => raw as f64,
+            Self::Float => match w {
+                16 => half_to_f64(raw as u16),
+                32 => f32::from_bits(raw as u32) as f64,
+                64 => f64::from_bits(raw),
+                _ => return None,
+            },
+            Self::Real => unreachable!(),
+        };
+        v.is_finite().then_some(v)
+    }
+
+    /// The full range of an integer reading; floats have none.
+    pub fn limits(self, shape: SignalShape) -> Option<(f64, f64)> {
+        let width = match shape {
+            SignalShape::Bit => 1,
+            SignalShape::Vector { width } => width,
+            _ => return None,
+        };
+        match self {
+            Self::Unsigned => Some((0.0, 2f64.powi(width as i32) - 1.0)),
+            Self::Signed => {
+                let half = 2f64.powi(width as i32 - 1);
+                Some((-half, half - 1.0))
+            }
+            Self::Float | Self::Real => None,
+        }
+    }
+
+    /// The value that reads back as `v` (rounded to an integer for integer
+    /// readings), so a translator can format axis labels like its values.
+    pub fn value_of(self, v: f64, shape: SignalShape) -> Option<WaveValue> {
+        match (self, shape) {
+            (Self::Real, SignalShape::Real) => Some(WaveValue::Real(v)),
+            (Self::Unsigned | Self::Signed, SignalShape::Vector { width }) if width <= 127 => {
+                let n = v.round().clamp(i128::MIN as f64, i128::MAX as f64) as i128;
+                Some(WaveValue::Bits(
+                    (0..width)
+                        .rev()
+                        .map(|i| if (n >> i) & 1 == 1 { '1' } else { '0' })
+                        .collect(),
+                ))
+            }
+            (Self::Float, SignalShape::Vector { width: 32 }) => {
+                Some(WaveValue::Bits(format!("{:032b}", (v as f32).to_bits())))
+            }
+            (Self::Float, SignalShape::Vector { width: 64 }) => {
+                Some(WaveValue::Bits(format!("{:064b}", v.to_bits())))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Registry of translators. Order is the menu order.
@@ -150,6 +264,9 @@ impl Translator for BinaryTranslator {
     fn id(&self) -> &'static str {
         "bin"
     }
+    fn numeric_kind(&self) -> Option<NumericKind> {
+        Some(NumericKind::Unsigned)
+    }
     fn name(&self) -> &'static str {
         "Binary"
     }
@@ -169,6 +286,9 @@ struct HexTranslator;
 impl Translator for HexTranslator {
     fn id(&self) -> &'static str {
         "hex"
+    }
+    fn numeric_kind(&self) -> Option<NumericKind> {
+        Some(NumericKind::Unsigned)
     }
     fn name(&self) -> &'static str {
         "Hexadecimal"
@@ -252,6 +372,9 @@ impl Translator for UnsignedTranslator {
     fn id(&self) -> &'static str {
         "udec"
     }
+    fn numeric_kind(&self) -> Option<NumericKind> {
+        Some(NumericKind::Unsigned)
+    }
     fn name(&self) -> &'static str {
         "Unsigned decimal"
     }
@@ -276,6 +399,9 @@ struct SignedTranslator;
 impl Translator for SignedTranslator {
     fn id(&self) -> &'static str {
         "sdec"
+    }
+    fn numeric_kind(&self) -> Option<NumericKind> {
+        Some(NumericKind::Signed)
     }
     fn name(&self) -> &'static str {
         "Signed decimal"
@@ -359,6 +485,9 @@ impl Translator for FloatTranslator {
     fn id(&self) -> &'static str {
         "float"
     }
+    fn numeric_kind(&self) -> Option<NumericKind> {
+        Some(NumericKind::Float)
+    }
     fn name(&self) -> &'static str {
         "IEEE 754 float"
     }
@@ -398,6 +527,9 @@ struct RealTranslator;
 impl Translator for RealTranslator {
     fn id(&self) -> &'static str {
         "real"
+    }
+    fn numeric_kind(&self) -> Option<NumericKind> {
+        Some(NumericKind::Real)
     }
     fn name(&self) -> &'static str {
         "Real"
@@ -442,6 +574,22 @@ impl Translator for TextTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packed_logic_reads_as_numbers() {
+        use crate::data::value_view::LogicView;
+        // Bits above the width are ignored; bit 11 set makes it negative.
+        let two = LogicView::packed_lsb(12, 2, &[0x34, 0xfa]);
+        assert_eq!(two.to_u64(), Some(0xa34));
+        assert_eq!(
+            NumericKind::Signed.read(&ValueView::Logic(two)),
+            Some(0xa34 as f64 - 4096.0)
+        );
+        // Four states: codes 0/1 in two-bit fields, LSB first; 2 is X.
+        let four = LogicView::packed_lsb(4, 4, &[0b01_00_01_01]);
+        assert_eq!(four.to_u64(), Some(0b1011));
+        assert_eq!(LogicView::packed_lsb(4, 4, &[0b10_00_01_01]).to_u64(), None);
+    }
 
     #[test]
     fn raw_text_bytes_are_unambiguously_escaped() {

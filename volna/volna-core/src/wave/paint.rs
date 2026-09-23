@@ -16,9 +16,10 @@ use crate::icons::IconName;
 use crate::pipeline::PipelineModel;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
+use crate::wave::analog::{self, Analog, AnalogDraw, Plot, Readout, Series};
 use crate::wave::lane::{self, LaneData, LaneGeometry, TxLane};
 use crate::wave::layout::{SCROLLBAR_W, WaveLayout};
-use crate::wave::model::{Drag, RowSource, WaveModel, WaveRow, ZOOM_RANGE_MIN_PX};
+use crate::wave::model::{DisplayedSignal, Drag, RowSource, WaveModel, WaveRow, ZOOM_RANGE_MIN_PX};
 use crate::wave::overlay::{self, TextPainter, TimeColumn};
 use crate::wave::timeline::format_time;
 use crate::wave::viewport::Viewport;
@@ -200,6 +201,23 @@ pub fn paint(
             }
         }
 
+        // A tall plot says how it is drawn under its name.
+        if let Some(a) = &item.analog
+            && full_h >= 2.0 * row_h - 0.5
+        {
+            let label = format!("{} · {}", a.draw.label(), a.range.label());
+            p.scene.clipped(layout.names, |scene| {
+                scene.text(
+                    point(layout.names.left() + z(12.0), y + row_h - z(4.0)),
+                    row_h,
+                    label,
+                    FontRole::Ui,
+                    t.ui_size_small,
+                    colors.text_placeholder,
+                );
+            });
+        }
+
         // Values column: value at cursor plus the format badge.
         {
             let pad = z(8.0);
@@ -291,6 +309,14 @@ pub fn paint(
 
         // Waves column.
         match (&item.history, &item.error) {
+            (Some(h), _)
+                if let Some(a) = &item.analog
+                    && analog::supports(item.shape, item.translator.as_ref())
+                    && let Some(kind) = item.translator.numeric_kind() =>
+            {
+                let series = Series::of(doc, item.source.signal(), h, kind);
+                paint_analog_row(item, a, &series, &viewport, wave_row, waves, row_h, &mut p)
+            }
             (Some(h), _) => match item.shape {
                 SignalShape::Event => p.scene.clipped(waves, |scene| {
                     paint_event_row(h.as_ref(), &viewport, wave_row, t, scene)
@@ -501,6 +527,7 @@ pub fn paint(
     // -- markers and cursor --------------------------------------------------------
     overlay::markers(&mut p, &column, doc, &layout.marker_chips, model.pointer);
     overlay::cursor(&mut p, &column, cursor, base, focused, z(SCROLLBAR_W));
+    paint_analog_overlays(model, doc, &layout, &viewport, cursor, &mut p);
 
     // -- borders --------------------------------------------------------------
     let drag = model.drag;
@@ -543,7 +570,41 @@ pub fn paint(
     );
     // Pointer shapes: the dividers resize, badges and chips are clickable;
     // only an active drag pins the resize cursor.
-    if matches!(drag, Some(Drag::NamesSplit | Drag::ValuesSplit)) {
+    // Row bottom edges in the names column resize rows.
+    let resizing = match drag {
+        Some(Drag::RowHeight { row, .. }) => Some(row),
+        _ => model.edge_hover,
+    };
+    for ix in layout.rows.clone().filter(|ix| *ix < model.items.len()) {
+        let bottom = layout.row_y(ix) + layout.row_height(ix);
+        if bottom <= layout.names.top() {
+            continue;
+        }
+        let grab = z(crate::wave::model::ROW_EDGE_GRAB_PX);
+        p.scene.cursors.push((
+            Rect::from_xywh(
+                layout.names.left(),
+                bottom - grab,
+                layout.names.width(),
+                2.0 * grab,
+            ),
+            CursorIcon::ResizeUpDown,
+        ));
+        if resizing == Some(ix) {
+            p.scene.fill(
+                Rect::from_xywh(
+                    layout.names.left(),
+                    snap(bottom) - 1.0,
+                    layout.names.width(),
+                    z(2.0).max(2.0),
+                ),
+                t.border_focused,
+            );
+        }
+    }
+    if matches!(drag, Some(Drag::RowHeight { .. })) {
+        p.scene.window_cursor = Some(CursorIcon::ResizeUpDown);
+    } else if matches!(drag, Some(Drag::NamesSplit | Drag::ValuesSplit)) {
         p.scene.window_cursor = Some(CursorIcon::ResizeLeftRight);
     } else if matches!(drag, Some(Drag::Rows { started: true, .. })) {
         p.scene.window_cursor = Some(CursorIcon::Grabbing);
@@ -575,6 +636,299 @@ pub fn paint(
 // ---------------------------------------------------------------------------
 // Waveform painting
 // ---------------------------------------------------------------------------
+
+/// Where row `wave_row` plots its values, once its range is known.
+fn analog_plot(a: &Analog, wave_row: Rect, zoom: f32) -> Option<Plot> {
+    let (lo, hi) = a.shown.or(a.target)?;
+    Some(Plot {
+        left: wave_row.left(),
+        width: wave_row.width().floor(),
+        top: wave_row.top() + TRACE_PAD * zoom,
+        bottom: wave_row.bottom() - TRACE_PAD * zoom,
+        lo,
+        hi,
+    })
+}
+
+/// A number in the row's format: the translator formats the value that
+/// reads back as `v`, or a plain number when it has none.
+fn analog_label(item: &DisplayedSignal, v: f64) -> String {
+    item.translator
+        .numeric_kind()
+        .and_then(|k| k.value_of(v, item.shape))
+        .map(|value| item.translator.translate(&value).text)
+        .unwrap_or_else(|| {
+            if v.fract() == 0.0 && v.abs() < 1e15 {
+                format!("{v:.0}")
+            } else {
+                format!("{v:.4}")
+            }
+        })
+}
+
+/// The overlap of two rectangles (empty when they are disjoint).
+fn intersect(a: Rect, b: Rect) -> Rect {
+    let (l, t) = (a.left().max(b.left()), a.top().max(b.top()));
+    let (r, bt) = (a.right().min(b.right()), a.bottom().min(b.bottom()));
+    Rect::from_xywh(l, t, (r - l).max(0.0), (bt - t).max(0.0))
+}
+
+/// Paint a row as a plot: guides, the zero line, undefined spans, the fill
+/// under the curve, the curve, sample dots and, from 2×, range labels.
+#[allow(clippy::too_many_arguments)]
+fn paint_analog_row(
+    item: &DisplayedSignal,
+    a: &Analog,
+    series: &Series<'_>,
+    vp: &Viewport,
+    wave_row: Rect,
+    waves: Rect,
+    row_h: f32,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let clip = intersect(wave_row, waves);
+    let plot = analog_plot(a, wave_row, t.zoom);
+    let g = plot.map(|plot| analog::geometry(series, a.draw, vp, &plot, t.zoom));
+    // A long history waits for its summary rather than scanning every change.
+    let (Some(plot), Some(g)) = (plot, g.filter(|g| !g.waiting)) else {
+        if series.building {
+            p.scene.clipped(clip, |scene| {
+                scene.text(
+                    point(wave_row.left() + z(8.0), wave_row.top()),
+                    wave_row.height(),
+                    "Summarizing…",
+                    FontRole::Ui,
+                    t.ui_size_small,
+                    t.editor.text_placeholder,
+                );
+            });
+        }
+        return;
+    };
+    p.scene.clipped(clip, |scene| {
+        scene.fill(
+            Rect::from_xywh(plot.left, snap(plot.top), plot.width, 1.0),
+            t.wave_tick,
+        );
+        scene.fill(
+            Rect::from_xywh(plot.left, snap(plot.bottom), plot.width, 1.0),
+            t.wave_tick,
+        );
+        if plot.lo < 0.0 && plot.hi > 0.0 {
+            let y = snap(plot.y_of(0.0)) + 0.5;
+            let (dash, gap) = (z(3.0), z(4.0));
+            let mut segments = Vec::new();
+            let mut x = plot.left;
+            while x < plot.left + plot.width {
+                segments.push([
+                    point(x, y),
+                    point((x + dash).min(plot.left + plot.width), y),
+                ]);
+                x += dash + gap;
+            }
+            scene.lines(segments, t.wave_tick_text.with_alpha(0.35), 1.0);
+        }
+        for &(xa, xb) in &g.undefined {
+            let r = Rect::from_xywh(xa, plot.top, (xb - xa).max(1.0), plot.bottom - plot.top);
+            scene.fill(r, t.wave_undef.with_alpha(0.14));
+            scene.fill(
+                Rect::from_xywh(xa, snap(plot.top), r.width(), 1.0),
+                t.wave_undef,
+            );
+            scene.fill(
+                Rect::from_xywh(xa, snap(plot.bottom) - 1.0, r.width(), 1.0),
+                t.wave_undef,
+            );
+        }
+        let base = plot.baseline();
+        for (x, w, y) in analog::fill_columns(&g.runs, plot.left, plot.width) {
+            let (y0, y1) = (y.min(base), y.max(base));
+            if y1 - y0 >= 0.5 {
+                scene.fill(Rect::from_xywh(x, y0, w, y1 - y0), t.wave_high_fill);
+            }
+        }
+        let mut segments = Vec::new();
+        for run in &g.runs {
+            match run.as_slice() {
+                [only] => segments.push([*only, point(only.x + 1.0, only.y)]),
+                points => segments.extend(points.windows(2).map(|w| [w[0], w[1]])),
+            }
+        }
+        let width = if g.envelope { 1.0 } else { z(1.25).max(1.0) };
+        scene.lines(segments, t.wave_signal, width);
+        let r = z(2.0);
+        for d in &g.dots {
+            scene.quad(
+                Rect::from_xywh(d.x - r, d.y - r, 2.0 * r, 2.0 * r),
+                t.wave_signal,
+                r,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+    });
+    // Range labels at the top and bottom from 2× up.
+    let Some((lo, hi)) = a.target else { return };
+    if wave_row.height() < 2.0 * row_h - 0.5 {
+        return;
+    }
+    let size = t.ui_size_small;
+    let label_h = z(14.0);
+    for (v, y) in [
+        (hi, plot.top + z(1.0)),
+        (lo, plot.bottom - label_h - z(1.0)),
+    ] {
+        let text = analog_label(item, v);
+        let w = p.width(&text, FontRole::Mono, size) + z(8.0);
+        let chip = Rect::from_xywh(plot.left + z(4.0), y, w, label_h);
+        p.scene.clipped(clip, |scene| {
+            scene.quad(
+                chip,
+                t.editor.bg.with_alpha(0.82),
+                z(3.0),
+                0.0,
+                Color::TRANSPARENT,
+            );
+            scene.text(
+                point(chip.left() + z(4.0), chip.top()),
+                label_h,
+                text,
+                FontRole::Mono,
+                size,
+                t.wave_tick_text,
+            );
+        });
+    }
+}
+
+/// Over every visible plot: a dot where the cursor crosses the curve and,
+/// under the pointer, a readout of the sample or dense column there.
+fn paint_analog_overlays(
+    model: &WaveModel,
+    doc: &Document,
+    layout: &WaveLayout,
+    vp: &Viewport,
+    cursor: Option<u64>,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let waves = layout.waves;
+    let reading = matches!(model.drag, None | Some(Drag::Cursor));
+    for ix in layout.rows.clone() {
+        let Some(item) = model.signal(ix) else {
+            continue;
+        };
+        let (Some(a), Some(h)) = (&item.analog, &item.history) else {
+            continue;
+        };
+        if !analog::supports(item.shape, item.translator.as_ref()) {
+            continue;
+        }
+        let wave_row = Rect::from_xywh(
+            waves.left(),
+            layout.row_y(ix),
+            waves.width(),
+            layout.row_height(ix),
+        );
+        let Some(plot) = analog_plot(a, wave_row, t.zoom) else {
+            continue;
+        };
+        let tr = item.translator.as_ref();
+        let Some(kind) = tr.numeric_kind() else {
+            continue;
+        };
+        let series = Series::of(doc, item.source.signal(), h, kind);
+        let envelope = analog::draw_mode(h.as_ref(), vp, plot.width) == analog::DrawMode::Envelope;
+        let clip = intersect(wave_row, waves);
+        if let Some(c) = cursor
+            && (c as f64) >= vp.start
+            && (c as f64) <= vp.end
+            && let Some(y) = analog::y_at(&series, a.draw, envelope, &plot, c as f64)
+        {
+            let x = snap(plot.left + vp.x_of(c as f64, f64::from(plot.width)) as f32) + 0.5;
+            let r = z(3.25);
+            p.scene.clipped(clip, |scene| {
+                scene.quad(
+                    Rect::from_xywh(x - r, y - r, 2.0 * r, 2.0 * r),
+                    t.wave_signal,
+                    r,
+                    z(1.5),
+                    t.editor.bg,
+                );
+            });
+        }
+        let Some(pointer) = model
+            .pointer
+            .filter(|p| reading && model.hover_row == Some(ix) && waves.contains(*p))
+        else {
+            continue;
+        };
+        let Some(read) = analog::readout(&series, a.draw, vp, &plot, pointer.x) else {
+            continue;
+        };
+        let text = match &read {
+            Readout::Sample { index, time, at } => {
+                let r = z(3.5);
+                p.scene.clipped(clip, |scene| {
+                    scene.quad(
+                        Rect::from_xywh(at.x - r, at.y - r, 2.0 * r, 2.0 * r),
+                        t.editor.bg,
+                        r,
+                        z(1.5),
+                        t.editor.text,
+                    );
+                });
+                let value = tr.translate(&h.value(*index)).text;
+                let prefix = if a.draw == AnalogDraw::Linear {
+                    "sample at "
+                } else {
+                    "at "
+                };
+                format!("{value}  {prefix}{}", format_time(*time, doc.time_base()))
+            }
+            Readout::Column { lo, hi, changes, x } => {
+                let (ya, yb) = (plot.y_of(*hi), plot.y_of(*lo));
+                p.scene.clipped(clip, |scene| {
+                    scene.fill(
+                        Rect::from_xywh(x - 1.0, ya - 1.0, 2.0, yb - ya + 2.0),
+                        t.editor.text,
+                    );
+                });
+                format!(
+                    "{} … {}  {changes} change{}",
+                    analog_label(item, *lo),
+                    analog_label(item, *hi),
+                    if *changes == 1 { "" } else { "s" }
+                )
+            }
+        };
+        let h_chip = z(20.0);
+        let w_chip = p.width(&text, FontRole::Mono, t.mono_size) + z(14.0);
+        let x = (pointer.x + z(14.0))
+            .min(waves.right() - w_chip - z(4.0))
+            .max(waves.left());
+        let y = if pointer.y - h_chip - z(10.0) >= waves.top() {
+            pointer.y - h_chip - z(10.0)
+        } else {
+            pointer.y + z(16.0)
+        };
+        let chip = Rect::from_xywh(snap(x), snap(y), w_chip, h_chip);
+        p.scene.clipped(waves, |scene| {
+            scene.quad(chip, t.tooltip.bg, z(4.0), 1.0, t.border);
+            scene.text(
+                point(chip.left() + z(7.0), chip.top()),
+                h_chip,
+                text,
+                FontRole::Mono,
+                t.mono_size,
+                t.tooltip.text,
+            );
+        });
+    }
+}
 
 /// Paint occurrences, coalescing timestamps that occupy the same pixel.
 pub fn paint_event_row(

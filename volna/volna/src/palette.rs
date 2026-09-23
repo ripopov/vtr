@@ -76,6 +76,7 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Increase Row Height", Box::new(app::IncreaseRowHeight)),
         ("Decrease Row Height", Box::new(app::DecreaseRowHeight)),
         ("Reset Row Height", Box::new(app::ResetRowHeight)),
+        ("Toggle Analog Drawing", Box::new(app::ToggleAnalog)),
         ("Add Marker at Cursor", Box::new(app::AddMarker)),
         ("Clear Markers", Box::new(app::ClearMarkers)),
     ]

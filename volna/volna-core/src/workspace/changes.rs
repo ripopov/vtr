@@ -86,16 +86,19 @@ impl Stamp {
             _ => app.panels.focused_id(),
         };
         let selection = pointer.is_none_or(|(_, event)| matches!(event, PointerEvent::Down { .. }));
-        let styles = matches!(
-            command,
-            Command::MenuSelect(..)
-                | Command::Action(
-                    Action::CycleFormat
-                        | Action::IncreaseRowHeight
-                        | Action::DecreaseRowHeight
-                        | Action::ResetRowHeight
-                )
-        );
+        // Pointer presses and drags can resize rows by their edges.
+        let styles = pointer.is_some()
+            || matches!(
+                command,
+                Command::MenuSelect(..)
+                    | Command::Action(
+                        Action::CycleFormat
+                            | Action::ToggleAnalog
+                            | Action::IncreaseRowHeight
+                            | Action::DecreaseRowHeight
+                            | Action::ResetRowHeight
+                    )
+            );
         let scope = matches!(
             command,
             Command::ToggleScope(_) | Command::ExpandAllScopes(_) | Command::ScopesKey(_)
@@ -129,7 +132,15 @@ impl Stamp {
                         .iter()
                         .map(|row| {
                             let style = match row {
-                                WaveRow::Signal(item) => item.format_id(),
+                                WaveRow::Signal(item) => match &item.analog {
+                                    Some(a) => format!(
+                                        "{}:{}:{}",
+                                        item.format_id(),
+                                        a.draw.label(),
+                                        a.range.label()
+                                    ),
+                                    None => item.format_id(),
+                                },
                                 WaveRow::Lane(lane) => {
                                     format!("lane:{}", lane.source.path().join("."))
                                 }

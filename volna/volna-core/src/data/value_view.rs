@@ -38,6 +38,49 @@ impl<'a> LogicView<'a> {
             storage: LogicStorage::NibblesMsb(data),
         }
     }
+    /// The bits as an unsigned integer, when every bit is 0 or 1 and the
+    /// vector fits in 64 bits. Packed two-state storage reads whole bytes.
+    pub fn to_u64(&self) -> Option<u64> {
+        let w = self.width;
+        if w == 0 || w > 64 {
+            return None;
+        }
+        let mask = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
+        match &self.storage {
+            LogicStorage::PackedLsb { states: 2, data } => {
+                let raw = data
+                    .iter()
+                    .take(8)
+                    .enumerate()
+                    .fold(0u64, |acc, (i, b)| acc | (u64::from(*b) << (8 * i)));
+                Some(raw & mask)
+            }
+            LogicStorage::PackedLsb { states: 4, data } => {
+                let mut raw = 0u64;
+                for i in 0..w {
+                    match (data[i >> 2] >> ((i & 3) * 2)) & 3 {
+                        0 => {}
+                        1 => raw |= 1 << i,
+                        _ => return None,
+                    }
+                }
+                Some(raw)
+            }
+            _ => {
+                let mut raw = 0u64;
+                for i in 0..w {
+                    raw = (raw << 1)
+                        | match self.bit(i) {
+                            b'0' => 0,
+                            b'1' => 1,
+                            _ => return None,
+                        };
+                }
+                Some(raw)
+            }
+        }
+    }
+
     /// MSB-first ASCII logic code. Storage was validated by its owner.
     pub fn bit(&self, index: usize) -> u8 {
         assert!(index < self.width);

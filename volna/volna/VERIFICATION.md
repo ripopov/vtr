@@ -42,6 +42,7 @@ node --test volna/volna/tools/table-clipboard.test.mjs
 | FST/VTR parity | Values at every change timestamp in the committed Verilator features, operators and pipeline recordings |
 | Transactions | Unsupported versus empty capabilities, typed attributes and phases, events, stages, parents, inclusive overlap boundaries, filtering, early stopping and cross-stream relations |
 | Pipeline panel | Enter on a stream or generator opens a panel without a notice and queues one track load; a second panel on a resident track queues nothing; one quad per visible primary-lane stage and one band per overlay; unmodified zoom about the pointer keeps the time and row under it at interface zoom 1 and 2; Ctrl/Cmd-wheel zooms time only and preserves rows and activity following; linked wheel zoom moves the wave panel, unlinked does not; trackpad deltas pan; a click sets the shared cursor to the integer cycle and the wave value column follows; density steps bound painted rows by pixels; flushed and open rows differ by colour; workspace round trip, unresolved tracks and invalid saved rows; closing the last panel releases the track and a late delivery is ignored; failed loads retry; the checked-in showcase opens both cores |
+| Analog waves | Translator numeric readings, limits and label values; reals open as linear 3× plots; `A` toggles the plottable selection and restores 1×; format-menu Draw and Range sections and the signal-menu toggle; trace, window and type ranges with window easing; zoomed-out columns keep a one-sample glitch and X breaks the line; exact samples with dots and the cursor dot; hover readouts of samples and dense columns; row-edge resizing to presets; version-3 workspace rows; summaries built on the worker, charged to the budget, waited for zoomed out, and released with the plot; summary queries against scans at every block boundary |
 | Transaction lanes | Add to Waves on generators only; one shared resident generator with pipelines, released with the last lane; default heights from stacking depth (capped at 4×); bar hits on the right sub-row, snapping to record ends, empty-space clearing and Show Transaction; edge steps through every begin and end; cut/paste across panels, Height menu, `+N` fold chip and hatching; typed workspace rows with unresolved generators; captions, value column, red failures and the density strip; stacking, boundaries and density bins against scans |
 | Baseline table panel | Generator and fixed-signal sources; shared raw ownership and native/remote admission; distinct merged timestamps and one-signal zero-axis path; bounded 256-row preparation; exact `u64` navigation and scrollbar endpoints; fixed columns; stable selection/cursor linking; details limits and cancellation; 64 KiB complete TSV; visible-row accessibility; loading/cancel/retry/refusal; versioned workspace restore at row one; browser clipboard rejection with selectable TSV and Retry |
 | GPUI adapter | Production loading executor, input filtering/Escape, keyboard popup selection/dismissal, theme changes and nonblank Metal frames |
@@ -492,6 +493,19 @@ backend with lanes, and prints the lane load time, the generator index build
 the same bars folded to 1×, and the whole trace as a density strip. Results
 and the A/B against the build without lanes are in `docs/RATIONALE.md`
 ("Volna transaction lanes").
+
+### Analog waves
+
+```sh
+cargo run --release -p volna-core --example analog_cost -- 10000000
+```
+
+`analog_cost` writes a 16-bit signed bus and a real signal changing every
+tick, opens them through the shared session backend, times the block summary
+build, and prints best-of-five core frames (layout and `Scene` painting at
+1400×300, `MonoMeasure`) with the bus drawn digitally and as step and linear
+plots in each range, zoomed out, at 1/100 of the trace and over 200 ticks.
+Results are in `docs/RATIONALE.md` ("Volna analog waves").
 
 ### Painting
 

@@ -89,7 +89,9 @@ impl RemoteClient {
                 }
             }
             request @ LoadRequest::Track { .. } => self.queued.push_back(request),
-            LoadRequest::Open { .. } => unreachable!("open requests have no remote identity"),
+            LoadRequest::Open { .. } | LoadRequest::Summary { .. } => {
+                unreachable!("open requests have no remote identity")
+            }
         }
         Ok(())
     }
@@ -156,7 +158,9 @@ impl RemoteClient {
                 });
                 command
             }
-            LoadRequest::Open { .. } => unreachable!("only object loads are queued"),
+            LoadRequest::Open { .. } | LoadRequest::Summary { .. } => {
+                unreachable!("only object loads are queued")
+            }
         };
         let packet = Packet {
             session,
@@ -188,7 +192,9 @@ impl RemoteClient {
             } => app
                 .doc
                 .wants_track_request(*generation, *request_id, *track),
-            LoadRequest::Open { .. } => unreachable!("only object loads are queued"),
+            LoadRequest::Open { .. } | LoadRequest::Summary { .. } => {
+                unreachable!("only object loads are queued")
+            }
         });
     }
 
@@ -236,7 +242,7 @@ impl RemoteClient {
                         signals.retain(|id| !results.iter().any(|(done, _)| id == done));
                     }
                 }
-                LoadResult::Track { .. } => {}
+                LoadResult::Track { .. } | LoadResult::Summary { .. } => {}
             }
         }
         let complete = match self.active.as_ref() {

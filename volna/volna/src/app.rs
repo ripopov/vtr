@@ -101,6 +101,7 @@ actions!(
         SelectAll,
         ClearSelection,
         CycleFormat,
+        ToggleAnalog,
         IncreaseRowHeight,
         DecreaseRowHeight,
         ResetRowHeight,
@@ -319,6 +320,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-a", SelectAll, Some("Waves")),
         KeyBinding::new("escape", ClearSelection, Some("Waves")),
         KeyBinding::new("t", CycleFormat, Some("Waves")),
+        KeyBinding::new("a", ToggleAnalog, Some("Waves")),
         KeyBinding::new("enter", ShowTransaction, Some("Waves")),
         KeyBinding::new("up", MoveSelectionUp, Some("Waves")),
         KeyBinding::new("down", MoveSelectionDown, Some("Waves")),
@@ -773,6 +775,7 @@ impl Workspace {
                 menu = match entry {
                     MenuEntry::Item(entry) => menu.item(item(entry)),
                     MenuEntry::Separator => menu.separator(),
+                    MenuEntry::Label(label) => menu.label(label.clone()),
                     MenuEntry::Submenu { label, items } => {
                         let (items, item, focus) = (items.clone(), item.clone(), focus.clone());
                         menu.submenu(label.clone(), window, cx, move |mut sub, _, _| {
@@ -1395,6 +1398,7 @@ impl Workspace {
                 SelectAll,
                 ClearSelection,
                 CycleFormat,
+                ToggleAnalog,
                 IncreaseRowHeight,
                 DecreaseRowHeight,
                 ResetRowHeight,

@@ -9,6 +9,7 @@ use crate::table::columns::{ColumnSet, TransactionColumn};
 use crate::table::{SignalSource, TableModel, TableSource};
 use crate::transaction::{ShownRecord, TransactionModel, ViewPrefs, view::SectionKey};
 use crate::wave::{
+    analog::{Analog, AnalogDraw, AnalogRange},
     lane::TxLane,
     model::{DisplayedSignal, Link, RowHeight, RowSource, WaveModel, WaveRow},
     viewport::Viewport,
@@ -81,6 +82,8 @@ enum Row {
         format: String,
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        analog: Option<SavedAnalog>,
     },
     Lane {
         generator: Vec<String>,
@@ -89,8 +92,16 @@ enum Row {
     },
 }
 
-/// The wave panel format: version 2 added transaction lanes as typed rows.
-const WAVES_VERSION: u32 = 2;
+/// A signal row drawn as a plot.
+#[derive(Debug, Serialize, Deserialize)]
+struct SavedAnalog {
+    draw: AnalogDraw,
+    range: AnalogRange,
+}
+
+/// The wave panel format: version 2 added transaction lanes as typed rows,
+/// version 3 analog rows.
+const WAVES_VERSION: u32 = 3;
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
 #[derive(Serialize, Deserialize)]
@@ -394,6 +405,10 @@ impl Workspace {
                                 nth,
                                 format: item.format_id(),
                                 height: item.height,
+                                analog: item.analog.as_ref().map(|a| SavedAnalog {
+                                    draw: a.draw,
+                                    range: a.range,
+                                }),
                             }
                         }
                         WaveRow::Lane(lane) => Row::Lane {
@@ -783,13 +798,14 @@ impl Workspace {
             w.selected = saved.selected;
             w.anchor = w.selected.first().copied();
             for row in saved.rows {
-                let (signal, nth, format, height) = match row {
+                let (signal, nth, format, height, analog) = match row {
                     Row::Signal {
                         signal,
                         nth,
                         format,
                         height,
-                    } => (signal, nth, format, height),
+                        analog,
+                    } => (signal, nth, format, height, analog),
                     Row::Lane { generator, height } => {
                         ensure!(!generator.is_empty(), "empty lane generator path");
                         let track = session.tracks().iter().find(|t| {
@@ -865,6 +881,7 @@ impl Workspace {
                     history: None,
                     error: None,
                     height,
+                    analog: analog.map(|a| Analog::new(a.draw, a.range)),
                 }));
             }
             panels.push(Panel {

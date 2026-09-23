@@ -1049,6 +1049,9 @@ impl VolnaApp {
                                     MenuEntry::Separator => {
                                         ui.separator();
                                     }
+                                    MenuEntry::Label(label) => {
+                                        ui.weak(label);
+                                    }
                                     MenuEntry::Submenu { label, items } => {
                                         ui.menu_button(label, |ui| {
                                             for item in items {

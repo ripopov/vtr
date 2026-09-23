@@ -835,3 +835,110 @@ impl RootWindow {
         })
     }
 }
+
+/// `A` on the wave panel draws the selected vector as a plot and back, and
+/// the format popup hosts its Draw and Range sections.
+#[gpui_kit::test]
+fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use volna_core::data::SignalShape;
+    use volna_core::geometry::{Modifiers, MouseButton, point};
+    use volna_core::wave::PointerEvent;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            let session = Arc::new(SynthSource::new(100));
+            ws.set_session(session.clone(), cx);
+            let vector = session
+                .hierarchy()
+                .vars
+                .iter()
+                .position(|v| matches!(v.shape, SignalShape::Vector { .. }))
+                .unwrap();
+            ws.dispatch(Command::AddVars(vec![vector]), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let row = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                let item = ws.app.panels.focused_waves().unwrap().items[0].clone();
+                (
+                    item.signal().unwrap().analog.as_ref().map(|a| a.draw),
+                    item.height().multiple(),
+                )
+            })
+            .unwrap()
+    };
+    window
+        .update(&mut vcx, |ws, _, _| {
+            ws.app.panels.focused_waves_mut().unwrap().selected = [0].into();
+        })
+        .unwrap();
+    vcx.simulate_keystrokes("a");
+    vcx.run_until_parked();
+    assert_eq!(
+        row(&mut vcx),
+        (Some(volna_core::wave::analog::AnalogDraw::Step), 3)
+    );
+    // A frame paints the plot; then the badge opens the format popup.
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            let panel = ws.app.panels.focused_id();
+            let badge = ws.app.panels.focused_waves().unwrap().last_layout().badges[0].1;
+            ws.dispatch(
+                Command::Pointer(
+                    panel,
+                    PointerEvent::Down {
+                        position: point(badge.left() + 2.0, badge.top() + 2.0),
+                        button: MouseButton::Left,
+                        modifiers: Modifiers::default(),
+                    },
+                ),
+                Some(window),
+                cx,
+            );
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let menu = ws
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .menu
+                .as_ref()
+                .unwrap();
+            assert!(
+                menu.entries
+                    .contains(&volna_core::wave::MenuEntry::Label("Range".into()))
+            );
+            assert!(ws.wave_menu.is_some(), "the popup is hosted");
+        })
+        .unwrap();
+    // Escape closes the popup and returns the keys to the panel.
+    vcx.simulate_keystrokes("escape");
+    vcx.run_until_parked();
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, _| ws.wave_menu.is_none())
+            .unwrap()
+    );
+    vcx.simulate_keystrokes("a");
+    vcx.run_until_parked();
+    assert_eq!(row(&mut vcx), (None, 1));
+}

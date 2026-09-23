@@ -58,6 +58,8 @@ pub enum Action {
     SelectAll,
     ClearSelection,
     CycleFormat,
+    /// Draw the selected rows as plots, or back to digital.
+    ToggleAnalog,
     /// Step the selected rows to the next larger / smaller height preset,
     /// or back to the default height.
     IncreaseRowHeight,
@@ -557,6 +559,7 @@ impl App {
 
     pub(crate) fn workspace_restored(&mut self) {
         self.sync_lane_tracks();
+        self.sync_analog_summaries();
         self.drag = None;
         self.layout_changed();
         self.changed();
@@ -614,6 +617,7 @@ impl App {
             *opened = self.account_local_session(session);
         }
         match self.doc.deliver(result) {
+            Some(Delivered::Summary) => self.changed(),
             Some(Delivered::Track) => {
                 for pipeline in self.panels.pipelines_mut() {
                     pipeline.refresh(&self.doc);
@@ -640,6 +644,7 @@ impl App {
                         }
                     }
                 }
+                self.sync_analog_summaries();
                 self.changed();
             }
             Some(Delivered::Opened(Ok(session))) => {
@@ -1114,6 +1119,7 @@ impl App {
         // Pointer input moves rows but never adds or removes them.
         if !pointer {
             self.sync_lane_tracks();
+            self.sync_analog_summaries();
         }
         if self.doc.selection() != selection {
             self.sync_selection();
@@ -1551,6 +1557,28 @@ impl App {
     /// Hold one document retain for every generator a wave lane shows, and
     /// release those no lane shows any more. A new session drops earlier
     /// retains with its tracks.
+    /// Hold an analog summary for every long history a plot shows, and
+    /// release the others with their memory.
+    pub(crate) fn sync_analog_summaries(&mut self) {
+        let wanted = self
+            .panels
+            .iter()
+            .filter_map(|panel| panel.kind.waves())
+            .flat_map(|waves| &waves.items)
+            .filter_map(WaveRow::signal)
+            .filter(|s| s.analog.is_some())
+            .filter_map(|s| {
+                let kind = s.translator.numeric_kind()?;
+                let history = s.history.as_ref()?;
+                let signal = s.source.signal()?;
+                (history.len() >= crate::wave::analog::SUMMARY_MIN_CHANGES)
+                    .then(|| ((signal, kind), history.clone()))
+            })
+            .collect();
+        let budget = self.table_memory_budget();
+        self.doc.sync_summaries(wanted, &budget);
+    }
+
     pub(crate) fn sync_lane_tracks(&mut self) {
         let generation = self.doc.generation();
         if self.lane_tracks.0 != generation {
@@ -1683,6 +1711,7 @@ impl App {
                 | Action::PasteSignals
                 | Action::SelectAll
                 | Action::CycleFormat
+                | Action::ToggleAnalog
                 | Action::IncreaseRowHeight
                 | Action::DecreaseRowHeight
                 | Action::ResetRowHeight => return,
@@ -1721,6 +1750,7 @@ impl App {
                 Action::SelectAll => w.select_all(),
                 Action::ClearSelection => w.clear_selection(doc),
                 Action::CycleFormat => w.cycle_format(doc),
+                Action::ToggleAnalog => w.toggle_analog(),
                 Action::IncreaseRowHeight => w.step_row_height(1),
                 Action::DecreaseRowHeight => w.step_row_height(-1),
                 Action::ResetRowHeight => w.step_row_height(0),
@@ -1768,6 +1798,7 @@ impl App {
                 | Action::PasteSignals
                 | Action::SelectAll
                 | Action::CycleFormat
+                | Action::ToggleAnalog
                 | Action::IncreaseRowHeight
                 | Action::DecreaseRowHeight
                 | Action::ResetRowHeight => return,
@@ -1791,7 +1822,7 @@ impl App {
     pub fn tick(&mut self, now: Instant) -> bool {
         let mut animating = self.doc.shared.viewport.tick(now);
         for panel in self.panels.iter_mut() {
-            animating |= panel.tick(now);
+            animating |= panel.tick(&self.doc, now);
         }
         let waiting_to_save = self.workspace_tick(now);
         let waiting_for_settings = self.settings_tick(now, false);

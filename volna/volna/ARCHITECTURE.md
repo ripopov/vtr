@@ -175,8 +175,8 @@ once, plus every independent animation. Unlink snapshots the displayed shared
 value; relink adopts the retained shared position even if no panels currently
 follow it. Markers always use the focused panel's effective cursor.
 
-The value badge opens only value translators plus **Retry loading** after a
-failed load. Right-clicking a signal name opens its row menu with **Open in
+The value badge opens the value translators, a Draw and (for plots) a Range
+section for numeric rows, plus **Retry loading** after a failed load. Right-clicking a signal name opens its row menu with **Open in
 table**, **Cut**, **Copy**, **Paste**, a **Height** submenu and **Remove signal** (**Remove lane** on a lane,
 whose **Open in table** opens its generator); when that row is already
 part of a selection, every command applies to the complete selection.
@@ -240,6 +240,24 @@ record begins and ends, and Shift+←/→ on a lane step through them with
 `LoadedGenerator::next_boundary`/`prev_boundary`, which cost the records open
 at the cursor. The value column lists the records open at the cursor. The
 design is [docs/transaction-waveforms.html](../../docs/transaction-waveforms.html).
+
+A signal row can be drawn as a plot (`DisplayedSignal::analog`,
+`wave::analog`): `A` (`Action::ToggleAnalog`), the Draw and Range sections of
+the format menu or **Show as analog** in the row menu. The translator's
+`numeric_kind` decides the numbers, so only vectors and reals in a numeric
+format plot; real rows open as linear plots. Turning a 1× row analog makes it
+3× and turning it off restores 1× unless it was resized. The vertical range
+fits the whole trace, the visible window (eased in `WaveModel::tick`) or the
+type limits. Sparse views draw every change; dense ones draw one
+first/min/max/last column per pixel. Undefined values break the line, and
+tall rows show range labels and a zero line. The cursor puts a dot on each
+plot, and the pointer reads a sample or a dense column. Histories of at least
+16,384 changes get an `AnalogSummary` (block extents with a tree above them),
+built by `LoadRequest::Summary` on the load worker and held by the
+`Document`, which `App` reconciles with the plots like lane retains; until it
+arrives a zoomed-out plot shows "Summarizing…". Dragging the bottom edge of
+any row's name cell resizes it through the height presets. The design is
+[docs/analog-waves.html](../../docs/analog-waves.html).
 
 Pointer commands name a panel; keyboard actions and sidebar additions resolve
 focus when handled. Deliveries fan out shared history Arcs to all matching

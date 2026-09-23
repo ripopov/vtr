@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use web_time::Instant;
 
+use super::analog::{self, Analog, AnalogDraw, AnalogRange};
 use super::lane::{self, LaneGeometry, TxLane};
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
 use super::viewport::Viewport;
@@ -27,6 +28,9 @@ pub const ZOOM_RANGE_MIN_PX: f32 = 4.0;
 /// A press on a signal name must travel this far (at zoom 1.0) to start
 /// moving rows; shorter presses are clicks.
 pub const ROW_DRAG_MIN_PX: f32 = 4.0;
+/// A press this close (at zoom 1.0) to the bottom edge of a row's name cell
+/// resizes the row instead of selecting it.
+pub const ROW_EDGE_GRAB_PX: f32 = 3.0;
 /// While moving rows, the pointer this close to the top or bottom edge of the
 /// rows (in rows) scrolls them, faster the deeper it goes.
 const ROW_DRAG_EDGE_ROWS: f32 = 1.0;
@@ -79,6 +83,8 @@ impl RowHeight {
         RowHeight(8),
     ];
     pub const DEFAULT: RowHeight = RowHeight(1);
+    /// What a 1× row grows to when it is first drawn as a plot.
+    pub const ANALOG: RowHeight = RowHeight(3);
 
     pub fn multiple(self) -> u8 {
         self.0
@@ -133,6 +139,8 @@ pub struct DisplayedSignal {
     pub history: Option<Arc<dyn SignalHistory>>,
     pub error: Option<String>,
     pub height: RowHeight,
+    /// Drawn as a plot instead of digital values.
+    pub analog: Option<Analog>,
 }
 
 impl DisplayedSignal {
@@ -171,7 +179,12 @@ impl WaveRow {
     /// Set the height; a lane keeps an explicit choice from then on.
     pub fn set_height(&mut self, height: RowHeight) {
         match self {
-            Self::Signal(s) => s.height = height,
+            Self::Signal(s) => {
+                s.height = height;
+                if let Some(a) = &mut s.analog {
+                    a.restore_height = None;
+                }
+            }
             Self::Lane(l) => {
                 l.height = height;
                 l.auto_height = false;
@@ -232,6 +245,12 @@ pub enum Drag {
     Scroll {
         grab: f32,
     },
+    /// Resizing `row` (and the selection containing it) by the bottom edge
+    /// of its name cell; `top` is the row's top at the press.
+    RowHeight {
+        row: usize,
+        top: f32,
+    },
     /// Moving the selected rows by their names. `gap` is the insertion point
     /// (a row index, or the row count for the end) once the press has moved
     /// far enough and the drop would change the order. A plain press on an
@@ -257,6 +276,10 @@ pub enum MenuAction {
     PasteSignals,
     RemoveSignals,
     RowHeight(RowHeight),
+    /// Draw the rows digitally (`None`) or as a plot.
+    Draw(Option<AnalogDraw>),
+    Range(AnalogRange),
+    ToggleAnalog,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -271,7 +294,12 @@ pub struct MenuItem {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MenuEntry {
     Item(MenuItem),
-    Submenu { label: String, items: Vec<MenuItem> },
+    Submenu {
+        label: String,
+        items: Vec<MenuItem>,
+    },
+    /// A group title.
+    Label(String),
     Separator,
 }
 
@@ -308,7 +336,7 @@ impl WaveMenu {
         self.entries.iter().flat_map(|entry| match entry {
             MenuEntry::Item(item) => std::slice::from_ref(item),
             MenuEntry::Submenu { items, .. } => items.as_slice(),
-            MenuEntry::Separator => &[],
+            MenuEntry::Separator | MenuEntry::Label(_) => &[],
         })
     }
 }
@@ -355,6 +383,8 @@ pub struct WaveModel {
     pub values_width: f32,
     pub hover_row: Option<usize>,
     pub badge_hover: Option<usize>,
+    /// The row whose bottom edge the pointer can drag to resize it.
+    pub edge_hover: Option<usize>,
     /// Pointer is over a column divider / a marker chip (drives repaints).
     pub split_hover: bool,
     pub chip_hover: bool,
@@ -371,6 +401,8 @@ pub struct WaveModel {
     /// The last press landed on a lane bar and selected its record, so a
     /// second click opens it.
     pub pressed_record: bool,
+    /// When analog ranges last eased, while one is moving.
+    analog_eased_at: Option<Instant>,
     layout: WaveLayout,
 }
 
@@ -427,6 +459,7 @@ impl WaveModel {
             values_width: 120.0,
             hover_row: None,
             badge_hover: None,
+            edge_hover: None,
             split_hover: false,
             chip_hover: false,
             drag: None,
@@ -437,6 +470,7 @@ impl WaveModel {
             menu: None,
             pointer: None,
             pressed_record: false,
+            analog_eased_at: None,
             layout: WaveLayout::default(),
         }
     }
@@ -460,12 +494,54 @@ impl WaveModel {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.nav.is_animating() || self.row_drag_scroll_speed() != 0.0
+        self.nav.is_animating()
+            || self.row_drag_scroll_speed() != 0.0
+            || self.analog_rows().any(|a| !a.is_settled())
     }
 
-    pub fn tick(&mut self, now: Instant) -> bool {
+    pub fn tick(&mut self, doc: &Document, now: Instant) -> bool {
         let animated = self.nav.tick(now);
-        animated | self.row_drag_scroll(now)
+        animated | self.row_drag_scroll(now) | self.ease_analog(doc, now)
+    }
+
+    fn analog_rows(&self) -> impl Iterator<Item = &Analog> {
+        self.items
+            .iter()
+            .filter_map(|row| row.signal()?.analog.as_ref())
+    }
+
+    /// Fit the visible plots' target ranges to the current viewport.
+    fn update_analog_targets(&mut self, doc: &Document) {
+        let vp = self.viewport(doc);
+        let rows = self.layout.rows.clone();
+        let len = self.items.len();
+        for item in self.items[rows.start.min(len)..rows.end.min(len)]
+            .iter_mut()
+            .filter_map(WaveRow::signal_mut)
+        {
+            if let (Some(a), Some(h)) = (&mut item.analog, &item.history)
+                && let Some(kind) = item.translator.numeric_kind()
+            {
+                let series = analog::Series::of(doc, item.source.signal(), h, kind);
+                a.update_target(&series, item.translator.as_ref(), item.shape, &vp);
+            }
+        }
+    }
+
+    /// Ease every plot's displayed range towards its target.
+    fn ease_analog(&mut self, doc: &Document, now: Instant) -> bool {
+        self.update_analog_targets(doc);
+        let dt = self.analog_eased_at.map_or(0.0, |at| {
+            now.saturating_duration_since(at).as_secs_f64().min(0.1)
+        });
+        let mut moving = false;
+        for item in self.items.iter_mut().filter_map(WaveRow::signal_mut) {
+            if let Some(a) = &mut item.analog {
+                moving |= a.ease(dt);
+            }
+        }
+        self.analog_eased_at = moving.then_some(now);
+        moving
     }
 
     pub fn loaded_count(&self) -> usize {
@@ -501,6 +577,14 @@ impl WaveModel {
             // Variable identity/format stay per row; aliases share immutable data.
             let history = loaded.get(&v.signal).cloned();
             let needs_load = history.is_none();
+            // Reals open as plots: their text is rarely readable at a glance.
+            let analog = (v.shape == SignalShape::Real
+                && analog::supports(v.shape, translator.as_ref()))
+            .then(|| {
+                let mut a = Analog::new(AnalogDraw::Linear, AnalogRange::Trace);
+                a.restore_height = Some(RowHeight::DEFAULT);
+                a
+            });
             self.items.push(WaveRow::Signal(DisplayedSignal {
                 source: RowSource::Resolved {
                     var,
@@ -513,7 +597,12 @@ impl WaveModel {
                 translator,
                 history,
                 error: None,
-                height: RowHeight::DEFAULT,
+                height: if analog.is_some() {
+                    RowHeight::ANALOG
+                } else {
+                    RowHeight::DEFAULT
+                },
+                analog,
             }));
             if needs_load {
                 doc.request_signal(v.signal);
@@ -764,6 +853,88 @@ impl WaveModel {
         }
     }
 
+    // -- analog ------------------------------------------------------------------
+
+    /// Whether row `row` can be drawn as a plot in its current format.
+    pub fn can_plot(&self, row: usize) -> bool {
+        self.signal(row)
+            .is_some_and(|s| analog::supports(s.shape, s.translator.as_ref()))
+    }
+
+    /// Draw `rows` as plots with `draw`, or digitally with `None`; rows that
+    /// cannot be plotted are skipped. A 1× row grows to
+    /// [`RowHeight::ANALOG`] and gets 1× back when analog is turned off,
+    /// unless it was resized in between.
+    pub fn set_analog(&mut self, rows: &[usize], draw: Option<AnalogDraw>) {
+        for &row in rows {
+            if draw.is_some() && !self.can_plot(row) {
+                continue;
+            }
+            let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut) else {
+                continue;
+            };
+            match (draw, &mut item.analog) {
+                (Some(draw), Some(a)) => a.draw = draw,
+                (Some(draw), None) => {
+                    let mut a = Analog::new(draw, AnalogRange::Trace);
+                    if item.height == RowHeight::DEFAULT {
+                        a.restore_height = Some(item.height);
+                        item.height = RowHeight::ANALOG;
+                    }
+                    item.analog = Some(a);
+                }
+                (None, Some(a)) => {
+                    if let Some(h) = a
+                        .restore_height
+                        .filter(|_| item.height == RowHeight::ANALOG)
+                    {
+                        item.height = h;
+                    }
+                    item.analog = None;
+                }
+                (None, None) => {}
+            }
+        }
+        self.scroll_y = self.scroll_y.min(self.layout.max_scroll.max(0.0));
+    }
+
+    /// `A`: plot the selected rows, or turn them all back to digital when
+    /// every plottable one already is a plot.
+    pub fn toggle_analog(&mut self) {
+        let rows: Vec<usize> = self.selected.iter().copied().collect();
+        self.toggle_analog_rows(&rows);
+    }
+
+    fn toggle_analog_rows(&mut self, rows: &[usize]) {
+        let rows: Vec<usize> = rows.iter().copied().filter(|&r| self.can_plot(r)).collect();
+        let on = rows
+            .iter()
+            .any(|&r| self.signal(r).is_some_and(|s| s.analog.is_none()));
+        for r in rows {
+            let draw = self.signal(r).and_then(|s| {
+                on.then(|| {
+                    s.analog
+                        .as_ref()
+                        .map_or(AnalogDraw::default_for(s.shape), |a| a.draw)
+                })
+            });
+            self.set_analog(&[r], draw);
+        }
+    }
+
+    /// Choose the vertical range of the plotted `rows`; type limits apply
+    /// only to formats that have them.
+    pub fn set_analog_range(&mut self, rows: &[usize], range: AnalogRange) {
+        for &row in rows {
+            if let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut)
+                && (range != AnalogRange::Type || item.translator.limits(item.shape).is_some())
+                && let Some(a) = &mut item.analog
+            {
+                a.range = range;
+            }
+        }
+    }
+
     /// Open the format menu for `row` at a panel position.
     pub fn open_format_menu(&mut self, doc: &Document, row: usize, position: Point) {
         let Some(item) = self.signal(row) else {
@@ -783,6 +954,49 @@ impl WaveModel {
                 })
             })
             .collect();
+        // Draw and Range sections for rows that can be plots.
+        if analog::supports(item.shape, item.translator.as_ref()) {
+            let a = item.analog.as_ref();
+            let choice = |action, label: &str, checked| {
+                MenuEntry::Item(MenuItem {
+                    action,
+                    label: label.into(),
+                    badge: None,
+                    checked,
+                })
+            };
+            let draw = a.map(|a| a.draw);
+            entries.extend([
+                MenuEntry::Separator,
+                MenuEntry::Label("Draw".into()),
+                choice(MenuAction::Draw(None), "Digital", draw.is_none()),
+                choice(
+                    MenuAction::Draw(Some(AnalogDraw::Step)),
+                    "Analog · step",
+                    draw == Some(AnalogDraw::Step),
+                ),
+                choice(
+                    MenuAction::Draw(Some(AnalogDraw::Linear)),
+                    "Analog · linear",
+                    draw == Some(AnalogDraw::Linear),
+                ),
+            ]);
+            if let Some(a) = a {
+                let mut ranges = vec![AnalogRange::Trace, AnalogRange::Window];
+                if item.translator.limits(item.shape).is_some() {
+                    ranges.push(AnalogRange::Type);
+                }
+                entries.extend([MenuEntry::Separator, MenuEntry::Label("Range".into())]);
+                entries.extend(ranges.into_iter().map(|range| {
+                    let label = match range {
+                        AnalogRange::Trace => "Whole trace",
+                        AnalogRange::Window => "Visible window",
+                        AnalogRange::Type => "Type limits",
+                    };
+                    choice(MenuAction::Range(range), label, a.range == range)
+                }));
+            }
+        }
         if item.error.is_some() && item.source.signal().is_some() {
             entries.push(MenuEntry::Item(MenuItem::plain(
                 MenuAction::RetryLoad,
@@ -807,10 +1021,8 @@ impl WaveModel {
             self.select_row(row, Modifiers::default());
         }
         // A preset is checked only when every target row already has it.
-        let mut heights = self
-            .menu_rows(row)
-            .into_iter()
-            .map(|r| self.items[r].height());
+        let targets = self.menu_rows(row);
+        let mut heights = targets.iter().map(|&r| self.items[r].height());
         let first = heights.next();
         let shared = first.filter(|h| heights.all(|other| other == *h));
         let heights = RowHeight::PRESETS
@@ -844,6 +1056,27 @@ impl WaveModel {
                 "Paste",
             )));
         }
+        let plottable: Vec<usize> = targets
+            .iter()
+            .copied()
+            .filter(|&r| self.can_plot(r))
+            .collect();
+        if !plottable.is_empty() {
+            let checked = plottable
+                .iter()
+                .all(|&r| self.signal(r).is_some_and(|s| s.analog.is_some()));
+            let menu = self.menu.as_mut().expect("just opened");
+            menu.entries.extend([
+                MenuEntry::Separator,
+                MenuEntry::Item(MenuItem {
+                    action: MenuAction::ToggleAnalog,
+                    label: "Show as analog".into(),
+                    badge: None,
+                    checked,
+                }),
+            ]);
+        }
+        let menu = self.menu.as_mut().expect("just opened");
         menu.entries.extend([
             MenuEntry::Separator,
             MenuEntry::Submenu {
@@ -899,6 +1132,9 @@ impl WaveModel {
         match action {
             MenuAction::Format(id) => self.set_translator(doc, &rows, id),
             MenuAction::RowHeight(height) => self.resize_rows(&rows, menu.row, |_| *height),
+            MenuAction::Draw(draw) => self.set_analog(&rows, *draw),
+            MenuAction::Range(range) => self.set_analog_range(&rows, *range),
+            MenuAction::ToggleAnalog => self.toggle_analog_rows(&rows),
             _ => {
                 let row = self.signal(menu.row)?;
                 return row.error.as_ref().and_then(|_| row.source.signal());
@@ -1118,6 +1354,7 @@ impl WaveModel {
             .retain(|(ix, _)| items.get(*ix).is_some_and(|row| row.signal().is_some()));
         self.update_hover();
         self.update_row_drag();
+        self.update_analog_targets(doc);
         &self.layout
     }
 
@@ -1236,7 +1473,27 @@ impl WaveModel {
         Some((tx.generator, tx.id))
     }
 
+    /// The visible row whose name-cell bottom edge is under `p`.
+    pub fn row_edge_at(&self, p: Point) -> Option<usize> {
+        let layout = &self.layout;
+        if !layout.names.contains(p) {
+            return None;
+        }
+        let grab = ROW_EDGE_GRAB_PX * layout.zoom;
+        layout
+            .rows
+            .clone()
+            .filter(|&r| r < self.items.len())
+            .map(|r| (r, (layout.row_y(r) + layout.row_height(r) - p.y).abs()))
+            .filter(|&(r, d)| {
+                d <= grab && layout.row_y(r) + layout.row_height(r) > layout.names.top() + grab
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(r, _)| r)
+    }
+
     fn update_hover(&mut self) {
+        self.edge_hover = self.pointer.and_then(|p| self.row_edge_at(p));
         let (hover_row, badge_hover) = match self.pointer {
             Some(p) if self.layout.bounds.contains(p) && p.y >= self.layout.names.top() => {
                 let row = self.layout.row_at(p.y).filter(|r| *r < self.items.len());
@@ -1253,10 +1510,12 @@ impl WaveModel {
     fn clear_hover(&mut self) -> bool {
         let had = self.hover_row.is_some()
             || self.badge_hover.is_some()
+            || self.edge_hover.is_some()
             || self.split_hover
             || self.chip_hover;
         self.hover_row = None;
         self.badge_hover = None;
+        self.edge_hover = None;
         self.split_hover = false;
         self.chip_hover = false;
         had
@@ -1453,6 +1712,13 @@ impl WaveModel {
         if button != MouseButton::Left {
             return;
         }
+        if let Some(row) = self.row_edge_at(p) {
+            self.drag = Some(Drag::RowHeight {
+                row,
+                top: layout.row_y(row),
+            });
+            return;
+        }
         if let Some((ix, b)) = layout.badge_at(p) {
             let pos = point(b.left(), b.bottom() + 4.0 * layout.zoom);
             if !self.selected.contains(&ix) {
@@ -1524,6 +1790,23 @@ impl WaveModel {
                 !matches!(self.drag, Some(Drag::Rows { gap: g, started: s, .. }) if g == gap && s == started)
                     || self.row_drag_scroll_speed() != 0.0
             }
+            Some(Drag::RowHeight { row, top }) => {
+                let want = (p.y - top) / layout.row_h.max(1.0);
+                let height = RowHeight::PRESETS
+                    .into_iter()
+                    .min_by(|a, b| {
+                        (f32::from(a.multiple()) - want)
+                            .abs()
+                            .total_cmp(&(f32::from(b.multiple()) - want).abs())
+                    })
+                    .unwrap_or_default();
+                let rows = self.menu_rows(row);
+                if rows.iter().all(|&r| self.items[r].height() == height) {
+                    return false;
+                }
+                self.resize_rows(&rows, row, |_| height);
+                true
+            }
             Some(Drag::Scroll { grab }) => {
                 if let Some((track, thumb)) = layout.scrollbar {
                     let travel = track.height() - thumb.height();
@@ -1539,11 +1822,12 @@ impl WaveModel {
                 // Hover feedback only needs a repaint when the hovered row or
                 // badge changes, when we enter/leave splitter zones, or when
                 // the pointer leaves the table while something was hovered.
-                let (prev_row, prev_badge, prev_split, prev_chip) = (
+                let (prev_row, prev_badge, prev_split, prev_chip, prev_edge) = (
                     self.hover_row,
                     self.badge_hover,
                     self.split_hover,
                     self.chip_hover,
+                    self.edge_hover,
                 );
                 if layout.bounds.contains(p) {
                     self.split_hover = layout.near_split(p);
@@ -1552,10 +1836,17 @@ impl WaveModel {
                 } else {
                     self.clear_hover();
                 }
+                // A plot's hover readout follows the pointer.
+                let reading = p.x >= self.layout.waves.left()
+                    && self
+                        .hover_row
+                        .is_some_and(|r| self.signal(r).is_some_and(|s| s.analog.is_some()));
                 self.hover_row != prev_row
                     || self.badge_hover != prev_badge
                     || self.split_hover != prev_split
                     || self.chip_hover != prev_chip
+                    || self.edge_hover != prev_edge
+                    || reading
             }
         }
     }

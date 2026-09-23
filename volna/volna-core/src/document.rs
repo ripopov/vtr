@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use crate::data::loaded_tracks::{LoadedGenerator, LoadedTrack};
 use crate::data::transactions::{TrackKind, TrackRef, TransactionRef};
-use crate::data::{Hierarchy, SignalRef, Translators};
+use crate::data::{Hierarchy, NumericKind, SignalRef, Translators};
 use crate::nav::Tween;
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
+use crate::wave::analog::AnalogSummary;
 use crate::wave::timeline::TimeBase;
 use crate::wave::viewport::Viewport;
 
@@ -54,6 +55,7 @@ impl Default for Shared {
 /// A completed load the document accepted (its generation was current).
 pub enum Delivered {
     Track,
+    Summary,
     Signals(crate::session::SignalLoads),
     Opened(anyhow::Result<Arc<dyn Session>>),
 }
@@ -94,6 +96,30 @@ pub struct Document {
     /// hold no histories or records; a paste shares resident data or loads
     /// it again.
     pub copied_rows: Vec<crate::wave::WaveRow>,
+    /// Analog summaries of resident histories, per signal and reading.
+    summaries: HashMap<(SignalRef, NumericKind), SummaryLoad>,
+}
+
+/// The state of one analog summary; `history` is the identity of the
+/// history it summarizes.
+pub enum SummaryLoad {
+    Building {
+        history: usize,
+    },
+    Ready(Arc<AnalogSummary>),
+    /// Refused (the memory budget); plots scan the history instead.
+    Failed {
+        history: usize,
+    },
+}
+
+impl SummaryLoad {
+    fn history(&self) -> usize {
+        match self {
+            Self::Building { history } | Self::Failed { history } => *history,
+            Self::Ready(s) => s.identity(),
+        }
+    }
 }
 
 /// A selected track has one document-owned load, shared by its consumers.
@@ -131,6 +157,7 @@ impl Document {
             next_track_request: 1,
             selection: None,
             copied_rows: Vec::new(),
+            summaries: HashMap::new(),
         }
     }
 
@@ -239,6 +266,47 @@ impl Document {
         self.shared = Shared::default();
         self.markers.clear();
         self.copied_rows.clear();
+        self.summaries.clear();
+    }
+
+    // -- analog summaries ----------------------------------------------------------
+
+    /// The summary of `signal` read as `kind`, or whether one is building.
+    pub fn analog_summary(&self, signal: SignalRef, kind: NumericKind) -> Option<&SummaryLoad> {
+        self.summaries.get(&(signal, kind))
+    }
+
+    /// Hold summaries for exactly the `wanted` histories: queue builds for
+    /// new ones, and release those no plot shows (or whose history was
+    /// replaced) together with their memory.
+    pub(crate) fn sync_summaries(
+        &mut self,
+        wanted: HashMap<(SignalRef, NumericKind), Arc<dyn crate::data::SignalHistory>>,
+        budget: &crate::remote::memory::MemoryBudget,
+    ) {
+        self.summaries.retain(|key, load| {
+            wanted
+                .get(key)
+                .is_some_and(|h| crate::wave::analog::history_identity(h) == load.history())
+        });
+        for ((signal, kind), history) in wanted {
+            if self.summaries.contains_key(&(signal, kind)) {
+                continue;
+            }
+            self.summaries.insert(
+                (signal, kind),
+                SummaryLoad::Building {
+                    history: crate::wave::analog::history_identity(&history),
+                },
+            );
+            self.requests.push(LoadRequest::Summary {
+                generation: self.generation,
+                signal,
+                history,
+                kind,
+                budget: budget.clone(),
+            });
+        }
     }
 
     // -- signal loads --------------------------------------------------------------
@@ -490,6 +558,25 @@ impl Document {
                     self.pending.remove(signal);
                 }
                 Some(Delivered::Signals(results))
+            }
+            LoadResult::Summary {
+                generation,
+                signal,
+                kind,
+                history,
+                result,
+            } => {
+                let load = self.summaries.get_mut(&(signal, kind))?;
+                if generation != self.generation
+                    || !matches!(load, SummaryLoad::Building { history: h } if *h == history)
+                {
+                    return None;
+                }
+                *load = match result {
+                    Ok(summary) => SummaryLoad::Ready(summary),
+                    Err(_) => SummaryLoad::Failed { history },
+                };
+                Some(Delivered::Summary)
             }
             LoadResult::Opened { generation, result } => {
                 if generation != self.generation {

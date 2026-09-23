@@ -227,9 +227,9 @@ impl Panel {
     }
 
     /// Advance the panel's own animations. Returns true while a frame is needed.
-    pub fn tick(&mut self, now: Instant) -> bool {
+    pub fn tick(&mut self, doc: &crate::document::Document, now: Instant) -> bool {
         match &mut self.kind {
-            PanelKind::Waves(w) => w.tick(now),
+            PanelKind::Waves(w) => w.tick(doc, now),
             PanelKind::Pipeline(p) => p.tick(now),
             PanelKind::Table(t) => t.tick(now),
             _ => false,

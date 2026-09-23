@@ -990,9 +990,11 @@ fn format_menu_and_translator_cycle() {
         .expect("menu opened");
     assert_eq!(menu.kind, WaveMenuKind::Format);
     assert!(menu.items().any(|i| i.checked));
+    // Formats, then the Draw section of a numeric vector.
     assert!(menu.items().all(|item| matches!(
         item.action,
         volna_core::wave::model::MenuAction::Format(_)
+            | volna_core::wave::model::MenuAction::Draw(_)
             | volna_core::wave::model::MenuAction::RetryLoad
     )));
     assert!(app.debug_state().contains("menu=true"));
@@ -1001,7 +1003,12 @@ fn format_menu_and_translator_cycle() {
         .unwrap()
         .translator
         .id();
-    let other = menu.items().find(|i| !i.checked).unwrap().action.clone();
+    let other = menu
+        .items()
+        .find(|i| !i.checked && matches!(i.action, volna_core::wave::model::MenuAction::Format(_)))
+        .unwrap()
+        .action
+        .clone();
     let volna_core::wave::model::MenuAction::Format(ref format) = other else {
         panic!("format choice");
     };

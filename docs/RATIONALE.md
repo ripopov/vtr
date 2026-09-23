@@ -1392,3 +1392,80 @@ per-generator count pyramid). The proposal's validation study (linked Waves
 and Pipeline panels versus a lane, on a real AXI trace) is a manual comparison
 and was not run; hover outlines and dragging generators onto the waves are not
 implemented.
+
+## Volna analog waves
+
+A numeric signal row can be drawn as a plot on the waveform canvas
+([docs/analog-waves.html](analog-waves.html)). Analog is a setting of the
+signal row (`DisplayedSignal::analog`), not a new `WaveRow` kind, so
+selection, reordering, the clipboard, heights, removal and workspace entries
+need no new case. The number comes from the row's translator:
+`Translator::numeric_kind` returns `Unsigned` (hex, binary, unsigned),
+`Signed`, `Float` or `Real`, and `numeric`/`limits` derive from it. The
+proposal named only `numeric` and `limits`; the kind was added because the
+summary, which is built off the UI thread without a translator, is keyed by
+it, and because axis labels format through the translator via
+`NumericKind::value_of` (the value that reads back as a number), so labels
+match the value column in every format. Rejected alternatives follow the
+survey in the proposal: fixed min/max ranges and off-scale policies (Vivado,
+Questa), backstep drawing, overlays and threshold conversion are not needed
+for the first version; GTKWave-style sample skipping is lossy.
+
+Zoomed out, each pixel column draws its first, minimum, maximum and last
+values (M4, Jugel et al., PVLDB 7(10), 2014), which renders a line chart with
+no pixel error, so a one-sample glitch survives every zoom level (checked by
+`tests/analog.rs`). The exact path draws every change when the visible changes
+are at most a quarter of the plot width; linear plots mark samples at least 9
+px apart. Undefined values (X, Z, non-finite reals) break the line and paint an
+undefined span. A 1× row becomes 3× when it turns analog and gets 1× back when
+it turns digital unless it was resized in between; real rows open as linear
+plots. The Visible window range eases with a 65 ms time constant in
+`WaveModel::tick`, which now receives the document.
+
+The block summary was conditional in the proposal ("if the analog row costs
+more than about 4 ms per frame"). It is needed. `analog_cost` (below) timed a
+zoomed-out frame of a 16-bit bus scanned directly at 58 ms per 10⁶ changes
+(580 ms at 10⁷), and the visible-window range doubled it. A two-state fast
+path (`LogicView::to_u64` reads packed bytes instead of one code per bit)
+cut the scan to 14 ms per 10⁶. `AnalogSummary` then keeps an extent (minimum,
+maximum, any undefined; 24 bytes) per block of 64 changes and a binary tree
+of blocks above them, about 0.75 bytes per change (7.5 MB at 10⁷, against
+160 MB for the resident 16-bit history; the proposal estimated 0.5 bytes with
+16-byte nodes, before the undefined flag). A range query reads the partial
+blocks at both ends from the history and O(log n) tree nodes; ranges of
+fewer than 128 changes are scanned. Surfer's cache copies timestamps and
+`f64` values (16 bytes per change plus a sparse table) and answers the full
+blocks in O(1); this summary reads the history itself instead and needs about
+a twentieth of that memory.
+
+Summaries are built by a new client-side `LoadRequest::Summary` on the load
+worker for histories of at least 16,384 changes (shorter ones are scanned),
+keyed by signal and numeric kind, held in `Document` for exactly the long
+histories some plot shows (reconciled by `App` after every non-pointer
+command, signal delivery and workspace restore, like lane retention), charged
+to the trace's memory budget and released with their last plot or when their
+history is replaced. While one builds, a zoomed-out plot paints "Summarizing…"
+rather than scanning on the UI thread, and a zoomed-in whole-trace plot fits
+its visible window until the summary's root is available. A refused summary
+falls back to direct scans. Nothing changes in VTR or the protocol.
+
+The height drag (the bottom edge of a name cell) applies to every row kind.
+The waves workspace panel moved to version 3 with an optional
+`"analog": {"draw", "range"}` per signal row; version-2 panels are reported as
+unsupported.
+
+Measurements (`analog_cost`; Intel Core Ultra 7 265K pinned to P-cores,
+`nightly-2026-04-14`, release, best of 5; core layout and `Scene` painting of
+one 1400 px row at 3×; a 16-bit signed bus changing every tick):
+
+| Changes | Digital, zoomed out, ms | Analog zoomed out, direct scan → fast decode → summary, ms | Analog at 1/100 of the trace, ms | Analog, 200 ticks, ms | Summary build (worker), ms |
+|---:|---:|---:|---:|---:|---:|
+| 10⁵ | 0.02 | – → – → 1.5 (scanned) | 0.06 | 0.01 | 1.6 |
+| 10⁶ | 0.02 | 58 → 14 → 1.05 | 0.18 | 0.01 | 14 |
+| 10⁷ | 0.05 | 580 → 139 → 1.1 | 1.4 | 0.01 | 139 |
+
+The zoomed-out cost is now bounded by pixels (about 1 ms at any length); the
+1/100 view at 10⁷ has about 70 changes per column, under the 128-change scan
+threshold, so it scans them (1.4 ms). The window and type ranges cost the same
+as the whole-trace range with the summary. The digital bus stays far cheaper
+because dense columns become a band without reading values.
