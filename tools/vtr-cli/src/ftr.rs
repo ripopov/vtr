@@ -348,7 +348,7 @@ pub fn convert_ftr(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::error
                                             last_time = last_time.max(end);
                                             cur = Some((vid, end, HashSet::from(["ftr.id".to_owned()])));
                                         }
-                                        7 | 8 | 9 => {
+                                        7..=9 => {
                                             if let Some((vid, _, keys)) = &mut cur {
                                                 let name_id = as_u64(&f[0]);
                                                 let base = dict.get(&name_id).cloned().unwrap_or_default();

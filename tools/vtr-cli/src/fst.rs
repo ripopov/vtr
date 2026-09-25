@@ -11,8 +11,11 @@ pub struct FstConvertOptions {
     pub progress: bool,
 }
 
+/// File type, time zero and the blackout list (dump on, time).
+type FstExtras = (u8, i64, Vec<(bool, u64)>);
+
 /// Reads the fields fst-reader does not expose: file type, time zero and the blackout list.
-fn scan_fst_extras(path: &str) -> std::io::Result<(u8, i64, Vec<(bool, u64)>)> {
+fn scan_fst_extras(path: &str) -> std::io::Result<FstExtras> {
     let mut f = std::fs::File::open(path)?;
     let mut tag = [0u8; 1];
     let mut pos = 0u64;

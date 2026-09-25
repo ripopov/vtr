@@ -121,10 +121,12 @@ struct Span {
     tx: TxId,
     end: u64,
     status: TxStatus,
-    span_id: Vec<u8>,
     parent: Vec<u8>,
-    links: Vec<(Vec<u8>, Vec<(StrId, Value)>)>,
+    links: Vec<Link>,
 }
+
+/// A link: the target span id and the link's attributes.
+type Link = (Vec<u8>, Vec<(StrId, Value)>);
 
 pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::error::Error>> {
     let text = std::fs::read_to_string(input)?;
@@ -278,8 +280,8 @@ pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std:
                         w.tx_attr(tx, k_msg, &Value::Str(ms))?;
                     }
                 }
-                by_id.insert(span_id.clone(), tx);
-                spans.push(Span { tx, end, status, span_id, parent, links });
+                by_id.insert(span_id, tx);
+                spans.push(Span { tx, end, status, parent, links });
             }
         }
     }
@@ -311,6 +313,5 @@ pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std:
             }
         }
     }
-    let _ = &spans.iter().map(|s| &s.span_id).count();
     Ok(())
 }

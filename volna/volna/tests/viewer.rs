@@ -667,6 +667,8 @@ fn run(measure: bool) -> anyhow::Result<()> {
         assert_eq!(
             test.update(
                 |cx| workspace.read(cx).app.panels.focused_waves().unwrap().items[menu_row]
+                    .signal()
+                    .unwrap()
                     .translator
                     .id()
                     .to_owned()
@@ -963,7 +965,10 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update(|cx| {
             let rows = &workspace.read(cx).app.panels.focused_waves().unwrap().items;
             assert_eq!(rows.len(), count);
-            assert!(rows.iter().all(|row| row.history.is_some()));
+            assert!(
+                rows.iter()
+                    .all(|row| row.signal().is_some_and(|s| s.history.is_some()))
+            );
         });
         shot(&mut test, "fst-bytes")?;
         return Ok(());
