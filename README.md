@@ -230,6 +230,7 @@ requirement for embedded chat.
 | Analog plots of buses and reals in the wave panel: step/linear drawing, trace/window/type ranges, glitch-preserving min/max columns (implemented) | [Analog waves](docs/analog-waves.html) |
 | Transaction generator lanes in the wave panel with stacking, folding, density and shared selection (proposal/demo) | [Transaction lanes](docs/transaction-waveforms.html) |
 | Shared transaction detail panel for table and pipeline selections: lifeline, typed attributes, stages, events, related records (proposal/demo) | [Transaction panel](docs/tx-detail.html) |
+| Owner-declared clocks stored in VTR as steady stretches (first edge, last edge, period; DVFS and gating included) and their use in Volna as cycle rulers, cycle readouts, edge snapping and pipelines in cycles (proposal/demo) | [Clocks](docs/vtr_clocks.html) |
 
 ## Building and testing
 

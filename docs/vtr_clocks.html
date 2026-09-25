@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VTR Clocks</title>
+<meta name="description" content="Design proposal: design owners declare their clocks, VTR stores each clock as a few steady stretches (first edge, last edge, period), and Volna uses them for cycle rulers, cycle readouts, edge snapping and pipelines in cycles. Includes an interactive demo.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f4f6f5;--paper:#fcfdfc;--ink:#18232a;--muted:#5a686e;--line:#d5ddda;--line-strong:#b9c4c0;
+  --accent:#1d7a66;--accent-ink:#135846;--soft:#e2f0eb;--new:#1d7a66;--changed:#a2660f;--exists:#5a686e;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+}}
+:root[data-theme="dark"]{
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:11px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+#theme{font:inherit;font-size:12px;background:none;border:1px solid var(--line-strong);color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer;flex:none}
+.wrap{max-width:1180px;margin:auto;padding-inline:16px}
+.prose{max-width:760px}
+section{padding-block:40px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(30px,4.4vw,46px);letter-spacing:-1.2px;line-height:1.1;font-weight:600;margin:0 0 16px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:25px;letter-spacing:-.5px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 8px}
+p{margin:0 0 14px}
+.lede{font-size:19px;color:var(--muted);max-width:720px}
+.meta{font-size:13.5px;color:var(--muted);max-width:760px}
+ul,ol{padding-left:22px}li{margin:6px 0}
+.rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
+.rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules b{display:block;font-size:17px;margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 13px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap;font-weight:500}
+.st{font-size:12px;font-weight:600;white-space:nowrap}
+.st.new{color:var(--new)}.st.changed{color:var(--changed)}.st.exists{color:var(--exists)}
+footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}
+footer ul{margin:6px 0 0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
+
+/* ---- demo steps ---- */
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.steps button{flex:1 1 170px}
+.steps button{font:inherit;font-size:14px;text-align:left;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.35}
+.steps button span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.steps button:hover{border-color:var(--accent)}
+.steps button.on{border-color:var(--accent);background:var(--soft)}
+.steps button.reset{flex:0 0 auto;align-self:stretch;text-align:center;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted);margin:10px 0 0}
+.legend i{display:inline-block;width:18px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+
+
+pre{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.5;margin:14px 0 18px}
+pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
+.diagram{margin:18px 0 8px;border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:10px;overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:640px;height:auto;font-family:"IBM Plex Sans",sans-serif}
+.dg-box rect{fill:var(--bg);stroke:var(--line-strong);stroke-width:1.2}
+.dg-box text{fill:var(--muted);font-size:12.5px;text-anchor:middle}
+.dg-box text.dg-t{fill:var(--ink);font-weight:600;font-size:14px}
+.dg-new rect{stroke:var(--new);stroke-width:1.6}
+.dg-changed rect{stroke:var(--changed);stroke-width:1.6}
+.dg-core rect{stroke:var(--ink);stroke-dasharray:4 3}
+.dg-edge path{fill:none;stroke:var(--muted);stroke-width:1.4}
+.dg-arrowhead{fill:var(--muted)}
+.dg-l{fill:var(--muted);font-size:11px;text-anchor:middle}
+.prose h3{margin-top:28px}
+
+pre{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.5;margin:14px 0 18px}
+pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
+.prose pre{width:min(1148px,calc(100vw - 32px))}
+.prose h3{margin-top:28px}
+ul.prose{margin-top:0}
+.chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;color:var(--muted)}
+.chips span{margin-right:4px}
+.chips button{font:inherit;font-size:12.5px;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:999px;padding:2px 11px;cursor:pointer;font-family:"IBM Plex Mono",monospace}
+.chips button.on{background:var(--soft);border-color:var(--accent);color:var(--accent-ink)}
+.chips #cgrid{margin-left:10px;font-family:inherit}
+/* ---- the mock: always dark, like Volna's One Dark chrome ---- */
+.pv{--b:#1b242a;--ln:#2c3a42;--mu:#8d9f99;--tx:#e2eae6;--ac:#4fc3a1;border:1px solid var(--line-strong);border-radius:10px;background:var(--b);color:var(--tx);font-size:12px;overflow:hidden;margin:0;outline:none}
+.pv:focus-visible{border-color:var(--ac)}
+.pv-title{display:flex;align-items:center;gap:10px;padding:5px 10px;background:#151c21;border-bottom:1px solid var(--ln);color:var(--mu);font-size:11.5px;min-width:0}
+.pv-title b{color:var(--tx);font-weight:600;white-space:nowrap}
+.pv-title span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-title .dots{display:inline-flex;gap:6px;flex:none}
+.pv-title .dots i{width:10px;height:10px;border-radius:50%;background:#394954;display:inline-block}
+.pv-title .data{margin-left:auto;font-size:10.5px;color:#6f817a}
+.pv-work{display:flex;min-height:0}
+.pv-main{position:relative;flex:1;min-width:0}
+.pv-main canvas{display:block;width:100%;height:330px;cursor:crosshair;touch-action:none}
+.pv-side{width:300px;flex:none;border-left:1px solid var(--ln);background:#161e23;padding:9px 11px;overflow:auto;height:330px;font-size:11.5px}
+.pv-side h4{margin:0 0 6px;font-size:10.5px;font-weight:600;color:#9fb1ab;text-transform:uppercase;letter-spacing:.6px}
+.pv-side h4:not(:first-child){margin-top:12px}
+.pv-side .empty,.pv-side .note{color:#6f817a;margin:4px 0 0}
+.pv-side .kv{display:flex;justify-content:space-between;gap:10px;padding:1px 0}
+.pv-side .kv span{color:#9fb1ab;white-space:nowrap}
+.pv-side .kv i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
+.pv-side .kv b{font:500 11px "IBM Plex Mono",monospace;color:var(--tx);text-align:right}
+.pv-side .segs{font:11px "IBM Plex Mono",monospace}
+.pv-side .segs div{display:grid;grid-template-columns:22px 1fr 1fr 1.2fr 1fr;gap:6px;padding:1px 0}
+.pv-side .segs .sh{color:#7d8f89}
+.pv-foot{display:flex;gap:16px;padding:4px 10px;border-top:1px solid var(--ln);background:#151c21;color:var(--mu);font-size:11px;white-space:nowrap;overflow:hidden}
+.pv-foot b{color:var(--tx);font-weight:500}
+.pv-tip{position:absolute;pointer-events:none;background:#0f1519;border:1px solid #3a4a53;border-radius:6px;padding:6px 8px;font-size:11px;line-height:1.45;color:var(--tx);max-width:250px;z-index:3;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.pv-tip b{font-family:"IBM Plex Mono",monospace;font-weight:600}
+.pv-tip span{color:#8d9f99}
+@media (max-width:860px){.pv-work{flex-direction:column}.pv-side{width:auto;height:auto;max-height:360px;border-left:0;border-top:1px solid var(--ln)}}
+#selftest{display:none}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">VTR <span>clocks</span></a>
+  <nav>
+    <a href="#demo">Demo</a><a href="#problem">Problem</a><a href="#rules">Design</a><a href="#record">Record</a><a href="#producers">Producers</a><a href="#reading">Using clocks</a><a href="#checks">Cost and tests</a><a href="#alternatives">Alternatives</a><a href="#plan">Plan</a>
+  </nav>
+  <button id="theme" type="button" aria-label="Toggle light or dark page theme">Theme</button>
+</div></header>
+
+<main id="top">
+<section><div class="wrap">
+  <h1>Clocks as <em>time bases</em> in VTR and Volna</h1>
+  <p class="lede">Engineers count in cycles, but traces store time. This proposal adds one small record to VTR. For each clock that the design owner names, the file stores the stretches where the clock ran at a steady period: first edge, last edge and period, nothing more. A reader can then convert any time to a cycle number and back, across frequency changes and gated intervals, without loading the clock waveform. Volna uses this for cycle rulers, cycle readouts, snapping to clock edges and pipelines counted in cycles.</p>
+  <p class="meta">Proposal, revised 25 September 2026. Nothing here is implemented. It builds only on what exists today: VTR transactions (SPEC §7), the Verilator fork's <code>--trace-vtr</code> backend and Volna. It is the prerequisite of <a href="c910-verilator-tx-stream.html">c910-verilator-tx-stream.html</a>: it starts the <code>vtr_trace</code> SystemVerilog package and its sink in the fork, which pipeline tracing then extends, and it gives Volna the cycle counting that pipelines are shown in. Related: <a href="pipeline-view.html">pipeline-view.html</a>, <a href="VDB_RTL.md">VDB_RTL.md</a>.</p>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <h2>Try it</h2>
+  <p class="prose">A mock of Volna's Waves panel over a small generated SoC trace, 100 ns long with 1 ps precision. It has three clocks:</p>
+  <ul class="prose">
+    <li><code>core_clk</code> is asked to run at 3.0 GHz, then 2.0 GHz, then 1.0 GHz. Its generator toggles after half a period, and the simulator rounds each half period to whole picoseconds. The recorded periods are therefore 334, 500 and 1000 ps.</li>
+    <li><code>bus_clk</code> runs at a steady 500 MHz.</li>
+    <li><code>periph_clk</code> is gated between 36 ns and 66 ns.</li>
+  </ul>
+  <p class="prose">The page generates every rising edge the way a simulator would and runs the proposed writer over them. Everything is drawn from the resulting stretches, including the clock rows. The side panel lists the stretches exactly as the file would store them.</p>
+  <div class="steps" role="group" aria-label="Guided scenarios">
+    <button type="button" data-guide="rulers">1 · Three rulers<span>One cycle ruler per clock under the time ruler</span></button>
+    <button type="button" data-guide="axis">2 · Count in core cycles<span>The main axis and cursor switch to cycles</span></button>
+    <button type="button" data-guide="dvfs">3 · Frequency change<span>334 → 500 ps, numbering stays continuous</span></button>
+    <button type="button" data-guide="gated">4 · Gated clock<span>No edges, no cycles: shown as stopped</span></button>
+    <button type="button" data-guide="measure">5 · Measure across domains<span>One interval, counted in every clock</span></button>
+    <button type="button" data-guide="rounded">6 · Whole periods<span>3 GHz requested, 334 ps recorded</span></button>
+  </div>
+  <div class="chips" role="group" aria-label="Main axis">
+    <span>Axis</span>
+    <button type="button" data-axis="time">time</button><button type="button" data-axis="core_clk">core_clk</button><button type="button" data-axis="bus_clk">bus_clk</button><button type="button" data-axis="periph_clk">periph_clk</button>
+    <button type="button" id="cgrid" aria-label="Toggle the edge grid">edge grid</button>
+  </div>
+  <figure class="pv" id="cw" tabindex="0" aria-label="Waves panel mock with clock rulers">
+    <div class="pv-title"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><b>soc_dvfs.vtr</b><span>Waves</span><span class="data">generated scenario · clocks drawn from stretches</span></div>
+    <div class="pv-work">
+      <div class="pv-main"><canvas id="ccv" aria-label="Rulers and rows"></canvas><div class="pv-tip" id="ctip" hidden></div></div>
+      <aside class="pv-side" id="cside" aria-live="polite"></aside>
+    </div>
+    <div class="pv-foot" id="cfoot"></div>
+  </figure>
+  <p class="hint">Click places the cursor, snapping to the nearest edge of the selected clock. Click a ruler to select its clock. <kbd>[</kbd> <kbd>]</kbd> step one cycle, <kbd>M</kbd> puts the marker at the cursor, <kbd>G</kbd> toggles the edge grid, <kbd>F</kbd> fits, <kbd>Esc</kbd> clears. Wheel pans; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms.</p>
+</div></section>
+
+<section id="problem"><div class="wrap"><div class="prose">
+  <h2>The problem</h2>
+  <p>A VTR file has one time unit, and every timestamp uses it. Engineers ask questions in cycles: how many cycles a load took, what happened in cycle 150,231, how many bus cycles lie between a request and its response. Today a viewer can answer them in three ways, and each one fails somewhere:</p>
+  <ul>
+    <li><b>Assume one time unit per cycle.</b> Volna's Pipeline panel does this. It works for Kanata imports and fails for simulator traces: in the C910 harness one cycle is two time units.</li>
+    <li><b>Ask the user for a period.</b> Questa and SimVision grids work this way. They are exact for one fixed clock, wrong after a frequency change, and unaware of a second clock.</li>
+    <li><b>Count the edges of a clock signal.</b> Verdi's grid and Surfer's clock highlighting work this way. They are exact, but the whole clock history must be loaded first: 1.36 s and about 800 MB for 100 million changes in Volna. A pipeline-only run would also have to dump its clock just so it can be counted.</li>
+  </ul>
+  <p>Performance tracing solved this long ago. Intel Processor Trace sends a frequency packet only when the frequency changes and counts cycles in between. gem5 keeps an (anchor tick, anchor cycle, period) triple per clock domain and starts a new one at each frequency change. The information that matters is small: where a clock runs steadily, and at what period.</p>
+</div></div></section>
+
+<section id="rules"><div class="wrap">
+  <h2>The design in six rules</h2>
+  <ol class="rules">
+    <li><b>The design owner names the clocks.</b> Clocks are declared in the testbench, one line per clock, through a small SystemVerilog module. Nothing is guessed from the netlist.</li>
+    <li><b>Simulators report edges, not frequencies.</b> A frequency change is simply a change in the spacing of edges. The writer notices it; the producer does nothing special.</li>
+    <li><b>A clock is a list of steady stretches.</b> Each stretch stores its first edge, its last edge and its period. A fixed clock is one stretch for the whole run. Each frequency change or gated interval adds one more.</li>
+    <li><b>Periods are whole time units.</b> Simulators round every delay to the time precision, so recorded edges are always a whole number of units apart. The format needs no fractions and no rounding rule.</li>
+    <li><b>Everything else is computed by the reader.</b> Edge counts, cycle numbers, frequencies and "stopped" follow from the stretches. The first recorded edge is cycle 0, and numbering continues across stretches.</li>
+    <li><b>VTR stores when a clock ticked; VDB and Volna store what it means.</b> Which clock is "the core clock", how clocks relate, colours and a custom cycle origin are VDB or viewer data.</li>
+  </ol>
+</div></section>
+
+<section id="record"><div class="wrap">
+  <h2>What the file stores</h2>
+  <div class="prose">
+  <p>A clock follows the pattern that logs already use: a stream of a reserved kind whose records are transactions. It needs no new section, value tag or node kind. The SPEC additions are the stream kind <code>CLOCK</code> and two attribute keys under the existing reserved <code>vtr.</code> prefix.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Item</th><th>Content</th></tr></thead>
+    <tbody>
+      <tr><td>clock</td><td>A stream of kind <code>CLOCK</code> with one generator, <code>edges</code>. It is named after the clock net and placed in the net's scope, so a viewer pairs it with the net's waveform by path whenever that waveform was dumped.</td></tr>
+      <tr><td>stretch</td><td>One transaction of <code>edges</code>. <code>begin</code> is the first edge, <code>end</code> is the last edge, and <code>vtr.period</code> (<i>time</i>) is the spacing between them. A stretch of a single edge has no period.</td></tr>
+      <tr><td>link</td><td><code>vtr.clock</code> (<i>str</i>) on a pipeline or protocol stream holds the path of the clock its stages are counted in.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Everything a reader needs follows from these three numbers per stretch:</p>
+<pre><code>edges in stretch s     n(s)     = (s.end − s.begin) / s.period + 1
+first cycle of s       cycle(s) = sum of n over all earlier stretches
+time of edge c         s.begin + (c − cycle(s)) · s.period      for the s that holds c
+cycle at time t        the number of the last edge at or before t</code></pre>
+  <p>Stretches never share an edge. The interval from the last edge of one stretch to the first edge of the next is one cycle, however long it is. After a frequency change it is an ordinary cycle. When a gated clock stops, it is one very long cycle. A reader shows it as <i>stopped</i> when it is longer than twice the periods on both sides; that is a display rule, not stored data.</p>
+  <p>In the demo, <code>core_clk</code> is three stretches: (400, 19772, 334), (20272, 49772, 500) and (50772, 99772, 1000). Together they describe 169 edges. On the C910 CoreMark harness, where the clock toggles every time unit, the whole run is one stretch with period 2.</p>
+  <p>The writer keeps stretches out of the large transaction blocks. It writes them into a small dedicated TX_BLOCK at each explicit flush and at close, so a reader loads a clock without decoding pipeline data, and a recovered file keeps every stretch up to its last flush. The stretch still running at close is written with status <i>open</i>.</p>
+  </div>
+</div></section>
+
+<section id="producers"><div class="wrap"><div class="prose">
+  <h2>Where the edges come from</h2>
+  <h3>Why the simulator cannot pick the clocks</h3>
+  <p>The first draft of this proposal let the Verilator fork find "primary clocks" in the sensitivity lists by itself and derive stretches from the dumped values. Checked against the C910 RTL, that does not hold up:</p>
+  <ul>
+    <li><b>Sensitivity does not separate clocks from resets.</b> The C910 has 1,784 processes sensitive to <code>negedge cpurst_b</code>. That reset is a top-level input driven by the harness, which is exactly what a primary clock looks like.</li>
+    <li><b>There are too many candidates.</b> The C910 RTL has 602 distinct nets in <code>posedge</code> sensitivity lists and 748 clock-gating cell instances. Which of them matter to the person reading the trace is a design decision.</li>
+    <li><b>Verilator itself dropped clock guessing.</b> Since version 5 the <code>/*verilator clocker*/</code> attribute and the <code>--clk</code> option are ignored.</li>
+    <li><b>Dumped values can miss edges.</b> A harness that dumps once per cycle sees the clock at the same level every time. A run that records only transactions dumps no signals at all.</li>
+    <li><b>Frequency is not a simulator concept.</b> In RTL, a frequency change is a testbench or PLL model changing a delay. The only observable fact is the spacing of edges.</li>
+  </ul>
+  <p>So clocks are declared by the design owner, the same way pipeline tracing will later ask owners to report stages. The owner knows which clock matters and what to call it.</p>
+  <h3>The <code>vtr_clock</code> module</h3>
+  <p>This proposal starts the <code>vtr_trace</code> package with two DPI-C functions and one module. The module reports each rising edge through DPI and takes its time from the fork's writer, the same time the waveform uses. Pipeline tracing later adds its tracker functions to the same package, so clock edges and pipeline stages share one time source.</p>
+<pre><code>package vtr_trace;
+  // A CLOCK stream `name` in the scope that contains the calling vtr_clock instance.
+  import "DPI-C" context function int unsigned vtr_clock_open(string name);
+  // One rising edge of clock `c`, at the current simulation time.
+  import "DPI-C" function void vtr_clock_edge(int unsigned c);
+endpackage
+
+module vtr_clock #(parameter string NAME = "clk") (input logic clk);
+  import vtr_trace::*;
+  int unsigned c;
+  initial c = vtr_clock_open(NAME);
+  always @(posedge clk) vtr_clock_edge(c);   // one DPI call per rising edge
+endmodule</code></pre>
+  <p>In the C910 testbench, two lines declare the core clock and the divided JTAG clock. They sit under an <code>`ifdef</code> that only the VTR build of the model defines, so the FST build is unchanged:</p>
+<pre><code>`ifdef VTR_CLOCKS
+vtr_clock #("clk")  u_vtr_clk  (.clk(clk));
+vtr_clock #("jclk") u_vtr_jclk (.clk(jclk));
+`endif</code></pre>
+  <p>A <code>bind</code> statement does the same for a clock deep inside the design without editing its source. Binding to a gated clock net shows its gating as stopped intervals; binding to the root clock gives steady numbering.</p>
+  <p>Frequency changes need no extra code. When the testbench or a PLL model changes its delay, the edge spacing changes, and the writer closes one stretch and opens the next.</p>
+  <h3>How the fork carries the package</h3>
+  <p>A Verilator user should need nothing beyond <code>--trace-vtr</code>. The pieces below make that true, and pipeline tracing reuses every one of them:</p>
+  <ul>
+    <li><b>Source.</b> <code>vtr_trace.sv</code> and its DPI implementation <code>vtr_trace_dpi.hpp</code> are written once, in <code>core/vtr-capi/include/</code>. The implementation calls the C API through a small sink interface: a writer, a time source and a map from DPI scope to hierarchy node.</li>
+    <li><b>Install.</b> <code>integrations/verilator/build.sh</code> copies both files into the fork's <code>include/vtr/</code>, so every fork install carries the package of the VTR revision it was built from.</li>
+    <li><b>Parse.</b> With <code>--trace-vtr</code>, Verilator parses <code>include/vtr/vtr_trace.sv</code> the way it parses <code>verilated_std.sv</code> for <code>std::</code>, and removes the package again when no module uses it. A design without <code>vtr_clock</code> generates the same model as before.</li>
+    <li><b>Sink.</b> <code>VerilatedVtr::open</code> registers its writer, time source and scope map for the calling context, as it registers the simulation log sink today. <code>verilated.mk</code> compiles the DPI layer, a new <code>include/verilated_vtr_dpi.cpp</code>, when <code>VM_TRACE_VTR=1</code>. Calls made while no file is open return at once.</li>
+    <li><b>Signal-free runs.</b> The harness can open the file without registering the model's signals. The file then holds clocks, the simulation log and, once pipeline tracing exists, transactions. This is the mode for long runs.</li>
+    <li><b>Harness time.</b> A DPI call sees the context time at <code>eval()</code>. The C910 harness evaluates before it advances time, so its DPI calls would be dated one unit before the dump that shows the same edge. The harness is changed to advance time first. Its dumps stay byte-identical, and DPI times then equal waveform times.</li>
+  </ul>
+  <p>Other simulators need a standalone sink that opens its own file and reads time through VPI. That sink belongs to the pipeline tracing proposal; the module itself is plain DPI-C and needs no change for it.</p>
+  <h3>The writer</h3>
+  <p>The Rust writer gains three calls, projected one to one into the C API:</p>
+<pre><code>pub fn add_clock(&amp;mut self, scope: Option&lt;NodeId&gt;, name: &amp;str) -&gt; ClockId;
+/// One rising edge at time `t`, non-decreasing per clock.
+pub fn clock_edge(&amp;mut self, clock: ClockId, t: u64) -&gt; Result&lt;()&gt;;
+/// A whole stretch at once, for models that know their clock.
+pub fn clock_stretch(&amp;mut self, clock: ClockId, begin: u64, end: u64, period: u64) -&gt; Result&lt;()&gt;;</code></pre>
+  <p>Behind <code>clock_edge</code>, the writer keeps the open stretch and compares each new edge with it. The whole algorithm is four cases:</p>
+<pre><code>on edge t:
+  no open stretch:          open it at t
+  one edge so far:          period = t − begin; last = t
+  t − last == period:       last = t                         // same clock, same speed
+  otherwise:                write (begin, last, period); open a new stretch at t</code></pre>
+  <p>A clock that never settles, such as a glitching clock mux, degrades to one stretch per two edges. That is still correct, only larger. <code>vtr clocks</code> reports the average stretch length so a wrongly chosen net is easy to spot.</p>
+  <h3>Other producers</h3>
+  <ul>
+    <li><b>gem5.</b> A clock domain's period is a whole number of ticks. Each change of performance level ends one <code>clock_stretch</code> and starts the next.</li>
+    <li><b>SystemC.</b> An <code>sc_clock</code> is one stretch; its period is a whole multiple of the time resolution.</li>
+    <li><b>Kanata import.</b> The converter declares a clock named <code>cycle</code> with period 1 and sets <code>vtr.clock</code> on its pipeline streams. It is the first producer of <code>vtr.clock</code>; pipeline tracing adds the second.</li>
+    <li><b>FST and VCD import.</b> <code>vtr convert trace.fst out.vtr --clock TOP.clk</code> feeds that signal's rising edges to the same writer call.</li>
+  </ul>
+</div></div></section>
+
+<section id="reading"><div class="wrap"><div class="prose">
+  <h2>Using clocks</h2>
+  <p>The reader exposes clocks as a small query, so viewers and tools never scan stretches themselves. A timeline is immutable and shared, and loading it decodes only the clock's own block.</p>
+<pre><code>reader.clocks() -&gt; &amp;[ClockInfo]                   // name and path of each clock
+reader.clock(id) -&gt; Arc&lt;ClockTimeline&gt;           // its stretches, loaded once
+timeline.cycle_at(t) -&gt; Option&lt;CycleAt&gt;          // cycle, its edge, next edge, fraction, stopped
+timeline.edge(cycle) -&gt; Option&lt;u64&gt;
+timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
+  <p>Every query is a binary search over the stretches and one multiplication. The CLI gains <code>vtr clocks file.vtr</code>, which lists each clock with its stretches, periods and stopped time.</p>
+  <p>Volna loads all clock timelines when a file opens, next to the hierarchy. It then offers:</p>
+  <ul>
+    <li><b>Clock rulers.</b> Under the time ruler, one row per chosen clock, with ticks at rising edges labelled by cycle number. Each stretch picks its own label spacing, a frequency change gets a small flag such as "→ 2.00 GHz", and a stopped interval is hatched. By default Volna shows the clocks that visible pipelines refer to.</li>
+    <li><b>A cycle axis.</b> Any panel can count its main ruler in cycles of one clock. The cursor chip then reads <code>150231 + 0.42</code>, and the status bar keeps the time.</li>
+    <li><b>Readouts and measurements.</b> The status bar shows the cursor's cycle in each ruler clock, and the new cursor-to-marker delta reads, for example, "Δ 20.0 ns · 40 core · 10 bus".</li>
+    <li><b>Snapping and stepping.</b> Clicks snap to the nearest edge of the selected clock, <kbd>[</kbd> and <kbd>]</kbd> step one cycle, and the palette gains "Go to cycle…".</li>
+    <li><b>Clock rows without waveforms.</b> A clock can be shown as a wave row even when its net was never dumped, drawn from its stretches.</li>
+    <li><b>Pipelines in cycles.</b> The Pipeline panel counts stages in its stream's <code>vtr.clock</code> instead of assuming one unit per cycle. A stream without <code>vtr.clock</code> keeps today's behaviour, one time unit per cycle.</li>
+  </ul>
+  <p>Each piece has a natural home in <code>volna-core</code>: <code>Document</code> holds the timelines, loaded through a new <code>LoadRequest::Clocks</code> that local and remote sessions both serve; <code>wave/timeline.rs</code> gains clock ticks beside time ticks; <code>NavState</code> gains the axis choice; <code>snapped_time</code> gains a clock edge source; and <code>cycle_at</code> in the pipeline model asks the stream's clock. Which clocks a panel shows, its axis and any custom cycle origin are saved in the workspace, never in the VTR file.</p>
+  <p>VDB and VTR meet by path. A VDB profile can say that a clock stream is "the core clock" or that one clock is derived from another, without the trace saying so.</p>
+</div></div></section>
+
+<section id="checks"><div class="wrap"><div class="prose">
+  <h2>Cost and tests</h2>
+  <p>Writing costs one DPI call and one comparison per rising edge of each declared clock. For the C910's 252,000 cycles that is negligible next to the simulation, but it goes through the benchmark gate like any writer change: a C910 capture with its clock declared must stay within measurement noise of today's write time and size. A stretch is one transaction with one attribute, a few dozen bytes; the file grows with frequency changes, not run length.</p>
+  <p>Tests, all headless:</p>
+  <ul>
+    <li><b>Writer.</b> Unit tests in <code>core/vtr</code> cover fixed, changing, gated, single-edge and irregular clocks. For random edge sequences, the stretches must reproduce every edge exactly.</li>
+    <li><b>Round trip.</b> A <code>core/vtr/tests/</code> test writes clocks through both writer calls and checks <code>cycle_at</code>, <code>edge</code> and stepping against brute-force edge counting, also on a crash-recovered file.</li>
+    <li><b>Fork.</b> <code>test_regress/t/t_trace_vtr_clock</code> checks that <code>vtr_clock</code> resolves with <code>--trace-vtr</code> alone, that its edges land on the waveform timeline in one and two thread modes, that a signal-free open still records the clock, and that a design without the module generates the same model as before.</li>
+    <li><b>C910.</b> With <code>vtr_clock</code> in the testbench, the capture holds one <code>clk</code> stretch of period 2 starting on the first rising edge of the recorded <code>clk</code>, with an edge count equal to the rising edges of that waveform.</li>
+    <li><b>Volna.</b> Headless tests cover clock ruler ticks, the cycle axis, snapping, stepping, the delta readout, the Pipeline panel in cycles on a Kanata import, and the workspace round trip.</li>
+    <li><b>This page.</b> <code>node --test docs/tests/vtr_clocks.test.mjs</code> drives the demo in headless Chrome, and a workflow runs it when the page changes.</li>
+  </ul>
+</div></div></section>
+
+<section id="alternatives"><div class="wrap"><div class="prose">
+  <h2>What was removed, and what was rejected</h2>
+  <p>The first draft carried more machinery. Each piece was dropped for a concrete reason:</p>
+  <ul>
+    <li><b>Automatic clock detection in the Verilator fork</b>, with <code>--trace-vtr-clocks=primary|all|none</code>. It mistakes resets for clocks, drowns in gated clocks, misses edges the harness does not dump, and cannot work in a run that dumps no signals. Explicit declaration replaces it.</li>
+    <li><b>Fractional periods with a rounding rule.</b> They covered edges 333 and 334 ps apart. Simulators do not produce such clocks: SystemVerilog rounds each delay to the time precision, SystemC times are whole multiples of the resolution, gem5 periods are whole ticks, and a Verilator harness advances time in whole units.</li>
+    <li><b>Stored edge counts and cycle numbers.</b> Both follow from begin, end and period, and a reader always loads all of a clock's stretches, so storing them only adds a way to be inconsistent.</li>
+    <li><b>Five further attributes.</b> Duty cycle is visible in the waveform when it matters. Falling-edge or both-edge counting, if a design ever needs it, is a parameter of the module; the file does not change. A "derived or declared" source flag changes nothing a reader does. A separate signal path is replaced by the naming convention. An "irregular" marker is replaced by the plain fallback of short stretches.</li>
+    <li><b>Deferred to later work:</b> a frequency plot row, a <code>clk:N</code> time syntax in the CLI, and deriving a clock from a loaded FST signal inside Volna.</li>
+  </ul>
+  <p>Approaches rejected outright: a single period attribute, which is wrong after the first frequency change; counting clock edges at read time, whose cost grows with run length; Perfetto-style (time, cycle) snapshots, which do not say where a clock stopped; a floating-point frequency, which drifts over long runs; a new section or node kind, which adds format surface that the transaction encoding already covers; and inferring the period from transaction times, as Konata does, which cannot see frequency changes or tell two clocks apart. A pipeline stream without a clock is shown in time units, as today.</p>
+</div></div></section>
+
+<section id="plan"><div class="wrap"><div class="prose">
+  <h2>Plan</h2>
+  <ol>
+    <li><b>Format and core.</b> SPEC additions (<code>CLOCK</code>, <code>vtr.period</code>, <code>vtr.clock</code>), the three writer calls, the dedicated clock block, <code>ClockTimeline</code>, the C API, <code>vtr clocks</code>, <code>vtr convert --clock</code> and the Kanata clock, with the writer, round-trip and recovery tests and a RATIONALE entry. <i>Exit:</i> the core tests pass.</li>
+    <li><b>Package and fork.</b> <code>vtr_trace.sv</code> with <code>vtr_clock</code>, <code>vtr_trace_dpi.hpp</code>, installation by <code>build.sh</code>, automatic parsing and pruning under <code>--trace-vtr</code>, the context sink in <code>VerilatedVtr</code>, <code>verilated.mk</code> plumbing and the signal-free open, with the fork regression test and a SPEC producer example next to the Verilator log example. <i>Exit:</i> the fork test passes in both thread modes.</li>
+    <li><b>C910.</b> The harness time order, <code>vtr_clock</code> in the testbench and the A/B benchmark. <i>Exit:</i> the C910 checks pass and write time and size stay within noise.</li>
+    <li><b>Volna.</b> Timelines in <code>Document</code>, clock rulers, the cycle axis, readouts, snapping and stepping, clock rows, pipelines in cycles and workspace support. <i>Exit:</i> the headless tests pass.</li>
+    <li><b>Models.</b> Clock stretches from the planned gem5 and SystemC integrations. Not needed by pipeline tracing.</li>
+  </ol>
+  <p>Steps 1 to 4 are the prerequisite of <a href="c910-verilator-tx-stream.html">pipeline tracing</a>. After them, that proposal adds only its tracker functions to the package and its tracer to the C910 testbench.</p>
+</div></div></section>
+</main>
+
+<footer><div class="wrap">
+  Sources: <code>docs/SPEC.md</code> §5.3 and §7, <code>core/vtr/src/{writer,reader}.rs</code>, <code>ext/verilator/docs/guide/{exe_verilator,extensions}.rst</code> (clocker and <code>--clk</code> ignored), <code>bench/workloads/c910/tb/</code>, the openC910 RTL (sensitivity and gating counts), and <code>volna/volna-core/src/{document.rs,wave/timeline.rs,wave/model.rs,nav/mod.rs,pipeline/model.rs,session.rs}</code>. The 1.36 s / 100M-change figure is from commit <code>ec8bb4a</code>.<br>
+  Prior art: Intel Processor Trace (<a href="https://github.com/intel/libipt/blob/master/libipt/src/pt_time.c">libipt pt_time.c</a>, CBR and CYC packets), <a href="https://perfetto.dev/docs/concepts/clock-sync">Perfetto clock sync</a>, gem5 <code>ClockDomain</code> and <code>DVFSHandler</code>, SystemC <code>sc_clock</code>, IEEE 1800 delay rounding to the time precision, the Questa wave window's grid period, Verdi's grid on clock edges, <a href="https://gitlab.com/surfer-project/surfer/-/work_items/60">Surfer issue #60</a> and #166, and Surfer's clock highlighting.<br>
+  The demo uses a generated scenario and is self-contained. A built-in self-test checks the clock model, and <code>node --test docs/tests/vtr_clocks.test.mjs</code> drives it in headless Chrome.
+</div></footer>
+<pre id="selftest"></pre>
+
+<script>
+/* ============================================================================
+   Clock model (DOM-free). This is the proposed VTR clock record, executable:
+   a simulator produces rising-edge times; stretches() is the writer behind
+   clock_edge(); Timeline is the reader's ClockTimeline. File time unit: 1 ps.
+   The scenario is generated for this page, not recorded.
+   ============================================================================ */
+const CK = (() => {
+'use strict';
+const END = 100000;                                   // 100 ns in ps
+const SCENARIO = [
+  {name: 'core_clk', path: 'soc.core.core_clk', color: '#4fc3a1',
+   // DVFS: 3.0, 2.0, then 1.0 GHz requested; the generator's half period is rounded to 1 ps
+   runs: [{from: 400, ghz: 3, until: 20000}, {ghz: 2, until: 50000}, {ghz: 1, until: END}]},
+  {name: 'bus_clk', path: 'soc.bus.bus_clk', color: '#7fb8e8',
+   runs: [{from: 1000, ghz: 0.5, until: END}]},
+  {name: 'periph_clk', path: 'soc.periph.periph_clk', color: '#e0a94a',
+   // gated between 36 ns and 66 ns
+   runs: [{from: 2000, ghz: 0.25, until: 36000}, {from: 66000, ghz: 0.25, until: END}]},
+];
+
+/** What the simulator produces: `always #(half) clk = ~clk` with `half` rounded to the 1 ps
+ *  precision, as SystemVerilog rounds every delay. The period is therefore a whole number. */
+function rawEdges(spec) {
+  const out = [];
+  for (const r of spec.runs) {
+    const period = 2 * Math.round(500 / r.ghz);
+    for (let t = r.from ?? out[out.length - 1] + period; t <= r.until; t += period) out.push(t);
+  }
+  return out;
+}
+
+/** The writer behind clock_edge(): O(1) per edge. It extends the open stretch while the
+ *  spacing repeats and writes (begin, end, period) when it changes. Stretches never share an edge. */
+function stretches(edges) {
+  const out = []; let s = null;
+  const write = () => out.push(s.period == null ? {begin: s.begin, end: s.last} : {begin: s.begin, end: s.last, period: s.period});
+  for (const t of edges) {
+    if (!s) s = {begin: t, last: t, period: null};
+    else if (s.period == null) { s.period = t - s.begin; s.last = t; }
+    else if (t - s.last === s.period) s.last = t;
+    else { write(); s = {begin: t, last: t, period: null}; }
+  }
+  if (s) write();
+  return out;
+}
+
+const edgeIn = (g, k) => g.begin + k * (g.period ?? 0);
+const STOP_FACTOR = 2;       // display rule: a gap longer than 2x both neighbouring periods is "stopped"
+
+/** The reader's ClockTimeline over the few stretches of one clock. */
+class Timeline {
+  constructor(spec, record) {
+    Object.assign(this, spec); this.record = record;
+    // derived on load: edges per stretch and the cycle number of its first edge
+    let cycle = 0;
+    this.segs = record.map(r => {
+      const edges = r.period ? (r.end - r.begin) / r.period + 1 : 1;
+      const g = {period: null, ...r, edges, cycle}; cycle += edges; return g;
+    });
+    this.total = cycle;
+  }
+  /** Index of the last stretch with begin <= t, or -1. */
+  segAt(t) {
+    let lo = 0, hi = this.segs.length - 1, r = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (this.segs[m].begin <= t) { r = m; lo = m + 1; } else hi = m - 1; }
+    return r;
+  }
+  segOfCycle(c) {
+    let lo = 0, hi = this.segs.length - 1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1, g = this.segs[m];
+      if (c < g.cycle) hi = m - 1; else if (c >= g.cycle + g.edges) lo = m + 1; else return m;
+    }
+    return -1;
+  }
+  /** Time of active edge number c, or null. */
+  edge(c) { const i = this.segOfCycle(c); return i < 0 ? null : edgeIn(this.segs[i], c - this.segs[i].cycle); }
+  gapPeriodFlags(i) {       // the interval after stretch i: [end_i, begin_{i+1})
+    const a = this.segs[i], b = this.segs[i + 1];
+    if (!b) return null;
+    const len = b.begin - a.end, pa = a.period ?? len, pb = b.period ?? len;
+    return {len, stopped: len > STOP_FACTOR * Math.max(pa, pb)};
+  }
+  /** Where t falls: cycle number, its edge, the next edge, the fraction of the cycle elapsed. */
+  at(t) {
+    const i = this.segAt(t);
+    if (i < 0) return null;                                  // before the first edge: no cycle
+    const g = this.segs[i];
+    let k, e, next, gap = null;
+    if (t >= g.end) {
+      k = g.edges - 1; e = g.end;
+      const nb = this.segs[i + 1];
+      next = nb ? nb.begin : null;
+      if (nb && t < nb.begin) gap = this.gapPeriodFlags(i);
+    } else {
+      k = Math.min(g.edges - 1, Math.floor((t - g.begin) / g.period));
+      e = edgeIn(g, k); next = edgeIn(g, k + 1);
+    }
+    const period = next == null ? null : next - e;
+    return {cycle: g.cycle + k, edge: e, next, frac: period ? (t - e) / period : 0, seg: i,
+      period: gap ? (gap.stopped ? null : gap.len) : g.period, stopped: !!(gap && gap.stopped)};
+  }
+  next(t) { const a = this.at(t); if (!a) return this.segs.length ? this.segs[0].begin : null; return this.edge(a.cycle + 1); }
+  prev(t) { const a = this.at(t); if (!a) return null; return a.edge < t ? a.edge : this.edge(a.cycle - 1); }
+  /** Frequency in GHz at t (period in ps), null when stopped or unknown. */
+  ghz(t) { const a = this.at(t); if (!a || a.stopped || !a.period) return null; return 1000 / a.period; }
+  /** Cycles elapsed between two times, with fractions (for deltas). */
+  span(t0, t1) {
+    const a = this.at(t0), b = this.at(t1);
+    if (!a || !b) return null;
+    return (b.cycle + b.frac) - (a.cycle + a.frac);
+  }
+}
+
+const RAW = SCENARIO.map(rawEdges);
+const clocks = SCENARIO.map((s, i) => new Timeline(s, stretches(RAW[i])));
+const byName = Object.fromEntries(clocks.map(c => [c.name, c]));
+
+/* Other recorded signals of the scenario, for context rows. */
+function busValid() {
+  const out = [[0, 0]]; let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  for (let c = 0; c < byName.bus_clk.total; c++) {
+    const t = byName.bus_clk.edge(c), v = rnd() < 0.35 ? 1 : 0;
+    if (v !== out[out.length - 1][1]) out.push([t, v]);
+  }
+  return out;
+}
+const SIGNALS = {
+  'bus.valid': busValid(),
+  'periph.gate_en': [[0, 1], [35000, 0], [65500, 1]],
+  'dvfs.level': [[0, 2], [19800, 1], [49800, 0]],
+};
+
+/* ---- viewport and ruler math (shared with the view) ---- */
+const niceSteps = [1, 2, 5];
+function nice(minValue) {                 // smallest 1/2/5 x 10^n >= minValue
+  let p = 1; while (p * 10 <= minValue) p *= 10;
+  for (;;) { for (const s of niceSteps) if (s * p >= minValue) return s * p; p *= 10; }
+}
+const xOf = (vp, w, t) => (t - vp.start) / (vp.end - vp.start) * w;
+const tAt = (vp, w, x) => vp.start + x / w * (vp.end - vp.start);
+function zoomAbout(vp, w, x, f) {
+  const t = tAt(vp, w, x), span = Math.min(END * 1.2, Math.max(400, (vp.end - vp.start) / f));
+  const a = t - x / w * span;
+  return clamp({start: a, end: a + span});
+}
+function clamp(vp) {
+  const span = vp.end - vp.start;
+  let a = Math.max(-END * 0.05, Math.min(vp.start, END * 1.05 - span));
+  return {start: a, end: a + span};
+}
+/** Ruler ticks of one clock inside [vp.start, vp.end]: each stretch picks its own label stride,
+ *  so labels stay about minPx apart even when the frequency changes across the view. */
+function clockTicks(clk, vp, w, minPx) {
+  const out = [];
+  const pxPerUnit = w / (vp.end - vp.start);
+  for (let i = 0; i < clk.segs.length; i++) {
+    const g = clk.segs[i];
+    const last = i + 1 < clk.segs.length ? clk.segs[i + 1].begin : g.end + 1;
+    if (last < vp.start || g.begin > vp.end) continue;
+    const p = g.period ?? (last - g.begin);
+    const stride = nice(minPx / Math.max(1e-9, p * pxPerUnit));
+    const k0 = Math.max(0, Math.floor((vp.start - g.begin) / p) - 1);
+    const k1 = Math.min(g.edges - 1, Math.ceil((vp.end - g.begin) / p) + 1);
+    const c0 = g.cycle + k0;
+    for (let c = Math.ceil(c0 / stride) * stride; c <= g.cycle + k1; c += stride) {
+      const t = edgeIn(g, c - g.cycle);
+      if (t >= vp.start && t <= vp.end) out.push({t, cycle: c, seg: i});
+    }
+  }
+  return out;
+}
+function timeTicks(vp, w, minPx) {
+  const step = nice(minPx * (vp.end - vp.start) / w), out = [];
+  for (let t = Math.ceil(vp.start / step) * step; t <= vp.end; t += step) out.push(t);
+  return {step, ticks: out};
+}
+const fmtTime = t => (t / 1000).toFixed(t % 1000 === 0 ? 0 : Math.abs(t) < 10000 ? 3 : 2) + ' ns';
+const fmtGHz = g => g == null ? 'stopped' : (g >= 1 ? g.toFixed(2) + ' GHz' : (g * 1000).toFixed(0) + ' MHz');
+const fmtPeriod = p => p == null ? '—' : Number.isInteger(p) ? String(p) : p.toFixed(3);
+
+function selfTests() {
+  const out = []; let ok = true;
+  const check = (name, cond) => { out.push((cond ? 'ok   ' : 'FAIL ') + name); ok = ok && !!cond; };
+  check('core_clk: three DVFS levels become three stretches', byName.core_clk.segs.length === 3);
+  check('bus_clk: a steady clock is one stretch', byName.bus_clk.segs.length === 1);
+  check('periph_clk: gating splits it into two stretches', byName.periph_clk.segs.length === 2);
+  check('every generated edge is reproduced exactly from its stretches',
+    clocks.every((c, i) => RAW[i].length === c.total && RAW[i].every((t, k) => c.edge(k) === t)));
+  check('a stretch stores only begin, end and period',
+    clocks.every(c => c.record.every(r => Object.keys(r).join() === (r.period ? 'begin,end,period' : 'begin,end'))));
+  check('3 GHz requested is recorded as its rounded 334 ps period', byName.core_clk.segs[0].period === 334);
+  check('periods are whole time units', clocks.every(c => c.segs.every(g => g.period == null || Number.isInteger(g.period))));
+  check('cycle numbering is continuous across stretches',
+    clocks.every(c => c.segs.every((g, i) => i === 0 ? g.cycle === 0 : g.cycle === c.segs[i - 1].cycle + c.segs[i - 1].edges)));
+  check('at(edge(c)) returns c for every edge', clocks.every(c => { for (let k = 0; k < c.total; k++) if (c.at(c.edge(k)).cycle !== k) return false; return true; }));
+  check('before the first edge there is no cycle', byName.bus_clk.at(999) === null && byName.bus_clk.at(1000).cycle === 0);
+  check('next/prev step exactly one edge', clocks.every(c => c.next(c.edge(5)) === c.edge(6) && c.prev(c.edge(6)) === c.edge(5) && c.prev(c.edge(6) + 1) === c.edge(6)));
+  check('the gated interval reads as stopped', byName.periph_clk.at(50000).stopped && !byName.periph_clk.at(20000).stopped);
+  check('a DVFS switch is not "stopped"', !byName.core_clk.at(20100).stopped);
+  const vp = {start: 0, end: END};
+  check('ruler ticks are increasing and inside the view', clocks.every(c => { const t = clockTicks(c, vp, 900, 60); return t.every((x, i) => i === 0 || x.t > t[i - 1].t); }));
+  check('span counts cycles between two times', Math.abs(byName.bus_clk.span(1000, 21000) - 10) < 1e-9);
+  out.push(ok ? 'selftest: all passed' : 'selftest: FAILURES ABOVE');
+  return {ok, lines: out};
+}
+return {END, clocks, byName, RAW, SIGNALS, stretches, edgeIn, xOf, tAt, zoomAbout, clamp, clockTicks, timeTicks, nice,
+  fmtTime, fmtGHz, fmtPeriod, selfTests};
+})();
+
+/* ============================================================================
+   The Waves panel mock: time ruler, clock rulers, rows, cursor, marker.
+   ============================================================================ */
+const view = (() => {
+'use strict';
+const L = CK;
+const root = document.getElementById('cw'), cv = document.getElementById('ccv'), tip = document.getElementById('ctip');
+const side = document.getElementById('cside'), foot = document.getElementById('cfoot');
+const ctx = cv.getContext('2d');
+const ROWS = [
+  {kind: 'clock', clock: 'core_clk'}, {kind: 'bus', sig: 'dvfs.level'},
+  {kind: 'clock', clock: 'bus_clk'}, {kind: 'bit', sig: 'bus.valid'},
+  {kind: 'clock', clock: 'periph_clk'}, {kind: 'bit', sig: 'periph.gate_en'},
+];
+const st = {vp: {start: 0, end: L.END}, axis: 'time', rulers: ['core_clk', 'bus_clk', 'periph_clk'], active: 'core_clk',
+  cursor: null, marker: null, grid: true, guide: null, w: 0, h: 0};
+let dpr = 1, g = null;
+
+function geom() {
+  const narrow = st.w < 620;
+  const NW = narrow ? 104 : 168, TR = 24, CR = 20;
+  const header = TR + st.rulers.length * CR;
+  return {NW, TR, CR, header, plotW: st.w - NW, RH: narrow ? 30 : 34};
+}
+function resize() {
+  const r = cv.getBoundingClientRect(); dpr = window.devicePixelRatio || 1;
+  st.w = r.width; st.h = r.height;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  draw();
+}
+const X = t => g.NW + L.xOf(st.vp, g.plotW, t);
+const T = x => L.tAt(st.vp, g.plotW, x - g.NW);
+const axisClock = () => st.axis === 'time' ? null : L.byName[st.axis];
+const snapClock = () => L.byName[st.axis === 'time' ? st.active : st.axis];
+
+function draw() {
+  g = geom();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#1b242a'; ctx.fillRect(0, 0, st.w, st.h);
+  ctx.textBaseline = 'middle';
+  const rowsTop = g.header;
+  // grid at active edges of the axis clock (or time ticks)
+  ctx.save(); ctx.beginPath(); ctx.rect(g.NW, rowsTop, g.plotW, st.h - rowsTop); ctx.clip();
+  const ac = axisClock();
+  if (st.grid && ac) {
+    const ppc = g.plotW / (st.vp.end - st.vp.start);
+    for (const t of L.clockTicks(ac, st.vp, g.plotW, 6)) {
+      const p = (ac.at(t.t).period ?? 0) * ppc;
+      if (p < 6) continue;
+      ctx.strokeStyle = 'rgba(79,195,161,0.13)'; ctx.beginPath(); ctx.moveTo(Math.round(X(t.t)) + .5, rowsTop); ctx.lineTo(Math.round(X(t.t)) + .5, st.h); ctx.stroke();
+    }
+  } else {
+    ctx.strokeStyle = '#243039';
+    for (const t of L.timeTicks(st.vp, g.plotW, 96).ticks) { const x = Math.round(X(t)) + .5; ctx.beginPath(); ctx.moveTo(x, rowsTop); ctx.lineTo(x, st.h); ctx.stroke(); }
+  }
+  ctx.restore();
+  // rows
+  ROWS.forEach((r, i) => drawRow(r, rowsTop + i * g.RH));
+  // header: time ruler + clock rulers
+  ctx.fillStyle = '#151c21'; ctx.fillRect(0, 0, st.w, g.header);
+  drawTimeRuler();
+  st.rulers.forEach((name, i) => drawClockRuler(L.byName[name], g.TR + i * g.CR));
+  ctx.strokeStyle = '#2c3a42'; ctx.beginPath(); ctx.moveTo(0, g.header - .5); ctx.lineTo(st.w, g.header - .5);
+  ctx.moveTo(g.NW - .5, 0); ctx.lineTo(g.NW - .5, st.h); ctx.stroke();
+  // marker and cursor
+  if (st.marker != null) vline(st.marker, '#b48ae8', 'M');
+  if (st.cursor != null) vline(st.cursor, '#f1d05c', null);
+  readout();
+}
+function vline(t, color, chip) {
+  const x = Math.round(X(t)) + .5; if (x < g.NW || x > st.w) return;
+  ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, st.h); ctx.stroke();
+  if (chip) { ctx.fillStyle = color; ctx.fillRect(x - 8, st.h - 16, 16, 14); ctx.fillStyle = '#10181c'; ctx.textAlign = 'center';
+    ctx.font = '600 10px "IBM Plex Mono", monospace'; ctx.fillText(chip, x, st.h - 9); }
+}
+function drawTimeRuler() {
+  ctx.font = '10.5px "IBM Plex Mono", monospace';
+  ctx.fillStyle = '#8d9f99'; ctx.textAlign = 'left';
+  const ac = axisClock();
+  ctx.fillText(ac ? 'cycles of ' + ac.name : 'time', 8, g.TR / 2);
+  ctx.save(); ctx.beginPath(); ctx.rect(g.NW, 0, g.plotW, g.TR); ctx.clip();
+  ctx.textAlign = 'center';
+  if (ac) {
+    ctx.fillStyle = '#d7e1dd';
+    for (const t of L.clockTicks(ac, st.vp, g.plotW, 70)) {
+      const x = X(t.t); ctx.fillRect(Math.round(x), g.TR - 6, 1, 6); ctx.fillText(String(t.cycle), x, g.TR / 2 - 1);
+    }
+  } else {
+    ctx.fillStyle = '#d7e1dd';
+    for (const t of L.timeTicks(st.vp, g.plotW, 96).ticks) {
+      const x = X(t); ctx.fillRect(Math.round(x), g.TR - 6, 1, 6);
+      if (st.cursor == null || Math.abs(x - X(st.cursor)) > 44) ctx.fillText(L.fmtTime(t), x, g.TR / 2 - 1);
+    }
+  }
+  if (st.cursor != null) {
+    const x = X(st.cursor), a = ac && ac.at(st.cursor);
+    const label = ac ? (a ? String(a.cycle) + (a.frac > 0.001 ? '+' + a.frac.toFixed(2) : '') : '—') : L.fmtTime(st.cursor);
+    ctx.font = '600 10.5px "IBM Plex Mono", monospace';
+    const w = ctx.measureText(label).width + 10;
+    ctx.fillStyle = '#f1d05c'; ctx.fillRect(x - w / 2, 3, w, g.TR - 7); ctx.fillStyle = '#10181c'; ctx.fillText(label, x, g.TR / 2 - 1);
+  }
+  ctx.restore();
+}
+function hatch(x1, x2, y, h, color) {
+  ctx.save(); ctx.beginPath(); ctx.rect(x1, y, x2 - x1, h); ctx.clip();
+  ctx.strokeStyle = color; ctx.lineWidth = 1;
+  for (let x = x1 - h; x < x2; x += 6) { ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + h, y); ctx.stroke(); }
+  ctx.restore();
+}
+function drawClockRuler(clk, y) {
+  const h = g.CR, active = clk.name === (st.axis === 'time' ? st.active : st.axis);
+  ctx.fillStyle = active ? '#1f2c33' : '#172026'; ctx.fillRect(0, y, st.w, h);
+  ctx.fillStyle = clk.color; ctx.fillRect(4, y + 5, 3, h - 10);
+  ctx.font = '10.5px "IBM Plex Mono", monospace'; ctx.textAlign = 'left'; ctx.fillStyle = active ? '#e2eae6' : '#9fb1ab';
+  const mid = (st.vp.start + st.vp.end) / 2;
+  const narrow = g.NW < 140;
+  const am = clk.at(mid);
+  ctx.fillText(clk.name + (narrow ? '' : '  ' + (am ? L.fmtGHz(clk.ghz(mid)) : '—')), 12, y + h / 2);
+  ctx.save(); ctx.beginPath(); ctx.rect(g.NW, y, g.plotW, h); ctx.clip();
+  const ppu = g.plotW / (st.vp.end - st.vp.start);
+  // stopped gaps and DVFS flags
+  clk.segs.forEach((s, i) => {
+    const gp = clk.gapPeriodFlags(i);
+    if (gp && gp.stopped) {
+      hatch(X(s.end), X(clk.segs[i + 1].begin), y + 2, h - 4, 'rgba(224,169,74,0.55)');
+      const xm = (Math.max(X(s.end), g.NW) + Math.min(X(clk.segs[i + 1].begin), st.w)) / 2;
+      ctx.fillStyle = '#e8cf86'; ctx.textAlign = 'center'; ctx.fillText('stopped', xm, y + h / 2);
+    }
+  });
+  const ticks = L.clockTicks(clk, st.vp, g.plotW, 58);
+  ctx.textAlign = 'center';
+  for (const t of ticks) {
+    const x = X(t.t);
+    ctx.fillStyle = clk.color; ctx.fillRect(Math.round(x), y + h - 7, 1, 7);
+    ctx.fillStyle = '#d7e1dd'; ctx.fillText(String(t.cycle), x, y + h / 2 + 3);
+  }
+  // frequency-change flags on top of the ticks
+  ctx.font = '10px "IBM Plex Mono", monospace';
+  clk.segs.forEach((s, i) => {
+    if (i === 0 || !s.period || (clk.gapPeriodFlags(i - 1) || {}).stopped) return;
+    const x = X(clk.segs[i - 1].end);
+    if (x <= g.NW || x >= st.w) return;
+    const label = '→ ' + L.fmtGHz(1000 / s.period), w = ctx.measureText(label).width + 16;
+    ctx.fillStyle = active ? '#1f2c33' : '#172026'; ctx.fillRect(x, y + 1, w, h - 2);
+    ctx.fillStyle = clk.color; ctx.fillRect(Math.round(x), y + 1, 2, h - 2);
+    ctx.beginPath(); ctx.moveTo(x + 2, y + 3); ctx.lineTo(x + 9, y + h / 2); ctx.lineTo(x + 2, y + h - 3); ctx.fill();
+    ctx.textAlign = 'left'; ctx.fillStyle = '#e2eae6'; ctx.fillText(label, x + 12, y + h / 2);
+  });
+  ctx.font = '10.5px "IBM Plex Mono", monospace'; ctx.textAlign = 'center';
+  // at extreme zoom, show the spacing of consecutive edges (334 ps for the 3 GHz request)
+  const vis = clk.at(Math.max(st.vp.start, clk.segs[0].begin));
+  if (vis && vis.period && vis.period * ppu > 70) {
+    ctx.fillStyle = '#7d8f89'; ctx.font = '9.5px "IBM Plex Mono", monospace';
+    for (let c = vis.cycle; ; c++) {
+      const a = clk.edge(c), b = clk.edge(c + 1); if (a == null || b == null || a > st.vp.end) break;
+      ctx.fillText((b - a) + ' ps', (X(a) + X(b)) / 2, y + h - 4);
+    }
+  }
+  ctx.restore();
+}
+function drawRow(r, y) {
+  const h = g.RH;
+  ctx.strokeStyle = '#243039'; ctx.beginPath(); ctx.moveTo(0, y + h - .5); ctx.lineTo(st.w, y + h - .5); ctx.stroke();
+  ctx.fillStyle = '#172026'; ctx.fillRect(0, y, g.NW, h);
+  ctx.font = '11px "IBM Plex Mono", monospace'; ctx.textAlign = 'left';
+  const clk = r.clock && L.byName[r.clock];
+  const name = r.kind === 'clock' ? r.clock : r.sig;
+  ctx.fillStyle = '#d7e1dd';
+  ctx.fillText(name, 10, y + h / 2);
+  ctx.save(); ctx.beginPath(); ctx.rect(g.NW, y, g.plotW, h); ctx.clip();
+  const hi = y + 7, lo = y + h - 7;
+  if (r.kind === 'clock') {
+    // drawn from the stretches alone, at 50% duty: no clock waveform is loaded
+    ctx.strokeStyle = clk.color; ctx.lineWidth = 1.2;
+    const a = clk.at(st.vp.start), c0 = a ? a.cycle : 0;
+    const ppu = g.plotW / (st.vp.end - st.vp.start);
+    let dense = false;
+    for (let c = c0; c < clk.total; c++) {
+      const e = clk.edge(c), n = clk.edge(c + 1); if (e > st.vp.end) break;
+      const period = n == null ? null : n - e;
+      if (period && period * ppu < 4) { dense = true; }
+      const high = (period && period < 3 * (clk.segs[clk.at(e).seg].period ?? period)) ? period / 2 : (clk.segs[clk.at(e).seg].period ?? 1000) / 2;
+      if (dense && period && period * ppu < 4) {
+        ctx.fillStyle = clk.color + '66'; ctx.fillRect(X(e), hi, Math.max(1, X(n) - X(e)), lo - hi);
+        continue;
+      }
+      ctx.beginPath(); ctx.moveTo(X(e), lo); ctx.lineTo(X(e), hi); ctx.lineTo(X(e + high), hi); ctx.lineTo(X(e + high), lo);
+      ctx.lineTo(n == null ? X(e + 2 * high) : X(n), lo); ctx.stroke();
+    }
+    clk.segs.forEach((s, i) => { const gp = clk.gapPeriodFlags(i); if (gp && gp.stopped) hatch(X(s.end) + 4, X(clk.segs[i + 1].begin), hi, lo - hi, 'rgba(224,169,74,0.35)'); });
+  } else {
+    const ch = L.SIGNALS[r.sig];
+    for (let j = 0; j < ch.length; j++) {
+      const [t, v] = ch[j], n = j + 1 < ch.length ? ch[j + 1][0] : L.END;
+      const x1 = X(t), x2 = X(n); if (x2 < g.NW || x1 > st.w) continue;
+      if (r.kind === 'bit') {
+        ctx.strokeStyle = '#5cc06e'; ctx.lineWidth = 1.2; ctx.beginPath();
+        ctx.moveTo(x1, j ? (ch[j - 1][1] ? hi : lo) : (v ? hi : lo)); ctx.lineTo(x1, v ? hi : lo); ctx.lineTo(x2, v ? hi : lo); ctx.stroke();
+        if (v) { ctx.fillStyle = 'rgba(92,192,110,0.12)'; ctx.fillRect(x1, hi, x2 - x1, lo - hi); }
+      } else {
+        ctx.strokeStyle = '#7fb8e8'; ctx.lineWidth = 1.1; ctx.beginPath();
+        ctx.moveTo(x1 + 3, hi); ctx.lineTo(x2 - 3, hi); ctx.moveTo(x1 + 3, lo); ctx.lineTo(x2 - 3, lo);
+        ctx.moveTo(x1, (hi + lo) / 2); ctx.lineTo(x1 + 3, hi); ctx.moveTo(x1, (hi + lo) / 2); ctx.lineTo(x1 + 3, lo); ctx.stroke();
+        ctx.fillStyle = '#cfe3f5'; ctx.textAlign = 'center';
+        if (x2 - x1 > 30) ctx.fillText(String(v), (Math.max(x1, g.NW) + Math.min(x2, st.w)) / 2, (hi + lo) / 2);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function readout() {
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  let h = '<h4>Cursor</h4>';
+  if (st.cursor == null) h += '<p class="empty">Click the rows to place the cursor.</p>';
+  else {
+    h += `<div class="kv"><span>time</span><b>${L.fmtTime(st.cursor)}</b></div>`;
+    for (const c of L.clocks) {
+      const a = c.at(st.cursor);
+      const v = !a ? 'no cycle yet' : a.stopped ? `stopped · cycle ${a.cycle}` : `cycle ${a.cycle}${a.frac > 0.001 ? ' + ' + a.frac.toFixed(2) : ''} · ${L.fmtGHz(c.ghz(st.cursor))}`;
+      h += `<div class="kv"><span><i style="background:${c.color}"></i>${c.name}</span><b>${esc(v)}</b></div>`;
+    }
+  }
+  if (st.marker != null && st.cursor != null) {
+    h += '<h4>Marker → cursor</h4>';
+    h += `<div class="kv"><span>Δ time</span><b>${L.fmtTime(st.cursor - st.marker)}</b></div>`;
+    for (const c of L.clocks) {
+      const d = c.span(st.marker, st.cursor);
+      h += `<div class="kv"><span><i style="background:${c.color}"></i>${c.name}</span><b>${d == null ? '—' : (Number.isInteger(Math.round(d * 100) / 100) ? d.toFixed(0) : d.toFixed(2)) + ' cycles'}</b></div>`;
+    }
+  }
+  const sc = snapClock();
+  h += `<h4>In the file · ${sc.name}</h4><div class="segs"><div class="sh"><span>#</span><span>begin</span><span>end</span><span>period</span><span>cycle*</span></div>`
+    + sc.segs.map((s, i) => `<div><span>${i}</span><span>${s.begin}</span><span>${s.end}</span><span>${L.fmtPeriod(s.period)}</span><span>${s.cycle}</span></div>`).join('')
+    + `</div><p class="note">${sc.segs.length} stretch${sc.segs.length > 1 ? 'es' : ''} describe ${sc.total} edges. Times in ps. *Computed by the reader, not stored.</p>`;
+  side.innerHTML = h;
+  const span = st.vp.end - st.vp.start;
+  foot.innerHTML = `<span>view <b>${L.fmtTime(Math.max(0, st.vp.start))} – ${L.fmtTime(st.vp.end)}</b></span>`
+    + `<span>axis <b>${st.axis === 'time' ? 'time' : 'cycles of ' + st.axis}</b></span>`
+    + `<span>snap <b>${sc.name} edges</b></span><span>1 px <b>${(span / g.plotW).toFixed(1)} ps</b></span>`;
+  document.querySelectorAll('[data-axis]').forEach(b => b.classList.toggle('on', b.dataset.axis === st.axis));
+  document.getElementById('cgrid').classList.toggle('on', st.grid);
+}
+
+/* ---- input ---- */
+function local(e) { const r = cv.getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; }
+function snap(t) {
+  const c = snapClock(), a = c.at(t), px = 8;
+  // the nearest active edge of the snap clock, if it lies within `px` pixels of the pointer
+  const near = [a && a.edge, a && a.next].filter(v => v != null && Math.abs(X(v) - X(t)) <= px)
+    .sort((u, v) => Math.abs(u - t) - Math.abs(v - t));
+  return Math.round(near.length ? near[0] : t);
+}
+cv.addEventListener('pointerdown', e => {
+  const p = local(e);
+  if (p.y >= g.TR && p.y < g.header) {                 // click on a clock ruler selects that clock
+    st.active = st.rulers[Math.floor((p.y - g.TR) / g.CR)]; draw(); root.focus({preventScroll: true}); return;
+  }
+  if (p.x < g.NW) return;
+  st.cursor = snap(T(p.x)); st.guide = null; draw(); root.focus({preventScroll: true});
+});
+cv.addEventListener('pointermove', e => {
+  const p = local(e);
+  if (p.y >= g.TR && p.y < g.header && p.x >= g.NW) {
+    const c = L.byName[st.rulers[Math.floor((p.y - g.TR) / g.CR)]], t = T(p.x), a = c.at(t);
+    const s = a && c.segs[a.seg];
+    tip.innerHTML = !a ? `<b>${c.name}</b><br><span>before the first edge</span>`
+      : `<b>${c.name} cycle ${a.cycle}</b><br>${a.stopped ? 'clock stopped' : L.fmtGHz(c.ghz(t)) + ' · period ' + L.fmtPeriod(s.period) + ' ps'}<br><span>stretch ${a.seg + 1} of ${c.segs.length}: ${s.edges} edges from ${L.fmtTime(s.begin)}</span>`;
+    tip.hidden = false; tip.style.left = Math.min(p.x + 12, st.w - 250) + 'px'; tip.style.top = (p.y + 14) + 'px';
+  } else tip.hidden = true;
+});
+cv.addEventListener('pointerleave', () => { tip.hidden = true; });
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const p = local(e), d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  if (e.ctrlKey || e.metaKey) st.vp = L.zoomAbout(st.vp, g.plotW, Math.max(0, p.x - g.NW), Math.exp(-d / 300));
+  else { const dt = (d || e.deltaX) / g.plotW * (st.vp.end - st.vp.start); st.vp = L.clamp({start: st.vp.start + dt, end: st.vp.end + dt}); }
+  tip.hidden = true; draw();
+}, {passive: false});
+function step(dir) {
+  const c = snapClock();
+  const t = st.cursor == null ? c.next(st.vp.start) : dir > 0 ? c.next(st.cursor) : c.prev(st.cursor);
+  if (t == null) return;
+  st.cursor = t;
+  const span = st.vp.end - st.vp.start;
+  if (t < st.vp.start || t > st.vp.end) st.vp = L.clamp({start: t - span / 2, end: t + span / 2});
+  draw();
+}
+root.addEventListener('keydown', e => {
+  const k = e.key;
+  if (k === ']') step(1); else if (k === '[') step(-1);
+  else if (k === 'm' || k === 'M') { st.marker = st.cursor; draw(); }
+  else if (k === 'f' || k === 'F') { st.vp = {start: 0, end: L.END}; draw(); }
+  else if (k === 'g' || k === 'G') { st.grid = !st.grid; draw(); }
+  else if (k === 'Escape') { if (st.marker != null) st.marker = null; else st.cursor = null; draw(); }
+  else return;
+  e.preventDefault();
+});
+document.querySelectorAll('[data-axis]').forEach(b => b.addEventListener('click', () => { st.axis = b.dataset.axis; if (st.axis !== 'time') st.active = st.axis; draw(); }));
+document.getElementById('cgrid').addEventListener('click', () => { st.grid = !st.grid; draw(); });
+
+const GUIDES = {
+  rulers: () => ({vp: [0, L.END], axis: 'time', active: 'core_clk', cursor: 27300, marker: null}),
+  axis: () => ({vp: [24000, 29000], axis: 'core_clk', active: 'core_clk', cursor: L.byName.core_clk.edge(L.byName.core_clk.at(26000).cycle), marker: null}),
+  dvfs: () => ({vp: [18800, 22300], axis: 'time', active: 'core_clk', cursor: null, marker: null}),
+  gated: () => ({vp: [26000, 76000], axis: 'time', active: 'periph_clk', cursor: 50000, marker: null}),
+  measure: () => ({vp: [10000, 60000], axis: 'time', active: 'bus_clk', cursor: L.byName.bus_clk.edge(26), marker: L.byName.bus_clk.edge(6)}),
+  rounded: () => ({vp: [380, 2100], axis: 'core_clk', active: 'core_clk', cursor: L.byName.core_clk.edge(3), marker: null}),
+};
+function guide(name) {
+  const q = GUIDES[name]();
+  st.vp = {start: q.vp[0], end: q.vp[1]}; st.axis = q.axis; st.active = q.active; st.cursor = q.cursor; st.marker = q.marker;
+  st.guide = name;
+  document.querySelectorAll('[data-guide]').forEach(b => b.classList.toggle('on', b.dataset.guide === name));
+  draw();
+}
+document.querySelectorAll('[data-guide]').forEach(b => b.addEventListener('click', () => guide(b.dataset.guide)));
+new ResizeObserver(resize).observe(cv);
+resize();
+guide('rulers');
+return {st, draw, guide, X: t => X(t), geom: () => g, ctx: () => ctx, dpr: () => dpr, rulerY: name => g.TR + st.rulers.indexOf(name) * g.CR + g.CR / 2};
+})();
+
+document.getElementById('theme').addEventListener('click', () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+});
+
+// Hooks for docs/tests/vtr_clocks.test.mjs.
+window.CLK = {
+  state: () => ({axis: view.st.axis, active: view.st.active, cursor: view.st.cursor, marker: view.st.marker,
+    vp: {...view.st.vp}, guide: view.st.guide, side: document.getElementById('cside').textContent,
+    rulerText: null}),
+  guide: n => view.guide(n),
+  /** True once the canvas has been drawn at its current layout size. */
+  sized: () => Math.abs(view.st.w - document.getElementById('ccv').getBoundingClientRect().width) < 0.5,
+  /** Client coordinates of time t on row `row` (0-based). */
+  point: (t, row) => {
+    const r = document.getElementById('ccv').getBoundingClientRect(), g = view.geom();
+    return {x: r.left + view.X(t), y: r.top + g.header + row * g.RH + g.RH / 2};
+  },
+  rulerPoint: (name, t) => {
+    const r = document.getElementById('ccv').getBoundingClientRect();
+    return {x: r.left + view.X(t), y: r.top + view.rulerY(name)};
+  },
+  segments: name => CK.byName[name].segs.map(s => ({...s})),
+  record: name => CK.byName[name].record.map(r => ({...r})),
+  edge: (name, c) => CK.byName[name].edge(c),
+  at: (name, t) => CK.byName[name].at(t),
+};
+document.getElementById('selftest').textContent = CK.selfTests().lines.join('\n');
+window.ready = true;
+</script>
+</body>
+</html>
