@@ -197,7 +197,7 @@ ul.prose{margin-top:0}
   <h2>The design in six rules</h2>
   <ol class="rules">
     <li><b>The design owner names the clocks.</b> Clocks are declared in the testbench, one line per clock, through a small SystemVerilog module. Nothing is guessed from the netlist.</li>
-    <li><b>Simulators report edges, not frequencies.</b> A frequency change is simply a change in the spacing of edges. The writer notices it; the producer does nothing special.</li>
+    <li><b>Declare what you know, observe what you do not.</b> A producer that knows a clock's period states it once per change, in whole units. For any other clock it reports rising edges, and the writer notices when their spacing changes.</li>
     <li><b>A clock is a list of steady stretches.</b> Each stretch stores its first edge, its last edge and its period. A fixed clock is one stretch for the whole run. Each frequency change or gated interval adds one more.</li>
     <li><b>Periods are whole time units.</b> Simulators round every delay to the time precision, so recorded edges are always a whole number of units apart. The format needs no fractions and no rounding rule.</li>
     <li><b>Everything else is computed by the reader.</b> Edge counts, cycle numbers, frequencies and "stopped" follow from the stretches. The first recorded edge is cycle 0, and numbering continues across stretches.</li>
@@ -231,7 +231,7 @@ cycle at time t        the number of the last edge at or before t</code></pre>
 </div></section>
 
 <section id="producers"><div class="wrap"><div class="prose">
-  <h2>Where the edges come from</h2>
+  <h2>Where clocks come from</h2>
   <h3>Why the simulator cannot pick the clocks</h3>
   <p>The first draft of this proposal let the Verilator fork find "primary clocks" in the sensitivity lists by itself and derive stretches from the dumped values. Checked against the C910 RTL, that does not hold up:</p>
   <ul>
@@ -242,28 +242,61 @@ cycle at time t        the number of the last edge at or before t</code></pre>
     <li><b>Frequency is not a simulator concept.</b> In RTL, a frequency change is a testbench or PLL model changing a delay. The only observable fact is the spacing of edges.</li>
   </ul>
   <p>So clocks are declared by the design owner, the same way pipeline tracing will later ask owners to report stages. The owner knows which clock matters and what to call it.</p>
-  <h3>The <code>vtr_clock</code> module</h3>
-  <p>This proposal starts the <code>vtr_trace</code> package with two DPI-C functions and one module. The module reports each rising edge through DPI and takes its time from the fork's writer, the same time the waveform uses. Pipeline tracing later adds its tracker functions to the same package, so clock edges and pipeline stages share one time source.</p>
+  <h3>Two ways to record a clock</h3>
+  <p>An owner either knows a clock's period or does not:</p>
+  <ul>
+    <li><b>Declared.</b> The producer states the period when the clock starts or changes speed, and when it stops. That is one call per change and nothing per edge. It fits testbench clock generators, gem5 clock domains and SystemC clocks, which all know their period.</li>
+    <li><b>Observed.</b> The producer reports every rising edge, and the writer finds the stretches. It fits clocks whose period nobody states: a gated clock after its gating cell, a divider inside the design, a PLL model or a clock multiplexer.</li>
+  </ul>
+  <p>Both produce the same stretches in the file. A clock is either declared or observed; mixing the two calls on one clock is reported as an error.</p>
+  <h3>The SystemVerilog API</h3>
+  <p>This proposal starts the <code>vtr_trace</code> package with four DPI-C functions and one module. Every call takes its time from the fork's writer, the same time the waveform uses. Pipeline tracing later adds its tracker functions to the same package, so clocks and pipeline stages share one time source.</p>
 <pre><code>package vtr_trace;
-  // A CLOCK stream `name` in the scope that contains the calling vtr_clock instance.
-  import "DPI-C" context function int unsigned vtr_clock_open(string name);
-  // One rising edge of clock `c`, at the current simulation time.
-  import "DPI-C" function void vtr_clock_edge(int unsigned c);
+  typedef int unsigned clock_t;   // a clock handle; 0 = none
+
+  // Time units as powers of ten, the same values $timeunit returns.
+  localparam int VTR_S = 0, VTR_MS = -3, VTR_US = -6, VTR_NS = -9, VTR_PS = -12, VTR_FS = -15;
+
+  // Declare a clock: a CLOCK stream `name` in the caller's enclosing scope.
+  // Call once, from an initial block.
+  import "DPI-C" context function clock_t vtr_clock_open(string name);
+
+  // Declared: from now, which must be a rising edge, one edge every `period` units of 10^unit s,
+  // until the next run or stop call. Example: vtr_clock_run(c, 334, VTR_PS).
+  import "DPI-C" function void vtr_clock_run(clock_t c, longint unsigned period, int unit);
+
+  // Declared: no edges after now (gated or stopped).
+  import "DPI-C" function void vtr_clock_stop(clock_t c);
+
+  // Observed: one rising edge now; the writer finds the stretches.
+  import "DPI-C" function void vtr_clock_edge(clock_t c);
 endpackage
 
+// Ready-made observer for any net whose period nobody states.
 module vtr_clock #(parameter string NAME = "clk") (input logic clk);
   import vtr_trace::*;
-  int unsigned c;
+  clock_t c;
   initial c = vtr_clock_open(NAME);
   always @(posedge clk) vtr_clock_edge(c);   // one DPI call per rising edge
 endmodule</code></pre>
-  <p>In the C910 testbench, two lines declare the core clock and the divided JTAG clock. They sit under an <code>`ifdef</code> that only the VTR build of the model defines, so the FST build is unchanged:</p>
+  <p>The period is an integer with an explicit unit, so the owner writes it in the units of their own testbench. The library converts it to the file's time unit with integer arithmetic only. A coarser unit is multiplied: 2 ns in a picosecond file is 2000. A finer unit is divided only when the result is whole: 334 ps in a nanosecond file is reported in the simulation log instead of being rounded.</p>
+  <p>A testbench generator whose half period can change declares each new speed at its first edge:</p>
+<pre><code>clock_t c;
+initial c = vtr_clock_open("core_clk");
+always @(posedge core_clk) if (half != half_q) begin   // first edge at a new speed
+  vtr_clock_run(c, 2 * half, VTR_PS);
+  half_q = half;
+end</code></pre>
+  <p>In the C910 testbench, the core clock is toggled by the C++ harness every 100 ps time unit, so its period of 200 ps is known and declared once. The divided JTAG clock is produced inside the testbench and is simply observed. Both sit under an <code>`ifdef</code> that only the VTR build of the model defines, so the FST build is unchanged:</p>
 <pre><code>`ifdef VTR_CLOCKS
-vtr_clock #("clk")  u_vtr_clk  (.clk(clk));
+import vtr_trace::*;
+clock_t vtr_clk;
+bit     vtr_clk_on;
+initial vtr_clk = vtr_clock_open("clk");
+always @(posedge clk) if (!vtr_clk_on) begin vtr_clock_run(vtr_clk, 200, VTR_PS); vtr_clk_on = 1; end
 vtr_clock #("jclk") u_vtr_jclk (.clk(jclk));
 `endif</code></pre>
-  <p>A <code>bind</code> statement does the same for a clock deep inside the design without editing its source. Binding to a gated clock net shows its gating as stopped intervals; binding to the root clock gives steady numbering.</p>
-  <p>Frequency changes need no extra code. When the testbench or a PLL model changes its delay, the edge spacing changes, and the writer closes one stretch and opens the next.</p>
+  <p>A <code>bind</code> statement attaches <code>vtr_clock</code> to a clock deep inside the design without editing its source. Binding to a gated clock net shows its gating as stopped intervals; binding to the root clock gives steady numbering. An observed clock needs no extra code for frequency changes: when a delay changes, the edge spacing changes, and the writer closes one stretch and opens the next.</p>
   <h3>How the fork carries the package</h3>
   <p>A Verilator user should need nothing beyond <code>--trace-vtr</code>. The pieces below make that true, and pipeline tracing reuses every one of them:</p>
   <ul>
@@ -276,13 +309,16 @@ vtr_clock #("jclk") u_vtr_jclk (.clk(jclk));
   </ul>
   <p>Other simulators need a standalone sink that opens its own file and reads time through VPI. That sink belongs to the pipeline tracing proposal; the module itself is plain DPI-C and needs no change for it.</p>
   <h3>The writer</h3>
-  <p>The Rust writer gains three calls, projected one to one into the C API:</p>
+  <p>The Rust writer gains four calls, projected one to one into the C API. All times and periods are <code>u64</code> in the file's time unit, which the producer chose when it opened the writer, so no unit argument is needed here.</p>
 <pre><code>pub fn add_clock(&amp;mut self, scope: Option&lt;NodeId&gt;, name: &amp;str) -&gt; ClockId;
-/// One rising edge at time `t`, non-decreasing per clock.
-pub fn clock_edge(&amp;mut self, clock: ClockId, t: u64) -&gt; Result&lt;()&gt;;
-/// A whole stretch at once, for models that know their clock.
-pub fn clock_stretch(&amp;mut self, clock: ClockId, begin: u64, end: u64, period: u64) -&gt; Result&lt;()&gt;;</code></pre>
-  <p>Behind <code>clock_edge</code>, the writer keeps the open stretch and compares each new edge with it. The whole algorithm is four cases:</p>
+/// Declared: from edge `first`, one edge every `period`, until the next run or stop.
+pub fn clock_run(&amp;mut self, clock: ClockId, first: u64, period: u64) -&gt; Result&lt;()&gt;;
+/// Declared: no edges after `t`.
+pub fn clock_stop(&amp;mut self, clock: ClockId, t: u64) -&gt; Result&lt;()&gt;;
+/// Observed: one rising edge at `t`, non-decreasing per clock.
+pub fn clock_edge(&amp;mut self, clock: ClockId, t: u64) -&gt; Result&lt;()&gt;;</code></pre>
+  <p>For a declared clock, the writer keeps the running stretch as (first, period). A new <code>clock_run</code> or a <code>clock_stop</code> ends it at its last edge before the new first edge or at the stop time, and the file close ends it at the last edge before close. A run whose first edge would share an edge with the previous stretch is an error.</p>
+  <p>For an observed clock, the writer keeps the open stretch and compares each new edge with it. The whole algorithm is four cases:</p>
 <pre><code>on edge t:
   no open stretch:          open it at t
   one edge so far:          period = t − begin; last = t
@@ -291,10 +327,10 @@ pub fn clock_stretch(&amp;mut self, clock: ClockId, begin: u64, end: u64, period
   <p>A clock that never settles, such as a glitching clock mux, degrades to one stretch per two edges. That is still correct, only larger. <code>vtr clocks</code> reports the average stretch length so a wrongly chosen net is easy to spot.</p>
   <h3>Other producers</h3>
   <ul>
-    <li><b>gem5.</b> A clock domain's period is a whole number of ticks. Each change of performance level ends one <code>clock_stretch</code> and starts the next.</li>
-    <li><b>SystemC.</b> An <code>sc_clock</code> is one stretch; its period is a whole multiple of the time resolution.</li>
+    <li><b>gem5.</b> A clock domain's period is a whole number of ticks. It calls <code>clock_run</code> when the domain starts and at each change of performance level.</li>
+    <li><b>SystemC.</b> An <code>sc_clock</code> is one <code>clock_run</code> from its start time; its period is a whole multiple of the time resolution.</li>
     <li><b>Kanata import.</b> The converter declares a clock named <code>cycle</code> with period 1 and sets <code>vtr.clock</code> on its pipeline streams. It is the first producer of <code>vtr.clock</code>; pipeline tracing adds the second.</li>
-    <li><b>FST and VCD import.</b> <code>vtr convert trace.fst out.vtr --clock TOP.clk</code> feeds that signal's rising edges to the same writer call.</li>
+    <li><b>FST and VCD import.</b> <code>vtr convert trace.fst out.vtr --clock TOP.clk</code> feeds that signal's rising edges to <code>clock_edge</code>.</li>
   </ul>
 </div></div></section>
 
@@ -322,13 +358,13 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
 
 <section id="checks"><div class="wrap"><div class="prose">
   <h2>Cost and tests</h2>
-  <p>Writing costs one DPI call and one comparison per rising edge of each declared clock. For the C910's 252,000 cycles that is negligible next to the simulation, but it goes through the benchmark gate like any writer change: a C910 capture with its clock declared must stay within measurement noise of today's write time and size. A stretch is one transaction with one attribute, a few dozen bytes; the file grows with frequency changes, not run length.</p>
+  <p>A declared clock costs one call per change of speed and nothing per edge. An observed clock costs one DPI call and one comparison per rising edge; for the C910's 252,000 cycles that is negligible next to the simulation. Both go through the benchmark gate like any writer change: a C910 capture with its clocks recorded must stay within measurement noise of today's write time and size. A stretch is one transaction with one attribute, a few dozen bytes; the file grows with frequency changes, not run length.</p>
   <p>Tests, all headless:</p>
   <ul>
-    <li><b>Writer.</b> Unit tests in <code>core/vtr</code> cover fixed, changing, gated, single-edge and irregular clocks. For random edge sequences, the stretches must reproduce every edge exactly.</li>
-    <li><b>Round trip.</b> A <code>core/vtr/tests/</code> test writes clocks through both writer calls and checks <code>cycle_at</code>, <code>edge</code> and stepping against brute-force edge counting, also on a crash-recovered file.</li>
-    <li><b>Fork.</b> <code>test_regress/t/t_trace_vtr_clock</code> checks that <code>vtr_clock</code> resolves with <code>--trace-vtr</code> alone, that its edges land on the waveform timeline in one and two thread modes, that a signal-free open still records the clock, and that a design without the module generates the same model as before.</li>
-    <li><b>C910.</b> With <code>vtr_clock</code> in the testbench, the capture holds one <code>clk</code> stretch of period 2 starting on the first rising edge of the recorded <code>clk</code>, with an edge count equal to the rising edges of that waveform.</li>
+    <li><b>Writer.</b> Unit tests in <code>core/vtr</code> cover fixed, changing, gated, single-edge and irregular clocks, both declared and observed. For random edge sequences, the stretches must reproduce every edge exactly, and a declared run must give the same stretches as observing its edges.</li>
+    <li><b>Round trip.</b> A <code>core/vtr/tests/</code> test writes clocks through every writer call and checks <code>cycle_at</code>, <code>edge</code> and stepping against brute-force edge counting, also on a crash-recovered file.</li>
+    <li><b>Fork.</b> <code>test_regress/t/t_trace_vtr_clock</code> checks that the package resolves with <code>--trace-vtr</code> alone. It drives one testbench clock, which changes speed and stops, both through <code>vtr_clock_run</code>/<code>vtr_clock_stop</code> and through <code>vtr_clock</code>, and requires identical stretches whose edges land on the waveform timeline, in one and two thread modes. It also checks the unit conversion, including a period that is not a whole number of file units, that a signal-free open still records the clock, and that a design without the module generates the same model as before.</li>
+    <li><b>C910.</b> With the clocks declared in the testbench, the capture holds one <code>clk</code> stretch of period 2 starting on the first rising edge of the recorded <code>clk</code>, with an edge count equal to the rising edges of that waveform, and a <code>jclk</code> stretch that matches its waveform the same way.</li>
     <li><b>Volna.</b> Headless tests cover clock ruler ticks, the cycle axis, snapping, stepping, the delta readout, the Pipeline panel in cycles on a Kanata import, and the workspace round trip.</li>
     <li><b>This page.</b> <code>node --test docs/tests/vtr_clocks.test.mjs</code> drives the demo in headless Chrome, and a workflow runs it when the page changes.</li>
   </ul>
@@ -342,6 +378,9 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
     <li><b>Fractional periods with a rounding rule.</b> They covered edges 333 and 334 ps apart. Simulators do not produce such clocks: SystemVerilog rounds each delay to the time precision, SystemC times are whole multiples of the resolution, gem5 periods are whole ticks, and a Verilator harness advances time in whole units.</li>
     <li><b>Stored edge counts and cycle numbers.</b> Both follow from begin, end and period, and a reader always loads all of a clock's stretches, so storing them only adds a way to be inconsistent.</li>
     <li><b>Five further attributes.</b> Duty cycle is visible in the waveform when it matters. Falling-edge or both-edge counting, if a design ever needs it, is a parameter of the module; the file does not change. A "derived or declared" source flag changes nothing a reader does. A separate signal path is replaced by the naming convention. An "irregular" marker is replaced by the plain fallback of short stretches.</li>
+    <li><b>Only observed clocks.</b> Reporting every edge of a clock whose period the producer already knows is wasted work, and gem5 has no edges to report. Declared clocks were added for that case.</li>
+    <li><b>Finding stretches in SystemVerilog.</b> <code>$time</code> and <code>$realtime</code> report in the module's time unit, rounded to it, so SystemVerilog cannot see edge times at the file's precision without calling out anyway. It would also duplicate the writer's detection, which <code>vtr convert --clock</code> needs regardless.</li>
+    <li><b>A <code>realtime</code> period in the caller's time unit.</b> It hides a floating-point conversion and needs the library to look up the caller's time unit. An integer with an explicit unit is exact and visible at the call site.</li>
     <li><b>Deferred to later work:</b> a frequency plot row, a <code>clk:N</code> time syntax in the CLI, and deriving a clock from a loaded FST signal inside Volna.</li>
   </ul>
   <p>Approaches rejected outright: a single period attribute, which is wrong after the first frequency change; counting clock edges at read time, whose cost grows with run length; Perfetto-style (time, cycle) snapshots, which do not say where a clock stopped; a floating-point frequency, which drifts over long runs; a new section or node kind, which adds format surface that the transaction encoding already covers; and inferring the period from transaction times, as Konata does, which cannot see frequency changes or tell two clocks apart. A pipeline stream without a clock is shown in time units, as today.</p>
@@ -350,9 +389,9 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
 <section id="plan"><div class="wrap"><div class="prose">
   <h2>Plan</h2>
   <ol>
-    <li><b>Format and core.</b> SPEC additions (<code>CLOCK</code>, <code>vtr.period</code>, <code>vtr.clock</code>), the three writer calls, the dedicated clock block, <code>ClockTimeline</code>, the C API, <code>vtr clocks</code>, <code>vtr convert --clock</code> and the Kanata clock, with the writer, round-trip and recovery tests and a RATIONALE entry. <i>Exit:</i> the core tests pass.</li>
-    <li><b>Package and fork.</b> <code>vtr_trace.sv</code> with <code>vtr_clock</code>, <code>vtr_trace_dpi.hpp</code>, installation by <code>build.sh</code>, automatic parsing and pruning under <code>--trace-vtr</code>, the context sink in <code>VerilatedVtr</code>, <code>verilated.mk</code> plumbing and the signal-free open, with the fork regression test and a SPEC producer example next to the Verilator log example. <i>Exit:</i> the fork test passes in both thread modes.</li>
-    <li><b>C910.</b> The harness time order, <code>vtr_clock</code> in the testbench and the A/B benchmark. <i>Exit:</i> the C910 checks pass and write time and size stay within noise.</li>
+    <li><b>Format and core.</b> SPEC additions (<code>CLOCK</code>, <code>vtr.period</code>, <code>vtr.clock</code>), the four writer calls, the dedicated clock block, <code>ClockTimeline</code>, the C API, <code>vtr clocks</code>, <code>vtr convert --clock</code> and the Kanata clock, with the writer, round-trip and recovery tests and a RATIONALE entry. <i>Exit:</i> the core tests pass.</li>
+    <li><b>Package and fork.</b> <code>vtr_trace.sv</code> with the four clock functions and <code>vtr_clock</code>, <code>vtr_trace_dpi.hpp</code> with the unit conversion, installation by <code>build.sh</code>, automatic parsing and pruning under <code>--trace-vtr</code>, the context sink in <code>VerilatedVtr</code>, <code>verilated.mk</code> plumbing and the signal-free open, with the fork regression test and a SPEC producer example next to the Verilator log example. <i>Exit:</i> the fork test passes in both thread modes.</li>
+    <li><b>C910.</b> The harness time order, the declared <code>clk</code> and observed <code>jclk</code> in the testbench, and the A/B benchmark. <i>Exit:</i> the C910 checks pass and write time and size stay within noise.</li>
     <li><b>Volna.</b> Timelines in <code>Document</code>, clock rulers, the cycle axis, readouts, snapping and stepping, clock rows, pipelines in cycles and workspace support. <i>Exit:</i> the headless tests pass.</li>
     <li><b>Models.</b> Clock stretches from the planned gem5 and SystemC integrations. Not needed by pipeline tracing.</li>
   </ol>

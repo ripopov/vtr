@@ -286,7 +286,7 @@ vtr_close(rob, 12, VTR_OK);         // transaction [100, 109], status ok, stages
   <p>Had a branch mispredicted at edge 104, the tracer would instead call <code>vtr_abort_younger(rob, branch_rob)</code>. This instruction and every other item opened after the branch would end at 104 with status aborted, and their keys would be released.</p>
 
   <h3>The package</h3>
-  <p>The whole API is listed below. The package already exists when this work starts: the clocks proposal created it with <code>vtr_clock_open</code>, <code>vtr_clock_edge</code> and the <code>vtr_clock</code> module, and those stay unchanged. The three setup functions are <code>context</code> imports, so the library can see which instance called them and place the stream under that instance's scope. They run once. Every other function is a plain import taking integers and strings, which Verilator compiles into a direct C call.</p>
+  <p>The whole API is listed below. The package already exists when this work starts: the clocks proposal created it with the clock functions <code>vtr_clock_open</code>, <code>vtr_clock_run</code>, <code>vtr_clock_stop</code> and <code>vtr_clock_edge</code> and the <code>vtr_clock</code> module, and those stay unchanged. The three setup functions are <code>context</code> imports, so the library can see which instance called them and place the stream under that instance's scope. They run once. Every other function is a plain import taking integers and strings, which Verilator compiles into a direct C call.</p>
 <pre><code>package vtr_trace;
   typedef int unsigned     tracker_t;  // a stream + generator that items are written to; 0 = none
   typedef int unsigned     space_t;    // a key space of one tracker; 0 = none
@@ -299,7 +299,7 @@ vtr_close(rob, 12, VTR_OK);         // transaction [100, 109], status ok, stages
 
   // Create a tracker: a stream named `stream` of kind `kind` with one generator `generator`.
   // `scope` is a dotted path in the recording; "" means the scope that contains the tracer.
-  // `clock` names a clock declared with vtr_clock, as a path relative to that scope or absolute;
+  // `clock` names a clock opened with vtr_clock_open, as a path relative to that scope or absolute;
   // it is stored as the stream's vtr.clock. "" records no clock.
   import "DPI-C" context function tracker_t vtr_tracker(string scope, string stream, string kind, string generator,
                                                         string clock);
@@ -499,7 +499,7 @@ end</code></pre>
 <section id="time"><div class="wrap"><div class="prose">
   <h2>Time, edges and cycles</h2>
   <p>Verilator's DPI calls for time <i>t</i> run inside <code>eval()</code>, and <code>dump(t)</code> follows it. A tracer in <code>always @(posedge clk)</code> therefore sees the values that held during the cycle ending at <i>t</i>, the same values the waveform shows just before the edge. Those are the load enables of the next pipeline registers, so "stage begins now" is exact. When a tracer can only observe a registered valid, it records the stage with <code>vtr_stage_at(…, t_prev)</code>. The C910 retire slot is an example: it knows at edge <i>t</i> that the entry sat in the retire stage during the previous cycle.</p>
-  <p>DPI time and waveform time agree because the clocks proposal changed the C910 harness to advance time before <code>eval()</code>. In that harness one clock period is two time units of 100 ps. The testbench already declares <code>clk</code> with <code>vtr_clock</code>, and the tracer names it in <code>vtr_pipeline</code>, so the stream carries <code>vtr.clock</code>. Volna's Pipeline panel then snaps the cursor, labels the ruler and counts stage lengths in cycles of that clock. A design with several clocks gives each tracker its own clock.</p>
+  <p>DPI time and waveform time agree because the clocks proposal changed the C910 harness to advance time before <code>eval()</code>. In that harness one clock period is two time units of 100 ps. The testbench already declares <code>clk</code> with <code>vtr_clock_run</code>, and the tracer names it in <code>vtr_pipeline</code>, so the stream carries <code>vtr.clock</code>. Volna's Pipeline panel then snaps the cursor, labels the ruler and counts stage lengths in cycles of that clock. A design with several clocks gives each tracker its own clock.</p>
   <p>Transaction times are independent of signal time in the writer (SPEC §7). A back-dated stage costs nothing, and transactions reach the file when they end, in end order, as VTR already specifies.</p>
 </div></div></section>
 
