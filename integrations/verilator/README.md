@@ -45,6 +45,10 @@ wrapper). `verilated.mk` adds `-I$(VTR_INCLUDE)`, `-L$(VTR_LIBDIR)` and
 `-lvtr` when `VM_TRACE_VTR=1`; with a static `libvtr.a` no runtime path is
 needed. CMake users get `TRACE_VTR` on `verilate()`.
 
+`build.sh` also copies `core/vtr-capi/include/vtr_trace.sv` and
+`vtr_trace_dpi.hpp` into the installed `include/vtr/`, so every install
+carries the package of the VTR revision it was built from.
+
 `build.sh` configures Verilator with clang++ when one is installed (set
 `CXX` to override): the host compiler is inherited by every model through
 `verilated.mk`, and on the benchmark's C910 model gcc generates code that
@@ -76,6 +80,16 @@ What the VTR branch adds:
   with its own value deduplication off, since Verilator's generated code
   already emits only changed values; every other option is the VTR default
   (zstd level 3, background encoder).
+* `src/V3Global.cpp`, `src/V3ParseImp.cpp`, `src/V3File.{h,cpp}`,
+  `src/V3EmitVdb.cpp`: with `--trace-vtr`, the `vtr_trace` SystemVerilog
+  package (`include/vtr/vtr_trace.sv`) is parsed after the `std` package and
+  removed again, with its dependency and VDB source entries, when the design
+  never names `vtr_trace`.
+* `include/verilated_vtr_dpi.cpp`, compiled with every `--trace-vtr` model:
+  the package's DPI bodies (`include/vtr/vtr_trace_dpi.hpp`) over a sink
+  implemented by `VerilatedVtr`: one runtime per simulation context, the
+  model name as `$root`, scope nodes from the trace prefixes, replay at open
+  of what was declared before, and misuse warnings in the simulation log.
 * `docs/guide/*.rst`: option documentation.
 
 The benchmark suite (`bench/run.py`) builds this Verilator into
@@ -110,7 +124,21 @@ python3 integrations/verilator/vdb/run.py \
   --verilator bench/build/verilator/install/bin/verilator
 ```
 
-The suite checks source locations and elaborated hierarchy, real-simulator
+Clocks declared through the `vtr_trace` package (see
+[vtr_clocks.html](../../docs/vtr_clocks.html)) have their own suite:
+
+```sh
+python3 integrations/verilator/clocks/run.py \
+  --verilator bench/build/verilator/install/bin/verilator
+```
+
+It builds a testbench with a DVFS clock and a gated clock in one and two
+thread modes and checks that the recorded stretches reproduce the rising edges
+of the dumped waveforms, the scope paths, unit conversion and misuse warnings,
+a clock started before the file opens, a signal-free open, and that a design
+naming nothing from the package gets no package code.
+
+The VDB suite checks source locations and elaborated hierarchy, real-simulator
 pipeline provenance and RTL expressions, automatic attachment and identity
 rejection, partial recordings, annotated SVGs for every module, and the
 `source_index` the indexer appended to every companion.

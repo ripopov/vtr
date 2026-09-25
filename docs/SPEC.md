@@ -847,3 +847,21 @@ The Verilator adapter uses the existing LOG stream and LOG_BLOCK schema: one
 recording's simulation time unit. This producer convention introduces no new
 section, value tag, presentation semantics, or format version. See
 [LOGGING.md](LOGGING.md#8-verilator-and-surfer) for capture behavior.
+
+### Producer example: SystemVerilog clocks
+
+A testbench declares clocks through the `vtr_trace` package
+(`core/vtr-capi/include/vtr_trace.sv`), which `--trace-vtr` makes available:
+
+```systemverilog
+import vtr_trace::*;
+vtr_clock_t c;
+initial c = vtr_clock("", "clk");              // CLOCK stream "clk" in this instance's scope
+always @(posedge clk) if (!on) begin vtr_clock_run(c, 200, VTR_PS); on = 1; end
+```
+
+Each `vtr_clock` becomes a `CLOCK` stream with its `edges` generator (7.4) in
+the calling instance's scope, next to the net's waveform; `vtr_clock_run`
+and `vtr_clock_stop` become stretches in the recording's time unit. A period
+that is not a whole number of file units is not rounded: it is reported as a
+warning in the `simulation_log` stream at close.
