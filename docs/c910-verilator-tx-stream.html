@@ -144,7 +144,7 @@ pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
 <section><div class="wrap">
   <h1>Pipeline traces from <em>Verilator</em>, proven on the C910</h1>
   <p class="lede">A small SystemVerilog tracer, attached to an unchanged design, records every instruction as a VTR transaction with its stages, identifiers and flushes. The Verilator fork writes those transactions into the file that already holds the waveforms and the simulation log. Volna's Pipeline and Waves panels then read one run on one timeline.</p>
-  <p class="meta">Proposal, 23 September 2026. The openC910 CoreMark workload is the proof of concept; nothing that runs inside a simulator exists yet. The only implemented piece is the offline replay that produced the demo below, <code>bench/workloads/c910/pipeline_replay.py</code>. <b>It depends on <a href="vtr_clocks.html">vtr_clocks.html</a>, which must be merged first.</b> That proposal starts the <code>vtr_trace</code> package, ships it with the fork together with its sink, adds the signal-free open and the harness time fix, and records the C910 clock. It also makes Volna count pipelines in cycles of a stream's clock. This proposal extends that package with a tracker for pipeline items and builds on the VTR transaction writer (stages on lanes, status, relations) and Volna's Pipeline panel. Related: <a href="pipeline-view.html">pipeline-view.html</a>, <a href="tx-detail.html">tx-detail.html</a>, <a href="VDB_APPNOTE.md">VDB_APPNOTE.md</a> §2, <a href="../integrations/verilator/README.md">integrations/verilator</a>.</p>
+  <p class="meta">Proposal, 23 September 2026, revised 26 September 2026. The openC910 CoreMark workload is the proof of concept; nothing that runs inside a simulator exists yet. The only implemented piece is the offline replay that produced the demo below, <code>bench/workloads/c910/pipeline_replay.py</code>. <b>It depends on <a href="vtr_clocks.html">vtr_clocks.html</a>, which must be merged first.</b> That proposal starts the <code>vtr_trace</code> package, ships it with the fork together with its sink, adds the signal-free open and the harness time fix, and records the C910 clock. It also makes Volna count pipelines in cycles of a stream's clock. This proposal extends that package with a tracker for pipeline items and builds on the VTR transaction writer (stages on lanes, status, relations) and Volna's Pipeline panel. Related: <a href="pipeline-view.html">pipeline-view.html</a>, <a href="tx-detail.html">tx-detail.html</a>, <a href="VDB_APPNOTE.md">VDB_APPNOTE.md</a> §2, <a href="../integrations/verilator/README.md">integrations/verilator</a>.</p>
 </div></section>
 
 <section id="demo"><div class="wrap">
@@ -219,13 +219,13 @@ pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
     <thead><tr><th>Piece</th><th>Location</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td><code>vtr_track.hpp</code></td><td>Header-only C++17 keyed lifecycle tracker over the C API: key spaces, groups, ordered aborts, buffered attributes, diagnostics. Also usable from SystemC and gem5 producers. <code>core/vtr-capi/include/</code>, beside <code>vtr_log.hpp</code>.</td><td><span class="st new">new</span></td></tr>
-      <tr><td><code>vtr_trace.sv</code>, <code>vtr_trace_dpi.hpp</code></td><td>Created by the clocks proposal in <code>core/vtr-capi/include/</code> and installed by <code>integrations/verilator/build.sh</code> into the fork's <code>include/vtr/</code>. This proposal adds the SystemVerilog projection of the tracker: its DPI-C imports and their implementation over the same sink interface. <code>build.sh</code> installs <code>vtr_track.hpp</code> beside them.</td><td><span class="st changed">extended</span></td></tr>
-      <tr><td>Verilator sink</td><td>From the clocks proposal: <code>VerilatedVtr::open</code> registers its writer, time source and scope map per context; <code>--trace-vtr</code> parses the installed package and prunes it when unused; <code>verilated.mk</code> compiles <code>include/verilated_vtr_dpi.cpp</code>. This proposal adds the tracker's DPI functions to that file and closes open items when the file closes.</td><td><span class="st changed">extended</span></td></tr>
-      <tr><td>Standalone sink</td><td>Opens <code>+vtr_trace=&lt;file&gt;</code> and reads time through <code>vpi_get_time</code>, for simulators other than the fork. Those users compile <code>vtr_trace.sv</code> from <code>core/vtr-capi/include/</code> with their design. <code>integrations/systemverilog/</code>.</td><td><span class="st new">new</span></td></tr>
+      <tr><td><code>vtr_trace.sv</code>, <code>vtr_trace_dpi.hpp</code></td><td>Created by the clocks proposal in <code>core/vtr-capi/include/</code> and installed by <code>integrations/verilator/build.sh</code> into the fork's <code>include/vtr/</code>. This proposal adds the tracker part: its DPI-C imports, and their bodies over <code>vtr_track.hpp</code> and the existing sink interface. On the sink's notice before close, it ends every open item with status <i>open</i>. <code>build.sh</code> installs <code>vtr_track.hpp</code> beside them.</td><td><span class="st changed">extended</span></td></tr>
+      <tr><td>Verilator sink</td><td>From the clocks proposal: <code>VerilatedVtr::open</code> registers its writer, time source and scope map per context; <code>--trace-vtr</code> parses the installed package and prunes it when unused; <code>verilated.mk</code> compiles <code>include/verilated_vtr_dpi.cpp</code>, which implements the sink interface. The tracker part needs nothing new from it.</td><td><span class="st exists">unchanged</span></td></tr>
+      <tr><td>Standalone sink</td><td>Opens <code>+vtr_trace=&lt;file&gt;</code> and reads time through <code>vpi_get_time</code>, for simulators other than the fork. It implements the same sink interface over <code>vtr_trace_dpi.hpp</code>, so clocks and trackers work there unchanged. Those users compile <code>vtr_trace.sv</code> from <code>core/vtr-capi/include/</code> with their design. <code>integrations/systemverilog/</code>.</td><td><span class="st new">new</span></td></tr>
       <tr><td>Toy-core smoke test</td><td>An in-order and a small out-of-order toy core with known schedules, exact expected transactions, one and two threads. <code>integrations/verilator/pipeline/</code>.</td><td><span class="st new">new</span></td></tr>
       <tr><td>C910 proof of concept</td><td>Tracer, bind file, disassembly label hook, <code>PIPELINE=1</code> model build, <code>capture.sh --pipeline</code>, the offline replay as a differential checker. <code>bench/workloads/c910/</code>.</td><td><span class="st new">new</span></td></tr>
       <tr><td>Volna</td><td>A palette for a dozen stage names; measured behaviour at half a million rows. <code>volna/volna-core/src/pipeline/</code>.</td><td><span class="st changed">changed</span></td></tr>
-      <tr><td>Documentation</td><td>A SPEC producer example "SystemVerilog pipeline tracers" (like the Verilator log example), a RATIONALE entry, and the Verilator integration guide.</td><td><span class="st changed">changed</span></td></tr>
+      <tr><td>Documentation</td><td>Pipeline tracers added to the SystemVerilog producer example that the clocks proposal starts in SPEC, a RATIONALE entry, and the Verilator integration guide.</td><td><span class="st changed">changed</span></td></tr>
     </tbody>
   </table></div>
 </div></section>
@@ -238,152 +238,153 @@ pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
   <dl class="terms">
     <dt>Item</dt>
     <dd>One thing whose life is recorded, here one instruction. Every item becomes one VTR transaction: a begin time, an end time, a status, a list of stages and a set of attributes. The tracer never sees the transaction id; it always refers to an item through a key, described below.</dd>
-    <dt>Tracker <code>tracker_t</code></dt>
+    <dt>Tracker <code>vtr_tracker_t</code></dt>
     <dd>The destination for a family of items: one stream and one generator in the file, for example the stream <code>pipeline</code> (kind <code>PIPELINE</code>) with the generator <code>instruction</code> under the core's scope. <code>vtr_pipeline()</code> or <code>vtr_tracker()</code> creates it once, in an <code>initial</code> block, and names the clock its stages are counted in. A tracer can own several trackers, for example one for instructions and one for bus requests. After setup a tracker is needed in only two places: to create its key spaces and to abort everything at once.</dd>
-    <dt>Key space <code>space_t</code></dt>
+    <dt>Key space <code>vtr_keyspace_t</code></dt>
     <dd>One kind of hardware identifier within one tracker, for example "sequence number", "ROB index (IID)" or "physical register". Each space is a separate dictionary from key to item. <code>vtr_keyspace(tracker, name)</code> creates it. Spaces exist because instructions change names on the way through a core: the front end knows them by order, the back end by IID. A space belongs to exactly one tracker, so every call that addresses an item takes just the space and the key; the tracker is implied.</dd>
-    <dt>Key <code>key_t</code></dt>
+    <dt>Key <code>vtr_key_t</code></dt>
     <dd>A 64-bit value in a key space, for example IID 57. The pair <i>(space, key)</i> is the complete address of an item, as in "the instruction whose IID is 57". Keys are the hardware's own values, so they repeat. A key is released when its item ends, or when it is moved to another space, and the hardware may then reuse it.</dd>
     <dt>Open, bind, close</dt>
-    <dd><code>vtr_open</code> creates an item under a first key and starts its first stage. <code>vtr_bind</code> gives an existing item one more key in another space, which is how rename attaches a ROB index to an instruction the front end opened. <code>vtr_close</code> ends the item with a status and releases all of its keys.</dd>
+    <dd><code>vtr_item_open</code> creates an item under a first key and starts its first stage. <code>vtr_item_bind</code> gives an existing item one more key in another space, which is how rename attaches a ROB index to an instruction the front end opened. <code>vtr_item_close</code> ends the item with a status and releases all of its keys.</dd>
     <dt>Stage and lane</dt>
     <dd>A stage is a named interval of an item's life, such as <code>ID</code>, <code>EX</code> or <code>RT</code>. Entering a stage ends the previous stage on the same lane at the same moment, so a tracer reports only entries. A lane is a parallel track of stages in the same item: the default lane holds the main pipeline, and lanes such as <code>stall</code> or <code>mem</code> hold overlapping activity.</dd>
     <dt>Group</dt>
-    <dd>One key can name several items. The C910 puts up to three instructions in one ROB entry, and <code>vtr_bind_oldest</code> files them all under that entry's IID. Every call made with a group's key applies to each member: a stage, an attribute, or a close.</dd>
+    <dd>One key can name several items. The C910 puts up to three instructions in one ROB entry, and <code>vtr_item_bind_oldest</code> files them all under that entry's IID. Every call made with a group's key applies to each member: a stage, an attribute, or a close.</dd>
     <dt>Status</dt>
     <dd><code>VTR_OK</code> for a normal end such as retirement, <code>VTR_ERROR</code> for an end that reports a failure, and <code>VTR_ABORTED</code> for a squash. The abort functions end many items at once. Items still running when the simulation stops are written with status <i>open</i>.</dd>
     <dt>Time</dt>
-    <dd>Every call takes effect at the current simulation time. No call has a time argument, except the <code>_at</code> forms. These back-date a begin or a stage to a time the tracer saved earlier with <code>vtr_now()</code>.</dd>
+    <dd>Every call takes effect at the current simulation time. No call has a time argument, except the <code>_at</code> forms. These back-date a begin or a stage to a time the tracer saved earlier with <code>vtr_now()</code>, from the package's common part.</dd>
   </dl>
 
   <h3>One instruction, call by call</h3>
   <p>Here is the life of one instruction in a small out-of-order core, with the call the tracer makes at each clock edge and what the library does in response:</p>
 <pre><code>// setup, once
-p   = vtr_pipeline("pipeline", "clk"); // stream "pipeline" + generator "instruction", counted in clk
-sn  = vtr_keyspace(p, "sn");        // space 1: a fetch sequence number the tracer counts
-rob = vtr_keyspace(p, "rob");       // space 2: the ROB index the hardware assigns
+p   = vtr_pipeline("^", "pipeline", "clk"); // stream "pipeline" + generator "instruction"
+                                           // in the bound core's scope, counted in its clk
+sn  = vtr_keyspace(p, "sn");               // space 1: a fetch sequence number the tracer counts
+rob = vtr_keyspace(p, "rob");              // space 2: the ROB index the hardware assigns
 
 // edge 100: fetch accepts the 7th instruction
-vtr_open(sn, 7, "F");               // new item; sn 7 names it; stage F starts at 100
-vtr_attr_u64(sn, 7, "pc", 'h80001f0c);
+vtr_item_open(sn, 7, "F");                 // new item; sn 7 names it; stage F starts at 100
+vtr_item_attr_u64(sn, 7, "pc", 'h80001f0c);
 
 // edge 101: it is decoded
-vtr_stage(sn, 7, "D");              // F ends at 101, D starts at 101
+vtr_item_stage(sn, 7, "D");                // F ends at 101, D starts at 101
 
 // edge 102: rename gives it ROB entry 12
-vtr_bind(sn, 7, rob, 12);           // the same item now also answers to rob 12
-vtr_stage(rob, 12, "Q");            // D ends, Q (waiting in the issue queue) starts
+vtr_item_bind(sn, 7, rob, 12);             // the same item now also answers to rob 12
+vtr_item_stage(rob, 12, "Q");              // D ends, Q (waiting in the issue queue) starts
 
 // edge 105: issued to execute
-vtr_stage(rob, 12, "X");            // addressed by its ROB index from now on
+vtr_item_stage(rob, 12, "X");              // addressed by its ROB index from now on
 
 // edge 106: result written back
-vtr_stage(rob, 12, "C");            // complete, waiting to retire
+vtr_item_stage(rob, 12, "C");              // complete, waiting to retire
 
 // edge 109: it retires
-vtr_close(rob, 12, VTR_OK);         // transaction [100, 109], status ok, stages F D Q X C;
-                                    // sn 7 and rob 12 are released for reuse</code></pre>
-  <p>Had a branch mispredicted at edge 104, the tracer would instead call <code>vtr_abort_younger(rob, branch_rob)</code>. This instruction and every other item opened after the branch would end at 104 with status aborted, and their keys would be released.</p>
+vtr_item_close(rob, 12, VTR_OK);           // transaction [100, 109], status ok, stages F D Q X C;
+                                           // sn 7 and rob 12 are released for reuse</code></pre>
+  <p>Had a branch mispredicted at edge 104, the tracer would instead call <code>vtr_item_abort_younger(rob, branch_rob)</code>. This instruction and every other item opened after the branch would end at 104 with status aborted, and their keys would be released.</p>
 
   <h3>The package</h3>
-  <p>The whole API is listed below. The package already exists when this work starts: the clocks proposal created it with the clock functions <code>vtr_clock_open</code>, <code>vtr_clock_run</code>, <code>vtr_clock_stop</code> and <code>vtr_clock_edge</code> and the <code>vtr_clock</code> module, and those stay unchanged. The three setup functions are <code>context</code> imports, so the library can see which instance called them and place the stream under that instance's scope. They run once. Every other function is a plain import taking integers and strings, which Verilator compiles into a direct C call.</p>
+  <p>The package already exists when this work starts. The clocks proposal created it with a common part (<code>vtr_now</code> and the time units), and the clock part (<code>vtr_clock</code>, <code>vtr_clock_run</code>, <code>vtr_clock_stop</code>), and those stay unchanged. It also set <a href="vtr_clocks.html#producers">the package rules</a>, which the tracker part below follows. Handles are tagged integers and names are prefixed by the handle they act on: <code>vtr_tracker_*</code>, <code>vtr_keyspace_*</code>, and <code>vtr_item_*</code> for an item addressed by (key space, key). Scope and clock paths follow the package's scope rule. Constructors are called once from an <code>initial</code> block, and the two that place a stream are <code>context</code> imports. Every other function is a plain import taking integers and strings, which Verilator compiles into a direct C call. Calls are safe without a recording, and misuse is counted and reported in the simulation log, as for every part of the package. The tracker part adds the following:</p>
 <pre><code>package vtr_trace;
-  typedef int unsigned     tracker_t;  // a stream + generator that items are written to; 0 = none
-  typedef int unsigned     space_t;    // a key space of one tracker; 0 = none
-  // Both are plain integers to DPI, so SystemVerilog cannot tell them apart; the library tags
-  // each handle's kind and reports a tracker passed where a space is expected, and vice versa.
-  typedef longint unsigned key_t;      // a hardware identifier: sequence number, ROB index, queue slot…
+  // … common part and clock part from the clocks proposal …
+
+  // ---- Trackers --------------------------------------------------------------------------------
+
+  typedef int unsigned     vtr_tracker_t;   // a stream + generator that items are written to; 0 = none
+  typedef int unsigned     vtr_keyspace_t;  // a key space of one tracker; 0 = none
+  typedef longint unsigned vtr_key_t;       // a hardware identifier: sequence number, ROB index, queue slot…
   localparam byte VTR_OK = 1, VTR_ERROR = 2, VTR_ABORTED = 3;   // how an item ended
 
   // ---- Setup (call once, from an initial block) --------------------------------------------
 
   // Create a tracker: a stream named `stream` of kind `kind` with one generator `generator`.
-  // `scope` is a dotted path in the recording; "" means the scope that contains the tracer.
-  // `clock` names a clock opened with vtr_clock_open, as a path relative to that scope or absolute;
+  // `scope` follows the package's scope rule: "^" for a tracer bound into the unit it traces.
+  // `clock` names a clock created with vtr_clock, as a path from the stream's scope or $root;
   // it is stored as the stream's vtr.clock. "" records no clock.
-  import "DPI-C" context function tracker_t vtr_tracker(string scope, string stream, string kind, string generator,
+  import "DPI-C" context function vtr_tracker_t vtr_tracker(string scope, string stream, string kind, string generator,
                                                         string clock);
 
-  // Shorthand for a pipeline: vtr_tracker("", stream, "PIPELINE", "instruction", clock).
-  import "DPI-C" context function tracker_t vtr_pipeline(string stream, string clock);
+  // Shorthand for a pipeline: vtr_tracker(scope, stream, "PIPELINE", "instruction", clock).
+  import "DPI-C" context function vtr_tracker_t vtr_pipeline(string scope, string stream, string clock);
 
   // Create a key space `name` in tracker `trk`: one more dictionary from key to item.
   // Every item call below names its item by (space, key); the space implies the tracker.
-  import "DPI-C" context function space_t vtr_keyspace(tracker_t trk, string name);
-
-  // The current simulation time in the file's unit; keep it to back-date a stage later.
-  import "DPI-C" function longint unsigned vtr_now();
+  import "DPI-C" function vtr_keyspace_t vtr_keyspace(vtr_tracker_t trk, string name);
 
   // ---- Items: create, rename, advance ------------------------------------------------------
 
   // Create an item named (sp, k) and start its first stage, now. If (sp, k) still names an
   // older item, that item is aborted first and a diagnostic is counted (a missed retirement).
-  import "DPI-C" function void vtr_open    (space_t sp, key_t k, string stage);
+  import "DPI-C" function void vtr_item_open    (vtr_keyspace_t sp, vtr_key_t k, string stage);
 
   // The same, but the item and its first stage begin at an earlier time t from vtr_now().
-  import "DPI-C" function void vtr_open_at (space_t sp, key_t k, string stage, longint unsigned t);
+  import "DPI-C" function void vtr_item_open_at (vtr_keyspace_t sp, vtr_key_t k, string stage, longint unsigned t);
 
   // Give the item named (sp, k) one more name (to_sp, to_k). Both names stay valid until it ends.
   // to_sp must belong to the same tracker as sp.
-  import "DPI-C" function void vtr_bind    (space_t sp, key_t k, space_t to_sp, key_t to_k);
+  import "DPI-C" function void vtr_item_bind    (vtr_keyspace_t sp, vtr_key_t k, vtr_keyspace_t to_sp, vtr_key_t to_k);
 
   // Take the n items of space sp that were opened first, remove their sp names, and name them
   // all (to_sp, to_k), as one group. For an in-order stage handing instructions to a ROB entry.
   // Returns how many items moved (fewer than n if sp holds fewer).
-  import "DPI-C" function int  vtr_bind_oldest(space_t sp, int n, space_t to_sp, key_t to_k);
+  import "DPI-C" function int  vtr_item_bind_oldest(vtr_keyspace_t sp, int n, vtr_keyspace_t to_sp, vtr_key_t to_k);
 
   // Enter stage `stage` on the main lane now; the previous main-lane stage ends now.
-  import "DPI-C" function void vtr_stage   (space_t sp, key_t k, string stage);
+  import "DPI-C" function void vtr_item_stage   (vtr_keyspace_t sp, vtr_key_t k, string stage);
 
   // The same, but the stage begins at an earlier time t from vtr_now().
-  import "DPI-C" function void vtr_stage_at(space_t sp, key_t k, string stage, longint unsigned t);
+  import "DPI-C" function void vtr_item_stage_at(vtr_keyspace_t sp, vtr_key_t k, string stage, longint unsigned t);
 
   // Enter stage `stage` on the named lane (for example "stall" or "mem"); other lanes are untouched.
   // An empty stage name ends the lane's current stage without starting another.
-  import "DPI-C" function void vtr_lane    (space_t sp, key_t k, string lane, string stage);
+  import "DPI-C" function void vtr_item_lane    (vtr_keyspace_t sp, vtr_key_t k, string lane, string stage);
 
   // ---- Items: describe -----------------------------------------------------------------------
 
   // Record a point event `name` now, for example "replay" or "mispredict".
-  import "DPI-C" function void vtr_event   (space_t sp, key_t k, string name);
+  import "DPI-C" function void vtr_item_event   (vtr_keyspace_t sp, vtr_key_t k, string name);
 
   // Set attribute `key` to an integer or a string. A later call with the same key replaces
   // the value; attributes are written when the item ends.
-  import "DPI-C" function void vtr_attr_u64(space_t sp, key_t k, string key, longint unsigned v);
-  import "DPI-C" function void vtr_attr_str(space_t sp, key_t k, string key, string v);
+  import "DPI-C" function void vtr_item_attr_u64(vtr_keyspace_t sp, vtr_key_t k, string key, longint unsigned v);
+  import "DPI-C" function void vtr_item_attr_str(vtr_keyspace_t sp, vtr_key_t k, string key, string v);
 
   // Set the item's caption (the reserved vtr.label attribute), for example "0x2c04 lh a6,0(t1)".
-  import "DPI-C" function void vtr_label   (space_t sp, key_t k, string text);
+  import "DPI-C" function void vtr_item_label   (vtr_keyspace_t sp, vtr_key_t k, string text);
 
   // ---- Items: end ----------------------------------------------------------------------------
 
   // End the item (or every member of the group) named (sp, k) now with `status`, closing its
   // open stages and releasing all of its names.
-  import "DPI-C" function void vtr_close   (space_t sp, key_t k, byte status);
+  import "DPI-C" function void vtr_item_close   (vtr_keyspace_t sp, vtr_key_t k, byte status);
 
   // Squashes. Each ends the chosen items now with VTR_ABORTED and returns how many it ended.
   // Items opened after the item named (sp, k); that item itself survives. Open order is
   // program order when the tracer opens instructions in program order, as front ends do.
-  import "DPI-C" function int  vtr_abort_younger(space_t sp, key_t k);
+  import "DPI-C" function int  vtr_item_abort_younger(vtr_keyspace_t sp, vtr_key_t k);
   // Every item that still has a name in space sp, for example "everything not yet dispatched".
-  import "DPI-C" function int  vtr_abort_space  (space_t sp);
+  import "DPI-C" function int  vtr_keyspace_abort    (vtr_keyspace_t sp);
   // Every open item of the tracker.
-  import "DPI-C" function int  vtr_abort_all    (tracker_t trk);
+  import "DPI-C" function int  vtr_tracker_abort     (vtr_tracker_t trk);
 
   // ---- Links between items (also across trackers) --------------------------------------------
 
   // Record a relation of kind `kind` from item A to item B, for example "wakeup" from a producer
   // to a consumer. Both items must still be named when the call is made.
-  import "DPI-C" function void vtr_relate(string kind, space_t sa, key_t ka, space_t sb, key_t kb);
+  import "DPI-C" function void vtr_item_relate(string kind, vtr_keyspace_t sa, vtr_key_t ka,
+                                               vtr_keyspace_t sb, vtr_key_t kb);
 
   // Make item B the parent of item A, for example an instruction as the parent of its bus request.
-  import "DPI-C" function void vtr_parent(space_t sa, key_t ka, space_t sb, key_t kb);
+  import "DPI-C" function void vtr_item_parent(vtr_keyspace_t sa, vtr_key_t ka, vtr_keyspace_t sb, vtr_key_t kb);
 endpackage</code></pre>
 
   <h3>What the library guarantees</h3>
   <ol>
-    <li><strong>Every call is safe without a recording.</strong> When no trace file is open, each call returns at once, so a tracer needs no enable flag of its own.</li>
-    <li><strong>Unknown keys are counted, not fatal.</strong> A stage or close on a key that names nothing is skipped and counted. Opening on a key that still names an item aborts that item first and is counted too. At close, the counts per call site go into the file's simulation log as warnings, so a tracer bug shows up in <code>vtr log</code> and in Volna.</li>
+    <li><strong>Every call is safe without a recording.</strong> Trackers and key spaces created before the file opens are replayed at open, like every package declaration. Other calls return at once while no file is open, so a tracer needs no enable flag of its own.</li>
+    <li><strong>Unknown keys are counted, not fatal.</strong> This is the package's misuse rule applied to keys. A stage or close on a key that names nothing is skipped and counted. Opening on a key that still names an item aborts that item first and is counted too. At close, the counts per call site go into the file's simulation log as warnings, so a tracer bug shows up in <code>vtr log</code> and in Volna.</li>
     <li><strong>Attributes follow "last value wins".</strong> The library buffers them and writes them when the item ends. A partial PC seen at decode can therefore be replaced by the full PC at retire.</li>
     <li><strong>The file keeps its usual meaning.</strong> An item is an ordinary transaction, a stage is an ordinary stage, and lanes, events, relations and statuses are those of SPEC §7. Readers need nothing new.</li>
     <li><strong>Order within one edge is the tracer's.</strong> Calls take effect in the order they are made. Tracers therefore handle the oldest pipeline position first, retire before squash before issue before fetch, as the examples do. An instruction then leaves a key before a younger one takes it.</li>
@@ -399,30 +400,29 @@ endpackage</code></pre>
   input logic        squash                                // taken branch in EX kills IF and ID
 );
   import vtr_trace::*;
-  tracker_t p;
-  space_t   sn;
-  key_t n = 0, k_f, k_d, k_x, k_m, k_w;                    // identity of each stage's occupant
+  vtr_tracker_t  p;
+  vtr_keyspace_t sn;
+  vtr_key_t      n = 0, k_f, k_d, k_x, k_m, k_w;          // identity of each stage's occupant
 
   initial begin
-    p  = vtr_pipeline("pipeline", "clk");                 // the clock the bind file declares
+    p  = vtr_pipeline("^", "pipeline", "$root.tb.clk");   // in rv5_core; the testbench declares tb.clk
     sn = vtr_keyspace(p, "sn");
   end
 
   always @(posedge clk) begin                              // oldest first
-    if (retire)   begin vtr_attr_u64(sn, k_w, "insn", wb_insn); vtr_close(sn, k_w, VTR_OK); end
-    if (wb_load)  begin vtr_stage(sn, k_m, "W"); k_w = k_m; end
-    if (mem_load) begin vtr_stage(sn, k_x, "M"); k_m = k_x; end
-    if (squash)   void'(vtr_abort_younger(sn, k_x));    // the branch itself survives
+    if (retire)   begin vtr_item_attr_u64(sn, k_w, "insn", wb_insn); vtr_item_close(sn, k_w, VTR_OK); end
+    if (wb_load)  begin vtr_item_stage(sn, k_m, "W"); k_w = k_m; end
+    if (mem_load) begin vtr_item_stage(sn, k_x, "M"); k_m = k_x; end
+    if (squash)   void'(vtr_item_abort_younger(sn, k_x));    // the branch itself survives
     else begin
-      if (ex_load) begin vtr_stage(sn, k_d, "X"); k_x = k_d; end
-      if (id_load) begin vtr_stage(sn, k_f, "D"); k_d = k_f; end
-      if (if_fire) begin k_f = ++n; vtr_open(sn, k_f, "F"); vtr_attr_u64(sn, k_f, "pc", if_pc); end
+      if (ex_load) begin vtr_item_stage(sn, k_d, "X"); k_x = k_d; end
+      if (id_load) begin vtr_item_stage(sn, k_f, "D"); k_d = k_f; end
+      if (if_fire) begin k_f = ++n; vtr_item_open(sn, k_f, "F"); vtr_item_attr_u64(sn, k_f, "pc", if_pc); end
     end
   end
 endmodule
 
 // rv5_bind.sv: port expressions resolve inside rv5_core, so the core is not edited.
-bind rv5_core vtr_clock #("clk") u_vtr_clk (.clk);           // from the clocks proposal
 bind rv5_core rv5_vtr_tracer u_vtr (.clk, .if_fire(if_req &amp;&amp; if_gnt), .if_pc(if_addr),
     .id_load(ifid_en &amp;&amp; ifid_vld_d), .ex_load(idex_en &amp;&amp; idex_vld_d), .mem_load(exmem_en &amp;&amp; exmem_vld_d),
     .wb_load(memwb_en &amp;&amp; memwb_vld_d), .retire(wb_vld), .wb_insn(wb_insn), .squash(ex_taken));</code></pre>
@@ -430,9 +430,9 @@ bind rv5_core rv5_vtr_tracer u_vtr (.clk, .if_fire(if_req &amp;&amp; if_gnt), .i
   <ul>
     <li><b>Keys.</b> There is one key space, <code>sn</code>, and the keys are a counter <code>n</code> that increments at every fetch. An in-order core needs no other identifier.</li>
     <li><b>Shadow registers.</b> <code>k_f</code> … <code>k_w</code> are the tracer's copy of "which sequence number sits in each stage". They advance with the same load enables as the real pipeline registers.</li>
-    <li><b>Stage reports.</b> Each <code>vtr_stage</code> reports only that an instruction entered a stage. The library ends the previous stage.</li>
-    <li><b>Squash.</b> <code>vtr_abort_younger(sn, k_x)</code> ends everything fetched after the branch in EX, whichever stage those instructions were in, and keeps the branch.</li>
-    <li><b>Retire.</b> <code>vtr_close</code> ends the oldest instruction as ok. The shadow registers of squashed stages are simply overwritten by the next loads.</li>
+    <li><b>Stage reports.</b> Each <code>vtr_item_stage</code> reports only that an instruction entered a stage. The library ends the previous stage.</li>
+    <li><b>Squash.</b> <code>vtr_item_abort_younger(sn, k_x)</code> ends everything fetched after the branch in EX, whichever stage those instructions were in, and keeps the branch.</li>
+    <li><b>Retire.</b> <code>vtr_item_close</code> ends the oldest instruction as ok. The shadow registers of squashed stages are simply overwritten by the next loads.</li>
   </ul>
   <p>Verilator binds by module name, not by instance path, and resolves the port expressions in the target's scope. That is enough for a single core or for every instance of one core. A tracer that needs signals from several units, like the C910 one, is bound to the module that contains them all, or is instantiated from the testbench with absolute paths. The existing C910 testbench already reads core internals by hierarchical path for its retire counter.</p>
 </div></div></section>
@@ -441,7 +441,7 @@ bind rv5_core rv5_vtr_tracer u_vtr (.clk, .if_fire(if_req &amp;&amp; if_gnt), .i
   <h2>The C910 proof of concept</h2>
   <div class="prose">
   <p>The C910 is a hard first customer, which is why it is a good one. It decodes three instructions per cycle, renames and dispatches four, folds up to three instructions into one ROB entry, and runs eight execution pipes. It retires three ROB entries per cycle and flushes in two steps. Its identifiers change on the way. The front end is strictly in order and carries only bits 15:1 of the PC. The 7-bit IID (six index bits and a wrap bit) is assigned at dispatch. All IIDs restart from zero after every ROB flush (<code>ct_rtu_rob.v:4318</code>). The full PC only reappears at retire.</p>
-  <p>The tracer follows that chain with three key spaces. Decode opens each instruction under <code>fe</code>, a sequence number the tracer counts. Rename and issue move the oldest instructions along. ROB create port <i>k</i> calls <code>vtr_bind_oldest(fe, inst_num, iid, iid_k)</code>, so a folded entry becomes a group. The destination physical register gives each folded member its own name in <code>preg</code>, because the ALU pipes report that register rather than the IID alone. Retire closes the group. A branch cancel aborts the <code>fe</code> space; the ROB flush that follows when the branch retires aborts the <code>iid</code> space. IID reuse after a flush is therefore harmless, because every key is released first.</p>
+  <p>The tracer follows that chain with three key spaces. Decode opens each instruction under <code>fe</code>, a sequence number the tracer counts. Rename and issue move the oldest instructions along. ROB create port <i>k</i> calls <code>vtr_item_bind_oldest(fe, inst_num, iid, iid_k)</code>, so a folded entry becomes a group. The destination physical register gives each folded member its own name in <code>preg</code>, because the ALU pipes report that register rather than the IID alone. Retire closes the group. A branch cancel aborts the <code>fe</code> space; the ROB flush that follows when the branch retires aborts the <code>iid</code> space. IID reuse after a flush is therefore harmless, because every key is released first.</p>
   </div>
   <div class="tablewrap"><table>
     <thead><tr><th>Stage</th><th>Probe signals (under <code>x_ct_core</code>)</th><th>Tracer action</th></tr></thead>
@@ -449,13 +449,13 @@ bind rv5_core rv5_vtr_tracer u_vtr (.clk, .if_fire(if_req &amp;&amp; if_gnt), .i
       <tr><td><code>ID</code></td><td><code>x_ct_idu_id_ctrl.id_inst{0..2}_vld</code>, <code>ctrl_id_pipedown_stall</code>; <code>x_ct_idu_id_dp.id_inst{k}_data</code> (opcode [31:0], PC[15:1] at [63:49])</td><td>open under <code>fe</code>, attributes <code>insn</code>, partial <code>pc</code></td></tr>
       <tr><td><code>IR</code></td><td><code>x_ct_idu_ir_ctrl.ctrl_id_pipedown_inst{0..3}_vld</code>, <code>ctrl_ir_stall</code>; <code>x_ct_idu_ir_dp.ir_inst{k}_data</code></td><td>stage; split instructions open extra uops (<code>uop</code> attribute)</td></tr>
       <tr><td><code>IS</code></td><td><code>x_ct_idu_is_ctrl.ctrl_ir_pipedown_inst{0..3}_vld</code>, <code>ctrl_is_dis_stall</code></td><td>stage</td></tr>
-      <tr><td><code>IQ</code></td><td><code>idu_rtu_rob_create{0..3}_en</code>, <code>idu_rtu_rob_create{k}_data[18:17]</code> (instructions in the entry), <code>rtu_idu_rob_inst{k}_iid</code></td><td><code>vtr_bind_oldest(fe → iid)</code>, stage; attributes <code>iid</code>, <code>fold</code></td></tr>
+      <tr><td><code>IQ</code></td><td><code>idu_rtu_rob_create{0..3}_en</code>, <code>idu_rtu_rob_create{k}_data[18:17]</code> (instructions in the entry), <code>rtu_idu_rob_inst{k}_iid</code></td><td><code>vtr_item_bind_oldest(fe → iid)</code>, stage; attributes <code>iid</code>, <code>fold</code></td></tr>
       <tr><td><code>RF</code></td><td><code>x_ct_idu_rf_ctrl.rf_pipe{0..7}_inst_vld</code>, <code>ctrl_rf_pipe{N}_lch_fail</code>, <code>idu_{iu,lsu,vfpu}_rf_pipe{N}_iid</code></td><td>stage; a launch failure is a <code>replay</code> event and a return to <code>IQ</code></td></tr>
       <tr><td><code>EX</code> <code>BJ</code> <code>FX</code></td><td>pipes 0 and 1 (ALU, multiplier, divider), pipe 2 (branch unit), pipes 6 and 7 (floating point)</td><td>stage; attribute <code>pipe</code></td></tr>
       <tr><td><code>AG DC DA WB</code></td><td><code>x_ct_lsu_{ld,st}_{ag,dc,da,wb}.{ld,st}_*_inst_vld</code>, <code>*_iid</code></td><td>stages of the load and store pipes</td></tr>
       <tr><td><code>CM</code></td><td><code>iu_rtu_pipe{0,1,2}_cmplt</code>/<code>_iid</code>, <code>lsu_rtu_wb_pipe{3,4}_…</code>, <code>vfpu_rtu_pipe{6,7}_…</code></td><td>stage: complete, waiting in the ROB</td></tr>
       <tr><td><code>RT</code></td><td><code>x_ct_rtu_rob_rt.retire_inst{0..2}_vld</code>, <code>_iid</code>, <code>retire_inst0_cur_pc</code>, <code>rob_retire_inst{1,2}_cur_pc</code></td><td>stage, full <code>pc</code>, <code>retire</code> order, close <code>ok</code></td></tr>
-      <tr><td>flush</td><td><code>iu_yy_xx_cancel</code>, <code>rtu_idu_flush_fe</code>; <code>x_ct_rtu_retire.retire_rob_flush</code></td><td><code>vtr_abort_space(fe)</code>; <code>vtr_abort_space(iid)</code></td></tr>
+      <tr><td>flush</td><td><code>iu_yy_xx_cancel</code>, <code>rtu_idu_flush_fe</code>; <code>x_ct_rtu_retire.retire_rob_flush</code></td><td><code>vtr_keyspace_abort(fe)</code>; <code>vtr_keyspace_abort(iid)</code></td></tr>
       <tr><td><code>IF IP IB LB</code></td><td><code>x_ct_ifu_ifctrl.if_vld</code>, <code>x_ct_ifu_pcgen.pcgen_ifdp_pc</code>, <code>x_ct_ifu_ipctrl.ip_vld</code>, <code>ipctrl_ibctrl_vld</code>, <code>x_ct_ifu_ibctrl.{ibuf,lbuf,bypass}_inst_vld</code></td><td>phase 4: back-dated fetch-block stages, loop buffer</td></tr>
     </tbody>
   </table></div>
@@ -464,17 +464,17 @@ bind rv5_core rv5_vtr_tracer u_vtr (.clk, .if_fire(if_req &amp;&amp; if_gnt), .i
 <pre><code>always @(posedge clk) begin
   // 1. Retire, oldest slot first. Each slot is one ROB entry of one to three instructions.
   for (int k = 0; k &lt; 3; k++) if (rt_vld[k]) begin
-    vtr_stage_at(iid, rt_iid[k], "RT", t_prev);
-    vtr_close   (iid, rt_iid[k], VTR_OK);
+    vtr_item_stage_at(iid, rt_iid[k], "RT", t_prev);
+    vtr_item_close   (iid, rt_iid[k], VTR_OK);
   end
   // 2. Flushes: the ROB after the mispredicted branch has retired, the front end at the cancel.
-  if (retire_rob_flush)                 void'(vtr_abort_space(iid));
+  if (retire_rob_flush)                 void'(vtr_keyspace_abort(iid));
   // 3. Dispatch: create port k names the next inst_num front-end instructions by their IID.
   for (int k = 0; k &lt; 4; k++) if (create_en[k]) begin
-    void'(vtr_bind_oldest(fe, create_num[k], iid, create_iid[k]));
-    vtr_stage(iid, create_iid[k], "IQ");
+    void'(vtr_item_bind_oldest(fe, create_num[k], iid, create_iid[k]));
+    vtr_item_stage(iid, create_iid[k], "IQ");
   end
-  if (iu_yy_xx_cancel || rtu_idu_flush_fe) void'(vtr_abort_space(fe));
+  if (iu_yy_xx_cancel || rtu_idu_flush_fe) void'(vtr_keyspace_abort(fe));
   // … RF, execute, complete, IS, IR and ID follow the same pattern …
   t_prev = vtr_now();
 end</code></pre>
@@ -498,8 +498,8 @@ end</code></pre>
 
 <section id="time"><div class="wrap"><div class="prose">
   <h2>Time, edges and cycles</h2>
-  <p>Verilator's DPI calls for time <i>t</i> run inside <code>eval()</code>, and <code>dump(t)</code> follows it. A tracer in <code>always @(posedge clk)</code> therefore sees the values that held during the cycle ending at <i>t</i>, the same values the waveform shows just before the edge. Those are the load enables of the next pipeline registers, so "stage begins now" is exact. When a tracer can only observe a registered valid, it records the stage with <code>vtr_stage_at(…, t_prev)</code>. The C910 retire slot is an example: it knows at edge <i>t</i> that the entry sat in the retire stage during the previous cycle.</p>
-  <p>DPI time and waveform time agree because the clocks proposal changed the C910 harness to advance time before <code>eval()</code>. In that harness one clock period is two time units of 100 ps. The testbench already declares <code>clk</code> with <code>vtr_clock_run</code>, and the tracer names it in <code>vtr_pipeline</code>, so the stream carries <code>vtr.clock</code>. Volna's Pipeline panel then snaps the cursor, labels the ruler and counts stage lengths in cycles of that clock. A design with several clocks gives each tracker its own clock.</p>
+  <p>Verilator's DPI calls for time <i>t</i> run inside <code>eval()</code>, and <code>dump(t)</code> follows it. A tracer in <code>always @(posedge clk)</code> therefore sees the values that held during the cycle ending at <i>t</i>, the same values the waveform shows just before the edge. Those are the load enables of the next pipeline registers, so "stage begins now" is exact. When a tracer can only observe a registered valid, it records the stage with <code>vtr_item_stage_at(…, t_prev)</code>. The C910 retire slot is an example: it knows at edge <i>t</i> that the entry sat in the retire stage during the previous cycle.</p>
+  <p>DPI time and waveform time agree because the clocks proposal changed the C910 harness to advance time before <code>eval()</code>. In that harness one clock period is two time units of 100 ps. The testbench already declares <code>clk</code> with <code>vtr_clock_run</code>. The tracer names it by absolute path, <code>$root.top.clk</code>, in <code>vtr_pipeline</code>, so the stream carries <code>vtr.clock</code>. Volna's Pipeline panel then snaps the cursor, labels the ruler and counts stage lengths in cycles of that clock. A design with several clocks gives each tracker its own clock.</p>
   <p>Transaction times are independent of signal time in the writer (SPEC §7). A back-dated stage costs nothing, and transactions reach the file when they end, in end order, as VTR already specifies.</p>
 </div></div></section>
 
@@ -543,8 +543,8 @@ end</code></pre>
   <h2>Plan</h2>
   <p>Before step 1, steps 1 to 4 of <a href="vtr_clocks.html#plan">vtr_clocks.html</a> are merged: the clock record, the <code>vtr_trace</code> package with its fork sink, the C910 clock and harness time order, and cycle counting in Volna.</p>
   <ol>
-    <li><b>Tracker and SystemVerilog binding.</b> <code>vtr_track.hpp</code> and the tracker functions in <code>vtr_trace.sv</code> and <code>vtr_trace_dpi.hpp</code>, with the unit tests, the SPEC producer example and a RATIONALE entry. <i>Exit:</i> the unit tests pass.</li>
-    <li><b>Fork.</b> The tracker's DPI functions in <code>verilated_vtr_dpi.cpp</code>, closing open items at file close, installation of <code>vtr_track.hpp</code>, the fork regression test and the toy-core smoke test in one and two threads. <i>Exit:</i> the toy traces match exactly.</li>
+    <li><b>Tracker and SystemVerilog binding.</b> <code>vtr_track.hpp</code> and the tracker part of <code>vtr_trace.sv</code> and <code>vtr_trace_dpi.hpp</code>, including open items ended at the sink's notice before close, with the unit tests, pipeline tracers in the SPEC SystemVerilog producer example and a RATIONALE entry. <i>Exit:</i> the unit tests pass.</li>
+    <li><b>Fork.</b> Installation of <code>vtr_track.hpp</code>, the fork regression test and the toy-core smoke test in one and two threads. <i>Exit:</i> the toy traces match exactly.</li>
     <li><b>C910 from decode to retire.</b> The tracer and bind file, <code>PIPELINE=1</code>, <code>capture.sh --pipeline</code>, disassembly labels, <code>pipeline_replay.py</code> promoted to the differential checker, and the A/B benchmark. <i>Exit:</i> the differential check is identical on 20,000 cycles, the cost gates hold, and an example sits in <code>volna/volna/examples</code>.</li>
     <li><b>Deeper C910.</b> Fetch stages and the loop buffer, a stall lane, member matching by physical register, split uops, replay and mispredict events, dependency relations from source registers, and LSU and AXI streams with parent links.</li>
     <li><b>Volna and VDB.</b> A palette for a dozen stages, measured behaviour at half a million rows, and a <code>c910.pipeline</code> VDB profile with stage roles and colours.</li>
