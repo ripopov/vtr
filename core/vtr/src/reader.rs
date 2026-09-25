@@ -5,6 +5,7 @@
 //! compressed group (a few hundred signals of one block) at a time.
 
 use crate::block::{self, BlockHeader, ColumnIter, GroupView, NO_BLOCK};
+use crate::clock::{self, ClockId, ClockInfo, ClockTimeline};
 use crate::codec::Decompressor;
 use crate::container::{Container, DirEntry, SectionKind};
 use crate::error::{Error, Result};
@@ -172,9 +173,44 @@ pub struct Reader {
     /// Node id -> index into `log_sites` (`u32::MAX` = not a log site).
     site_index: Vec<u32>,
     blackout: Vec<Blackout>,
+    clocks: Vec<ClockInfo>,
+    /// String ids of `vtr.period` and `vtr.clock`, when present.
+    clock_keys: [Option<StrId>; 2],
+    clock_timelines: Vec<OnceLock<Arc<ClockTimeline>>>,
     verify_crc: bool,
     cache: Mutex<GroupCache>,
     global_times: OnceLock<Vec<u64>>,
+}
+
+/// CLOCK streams with their `edges` generator, in node order, and the ids of
+/// the keys `vtr.period` and `vtr.clock`. Resolves the names in one pass over the strings.
+fn find_clocks(hier: &Hierarchy, strings: &StringTable) -> (Vec<ClockInfo>, [Option<StrId>; 2]) {
+    const NAMES: [&str; 4] = [clock::KEY_PERIOD, clock::KEY_CLOCK, clock::STREAM_KIND, clock::GENERATOR];
+    let mut ids: [Option<StrId>; 4] = [None; 4];
+    for i in 0..strings.len() {
+        let s = strings.get(StrId(i as u32));
+        if let Some(k) = NAMES.iter().position(|n| *n == s) {
+            ids[k].get_or_insert(StrId(i as u32));
+        }
+    }
+    let keys = [ids[0], ids[1]];
+    let (Some(kind), Some(gen_name)) = (ids[2], ids[3]) else { return (Vec::new(), keys) };
+    let mut clocks = Vec::new();
+    for stream in hier.nodes_of_kind(NodeKind::Stream) {
+        if !matches!(hier.node(stream).data, crate::NodeData::Stream { kind: k } if k == kind) {
+            continue;
+        }
+        let Some(generator) = hier.children(stream).find(|&g| hier.name(g) == gen_name) else { continue };
+        let mut parts = Vec::new();
+        let mut cur = Some(stream);
+        while let Some(c) = cur {
+            parts.push(strings.get(hier.name(c)));
+            cur = hier.parent(c);
+        }
+        parts.reverse();
+        clocks.push(ClockInfo { id: ClockId(clocks.len() as u32), stream, generator, path: parts.join(".") });
+    }
+    (clocks, keys)
 }
 
 /// Immutable change history of one signal, in time order.
@@ -373,6 +409,9 @@ impl Reader {
         for block in &mut self.log_blocks {
             block.data.take();
         }
+        for timeline in &mut self.clock_timelines {
+            timeline.take();
+        }
         self.global_times.take();
     }
 
@@ -510,6 +549,8 @@ impl Reader {
         let log_fmts: Vec<ParsedFmt> = log_sites.iter().map(|s| ParsedFmt::parse(strings.get(s.fmt))).collect();
         let mut log_order: Vec<u32> = (0..log_blocks.len() as u32).collect();
         log_order.sort_by_key(|&i| (log_blocks[i as usize].header.t_min, i));
+        let (clocks, clock_keys) = find_clocks(&hier, &strings);
+        let clock_timelines = clocks.iter().map(|_| OnceLock::new()).collect();
         let meta = meta.unwrap_or_default();
         let cap = opts.group_cache.unwrap_or(256);
         Ok(Reader {
@@ -527,6 +568,9 @@ impl Reader {
             log_fmts,
             site_index,
             blackout,
+            clocks,
+            clock_keys,
+            clock_timelines,
             verify_crc: verify,
             cache: Mutex::new(GroupCache { cap, tick: 0, entries: Vec::new() }),
             global_times: OnceLock::new(),
@@ -1441,6 +1485,60 @@ impl Reader {
             }
         }
         Ok(ids.iter().map(|id| owners[id]).collect())
+    }
+
+    // ----- clocks -----
+
+    /// Every declared clock (a `CLOCK` stream with its `edges` generator), in declaration order.
+    pub fn clocks(&self) -> &[ClockInfo] {
+        &self.clocks
+    }
+
+    /// The clock whose stream path (joined with '.') is `path`.
+    pub fn find_clock(&self, path: &str) -> Option<ClockId> {
+        self.clocks.iter().find(|c| c.path == path).map(|c| c.id)
+    }
+
+    /// The clock named by a stream's `vtr.clock` attribute, if it names a declared clock.
+    pub fn stream_clock(&self, stream: NodeId) -> Option<ClockId> {
+        let key = self.clock_keys[1]?;
+        self.hier.attrs(stream).iter().find_map(|(k, v)| match v {
+            Value::Str(s) if *k == key => self.find_clock(self.str(*s)),
+            Value::Text(s) if *k == key => self.find_clock(s),
+            _ => None,
+        })
+    }
+
+    /// The stretches of a clock, loaded once and shared. Decodes only the
+    /// transaction blocks that hold the clock's generator.
+    pub fn clock(&self, id: ClockId) -> Result<Arc<ClockTimeline>> {
+        let info = self.clocks.get(id.0 as usize).ok_or_else(|| Error::invalid(format!("unknown clock {}", id.0)))?;
+        let slot = &self.clock_timelines[id.0 as usize];
+        if let Some(t) = slot.get() {
+            return Ok(t.clone());
+        }
+        let key = self.clock_keys[0];
+        let mut raw = Vec::new();
+        let mut open = false;
+        for (i, b) in self.tx_blocks.iter().enumerate() {
+            if b.header.n_tx == 0 {
+                continue;
+            }
+            let p = Container::payload(self.bytes(), &b.entry, false)?;
+            if !txblock::block_generators(p, &b.header).any(|g| g == info.generator.0) {
+                continue;
+            }
+            for tx in self.tx_block(i)?.transactions.iter().filter(|t| t.generator == info.generator) {
+                let period = tx.attrs.iter().find(|a| Some(a.key) == key).map_or(Ok(0), |a| match a.value {
+                    Value::Time(p) | Value::U64(p) => Ok(p),
+                    _ => Err(Error::Corrupt("vtr.period is not a time")),
+                })?;
+                open |= tx.status == crate::TxStatus::Open;
+                raw.push((tx.begin, tx.end, period));
+            }
+        }
+        let timeline = Arc::new(ClockTimeline::new(raw, open)?);
+        Ok(slot.get_or_init(|| timeline).clone())
     }
 
     // ----- logs -----

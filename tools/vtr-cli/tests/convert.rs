@@ -111,9 +111,20 @@ fn kanata_sample() {
     w.close().unwrap();
     let r = Reader::open(&out).unwrap();
     let (ntx, _) = r.tx_counts();
-    assert_eq!(ntx, 4041);
-    assert_eq!(r.streams().count(), 1);
-    let t = r.transaction(1).unwrap().unwrap();
+    assert_eq!(ntx, 4041 + 1, "instructions and one clock stretch");
+    let pipes: Vec<_> = r.streams().filter(|&s| r.clocks().iter().all(|c| c.stream != s)).collect();
+    assert_eq!(pipes.len(), 1);
+    // The cycle clock: period 1 from the first cycle, named by the pipeline stream.
+    assert_eq!(r.clocks().len(), 1);
+    assert_eq!(r.clocks()[0].path, "cpu.cycle");
+    assert_eq!(r.stream_clock(pipes[0]), Some(r.clocks()[0].id));
+    let clock = r.clock(r.clocks()[0].id).unwrap();
+    assert_eq!(clock.stretches().len(), 1);
+    assert_eq!(clock.stretches()[0].period, 1);
+    let first = r.transactions(&vtr::TxQuery { stream: Some(pipes[0]), ..Default::default() }).unwrap();
+    assert_eq!(clock.stretches()[0].begin, first.iter().map(|t| t.begin).min().unwrap());
+    assert_eq!(clock.stretches()[0].end, first.iter().map(|t| t.end).max().unwrap());
+    let t = r.transaction(2).unwrap().unwrap();
     assert!(!t.stages.is_empty());
     let stage_names: Vec<&str> = t.stages.iter().map(|s| r.str(s.name)).collect();
     assert!(stage_names.contains(&"F"));
@@ -143,7 +154,7 @@ fn kanata_labels_are_newline_joined_into_one_attribute() {
     vtr_cli::kanata::convert_kanata(src.to_str().unwrap(), &mut w).unwrap();
     w.close().unwrap();
     let r = Reader::open(&out).unwrap();
-    let tx = r.transaction(1).unwrap().unwrap();
+    let tx = r.transaction(2).unwrap().unwrap();
     let labels: Vec<_> = tx
         .attrs
         .iter()

@@ -45,6 +45,7 @@ hierarchy types they share.
 | `Writer`, `WriterOptions`, `WriterStats` | `writer` | Streaming writer |
 | `Reader`, `ReadOptions`, `SignalData`, `TxQuery`, `LogQuery` | `reader` | Random-access reader |
 | `LogSiteSpec`, `LogSiteId`, `LogArgType`, `LogArg`, `Severity`, `LogSite`, `LogRecord` | `logblock` | Log sites and records (`docs/LOGGING.md`) |
+| `ClockId`, `ClockInfo`, `ClockTimeline`, `CycleAt`, `Stretch`, `CLOCK_STREAM_KIND` | `clock` | Declared clocks (`SPEC.md` 7.4) |
 | `Hierarchy`, `Node`, `NodeData`, `NodeId`, `NodeKind`, `ScopeType`, `VarType`, `Direction`, `SignalId`, `SignalKind` | `hierarchy` | Design hierarchy and signal typing |
 | `Value` | `value` | Typed attribute values |
 | `SignalValue`, `OwnedSignalValue` | `signal` | Signal values (borrowed / owned) |
@@ -845,6 +846,34 @@ exists for front ends that encode themselves (`vtr_log.hpp`).
 `WriterStats::log_records` counts the records written (they are not included
 in `transactions`).
 
+### 3.12 Clocks
+
+A clock is declared once and recorded as steady stretches (`SPEC.md` 7.4):
+one call per change of speed, nothing per edge.
+
+```rust
+pub fn add_clock(&mut self, scope: Option<NodeId>, name: &str) -> Result<ClockId>
+pub fn clock_stream(&self, clock: ClockId) -> Option<NodeId>
+/// From edge `first`, one edge every `period`, until clock_stop. The clock must not be running.
+pub fn clock_run(&mut self, clock: ClockId, first: u64, period: u64) -> Result<()>
+/// No more edges at the current speed after `t`.
+pub fn clock_stop(&mut self, clock: ClockId, t: u64) -> Result<()>
+```
+
+`add_clock` declares a stream of kind `CLOCK` under `scope` with its `edges`
+generator; name it after the clock net. Clock ids are dense in declaration
+order and equal the reader's. `clock_run` begins a stretch at the rising edge
+`first` with `period >= 1` file units; a run on a running clock is
+`Error::State`, and a `first` that is not after the previous stretch's last
+edge is `Error::Invalid`. `clock_stop` ends the stretch at its last edge at or
+before `t` (`t` must not precede its first edge); stopping a clock that is not
+running does nothing. A gated clock is a stop when the gate closes and a run at
+the first edge after it opens; a change of speed is a stop where the
+generator's delay changes and a run at the next rising edge. Ended stretches
+are written into their own transaction block at each `flush` and at `close`;
+`close` ends a running stretch at its last edge at or before the current time
+(`set_time`), with status `Open`. Stretches take transaction ids in begin order.
+
 ## 4. Reader reference
 
 ```rust
@@ -1379,6 +1408,36 @@ Log records are also transactions: `visit_transactions`, `transactions` and
 `Unspecified`, attributes = arguments keyed by `log.names`, `Text` arguments
 as `Value::Text`), interleaved with the transaction blocks in file order;
 `tx_counts().0` includes them and `log_count` gives their number alone.
+
+### 4.10 Clocks
+
+```rust
+pub fn clocks(&self) -> &[ClockInfo]                       // every CLOCK stream, declaration order
+pub fn find_clock(&self, path: &str) -> Option<ClockId>    // by '.'-joined stream path
+pub fn stream_clock(&self, stream: NodeId) -> Option<ClockId>   // resolves the stream's vtr.clock
+pub fn clock(&self, id: ClockId) -> Result<Arc<ClockTimeline>>  // loaded once and shared
+
+pub struct ClockInfo { pub id: ClockId, pub stream: NodeId, pub generator: NodeId, pub path: String }
+pub struct Stretch { pub begin: u64, pub end: u64, pub period: u64 /* 0 = one edge */, pub first_cycle: u64 }
+pub struct CycleAt { pub cycle: u64, pub edge: u64, pub next_edge: Option<u64>, pub fraction: f64, pub stopped: bool }
+impl ClockTimeline {
+    pub fn stretches(&self) -> &[Stretch];
+    pub fn is_open(&self) -> bool;                  // last stretch still ran at close
+    pub fn edge_count(&self) -> u64;
+    pub fn cycle_at(&self, t: u64) -> Option<CycleAt>;   // None before the first edge
+    pub fn edge(&self, cycle: u64) -> Option<u64>;
+    pub fn next_edge(&self, t: u64) -> Option<u64>;      // strictly after t
+    pub fn prev_edge(&self, t: u64) -> Option<u64>;      // strictly before t
+}
+```
+
+`clock` decodes only the transaction blocks whose generator list holds the
+clock's `edges` generator; the timeline is immutable, shared by later calls
+and valid after the reader is dropped. Every query is a binary search over
+the stretches and one multiplication. `CycleAt::stopped` is a display rule:
+the cycle ends a clock that was stopped for good, or is a gap between
+stretches longer than twice the periods on both sides. Stretches are also
+ordinary transactions to `visit_transactions`.
 
 ## 5. Value model
 

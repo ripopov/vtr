@@ -325,12 +325,12 @@ always @(posedge clk) if (!vtr_clk_on) begin vtr_clock_run(vtr_clk, 200, VTR_PS)
   <p>Other simulators need a standalone sink that opens its own file and reads time through VPI. That sink belongs to the pipeline tracing proposal. It implements the same sink interface, so the package is plain DPI-C and needs no change for it.</p>
   <h3>The writer</h3>
   <p>The Rust writer gains three calls, projected one to one into the C API. All times and periods are <code>u64</code> in the file's time unit, which the producer chose when it opened the writer, so no unit argument is needed here.</p>
-<pre><code>pub fn add_clock(&amp;mut self, scope: Option&lt;NodeId&gt;, name: &amp;str) -&gt; ClockId;
+<pre><code>pub fn add_clock(&amp;mut self, scope: Option&lt;NodeId&gt;, name: &amp;str) -&gt; Result&lt;ClockId&gt;;
 /// From edge `first`, one edge every `period`, until clock_stop. The clock must not be running.
 pub fn clock_run(&amp;mut self, clock: ClockId, first: u64, period: u64) -&gt; Result&lt;()&gt;;
 /// No more edges at the current speed after `t`.
 pub fn clock_stop(&amp;mut self, clock: ClockId, t: u64) -&gt; Result&lt;()&gt;;</code></pre>
-  <p>The writer keeps the running stretch as (first, period). <code>clock_stop</code> ends it at its last edge at or before the stop time, and the file close ends it at its last edge at or before close. A run on a running clock is an error, and so is a run whose first edge is not after the previous stretch's last edge.</p>
+  <p>The writer keeps the running stretch as (first, period). <code>clock_stop</code> ends it at its last edge at or before the stop time; stopping a clock that is not running does nothing. The file close ends a running stretch at its last edge at or before the writer's current time. A run on a running clock is an error, and so is a run whose first edge is not after the previous stretch's last edge. The C API adds the matching reader calls for clock timelines, and <code>SPEC.md</code> §7.4 holds the format rules.</p>
   <h3>Other producers</h3>
   <ul>
     <li><b>gem5.</b> A clock domain's period is a whole number of ticks. It calls <code>clock_run</code> when the domain starts and at each change of performance level.</li>

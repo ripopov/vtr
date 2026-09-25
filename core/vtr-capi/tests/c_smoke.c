@@ -26,6 +26,59 @@ static int tx_cb(void *user, const vtr_tx *tx) {
     return 0;
 }
 
+/* A clock that changes speed, written and read back through the C API. */
+static int clock_smoke(const char *path) {
+    vtr_writer *w = vtr_writer_create(path, NULL);
+    ASSERT(w != NULL);
+    uint32_t top = vtr_writer_add_scope(w, VTR_NONE, "top", VTR_SCOPE_MODULE, "top");
+    uint32_t clk = vtr_writer_add_clock(w, top, "clk");
+    ASSERT(clk == 0);
+    uint32_t cs = vtr_writer_clock_stream(w, clk);
+    uint32_t pipe = vtr_writer_add_stream(w, top, "pipe", "PIPELINE");
+    vtr_value link; memset(&link, 0, sizeof link); link.tag = VTR_VAL_STR; link.str_id = vtr_writer_intern(w, "top.clk");
+    CHECK(vtr_writer_node_attr(w, pipe, "vtr.clock", &link));
+    ASSERT(vtr_writer_clock_run(w, clk, 0, 0) == VTR_ERR_INVALID);
+    CHECK(vtr_writer_clock_run(w, clk, 10, 4));
+    ASSERT(vtr_writer_clock_run(w, clk, 20, 4) == VTR_ERR_STATE);
+    CHECK(vtr_writer_clock_stop(w, clk, 29));      /* edges 10..26 */
+    CHECK(vtr_writer_clock_run(w, clk, 30, 10));   /* edges 30..90, running at close */
+    CHECK(vtr_writer_set_time(w, 95));
+    CHECK(vtr_writer_close(w));
+
+    vtr_reader *rd = vtr_reader_open(path);
+    ASSERT(rd != NULL);
+    ASSERT(vtr_reader_clock_count(rd) == 1);
+    vtr_clock_info ci;
+    CHECK(vtr_reader_clock(rd, 0, &ci));
+    ASSERT(ci.stream == cs);
+    ASSERT(vtr_reader_clock(rd, 1, &ci) == VTR_ERR_NOT_FOUND);
+    ASSERT(vtr_reader_stream_clock(rd, pipe) == 0);
+    ASSERT(vtr_reader_stream_clock(rd, top) == VTR_NONE);
+    vtr_clock_timeline *tl = vtr_reader_load_clock(rd, 0);
+    ASSERT(tl != NULL);
+    vtr_reader_close(rd);   /* the timeline outlives the reader */
+    ASSERT(vtr_clock_timeline_stretch_count(tl) == 2);
+    ASSERT(vtr_clock_timeline_edge_count(tl) == 5 + 7);
+    ASSERT(vtr_clock_timeline_is_open(tl));
+    vtr_stretch st;
+    CHECK(vtr_clock_timeline_stretch(tl, 1, &st));
+    ASSERT(st.begin == 30 && st.end == 90 && st.period == 10 && st.first_cycle == 5);
+    vtr_cycle_at c;
+    ASSERT(vtr_clock_timeline_cycle_at(tl, 9, &c) == VTR_ERR_NOT_FOUND);
+    CHECK(vtr_clock_timeline_cycle_at(tl, 35, &c));
+    ASSERT(c.cycle == 5 && c.edge == 30 && c.has_next_edge && c.next_edge == 40 && c.fraction == 0.5 && !c.stopped);
+    uint64_t t;
+    CHECK(vtr_clock_timeline_edge(tl, 4, &t));
+    ASSERT(t == 26);
+    CHECK(vtr_clock_timeline_next_edge(tl, 26, &t));
+    ASSERT(t == 30);
+    CHECK(vtr_clock_timeline_prev_edge(tl, 30, &t));
+    ASSERT(t == 26);
+    ASSERT(vtr_clock_timeline_edge(tl, 12, &t) == VTR_ERR_NOT_FOUND);
+    vtr_clock_timeline_free(tl);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : "c_smoke.vtr";
     vtr_writer_options o;
@@ -241,6 +294,9 @@ int main(int argc, char **argv) {
     CHECK(vtr_signal_data_get(survivor, 1, &sv));
     ASSERT(sv.kind == 0 && sv.width == 16);
     vtr_signal_data_free(survivor);
+    char clock_path[4096];
+    snprintf(clock_path, sizeof clock_path, "%s.clock.vtr", path);
+    if (clock_smoke(clock_path)) return 1;
     /* error paths */
     ASSERT(vtr_reader_open("/nonexistent/file.vtr") == NULL);
     ASSERT(strlen(vtr_last_error()) > 0);

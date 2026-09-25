@@ -15,6 +15,7 @@ USAGE:
   vtr dump <file.vtr> [--from T] [--to T]     all value changes in time order (VCD-like)
   vtr tx <file.vtr> [--stream NAME] [--from T] [--to T] [--max N] [--id ID]
   vtr log <file.vtr> [--stream NAME] [--severity LEVEL] [--from T] [--to T] [--max N] [--sites]
+  vtr clocks <file.vtr>                       declared clocks: stretches, periods and stopped time
   vtr convert <input> <output.vtr> [--states 2|4|9] [--codec zstd|lz4|none] [--level L]
               [--group-size N] [--block-records N] [--no-background] [--no-dedup]
               input formats by extension: .fst .vcd .log/.kanata[.gz] .json (OTLP) .ftr
@@ -388,6 +389,21 @@ fn cmd_log(args: &[String]) {
     let _ = out.flush();
 }
 
+fn cmd_clocks(args: &[String]) {
+    let p = positional(args);
+    let path = p.first().unwrap_or_else(|| die(USAGE));
+    let r = open(path);
+    for c in r.clocks() {
+        let tl = r.clock(c.id).unwrap_or_else(|e| die(e));
+        let stopped: u64 = tl.stretches().windows(2).filter_map(|w| tl.cycle_at(w[0].end).filter(|a| a.stopped).map(|_| w[1].begin - w[0].end)).sum();
+        println!("clock {} {}: {} edges, {} stretches, stopped {stopped}{}", c.id.0, c.path, tl.edge_count(), tl.stretches().len(), if tl.is_open() { ", running at close" } else { "" });
+        for s in tl.stretches() {
+            let period = if s.period == 0 { "single edge".to_string() } else { format!("period {}", s.period) };
+            println!("    [{} .. {}] {period}, {} edges from cycle {}", s.begin, s.end, s.edges(), s.first_cycle);
+        }
+    }
+}
+
 fn cmd_convert(args: &[String]) {
     let p = positional(args);
     if p.len() < 2 {
@@ -467,6 +483,7 @@ fn main() {
         "vcd-compare" => cmd_vcd_compare(rest),
         "tx" => cmd_tx(rest),
         "log" => cmd_log(rest),
+        "clocks" => cmd_clocks(rest),
         "convert" => cmd_convert(rest),
         "--version" | "-V" => println!("vtr {}", env!("CARGO_PKG_VERSION")),
         _ => {

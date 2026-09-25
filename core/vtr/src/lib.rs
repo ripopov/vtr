@@ -10,6 +10,7 @@
 //! See `docs/SPEC.md` for the file format and `docs/API_RUST.md` for a tour.
 
 pub mod block;
+pub mod clock;
 pub mod codec;
 pub mod container;
 pub mod error;
@@ -26,6 +27,8 @@ pub mod varint;
 pub mod writer;
 pub mod xform;
 
+pub use clock::{ClockId, ClockInfo, ClockTimeline, CycleAt, Stretch};
+pub use clock::STREAM_KIND as CLOCK_STREAM_KIND;
 pub use codec::{Codec, Compression};
 pub use error::{Error, Result};
 pub use hierarchy::{Direction, Hierarchy, Node, NodeData, NodeId, NodeKind, ScopeType, SignalId, SignalKind, VarType};

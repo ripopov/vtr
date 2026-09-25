@@ -9,6 +9,7 @@
 //! * `R`  -> end; attrs `retire_id`; status Aborted for flush
 //! * `W`  -> relation `wakeup` (attr `type` when non-zero) from producer to consumer
 //! * `C=` -> file attr `kanata.start_cycle`; cycles map 1:1 to time units.
+//! * clock `cpu.cycle` with period 1 from the first cycle; every stream's `vtr.clock` names it.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -56,6 +57,9 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
     let vs = w.intern(&ver);
     w.set_file_attr("kanata.version", Value::Str(vs))?;
     let core = w.add_scope(None, "cpu", ScopeType::Core, "")?;
+    let clock = w.add_clock(Some(core), "cycle")?;
+    let clock_path = w.intern("cpu.cycle");
+    let mut clock_running = false;
 
     let k_gid = w.intern("insn_id_in_sim");
     let k_line = w.intern("line");
@@ -106,6 +110,10 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
                     w.set_file_attr("kanata.start_cycle", Value::I64(cycle))?;
                     start_set = true;
                 }
+                if !clock_running {
+                    w.clock_run(clock, cycle.max(0) as u64, 1)?;
+                    clock_running = true;
+                }
             }
             "C" => cycle += num(0)?,
             "I" => {
@@ -116,10 +124,15 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
                     Entry::Occupied(e) => e.into_mut(),
                     Entry::Vacant(e) => {
                         let stream = w.add_stream(Some(core), &format!("thread{tid}"), "PIPELINE")?;
+                        w.node_attr(stream, vtr::clock::KEY_CLOCK, Value::Str(clock_path))?;
                         let gen = w.add_generator(stream, "instruction")?;
                         e.insert(Thread { stream, gen })
                     }
                 };
+                if !clock_running {
+                    w.clock_run(clock, cycle.max(0) as u64, 1)?;
+                    clock_running = true;
+                }
                 let tx = w.begin_tx(th.gen, cycle.max(0) as u64)?;
                 w.tx_attr(tx, k_gid, &Value::I64(gid))?;
                 w.tx_attr(tx, k_line, &Value::U64(line_no))?;

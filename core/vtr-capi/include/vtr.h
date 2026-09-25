@@ -377,6 +377,23 @@ int      vtr_writer_log(vtr_writer *w, uint32_t site, uint64_t time, uint64_t pa
  * guarantees the encoding matches the site (vtr_log.hpp does this by construction); a mismatch is reported at flush/close. */
 int      vtr_writer_log_raw(vtr_writer *w, uint32_t site, uint64_t time, uint64_t parent, const uint8_t *args, size_t len, uint64_t *id_out);
 
+/* Clocks (SPEC 7.4). add_clock() declares a stream of kind VTR_CLOCK_STREAM_KIND
+ * named after the clock net under scope (VTR_NONE = a root) and returns a dense
+ * clock id, or VTR_NONE; clock_stream() gives its stream node. clock_run() begins
+ * a steady stretch: an edge at first, then one every period (>= 1) file units,
+ * until clock_stop(). A run on a running clock returns VTR_ERR_STATE; first must
+ * follow the previous stretch's last edge. clock_stop(t) ends the stretch at its
+ * last edge at or before t (not before its first edge); stopping a clock that
+ * is not running does nothing. To change speed, stop where the generator's
+ * delay changes and run again at the next rising edge. close() ends a running
+ * stretch at its last edge at or before the current signal time. Stretches go
+ * into their own small transaction block at each flush() and at close(). */
+#define VTR_CLOCK_STREAM_KIND "CLOCK"
+uint32_t vtr_writer_add_clock(vtr_writer *w, uint32_t scope, const char *name);
+uint32_t vtr_writer_clock_stream(const vtr_writer *w, uint32_t clock);
+int      vtr_writer_clock_run(vtr_writer *w, uint32_t clock, uint64_t first, uint64_t period);
+int      vtr_writer_clock_stop(vtr_writer *w, uint32_t clock, uint64_t t);
+
 /* ---- reader ---------------------------------------------------------- */
 typedef struct vtr_reader vtr_reader;
 
@@ -572,6 +589,48 @@ int    vtr_reader_visit_log(const vtr_reader *r, uint32_t stream /* or VTR_NONE 
                             uint8_t min_severity, uint64_t t0, uint64_t t1 /* 0 = no window */, vtr_log_cb cb, void *user);
 int    vtr_log_rec_arg(const vtr_log_rec *rec, uint32_t i, vtr_value *v_out);  /* TEXT/BYTES point into the reader */
 size_t vtr_log_rec_format(const vtr_reader *r, const vtr_log_rec *rec, char *buf, size_t cap); /* snprintf-like: returns full length */
+
+/* Clocks. Clock ids are dense in declaration order, the same ids the writer
+ * returned. stream_clock() resolves a stream's vtr.clock attribute (VTR_NONE
+ * when absent or naming no declared clock). load_clock() returns an immutable
+ * timeline that may outlive the reader; free it with vtr_clock_timeline_free.
+ * The first recorded edge is cycle 0 and numbering continues across stretches.
+ * cycle_at() describes the cycle holding time (its last edge at or before it)
+ * and returns NOT_FOUND before the first edge. edge() gives the time of a
+ * cycle's edge; next_edge()/prev_edge() the first edge strictly after / last
+ * edge strictly before time; each returns NOT_FOUND when there is none. */
+typedef struct vtr_clock_info {
+    uint32_t stream, generator;
+} vtr_clock_info;
+
+typedef struct vtr_stretch {
+    uint64_t begin, end;          /* first and last edge */
+    uint64_t period;              /* 0 for a stretch of one edge */
+    uint64_t first_cycle;
+} vtr_stretch;
+
+typedef struct vtr_cycle_at {
+    uint64_t cycle, edge;
+    int      has_next_edge;
+    uint64_t next_edge;
+    double   fraction;            /* position in the cycle, [0, 1) */
+    int      stopped;             /* the clock does not run in this cycle */
+} vtr_cycle_at;
+
+typedef struct vtr_clock_timeline vtr_clock_timeline;
+uint32_t vtr_reader_clock_count(const vtr_reader *r);
+int      vtr_reader_clock(const vtr_reader *r, uint32_t clock, vtr_clock_info *out);
+uint32_t vtr_reader_stream_clock(const vtr_reader *r, uint32_t stream);
+vtr_clock_timeline *vtr_reader_load_clock(const vtr_reader *r, uint32_t clock);   /* NULL on error */
+void     vtr_clock_timeline_free(vtr_clock_timeline *t);
+size_t   vtr_clock_timeline_stretch_count(const vtr_clock_timeline *t);
+uint64_t vtr_clock_timeline_edge_count(const vtr_clock_timeline *t);
+int      vtr_clock_timeline_is_open(const vtr_clock_timeline *t);   /* last stretch still ran at close */
+int      vtr_clock_timeline_stretch(const vtr_clock_timeline *t, size_t i, vtr_stretch *out);
+int      vtr_clock_timeline_cycle_at(const vtr_clock_timeline *t, uint64_t time, vtr_cycle_at *out);
+int      vtr_clock_timeline_edge(const vtr_clock_timeline *t, uint64_t cycle, uint64_t *time_out);
+int      vtr_clock_timeline_next_edge(const vtr_clock_timeline *t, uint64_t time, uint64_t *time_out);
+int      vtr_clock_timeline_prev_edge(const vtr_clock_timeline *t, uint64_t time, uint64_t *time_out);
 
 #ifdef __cplusplus
 }

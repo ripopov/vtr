@@ -1543,3 +1543,37 @@ VTR twin of the file (`vtr convert`, 4-state vectors) loads `clk` in 0.68 s at
 18 B/change of RSS (9 counted) and all four signals in 2.2 s at +3.9 GiB.
 The next steps of the plan (compact times, bit-packed VTR 1-bit values,
 accurate VTR accounting) target that path.
+
+## Declared clocks
+
+**Chosen**: a clock is a `CLOCK` stream whose transactions are steady
+stretches `(first edge, last edge, vtr.period)`, declared by the design owner
+with one call per change of speed (`clock_run`, `clock_stop`); cycle numbers
+and edge counts are computed by the reader. The design, its prior art and the
+rejected alternatives are in [vtr_clocks.html](vtr_clocks.html); the points
+that shaped the format:
+
+* Intel Processor Trace (a frequency packet only on change) and gem5 (an
+  anchor tick, anchor cycle and period per clock domain, renewed at each
+  frequency change) store the same small fact: where a clock runs steadily
+  and at what period. Counting clock-signal edges at read time, as Verdi's
+  grid and Surfer do, costs 1.36 s and about 800 MB for 100M changes in
+  Volna, and needs the clock dumped.
+* Periods are whole file units because simulators round every delay to the
+  time precision; a fractional period with a rounding rule was dropped.
+* Stored cycle numbers or edge counts were rejected: both follow from the
+  three numbers per stretch, and a second copy is a way to be inconsistent.
+* A run on a running clock is an error rather than an implicit stop: the
+  writer cannot know where the old speed ended, and guessing invents an edge
+  (after a slowdown from 334 to 500 ps, one at the old spacing the simulator
+  never produced). Stop, then run at the next rising edge, is exact.
+* The stream and transaction encodings already carry everything; a new
+  section, value tag or node kind would add format surface for nothing. The
+  stretches go into their own small TX_BLOCKs, found through the block
+  header's generator list, so loading a clock decodes no pipeline data. A
+  crash-recovered file keeps every stretch that ended before the last flush.
+* Automatic clock detection in the simulator was rejected after counting the
+  openC910 RTL: 1,784 processes sensitive to the reset `negedge cpurst_b`,
+  602 distinct posedge nets and 748 clock-gating cells. Observed clocks (a
+  writer call per edge, for clocks nobody declares) are postponed; they need
+  no format change.

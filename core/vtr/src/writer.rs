@@ -4,6 +4,7 @@
 //! compression of finished blocks run on a background thread by default so the
 //! simulator thread only pays for logging.
 
+use crate::clock::{self, ClockId};
 use crate::block::{self, BlockInput, ChunkEnc, ChunkInput, EncoderScratch, Record, COMPACT_FLAG, NO_BLOCK};
 use crate::codec::{Compression, Compressor};
 use crate::container::{self, DirEntry, SectionKind, SECTION_FLAG_OPTIONAL};
@@ -566,6 +567,16 @@ struct SigInfo {
     width: u32,
 }
 
+/// A declared clock: its generator and its running stretch.
+struct ClockState {
+    stream: NodeId,
+    gen: u32,
+    /// (transaction id, first edge, period) of the running stretch.
+    running: Option<(u64, u64, u64)>,
+    /// Last edge of the previous stretch.
+    last_edge: Option<u64>,
+}
+
 /// Streaming VTR writer.
 pub struct Writer {
     opts: WriterOptions,
@@ -628,6 +639,10 @@ pub struct Writer {
     log_rows: Vec<u8>,
     n_log_rows: u64,
     total_log: u64,
+    // clocks
+    clocks: Vec<ClockState>,
+    clock_rows: Vec<u8>,
+    n_clock_rows: u64,
     blackout: Vec<Blackout>,
     closed: bool,
     scratch: Vec<u8>,
@@ -751,6 +766,9 @@ impl Writer {
             log_rows: Vec::new(),
             n_log_rows: 0,
             total_log: 0,
+            clocks: Vec::new(),
+            clock_rows: Vec::new(),
+            n_clock_rows: 0,
             blackout: Vec::new(),
             closed: false,
             scratch: Vec::new(),
@@ -1391,7 +1409,7 @@ impl Writer {
         if self.n_log_rows > 0 {
             self.flush_log()?;
         }
-        Ok(())
+        self.flush_clocks()
     }
 
     fn flush_signals(&mut self) -> Result<()> {
@@ -1831,6 +1849,100 @@ impl Writer {
         self.sink.send(Msg::Log(input))
     }
 
+    // ----- clocks -----
+
+    /// Declares a clock: a stream of kind `CLOCK` named `name` under `scope`,
+    /// with its `edges` generator. Name it after the clock net and place it in
+    /// the net's scope, so viewers pair it with the net's waveform by path.
+    pub fn add_clock(&mut self, scope: Option<NodeId>, name: &str) -> Result<ClockId> {
+        let stream = self.add_stream(scope, name, clock::STREAM_KIND)?;
+        let gen = self.add_generator(stream, clock::GENERATOR)?;
+        self.clocks.push(ClockState { stream, gen: gen.0, running: None, last_edge: None });
+        Ok(ClockId(self.clocks.len() as u32 - 1))
+    }
+
+    /// Stream node of a declared clock.
+    pub fn clock_stream(&self, clock: ClockId) -> Option<NodeId> {
+        self.clocks.get(clock.0 as usize).map(|c| c.stream)
+    }
+
+    fn clock_state(&mut self, clock: ClockId) -> Result<&mut ClockState> {
+        self.clocks.get_mut(clock.0 as usize).ok_or_else(|| Error::invalid(format!("unknown clock {}", clock.0)))
+    }
+
+    /// From edge `first`, one edge every `period`, until [`clock_stop`](Self::clock_stop).
+    /// The clock must not be running, and `first` must follow the previous
+    /// stretch's last edge. To change speed, stop the clock where the
+    /// generator's delay changes and run it again at the next rising edge.
+    pub fn clock_run(&mut self, clock: ClockId, first: u64, period: u64) -> Result<()> {
+        if period == 0 {
+            return Err(Error::invalid("clock period must be at least one time unit"));
+        }
+        let id = self.next_tx_id;
+        let c = self.clock_state(clock)?;
+        if c.running.is_some() {
+            return Err(Error::State("clock_run on a running clock; call clock_stop first"));
+        }
+        if let Some(last) = c.last_edge.filter(|&last| first <= last) {
+            return Err(Error::invalid(format!("clock stretch starts at {first}, not after the previous last edge {last}")));
+        }
+        c.running = Some((id, first, period));
+        self.next_tx_id += 1;
+        Ok(())
+    }
+
+    /// No more edges at the current speed after `t`: the running stretch ends
+    /// at its last edge at or before `t`. Stopping a clock that is not running
+    /// does nothing.
+    pub fn clock_stop(&mut self, clock: ClockId, t: u64) -> Result<()> {
+        let c = self.clock_state(clock)?;
+        let Some((_, first, _)) = c.running else { return Ok(()) };
+        if t < first {
+            return Err(Error::invalid(format!("clock_stop at {t} precedes the stretch's first edge {first}")));
+        }
+        self.end_stretch(clock, t, TxStatus::Unset)
+    }
+
+    /// Writes the running stretch of `clock`, ended at its last edge at or before `t` (>= first).
+    fn end_stretch(&mut self, clock: ClockId, t: u64, status: TxStatus) -> Result<()> {
+        let key = self.strings.intern(clock::KEY_PERIOD);
+        let c = &mut self.clocks[clock.0 as usize];
+        let Some((id, first, period)) = c.running.take() else { return Ok(()) };
+        let end = first + (t.max(first) - first) / period * period;
+        c.last_edge = Some(end);
+        let out = &mut self.clock_rows;
+        varint::put_u64(out, id);
+        varint::put_u64(out, c.gen as u64);
+        varint::put_u64(out, first);
+        varint::put_u64(out, end - first);
+        out.push(status as u8);
+        out.push(TxKind::Unspecified as u8);
+        varint::put_u64(out, 0);
+        if end > first {
+            varint::put_u64(out, 1);
+            varint::put_u64(out, key.0 as u64);
+            Value::Time(period).encode(out);
+        } else {
+            varint::put_u64(out, 0);
+        }
+        varint::put_u64(out, 0);
+        varint::put_u64(out, 0);
+        self.n_clock_rows += 1;
+        Ok(())
+    }
+
+    /// Writes the ended stretches as their own small TX_BLOCK, so that a reader
+    /// loads a clock without decoding other transactions.
+    fn flush_clocks(&mut self) -> Result<()> {
+        self.flush_meta_and_hierarchy()?;
+        if self.n_clock_rows == 0 {
+            return Ok(());
+        }
+        let input = Box::new(TxBlockInput { tx_rows: std::mem::take(&mut self.clock_rows), n_tx: self.n_clock_rows, rel_rows: Vec::new(), n_rel: 0 });
+        self.n_clock_rows = 0;
+        self.sink.send(Msg::Tx(input))
+    }
+
     // ----- close -----
 
     /// Finishes the file. Also invoked by `Drop`, but errors are only reported here.
@@ -1849,12 +1961,17 @@ impl Writer {
             self.open.remove(id);
             self.n_tx_rows += 1;
         }
+        // Running clocks end at their last edge at or before the current time, with status Open.
+        for i in 0..self.clocks.len() {
+            self.end_stretch(ClockId(i as u32), self.time, TxStatus::Open)?;
+        }
         self.flush_meta_and_hierarchy()?;
         if !self.records.is_empty() || self.wide_bytes > 0 || self.block_pending > 0 || self.block_count == 0 && !self.times.is_empty() {
             self.flush_signals()?;
         }
         self.flush_tx()?;
         self.flush_log()?;
+        self.flush_clocks()?;
         if !self.blackout.is_empty() {
             let mut payload = Vec::new();
             sections::encode_blackout(&self.blackout, &mut payload);

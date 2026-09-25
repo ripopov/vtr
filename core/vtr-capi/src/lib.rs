@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::ptr;
 use vtr::{
-    Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
+    ClockId, ClockTimeline, Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
     SignalKind, StrId, Transaction, TxKind, TxQuery, TxStatus, Value, VarType, Writer, WriterOptions,
 };
 
@@ -805,6 +805,43 @@ pub unsafe extern "C" fn vtr_writer_log_raw(w: *mut vtr_writer, site: u32, time:
         }
         Err(e) => status(Err(e)),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Clocks (writer)
+// ---------------------------------------------------------------------------
+
+/// Declares a clock: a CLOCK stream `name` under `scope` (VTR_NONE = a root).
+/// Returns the clock id or VTR_NONE.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_add_clock(w: *mut vtr_writer, scope: u32, name: *const c_char) -> u32 {
+    let (w, name) = decl_args!(w, name);
+    match w.0.add_clock(parent_id(scope), name) {
+        Ok(c) => c.0,
+        Err(e) => {
+            set_error(&e.to_string());
+            VTR_NONE
+        }
+    }
+}
+
+/// Stream node of a declared clock (VTR_NONE if unknown).
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_clock_stream(w: *const vtr_writer, clock: u32) -> u32 {
+    match w.as_ref() {
+        Some(w) => w.0.clock_stream(ClockId(clock)).map(|n| n.0).unwrap_or(VTR_NONE),
+        None => VTR_NONE,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_clock_run(w: *mut vtr_writer, clock: u32, first: u64, period: u64) -> c_int {
+    status(need!(w).0.clock_run(ClockId(clock), first, period))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_clock_stop(w: *mut vtr_writer, clock: u32, t: u64) -> c_int {
+    status(need!(w).0.clock_stop(ClockId(clock), t))
 }
 
 // ---------------------------------------------------------------------------
@@ -1878,4 +1915,163 @@ pub unsafe extern "C" fn vtr_log_rec_format(r: *const vtr_reader, rec: *const vt
         }
         n
     })
+}
+
+// ---------------------------------------------------------------------------
+// Clocks (reader)
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+pub struct vtr_clock_info {
+    pub stream: u32,
+    pub generator: u32,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_clock_count(r: *const vtr_reader) -> u32 {
+    match r.as_ref() {
+        Some(r) => r.0.clocks().len() as u32,
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_clock(r: *const vtr_reader, clock: u32, out: *mut vtr_clock_info) -> c_int {
+    let r = need_ref!(r);
+    let out = need!(out);
+    match r.0.clocks().get(clock as usize) {
+        Some(c) => {
+            *out = vtr_clock_info { stream: c.stream.0, generator: c.generator.0 };
+            VTR_OK
+        }
+        None => VTR_ERR_NOT_FOUND,
+    }
+}
+
+/// Clock named by the `vtr.clock` attribute of `stream`, or VTR_NONE.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_stream_clock(r: *const vtr_reader, stream: u32) -> u32 {
+    match r.as_ref() {
+        Some(r) if (stream as usize) < r.0.hierarchy().len() => r.0.stream_clock(NodeId(stream)).map(|c| c.0).unwrap_or(VTR_NONE),
+        _ => VTR_NONE,
+    }
+}
+
+pub struct vtr_clock_timeline(std::sync::Arc<ClockTimeline>);
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_load_clock(r: *const vtr_reader, clock: u32) -> *mut vtr_clock_timeline {
+    let Some(r) = r.as_ref() else {
+        set_error("null handle");
+        return ptr::null_mut();
+    };
+    match r.0.clock(ClockId(clock)) {
+        Ok(t) => Box::into_raw(Box::new(vtr_clock_timeline(t))),
+        Err(e) => {
+            set_error(&e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_free(t: *mut vtr_clock_timeline) {
+    if !t.is_null() {
+        drop(Box::from_raw(t));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_stretch_count(t: *const vtr_clock_timeline) -> usize {
+    t.as_ref().map_or(0, |t| t.0.stretches().len())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_edge_count(t: *const vtr_clock_timeline) -> u64 {
+    t.as_ref().map_or(0, |t| t.0.edge_count())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_is_open(t: *const vtr_clock_timeline) -> c_int {
+    t.as_ref().map_or(0, |t| t.0.is_open() as c_int)
+}
+
+#[repr(C)]
+pub struct vtr_stretch {
+    pub begin: u64,
+    pub end: u64,
+    pub period: u64,
+    pub first_cycle: u64,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_stretch(t: *const vtr_clock_timeline, i: usize, out: *mut vtr_stretch) -> c_int {
+    let t = need_ref!(t);
+    let out = need!(out);
+    match t.0.stretches().get(i) {
+        Some(s) => {
+            *out = vtr_stretch { begin: s.begin, end: s.end, period: s.period, first_cycle: s.first_cycle };
+            VTR_OK
+        }
+        None => VTR_ERR_NOT_FOUND,
+    }
+}
+
+#[repr(C)]
+pub struct vtr_cycle_at {
+    pub cycle: u64,
+    pub edge: u64,
+    pub has_next_edge: c_int,
+    pub next_edge: u64,
+    pub fraction: f64,
+    pub stopped: c_int,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_cycle_at(t: *const vtr_clock_timeline, time: u64, out: *mut vtr_cycle_at) -> c_int {
+    let t = need_ref!(t);
+    let out = need!(out);
+    match t.0.cycle_at(time) {
+        Some(c) => {
+            *out = vtr_cycle_at {
+                cycle: c.cycle,
+                edge: c.edge,
+                has_next_edge: c.next_edge.is_some() as c_int,
+                next_edge: c.next_edge.unwrap_or(0),
+                fraction: c.fraction,
+                stopped: c.stopped as c_int,
+            };
+            VTR_OK
+        }
+        None => VTR_ERR_NOT_FOUND,
+    }
+}
+
+unsafe fn time_out(r: Option<u64>, out: *mut u64) -> c_int {
+    match (r, out.as_mut()) {
+        (_, None) => {
+            set_error("null output");
+            VTR_ERR_NULL
+        }
+        (Some(v), Some(o)) => {
+            *o = v;
+            VTR_OK
+        }
+        (None, Some(_)) => VTR_ERR_NOT_FOUND,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_edge(t: *const vtr_clock_timeline, cycle: u64, out: *mut u64) -> c_int {
+    time_out(need_ref!(t).0.edge(cycle), out)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_next_edge(t: *const vtr_clock_timeline, time: u64, out: *mut u64) -> c_int {
+    time_out(need_ref!(t).0.next_edge(time), out)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_clock_timeline_prev_edge(t: *const vtr_clock_timeline, time: u64, out: *mut u64) -> c_int {
+    time_out(need_ref!(t).0.prev_edge(time), out)
 }

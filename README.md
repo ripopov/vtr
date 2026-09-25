@@ -290,6 +290,7 @@ vtr value sim.vtr top.cpu.pc 123450
 vtr changes sim.vtr top.cpu.pc --from 100000 --to 200000
 vtr dump sim.vtr --to 5000                   # VCD-like text
 vtr log sim.vtr --severity warn              # log records rendered to text
+vtr clocks sim.vtr                           # declared clocks: stretches and periods
 vtr tx pipeline.vtr --stream cpu.thread0 --from 100 --to 200
 vtr tx pipeline.vtr --id 42
 ```

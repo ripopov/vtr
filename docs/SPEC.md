@@ -356,7 +356,7 @@ value }`. A value is a tag byte followed by a tag-specific payload:
 
 Attribute keys are free form. Keys beginning with `vtr.` and `log.` are
 reserved for this specification (`log.*` is defined in section 8.1,
-`vtr.label` below); converters use tool prefixes (`fst.`, `otel.`,
+`vtr.label` below, `vtr.period` and `vtr.clock` in section 7.4); converters use tool prefixes (`fst.`, `otel.`,
 `kanata.`, `ftr.`) for source-specific data. Readers must preserve unknown
 attributes. Producers that copy attributes from another format must not
 strip or add a reserved prefix, so a foreign key never acquires reserved
@@ -632,6 +632,8 @@ attribute, exactly the columns implied by its tag are read.
   (stage).
 * Text logs are streams of kind `LOG`; their records are zero-duration
   transactions stored in LOG_BLOCKs (section 8), not in TX_BLOCKs.
+* Clocks are streams of kind `CLOCK` whose transactions are steady stretches
+  of edges (section 7.4).
 
 ### 7.3 Reading
 
@@ -640,6 +642,42 @@ id. *Transactions in a time window*: blocks with `t_min <= window end` and
 `t_max >= window start`. *Relations from/to an id*: blocks whose
 `rel_min/max` range contains it. *Transactions of a generator*: blocks
 whose generator list contains it.
+
+### 7.4 Clocks
+
+A clock records when a clock ticked as a list of steady *stretches*, not as
+edges. It uses the transaction encoding and adds no section, value tag or
+node kind.
+
+* A clock is a stream of kind `CLOCK` with exactly one generator, named
+  `edges`. The stream is named after the clock net and placed in the net's
+  scope, so a reader pairs it with the net's waveform by path when that was
+  dumped. A clock's path is its stream's path joined with `.`.
+* A *stretch* is one transaction of `edges`: `begin` is its first rising
+  edge, `end` its last, and the attribute `vtr.period` (tag 10, *time*) the
+  spacing between them, in file units. `end - begin` is a whole multiple of
+  the period. A stretch of a single edge (`begin = end`) has no `vtr.period`.
+  Status is *unset*, or *open* for a stretch still running when the file was
+  closed; kind is *unspecified*; there is no parent, event or stage.
+* Stretches of one clock never share an edge: each begins after the previous
+  one's last edge. Periods are whole file units; producers do not round.
+* The edges of stretch `s` are `s.begin + k * s.period` for
+  `k = 0 .. n(s) - 1`, with `n(s) = (s.end - s.begin) / s.period + 1`
+  (1 without a period). The first recorded edge is cycle 0, and numbering
+  continues across stretches in time order: the first edge of `s` is cycle
+  `sum n` over the earlier stretches. The cycle at time `t` is the number of
+  the last edge at or before `t`; the interval from the last edge of one
+  stretch to the first edge of the next is one cycle. Edge counts and cycle
+  numbers are computed, never stored.
+* The attribute `vtr.clock` (tag 5, *str*) on any stream names, by path, the
+  clock that the stream's stages and transactions are counted in. A stream
+  without it has no declared clock.
+
+Writers should store stretches in TX_BLOCKs that hold no other generator, so
+that a reader loads a clock without decoding other transactions. The
+reference writer writes the stretches ended so far into one such block at
+each explicit flush and at close; it ends a stretch still running at close at
+its last edge at or before the writer's current time.
 
 ## 8. LOG_BLOCK (kind 8)
 
