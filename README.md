@@ -232,6 +232,7 @@ requirement for embedded chat.
 | Shared transaction detail panel for table and pipeline selections: lifeline, typed attributes, stages, events, related records (proposal/demo) | [Transaction panel](docs/tx-detail.html) |
 | Instruction pipeline tracing from Verilator into VTR with a reusable SystemVerilog tracer API; openC910 proof of concept (proposal/demo on recorded data) | [C910 pipeline tracing](docs/c910-verilator-tx-stream.html), `bench/workloads/c910/pipeline_replay.py` |
 | Owner-declared clocks stored in VTR as steady stretches (first edge, last edge, period; DVFS and gating included) and their use in Volna as cycle rulers, cycle readouts, edge snapping and pipelines in cycles (proposal/demo) | [Clocks](docs/vtr_clocks.html) |
+| Adding hierarchy during a run (UVM objects, initial blocks): how VTR hierarchy works, the reader fix for late signals, an explicit-parent writer API and core tests (plan) | [Dynamic hierarchy](docs/dyn_hierarchy.html) |
 
 ## Building and testing
 

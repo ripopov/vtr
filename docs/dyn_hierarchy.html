@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VTR Dynamic Hierarchy</title>
+<meta name="description" content="Plan: how hierarchy works in VTR, why signals added during a run crash today's reader, the reader fix, an explicit-parent writer API for late producers such as UVM and initial blocks, and the tests in core/vtr/tests.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f4f6f5;--paper:#fcfdfc;--ink:#18232a;--muted:#5a686e;--line:#d5ddda;--line-strong:#b9c4c0;
+  --accent:#1d7a66;--accent-ink:#135846;--soft:#e2f0eb;--new:#1d7a66;--changed:#a2660f;--exists:#5a686e;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+}}
+:root[data-theme="dark"]{
+  --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:11px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+#theme{font:inherit;font-size:12px;background:none;border:1px solid var(--line-strong);color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer;flex:none}
+.wrap{max-width:1180px;margin:auto;padding-inline:16px}
+.prose{max-width:760px}
+section{padding-block:40px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(30px,4.4vw,46px);letter-spacing:-1.2px;line-height:1.1;font-weight:600;margin:0 0 16px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:25px;letter-spacing:-.5px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 8px}
+p{margin:0 0 14px}
+.lede{font-size:19px;color:var(--muted);max-width:720px}
+.meta{font-size:13.5px;color:var(--muted);max-width:760px}
+ul,ol{padding-left:22px}li{margin:6px 0}
+.rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
+.rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules b{display:block;font-size:17px;margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 13px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap;font-weight:500}
+.st{font-size:12px;font-weight:600;white-space:nowrap}
+.st.new{color:var(--new)}.st.changed{color:var(--changed)}.st.exists{color:var(--exists)}
+footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}
+footer ul{margin:6px 0 0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
+pre{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.5;margin:14px 0 18px}
+pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
+figure{margin:20px 0}
+figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
+.dgwrap{overflow-x:auto}
+.dg{width:100%;min-width:760px;height:auto;display:block;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+.dg text{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;fill:var(--ink)}
+.dg .sec rect{fill:var(--bg);stroke:var(--line-strong);stroke-width:1.2}
+.dg .hier rect{stroke:var(--accent);stroke-width:1.6}
+.dg .late rect{stroke:var(--changed);stroke-width:1.6}
+.dg .lbl{fill:var(--muted);font-size:11px}
+.dg .grp rect{fill:var(--soft);stroke:var(--line-strong)}
+.dg .miss rect{fill:none;stroke:var(--changed);stroke-dasharray:4 3}
+.dg .edge{fill:none;stroke:var(--muted);stroke-width:1.2}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">VTR <span>dynamic hierarchy</span></a>
+  <nav>
+    <a href="#model">How it works</a><a href="#today">Today</a><a href="#bug">The bug</a><a href="#rules">Rules</a><a href="#changes">Changes</a><a href="#tests">Tests</a><a href="#out">Out of scope</a><a href="#plan">Plan</a>
+  </nav>
+  <button id="theme" type="button" aria-label="Toggle light or dark page theme">Theme</button>
+</div></header>
+
+<main id="top">
+<section><div class="wrap">
+  <h1>Growing the hierarchy <em>during a run</em></h1>
+  <p class="lede">UVM testbenches build their component tree in the build phase and create streams for objects while the simulation runs, and <code>initial</code> blocks may add scopes after the simulator has declared the design. VTR's format already allows the hierarchy to grow at any time. The writer mostly handles it. The reader does not: a signal added after the first block can crash it. This plan explains how hierarchy works in VTR, fixes the reader, gives the writer an explicit-parent API for late producers, and adds tests that pin the behaviour down.</p>
+  <p class="meta">Plan, 25 September 2026. Nothing here is implemented. The findings below were measured with throwaway tests against the current <code>core/vtr</code>. Related: <a href="SPEC.md">SPEC.md</a> §2.4, §5 and §6, <a href="vtr_clocks.html">vtr_clocks.html</a> and <a href="c910-verilator-tx-stream.html">c910-verilator-tx-stream.html</a>, whose SystemVerilog calls create streams while the simulation runs.</p>
+</div></section>
+
+<section id="model"><div class="wrap">
+  <h2>How hierarchy works in VTR</h2>
+  <div class="prose">
+  <p>The hierarchy is a forest of <i>nodes</i>. There are five kinds: scope, var, stream, generator and enum table. Every node has a parent that was declared before it (or none, for a root), a name, and attributes. Node ids are dense numbers in file order. A var either declares a new <i>signal</i> or aliases an earlier one; signal ids are dense in the order their declaring vars appear.</p>
+  <p>Nodes are stored in HIERARCHY sections, each a <i>chunk</i> of consecutive nodes. The file is append-only, and SPEC §2.4 requires only that a node be declared by a chunk that precedes every section using it. Nothing says all chunks come first. A file can therefore interleave hierarchy chunks with signal, transaction and log blocks.</p>
+  <p>The writer keeps new nodes in a pending list. Before it hands any data to the encoder (a chunk of value changes, a transaction block, a log block, an explicit flush), it writes the pending nodes as one HIERARCHY chunk. Node attributes can be added until that happens. Scopes are declared with <code>begin_scope</code>/<code>end_scope</code>, which push and pop a scope stack; vars and enum tables go into the current scope, while streams and generators take an explicit parent. The Verilator fork declares the whole model this way inside <code>VerilatedVtr::open</code>, before the first dump.</p>
+  <p>The reader collects every HIERARCHY chunk when it opens a file, including a crash-recovered file without a directory, so it always sees the complete forest. Viewers such as Volna open finished or recovered files and have no live-follow mode, so for them a late node is simply part of the hierarchy.</p>
+  <p>Signal values live in SIGNAL_BLOCK sections. A block covers a time range and partitions signals into <i>groups</i> of <code>group_size</code> consecutive ids (256 by default). Each block records <code>n_signals</code>, the number of signals known when it was written, and each stored group container records <code>n_sigs</code>, how many signals it holds. The container's <i>frame</i> gives each held signal's value at the block's start, and a prev-dirty table points to the last earlier block where each group changed. So the format already records exactly which signals existed in each block.</p>
+  </div>
+  <figure>
+    <div class="dgwrap"><svg class="dg" viewBox="0 0 900 250" role="img" aria-label="A file with two hierarchy chunks interleaved with two signal blocks. Signal b joins group 0 in the second block; the first block's group 0 holds only a.">
+      <text x="16" y="26" class="lbl">file order →</text>
+      <g class="sec"><rect x="16" y="38" width="80" height="44" rx="6"/><text x="56" y="65" text-anchor="middle">META</text></g>
+      <g class="sec hier"><rect x="106" y="38" width="150" height="44" rx="6"/><text x="181" y="58" text-anchor="middle">HIERARCHY 0</text><text x="181" y="74" text-anchor="middle" class="lbl">top, a (signal 0)</text></g>
+      <g class="sec"><rect x="266" y="38" width="170" height="44" rx="6"/><text x="351" y="58" text-anchor="middle">SIGNAL_BLOCK 0</text><text x="351" y="74" text-anchor="middle" class="lbl">t 0–7, n_signals 1</text></g>
+      <g class="sec late"><rect x="446" y="38" width="170" height="44" rx="6"/><text x="531" y="58" text-anchor="middle">HIERARCHY 1</text><text x="531" y="74" text-anchor="middle" class="lbl">late, b (signal 1)</text></g>
+      <g class="sec"><rect x="626" y="38" width="170" height="44" rx="6"/><text x="711" y="58" text-anchor="middle">SIGNAL_BLOCK 1</text><text x="711" y="74" text-anchor="middle" class="lbl">t 8–15, n_signals 2</text></g>
+      <g class="sec"><rect x="806" y="38" width="78" height="44" rx="6"/><text x="845" y="65" text-anchor="middle">DIR</text></g>
+      <path class="edge" d="M306 82V122"/><path class="edge" d="M666 82V122"/>
+      <g class="grp"><rect x="266" y="122" width="80" height="34" rx="4"/><text x="306" y="144" text-anchor="middle">a</text></g>
+      <g class="miss"><rect x="352" y="122" width="80" height="34" rx="4"/><text x="392" y="144" text-anchor="middle" class="lbl">no b</text></g>
+      <g class="grp"><rect x="626" y="122" width="80" height="34" rx="4"/><text x="666" y="144" text-anchor="middle">a</text></g>
+      <g class="grp"><rect x="712" y="122" width="80" height="34" rx="4"/><text x="752" y="144" text-anchor="middle">b</text></g>
+      <text x="266" y="178" class="lbl">group 0, n_sigs 1: frame and</text><text x="266" y="194" class="lbl">columns cover a only</text>
+      <text x="626" y="178" class="lbl">group 0, n_sigs 2</text>
+      <text x="16" y="222" class="lbl">Today's reader assumes every block's group 0 holds all of today's group 0, so asking block 0 for b indexes past its end.</text>
+    </svg></div>
+    <figcaption>Signal <code>b</code> is declared after block 0 and lands in group 0, which already holds <code>a</code>. Block 0 knows only <code>a</code>; the file says so through <code>n_signals</code> and <code>n_sigs</code>.</figcaption>
+  </figure>
+</div></section>
+
+<section id="today"><div class="wrap">
+  <h2>What works today</h2>
+  <div class="prose">
+  <p>Throwaway tests declared nodes after emitting values, in foreground and background writer modes, with small blocks so that declarations fall before, inside and after block boundaries:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Added after the first values</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Scope, stream, generator</td><td>Works. The nodes are found by path, and a transaction on the late generator reads back.</td></tr>
+      <tr><td>Signal declared in the middle of a block</td><td>Works in both writer modes. The block that holds the declaration covers the new signal; its history starts at its first emit.</td></tr>
+      <tr><td>Signal that starts a new group</td><td>Works for every query (tested with <code>group_size</code> 1). Earlier blocks have no container for that group, which the reader already treats as "no data".</td></tr>
+      <tr><td>Signal that joins a group already stored in earlier blocks</td><td><b>Reader panics.</b> <code>load_signal</code>, <code>load_signals</code> and <code>changes</code> fail whenever the signal's range includes such a block, and <code>value_at</code> fails for times inside it. With the default group size of 256 this is the normal case.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Two gaps are not bugs but missing API. The C API has no way to put a var or scope under an explicit parent: <code>vtr_writer_add_var</code> and <code>vtr_writer_begin_scope</code> always use the scope stack. The Rust writer has <code>add_var_in</code> and <code>add_alias_in</code> but no <code>add_scope_in</code>. A producer that adds nodes late, from a DPI call or a UVM callback, cannot rely on the stack, because it does not own it and the fork has already emptied it.</p>
+  <p>The core crates have 35 tests and all pass, but none declares anything after values were emitted, and no CI workflow runs <code>cargo test</code> at all. That is how the panic went unnoticed.</p>
+  </div>
+</div></section>
+
+<section id="bug"><div class="wrap"><div class="prose">
+  <h2>Why late signals break the reader</h2>
+  <p>To read signal <i>s</i> in block <i>b</i>, the reader finds the container of group <code>s / group_size</code> and then indexes its frame and its runs with the local position <code>s − first_sig</code>. It never compares that position with the container's <code>n_sigs</code>. For a signal that joined the group after block <i>b</i> was written, the position lies past the end of the container, and the frame lookup (<code>Reader::frame</code>, and the frame read inside <code>load_signals</code>) indexes out of bounds. The column lookup has the same flaw and could return another signal's data instead of panicking if run boundaries happened to line up.</p>
+  <p>Groups that did not exist yet are already safe: <code>prev_dirty</code> returns "none" for a group beyond the block's <code>n_groups</code>, and <code>find_group</code> finds no container. The whole-block walk behind <code>for_each_change</code> sizes its tables by each block's own <code>n_signals</code> and is also safe. Only the partially filled group is missing its check.</p>
+  <p>The writer side is sound. Tests with mid-block declarations and small chunks in background mode read back correctly whenever the group check was not involved. The writer re-snapshots the signal kinds after each declaration, grows its dirty-group tables on demand, writes the block's <code>n_signals</code> at the time of flushing, and emits the pending HIERARCHY chunk before the chunk of values that first uses a new signal.</p>
+</div></div></section>
+
+<section id="rules"><div class="wrap">
+  <h2>Rules for a growing hierarchy</h2>
+  <ol class="rules">
+    <li><b>Nodes can be added at any time.</b> A producer may declare scopes, vars, aliases, enum tables, streams and generators before, between or after any value, transaction or log record. The writer places them in the next HIERARCHY chunk.</li>
+    <li><b>Nodes are permanent.</b> A node exists from the chunk that declares it to the end of the file. It is never removed, renamed or re-parented.</li>
+    <li><b>A signal missing from a block has no data there.</b> If <i>s</i> ≥ the block's <code>n_signals</code>, or its position in the group is ≥ the container's <code>n_sigs</code>, the block holds no changes of <i>s</i>. Its value there is the default from SPEC §6.3: all X for 4- and 9-state bits, 0 for 2-state bits and reals, the empty string for variable-length signals. This is the same value a signal has before its first change today.</li>
+    <li><b>Late producers name their parent.</b> The scope stack belongs to whoever declares the bulk hierarchy, the fork at <code>open</code>. Anything added later passes its parent explicitly and leaves the stack alone.</li>
+    <li><b>Attributes come with the node.</b> Node attributes must still be set before the node's chunk is written, which in practice means right after creating it. Late producers do not need more than that.</li>
+  </ol>
+  <div class="prose">
+  <p>Rules 1 to 3 describe what the format already means. They go into SPEC as clarifications; the layout does not change, so the format version stays. Files written today with late signals become readable, not reinterpreted.</p>
+  </div>
+</div></section>
+
+<section id="changes"><div class="wrap"><div class="prose">
+  <h2>What changes</h2>
+  <h3>SPEC</h3>
+  <ul>
+    <li>§2.4: HIERARCHY chunks may appear anywhere after META, interleaved with other sections; a node is valid from its chunk to the end of the file (rules 1 and 2).</li>
+    <li>§6.2 and §6.7: a signal outside a block's <code>n_signals</code> or outside its group container's <code>n_sigs</code> has no changes in that block, and a reader uses the default value for it (rule 3). The reading algorithm in §6.7 gains that check.</li>
+    <li>§5: late producers should give explicit parents (rule 4). This is guidance for writers, not a format rule.</li>
+  </ul>
+  <h3>Reader</h3>
+  <ul>
+    <li><code>GroupView</code> gains <code>holds(sig) -&gt; bool</code>, true when <code>sig − first_sig &lt; n_sigs</code>.</li>
+    <li><code>value_at</code>: when the last dirty block at or before the time does not hold the signal, return the default. The signal had no changes up to that block, because it did not exist yet.</li>
+    <li><code>changes</code>, <code>load_signal</code> and <code>load_signals</code>: skip blocks that do not hold the signal, and seed its initial value with the default instead of reading a frame.</li>
+    <li><code>column</code>: a dynamic alias whose target the block does not hold is reported as corrupt data, never followed.</li>
+    <li>The C reader API needs no change; it calls the same functions.</li>
+  </ul>
+  <h3>Writer</h3>
+  <ul>
+    <li>Rust: add <code>add_scope_in(parent, name, scope_type, component) -&gt; Result&lt;NodeId&gt;</code> and <code>add_enum_table_in</code> next to the existing <code>add_var_in</code> and <code>add_alias_in</code>. None of them touches the scope stack.</li>
+    <li>All explicit-parent calls, including <code>add_stream</code> and <code>add_generator</code>, validate the parent: it must exist, a scope, var or enum table must sit under a scope or at the root, a stream under a scope or at the root, and a generator under a stream. Today these calls accept any id.</li>
+    <li>C API, one to one: <code>vtr_writer_add_scope</code>, <code>vtr_writer_add_var_in</code>, <code>vtr_writer_add_alias_in</code> and <code>vtr_writer_add_enum_table_in</code>, each with a <code>parent</code> argument (or <code>VTR_NONE</code>). <code>vtr.h</code> documents rule 4 next to the scope stack.</li>
+    <li>No encoding change. Existing producers write byte-identical files.</li>
+  </ul>
+  <h3>Simulators</h3>
+  <div>
+  <p>Nothing in the fork changes for this plan, but two facts matter to the SystemVerilog producers built on it. First, <code>initial</code> blocks run during the first <code>eval()</code>. When the harness opens the file before that, as the C910 harness does, they run after <code>open</code> has declared the model and before the first dump, so hierarchy they add lands in the first chunks, ahead of any values. The tests cover that case explicitly. Second, a DPI call made before the harness opens the file has no writer to go to. The sink in <a href="vtr_clocks.html">vtr_clocks.html</a> must therefore keep declarations made before <code>open</code> and replay them at <code>open</code>, and the UVM work will rely on that.</p>
+  </div>
+</div></div></section>
+
+<section id="tests"><div class="wrap"><div class="prose">
+  <h2>Tests</h2>
+  <p>A new file, <code>core/vtr/tests/dynamic_hierarchy.rs</code>, lands together with the reader fix; its first test fails on today's reader. Each test compares against expectations the test computes itself, so no fixture files are needed.</p>
+  <ol>
+    <li><b><code>signals_declared_mid_run_read_back</code></b>. For <code>group_size</code> 1, 3 and 256, and for foreground and background writers with 8-record blocks and 4-record chunks, it declares signals at five moments: before the first time step, at time 0 after the first values (the <code>initial</code>-block case), in the middle of a block, right after an explicit <code>flush</code>, and late in the run. The declarations fall both into partly filled groups and into new ones, and cover 1-bit 4-state, 8-bit 2-state and 4-state, real and variable-length signals. The test keeps the expected history of every signal and checks <code>load_signal</code>; <code>load_signals</code> mixed with early signals and repeated ids; <code>changes</code> over windows that start before the declaration; <code>value_at</code> at every time step, including the default before the declaration; and the merged order from <code>for_each_change</code>.</li>
+    <li><b><code>nodes_added_mid_run_under_explicit_parents</code></b>. After values have been emitted, it adds a scope with <code>add_scope_in</code>, vars and an alias with <code>add_var_in</code> and <code>add_alias_in</code>, a stream and generator under that scope, and a log stream and site, each with node attributes. It writes a transaction and a log record on them, then checks the paths with <code>find_node</code>, parents and children, attributes, the transaction and the log record, and that the scope stack of an ongoing <code>begin_scope</code> was not disturbed.</li>
+    <li><b><code>explicit_parents_are_validated</code></b>. A var or scope under a var, a generator under a scope, and unknown ids are rejected with an error, and nothing is written for them.</li>
+    <li><b><code>late_declarations_survive_recovery</code></b>. It truncates a file with late nodes inside its last signal block, as <code>recovery_without_directory</code> does, and checks that nodes from chunks before the cut exist, that their signals read correctly up to the cut, and that nodes after the cut are simply absent.</li>
+  </ol>
+  <p>The C smoke test <code>core/vtr-capi/tests/c_smoke.c</code> gains a late scope, var and stream created through the new C calls after the first values, and reads them back.</p>
+  <p>These tests only protect the feature if they run. A new workflow, <code>.github/workflows/core-tests.yml</code>, runs <code>cargo test -p vtr -p vtr-capi</code> on <code>ubuntu-24.04</code> for every push and pull request. It is the first CI job for the core crates.</p>
+</div></div></section>
+
+<section id="out"><div class="wrap"><div class="prose">
+  <h2>Out of scope</h2>
+  <ul>
+    <li><b>Node lifetimes.</b> UVM objects are created and destroyed during the run, but a VTR node has no creation or end time; a viewer shows it for the whole run, and its data simply starts later. Recording lifetimes means reserved attributes set after the node's chunk was written, which the writer does not allow, or a new record kind. That design belongs in a UVM recording proposal, together with how viewers would show it.</li>
+    <li><b>Renaming, moving or deleting nodes.</b> Rule 2 excludes them; nothing in the planned producers needs them.</li>
+    <li><b>Viewing a file while it is written.</b> Volna and the CLI open finished or recovered files. A live mode would have to pick up new chunks as they appear; that is a separate feature.</li>
+  </ul>
+</div></div></section>
+
+<section id="plan"><div class="wrap"><div class="prose">
+  <h2>Plan</h2>
+  <ol>
+    <li><b>Reader fix and tests.</b> <code>GroupView::holds</code> and its use in <code>value_at</code>, <code>changes</code>, <code>load_signal</code>, <code>load_signals</code> and alias resolution; tests 1 and 4; the SPEC §2.4, §6.2 and §6.7 clarifications; a RATIONALE entry recording that membership comes from the per-block counts rather than a stored creation time. The reader decode path changes, so read time is A/B-tested with <code>bench/run.py</code> against a worktree of <code>HEAD</code>. File sizes and write times are unaffected because the writer is unchanged in this step. <i>Exit:</i> test 1 fails before the fix and passes after, and read time is within noise.</li>
+    <li><b>Explicit-parent API.</b> <code>add_scope_in</code>, <code>add_enum_table_in</code>, parent validation, the four C functions and <code>vtr.h</code> documentation; tests 2 and 3; the C smoke test. <i>Exit:</i> all core tests pass.</li>
+    <li><b>CI.</b> <code>.github/workflows/core-tests.yml</code>. <i>Exit:</i> the workflow is green on the branch, and it fails when the reader fix is reverted.</li>
+    <li><b>Measure chunk overhead.</b> A test-scale run that adds 10,000 nodes one at a time over a long run reports the number and total size of HIERARCHY sections next to a run that declares the same nodes up front. The writer emits at most one HIERARCHY chunk per flush of values, transactions or logs, so the overhead should be small, but the numbers go into RATIONALE either way.</li>
+  </ol>
+  <p>The SystemVerilog calls that create streams while a simulation runs, in <a href="vtr_clocks.html">vtr_clocks.html</a> and <a href="c910-verilator-tx-stream.html">c910-verilator-tx-stream.html</a>, only need step 2's explicit parents and the replay of declarations made before <code>open</code>. Steps 1 to 3 should land before either of those proposals starts.</p>
+</div></div></section>
+</main>
+
+<footer><div class="wrap">
+  Sources: <code>docs/SPEC.md</code> §2.4, §5 and §6; <code>core/vtr/src/writer.rs</code> (<code>begin_scope</code>, <code>add_var_in</code>, <code>flush_meta_and_hierarchy</code>, <code>flush_signals</code>); <code>core/vtr/src/reader.rs</code> (<code>value_at</code>, <code>changes</code>, <code>load_signals</code>, <code>frame</code>, <code>column_direct</code>, <code>for_each_change</code>); <code>core/vtr/src/block.rs</code> (<code>GroupView</code>, <code>prev_dirty</code>, <code>find_group</code>); <code>core/vtr-capi/include/vtr.h</code>; <code>ext/verilator/include/verilated_vtr_c.cpp</code> (<code>VerilatedVtr::open</code>).
+</div></footer>
+<script>
+document.getElementById('theme').addEventListener('click', () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+});
+</script>
+</body>
+</html>
