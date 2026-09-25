@@ -447,16 +447,15 @@ impl PipelineModel {
         match stage.and_then(|s| tx.stages.get(s)) {
             Some(s) => {
                 text.push_str(&format!(
-                    " · {} [{}, {})",
+                    " · {} {}",
                     s.name,
-                    s.begin,
-                    Self::stage_end(tx, s)
+                    self.span_text(doc, s.begin, Self::stage_end(tx, s))
                 ));
                 if s.lane != self.palette.primary_lane() {
                     text.push_str(&format!(" lane {}", s.lane));
                 }
             }
-            None => text.push_str(&format!(" · [{}, {}]", tx.begin, tx.end)),
+            None => text.push_str(&format!(" · {}", self.span_text(doc, tx.begin, tx.end))),
         }
         let label = Self::label(tx);
         if !label.is_empty() {
@@ -482,9 +481,11 @@ impl PipelineModel {
             Rows::Failed(_) => (0, true),
             _ => (0, false),
         };
+        let rulers = self.nav.clocks.rulers(&doc.clocks).len();
         let input = LayoutInput {
             bounds,
             header_h: theme.timeline_height,
+            ruler_h: rulers as f32 * crate::wave::overlay::RULER_H * theme.zoom,
             zoom: theme.zoom,
             label_width: self.label_width,
             rows: self.rows.value,
@@ -733,11 +734,45 @@ impl PipelineModel {
         }
     }
 
-    /// The integer cycle under panel x, clamped to the trace.
+    /// The clock this panel's stream counts its stages in (its `vtr.clock`).
+    pub fn clock<'a>(&self, doc: &'a Document) -> Option<&'a crate::clock::Clock> {
+        doc.clocks.linked(self.track.track()?)
+    }
+
+    /// The start of the cycle under panel x, clamped to the trace: the last
+    /// edge of the stream's clock at or before it, or the whole time unit
+    /// without a clock (a Kanata trace counts one unit per cycle).
     fn cycle_at(&self, doc: &Document, x: f32) -> u64 {
-        let t = self.layout.time_at(&self.nav.viewport(doc), x).floor();
+        let t = self.layout.time_at(&self.nav.viewport(doc), x).max(0.0);
+        if let Some(at) = self
+            .clock(doc)
+            .and_then(|c| c.timeline())
+            .and_then(|tl| tl.cycle_at(t as u64))
+        {
+            return at.edge;
+        }
         let (a, b) = doc.limits();
-        (t.max(0.0) as u64).clamp(a, b)
+        (t.floor() as u64).clamp(a, b)
+    }
+
+    /// `12–15 (3 cycles)`: an interval as cycles of the stream's clock, as
+    /// the panel numbers them; `[12, 15)` in time units without a clock.
+    fn span_text(&self, doc: &Document, begin: u64, end: u64) -> String {
+        let Some(tl) = self.clock(doc).and_then(|c| c.timeline()) else {
+            return format!("[{begin}, {end})");
+        };
+        let view = &self.nav.clocks;
+        let cycle = |t: u64| tl.cycle_at(t).map(|c| view.display_cycle(tl, c.cycle));
+        match (cycle(begin), cycle(end)) {
+            (Some(b), Some(e)) => {
+                let n = e - b;
+                format!(
+                    "cycles {b}–{e} ({n} cycle{})",
+                    if n == 1 { "" } else { "s" }
+                )
+            }
+            _ => format!("[{begin}, {end})"),
+        }
     }
 
     // -- pointer input -----------------------------------------------------------
@@ -844,10 +879,25 @@ impl PipelineModel {
                 }
                 return;
             }
-            if layout.header.contains(p) && p.x >= layout.cells.left() {
+            // A press on a clock ruler selects its clock, then works like the header.
+            let rulers: Vec<String> = self
+                .nav
+                .clocks
+                .rulers(&doc.clocks)
+                .iter()
+                .map(|c| c.path.clone())
+                .collect();
+            let ruler = layout.ruler_at(p, rulers.len());
+            if let Some(ix) = ruler {
+                self.nav.select_clock(&rulers[ix]);
+            }
+            if (layout.header.contains(p) || ruler.is_some()) && p.x >= layout.cells.left() {
                 let cycle = self.cycle_at(doc, p.x);
                 self.nav.set_cursor(doc, Some(cycle));
                 self.drag = Some(Drag::Cursor);
+                return;
+            }
+            if ruler.is_some() {
                 return;
             }
             // The label column has no time under the pointer, so a click

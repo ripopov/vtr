@@ -83,9 +83,14 @@ pub fn paint(
             point(waves.left(), layout.header.top()),
             size(waves.width(), layout.header.height()),
         ),
+        rulers: Rect::new(
+            point(waves.left(), layout.rulers.top()),
+            size(waves.width(), layout.rulers.height()),
+        ),
         area: waves,
         viewport,
     };
+    let clocks = &model.nav.clocks;
 
     // -- backgrounds and chrome ------------------------------------------
     p.scene.fill(bounds, t.editor.bg);
@@ -102,7 +107,7 @@ pub fn paint(
     p.scene.fill(layout.header, t.panel.bg);
 
     // -- tick grid in the waves area ---------------------------------------
-    let (tick_list, unit) = column.ticks(base, t.zoom);
+    let (tick_list, unit) = column.main_ticks(base, t.zoom, clocks, &doc.clocks);
     overlay::grid(&mut p, &column, &tick_list);
 
     // -- rows ----------------------------------------------------------------
@@ -148,6 +153,18 @@ pub fn paint(
                     muted: colors.text_placeholder,
                 };
                 paint_lane_row(lane, doc, &cells, &mut p);
+                continue;
+            }
+            WaveRow::Clock(clock) => {
+                let cells = LaneCells {
+                    layout: &layout,
+                    ix,
+                    viewport,
+                    cursor,
+                    text: colors.text,
+                    muted: colors.text_placeholder,
+                };
+                paint_clock_row(clock, &model.nav.clocks, doc, &cells, &mut p);
                 continue;
             }
         };
@@ -522,11 +539,32 @@ pub fn paint(
             );
         },
     );
-    overlay::header_ticks(&mut p, &column, &tick_list, unit);
+    overlay::header_ticks(&mut p, &column, &tick_list, &unit);
+    overlay::clock_rulers(
+        &mut p,
+        &column,
+        Rect::new(
+            point(bounds.left(), layout.rulers.top()),
+            size(
+                layout.names.width() + layout.values.width(),
+                layout.rulers.height(),
+            ),
+        ),
+        clocks,
+        &doc.clocks,
+        base,
+    );
 
     // -- markers and cursor --------------------------------------------------------
     overlay::markers(&mut p, &column, doc, &layout.marker_chips, model.pointer);
-    overlay::cursor(&mut p, &column, cursor, base, focused, z(SCROLLBAR_W));
+    overlay::cursor(
+        &mut p,
+        &column,
+        cursor,
+        |c| overlay::cursor_label(c, base, clocks, &doc.clocks),
+        focused,
+        z(SCROLLBAR_W),
+    );
     paint_analog_overlays(model, doc, &layout, &viewport, cursor, &mut p);
 
     // -- borders --------------------------------------------------------------
@@ -1284,6 +1322,73 @@ struct LaneCells<'a> {
     cursor: Option<u64>,
     text: Color,
     muted: Color,
+}
+
+/// A clock row: its name, its cycle at the cursor in the values column, and
+/// a square wave drawn from its stretches (a band where edges are denser
+/// than pixels).
+fn paint_clock_row(
+    row: &crate::wave::model::ClockRow,
+    view: &crate::clock::ClockView,
+    doc: &Document,
+    cells: &LaneCells<'_>,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let layout = cells.layout;
+    let (names, values, waves) = (layout.names, layout.values, layout.waves);
+    let row_h = layout.row_h;
+    let y = layout.row_y(cells.ix);
+    let full_h = layout.row_height(cells.ix);
+    let timeline = row.timeline(doc);
+    let name = row.name.clone();
+    let name_color = if timeline.is_some() {
+        cells.text
+    } else {
+        cells.muted
+    };
+    p.scene.clipped(names, |scene| {
+        scene.text(
+            point(names.left() + z(12.0), y),
+            row_h,
+            name,
+            FontRole::Mono,
+            t.mono_size,
+            name_color,
+        );
+    });
+    let value = match (timeline, doc.clocks.find(&row.path)) {
+        (Some(tl), _) => cells
+            .cursor
+            .and_then(|c| tl.cycle_at(c))
+            .map(|at| crate::clock::format_position(view, tl, &at)),
+        (None, None) => Some("no such clock".into()),
+        (None, Some(c)) => Some(match &c.state {
+            crate::clock::ClockState::Failed(e) => e.clone(),
+            _ => "loading…".into(),
+        }),
+    };
+    if let Some(value) = value {
+        p.scene.clipped(values, |scene| {
+            scene.text(
+                point(values.left() + z(8.0), y),
+                row_h,
+                value,
+                FontRole::Mono,
+                t.mono_size,
+                cells.muted,
+            );
+        });
+    }
+    if let Some(tl) = timeline {
+        let wave_row = Rect::new(point(waves.left(), y), size(waves.width(), full_h));
+        let history = crate::clock::ClockHistory::new(tl.clone());
+        let viewport = cells.viewport;
+        p.scene.clipped(waves, |scene| {
+            paint_bit_row(&history, &viewport, wave_row, t, scene)
+        });
+    }
 }
 
 /// A bar prepared for painting: its lifetime, the solid stage spans inside

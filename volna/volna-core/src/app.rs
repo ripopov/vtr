@@ -67,6 +67,13 @@ pub enum Action {
     ResetRowHeight,
     MoveSelectionUp,
     MoveSelectionDown,
+    /// Step the cursor to the next / previous rising edge of the panel's
+    /// selected clock (`]` / `[`).
+    NextCycle,
+    PrevCycle,
+    /// Number every clock's cycles from the cursor's cycle, or from the
+    /// first edge again when the origin is already there.
+    ToggleCycleOrigin,
 }
 
 impl Command {
@@ -85,6 +92,9 @@ impl Command {
             "focusPrevPanel" => Action::FocusPrevPanel,
             "toggleViewportLink" => Action::ToggleViewportLink,
             "toggleCursorLink" => Action::ToggleCursorLink,
+            "nextCycle" => Action::NextCycle,
+            "prevCycle" => Action::PrevCycle,
+            "toggleCycleOrigin" => Action::ToggleCycleOrigin,
             _ => {
                 let index = name.strip_prefix("focusPanel")?.parse::<usize>().ok()?;
                 return (1..=9)
@@ -158,6 +168,9 @@ pub enum Command {
         from: PanelId,
     },
     Transaction(PanelId, TransactionCommand),
+    /// The focused panel's clocks: rulers, cycle axis, the selected clock
+    /// and go-to-cycle.
+    Clocks(ClockCommand),
     /// Scroll the pipeline showing this panel's record to its row and fit the
     /// time axis to its lifetime, or open that track as a pipeline.
     RevealTransaction {
@@ -189,6 +202,29 @@ pub enum Command {
     ChromeDragStart(ChromeDrag),
     ChromeDragEnd,
     Settings(SettingsCommand),
+}
+
+/// The focused timed panel's clock choices, for menus and the palette.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClockChoices {
+    /// Every clock of the trace: path, shown as a ruler, counted on the main ruler.
+    pub clocks: Vec<(String, bool, bool)>,
+    /// Cycles are numbered from a chosen origin.
+    pub origin: bool,
+}
+
+/// What a timed panel shows of the trace's clocks (`docs/vtr_clocks.html`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClockCommand {
+    /// Show or hide the ruler of the clock with this path.
+    ToggleRuler(String),
+    /// Count the main ruler in cycles of this clock, or in time (`None`).
+    SetAxis(Option<String>),
+    /// The clock clicks snap to and `[` / `]` step through.
+    Select(String),
+    /// Put the cursor on this cycle, as the panel numbers the cycles of its
+    /// axis clock (else its selected clock).
+    GoToCycle(i64),
 }
 
 /// The settings editor. GUI edits become surgical text edits in the core;
@@ -282,6 +318,12 @@ pub struct Status {
     pub changes: Option<String>,
     pub px_per: Option<String>,
     pub cursor: Option<String>,
+    /// The cursor's cycle in each clock ruler of the focused panel, e.g.
+    /// `core_clk 150231 + 0.42`.
+    pub clocks: Vec<String>,
+    /// Cursor minus the nearest marker, in time and in whole cycles of each
+    /// ruler clock: `Δ 20 ns · 40 core_clk · 10 bus_clk`.
+    pub delta: Option<String>,
     pub markers: Option<String>,
     pub frame_ms: String,
     /// Decoded trace data against the open trace's memory budget.
@@ -929,6 +971,7 @@ impl App {
                 cursor,
             } => self.select_transaction(panel, track, id, cursor),
             Command::ShowTransaction { from } => self.show_transaction(from),
+            Command::Clocks(command) => self.clock_command(command),
             Command::Transaction(panel, command) => {
                 let Self { panels, doc, .. } = self;
                 if let Some(model) = panels.transaction_mut(panel)
@@ -1476,13 +1519,15 @@ impl App {
             self.panel_command(PanelsCommand::Focus(id));
             return;
         }
-        let model = PipelineModel::new(
+        let mut model = PipelineModel::new(
             TrackSource::Resolved {
                 track,
                 path: declaration.path.clone(),
             },
             self.settings.resolved().link_by_default(),
         );
+        // A pipeline counts in its stream's clock: its main ruler shows cycles.
+        model.nav.clocks.axis = self.doc.clocks.linked(track).map(|c| c.path.clone());
         let focused = self.panels.focused_id();
         if self.panels.focused().kind.is_start() {
             _ = self.replace_panel(focused, PanelKind::Pipeline(Box::new(model)));
@@ -1530,17 +1575,26 @@ impl App {
         };
         let vars: Vec<VarId> = members.iter().filter_map(|m| m.var()).collect();
         let mut tracks = Vec::new();
+        let mut clocks: Vec<String> = Vec::new();
+        let catalog = self.doc.session().map(|s| s.tracks()).unwrap_or(&[]);
         for &member in members {
-            if matches!(member, Member::Generator(_))
+            let Some(track) = h.member_track(member) else {
+                continue;
+            };
+            // A clock stream or its generator is drawn from its stretches.
+            if let Some(clock) = self.doc.clocks.of_track(track, catalog) {
+                if !clocks.contains(&clock.path) {
+                    clocks.push(clock.path.clone());
+                }
+            } else if matches!(member, Member::Generator(_))
                 && !h.is_log(member)
-                && let Some(track) = h.member_track(member)
                 && !tracks.contains(&track)
             {
                 tracks.push(track);
             }
         }
         self.add_vars(&vars);
-        if tracks.is_empty() {
+        if tracks.is_empty() && clocks.is_empty() {
             return;
         }
         let Some(target) = self.waves_target() else {
@@ -1549,6 +1603,7 @@ impl App {
         let Self { panels, doc, .. } = self;
         if let Some(w) = panels.waves_mut(target) {
             w.add_lanes(doc, &tracks);
+            w.add_clocks(&clocks);
         }
         self.sync_lane_tracks();
         self.changed();
@@ -1628,6 +1683,63 @@ impl App {
         self.changed();
     }
 
+    /// Apply a clock choice or go-to to the focused timed panel.
+    fn clock_command(&mut self, command: ClockCommand) {
+        let now = Instant::now();
+        let doc = &mut self.doc;
+        let Some(nav) = self.panels.focused_mut().kind.nav_mut() else {
+            return;
+        };
+        match command {
+            ClockCommand::ToggleRuler(path) => nav.clocks.toggle_ruler(&doc.clocks, &path),
+            ClockCommand::SetAxis(path) => nav.clocks.axis = path,
+            ClockCommand::Select(path) => nav.select_clock(&path),
+            ClockCommand::GoToCycle(cycle) => {
+                if let Err(message) = nav.go_to_cycle(doc, cycle, now) {
+                    self.events.push(Event::Notice(message));
+                }
+            }
+        }
+        self.changed();
+    }
+
+    /// The focused panel's clock choices; `None` without clocks or a timed panel.
+    pub fn clock_choices(&self) -> Option<ClockChoices> {
+        let clocks = &self.doc.clocks;
+        if clocks.is_empty() {
+            return None;
+        }
+        let nav = self.panels.focused().kind.nav()?;
+        let rulers = nav.clocks.ruler_paths(clocks);
+        Some(ClockChoices {
+            clocks: clocks
+                .iter()
+                .map(|c| {
+                    (
+                        c.path.clone(),
+                        rulers.contains(&c.path),
+                        nav.clocks.axis.as_deref() == Some(&c.path),
+                    )
+                })
+                .collect(),
+            origin: nav.clocks.origin.is_some(),
+        })
+    }
+
+    /// The clocks the workspace's pipelines count in, in panel order: the
+    /// rulers a panel shows until it chooses its own.
+    fn pipeline_clocks(&self) -> Vec<String> {
+        let mut paths: Vec<String> = Vec::new();
+        for p in self.panels.iter().filter_map(|p| p.kind.pipeline()) {
+            if let Some(c) = p.clock(&self.doc)
+                && !paths.contains(&c.path)
+            {
+                paths.push(c.path.clone());
+            }
+        }
+        paths
+    }
+
     fn action(&mut self, action: Action, now: Instant) {
         use crate::panels::Axis;
         use crate::wave::model::LinkDim;
@@ -1672,6 +1784,21 @@ impl App {
         }
         if action == Action::PasteSignals {
             self.paste_signals(panel);
+            return;
+        }
+        if matches!(
+            action,
+            Action::NextCycle | Action::PrevCycle | Action::ToggleCycleOrigin
+        ) {
+            let doc = &mut self.doc;
+            if let Some(nav) = self.panels.focused_mut().kind.nav_mut() {
+                match action {
+                    Action::NextCycle => _ = nav.step_cycle(doc, true, now),
+                    Action::PrevCycle => _ = nav.step_cycle(doc, false, now),
+                    _ => nav.toggle_cycle_origin(doc),
+                }
+                self.changed();
+            }
             return;
         }
         let doc = &mut self.doc;
@@ -1722,7 +1849,10 @@ impl App {
                 | Action::FocusNextPanel
                 | Action::FocusPrevPanel
                 | Action::ToggleViewportLink
-                | Action::ToggleCursorLink => unreachable!(),
+                | Action::ToggleCursorLink
+                | Action::NextCycle
+                | Action::PrevCycle
+                | Action::ToggleCycleOrigin => unreachable!(),
             },
             PanelKind::Waves(w) => match action {
                 Action::ZoomIn => w.zoom_in(doc, now),
@@ -1765,7 +1895,10 @@ impl App {
                 | Action::FocusNextPanel
                 | Action::FocusPrevPanel
                 | Action::ToggleViewportLink
-                | Action::ToggleCursorLink => unreachable!(),
+                | Action::ToggleCursorLink
+                | Action::NextCycle
+                | Action::PrevCycle
+                | Action::ToggleCycleOrigin => unreachable!(),
             },
             // The same keys, with rows in place of selection: ↑ ↓ scroll rows,
             // zoom scales both axes, Escape cancels a drag then the cursor.
@@ -1809,7 +1942,10 @@ impl App {
                 | Action::FocusNextPanel
                 | Action::FocusPrevPanel
                 | Action::ToggleViewportLink
-                | Action::ToggleCursorLink => unreachable!(),
+                | Action::ToggleCursorLink
+                | Action::NextCycle
+                | Action::PrevCycle
+                | Action::ToggleCycleOrigin => unreachable!(),
             },
             _ => return,
         }
@@ -1841,6 +1977,7 @@ impl App {
         bounds: Rect,
         theme: &Theme,
     ) -> Option<PanelLayout<'_>> {
+        self.doc.clocks.defaults = self.pipeline_clocks();
         let doc = &self.doc;
         Some(match &mut self.panels.get_mut(id)?.kind {
             PanelKind::Waves(w) => PanelLayout::Waves(w.layout(bounds, doc, theme)),
@@ -2005,7 +2142,32 @@ impl App {
             let vp = nav.viewport(&self.doc);
             let px_per = vp.width() / width.max(1.0);
             s.px_per = Some(format!("1 px = {}", format_time(px_per, base)));
-            s.cursor = nav.cursor(&self.doc).map(|c| format_time(c as f64, base));
+            let cursor = nav.cursor(&self.doc);
+            s.cursor = cursor.map(|c| format_time(c as f64, base));
+            let rulers = nav.clocks.rulers(&self.doc.clocks);
+            if let Some(c) = cursor {
+                s.clocks = rulers
+                    .iter()
+                    .map(|clock| crate::clock::position_at(&nav.clocks, clock, c))
+                    .collect();
+                if let Some(m) = self.doc.markers.iter().min_by_key(|m| m.time.abs_diff(c)) {
+                    let dt = c as i128 - m.time as i128;
+                    let sign = if dt < 0 { "−" } else { "" };
+                    let mut parts = vec![format!(
+                        "Δ {sign}{}",
+                        format_time(dt.unsigned_abs() as f64, base)
+                    )];
+                    for clock in &rulers {
+                        if let Some(n) = clock
+                            .timeline()
+                            .and_then(|t| crate::clock::cycles_between(t, m.time, c))
+                        {
+                            parts.push(format!("{n} {}", clock.name));
+                        }
+                    }
+                    s.delta = Some(parts.join(" · "));
+                }
+            }
             if !self.doc.markers.is_empty() {
                 s.markers = Some(format!("{} markers", self.doc.markers.len()));
             }

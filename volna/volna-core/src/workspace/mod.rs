@@ -1,6 +1,7 @@
 //! Frontend-neutral workspace files. Parsing and resolution are side-effect free;
 //! a validated plan installs the complete session view in one operation.
 
+use crate::clock::ClockView;
 use crate::nav::Tween;
 use crate::panels::{Layout, Panel, PanelId, PanelKind, Panels};
 use crate::pipeline::{PipelineModel, RowView, TrackSource};
@@ -90,6 +91,12 @@ enum Row {
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
     },
+    /// A declared clock by its path, drawn from its stretches.
+    Clock {
+        clock: String,
+        #[serde(default, skip_serializing_if = "RowHeight::is_default")]
+        height: RowHeight,
+    },
 }
 
 /// A signal row drawn as a plot.
@@ -123,6 +130,9 @@ struct WavePanel {
     columns: Columns,
     rows: Vec<Row>,
     selected: BTreeSet<usize>,
+    /// Clock rulers, cycle axis, snapping clock and cycle origin.
+    #[serde(default, skip_serializing_if = "ClockView::is_default")]
+    clocks: ClockView,
 }
 
 fn present_raw<'de, D: serde::Deserializer<'de>>(
@@ -152,6 +162,8 @@ struct PipelinePanel {
     cursor: Option<Box<RawValue>>,
     rows: RowView,
     label_width: f32,
+    #[serde(default, skip_serializing_if = "ClockView::is_default")]
+    clocks: ClockView,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -308,6 +320,7 @@ impl Workspace {
                                     .transpose()?,
                                 rows: p.rows.target(),
                                 label_width: p.label_width,
+                                clocks: p.nav.clocks.clone(),
                             })?)
                         }
                         PanelKind::Table(table) => {
@@ -415,6 +428,10 @@ impl Workspace {
                             generator: lane.source.path().to_vec(),
                             height: lane.height,
                         },
+                        WaveRow::Clock(clock) => Row::Clock {
+                            clock: clock.path.clone(),
+                            height: clock.height,
+                        },
                     })
                     .collect();
                 Ok(serde_json::value::to_raw_value(&WavePanel {
@@ -434,6 +451,7 @@ impl Workspace {
                     },
                     rows,
                     selected: w.selected.clone(),
+                    clocks: w.nav.clocks.clone(),
                 })?)
             })
             .collect::<Result<_>>()?;
@@ -592,6 +610,7 @@ impl Workspace {
                 };
                 let mut p = PipelineModel::new(track, saved.link);
                 p.follow = saved.follow;
+                p.nav.clocks = saved.clocks;
                 if let Some(v) = saved.viewport {
                     valid_viewport(v)?;
                     p.nav.local_viewport.set(v);
@@ -784,6 +803,7 @@ impl Workspace {
             );
             let mut w = WaveModel::new();
             w.nav.link = saved.link;
+            w.nav.clocks = saved.clocks;
             if let Some(v) = saved.viewport {
                 valid_viewport(v)?;
                 w.nav.local_viewport.set(v);
@@ -824,6 +844,17 @@ impl Workspace {
                             }
                         };
                         w.items.push(WaveRow::Lane(lane));
+                        continue;
+                    }
+                    Row::Clock { clock, height } => {
+                        ensure!(!clock.is_empty(), "empty clock path");
+                        if app.doc.clocks.find(&clock).is_none() {
+                            report.push(format!("Missing clock: {clock}"));
+                        }
+                        w.items.push(WaveRow::Clock(crate::wave::model::ClockRow {
+                            height,
+                            ..crate::wave::model::ClockRow::new(&clock)
+                        }));
                         continue;
                     }
                 };

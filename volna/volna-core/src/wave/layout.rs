@@ -24,6 +24,8 @@ const BADGE_W: f32 = 36.0;
 pub struct WaveLayout {
     pub bounds: Rect,
     pub header: Rect,
+    /// Clock ruler rows below the header, across the whole panel (empty without rulers).
+    pub rulers: Rect,
     pub names: Rect,
     pub values: Rect,
     pub waves: Rect,
@@ -54,6 +56,8 @@ pub struct LayoutInput<'a> {
     pub row_h: f32,
     /// Already zoomed (the theme's `timeline_height`).
     pub header_h: f32,
+    /// Already zoomed height of all clock ruler rows.
+    pub ruler_h: f32,
     /// Interface zoom; column widths below are design sizes it multiplies.
     pub zoom: f32,
     pub names_width: f32,
@@ -108,8 +112,15 @@ impl WaveLayout {
             z(input.values_width).clamp(min_column, (total_w - names_w - z(160.0)).max(min_column));
 
         let header = Rect::new(bounds.origin, size(bounds.width(), header_h));
-        let rows_top = bounds.top() + header_h;
-        let rows_h = (bounds.height() - header_h).max(0.0);
+        let ruler_h = input
+            .ruler_h
+            .clamp(0.0, (bounds.height() - header_h).max(0.0));
+        let rulers = Rect::new(
+            point(bounds.left(), header.bottom()),
+            size(bounds.width(), ruler_h),
+        );
+        let rows_top = bounds.top() + header_h + ruler_h;
+        let rows_h = (bounds.height() - header_h - ruler_h).max(0.0);
         let names = Rect::new(point(bounds.left(), rows_top), size(names_w, rows_h));
         let values = Rect::new(point(names.right(), rows_top), size(values_w, rows_h));
         let waves_w = (bounds.width() - names_w - values_w).max(0.0);
@@ -182,6 +193,7 @@ impl WaveLayout {
         WaveLayout {
             bounds,
             header,
+            rulers,
             names,
             values,
             waves,
@@ -249,6 +261,19 @@ impl WaveLayout {
     pub fn wave_width_f64(&self) -> f64 {
         f64::from(self.waves.width()).max(1.0)
     }
+
+    /// Ruler row under `p` when the panel shows `count` rulers.
+    pub fn ruler_at(&self, p: Point, count: usize) -> Option<usize> {
+        ruler_row(self.rulers, p, count)
+    }
+}
+
+/// Row of a ruler band of `count` equal rows under `p`.
+pub fn ruler_row(band: Rect, p: Point, count: usize) -> Option<usize> {
+    if count == 0 || !band.contains(p) {
+        return None;
+    }
+    Some((((p.y - band.top()) / band.height() * count as f32) as usize).min(count - 1))
 }
 
 #[cfg(test)]
@@ -261,6 +286,7 @@ mod tests {
             bounds: Rect::from_xywh(0.0, 0.0, 2000.0, 300.0),
             row_h: 24.0 * zoom,
             header_h: 32.0 * zoom,
+            ruler_h: 0.0,
             zoom,
             names_width: 220.0,
             values_width: 120.0,
@@ -313,6 +339,7 @@ mod tests {
             bounds: Rect::from_xywh(0.0, 0.0, 2000.0, 32.0 + 24.0 * 5.0),
             row_h: 24.0,
             header_h: 32.0,
+            ruler_h: 0.0,
             zoom: 1.0,
             names_width: 220.0,
             values_width: 120.0,

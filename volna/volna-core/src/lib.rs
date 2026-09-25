@@ -10,12 +10,14 @@
 //! - `session`: the [`session::Session`] boundary through which all trace data is read
 //! - `data`: values, histories, translators, hierarchy
 //! - `wave`: viewport math, timeline, the wave panel model, layout and painter
+//! - `clock`: declared clocks, their timelines and each panel's rulers and cycle axis
 //! - `settings`: the registry, `settings.json` store, search and generated schema
 //! - `transaction`: the prepared view of one record and the panel that shows it
 //! - `sidebar`: scope tree and variable list models
 //! - `scene`, `geometry`, `color`, `theme`, `icons`: the toolkit-neutral presentation types
 
 pub mod app;
+pub mod clock;
 pub mod color;
 pub mod data;
 pub mod document;

@@ -152,13 +152,38 @@ impl DisplayedSignal {
     }
 }
 
-/// One row of the waveform panel: a signal, or a transaction generator
-/// shown as a lane of bars. Both share the row operations (selection,
-/// reordering, clipboard, heights, removal and workspace entries).
+/// A declared clock drawn from its stretches: no dumped waveform is needed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClockRow {
+    /// The clock's path (its stream's path joined with '.').
+    pub path: String,
+    pub name: String,
+    pub height: RowHeight,
+}
+
+impl ClockRow {
+    pub fn new(path: &str) -> Self {
+        Self {
+            path: path.to_owned(),
+            name: path.rsplit('.').next().unwrap_or(path).to_owned(),
+            height: RowHeight::DEFAULT,
+        }
+    }
+
+    /// The clock's timeline, once this trace's clock is loaded.
+    pub fn timeline<'a>(&self, doc: &'a Document) -> Option<&'a Arc<crate::clock::ClockTimeline>> {
+        doc.clocks.find(&self.path)?.timeline()
+    }
+}
+
+/// One row of the waveform panel: a signal, a transaction generator shown
+/// as a lane of bars, or a declared clock. All share the row operations
+/// (selection, reordering, clipboard, heights, removal and workspace entries).
 #[derive(Clone)]
 pub enum WaveRow {
     Signal(DisplayedSignal),
     Lane(TxLane),
+    Clock(ClockRow),
 }
 
 impl WaveRow {
@@ -166,6 +191,7 @@ impl WaveRow {
         match self {
             Self::Signal(s) => &s.name,
             Self::Lane(l) => &l.name,
+            Self::Clock(c) => &c.name,
         }
     }
 
@@ -173,6 +199,7 @@ impl WaveRow {
         match self {
             Self::Signal(s) => s.height,
             Self::Lane(l) => l.height,
+            Self::Clock(c) => c.height,
         }
     }
 
@@ -189,27 +216,35 @@ impl WaveRow {
                 l.height = height;
                 l.auto_height = false;
             }
+            Self::Clock(c) => c.height = height,
         }
     }
 
     pub fn signal(&self) -> Option<&DisplayedSignal> {
         match self {
             Self::Signal(s) => Some(s),
-            Self::Lane(_) => None,
+            _ => None,
         }
     }
 
     pub fn signal_mut(&mut self) -> Option<&mut DisplayedSignal> {
         match self {
             Self::Signal(s) => Some(s),
-            Self::Lane(_) => None,
+            _ => None,
         }
     }
 
     pub fn lane(&self) -> Option<&TxLane> {
         match self {
             Self::Lane(l) => Some(l),
-            Self::Signal(_) => None,
+            _ => None,
+        }
+    }
+
+    pub fn clock(&self) -> Option<&ClockRow> {
+        match self {
+            Self::Clock(c) => Some(c),
+            _ => None,
         }
     }
 
@@ -228,6 +263,7 @@ impl WaveRow {
 enum EdgeSource<'a> {
     History(Arc<dyn SignalHistory>),
     Lane(&'a LoadedGenerator),
+    Clock(Arc<crate::clock::ClockTimeline>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -632,6 +668,17 @@ impl WaveModel {
         }
     }
 
+    /// Append a clock row for each clock path and select them.
+    pub fn add_clocks(&mut self, paths: &[String]) {
+        let first_new = self.items.len();
+        self.items
+            .extend(paths.iter().map(|p| WaveRow::Clock(ClockRow::new(p))));
+        if self.items.len() > first_new {
+            self.selected = (first_new..self.items.len()).collect();
+            self.anchor = Some(first_new);
+        }
+    }
+
     /// Records arrived: new lanes take their default height.
     pub fn fit_lanes(&mut self, doc: &Document) {
         for row in &mut self.items {
@@ -695,8 +742,9 @@ impl WaveModel {
                         .flatten(),
                     ..item.clone()
                 }),
-                // Lanes hold no data; the document keeps what lanes show.
+                // Lanes and clocks hold no data; the document keeps what they show.
                 WaveRow::Lane(lane) => WaveRow::Lane(lane.clone()),
+                WaveRow::Clock(clock) => WaveRow::Clock(clock.clone()),
             })
             .collect();
     }
@@ -1265,6 +1313,7 @@ impl WaveModel {
         match self.items.get(row)? {
             WaveRow::Signal(s) => s.history.clone().map(EdgeSource::History),
             WaveRow::Lane(l) => l.generator(doc).map(EdgeSource::Lane),
+            WaveRow::Clock(c) => c.timeline(doc).cloned().map(EdgeSource::Clock),
         }
     }
 
@@ -1283,6 +1332,7 @@ impl WaveModel {
         let next = match self.edge_row().and_then(|row| self.edge_source(doc, row)) {
             Some(EdgeSource::History(h)) => h.next_change_after(from),
             Some(EdgeSource::Lane(g)) => g.next_boundary(from),
+            Some(EdgeSource::Clock(c)) => c.next_edge(from),
             None => return,
         };
         if let Some(t) = next {
@@ -1298,6 +1348,7 @@ impl WaveModel {
         let prev = match self.edge_row().and_then(|row| self.edge_source(doc, row)) {
             Some(EdgeSource::History(h)) => h.prev_change_before(from),
             Some(EdgeSource::Lane(g)) => g.prev_boundary(from),
+            Some(EdgeSource::Clock(c)) => c.prev_edge(from),
             None => return,
         };
         if let Some(t) = prev {
@@ -1332,10 +1383,12 @@ impl WaveModel {
         if self.layout.row_h > 0.0 && self.layout.row_h != theme.row_height {
             self.scroll_y *= theme.row_height / self.layout.row_h;
         }
+        let rulers = self.nav.clocks.rulers(&doc.clocks).len();
         let layout = WaveLayout::compute(LayoutInput {
             bounds,
             row_h: theme.row_height,
             header_h: theme.timeline_height,
+            ruler_h: rulers as f32 * super::overlay::RULER_H * theme.zoom,
             zoom: theme.zoom,
             names_width: self.names_width,
             values_width: self.values_width,
@@ -1654,10 +1707,30 @@ impl WaveModel {
             });
             return;
         }
-        if layout.header.contains(p) {
+        // A press on a clock ruler selects its clock, then works like the header.
+        let rulers: Vec<String> = self
+            .nav
+            .clocks
+            .rulers(&doc.clocks)
+            .iter()
+            .map(|c| c.path.clone())
+            .collect();
+        let ruler = layout.ruler_at(p, rulers.len());
+        if let Some(ix) = ruler {
+            self.nav.select_clock(&rulers[ix]);
+        }
+        if layout.header.contains(p) || ruler.is_some() {
             if in_waves_x && button == MouseButton::Left {
                 let x = f64::from(p.x - layout.waves.left());
-                let t = snapped_time(&self.viewport(doc), None, x, wave_wf, snap_px);
+                let clock = self.nav.selected_clock(doc);
+                let t = snapped_time(
+                    &self.viewport(doc),
+                    None,
+                    clock.as_deref(),
+                    x,
+                    wave_wf,
+                    snap_px,
+                );
                 self.set_cursor(doc, Some(t));
                 self.drag = Some(Drag::Cursor);
             }
@@ -1668,9 +1741,11 @@ impl WaveModel {
             match button {
                 MouseButton::Left => {
                     let x = f64::from(p.x - layout.waves.left());
+                    let clock = self.nav.selected_clock(doc);
                     let t = snapped_time(
                         &self.viewport(doc),
                         row.and_then(|r| self.edge_source(doc, r)).as_ref(),
+                        clock.as_deref(),
                         x,
                         wave_wf,
                         snap_px,
@@ -1760,9 +1835,11 @@ impl WaveModel {
             Some(Drag::Cursor) => {
                 let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
                 let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
+                let clock = self.nav.selected_clock(doc);
                 let t = snapped_time(
                     &self.viewport(doc),
                     row.and_then(|r| self.edge_source(doc, r)).as_ref(),
+                    clock.as_deref(),
                     x,
                     wave_wf,
                     doc.navigation.snap_px * f64::from(layout.zoom),
@@ -1882,29 +1959,42 @@ impl WaveModel {
 }
 
 /// Where a click on the waves at `x_px` lands after snapping to the nearest
-/// edge of the row within `snap_px` pixels (0 disables snapping): a signal
-/// transition, or a lane's record begin or end.
+/// edge within `snap_px` pixels (0 disables snapping): of the row (a signal
+/// transition, a lane's record begin or end, a clock row's edge) or of the
+/// panel's selected clock, whichever is closer.
 fn snapped_time(
     vp: &Viewport,
     edges: Option<&EdgeSource<'_>>,
+    clock: Option<&crate::clock::ClockTimeline>,
     x_px: f64,
     width_px: f64,
     snap_px: f64,
 ) -> u64 {
     let raw = vp.time_at(x_px, width_px).round().max(0.0);
-    let Some(edges) = edges else {
-        return raw as u64;
-    };
     if snap_px <= 0.0 {
         return raw as u64;
     }
     let tol = snap_px / vp.px_per_unit(width_px);
+    let exact = vp.time_at(x_px, width_px).max(0.0);
+    let clock_edge = clock.and_then(|c| crate::clock::nearest_edge(c, exact, tol));
+    let row_edge = edges.and_then(|e| row_edge(e, raw, exact, tol));
+    [clock_edge, row_edge]
+        .into_iter()
+        .flatten()
+        .min_by(|a, b| {
+            (*a as f64 - exact)
+                .abs()
+                .total_cmp(&(*b as f64 - exact).abs())
+        })
+        .unwrap_or(raw as u64)
+}
+
+/// The edge of a row nearest to `raw` within `tol`.
+fn row_edge(edges: &EdgeSource<'_>, raw: f64, exact: f64, tol: f64) -> Option<u64> {
     let h = match edges {
         EdgeSource::History(h) => h.as_ref(),
-        EdgeSource::Lane(g) => {
-            let exact = vp.time_at(x_px, width_px).max(0.0);
-            return lane::nearest_boundary(g, exact, tol).unwrap_or(raw as u64);
-        }
+        EdgeSource::Lane(g) => return lane::nearest_boundary(g, exact, tol),
+        EdgeSource::Clock(c) => return crate::clock::nearest_edge(c, exact, tol),
     };
     let t = raw as u64;
     let mut best: Option<(f64, u64)> = None;
@@ -1927,5 +2017,5 @@ fn snapped_time(
             }
         }
     }
-    best.map(|(_, c)| c).unwrap_or(t)
+    best.map(|(_, c)| c)
 }

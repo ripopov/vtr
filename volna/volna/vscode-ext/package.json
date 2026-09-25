@@ -59,6 +59,18 @@
         "title": "Volna: Toggle Cursor Link"
       },
       {
+        "command": "volna.nextCycle",
+        "title": "Volna: Next Cycle of the Selected Clock"
+      },
+      {
+        "command": "volna.prevCycle",
+        "title": "Volna: Previous Cycle of the Selected Clock"
+      },
+      {
+        "command": "volna.toggleCycleOrigin",
+        "title": "Volna: Set or Reset the Cycle Origin at the Cursor"
+      },
+      {
         "command": "volna.focusPanel1",
         "title": "Volna: Focus Panel 1"
       },

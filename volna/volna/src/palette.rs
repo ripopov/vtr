@@ -9,7 +9,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{Action, Context, Focusable, WeakEntity, Window};
-use volna_core::app::SettingsCommand;
+use volna_core::app::{ClockCommand, SettingsCommand};
 use volna_core::settings::{self, Kind, Value};
 use volna_core::{App as CoreApp, Command};
 
@@ -24,12 +24,52 @@ pub(crate) struct PaletteModel {
 }
 
 /// Every palette command: label and the action it dispatches. The open
-/// trace's PIPELINE streams follow the fixed commands.
-fn commands(app: &CoreApp) -> Vec<(String, Box<dyn Action>)> {
+/// trace's PIPELINE streams and the focused panel's clock choices follow
+/// the fixed commands; a number in the query offers to go to that cycle.
+fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Action>)> {
     let mut all: Vec<(String, Box<dyn Action>)> = fixed_commands()
         .into_iter()
         .map(|(label, action)| (label.to_owned(), action))
         .collect();
+    if let Some(choices) = app.clock_choices() {
+        let clock = |command| Box::new(app::ClockAction { command }) as Box<dyn Action>;
+        if let Some(cycle) = query.split_whitespace().find_map(|w| w.parse::<i64>().ok()) {
+            all.push((
+                format!("Go to Cycle {cycle}"),
+                clock(ClockCommand::GoToCycle(cycle)),
+            ));
+        }
+        for (path, ruler, axis) in &choices.clocks {
+            let verb = if *ruler { "Hide" } else { "Show" };
+            all.push((
+                format!("{verb} Clock Ruler: {path}"),
+                clock(ClockCommand::ToggleRuler(path.clone())),
+            ));
+            if !axis {
+                all.push((
+                    format!("Count Cycles of: {path}"),
+                    clock(ClockCommand::SetAxis(Some(path.clone()))),
+                ));
+            }
+            all.push((
+                format!("Snap and Step to Clock: {path}"),
+                clock(ClockCommand::Select(path.clone())),
+            ));
+        }
+        if choices.clocks.iter().any(|(_, _, axis)| *axis) {
+            all.push(("Count Time".into(), clock(ClockCommand::SetAxis(None))));
+        }
+        all.push((
+            if choices.origin {
+                "Reset Cycle Origin".into()
+            } else {
+                "Set Cycle Origin at Cursor".into()
+            },
+            Box::new(app::ToggleCycleOrigin),
+        ));
+        all.push(("Next Cycle".into(), Box::new(app::NextCycle)));
+        all.push(("Previous Cycle".into(), Box::new(app::PrevCycle)));
+    }
     for (path, track) in app::pipeline_streams(app) {
         all.push((
             format!("Open Pipeline: {path}"),
@@ -87,10 +127,11 @@ const MAX_SETTINGS: usize = 8;
 impl PaletteModel {
     fn compute(query: &str, app: &CoreApp) -> Self {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        let commands = commands(app)
+        let commands = commands(app, query)
             .into_iter()
             .filter(|(label, _)| {
                 let lower = label.to_lowercase();
+                // "go to 1500" and "1500" both find "Go to Cycle 1500".
                 words.iter().all(|w| lower.contains(w))
             })
             .collect();

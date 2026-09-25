@@ -98,6 +98,8 @@ pub struct Document {
     pub copied_rows: Vec<crate::wave::WaveRow>,
     /// Analog summaries of resident histories, per signal and reading.
     summaries: HashMap<(SignalRef, NumericKind), SummaryLoad>,
+    /// The trace's declared clocks; their stretches load when the trace opens.
+    pub clocks: crate::clock::Clocks,
 }
 
 /// The state of one analog summary; `history` is the identity of the
@@ -158,6 +160,7 @@ impl Document {
             selection: None,
             copied_rows: Vec::new(),
             summaries: HashMap::new(),
+            clocks: crate::clock::Clocks::default(),
         }
     }
 
@@ -247,8 +250,16 @@ impl Document {
     pub fn set_session(&mut self, session: Arc<dyn Session>) {
         self.generation += 1;
         self.reset_state();
-        self.state = TraceState::Loaded(session);
+        self.state = TraceState::Loaded(session.clone());
         self.shared.viewport.set(Viewport::fit(self.limits()));
+        // Every clock is loaded with the trace: rulers, readouts and pipelines need them.
+        self.clocks = crate::clock::Clocks::from_tracks(session.tracks());
+        let tracks: Vec<TrackRef> = self.clocks.iter().map(|c| c.track).collect();
+        for track in tracks {
+            if let Err(error) = self.retain_track(track) {
+                self.clocks.deliver(track, Err(&format!("{error:#}")));
+            }
+        }
     }
 
     pub fn close(&mut self) {
@@ -267,6 +278,7 @@ impl Document {
         self.markers.clear();
         self.copied_rows.clear();
         self.summaries.clear();
+        self.clocks = crate::clock::Clocks::default();
     }
 
     // -- analog summaries ----------------------------------------------------------
@@ -544,6 +556,16 @@ impl Document {
                     Ok(_) => TrackLoadState::Failed("track identity mismatch".into()),
                     Err(error) => TrackLoadState::Failed(format!("{error:#}")),
                 };
+                if self.clocks.is_clock_track(track) {
+                    self.clocks.deliver(
+                        track,
+                        match &state {
+                            TrackLoadState::Ready(t) => Ok(&t.generators),
+                            TrackLoadState::Failed(e) => Err(e),
+                            TrackLoadState::Loading => Err("not loaded"),
+                        },
+                    );
+                }
                 self.tracks.get_mut(&track).expect("selected track").state = state;
                 Some(Delivered::Track)
             }

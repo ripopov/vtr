@@ -38,6 +38,8 @@ pub struct NavState {
     pub link: Link,
     pub local_viewport: Tween<Viewport>,
     pub local_cursor: Option<u64>,
+    /// Clock rulers, cycle axis, snapping clock and cycle origin.
+    pub clocks: crate::clock::ClockView,
 }
 
 impl Default for NavState {
@@ -52,6 +54,7 @@ impl NavState {
             link: Link::default(),
             local_viewport: Tween::new(Viewport::fit((0, 1000))),
             local_cursor: None,
+            clocks: crate::clock::ClockView::default(),
         }
     }
 
@@ -61,6 +64,7 @@ impl NavState {
             link: self.link,
             local_viewport: Tween::new(self.local_viewport.value),
             local_cursor: self.local_cursor,
+            clocks: self.clocks.clone(),
         }
     }
 
@@ -240,6 +244,79 @@ impl NavState {
         let mut target = self.viewport(doc);
         target.pan_px(dx_px, width_px, doc.limits());
         self.viewport_state_mut(doc).set(target);
+    }
+
+    // -- clocks ------------------------------------------------------------------
+
+    /// The timeline of the clock clicks snap to and cycle steps follow.
+    pub fn selected_clock(
+        &self,
+        doc: &Document,
+    ) -> Option<std::sync::Arc<crate::clock::ClockTimeline>> {
+        self.clocks.selected(&doc.clocks)?.timeline().cloned()
+    }
+
+    /// Step the cursor to the next (or previous) rising edge of the selected
+    /// clock, from the cursor or the window's edge. Returns whether it moved.
+    pub fn step_cycle(&mut self, doc: &mut Document, forward: bool, now: Instant) -> bool {
+        let Some(timeline) = self.selected_clock(doc) else {
+            return false;
+        };
+        let vp = self.viewport(doc);
+        let to = match (self.cursor(doc), forward) {
+            (Some(c), true) => timeline.next_edge(c),
+            (Some(c), false) => timeline.prev_edge(c),
+            (None, true) => timeline.next_edge(vp.start.max(0.0) as u64),
+            (None, false) => timeline.prev_edge(vp.end.max(0.0) as u64 + 1),
+        };
+        let Some(to) = to else { return false };
+        self.set_cursor(doc, Some(to));
+        self.reveal_cursor(doc, now);
+        true
+    }
+
+    /// Put the cursor on the edge of displayed cycle `shown` of the axis
+    /// clock (else the selected clock) and centre it.
+    pub fn go_to_cycle(
+        &mut self,
+        doc: &mut Document,
+        shown: i64,
+        now: Instant,
+    ) -> Result<(), String> {
+        let clock = self
+            .clocks
+            .axis(&doc.clocks)
+            .or_else(|| self.clocks.selected(&doc.clocks))
+            .ok_or("no clock to count cycles in")?;
+        let name = clock.name.clone();
+        let timeline = clock
+            .timeline()
+            .ok_or("the clock is still loading")?
+            .clone();
+        let time = self
+            .clocks
+            .absolute_cycle(&timeline, shown)
+            .and_then(|c| timeline.edge(c))
+            .ok_or_else(|| format!("{name} has no cycle {shown}"))?;
+        self.set_cursor(doc, Some(time));
+        self.go_to_cursor(doc, now);
+        Ok(())
+    }
+
+    /// Number cycles from the cursor's cycle, or back from the first edge
+    /// when the origin is already there.
+    pub fn toggle_cycle_origin(&mut self, doc: &Document) {
+        let cursor = self.cursor(doc);
+        self.clocks.origin = if self.clocks.origin == cursor {
+            None
+        } else {
+            cursor
+        };
+    }
+
+    /// Select the clock clicks snap to and cycle steps follow.
+    pub fn select_clock(&mut self, path: &str) {
+        self.clocks.selected = Some(path.to_owned());
     }
 
     /// Scroll the window so the cursor is visible, if it is not.

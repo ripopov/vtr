@@ -27,6 +27,8 @@ pub struct PipelineLayout {
     pub activity_controls: Vec<(super::ActivityCommand, Rect, String)>,
     pub bounds: Rect,
     pub header: Rect,
+    /// Clock ruler rows below the header, across the whole panel (empty without rulers).
+    pub rulers: Rect,
     /// The label column below the header.
     pub labels: Rect,
     /// The cells area below the header, right of the labels.
@@ -51,6 +53,8 @@ pub struct LayoutInput<'a> {
     pub bounds: Rect,
     /// Already zoomed (the theme's `timeline_height`).
     pub header_h: f32,
+    /// Already zoomed height of all clock ruler rows.
+    pub ruler_h: f32,
     pub zoom: f32,
     /// Design pixels; multiplied by `zoom`.
     pub label_width: f32,
@@ -75,8 +79,15 @@ impl PipelineLayout {
         let labels_w = z(input.label_width.clamp(LABEL_W_MIN, LABEL_W_MAX))
             .min((bounds.width() - z(LABEL_W_MIN)).max(0.0));
         let header = Rect::new(bounds.origin, size(bounds.width(), header_h));
-        let rows_top = bounds.top() + header_h;
-        let rows_h = (bounds.height() - header_h).max(0.0);
+        let ruler_h = input
+            .ruler_h
+            .clamp(0.0, (bounds.height() - header_h).max(0.0));
+        let rulers = Rect::new(
+            point(bounds.left(), header.bottom()),
+            size(bounds.width(), ruler_h),
+        );
+        let rows_top = bounds.top() + header_h + ruler_h;
+        let rows_h = (bounds.height() - header_h - ruler_h).max(0.0);
         let labels = Rect::new(point(bounds.left(), rows_top), size(labels_w, rows_h));
         let cells = Rect::new(
             point(labels.right(), rows_top),
@@ -119,6 +130,7 @@ impl PipelineLayout {
             activity_controls: Vec::new(),
             bounds,
             header,
+            rulers,
             labels,
             cells,
             label_split,
@@ -157,6 +169,11 @@ impl PipelineLayout {
         f64::from(self.cells.width()).max(1.0)
     }
 
+    /// Ruler row under `p` when the panel shows `count` rulers.
+    pub fn ruler_at(&self, p: Point, count: usize) -> Option<usize> {
+        crate::wave::layout::ruler_row(self.rulers, p, count)
+    }
+
     /// Time under panel x, in the cells area's viewport.
     pub fn time_at(&self, viewport: &Viewport, x: f32) -> f64 {
         viewport.time_at(f64::from(x - self.cells.left()), self.cells_width_f64())
@@ -171,6 +188,7 @@ mod tests {
         PipelineLayout::compute(LayoutInput {
             bounds: Rect::from_xywh(0.0, 0.0, 1000.0, 332.0),
             header_h: 32.0 * zoom,
+            ruler_h: 0.0,
             zoom,
             label_width: 190.0,
             rows: RowView { top: 3.0, row_px },

@@ -8537,6 +8537,7 @@ dependencies = [
  "tempfile",
  "url",
  "vtr",
+ "vtr-cli",
  "web-time",
 ]
 

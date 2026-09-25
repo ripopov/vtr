@@ -1,8 +1,10 @@
 //! What every timed panel paints over its time column: the tick grid, the
-//! header's tick labels and unit, marker lines with their chips, and the
-//! cursor line with its time chip. The wave and pipeline painters call these
-//! with their own rectangles so both agree pixel for pixel.
+//! header's tick labels and unit, the clock rulers under it, marker lines
+//! with their chips, and the cursor line with its time or cycle chip. The
+//! wave and pipeline painters call these with their own rectangles so both
+//! agree pixel for pixel.
 
+use crate::clock::{self, ClockView, Clocks};
 use crate::color::Color;
 use crate::document::{Document, Marker};
 use crate::geometry::{CursorIcon, Point, Rect, point, size, snap};
@@ -17,6 +19,12 @@ use crate::wave::viewport::Viewport;
 pub const TICK_SPACING_PX: f64 = 96.0;
 /// Width of a marker chip at zoom 1.0.
 pub const CHIP_W: f32 = 24.0;
+/// Height of one clock ruler row at zoom 1.0.
+pub const RULER_H: f32 = 16.0;
+/// Cycle labels on a clock ruler stay at least this far apart at zoom 1.0.
+const RULER_LABEL_PX: f64 = 56.0;
+/// Spacing of the hatching of a stopped clock at zoom 1.0.
+const HATCH_PX: f32 = 6.0;
 
 /// The painter's shared context: theme, text measurement and the scene.
 pub struct TextPainter<'a> {
@@ -32,10 +40,12 @@ impl TextPainter<'_> {
     }
 }
 
-/// The time column of a panel: its header cell and the rows area below it.
+/// The time column of a panel: its header cell, the clock rulers below it
+/// (empty without rulers) and the rows area below them.
 #[derive(Clone, Copy, Debug)]
 pub struct TimeColumn {
     pub header: Rect,
+    pub rulers: Rect,
     pub area: Rect,
     pub viewport: Viewport,
 }
@@ -58,6 +68,193 @@ impl TimeColumn {
             base,
             TICK_SPACING_PX * f64::from(zoom),
         )
+    }
+
+    /// The main ruler's ticks and unit: time, or cycles of the panel's axis clock.
+    pub fn main_ticks(
+        &self,
+        base: TimeBase<'_>,
+        zoom: f32,
+        view: &ClockView,
+        clocks: &Clocks,
+    ) -> (Vec<Tick>, String) {
+        if let Some(axis) = view.axis(clocks)
+            && let Some(timeline) = axis.timeline()
+        {
+            let ticks = clock::axis_ticks(
+                view,
+                timeline,
+                &self.viewport,
+                self.width_f64(),
+                TICK_SPACING_PX * f64::from(zoom),
+                base,
+            );
+            // A clock already named for its cycles (Kanata's `cycle`) says so once.
+            let unit = if ["cycle", "cycles"].contains(&axis.name.to_ascii_lowercase().as_str()) {
+                "cycles".to_owned()
+            } else {
+                format!("{} cycles", axis.name)
+            };
+            return (ticks, unit);
+        }
+        let (ticks, unit) = self.ticks(base, zoom);
+        (ticks, unit.to_owned())
+    }
+}
+
+/// The cursor chip's text: the time, or the position in the axis clock.
+pub fn cursor_label(cursor: u64, base: TimeBase<'_>, view: &ClockView, clocks: &Clocks) -> String {
+    if let Some(timeline) = view.axis(clocks).and_then(|c| c.timeline())
+        && let Some(at) = timeline.cycle_at(cursor)
+    {
+        return clock::format_position(view, timeline, &at);
+    }
+    format_time(cursor as f64, base)
+}
+
+/// Clock ruler rows: each clock's name in `names` (the band's cells left of
+/// the time column) and, in the time column, a tick at each rising edge,
+/// cycle labels spaced per stretch, a flag at each change of speed and
+/// hatching where the clock is stopped. The selected clock's name is
+/// highlighted.
+pub fn clock_rulers(
+    p: &mut TextPainter<'_>,
+    column: &TimeColumn,
+    names: Rect,
+    view: &ClockView,
+    clocks: &Clocks,
+    base: TimeBase<'_>,
+) {
+    let rows = view.rulers(clocks);
+    if rows.is_empty() || column.rulers.height() <= 0.0 {
+        return;
+    }
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let row_h = column.rulers.height() / rows.len() as f32;
+    let selected = view.selected(clocks).map(|c| c.track);
+    let band_all = Rect::new(
+        point(names.left(), column.rulers.top()),
+        size(column.rulers.right() - names.left(), column.rulers.height()),
+    );
+    p.scene.fill(band_all, t.panel.bg);
+    for (i, c) in rows.iter().enumerate() {
+        let y = column.rulers.top() + row_h * i as f32;
+        let band = Rect::new(
+            point(column.rulers.left(), y),
+            size(column.rulers.width(), row_h),
+        );
+        let cell = Rect::new(point(names.left(), y), size(names.width(), row_h));
+        let is_selected = selected == Some(c.track);
+        if is_selected {
+            p.scene.fill(cell, t.selection.bg);
+        }
+        let name = c.name.clone();
+        let color = if is_selected {
+            t.selection.text
+        } else {
+            t.panel.text_muted
+        };
+        p.scene.clipped(cell, |scene| {
+            scene.text(
+                point(cell.left() + z(12.0), y),
+                row_h,
+                name,
+                FontRole::Mono,
+                t.ui_size_small,
+                color,
+            );
+        });
+        p.scene.fill(
+            Rect::new(
+                point(names.left(), band.bottom() - 1.0),
+                size(band.right() - names.left(), 1.0),
+            ),
+            t.border_variant,
+        );
+        let Some(timeline) = c.timeline() else {
+            let note = match &c.state {
+                clock::ClockState::Failed(_) => "clock failed to load",
+                _ => "loading…",
+            };
+            p.scene.clipped(band, |scene| {
+                scene.text(
+                    point(band.left() + z(8.0), y),
+                    row_h,
+                    note,
+                    FontRole::Ui,
+                    t.ui_size_small,
+                    t.panel.text_placeholder,
+                );
+            });
+            continue;
+        };
+        let marks = clock::ruler_marks(
+            view,
+            timeline,
+            &column.viewport,
+            column.width_f64(),
+            RULER_LABEL_PX * f64::from(t.zoom),
+            base,
+            true,
+        );
+        let x_of = |time: f64| column.x_of(time);
+        let mut hatch = Vec::new();
+        for (a, b) in &marks.stopped {
+            let (x0, x1) = (x_of(*a).max(band.left()), x_of(*b).min(band.right()));
+            let mut x = x0 - row_h;
+            while x < x1 {
+                hatch.push([point(x, band.bottom()), point(x + row_h, band.top())]);
+                x += z(HATCH_PX);
+            }
+        }
+        let mut stubs = Vec::new();
+        let mut labels = Vec::new();
+        for tick in &marks.ticks {
+            let x = x_of(tick.time as f64);
+            let h = if tick.label.is_some() { z(6.0) } else { z(3.0) };
+            stubs.push(Rect::new(point(x, band.bottom() - h - 1.0), size(1.0, h)));
+            if let Some(label) = &tick.label {
+                labels.push((x, label.clone()));
+            }
+        }
+        let mut flags = Vec::new();
+        for (time, text) in &marks.flags {
+            let x = x_of(*time as f64);
+            let w = p.width(text, FontRole::UiSemibold, t.ui_size_small);
+            flags.push((x, text.clone(), w));
+        }
+        p.scene.clipped(band, |scene| {
+            if !hatch.is_empty() {
+                scene.lines(hatch, t.wave_dense, 1.0);
+            }
+            for stub in stubs {
+                scene.fill(stub, t.wave_tick_text);
+            }
+            for (x, label) in labels {
+                scene.text(
+                    point(x + z(3.0), y),
+                    row_h - z(2.0),
+                    label,
+                    FontRole::Mono,
+                    t.ui_size_small,
+                    t.wave_tick_text,
+                );
+            }
+            for (x, text, w) in flags {
+                let chip = Rect::new(point(x + 1.0, y + z(1.0)), size(w + z(8.0), row_h - z(3.0)));
+                scene.fill(Rect::new(point(x, y), size(1.0, row_h)), t.border_focused);
+                scene.quad(chip, t.badge.bg, z(2.0), 0.0, Color::TRANSPARENT);
+                scene.text(
+                    point(chip.left() + z(4.0), chip.top()),
+                    chip.height(),
+                    text,
+                    FontRole::UiSemibold,
+                    t.ui_size_small,
+                    t.badge.text,
+                );
+            }
+        });
     }
 }
 
@@ -209,7 +406,7 @@ pub fn cursor(
     p: &mut TextPainter<'_>,
     column: &TimeColumn,
     cursor: Option<u64>,
-    base: TimeBase<'_>,
+    label: impl FnOnce(u64) -> String,
     focused: bool,
     right_inset: f32,
 ) {
@@ -224,7 +421,7 @@ pub fn cursor(
         return;
     }
     let x = snap(area.left() + xf as f32);
-    let label = format_time(c as f64, base);
+    let label = label(c);
     let label_w = p.width(&label, FontRole::Mono, t.ui_size_small);
     let chip_w = label_w + z(10.0);
     let mut cx0 = x + 1.0;

@@ -304,11 +304,13 @@ always @(posedge core_clk) if (restart) begin   // from this edge on, the new de
   vtr_clock_run(c, 2 * half, VTR_PS);
   restart = 0;
 end</code></pre>
-  <p>In the C910 testbench, the core clock is toggled by the C++ harness every 100 ps time unit, so its period of 200 ps is known and declared once. The divided JTAG clock is unused by the benchmarks and is not recorded. The declaration sits under an <code>`ifdef</code> that only the VTR build of the model defines, so the FST build is unchanged:</p>
+  <p>In the C910 testbench, the core clock is toggled by the C++ harness every 100 ps time unit, so its period of 200 ps is known and declared once. The divided JTAG clock is unused by the benchmarks and is not recorded. The declaration sits under an <code>`ifdef</code> that only the VTR build of the model defines, so the FST build is unchanged, and its two variables are not traced, so every build records the same signals. The package's own constants are likewise kept out of waveforms by a <code>tracing_off</code> in <code>vtr_trace.sv</code>:</p>
 <pre><code>`ifdef VTR_CLOCKS
 import vtr_trace::*;
+// verilator tracing_off
 vtr_clock_t vtr_clk;
 bit         vtr_clk_on;
+// verilator tracing_on
 initial vtr_clk = vtr_clock("", "clk");
 always @(posedge clk) if (!vtr_clk_on) begin vtr_clock_run(vtr_clk, 200, VTR_PS); vtr_clk_on = 1; end
 `endif</code></pre>
@@ -350,14 +352,14 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
   <p>Every query is a binary search over the stretches and one multiplication. The CLI gains <code>vtr clocks file.vtr</code>, which lists each clock with its stretches, periods and stopped time.</p>
   <p>Volna loads all clock timelines when a file opens, next to the hierarchy. It then offers:</p>
   <ul>
-    <li><b>Clock rulers.</b> Under the time ruler, one row per chosen clock, with ticks at rising edges labelled by cycle number. Each stretch picks its own label spacing, a frequency change gets a small flag such as "→ 2.00 GHz", and a stopped interval is hatched. By default Volna shows the clocks that visible pipelines refer to.</li>
+    <li><b>Clock rulers.</b> Under the time ruler, one row per chosen clock, with ticks at rising edges labelled by cycle number. Each stretch picks its own label spacing, a frequency change gets a small flag such as "→ 2.00 GHz", and a stopped interval is hatched. By default a panel shows the clocks that the workspace's pipelines count in; the palette shows and hides each clock's ruler.</li>
     <li><b>A cycle axis.</b> Any panel can count its main ruler in cycles of one clock. The cursor chip then reads <code>150231 + 0.42</code>, and the status bar keeps the time.</li>
     <li><b>Readouts and measurements.</b> The status bar shows the cursor's cycle in each ruler clock, and the new cursor-to-marker delta reads, for example, "Δ 20.0 ns · 40 core · 10 bus".</li>
-    <li><b>Snapping and stepping.</b> Clicks snap to the nearest edge of the selected clock, <kbd>[</kbd> and <kbd>]</kbd> step one cycle, and the palette gains "Go to cycle…".</li>
-    <li><b>Clock rows without waveforms.</b> A clock can be shown as a wave row even when its net was never dumped, drawn from its stretches.</li>
+    <li><b>Snapping and stepping.</b> Clicks snap to the nearest edge of the selected clock (a click on a ruler selects its clock; the axis clock, else the first ruler, is the default), <kbd>[</kbd> and <kbd>]</kbd> step one cycle, and typing a number in the palette offers "Go to Cycle N". A cycle origin set at the cursor renumbers the panel's clocks from there.</li>
+    <li><b>Clock rows without waveforms.</b> Adding a clock stream to the waves shows a clock row even when its net was never dumped, drawn from its stretches with a 50% duty cycle (the file records no falling edges), with the cursor's cycle in its value column.</li>
     <li><b>Pipelines in cycles.</b> The Pipeline panel counts stages in its stream's <code>vtr.clock</code> instead of assuming one unit per cycle. A stream without <code>vtr.clock</code> keeps today's behaviour, one time unit per cycle.</li>
   </ul>
-  <p>Each piece has a natural home in <code>volna-core</code>: <code>Document</code> holds the timelines, loaded through a new <code>LoadRequest::Clocks</code> that local and remote sessions both serve; <code>wave/timeline.rs</code> gains clock ticks beside time ticks; <code>NavState</code> gains the axis choice; <code>snapped_time</code> gains a clock edge source; and <code>cycle_at</code> in the pipeline model asks the stream's clock. Which clocks a panel shows, its axis and any custom cycle origin are saved in the workspace, never in the VTR file.</p>
+  <p>Each piece has a home in <code>volna-core</code>. A clock is an ordinary stream, so its stretches load as a track, through the requests and the remote protocol that already serve every other stream; <code>Document</code> retains every clock's track when a trace opens and keeps the resulting timelines in <code>clock::Clocks</code>, which also resolves each stream's <code>vtr.clock</code>. <code>clock.rs</code> holds a panel's choices (<code>ClockView</code>), the ruler, axis and readout arithmetic and a lazy one-bit history for clock rows; <code>NavState</code> carries the <code>ClockView</code> and the cycle steps; the shared overlay paints the rulers and the cycle axis for the wave and pipeline panels alike; <code>snapped_time</code> gains the selected clock as an edge source; and <code>cycle_at</code> in the pipeline model asks the stream's clock. Which clocks a panel shows, its axis, its selected clock and any custom cycle origin are saved in the workspace, never in the VTR file.</p>
   <p>VDB and VTR meet by path. A VDB profile can say that a clock stream is "the core clock" or that one clock is derived from another, without the trace saying so.</p>
 </div></div></section>
 
@@ -369,8 +371,8 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
     <li><b>Writer.</b> Unit tests in <code>core/vtr</code> cover fixed, changing, gated and single-edge clocks and the misuse errors. For random run and stop sequences, the stretches must reproduce exactly the edges of a brute-force generator driven by the same sequence.</li>
     <li><b>Round trip.</b> A <code>core/vtr/tests/</code> test writes clocks through every writer call and checks <code>cycle_at</code>, <code>edge</code> and stepping against brute-force edge counting, also on a crash-recovered file.</li>
     <li><b>Fork.</b> <code>integrations/verilator/clocks/run.py</code>, beside the log and VDB suites (the fork's own <code>test_regress</code> has no VTR library to run a model against), checks that the package resolves with <code>--trace-vtr</code> alone. It drives one testbench clock, which changes speed in both directions and is gated, through <code>vtr_clock_run</code> and <code>vtr_clock_stop</code>. It requires stretches whose edges equal the rising edges of the dumped clock waveform, in one and two thread modes. It also checks that a run on a running clock is reported. It also checks the unit conversion, including a period that is not a whole number of file units and its simulation log warning, the scope paths <code>""</code>, <code>"^"</code> and <code>$root</code>, a clock declared before the file opens, that a signal-free open still records the clock, and that a design that uses nothing from the package gets no package code, dependency or VDB source entry.</li>
-    <li><b>C910.</b> With the clocks declared in the testbench, the capture holds one <code>clk</code> stretch of period 2 starting on the first rising edge of the recorded <code>clk</code>, with an edge count equal to the rising edges of that waveform.</li>
-    <li><b>Volna.</b> Headless tests cover clock ruler ticks, the cycle axis, snapping, stepping, the delta readout, the Pipeline panel in cycles on a Kanata import, and the workspace round trip.</li>
+    <li><b>C910.</b> With the clocks declared in the testbench, the capture holds one <code>clk</code> stretch of period 2 starting on the first rising edge of the recorded <code>clk</code>, with an edge count equal to the rising edges of that waveform: <code>capture.sh --check</code> runs <code>check_clock.py</code>.</li>
+    <li><b>Volna.</b> Headless tests cover clock ruler ticks, the cycle axis, snapping, stepping, the delta readout, the Pipeline panel in cycles on a Kanata import, the workspace round trip, and clocks loaded through the remote protocol.</li>
     <li><b>This page.</b> <code>node --test docs/tests/vtr_clocks.test.mjs</code> drives the demo in headless Chrome, and a workflow runs it when the page changes.</li>
   </ul>
 </div></div></section>
@@ -403,7 +405,7 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
     <li><b>Models.</b> Clock stretches from the planned gem5 and SystemC integrations. Not needed by pipeline tracing.</li>
   </ol>
   <p>Postponed, with no step yet: observed clocks, that is <code>clock_edge</code>, <code>vtr_clock_edge</code>, an observer module and <code>vtr convert --clock</code>. They are added to the writer and the package when a design needs a clock whose period nobody declares.</p>
-  <p>Steps 1 to 4 are the prerequisite of <a href="c910-verilator-tx-stream.html">pipeline tracing</a>. After them, that proposal adds only its tracker part to the package, following the package rules above, and its tracer to the C910 testbench.</p>
+  <p>Steps 1 to 4 are implemented; step 5 waits for those integrations. Steps 1 to 4 are the prerequisite of <a href="c910-verilator-tx-stream.html">pipeline tracing</a>. After them, that proposal adds only its tracker part to the package, following the package rules above, and its tracer to the C910 testbench.</p>
 </div></div></section>
 </main>
 

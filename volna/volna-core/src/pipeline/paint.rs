@@ -71,15 +71,20 @@ pub fn paint(
             point(cells.left(), header.top()),
             size(cells.width(), header.height()),
         ),
+        rulers: Rect::new(
+            point(cells.left(), layout.rulers.top()),
+            size(cells.width(), layout.rulers.height()),
+        ),
         area: cells,
         viewport,
     };
+    let clocks = &model.nav.clocks;
 
     // -- backgrounds and the tick grid ----------------------------------------
     p.scene.fill(bounds, t.editor.bg);
     p.scene.fill(labels, t.panel.bg);
     p.scene.fill(header, t.panel.bg);
-    let (tick_list, unit) = column.ticks(base, t.zoom);
+    let (tick_list, unit) = column.main_ticks(base, t.zoom, clocks, &doc.clocks);
     overlay::grid(&mut p, &column, &tick_list);
 
     // -- rows --------------------------------------------------------------------
@@ -500,11 +505,29 @@ pub fn paint(
             );
         },
     );
-    overlay::header_ticks(&mut p, &column, &tick_list, unit);
+    overlay::header_ticks(&mut p, &column, &tick_list, &unit);
+    overlay::clock_rulers(
+        &mut p,
+        &column,
+        Rect::new(
+            point(bounds.left(), layout.rulers.top()),
+            size(labels.width(), layout.rulers.height()),
+        ),
+        clocks,
+        &doc.clocks,
+        base,
+    );
 
     // -- markers and cursor -----------------------------------------------------
     overlay::markers(&mut p, &column, doc, &layout.marker_chips, model.pointer);
-    overlay::cursor(&mut p, &column, cursor, base, focused, z(4.0));
+    overlay::cursor(
+        &mut p,
+        &column,
+        cursor,
+        |c| overlay::cursor_label(c, base, clocks, &doc.clocks),
+        focused,
+        z(4.0),
+    );
 
     // -- borders and pointer shapes ---------------------------------------------
     let near_split = model.hover == Some(Hit::LabelSplit);

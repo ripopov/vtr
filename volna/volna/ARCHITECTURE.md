@@ -13,7 +13,8 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
   src/document.rs        Document: open trace, shared navigation, markers, selection, translators, loads
   src/panels/            stable IDs, split/tab layout, focus, per-panel wave, pipeline, table and transaction models
-  src/nav/               Tween<T> animation, NavState (links, local viewport/cursor) of every timed panel
+  src/nav/               Tween<T> animation, NavState (links, local viewport/cursor, clocks) of every timed panel
+  src/clock.rs           declared clocks: catalog, timelines, a panel's ClockView, ruler/axis/readout math
   src/pipeline/          RowView row axis, PipelineModel, PipelineLayout, stage palette, painter → Scene
   src/table/             fixed sources/columns, exact row viewport, bounded preparation, painter → Scene
   src/transaction/       TxView of one record (pure, bounded), TransactionModel: history, pin, prefs
@@ -327,7 +328,8 @@ is [docs/pipeline-view.html](../../docs/pipeline-view.html).
 The X axis is the document's time: the panel embeds a `NavState`, so the link
 flags, the shared viewport and cursor, markers and the `waves.animation` setting
 apply exactly as they do to wave panels, and a click sets the cursor to the
-integer cycle under the pointer. The Y axis is local: `pipeline::RowView`
+cycle under the pointer: the last edge of the stream's `vtr.clock` at or
+before it, or the whole time unit when the stream names no clock. The Y axis is local: `pipeline::RowView`
 (fractional top row, row height at interface zoom 1.0) with the same
 zoom-about, pan and 20 % edge-space clamp as `Viewport`, animated through the
 same `Tween`. A mouse wheel zooms both axes about the pointer by one factor
@@ -395,6 +397,30 @@ against the track catalog and keeps unresolved tracks as an empty state that
 is written back unchanged. The autosave stamp covers the same fields. GPUI
 hosts the panel in the same `PanelCanvas` element and dock view as waves;
 egui builds against the kind and paints whatever the core produces.
+
+## Clocks
+
+A trace's clocks (`CLOCK` streams, [docs/vtr_clocks.html](../../docs/vtr_clocks.html))
+are ordinary transaction streams: `Document` retains every clock's track when a
+trace opens, so their stretches load through the same `LoadRequest::Track` and
+complete-object remote transfer as any stream, and `clock::Clocks` keeps the
+resulting immutable `vtr::ClockTimeline`s and resolves each stream's
+`vtr.clock`. Every query is a binary search over a few stretches.
+
+Each timed panel's `NavState` carries a `ClockView`: the ruler rows (by clock
+path; `None` follows the clocks the workspace's pipelines count in, which the
+app refreshes before each layout), the axis clock that counts the main ruler,
+cursor chip and go-to in cycles, the selected clock that clicks snap to and
+`[`/`]` step through, and a cycle origin. Layouts add the ruler band below the
+header; the shared overlay paints rulers (ticks at edges, per-stretch cycle
+label steps of the 1-2-5 series, speed flags, hatching where stopped) and the
+cycle axis for both the wave and the pipeline panel. A pipeline opens with its
+stream's clock as its axis. `WaveRow::Clock` draws a clock from its stretches
+through `ClockHistory`, a lazy one-bit `SignalHistory` (50% duty, nothing
+materialized), and reuses the bit painter. The status bar reads the cursor's
+cycle in each ruler clock and the cursor-to-nearest-marker delta in time and
+cycles. Workspaces save a panel's `clocks` and `clock` rows by path, never
+anything in the trace.
 
 ## Transaction panel
 

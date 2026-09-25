@@ -26,3 +26,5 @@ serde_json = { version = "1", features = ["raw_value"] }
 
 [dev-dependencies]
 tempfile = "3"
+# The Kanata importer, for a pipeline counted in its cycle clock.
+vtr-cli = { path = "../../tools/vtr-cli" }

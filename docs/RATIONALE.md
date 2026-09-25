@@ -1577,3 +1577,17 @@ that shaped the format:
   602 distinct posedge nets and 748 clock-gating cells. Observed clocks (a
   writer call per edge, for clocks nobody declares) are postponed; they need
   no format change.
+* Volna loads a clock as the track it is. A dedicated `LoadRequest::Clocks`
+  with its own remote object was the first design; the track request, remote
+  transfer and memory accounting already carry exactly the stretches, so a
+  second path would only duplicate them. The document retains every clock's
+  track when a trace opens and derives an immutable timeline from it.
+* A clock row is a lazy one-bit history over the stretches, painted by the bit
+  painter: rising at each edge, falling half a period later. The file records
+  no falling edges, so the drawn 50% duty cycle is a convention; where the
+  duty cycle matters the dumped net is the waveform to add. Materializing the
+  edges was rejected: a long run's clock would cost its full edge count.
+* A panel's default rulers are the clocks the workspace's pipelines count in,
+  derived each frame from the open pipeline panels rather than stored, so
+  opening or closing a pipeline changes them without a hidden per-panel
+  choice. An explicit ruler choice replaces the default for that panel.

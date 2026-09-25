@@ -126,6 +126,7 @@ function activate(context) {
   const commandNames = [
     "splitRight", "splitDown", "newPanel", "closePanel",
     "focusNextPanel", "focusPrevPanel", "toggleViewportLink", "toggleCursorLink",
+    "nextCycle", "prevCycle", "toggleCycleOrigin",
     "openWorkspace", "saveWorkspace", "saveWorkspaceAs",
     ...Array.from({ length: 9 }, (_, i) => `focusPanel${i + 1}`),
   ];

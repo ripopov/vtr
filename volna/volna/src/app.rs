@@ -107,8 +107,19 @@ actions!(
         ResetRowHeight,
         MoveSelectionUp,
         MoveSelectionDown,
+        NextCycle,
+        PrevCycle,
+        ToggleCycleOrigin,
     ]
 );
+
+/// A clock choice of the focused panel (a ruler, the cycle axis, the
+/// selected clock, go to cycle), from the command palette.
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(namespace = waves, no_json)]
+pub struct ClockAction {
+    pub command: volna_core::app::ClockCommand,
+}
 
 /// Show the selected record in a Transaction panel (⏎, or a double-click on
 /// a pipeline row). The core chooses which panel, or opens one.
@@ -324,6 +335,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("enter", ShowTransaction, Some("Waves")),
         KeyBinding::new("up", MoveSelectionUp, Some("Waves")),
         KeyBinding::new("down", MoveSelectionDown, Some("Waves")),
+        KeyBinding::new("]", NextCycle, Some("Waves")),
+        KeyBinding::new("[", PrevCycle, Some("Waves")),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.set_menus(menus(&[]));
@@ -1404,6 +1417,9 @@ impl Workspace {
                 ResetRowHeight,
                 MoveSelectionUp,
                 MoveSelectionDown,
+                NextCycle,
+                PrevCycle,
+                ToggleCycleOrigin,
             ]
         );
         let mut dock = self
@@ -1680,6 +1696,12 @@ impl Workspace {
                     .child(mono(c, colors.text)),
             );
         }
+        for c in status.clocks {
+            left = left.child(mono(c, colors.text_muted));
+        }
+        if let Some(d) = status.delta {
+            left = left.child(mono(d, colors.text));
+        }
         if let Some(m) = status.markers {
             left = left.child(mono(m, colors.text_placeholder));
         }
@@ -1782,6 +1804,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::close_trace))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::command_palette))
+            .on_action(cx.listener(|this, action: &ClockAction, window, cx| {
+                this.dispatch(Command::Clocks(action.command.clone()), Some(window), cx)
+            }))
             .on_action(cx.listener(|this, action: &OpenPipelineTrack, window, cx| {
                 this.dispatch(
                     Command::OpenPipeline {

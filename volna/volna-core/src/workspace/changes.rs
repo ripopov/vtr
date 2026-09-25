@@ -29,6 +29,7 @@ pub(crate) struct Stamp {
 #[derive(PartialEq)]
 struct PipelineStamp {
     follow: crate::pipeline::FollowActivity,
+    clocks: crate::clock::ClockView,
     link: Link,
     viewport: Option<Viewport>,
     cursor: Option<u64>,
@@ -37,6 +38,7 @@ struct PipelineStamp {
 }
 #[derive(PartialEq)]
 struct WaveStamp {
+    clocks: crate::clock::ClockView,
     link: Link,
     viewport: Option<Viewport>,
     cursor: Option<u64>,
@@ -116,6 +118,7 @@ impl Stamp {
             unresolved_expanded: scope.then(|| app.scopes.unresolved_expanded.clone()),
             filter: app.variables.filter.clone(),
             wave: app.panels.waves(panel).map(|w| WaveStamp {
+                clocks: w.nav.clocks.clone(),
                 link: w.nav.link,
                 viewport: (!w.nav.link.viewport).then(|| w.nav.local_viewport.target()),
                 cursor: if w.nav.link.cursor {
@@ -144,6 +147,7 @@ impl Stamp {
                                 WaveRow::Lane(lane) => {
                                     format!("lane:{}", lane.source.path().join("."))
                                 }
+                                WaveRow::Clock(clock) => format!("clock:{}", clock.path),
                             };
                             (style, row.height())
                         })
@@ -152,6 +156,7 @@ impl Stamp {
             }),
             pipeline: app.panels.pipeline(panel).map(|p| PipelineStamp {
                 follow: p.follow,
+                clocks: p.nav.clocks.clone(),
                 link: p.nav.link,
                 viewport: (!p.nav.link.viewport).then(|| p.nav.local_viewport.target()),
                 cursor: if p.nav.link.cursor {
