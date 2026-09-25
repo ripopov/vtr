@@ -1676,15 +1676,18 @@ fn status_reports_memory_budget_use_as_signals_load_and_unload() {
     // A real VTR trace: procedural sessions own no resident data to account.
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let (_, bus) = writer.add_var(
-        "bus",
-        vtr::VarType::Wire,
-        vtr::Direction::Output,
-        vtr::SignalKind::Bits {
-            width: 32,
-            states: 2,
-        },
-    );
+    let (_, bus) = writer
+        .add_var(
+            None,
+            "bus",
+            vtr::VarType::Wire,
+            vtr::Direction::Output,
+            vtr::SignalKind::Bits {
+                width: 32,
+                states: 2,
+            },
+        )
+        .unwrap();
     for time in 0..10_000u64 {
         writer.set_time(time).unwrap();
         writer.emit_u64(bus, time * 7).unwrap();

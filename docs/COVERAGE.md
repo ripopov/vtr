@@ -61,7 +61,7 @@ does today (`tools/vtr-cli/src/{fst,ftr,kanata,otlp}.rs`).
 | `SetPackType` zlib/lz4/fastlz, `SetRepackOnClose` | `WriterOptions.compression` (zstd level or LZ4 or none); no whole-file wrapper (kept random access) |
 | `SetParallelMode` | `WriterOptions.background` (on by default) |
 | `SetTimescale[FromString]`, `SetTimezero`, `SetDate`, `SetVersion`, `SetComment`, `SetFileType`, `SetEnvVar`, `SetValueList` | `set_timescale`, `set_time_zero`, `set_date`, `set_writer_name`, `set_comment`, `set_file_type`, `set_file_attr` |
-| `SetScope`/`SetUpscope` | `begin_scope`/`end_scope` |
+| `SetScope`/`SetUpscope` | `add_scope` with an explicit parent; the producer keeps the open-scope path |
 | `CreateVar` / `CreateVar2` (svt/sdt) | `add_var`, `add_alias`, `node_attr` |
 | `SetAttrBegin`/`SetAttrEnd`, `SetSourceStem`, `SetSourceInstantiationStem` | `node_attr` with typed values |
 | `CreateEnumTable` / `EmitEnumTableRef` | `add_enum_table` + `node_attr("enum_table", U64(node))` |

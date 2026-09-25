@@ -11,9 +11,9 @@ fn bulk_owners_preserve_order_duplicates_and_missing_ids_across_blocks() {
         },
     )
     .unwrap();
-    let stream = writer.add_stream(None, "stream", "raw");
-    let a = writer.add_generator(stream, "a");
-    let b = writer.add_generator(stream, "b");
+    let stream = writer.add_stream(None, "stream", "raw").unwrap();
+    let a = writer.add_generator(stream, "a").unwrap();
+    let b = writer.add_generator(stream, "b").unwrap();
     let ids: Vec<_> = (0..32)
         .map(|i| writer.begin_tx(if i % 2 == 0 { a } else { b }, i).unwrap())
         .collect();

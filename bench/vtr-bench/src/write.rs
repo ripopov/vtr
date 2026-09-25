@@ -3,16 +3,18 @@
 use crate::replay::{HierOp, Replay};
 use crate::util::{file_size, Stopwatch};
 use serde_json::json;
-use vtr::{Direction, ScopeType, SignalId, SignalKind, VarType, Writer, WriterOptions};
+use vtr::{Direction, NodeId, ScopeType, SignalId, SignalKind, VarType, Writer, WriterOptions};
 
 pub fn declare(w: &mut Writer, rp: &Replay) -> Vec<SignalId> {
     let mut map: Vec<Option<SignalId>> = vec![None; rp.signals.len()];
+    let mut path: Vec<NodeId> = Vec::new();
     for op in &rp.hier {
+        let parent = path.last().copied();
         match op {
-            HierOp::Scope(n) => {
-                w.begin_scope(n, ScopeType::Module, "");
+            HierOp::Scope(n) => path.push(w.add_scope(parent, n, ScopeType::Module, "").unwrap()),
+            HierOp::Up => {
+                path.pop().expect("unbalanced scope in replay");
             }
-            HierOp::Up => w.end_scope().unwrap(),
             HierOp::Var(s, n) => {
                 let d = rp.signals[*s as usize];
                 let kind = match d.kind {
@@ -20,11 +22,11 @@ pub fn declare(w: &mut Writer, rp: &Replay) -> Vec<SignalId> {
                     1 => SignalKind::Real,
                     _ => SignalKind::VarLen,
                 };
-                let (_, sig) = w.add_var(n, VarType::Wire, Direction::Implicit, kind);
+                let (_, sig) = w.add_var(parent, n, VarType::Wire, Direction::Implicit, kind).unwrap();
                 map[*s as usize] = Some(sig);
             }
             HierOp::Alias(s, n) => {
-                w.add_alias(n, VarType::Wire, Direction::Implicit, map[*s as usize].unwrap()).unwrap();
+                w.add_alias(parent, n, VarType::Wire, Direction::Implicit, map[*s as usize].unwrap()).unwrap();
             }
         }
     }
@@ -37,7 +39,7 @@ pub fn declare(w: &mut Writer, rp: &Replay) -> Vec<SignalId> {
                 1 => SignalKind::Real,
                 _ => SignalKind::VarLen,
             };
-            *m = Some(w.add_var(&format!("s{i}"), VarType::Wire, Direction::Implicit, kind).1);
+            *m = Some(w.add_var(None, &format!("s{i}"), VarType::Wire, Direction::Implicit, kind).unwrap().1);
         }
     }
     map.into_iter().map(|m| m.unwrap()).collect()

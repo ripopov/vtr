@@ -100,9 +100,8 @@ int main(int argc, char **argv) {
         return 1;
     }
     vtr_writer_set_timescale(w, -9);
-    uint32_t top = vtr_writer_begin_scope(w, "top", 64 /* generic */, "sim");
+    uint32_t top = vtr_writer_add_scope(w, VTR_NONE, "top", 64 /* generic */, "sim");
     vtr::LogStream ls(w, top, "log");
-    vtr_writer_end_scope(w);
     Generator gen;
     Msg m{};
     double t0 = benchutil::now();

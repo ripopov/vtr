@@ -8,7 +8,7 @@ use crate::block::{self, BlockInput, ChunkEnc, ChunkInput, EncoderScratch, Recor
 use crate::codec::{Compression, Compressor};
 use crate::container::{self, DirEntry, SectionKind, SECTION_FLAG_OPTIONAL};
 use crate::error::{Error, Result};
-use crate::hierarchy::{Direction, Node, NodeData, NodeId, ScopeType, SignalId, SignalKind, VarType};
+use crate::hierarchy::{self, Direction, Node, NodeData, NodeId, NodeKind, ScopeType, SignalId, SignalKind, VarType};
 use crate::logblock::{self, LogArg, LogBlockInput, LogSiteEnc, LogSiteId, LogSiteSpec};
 use crate::sections::{self, Blackout, FileType, Meta};
 use crate::signal;
@@ -574,8 +574,8 @@ pub struct Writer {
     meta_written: bool,
     strings: Interner,
     pending_nodes: Vec<Node>,
-    n_nodes: u32,
-    scope_stack: Vec<NodeId>,
+    /// Kind of every node declared so far, flushed or pending (for parent checks).
+    node_kinds: Vec<NodeKind>,
     // signals
     kinds: Vec<SignalKind>,
     kinds_arc: Option<Arc<Vec<SignalKind>>>,
@@ -705,8 +705,7 @@ impl Writer {
             meta_written: false,
             strings: Interner::new(),
             pending_nodes: Vec::new(),
-            n_nodes: 0,
-            scope_stack: Vec::new(),
+            node_kinds: Vec::new(),
             kinds: Vec::new(),
             kinds_arc: None,
             info: Vec::new(),
@@ -815,52 +814,45 @@ impl Writer {
     // ----- hierarchy -----
 
     fn push_node(&mut self, node: Node) -> NodeId {
-        let id = NodeId(self.n_nodes);
-        self.n_nodes += 1;
+        let id = NodeId(self.node_kinds.len() as u32);
+        self.node_kinds.push(node.kind());
         self.pending_nodes.push(node);
         id
     }
 
-    /// Opens a scope; subsequent vars/scopes are children until [`end_scope`](Self::end_scope).
-    pub fn begin_scope(&mut self, name: &str, scope_type: ScopeType, component: &str) -> NodeId {
+    /// Checks that a node of kind `child` may go under `parent` (SPEC section 5).
+    fn check_parent(&self, child: NodeKind, parent: Option<NodeId>) -> Result<()> {
+        let parent_kind = match parent {
+            None => None,
+            Some(p) => Some(*self.node_kinds.get(p.0 as usize).ok_or_else(|| Error::invalid(format!("unknown parent node {}", p.0)))?),
+        };
+        if !hierarchy::parent_allowed(child, parent_kind) {
+            let under = parent_kind.map_or("the root".to_string(), |k| format!("a {k:?}"));
+            return Err(Error::invalid(format!("a {child:?} cannot go under {under}")));
+        }
+        Ok(())
+    }
+
+    /// Declares a scope under `parent` (`None` = a root).
+    pub fn add_scope(&mut self, parent: Option<NodeId>, name: &str, scope_type: ScopeType, component: &str) -> Result<NodeId> {
+        self.check_parent(NodeKind::Scope, parent)?;
         let name = self.strings.intern(name);
         let component = self.strings.intern(component);
-        let parent = self.scope_stack.last().copied();
-        let id = self.push_node(Node { parent, name, data: NodeData::Scope { scope_type, component }, attrs: Vec::new() });
-        self.scope_stack.push(id);
-        id
+        Ok(self.push_node(Node { parent, name, data: NodeData::Scope { scope_type, component }, attrs: Vec::new() }))
     }
 
-    pub fn end_scope(&mut self) -> Result<()> {
-        self.scope_stack.pop().map(|_| ()).ok_or(Error::State("end_scope without begin_scope"))
-    }
-
-    /// Current innermost scope.
-    pub fn current_scope(&self) -> Option<NodeId> {
-        self.scope_stack.last().copied()
-    }
-
-    /// Declares a variable with a new signal in the current scope.
-    pub fn add_var(&mut self, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> (NodeId, SignalId) {
-        let parent = self.scope_stack.last().copied();
-        self.add_var_in(parent, name, var_type, direction, kind)
-    }
-
-    /// Declares a variable with a new signal under an explicit parent.
-    pub fn add_var_in(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> (NodeId, SignalId) {
+    /// Declares a variable with a new signal under `parent` (`None` = a root).
+    pub fn add_var(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> Result<(NodeId, SignalId)> {
+        self.check_parent(NodeKind::Var, parent)?;
         let name = self.strings.intern(name);
         let sig = self.new_signal(kind, var_type);
         let id = self.push_node(Node { parent, name, data: NodeData::Var { var_type, direction, signal: sig, declares: Some(kind) }, attrs: Vec::new() });
-        (id, sig)
+        Ok((id, sig))
     }
 
-    /// Declares a variable that aliases an existing signal.
-    pub fn add_alias(&mut self, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId> {
-        let parent = self.scope_stack.last().copied();
-        self.add_alias_in(parent, name, var_type, direction, signal)
-    }
-
-    pub fn add_alias_in(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId> {
+    /// Declares a variable under `parent` that aliases an existing signal.
+    pub fn add_alias(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId> {
+        self.check_parent(NodeKind::Var, parent)?;
         if signal.0 as usize >= self.kinds.len() {
             return Err(Error::invalid(format!("unknown signal {}", signal.0)));
         }
@@ -871,31 +863,35 @@ impl Writer {
         Ok(self.push_node(Node { parent, name, data: NodeData::Var { var_type, direction, signal, declares: None }, attrs: Vec::new() }))
     }
 
-    /// Declares an enumeration table (literal, value) in the current scope.
-    pub fn add_enum_table(&mut self, name: &str, entries: &[(&str, &str)]) -> NodeId {
-        let parent = self.scope_stack.last().copied();
+    /// Declares an enumeration table of (literal, value) pairs under `parent`.
+    pub fn add_enum_table(&mut self, parent: Option<NodeId>, name: &str, entries: &[(&str, &str)]) -> Result<NodeId> {
+        self.check_parent(NodeKind::EnumTable, parent)?;
         let name = self.strings.intern(name);
         let entries = entries.iter().map(|(l, v)| (self.strings.intern(l), self.strings.intern(v))).collect();
-        self.push_node(Node { parent, name, data: NodeData::EnumTable { entries }, attrs: Vec::new() })
+        Ok(self.push_node(Node { parent, name, data: NodeData::EnumTable { entries }, attrs: Vec::new() }))
     }
 
-    /// Declares a transaction stream. `parent` may be a scope or `None` for top level.
-    pub fn add_stream(&mut self, parent: Option<NodeId>, name: &str, kind: &str) -> NodeId {
+    /// Declares a transaction stream under `parent`. `kind` is free form;
+    /// log streams use [`LOG_STREAM_KIND`](crate::LOG_STREAM_KIND).
+    pub fn add_stream(&mut self, parent: Option<NodeId>, name: &str, kind: &str) -> Result<NodeId> {
+        self.check_parent(NodeKind::Stream, parent)?;
         let name = self.strings.intern(name);
         let kind = self.strings.intern(kind);
-        self.push_node(Node { parent, name, data: NodeData::Stream { kind }, attrs: Vec::new() })
+        Ok(self.push_node(Node { parent, name, data: NodeData::Stream { kind }, attrs: Vec::new() }))
     }
 
     /// Declares a transaction generator (type) within a stream.
-    pub fn add_generator(&mut self, stream: NodeId, name: &str) -> NodeId {
+    pub fn add_generator(&mut self, stream: NodeId, name: &str) -> Result<NodeId> {
+        self.check_parent(NodeKind::Generator, Some(stream))?;
         let name = self.strings.intern(name);
-        self.push_node(Node { parent: Some(stream), name, data: NodeData::Generator, attrs: Vec::new() })
+        Ok(self.push_node(Node { parent: Some(stream), name, data: NodeData::Generator, attrs: Vec::new() }))
     }
 
     /// Attaches an attribute to a node created since the last flush.
     pub fn node_attr(&mut self, node: NodeId, key: &str, value: Value) -> Result<()> {
-        let first_pending = self.n_nodes - self.pending_nodes.len() as u32;
-        if node.0 < first_pending || node.0 >= self.n_nodes {
+        let n_nodes = self.node_kinds.len() as u32;
+        let first_pending = n_nodes - self.pending_nodes.len() as u32;
+        if node.0 < first_pending || node.0 >= n_nodes {
             return Err(Error::State("node attributes must be added before the node is flushed"));
         }
         let k = self.strings.intern(key);
@@ -1365,7 +1361,7 @@ impl Writer {
             self.meta_written = true;
         }
         if !self.pending_nodes.is_empty() {
-            let first = self.n_nodes - self.pending_nodes.len() as u32;
+            let first = (self.node_kinds.len() - self.pending_nodes.len()) as u32;
             let mut payload = Vec::new();
             varint::put_u64(&mut payload, first as u64);
             varint::put_u64(&mut payload, self.pending_nodes.len() as u64);
@@ -1535,8 +1531,8 @@ impl Writer {
     // ----- transactions -----
 
     fn check_gen(&self, gen: NodeId) -> Result<()> {
-        if gen.0 >= self.n_nodes {
-            return Err(Error::invalid(format!("unknown generator node {}", gen.0)));
+        if self.node_kinds.get(gen.0 as usize) != Some(&NodeKind::Generator) {
+            return Err(Error::invalid(format!("node {} is not a generator", gen.0)));
         }
         Ok(())
     }
@@ -1702,16 +1698,12 @@ impl Writer {
 
     // ----- logs -----
 
-    /// Declares a log stream (kind `LOG`) under `parent` (`None` = top level).
-    pub fn add_log_stream(&mut self, parent: Option<NodeId>, name: &str) -> NodeId {
-        self.add_stream(parent, name, logblock::STREAM_KIND)
-    }
-
     /// Registers a log call site: a generator of `spec.stream` named by the
     /// format string and carrying the severity, argument types and names and
     /// the source location as attributes (`log.*`). Register each call site
     /// once and keep the returned handle; `log` then costs a few bytes per call.
     pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> Result<LogSiteId> {
+        self.check_parent(NodeKind::Generator, Some(spec.stream))?;
         let resolved_names: Vec<String> = (0..spec.args.len())
             .map(|i| spec.names.get(i).map_or_else(|| i.to_string(), |name| (*name).to_owned()))
             .collect();
@@ -1879,7 +1871,7 @@ impl Writer {
             transactions: self.total_tx,
             log_records: self.total_log,
             signals: self.kinds.len() as u32,
-            nodes: self.n_nodes,
+            nodes: self.node_kinds.len() as u32,
         }
     }
 }
@@ -1900,11 +1892,4 @@ pub struct WriterStats {
     pub log_records: u64,
     pub signals: u32,
     pub nodes: u32,
-}
-
-impl Writer {
-    /// Convenience: declares a 2-state / 4-state bit-vector variable.
-    pub fn add_bits(&mut self, name: &str, width: u32, states: u8) -> (NodeId, SignalId) {
-        self.add_var(name, VarType::Wire, Direction::Implicit, SignalKind::Bits { width, states })
-    }
 }

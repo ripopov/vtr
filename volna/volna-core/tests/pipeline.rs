@@ -32,21 +32,23 @@ fn fixture(n: u64) -> Arc<dyn Session> {
     w.set_timescale(0).unwrap();
     let unit = w.intern("cycle");
     w.set_file_attr("time.unit", Value::Str(unit)).unwrap();
-    let cpu = w.begin_scope("cpu", ScopeType::Core, "");
-    let (_, counter) = w.add_var(
-        "counter",
-        VarType::Logic,
-        Direction::Implicit,
-        SignalKind::Bits {
-            width: 8,
-            states: 2,
-        },
-    );
-    let stream = w.add_stream(Some(cpu), "thread0", "PIPELINE");
-    let insn = w.add_generator(stream, "instruction");
-    let bus = w.add_stream(Some(cpu), "bus", "TX");
-    let req = w.add_generator(bus, "request");
-    w.end_scope().unwrap();
+    let cpu = w.add_scope(None, "cpu", ScopeType::Core, "").unwrap();
+    let (_, counter) = w
+        .add_var(
+            Some(cpu),
+            "counter",
+            VarType::Logic,
+            Direction::Implicit,
+            SignalKind::Bits {
+                width: 8,
+                states: 2,
+            },
+        )
+        .unwrap();
+    let stream = w.add_stream(Some(cpu), "thread0", "PIPELINE").unwrap();
+    let insn = w.add_generator(stream, "instruction").unwrap();
+    let bus = w.add_stream(Some(cpu), "bus", "TX").unwrap();
+    let req = w.add_generator(bus, "request").unwrap();
     let last = n + 4;
     for t in 0..=last {
         w.set_time(t).unwrap();
@@ -330,9 +332,9 @@ fn activity_keeps_long_overlaps_points_and_generator_row_offsets() {
     use volna_core::wave::viewport::Viewport;
     let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let stream = writer.add_stream(None, "pipeline", "PIPELINE");
-    let first = writer.add_generator(stream, "first");
-    let second = writer.add_generator(stream, "second");
+    let stream = writer.add_stream(None, "pipeline", "PIPELINE").unwrap();
+    let first = writer.add_generator(stream, "first").unwrap();
+    let second = writer.add_generator(stream, "second").unwrap();
     let long = writer.begin_tx(first, 0).unwrap();
     writer.end_tx(long, 1000, vtr::TxStatus::Ok).unwrap();
     for i in 1..100 {

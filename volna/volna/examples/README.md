@@ -39,9 +39,9 @@ older encoding when the writer changes.
 ## Feature showcase
 
 `feature_showcase.vtr` is a deterministic, synthetic debugging lab: 2,048 ns of
-CPU execution, DMA traffic, an injected fault and recovery. It is **5,933 bytes**,
-well below the 500,000-byte limit enforced by its generator. It contains 80
-variable declarations sharing 77 signals, 17,430 changes, 98 transactions
+CPU execution, DMA traffic, an injected fault and recovery. It is **7,419 bytes**,
+well below the 500,000-byte limit enforced by its generator. It contains 81
+variable declarations sharing 78 signals, 17,559 changes, 98 transactions
 (including 20 log records), and 59 relations.
 
 Start at `soc`: add `clk`, `reset_n`, `valid`, `ready`, `address`, `data`,
@@ -49,7 +49,9 @@ Start at `soc`: add `clk`, `reset_n`, `valid`, `ready`, `address`, `data`,
 `ready` becomes X and `data` contains X/Z bits. There is a deliberate recording
 gap at 960–992 ns. Search everywhere for `read`, `instructions` or `cycle` to
 exercise mixed hierarchy results. `soc.log` demonstrates severity badges and
-source locations. All activity and log locations are synthetic.
+source locations. `hotplug_sensor` is declared at 1,024 ns, after half of the
+values were written: its `reading` signal is X before then. All activity and
+log locations are synthetic.
 
 Stream kinds describe their domain: `PIPELINE` for instruction execution,
 `MEMORY_BUS` for bus requests, `LOG` for messages, and `otel.scope` for software

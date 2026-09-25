@@ -271,12 +271,15 @@ fn raw_bytes_reals_nine_states_and_time_boundaries() {
 
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let (_, signal) = writer.add_var(
-        "bytes",
-        vtr::VarType::String,
-        vtr::Direction::Implicit,
-        vtr::SignalKind::VarLen,
-    );
+    let (_, signal) = writer
+        .add_var(
+            None,
+            "bytes",
+            vtr::VarType::String,
+            vtr::Direction::Implicit,
+            vtr::SignalKind::VarLen,
+        )
+        .unwrap();
     writer.set_time(5).unwrap();
     writer
         .emit_varlen(signal, &[b'a', 0, 255, b'\\', b'\n', 128])
@@ -312,17 +315,21 @@ fn vtr_events_preserve_repeated_occurrences_and_render_arrows() {
     };
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let (_, signal) = writer.add_var(
-        "event",
-        vtr::VarType::Event,
-        vtr::Direction::Implicit,
-        vtr::SignalKind::Bits {
-            width: 1,
-            states: 2,
-        },
-    );
+    let (_, signal) = writer
+        .add_var(
+            None,
+            "event",
+            vtr::VarType::Event,
+            vtr::Direction::Implicit,
+            vtr::SignalKind::Bits {
+                width: 1,
+                states: 2,
+            },
+        )
+        .unwrap();
     writer
         .add_alias(
+            None,
             "event_alias",
             vtr::VarType::Event,
             vtr::Direction::Implicit,

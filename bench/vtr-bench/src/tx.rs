@@ -420,8 +420,8 @@ pub fn tx_write_vtr(rp: &TxReplay, out: &str, opts: WriterOptions, label: &str) 
     let mut w = Writer::create_with(out, opts).expect("create");
     w.set_timescale(-9).unwrap();
     let strs: Vec<StrId> = rp.strings.iter().map(|s| w.intern(s)).collect();
-    let streams: Vec<NodeId> = rp.streams.iter().map(|&s| w.add_stream(None, &rp.strings[s as usize], "TRANSACTOR")).collect();
-    let gens: Vec<NodeId> = rp.gens.iter().map(|&(st, n)| w.add_generator(streams[st as usize], &rp.strings[n as usize])).collect();
+    let streams: Vec<NodeId> = rp.streams.iter().map(|&s| w.add_stream(None, &rp.strings[s as usize], "TRANSACTOR").unwrap()).collect();
+    let gens: Vec<NodeId> = rp.gens.iter().map(|&(st, n)| w.add_generator(streams[st as usize], &rp.strings[n as usize]).unwrap()).collect();
     let max_id = rp.ops.iter().filter_map(|o| if let TxOp::Begin { id, .. } = o { Some(*id) } else { None }).max().unwrap_or(0);
     let mut ids: Vec<TxId> = vec![0; max_id as usize + 1];
     let (mut ntx, mut nattr, mut nrel) = (0u64, 0u64, 0u64);

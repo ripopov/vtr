@@ -158,25 +158,19 @@ fn recorded(db: &Database, path: &Path, gap: bool, prefix: &str, missing: bool) 
     )
     .unwrap();
     let mut ids = vec![];
-    if !prefix.is_empty() {
-        w.begin_scope(prefix, ScopeType::Module, "");
-    }
+    let root = (!prefix.is_empty()).then(|| w.add_scope(None, prefix, ScopeType::Module, "").unwrap());
     for (name, s) in &db.symbols {
         if s.value.is_some() || (missing && name.ends_with(".a")) {
             continue;
         }
         let parts: Vec<_> = name.split('.').collect();
+        let mut parent = root;
         for part in &parts[..parts.len() - 1] {
-            w.begin_scope(part, ScopeType::Module, "");
+            parent = Some(w.add_scope(parent, part, ScopeType::Module, "").unwrap());
         }
-        let id = w.add_bits(parts.last().unwrap(), s.ty.width, 4).1;
+        let kind = SignalKind::Bits { width: s.ty.width, states: 4 };
+        let id = w.add_var(parent, parts.last().unwrap(), VarType::Wire, Direction::Implicit, kind).unwrap().1;
         ids.push((id, s.ty.width));
-        for _ in &parts[..parts.len() - 1] {
-            w.end_scope().unwrap();
-        }
-    }
-    if !prefix.is_empty() {
-        w.end_scope().unwrap();
     }
     for t in [0, 10] {
         w.set_time(t).unwrap();

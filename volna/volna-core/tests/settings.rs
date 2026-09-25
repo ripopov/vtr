@@ -336,15 +336,18 @@ fn zoom_steps_write_the_setting_and_reset_removes_it() {
 fn bus_trace(changes: u64) -> tempfile::NamedTempFile {
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let (_, bus) = writer.add_var(
-        "bus",
-        vtr::VarType::Wire,
-        vtr::Direction::Output,
-        vtr::SignalKind::Bits {
-            width: 32,
-            states: 2,
-        },
-    );
+    let (_, bus) = writer
+        .add_var(
+            None,
+            "bus",
+            vtr::VarType::Wire,
+            vtr::Direction::Output,
+            vtr::SignalKind::Bits {
+                width: 32,
+                states: 2,
+            },
+        )
+        .unwrap();
     for time in 0..changes {
         writer.set_time(time).unwrap();
         writer.emit_u64(bus, time.wrapping_mul(2654435761)).unwrap();

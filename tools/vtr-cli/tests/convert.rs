@@ -245,13 +245,12 @@ fn vcd_export_counts_every_change() {
     use vtr::{Direction, ScopeType, SignalKind, VarType};
     let out = tmp("vcdout.vtr");
     let mut w = writer(&out);
-    w.begin_scope("top", ScopeType::Module, "");
+    let top = w.add_scope(None, "top", ScopeType::Module, "").unwrap();
     // 4-state: a two-state signal starts at 0 in VTR, so an initial 0 would not be a change.
-    let (_, clk) = w.add_var("clk", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 1, states: 4 });
-    let (_, bus) = w.add_var("bus [7:0]", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 4 });
-    let (_, r) = w.add_var("r", VarType::Real, Direction::Implicit, SignalKind::Real);
-    w.add_alias("clk_alias", VarType::Wire, Direction::Implicit, clk).unwrap();
-    w.end_scope().unwrap();
+    let (_, clk) = w.add_var(Some(top), "clk", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 1, states: 4 }).unwrap();
+    let (_, bus) = w.add_var(Some(top), "bus [7:0]", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 4 }).unwrap();
+    let (_, r) = w.add_var(Some(top), "r", VarType::Real, Direction::Implicit, SignalKind::Real).unwrap();
+    w.add_alias(Some(top), "clk_alias", VarType::Wire, Direction::Implicit, clk).unwrap();
     let mut n = 0u64;
     for t in 0..50u64 {
         w.set_time(t).unwrap();

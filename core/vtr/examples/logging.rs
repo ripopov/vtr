@@ -12,16 +12,13 @@ fn main() -> vtr::Result<()> {
     w.set_timescale(-9)?; // ns
 
     // Hierarchy: a SoC with a CPU and a DMA engine; each component owns a LOG stream.
-    let soc = w.begin_scope("soc", ScopeType::Generic, "");
-    let cpu = w.begin_scope("cpu0", ScopeType::Core, "");
-    let cpu_log = w.add_log_stream(Some(cpu), "log");
-    w.end_scope()?;
-    let dma = w.begin_scope("dma", ScopeType::Generic, "");
-    let dma_log = w.add_log_stream(Some(dma), "log");
-    let dma_tx = w.add_stream(Some(dma), "transfers", "TLM");
-    let gen_xfer = w.add_generator(dma_tx, "transfer");
-    w.end_scope()?;
-    w.end_scope()?;
+    let soc = w.add_scope(None, "soc", ScopeType::Generic, "")?;
+    let cpu = w.add_scope(Some(soc), "cpu0", ScopeType::Core, "")?;
+    let cpu_log = w.add_stream(Some(cpu), "log", vtr::LOG_STREAM_KIND)?;
+    let dma = w.add_scope(Some(soc), "dma", ScopeType::Generic, "")?;
+    let dma_log = w.add_stream(Some(dma), "log", vtr::LOG_STREAM_KIND)?;
+    let dma_tx = w.add_stream(Some(dma), "transfers", "TLM")?;
+    let gen_xfer = w.add_generator(dma_tx, "transfer")?;
     let _ = soc;
 
     // Call sites: one generator each, registered once. Arguments are typed.

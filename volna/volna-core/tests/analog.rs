@@ -41,30 +41,39 @@ fn trace_until(end: u64) -> (tempfile::NamedTempFile, Arc<dyn Session>) {
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut w = vtr::Writer::create(file.path()).unwrap();
     w.set_timescale(-9).unwrap();
-    let (_, bus) = w.add_var(
-        "bus",
-        vtr::VarType::Wire,
-        vtr::Direction::Output,
-        vtr::SignalKind::Bits {
-            width: 16,
-            states: 4,
-        },
-    );
-    let (_, real) = w.add_var(
-        "level",
-        vtr::VarType::Real,
-        vtr::Direction::Output,
-        vtr::SignalKind::Real,
-    );
-    let (_, bit) = w.add_var(
-        "valid",
-        vtr::VarType::Wire,
-        vtr::Direction::Output,
-        vtr::SignalKind::Bits {
-            width: 1,
-            states: 2,
-        },
-    );
+    let (_, bus) = w
+        .add_var(
+            None,
+            "bus",
+            vtr::VarType::Wire,
+            vtr::Direction::Output,
+            vtr::SignalKind::Bits {
+                width: 16,
+                states: 4,
+            },
+        )
+        .unwrap();
+    let (_, real) = w
+        .add_var(
+            None,
+            "level",
+            vtr::VarType::Real,
+            vtr::Direction::Output,
+            vtr::SignalKind::Real,
+        )
+        .unwrap();
+    let (_, bit) = w
+        .add_var(
+            None,
+            "valid",
+            vtr::VarType::Wire,
+            vtr::Direction::Output,
+            vtr::SignalKind::Bits {
+                width: 1,
+                states: 2,
+            },
+        )
+        .unwrap();
     for t in (0..end).step_by(10) {
         w.set_time(t).unwrap();
         let phase = t as f64 * 2.0 * std::f64::consts::PI / 4000.0;

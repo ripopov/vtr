@@ -154,6 +154,10 @@ that recovery and streaming readers work:
   precedes it in the file.
 * Every node id / signal id used by a section is defined by a HIERARCHY
   section that precedes it.
+* HIERARCHY sections may appear anywhere after META, interleaved with all
+  other sections, so the hierarchy can grow while a run is recorded. A node
+  exists from the chunk that declares it to the end of the file; it is never
+  removed, renamed or re-parented.
 * META precedes the first HIERARCHY, SIGNAL_BLOCK and TX_BLOCK section.
 * SIGNAL_BLOCK sections appear in non-decreasing time order and their time
   ranges do not overlap except that the last time of block *k* may equal the
@@ -246,6 +250,11 @@ varint  name        string id
 ...kind specific fields...
 attrs               section 5.3
 ```
+
+**Parents.** A scope, var, stream or enum table is a root (`parent = 0`) or
+the child of a scope; a generator is the child of a stream. Writers reject
+other parents and readers treat them as corrupt. Chunks may declare children of
+nodes from earlier chunks, so the hierarchy can grow anywhere at any time.
 
 Ids inside a node are stored relative to the node's own position so that
 they stay small: the parent as a backward distance, the signal of a var
@@ -411,7 +420,7 @@ holds a signal's data without scanning.
 ### 6.2 Group container
 
 ```
-varint n_sigs                     signals in this group (group_size, or fewer for the last group)
+varint n_sigs                     signals in this group: min(group_size, n_signals - first id of the group)
 varint n_alias                    dynamic aliases (6.6)
 n_alias x { varint local_sig, varint target_sig }
 blob   frame                      compressed blob: the *frame* (6.3)
@@ -429,6 +438,13 @@ group's columns into runs whose raw size does not exceed a budget (64 KiB
 and at most 64 signals in the reference implementation; a single larger
 column forms a run of its own) so that reading one signal decompresses a
 bounded amount of data. The raw size of a run must be below 2^30 bytes.
+
+A block holds only the signals known when it was written. A signal *s*
+with `s >= n_signals` of the block, which is also outside every group
+container's `n_sigs`, was declared later: it has no changes in the block
+and no frame entry, and its value throughout the block is the default of
+6.3. This is the normal case for a signal that joins a group after
+earlier blocks stored that group.
 
 ### 6.3 Frame
 
@@ -527,8 +543,12 @@ whose time-table index maps to a time `<= t`, else take the frame value;
 if `g` is not dirty there, follow the prev-dirty table to the previous
 block in which it is dirty and take the last entry of its column (or the
 frame value when the column is empty); if there is none, the value is the
-default of 6.3. All changes of a signal are the concatenation of its
-columns over all blocks.
+default of 6.3. When the block found this way does not hold `s`
+(`s >= n_signals`, 6.2), the value is also the default of 6.3: the
+signal did not exist yet and had no changes up to that block. All changes
+of a signal are the concatenation of its columns over the blocks that
+hold it; its initial value is the frame of the first dirty block that
+holds it.
 
 The global list of time steps is the concatenation of all block time
 tables with the duplicated boundary time removed.

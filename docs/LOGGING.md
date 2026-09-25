@@ -62,9 +62,8 @@ cost one byte and 64-bit addresses five or nine.
 #include "vtr_log.hpp"
 
 vtr_writer *w = vtr_writer_create("sim.vtr", nullptr);
-uint32_t cpu = vtr_writer_begin_scope(w, "cpu0", 68 /* core */, nullptr);
-vtr::LogStream log(w, cpu, "log");            // a LOG stream under cpu0
-vtr_writer_end_scope(w);
+uint32_t cpu = vtr_writer_add_scope(w, VTR_NONE, "cpu0", 68 /* core */, nullptr);
+vtr::LogStream log(w, cpu, "log");            // a log stream under cpu0
 
 VTR_LOG_INFO(log, sim_time, "fetch pc={:#010x} inst={:#010x}", pc, inst);
 VTR_LOG(log, vtr::Severity::Warn, sim_time, "{} stalled {} cycles", unit_name, cycles);
@@ -99,9 +98,8 @@ can call those directly; `core/vtr-capi/include/vtr.h` documents them.
 use vtr::{LogArgType::*, LogSiteSpec, Severity, Writer};
 
 let mut w = Writer::create("sim.vtr")?;
-let cpu = w.begin_scope("cpu0", vtr::ScopeType::Core, "");
-let log = w.add_log_stream(Some(cpu), "log");
-w.end_scope()?;
+let cpu = w.add_scope(None, "cpu0", vtr::ScopeType::Core, "")?;
+let log = w.add_stream(Some(cpu), "log", vtr::LOG_STREAM_KIND)?;
 let fetch = w.add_log_site(&LogSiteSpec::new(log, Severity::Debug, "fetch pc={:#010x} inst={:#010x}", &[U64, U64])
     .names(&["pc", "inst"]).location(file!(), line!()));
 let stall = w.add_log_site(&LogSiteSpec::new(log, Severity::Warn, "{} stalled {} cycles", &[Text, U64]));

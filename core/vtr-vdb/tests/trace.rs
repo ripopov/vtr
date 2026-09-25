@@ -124,7 +124,7 @@ fn procedural_order_arithmetic_sync_reset_and_nba_last_write() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.vtr");
     let mut w = Writer::create(&path).unwrap();
-    w.begin_scope("top", ScopeType::Module, "top");
+    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
     let names = [
         ("clk", 1),
         ("rst", 1),
@@ -138,8 +138,7 @@ fn procedural_order_arithmetic_sync_reset_and_nba_last_write() {
         ("ordered", 8),
         ("tmp", 8),
     ];
-    let ids: Vec<_> = names.iter().map(|(n, b)| w.add_bits(n, *b, 4).1).collect();
-    w.end_scope().unwrap();
+    let ids: Vec<_> = names.iter().map(|(n, b)| w.add_var(Some(top), n, VarType::Wire, Direction::Implicit, SignalKind::Bits { width: *b, states: 4 }).unwrap().1).collect();
     for (t, values) in [
         (0, [0, 1, 1, 0, 7, 4, 8, 0, 64, 0, 8]),
         (5, [1, 1, 1, 0, 7, 4, 8, 0, 64, 4, 8]),
@@ -218,10 +217,9 @@ fn unknown_controls_multiple_drivers_and_blackouts_are_explicit() {
         },
     )
     .unwrap();
-    w.begin_scope("top", ScopeType::Module, "top");
-    let (_, sel) = w.add_bits("sel", 1, 4);
-    let (_, mux) = w.add_bits("mux", 8, 4);
-    w.end_scope().unwrap();
+    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
+    let (_, sel) = w.add_var(Some(top), "sel", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 1, states: 4 }).unwrap();
+    let (_, mux) = w.add_var(Some(top), "mux", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 4 }).unwrap();
     w.set_time(0).unwrap();
     w.emit_logic_str(sel, b"x").unwrap();
     w.emit_u64(mux, 0).unwrap();
@@ -247,12 +245,11 @@ fn dump_gaps_and_design_identity_are_checked() {
         },
     )
     .unwrap();
-    w.begin_scope("top", ScopeType::Module, "top");
+    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
     let ids: Vec<_> = [("sel", 1), ("a", 8), ("b", 8), ("mux", 8)]
         .iter()
-        .map(|(n, b)| w.add_bits(n, *b, 4).1)
+        .map(|(n, b)| w.add_var(Some(top), n, VarType::Wire, Direction::Implicit, SignalKind::Bits { width: *b, states: 4 }).unwrap().1)
         .collect();
-    w.end_scope().unwrap();
     for t in [0, 10] {
         w.set_time(t).unwrap();
         for (id, v) in ids.iter().zip([0, 3, 9, 9]) {
@@ -283,9 +280,8 @@ fn dump_gaps_and_design_identity_are_checked() {
     let mut w = Writer::create(&path).unwrap();
     let id = w.intern("different-design");
     w.set_file_attr("design.vdb_id", Value::Str(id)).unwrap();
-    w.begin_scope("top", ScopeType::Module, "top");
-    w.add_bits("a", 8, 4);
-    w.end_scope().unwrap();
+    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
+    w.add_var(Some(top), "a", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 4 }).unwrap();
     w.close().unwrap();
     let r = Reader::open(path).unwrap();
     assert!(Debugger::attach(&db, &r, "")
@@ -300,14 +296,12 @@ fn asynchronous_release_at_clock_is_ambiguous() {
     let path = dir.path().join("race.vtr");
     let db = db();
     let mut w = Writer::create(&path).unwrap();
-    w.begin_scope("top", ScopeType::Module, "top");
-    w.begin_scope("u0", ScopeType::Module, "stage");
+    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
+    let u0 = w.add_scope(Some(top), "u0", ScopeType::Module, "stage").unwrap();
     let ids: Vec<_> = [("clk", 1), ("rst_n", 1), ("en", 1), ("d", 8), ("q", 8)]
         .iter()
-        .map(|(n, b)| w.add_bits(n, *b, 4).1)
+        .map(|(n, b)| w.add_var(Some(u0), n, VarType::Wire, Direction::Implicit, SignalKind::Bits { width: *b, states: 4 }).unwrap().1)
         .collect();
-    w.end_scope().unwrap();
-    w.end_scope().unwrap();
     for (t, values) in [
         (0, [0, 0, 1, 3, 0]),
         (5, [1, 1, 1, 3, 3]),
@@ -345,9 +339,8 @@ fn explicit_binding_resolves_renamed_signals_and_requires_identity() {
             let id = w.intern(&db.design_id);
             w.set_file_attr("design.vdb_id", Value::Str(id)).unwrap();
         }
-        w.begin_scope("recording", ScopeType::Module, "");
-        let (_, signal) = w.add_bits("optimized_a", 8, 2);
-        w.end_scope().unwrap();
+        let recording = w.add_scope(None, "recording", ScopeType::Module, "").unwrap();
+        let (_, signal) = w.add_var(Some(recording), "optimized_a", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 2 }).unwrap();
         w.set_time(0).unwrap();
         w.emit_u64(signal, 42).unwrap();
         w.close().unwrap();

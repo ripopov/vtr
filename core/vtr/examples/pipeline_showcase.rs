@@ -302,7 +302,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reason_miss = w.intern("cache miss");
     let reason_dep = w.intern("operand");
 
-    let soc = w.begin_scope("soc", ScopeType::Module, "soc_top");
+    let soc = w.add_scope(None, "soc", ScopeType::Module, "soc_top")?;
     struct CoreNodes {
         generator: vtr::NodeId,
         pc: SignalId,
@@ -313,9 +313,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut nodes = Vec::new();
     for cfg in &CORES {
-        let core = w.begin_scope(cfg.name, ScopeType::Core, "rv32_core");
+        let core = w.add_scope(Some(soc), cfg.name, ScopeType::Core, "rv32_core")?;
         let pc = w
             .add_var(
+                Some(core),
                 "pc",
                 VarType::Logic,
                 Direction::Implicit,
@@ -323,25 +324,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     width: 32,
                     states: 2,
                 },
-            )
+            )?
             .1;
         let bit = |w: &mut Writer, name: &str| {
-            w.add_var(
-                name,
-                VarType::Logic,
-                Direction::Implicit,
-                SignalKind::Bits {
-                    width: 1,
-                    states: 2,
-                },
-            )
-            .1
+            let kind = SignalKind::Bits { width: 1, states: 2 };
+            w.add_var(Some(core), name, VarType::Logic, Direction::Implicit, kind).map(|(_, s)| s)
         };
-        let fetch_valid = bit(&mut w, "fetch_valid");
-        let stall = bit(&mut w, "stall");
-        let flush = bit(&mut w, "flush");
+        let fetch_valid = bit(&mut w, "fetch_valid")?;
+        let stall = bit(&mut w, "stall")?;
+        let flush = bit(&mut w, "flush")?;
         let retired = w
             .add_var(
+                Some(core),
                 "retired",
                 VarType::Logic,
                 Direction::Implicit,
@@ -349,11 +343,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     width: 16,
                     states: 2,
                 },
-            )
+            )?
             .1;
-        let stream = w.add_stream(Some(core), "pipeline", "PIPELINE");
-        let generator = w.add_generator(stream, "instruction");
-        w.end_scope()?;
+        let stream = w.add_stream(Some(core), "pipeline", "PIPELINE")?;
+        let generator = w.add_generator(stream, "instruction")?;
         nodes.push(CoreNodes {
             generator,
             pc,
@@ -363,13 +356,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             retired,
         });
     }
-    let l2 = w.begin_scope("l2", ScopeType::Module, "l2_cache");
-    let bus = w.add_stream(Some(l2), "bus", "MEMORY_BUS");
-    let reads = w.add_generator(bus, "read");
-    let writes = w.add_generator(bus, "write");
-    w.end_scope()?;
+    let l2 = w.add_scope(Some(soc), "l2", ScopeType::Module, "l2_cache")?;
+    let bus = w.add_stream(Some(l2), "bus", "MEMORY_BUS")?;
+    let reads = w.add_generator(bus, "read")?;
+    let writes = w.add_generator(bus, "write")?;
     let _ = soc;
-    w.end_scope()?;
 
     // -- simulate, then waveforms in time order, then transactions -------------
     let cores: Vec<Vec<Insn>> = CORES.iter().map(simulate).collect();

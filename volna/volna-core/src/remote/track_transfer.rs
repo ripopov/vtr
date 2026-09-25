@@ -192,8 +192,8 @@ mod tests {
     fn fixture() -> (Arc<dyn Session>, TrackRef, Vec<u8>) {
         let file = tempfile::NamedTempFile::new().unwrap();
         let mut writer = vtr::Writer::create(file.path()).unwrap();
-        let stream = writer.add_stream(None, "stream", "raw");
-        let generator = writer.add_generator(stream, "generator");
+        let stream = writer.add_stream(None, "stream", "raw").unwrap();
+        let generator = writer.add_generator(stream, "generator").unwrap();
         let tx = writer.begin_tx(generator, 4).unwrap();
         writer.end_tx(tx, 4, vtr::TxStatus::Ok).unwrap();
         writer.close().unwrap();

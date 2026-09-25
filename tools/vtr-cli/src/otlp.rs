@@ -8,6 +8,7 @@
 //! * ids, trace state, flags and dropped counts -> attributes `otel.*`
 
 use serde_json::Value as J;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use vtr::{FileType, NodeId, ScopeType, StrId, TxId, TxKind, TxStatus, Value, Writer};
 
@@ -144,7 +145,7 @@ pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std:
     let mut by_id: HashMap<Vec<u8>, TxId> = HashMap::new();
     let mut gens: HashMap<(NodeId, String), NodeId> = HashMap::new();
     for (ri, r) in rs.iter().enumerate() {
-        let res = w.begin_scope(&format!("resource{ri}"), ScopeType::Resource, "");
+        let res = w.add_scope(None, &format!("resource{ri}"), ScopeType::Resource, "")?;
         if let Some(a) = r.get("resource").and_then(|x| x.get("attributes")).and_then(|x| x.as_array()) {
             for (k, v) in kv_list(w, a) {
                 let ks = w.string(k).to_string();
@@ -155,11 +156,10 @@ pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std:
             let s = w.intern(u);
             w.node_attr(res, "otel.schema_url", Value::Str(s))?;
         }
-        w.end_scope()?;
         for ss in r.get("scopeSpans").and_then(|x| x.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
             let scope = ss.get("scope");
             let name = scope.and_then(|s| s.get("name")).and_then(|x| x.as_str()).unwrap_or("");
-            let stream = w.add_stream(Some(res), name, "otel.scope");
+            let stream = w.add_stream(Some(res), name, "otel.scope")?;
             if let Some(v) = scope.and_then(|s| s.get("version")).and_then(|x| x.as_str()) {
                 let s = w.intern(v);
                 w.node_attr(stream, "otel.version", Value::Str(s))?;
@@ -178,7 +178,10 @@ pub fn convert_otlp_json(input: &str, w: &mut Writer) -> Result<(), Box<dyn std:
             sp.sort_by_key(|s| u64_of(s.get("startTimeUnixNano")));
             for s in sp {
                 let sname = s.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let gen = *gens.entry((stream, sname.clone())).or_insert_with(|| w.add_generator(stream, &sname));
+                let gen = match gens.entry((stream, sname.clone())) {
+                    Entry::Occupied(e) => *e.get(),
+                    Entry::Vacant(e) => *e.insert(w.add_generator(stream, &sname)?),
+                };
                 let start = u64_of(s.get("startTimeUnixNano"));
                 let end = u64_of(s.get("endTimeUnixNano")).max(start);
                 let tx = w.begin_tx(gen, start)?;

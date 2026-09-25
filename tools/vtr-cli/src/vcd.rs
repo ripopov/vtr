@@ -2,7 +2,7 @@
 //! Not bit-exact for FST metadata (use the native FST path for that).
 
 use std::collections::HashMap;
-use vtr::{Direction, ScopeType, SignalId, SignalKind, VarType, Writer};
+use vtr::{Direction, NodeId, ScopeType, SignalId, SignalKind, VarType, Writer};
 use wellen::{ScopeRef, SignalRef, VarRef};
 
 fn map_var(t: wellen::VarType) -> VarType {
@@ -122,9 +122,11 @@ pub fn convert_wellen(input: &str, w: &mut Writer, states: u8) -> Result<(), Box
     w.set_timescale(exp)?;
     let mut sigs: HashMap<SignalRef, SignalId> = HashMap::new();
     let mut kinds: HashMap<SignalRef, SignalKind> = HashMap::new();
+    #[allow(clippy::too_many_arguments)]
     fn walk(
         w: &mut Writer,
         h: &wellen::Hierarchy,
+        parent: Option<NodeId>,
         vars: impl Iterator<Item = VarRef>,
         scopes: impl Iterator<Item = ScopeRef>,
         sigs: &mut HashMap<SignalRef, SignalId>,
@@ -136,7 +138,7 @@ pub fn convert_wellen(input: &str, w: &mut Writer, states: u8) -> Result<(), Box
             let name = var.name(h);
             let r = var.signal_ref();
             if let Some(&s) = sigs.get(&r) {
-                w.add_alias(name, map_var(var.var_type()), map_dir(var.direction()), s)?;
+                w.add_alias(parent, name, map_var(var.var_type()), map_dir(var.direction()), s)?;
                 continue;
             }
             let kind = match var.signal_encoding(h) {
@@ -144,19 +146,18 @@ pub fn convert_wellen(input: &str, w: &mut Writer, states: u8) -> Result<(), Box
                 wellen::SignalEncoding::String => SignalKind::VarLen,
                 wellen::SignalEncoding::BitVector(n) => SignalKind::Bits { width: n, states },
             };
-            let (_, s) = w.add_var(name, map_var(var.var_type()), map_dir(var.direction()), kind);
+            let (_, s) = w.add_var(parent, name, map_var(var.var_type()), map_dir(var.direction()), kind)?;
             sigs.insert(r, s);
             kinds.insert(r, kind);
         }
         for sc in scopes {
             let scope = &h[sc];
-            w.begin_scope(scope.name(h), map_scope(scope.scope_type()), scope.component(h).unwrap_or(""));
-            walk(w, h, scope.vars(h), scope.scopes(h), sigs, kinds, states)?;
-            w.end_scope()?;
+            let node = w.add_scope(parent, scope.name(h), map_scope(scope.scope_type()), scope.component(h).unwrap_or(""))?;
+            walk(w, h, Some(node), scope.vars(h), scope.scopes(h), sigs, kinds, states)?;
         }
         Ok(())
     }
-    walk(w, h, h.vars(), h.scopes(), &mut sigs, &mut kinds, states)?;
+    walk(w, h, None, h.vars(), h.scopes(), &mut sigs, &mut kinds, states)?;
     let mut wave = wave;
     let all: Vec<SignalRef> = sigs.keys().copied().collect();
     wave.load_signals(&all);

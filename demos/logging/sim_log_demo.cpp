@@ -69,15 +69,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     vtr_writer_set_timescale(w, -9);
-    uint32_t soc = vtr_writer_begin_scope(w, "soc", 64 /* generic */, nullptr);
-    uint32_t cpu_scope = vtr_writer_begin_scope(w, "cpu0", 68 /* core */, nullptr);
-    Cpu cpu(w, cpu_scope);
-    vtr_writer_end_scope(w);
-    uint32_t dma_scope = vtr_writer_begin_scope(w, "dma", 64, nullptr);
-    Dma dma(w, dma_scope);
-    vtr_writer_end_scope(w);
-    vtr_writer_end_scope(w);
-    (void)soc;
+    uint32_t soc = vtr_writer_add_scope(w, VTR_NONE, "soc", 64 /* generic */, nullptr);
+    Cpu cpu(w, vtr_writer_add_scope(w, soc, "cpu0", 68 /* core */, nullptr));
+    Dma dma(w, vtr_writer_add_scope(w, soc, "dma", 64, nullptr));
 
     // Simulate 20k cycles at 10 ns.
     uint64_t t = 0;

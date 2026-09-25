@@ -718,6 +718,14 @@ impl Reader {
         g * self.meta.group_size.max(1)
     }
 
+    /// Kinds of the signals known when block `b` was written. Later signals
+    /// have no data in the block; bounding containers by this table makes
+    /// them fail validation instead of reading past a container.
+    fn block_kinds(&self, b: &SigBlock) -> &[SignalKind] {
+        let kinds = &self.hier.signals;
+        &kinds[..(b.header.n_signals as usize).min(kinds.len())]
+    }
+
     /// Parses the container of group `g` in block `bi` (no decompression).
     fn group_view(&self, bi: usize, g: u32) -> Result<Option<GroupView<'_>>> {
         let b = &self.sig_blocks[bi];
@@ -727,7 +735,7 @@ impl Reader {
             None => return Ok(None),
         };
         let c = block::group_container(p, &b.header, clen, off)?;
-        Ok(Some(GroupView::parse(c, self.group_first(g), &self.hier.signals)?))
+        Ok(Some(GroupView::parse(c, self.group_first(g), self.block_kinds(b))?))
     }
 
     /// Decompressed piece of a group: piece 0 = frames, piece k+1 = run k.
@@ -754,9 +762,15 @@ impl Reader {
         if let Some(target) = view.alias_of(sig) {
             let tg = self.group_of(SignalId(target));
             if tg == g {
+                if !view.holds(target) {
+                    return Err(Error::Corrupt("alias target not in block"));
+                }
                 return self.column_direct(bi, g, view, target);
             }
             let tv = self.group_view(bi, tg)?.ok_or(Error::Corrupt("alias target group missing"))?;
+            if !tv.holds(target) {
+                return Err(Error::Corrupt("alias target not in block"));
+            }
             return self.column_direct(bi, tg, &tv, target);
         }
         self.column_direct(bi, g, view, sig)
@@ -811,6 +825,10 @@ impl Reader {
             None => return Ok(default()),
         };
         let view = self.group_view(dbi, g)?.unwrap();
+        if !view.holds(sig.0) {
+            // Declared after that block: no changes up to it.
+            return Ok(default());
+        }
         let max_tidx = if dbi == bi {
             let times = self.block_times(bi)?;
             let n = times.partition_point(|&x| x <= t);
@@ -855,8 +873,8 @@ impl Reader {
                 continue;
             }
             let view = match self.group_view(bi, g)? {
-                Some(v) => v,
-                None => continue,
+                Some(v) if v.holds(sig.0) => v,
+                _ => continue,
             };
             let (cp, local) = self.column(bi, g, &view, sig.0)?;
             let col = cp.col(local, kind)?;
@@ -884,12 +902,11 @@ impl Reader {
     /// Reads only the group headers, not the runs.
     pub fn run_stats(&self) -> Result<[(u64, u64); 5]> {
         let mut out = [(0u64, 0u64); 5];
-        let kinds = &self.hier.signals;
         for b in &self.sig_blocks {
             let p = self.block_payload(b)?;
             for (g, clen, off) in block::dirty_groups(p, &b.header) {
                 let c = block::group_container(p, &b.header, clen, off)?;
-                let view = GroupView::parse(c, self.group_first(g), kinds)?;
+                let view = GroupView::parse(c, self.group_first(g), self.block_kinds(b))?;
                 for r in &view.runs {
                     let e = &mut out[(r.xform as u8 as usize).min(4)];
                     e.0 += 1;
@@ -944,6 +961,10 @@ impl Reader {
                     let mut run: Option<(usize, Arc<Piece>)> = None;
                     for oi in i..j {
                         let s = sigs[oi];
+                        if !view.holds(s.0) {
+                            // Declared after this block; its initial value stays the default.
+                            continue;
+                        }
                         if !first_seen[oi] {
                             first_seen[oi] = true;
                             if frames.is_none() {
@@ -1077,7 +1098,7 @@ impl Reader {
             let mut raw_bytes = 0usize;
             for (g, clen, off) in block::dirty_groups(p, &h) {
                 let c = block::group_container(p, &h, clen, off)?;
-                let view = GroupView::parse(c, self.group_first(g), kinds)?;
+                let view = GroupView::parse(c, self.group_first(g), self.block_kinds(&self.sig_blocks[bi]))?;
                 aliases.extend_from_slice(&view.aliases);
                 for ri in 0..view.runs.len() {
                     let mut data = Vec::new();
@@ -1627,15 +1648,15 @@ impl Reader {
 #[cfg(test)]
 mod cache_tests {
     use super::*;
-    use crate::{Writer, WriterOptions, LogSiteSpec, Severity, LogArgType, LogArg, TxStatus};
+    use crate::{Direction, LogArg, LogArgType, LogSiteSpec, Severity, TxStatus, VarType, Writer, WriterOptions};
 
     #[test]
     fn eviction_releases_blocks_and_preserves_owned_results() {
         let path = std::env::temp_dir().join(format!("vtr-cache-{}.vtr", std::process::id()));
         let mut writer = Writer::create_with(&path, WriterOptions { background: false, ..Default::default() }).unwrap();
-        let (_, signal) = writer.add_bits("counter", 8, 2);
-        let stream = writer.add_stream(None, "requests", "test");
-        let generator = writer.add_generator(stream, "request");
+        let (_, signal) = writer.add_var(None, "counter", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 2 }).unwrap();
+        let stream = writer.add_stream(None, "requests", "test").unwrap();
+        let generator = writer.add_generator(stream, "request").unwrap();
         let site = writer.add_log_site(&LogSiteSpec::new(stream, Severity::Info, "value={}", &[LogArgType::U64])).unwrap();
         writer.set_time(1).unwrap();
         writer.emit_u64(signal, 42).unwrap();

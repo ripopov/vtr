@@ -3,19 +3,13 @@
 
 use std::path::Path;
 use vtr::{
-    Direction, LogArg, LogArgType, LogQuery, LogSiteSpec, NodeData, Reader, ScopeType,
+    Direction, LogArg, LogArgType, LogQuery, LogSiteSpec, NodeData, NodeId, Reader, ScopeType,
     Severity, SignalId, SignalKind, TxKind, TxQuery, TxStatus, Value, VarType, Writer,
     WriterOptions,
 };
 
-fn bits(w: &mut Writer, name: &str, width: u32, states: u8, dir: Direction) -> SignalId {
-    w.add_var(
-        name,
-        VarType::Logic,
-        dir,
-        SignalKind::Bits { width, states },
-    )
-    .1
+fn bits(w: &mut Writer, parent: NodeId, name: &str, width: u32, states: u8, dir: Direction) -> vtr::Result<SignalId> {
+    Ok(w.add_var(Some(parent), name, VarType::Logic, dir, SignalKind::Bits { width, states })?.1)
 }
 
 fn attributes(w: &mut Writer) -> Vec<(vtr::StrId, Value)> {
@@ -100,34 +94,38 @@ fn write(path: &Path) -> vtr::Result<()> {
     w.set_date("2026-09-18")?;
     w.set_comment("Synthetic 2 us debugging lab: boot, DMA traffic, injected bus fault, recovery. See examples/README.md.")?;
     w.set_file_attr("seed", Value::U64(2026))?;
-    let soc = w.begin_scope("soc", ScopeType::Module, "debug_lab");
-    let clk = bits(&mut w, "clk", 1, 2, Direction::Input);
-    let reset = bits(&mut w, "reset_n", 1, 4, Direction::Input);
-    let valid = bits(&mut w, "valid", 1, 2, Direction::Output);
-    let ready = bits(&mut w, "ready", 1, 4, Direction::Input);
-    let address = bits(&mut w, "address", 32, 2, Direction::Output);
-    let data = bits(&mut w, "data", 32, 4, Direction::InOut);
-    let wide = bits(&mut w, "payload_128", 128, 2, Direction::Output);
-    let resolved = bits(&mut w, "resolved_bus", 9, 9, Direction::InOut);
+    let soc = w.add_scope(None, "soc", ScopeType::Module, "debug_lab")?;
+    let clk = bits(&mut w, soc, "clk", 1, 2, Direction::Input)?;
+    let reset = bits(&mut w, soc, "reset_n", 1, 4, Direction::Input)?;
+    let valid = bits(&mut w, soc, "valid", 1, 2, Direction::Output)?;
+    let ready = bits(&mut w, soc, "ready", 1, 4, Direction::Input)?;
+    let address = bits(&mut w, soc, "address", 32, 2, Direction::Output)?;
+    let data = bits(&mut w, soc, "data", 32, 4, Direction::InOut)?;
+    let wide = bits(&mut w, soc, "payload_128", 128, 2, Direction::Output)?;
+    let resolved = bits(&mut w, soc, "resolved_bus", 9, 9, Direction::InOut)?;
     let (_, temperature) = w.add_var(
+        Some(soc),
         "temperature_c",
         VarType::Real,
         Direction::Implicit,
         SignalKind::Real,
-    );
+    )?;
     let (_, message) = w.add_var(
+        Some(soc),
         "phase",
         VarType::String,
         Direction::Implicit,
         SignalKind::VarLen,
-    );
+    )?;
     let (_, packet) = w.add_var(
+        Some(soc),
         "packet_bytes",
         VarType::Bytes,
         Direction::Implicit,
         SignalKind::VarLen,
-    );
+    )?;
     let (_, event) = w.add_var(
+        Some(soc),
         "interrupt",
         VarType::Event,
         Direction::Output,
@@ -135,8 +133,9 @@ fn write(path: &Path) -> vtr::Result<()> {
             width: 1,
             states: 2,
         },
-    );
+    )?;
     let (_, parameter) = w.add_var(
+        Some(soc),
         "BUS_WIDTH",
         VarType::Parameter,
         Direction::Implicit,
@@ -144,8 +143,9 @@ fn write(path: &Path) -> vtr::Result<()> {
             width: 32,
             states: 2,
         },
-    );
+    )?;
     let table = w.add_enum_table(
+        Some(soc),
         "phase_t",
         &[
             ("BOOT", "00"),
@@ -153,8 +153,9 @@ fn write(path: &Path) -> vtr::Result<()> {
             ("FAULT", "10"),
             ("RECOVER", "11"),
         ],
-    );
+    )?;
     let (state_node, state) = w.add_var(
+        Some(soc),
         "state",
         VarType::Enum,
         Direction::Output,
@@ -162,24 +163,22 @@ fn write(path: &Path) -> vtr::Result<()> {
             width: 2,
             states: 2,
         },
-    );
+    )?;
     w.node_attr(state_node, "enum_table", Value::U64(table.0 as u64))?;
-    w.add_alias("clock_alias", VarType::Wire, Direction::Input, clk)?;
+    w.add_alias(Some(soc), "clock_alias", VarType::Wire, Direction::Input, clk)?;
 
-    let cpu = w.begin_scope("cpu", ScopeType::Core, "tiny_cpu");
-    let pc = bits(&mut w, "pc", 32, 2, Direction::Output);
-    let pipeline = w.add_stream(Some(cpu), "thread0", "PIPELINE");
-    let instructions = w.add_generator(pipeline, "instructions");
-    let speculative = w.add_generator(pipeline, "speculative");
-    w.end_scope()?;
-    let dma = w.begin_scope("dma", ScopeType::ScModule, "dma_engine");
-    let bus = w.add_stream(Some(dma), "memory_bus", "MEMORY_BUS");
-    let reads = w.add_generator(bus, "read");
-    let writes = w.add_generator(bus, "write");
-    w.add_generator(bus, "idle");
-    w.add_stream(Some(dma), "standby_bus", "MEMORY_BUS");
-    w.end_scope()?;
-    let logs = w.add_log_stream(Some(soc), "log");
+    let cpu = w.add_scope(Some(soc), "cpu", ScopeType::Core, "tiny_cpu")?;
+    let pc = bits(&mut w, cpu, "pc", 32, 2, Direction::Output)?;
+    let pipeline = w.add_stream(Some(cpu), "thread0", "PIPELINE")?;
+    let instructions = w.add_generator(pipeline, "instructions")?;
+    let speculative = w.add_generator(pipeline, "speculative")?;
+    let dma = w.add_scope(Some(soc), "dma", ScopeType::ScModule, "dma_engine")?;
+    let bus = w.add_stream(Some(dma), "memory_bus", "MEMORY_BUS")?;
+    let reads = w.add_generator(bus, "read")?;
+    let writes = w.add_generator(bus, "write")?;
+    w.add_generator(bus, "idle")?;
+    w.add_stream(Some(dma), "standby_bus", "MEMORY_BUS")?;
+    let logs = w.add_stream(Some(soc), "log", vtr::LOG_STREAM_KIND)?;
     let mut sites = Vec::new();
     for (i, severity) in [
         Severity::Trace,
@@ -232,12 +231,12 @@ fn write(path: &Path) -> vtr::Result<()> {
 
     // A compact declaration gallery: all standard scope/variable codes plus an
     // unknown producer code. The useful design remains at the top of the tree.
-    w.begin_scope("type_gallery", ScopeType::Package, "");
+    let type_gallery = w.add_scope(Some(soc), "type_gallery", ScopeType::Package, "")?;
     let mut gallery = Vec::new();
     for code in (0..=22).chain(64..=68).chain([200]) {
         let kind = ScopeType::from_code(code);
-        w.begin_scope(kind.name(), kind, "");
-        let signal = bits(&mut w, "active", 1, 2, Direction::Implicit);
+        let scope = w.add_scope(Some(type_gallery), kind.name(), kind, "")?;
+        let signal = bits(&mut w, scope, "active", 1, 2, Direction::Implicit)?;
         gallery.push((
             signal,
             SignalKind::Bits {
@@ -246,9 +245,8 @@ fn write(path: &Path) -> vtr::Result<()> {
             },
             VarType::Logic,
         ));
-        w.end_scope()?;
     }
-    w.begin_scope("declarations", ScopeType::Generic, "");
+    let declarations = w.add_scope(Some(type_gallery), "declarations", ScopeType::Generic, "")?;
     for code in (0..=29).chain([64, 65, 200]) {
         let typ = VarType::from_code(code);
         let kind = match typ {
@@ -269,33 +267,29 @@ fn write(path: &Path) -> vtr::Result<()> {
                 states: 4,
             },
         };
-        let (node, signal) = w.add_var(typ.name(), typ, Direction::from_u8((code % 6) as u8), kind);
+        let (node, signal) = w.add_var(Some(declarations), typ.name(), typ, Direction::from_u8((code % 6) as u8), kind)?;
         if typ == VarType::Enum {
             w.node_attr(node, "enum_table", Value::U64(table.0 as u64))?;
         }
         gallery.push((signal, kind, typ));
     }
-    w.end_scope()?;
-    w.begin_scope("literal.names", ScopeType::Struct, "");
-    w.add_alias("escaped.signal[3]", VarType::Wire, Direction::Linkage, data)?;
-    w.end_scope()?;
-    w.end_scope()?;
+    let literal_names = w.add_scope(Some(type_gallery), "literal.names", ScopeType::Struct, "")?;
+    w.add_alias(Some(literal_names), "escaped.signal[3]", VarType::Wire, Direction::Linkage, data)?;
     let attrs = attributes(&mut w);
     for (key, value) in &attrs {
         let key = w.string(*key).to_owned();
         w.node_attr(soc, &key, value.clone())?;
     }
-    w.end_scope()?;
 
-    let resource = w.begin_scope("firmware", ScopeType::Resource, "");
+    let resource = w.add_scope(None, "firmware", ScopeType::Resource, "")?;
     let service = w.intern("dma-demo");
     w.node_attr(resource, "service.name", Value::Str(service))?;
-    let otel = w.add_stream(Some(resource), "driver", "otel.scope");
-    let spans = w.add_generator(otel, "submit_transfer");
-    w.end_scope()?;
+    let otel = w.add_stream(Some(resource), "driver", "otel.scope")?;
+    let spans = w.add_generator(otel, "submit_transfer")?;
 
     // 256 cycles, 8 ns per cycle. The blackout is deliberately not populated:
     // dump_off/on are markers; producers decide which values to omit.
+    let mut reading = None;
     for t in (0..=2048u64).step_by(4) {
         w.set_time(t)?;
         if t == 960 {
@@ -383,11 +377,13 @@ fn write(path: &Path) -> vtr::Result<()> {
         }
         if t == 1024 {
             w.flush()?;
-            w.begin_scope("hotplug_sensor", ScopeType::ScModule, "late_sensor");
-            // Late hierarchy without a new signal ID: current readers cannot
-            // load a newly allocated signal across an earlier waveform block.
-            w.add_alias("sample", VarType::Wire, Direction::Output, data)?;
-            w.end_scope()?;
+            // Hierarchy added halfway through the run: a new signal and an alias.
+            let hotplug_sensor = w.add_scope(None, "hotplug_sensor", ScopeType::ScModule, "late_sensor")?;
+            reading = Some(bits(&mut w, hotplug_sensor, "reading", 8, 4, Direction::Output)?);
+            w.add_alias(Some(hotplug_sensor), "sample", VarType::Wire, Direction::Output, data)?;
+        }
+        if let Some(reading) = reading {
+            w.emit_u64(reading, cycle & 0xff)?;
         }
     }
 

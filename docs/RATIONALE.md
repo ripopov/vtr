@@ -288,7 +288,23 @@ explicit parents, kinds and typed attributes.
   (OpenTelemetry) are ordinary nodes in the same tree, so a transaction
   stream can sit under the RTL module it instruments.
 * Hierarchy chunks may be appended during the run: FTR needs this
-  (generators appear late) and FST cannot do it.
+  (generators appear late) and FST cannot do it. UVM component trees and
+  SystemVerilog `initial` blocks add scopes, signals and streams after the
+  simulator has declared the design.
+* A block's membership comes from its own counts, not from a stored
+  creation time: a signal with id `>= n_signals` of a block (equivalently
+  outside its group container's `n_sigs`) was declared later and has the
+  default value there. Both counts were already in every block, so late
+  signals need no format change; a per-signal creation time would duplicate
+  them. Before the reader checked membership, a late signal that joined a
+  group stored by earlier blocks read past that group's frame
+  (`tests/dynamic_hierarchy.rs`).
+* Late declarations cost little because the writer emits at most one
+  HIERARCHY chunk per flush of data. Declaring 10,000 8-bit signals one per
+  time step instead of up front (`late_declaration_overhead`) gives an
+  identical file when nothing forces a flush; with a flush every 100 steps it
+  gives 100 HIERARCHY chunks instead of 1, 48.4 KB of name and node chunks
+  instead of 37.1 KB, and a file 4.8% larger (162,354 against 154,963 bytes).
 * The hierarchy is compressed as one blob per chunk; opening decompresses
   it once (about 30 KB for the SCR1 design). FST's gzip-of-LZ4 hierarchy
   took most of wellen's 2.7 ms open time on the same design; VTR opens in
@@ -676,6 +692,16 @@ but not by argument value.
   SystemC users need no Rust knowledge and can wrap it in RAII.
 * **No global state**: FTR's backend singletons and FST's process-wide
   temp files were explicit anti-goals.
+* **Explicit parents, no scope stack.** Every declaration takes its parent's
+  id (`None` for a root) and the writer checks its kind. The FST-style
+  `begin_scope`/`end_scope` stack was removed: it was hidden state shared by
+  every producer of a file, so a node declared late from a DPI call or a UVM
+  callback landed wherever the last `begin_scope` left the stack, and it made
+  each declaration call exist twice (`add_var`/`add_var_in`). Producers that
+  walk a tree keep their own path of ids, which the FST and VCD converters,
+  the benchmark replay and the Verilator backend already had. Encoding is
+  unchanged: the same declarations in the same order give byte-identical
+  files.
 * **Values in, values out**: no ASCII round trips on the hot path; ASCII
   is offered for VPI-style simulators and for humans.
 * **Pre-interned keys**: attribute keys, event, stage, lane and relation

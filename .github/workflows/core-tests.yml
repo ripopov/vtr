@@ -1,0 +1,23 @@
+name: VTR core tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # vtr-vdb has an optional path dependency on elkrs; Cargo reads its
+      # manifest to resolve the workspace even when it is not built.
+      - name: Check out the elkrs submodule
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Verify the C compiler used by the C smoke test
+        run: cc --version
+      - name: Test the Rust core, the C API and the C smoke test
+        run: cargo test --locked -p vtr -p vtr-capi

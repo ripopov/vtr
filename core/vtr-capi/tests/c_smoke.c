@@ -34,20 +34,31 @@ int main(int argc, char **argv) {
     vtr_writer *w = vtr_writer_create(path, &o);
     ASSERT(w != NULL);
     CHECK(vtr_writer_set_timescale(w, -12));
-    uint32_t top = vtr_writer_begin_scope(w, "top", VTR_SCOPE_MODULE, "top");
+    uint32_t top = vtr_writer_add_scope(w, VTR_NONE, "top", VTR_SCOPE_MODULE, "top");
     ASSERT(top != VTR_NONE);
     uint32_t clk, clk_n, bus, bus_n, r, r_n, s, s_n, wide, wide_n, event, event_n;
-    CHECK(vtr_writer_add_var(w, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT, VTR_SIGNAL_BITS, 1, 4, &clk_n, &clk));
-    CHECK(vtr_writer_add_var(w, "bus", VTR_VAR_REG, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 16, 4, &bus_n, &bus));
-    CHECK(vtr_writer_add_var(w, "r", VTR_VAR_REAL, VTR_DIR_IMPLICIT, VTR_SIGNAL_REAL, 0, 0, &r_n, &r));
-    CHECK(vtr_writer_add_var(w, "s", VTR_VAR_STRING, VTR_DIR_IMPLICIT, VTR_SIGNAL_VARLEN, 0, 0, &s_n, &s));
-    CHECK(vtr_writer_add_var(w, "wide", VTR_VAR_LOGIC, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 96, 4, &wide_n, &wide));
-    CHECK(vtr_writer_add_var(w, "event", VTR_VAR_EVENT, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 1, 2, &event_n, &event));
+    CHECK(vtr_writer_add_var(w, top, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT, VTR_SIGNAL_BITS, 1, 4, &clk_n, &clk));
+    CHECK(vtr_writer_add_var(w, top, "bus", VTR_VAR_REG, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 16, 4, &bus_n, &bus));
+    CHECK(vtr_writer_add_var(w, top, "r", VTR_VAR_REAL, VTR_DIR_IMPLICIT, VTR_SIGNAL_REAL, 0, 0, &r_n, &r));
+    CHECK(vtr_writer_add_var(w, top, "s", VTR_VAR_STRING, VTR_DIR_IMPLICIT, VTR_SIGNAL_VARLEN, 0, 0, &s_n, &s));
+    CHECK(vtr_writer_add_var(w, top, "wide", VTR_VAR_LOGIC, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 96, 4, &wide_n, &wide));
+    CHECK(vtr_writer_add_var(w, top, "event", VTR_VAR_EVENT, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 1, 2, &event_n, &event));
     vtr_value av; memset(&av, 0, sizeof av); av.tag = VTR_VAL_I64; av.i = -42;
     CHECK(vtr_writer_node_attr(w, bus_n, "msb", &av));
-    CHECK(vtr_writer_end_scope(w));
     uint32_t stream = vtr_writer_add_stream(w, VTR_NONE, "pipe", "PIPELINE");
     uint32_t gen = vtr_writer_add_generator(w, stream, "instruction");
+    ASSERT(stream != VTR_NONE && gen != VTR_NONE);
+    /* Bad parents are rejected and add nothing. */
+    uint32_t bad_n = 0, bad_s = 0;
+    ASSERT(vtr_writer_add_scope(w, 12345, "bad", VTR_SCOPE_MODULE, NULL) == VTR_NONE);
+    ASSERT(strlen(vtr_last_error()) > 0);
+    ASSERT(vtr_writer_add_scope(w, clk_n, "bad", VTR_SCOPE_MODULE, NULL) == VTR_NONE);
+    ASSERT(vtr_writer_add_var(w, gen, "bad", VTR_VAR_WIRE, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 1, 2, &bad_n, &bad_s) == VTR_ERR_INVALID);
+    ASSERT(vtr_writer_add_alias(w, top, "bad", VTR_VAR_WIRE, VTR_DIR_IMPLICIT, 999) == VTR_NONE);
+    ASSERT(vtr_writer_add_stream(w, bus_n, "bad", "PIPELINE") == VTR_NONE);
+    ASSERT(vtr_writer_add_generator(w, top, "bad") == VTR_NONE);
+    ASSERT(vtr_writer_add_scope(NULL, VTR_NONE, "bad", VTR_SCOPE_MODULE, NULL) == VTR_NONE);
+    uint32_t late = VTR_NONE, late_v = VTR_NONE, late_v_n = VTR_NONE, late_gen = VTR_NONE, late_alias = VTR_NONE;
     uint32_t k_pc = vtr_writer_intern(w, "pc");
     uint32_t lane = vtr_writer_intern(w, "0");
     uint32_t st_f = vtr_writer_intern(w, "F");
@@ -64,6 +75,22 @@ int main(int argc, char **argv) {
         if (i % 50 == 0) { char buf[32]; snprintf(buf, sizeof buf, "s%llu", (unsigned long long)i); CHECK(vtr_writer_emit_varlen(w, s, (const uint8_t *)buf, strlen(buf))); }
         if (i % 7 == 0) { uint32_t words[3] = { (uint32_t)i, 0xdeadbeef, 0xff }; CHECK(vtr_writer_emit_words(w, wide, words, 3)); }
         if (i == 500) CHECK(vtr_writer_emit_logic_str(w, bus, "xxxx000011110000", SIZE_MAX));
+        if (i == 500) {
+            /* Hierarchy added after values were written. */
+            late = vtr_writer_add_scope(w, top, "late", VTR_SCOPE_MODULE, "late_m");
+            ASSERT(late != VTR_NONE);
+            CHECK(vtr_writer_add_var(w, late, "v", VTR_VAR_BIT, VTR_DIR_IMPLICIT, VTR_SIGNAL_BITS, 8, 2, &late_v_n, &late_v));
+            late_alias = vtr_writer_add_alias(w, late, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT, clk);
+            uint32_t late_stream = vtr_writer_add_stream(w, late, "events", "MONITOR");
+            late_gen = vtr_writer_add_generator(w, late_stream, "hit");
+            ASSERT(late_alias != VTR_NONE && late_gen != VTR_NONE);
+        }
+        if (i >= 500) CHECK(vtr_writer_emit_u64(w, late_v, i & 0xff));
+        if (i == 600) {
+            uint64_t tx;
+            CHECK(vtr_writer_begin_tx(w, late_gen, i * 10, &tx));
+            CHECK(vtr_writer_end_tx(w, tx, i * 10 + 5, VTR_TX_STATUS_UNSET));
+        }
         if (i % 100 == 0) {
             uint64_t tx;
             CHECK(vtr_writer_begin_tx(w, gen, i * 10, &tx));
@@ -83,8 +110,8 @@ int main(int argc, char **argv) {
     vtr_meta m;
     CHECK(vtr_reader_meta(rd, &m));
     ASSERT(m.timescale == -12);
-    ASSERT(m.signal_count == 6);
-    ASSERT(m.tx_count == 10);
+    ASSERT(m.signal_count == 7);
+    ASSERT(m.tx_count == 11);
     ASSERT(m.relation_count == 9);
     ASSERT(m.has_time_range && m.time_end == 9990);
     uint32_t sig;
@@ -97,10 +124,20 @@ int main(int argc, char **argv) {
     CHECK(vtr_reader_node_attr(rd, bus_n, 0, &key, &v));
     size_t klen; const char *ks = vtr_reader_str(rd, key, &klen);
     ASSERT(klen == 3 && memcmp(ks, "msb", 3) == 0 && v.tag == VTR_VAL_I64 && v.i == -42);
-    uint32_t kids[16];
+    uint32_t kids[16], owner_late = VTR_NONE;
     ASSERT(vtr_reader_children(rd, VTR_NONE, kids, 16) == 2);
-    ASSERT(vtr_reader_children(rd, top, kids, 16) == 6);
+    ASSERT(vtr_reader_children(rd, top, kids, 16) == 7);
+    ASSERT(vtr_reader_children(rd, late, kids, 16) == 3);
+    CHECK(vtr_reader_find_signal(rd, "top.late.v", '.', &sig));
+    ASSERT(sig == late_v);
+    CHECK(vtr_reader_find_signal(rd, "top.late.clk", '.', &sig));
+    ASSERT(sig == clk);
+    CHECK(vtr_reader_node(rd, late_v_n, &ni));
+    ASSERT(ni.parent == late);
+    CHECK(vtr_reader_transaction_generator(rd, 7, &owner_late));
+    ASSERT(owner_late == late_gen);
     vtr_value_buf *b = vtr_value_buf_new();
+    int n;
     CHECK(vtr_reader_value_at(rd, bus, 45, b));
     ASSERT(strcmp(vtr_value_buf_ascii(b), "0000000000001100") == 0); /* i=4 -> 12 */
     CHECK(vtr_reader_value_at(rd, bus, 5000, b));
@@ -112,9 +149,16 @@ int main(int argc, char **argv) {
     ASSERT(sv.kind == 1 && sv.real == 2.5);
     CHECK(vtr_reader_value_at(rd, s, 999, b));
     ASSERT(strcmp(vtr_value_buf_ascii(b), "s50") == 0);
+    CHECK(vtr_reader_value_at(rd, late_v, 4990, b));
+    ASSERT(strcmp(vtr_value_buf_ascii(b), "00000000") == 0); /* before its declaration */
+    CHECK(vtr_reader_value_at(rd, late_v, 5010, b));
+    ASSERT(strcmp(vtr_value_buf_ascii(b), "11110101") == 0); /* i=501 -> 0xf5 */
+    n = 0;
+    CHECK(vtr_reader_changes(rd, late_v, 0, 9990, count_changes, &n));
+    ASSERT(n == 500);
     CHECK(vtr_reader_value_at(rd, wide, 70, b));
     ASSERT(strcmp(vtr_value_buf_ascii(b) + 96 - 32, "00000000000000000000000000000111") == 0);
-    int n = 0;
+    n = 0;
     CHECK(vtr_reader_changes(rd, clk, 0, 95, count_changes, &n));
     ASSERT(n == 10);
     uint16_t declared_type = 0xffff;

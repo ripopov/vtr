@@ -232,7 +232,7 @@ requirement for embedded chat.
 | Shared transaction detail panel for table and pipeline selections: lifeline, typed attributes, stages, events, related records (proposal/demo) | [Transaction panel](docs/tx-detail.html) |
 | Instruction pipeline tracing from Verilator into VTR with a reusable SystemVerilog tracer API; openC910 proof of concept (proposal/demo on recorded data) | [C910 pipeline tracing](docs/c910-verilator-tx-stream.html), `bench/workloads/c910/pipeline_replay.py` |
 | Owner-declared clocks stored in VTR as steady stretches (first edge, last edge, period; DVFS and gating included) and their use in Volna as cycle rulers, cycle readouts, edge snapping and pipelines in cycles (proposal/demo) | [Clocks](docs/vtr_clocks.html) |
-| Adding hierarchy during a run (UVM objects, initial blocks): how VTR hierarchy works, the reader fix for late signals, an explicit-parent writer API and core tests (plan) | [Dynamic hierarchy](docs/dyn_hierarchy.html) |
+| Adding hierarchy during a run (UVM objects, initial blocks): how VTR hierarchy works, the reader fix for late signals, an ID-based tree API replacing the scope stack, caller migration and core tests (implemented) | [Dynamic hierarchy](docs/dyn_hierarchy.html) |
 
 ## Building and testing
 
@@ -300,12 +300,11 @@ Writing from Rust:
 use vtr::*;
 let mut w = Writer::create("out.vtr")?;
 w.set_timescale(-9)?;
-w.begin_scope("top", ScopeType::Module, "top");
-let (_, clk) = w.add_var("clk", VarType::Wire, Direction::Input,
-                         SignalKind::Bits { width: 1, states: 4 });
-let (_, data) = w.add_var("data", VarType::Reg, Direction::Implicit,
-                          SignalKind::Bits { width: 32, states: 4 });
-w.end_scope()?;
+let top = Some(w.add_scope(None, "top", ScopeType::Module, "top")?);
+let (_, clk) = w.add_var(top, "clk", VarType::Wire, Direction::Input,
+                         SignalKind::Bits { width: 1, states: 4 })?;
+let (_, data) = w.add_var(top, "data", VarType::Reg, Direction::Implicit,
+                          SignalKind::Bits { width: 32, states: 4 })?;
 for t in 0..1000u64 {
     w.set_time(t * 10)?;
     w.emit_bit(clk, (t & 1) as u8)?;
@@ -322,11 +321,10 @@ Writing from C (the public header documents the complete API):
 
 ```c
 vtr_writer *w = vtr_writer_create("out.vtr", NULL);
-vtr_writer_begin_scope(w, "top", VTR_SCOPE_MODULE, NULL);
+uint32_t top = vtr_writer_add_scope(w, VTR_NONE, "top", VTR_SCOPE_MODULE, NULL);
 uint32_t node, clk;
-vtr_writer_add_var(w, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT,
+vtr_writer_add_var(w, top, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT,
                    VTR_SIGNAL_BITS, 1, 4, &node, &clk);
-vtr_writer_end_scope(w);
 vtr_writer_set_time(w, 0); vtr_writer_emit_bit(w, clk, VTR_LOGIC_0);
 vtr_writer_set_time(w, 5); vtr_writer_emit_bit(w, clk, VTR_LOGIC_1);
 if (vtr_writer_close(w) != VTR_OK) fprintf(stderr, "%s\n", vtr_last_error());

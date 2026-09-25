@@ -403,23 +403,50 @@ pub unsafe extern "C" fn vtr_writer_intern(w: *mut vtr_writer, s: *const c_char)
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn vtr_writer_begin_scope(w: *mut vtr_writer, name: *const c_char, scope_type: u16, component: *const c_char) -> u32 {
-    match (w.as_mut(), cstr(name)) {
-        (Some(w), Some(n)) => w.0.begin_scope(n, ScopeType::from_code(scope_type), cstr(component).unwrap_or("")).0,
-        _ => VTR_NONE,
+/// Node id of a declaration, or VTR_NONE with the last error set.
+fn node_or_none(r: vtr::Result<NodeId>) -> u32 {
+    match r {
+        Ok(n) => n.0,
+        Err(e) => {
+            set_error(&e.to_string());
+            VTR_NONE
+        }
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn vtr_writer_end_scope(w: *mut vtr_writer) -> c_int {
-    status(need!(w).0.end_scope())
+/// Writer and name of an id-returning declaration, or VTR_NONE with the last error set.
+macro_rules! decl_args {
+    ($w:expr, $name:expr) => {
+        match (unsafe { $w.as_mut() }, unsafe { cstr($name) }) {
+            (Some(w), Some(n)) => (w, n),
+            (None, _) => {
+                set_error("null handle");
+                return VTR_NONE;
+            }
+            (_, None) => {
+                set_error("null or non-UTF-8 string");
+                return VTR_NONE;
+            }
+        }
+    };
 }
 
-/// Declares a variable. `kind`: 0 = bits (width, states), 1 = real, 2 = variable-length.
+fn parent_id(parent: u32) -> Option<NodeId> {
+    (parent != VTR_NONE).then_some(NodeId(parent))
+}
+
+/// Declares a scope under `parent` (VTR_NONE = a root).
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_add_scope(w: *mut vtr_writer, parent: u32, name: *const c_char, scope_type: u16, component: *const c_char) -> u32 {
+    let (w, name) = decl_args!(w, name);
+    node_or_none(w.0.add_scope(parent_id(parent), name, ScopeType::from_code(scope_type), cstr(component).unwrap_or("")))
+}
+
+/// Declares a variable under `parent`. `kind`: 0 = bits (width, states), 1 = real, 2 = variable-length.
 #[no_mangle]
 pub unsafe extern "C" fn vtr_writer_add_var(
     w: *mut vtr_writer,
+    parent: u32,
     name: *const c_char,
     var_type: u16,
     direction: u8,
@@ -446,7 +473,10 @@ pub unsafe extern "C" fn vtr_writer_add_var(
             return VTR_ERR_INVALID;
         }
     };
-    let (n, s) = w.0.add_var(name, VarType::from_code(var_type), Direction::from_u8(direction), k);
+    let (n, s) = match w.0.add_var(parent_id(parent), name, VarType::from_code(var_type), Direction::from_u8(direction), k) {
+        Ok(x) => x,
+        Err(e) => return status(Err(e)),
+    };
     if let Some(o) = node_out.as_mut() {
         *o = n.0;
     }
@@ -456,50 +486,35 @@ pub unsafe extern "C" fn vtr_writer_add_var(
     VTR_OK
 }
 
+/// Declares a variable under `parent` that aliases `signal`.
 #[no_mangle]
-pub unsafe extern "C" fn vtr_writer_add_alias(w: *mut vtr_writer, name: *const c_char, var_type: u16, direction: u8, signal: u32, node_out: *mut u32) -> c_int {
-    let name = need_str!(name);
-    match need!(w).0.add_alias(name, VarType::from_code(var_type), Direction::from_u8(direction), SignalId(signal)) {
-        Ok(n) => {
-            if let Some(o) = node_out.as_mut() {
-                *o = n.0;
-            }
-            VTR_OK
-        }
-        Err(e) => status(Err(e)),
-    }
+pub unsafe extern "C" fn vtr_writer_add_alias(w: *mut vtr_writer, parent: u32, name: *const c_char, var_type: u16, direction: u8, signal: u32) -> u32 {
+    let (w, name) = decl_args!(w, name);
+    node_or_none(w.0.add_alias(parent_id(parent), name, VarType::from_code(var_type), Direction::from_u8(direction), SignalId(signal)))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn vtr_writer_add_enum_table(w: *mut vtr_writer, name: *const c_char, n: usize, literals: *const *const c_char, values: *const *const c_char) -> u32 {
-    let (w, name) = match (w.as_mut(), cstr(name)) {
-        (Some(w), Some(n)) => (w, n),
-        _ => return VTR_NONE,
-    };
+pub unsafe extern "C" fn vtr_writer_add_enum_table(w: *mut vtr_writer, parent: u32, name: *const c_char, n: usize, literals: *const *const c_char, values: *const *const c_char) -> u32 {
+    let (w, name) = decl_args!(w, name);
     let mut entries = Vec::with_capacity(n);
     for i in 0..n {
         let l = cstr(*literals.add(i)).unwrap_or("");
         let v = cstr(*values.add(i)).unwrap_or("");
         entries.push((l, v));
     }
-    w.0.add_enum_table(name, &entries).0
+    node_or_none(w.0.add_enum_table(parent_id(parent), name, &entries))
 }
 
-/// `parent` may be VTR_NONE.
 #[no_mangle]
 pub unsafe extern "C" fn vtr_writer_add_stream(w: *mut vtr_writer, parent: u32, name: *const c_char, kind: *const c_char) -> u32 {
-    match (w.as_mut(), cstr(name)) {
-        (Some(w), Some(n)) => w.0.add_stream(if parent == VTR_NONE { None } else { Some(NodeId(parent)) }, n, cstr(kind).unwrap_or("")).0,
-        _ => VTR_NONE,
-    }
+    let (w, name) = decl_args!(w, name);
+    node_or_none(w.0.add_stream(parent_id(parent), name, cstr(kind).unwrap_or("")))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn vtr_writer_add_generator(w: *mut vtr_writer, stream: u32, name: *const c_char) -> u32 {
-    match (w.as_mut(), cstr(name)) {
-        (Some(w), Some(n)) => w.0.add_generator(NodeId(stream), n).0,
-        _ => VTR_NONE,
-    }
+    let (w, name) = decl_args!(w, name);
+    node_or_none(w.0.add_generator(NodeId(stream), name))
 }
 
 #[no_mangle]
@@ -651,21 +666,6 @@ pub unsafe extern "C" fn vtr_writer_relate(w: *mut vtr_writer, kind: u32, from: 
 }
 
 // ----- logs -----
-
-/// Declares a log stream (kind "LOG"); `parent` may be VTR_NONE.
-#[no_mangle]
-pub unsafe extern "C" fn vtr_writer_add_log_stream(w: *mut vtr_writer, parent: u32, name: *const c_char) -> u32 {
-    let w = match w.as_mut() {
-        Some(w) => w,
-        None => return VTR_NONE,
-    };
-    let name = match cstr(name) {
-        Some(s) => s,
-        None => return VTR_NONE,
-    };
-    let parent = if parent == VTR_NONE { None } else { Some(NodeId(parent)) };
-    w.0.add_log_stream(parent, name).0
-}
 
 /// Registers a log call site. `arg_types` are VTR_VAL_* tags (n_args of them;
 /// allowed: BOOL I64 U64 F64 STR BYTES TIME POINTER TEXT); `file`, `func` and

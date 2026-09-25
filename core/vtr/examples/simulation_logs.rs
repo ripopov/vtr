@@ -10,7 +10,7 @@ fn main() -> vtr::Result<()> {
         .expect("count");
     let mut writer = Writer::create(&path)?;
     writer.set_timescale(-9)?;
-    let stream = writer.add_log_stream(None, "simulation_log");
+    let stream = writer.add_stream(None, "simulation_log", vtr::LOG_STREAM_KIND)?;
     let sites: Vec<_> = [
         Severity::Trace,
         Severity::Debug,
@@ -26,7 +26,7 @@ fn main() -> vtr::Result<()> {
         )
     })
     .collect::<vtr::Result<Vec<_>>>()?;
-    let other = writer.add_log_stream(None, "firmware_log");
+    let other = writer.add_stream(None, "firmware_log", vtr::LOG_STREAM_KIND)?;
     let firmware = writer.add_log_site(&LogSiteSpec::new(
         other,
         Severity::Info,

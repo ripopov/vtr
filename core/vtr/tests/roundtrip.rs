@@ -1,5 +1,10 @@
 use vtr::*;
 
+/// Declares a root wire of `width` bits.
+fn wire(w: &mut Writer, name: &str, width: u32, states: u8) -> (NodeId, SignalId) {
+    w.add_var(None, name, VarType::Wire, Direction::Implicit, SignalKind::Bits { width, states }).unwrap()
+}
+
 fn tmp(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("vtr-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -11,11 +16,11 @@ fn shared_signal_histories_preserve_order_and_lifetimes() {
     let path = tmp("shared_histories.vtr");
     let opts = WriterOptions { block_records: 12, group_size: 2, background: false, dedup: false, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
-    let (_, bits) = w.add_bits("bits", 8, 4);
-    let (_, quiet) = w.add_bits("quiet", 8, 4);
-    let (_, text) = w.add_var("text", VarType::String, Direction::Implicit, SignalKind::VarLen);
-    let (_, real) = w.add_var("real", VarType::Real, Direction::Implicit, SignalKind::Real);
-    w.add_alias("alias", VarType::Wire, Direction::Implicit, bits).unwrap();
+    let (_, bits) = wire(&mut w, "bits", 8, 4);
+    let (_, quiet) = wire(&mut w, "quiet", 8, 4);
+    let (_, text) = w.add_var(None, "text", VarType::String, Direction::Implicit, SignalKind::VarLen).unwrap();
+    let (_, real) = w.add_var(None, "real", VarType::Real, Direction::Implicit, SignalKind::Real).unwrap();
+    w.add_alias(None, "alias", VarType::Wire, Direction::Implicit, bits).unwrap();
     for i in 0..40u64 {
         // Two updates at each time must retain their emission order.
         w.set_time(10 + i / 2).unwrap();
@@ -78,19 +83,18 @@ fn signals_roundtrip_multi_block() {
         w.set_comment("hello").unwrap();
         let s_test = w.intern("test");
         w.set_file_attr("tool", Value::Str(s_test)).unwrap();
-        let top = w.begin_scope("top", ScopeType::Module, "top_mod");
-        let (_, clk) = w.add_var("clk", VarType::Wire, Direction::Input, SignalKind::Bits { width: 1, states: 4 });
-        let (_, cnt) = w.add_var("cnt", VarType::Reg, Direction::Implicit, SignalKind::Bits { width: 8, states: 4 });
-        let (_, wide) = w.add_var("wide", VarType::Logic, Direction::Output, SignalKind::Bits { width: 100, states: 4 });
-        let (_, r) = w.add_var("r", VarType::Real, Direction::Implicit, SignalKind::Real);
-        let (_, s) = w.add_var("s", VarType::String, Direction::Implicit, SignalKind::VarLen);
-        let (_, two) = w.add_var("two", VarType::Bit, Direction::Implicit, SignalKind::Bits { width: 40, states: 2 });
-        let (_, nine) = w.add_var("nine", VarType::Logic, Direction::Implicit, SignalKind::Bits { width: 6, states: 9 });
-        let (_, ev) = w.add_var("ev", VarType::Event, Direction::Implicit, SignalKind::Bits { width: 1, states: 2 });
-        let (_, quiet) = w.add_var("quiet", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 4, states: 4 });
-        let alias = w.add_alias("clk_alias", VarType::Wire, Direction::Implicit, clk).unwrap();
+        let top = w.add_scope(None, "top", ScopeType::Module, "top_mod").unwrap();
+        let (_, clk) = w.add_var(Some(top), "clk", VarType::Wire, Direction::Input, SignalKind::Bits { width: 1, states: 4 }).unwrap();
+        let (_, cnt) = w.add_var(Some(top), "cnt", VarType::Reg, Direction::Implicit, SignalKind::Bits { width: 8, states: 4 }).unwrap();
+        let (_, wide) = w.add_var(Some(top), "wide", VarType::Logic, Direction::Output, SignalKind::Bits { width: 100, states: 4 }).unwrap();
+        let (_, r) = w.add_var(Some(top), "r", VarType::Real, Direction::Implicit, SignalKind::Real).unwrap();
+        let (_, s) = w.add_var(Some(top), "s", VarType::String, Direction::Implicit, SignalKind::VarLen).unwrap();
+        let (_, two) = w.add_var(Some(top), "two", VarType::Bit, Direction::Implicit, SignalKind::Bits { width: 40, states: 2 }).unwrap();
+        let (_, nine) = w.add_var(Some(top), "nine", VarType::Logic, Direction::Implicit, SignalKind::Bits { width: 6, states: 9 }).unwrap();
+        let (_, ev) = w.add_var(Some(top), "ev", VarType::Event, Direction::Implicit, SignalKind::Bits { width: 1, states: 2 }).unwrap();
+        let (_, quiet) = w.add_var(Some(top), "quiet", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 4, states: 4 }).unwrap();
+        let alias = w.add_alias(Some(top), "clk_alias", VarType::Wire, Direction::Implicit, clk).unwrap();
         w.node_attr(alias, "note", Value::U64(7)).unwrap();
-        w.end_scope().unwrap();
         let _ = top;
         // Expected values.
         let mut exp_cnt: Vec<(u64, String)> = Vec::new();
@@ -259,12 +263,11 @@ fn transactions_roundtrip() {
     let path = tmp("tx.vtr");
     let opts = WriterOptions { tx_block_bytes: 2000, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
-    let sc = w.begin_scope("cpu", ScopeType::Core, "");
-    let st = w.add_stream(Some(sc), "pipe", "TRANSACTOR");
-    let gen_i = w.add_generator(st, "instruction");
-    let st2 = w.add_stream(None, "bus", "TRANSACTOR");
-    let gen_b = w.add_generator(st2, "read");
-    w.end_scope().unwrap();
+    let sc = w.add_scope(None, "cpu", ScopeType::Core, "").unwrap();
+    let st = w.add_stream(Some(sc), "pipe", "TRANSACTOR").unwrap();
+    let gen_i = w.add_generator(st, "instruction").unwrap();
+    let st2 = w.add_stream(None, "bus", "TRANSACTOR").unwrap();
+    let gen_b = w.add_generator(st2, "read").unwrap();
     let k_pc = w.intern("pc");
     let k_lbl = w.intern("label");
     let k_dep = w.intern("wakeup");
@@ -343,12 +346,11 @@ fn transactions_roundtrip() {
 fn writer_rejects_duplicate_attribute_keys_per_item() {
     let path = tmp("duplicate_attribute_keys.vtr");
     let mut w = Writer::create(&path).unwrap();
-    let node = w.begin_scope("top", ScopeType::Module, "top");
+    let node = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
     w.node_attr(node, "key", Value::U64(1)).unwrap();
     assert!(w.node_attr(node, "key", Value::U64(2)).is_err());
-    let stream = w.add_stream(Some(node), "stream", "test");
-    let generator = w.add_generator(stream, "generator");
-    w.end_scope().unwrap();
+    let stream = w.add_stream(Some(node), "stream", "test").unwrap();
+    let generator = w.add_generator(stream, "generator").unwrap();
     let key = w.intern("key");
     let event = w.intern("event");
     let stage = w.intern("stage");
@@ -365,7 +367,7 @@ fn writer_rejects_duplicate_attribute_keys_per_item() {
     assert!(w.relate(relation, tx, tx, &[(key, Value::U64(1)), (key, Value::U64(2))]).is_err());
     w.end_tx(tx, 1, TxStatus::Ok).unwrap();
 
-    let log = w.add_log_stream(None, "log");
+    let log = w.add_stream(None, "log", vtr::LOG_STREAM_KIND).unwrap();
     assert!(w
         .add_log_site(
             &LogSiteSpec::new(log, Severity::Info, "{} {}", &[LogArgType::U64, LogArgType::U64])
@@ -394,7 +396,7 @@ fn recovery_without_directory() {
     let path = tmp("crash.vtr");
     let opts = WriterOptions { block_records: 10, background: false, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
-    let (_, a) = w.add_bits("a", 8, 2);
+    let (_, a) = wire(&mut w, "a", 8, 2);
     for i in 0..100u64 {
         w.set_time(i).unwrap();
         w.emit_u64(a, i).unwrap();
@@ -420,14 +422,13 @@ fn recovery_without_directory() {
 fn errors() {
     let path = tmp("err.vtr");
     let mut w = Writer::create(&path).unwrap();
-    let (_, a) = w.add_bits("a", 4, 2);
+    let (_, a) = wire(&mut w, "a", 4, 2);
     w.set_time(10).unwrap();
     assert!(w.set_time(5).is_err());
     assert!(w.emit_logic_str(a, b"1x").is_err());
     assert!(w.emit_real(a, 1.0).is_err());
     assert!(w.emit_u64(SignalId(99), 1).is_err());
     assert!(w.end_tx(5, 1, TxStatus::Ok).is_err());
-    assert!(w.end_scope().is_err());
     w.emit_u64(a, 3).unwrap();
     w.flush().unwrap();
     assert!(w.set_timescale(-6).is_err());
@@ -439,9 +440,9 @@ fn long_columns_with_checkpoints() {
     let path = tmp("ckpt.vtr");
     let opts = WriterOptions { background: false, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
-    let (_, a) = w.add_bits("a", 16, 4);
-    let (_, b) = w.add_bits("b", 1, 4);
-    let (_, c) = w.add_var("c", VarType::Real, Direction::Implicit, SignalKind::Real);
+    let (_, a) = wire(&mut w, "a", 16, 4);
+    let (_, b) = wire(&mut w, "b", 1, 4);
+    let (_, c) = w.add_var(None, "c", VarType::Real, Direction::Implicit, SignalKind::Real).unwrap();
     for i in 0..20_000u64 {
         w.set_time(i * 3).unwrap();
         w.emit_u64(a, i & 0xffff).unwrap();
@@ -485,11 +486,11 @@ fn dynamic_aliasing_of_identical_columns() {
     let path = tmp("alias.vtr");
     let opts = WriterOptions { background: false, group_size: 2, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
-    let (_, a) = w.add_bits("a", 1, 4);
-    let (_, b) = w.add_bits("b", 1, 4); // identical to a
-    let (_, c) = w.add_bits("c", 1, 4); // identical to a except the last change
-    let (_, d) = w.add_bits("d", 16, 4); // identical to e
-    let (_, e) = w.add_bits("e", 16, 4);
+    let (_, a) = wire(&mut w, "a", 1, 4);
+    let (_, b) = wire(&mut w, "b", 1, 4); // identical to a
+    let (_, c) = wire(&mut w, "c", 1, 4); // identical to a except the last change
+    let (_, d) = wire(&mut w, "d", 16, 4); // identical to e
+    let (_, e) = wire(&mut w, "e", 16, 4);
     for i in 0..5000u64 {
         w.set_time(i * 2).unwrap();
         let bit = (i & 1) as u8;
@@ -525,7 +526,7 @@ fn dynamic_aliasing_of_identical_columns() {
     let opts = WriterOptions { background: false, ..Default::default() };
     let path1 = tmp("alias_one.vtr");
     let mut w = Writer::create_with(&path1, opts).unwrap();
-    let (_, x) = w.add_bits("x", 16, 4);
+    let (_, x) = wire(&mut w, "x", 16, 4);
     for i in 0..5000u64 {
         w.set_time(i * 2).unwrap();
         w.emit_u64(x, i * 7).unwrap();
@@ -543,7 +544,7 @@ fn stream_delivers_same_step_repeats_in_order() {
         let path = tmp(&format!("repeat_{n_sigs}.vtr"));
         let opts = WriterOptions { dedup: false, background: false, ..Default::default() };
         let mut w = Writer::create_with(&path, opts).unwrap();
-        let sigs: Vec<SignalId> = (0..n_sigs).map(|i| w.add_var(&format!("s{i}"), VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 2 }).1).collect();
+        let sigs: Vec<SignalId> = (0..n_sigs).map(|i| w.add_var(None, &format!("s{i}"), VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 2 }).unwrap().1).collect();
         let mut expected: Vec<(u64, u32, u64)> = Vec::new();
         for t in 0..20u64 {
             w.set_time(t * 10).unwrap();
@@ -578,10 +579,10 @@ fn dictionary_coded_columns_roundtrip() {
     let path = tmp("dict.vtr");
     let opts = WriterOptions { background: false, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
-    let (_, st) = w.add_bits("state", 16, 2);
-    let (_, op) = w.add_bits("opcode", 32, 2);
-    let (_, wide) = w.add_bits("tag", 184, 2); // 23-byte entries, 9 distinct values
-    let (_, bus) = w.add_bits("bus", 32, 2);
+    let (_, st) = wire(&mut w, "state", 16, 2);
+    let (_, op) = wire(&mut w, "opcode", 32, 2);
+    let (_, wide) = wire(&mut w, "tag", 184, 2); // 23-byte entries, 9 distinct values
+    let (_, bus) = wire(&mut w, "bus", 32, 2);
     let states = [0x0001u64, 0x0010, 0x0100, 0x1000, 0x8000];
     let mut lcg = 0x1234_5678_9abc_def0u64;
     let mut expect: Vec<(u64, u64, u64, u64)> = Vec::new();
@@ -639,14 +640,12 @@ fn logs_roundtrip() {
     // Small blocks so that several log blocks and transaction blocks interleave.
     let opts = WriterOptions { tx_block_bytes: 3000, ..Default::default() };
     let mut w = Writer::create_with(&path, opts).unwrap();
-    let soc = w.begin_scope("soc", ScopeType::Generic, "");
-    let cpu = w.begin_scope("cpu0", ScopeType::Core, "");
-    let log = w.add_log_stream(Some(cpu), "log");
-    w.end_scope().unwrap();
-    let bus = w.add_stream(Some(soc), "bus", "TRANSACTOR");
-    let gen_rd = w.add_generator(bus, "read");
-    let buslog = w.add_log_stream(Some(soc), "buslog");
-    w.end_scope().unwrap();
+    let soc = w.add_scope(None, "soc", ScopeType::Generic, "").unwrap();
+    let cpu = w.add_scope(Some(soc), "cpu0", ScopeType::Core, "").unwrap();
+    let log = w.add_stream(Some(cpu), "log", vtr::LOG_STREAM_KIND).unwrap();
+    let bus = w.add_stream(Some(soc), "bus", "TRANSACTOR").unwrap();
+    let gen_rd = w.add_generator(bus, "read").unwrap();
+    let buslog = w.add_stream(Some(soc), "buslog", vtr::LOG_STREAM_KIND).unwrap();
     let s_fetch = w.add_log_site(&LogSiteSpec::new(log, Severity::Debug, "fetch pc={:#x} inst={:#010x}", &[LogArgType::U64, LogArgType::U64]).names(&["pc", "inst"]).location("cpu.cpp", 42).func("fetch")).unwrap();
     let s_warn = w.add_log_site(&LogSiteSpec::new(log, Severity::Warn, "{}: stall {} cycles ({:.1}%)", &[LogArgType::Text, LogArgType::I64, LogArgType::F64])).unwrap();
     let s_plain = w.add_log_site(&LogSiteSpec::new(buslog, Severity::Info, "bus idle", &[])).unwrap();
@@ -786,7 +785,7 @@ fn log_raw_matches_log() {
     let types = [LogArgType::Text, LogArgType::I64, LogArgType::U64, LogArgType::F64, LogArgType::Bool, LogArgType::Bytes];
     for (path, raw) in [(&a, false), (&b, true)] {
         let mut w = Writer::create_with(path, opts.clone()).unwrap();
-        let st = w.add_log_stream(None, "log");
+        let st = w.add_stream(None, "log", vtr::LOG_STREAM_KIND).unwrap();
         let site = w.add_log_site(&LogSiteSpec::new(st, Severity::Info, "{} {} {} {} {} {}", &types)).unwrap();
         for i in 0..300u64 {
             let text = if i % 3 == 0 { "alpha" } else { "beta" };
@@ -858,16 +857,16 @@ fn events_bypass_dedup_in_all_payload_paths() {
         let events: Vec<_> = kinds
             .iter()
             .map(|&kind| {
-                w.add_var("event", VarType::Event, Direction::Implicit, kind)
+                w.add_var(None, "event", VarType::Event, Direction::Implicit, kind).unwrap()
                     .1
             })
             .collect();
-        let (_, alias) = w.add_var("alias_target", VarType::Event, Direction::Implicit, kinds[0]);
-        w.add_alias("event_alias", VarType::Event, Direction::Implicit, alias)
+        let (_, alias) = w.add_var(None, "alias_target", VarType::Event, Direction::Implicit, kinds[0]).unwrap();
+        w.add_alias(None, "event_alias", VarType::Event, Direction::Implicit, alias)
             .unwrap();
-        assert!(w.add_alias("wire_alias", VarType::Wire, Direction::Implicit, events[0]).is_err());
-        let (_, wire) = w.add_bits("wire", 1, 2);
-        assert!(w.add_alias("bad_event", VarType::Event, Direction::Implicit, wire).is_err());
+        assert!(w.add_alias(None, "wire_alias", VarType::Wire, Direction::Implicit, events[0]).is_err());
+        let (_, wire) = wire(&mut w, "wire", 1, 2);
+        assert!(w.add_alias(None, "bad_event", VarType::Event, Direction::Implicit, wire).is_err());
         for time in [0, 0, 5, 5, 10] {
             w.set_time(time).unwrap();
             w.emit_bit(events[0], 1).unwrap();

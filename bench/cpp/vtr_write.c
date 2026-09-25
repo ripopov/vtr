@@ -15,14 +15,18 @@ int main(int argc, char **argv) {
     vtr_writer *w = vtr_writer_create(argv[2], &o);
     if (!w) { fprintf(stderr, "%s\n", vtr_last_error()); return 1; }
     vtr_writer_set_timescale(w, rp.timescale);
+    /* Open scopes, innermost last; the replay's scopes are balanced. */
+    uint32_t *path = (uint32_t *)calloc(rp.n_hier + 1, 4), depth = 0;
     for (uint32_t i = 0; i < rp.n_hier; i++) {
         rp_hier *h = &rp.hier[i];
-        if (h->op == 1) vtr_writer_begin_scope(w, h->name, 0, NULL);
-        else if (h->op == 2) vtr_writer_end_scope(w);
-        else if (h->op == 3) { rp_sig *s = &rp.sigs[h->sig]; uint32_t node; vtr_writer_add_var(w, h->name, 16, 0, s->kind, s->width, s->states, &node, &sig[h->sig]); declared[h->sig] = 1; }
-        else { uint32_t node; vtr_writer_add_alias(w, h->name, 16, 0, sig[h->sig], &node); }
+        uint32_t parent = depth ? path[depth - 1] : VTR_NONE;
+        if (h->op == 1) path[depth++] = vtr_writer_add_scope(w, parent, h->name, 0, NULL);
+        else if (h->op == 2) depth--;
+        else if (h->op == 3) { rp_sig *s = &rp.sigs[h->sig]; uint32_t node; vtr_writer_add_var(w, parent, h->name, 16, 0, s->kind, s->width, s->states, &node, &sig[h->sig]); declared[h->sig] = 1; }
+        else vtr_writer_add_alias(w, parent, h->name, 16, 0, sig[h->sig]);
     }
-    for (uint32_t s = 0; s < rp.n_sig; s++) if (!declared[s]) { char nm[32]; snprintf(nm, sizeof nm, "s%u", s); uint32_t node; vtr_writer_add_var(w, nm, 16, 0, rp.sigs[s].kind, rp.sigs[s].width, rp.sigs[s].states, &node, &sig[s]); }
+    free(path);
+    for (uint32_t s = 0; s < rp.n_sig; s++) if (!declared[s]) { char nm[32]; snprintf(nm, sizeof nm, "s%u", s); uint32_t node; vtr_writer_add_var(w, VTR_NONE, nm, 16, 0, rp.sigs[s].kind, rp.sigs[s].width, rp.sigs[s].states, &node, &sig[s]); }
     uint64_t last = UINT64_MAX, n = 0;
     int rc = 0;
     for (uint64_t i = 0; i < rp.n_rec; i++) {

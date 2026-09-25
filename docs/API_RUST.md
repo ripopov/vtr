@@ -90,10 +90,10 @@ Every option is a field of `WriterOptions` / `ReadOptions`.
 
 | Variant | Raised when |
 |---|---|
-| `Error::Corrupt(&'static str)` | Reader: the bytes are not a VTR file (bad magic), or a structural invariant is violated: truncated header/section/directory, unknown section kind that is not marked optional, unknown codec/node kind/value tag/signal kind, string or hierarchy chunk out of order, signal declared out of order, alias of unknown signal, parent out of range, LZ4/zstd length mismatch, column/run/blob bounds exceeded, `for_each_change` on a column run larger than 1 GiB. |
+| `Error::Corrupt(&'static str)` | Reader: the bytes are not a VTR file (bad magic), or a structural invariant is violated: truncated header/section/directory, unknown section kind that is not marked optional, unknown codec/node kind/value tag/signal kind, string or hierarchy chunk out of order, signal declared out of order, alias of unknown signal, parent out of range or of the wrong kind, LZ4/zstd length mismatch, column/run/blob bounds exceeded, `for_each_change` on a column run larger than 1 GiB. |
 | `Error::UnsupportedVersion { major, minor, supported }` | Reader: the file's major version is greater than the library's (`container::VERSION_MAJOR` = 1). Minor versions are always accepted. |
-| `Error::Invalid(String)` | A caller argument is wrong. Writer: unknown `SignalId` (emit/alias), event/non-event alias mismatch, `set_time` going backwards, a logic value not representable in the signal's states, an emit method called on the wrong `SignalKind`, unparsable real text, packed value too short or with the wrong `states`, unknown generator node id, `TxId` that is not open (`set_tx_parent`, `set_tx_kind`, `tx_attr`, `tx_event`, `tx_stage*`, `end_tx`). Reader: unknown `SignalId` in `signal_kind`, `signal_var_type`, `value_at`, `changes`, `load_signal(s)`, `packed_len` returns `None` instead. |
-| `Error::State(&'static str)` | Writer operation not allowed now: metadata setter after the first flush, `end_scope` without an open scope, `node_attr` on a node already flushed, `tx_stage_attr` on a transaction with no stage, background thread failed / stopped / panicked, internal consistency failures in the encoder. |
+| `Error::Invalid(String)` | A caller argument is wrong. Writer: unknown `SignalId` (emit/alias), event/non-event alias mismatch, `set_time` going backwards, a logic value not representable in the signal's states, an emit method called on the wrong `SignalKind`, unparsable real text, packed value too short or with the wrong `states`, a declaration whose parent is unknown or of the wrong kind (3.5), a transaction on a node that is not a generator, `TxId` that is not open (`set_tx_parent`, `set_tx_kind`, `tx_attr`, `tx_event`, `tx_stage*`, `end_tx`). Reader: unknown `SignalId` in `signal_kind`, `signal_var_type`, `value_at`, `changes`, `load_signal(s)`, `packed_len` returns `None` instead. |
+| `Error::State(&'static str)` | Writer operation not allowed now: metadata setter after the first flush, `node_attr` on a node already flushed, `tx_stage_attr` on a transaction with no stage, background thread failed / stopped / panicked, internal consistency failures in the encoder. |
 | `Error::Io(std::io::Error)` | File create/open/mmap/write/flush failures, thread spawn failure. Converts with `?` from `std::io::Error`. |
 | `Error::Checksum { offset }` | Reader with `ReadOptions::verify_crc = true`: a section's CRC32 does not match. Sections written with `checksums: false` carry CRC 0 and are never checked. |
 | `Error::Codec(String)` | zstd/LZ4 context creation, compression or decompression failure. |
@@ -151,18 +151,17 @@ fn write_waveform(path: &str) -> vtr::Result<()> {
     let tool = w.intern("my-sim");
     w.set_file_attr("tool", Value::Str(tool))?;
 
-    // Hierarchy: scopes nest with begin_scope/end_scope; vars declare signals.
-    w.begin_scope("top", ScopeType::Module, "counter");
-    let (_, clk)          = w.add_var("clk",  VarType::Wire,   Direction::Input,    SignalKind::Bits { width: 1,   states: 4 });
-    let (_, rst)          = w.add_var("rst",  VarType::Wire,   Direction::Input,    SignalKind::Bits { width: 1,   states: 2 });
-    let (cnt_node, cnt)   = w.add_var("cnt",  VarType::Reg,    Direction::Output,   SignalKind::Bits { width: 8,   states: 4 });
-    let (_, data)         = w.add_var("data", VarType::Logic,  Direction::Implicit, SignalKind::Bits { width: 128, states: 2 });
-    let (_, temp)         = w.add_var("temp", VarType::Real,   Direction::Implicit, SignalKind::Real);
-    let (_, msg)          = w.add_var("msg",  VarType::String, Direction::Implicit, SignalKind::VarLen);
-    w.node_attr(cnt_node, "reset_value", Value::U64(0))?;          // attribute on a pending node
-    w.add_alias("cnt_alias", VarType::Wire, Direction::Implicit, cnt)?; // second name for the same signal
-    w.add_enum_table("state_t", &[("IDLE", "00"), ("RUN", "01")]);
-    w.end_scope()?;
+    // Hierarchy: every node names its parent (None = a root); vars declare signals.
+    let top = Some(w.add_scope(None, "top", ScopeType::Module, "counter")?);
+    let (_, clk)          = w.add_var(top, "clk",  VarType::Wire,   Direction::Input,    SignalKind::Bits { width: 1,   states: 4 })?;
+    let (_, rst)          = w.add_var(top, "rst",  VarType::Wire,   Direction::Input,    SignalKind::Bits { width: 1,   states: 2 })?;
+    let (cnt_node, cnt)   = w.add_var(top, "cnt",  VarType::Reg,    Direction::Output,   SignalKind::Bits { width: 8,   states: 4 })?;
+    let (_, data)         = w.add_var(top, "data", VarType::Logic,  Direction::Implicit, SignalKind::Bits { width: 128, states: 2 })?;
+    let (_, temp)         = w.add_var(top, "temp", VarType::Real,   Direction::Implicit, SignalKind::Real)?;
+    let (_, msg)          = w.add_var(top, "msg",  VarType::String, Direction::Implicit, SignalKind::VarLen)?;
+    w.node_attr(cnt_node, "reset_value", Value::U64(0))?;               // attribute on a pending node
+    w.add_alias(top, "cnt_alias", VarType::Wire, Direction::Implicit, cnt)?; // second name for the same signal
+    w.add_enum_table(top, "state_t", &[("IDLE", "00"), ("RUN", "01")])?;
 
     // Values: set_time first (monotonic), then emit. Unchanged values are dropped.
     for cycle in 0..1000u64 {
@@ -242,10 +241,9 @@ use vtr::{Reader, ScopeType, TxQuery, TxStatus, Value, Writer};
 fn write_tx(path: &str) -> vtr::Result<()> {
     let mut w = Writer::create(path)?;
     w.set_timescale(0)?; // cycles
-    let core = w.begin_scope("cpu", ScopeType::Core, "");
-    let pipe = w.add_stream(Some(core), "pipe", "PIPELINE");
-    let insn = w.add_generator(pipe, "instruction");
-    w.end_scope()?;
+    let core = w.add_scope(None, "cpu", ScopeType::Core, "")?;
+    let pipe = w.add_stream(Some(core), "pipe", "PIPELINE")?;
+    let insn = w.add_generator(pipe, "instruction")?;
     // Pre-intern keys and names once; tx_* methods take StrId.
     let k_pc = w.intern("pc");
     let k_dep = w.intern("depends_on");
@@ -296,7 +294,7 @@ impl Drop for Writer { /* calls close(), ignores errors */ }
 ```
 
 `Writer` is `Send` and not `Sync`. All methods take `&mut self` except the
-inspectors (`options`, `string`, `current_scope`, `signal_count`,
+inspectors (`options`, `string`, `signal_count`,
 `signal_kind`, `current_time`, `open_tx_count`, `stats`).
 
 ### 3.1 `WriterOptions`
@@ -390,61 +388,59 @@ hierarchy chunk at the next flush; the writer flushes strings, meta and
 pending nodes before every signal or transaction block, so a node is always in
 the file before any data that refers to it.
 
-```rust
-pub fn begin_scope(&mut self, name: &str, scope_type: ScopeType, component: &str) -> NodeId
-pub fn end_scope(&mut self) -> Result<()>
-pub fn current_scope(&self) -> Option<NodeId>
-```
-
-`begin_scope` pushes a scope whose parent is the current scope (or none at
-top level). `component` is the module/entity type name (FST "component"); pass
-`""` when unknown. `end_scope` fails with
-`Error::State("end_scope without begin_scope")` when no scope is open.
-Scopes need not be closed before `close()`. The scope stack only affects the
-parent chosen by `add_var`, `add_alias`, `add_enum_table` and nested
-`begin_scope`.
+Every declaration names its parent: `None` for a root, otherwise the
+`NodeId` of an earlier node. Scopes, vars, aliases, enum tables and streams go
+under a scope or at the root; a generator goes under a stream (SPEC section
+5). An unknown parent or a parent of the wrong kind is `Error::Invalid`, and a
+rejected call adds nothing. The writer keeps no current scope: a producer that
+walks a tree keeps its own path of ids. Nodes may be declared at any time,
+before, between or after values, transactions and log records; they exist from
+their hierarchy chunk to the end of the file.
 
 ```rust
-pub fn add_var(&mut self, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> (NodeId, SignalId)
-pub fn add_var_in(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> (NodeId, SignalId)
-pub fn add_bits(&mut self, name: &str, width: u32, states: u8) -> (NodeId, SignalId)
+pub fn add_scope(&mut self, parent: Option<NodeId>, name: &str, scope_type: ScopeType, component: &str) -> Result<NodeId>
 ```
 
-`add_var` declares a variable in the current scope **and** a new signal of
-`kind`; `add_var_in` takes the parent explicitly (`None` = top level).
-`SignalId`s are dense and increasing in declaration order. `add_bits` is
-`add_var(name, VarType::Wire, Direction::Implicit, SignalKind::Bits { width, states })`.
-`states` must be 2, 4 or 9 (any other value is encoded as 9). Signals may be
-declared at any time, including after value changes have been emitted; a
-signal's group is `id / group_size`.
+`component` is the module/entity type name (FST "component"); pass `""` when
+unknown.
 
 ```rust
-pub fn add_alias(&mut self, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId>
-pub fn add_alias_in(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId>
+pub fn add_var(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> Result<(NodeId, SignalId)>
 ```
 
-Declare a second variable that refers to an existing signal (the VCD/FST
+Declares a variable **and** a new signal of `kind`. `SignalId`s are dense and
+increasing in declaration order. `states` must be 2, 4 or 9 (any other value
+is encoded as 9). A signal declared after value changes were emitted has the
+default value of SPEC section 6.3 until its first change; a signal's group is
+`id / group_size`.
+
+```rust
+pub fn add_alias(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId>
+```
+
+Declares a second variable that refers to an existing signal (the VCD/FST
 "same id code" case). Fails with `Error::Invalid` for an unknown `SignalId`.
 On the reader side the alias is a `NodeData::Var` with `declares: None`.
 
 ```rust
-pub fn add_enum_table(&mut self, name: &str, entries: &[(&str, &str)]) -> NodeId
+pub fn add_enum_table(&mut self, parent: Option<NodeId>, name: &str, entries: &[(&str, &str)]) -> Result<NodeId>
 ```
 
-Declares an enumeration table under the current scope. Each entry is
-`(literal, value)` where `value` is the bit-string spelling (FST enum table
-convention). Associate it with a variable by convention through a node
-attribute; the library does not link them.
+Declares an enumeration table. Each entry is `(literal, value)` where `value`
+is the bit-string spelling (FST enum table convention). Associate it with a
+variable by convention through a node attribute; the library does not link
+them.
 
 ```rust
-pub fn add_stream(&mut self, parent: Option<NodeId>, name: &str, kind: &str) -> NodeId
-pub fn add_generator(&mut self, stream: NodeId, name: &str) -> NodeId
+pub fn add_stream(&mut self, parent: Option<NodeId>, name: &str, kind: &str) -> Result<NodeId>
+pub fn add_generator(&mut self, stream: NodeId, name: &str) -> Result<NodeId>
 ```
 
-Transaction streams (FTR `tx_stream`) live under a scope or at top level;
-`kind` is a free-form string such as `"TRANSACTOR"` or `"PIPELINE"`.
-Generators (FTR `tx_generator`, "transaction type") live under a stream and
-are the node that `begin_tx` takes.
+Transaction streams (FTR `tx_stream`) live under a scope or at the root;
+`kind` is a free-form string such as `"TRANSACTOR"` or `"PIPELINE"`, and
+`vtr::LOG_STREAM_KIND` (`"LOG"`) for log streams (3.11). Generators (FTR
+`tx_generator`, "transaction type") live under a stream and are the node that
+`begin_tx` takes.
 
 ```rust
 pub fn node_attr(&mut self, node: NodeId, key: &str, value: Value) -> Result<()>
@@ -598,7 +594,7 @@ signal")`); `bytes` may be any length including 0 and need not be UTF-8.
 deduplication: every emit records an occurrence, including identical payloads
 at the same timestamp, in emission order. The original variable declaration
 owns the signal's type. Aliases must agree on event versus non-event status;
-`add_alias`/`add_alias_in` return `Error::Invalid` for a mismatch, even with
+`add_alias` returns `Error::Invalid` for a mismatch, even with
 deduplication disabled. This applies to every payload kind and emit method.
 
 Each non-event signal remembers its last value and
@@ -795,14 +791,14 @@ argument types are declared once, each message stores the time and the
 argument values.
 
 ```rust
-pub fn add_log_stream(&mut self, parent: Option<NodeId>, name: &str) -> NodeId
 pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> Result<LogSiteId>
 pub fn log_site_node(&self, site: LogSiteId) -> Option<NodeId>
 pub fn log_site_count(&self) -> u32
 ```
 
-`add_log_stream` is `add_stream(parent, name, "LOG")`. `add_log_site`
-creates a generator of `spec.stream` named by the format string and carrying
+A log stream is a stream of kind `vtr::LOG_STREAM_KIND`:
+`add_stream(parent, name, vtr::LOG_STREAM_KIND)`. `add_log_site`
+creates a generator of `spec.stream` (which must be a stream) named by the format string and carrying
 `log.severity`, `log.args` (the types), `log.names` (the argument names, or
 `"0"`, `"1"`, ... when `spec.names` is empty), and `log.file` / `log.line` /
 `log.func` when given. It returns a dense `LogSiteId` (the handle `log`

@@ -10,8 +10,8 @@ fn remote_metadata_queues_complete_tracks() {
 
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let stream = writer.add_stream(None, "bus", "tlm");
-    let generator = writer.add_generator(stream, "requests");
+    let stream = writer.add_stream(None, "bus", "tlm").unwrap();
+    let generator = writer.add_generator(stream, "requests").unwrap();
     let tx = writer.begin_tx(generator, 1).unwrap();
     writer.end_tx(tx, 100, TxStatus::Ok).unwrap();
     writer.close().unwrap();
@@ -97,11 +97,13 @@ fn vtr_transaction_semantics_survive_the_common_contract() {
     use vtr::Value;
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut w = vtr::Writer::create(file.path()).unwrap();
-    let scope = w.begin_scope("top", vtr::ScopeType::Module, "top_type");
-    let stream = w.add_stream(Some(scope), "cpu", "pipeline");
-    let gen_a = w.add_generator(stream, "instructions");
-    let stream_b = w.add_stream(None, "bus", "tlm");
-    let gen_b = w.add_generator(stream_b, "reads");
+    let scope = w
+        .add_scope(None, "top", vtr::ScopeType::Module, "top_type")
+        .unwrap();
+    let stream = w.add_stream(Some(scope), "cpu", "pipeline").unwrap();
+    let gen_a = w.add_generator(stream, "instructions").unwrap();
+    let stream_b = w.add_stream(None, "bus", "tlm").unwrap();
+    let gen_b = w.add_generator(stream_b, "reads").unwrap();
     let key = w.intern("payload");
     let text = w.intern("decoded");
     let event = w.intern("issue");
@@ -235,11 +237,13 @@ fn vtr_transaction_semantics_survive_the_common_contract() {
 fn complete_tracks_include_empty_generators_parents_and_parallel_relations() {
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let stream = writer.add_stream(None, "stream", "transactions");
-    let generator = writer.add_generator(stream, "generator");
-    let empty = writer.add_generator(stream, "empty");
-    let other_stream = writer.add_stream(None, "other", "transactions");
-    let other = writer.add_generator(other_stream, "other-generator");
+    let stream = writer.add_stream(None, "stream", "transactions").unwrap();
+    let generator = writer.add_generator(stream, "generator").unwrap();
+    let empty = writer.add_generator(stream, "empty").unwrap();
+    let other_stream = writer.add_stream(None, "other", "transactions").unwrap();
+    let other = writer
+        .add_generator(other_stream, "other-generator")
+        .unwrap();
     let parent = writer.begin_tx(other, 0).unwrap();
     writer.end_tx(parent, 100, TxStatus::Ok).unwrap();
     let child = writer.begin_tx(generator, 50).unwrap();
@@ -307,8 +311,8 @@ fn document_track_loads_coalesce_share_release_retry_and_reject_stale_results() 
     use volna_core::session::{LoadRequest, LoadResult};
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut writer = vtr::Writer::create(file.path()).unwrap();
-    let stream = writer.add_stream(None, "stream", "transactions");
-    let generator = writer.add_generator(stream, "generator");
+    let stream = writer.add_stream(None, "stream", "transactions").unwrap();
+    let generator = writer.add_generator(stream, "generator").unwrap();
     writer.close().unwrap();
     let session = OpenSpec::Path(file.path().into()).open().unwrap();
     let track = TrackRef(generator.0);

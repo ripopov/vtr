@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VTR Dynamic Hierarchy</title>
-<meta name="description" content="Plan: how hierarchy works in VTR, why signals added during a run crash today's reader, the reader fix, an explicit-parent writer API for late producers such as UVM and initial blocks, and the tests in core/vtr/tests.">
+<meta name="description" content="Plan: how hierarchy works in VTR, why signals added during a run crash today's reader, the reader fix, an ID-based tree API that replaces the writer's scope stack, the migration of every caller, and the tests in core/vtr/tests.">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
@@ -90,8 +90,8 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
 <main id="top">
 <section><div class="wrap">
   <h1>Growing the hierarchy <em>during a run</em></h1>
-  <p class="lede">UVM testbenches build their component tree in the build phase and create streams for objects while the simulation runs, and <code>initial</code> blocks may add scopes after the simulator has declared the design. VTR's format already allows the hierarchy to grow at any time. The writer mostly handles it. The reader does not: a signal added after the first block can crash it. This plan explains how hierarchy works in VTR, fixes the reader, gives the writer an explicit-parent API for late producers, and adds tests that pin the behaviour down.</p>
-  <p class="meta">Plan, 25 September 2026. Nothing here is implemented. The findings below were measured with throwaway tests against the current <code>core/vtr</code>. Related: <a href="SPEC.md">SPEC.md</a> §2.4, §5 and §6, <a href="vtr_clocks.html">vtr_clocks.html</a> and <a href="c910-verilator-tx-stream.html">c910-verilator-tx-stream.html</a>, whose SystemVerilog calls create streams while the simulation runs.</p>
+  <p class="lede">UVM testbenches build their component tree in the build phase and create streams for objects while the simulation runs, and <code>initial</code> blocks may add scopes after the simulator has declared the design. VTR's format already allows the hierarchy to grow at any time. The writer mostly handles it. The reader does not: a signal added after the first block can crash it. This plan explains how hierarchy works in VTR, fixes the reader, replaces the writer's scope stack with a tree API in which every node names its parent, migrates every caller, and adds tests that pin the behaviour down.</p>
+  <p class="meta">Plan, 25 September 2026; implemented the same day. The findings in “What works today” and “The bug” describe <code>core/vtr</code> before the change; <code>core/vtr/tests/dynamic_hierarchy.rs</code> now covers them, and <a href="RATIONALE.md">RATIONALE.md</a> records the chunk-overhead measurement. Related: <a href="SPEC.md">SPEC.md</a> §2.4, §5 and §6, <a href="vtr_clocks.html">vtr_clocks.html</a> and <a href="c910-verilator-tx-stream.html">c910-verilator-tx-stream.html</a>, whose SystemVerilog calls create streams while the simulation runs.</p>
 </div></section>
 
 <section id="model"><div class="wrap">
@@ -99,7 +99,7 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
   <div class="prose">
   <p>The hierarchy is a forest of <i>nodes</i>. There are five kinds: scope, var, stream, generator and enum table. Every node has a parent that was declared before it (or none, for a root), a name, and attributes. Node ids are dense numbers in file order. A var either declares a new <i>signal</i> or aliases an earlier one; signal ids are dense in the order their declaring vars appear.</p>
   <p>Nodes are stored in HIERARCHY sections, each a <i>chunk</i> of consecutive nodes. The file is append-only, and SPEC §2.4 requires only that a node be declared by a chunk that precedes every section using it. Nothing says all chunks come first. A file can therefore interleave hierarchy chunks with signal, transaction and log blocks.</p>
-  <p>The writer keeps new nodes in a pending list. Before it hands any data to the encoder (a chunk of value changes, a transaction block, a log block, an explicit flush), it writes the pending nodes as one HIERARCHY chunk. Node attributes can be added until that happens. Scopes are declared with <code>begin_scope</code>/<code>end_scope</code>, which push and pop a scope stack; vars and enum tables go into the current scope, while streams and generators take an explicit parent. The Verilator fork declares the whole model this way inside <code>VerilatedVtr::open</code>, before the first dump.</p>
+  <p>The writer keeps new nodes in a pending list. Before it hands any data to the encoder (a chunk of value changes, a transaction block, a log block, an explicit flush), it writes the pending nodes as one HIERARCHY chunk. Node attributes can be added until that happens. Today scopes are declared with <code>begin_scope</code>/<code>end_scope</code>, which push and pop a scope stack inside the writer; vars and enum tables go into the current scope, while streams and generators take an explicit parent. The Verilator fork declares the whole model this way inside <code>VerilatedVtr::open</code>, before the first dump. This plan removes the stack.</p>
   <p>The reader collects every HIERARCHY chunk when it opens a file, including a crash-recovered file without a directory, so it always sees the complete forest. Viewers such as Volna open finished or recovered files and have no live-follow mode, so for them a late node is simply part of the hierarchy.</p>
   <p>Signal values live in SIGNAL_BLOCK sections. A block covers a time range and partitions signals into <i>groups</i> of <code>group_size</code> consecutive ids (256 by default). Each block records <code>n_signals</code>, the number of signals known when it was written, and each stored group container records <code>n_sigs</code>, how many signals it holds. The container's <i>frame</i> gives each held signal's value at the block's start, and a prev-dirty table points to the last earlier block where each group changed. So the format already records exactly which signals existed in each block.</p>
   </div>
@@ -140,7 +140,7 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
     </tbody>
   </table></div>
   <div class="prose">
-  <p>Two gaps are not bugs but missing API. The C API has no way to put a var or scope under an explicit parent: <code>vtr_writer_add_var</code> and <code>vtr_writer_begin_scope</code> always use the scope stack. The Rust writer has <code>add_var_in</code> and <code>add_alias_in</code> but no <code>add_scope_in</code>. A producer that adds nodes late, from a DPI call or a UVM callback, cannot rely on the stack, because it does not own it and the fork has already emptied it.</p>
+  <p>The tree API is the second problem. The scope stack is hidden state shared by every producer of one file: a node lands wherever the last <code>begin_scope</code> left the stack. A producer that adds nodes late, from a DPI call or a UVM callback, does not own that stack, and the fork has already emptied it at <code>open</code>. The API is also inconsistent. Rust has both <code>add_var</code> and <code>add_var_in</code>, and both <code>add_alias</code> and <code>add_alias_in</code>, but scopes and enum tables exist only in the stack form. The C API has only the stack form for vars and aliases. <code>add_bits</code> and <code>add_log_stream</code> are shorthands for other calls. No call checks that a parent exists or has the right kind.</p>
   <p>The core crates have 35 tests and all pass, but none declares anything after values were emitted, and no CI workflow runs <code>cargo test</code> at all. That is how the panic went unnoticed.</p>
   </div>
 </div></section>
@@ -158,7 +158,7 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
     <li><b>Nodes can be added at any time.</b> A producer may declare scopes, vars, aliases, enum tables, streams and generators before, between or after any value, transaction or log record. The writer places them in the next HIERARCHY chunk.</li>
     <li><b>Nodes are permanent.</b> A node exists from the chunk that declares it to the end of the file. It is never removed, renamed or re-parented.</li>
     <li><b>A signal missing from a block has no data there.</b> If <i>s</i> ≥ the block's <code>n_signals</code>, or its position in the group is ≥ the container's <code>n_sigs</code>, the block holds no changes of <i>s</i>. Its value there is the default from SPEC §6.3: all X for 4- and 9-state bits, 0 for 2-state bits and reals, the empty string for variable-length signals. This is the same value a signal has before its first change today.</li>
-    <li><b>Late producers name their parent.</b> The scope stack belongs to whoever declares the bulk hierarchy, the fork at <code>open</code>. Anything added later passes its parent explicitly and leaves the stack alone.</li>
+    <li><b>Every node names its parent.</b> The writer keeps no current position. Each call that creates a node takes the parent's id, or none for a root, and checks it. A producer that walks a tree keeps its own path of ids.</li>
     <li><b>Attributes come with the node.</b> Node attributes must still be set before the node's chunk is written, which in practice means right after creating it. Late producers do not need more than that.</li>
   </ol>
   <div class="prose">
@@ -172,7 +172,7 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
   <ul>
     <li>§2.4: HIERARCHY chunks may appear anywhere after META, interleaved with other sections; a node is valid from its chunk to the end of the file (rules 1 and 2).</li>
     <li>§6.2 and §6.7: a signal outside a block's <code>n_signals</code> or outside its group container's <code>n_sigs</code> has no changes in that block, and a reader uses the default value for it (rule 3). The reading algorithm in §6.7 gains that check.</li>
-    <li>§5: late producers should give explicit parents (rule 4). This is guidance for writers, not a format rule.</li>
+    <li>§5: which node kinds may be the parent of which (below). The format already implies it; SPEC states it so that writers and readers check the same thing.</li>
   </ul>
   <h3>Reader</h3>
   <ul>
@@ -182,16 +182,52 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
     <li><code>column</code>: a dynamic alias whose target the block does not hold is reported as corrupt data, never followed.</li>
     <li>The C reader API needs no change; it calls the same functions.</li>
   </ul>
-  <h3>Writer</h3>
-  <ul>
-    <li>Rust: add <code>add_scope_in(parent, name, scope_type, component) -&gt; Result&lt;NodeId&gt;</code> and <code>add_enum_table_in</code> next to the existing <code>add_var_in</code> and <code>add_alias_in</code>. None of them touches the scope stack.</li>
-    <li>All explicit-parent calls, including <code>add_stream</code> and <code>add_generator</code>, validate the parent: it must exist, a scope, var or enum table must sit under a scope or at the root, a stream under a scope or at the root, and a generator under a stream. Today these calls accept any id.</li>
-    <li>C API, one to one: <code>vtr_writer_add_scope</code>, <code>vtr_writer_add_var_in</code>, <code>vtr_writer_add_alias_in</code> and <code>vtr_writer_add_enum_table_in</code>, each with a <code>parent</code> argument (or <code>VTR_NONE</code>). <code>vtr.h</code> documents rule 4 next to the scope stack.</li>
-    <li>No encoding change. Existing producers write byte-identical files.</li>
-  </ul>
+  <h3>Writer: one tree API</h3>
+  <p>The scope stack goes away entirely. One call per node kind remains, each taking its parent explicitly and returning an error for a bad one:</p>
+<pre><code>pub fn add_scope(&amp;mut self, parent: Option&lt;NodeId&gt;, name: &amp;str, scope_type: ScopeType, component: &amp;str) -&gt; Result&lt;NodeId&gt;;
+pub fn add_var(&amp;mut self, parent: Option&lt;NodeId&gt;, name: &amp;str, var_type: VarType, direction: Direction,
+               kind: SignalKind) -&gt; Result&lt;(NodeId, SignalId)&gt;;
+pub fn add_alias(&amp;mut self, parent: Option&lt;NodeId&gt;, name: &amp;str, var_type: VarType, direction: Direction,
+                 signal: SignalId) -&gt; Result&lt;NodeId&gt;;
+pub fn add_enum_table(&amp;mut self, parent: Option&lt;NodeId&gt;, name: &amp;str, entries: &amp;[(&amp;str, &amp;str)]) -&gt; Result&lt;NodeId&gt;;
+pub fn add_stream(&amp;mut self, parent: Option&lt;NodeId&gt;, name: &amp;str, kind: &amp;str) -&gt; Result&lt;NodeId&gt;;
+pub fn add_generator(&amp;mut self, stream: NodeId, name: &amp;str) -&gt; Result&lt;NodeId&gt;;
+pub fn node_attr(&amp;mut self, node: NodeId, key: &amp;str, value: Value) -&gt; Result&lt;()&gt;;</code></pre>
+  <p>Removed: <code>begin_scope</code>, <code>end_scope</code>, <code>current_scope</code>, <code>add_var_in</code>, <code>add_alias_in</code>, <code>add_bits</code> (an <code>add_var</code> with fixed types) and <code>add_log_stream</code> (an <code>add_stream</code> of kind <code>LOG</code>; the kind stays available as the constant <code>vtr::LOG_STREAM_KIND</code>). <code>add_log_site</code> is unchanged, since it creates a generator with site data rather than duplicating another call.</p>
+  <p>The C API projects the same set one to one. Every id-returning function returns <code>VTR_NONE</code> on error, as the header already specifies; <code>add_var</code> returns two ids and therefore keeps its status code and output pointers:</p>
+<pre><code>uint32_t vtr_writer_add_scope(vtr_writer *w, uint32_t parent, const char *name, uint16_t scope_type, const char *component);
+int      vtr_writer_add_var(vtr_writer *w, uint32_t parent, const char *name, uint16_t var_type, uint8_t direction,
+                            uint8_t kind, uint32_t width, uint8_t states, uint32_t *node_out, uint32_t *signal_out);
+uint32_t vtr_writer_add_alias(vtr_writer *w, uint32_t parent, const char *name, uint16_t var_type, uint8_t direction,
+                              uint32_t signal);
+uint32_t vtr_writer_add_enum_table(vtr_writer *w, uint32_t parent, const char *name, size_t n,
+                                   const char *const *literals, const char *const *values);
+uint32_t vtr_writer_add_stream(vtr_writer *w, uint32_t parent, const char *name, const char *kind);
+uint32_t vtr_writer_add_generator(vtr_writer *w, uint32_t stream, const char *name);
+int      vtr_writer_node_attr(vtr_writer *w, uint32_t node, const char *key, const vtr_value *v);</code></pre>
+  <p><code>parent</code> is <code>VTR_NONE</code> for a root. <code>vtr_writer_begin_scope</code>, <code>vtr_writer_end_scope</code> and <code>vtr_writer_add_log_stream</code> are removed; <code>vtr_writer_add_alias</code> now returns its node id like the other calls instead of a status code and an output pointer.</p>
+  <p>Parents are checked the same way everywhere. A scope, var, alias, enum table or stream goes under a scope or at the root; a generator goes under a stream. An unknown id, a wrong parent kind or an unknown aliased signal is an error, and nothing is added. Encoding does not change: a producer that declares the same nodes in the same order writes a byte-identical file.</p>
+  <h3>Migration</h3>
+  <p>Every caller moves to the new API in the same change, as AGENTS.md asks for breaking changes. Callers that walk a tree keep their own path of node ids; the fork already keeps such a path in <code>m_prefixStack</code> and only mirrors it into the writer today.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Where</th><th>What moves</th></tr></thead>
+    <tbody>
+      <tr><td><code>core/vtr</code></td><td>The writer itself, the examples (<code>feature_showcase</code>, <code>pipeline_showcase</code>, <code>logging</code>) and the tests: about 115 call sites.</td></tr>
+      <tr><td><code>core/vtr-capi</code></td><td><code>vtr.h</code>, the Rust bindings, <code>vtr_log.hpp</code> and <code>c_smoke.c</code>.</td></tr>
+      <tr><td><code>core/vtr-vdb</code></td><td>Test helpers and fixtures that build traces: about 30 call sites.</td></tr>
+      <tr><td><code>tools/vtr-cli</code></td><td>The FST and VCD converters, which recurse and pass the parent down, the Kanata and OTLP converters, and the convert tests.</td></tr>
+      <tr><td><code>volna/</code></td><td><code>volna-core</code> tests and the example generators in <code>volna/volna/examples</code>.</td></tr>
+      <tr><td><code>bench/</code></td><td><code>vtr-bench</code>, <code>bench/cpp/vtr_write.c</code> and <code>bench/log/log_vtr.cpp</code>.</td></tr>
+      <tr><td><code>demos/logging</code></td><td><code>sim_log_demo.cpp</code>.</td></tr>
+      <tr><td><code>ext/verilator</code></td><td><code>verilated_vtr_c.cpp</code>: <code>pushPrefix</code> stores the new scope's id in <code>m_prefixStack</code>, and <code>declare</code> passes the id on top as the parent. Committed in the fork, then the submodule is bumped.</td></tr>
+      <tr><td><code>ext/surfer</code></td><td>The fork's VTR example generators and <code>libsurfer</code> tests. Committed in <code>ripopov/surfer</code>, then the submodule is bumped.</td></tr>
+      <tr><td>Documentation</td><td><code>docs/API_RUST.md</code>, <code>docs/LOGGING.md</code>, <code>docs/COVERAGE.md</code>, the README examples and the header comment in <code>vtr.h</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <p>When the migration is done, no removed name appears anywhere in the repository or its forks.</p>
   <h3>Simulators</h3>
   <div>
-  <p>Nothing in the fork changes for this plan, but two facts matter to the SystemVerilog producers built on it. First, <code>initial</code> blocks run during the first <code>eval()</code>. When the harness opens the file before that, as the C910 harness does, they run after <code>open</code> has declared the model and before the first dump, so hierarchy they add lands in the first chunks, ahead of any values. The tests cover that case explicitly. Second, a DPI call made before the harness opens the file has no writer to go to. The sink in <a href="vtr_clocks.html">vtr_clocks.html</a> must therefore keep declarations made before <code>open</code> and replay them at <code>open</code>, and the UVM work will rely on that.</p>
+  <p>Beyond the migration above, nothing in the fork changes for this plan, but two facts matter to the SystemVerilog producers built on it. First, <code>initial</code> blocks run during the first <code>eval()</code>. When the harness opens the file before that, as the C910 harness does, they run after <code>open</code> has declared the model and before the first dump, so hierarchy they add lands in the first chunks, ahead of any values. The tests cover that case explicitly. Second, a DPI call made before the harness opens the file has no writer to go to. The sink in <a href="vtr_clocks.html">vtr_clocks.html</a> must therefore keep declarations made before <code>open</code> and replay them at <code>open</code>, and the UVM work will rely on that.</p>
   </div>
 </div></div></section>
 
@@ -200,11 +236,11 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
   <p>A new file, <code>core/vtr/tests/dynamic_hierarchy.rs</code>, lands together with the reader fix; its first test fails on today's reader. Each test compares against expectations the test computes itself, so no fixture files are needed.</p>
   <ol>
     <li><b><code>signals_declared_mid_run_read_back</code></b>. For <code>group_size</code> 1, 3 and 256, and for foreground and background writers with 8-record blocks and 4-record chunks, it declares signals at five moments: before the first time step, at time 0 after the first values (the <code>initial</code>-block case), in the middle of a block, right after an explicit <code>flush</code>, and late in the run. The declarations fall both into partly filled groups and into new ones, and cover 1-bit 4-state, 8-bit 2-state and 4-state, real and variable-length signals. The test keeps the expected history of every signal and checks <code>load_signal</code>; <code>load_signals</code> mixed with early signals and repeated ids; <code>changes</code> over windows that start before the declaration; <code>value_at</code> at every time step, including the default before the declaration; and the merged order from <code>for_each_change</code>.</li>
-    <li><b><code>nodes_added_mid_run_under_explicit_parents</code></b>. After values have been emitted, it adds a scope with <code>add_scope_in</code>, vars and an alias with <code>add_var_in</code> and <code>add_alias_in</code>, a stream and generator under that scope, and a log stream and site, each with node attributes. It writes a transaction and a log record on them, then checks the paths with <code>find_node</code>, parents and children, attributes, the transaction and the log record, and that the scope stack of an ongoing <code>begin_scope</code> was not disturbed.</li>
-    <li><b><code>explicit_parents_are_validated</code></b>. A var or scope under a var, a generator under a scope, and unknown ids are rejected with an error, and nothing is written for them.</li>
+    <li><b><code>nodes_added_mid_run</code></b>. After values have been emitted, it adds a scope under an existing scope and one at the root, vars and an alias in both, an enum table, a stream and generator, and a log stream with a site, each with node attributes, interleaving the two subtrees. It writes a transaction and a log record on them, then checks paths with <code>find_node</code>, parents and children, attributes, the transaction and the log record.</li>
+    <li><b><code>parents_are_validated</code></b>. A scope, var or stream under a var, a generator under a scope, an alias of an unknown signal and an unknown parent id are all rejected with an error, and the file afterwards contains none of them.</li>
     <li><b><code>late_declarations_survive_recovery</code></b>. It truncates a file with late nodes inside its last signal block, as <code>recovery_without_directory</code> does, and checks that nodes from chunks before the cut exist, that their signals read correctly up to the cut, and that nodes after the cut are simply absent.</li>
   </ol>
-  <p>The C smoke test <code>core/vtr-capi/tests/c_smoke.c</code> gains a late scope, var and stream created through the new C calls after the first values, and reads them back.</p>
+  <p>The C smoke test <code>core/vtr-capi/tests/c_smoke.c</code> is rewritten on the new calls, adds a scope, var and stream after the first values, checks that a bad parent returns <code>VTR_NONE</code>, and reads everything back.</p>
   <p>These tests only protect the feature if they run. A new workflow, <code>.github/workflows/core-tests.yml</code>, runs <code>cargo test -p vtr -p vtr-capi</code> on <code>ubuntu-24.04</code> for every push and pull request. It is the first CI job for the core crates.</p>
 </div></div></section>
 
@@ -221,16 +257,17 @@ figcaption{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px}
   <h2>Plan</h2>
   <ol>
     <li><b>Reader fix and tests.</b> <code>GroupView::holds</code> and its use in <code>value_at</code>, <code>changes</code>, <code>load_signal</code>, <code>load_signals</code> and alias resolution; tests 1 and 4; the SPEC §2.4, §6.2 and §6.7 clarifications; a RATIONALE entry recording that membership comes from the per-block counts rather than a stored creation time. The reader decode path changes, so read time is A/B-tested with <code>bench/run.py</code> against a worktree of <code>HEAD</code>. File sizes and write times are unaffected because the writer is unchanged in this step. <i>Exit:</i> test 1 fails before the fix and passes after, and read time is within noise.</li>
-    <li><b>Explicit-parent API.</b> <code>add_scope_in</code>, <code>add_enum_table_in</code>, parent validation, the four C functions and <code>vtr.h</code> documentation; tests 2 and 3; the C smoke test. <i>Exit:</i> all core tests pass.</li>
+    <li><b>Tree API in the core.</b> The new writer calls and parent checks in <code>core/vtr</code>, the C projection in <code>core/vtr-capi</code>, the SPEC §5 parent rules, a RATIONALE entry on removing the stack, and the migration of every caller inside this repository (<code>core</code>, <code>tools</code>, <code>volna</code>, <code>bench</code>, <code>demos</code>, documentation); tests 2 and 3 and the rewritten C smoke test. <i>Exit:</i> <code>cargo test</code> passes for the default members, <code>volna/volna/check.sh</code> passes, and the benchmark workloads written by <code>vtr-bench</code> are byte-identical to <code>HEAD</code>.</li>
+    <li><b>Forks.</b> <code>verilated_vtr_c.cpp</code> in the Verilator fork and the VTR callers in the Surfer fork, each committed upstream in its fork and bumped here in one commit. <i>Exit:</i> the fork's VTR regression tests and the Surfer fork's tests pass, and a C910 capture from the migrated fork is byte-identical to one from the previous build.</li>
     <li><b>CI.</b> <code>.github/workflows/core-tests.yml</code>. <i>Exit:</i> the workflow is green on the branch, and it fails when the reader fix is reverted.</li>
     <li><b>Measure chunk overhead.</b> A test-scale run that adds 10,000 nodes one at a time over a long run reports the number and total size of HIERARCHY sections next to a run that declares the same nodes up front. The writer emits at most one HIERARCHY chunk per flush of values, transactions or logs, so the overhead should be small, but the numbers go into RATIONALE either way.</li>
   </ol>
-  <p>The SystemVerilog calls that create streams while a simulation runs, in <a href="vtr_clocks.html">vtr_clocks.html</a> and <a href="c910-verilator-tx-stream.html">c910-verilator-tx-stream.html</a>, only need step 2's explicit parents and the replay of declarations made before <code>open</code>. Steps 1 to 3 should land before either of those proposals starts.</p>
+  <p>The SystemVerilog calls that create streams while a simulation runs, in <a href="vtr_clocks.html">vtr_clocks.html</a> and <a href="c910-verilator-tx-stream.html">c910-verilator-tx-stream.html</a>, need the ID-based tree API from steps 2 and 3 and the replay of declarations made before <code>open</code>. Steps 1 to 4 should land before either of those proposals starts.</p>
 </div></div></section>
 </main>
 
 <footer><div class="wrap">
-  Sources: <code>docs/SPEC.md</code> §2.4, §5 and §6; <code>core/vtr/src/writer.rs</code> (<code>begin_scope</code>, <code>add_var_in</code>, <code>flush_meta_and_hierarchy</code>, <code>flush_signals</code>); <code>core/vtr/src/reader.rs</code> (<code>value_at</code>, <code>changes</code>, <code>load_signals</code>, <code>frame</code>, <code>column_direct</code>, <code>for_each_change</code>); <code>core/vtr/src/block.rs</code> (<code>GroupView</code>, <code>prev_dirty</code>, <code>find_group</code>); <code>core/vtr-capi/include/vtr.h</code>; <code>ext/verilator/include/verilated_vtr_c.cpp</code> (<code>VerilatedVtr::open</code>).
+  Sources: <code>docs/SPEC.md</code> §2.4, §5 and §6; <code>core/vtr/src/writer.rs</code> (<code>begin_scope</code>, <code>add_var_in</code>, <code>add_bits</code>, <code>add_log_stream</code>, <code>flush_meta_and_hierarchy</code>, <code>flush_signals</code>); <code>core/vtr/src/reader.rs</code> (<code>value_at</code>, <code>changes</code>, <code>load_signals</code>, <code>frame</code>, <code>column_direct</code>, <code>for_each_change</code>); <code>core/vtr/src/block.rs</code> (<code>GroupView</code>, <code>prev_dirty</code>, <code>find_group</code>); <code>core/vtr-capi/include/vtr.h</code>; <code>ext/verilator/include/verilated_vtr_c.cpp</code> (<code>VerilatedVtr::open</code>, <code>pushPrefix</code>, <code>popPrefix</code>); call sites counted with <code>grep</code> across the repository and the Surfer fork.
 </div></footer>
 <script>
 document.getElementById('theme').addEventListener('click', () => {

@@ -57,10 +57,11 @@ struct timestamp { uint64_t value; };                /* VTR_VAL_TIME */
 class LogStream {
 public:
     LogStream() = default;
-    /* Wraps an existing stream node (kind "LOG"). */
+    /* Wraps an existing stream node (kind VTR_LOG_STREAM_KIND). */
     LogStream(vtr_writer *w, uint32_t stream) : w_(w), stream_(stream) {}
-    /* Declares a new LOG stream `name` under `parent` (VTR_NONE = top level). */
-    LogStream(vtr_writer *w, uint32_t parent, const char *name) : w_(w), stream_(vtr_writer_add_log_stream(w, parent, name)) {}
+    /* Declares a new log stream `name` under `parent` (VTR_NONE = a root). */
+    LogStream(vtr_writer *w, uint32_t parent, const char *name)
+        : w_(w), stream_(vtr_writer_add_stream(w, parent, name, VTR_LOG_STREAM_KIND)) {}
 
     vtr_writer *writer() const { return w_; }
     uint32_t node() const { return stream_; }

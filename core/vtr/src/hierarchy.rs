@@ -41,6 +41,16 @@ impl NodeKind {
     }
 }
 
+/// Whether a node of kind `child` may sit under `parent` (`None` = a root).
+/// Scopes, vars, streams and enum tables go under a scope or at the root;
+/// a generator goes under a stream (SPEC section 5).
+pub fn parent_allowed(child: NodeKind, parent: Option<NodeKind>) -> bool {
+    match child {
+        NodeKind::Generator => parent == Some(NodeKind::Stream),
+        _ => matches!(parent, None | Some(NodeKind::Scope)),
+    }
+}
+
 /// Scope types. Values 0..=22 are identical to FST's `FST_ST_*` codes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u16)]
@@ -649,6 +659,9 @@ impl Hierarchy {
         self.signal_var.reserve(count);
         for _ in 0..count {
             let node = Node::decode(&mut r, self.len() as u32, self.signals.len() as u32)?;
+            if !parent_allowed(node.kind(), node.parent.map(|p| self.kind(p))) {
+                return Err(Error::Corrupt("node parent has the wrong kind"));
+            }
             if let NodeData::Var { var_type, signal, declares: None, .. } = node.data {
                 let declared = self.signal_var_type(signal).ok_or(Error::Corrupt("alias references unknown signal"))?;
                 if (var_type == VarType::Event) != (declared == VarType::Event) {

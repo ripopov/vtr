@@ -14,36 +14,45 @@ use volna_core::sidebar::{Key, MemberListModel, ScopeTreeModel};
 fn fixture() -> Arc<dyn Session> {
     let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
     let mut w = vtr::Writer::create(file.path()).unwrap();
-    let root = w.begin_scope("soc", vtr::ScopeType::Module, "soc_top");
-    let (var, _) = w.add_var(
-        "read_valid",
-        vtr::VarType::Wire,
-        vtr::Direction::Input,
-        vtr::SignalKind::Bits {
-            width: 1,
-            states: 4,
-        },
-    );
-    let table = w.add_enum_table("state_t", &[("IDLE", "0"), ("BUSY", "1")]);
+    let root = w
+        .add_scope(None, "soc", vtr::ScopeType::Module, "soc_top")
+        .unwrap();
+    let (var, _) = w
+        .add_var(
+            Some(root),
+            "read_valid",
+            vtr::VarType::Wire,
+            vtr::Direction::Input,
+            vtr::SignalKind::Bits {
+                width: 1,
+                states: 4,
+            },
+        )
+        .unwrap();
+    let table = w
+        .add_enum_table(Some(root), "state_t", &[("IDLE", "0"), ("BUSY", "1")])
+        .unwrap();
     w.node_attr(var, "enum_table", vtr::Value::U64(table.0 as u64))
         .unwrap();
-    let cpu = w.begin_scope("cpu", vtr::ScopeType::Core, "");
-    let stream = w.add_stream(Some(cpu), "thread0", "PIPELINE");
-    w.add_generator(stream, "instructions");
-    w.end_scope().unwrap();
-    let bus = w.add_stream(Some(root), "read_bus", "TRANSACTOR");
-    w.add_generator(bus, "read_request");
-    w.add_generator(bus, "write_request");
-    let log = w.add_log_stream(Some(root), "log");
-    let site = w.add_generator(log, "read_failed at pc=%x");
+    let cpu = w
+        .add_scope(Some(root), "cpu", vtr::ScopeType::Core, "")
+        .unwrap();
+    let stream = w.add_stream(Some(cpu), "thread0", "PIPELINE").unwrap();
+    w.add_generator(stream, "instructions").unwrap();
+    let bus = w.add_stream(Some(root), "read_bus", "TRANSACTOR").unwrap();
+    w.add_generator(bus, "read_request").unwrap();
+    w.add_generator(bus, "write_request").unwrap();
+    let log = w
+        .add_stream(Some(root), "log", vtr::LOG_STREAM_KIND)
+        .unwrap();
+    let site = w.add_generator(log, "read_failed at pc=%x").unwrap();
     w.node_attr(site, "log.severity", vtr::Value::U64(4))
         .unwrap();
     let filename = w.intern("soc.sv");
     w.node_attr(site, "log.file", vtr::Value::Str(filename))
         .unwrap();
     w.node_attr(site, "log.line", vtr::Value::U64(42)).unwrap();
-    w.add_stream(Some(root), "empty", "otel.scope");
-    w.end_scope().unwrap();
+    w.add_stream(Some(root), "empty", "otel.scope").unwrap();
     w.close().unwrap();
     if let Some(path) = std::env::var_os("VOLNA_HIERARCHY_FIXTURE") {
         std::fs::copy(file.path(), path).unwrap();

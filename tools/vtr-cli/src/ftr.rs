@@ -291,14 +291,14 @@ pub fn convert_ftr(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::error
                                 match t {
                                     16 => {
                                         let kind = dict.get(&as_u64(&a[2])).cloned().unwrap_or_default();
-                                        let n = w.add_stream(None, &name, &kind);
+                                        let n = w.add_stream(None, &name, &kind)?;
                                         w.node_attr(n, "ftr.id", Value::U64(id))?;
                                         streams.insert(id, n);
                                     }
                                     17 => {
                                         let sid = as_u64(&a[2]);
                                         let s = *streams.get(&sid).ok_or("FTR: generator of unknown stream")?;
-                                        let n = w.add_generator(s, &name);
+                                        let n = w.add_generator(s, &name)?;
                                         w.node_attr(n, "ftr.id", Value::U64(id))?;
                                         gens.insert(id, n);
                                     }

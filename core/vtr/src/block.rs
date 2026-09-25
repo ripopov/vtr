@@ -1156,6 +1156,12 @@ impl<'a> GroupView<'a> {
         Ok(GroupView { container, first_sig, n_sigs: n, frame_blob, runs, aliases })
     }
 
+    /// Whether the container holds `sig`. A signal declared after the block was
+    /// written lies past `n_sigs` and has no data in this block.
+    pub fn holds(&self, sig: u32) -> bool {
+        sig >= self.first_sig && ((sig - self.first_sig) as usize) < self.n_sigs
+    }
+
     /// Target signal when `sig`'s column in this block is an alias.
     pub fn alias_of(&self, sig: u32) -> Option<u32> {
         self.aliases.binary_search_by_key(&sig, |a| a.0).ok().map(|i| self.aliases[i].1)

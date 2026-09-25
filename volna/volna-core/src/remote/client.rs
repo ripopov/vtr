@@ -429,8 +429,8 @@ mod tests {
         use crate::session::LoadRequest;
         let file = tempfile::NamedTempFile::new().unwrap();
         let mut writer = vtr::Writer::create(file.path()).unwrap();
-        let stream = writer.add_stream(None, "stream", "raw");
-        writer.add_generator(stream, "generator");
+        let stream = writer.add_stream(None, "stream", "raw").unwrap();
+        writer.add_generator(stream, "generator").unwrap();
         writer.close().unwrap();
         let local = OpenSpec::Path(file.path().into()).open().unwrap();
         let track = TrackRef(stream.0);

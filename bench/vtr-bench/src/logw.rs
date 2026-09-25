@@ -253,10 +253,9 @@ pub fn run_write_as_tx(n: u64, path: &str, opts: WriterOptions) -> serde_json::V
     use vtr::{TxStatus, Value};
     let mut w = Writer::create_with(path, opts).unwrap();
     w.set_timescale(-9).unwrap();
-    let top = w.begin_scope("top", ScopeType::Generic, "sim");
-    let stream = w.add_stream(Some(top), "log", "LOG");
-    w.end_scope().unwrap();
-    let gens: Vec<vtr::NodeId> = (0..13).map(|k| w.add_generator(stream, FMTS[k])).collect();
+    let top = w.add_scope(None, "top", ScopeType::Generic, "sim").unwrap();
+    let stream = w.add_stream(Some(top), "log", "LOG").unwrap();
+    let gens: Vec<vtr::NodeId> = (0..13).map(|k| w.add_generator(stream, FMTS[k]).unwrap()).collect();
     let keys: Vec<vtr::StrId> = (0..5).map(|i| w.intern(&i.to_string())).collect();
     let mut gen = Generator::new(42);
     let mut m = Msg::default();
@@ -286,9 +285,8 @@ pub fn run_write_as_tx(n: u64, path: &str, opts: WriterOptions) -> serde_json::V
 pub fn run_write(n: u64, path: &str, opts: WriterOptions, label: &str) -> serde_json::Value {
     let mut w = Writer::create_with(path, opts).unwrap();
     w.set_timescale(-9).unwrap();
-    let top = w.begin_scope("top", ScopeType::Generic, "sim");
-    let stream = w.add_log_stream(Some(top), "log");
-    w.end_scope().unwrap();
+    let top = w.add_scope(None, "top", ScopeType::Generic, "sim").unwrap();
+    let stream = w.add_stream(Some(top), "log", vtr::LOG_STREAM_KIND).unwrap();
     let sites: Vec<LogSiteId> = (0..13)
         .map(|k| w.add_log_site(&LogSiteSpec::new(stream, SEVS[k], FMTS[k], TYPES[k]).location("workload.hpp", 60 + k as u32)).unwrap())
         .collect();

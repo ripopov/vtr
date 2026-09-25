@@ -26,7 +26,7 @@ pub fn db() -> Database {
 }
 pub fn trace(path: &std::path::Path, bad_width: bool, missing: bool) {
     let mut w = Writer::create(path).unwrap();
-    w.begin_scope("top", ScopeType::Module, "top");
+    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
     let mut ids = vec![];
     for (name, width) in [
         ("clk", 1),
@@ -45,12 +45,12 @@ pub fn trace(path: &std::path::Path, bad_width: bool, missing: bool) {
             name
         };
         ids.push(
-            w.add_bits(name, if bad_width && name == "a" { 7 } else { width }, 4)
+            w.add_var(Some(top), name, VarType::Wire, Direction::Implicit, SignalKind::Bits { width: if bad_width && name == "a" { 7 } else { width }, states: 4 }).unwrap()
                 .1,
         );
     }
     for (name, input, output) in [("u0", 6, 7), ("u1", 7, 8)] {
-        w.begin_scope(name, ScopeType::Module, "stage");
+        let scope = w.add_scope(Some(top), name, ScopeType::Module, "stage").unwrap();
         for (name, id) in [
             ("clk", 0),
             ("rst_n", 1),
@@ -58,12 +58,10 @@ pub fn trace(path: &std::path::Path, bad_width: bool, missing: bool) {
             ("d", input),
             ("q", output),
         ] {
-            w.add_alias(name, VarType::Logic, Direction::Implicit, ids[id])
+            w.add_alias(Some(scope), name, VarType::Logic, Direction::Implicit, ids[id])
                 .unwrap();
         }
-        w.end_scope().unwrap();
     }
-    w.end_scope().unwrap();
     // Independent explicit simulation snapshots. Inputs change away from edges.
     for (t, values) in [
         (0, [0, 1, 1, 1, 3, 9, 3, 0, 0]),

@@ -20,6 +20,7 @@ fn write_trace(path: &std::path::Path, n: u64) -> anyhow::Result<()> {
     let mut w = vtr::Writer::create(path)?;
     w.set_timescale(-9)?;
     let (_, bus) = w.add_var(
+        None,
         "bus",
         vtr::VarType::Wire,
         vtr::Direction::Output,
@@ -27,13 +28,14 @@ fn write_trace(path: &std::path::Path, n: u64) -> anyhow::Result<()> {
             width: 16,
             states: 2,
         },
-    );
+    )?;
     let (_, real) = w.add_var(
+        None,
         "level",
         vtr::VarType::Real,
         vtr::Direction::Output,
         vtr::SignalKind::Real,
-    );
+    )?;
     let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
     for t in 0..n {
         seed ^= seed << 13;

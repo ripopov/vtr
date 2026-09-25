@@ -10,6 +10,7 @@
 //! * `W`  -> relation `wakeup` (attr `type` when non-zero) from producer to consumer
 //! * `C=` -> file attr `kanata.start_cycle`; cycles map 1:1 to time units.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use vtr::{FileType, NodeId, ScopeType, StrId, TxId, TxStatus, Value, Writer};
@@ -54,8 +55,7 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
     let ver = first.split('\t').nth(1).unwrap_or("").trim().to_string();
     let vs = w.intern(&ver);
     w.set_file_attr("kanata.version", Value::Str(vs))?;
-    let core = w.begin_scope("cpu", ScopeType::Core, "");
-    w.end_scope()?;
+    let core = w.add_scope(None, "cpu", ScopeType::Core, "")?;
 
     let k_gid = w.intern("insn_id_in_sim");
     let k_line = w.intern("line");
@@ -112,11 +112,14 @@ pub fn convert_kanata(input: &str, w: &mut Writer) -> Result<(), Box<dyn std::er
                 let id = num(0)? as u64;
                 let gid = num(1)?;
                 let tid = num(2)? as u64;
-                let th = threads.entry(tid).or_insert_with(|| {
-                    let stream = w.add_stream(Some(core), &format!("thread{tid}"), "PIPELINE");
-                    let gen = w.add_generator(stream, "instruction");
-                    Thread { stream, gen }
-                });
+                let th = match threads.entry(tid) {
+                    Entry::Occupied(e) => e.into_mut(),
+                    Entry::Vacant(e) => {
+                        let stream = w.add_stream(Some(core), &format!("thread{tid}"), "PIPELINE")?;
+                        let gen = w.add_generator(stream, "instruction")?;
+                        e.insert(Thread { stream, gen })
+                    }
+                };
                 let tx = w.begin_tx(th.gen, cycle.max(0) as u64)?;
                 w.tx_attr(tx, k_gid, &Value::I64(gid))?;
                 w.tx_attr(tx, k_line, &Value::U64(line_no))?;

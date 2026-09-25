@@ -20,8 +20,8 @@ use volna_core::{Action, Theme};
 fn write_trace(path: &std::path::Path, n: u64) -> anyhow::Result<()> {
     let mut w = vtr::Writer::create(path)?;
     w.set_timescale(-9)?;
-    let stream = w.add_stream(None, "axi", "AXI4");
-    let generator = w.add_generator(stream, "rd");
+    let stream = w.add_stream(None, "axi", "AXI4")?;
+    let generator = w.add_generator(stream, "rd")?;
     let (addr, data, lane) = (w.intern("ADDR"), w.intern("DATA"), w.intern("0"));
     let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
     let mut open: Vec<(u64, vtr::TxId, bool)> = Vec::new();

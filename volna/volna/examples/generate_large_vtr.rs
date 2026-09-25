@@ -27,14 +27,8 @@ const FAST_SAMPLES: u64 = 100_000_000;
 const TRANSACTIONS_PER_GENERATOR: u64 = 10_000_000;
 const SINE_STEPS: usize = 1_000;
 
-fn add_bits(w: &mut Writer, name: &str, ty: VarType, width: u32) -> SignalId {
-    w.add_var(
-        name,
-        ty,
-        Direction::Output,
-        SignalKind::Bits { width, states: 2 },
-    )
-    .1
+fn bits(w: &mut Writer, parent: NodeId, name: &str, ty: VarType, width: u32) -> vtr::Result<SignalId> {
+    Ok(w.add_var(Some(parent), name, ty, Direction::Output, SignalKind::Bits { width, states: 2 })?.1)
 }
 
 fn as_bits(value: i64, width: u32) -> u64 {
@@ -68,34 +62,34 @@ fn generate(path: &Path) -> Result<(), Box<dyn Error>> {
         "Synthetic 100 ms trace: four clocks, four typed sine waves, two streams, and four transaction generators.",
     )?;
 
-    let top = w.begin_scope("large", ScopeType::Module, "performance_fixture");
+    let top = w.add_scope(None, "large", ScopeType::Module, "performance_fixture")?;
     let clocks = [
-        add_bits(&mut w, "clock_500mhz", VarType::Wire, 1),
-        add_bits(&mut w, "clock_100mhz", VarType::Wire, 1),
-        add_bits(&mut w, "clock_10mhz", VarType::Wire, 1),
-        add_bits(&mut w, "clock_1mhz", VarType::Wire, 1),
+        bits(&mut w, top, "clock_500mhz", VarType::Wire, 1)?,
+        bits(&mut w, top, "clock_100mhz", VarType::Wire, 1)?,
+        bits(&mut w, top, "clock_10mhz", VarType::Wire, 1)?,
+        bits(&mut w, top, "clock_1mhz", VarType::Wire, 1)?,
     ];
     let sine_real = w
         .add_var(
+            Some(top),
             "sine_1mhz_real64",
             VarType::Real,
             Direction::Output,
             SignalKind::Real,
-        )
+        )?
         .1;
-    let sine_i32 = add_bits(&mut w, "sine_100khz_int32", VarType::Int, 32);
-    let sine_i16 = add_bits(&mut w, "sine_10khz_int16", VarType::ShortInt, 16);
-    let sine_i8 = add_bits(&mut w, "sine_1khz_int8", VarType::Byte, 8);
+    let sine_i32 = bits(&mut w, top, "sine_100khz_int32", VarType::Int, 32)?;
+    let sine_i16 = bits(&mut w, top, "sine_10khz_int16", VarType::ShortInt, 16)?;
+    let sine_i8 = bits(&mut w, top, "sine_1khz_int8", VarType::Byte, 8)?;
 
-    let cpu = w.add_stream(Some(top), "cpu_requests", "PERFORMANCE");
-    let fabric = w.add_stream(Some(top), "fabric_packets", "PERFORMANCE");
+    let cpu = w.add_stream(Some(top), "cpu_requests", "PERFORMANCE")?;
+    let fabric = w.add_stream(Some(top), "fabric_packets", "PERFORMANCE")?;
     let generators = [
-        w.add_generator(cpu, "reads"),
-        w.add_generator(cpu, "writes"),
-        w.add_generator(fabric, "requests"),
-        w.add_generator(fabric, "responses"),
+        w.add_generator(cpu, "reads")?,
+        w.add_generator(cpu, "writes")?,
+        w.add_generator(fabric, "requests")?,
+        w.add_generator(fabric, "responses")?,
     ];
-    w.end_scope()?;
 
     let sine: Vec<f64> = (0..SINE_STEPS)
         .map(|i| (std::f64::consts::TAU * i as f64 / SINE_STEPS as f64).sin())

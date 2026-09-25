@@ -278,10 +278,10 @@ fn vtr_and_fst_process_histories_match_local_values_and_aliases() {
 fn process_preserves_full_tracks_and_parallel_relations() {
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut w = vtr::Writer::create(file.path()).unwrap();
-    let stream = w.add_stream(None, "stream", "transaction");
-    let a = w.add_generator(stream, "a");
-    let b = w.add_generator(stream, "b");
-    w.add_generator(stream, "empty");
+    let stream = w.add_stream(None, "stream", "transaction").unwrap();
+    let a = w.add_generator(stream, "a").unwrap();
+    let b = w.add_generator(stream, "b").unwrap();
+    w.add_generator(stream, "empty").unwrap();
     let x = w.begin_tx(a, 1).unwrap();
     w.end_tx(x, 100, vtr::TxStatus::Ok).unwrap();
     let y = w.begin_tx(b, 2).unwrap();

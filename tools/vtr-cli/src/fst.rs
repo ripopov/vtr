@@ -93,6 +93,8 @@ pub fn convert_fst(input: &str, w: &mut Writer, opts: &FstConvertOptions) -> Res
     let mut enum_tables: HashMap<u64, NodeId> = HashMap::new();
     let mut paths: HashMap<u64, String> = HashMap::new();
     let mut last_node: Option<NodeId> = None;
+    // Open scopes, innermost last.
+    let mut path: Vec<NodeId> = Vec::new();
     let mut comments = Vec::new();
     let mut err: Option<vtr::Error> = None;
     let mut widths: Vec<u32> = Vec::new();
@@ -105,20 +107,21 @@ pub fn convert_fst(input: &str, w: &mut Writer, opts: &FstConvertOptions) -> Res
             let r: vtr::Result<()> = (|| {
                 match e {
                     FstHierarchyEntry::Scope { tpe, name, component } => {
-                        let n = w.begin_scope(&name, map_scope(tpe), &component);
+                        let n = w.add_scope(path.last().copied(), &name, map_scope(tpe), &component)?;
                         for (k, v) in pending.drain(..) {
                             w.node_attr(n, &k, v)?;
                         }
+                        path.push(n);
                         last_node = Some(n);
                     }
                     FstHierarchyEntry::UpScope => {
-                        w.end_scope()?;
+                        path.pop().ok_or(vtr::Error::Corrupt("upscope without scope"))?;
                     }
                     FstHierarchyEntry::Var { tpe, direction, name, length, handle, is_alias } => {
                         let idx = handle.get_index();
                         let n = if is_alias {
                             let sig = *handles.get(&idx).ok_or(vtr::Error::Corrupt("alias to unknown handle"))?;
-                            w.add_alias(&name, map_var(tpe), map_dir(direction), sig)?
+                            w.add_alias(path.last().copied(), &name, map_var(tpe), map_dir(direction), sig)?
                         } else {
                             let kind = if tpe.is_real() {
                                 SignalKind::Real
@@ -127,7 +130,7 @@ pub fn convert_fst(input: &str, w: &mut Writer, opts: &FstConvertOptions) -> Res
                             } else {
                                 SignalKind::Bits { width: length.max(1), states }
                             };
-                            let (n, sig) = w.add_var(&name, map_var(tpe), map_dir(direction), kind);
+                            let (n, sig) = w.add_var(path.last().copied(), &name, map_var(tpe), map_dir(direction), kind)?;
                             handles.insert(idx, sig);
                             if idx >= widths.len() {
                                 widths.resize(idx + 1, 0);
@@ -156,7 +159,7 @@ pub fn convert_fst(input: &str, w: &mut Writer, opts: &FstConvertOptions) -> Res
                     FstHierarchyEntry::Comment { string } => comments.push(string),
                     FstHierarchyEntry::EnumTable { name, handle, mapping } => {
                         let entries: Vec<(&str, &str)> = mapping.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
-                        let n = w.add_enum_table(&name, &entries);
+                        let n = w.add_enum_table(path.last().copied(), &name, &entries)?;
                         enum_tables.insert(handle, n);
                         last_node = Some(n);
                     }

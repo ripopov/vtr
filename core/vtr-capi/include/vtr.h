@@ -9,10 +9,9 @@
  *
  *   vtr_writer *w = vtr_writer_create("trace.vtr", NULL);
  *   uint32_t node, signal;
- *   vtr_writer_begin_scope(w, "top", VTR_SCOPE_MODULE, NULL);
- *   vtr_writer_add_var(w, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT,
+ *   uint32_t top = vtr_writer_add_scope(w, VTR_NONE, "top", VTR_SCOPE_MODULE, NULL);
+ *   vtr_writer_add_var(w, top, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT,
  *                      VTR_SIGNAL_BITS, 1, 4, &node, &signal);
- *   vtr_writer_end_scope(w);
  *   vtr_writer_set_time(w, 0);
  *   vtr_writer_emit_bit(w, signal, VTR_LOGIC_0);
  *   vtr_writer_set_time(w, 5);
@@ -291,24 +290,24 @@ int vtr_writer_set_file_attr(vtr_writer *w, const char *key, const vtr_value *v)
  * is always the empty string. */
 uint32_t vtr_writer_intern(vtr_writer *w, const char *s);
 
-/* Hierarchy is a forest. begin_scope() adds under the current scope and pushes
- * it; end_scope() pops it. Variables and enum tables use the current scope or
- * become roots. Streams take an explicit scope parent (or VTR_NONE), and
- * generators take a stream. Id-returning functions return VTR_NONE on error.
+/* Hierarchy is a forest that may grow at any time, also after values were
+ * written. Every declaration names its parent: VTR_NONE for a root, else a
+ * scope; a generator's parent is a stream. An unknown parent, a parent of the
+ * wrong kind or an alias of an unknown signal is an error and adds nothing.
+ * Id-returning functions return VTR_NONE on error.
  *
  * add_var() creates both a hierarchy node and a signal. For BITS, width is
  * the bit width (0 becomes 1) and states is 2, 4, or 9. REAL and VARLEN ignore
- * width/states. add_alias() creates another variable node for an existing
- * signal. Output pointers are optional. add_enum_table() takes parallel
+ * width/states. Its output pointers are optional. add_alias() creates another
+ * variable node for an existing signal. add_enum_table() takes parallel
  * literal/value string arrays. Set node attributes immediately: attributes
  * cannot be added after their node has been flushed. */
-uint32_t vtr_writer_begin_scope(vtr_writer *w, const char *name, uint16_t scope_type, const char *component /* nullable */);
-int      vtr_writer_end_scope(vtr_writer *w);
-int      vtr_writer_add_var(vtr_writer *w, const char *name, uint16_t var_type, uint8_t direction,
+uint32_t vtr_writer_add_scope(vtr_writer *w, uint32_t parent, const char *name, uint16_t scope_type, const char *component /* nullable */);
+int      vtr_writer_add_var(vtr_writer *w, uint32_t parent, const char *name, uint16_t var_type, uint8_t direction,
                             uint8_t kind, uint32_t width, uint8_t states, uint32_t *node_out, uint32_t *signal_out);
-int      vtr_writer_add_alias(vtr_writer *w, const char *name, uint16_t var_type, uint8_t direction, uint32_t signal, uint32_t *node_out);
-uint32_t vtr_writer_add_enum_table(vtr_writer *w, const char *name, size_t n, const char *const *literals, const char *const *values);
-uint32_t vtr_writer_add_stream(vtr_writer *w, uint32_t parent /* or VTR_NONE */, const char *name, const char *kind);
+uint32_t vtr_writer_add_alias(vtr_writer *w, uint32_t parent, const char *name, uint16_t var_type, uint8_t direction, uint32_t signal);
+uint32_t vtr_writer_add_enum_table(vtr_writer *w, uint32_t parent, const char *name, size_t n, const char *const *literals, const char *const *values);
+uint32_t vtr_writer_add_stream(vtr_writer *w, uint32_t parent, const char *name, const char *kind);
 uint32_t vtr_writer_add_generator(vtr_writer *w, uint32_t stream, const char *name);
 int      vtr_writer_node_attr(vtr_writer *w, uint32_t node, const char *key, const vtr_value *v);
 
@@ -361,14 +360,14 @@ int vtr_writer_tx_stage_attr(vtr_writer *w, uint64_t tx, uint32_t key, const vtr
 int vtr_writer_end_tx(vtr_writer *w, uint64_t tx, uint64_t time, uint8_t status);
 int vtr_writer_relate(vtr_writer *w, uint32_t kind, uint64_t from, uint64_t to, size_t n, const uint32_t *keys, const vtr_value *values);
 
-/* Logs. A log stream (kind "LOG") holds one generator per call site ("log site"): the
- * format string plus severity, argument types and source location. Each message is a
- * zero-duration transaction storing only the argument values. Severities are
+/* Logs. A log stream (a stream of kind VTR_LOG_STREAM_KIND) holds one generator per
+ * call site ("log site"): the format string plus severity, argument types and source
+ * location. Each message is a zero-duration transaction storing only the argument values. Severities are
  * VTR_SEVERITY_* (other ordered values are allowed).
  * arg_types: VTR_VAL_BOOL/I64/U64/F64/STR/BYTES/TIME/POINTER/TEXT. file, func,
  * and names are nullable. add_log_site() returns a dense site id, not its
  * generator node id; use log_site_node() for the latter. */
-uint32_t vtr_writer_add_log_stream(vtr_writer *w, uint32_t parent /* or VTR_NONE */, const char *name);
+#define VTR_LOG_STREAM_KIND "LOG"
 uint32_t vtr_writer_add_log_site(vtr_writer *w, uint32_t stream, uint8_t severity, const char *fmt, const char *file, uint32_t line,
                                  const char *func, size_t n_args, const uint8_t *arg_types, const char *const *names); /* VTR_NONE on error */
 uint32_t vtr_writer_log_site_node(const vtr_writer *w, uint32_t site);

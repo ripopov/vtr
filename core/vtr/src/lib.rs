@@ -29,6 +29,7 @@ pub mod xform;
 pub use codec::{Codec, Compression};
 pub use error::{Error, Result};
 pub use hierarchy::{Direction, Hierarchy, Node, NodeData, NodeId, NodeKind, ScopeType, SignalId, SignalKind, VarType};
+pub use logblock::STREAM_KIND as LOG_STREAM_KIND;
 pub use logblock::{LogArg, LogArgType, LogRecord, LogSite, LogSiteId, LogSiteSpec, Severity};
 pub use reader::{LogQuery, ReadOptions, Reader, SignalData, TxQuery};
 pub use sections::{Blackout, FileType, Meta};
