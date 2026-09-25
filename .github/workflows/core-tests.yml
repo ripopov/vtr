@@ -12,9 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # vtr-vdb has an optional path dependency on elkrs; Cargo reads its
-      # manifest to resolve the workspace even when it is not built.
-      - name: Check out the elkrs submodule
-        run: git submodule update --init --depth 1 ext/elkrs
+      # manifest to resolve the workspace even when it is not built. The
+      # verilator_logs test reads Verilator-written fixtures from the Surfer fork.
+      - name: Check out the elkrs and Surfer submodules
+        run: git submodule update --init --depth 1 ext/elkrs ext/surfer
       - name: Install the Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: Verify the C compiler used by the C smoke test
