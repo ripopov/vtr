@@ -34,7 +34,7 @@ ifeq ($(MODE),fst)
 VFLAGS += --trace-fst
 endif
 ifeq ($(MODE),vtr)
-VFLAGS += --trace-vtr
+VFLAGS += --trace-vtr +define+VTR_CLOCKS
 endif
 
 .PHONY: model sw clean

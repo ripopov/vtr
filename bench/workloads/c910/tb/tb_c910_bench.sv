@@ -5,7 +5,8 @@
 // Differences w.r.t. the vendor TB: no $dumpvars (tracing is done by the C++
 // harness so that FST and VTR are produced by the same Verilator trace code),
 // cycle / retired-instruction counters and the run status exported as top-level
-// ports, and termination decided in C++ rather than by $finish.
+// ports, termination decided in C++ rather than by $finish, and, in the VTR
+// build, the core clock declared through the vtr_trace package.
 
 `include "cpu_cfig.h"
 
@@ -48,6 +49,20 @@ module top (
       jclk    = !jclk;
     end
   end
+
+`ifdef VTR_CLOCKS
+  // The core clock as a VTR clock (docs/vtr_clocks.html): the C++ harness toggles clk
+  // every 100 ps time unit, so its period of 200 ps is known and declared once, at the
+  // first rising edge. Only the VTR build defines VTR_CLOCKS; its two variables are
+  // not traced, so the recorded signals equal those of the other builds.
+  import vtr_trace::*;
+  // verilator tracing_off
+  vtr_clock_t vtr_clk;
+  bit         vtr_clk_on;
+  // verilator tracing_on
+  initial vtr_clk = vtr_clock("", "clk");
+  always @(posedge clk) if (!vtr_clk_on) begin vtr_clock_run(vtr_clk, 200, VTR_PS); vtr_clk_on = 1; end
+`endif
 
   // ------------------------------------------------------------------- reset
   integer rst_bCnt;

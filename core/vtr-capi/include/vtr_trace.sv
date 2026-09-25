@@ -28,6 +28,8 @@
 
 // verilator lint_off DECLFILENAME
 // verilator lint_off TIMESCALEMOD
+// The package's constants are not design state: keep them out of waveforms.
+// verilator tracing_off
 package vtr_trace;
   // ---- Common to every part of the package -------------------------------------------------
 
@@ -53,6 +55,7 @@ package vtr_trace;
   // its generator's delay changes. The stretch ends at its last edge at or before now.
   import "DPI-C" function void vtr_clock_stop(vtr_clock_t c);
 endpackage
+// verilator tracing_on
 // verilator lint_on TIMESCALEMOD
 // verilator lint_on DECLFILENAME
 

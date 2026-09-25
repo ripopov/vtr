@@ -98,5 +98,8 @@ if [ "$FORMAT" = vtr ]; then
   if [ "$CHECK" -eq 1 ]; then
     echo "[capture] vtr-vdb check (exit 2 on unrecorded trace entries is expected)"
     "$ROOT/target/release/vtr-vdb" check "$companion" "$TRACE" || true
+    echo "[capture] declared core clock check"
+    (cd "$ROOT" && cargo build --release -p vtr-cli)
+    python3 "$HERE/check_clock.py" "$ROOT/target/release/vtr" "$TRACE"
   fi
 fi

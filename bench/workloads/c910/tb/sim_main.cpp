@@ -88,11 +88,13 @@ int main(int argc, char** argv, char**) {
 #if VM_TRACE_FST || VM_TRACE_VTR
     if (tfp) tfp->open(dump);
 #endif
-    // One time unit (100 ps, the testbench precision) per half clock period.
+    // One time unit (100 ps, the testbench precision) per half clock period. Time
+    // advances before the evaluation, so calls the design makes during eval() (the
+    // vtr_trace clock declaration) are dated like the dump that shows the same edge.
     auto step = [&](int clk) {
+        contextp->timeInc(1);
         top->clk = clk;
         top->eval();
-        contextp->timeInc(1);
 #if VM_TRACE_FST || VM_TRACE_VTR
         if (tfp) tfp->dump(contextp->time());
 #endif
