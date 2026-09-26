@@ -1640,96 +1640,110 @@ impl Workspace {
             )
     }
 
+    /// The status bar: context on the left, a message slot, and fixed tools
+    /// on the right. The right group never shrinks and its changing numbers
+    /// keep a minimum width, so hover text and notices cannot move the meters;
+    /// when space runs out the message slot empties first, then the left
+    /// group is clipped.
     fn render_statusbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.bar;
         let status = self.app.status();
         let mono = |text: String, color: gpui_kit::Hsla| {
             div()
+                .flex_none()
                 .font_family(t.mono_font)
                 .text_size(px(t.ui_size_small))
                 .text_color(color)
                 .child(SharedString::from(text))
         };
-        let mut left = div().flex().items_center().gap_3();
-        let mut right = div().flex().items_center().gap_3();
+        // Width of `chars` monospace characters at the status text size.
+        let mono_w = |chars: f32| px(t.ui_size_small * 0.62 * chars);
+        let sep = || div().flex_none().w(px(1.0)).h(t.px(12.0)).bg(t.border);
+        let group = || div().flex().flex_none().items_center().gap_3();
+
+        let mut context = group();
         if let Some(panel) = status.panel {
-            left = left.child(mono(panel, colors.text));
-        }
-        if let Some(link) = status.links {
-            let chip = |id, text: &'static str, linked, action| {
-                let icon = if linked {
-                    gpui_kit::assets::IconName::Link
-                } else {
-                    gpui_kit::assets::IconName::Unlink
-                };
-                let tooltip = format!(
-                    "{} {} link",
-                    if linked { "Disable" } else { "Enable" },
-                    text.to_lowercase()
-                );
-                div()
-                    .id(id)
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .px_1p5()
-                    .h(t.px(18.0))
-                    .rounded_sm()
-                    .cursor(CursorStyle::PointingHand)
-                    .text_size(px(t.ui_size_small))
-                    .text_color(if linked {
-                        colors.icon_accent
-                    } else {
-                        colors.text_muted
-                    })
-                    .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
-                    .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
-                    .child(gpui_kit::component::Icon::new(icon).with_size(t.px(12.0)))
-                    .child(text)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.dispatch(Command::Action(action), Some(window), cx)
-                    }))
-            };
-            right = right
-                .child(chip(
-                    "status-view-link",
-                    "View",
-                    link.viewport,
-                    Action::ToggleViewportLink,
-                ))
-                .child(chip(
-                    "status-cursor-link",
-                    "Cursor",
-                    link.cursor,
-                    Action::ToggleCursorLink,
-                ));
+            context = context.child(mono(panel, colors.text));
         }
         if let Some(range) = status.time_range {
-            left = left.child(mono(range, colors.text_muted));
+            context = context.child(mono(range, colors.text_muted));
         }
         if let Some(s) = status.signals {
-            left = left.child(mono(s, colors.text_placeholder));
+            context = context.child(mono(s, colors.text_placeholder));
         }
         if let Some(s) = status.changes {
-            left = left.child(mono(s, colors.text_placeholder));
+            context = context.child(mono(s, colors.text_placeholder));
         }
-        if let Some(hover) = status.hover {
-            right = right.child(mono(hover, colors.text_muted));
-        }
-        if let Some(notice) = status.sidebar_notice {
-            right = right.child(
+        let mut position = group();
+        let has_position = status.cursor.is_some() || status.markers.is_some();
+        if let Some(c) = status.cursor {
+            position = position.child(
                 div()
-                    .text_size(px(t.ui_size_small))
-                    .text_color(colors.text_muted)
-                    .child(SharedString::from(notice)),
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        Icon::new(IconName::Locate)
+                            .size(t.px(12.0))
+                            .color(colors.icon_accent),
+                    )
+                    .child(mono(c, colors.text)),
             );
+        }
+        for c in status.clocks {
+            position = position.child(mono(c, colors.text_muted));
+        }
+        if let Some(d) = status.delta {
+            position = position.child(mono(d, colors.text));
+        }
+        if let Some(m) = status.markers {
+            position = position.child(mono(m, colors.text_placeholder));
+        }
+        let mut left = div()
+            .debug_selector(|| "status-left".into())
+            .flex()
+            .items_center()
+            .gap_3()
+            .min_w_0()
+            .overflow_hidden()
+            .child(context);
+        if has_position {
+            left = left.child(sep()).child(position);
+        }
+
+        // Transient text: cropped with an ellipsis, never wider than the
+        // space the other groups leave.
+        let crop = |text: String, color: gpui_kit::Hsla, mono_text: bool| {
+            div()
+                .min_w_0()
+                .truncate()
+                .when(mono_text, |d| d.font_family(t.mono_font))
+                .text_size(px(t.ui_size_small))
+                .text_color(color)
+                .child(SharedString::from(text))
+        };
+        let has_message = status.hover.is_some()
+            || status.sidebar_notice.is_some()
+            || status.workspace_notice.is_some();
+        let mut message = div()
+            .debug_selector(|| "status-message".into())
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden()
+            .items_center()
+            .gap_3();
+        if has_message {
+            message = message.child(sep());
         }
         if let Some(notice) = status.workspace_notice {
             let details = self.app.workspace.notices.clone();
-            right = right.child(
+            message = message.child(
                 div()
                     .id("workspace-notice")
+                    .flex_none()
                     .cursor(CursorStyle::PointingHand)
                     .text_color(t.editor.error)
                     .text_size(px(t.ui_size_small))
@@ -1776,34 +1790,71 @@ impl Workspace {
                     }),
             );
         }
-        if let Some(s) = status.px_per {
-            right = right.child(mono(s, colors.text_placeholder));
+        if let Some(hover) = status.hover {
+            message = message.child(crop(hover, colors.text_muted, true));
         }
-        if let Some(c) = status.cursor {
-            left = left.child(
+        if let Some(notice) = status.sidebar_notice {
+            message = message.child(crop(notice, colors.text_muted, false));
+        }
+
+        let has_nav = status.links.is_some() || status.px_per.is_some();
+        let has_meters = status.memory.is_some() || status.frames.is_some();
+        let mut nav = group();
+        if let Some(link) = status.links {
+            let chip = |id, text: &'static str, linked, action| {
+                let icon = if linked {
+                    gpui_kit::assets::IconName::Link
+                } else {
+                    gpui_kit::assets::IconName::Unlink
+                };
+                let tooltip = format!(
+                    "{} {} link",
+                    if linked { "Disable" } else { "Enable" },
+                    text.to_lowercase()
+                );
                 div()
+                    .id(id)
                     .flex()
                     .items_center()
                     .gap_1()
-                    .child(
-                        Icon::new(IconName::Locate)
-                            .size(t.px(12.0))
-                            .color(colors.icon_accent),
-                    )
-                    .child(mono(c, colors.text)),
-            );
+                    .px_1p5()
+                    .h(t.px(18.0))
+                    .rounded_sm()
+                    .cursor(CursorStyle::PointingHand)
+                    .text_size(px(t.ui_size_small))
+                    .text_color(if linked {
+                        colors.icon_accent
+                    } else {
+                        colors.text_muted
+                    })
+                    .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
+                    .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+                    .child(gpui_kit::component::Icon::new(icon).with_size(t.px(12.0)))
+                    .child(text)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.dispatch(Command::Action(action), Some(window), cx)
+                    }))
+            };
+            nav = nav
+                .child(chip(
+                    "status-view-link",
+                    "View",
+                    link.viewport,
+                    Action::ToggleViewportLink,
+                ))
+                .child(chip(
+                    "status-cursor-link",
+                    "Cursor",
+                    link.cursor,
+                    Action::ToggleCursorLink,
+                ));
         }
-        for c in status.clocks {
-            left = left.child(mono(c, colors.text_muted));
+        if let Some(s) = status.px_per {
+            nav = nav.child(mono(s, colors.text_placeholder).min_w(mono_w(16.0)));
         }
-        if let Some(d) = status.delta {
-            left = left.child(mono(d, colors.text));
-        }
-        if let Some(m) = status.markers {
-            left = left.child(mono(m, colors.text_placeholder));
-        }
+        let mut meters = group();
         if let Some(memory) = status.memory {
-            right = right.child(memory_meter(memory, &t).on_click(cx.listener(
+            meters = meters.child(memory_meter(memory, &t).on_click(cx.listener(
                 |this, ev: &gpui_kit::ClickEvent, window, cx| {
                     let p = ev.position();
                     let t = theme(cx);
@@ -1812,46 +1863,61 @@ impl Workspace {
             )));
         }
         if let Some(frames) = status.frames {
-            right = right.child(self.render_frame_status(frames, cx));
+            meters = meters.child(
+                div()
+                    .flex_none()
+                    .min_w(mono_w(22.0))
+                    .child(self.render_frame_status(frames, cx)),
+            );
         }
-        right = right.child(
-            div()
-                .id("stress")
-                .flex()
-                .items_center()
-                .gap_1()
-                .px_1p5()
-                .h(t.px(18.0))
-                .rounded_sm()
-                .cursor(CursorStyle::PointingHand)
-                .text_color(colors.text_muted)
-                .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
-                .tooltip(|w, cx| Tooltip::new("Open a synthetic stress trace").build(w, cx))
-                .on_click(cx.listener(|this, ev: &gpui_kit::ClickEvent, window, cx| {
-                    let p = ev.position();
-                    let t = theme(cx);
-                    this.open_status_menu(point(p.x - t.px(160.0), p.y - t.px(120.0)), window, cx);
-                }))
-                .child(
-                    Icon::new(IconName::Activity)
-                        .size(t.px(12.0))
-                        .inherit_color(),
-                )
-                .child(div().text_size(px(t.ui_size_small)).child("Stress")),
-        );
+        let stress = div()
+            .id("stress")
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_1()
+            .px_1p5()
+            .h(t.px(18.0))
+            .rounded_sm()
+            .cursor(CursorStyle::PointingHand)
+            .text_color(colors.text_muted)
+            .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
+            .tooltip(|w, cx| Tooltip::new("Open a synthetic stress trace").build(w, cx))
+            .on_click(cx.listener(|this, ev: &gpui_kit::ClickEvent, window, cx| {
+                let p = ev.position();
+                let t = theme(cx);
+                this.open_status_menu(point(p.x - t.px(160.0), p.y - t.px(120.0)), window, cx);
+            }))
+            .child(
+                Icon::new(IconName::Activity)
+                    .size(t.px(12.0))
+                    .inherit_color(),
+            )
+            .child(div().text_size(px(t.ui_size_small)).child("Stress"));
+        let right = div()
+            .debug_selector(|| "status-right".into())
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_3()
+            .when(has_nav, |d| d.child(nav).child(sep()))
+            .when(has_meters, |d| d.child(meters).child(sep()))
+            .child(stress);
         div()
             .flex()
             .flex_none()
             .items_center()
-            .justify_between()
+            .gap_3()
             .h(px(t.statusbar_height))
             .w_full()
             .px_2()
+            .overflow_hidden()
             .bg(t.bar.bg)
             .border_t_1()
             .border_color(t.border)
             .font_family(t.ui_font)
             .child(left)
+            .child(message)
             .child(right)
     }
 }

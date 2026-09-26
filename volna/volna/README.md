@@ -278,6 +278,12 @@ since-reset percentiles, input latency, frames per second while active, and a
 duration histogram per measurement. The command palette's **Developer: Cycle
 GPUI Frame Overlay** shows GPUI's own frame readout.
 
+The bar has three divided zones: trace context and cursor readouts on the
+left, a message slot for pipeline hover details and notices, and the fixed
+tools on the right. Long messages are cropped with an ellipsis and never move
+the right-hand items; in a narrow window the message slot empties first, then
+the left zone is clipped.
+
 `⌘`/`ctrl` + left-drag selects a time range in either direction. Vertical
 movement does not change the action; a shaded preview shows the selected range
 before release. Shift-wheel scrolls signal rows even over the waveforms;

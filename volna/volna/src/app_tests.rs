@@ -817,6 +817,84 @@ fn status_bar_memory_meter_tracks_the_budget(cx: &mut TestAppContext) {
         .unwrap();
 }
 
+/// Long transient text is cropped in the message slot: it moves neither the
+/// memory meter nor anything else on the right, and a narrow window clips
+/// the left context before any right-hand tool.
+#[gpui_kit::test]
+fn status_bar_groups_stay_put_under_long_messages(cx: &mut TestAppContext) {
+    use gpui_kit::{VisualTestContext, px, size};
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    let bounds = |vcx: &mut VisualTestContext, selector: &'static str| {
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector}"))
+    };
+    let trace = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr");
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            let session = OpenSpec::Path(trace.into()).open().unwrap();
+            ws.set_session(session, cx);
+            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+        })
+        .unwrap();
+    let set_message = |vcx: &mut VisualTestContext, text: Option<String>| {
+        window
+            .update(vcx, |ws, _, cx| {
+                ws.app.variables.notice = text;
+                cx.notify();
+            })
+            .unwrap();
+    };
+
+    vcx.simulate_resize(size(px(1200.0), px(700.0)));
+    let meter = bounds(&mut vcx, "status-memory");
+    let right = bounds(&mut vcx, "status-right");
+    let long = "#123 · X cycles 4–5 (1 cycle) ".repeat(40);
+    set_message(&mut vcx, Some(long.clone()));
+    assert_eq!(bounds(&mut vcx, "status-memory"), meter, "meter moved");
+    assert_eq!(bounds(&mut vcx, "status-right"), right, "right group moved");
+    let slot = bounds(&mut vcx, "status-message");
+    let left = bounds(&mut vcx, "status-left");
+    assert!(slot.left() >= left.right(), "{slot:?} after {left:?}");
+    assert!(slot.right() <= right.left(), "{slot:?} before {right:?}");
+    let bar = slot.size.height;
+    assert!(f32::from(bar) <= 24.0, "one line: {slot:?}");
+
+    // Too narrow for everything: the message empties, the left group is
+    // clipped, and the right group keeps its full width at the edge.
+    vcx.simulate_resize(size(px(560.0), px(700.0)));
+    let right = bounds(&mut vcx, "status-right");
+    let meter = bounds(&mut vcx, "status-memory");
+    assert!(
+        f32::from(right.right()) <= 560.0,
+        "{right:?} inside the window"
+    );
+    assert!(meter.left() >= right.left() && meter.right() <= right.right());
+    let left = bounds(&mut vcx, "status-left");
+    assert!(
+        left.right() <= right.left(),
+        "{left:?} clipped before {right:?}"
+    );
+    set_message(&mut vcx, None);
+    assert_eq!(
+        bounds(&mut vcx, "status-right"),
+        right,
+        "message-free width"
+    );
+}
+
 struct RootWindow {
     root: gpui_kit::WindowHandle<gpui_kit::component::Root>,
     workspace: gpui_kit::Entity<Workspace>,
