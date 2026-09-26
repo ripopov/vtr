@@ -1,0 +1,32 @@
+name: Wave groups HTML demo
+on:
+  push:
+    paths:
+      - 'docs/wave_groups.html'
+      - 'docs/tests/wave_groups.test.mjs'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/wave_groups.yml'
+  pull_request:
+    paths:
+      - 'docs/wave_groups.html'
+      - 'docs/tests/wave_groups.test.mjs'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/wave_groups.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  demo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VOLNA_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify headless browser prerequisite
+        run: google-chrome --version
+      - name: Test the proposal demo
+        run: node --test --test-concurrency=1 docs/tests/wave_groups.test.mjs

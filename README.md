@@ -233,6 +233,7 @@ requirement for embedded chat.
 | Konata-style pipeline rows with a shared time axis and map-like zoom (implemented) | [Pipeline](docs/pipeline-view.html), [follow activity demo](docs/follow-activity.html), [examples](volna/volna/examples/README.md), [Konata plan](docs/VDB_KONATA_PLAN.html) |
 | General table panel over transactions, signal groups, logs, and synthetic rows (proposal) | [Full proposal](docs/table-panel.html), `docs/egui-table/` measured prototype, `docs/table/` superseded sketches |
 | Reduced immutable single-generator table with bounded viewport work (proposal/demo) | [Baseline](docs/table-baseline.html) |
+| Named, nested, foldable signal groups in the wave panel: a pre-order row tree in `volna-core`, an activity summary for folded groups, workspace storage (VDB profile templates postponed); survey of seven viewers (proposal/demo) | [Signal groups](docs/wave_groups.html) |
 | Analog plots of buses and reals in the wave panel: step/linear drawing, trace/window/type ranges, glitch-preserving min/max columns (implemented) | [Analog waves](docs/analog-waves.html) |
 | Transaction generator lanes in the wave panel with stacking, folding, density and shared selection (proposal/demo) | [Transaction lanes](docs/transaction-waveforms.html) |
 | Shared transaction detail panel for table and pipeline selections: lifeline, typed attributes, stages, events, related records (proposal/demo) | [Transaction panel](docs/tx-detail.html) |

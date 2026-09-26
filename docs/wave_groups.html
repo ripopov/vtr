@@ -1,0 +1,1413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna Signal Groups</title>
+<meta name="description" content="Design proposal: named, nested, collapsible groups of rows in Volna's waveform panel. Research on seven viewers, the volna-core data model, storage in workspaces, an interactive mock and an implementation plan.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f4f5f7;--paper:#fcfcfd;--ink:#1a1f27;--muted:#5b6472;--line:#d8dce3;--line-strong:#bcc3ce;
+  --accent:#2d6cb0;--accent-ink:#1f5189;--soft:#e3edf8;--new:#2d6cb0;--changed:#a2660f;--exists:#5b6472;--no:#a8434a;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#1d2026;--paper:#23272e;--ink:#e3e6eb;--muted:#9ba3b0;--line:#323741;--line-strong:#434955;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--new:#74ade8;--changed:#e0b35e;--exists:#9ba3b0;--no:#e28a90;
+}}
+:root[data-theme="dark"]{
+  --bg:#1d2026;--paper:#23272e;--ink:#e3e6eb;--muted:#9ba3b0;--line:#323741;--line-strong:#434955;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--new:#74ade8;--changed:#e0b35e;--exists:#9ba3b0;--no:#e28a90;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,kbd,pre{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
+pre.code{font-size:12.5px;line-height:1.55;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:14px 0 18px;max-width:900px}
+pre.code .c{color:var(--muted)}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:auto;padding:11px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+#theme{font:inherit;font-size:12px;background:none;border:1px solid var(--line-strong);color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer;flex:none}
+.wrap{max-width:1180px;margin:auto;padding-inline:16px}
+.prose{max-width:760px}
+section{padding-block:40px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(30px,4.4vw,46px);letter-spacing:-1.2px;line-height:1.1;font-weight:600;margin:0 0 16px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:25px;letter-spacing:-.5px;line-height:1.25;margin:0 0 14px;text-wrap:balance}
+h3{font-size:17px;margin:26px 0 8px}
+p{margin:0 0 14px}
+.lede{font-size:19px;color:var(--muted);max-width:720px}
+.meta{font-size:13.5px;color:var(--muted);max-width:760px}
+ul,ol{padding-left:22px}li{margin:6px 0}
+.rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
+.rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules b{display:block;font-size:17px;margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 13px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap;font-weight:500}
+.st{font-size:12px;font-weight:600;white-space:nowrap}
+.st.new{color:var(--new)}.st.changed{color:var(--changed)}.st.exists{color:var(--exists)}
+.verdict{display:grid;grid-template-columns:1fr 1fr;gap:10px 28px;max-width:1000px;margin:10px 0}
+.verdict h3{margin:10px 0 4px}
+.verdict ul{margin:0}
+.verdict .no{color:var(--no)}
+@media (max-width:760px){.verdict{grid-template-columns:1fr}}
+footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px solid var(--line)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
+
+/* ---- demo steps ---- */
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.steps button{flex:1 1 150px;font:inherit;font-size:14px;text-align:left;background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.35}
+.steps button span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.steps button:hover{border-color:var(--accent)}
+.steps button.on{border-color:var(--accent);background:var(--soft)}
+.steps button.reset{flex:0 0 auto;align-self:stretch;text-align:center;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0}
+
+/* ---- the mock: always dark, Volna's One Dark theme ---- */
+.pv{--b:#21252b;--p:#282c33;--bar:#2f343e;--ln:#3a3f4a;--mu:#a9afbc;--tx:#dce0e5;--ac:#74ade8;
+  border:1px solid var(--line-strong);border-radius:10px;background:var(--b);color:var(--tx);font-size:12px;overflow:hidden;margin:0;outline:none}
+.pv *{box-sizing:border-box}
+.pv:focus-visible{border-color:var(--ac)}
+.pv button{font:inherit;font-size:11.5px;background:#353b45;color:var(--tx);border:1px solid #464b57;border-radius:4px;padding:2px 8px;cursor:pointer}
+.pv button:hover{background:#3d4450}
+.pv-title{display:flex;align-items:center;gap:10px;padding:5px 10px;background:#1b1e23;border-bottom:1px solid var(--ln);color:var(--mu);font-size:11.5px}
+.pv-title b{color:var(--tx);font-weight:600}
+.pv-title .dots{display:inline-flex;gap:6px}
+.pv-title .dots i{width:10px;height:10px;border-radius:50%;background:#464b57;display:inline-block}
+.pv-title .data{margin-left:auto;font-size:10.5px;color:#7d8491}
+.pv-main{padding:6px;display:flex;gap:6px}
+.side{flex:0 0 172px;border:1px solid var(--ln);border-radius:6px;background:var(--p);padding:4px 0;font-size:11.5px;overflow:hidden}
+.side .sh{padding:6px 8px 3px;color:var(--mu);font-size:10.5px;letter-spacing:.3px;text-transform:uppercase}
+.side .sh .d{text-transform:none;letter-spacing:0;color:#7d8491;font-family:"IBM Plex Mono",monospace}
+.side .srow{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:2px 6px;min-height:24px}
+.side .srow span{font-family:"IBM Plex Mono",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side .srow:hover{background:#2f343e}
+.side .srow button{font-size:10.5px;padding:0 6px;flex:none}
+.panel{display:flex;flex-direction:column;min-width:0;flex:1;border:1px solid var(--ln);border-radius:6px;background:var(--p)}
+.panel.focus{border-color:#47679e}
+.tabs{display:flex;align-items:center;gap:6px;padding:0 6px 0 0;background:var(--bar);border-bottom:1px solid var(--ln);flex:none;min-height:28px;border-radius:6px 6px 0 0}
+.tab{padding:5px 10px;font-size:11.5px;color:var(--tx);border-right:1px solid var(--ln);box-shadow:inset 0 -2px 0 var(--ac)}
+.tabs .tools{margin-left:auto;display:flex;gap:4px}
+.tabs .tools button{padding:1px 7px}
+.body{height:470px;position:relative;overflow:hidden;border-radius:0 0 6px 6px;touch-action:none}
+.body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#rename{position:absolute;z-index:5;font:600 12px "IBM Plex Sans",sans-serif;background:#1b1e23;color:var(--tx);border:1px solid var(--ac);border-radius:3px;padding:0 4px;outline:none}
+.tip{position:absolute;pointer-events:none;background:#1b1e23;border:1px solid #4b5260;border-radius:5px;padding:5px 8px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.45;color:var(--tx);box-shadow:0 6px 18px rgba(0,0,0,.35);white-space:nowrap;z-index:3}
+.tip b{font-weight:600;color:#a1c181}.tip b.x{color:#d07277}.tip .d{color:var(--mu)}
+.menu{position:absolute;z-index:4;min-width:210px;background:#2f343e;border:1px solid #464b57;border-radius:6px;padding:4px;box-shadow:0 10px 24px rgba(0,0,0,.4);font-size:12px}
+.menu button{display:flex;width:100%;border:0;background:none;padding:3px 8px 3px 10px;border-radius:4px;text-align:left;justify-content:space-between;gap:16px}
+.menu button:hover,.menu button:focus-visible{background:#3d4450;outline:none}
+.menu button:disabled{color:#6b7280;background:none;cursor:default}
+.menu button kbd{background:none;border:0;color:var(--mu);font-size:10.5px;padding:0}
+.menu hr{border:0;border-top:1px solid var(--ln);margin:4px 2px}
+.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--ln);background:#1b1e23;color:var(--mu);font-family:"IBM Plex Mono",monospace;font-size:11px;min-height:27px}
+.pv-status b{color:var(--tx);font-weight:400}
+.pv-status .sel{margin-left:auto;color:#a1c181}
+.wsbox{margin-top:14px;max-width:900px}
+.wsbox summary{cursor:pointer;font-size:14px;color:var(--muted)}
+#wsjson{font-size:11.5px;line-height:1.45;max-height:340px;overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0 0}
+@media (max-width:700px){.side{display:none}.body{height:500px}.pv-status .sel{margin-left:0}}
+
+/* ---- figures ---- */
+.figs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0 8px;max-width:1100px}
+.figs figure{margin:0;min-width:0}
+.figs canvas{width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--line-strong);background:#282c33}
+.figs figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+.figs figcaption b{color:var(--ink);font-weight:600}
+@media (max-width:860px){.figs{grid-template-columns:1fr}}
+svg.dia{width:100%;max-width:900px;height:auto;display:block;margin:12px 0 6px}
+svg.dia text{font-family:"IBM Plex Mono",monospace;font-size:12px;fill:var(--ink)}
+svg.dia .m{fill:var(--muted)}
+svg.dia .box{fill:var(--paper);stroke:var(--line-strong)}
+svg.dia .grp{fill:var(--soft);stroke:var(--accent)}
+svg.dia .hid{opacity:.45}
+svg.dia .arrow{stroke:var(--accent);fill:none;stroke-width:1.2}
+svg.dia .ttl{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:13px}
+#selftest{display:none}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">Volna <span>signal groups</span></a>
+  <nav>
+    <a href="#demo">Demo</a><a href="#behaviour">Behaviour</a><a href="#collapsed">Collapsed rows</a><a href="#research">Other viewers</a><a href="#model">Data model</a><a href="#storage">Storage</a><a href="#plan">Plan</a><a href="#postponed">Postponed</a>
+  </nav>
+  <button id="theme" type="button" aria-label="Toggle light or dark page theme">Theme</button>
+</div></header>
+
+<main id="top">
+<section><div class="wrap">
+  <h1>Signal <em>groups</em> in the waveform panel</h1>
+  <p class="lede">Put rows under a named heading, nest headings, and fold them away. A folded group still shows when and where its signals change, so you can close it without losing sight of it.</p>
+  <p class="meta">Design proposal. Nothing here is implemented yet, and this page changes no code. Today the Waves panel is a flat list of signal, lane and clock rows. A debug session on a real SoC collects dozens of them, and they can only be organised by dragging. Every viewer surveyed below has groups. This proposal adds them as one more row kind in <code>volna-core</code>. The row operations that exist today (selection, drag, clipboard, heights and workspace entries) extend to them, and one new painter draws a folded group. Groups are presentation, so they are stored in the workspace and never in VTR. Group templates from VDB profiles are <a href="#postponed">postponed</a>. Related documents: <a href="workspaces.html">workspaces.html</a> (the workspace file), <a href="c910-perf-counters.html#styles">c910-perf-counters.html</a> (row styles that need group rows), <a href="analog-waves.html">analog-waves.html</a> and <a href="transaction-waveforms.html">transaction-waveforms.html</a> (other row kinds on the same canvas).</p>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <h2>Try it</h2>
+  <p class="prose">This is a mock of the Waves panel on a small generated SoC trace: 1&nbsp;µs of an AXI master doing writes and reads, a core with four registers, and a DMA engine. The <em>Write</em> channel carries undefined data for one cycle at 505&nbsp;ns. The left strip stands in for Volna's sidebar. It has the scope tree. Below the mock is the workspace entry that this panel would save, updated live.</p>
+  <div class="steps" role="group" aria-label="Guided scenarios">
+    <button type="button" data-guide="collapse">1 · Fold a group<span>It still shows its changes and the X</span></button>
+    <button type="button" data-guide="group">2 · Group a selection<span>Three rows, <kbd>G</kbd>, name it</span></button>
+    <button type="button" data-guide="into">3 · Move into a group<span><code>irq</code> joins <em>Core</em></span></button>
+    <button type="button" data-guide="step">4 · Step through a folded group<span><kbd>Shift</kbd>+<kbd>→</kbd> on <em>Read</em></span></button>
+    <button type="button" data-guide="scope">5 · Add a scope as a group<span>Sidebar: <code>u_dma</code> ▸ + group</span></button>
+    <button type="button" data-guide="ungroup">6 · Ungroup<span><kbd>Shift</kbd>+<kbd>G</kbd> keeps the rows</span></button>
+    <button type="button" data-guide="reset" class="reset">Reset</button>
+  </div>
+
+  <div class="pv" id="pv" tabindex="0" role="application" aria-label="Interactive mock of the Volna Waves panel with signal groups">
+    <div class="pv-title"><span class="dots"><i></i><i></i><i></i></span><b>Volna</b> — soc.vtr <span class="data">generated demo data</span></div>
+    <div class="pv-main">
+      <aside class="side" id="side" aria-label="Sidebar: scopes"></aside>
+      <div class="panel focus" id="waves">
+        <div class="tabs"><span class="tab">Waves 1</span>
+          <span class="tools"><button type="button" data-act="collapse" title="Collapse all groups">Fold all</button><button type="button" data-act="expand" title="Expand all groups">Unfold all</button><button type="button" data-act="fit" title="Zoom to fit">Fit</button></span></div>
+        <div class="body" id="wbody"><canvas aria-hidden="true"></canvas><input id="rename" type="text" aria-label="Group name" hidden autocomplete="off" spellcheck="false"><div class="tip" hidden></div><div class="menu" role="menu" hidden></div></div>
+      </div>
+    </div>
+    <div class="pv-status" id="status"></div>
+  </div>
+  <p class="hint">Mouse: click a <b>chevron</b> to fold or unfold (<kbd>Alt</kbd>+click also folds the groups inside) · <b>drag names</b> to move rows: the pointer's horizontal position picks the nesting level, and the middle of a folded group's row drops into it · <b>double-click</b> a group name to rename it · <b>right-click</b> a name for the menu · <b>hover</b> a folded group's waves to read its signals · click the waves to move the cursor · <kbd>Ctrl</kbd>+wheel zooms.<br>Keys, with the mock focused: <kbd>G</kbd> group · <kbd>Shift</kbd>+<kbd>G</kbd> ungroup · <kbd>F2</kbd> rename · <kbd>←</kbd> fold or go to the parent · <kbd>→</kbd> unfold or go to the first child · <kbd>Enter</kbd> fold or unfold · <kbd>↑</kbd> <kbd>↓</kbd> select · <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> previous or next change · <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> · <kbd>Delete</kbd> removes with contents · <kbd>Esc</kbd> clears.</p>
+  <details class="wsbox" open><summary>The panel's workspace entry (<code>rows</code> of a <code>waves</code> panel, version 4)</summary><pre id="wsjson" aria-live="off"></pre></details>
+</div></section>
+
+<section id="behaviour"><div class="wrap">
+  <h2>How it behaves</h2>
+  <ol class="rules">
+    <li><b>A group is a row.</b>It has a name, a folded flag and a height, and it sits in the same list as signals, lanes and clocks. Selection, dragging, cut, copy, paste, removal, heights and the workspace entry treat it like any other row. A group may be empty. Group names do not need to be unique, because a group is not an address: it is found by its place in the list.</li>
+    <li><b>Groups nest up to eight levels.</b>Each level indents the name by 14&nbsp;px, and a thin guide runs down the left of an open group. Surfer, Questa, SimVision and Vivado all nest. Eight levels hold a hierarchy that deep, and the fixed limit keeps the name column readable. Deeper structure is refused when it is created and when a workspace is loaded.</li>
+    <li><b>Two explicit ways to make one.</b><kbd>G</kbd> (or <em>Group selection</em> in the row menu) puts the selected rows, in their order, under a new group at the place of the first one, and starts renaming it. <em>+ group</em> on a sidebar scope adds that scope's variables under a group named after the scope. Its child scopes become folded subgroups. Volna never groups rows on its own. The same trace always opens with the same rows, and grouping happens only when you ask for it.</li>
+    <li><b>Fold and unfold.</b>Click the chevron, or use <kbd>←</kbd> and <kbd>→</kbd> as in the scope tree. <kbd>Alt</kbd> applies to every group inside as well, and <em>Fold all</em> and <em>Unfold all</em> apply to the whole panel. When a folded group hides selected rows, the group itself becomes the selection, so no command acts on rows you cannot see. Folding changes what is visible, never what is loaded: the rows keep their histories and their formats.</li>
+    <li><b>A folded group still shows its signals' activity.</b>Its row is drawn in the shape of a bus. A box boundary marks every time any signal in the group changes. A column with several changes becomes a solid band. Where any signal is undefined, the row is drawn in the X colour. The value column reads “9 signals” or, when the cursor sits on a change, “2 of 9 changed”, followed by the number of undefined signals. Hovering the row lists the signals' values under the pointer. The <a href="#collapsed">next section</a> explains why this summary and not another.</li>
+    <li><b>Row commands take the whole group.</b>Moving, copying, cutting, removing and <em>Open in table</em> act on the group and everything in it. Commands about values, such as the format menu, <kbd>T</kbd> and <kbd>A</kbd> for analog, apply to the signals in the group that accept them. Commands about the row itself, such as height, apply only to the group's own row. Selecting a group selects only its row, and the commands then expand it to its subtree. A row inside the group can still be selected on its own.</li>
+    <li><b>Drag with a level.</b>Dragging names shows the insertion line indented to the level at which the rows will land. Between two rows there is usually more than one valid level. For example, below the last row of a group the rows can go into that group or after it. The pointer's horizontal position chooses among the valid levels, as in Surfer. Dropping on the middle half of a folded group's row appends the rows to that group and leaves it folded. A group can never be dropped inside itself.</li>
+    <li><b>Ungroup keeps the rows, Remove takes them.</b><kbd>Shift</kbd>+<kbd>G</kbd> removes the group row and moves its children up one level, in the same place and order. <kbd>Delete</kbd> removes the group with everything in it, and the row menu says so (<em>Remove with contents</em>). Surfer, Questa and Vivado draw the same line between the two. Cut followed by paste is the way to put a removed group back until Volna has undo.</li>
+    <li><b>Navigation works on folded groups.</b><kbd>Shift</kbd>+<kbd>→</kbd> on a group steps the cursor to the next change of any signal in it. A click on its waves snaps to those changes. <em>Open in table</em> opens the group's signals as a multi-signal table. So a folded group is a working view, not just a place to hide rows.</li>
+    <li><b>Saved with the panel.</b>A workspace saves each panel's rows as a tree, including names and fold state. Splitting a panel copies its groups. The clipboard keeps the structure, so a pasted group arrives whole, under the last selected row, at that row's level. Rows whose signals the trace no longer contains stay in their group as unresolved rows, as they do today at the top level.</li>
+  </ol>
+</div></section>
+
+<section id="collapsed"><div class="wrap">
+  <h2>What a folded group shows</h2>
+  <p class="prose">This is where the surveyed viewers differ most. Surfer, Vivado and GTKWave's plain groups draw nothing: the row is a heading. SimVision's manual says a collapsed group shows “the combined waveforms” next to its name. Perfetto draws a summary track that the group owns, and in its slice mode that summary has up to eight mini-lanes. GTKWave's composite groups show the value of the vector the member bits form. The three figures draw the same folded <em>Write</em> group (seven signals) over the whole trace.</p>
+  <div class="figs">
+    <figure><canvas id="fig-blank" width="420" height="120" aria-label="Folded Write group drawn as an empty heading row"></canvas>
+      <figcaption><b>Rejected: a blank heading.</b> This is what Surfer, Vivado and GTKWave draw. It is simple, but folding a group hides its activity, and you have to unfold it to learn whether anything happened.</figcaption></figure>
+    <figure><canvas id="fig-lanes" width="420" height="120" aria-label="Folded Write group drawn as seven thin lanes in one row"></canvas>
+      <figcaption><b>Deferred: mini-lanes.</b> Perfetto's summary puts one thin lane per member in the row. At a 1× row, seven lanes are 2&nbsp;px each and a bus value cannot be read. This belongs to the <em>heat lanes</em> style for tall group rows, not to the folded default.</figcaption></figure>
+    <figure><canvas id="fig-activity" width="420" height="120" aria-label="Folded Write group drawn as a bus row with a boundary at every change of any member and the undefined stretch in the X colour"></canvas>
+      <figcaption><b>Proposed: activity in the bus shape.</b> A boundary marks every change of any member, and a stretch where any member is X is drawn in the X colour. It reads at 1× height, it looks like a row Volna already draws, and the cursor can step along it.</figcaption></figure>
+  </div>
+  <div class="prose">
+  <p><strong>Why the bus shape.</strong> A folded group answers two questions: did anything in here happen, and is anything in here broken? The union of the members' change times answers the first, and the union of their undefined stretches answers the second. Both come from the histories the rows already hold. Drawn as a bus row with no labels, the summary reuses the existing bus painter, its dense-column bands and the X colours. It adds no new visual language, and it works for groups that mix bits, buses, enums and lanes. The value cell and the hover list give the detail, without unfolding the group.</p>
+  <p><strong>Cost.</strong> The painter asks each member's history for its first change per pixel column with the same galloping search the bus painter uses. For <var>k</var> members that is O(<var>W</var>·<var>k</var>·log) per frame. For the groups people build by hand (up to a few dozen rows) this is below the cost of painting those rows unfolded. The result is cached by viewport and width, so a still view costs nothing. Scope groups can hold thousands of rows. For them, the plan measures a 1,000-member group, and if a frame exceeds 4&nbsp;ms it builds a merged change summary on the load worker. That summary is a bitmap of changes per block of time, like the analog block summary in <a href="analog-waves.html">analog-waves.html</a>. The members of a folded group load like any other rows. The memory ledger already refuses loads that exceed the budget, and the summary draws unloaded members as missing, not as quiet.</p>
+  <p><strong>Richer summaries later.</strong> <a href="c910-perf-counters.html#styles">c910-perf-counters.html</a> proposes row styles that draw a group of signals on one scale: stacked area, heat lanes, horizon group and overlay. They are group rows with a style, and this design gives them their data model. A group gains a <code>draw</code> setting next to its fold state, and the activity summary is its default. These styles are drawn only while the group is folded or when the row is taller than 1×. They are deferred until the plain groups exist.</p>
+  </div>
+</div></section>
+
+<section id="research"><div class="wrap">
+  <h2>What other viewers do</h2>
+  <p class="prose">Seven viewers were compared, from source code where it is public (Surfer in <code>ext/surfer</code>, GTKWave, Perfetto) and from manuals and real saved files otherwise. Nothing public describes what Verdi or Questa draw for a collapsed group, so those cells say so.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Viewer</th><th>Model and nesting</th><th>A folded group shows</th><th>Make, move, dissolve</th><th>Saved as</th></tr></thead>
+    <tbody>
+    <tr><td>Surfer</td><td>Flat pre-order list of <code>{item, level, unfolded}</code>. Only a group can have children, exactly one level deeper, and this is checked on load</td><td>Nothing: an empty row with a triangle</td><td><kbd>G</kbd> groups the selection, <em>Add scope as group</em> (optionally recursive), drag with the level taken from the pointer's x. Dissolve keeps the children, delete is recursive</td><td>The same flat list in <code>.surf.ron</code>, with the fold flag per node</td></tr>
+    <tr><td>GTKWave</td><td>A linked list of traces with blank begin and end marker traces. Unbalanced markers are repaired on load</td><td>Plain group: nothing. Composite (bits combined into a vector): the vector's value</td><td><kbd>G</kbd> wraps the selection, <kbd>T</kbd> toggles. Selecting a group silently selects its children for cut and delete</td><td><code>.gtkw</code>: hexadecimal flag words such as <code>@800200</code> before <code>-name</code> lines</td></tr>
+    <tr><td>Perfetto</td><td>A real tree of <code>TrackNode</code>s with stable ids. A node may own a summary renderer. Headless groups hide their header</td><td>Its summary track: an aggregate, or up to 8 mini-lanes of member slices from a mipmap. Expanded, it becomes a slim sticky header</td><td>A drop on a group row is split into thirds: before, inside, after. Workspaces are user-editable copies of the default tree</td><td>A recursive JSON tree with a <code>collapsed</code> flag per node, in the permalink state</td></tr>
+    <tr><td>Questa</td><td>Nested groups. A group row has its own height and may be empty</td><td>Not documented</td><td><kbd>Ctrl</kbd>+<kbd>G</kbd> groups by region and adds more signals of the same region to that region's group. The drop box on a name means “last child”. Ungroup keeps the order</td><td><code>wave.do</code>: <code>add wave -group {Name} …</code>, repeated on every signal line</td></tr>
+    <tr><td>SimVision</td><td>Named group objects, defined apart from the window and placed into it. A group can contain groups</td><td>“The combined waveforms”, per the manual (not verified further)</td><td><kbd>Ctrl</kbd>+<kbd>G</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>. Buses are a separate object (<kbd>Ctrl</kbd>+<kbd>B</kbd>)</td><td><code>.svcf</code> Tcl: <code>group new</code>, <code>group insert</code>, <code>waveform hierarchy collapse</code></td></tr>
+    <tr><td>Verdi</td><td>Groups and subgroups in nWave</td><td>Not documented</td><td>Default names G1, G2 and so on. Double-click folds, per secondary sources</td><td><code>signal.rc</code>: <code>addGroup "G1"</code> followed by its <code>addSignal</code> lines. <code>$$top</code> stands for the top scope so that a file works on other designs</td></tr>
+    <tr><td>Vivado</td><td>Nested groups, dividers and virtual buses, which are three different kinds</td><td>Nothing: “the Group itself displays no waveform data”</td><td>Right-click ▸ <em>New Group</em>, drag names in. Ungroup keeps the members</td><td><code>.wcfg</code> XML: nested <code>&lt;wvobject type="group"&gt;</code> with <code>isExpanded</code></td></tr>
+    </tbody></table></div>
+  <div class="verdict">
+    <div><h3>Taken</h3><ul>
+      <li>Surfer's pre-order list with a level per row, and its validation on load. It virtualises directly and needs no pointers.</li>
+      <li>Surfer's two index spaces, stored and visible, and its choice of drop level from the pointer's x.</li>
+      <li>Perfetto's idea that a group row can draw something of its own. Here the default drawing is the activity summary, and the group row styles come later.</li>
+      <li>A drop zone in the middle of a folded group's row, from Perfetto's thirds and Questa's “last child” box.</li>
+      <li>Ungroup that keeps the order (Surfer, Questa, Vivado) and remove that takes the contents, as two separate commands.</li>
+      <li>A real tree with an explicit fold flag in the saved file (Vivado, Perfetto).</li>
+      <li><em>Add scope as group</em> (Surfer), with child scopes as folded subgroups.</li>
+      <li>Keeping groups apart from virtual buses (Vivado, SimVision, Questa).</li>
+      <li>Templates that are reusable across designs, like Verdi's <code>$$top</code>: relative names applied to a scope the user picks. <a href="#postponed">Postponed</a> with VDB profiles.</li>
+    </ul></div>
+    <div><h3 class="no">Rejected</h3><ul>
+      <li>A blank folded row (Surfer, Vivado, GTKWave). It hides activity.</li>
+      <li>Begin and end marker rows with repair passes (GTKWave). The tree cannot be malformed by construction.</li>
+      <li>Hidden selection of children (GTKWave). Commands name what they do.</li>
+      <li>Grouping by region implicitly and reusing that group on the next <kbd>Ctrl</kbd>+<kbd>G</kbd> (Questa). The result depends on what you did before.</li>
+      <li>Repeating the group on every saved line (Questa <code>wave.do</code>), and order-dependent scripts (<code>.svcf</code>, <code>signal.rc</code>).</li>
+      <li>Two copies of state, such as Perfetto's pinned clones beside the tree, or Surfer's dead <code>content</code> and <code>is_open</code> fields.</li>
+      <li>Meaningless default names that stick. <kbd>G</kbd> starts a rename right away.</li>
+      <li>Bundling bits into a vector as a kind of group (GTKWave composites). A derived signal is a translator or VDB feature, not a row container.</li>
+      <li>Absolute database-qualified member names (SimVision's <code>simulator::</code>, Vivado's <code>db_ref_id</code>).</li>
+    </ul></div>
+  </div>
+</div></section>
+
+<section id="model"><div class="wrap">
+  <h2>The data model in <code>volna-core</code></h2>
+  <div class="prose">
+  <p>The rows of a <code>WaveModel</code> stay a vector. Each entry gains a depth, and a fourth row kind is added. The vector is the tree in pre-order: an entry's subtree is the entry plus every following entry that is deeper than it. This is Surfer's representation, and it fits Volna's existing code. Row heights are prefix sums over a vector. Selection is a set of indices. Clipboard ranges and moves are splices. None of them needs pointers or ids.</p>
+  </div>
+<pre class="code">// wave/model.rs
+pub enum WaveRow { Signal(DisplayedSignal), Lane(TxLane), Clock(ClockRow), <b>Group(GroupRow)</b> }
+
+pub struct GroupRow {
+    pub name: String,
+    pub collapsed: bool,
+    pub height: RowHeight,              <span class="c">// the group's own row; 1× by default</span>
+}
+
+pub struct Entry { pub depth: u8, pub row: WaveRow }  <span class="c">// replaces bare WaveRow in the list</span>
+
+pub struct WaveModel {
+    pub items: Vec&lt;Entry&gt;,              <span class="c">// pre-order tree</span>
+    pub selected: BTreeSet&lt;usize&gt;,      <span class="c">// entry indices, always visible ones</span>
+    visible: Arc&lt;[u32]&gt;,                <span class="c">// derived: entry index of each visible row</span>
+    …
+}
+
+// wave/tree.rs — pure functions over &amp;[Entry], unit-tested headlessly
+pub const MAX_DEPTH: u8 = 8;
+pub fn validate(items: &amp;[Entry]) -&gt; Result&lt;()&gt;;               <span class="c">// depth(i+1) ≤ depth(i) + [i is a group]; first is 0</span>
+pub fn subtree(items: &amp;[Entry], i: usize) -&gt; Range&lt;usize&gt;;
+pub fn parent(items: &amp;[Entry], i: usize) -&gt; Option&lt;usize&gt;;
+pub fn visible(items: &amp;[Entry]) -&gt; Arc&lt;[u32]&gt;;                <span class="c">// skips subtrees of folded groups</span>
+pub fn roots(items: &amp;[Entry], sel: &amp;BTreeSet&lt;usize&gt;) -&gt; Vec&lt;usize&gt;;  <span class="c">// selected, no selected ancestor</span>
+pub fn gap_depths(items: &amp;[Entry], visible: &amp;[u32], gap: usize) -&gt; RangeInclusive&lt;u8&gt;;
+pub fn plan_move(items: &amp;[Entry], sel: &amp;BTreeSet&lt;usize&gt;, to: Drop) -&gt; Option&lt;Moved&gt;;
+pub fn group(items: &amp;mut Vec&lt;Entry&gt;, sel: &amp;BTreeSet&lt;usize&gt;, name: String) -&gt; Option&lt;usize&gt;;
+pub fn ungroup(items: &amp;mut Vec&lt;Entry&gt;, groups: &amp;BTreeSet&lt;usize&gt;) -&gt; BTreeSet&lt;usize&gt;;
+pub fn leaves(items: &amp;[Entry], i: usize) -&gt; impl Iterator&lt;Item = usize&gt;;</pre>
+  <svg class="dia" viewBox="0 0 900 290" role="img" aria-label="The same rows as a stored pre-order list with depths, and the visible rows after folding the Read group">
+    <text class="ttl" x="0" y="16">items (stored, pre-order)</text>
+    <text class="ttl" x="560" y="16">visible (derived)</text>
+    <g id="dia-rows"></g>
+  </svg>
+  <div class="prose">
+  <p><strong>Two index spaces.</strong> Stored indices address entries, and visible positions address painted rows. <code>WaveLayout</code> computes row tops over the visible rows only. Its <code>rows</code> range, the hit tests and the scrollbar therefore work unchanged on visible positions, and one lookup in <code>visible</code> turns a hit into an entry. <code>visible</code> is derived. It is rebuilt with the row tops whenever the list or a fold flag changes. It is never saved and never edited by hand, so it has no consistency rule of its own.</p>
+  <p><strong>What changes in existing code.</strong></p>
+  <ul>
+    <li><code>add_vars</code>, <code>add_lanes</code> and <code>add_clocks</code> append entries at depth 0.</li>
+    <li><code>remove_selected</code>, <code>copy_selected</code> and <code>move_selected_to</code> operate on the subtrees of <code>roots(selected)</code>.</li>
+    <li><code>Drag::Rows</code> gains a <code>depth</code> and an <code>into</code> for the drop target. <code>move_target</code> becomes <code>plan_move</code>, which returns <code>None</code> for a move into itself, a move that is too deep or a move that changes nothing. As today, <code>None</code> hides the drop line.</li>
+    <li><code>Document::copied_rows</code> becomes <code>Vec&lt;Entry&gt;</code>, normalised to depth 0.</li>
+    <li><code>EdgeSource</code> gains <code>Group</code>, a merge over the leaves' sources. It is used by edge stepping and click snapping.</li>
+    <li>The menus gain <code>MenuAction::{Group, Ungroup, Rename, Fold, FoldAll, UnfoldAll}</code>. <code>Action</code> gains <code>GroupSelection</code>, <code>Ungroup</code> and <code>RenameGroup</code>. The ←/→ fold keys go through the existing selection-movement path.</li>
+    <li>Commands that set a format or analog drawing on a selected group map it to <code>leaves()</code>.</li>
+  </ul>
+  <p><strong>Renaming</strong> is core state: <code>WaveModel::rename: Option&lt;usize&gt;</code> and a <code>rename_rect()</code> in the layout. The GPUI frontend hosts a text input over that rectangle, as it hosts popup menus today, and commits the text with <code>Command::RenameGroup</code>. egui gets the Scene for free and can leave renaming unimplemented: it must still build, and parity is not required.</p>
+  <p><strong>Accessibility.</strong> The GPUI canvas exposes table rows as a list box today. Wave rows become an AccessKit <code>Tree</code> of <code>TreeItem</code>s, each with its level, its expanded state (groups only) and its selection, built from <code>visible</code>. The browser test for the web build can then assert the tree semantically.</p>
+  <p><strong>Nothing in the session layer changes.</strong> The session serves histories by signal, and a group is only an arrangement of rows. Local and remote sessions are unaffected, and so is the query protocol.</p>
+  </div>
+</div></section>
+
+<section id="storage"><div class="wrap">
+  <h2>Where groups are stored</h2>
+  <div class="prose">
+  <p><strong>The workspace is the source of truth for what a panel shows.</strong> The waves panel entry moves to version 4. Its <code>rows</code> become a tree, and a group entry holds its children. On load, the tree is flattened into entries, and the depth limit and the row limit (<code>MAX_ROWS</code>, which counts groups too) are checked in the same pass. Structure therefore cannot be malformed on disk, unlike GTKWave's marker rows, and cannot be merely flagged as invalid, as Surfer's flat list with levels can. <code>selected</code> keeps storing stored indices. A version 3 panel is not migrated: like any panel version the core does not know, it is reported as unsupported and kept in the file unchanged (<code>PanelKind::Unsupported</code>).</p>
+  </div>
+<pre class="code">{ "kind": "waves", "version": 4, …,
+  "rows": [
+    {"type": "signal", "signal": ["soc", "clk"], "format": "bin"},
+    {"type": "group", "name": "AXI master", "rows": [
+      {"type": "group", "name": "Write", "rows": [ … ]},
+      {"type": "group", "name": "Read", "collapsed": true, "height": 2, "rows": [ … ]}
+    ]}
+  ] }</pre>
+  <div class="prose">
+  <p><strong>Never in VTR, never in the protocol, not in settings.</strong> VTR already carries the design hierarchy, which <em>Add scope as group</em> uses. A group is an arrangement made by a person, and the README's VTR/VDB boundary keeps presentation out of the trace. Remote sessions keep carrying raw trace data only. <code>settings.json</code> holds preferences, not per-design content. Reusing a group across traces or designs is left to <a href="#postponed">VDB profile templates</a>.</p>
+  </div>
+</div></section>
+
+<section id="plan"><div class="wrap">
+  <h2>Implementation plan</h2>
+  <p class="prose">Each step lands with headless tests in <code>volna-core</code> (model, layout and <code>Scene</code> assertions), and the GPUI steps with browser tests of the web build. None of it touches VTR, the C API or the benchmarks.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Step</th><th></th><th>Work and checks</th></tr></thead>
+    <tbody>
+    <tr><td>1 · Tree</td><td><span class="st new">new</span></td><td><code>wave/tree.rs</code> with the pure functions above. Property tests: every operation on random valid trees keeps <code>validate</code>, keeps leaves in order and preserves the multiset of rows; move is its own inverse when moved back; ungroup after group restores the list.</td></tr>
+    <tr><td>2 · Model</td><td><span class="st changed">changed</span></td><td><code>Entry</code>, <code>WaveRow::Group</code> and <code>visible</code>. The selection, clipboard, remove and move paths go through <code>roots</code>. <code>move_selected_to</code> takes a drop target. <code>Action::{GroupSelection, Ungroup, RenameGroup}</code> and the fold actions are added. The existing tests in <code>tests/headless.rs</code> and <code>tests/lanes.rs</code> must pass unchanged on flat lists.</td></tr>
+    <tr><td>3 · Layout and paint</td><td><span class="st changed">changed</span></td><td>Row tops over <code>visible</code>. Indentation, chevrons, the member count, indent guides and the chevron hit zone. <code>Scene</code> tests cover a folded group hiding its rows and the scrollbar shrinking.</td></tr>
+    <tr><td>4 · Summary</td><td><span class="st new">new</span></td><td>The activity painter over merged edges and undefined stretches, the value cell and the hover list. <code>EdgeSource::Group</code> for stepping and snapping. <code>Scene</code> tests check that a one-cycle X survives a zoom-out and that a change of any member draws a boundary. A frame-time harness case for a 1,000-member group gates the merged summary at 4&nbsp;ms, with the result recorded in <code>docs/RATIONALE.md</code>.</td></tr>
+    <tr><td>5 · Input</td><td><span class="st changed">changed</span></td><td>A drag with depth and a drop into a folded group, with auto-scroll unchanged. The ←/→/Enter/<kbd>G</kbd>/<kbd>Shift</kbd>+<kbd>G</kbd>/<kbd>F2</kbd> bindings and the row-menu entries. Headless pointer sequences check every rule on this page.</td></tr>
+    <tr><td>6 · Workspace</td><td><span class="st changed">changed</span></td><td>Waves panel version 4 with nested rows, depth and row limits on load, and unresolved members kept inside their group. Round-trip tests in <code>tests/workspace.rs</code>, plus a version 3 panel reported as unsupported and excess depth refused.</td></tr>
+    <tr><td>7 · GPUI</td><td><span class="st changed">changed</span></td><td>The rename input over <code>rename_rect</code>, the menu entries, and the AccessKit tree for wave rows. The web build's browser test asserts the tree roles, levels and expanded states, and drives a rename. <code>volna-egui</code> only has to build.</td></tr>
+    <tr><td>8 · Sidebar</td><td><span class="st new">new</span></td><td><em>Add to Waves as group</em> in the scope tree's menu (<code>Command::AddScopeAsGroup { scope, recursive }</code>). Child scopes become folded subgroups. Variables load like any other added rows.</td></tr>
+    <tr><td>9 · Group styles</td><td><span class="st new">new</span></td><td>A <code>draw</code> setting on groups for the stacked area, heat lanes and horizon group styles of the C910 counters proposal, in the order that document gives.</td></tr>
+    </tbody></table></div>
+  <div class="prose">
+  <h3>Open questions</h3>
+  <ul>
+    <li>Should <kbd>Delete</kbd> on a large group (say more than 100 rows) ask first while Volna has no undo? The proposal says no: the menu names the action, and cut and paste can recover it. Undo is the better fix for every row command.</li>
+    <li>Should a folded group defer loading its members until it is unfolded or its summary is on screen? That would help scope groups with thousands of signals. Lazy loading of off-screen rows applies to flat lists too, so it should be designed once, for both.</li>
+    <li>Should <em>Add scope as group</em> include child scopes by default, or only when asked, as Surfer's two menu entries do? The proposal includes them, folded.</li>
+    <li>Group colours and dividers are left out. An empty folded group already works as a labelled divider. Colour is a per-row feature that Volna does not have yet for any row kind.</li>
+  </ul>
+  </div>
+</div></section>
+
+<section id="postponed"><div class="wrap">
+  <h2>Postponed: group templates from VDB profiles</h2>
+  <p class="prose">This part waits until Volna can attach a VDB profile, which it cannot do yet. Nothing above depends on it: the groups, their workspace entries and <em>Add scope as group</em> work without a profile. It is recorded here so that the workspace format and the unresolved-row behaviour leave room for it.</p>
+  <div class="prose">
+  <p><strong>Templates, not live groups.</strong> The VDB application note already lists “signal groups” under the waveform view of an RTL debugger VDB. A profile names group templates by relative names and a scope selector. Examples are the channels of an AXI port, a CSR bank, or a pipeline stage's valid/ready pairs.</p>
+  </div>
+<pre class="code"><span class="c">// soc.vdb.json — a profile document, next to the trace or in the VDB repository</span>
+{ "groups": [
+  { "id": "axi_write", "name": "AXI write", "applies_to": "**.u_axi*",
+    "rows": ["awvalid", "awready", "awaddr", "awprot", "wvalid", "wready", "wdata", "wstrb", "bvalid"] }
+] }</pre>
+  <div class="prose">
+  <p>A template appears in the sidebar's scope menu when its selector matches the scope. <em>Insert</em> resolves the names against the scope and copies the resulting group into the panel, where it becomes ordinary workspace rows. Names the trace lacks become unresolved rows, so the group keeps its intended shape and the gap shows. The copy is not linked back to the template. Editing a live-linked group would raise the question whose change wins, and Perfetto's workspaces make the same choice: they clone. Relative names and a selector make a template reusable across instances and designs, which is what Verdi's <code>$$top</code> is for.</p>
+  <div class="prose">
+  <p>When it is picked up, the work is: template selectors in the profile format (<code>docs/VDB_APPNOTE.md</code>), an <em>Insert</em> entry in the scope tree's menu for matching templates, and tests that missing names become unresolved rows inside the inserted group.</p>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  Sources: <code>volna/volna-core/src/wave/{model,layout,paint}.rs</code>, <code>workspace/mod.rs</code>, <code>sidebar/scopes.rs</code>, <code>volna/volna/src/canvas.rs</code>, <code>docs/VDB_APPNOTE.md</code> §3, README “VTR/VDB boundary”. Surfer at the pinned <code>ext/surfer</code>: <code>libsurfer/src/{displayed_item_tree,displayed_item,item_list,view,drawing_canvas}.rs</code>, <code>tiles/serde.rs</code>. GTKWave master: <code>src/{analyzer.h,analyzer.c,menu.c,savefile.c,wavewindow.c}</code>. Perfetto main: <code>ui/src/public/workspace.ts</code>, <code>ui/src/core/state_serialization.ts</code>, <code>ui/src/widgets/track_shell.ts</code>, <code>ui/src/plugins/dev.perfetto.ProcessSummary/group_summary_track.ts</code>. Questa SIM User's Manual and Command Reference 2024.2 (“Wave Groups”, <code>add wave</code>). AMD UG900 “Grouping Signals and Objects” and “Defining Virtual Buses”, and UG835 <code>add_wave_group</code>. SimVision “Using the Waveform Window” (quoted, not opened), and saved <code>.svcf</code> files in openhwgroup/core-v-verif and olgirard/openmsp430. Verdi <code>signal.rc</code> files in B-Lang-org/bsc, and a third-party syntax summary. State of the tree at <code>6d35048</code>.<br>
+  The demo is self-contained and uses generated data. A built-in self-test checks its pure logic, and <code>node --test docs/tests/wave_groups.test.mjs</code> drives it in headless Chrome.
+</div></footer>
+<pre id="selftest"></pre>
+
+<script>
+/* ============================================================================
+   Pure logic (DOM-free): generated trace data, the row tree as a pre-order
+   list of entries with depths, and every edit the proposal defines. Mirrors
+   the proposed volna-core module wave/tree.rs.
+   ============================================================================ */
+const WG = (() => {
+'use strict';
+const T_END = 1000, MAX_DEPTH = 8;
+
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+// A change list: times increasing, a value holds until the next change; null is X.
+class Changes {
+  constructor() { this.t = []; this.v = []; }
+  push(t, v) {
+    const n = this.v.length;
+    if (n && this.v[n - 1] === v) return;
+    if (n && this.t[n - 1] === t) { this.v[n - 1] = v; return; }
+    this.t.push(t); this.v.push(v);
+  }
+  // Index of the last change at or before t, or -1.
+  at(t) { let lo = 0, hi = this.t.length - 1, r = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (this.t[m] <= t) { r = m; lo = m + 1; } else hi = m - 1; } return r; }
+  value(t) { const i = this.at(t); return i < 0 ? null : this.v[i]; }
+  // Replace [t0, t1) with v, keeping times sorted.
+  overlay(t0, t1, v) {
+    const after = this.value(t1), keep = k => this.t[k] < t0 || this.t[k] > t1;
+    const t = [], val = [];
+    for (let k = 0; k < this.t.length; k++) if (keep(k)) { t.push(this.t[k]); val.push(this.v[k]); }
+    const at = t.findIndex(x => x > t1), cut = at < 0 ? t.length : at;
+    t.splice(cut, 0, t0, t1); val.splice(cut, 0, v, after);
+    this.t = []; this.v = []; t.forEach((x, k) => this.push(x, val[k]));
+  }
+}
+
+// A small SoC: clock and reset, an AXI master doing writes and reads, a core,
+// its registers, and a DMA block that the page adds from the scope tree.
+function build() {
+  const rnd = mulberry32(0x6a0b5);
+  const S = {};
+  const sig = (path, width, kind = width === 1 ? 'bit' : 'bus') => (S[path] = { path, width, kind, ch: new Changes() });
+  const clk = sig('soc.clk', 1), rst = sig('soc.rst_n', 1);
+  for (let t = 0; t <= T_END; t += 5) clk.ch.push(t, (t / 5) % 2 ? 0 : 1);
+  rst.ch.push(0, 0); rst.ch.push(40, 1);
+  const A = n => sig('soc.u_axi.' + n[0], n[1]);
+  const [awvalid, awready, awaddr, wvalid, wready, wdata, bvalid] =
+    [['awvalid', 1], ['awready', 1], ['awaddr', 32], ['wvalid', 1], ['wready', 1], ['wdata', 32], ['bvalid', 1]].map(A);
+  const [arvalid, arready, araddr, rvalid, rdata] =
+    [['arvalid', 1], ['arready', 1], ['araddr', 32], ['rvalid', 1], ['rdata', 32]].map(A);
+  for (const s of [awvalid, awready, wvalid, wready, bvalid, arvalid, arready, rvalid]) s.ch.push(0, 0);
+  for (const s of [awaddr, wdata, araddr, rdata]) s.ch.push(0, null);
+  // Writes: address, then data a cycle or two later, then a response.
+  let t = 60;
+  const writes = [];
+  while (t < T_END - 80) {
+    const addr = 0x80001000 + Math.floor(rnd() * 64) * 4, data = Math.floor(rnd() * 0xffffffff) >>> 0;
+    awvalid.ch.push(t, 1); awaddr.ch.push(t, addr);
+    const aw = t + 10 * (1 + Math.floor(rnd() * 2)); awready.ch.push(aw - 10, 1); awready.ch.push(aw, 0); awvalid.ch.push(aw, 0);
+    const w0 = aw + 10 * Math.floor(rnd() * 2); wvalid.ch.push(w0, 1); wdata.ch.push(w0, data);
+    const w1 = w0 + 10 * (1 + Math.floor(rnd() * 2)); wready.ch.push(w1 - 10, 1); wready.ch.push(w1, 0); wvalid.ch.push(w1, 0);
+    bvalid.ch.push(w1 + 10, 1); bvalid.ch.push(w1 + 20, 0);
+    writes.push([t, w1]);
+    t = w1 + 20 + 10 * Math.floor(rnd() * 8);
+  }
+  // One write carries undefined data for a cycle: the collapsed group shows it.
+  wdata.ch.overlay(505, 515, null);
+  // Reads: address, then data after a few cycles of latency.
+  t = 110;
+  while (t < T_END - 80) {
+    const addr = 0x80000000 + Math.floor(rnd() * 32) * 4;
+    arvalid.ch.push(t, 1); araddr.ch.push(t, addr); arready.ch.push(t, 1); arready.ch.push(t + 10, 0); arvalid.ch.push(t + 10, 0);
+    const r = t + 30 + 10 * Math.floor(rnd() * 3);
+    rvalid.ch.push(r, 1); rdata.ch.push(r, Math.floor(rnd() * 0xffffffff) >>> 0); rvalid.ch.push(r + 10, 0);
+    t = r + 40 + 10 * Math.floor(rnd() * 10);
+  }
+  // Core: a pc, a state machine, an interrupt, and four registers.
+  const pc = sig('soc.u_core.pc', 32), st = sig('soc.u_core.state', 2, 'enum'), irq = sig('soc.u_core.irq', 1);
+  pc.ch.push(0, null); st.ch.push(0, 'RESET'); irq.ch.push(0, 0);
+  const regs = ['ra', 'sp', 'a0', 'a1'].map(n => sig('soc.u_core.regs.' + n, 32));
+  for (const r of regs) r.ch.push(0, null);
+  regs[1].ch.push(50, 0x80010000);
+  let p = 0x80000000;
+  for (let c = 50; c < T_END; c += 10) {
+    const phase = Math.floor(c / 10) % 7;
+    st.ch.push(c, phase < 2 ? 'FETCH' : phase < 5 ? 'EXEC' : 'WAIT');
+    if (phase === 1) { p = rnd() < 0.15 ? 0x80000000 + Math.floor(rnd() * 256) * 4 : p + 4; pc.ch.push(c, p); }
+    if (phase === 4) regs[Math.floor(rnd() * 4)].ch.push(c, Math.floor(rnd() * 0x10000) >>> 0);
+  }
+  irq.ch.push(620, 1); irq.ch.push(650, 0);
+  // DMA: added later from the scope tree.
+  const busy = sig('soc.u_dma.busy', 1), src = sig('soc.u_dma.src', 32), dst = sig('soc.u_dma.dst', 32), len = sig('soc.u_dma.len', 16);
+  busy.ch.push(0, 0); src.ch.push(0, null); dst.ch.push(0, null); len.ch.push(0, 0);
+  for (const [a, b] of [[200, 330], [700, 860]]) {
+    busy.ch.push(a, 1); src.ch.push(a, 0x80002000 + a); dst.ch.push(a, 0x80008000 + a); len.ch.push(a, (b - a) / 10);
+    for (let c = a + 10; c < b; c += 10) len.ch.push(c, (b - c) / 10);
+    busy.ch.push(b, 0); len.ch.push(b, 0);
+  }
+  return S;
+}
+
+const SIGNALS = build();
+const leaf = path => ({ kind: 'signal', path, name: path.split('.').pop() + (SIGNALS[path] && SIGNALS[path].width > 1 && SIGNALS[path].kind === 'bus' ? `[${SIGNALS[path].width - 1}:0]` : '') });
+const group = (name, collapsed = false) => ({ kind: 'group', name, collapsed });
+
+// The scope tree of the trace.
+const SCOPES = {
+  'soc': ['soc.clk', 'soc.rst_n'],
+  'soc.u_axi': Object.keys(SIGNALS).filter(p => p.startsWith('soc.u_axi.')),
+  'soc.u_core': ['soc.u_core.pc', 'soc.u_core.state', 'soc.u_core.irq'],
+  'soc.u_core.regs': Object.keys(SIGNALS).filter(p => p.startsWith('soc.u_core.regs.')),
+  'soc.u_dma': Object.keys(SIGNALS).filter(p => p.startsWith('soc.u_dma.')),
+};
+function initialRows() {
+  const E = (depth, row) => ({ depth, ...row });
+  return [
+    E(0, leaf('soc.clk')), E(0, leaf('soc.rst_n')),
+    E(0, group('AXI master')),
+    E(1, group('Write')),
+    ...['awvalid', 'awready', 'awaddr', 'wvalid', 'wready', 'wdata', 'bvalid'].map(n => E(2, leaf('soc.u_axi.' + n))),
+    E(1, group('Read', true)),
+    ...['arvalid', 'arready', 'araddr', 'rvalid', 'rdata'].map(n => E(2, leaf('soc.u_axi.' + n))),
+    E(0, group('Core')),
+    E(1, leaf('soc.u_core.pc')), E(1, leaf('soc.u_core.state')),
+    E(1, group('Registers', true)),
+    ...['ra', 'sp', 'a0', 'a1'].map(n => E(2, leaf('soc.u_core.regs.' + n))),
+    E(0, leaf('soc.u_core.irq')),
+  ];
+}
+
+/* ---- the tree over a pre-order list -------------------------------------- */
+const isGroup = e => e.kind === 'group';
+// Entry i's subtree is i and every following entry deeper than it.
+function subtreeEnd(rows, i) { let j = i + 1; while (j < rows.length && rows[j].depth > rows[i].depth) j++; return j; }
+function parent(rows, i) { for (let j = i - 1; j >= 0; j--) if (rows[j].depth < rows[i].depth) return j; return -1; }
+function children(rows, i) { const out = []; const end = subtreeEnd(rows, i); for (let j = i + 1; j < end; j++) if (rows[j].depth === rows[i].depth + 1) out.push(j); return out; }
+// Signal entries under entry i (itself if it is a signal), in order.
+function leaves(rows, i) { const out = []; for (let j = i; j < subtreeEnd(rows, i); j++) if (!isGroup(rows[j])) out.push(j); return out; }
+// Visible entries: skip the descendants of collapsed groups.
+function visible(rows) {
+  const out = []; let hideBelow = Infinity;
+  rows.forEach((e, i) => {
+    if (e.depth > hideBelow) return;
+    hideBelow = Infinity; out.push(i);
+    if (isGroup(e) && e.collapsed) hideBelow = e.depth;
+  });
+  return out;
+}
+// The invariant: roots at depth 0, a child directly after a group or a sibling,
+// depth bounded, names non-empty.
+function validate(rows) {
+  let prev = null;
+  for (let i = 0; i < rows.length; i++) {
+    const e = rows[i], d = e.depth;
+    if (!Number.isInteger(d) || d < 0 || d >= MAX_DEPTH) return `row ${i}: depth ${d} out of range`;
+    const limit = prev === null ? 0 : prev.depth + (isGroup(prev) ? 1 : 0);
+    if (d > limit) return `row ${i}: depth ${d} after depth ${prev ? prev.depth : '-'}`;
+    if (isGroup(e) && !e.name.trim()) return `row ${i}: empty group name`;
+    prev = e;
+  }
+  return null;
+}
+// Selected entries none of whose ancestors are selected, in order.
+function roots(rows, sel) {
+  const out = []; let end = -1;
+  for (const i of [...sel].sort((a, b) => a - b)) { if (i < end) continue; out.push(i); end = subtreeEnd(rows, i); }
+  return out;
+}
+const blocks = (rows, sel) => roots(rows, sel).map(i => [i, subtreeEnd(rows, i)]);
+const clone = e => ({ ...e });
+
+// Valid depths for an insertion between visible positions g-1 and g.
+function gapDepths(rows, vis, g) {
+  const a = g > 0 ? rows[vis[g - 1]] : null, b = g < vis.length ? rows[vis[g]] : null;
+  const max = a ? a.depth + (isGroup(a) && !a.collapsed ? 1 : 0) : 0;
+  const min = b ? b.depth : 0;
+  return [min, Math.max(min, Math.min(max, MAX_DEPTH - 1))];
+}
+// Where a drop lands in entry indices: visible gap g at depth d, or "into"
+// the collapsed group at visible position g (appended as its last child).
+function dropTarget(rows, vis, g, d, into = false) {
+  if (into) { const i = vis[g]; return { at: subtreeEnd(rows, i), depth: rows[i].depth + 1 }; }
+  return { at: g < vis.length ? vis[g] : rows.length, depth: d };
+}
+
+// Move the selected subtrees, in order, to `at` (entry index before the move)
+// with their roots at `depth`. Returns the new rows and selection, or null
+// when the move is invalid (into itself, too deep) or changes nothing.
+function planMove(rows, sel, at, depth) {
+  const bl = blocks(rows, sel);
+  if (!bl.length) return null;
+  if (bl.some(([s, e]) => at > s && at < e)) return null;
+  const inBlock = i => bl.find(([s, e]) => i >= s && i < e);
+  const moved = [], rest = [];
+  rows.forEach((e, i) => { const b = inBlock(i); if (b) moved.push([i, e.depth - rows[b[0]].depth + depth]); else rest.push([i, e.depth]); });
+  const restAt = rest.filter(([i]) => i < at).length;
+  const order = [...rest.slice(0, restAt), ...moved, ...rest.slice(restAt)];
+  // Unchanged order and depths: no drop line.
+  if (order.every(([i, d], k) => i === k && d === rows[k].depth)) return null;
+  if (moved.some(([, d]) => d >= MAX_DEPTH)) return null;
+  const out = order.map(([i, d]) => d === rows[i].depth ? rows[i] : { ...rows[i], depth: d });
+  if (validate(out)) return null;
+  const newSel = new Set(); let k = restAt;
+  for (const [s, e] of bl) { newSel.add(k); k += e - s; }
+  return { rows: out, sel: newSel, first: restAt };
+}
+// Group the selected subtrees under a new group placed where the first one was.
+function groupSelection(rows, sel, name) {
+  const bl = blocks(rows, sel);
+  if (!bl.length) return null;
+  const d = rows[bl[0][0]].depth;
+  if (bl.some(([s, e]) => rows.slice(s, e).some(r => r.depth - rows[s].depth + d + 1 >= MAX_DEPTH))) return null;
+  const moved = [], rest = []; let restAt = 0;
+  rows.forEach((e, i) => {
+    const b = bl.find(([s, en]) => i >= s && i < en);
+    if (b) moved.push({ ...e, depth: e.depth - rows[b[0]].depth + d + 1 });
+    else { if (i < bl[0][0]) restAt++; rest.push(e); }
+  });
+  const g = { depth: d, ...group(name) };
+  const out = [...rest.slice(0, restAt), g, ...moved, ...rest.slice(restAt)];
+  if (validate(out)) return null;
+  return { rows: out, sel: new Set([restAt]), group: restAt };
+}
+// Dissolve the selected groups: their children take their place, one level up.
+function ungroup(rows, sel) {
+  const gs = [...sel].filter(i => isGroup(rows[i])).sort((a, b) => a - b);
+  if (!gs.length) return null;
+  const out = [], newSel = new Set();
+  const drop = new Set(gs);
+  rows.forEach((e, i) => {
+    if (drop.has(i)) return;
+    let lift = 0;
+    for (const g of gs) if (i > g && i < subtreeEnd(rows, g)) lift++;
+    const ne = lift ? { ...e, depth: e.depth - lift } : e;
+    for (const g of gs) if (i > g && i < subtreeEnd(rows, g) && e.depth === rows[g].depth + 1) newSel.add(out.length);
+    out.push(ne);
+  });
+  if (validate(out)) return null;
+  return { rows: out, sel: newSel };
+}
+function removeSelection(rows, sel) {
+  const bl = blocks(rows, sel);
+  const out = rows.filter((_, i) => !bl.some(([s, e]) => i >= s && i < e));
+  return { rows: out, sel: new Set(), next: Math.min(bl.length ? bl[0][0] - 0 : 0, out.length - 1) };
+}
+// Collapse or expand; selection inside a collapsed group moves to it.
+function setCollapsed(rows, sel, i, collapsed, deep = false) {
+  const out = rows.slice(), end = subtreeEnd(rows, i);
+  for (let j = i; j < (deep ? end : i + 1); j++) if (isGroup(out[j])) out[j] = { ...out[j], collapsed };
+  const newSel = new Set(sel);
+  if (collapsed) { let hit = false; for (let j = i + 1; j < end; j++) if (newSel.delete(j)) hit = true; if (hit) newSel.add(i); }
+  return { rows: out, sel: newSel };
+}
+// Normalise copied subtrees so that their roots sit at depth zero.
+function extract(rows, sel) {
+  const out = [];
+  for (const [s, e] of blocks(rows, sel)) for (let j = s; j < e; j++) out.push({ ...rows[j], depth: rows[j].depth - rows[s].depth });
+  return out;
+}
+// Paste below the last selected subtree, as its sibling.
+function paste(rows, sel, clip) {
+  if (!clip.length) return null;
+  const bl = blocks(rows, sel);
+  const at = bl.length ? bl[bl.length - 1][1] : rows.length;
+  const depth = bl.length ? rows[bl[bl.length - 1][0]].depth : 0;
+  if (clip.some(e => e.depth + depth >= MAX_DEPTH)) return null;
+  const ins = clip.map(e => ({ ...e, depth: e.depth + depth }));
+  const out = [...rows.slice(0, at), ...ins, ...rows.slice(at)];
+  if (validate(out)) return null;
+  const newSel = new Set(); ins.forEach((e, k) => { if (e.depth === depth) newSel.add(at + k); });
+  return { rows: out, sel: newSel };
+}
+// "Add scope as group": the scope's variables, in declaration order, under a
+// group named after the scope; nested scopes become nested collapsed groups.
+function scopeGroup(scope, recursive = true, depth = 0) {
+  const out = [{ depth, ...group(scope.split('.').pop()) }];
+  for (const p of SCOPES[scope] || []) out.push({ depth: depth + 1, ...leaf(p) });
+  if (recursive) for (const s of Object.keys(SCOPES)) if (s.startsWith(scope + '.') && !s.slice(scope.length + 1).includes('.')) {
+    const sub = scopeGroup(s, true, depth + 1); sub[0].collapsed = true; out.push(...sub);
+  }
+  return out;
+}
+/* ---- what a group shows -------------------------------------------------- */
+// The union of its leaves' change times inside [t0, t1], with a count per time.
+function groupEdges(rows, i, t0, t1) {
+  const m = new Map();
+  for (const j of leaves(rows, i)) {
+    const s = SIGNALS[rows[j].path]; if (!s || rows[j].unresolved) continue;
+    const ch = s.ch; let k = Math.max(0, ch.at(t0));
+    for (; k < ch.t.length && ch.t[k] <= t1; k++) if (ch.t[k] >= t0 && ch.t[k] > 0) m.set(ch.t[k], (m.get(ch.t[k]) || 0) + 1);
+  }
+  return [...m.entries()].sort((a, b) => a[0] - b[0]);
+}
+// Stretches where some leaf is undefined, merged, inside [t0, t1].
+function groupUndefined(rows, i, t0, t1) {
+  const spans = [];
+  for (const j of leaves(rows, i)) {
+    const s = SIGNALS[rows[j].path]; if (!s || rows[j].unresolved) continue;
+    const ch = s.ch;
+    for (let k = Math.max(0, ch.at(t0)); k < ch.t.length && ch.t[k] <= t1; k++)
+      if (ch.v[k] === null) spans.push([Math.max(t0, ch.t[k]), Math.min(t1, k + 1 < ch.t.length ? ch.t[k + 1] : T_END)]);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+  const out = [];
+  for (const s of spans) { const l = out[out.length - 1]; if (l && s[0] <= l[1]) l[1] = Math.max(l[1], s[1]); else out.push(s.slice()); }
+  return out.filter(s => s[1] > s[0]);
+}
+// The value cell of a collapsed group at the cursor.
+function groupValue(rows, i, t) {
+  const ls = leaves(rows, i).filter(j => !rows[j].unresolved && SIGNALS[rows[j].path]);
+  let changed = 0, undef = 0;
+  for (const j of ls) { const ch = SIGNALS[rows[j].path].ch, k = ch.at(t); if (k >= 0 && ch.t[k] === t && t > 0) changed++; if (k < 0 || ch.v[k] === null) undef++; }
+  return { n: ls.length, changed, undef, text: (changed ? `${changed} of ${ls.length} changed` : `${ls.length} signals`) };
+}
+// Next / previous change after t for a row: a signal's own, a group's union.
+function nextEdge(rows, i, t, dir) {
+  let best = null;
+  for (const j of leaves(rows, i)) {
+    const s = SIGNALS[rows[j].path]; if (!s || rows[j].unresolved) continue;
+    const ch = s.ch, k = ch.at(t);
+    const cand = dir > 0 ? ch.t[k + 1] : (k >= 0 && ch.t[k] === t ? ch.t[k - 1] : ch.t[k]);
+    if (cand === undefined || cand <= 0 && dir < 0 && cand !== 0) continue;
+    if (dir > 0 ? cand > t && (best === null || cand < best) : cand < t && (best === null || cand > best)) best = cand;
+  }
+  return best;
+}
+function fmt(s, v) {
+  if (v === null || v === undefined) return 'x';
+  if (s.kind === 'enum') return v;
+  if (s.width === 1) return String(v);
+  return v.toString(16).padStart(Math.ceil(s.width / 4), '0');
+}
+
+/* ---- the workspace entry ------------------------------------------------- */
+// The pre-order list is serialised as a tree, so structure cannot be malformed
+// on disk; loading flattens it and checks the depth limit.
+function toWorkspace(rows) {
+  const root = [], stack = [{ depth: -1, rows: root }];
+  for (const e of rows) {
+    while (stack[stack.length - 1].depth >= e.depth) stack.pop();
+    const into = stack[stack.length - 1].rows;
+    if (isGroup(e)) {
+      const g = { type: 'group', name: e.name, ...(e.collapsed ? { collapsed: true } : {}), rows: [] };
+      into.push(g); stack.push({ depth: e.depth, rows: g.rows });
+    } else into.push({ type: 'signal', signal: e.path.split('.'), format: SIGNALS[e.path] && SIGNALS[e.path].kind === 'bus' ? 'hex' : SIGNALS[e.path] && SIGNALS[e.path].kind === 'enum' ? 'enum' : 'bin' });
+  }
+  return root;
+}
+function fromWorkspace(tree, depth = 0, out = []) {
+  for (const r of tree) {
+    if (depth >= MAX_DEPTH) throw new Error('groups nested deeper than ' + MAX_DEPTH);
+    if (r.type === 'group') { out.push({ depth, ...group(r.name, !!r.collapsed) }); fromWorkspace(r.rows, depth + 1, out); }
+    else { const path = r.signal.join('.'); out.push(SIGNALS[path] ? { depth, ...leaf(path) } : { depth, kind: 'signal', path, name: r.signal[r.signal.length - 1], unresolved: true }); }
+  }
+  return out;
+}
+
+/* ---- self-test ----------------------------------------------------------- */
+function selfTests() {
+  const lines = []; let fails = 0;
+  const ok = (c, m) => { if (!c) fails++; lines.push((c ? 'ok   ' : 'FAIL ') + m); };
+  const R = initialRows();
+  ok(validate(R) === null, 'initial rows are a valid tree');
+  const names = rs => rs.map(e => '  '.repeat(e.depth) + e.name.replace(/\[.*$/, ''));
+  const vis = visible(R);
+  ok(vis.length === R.length - 5 - 4, 'collapsed Read and Registers hide their 9 rows');
+  ok(subtreeEnd(R, 2) === 2 + 1 + 1 + 7 + 1 + 5, 'AXI master spans Write and Read');
+  ok(parent(R, 4) === 3 && parent(R, 3) === 2 && parent(R, 2) === -1, 'parent walks up');
+  ok(leaves(R, 2).length === 12, 'AXI master has 12 signals');
+  ok(validate([{ depth: 1, ...leaf('soc.clk') }]) !== null, 'a first row below depth 0 is rejected');
+  ok(validate([{ depth: 0, ...leaf('soc.clk') }, { depth: 1, ...leaf('soc.rst_n') }]) !== null, 'a signal cannot have children');
+  // Group three rows from two levels: they keep their order under a new group.
+  const wv = R.findIndex(e => e.name === 'wvalid'), irq = R.findIndex(e => e.name === 'irq');
+  let g = groupSelection(R, new Set([wv, wv + 1, irq]), 'Group 1');
+  ok(g && validate(g.rows) === null, 'grouping rows from two levels keeps the tree valid');
+  ok(g && g.rows[g.group].depth === 2 && children(g.rows, g.group).length === 3, 'new group sits where the first row was and holds all three');
+  ok(g && g.rows[g.group + 3].name === 'irq' && g.rows[g.group + 3].depth === 3, 'a shallower row is indented under the group');
+  // Ungroup restores the children one level up.
+  const u = ungroup(g.rows, new Set([g.group]));
+  ok(u && validate(u.rows) === null && u.sel.size === 3, 'ungroup lifts the three children and selects them');
+  // Grouping a group and its own child counts the subtree once.
+  const w = R.findIndex(e => e.name === 'Write');
+  g = groupSelection(R, new Set([w, w + 1]), 'Outer');
+  ok(g && children(g.rows, g.group).length === 1 && leaves(g.rows, g.group).length === 7, 'selected descendants of a selected group are not duplicated');
+  // Moves.
+  const v2 = visible(R);
+  const posIrq = v2.indexOf(irq), posCore = v2.indexOf(R.findIndex(e => e.name === 'Core'));
+  let [lo, hi] = gapDepths(R, v2, posIrq);
+  ok(lo === 0 && hi === 1, 'the gap above irq accepts depth 0 or depth 1 (end of Core)');
+  let m = planMove(R, new Set([irq]), dropTarget(R, v2, posIrq, 1).at, 1);
+  ok(m && m.rows[m.first].name === 'irq' && m.rows[m.first].depth === 1 && parent(m.rows, m.first) === R.findIndex(e => e.name === 'Core'), 'dropping irq at depth 1 appends it to Core');
+  const read = R.findIndex(e => e.name === 'Read');
+  m = planMove(R, new Set([irq]), dropTarget(R, v2, v2.indexOf(read), 0, true).at, dropTarget(R, v2, v2.indexOf(read), 0, true).depth);
+  ok(m && parent(m.rows, m.first) === read && m.rows[m.first - 1].name.startsWith('rdata'), 'dropping onto a collapsed group appends to it');
+  ok(planMove(R, new Set([2]), 4, 2) === null, 'a group cannot move into itself');
+  ok(planMove(R, new Set([0]), 0, 0) === null, 'a move that changes nothing is not offered');
+  [lo, hi] = gapDepths(R, v2, posCore);
+  m = planMove(R, new Set([0, 1]), dropTarget(R, v2, posCore, lo).at, lo);
+  ok(m && m.rows[m.first].name === 'clk' && validate(m.rows) === null && m.sel.size === 2, 'two rows move together and stay selected');
+  // Collapse moves the selection to the group.
+  const c = setCollapsed(R, new Set([wv]), w, true);
+  ok(c.sel.has(w) && !c.sel.has(wv), 'collapsing a group selects it instead of a hidden row');
+  const deep = setCollapsed(R, new Set(), 2, true, true);
+  ok(deep.rows[w].collapsed && deep.rows[2].collapsed, 'Alt collapses descendants too');
+  // Copy and paste keep structure and relative depth.
+  const clip = extract(R, new Set([w]));
+  ok(clip[0].depth === 0 && clip.length === 8, 'copying a group copies its subtree at depth 0');
+  const p = paste(R, new Set([irq]), clip);
+  ok(p && validate(p.rows) === null && p.rows[irq + 1].name === 'Write', 'paste inserts the subtree after the selection');
+  // Remove takes subtrees.
+  ok(removeSelection(R, new Set([2])).rows.length === R.length - subtreeEnd(R, 2) + 2, 'removing a group removes its subtree');
+  // Workspace round trip.
+  const ws = toWorkspace(R), back = fromWorkspace(JSON.parse(JSON.stringify(ws)));
+  ok(Object.values(SIGNALS).every(s => s.ch.t.every((x, k) => k === 0 || x > s.ch.t[k - 1])), 'generated change times are strictly increasing');
+  ok(SIGNALS['soc.u_axi.wdata'].ch.value(510) === null && SIGNALS['soc.u_axi.wdata'].ch.value(515) !== null, 'wdata is undefined for one cycle at 505 ns');
+  ok(back.length === R.length && back.every((e, i) => e.depth === R[i].depth && e.name === R[i].name && !!e.collapsed === !!R[i].collapsed), 'workspace rows round-trip through nested JSON');
+  let deepTree = [{ type: 'signal', signal: ['soc', 'clk'] }];
+  for (let k = 0; k < MAX_DEPTH; k++) deepTree = [{ type: 'group', name: 'g' + k, rows: deepTree }];
+  let threw = false; try { fromWorkspace(deepTree); } catch { threw = true; }
+  ok(threw, `nesting deeper than ${MAX_DEPTH} is rejected on load`);
+  // A saved row the trace lacks loads as an unresolved row inside its group.
+  const lost = fromWorkspace([{ type: 'group', name: 'AXI', rows: [{ type: 'signal', signal: ['soc', 'u_axi', 'awprot'] }] }]);
+  ok(lost[1].unresolved && lost[1].depth === 1 && validate(lost) === null, 'a missing signal stays an unresolved row in its group');
+  // Summary.
+  const readEdges = groupEdges(R, read, 0, T_END);
+  ok(readEdges.length > 10 && readEdges.every((e, k) => k === 0 || e[0] > readEdges[k - 1][0]), 'a group\'s edges are the sorted union of its leaves');
+  ok(groupUndefined(R, R.findIndex(e => e.name === 'Write'), 0, T_END).some(([a, b]) => a <= 505 && b >= 515), 'the undefined wdata cycle shows in the Write summary');
+  const nx = nextEdge(R, read, 110, 1);
+  ok(nx !== null && nx > 110 && readEdges.some(e => e[0] === nx), 'next change on a group is the next edge of any of its signals');
+  const gv = groupValue(R, read, 110);
+  ok(gv.changed >= 3 && /of 5 changed/.test(gv.text), 'the value cell counts the signals that change at the cursor');
+  lines.unshift(fails ? 'selftest: ' + fails + ' FAILED' : 'selftest: all passed');
+  return { fails, lines };
+}
+
+return { T_END, MAX_DEPTH, SIGNALS, SCOPES, Changes, initialRows, isGroup, subtreeEnd, parent, children, leaves, visible, validate, roots,
+  gapDepths, dropTarget, planMove, groupSelection, ungroup, removeSelection, setCollapsed, extract, paste, scopeGroup,
+  groupEdges, groupUndefined, groupValue, nextEdge, fmt, toWorkspace, fromWorkspace, selfTests };
+})();
+
+</script>
+<script>
+/* ============================================================================
+   The mock Waves panel: a canvas painted from WG's rows, with the gestures
+   the proposal defines. Test hooks are on window.GR.
+   ============================================================================ */
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const pv = $('#pv'), body = $('#wbody'), cv = body.querySelector('canvas'), ctx = cv.getContext('2d');
+const tip = body.querySelector('.tip'), menu = body.querySelector('.menu'), input = $('#rename');
+const C = { bg: '#282c33', head: '#2f343e', ln: '#3a3f4a', guide: '#434955', tx: '#dce0e5', mu: '#a9afbc', dim: '#7d8491',
+  sig: '#a1c181', fill: 'rgba(161,193,129,.10)', dense: 'rgba(161,193,129,.55)', undef: '#d07277', undefFill: 'rgba(208,114,119,.22)',
+  sel: 'rgba(116,173,232,.14)', hover: 'rgba(200,204,212,.05)', grp: 'rgba(200,204,212,.035)', cur: '#74ade8', drop: '#74ade8', enumc: '#e5c07b' };
+const ROW = 22, HEAD = 26, INDENT = 14, PAD = 8;
+
+let S;
+function reset() {
+  S = { rows: WG.initialRows(), sel: new Set(), anchor: null, cursor: 430, view: [0, WG.T_END], scroll: 0,
+    drag: null, hover: null, hoverX: null, menu: null, rename: null, clip: [], seq: 1, painted: 0, last: null };
+  closeMenu(); endRename(false); tip.hidden = true;
+  update();
+}
+
+/* ---- geometry ------------------------------------------------------------ */
+function cols() {
+  const w = body.clientWidth, narrow = w < 560;
+  const nw = narrow ? 128 : 208, vw = narrow ? 70 : 112;
+  return { w, h: body.clientHeight, nw, vw, wx: nw + vw, ww: Math.max(40, w - nw - vw) };
+}
+const vis = () => WG.visible(S.rows);
+const rowTop = p => HEAD + p * ROW - S.scroll;
+function posAt(y) { const p = Math.floor((y - HEAD + S.scroll) / ROW); return p >= 0 && p < vis().length ? p : null; }
+const tx = (t, c) => c.wx + (t - S.view[0]) / (S.view[1] - S.view[0]) * c.ww;
+const xt = (x, c) => S.view[0] + (x - c.wx) / c.ww * (S.view[1] - S.view[0]);
+const textX = e => PAD + e.depth * INDENT + INDENT;
+function maxScroll() { return Math.max(0, vis().length * ROW - (body.clientHeight - HEAD) + 8); }
+
+/* ---- painting ------------------------------------------------------------ */
+function paint() {
+  const dpr = window.devicePixelRatio || 1, c = cols();
+  if (cv.width !== Math.round(c.w * dpr) || cv.height !== Math.round(c.h * dpr)) { cv.width = Math.round(c.w * dpr); cv.height = Math.round(c.h * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, c.w, c.h);
+  S.scroll = Math.max(0, Math.min(S.scroll, maxScroll()));
+  const v = vis();
+  ctx.save(); ctx.beginPath(); ctx.rect(0, HEAD, c.w, c.h - HEAD); ctx.clip();
+  v.forEach((i, p) => {
+    const y = rowTop(p); if (y + ROW < HEAD || y > c.h) return;
+    paintRow(S.rows[i], i, y, c);
+  });
+  paintGuides(v, c);
+  ctx.restore();
+  paintHeader(c);
+  // Column rules and cursor.
+  ctx.fillStyle = C.ln; ctx.fillRect(c.nw, 0, 1, c.h); ctx.fillRect(c.wx, 0, 1, c.h);
+  const cx = Math.round(tx(S.cursor, c)) + .5;
+  if (cx >= c.wx && cx <= c.w) { ctx.strokeStyle = C.cur; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, HEAD - 4); ctx.lineTo(cx, c.h); ctx.stroke(); }
+  paintDrop(v, c);
+  S.painted++;
+}
+function paintHeader(c) {
+  ctx.fillStyle = C.head; ctx.fillRect(0, 0, c.w, HEAD); ctx.fillStyle = C.ln; ctx.fillRect(0, HEAD - 1, c.w, 1);
+  ctx.font = '600 11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.mu; ctx.textBaseline = 'middle';
+  ctx.fillText('Name', PAD, HEAD / 2); ctx.fillText('Value', c.nw + PAD, HEAD / 2);
+  const span = S.view[1] - S.view[0], step = [10, 20, 50, 100, 200, 500].find(s => s / span * c.ww >= 64) || 1000;
+  ctx.font = '10.5px "IBM Plex Mono",monospace';
+  for (let t = Math.ceil(S.view[0] / step) * step; t <= S.view[1]; t += step) {
+    const x = Math.round(tx(t, c)) + .5; if (x < c.wx + 2) continue;
+    ctx.fillStyle = 'rgba(200,204,212,.08)'; ctx.fillRect(x, HEAD, 1, c.h);
+    ctx.fillStyle = C.dim; ctx.fillText(t + ' ns', x + 3, HEAD / 2);
+  }
+  const cx = tx(S.cursor, c);
+  if (cx >= c.wx && cx <= c.w) {
+    const label = S.cursor + ' ns'; ctx.font = '600 10.5px "IBM Plex Mono",monospace';
+    const w = ctx.measureText(label).width + 10, x = Math.min(c.w - w, Math.max(c.wx, cx - w / 2));
+    ctx.fillStyle = C.cur; roundRect(x, 4, w, HEAD - 8, 3); ctx.fill(); ctx.fillStyle = '#282c33'; ctx.fillText(label, x + 5, HEAD / 2);
+  }
+}
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function paintRow(e, i, y, c) {
+  const group = WG.isGroup(e);
+  if (group) { ctx.fillStyle = C.grp; ctx.fillRect(0, y, c.w, ROW); }
+  if (S.sel.has(i)) { ctx.fillStyle = C.sel; ctx.fillRect(0, y, c.w, ROW); }
+  else if (S.hover === i) { ctx.fillStyle = C.hover; ctx.fillRect(0, y, c.w, ROW); }
+  if (S.drag && S.drag.into === i) { ctx.strokeStyle = C.drop; ctx.lineWidth = 1.5; ctx.strokeRect(1.5, y + 1.5, c.w - 3, ROW - 3); }
+  ctx.fillStyle = 'rgba(200,204,212,.05)'; ctx.fillRect(0, y + ROW - 1, c.w, 1);
+  const mid = y + ROW / 2;
+  // Name column.
+  ctx.save(); ctx.beginPath(); ctx.rect(0, y, c.nw - 4, ROW); ctx.clip(); ctx.textBaseline = 'middle';
+  if (group) {
+    const x0 = PAD + e.depth * INDENT;
+    ctx.strokeStyle = C.mu; ctx.lineWidth = 1.4; ctx.beginPath();
+    if (e.collapsed) { ctx.moveTo(x0 + 4, mid - 4); ctx.lineTo(x0 + 8, mid); ctx.lineTo(x0 + 4, mid + 4); }
+    else { ctx.moveTo(x0 + 2, mid - 2); ctx.lineTo(x0 + 6, mid + 2); ctx.lineTo(x0 + 10, mid - 2); }
+    ctx.stroke();
+    ctx.font = '600 12px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.tx;
+    const name = S.rename && S.rename.row === i ? '' : e.name;
+    ctx.fillText(name, textX(e), mid);
+    const w = ctx.measureText(name).width;
+    ctx.font = '11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.dim;
+    if (name) ctx.fillText(String(WG.leaves(S.rows, i).length), textX(e) + w + 6, mid);
+  } else {
+    ctx.font = (e.unresolved ? 'italic ' : '') + '12px "IBM Plex Mono",monospace'; ctx.fillStyle = e.unresolved ? C.dim : C.tx;
+    ctx.fillText(e.name, textX(e), mid);
+  }
+  ctx.restore();
+  // Value column.
+  ctx.save(); ctx.beginPath(); ctx.rect(c.nw + 1, y, c.vw - 2, ROW); ctx.clip();
+  ctx.font = '12px "IBM Plex Mono",monospace'; ctx.textBaseline = 'middle';
+  if (group) {
+    if (e.collapsed) {
+      const gv = WG.groupValue(S.rows, i, S.cursor);
+      ctx.font = '11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = gv.changed ? C.tx : C.dim;
+      ctx.fillText(gv.text, c.nw + PAD, mid);
+      if (gv.undef) { const w = ctx.measureText(gv.text).width; ctx.fillStyle = C.undef; ctx.fillText(' · ' + gv.undef + ' X', c.nw + PAD + w, mid); }
+    }
+  } else if (e.unresolved) { ctx.font = '11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.dim; ctx.fillText('—', c.nw + PAD, mid); }
+  else { const s = WG.SIGNALS[e.path], v = s.ch.value(S.cursor); ctx.fillStyle = v === null ? C.undef : C.tx; ctx.fillText(WG.fmt(s, v), c.nw + PAD, mid); }
+  ctx.restore();
+  // Wave column.
+  ctx.save(); ctx.beginPath(); ctx.rect(c.wx + 1, y, c.ww, ROW); ctx.clip();
+  if (group) { if (e.collapsed) paintSummary(i, y, c); }
+  else if (e.unresolved) { ctx.font = 'italic 11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.dim; ctx.textBaseline = 'middle'; ctx.fillText('not in this trace', c.wx + 10, mid); }
+  else { const s = WG.SIGNALS[e.path]; if (s.kind === 'bit') paintBit(s, y, c); else paintBus(s, y, c); }
+  ctx.restore();
+}
+// Indent guides: one line per open group from below its header to its last visible row.
+function paintGuides(v, c) {
+  ctx.fillStyle = C.guide;
+  v.forEach((i, p) => {
+    const e = S.rows[i]; if (!WG.isGroup(e) || e.collapsed) return;
+    const end = WG.subtreeEnd(S.rows, i); let last = p;
+    while (last + 1 < v.length && v[last + 1] < end) last++;
+    if (last === p) return;
+    const x = PAD + e.depth * INDENT + 6;
+    ctx.fillRect(x, rowTop(p) + ROW - 3, 1, (last - p) * ROW);
+  });
+}
+function paintBit(s, y, c) {
+  const hi = y + 5, lo = y + ROW - 5, ch = s.ch; let k = Math.max(0, ch.at(S.view[0]));
+  ctx.lineWidth = 1; ctx.strokeStyle = C.sig; ctx.beginPath(); let px = null, py = null, lastCol = -1;
+  for (; k < ch.t.length && ch.t[k] <= S.view[1]; k++) {
+    const x0 = Math.max(c.wx, tx(ch.t[k], c)), x1 = Math.min(c.w, tx(k + 1 < ch.t.length ? ch.t[k + 1] : WG.T_END, c)), v = ch.v[k];
+    if (v === null) { ctx.fillStyle = C.undefFill; ctx.fillRect(x0, hi, x1 - x0, lo - hi); ctx.fillStyle = C.undef; ctx.fillRect(x0, (hi + lo) / 2, x1 - x0, 1); px = null; continue; }
+    const col = Math.floor(x0);
+    if (col === lastCol && x1 - x0 < 1) { ctx.fillStyle = C.dense; ctx.fillRect(col, hi, 1, lo - hi); continue; }
+    lastCol = col;
+    const yy = v ? hi : lo;
+    if (v) { ctx.fillStyle = C.fill; ctx.fillRect(x0, hi, x1 - x0, lo - hi); }
+    if (px === null) ctx.moveTo(x0, yy); else ctx.lineTo(x0, yy);
+    ctx.lineTo(x1, yy); px = x1; py = yy;
+  }
+  ctx.stroke();
+}
+function paintBoxes(spans, y, c, color, labels) {
+  const top = y + 4, bot = y + ROW - 4, mid = y + ROW / 2;
+  ctx.font = '11px "IBM Plex Mono",monospace'; ctx.textBaseline = 'middle';
+  for (const [t0, t1, text, undef] of spans) {
+    const x0 = Math.max(c.wx - 4, tx(t0, c)), x1 = Math.min(c.w + 4, tx(t1, c)), w = x1 - x0;
+    if (w < 0.5) continue;
+    if (w < 3) { ctx.fillStyle = undef ? C.undef : C.dense; ctx.fillRect(x0, top, Math.max(1, w), bot - top); continue; }
+    const s = Math.min(3, w / 2);
+    ctx.beginPath(); ctx.moveTo(x0, mid); ctx.lineTo(x0 + s, top); ctx.lineTo(x1 - s, top); ctx.lineTo(x1, mid); ctx.lineTo(x1 - s, bot); ctx.lineTo(x0 + s, bot); ctx.closePath();
+    if (undef) { ctx.fillStyle = C.undefFill; ctx.fill(); ctx.strokeStyle = C.undef; } else ctx.strokeStyle = color;
+    ctx.lineWidth = 1; ctx.stroke();
+    if (labels && text !== null) {
+      const tw = ctx.measureText(text).width;
+      if (tw + 8 < w) { ctx.fillStyle = undef ? C.undef : C.tx; ctx.fillText(text, Math.max(x0 + 5, Math.min(c.wx + 4, x1 - tw - 5)), mid); }
+    }
+  }
+}
+function paintBus(s, y, c) {
+  const ch = s.ch, spans = [];
+  for (let k = Math.max(0, ch.at(S.view[0])); k < ch.t.length && ch.t[k] <= S.view[1]; k++)
+    spans.push([ch.t[k], k + 1 < ch.t.length ? ch.t[k + 1] : WG.T_END, WG.fmt(s, ch.v[k]), ch.v[k] === null]);
+  paintBoxes(spans, y, c, s.kind === 'enum' ? C.enumc : C.sig, true);
+}
+// A collapsed group: boxes between the union of its signals' changes, in the
+// bus shape with no labels; stretches where any signal is X in the X colour.
+function paintSummary(i, y, c) {
+  const edges = WG.groupEdges(S.rows, i, S.view[0], S.view[1]).map(e => e[0]);
+  const undef = WG.groupUndefined(S.rows, i, S.view[0], S.view[1]);
+  const cuts = [...new Set([S.view[0], ...edges, ...undef.flat(), S.view[1]])].sort((a, b) => a - b);
+  const spans = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const a = cuts[k], b = cuts[k + 1];
+    spans.push([a, b, null, undef.some(([u0, u1]) => a >= u0 && b <= u1)]);
+  }
+  paintBoxes(spans, y, c, C.sig, false);
+}
+function paintDrop(v, c) {
+  const d = S.drag; if (!d || !d.started || d.gap === null || d.into !== null) return;
+  const y = HEAD + d.gap * ROW - S.scroll, x = PAD + d.depth * INDENT;
+  ctx.strokeStyle = C.drop; ctx.fillStyle = C.drop; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x + 4, y); ctx.lineTo(c.w, y); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x + 2, y, 3, 0, 7); ctx.fill();
+}
+
+/* ---- state changes --------------------------------------------------------- */
+function update() {
+  paint(); renderStatus(); renderJson(); renderSide();
+  if (S.rename) placeRename();
+}
+function apply(r) { if (!r) return false; S.rows = r.rows; S.sel = r.sel; S.anchor = [...r.sel][0] ?? null; return true; }
+function select(i, mods = {}) {
+  const v = vis();
+  if (mods.shift && S.anchor !== null && v.includes(S.anchor)) {
+    const a = v.indexOf(S.anchor), b = v.indexOf(i); S.sel = new Set(v.slice(Math.min(a, b), Math.max(a, b) + 1));
+  } else if (mods.toggle) { S.sel.has(i) ? S.sel.delete(i) : S.sel.add(i); S.anchor = i; }
+  else { S.sel = new Set([i]); S.anchor = i; }
+}
+function toggle(i, deep) { apply(WG.setCollapsed(S.rows, S.sel, i, !S.rows[i].collapsed, deep)); }
+function groupSel() {
+  if (!S.sel.size) return;
+  const r = WG.groupSelection(S.rows, S.sel, 'Group ' + S.seq);
+  if (!r) return notice('Groups nest at most ' + WG.MAX_DEPTH + ' levels deep');
+  S.seq++; apply(r); startRename(r.group, true);
+}
+function ungroupSel() { apply(WG.ungroup(S.rows, S.sel)); }
+function removeSel() {
+  if (!S.sel.size) return;
+  const first = Math.min(...S.sel), r = WG.removeSelection(S.rows, S.sel);
+  S.rows = r.rows; S.sel = new Set(); const v = vis();
+  const next = v.find(i => i >= first) ?? v[v.length - 1];
+  if (next !== undefined) { S.sel.add(next); S.anchor = next; }
+}
+function collapseAll(collapsed) { S.rows = S.rows.map(e => WG.isGroup(e) ? { ...e, collapsed } : e); if (collapsed) { const v = new Set(vis()); S.sel = new Set([...S.sel].filter(i => v.has(i))); } }
+function addRows(rows) {
+  const at = S.rows.length; S.rows = S.rows.concat(rows); S.sel = new Set([at]); S.anchor = at;
+  S.scroll = maxScroll();
+}
+function stepEdge(dir) {
+  const i = S.anchor ?? [...S.sel][0]; if (i === undefined || i === null) return;
+  const t = WG.nextEdge(S.rows, i, S.cursor, dir); if (t !== null) { S.cursor = t; revealTime(t); }
+}
+function revealTime(t) { const span = S.view[1] - S.view[0]; if (t < S.view[0] || t > S.view[1]) { const a = Math.max(0, Math.min(WG.T_END - span, t - span / 2)); S.view = [a, a + span]; } }
+function reveal(i) {
+  const p = vis().indexOf(i); if (p < 0) return;
+  const h = body.clientHeight - HEAD, top = p * ROW;
+  if (top < S.scroll) S.scroll = top; else if (top + ROW > S.scroll + h) S.scroll = top + ROW - h;
+}
+function notice(text) { S.last = text; renderStatus(); }
+
+/* ---- rename -------------------------------------------------------------- */
+function startRename(i, fresh = false) {
+  if (!WG.isGroup(S.rows[i])) return;
+  S.rename = { row: i, fresh }; reveal(i); input.value = S.rows[i].name; input.hidden = false;
+  placeRename(); paint(); input.focus(); input.select();
+}
+function placeRename() {
+  const e = S.rows[S.rename.row], p = vis().indexOf(S.rename.row), c = cols();
+  const x = textX(e) - 4, y = rowTop(p) + 2;
+  Object.assign(input.style, { left: x + 'px', top: y + 'px', width: Math.max(60, c.nw - x - 6) + 'px', height: (ROW - 4) + 'px' });
+}
+function endRename(commit) {
+  if (!S || !S.rename) { input.hidden = true; return; }
+  const i = S.rename.row, name = input.value.trim();
+  if (commit && name) S.rows[i] = { ...S.rows[i], name };
+  S.rename = null; input.hidden = true; pv.focus(); update();
+}
+input.addEventListener('keydown', ev => {
+  ev.stopPropagation();
+  if (ev.key === 'Enter') { ev.preventDefault(); endRename(true); }
+  else if (ev.key === 'Escape') { ev.preventDefault(); endRename(false); }
+});
+input.addEventListener('blur', () => { if (S.rename) endRename(true); });
+
+/* ---- menu ---------------------------------------------------------------- */
+function openMenu(x, y) {
+  const one = S.sel.size === 1 ? [...S.sel][0] : null, g = one !== null && WG.isGroup(S.rows[one]);
+  const anyGroup = [...S.sel].some(i => WG.isGroup(S.rows[i]));
+  const items = [
+    ['Group selection', 'G', groupSel, S.sel.size > 0],
+    ['Ungroup', '⇧G', ungroupSel, anyGroup],
+    ['Rename…', 'F2', () => startRename(one), g],
+    g ? [S.rows[one].collapsed ? 'Expand' : 'Collapse', g && S.rows[one].collapsed ? '→' : '←', () => toggle(one, false), true] : null,
+    '-',
+    ['Collapse all groups', '', () => collapseAll(true), S.rows.some(WG.isGroup)],
+    ['Expand all groups', '', () => collapseAll(false), S.rows.some(WG.isGroup)],
+    '-',
+    ['Copy', '⌘C', () => { S.clip = WG.extract(S.rows, S.sel); }, S.sel.size > 0],
+    ['Paste', '⌘V', () => apply(WG.paste(S.rows, S.sel, S.clip)), S.clip.length > 0],
+    [anyGroup ? 'Remove with contents' : 'Remove', '⌫', removeSel, S.sel.size > 0],
+  ].filter(Boolean);
+  menu.innerHTML = '';
+  for (const it of items) {
+    if (it === '-') { menu.appendChild(document.createElement('hr')); continue; }
+    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.disabled = !it[3];
+    b.innerHTML = `<span>${it[0]}</span><kbd>${it[1]}</kbd>`; b.dataset.item = it[0];
+    b.addEventListener('click', () => { closeMenu(); pv.focus({ preventScroll: true }); it[2](); update(); });
+    menu.appendChild(b);
+  }
+  menu.hidden = false;
+  const c = cols(), mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = Math.max(2, Math.min(x, c.w - mw - 4)) + 'px'; menu.style.top = Math.max(2, Math.min(y, c.h - mh - 4)) + 'px';
+  S.menu = true; const f = menu.querySelector('button:not(:disabled)'); if (f) f.focus();
+}
+function closeMenu() { menu.hidden = true; if (S) S.menu = null; }
+menu.addEventListener('keydown', ev => {
+  const bs = [...menu.querySelectorAll('button:not(:disabled)')], k = bs.indexOf(document.activeElement);
+  if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeMenu(); pv.focus(); }
+  else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); ev.stopPropagation(); bs[(k + (ev.key === 'ArrowDown' ? 1 : bs.length - 1)) % bs.length].focus(); }
+});
+
+/* ---- pointer ------------------------------------------------------------- */
+const local = ev => { const r = body.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+function dropAt(p) {
+  const v = vis(), n = v.length;
+  let pos = posAt(p.y);
+  // Middle half of a collapsed group's row: drop into it.
+  if (pos !== null) {
+    const i = v[pos], f = (p.y - rowTop(pos)) / ROW;
+    if (WG.isGroup(S.rows[i]) && S.rows[i].collapsed && f > .25 && f < .75 && !S.sel.has(i)) {
+      const t = WG.dropTarget(S.rows, v, pos, 0, true), plan = WG.planMove(S.rows, S.sel, t.at, t.depth);
+      if (plan) return { gap: pos, depth: t.depth, into: i, plan };
+    }
+  }
+  const g = Math.max(0, Math.min(n, Math.round((p.y - HEAD + S.scroll) / ROW)));
+  const [lo, hi] = WG.gapDepths(S.rows, v, g);
+  const want = Math.round((p.x - PAD - INDENT / 2) / INDENT);
+  const depth = Math.max(lo, Math.min(hi, want));
+  const t = WG.dropTarget(S.rows, v, g, depth), plan = WG.planMove(S.rows, S.sel, t.at, t.depth);
+  return plan ? { gap: g, depth, into: null, plan } : { gap: null, depth, into: null, plan: null };
+}
+body.addEventListener('pointerdown', ev => {
+  if (ev.target !== cv) return;
+  if (S.rename) endRename(true);
+  closeMenu(); pv.focus();
+  const p = local(ev), c = cols(), pos = posAt(p.y);
+  if (ev.button === 2) {
+    if (pos !== null && p.x < c.wx) { const i = vis()[pos]; if (!S.sel.has(i)) select(i); update(); openMenu(p.x, p.y); }
+    return;
+  }
+  if (ev.button !== 0) return;
+  if (p.x >= c.wx) {
+    let t = Math.round(xt(p.x, c)); t = Math.max(0, Math.min(WG.T_END, t));
+    // Snap to an edge of the row under the pointer within 6 px.
+    if (pos !== null) { const i = vis()[pos], a = WG.nextEdge(S.rows, i, t, -1), b = WG.nextEdge(S.rows, i, t - 1, 1);
+      for (const e of [a, b]) if (e !== null && Math.abs(tx(e, c) - p.x) <= 6) { t = e; break; } }
+    S.cursor = t; S.drag = { kind: 'cursor' }; body.setPointerCapture(ev.pointerId); update(); return;
+  }
+  if (pos === null) { S.sel.clear(); update(); return; }
+  const i = vis()[pos], e = S.rows[i];
+  if (WG.isGroup(e) && p.x < textX(e) && p.x >= PAD + e.depth * INDENT - 2) { toggle(i, ev.altKey); update(); return; }
+  const mods = { shift: ev.shiftKey, toggle: ev.metaKey || ev.ctrlKey };
+  const keep = S.sel.has(i) && !mods.shift && !mods.toggle;
+  if (!keep) select(i, mods);
+  if (p.x < c.nw && S.sel.size) { S.drag = { kind: 'rows', y0: p.y, x0: p.x, started: false, gap: null, depth: 0, into: null, plan: null, collapse: keep ? i : null }; body.setPointerCapture(ev.pointerId); }
+  update();
+});
+// Double-click on a group's name renames it.
+body.addEventListener('dblclick', ev => {
+  const p = local(ev), c = cols(), pos = posAt(p.y); if (pos === null || p.x >= c.nw) return;
+  const i = vis()[pos], e = S.rows[i];
+  if (WG.isGroup(e) && p.x >= textX(e)) { S.drag = null; select(i); startRename(i); }
+});
+body.addEventListener('pointermove', ev => {
+  const p = local(ev), c = cols(), d = S.drag;
+  if (d && d.kind === 'cursor') { S.cursor = Math.max(0, Math.min(WG.T_END, Math.round(xt(p.x, c)))); update(); return; }
+  if (d && d.kind === 'rows') {
+    if (!d.started && Math.hypot(p.y - d.y0, p.x - d.x0) < 4) return;
+    d.started = true; Object.assign(d, dropAt(p)); paint(); return;
+  }
+  const pos = posAt(p.y), i = pos === null ? null : vis()[pos];
+  const h = p.x < c.wx ? i : null;
+  if (h !== S.hover) { S.hover = h; paint(); }
+  showTip(i, p, c);
+});
+body.addEventListener('pointerup', ev => {
+  const d = S.drag; S.drag = null;
+  if (d && d.kind === 'rows') {
+    if (d.started && d.plan) { apply(d.plan); if (d.into !== null) { S.sel = new Set([d.into]); S.anchor = d.into; } }
+    else if (!d.started && d.collapse !== null) select(d.collapse);
+  }
+  update();
+});
+body.addEventListener('pointerleave', () => { if (!S.drag) { S.hover = null; tip.hidden = true; paint(); } });
+body.addEventListener('contextmenu', ev => ev.preventDefault());
+body.addEventListener('wheel', ev => {
+  ev.preventDefault(); const c = cols(), p = local(ev);
+  if (ev.ctrlKey || ev.metaKey) {
+    const t = xt(Math.max(c.wx, p.x), c), f = Math.exp(ev.deltaY * 0.002), span = Math.max(40, Math.min(WG.T_END, (S.view[1] - S.view[0]) * f));
+    const a = Math.max(0, Math.min(WG.T_END - span, t - (t - S.view[0]) * span / (S.view[1] - S.view[0]))); S.view = [a, a + span];
+  } else if (ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {
+    const span = S.view[1] - S.view[0], dt = (ev.deltaX || ev.deltaY) / c.ww * span, a = Math.max(0, Math.min(WG.T_END - span, S.view[0] + dt)); S.view = [a, a + span];
+  } else S.scroll = Math.max(0, Math.min(maxScroll(), S.scroll + ev.deltaY));
+  update();
+}, { passive: false });
+// Hovering a collapsed group lists its signals' values there, without expanding it.
+function showTip(i, p, c) {
+  if (i === null || p.x < c.wx || !WG.isGroup(S.rows[i]) || !S.rows[i].collapsed) { tip.hidden = true; return; }
+  const t = Math.round(xt(p.x, c)), ls = WG.leaves(S.rows, i), shown = ls.slice(0, 8);
+  const lines = shown.map(j => { const e = S.rows[j], s = WG.SIGNALS[e.path];
+    if (!s || e.unresolved) return `<span class="d">${esc(e.name)}</span> <span class="d">—</span>`;
+    const v = s.ch.value(t); return `<span class="d">${esc(e.name.replace(/\[.*$/, ''))}</span> ${v === null ? '<b class="x">x</b>' : '<b>' + WG.fmt(s, v) + '</b>'}`; });
+  if (ls.length > shown.length) lines.push(`<span class="d">+${ls.length - shown.length} more</span>`);
+  tip.innerHTML = `<span class="d">${t} ns · ${esc(S.rows[i].name)}</span><br>` + lines.join('<br>');
+  tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(c.w - w - 4, p.x + 14) + 'px'; tip.style.top = Math.max(2, Math.min(c.h - h - 4, p.y + 14)) + 'px';
+}
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+
+/* ---- keyboard ------------------------------------------------------------ */
+pv.addEventListener('keydown', ev => {
+  if (ev.target === input || menu.contains(ev.target)) return;
+  const v = vis(), cur = S.anchor !== null && v.includes(S.anchor) ? S.anchor : null, mod = ev.metaKey || ev.ctrlKey;
+  let handled = true;
+  switch (ev.key) {
+    case 'ArrowDown': case 'ArrowUp': {
+      if (!v.length) break; const p = cur === null ? 0 : Math.max(0, Math.min(v.length - 1, v.indexOf(cur) + (ev.key === 'ArrowDown' ? 1 : -1)));
+      select(v[p], { shift: ev.shiftKey }); if (!ev.shiftKey) S.anchor = v[p]; reveal(v[p]); break; }
+    case 'ArrowLeft': case 'ArrowRight': {
+      if (ev.shiftKey) { stepEdge(ev.key === 'ArrowRight' ? 1 : -1); break; }
+      if (cur === null) break; const e = S.rows[cur];
+      if (ev.key === 'ArrowLeft') { if (WG.isGroup(e) && !e.collapsed) toggle(cur, ev.altKey); else { const pa = WG.parent(S.rows, cur); if (pa >= 0) { select(pa); reveal(pa); } } }
+      else if (WG.isGroup(e)) { if (e.collapsed) toggle(cur, ev.altKey); else if (S.rows[cur + 1] && S.rows[cur + 1].depth > e.depth) { select(cur + 1); reveal(cur + 1); } }
+      break; }
+    case 'g': case 'G': if (mod) { handled = false; break; } ev.shiftKey ? ungroupSel() : groupSel(); break;
+    case 'F2': if (cur !== null) startRename(cur); break;
+    case 'Enter': if (cur !== null && WG.isGroup(S.rows[cur])) toggle(cur, false); else handled = false; break;
+    case 'Delete': case 'Backspace': removeSel(); break;
+    case 'Escape': if (S.drag) S.drag = null; else if (S.sel.size) S.sel.clear(); else handled = false; break;
+    case 'c': case 'C': if (mod) S.clip = WG.extract(S.rows, S.sel); else handled = false; break;
+    case 'x': case 'X': if (mod) { S.clip = WG.extract(S.rows, S.sel); removeSel(); } else handled = false; break;
+    case 'v': case 'V': if (mod) apply(WG.paste(S.rows, S.sel, S.clip)); else handled = false; break;
+    case 'a': case 'A': if (mod) S.sel = new Set(v); else handled = false; break;
+    case 'F10': if (ev.shiftKey && S.sel.size) { const p = v.indexOf(cur ?? [...S.sel][0]); update(); openMenu(24, rowTop(Math.max(0, p)) + ROW); } else handled = false; break;
+    default: handled = false;
+  }
+  if (handled) { ev.preventDefault(); update(); }
+});
+
+/* ---- sidebar, status and workspace text ----------------------------------- */
+const side = $('#side');
+function renderSide() {
+  if (side.dataset.built) return; side.dataset.built = '1';
+  let h = '<div class="sh">Scopes</div>';
+  for (const s of Object.keys(WG.SCOPES)) {
+    const depth = s.split('.').length - 1;
+    h += `<div class="srow" style="padding-left:${6 + depth * 12}px"><span>${s.split('.').pop()}</span><button type="button" data-scope="${s}" title="Add ${s} to Waves as a group" aria-label="Add scope ${s} as a group">+ group</button></div>`;
+  }
+  side.innerHTML = h;
+}
+side.addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.scope) addRows(WG.scopeGroup(b.dataset.scope));
+  pv.focus(); update();
+});
+function renderStatus() {
+  const sel = [...S.sel].sort((a, b) => a - b).map(i => S.rows[i].name.replace(/\[.*$/, ''));
+  const groups = S.rows.filter(WG.isGroup).length;
+  $('#status').innerHTML = `<span>rows <b>${S.rows.length}</b> · visible <b>${vis().length}</b> · groups <b>${groups}</b></span><span>cursor <b>${S.cursor} ns</b></span>` +
+    (S.last ? `<span>${esc(S.last)}</span>` : '') + `<span class="sel">${sel.length ? esc(sel.slice(0, 4).join(', ') + (sel.length > 4 ? ` +${sel.length - 4}` : '')) : 'no selection'}</span>`;
+}
+function renderJson() {
+  const rows = WG.toWorkspace(S.rows);
+  const text = JSON.stringify({ kind: 'waves', version: 4, rows }, null, 1)
+    .replace(/\[\n\s*("[^"]*"),\n\s*("[^"]*")(,\n\s*("[^"]*"))?(,\n\s*("[^"]*"))?\n\s*\]/g, (m, a, b, _c, c3, _d, d4) => `[${[a, b, c3, d4].filter(Boolean).join(', ')}]`)
+    .replace(/\{\n\s*("type": "signal"),\n\s*("signal": \[[^\]]*\]),\n\s*("format": "[^"]*")\n\s*\}/g, '{$1, $2, $3}');
+  $('#wsjson').textContent = text;
+}
+
+/* ---- guided scenarios ---------------------------------------------------- */
+const byName = n => S.rows.findIndex(e => e.name.replace(/\[.*$/, '') === n);
+const GUIDES = {
+  collapse() { const w = byName('Write'); S.cursor = 510; revealTime(510); select(w); apply(WG.setCollapsed(S.rows, S.sel, w, true)); reveal(w); },
+  group() {
+    const w = byName('Write'); if (w >= 0 && S.rows[w].collapsed) apply(WG.setCollapsed(S.rows, S.sel, w, false));
+    const ids = ['awvalid', 'awready', 'awaddr'].map(byName).filter(i => i >= 0); if (!ids.length) return;
+    S.sel = new Set(ids); const r = WG.groupSelection(S.rows, S.sel, 'AW channel'); if (r) { S.seq++; apply(r); reveal(r.group); }
+  },
+  into() {
+    const i = byName('irq'), core = byName('Core'); if (i < 0 || core < 0) return; select(i);
+    const r = WG.planMove(S.rows, S.sel, WG.subtreeEnd(S.rows, core), S.rows[core].depth + 1); if (r) apply(r); reveal(byName('irq'));
+  },
+  step() { let r = byName('Read'); if (r < 0) return; if (!S.rows[r].collapsed) apply(WG.setCollapsed(S.rows, S.sel, r, true)); r = byName('Read'); select(r); reveal(r); S.cursor = 100; S.view = [0, WG.T_END]; stepEdge(1); stepEdge(1); },
+  scope() { addRows(WG.scopeGroup('soc.u_dma')); },
+  ungroup() { const a = byName('AXI master'); if (a < 0) return; select(a); ungroupSel(); },
+};
+document.querySelectorAll('[data-guide]').forEach(b => b.addEventListener('click', () => {
+  const g = b.dataset.guide;
+  if (S.rename) endRename(true); closeMenu();
+  if (g === 'reset') reset(); else { GUIDES[g](); }
+  document.querySelectorAll('[data-guide]').forEach(x => x.classList.toggle('on', x === b && g !== 'reset'));
+  update(); pv.focus({ preventScroll: true });
+}));
+document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+  const a = b.dataset.act; if (a === 'collapse') collapseAll(true); else if (a === 'expand') collapseAll(false); else if (a === 'fit') S.view = [0, WG.T_END];
+  update();
+}));
+new ResizeObserver(() => { paint(); if (S.rename) placeRename(); }).observe(body);
+
+/* ---- test hooks ---------------------------------------------------------- */
+window.GR = {
+  state() {
+    const v = vis();
+    return { rows: S.rows.map((e, i) => ({ name: e.name.replace(/\[.*$/, ''), depth: e.depth, group: WG.isGroup(e), collapsed: !!e.collapsed, unresolved: !!e.unresolved, selected: S.sel.has(i), visible: v.includes(i) })),
+      visible: v.map(i => S.rows[i].name.replace(/\[.*$/, '')), selected: [...S.sel].sort((a, b) => a - b).map(i => S.rows[i].name.replace(/\[.*$/, '')),
+      cursor: S.cursor, view: S.view.slice(), renaming: S.rename ? S.rows[S.rename.row].name : null, menu: !menu.hidden, painted: S.painted,
+      valid: WG.validate(S.rows), workspace: WG.toWorkspace(S.rows) };
+  },
+  // Client-space centre of a row's name (x at the text) and helpers for drags.
+  point(name, part = 'name') {
+    const i = byName(name); if (vis().indexOf(i) < 0) return null;
+    reveal(i); paint(); const p = vis().indexOf(i);
+    const r = body.getBoundingClientRect(), c = cols(), e = S.rows[i];
+    const x = part === 'chevron' ? PAD + e.depth * INDENT + 6 : part === 'wave' ? c.wx + c.ww / 2 : textX(e) + 8;
+    return { x: r.left + x, y: r.top + rowTop(p) + ROW / 2, top: r.top + rowTop(p), row: ROW, left: r.left, indent: INDENT, pad: PAD, wx: r.left + c.wx, ww: c.ww };
+  },
+  pixel(x, y) { const d = ctx.getImageData(Math.round(x * (window.devicePixelRatio || 1)), Math.round(y * (window.devicePixelRatio || 1)), 1, 1).data; return [d[0], d[1], d[2]]; },
+  timeX(t) { const r = body.getBoundingClientRect(); return r.left + tx(t, cols()); },
+};
+reset();
+document.getElementById('selftest').textContent = WG.selfTests().lines.join('\n');
+window.ready = true;
+})();
+
+</script>
+<script>
+/* Figures and the diagram, drawn from the same data. */
+(() => {
+'use strict';
+const R = WG.initialRows(), w = R.findIndex(e => e.name === 'Write');
+const members = WG.leaves(R, w);
+function setup(id) { const c = document.getElementById(id), g = c.getContext('2d'); g.fillStyle = '#282c33'; g.fillRect(0, 0, c.width, c.height); return [c, g]; }
+function label(g, text, y) { g.font = '600 12px "IBM Plex Sans",sans-serif'; g.fillStyle = '#dce0e5'; g.textBaseline = 'middle'; g.fillText('▸ ' + text, 10, y); }
+const X0 = 96, x = (t, c) => X0 + t / WG.T_END * (c.width - X0 - 8);
+function rowFrame(g, c, y, h) { g.fillStyle = 'rgba(200,204,212,.035)'; g.fillRect(0, y, c.width, h); g.fillStyle = '#3a3f4a'; g.fillRect(X0 - 6, 0, 1, c.height); }
+{ const [c, g] = setup('fig-blank'); rowFrame(g, c, 44, 26); label(g, 'Write 7', 57); }
+{ const [c, g] = setup('fig-lanes'); rowFrame(g, c, 30, 60); label(g, 'Write 7', 60);
+  members.forEach((j, k) => { const s = WG.SIGNALS[R[j].path], ch = s.ch, y = 32 + k * 8, h = 6;
+    for (let n = 0; n < ch.t.length; n++) { const a = x(ch.t[n], c), b = x(n + 1 < ch.t.length ? ch.t[n + 1] : WG.T_END, c), v = ch.v[n];
+      if (v === null) { g.fillStyle = '#d07277'; g.fillRect(a, y, Math.max(1, b - a), h); }
+      else if (s.kind === 'bit') { if (v) { g.fillStyle = 'rgba(161,193,129,.75)'; g.fillRect(a, y, Math.max(1, b - a), h); } }
+      else { g.fillStyle = 'rgba(161,193,129,.35)'; g.fillRect(a, y, Math.max(1, b - a), h); g.fillStyle = '#a1c181'; g.fillRect(a, y, 1, h); } } }); }
+{ const [c, g] = setup('fig-activity'); rowFrame(g, c, 44, 26); label(g, 'Write 7', 57);
+  const edges = WG.groupEdges(R, w, 0, WG.T_END).map(e => e[0]), und = WG.groupUndefined(R, w, 0, WG.T_END);
+  const cuts = [...new Set([0, ...edges, ...und.flat(), WG.T_END])].sort((a, b) => a - b);
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const a = x(cuts[k], c), b = x(cuts[k + 1], c), top = 49, bot = 65, mid = 57, bad = und.some(([u0, u1]) => cuts[k] >= u0 && cuts[k + 1] <= u1);
+    if (b - a < 3) { g.fillStyle = bad ? '#d07277' : 'rgba(161,193,129,.55)'; g.fillRect(a, top, Math.max(1, b - a), bot - top); continue; }
+    g.beginPath(); g.moveTo(a, mid); g.lineTo(a + 1.5, top); g.lineTo(b - 1.5, top); g.lineTo(b, mid); g.lineTo(b - 1.5, bot); g.lineTo(a + 1.5, bot); g.closePath();
+    if (bad) { g.fillStyle = 'rgba(208,114,119,.3)'; g.fill(); g.strokeStyle = '#d07277'; } else g.strokeStyle = '#a1c181';
+    g.lineWidth = 1; g.stroke(); } }
+// Diagram: stored entries with depth, and the visible projection with Read folded.
+const svg = document.getElementById('dia-rows'), NS = 'http://www.w3.org/2000/svg';
+const show = R.slice(0, 18), vis = WG.visible(R).filter(i => i < 18);
+const el = (n, a, t) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (t !== undefined) e.textContent = t; svg.appendChild(e); return e; };
+const hidden = new Set(show.map((_, i) => i).filter(i => !vis.includes(i)));
+// Two columns of stored entries (0–8, 9–17), then the visible list.
+show.forEach((e, i) => {
+  const col = i < 9 ? 0 : 1, row = i % 9, bx = col * 270, by = 28 + row * 24;
+  const g = hidden.has(i) ? { class: 'hid' } : {};
+  const grp = document.createElementNS(NS, 'g'); if (g.class) grp.setAttribute('class', g.class); svg.appendChild(grp);
+  const add = (n, a, t) => { const x = document.createElementNS(NS, n); for (const k in a) x.setAttribute(k, a[k]); if (t !== undefined) x.textContent = t; grp.appendChild(x); };
+  add('rect', { x: bx, y: by, width: 250, height: 20, rx: 4, class: WG.isGroup(e) ? 'grp' : 'box' });
+  add('text', { x: bx + 8, y: by + 14, class: 'm' }, String(i).padStart(2, ' '));
+  add('text', { x: bx + 34, y: by + 14, class: 'm' }, 'd' + e.depth);
+  add('text', { x: bx + 62 + e.depth * 12, y: by + 14 }, (WG.isGroup(e) ? (e.collapsed ? '▸ ' : '▾ ') : '') + e.name.replace(/\[.*$/, ''));
+});
+vis.forEach((i, p) => {
+  const by = 28 + p * 17.5;
+  el('text', { x: 560, y: by + 12, class: 'm' }, String(p).padStart(2, ' ') + ' → ' + String(i).padStart(2, ' '));
+  el('text', { x: 660 + R[i].depth * 12, y: by + 12 }, (WG.isGroup(R[i]) ? (R[i].collapsed ? '▸ ' : '▾ ') : '') + R[i].name.replace(/\[.*$/, ''));
+});
+el('text', { x: 560, y: 282, class: 'm' }, 'visible position → stored index');
+el('text', { x: 0, y: 282, class: 'm' }, 'faded: inside the folded Read group (hidden, still loaded)');
+})();
+(() => {
+  const root = document.documentElement, b = document.getElementById('theme');
+  b.addEventListener('click', () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+  });
+})();
+</script>
+</body>
+</html>
