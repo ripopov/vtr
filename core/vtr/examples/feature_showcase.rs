@@ -381,6 +381,17 @@ fn write(path: &Path) -> vtr::Result<()> {
         Direction::Implicit,
         SignalKind::Real,
     )?;
+    let [sine_fast, sine_slow] = ["sine_fast", "sine_slow"].map(|name| {
+        w.add_var(
+            Some(soc),
+            name,
+            VarType::Real,
+            Direction::Implicit,
+            SignalKind::Real,
+        )
+        .map(|(_, id)| id)
+    });
+    let (sine_fast, sine_slow) = (sine_fast?, sine_slow?);
     let (_, message) = w.add_var(
         Some(soc),
         "phase",
@@ -630,6 +641,11 @@ fn write(path: &Path) -> vtr::Result<()> {
             },
         )?;
         w.emit_real(temperature, 35.0 + ((cycle % 64) as f64 - 32.0).abs() / 8.0)?;
+        // Sampled every 4 ns: amplitude 0.5 with a 128 ns period, and
+        // amplitude 20 with a 1,024 ns period.
+        let angle = std::f64::consts::TAU * t as f64;
+        w.emit_real(sine_fast, 0.5 * (angle / 128.0).sin())?;
+        w.emit_real(sine_slow, 20.0 * (angle / 1024.0).sin())?;
         w.emit_varlen(
             message,
             [

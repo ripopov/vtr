@@ -61,14 +61,14 @@ python3 integrations/verilator/pipeline/run.py \
 ## Feature showcase
 
 `feature_showcase.vtr` is a deterministic, synthetic debugging lab: 2,048 ns of
-CPU execution, DMA traffic, an injected fault and recovery. It is **8,878 bytes**,
-well below the 500,000-byte limit enforced by its generator. It contains 81
-variable declarations sharing 78 signals, 17,559 changes, 214 transactions
+CPU execution, DMA traffic, an injected fault and recovery. It is **12,210 bytes**,
+well below the 500,000-byte limit enforced by its generator. It contains 83
+variable declarations sharing 80 signals, 18,567 changes, 214 transactions
 (including 20 log records and 4 clock stretches), 99 relations and two
 declared clocks.
 
 Start at `soc`: add `clk`, `reset_n`, `valid`, `ready`, `address`, `data`,
-`state`, `temperature_c` and `phase`. The fault window is 768–896 ns;
+`state`, `temperature_c`, `sine_fast`, `sine_slow` and `phase`. The fault window is 768–896 ns;
 `ready` becomes X and `data` contains X/Z bits. There is a deliberate recording
 gap at 960–992 ns. Search everywhere for `read`, `instructions` or `cycle` to
 exercise mixed hierarchy results. `soc.log` demonstrates severity badges and
