@@ -9,15 +9,15 @@
 <style>
 :root{
   --bg:#f4f6f5;--paper:#fcfdfc;--ink:#18232a;--muted:#5a686e;--line:#d5ddda;--line-strong:#b9c4c0;
-  --accent:#1d7a66;--accent-ink:#135846;--soft:#e2f0eb;--new:#1d7a66;--changed:#a2660f;--exists:#5a686e;
+  --accent:#1d7a66;--accent-ink:#135846;--soft:#e2f0eb;--new:#1d7a66;--changed:#a2660f;--bad:#b3413c;--exists:#5a686e;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
-  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--bad:#e66767;--exists:#9aa9a5;
 }}
 :root[data-theme="dark"]{
   --bg:#141a1e;--paper:#1a2227;--ink:#e3e9e6;--muted:#9aa9a5;--line:#2b3940;--line-strong:#3c4b52;
-  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--exists:#9aa9a5;
+  --accent:#4fc3a1;--accent-ink:#8fe0c6;--soft:#1c3530;--new:#4fc3a1;--changed:#e0a94a;--bad:#e66767;--exists:#9aa9a5;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:64px}
@@ -64,11 +64,28 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 #catalogue td:nth-child(3){width:28%}
 #catalogue td:nth-child(3) code{font-size:11.5px}
 #catalogue td:nth-child(5){width:130px;white-space:normal}
-#styles-table{min-width:980px}
-#styles-table td{font-size:13.5px}
-#styles-table td:first-child{font-weight:600;width:120px}
-#styles-table td:last-child{width:170px}
-#styles-table td:last-child code{white-space:nowrap;overflow-wrap:normal}
+.chip{display:inline-block;font:600 11px/1 "IBM Plex Sans",sans-serif;border:1px solid currentColor;border-radius:999px;padding:3px 8px;white-space:nowrap;vertical-align:2px}
+.chip.volna{color:var(--exists)}.chip.proposed{color:var(--new)}.chip.deferred{color:var(--changed)}.chip.rejected{color:var(--bad)}
+.sty-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,480px),1fr));gap:14px;margin:12px 0 10px}
+.sty{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:11px 12px 12px;min-width:0}
+.sty h4{margin:0;font-size:15px;line-height:1.3;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.sty h4 .chip{vertical-align:0}
+.sty .sty-ctl{margin-left:auto}
+.sty .seg button{font-size:12px;padding:1px 9px}
+.sty .seg button[aria-pressed="true"]{color:var(--ink);border-color:var(--accent);background:var(--soft)}
+.sty .src{font-size:12.5px;color:var(--muted);margin:4px 0 8px;line-height:1.45}
+.sty .src code{font-size:12px}
+.sty-rng{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin:0 0 8px}
+.sty-rng input{flex:1;min-width:0;accent-color:var(--accent)}
+.sty-rng output{font:12px "IBM Plex Mono",monospace;color:var(--ink);width:3em}
+.sty canvas{display:block;width:100%;border:1px solid #2c3a42;border-radius:6px;background:#1b242a;cursor:crosshair;touch-action:pan-y}
+.sty-leg{display:flex;flex-wrap:wrap;gap:3px 14px;font-size:12px;color:var(--muted);margin:6px 0 0}
+.sty-leg i{display:inline-block;width:14px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-0.5px}
+.sty-leg em{font-style:normal;color:var(--muted);opacity:.8}
+.sty dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:10px 0 0;font-size:13.5px;line-height:1.5}
+.sty dt{color:var(--muted);font-weight:600;white-space:nowrap}
+.sty dd{margin:0;min-width:0}
+@media (max-width:520px){.sty dl{grid-template-columns:1fr;gap:0}.sty dd{margin-bottom:6px}}
 #catalogue tbody th{font-size:13px;color:var(--ink);background:color-mix(in srgb,var(--soft) 55%,transparent);padding-top:10px}
 #catalogue tbody th span{font-weight:400;color:var(--muted);margin-left:8px}
 #catalogue tr.demo td:first-child::after{content:"demo";font:600 10px/1 "IBM Plex Sans",sans-serif;color:var(--accent-ink);border:1px solid var(--accent);border-radius:3px;padding:1px 4px;margin-left:6px;vertical-align:1px}
@@ -259,47 +276,26 @@ footer ul{margin:6px 0 0}
 <section id="styles"><div class="wrap">
   <div class="prose">
   <h2>Row styles for analog signals and groups</h2>
-  <p>Volna draws an analog row as a step or linear line with min and max per pixel column (<a href="analog-waves.html">analog-waves.html</a>). Counter data asks for more. Some rows are groups whose parts sum to a whole. Some are distributions, where the mean hides the shape. Some are bit vectors, where the pattern matters more than the count. Others are enumerations. This section surveys the visualization literature and the tools engineers already use (Grafana, Perfetto, Nsight Systems, VTune, Arm Streamline, Tracy, oscilloscopes, the waveform viewers), and keeps the styles with evidence behind them. Each kept style is a row in the demo. <b>Rows → row styles</b> shows them alone.</p>
+  <p>Volna draws a numeric row one way today: a step or linear line with a faint fill to the baseline, drawn as a min–max column per pixel when samples outnumber pixels (<a href="analog-waves.html">analog-waves.html</a>). A one-bit signal is a logic wave and a wider bus is a row of value boxes. Every row holds one signal. Counter data asks for more. Some rows are groups whose parts sum to a whole. Some are distributions, where the mean hides the shape. Some are bit vectors, where the pattern matters more than the count. Others are enumerations.</p>
+  <p>This section surveys the visualization literature and the tools engineers already use (Grafana, Perfetto, Nsight Systems, VTune, Arm Streamline, Tracy, oscilloscopes, the waveform viewers). Every style it discusses is drawn below as one waveform row from the same CoreMark recording. Each is marked <span class="chip volna">In Volna</span>, <span class="chip proposed">Proposed</span>, <span class="chip deferred">Deferred</span> or <span class="chip rejected">Rejected</span>. Hover a row to read it. The demo above uses the proposed styles for the counters; <b>Rows → row styles</b> shows those rows alone.</p>
   </div>
-  <div class="tablewrap"><table id="styles-table">
-    <thead><tr><th>Style</th><th>What it draws</th><th>Best for</th><th>Height</th><th>Evidence and precedent</th><th>Demo row</th></tr></thead>
-    <tbody>
-      <tr><td>Line, step or linear</td><td>One value per sample on a y axis</td><td>Reading values, peaks and slopes</td><td>2× to 3×</td><td>Position on an aligned scale is the most accurate encoding (Cleveland and McGill). Every waveform viewer has it.</td><td><code>rob.entries</code></td></tr>
-      <tr><td>Line with max band</td><td>The window mean as a line, the window maximum as a lighter band</td><td>Keeping spikes visible when averaging</td><td>2× to 3×</td><td>Range bars were the most accurate encoding for minima (96%) and ranges (92%) in Albers et al. 2014. Perfetto stores min and max per bucket; oscilloscopes have envelope mode.</td><td><code>rob.entries</code>, <code>bus.rd_inflight</code></td></tr>
-      <tr><td>Line with mean bars</td><td>Bars at the mean of each phase (or 64-cycle window) behind the line</td><td>Comparing averages between phases</td><td>2× to 3×</td><td>In Albers et al. 2014, readers judging averages were right 86% of the time with this encoding and 48% with a plain line.</td><td><code>retire.ipc</code> (styles)</td></tr>
-      <tr><td>Overlaid lines</td><td>Up to about four series on one shared scale</td><td>Local comparisons: which queue fills first</td><td>3×</td><td>Shared-space designs win for comparisons within a small region, split designs across wide spans (Javed et al. 2010). Clutter beyond about four lines. Perfetto shares scales with <code>yRangeSharingKey</code>.</td><td><code>iq.*</code> (five lines, one too many), <code>lsu.lq · lsu.sq</code></td></tr>
-      <tr><td>Horizon, 2 bands</td><td>The value folded into two bands of colour. Negatives are mirrored up in a second hue.</td><td>Many rows in little height; deviation from a baseline</td><td>1× per signal</td><td>Below 24 px, two bands beat a line chart. Mirroring costs nothing, and four or more bands are slower and less accurate (Heer, Kong and Agrawala 2009). At 8 to 32 series, horizons beat small line charts (Perin et al. 2013). Weak for trends and slopes.</td><td><code>retire.ipc Δ</code>, <code>iq.* fill</code></td></tr>
-      <tr><td>Percentile band</td><td>p10 to p90 as a band, the median as a line, per window</td><td>Typical level and spread without outliers</td><td>2× to 3×</td><td>Fan charts. In a 2019 study of compact designs, box plots were the most consistent across tasks.</td><td><code>rob.entries</code> (styles)</td></tr>
-      <tr><td>Histogram over time</td><td>Each column is the distribution of values in its window; brightness is the share of cycles</td><td>Two-level behaviour a mean hides; many samples per pixel</td><td>3× to 4×</td><td>Grafana's heatmap panel, oscilloscope intensity grading, DenseLines (Moritz and Fisher 2018).</td><td><code>rob.entries</code> (hist)</td></tr>
-      <tr><td>100% stacked area</td><td>Shares of a whole</td><td>Top-down slots, any breakdown that sums to 1</td><td>3× to 4×</td><td>Only the bottom layer is read by position; the others by length (Cleveland and McGill). The most important share, retiring, goes on the baseline. Chrome tracing stacks multi-argument counters.</td><td><code>topdown.*</code></td></tr>
-      <tr><td>Stacked area, absolute</td><td>Additive parts of a total</td><td>Issue per cycle and which pipes made it</td><td>2× to 3×</td><td>Arm Streamline's stacked series. Only for parts that add up: stacking queue occupancies would draw a meaningless total.</td><td><code>issue.pipe* stacked</code></td></tr>
-      <tr><td>Heat lanes</td><td>One thin lane per signal, brightness for the value</td><td>Dozens of signals; comparing averages</td><td>0.25× per signal</td><td>Lasagna plots (Swihart et al. 2010). Colour strips beat lines for comparing averages (Correll et al. 2012), but are weak for exact values: 49 to 59% on point tasks (Albers et al. 2014).</td><td><code>issue.pipe0…7</code></td></tr>
-      <tr><td>Bit raster</td><td>A valid vector, one lane per bit. Zoomed out, each cell shows the share of time the bit was set. <b>By age</b> rotates each column to the oldest entry.</td><td>How a buffer is used, not just how full: ring order, holes, out-of-order frees</td><td>1 px per bit</td><td>No waveform viewer or paper found draws this. The nearest are a bus expanded bit by bit, lasagna plots and DAMON's time × address heatmap. In the list stretch, the ROB sweeps around its ring as diagonal stripes. By age it becomes an occupancy area. The LQ is filled and freed out of program order: 227 of the 690 cycles with loads in it have holes.</td><td><code>rob.entry_vld[63:0]</code>, <code>lsu.lq_vld[15:0]</code></td></tr>
-      <tr><td>State timeline</td><td>A category per sample, equal neighbours merged</td><td>Enumerations and thresholded levels</td><td>1×</td><td>Grafana's state timeline, VTune's utilization thresholds, PulseView's analog-to-logic threshold.</td><td><code>bottleneck</code>, <code>program phase</code></td></tr>
-      <tr><td>Event ticks</td><td>A mark per event</td><td>Rare events and their clustering</td><td>1× to 2×</td><td>Event striping was the most accurate way to count outliers, at 67% (Albers et al. 2014).</td><td><code>branch.mispredict</code> (cycle level)</td></tr>
-    </tbody>
-  </table></div>
+  <h3>In Volna today (<span id="sty-n-volna"></span>)</h3>
+  <div class="sty-grid" id="sty-volna"></div>
+  <h3>Proposed (<span id="sty-n-proposed"></span>)</h3>
+  <p class="meta">Kept because a study or a widely used tool backs them. None exists in Volna yet.</p>
+  <div class="sty-grid" id="sty-proposed"></div>
+  <h3>Deferred (<span id="sty-n-deferred"></span>)</h3>
+  <div class="sty-grid" id="sty-deferred"></div>
+  <h3>Rejected (<span id="sty-n-rejected"></span>)</h3>
+  <p class="meta">Drawn from the same data to show what goes wrong.</p>
+  <div class="sty-grid" id="sty-rejected"></div>
   <div class="prose">
-  <h3>Rejected</h3>
-  <ul>
-    <li><b>Streamgraphs.</b> The baseline wiggles, so no value can be read from position. For shares, 100% stacking is already exact.</li>
-    <li><b>Stacks of non-additive quantities.</b> Queue occupancies or rates stacked on each other draw a total that means nothing.</li>
-    <li><b>Braided graphs and more than about four overlaid lines.</b> Clutter grows with each series (Javed et al. 2010). Use a horizon group or heat lanes instead.</li>
-    <li><b>Horizons with four or more bands, and rainbow colour maps.</b> Slower and less accurate (Heer et al. 2009).</li>
-    <li><b>Ridgelines, pies, radar charts and 3D waterfalls.</b> They overlap rows, drop the time axis or distort by perspective.</li>
-    <li><b>Two y axes in one row.</b> Crossings between the two scales are artefacts.</li>
-  </ul>
-  <h3>Deferred</h3>
-  <ul>
-    <li><b>Comparing two runs.</b> Overlay both in one row, which beat side-by-side views in Ondov et al. 2019, or draw an explicit difference row as a diverging horizon. Running totals show where the runs part. This needs a second recording and an alignment, by time or by retired instructions.</li>
-    <li><b>An order-of-magnitude horizon</b> (VIS 2023) for values that span decades, such as MPKI or latencies.</li>
-    <li><b>Adjustable band count and baseline</b> for horizons. Users in Perin et al. 2013 moved both, and the authors found no single good default.</li>
-  </ul>
   <h3>What it takes in Volna</h3>
   <ul>
-    <li><b>A row may hold a group of signals</b>, drawn with one style and one shared scale: overlay, horizon group, heat lanes or stack. The group and its style are presentation, so they live in the workspace or the VDB profile (<code>c910.perf.vdb.json</code>), never in VTR.</li>
-    <li><b>The analog summary needs one more level for distributions.</b> Min and max per bucket (already built) serve lines, bands and envelopes. Percentile bands and histograms over time need a small histogram per bucket. That can be built lazily from the samples in view, as the demo does for 32-cycle windows.</li>
-    <li><b>Bit rasters and state timelines read vectors and enumerations directly.</b> A raster needs the per-bit share of time per pixel column, the same pass as the min/max summary but one counter per bit.</li>
+    <li><b>A row may hold a group of signals</b>, drawn with one style and one shared scale: overlay, horizon group, heat lanes or stack. The group and its style are presentation, so they live in the workspace or the VDB profile (<code>c910.perf.vdb.json</code>), never in VTR. Six of the proposed styles need it.</li>
+    <li><b>New drawing modes for one signal:</b> horizon (band size and baseline), mean bars (per phase or per window), a band from a companion <code>_max</code> signal, event ticks, and a colour per value for value boxes.</li>
+    <li><b>The analog summary needs one more level for distributions.</b> Min and max per bucket (already built) serve lines, envelopes and bands. Percentile bands and histograms over time need a small histogram per bucket. That can be built lazily from the samples in view, as the demo does for 32-cycle windows.</li>
+    <li><b>Bit rasters read vectors directly.</b> A raster needs the per-bit share of time per pixel column: the same pass as the min/max summary, with one counter per bit.</li>
   </ul>
   </div>
 </div></section>
@@ -534,7 +530,7 @@ end</code></pre>
     <li>A. Yasin, <a href="https://rcs.uwaterloo.ca/~ali/cs854-f23/papers/topdown.pdf">A Top-Down Method for Performance Analysis and Counters Architecture</a>, ISPASS 2014. The SiFive P470 adaptation to RISC-V: <a href="https://dl.acm.org/doi/10.1109/SCW63240.2024.00208">SC'24 workshops</a>.</li>
     <li>XiangShan performance counters (<a href="https://github.com/OpenXiangShan/utility/blob/master/src/main/scala/utility/PerfCounterUtils.scala">XSPerfAccumulate, XSPerfHistogram, QueuePerf, XSPerfRolling</a>) and its <a href="https://tutorial.xiangshan.cc/hpca25/performance/">top-down tutorial</a>.</li>
     <li>gem5 <a href="https://www.gem5.org/documentation/learning_gem5/part1/gem5_stats/">statistics</a> and periodic dumps; the Sniper <a href="https://snipersim.org/w/CPI_Stacks">CPI stacks</a>; the ChampSim <a href="https://github.com/ChampSim/ChampSim/blob/master/inc/listeners/heartbeat.h">heartbeat</a>; <a href="https://man7.org/linux/man-pages/man1/perf-stat.1.html">perf stat -I</a>.</li>
-    <li>Row styles: J. Heer, N. Kong, M. Agrawala, <a href="https://idl.cs.washington.edu/files/2009-TimeSeries-CHI.pdf">Sizing the Horizon</a>, CHI 2009; C. Perin, F. Vernier, J.-D. Fekete, <a href="https://openaccess.city.ac.uk/id/eprint/16704/1/2013_CHI_IHG-2.pdf">Interactive Horizon Graphs</a>, CHI 2013; D. Albers, M. Correll, M. Gleicher, <a href="https://graphics.cs.wisc.edu/Papers/2014/ACG14/affordances-preprint.pdf">Task-Driven Evaluation of Aggregation in Time Series Visualization</a>, CHI 2014; W. Javed, B. McDonnel, N. Elmqvist, <a href="https://doi.org/10.1109/TVCG.2010.162">Graphical Perception of Multiple Time Series</a>, TVCG 2010; B. Swihart et al., <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC2937254/">Lasagna Plots</a>, Epidemiology 2010; D. Moritz, D. Fisher, <a href="https://arxiv.org/abs/1808.06019">DenseLines</a>, 2018; L. Byron, M. Wattenberg, <a href="https://leebyron.com/streamgraph/stackedgraphs_byron_wattenberg.pdf">Stacked Graphs</a>, 2008; B. Ondov et al., <a href="https://hcil.umd.edu/visualcomparison/">Face to Face</a>, 2019; Grafana <a href="https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/visualizations/state-timeline/">state timeline</a> and <a href="https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/visualizations/heatmap/">heatmap</a>.</li>
+    <li>Row styles: J. Heer, N. Kong, M. Agrawala, <a href="https://idl.cs.washington.edu/files/2009-TimeSeries-CHI.pdf">Sizing the Horizon</a>, CHI 2009; C. Perin, F. Vernier, J.-D. Fekete, <a href="https://openaccess.city.ac.uk/id/eprint/16704/1/2013_CHI_IHG-2.pdf">Interactive Horizon Graphs</a>, CHI 2013; D. Albers, M. Correll, M. Gleicher, <a href="https://graphics.cs.wisc.edu/Papers/2014/ACG14/affordances-preprint.pdf">Task-Driven Evaluation of Aggregation in Time Series Visualization</a>, CHI 2014; W. Javed, B. McDonnel, N. Elmqvist, <a href="https://doi.org/10.1109/TVCG.2010.162">Graphical Perception of Multiple Time Series</a>, TVCG 2010; B. Swihart et al., <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC2937254/">Lasagna Plots</a>, Epidemiology 2010; D. Moritz, D. Fisher, <a href="https://arxiv.org/abs/1808.06019">DenseLines</a>, 2018; L. Byron, M. Wattenberg, <a href="https://leebyron.com/streamgraph/stackedgraphs_byron_wattenberg.pdf">Stacked Graphs</a>, 2008; B. Ondov et al., <a href="https://hcil.umd.edu/visualcomparison/">Face to Face</a>, 2019; U. Jugel et al., <a href="https://www.vldb.org/pvldb/vol7/p797-jugel.pdf">M4: A Visualization-Oriented Time Series Data Aggregation</a>, VLDB 2014; D. Borland, R. Taylor, <a href="https://doi.org/10.1109/MCG.2007.323435">Rainbow Color Map (Still) Considered Harmful</a>, IEEE CG&amp;A 2007; P. Isenberg, A. Bezerianos, P. Dragicevic, J.-D. Fekete, <a href="https://doi.org/10.1109/TVCG.2011.160">A Study on Dual-Scale Data Charts</a>, TVCG 2011; M. Correll, D. Albers, S. Franconeri, M. Gleicher, Comparing Averages in Time Series Data, CHI 2012; A. Klippel, F. Hardisty, C. Weaver, Star Plots: How Shape Characteristics Influence Classification Tasks, 2009; T. Munzner, Visualization Analysis and Design, 2014; C. Wilke, <a href="https://clauswilke.com/dataviz/">Fundamentals of Data Visualization</a>, 2019; Grafana <a href="https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/visualizations/state-timeline/">state timeline</a> and <a href="https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/visualizations/heatmap/">heatmap</a>.</li>
     <li>Perfetto <a href="https://perfetto.dev/docs/reference/trace-packet-proto">counter tracks</a> (<code>is_incremental</code>, double values); ZipCPU <a href="https://zipcpu.com/blog/2021/08/14/axiperf.html">AXI performance monitor</a>; Chips and Cheese, <a href="https://chipsandcheese.com/p/alibabat-heads-xuantie-c910">XuanTie C910</a>.</li>
   </ul>
 </div></footer>
@@ -1555,6 +1551,637 @@ document.getElementById('selftest').textContent = PFL.selfTests().lines.join('\n
 PF.setView('run');
 window.PF = PF; window.PFL = PFL;
 document.fonts.ready.then(() => { PF.setView('run'); window.ready = true; });
+</script>
+<script>
+/* ============================================================================
+   Row style gallery: every style the "Row styles" section discusses, drawn as
+   one waveform row from the same CoreMark data, grouped by status.
+   ========================================================================== */
+const GAL = (() => {
+'use strict';
+const L = PFL, D = L.D;
+const MONO = '"IBM Plex Mono",ui-monospace,monospace';
+const C = {bg: '#1b242a', name: '#161e23', grid: '#26333a', line: '#2c3a42', mu: '#8d9f99', tx: '#e2eae6', cur: '#e8cf86', ax: '#6f817a'};
+const ONE = '#4fc3a1', RED = '#e66767', AMBER = '#c98500', VIOLET = '#9085e9';
+const HZ = {pos: ['#1f4f7a', '#5598e7'], neg: ['#7a2f35', '#e66767'], one: ['#1d5c4d', '#4fc3a1']};
+const HZ4 = {pos: ['#16344f', '#1f4f7a', '#3a74b0', '#5598e7'], neg: ['#4d1f24', '#7a2f35', '#b0464d', '#e66767']};
+const OOM = ['#1d5c4d', '#2f9a7b', '#7fe0bf'];   // one hue, darker to brighter by decade
+const fmt = L.fmt, IPC = D.totals.retired / D.cycles;
+
+/* ---- data: the whole run in 256-cycle windows, and cycle-level stretches ---- */
+const run = L.build('run'), R = run.series, NR = run.n;
+const det = [0, 1, 2].map(k => L.build(k, 1, 'count'));
+const LIST = det[0].series;
+const joined = key => { const out = new Float64Array(3 * 1024); det.forEach((m, k) => out.set(m.series[key], k * 1024)); return out; };
+const CY = {rob: joined('rob'), mis: joined('branch'), miss: joined('dcache')};
+const IQN = L.IQ.map(([q]) => q), IQC = L.IQ.map(([, c]) => c);
+const peak = a => Math.ceil(a.reduce((m, x) => Math.max(m, x), 0));
+const ISSUE_HI = peak(R.issue_total), IQ_SUM_HI = peak(R.rob.map((_, i) => IQN.reduce((t, q) => t + R[q][i], 0))), INFL_HI = peak(R.infl);
+const rdBytes = D.win.r_beats.slice(0, NR).map(b => 16 * b);
+// Two stretches of the same kernel stand in for runs A and B.
+const matrixRuns = (() => {
+  const out = [];
+  for (let i = 0; i < NR;) {
+    let j = i; while (j < NR && D.win_kernel[j] === D.win_kernel[i]) j++;
+    if (D.win_kernel[i] === 'matrix' && j - i >= 60) out.push([i, j]);
+    i = j;
+  }
+  return out;
+})();
+const AB = (() => {
+  const [[a0, a1], [b0, b1]] = matrixRuns, n = Math.min(a1 - a0, b1 - b0);
+  return {n, a: R.ipc.slice(a0, a0 + n), b: R.ipc.slice(b0, b0 + n), a0, b0};
+})();
+
+/* ---- geometry: a name column and a plot of n samples ---- */
+function geom(cv, h, n) {
+  const W = cv.clientWidth, LW = Math.min(132, Math.round(W * 0.27));
+  return {W, H: h, LW, PW: W - LW, n, top: 5, bot: h - 5};
+}
+const xOf = (g, i) => g.LW + i / g.n * g.PW;
+const dense = g => g.n > g.PW;
+/* fn(x, width, first, end) per pixel column (dense) or per sample (sparse). */
+function cols(g, fn) {
+  if (dense(g)) {
+    for (let x = 0; x < g.PW; x++) {
+      const p = Math.floor(x / g.PW * g.n), q = Math.max(p + 1, Math.floor((x + 1) / g.PW * g.n));
+      fn(g.LW + x, 1, p, Math.min(q, g.n));
+    }
+  } else {
+    for (let i = 0; i < g.n; i++) {
+      const x0 = xOf(g, i), x1 = xOf(g, i + 1);
+      fn(x0, Math.max(1, x1 - x0 - (x1 - x0 > 4 ? 1 : 0)), i, i + 1);
+    }
+  }
+}
+function colAt(g, x) {
+  if (dense(g)) {
+    const c = Math.floor(x - g.LW), p = Math.floor(c / g.PW * g.n);
+    return [p, Math.min(g.n, Math.max(p + 1, Math.floor((c + 1) / g.PW * g.n)))];
+  }
+  const i = Math.min(g.n - 1, Math.floor((x - g.LW) / g.PW * g.n));
+  return [i, i + 1];
+}
+const yv = (g, v, lo, hi) => g.bot - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * (g.bot - g.top);
+const mean = (a, p, q) => { let t = 0; for (let i = p; i < q; i++) t += a[i]; return t / (q - p); };
+const maxIn = (a, p, q) => { let m = -Infinity; for (let i = p; i < q; i++) m = Math.max(m, a[i]); return m; };
+const minIn = (a, p, q) => { let m = Infinity; for (let i = p; i < q; i++) m = Math.min(m, a[i]); return m; };
+const pct = v => `${Math.round(100 * v)}%`;
+
+/* ---- painters shared by several rows ---- */
+function line(ctx, g, a, lo, hi, c, {fill = false, linear = false, w = 1.5} = {}) {
+  if (dense(g)) {       // min to max per column: nothing is lost
+    cols(g, (x, _, p, q) => {
+      const y0 = yv(g, maxIn(a, p, q), lo, hi), y1 = yv(g, minIn(a, p, q), lo, hi);
+      if (fill) { ctx.fillStyle = c + '24'; ctx.fillRect(x, y1, 1, g.bot - y1); }
+      ctx.fillStyle = c; ctx.fillRect(x, y0 - w / 2, 1, Math.max(w, y1 - y0 + w));
+    });
+    return;
+  }
+  const pts = [];
+  for (let i = 0; i < g.n; i++) {
+    const y = yv(g, a[i], lo, hi);
+    if (linear) pts.push([xOf(g, i + 0.5), y]);
+    else pts.push([xOf(g, i), y], [xOf(g, i + 1), y]);
+  }
+  if (fill) {
+    ctx.fillStyle = c + '24'; ctx.beginPath(); ctx.moveTo(pts[0][0], g.bot);
+    for (const [x, y] of pts) ctx.lineTo(x, y);
+    ctx.lineTo(pts[pts.length - 1][0], g.bot); ctx.fill();
+  }
+  ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineJoin = 'round'; ctx.beginPath();
+  pts.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  ctx.stroke();
+  if (linear && g.PW / g.n >= 9) { ctx.fillStyle = c; for (const [x, y] of pts) { ctx.beginPath(); ctx.arc(x, y, 2, 0, 7); ctx.fill(); } }
+}
+function axis(ctx, g, hi, lo = 0, side = 'right', c = C.ax) {
+  if (g.H < 40) return;
+  ctx.font = `9.5px ${MONO}`; ctx.fillStyle = c;
+  ctx.textAlign = side === 'right' ? 'right' : 'left';
+  const x = side === 'right' ? g.W - 4 : g.LW + 4;
+  ctx.textBaseline = 'top'; ctx.fillText(String(hi), x, 2);
+  ctx.textBaseline = 'bottom'; ctx.fillText(String(lo), x, g.H - 1);
+  ctx.textAlign = 'left';
+}
+function stack(ctx, g, parts, colors, lo, hi, base = null) {
+  cols(g, (x, w, p, q) => {
+    const v = parts.map(a => mean(a, p, q));
+    let at = base ? base(v) : lo;
+    v.forEach((s, k) => {
+      if (s <= 0) return;
+      const y1 = yv(g, at, lo, hi), y0 = yv(g, at + s, lo, hi);
+      ctx.fillStyle = colors[k]; ctx.fillRect(x, y0, w, Math.max(0.5, y1 - y0)); at += s;
+    });
+  });
+}
+function lanes(ctx, g, series, color) {    // one lane per series, colour for the value
+  const lh = (g.H - 4) / series.length;
+  series.forEach((a, k) => cols(g, (x, w, p, q) => {
+    const v = mean(a, p, q);
+    if (v <= 0) return;
+    ctx.fillStyle = color(Math.min(1, v)); ctx.fillRect(x, 2 + k * lh, w, lh - 1);
+  }));
+}
+function horizon(ctx, g, series, band, pal, top = 2, height = g.H - 4) {
+  const bands = pal.pos.length, lh = height / series.length;
+  series.forEach((a, k) => {
+    const bot = top + (k + 1) * lh - 1, hh = lh - 2;
+    cols(g, (x, w, p, q) => {
+      const v = mean(a, p, q), m = Math.abs(v) / band, col = v >= 0 ? pal.pos : pal.neg;
+      for (let b = 0; b < bands; b++) {
+        const f = Math.min(1, Math.max(0, m - b));
+        if (f > 0) { ctx.fillStyle = col[b]; ctx.fillRect(x, bot - f * hh, w, f * hh); }
+      }
+    });
+    if (k) { ctx.fillStyle = C.line; ctx.fillRect(g.LW, top + k * lh - 0.5, g.PW, 1); }
+  });
+}
+function separators(ctx, g, at, labels, c = C.mu) {  // stretches joined end to end
+  ctx.font = `9.5px ${MONO}`; ctx.textBaseline = 'top';
+  labels.forEach((t, k) => {
+    const x = xOf(g, at[k]);
+    if (k) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), 0, 1, g.H); }
+    ctx.fillStyle = C.mu; ctx.fillText(t, x + 4, 2);
+  });
+}
+const glyphs = (g, h) => { const d = h - 8, n = Math.max(3, Math.floor(g.PW / (d + 6))); return {d, n, w: g.PW / n}; };
+const glyphRange = (g, k, n) => [Math.floor(k * g.n / n), Math.floor((k + 1) * g.n / n)];
+const glyphAt = (g, x, n) => glyphRange(g, Math.min(n - 1, Math.floor((x - g.LW) / g.PW * n)), n);
+
+/* ---- the styles ---- */
+const TDC = L.TD.map(t => t.c), TDS = L.TD.map(t => R.td[t.k]);
+const TDL = L.TD.map(t => [t.label, t.c]);
+const PIPES = L.PIPE_COLOR.map((c, p) => ['pipe' + p, c]);
+const pipeVal = (p, q) => R.pipes.map(a => Math.round(100 * mean(a, p, q))).join(' ');
+const tdVal = (p, q) => TDS.map(a => Math.round(100 * mean(a, p, q))).join(' ') + ' %';
+const iqVal = (p, q) => IQN.map((_, k) => pct(mean(R.iq_fill[k], p, q))).join(' ');
+const jet = t => `rgb(${[3, 2, 1].map(o => Math.round(255 * Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - o))))).join(',')})`;
+const WIN = 'whole run, 995 windows of 256 cycles';
+const STRETCH = 'list stretch, 1,024 cycles from cycle 16,640';
+const JOINED = 'list, matrix and state stretches end to end, 3,072 cycles';
+
+const STYLES = [
+  /* ------------------------------------------------ in Volna today */
+  {id: 'line', status: 'volna', title: 'Line, step or linear', sig: 'rob.entries', src: 'list stretch, the first 160 cycles', h: 64,
+    n: 160, ctl: {key: 'draw', opts: ['step', 'linear']},
+    draw(ctx, g, s) { line(ctx, g, LIST.rob, 0, 32, ONE, {fill: true, linear: s.draw === 'linear'}); axis(ctx, g, 32); },
+    val: p => `${LIST.rob[p]} entries`,
+    shows: 'One value per sample on a y axis. Step holds each value until the next change; linear joins the samples. A faint fill reaches down to the baseline.',
+    evidence: 'Position on a common scale is read most accurately (Cleveland and McGill 1984). Every waveform viewer has it.',
+    volna: 'Implemented (<a href="analog-waves.html">analog-waves.html</a>): Draw step or linear; Range fits the whole trace, the visible window or the type limits.'},
+  {id: 'envelope', status: 'volna', title: 'Min–max column per pixel', sig: 'rob.entries', src: JOINED, h: 64, n: 3072,
+    draw(ctx, g) { line(ctx, g, CY.rob, 0, 64, ONE, {fill: true}); separators(ctx, g, [0, 1024, 2048], ['list', 'matrix', 'state']); axis(ctx, g, 64); },
+    val: (p, q) => q - p > 1 ? `${minIn(CY.rob, p, q)}–${maxIn(CY.rob, p, q)} in ${q - p} cycles` : `${CY.rob[p]} entries`,
+    shows: 'When samples outnumber pixels, each pixel column is drawn from its minimum to its maximum and joined to its neighbours, so a one-cycle peak survives any zoom.',
+    evidence: 'M4 aggregation draws a line chart without pixel error (Jugel et al. 2014). Perfetto keeps min and max per bucket; oscilloscopes call it peak detect.',
+    volna: 'Implemented, with an O(log n) min/max summary for long histories.'},
+  {id: 'digital', status: 'volna', title: 'One-bit wave', sig: 'branch.mispredict', src: STRETCH, h: 30, n: 1024,
+    draw(ctx, g) {
+      const hi = g.top + 2, lo = g.bot - 2;
+      ctx.strokeStyle = ONE; ctx.lineWidth = 1.25; ctx.beginPath();
+      let prev = null;
+      cols(g, (x, w, p, q) => {
+        const top = maxIn(LIST.branch, p, q) > 0, bot = minIn(LIST.branch, p, q) === 0;
+        if (top && bot && q - p > 1) { ctx.moveTo(x + 0.5, hi); ctx.lineTo(x + 0.5, lo); prev = null; return; }
+        const y = top ? hi : lo, x1 = dense(g) ? x + 1 : xOf(g, p + 1);
+        if (prev !== null && prev !== y) { ctx.moveTo(x, prev); ctx.lineTo(x, y); }
+        ctx.moveTo(x, y); ctx.lineTo(x1, y); prev = y;
+      });
+      ctx.stroke();
+    },
+    val: (p, q) => q - p > 1 ? `${mean(LIST.branch, p, q) * (q - p)} in ${q - p} cycles` : String(LIST.branch[p]),
+    shows: 'A one-bit signal as a logic wave: low, high and the edges between. A pixel column that holds both levels is drawn as a full-height edge.',
+    evidence: 'The logic-analyser convention that all waveform viewers follow.',
+    volna: 'Implemented for every one-bit signal. It shows that events happen, not how many fall in a column: that is what event ticks add.'},
+  {id: 'bus', status: 'volna', title: 'Value boxes', sig: 'program phase', src: WIN, h: 26, n: NR,
+    draw(ctx, g) {
+      ctx.font = `10.5px ${MONO}`; ctx.textBaseline = 'middle';
+      const t = g.top, b = g.bot, m = (t + b) / 2;
+      for (let i = 0; i < NR;) {
+        let j = i; while (j < NR && run.phase[j] === run.phase[i]) j++;
+        const x0 = xOf(g, i), x1 = xOf(g, j), sl = Math.min(3, (x1 - x0) / 2);
+        ctx.strokeStyle = ONE; ctx.lineWidth = 1; ctx.beginPath();
+        ctx.moveTo(x0, m); ctx.lineTo(x0 + sl, t + 0.5); ctx.lineTo(x1 - sl, t + 0.5); ctx.lineTo(x1, m);
+        ctx.lineTo(x1 - sl, b - 0.5); ctx.lineTo(x0 + sl, b - 0.5); ctx.closePath(); ctx.stroke();
+        const label = run.phase[i];
+        if (x1 - x0 > ctx.measureText(label).width + 10) { ctx.fillStyle = C.tx; ctx.fillText(label, x0 + 5, m); }
+        i = j;
+      }
+    },
+    val: p => run.phase[p],
+    shows: 'A multi-bit value or an enumeration as boxes between its changes, with the value written inside when it fits.',
+    evidence: 'The bus display of every waveform viewer. FST enum tables name the values.',
+    volna: 'Implemented for buses and enumerations. Values are text, all in one colour; the state timeline adds a colour per value.'},
+
+  /* ------------------------------------------------ proposed */
+  {id: 'maxband', status: 'proposed', title: 'Line with max band', sig: 'rob.entries', src: WIN + ': mean and maximum', h: 60, n: NR,
+    draw(ctx, g) {
+      cols(g, (x, w, p, q) => {
+        const y0 = yv(g, maxIn(R.rob_max, p, q), 0, 64), y1 = yv(g, minIn(R.rob, p, q), 0, 64);
+        ctx.fillStyle = ONE + '40'; ctx.fillRect(x, y0, w, Math.max(0, y1 - y0));
+      });
+      line(ctx, g, R.rob, 0, 64, ONE); axis(ctx, g, 64);
+    },
+    val: (p, q) => `mean ${fmt(mean(R.rob, p, q), 1)} · max ${maxIn(R.rob_max, p, q)}`,
+    shows: 'The window mean as a line and the window maximum as a lighter band above it, so averaging no longer hides the spikes.',
+    evidence: 'Range bars were the most accurate encoding for minima (96%) and ranges (92%) in Albers, Correll and Gleicher 2014. Oscilloscopes have an envelope mode.',
+    volna: 'A row that pairs a level with its <code>_max</code> companion signal, drawn as a band.'},
+  {id: 'bars', status: 'proposed', title: 'Line with mean bars', sig: 'retire.ipc', src: WIN + ', bars at phase means', h: 60, n: NR,
+    draw(ctx, g) {
+      cols(g, (x, w, p, q) => { const y = yv(g, mean(R.bars, p, q), 0, 4); ctx.fillStyle = ONE + '33'; ctx.fillRect(x, y, w, g.bot - y); ctx.fillStyle = ONE + 'aa'; ctx.fillRect(x, y - 1, w, 2); });
+      line(ctx, g, R.ipc, 0, 4, ONE, {w: 1.25}); axis(ctx, g, 4);
+    },
+    val: (p, q) => `${fmt(mean(R.ipc, p, q))} · phase ${fmt(mean(R.bars, p, q))}`,
+    shows: 'Bars at the mean of each phase (or of each fixed window) behind the line.',
+    evidence: 'Readers judging averages were right 86% of the time with this encoding and 48% with a plain line (Albers et al. 2014).',
+    volna: 'Segment means: per run of equal value of a phase signal, or per fixed window.'},
+  {id: 'overlay', status: 'proposed', title: 'Overlaid lines, up to four', sig: 'lsu.lq · lsu.sq', src: WIN, h: 60, n: NR,
+    legend: [['lsu.lq', L.LSQ[0][1]], ['lsu.sq', L.LSQ[1][1]]],
+    draw(ctx, g) { line(ctx, g, R.sq, 0, 8, L.LSQ[1][1], {w: 1.25}); line(ctx, g, R.lq, 0, 8, L.LSQ[0][1], {w: 1.25}); axis(ctx, g, 8); },
+    val: (p, q) => `${fmt(mean(R.lq, p, q), 1)} · ${fmt(mean(R.sq, p, q), 1)}`,
+    shows: 'A few related signals on one shared scale.',
+    evidence: 'Shared-space designs win for comparisons in a small region; clutter grows beyond about four lines (Javed, McDonnel and Elmqvist 2010). Perfetto shares scales between tracks with <code>yRangeSharingKey</code>.',
+    volna: 'A row that holds a group of signals on one scale; the group lives in the workspace or VDB profile.'},
+  {id: 'horizon', status: 'proposed', title: 'Horizon, two bands, mirrored', sig: 'retire.ipc Δ', src: `${WIN}; bands of 0.5 around the run IPC ${IPC.toFixed(2)}`, h: 26, n: NR,
+    legend: [['above', HZ.pos[1]], ['below', HZ.neg[1]]],
+    draw(ctx, g) { horizon(ctx, g, [R.dev], 0.5, HZ); },
+    val: (p, q) => { const v = mean(R.dev, p, q); return (v >= 0 ? '+' : '') + fmt(v); },
+    shows: 'The value folded into two bands of colour; values below the baseline are mirrored up in a second hue. Full resolution in a quarter of the height.',
+    evidence: 'Below 24 px, two bands beat a line chart; mirroring costs nothing (Heer, Kong and Agrawala 2009). Weak for trends and slopes.',
+    volna: 'A horizon drawing mode with a band size and a baseline.'},
+  {id: 'hgroup', status: 'proposed', title: 'Horizon group', sig: 'iq.* fill', src: WIN + '; bands of 50% of capacity', h: 60, n: NR,
+    legend: [], legendNote: 'lanes top to bottom: ' + IQN.join(', '),
+    draw(ctx, g) { horizon(ctx, g, R.iq_fill, 0.5, {pos: HZ.one, neg: HZ.one}); },
+    val: iqVal,
+    shows: 'One horizon lane per signal in a single row: five issue queues in the height of two lines.',
+    evidence: 'At 8 to 32 series, horizons beat small line charts (Perin, Vernier and Fekete 2013).',
+    volna: 'Group rows plus the horizon mode.'},
+  {id: 'fan', status: 'proposed', title: 'Percentile band', sig: 'rob.entries', src: WIN + '; p10 to p90 and the median', h: 60, n: NR,
+    draw(ctx, g) {
+      cols(g, (x, w, p, q) => {
+        let lo = Infinity, hi = -Infinity;
+        for (let i = p; i < q; i++) { lo = Math.min(lo, R.rob_pct[i][0]); hi = Math.max(hi, R.rob_pct[i][2]); }
+        const y0 = yv(g, hi, 0, 64), y1 = yv(g, lo, 0, 64);
+        ctx.fillStyle = ONE + '40'; ctx.fillRect(x, y0, w, Math.max(1, y1 - y0));
+        let t = 0; for (let i = p; i < q; i++) t += R.rob_pct[i][1];
+        ctx.fillStyle = ONE; ctx.fillRect(x, yv(g, t / (q - p), 0, 64) - 0.75, w, 1.5);
+      });
+      axis(ctx, g, 64);
+    },
+    val: p => R.rob_pct[p].join(' · '),
+    shows: 'The typical level and its spread per window, without the outliers that stretch a min–max band.',
+    evidence: 'Fan charts. In comparisons of compact distribution displays, box-plot summaries were the most consistent across tasks.',
+    volna: 'A small histogram per summary bucket: the min/max summary cannot give percentiles.'},
+  {id: 'density', status: 'proposed', title: 'Histogram over time', sig: 'rob.entries', src: WIN + '; bins of 4 entries', h: 64, n: NR,
+    draw(ctx, g) {
+      cols(g, (x, w, p, q) => {
+        const h = new Float64Array(16); let tot = 0;
+        for (let i = p; i < q; i++) R.rob_hist[i].forEach((c, b) => { h[b] += c; tot += c; });
+        for (let b = 0; b < 16; b++) {
+          if (!h[b]) continue;
+          ctx.fillStyle = `rgba(79,195,161,${(0.12 + 0.88 * Math.sqrt(h[b] / tot)).toFixed(3)})`;
+          const y0 = yv(g, 4 * (b + 1), 0, 64), y1 = yv(g, 4 * b, 0, 64);
+          ctx.fillRect(x, y0, w, Math.max(1, y1 - y0 - 0.5));
+        }
+      });
+      axis(ctx, g, 64);
+    },
+    val: p => { const h = R.rob_hist[p], b = h.indexOf(Math.max(...h)); return `mode ${4 * b}–${4 * b + 3}`; },
+    shows: 'Each column is the distribution of the values in its window; brightness is the share of cycles. Two-level behaviour that a mean hides stays visible.',
+    evidence: 'Grafana\'s heatmap panel, oscilloscope intensity grading, DenseLines (Moritz and Fisher 2018).',
+    volna: 'The same per-bucket histogram as the percentile band.'},
+  {id: 'stack100', status: 'proposed', title: '100% stacked area', sig: 'topdown.*', src: WIN, h: 60, n: NR, legend: TDL,
+    draw(ctx, g) { stack(ctx, g, TDS, TDC, 0, 1); },
+    val: tdVal,
+    shows: 'Shares of a whole. The share that matters most, retiring, sits on the baseline, where it is read by position.',
+    evidence: 'Only the bottom layer is read by position, the others by length (Cleveland and McGill 1984). Chrome tracing stacks multi-argument counters.',
+    volna: 'Group rows with a stack mode that checks the parts sum to the whole.'},
+  {id: 'stack', status: 'proposed', title: 'Stacked area, absolute', sig: 'issue.pipe* stacked', src: WIN, h: 60, n: NR, legend: PIPES,
+    draw(ctx, g) { stack(ctx, g, R.pipes, L.PIPE_COLOR, 0, ISSUE_HI); axis(ctx, g, ISSUE_HI); },
+    val: (p, q) => `${fmt(mean(R.issue_total, p, q))} per cycle`,
+    shows: 'Additive parts of a total: instructions issued per cycle and the pipes that issued them.',
+    evidence: 'Arm Streamline\'s stacked series. Only for parts that add up (see the rejected stack of levels).',
+    volna: 'The same stack mode, with an absolute scale.'},
+  {id: 'heat', status: 'proposed', title: 'Heat lanes', sig: 'issue.pipe0…7', src: WIN + '; share of cycles each pipe issues', h: 56, n: NR,
+    legend: [['0%', 'rgba(79,195,161,0.12)'], ['100%', ONE]], legendNote: 'lanes pipe0 to pipe7, top to bottom',
+    draw(ctx, g) { lanes(ctx, g, R.pipes, v => `rgba(79,195,161,${(0.12 + 0.88 * v).toFixed(3)})`); },
+    val: pipeVal,
+    shows: 'One thin lane per signal with brightness for the value. Dozens of signals fit in one row.',
+    evidence: 'Lasagna plots (Swihart et al. 2010). Colour strips beat lines for comparing averages (Correll et al. 2012) but are weak for exact values: 49 to 59% on point tasks (Albers et al. 2014).',
+    volna: 'Group rows with a lanes mode and a single-hue ramp.'},
+  {id: 'raster', status: 'proposed', title: 'Bit raster', sig: 'rob.entry_vld[63:0]', src: STRETCH, h: 72, n: 1024,
+    ctl: {key: 'order', opts: ['slot', 'age']},
+    draw(ctx, g, s) {
+      const bits = LIST.rob_bits, lh = (g.H - 4) / 64, bot = g.H - 2, cell = new Float64Array(64);
+      cols(g, (x, w, p, q) => {
+        cell.fill(0);
+        for (let i = p; i < q; i++) {
+          const s0 = s.order === 'age' ? L.ringStart(bits, i, 64) : 0;
+          for (let l = 0; l < 64; l++) cell[l] += bits[i * 64 + (s0 + l) % 64];
+        }
+        for (let l = 0; l < 64; l++) {
+          const d = cell[l] / (q - p);
+          if (d <= 0) continue;
+          ctx.fillStyle = `rgba(79,195,161,${(0.15 + 0.85 * d).toFixed(3)})`;
+          ctx.fillRect(x, bot - (l + 1) * lh, w, Math.max(lh - 0.3, 0.8));
+        }
+      });
+    },
+    val: (p, q) => `${fmt(mean(LIST.rob, p, q), q - p > 1 ? 1 : 0)} valid`,
+    shows: 'A valid vector with one lane per bit. In slot order the ROB sweeps around its ring as diagonal stripes; in age order each column is rotated to its oldest entry and becomes an occupancy area. Holes and out-of-order frees show at a glance.',
+    evidence: 'No viewer or paper found draws this. The nearest are a bus expanded bit by bit, lasagna plots and DAMON\'s time × address heatmap. In this stretch the LQ has holes in 227 of the 690 cycles that hold loads.',
+    volna: 'A per-bit share of time per pixel column (one counter per bit in the min/max pass), and a ring-start rule for age order.'},
+  {id: 'state', status: 'proposed', title: 'State timeline', sig: 'bottleneck', src: WIN + '; the largest slot share', h: 24, n: NR, legend: TDL,
+    draw(ctx, g) {
+      cols(g, (x, w, p, q) => {
+        const c = new Array(5).fill(0);
+        for (let i = p; i < q; i++) c[R.state[i]]++;
+        ctx.fillStyle = TDC[c.indexOf(Math.max(...c))]; ctx.fillRect(x, g.top - 1, w, g.bot - g.top + 2);
+      });
+    },
+    val: p => L.TD[R.state[p]].label,
+    shows: 'A category per sample in its own colour, with equal neighbours merged: enumerations and thresholded levels.',
+    evidence: 'Grafana\'s state timeline, VTune\'s utilization thresholds, PulseView\'s analog-to-logic threshold.',
+    volna: 'A colour per value for value boxes, from the VDB profile.'},
+  {id: 'ticks', status: 'proposed', title: 'Event ticks', sig: 'mispredict · dcache miss', src: JOINED, h: 34, n: 3072,
+    legend: [['branch.mispredict', RED], ['dcache.read_miss', AMBER]],
+    draw(ctx, g) {
+      const mid = (g.top + g.bot) / 2;
+      cols(g, (x, w, p, q) => {
+        const w1 = Math.max(1, Math.min(3, w));
+        if (maxIn(CY.mis, p, q) > 0) { ctx.fillStyle = RED; ctx.fillRect(x, g.top, w1, mid - g.top - 1); }
+        if (maxIn(CY.miss, p, q) > 0) { ctx.fillStyle = AMBER; ctx.fillRect(x, mid + 1, w1, g.bot - mid - 1); }
+      });
+      separators(ctx, g, [0, 1024, 2048], ['', '', ''], '#3c4b52');
+    },
+    val: (p, q) => `${mean(CY.mis, p, q) * (q - p)} · ${mean(CY.miss, p, q) * (q - p)}`,
+    shows: 'A mark per event, several event kinds per row. Clusters and gaps are the message.',
+    evidence: 'Event striping was the most accurate way to count outliers, at 67% (Albers et al. 2014).',
+    volna: 'A tick mode for one-bit and count signals, and group rows for several kinds.'},
+
+  /* ------------------------------------------------ deferred */
+  {id: 'ab', status: 'deferred', title: 'Two runs overlaid', sig: 'retire.ipc, A and B', src: `stand-in: the first two matrix stretches of this run (windows ${AB.a0} and ${AB.b0}), aligned at their starts`, h: 60, n: AB.n,
+    legend: [['A', '#3987e5'], ['B', '#d95926']],
+    draw(ctx, g) { line(ctx, g, AB.a, 0, 3, '#3987e5', {w: 1.25}); line(ctx, g, AB.b, 0, 3, '#d95926', {w: 1.25}); axis(ctx, g, 3); },
+    val: p => `${fmt(AB.a[p])} · ${fmt(AB.b[p])}`,
+    shows: 'Two recordings of the same workload in one row, to see where a change helped or hurt.',
+    evidence: 'Overlays beat side-by-side views for comparing series (Ondov et al. 2019). A difference row as a mirrored horizon, or running totals, show where the runs part.',
+    why: 'Needs a second recording open at once and an alignment, by time or by retired instructions.'},
+  {id: 'oom', status: 'deferred', title: 'Order-of-magnitude horizon', sig: 'bus.rd_bytes', src: WIN + '; bytes read per window', h: 44, n: NR,
+    legend: [['10–99 B', OOM[0]], ['100–999 B', OOM[1]], ['1,000+ B', OOM[2]]],
+    draw(ctx, g) {
+      cols(g, (x, w, p, q) => {
+        const v = maxIn(rdBytes, p, q);
+        if (v <= 0) return;
+        const e = Math.floor(Math.log10(v)), m = v / 10 ** e;
+        ctx.fillStyle = OOM[Math.max(0, Math.min(2, e - 1))];
+        const hh = m / 10 * (g.bot - g.top);
+        ctx.fillRect(x, g.bot - hh, w, hh);
+      });
+    },
+    val: (p, q) => `${fmt(maxIn(rdBytes, p, q), 0)} B`,
+    shows: 'Colour gives the decade, height the digits within it, so values from 16 to 1,808 bytes stay readable in one row.',
+    evidence: 'The order-of-magnitude horizon graph (VIS 2023).',
+    why: 'Few counters here span decades; add it with MPKI and latency rows that need it.'},
+  {id: 'hadj', status: 'deferred', title: 'Adjustable horizon', sig: 'retire.ipc Δ', src: WIN + '; drag the baseline, pick a band size', h: 26, n: NR,
+    ctl: {key: 'band', opts: ['0.25', '0.5', '1']}, range: {key: 'base', min: 0.5, max: 2.5, step: 0.05, label: 'baseline'},
+    legend: [['above', HZ.pos[1]], ['below', HZ.neg[1]]],
+    draw(ctx, g, s) { horizon(ctx, g, [R.ipc.map(x => x - s.base)], Number(s.band), HZ); },
+    val: (p, q) => fmt(mean(R.ipc, p, q)),
+    shows: 'The same two-band horizon with the band size and baseline under the reader\'s control.',
+    evidence: 'Users in Perin et al. 2013 moved both, and the authors found no single good default.',
+    why: 'Worth doing once horizons ship; the default (run mean, bands of 0.5) serves until then.'},
+
+  /* ------------------------------------------------ rejected */
+  {id: 'stream', status: 'rejected', title: 'Streamgraph', sig: 'issue.pipe* stream', src: WIN + '; centred baseline', h: 60, n: NR, legend: PIPES,
+    draw(ctx, g) { stack(ctx, g, R.pipes, L.PIPE_COLOR, -ISSUE_HI / 2, ISSUE_HI / 2, v => -v.reduce((t, x) => t + x, 0) / 2); },
+    val: (p, q) => `${fmt(mean(R.issue_total, p, q))} per cycle`,
+    shows: 'Additive parts stacked around a moving centre line.',
+    evidence: 'Byron and Wattenberg 2008; ThemeRiver.',
+    why: 'The baseline moves, so no layer, not even the bottom one, is read by position, and the total has no zero to read from. The absolute stack shows the same data exactly.'},
+  {id: 'nonadd', status: 'rejected', title: 'Stack of levels that do not add', sig: 'iq.* stacked', src: WIN, h: 60, n: NR,
+    legend: IQN.map((q, k) => [q, IQC[k]]),
+    draw(ctx, g) { stack(ctx, g, IQN.map(q => R[q]), IQC, 0, IQ_SUM_HI); axis(ctx, g, IQ_SUM_HI); },
+    val: (p, q) => `total ${fmt(IQN.reduce((t, k) => t + mean(R[k], p, q), 0), 1)}`,
+    shows: 'Queue occupancies stacked on each other.',
+    evidence: 'Stacking is for parts of a whole (Cleveland and McGill 1984).',
+    why: 'The top edge is the sum of five queues of different capacities, a number that means nothing, and every layer above the first is read by length only.'},
+  {id: 'braid', status: 'rejected', title: 'Braided graph', sig: 'aiq0 · aiq1 · biq', src: WIN, h: 60, n: NR,
+    legend: IQN.slice(0, 3).map((q, k) => [q, IQC[k]]),
+    draw(ctx, g) {
+      cols(g, (x, w, p, q) => {
+        IQN.slice(0, 3).map((k, j) => [mean(R[k], p, q), j]).sort((a, b) => b[0] - a[0]).forEach(([v, j]) => {
+          const y = yv(g, v, 0, 6); ctx.fillStyle = IQC[j]; ctx.fillRect(x, y, w, g.bot - y);
+        });
+      });
+      axis(ctx, g, 6);
+    },
+    val: (p, q) => IQN.slice(0, 3).map(k => fmt(mean(R[k], p, q), 1)).join(' · '),
+    shows: 'Filled areas on one scale, the smallest drawn in front at each point so all stay visible.',
+    evidence: 'Javed, McDonnel and Elmqvist 2010.',
+    why: 'The colour on top changes from column to column, and braids did no better than shared lines while cluttering as much.'},
+  {id: 'spaghetti', status: 'rejected', title: 'More than four overlaid lines', sig: 'issue.pipe0…7', src: WIN + '; share of cycles each pipe issues', h: 60, n: NR, legend: PIPES,
+    draw(ctx, g) { R.pipes.forEach((a, p) => line(ctx, g, a, 0, 1, L.PIPE_COLOR[p], {w: 1})); axis(ctx, g, '100%', '0%'); },
+    val: pipeVal,
+    shows: 'Eight series on one scale.',
+    evidence: 'Clutter grows with each series beyond about four (Javed et al. 2010).',
+    why: 'The lines cross and hide each other and colour is the only way to tell them apart. The heat lanes and horizon group above show the same eight or five signals legibly.'},
+  {id: 'horizon4', status: 'rejected', title: 'Horizon with four bands', sig: 'retire.ipc Δ', src: WIN + '; bands of 0.25', h: 26, n: NR,
+    legend: [['above', HZ4.pos[3]], ['below', HZ4.neg[3]]],
+    draw(ctx, g) { horizon(ctx, g, [R.dev], 0.25, HZ4); },
+    val: (p, q) => { const v = mean(R.dev, p, q); return (v >= 0 ? '+' : '') + fmt(v); },
+    shows: 'The same deviation folded into four bands.',
+    evidence: 'Heer, Kong and Agrawala 2009.',
+    why: 'Readers must count shades to decode a value; with four or more bands they were slower and less accurate than with two.'},
+  {id: 'rainbow', status: 'rejected', title: 'Rainbow colour map', sig: 'issue.pipe0…7', src: WIN + '; share of cycles each pipe issues', h: 56, n: NR,
+    legend: [['0%', jet(0)], ['50%', jet(0.5)], ['100%', jet(1)]], legendNote: 'lanes pipe0 to pipe7, top to bottom',
+    draw(ctx, g) { lanes(ctx, g, R.pipes, jet); },
+    val: pipeVal,
+    shows: 'The heat lanes above, coloured with a rainbow (jet) map.',
+    evidence: 'Borland and Taylor 2007, "Rainbow color map (still) considered harmful".',
+    why: 'Hue changes invent boundaries where the data has none, yellow reads as the peak, and the order of the hues is lost to colour-blind readers.'},
+  {id: 'ridge', status: 'rejected', title: 'Ridgeline', sig: 'iq.* fill', src: WIN, h: 60, n: NR,
+    legend: IQN.map((q, k) => [q, IQC[k]]), legendNote: 'front to back',
+    draw(ctx, g) {
+      const k0 = IQN.length, step = (g.bot - g.top) / (k0 + 2), amp = 3 * step;
+      for (let k = k0 - 1; k >= 0; k--) {
+        const base = g.bot - k * step, a = R.iq_fill[k];
+        ctx.beginPath(); ctx.moveTo(g.LW, base);
+        cols(g, (x, w, p, q) => ctx.lineTo(x + w / 2, base - Math.min(1, mean(a, p, q)) * amp));
+        ctx.lineTo(g.W, base); ctx.closePath();
+        ctx.fillStyle = C.bg; ctx.fill(); ctx.strokeStyle = IQC[k]; ctx.lineWidth = 1.25; ctx.stroke();
+      }
+    },
+    val: iqVal,
+    shows: 'Several series, each offset a little higher, overlapping the one behind it.',
+    evidence: 'Joy plots; Wilke 2019.',
+    why: 'In one row the curves cover each other, so the values of the back series are hidden where they matter, and the offsets leave no shared scale.'},
+  {id: 'pie', status: 'rejected', title: 'Pies along time', sig: 'topdown.*', src: WIN + '; one pie per stretch of windows', h: 48, n: NR, legend: TDL, glyph: true,
+    draw(ctx, g) {
+      const G = glyphs(g, g.H);
+      for (let k = 0; k < G.n; k++) {
+        const [p, q] = glyphRange(g, k, G.n), cx = g.LW + (k + 0.5) * G.w, cy = g.H / 2, r = G.d / 2;
+        let a = -Math.PI / 2;
+        TDS.forEach((s, j) => {
+          const da = 2 * Math.PI * mean(s, p, q);
+          ctx.fillStyle = TDC[j]; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, a, a + da); ctx.closePath(); ctx.fill(); a += da;
+        });
+      }
+    },
+    pick: (g, x) => glyphAt(g, x, glyphs(g, g.H).n),
+    val: tdVal,
+    shows: 'The top-down shares as a pie per stretch of the run.',
+    evidence: 'Angles and areas are read less accurately than positions and lengths (Cleveland and McGill 1984).',
+    why: 'Each pie covers dozens of windows, the time axis becomes a row of separate glyphs, and comparing a share across pies means comparing angles from memory. The 100% stack shows every window on one baseline.'},
+  {id: 'radar', status: 'rejected', title: 'Radar per stretch', sig: 'iq.* fill', src: WIN + '; one glyph per stretch of windows', h: 48, n: NR, glyph: true,
+    legend: [], legendNote: 'axes clockwise from the top: ' + IQN.join(', '),
+    draw(ctx, g) {
+      const G = glyphs(g, g.H), m = IQN.length;
+      const at = (cx, cy, r, j) => [cx + r * Math.sin(2 * Math.PI * j / m), cy - r * Math.cos(2 * Math.PI * j / m)];
+      for (let k = 0; k < G.n; k++) {
+        const [p, q] = glyphRange(g, k, G.n), cx = g.LW + (k + 0.5) * G.w, cy = g.H / 2, r = G.d / 2;
+        ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.beginPath();
+        for (let j = 0; j <= m; j++) { const [x, y] = at(cx, cy, r, j % m); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+        ctx.stroke();
+        ctx.fillStyle = ONE + '55'; ctx.strokeStyle = ONE; ctx.beginPath();
+        for (let j = 0; j <= m; j++) { const [x, y] = at(cx, cy, r * Math.min(1, mean(R.iq_fill[j % m], p, q)), j % m); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+        ctx.fill(); ctx.stroke();
+      }
+    },
+    pick: (g, x) => glyphAt(g, x, glyphs(g, g.H).n),
+    val: iqVal,
+    shows: 'The fill of the five issue queues as a polygon per stretch of the run.',
+    evidence: 'Star glyphs are read by overall shape (Klippel et al. 2009), and the shape depends on the axis order.',
+    why: 'No value can be read from the polygon, the area grows with the square of the values, and time is again chopped into glyphs.'},
+  {id: 'waterfall', status: 'rejected', title: '3D waterfall', sig: 'rob.entries histogram', src: WIN + '; one slice per stretch of windows', h: 64, n: NR, glyph: true,
+    draw(ctx, g) {
+      const S = 20, sw = g.PW * 0.4, rise = (g.H - 12) * 0.5, amp = (g.H - 12) * 0.5;
+      for (let j = S - 1; j >= 0; j--) {
+        const [p, q] = glyphRange(g, j, S), h = new Float64Array(16); let tot = 0;
+        for (let i = p; i < q; i++) R.rob_hist[i].forEach((c, b) => { h[b] += c; tot += c; });
+        const ox = g.LW + 4 + j * (g.PW - sw - 8) / (S - 1), oy = g.H - 4 - j * rise / (S - 1);
+        ctx.beginPath(); ctx.moveTo(ox, oy);
+        for (let b = 0; b < 16; b++) ctx.lineTo(ox + (b + 0.5) / 16 * sw, oy - Math.sqrt(h[b] / tot) * amp);
+        ctx.lineTo(ox + sw, oy); ctx.closePath();
+        ctx.fillStyle = C.bg; ctx.fill(); ctx.strokeStyle = ONE; ctx.globalAlpha = 1 - 0.6 * j / S; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = 1;
+      }
+    },
+    pick: (g, x) => glyphAt(g, x, 20),
+    val: (p, q) => { const h = new Float64Array(16); for (let i = p; i < q; i++) R.rob_hist[i].forEach((c, b) => { h[b] += c; }); const b = h.indexOf(Math.max(...h)); return `mode ${4 * b}–${4 * b + 3}`; },
+    shows: 'The ROB histogram of each stretch as a slice, later slices set back and up in perspective.',
+    evidence: 'Perspective distorts length and hides occluded marks (Cleveland and McGill 1984; Munzner 2014, "no unjustified 3D").',
+    why: 'Front slices hide the ones behind, heights shrink with depth, and time runs diagonally instead of along the shared x axis. The histogram over time shows the same data flat.'},
+  {id: 'dual', status: 'rejected', title: 'Two y axes', sig: 'retire.ipc · bus.rd_inflight', src: `${WIN}; 0–4 on the left, 0–${INFL_HI} on the right`, h: 60, n: NR,
+    legend: [['retire.ipc, left', ONE], ['bus.rd_inflight, right', VIOLET]],
+    draw(ctx, g) { line(ctx, g, R.ipc, 0, 4, ONE, {w: 1.25}); line(ctx, g, R.infl, 0, INFL_HI, VIOLET, {w: 1.25}); axis(ctx, g, 4, 0, 'left', ONE); axis(ctx, g, INFL_HI, 0, 'right', VIOLET); },
+    val: (p, q) => `${fmt(mean(R.ipc, p, q))} · ${fmt(mean(R.infl, p, q))}`,
+    shows: 'Two measures with different units in one row, each on its own scale.',
+    evidence: 'Isenberg, Bezerianos, Dragicevic and Fekete 2011, A study on dual-scale data charts.',
+    why: 'Where the lines cross and which one is higher depend only on the two arbitrary scales. Two rows on one time axis compare them without that artefact.'},
+];
+const STATUS = {volna: 'In Volna', proposed: 'Proposed', deferred: 'Deferred', rejected: 'Rejected'};
+
+/* ---- cards ---- */
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+const cards = [];
+function card(sp) {
+  const el = document.createElement('article');
+  el.className = 'sty'; el.id = 'sty-' + sp.id; el.dataset.status = sp.status;
+  const s = {};
+  if (sp.ctl) s[sp.ctl.key] = sp.ctl.opts[sp.ctl.key === 'band' ? 1 : 0];
+  if (sp.range) s[sp.range.key] = +IPC.toFixed(2);
+  const ctl = sp.ctl ? `<span class="seg sty-ctl" role="group" aria-label="${esc(sp.title)}: ${sp.ctl.key}">${sp.ctl.opts.map(o =>
+    `<button type="button" data-v="${o}" aria-pressed="${o === s[sp.ctl.key]}">${o}</button>`).join('')}</span>` : '';
+  const rng = sp.range ? `<label class="sty-rng">${sp.range.label} <input type="range" min="${sp.range.min}" max="${sp.range.max}" step="${sp.range.step}" value="${s[sp.range.key]}"><output>${s[sp.range.key].toFixed(2)}</output></label>` : '';
+  const leg = sp.legend ? `<div class="sty-leg">${sp.legend.map(([t, c]) => `<span><i style="background:${c}"></i>${esc(t)}</span>`).join('')}${sp.legendNote ? `<em>${esc(sp.legendNote)}</em>` : ''}</div>` : '';
+  const last = sp.status === 'volna' ? ['In Volna', sp.volna] : sp.status === 'proposed' ? ['Volna needs', sp.volna] : [sp.status === 'deferred' ? 'Why later' : 'Why not', sp.why];
+  el.innerHTML = `<h4>${esc(sp.title)} <span class="chip ${sp.status}">${STATUS[sp.status]}</span>${ctl}</h4>
+    <p class="src"><code>${esc(sp.sig)}</code> · ${esc(sp.src)}</p>${rng}
+    <canvas height="${sp.h}" style="height:${sp.h}px" role="img" aria-label="${esc(sp.title)}: ${esc(sp.sig)}, ${esc(sp.src)}"></canvas>${leg}
+    <dl><dt>Shows</dt><dd>${sp.shows}</dd><dt>Evidence</dt><dd>${sp.evidence}</dd><dt>${last[0]}</dt><dd>${last[1]}</dd></dl>`;
+  const c = {sp, s, el, cv: el.querySelector('canvas'), hover: null, g: null};
+  c.ctx = c.cv.getContext('2d');
+  el.querySelectorAll('.sty-ctl button').forEach(b => b.addEventListener('click', () => {
+    s[sp.ctl.key] = b.dataset.v;
+    el.querySelectorAll('.sty-ctl button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    paint(c);
+  }));
+  const input = el.querySelector('.sty-rng input');
+  if (input) input.addEventListener('input', () => { s[sp.range.key] = +input.value; el.querySelector('.sty-rng output').textContent = (+input.value).toFixed(2); paint(c); });
+  c.cv.addEventListener('pointermove', e => { const b = c.cv.getBoundingClientRect(); c.hover = e.clientX - b.left; paint(c); });
+  c.cv.addEventListener('pointerleave', () => { c.hover = null; paint(c); });
+  cards.push(c);
+  return el;
+}
+function range(c) {
+  const {g, sp, hover} = c;
+  if (hover == null || hover < g.LW || hover >= g.W) return null;
+  return sp.pick ? sp.pick(g, hover) : colAt(g, hover);
+}
+function paint(c) {
+  const {cv, ctx, sp, s} = c, dpr = window.devicePixelRatio || 1;
+  if (!cv.clientWidth) return;
+  const g = c.g = geom(cv, sp.h, sp.n);
+  if (cv.width !== Math.round(g.W * dpr)) cv.width = Math.round(g.W * dpr);
+  cv.height = Math.round(g.H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, g.W, g.H);
+  ctx.save(); ctx.beginPath(); ctx.rect(g.LW, 0, g.PW, g.H); ctx.clip();
+  sp.draw(ctx, g, s);
+  const r = range(c);
+  if (r && !sp.glyph) {
+    const x = dense(g) ? Math.floor(c.hover) + 0.5 : xOf(g, r[0] + 0.5);
+    ctx.strokeStyle = C.cur; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, g.H); ctx.stroke();
+  } else if (r) {
+    const x0 = xOf(g, r[0]), x1 = xOf(g, r[1]);
+    ctx.strokeStyle = C.cur; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, 0.5, x1 - x0 - 1, g.H - 1);
+  }
+  ctx.restore();
+  // The name column: the signal, then the value under the pointer.
+  ctx.fillStyle = C.name; ctx.fillRect(0, 0, g.LW - 1, g.H);
+  ctx.fillStyle = C.line; ctx.fillRect(g.LW - 1, 0, 1, g.H);
+  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  const fit = (t, w) => { if (ctx.measureText(t).width <= w) return t; while (t.length > 1 && ctx.measureText(t + '…').width > w) t = t.slice(0, -1); return t + '…'; };
+  ctx.font = `500 11px ${MONO}`; ctx.fillStyle = C.tx;
+  const oneLine = g.H < 30;
+  ctx.fillText(fit(oneLine && r ? sp.val(...r) : sp.sig, g.LW - 12), 7, oneLine ? (g.H - 11) / 2 : 6);
+  if (!oneLine) {
+    ctx.font = `10.5px ${MONO}`; ctx.fillStyle = r ? C.cur : C.mu;
+    ctx.fillText(fit(r ? sp.val(...r) : STATUS[sp.status].toLowerCase(), g.LW - 12), 7, 21);
+  }
+  c.value = r ? sp.val(...r) : null;
+}
+const paintAll = () => cards.forEach(paint);
+
+for (const st of Object.keys(STATUS)) {
+  const host = document.getElementById('sty-' + st);
+  for (const sp of STYLES.filter(x => x.status === st)) host.appendChild(card(sp));
+  const n = document.getElementById('sty-n-' + st);
+  if (n) n.textContent = STYLES.filter(x => x.status === st).length;
+}
+const ro = new ResizeObserver(paintAll);
+cards.forEach(c => ro.observe(c.cv));
+document.fonts.ready.then(paintAll);
+
+/* ---- test hooks ---- */
+const find = id => cards.find(c => c.sp.id === id);
+return {
+  STYLES,
+  state: () => cards.map(c => ({id: c.sp.id, status: c.sp.status, s: {...c.s}, value: c.value})),
+  // The share of plot pixels that differ from the row background.
+  painted: id => {
+    const c = find(id), dpr = window.devicePixelRatio || 1, g = c.g;
+    const d = c.ctx.getImageData(Math.round(g.LW * dpr), 0, Math.round(g.PW * dpr), Math.round(g.H * dpr)).data;
+    let n = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - 0x1b) + Math.abs(d[i + 1] - 0x24) + Math.abs(d[i + 2] - 0x2a) > 30) n++;
+    return n / (d.length / 4);
+  },
+  pointAt: (id, f, fy = 0.5) => { const c = find(id), b = c.cv.getBoundingClientRect(); return {x: b.left + c.g.LW + f * c.g.PW, y: b.top + fy * c.g.H}; },
+  pixel: (id, x, y) => { const c = find(id), b = c.cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    return Array.from(c.ctx.getImageData(Math.round((x - b.left) * dpr), Math.round((y - b.top) * dpr), 1, 1).data.slice(0, 3)); },
+  sized: () => cards.every(c => c.g && c.g.W === c.cv.clientWidth),
+};
+})();
+window.GAL = GAL;
 </script>
 </body>
 </html>

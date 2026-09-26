@@ -164,3 +164,56 @@ test('row styles: the row switch, the ROB raster and its age order', {timeout: 3
   assert.deepEqual(b.exceptions, []);
 });
 
+
+test('row style gallery: one painted row per style, grouped by status', {timeout: 30000}, async t => {
+  const b = await open(390); t.after(() => b.close());
+  await b.wait('GAL.sized()');
+  const cards = await b.evaluate('GAL.state()');
+  const count = st => cards.filter(c => c.status === st).length;
+  assert.deepEqual([count('volna'), count('proposed'), count('deferred'), count('rejected')], [4, 13, 3, 11]);
+  for (const st of ['volna', 'proposed', 'deferred', 'rejected'])
+    assert.equal(await b.evaluate(`document.getElementById("sty-n-${st}").textContent`), String(count(st)), `the ${st} heading counts its cards`);
+  for (const c of cards) {
+    assert.ok(await b.evaluate(`GAL.painted("${c.id}")`) > 0.03, `${c.id} draws its row`);
+    const dts = await b.evaluate(`[...document.querySelectorAll("#sty-${c.id} dt")].map(e => e.textContent)`);
+    assert.equal(dts.length, 3, `${c.id} explains itself`);
+  }
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('row style gallery: controls, hover readouts and the age-ordered raster', {timeout: 30000}, async t => {
+  const b = await open(1280); t.after(() => b.close());
+  await b.evaluate('document.getElementById("sty-line").scrollIntoView({block: "start", behavior: "instant"})');
+  await b.wait('GAL.sized()');
+  const at = async (id, f, fy) => b.evaluate(`GAL.pointAt("${id}", ${f}, ${fy ?? 0.5})`);
+  const value = async id => (await b.evaluate('GAL.state()')).find(c => c.id === id);
+  const before = await b.evaluate('GAL.painted("line")');
+  await b.click('#sty-line .sty-ctl [data-v="linear"]');
+  assert.equal((await value('line')).s.draw, 'linear');
+  assert.notEqual(await b.evaluate('GAL.painted("line")'), before, 'linear redraws the row');
+  await mouse(b, 'mouseMoved', await at('line', 0.5), {button: 'none'});
+  assert.match((await value('line')).value, /^\d+ entries$/, 'hover reads the sample');
+  // In age order the oldest entries sit in the bottom lanes.
+  await b.evaluate('document.getElementById("sty-raster").scrollIntoView({block: "start", behavior: "instant"})');
+  await b.click('#sty-raster .sty-ctl [data-v="age"]');
+  const r = await b.evaluate(`(() => { const s = PFL.build(0, 1, 'count').series.rob; for (let i = 100; i < 1000; i++) if (s[i] >= 20 && s[i + 1] >= 20 && s[i - 1] >= 20) return i; return -1; })()`);
+  assert.ok(r > 0, 'the stretch holds 20 entries somewhere');
+  const x = (await at('raster', (r + 0.5) / 1024)).x, top = (await at('raster', 0, 0)).y, h = 72;
+  const lane = k => top + h - 2 - (k + 0.5) * (h - 4) / 64;
+  assert.ok((await b.evaluate(`GAL.pixel("raster", ${x}, ${lane(1)})`))[1] > 90, 'the oldest lanes are lit');
+  assert.ok((await b.evaluate(`GAL.pixel("raster", ${x}, ${lane(62)})`))[1] < 90, 'the top lanes are empty');
+  await mouse(b, 'mouseMoved', {x, y: lane(10)}, {button: 'none'});
+  assert.match((await value('raster')).value, /valid$/);
+  for (const [id, re] of [['state', /retiring|front end|bad speculation|back end/], ['pie', /%$/], ['dual', /^\d\.\d\d · \d\.\d\d$/]]) {
+    await b.evaluate(`document.getElementById("sty-${id}").scrollIntoView({block: "start", behavior: "instant"})`);
+    await mouse(b, 'mouseMoved', await at(id, 0.4), {button: 'none'});
+    assert.match((await value(id)).value, re, `${id} reads the value under the pointer`);
+  }
+  // The adjustable horizon redraws for a new baseline.
+  const h0 = await b.evaluate('GAL.painted("hadj")');
+  await b.evaluate(`(() => { const i = document.querySelector("#sty-hadj input"); i.value = "2.5"; i.dispatchEvent(new Event("input")); })()`);
+  assert.equal((await value('hadj')).s.base, 2.5);
+  assert.equal(await b.evaluate('document.querySelector("#sty-hadj output").textContent'), '2.50');
+  assert.notEqual(await b.evaluate('GAL.painted("hadj")'), h0);
+  assert.deepEqual(b.exceptions, []);
+});
