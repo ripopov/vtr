@@ -219,10 +219,10 @@ pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
     <thead><tr><th>Piece</th><th>Location</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td><code>vtr_track.hpp</code></td><td>Header-only C++17 keyed lifecycle tracker over the C API: key spaces, groups, ordered aborts, buffered attributes, diagnostics. Also usable from SystemC and gem5 producers. <code>core/vtr-capi/include/</code>, beside <code>vtr_log.hpp</code>.</td><td><span class="st new">new</span></td></tr>
-      <tr><td><code>vtr_trace.sv</code>, <code>vtr_trace_dpi.hpp</code></td><td>Created by the clocks proposal in <code>core/vtr-capi/include/</code> and installed by <code>integrations/verilator/build.sh</code> into the fork's <code>include/vtr/</code>. This proposal adds the tracker part: its DPI-C imports, and their bodies over <code>vtr_track.hpp</code> and the existing host and sink interface. On the sink's notice before close, it ends every open item with status <i>open</i>. <code>build.sh</code> installs <code>vtr_track.hpp</code> beside them.</td><td><span class="st changed">extended</span></td></tr>
+      <tr><td><code>vtr_trace.sv</code>, <code>vtr_trace_dpi.hpp</code></td><td>Created by the clocks proposal in <code>core/vtr-capi/include/</code> and installed by <code>integrations/verilator/build.sh</code> into the fork's <code>include/vtr/</code>. This proposal adds the tracker part: its DPI-C imports, and their bodies over <code>vtr_track.hpp</code> and the existing host and sink interface. The writer already ends every open transaction with status <i>open</i> at close; on the sink's notice before close the tracker only drops its key tables, so a file opened later never addresses the old transactions. <code>build.sh</code> installs <code>vtr_track.hpp</code> beside them.</td><td><span class="st changed">extended</span></td></tr>
       <tr><td>Verilator sink</td><td>From the clocks proposal: <code>include/verilated_vtr_dpi.cpp</code> keeps one package runtime per context and implements the sink over <code>VerilatedVtr</code> (writer, time unit, scope map, warnings); <code>--trace-vtr</code> parses the installed package and prunes it when unused. The tracker part needs nothing new from it.</td><td><span class="st exists">unchanged</span></td></tr>
       <tr><td>Standalone sink</td><td>Opens <code>+vtr_trace=&lt;file&gt;</code> and reads time through <code>vpi_get_time</code>, for simulators other than the fork. It implements the same host and sink interface over <code>vtr_trace_dpi.hpp</code>, so clocks and trackers work there unchanged. Those users compile <code>vtr_trace.sv</code> from <code>core/vtr-capi/include/</code> with their design. <code>integrations/systemverilog/</code>.</td><td><span class="st new">new</span></td></tr>
-      <tr><td>Toy-core smoke test</td><td>An in-order and a small out-of-order toy core with known schedules, exact expected transactions, one and two threads. <code>integrations/verilator/pipeline/</code>.</td><td><span class="st new">new</span></td></tr>
+      <tr><td>Demo design</td><td>A small design whose tracer produces about ten transactions that exercise every tracker call, checked exactly in one and two threads; it also writes the small recording the Volna test opens. <code>integrations/verilator/pipeline/</code>.</td><td><span class="st new">new</span></td></tr>
       <tr><td>C910 proof of concept</td><td>Tracer, bind file, disassembly label hook, <code>PIPELINE=1</code> model build, <code>capture.sh --pipeline</code>, the offline replay as a differential checker. <code>bench/workloads/c910/</code>.</td><td><span class="st new">new</span></td></tr>
       <tr><td>Volna</td><td>A palette for a dozen stage names; measured behaviour at half a million rows. <code>volna/volna-core/src/pipeline/</code>.</td><td><span class="st changed">changed</span></td></tr>
       <tr><td>Documentation</td><td>Pipeline tracers added to the SystemVerilog producer example that the clocks proposal starts in SPEC, a RATIONALE entry, and the Verilator integration guide.</td><td><span class="st changed">changed</span></td></tr>
@@ -251,9 +251,9 @@ pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
     <dt>Group</dt>
     <dd>One key can name several items. The C910 puts up to three instructions in one ROB entry, and <code>vtr_item_bind_oldest</code> files them all under that entry's IID. Every call made with a group's key applies to each member: a stage, an attribute, or a close.</dd>
     <dt>Status</dt>
-    <dd><code>VTR_OK</code> for a normal end such as retirement, <code>VTR_ERROR</code> for an end that reports a failure, and <code>VTR_ABORTED</code> for a squash. The abort functions end many items at once. Items still running when the simulation stops are written with status <i>open</i>.</dd>
+    <dd><code>VTR_TX_OK</code> for a normal end such as retirement, <code>VTR_TX_ERROR</code> for an end that reports a failure, and <code>VTR_TX_ABORTED</code> for a squash. The abort functions end many items at once. Items still running when the simulation stops are written with status <i>open</i>.</dd>
     <dt>Time</dt>
-    <dd>Every call takes effect at the current simulation time. No call has a time argument, except the <code>_at</code> forms. These back-date a begin or a stage to a time the tracer saved earlier with <code>vtr_now()</code>, from the package's common part.</dd>
+    <dd>Every call takes effect at the current simulation time. No call has a time argument, except the <code>_at</code> forms. These back-date a begin or a stage to a time the tracer saved earlier with <code>vtr_now()</code>, from the package's common part. <code>vtr_now()</code> returns the file's time unit only while a file is open (before that it returns the simulator's precision), so an <code>_at</code> time saved before the file opened is not meaningful.</dd>
   </dl>
 
   <h3>One instruction, call by call</h3>
@@ -282,7 +282,7 @@ vtr_item_stage(rob, 12, "X");              // addressed by its ROB index from no
 vtr_item_stage(rob, 12, "C");              // complete, waiting to retire
 
 // edge 109: it retires
-vtr_item_close(rob, 12, VTR_OK);           // transaction [100, 109], status ok, stages F D Q X C;
+vtr_item_close(rob, 12, VTR_TX_OK);           // transaction [100, 109], status ok, stages F D Q X C;
                                            // sn 7 and rob 12 are released for reuse</code></pre>
   <p>Had a branch mispredicted at edge 104, the tracer would instead call <code>vtr_item_abort_younger(rob, branch_rob)</code>. This instruction and every other item opened after the branch would end at 104 with status aborted, and their keys would be released.</p>
 
@@ -296,7 +296,9 @@ vtr_item_close(rob, 12, VTR_OK);           // transaction [100, 109], status ok,
   typedef int unsigned     vtr_tracker_t;   // a stream + generator that items are written to; 0 = none
   typedef int unsigned     vtr_keyspace_t;  // a key space of one tracker; 0 = none
   typedef longint unsigned vtr_key_t;       // a hardware identifier: sequence number, ROB index, queue slot…
-  localparam byte VTR_OK = 1, VTR_ERROR = 2, VTR_ABORTED = 3;   // how an item ended
+  // How an item ended: the C API's VTR_TX_STATUS_* codes. (vtr.h's VTR_OK = 0 is a call's
+  // success, not a status, hence the TX in these names.)
+  localparam byte VTR_TX_OK = 1, VTR_TX_ERROR = 2, VTR_TX_ABORTED = 3;
 
   // ---- Setup (call once, from an initial block) --------------------------------------------
 
@@ -361,7 +363,7 @@ vtr_item_close(rob, 12, VTR_OK);           // transaction [100, 109], status ok,
   // open stages and releasing all of its names.
   import "DPI-C" function void vtr_item_close   (vtr_keyspace_t sp, vtr_key_t k, byte status);
 
-  // Squashes. Each ends the chosen items now with VTR_ABORTED and returns how many it ended.
+  // Squashes. Each ends the chosen items now with VTR_TX_ABORTED and returns how many it ended.
   // Items opened after the item named (sp, k); that item itself survives. Open order is
   // program order when the tracer opens instructions in program order, as front ends do.
   import "DPI-C" function int  vtr_item_abort_younger(vtr_keyspace_t sp, vtr_key_t k);
@@ -387,7 +389,7 @@ endpackage</code></pre>
     <li><strong>Unknown keys are counted, not fatal.</strong> This is the package's misuse rule applied to keys. A stage or close on a key that names nothing is skipped and counted. Opening on a key that still names an item aborts that item first and is counted too. At close, the counts per object go into the file's simulation log as warnings, so a tracer bug shows up in <code>vtr log</code> and in Volna.</li>
     <li><strong>Attributes follow "last value wins".</strong> The library buffers them and writes them when the item ends. A partial PC seen at decode can therefore be replaced by the full PC at retire.</li>
     <li><strong>The file keeps its usual meaning.</strong> An item is an ordinary transaction, a stage is an ordinary stage, and lanes, events, relations and statuses are those of SPEC §7. Readers need nothing new.</li>
-    <li><strong>Order within one edge is the tracer's.</strong> Calls take effect in the order they are made. Tracers therefore handle the oldest pipeline position first, retire before squash before issue before fetch, as the examples do. An instruction then leaves a key before a younger one takes it.</li>
+    <li><strong>Order within one edge is the tracer's.</strong> Calls take effect in the order they are made. Tracers therefore handle the oldest pipeline position first, retire before squash before issue before fetch, as the examples do. An instruction then leaves a key before a younger one takes it. Order is only defined within one <code>always</code> block: with <code>--threads</code> above one, Verilator may run two blocks of the same edge on different threads in either order, so all calls of one tracker belong in a single block, as in both examples.</li>
   </ol>
 
   <h3>A complete tracer for a five-stage core</h3>
@@ -410,7 +412,7 @@ endpackage</code></pre>
   end
 
   always @(posedge clk) begin                              // oldest first
-    if (retire)   begin vtr_item_attr_u64(sn, k_w, "insn", wb_insn); vtr_item_close(sn, k_w, VTR_OK); end
+    if (retire)   begin vtr_item_attr_u64(sn, k_w, "insn", wb_insn); vtr_item_close(sn, k_w, VTR_TX_OK); end
     if (wb_load)  begin vtr_item_stage(sn, k_m, "W"); k_w = k_m; end
     if (mem_load) begin vtr_item_stage(sn, k_x, "M"); k_m = k_x; end
     if (squash)   void'(vtr_item_abort_younger(sn, k_x));    // the branch itself survives
@@ -465,7 +467,7 @@ bind rv5_core rv5_vtr_tracer u_vtr (.clk, .if_fire(if_req &amp;&amp; if_gnt), .i
   // 1. Retire, oldest slot first. Each slot is one ROB entry of one to three instructions.
   for (int k = 0; k &lt; 3; k++) if (rt_vld[k]) begin
     vtr_item_stage_at(iid, rt_iid[k], "RT", t_prev);
-    vtr_item_close   (iid, rt_iid[k], VTR_OK);
+    vtr_item_close   (iid, rt_iid[k], VTR_TX_OK);
   end
   // 2. Flushes: the ROB after the mispredicted branch has retired, the front end at the cancel.
   if (retire_rob_flush)                 void'(vtr_keyspace_abort(iid));
@@ -505,20 +507,18 @@ end</code></pre>
 
 <section id="verification"><div class="wrap"><div class="prose">
   <h2>Verification</h2>
-  <p>Every check is headless, runs in CI and fails on a missing prerequisite, as AGENTS.md requires.</p>
+  <p>Every check is headless, scripted and fails on a missing prerequisite, as AGENTS.md requires. The tracker unit tests, the Volna test and this page run in CI. The demo design needs the fork and runs locally through its script, like the other Verilator integration suites. The C910 is a local demonstration, not a test.</p>
   <ol>
-    <li><b>Tracker unit tests.</b> These are C++ tests in <code>core/vtr-capi/tests</code>, read back with the Rust reader. They cover folding, <code>bind_oldest</code> order, ordered aborts, stale-key diagnostics, attribute replacement and open items at close.</li>
-    <li><b>Fork regression.</b> <code>test_regress/t/t_trace_vtr_tx</code> checks that tracer calls land in the waveform file, on the waveform timeline, and in both thread modes, and that stage boundaries fall on edges of the declared clock. Package resolution and pruning are already covered by the clocks proposal's <code>integrations/verilator/clocks/run.py</code>.</li>
-    <li><b>Toy cores.</b> <code>integrations/verilator/pipeline/run.py</code> builds an in-order and a small out-of-order toy core with a deterministic program. It compares every recorded transaction, stage, status and time with an expected list.</li>
-    <li><b>C910 differential check.</b> A 20,000-cycle run with the tracer and the full dump must give, from the same file, identical stage lists from the live tracer and from the offline replay of the probe signals. The run must also satisfy the invariants above: retired PCs equal to the retire PC signals, unbroken program order, and zero diagnostics. The job installs <code>gcc-riscv64-unknown-elf</code> from Ubuntu and builds the model once.</li>
-    <li><b>Volna.</b> A headless test opens a small committed C910 pipeline example, then checks that the stream is recognised, that stages are counted in cycles of <code>clk</code> (two time units each), and that selection feeds the Transaction panel.</li>
+    <li><b>Tracker unit tests.</b> These are C++ tests in <code>core/vtr-capi/tests</code>, read back with the Rust reader, and run in the core CI job. They cover folding, <code>bind_oldest</code> order, ordered aborts, stale-key diagnostics, attribute replacement, open items at close and the key tables dropped at the close notice.</li>
+    <li><b>Demo design.</b> <code>integrations/verilator/pipeline/run.py</code> builds a small design (the fork's own <code>test_regress</code> has no VTR library to run a model against, as for the clocks suite) in one and two thread modes. Its tracer produces about ten transactions: instructions that open, advance through stages and a <code>stall</code> lane, move to a second key space with <code>vtr_item_bind</code>, share one key as a group through <code>vtr_item_bind_oldest</code>, retire, are squashed by <code>vtr_item_abort_younger</code> and <code>vtr_keyspace_abort</code>, carry attributes, a label, an event, a relation and a parent, and one that is still open at close. The script compares every transaction, stage, status, attribute and time with an exact expected list, checks that stage boundaries fall on edges of the declared clock and that the recording's waveforms are unchanged, and checks the misuse warnings of a deliberate stale key. <code>--update-example</code> writes the recording to <code>volna/volna/examples/pipeline_demo.vtr</code>.</li>
+    <li><b>Volna.</b> A headless test opens the committed <code>pipeline_demo.vtr</code>, then checks that the stream is recognised, that stages are counted in cycles of its clock, and that selection feeds the Transaction panel.</li>
     <li><b>This page.</b> <code>node --test docs/tests/c910-verilator-tx-stream.test.mjs</code> drives the demo in headless Chrome, and a workflow runs it when the page changes.</li>
   </ol>
 </div></div></section>
 
 <section id="cost"><div class="wrap"><div class="prose">
   <h2>Cost</h2>
-  <p>These numbers are estimates from measured neighbours until phase 3 measures them. One CoreMark iteration is about 252,000 cycles. At the replay's 1.84 instructions per cycle, that is about 460,000 retired instructions plus about 20,000 on the wrong path, with around eight stages each. The synthetic <code>ooo_1m</code> benchmark stores a million instructions with 8 million stages and 9 million relations in 31.7 MiB and writes them in 2.9 s. So the C910 pipeline should add roughly 10 to 15 MiB beside 243 MiB of waveforms, and between one and two seconds of writer time. That is against 86 s for the traced run and 35.5 s untraced.</p>
+  <p>These numbers are estimates from measured neighbours until step 3 measures them, locally. One CoreMark iteration is about 252,000 cycles. At the replay's 1.84 instructions per cycle, that is about 460,000 retired instructions plus about 20,000 on the wrong path, with around eight stages each. The synthetic <code>ooo_1m</code> benchmark stores a million instructions with 8 million stages and 9 million relations in 31.7 MiB and writes them in 2.9 s. So the C910 pipeline should add roughly 10 to 15 MiB beside 243 MiB of waveforms, and between one and two seconds of writer time. That is against about 29.5 s for the run with the full VTR dump on an Apple M5; the gates below are ratios, so they hold on any host.</p>
   <p>The tracer makes about 25 DPI calls per cycle. Each is a direct, non-context import in Verilator with 64-bit arguments and a hash lookup behind it.</p>
   <p>The acceptance gates follow the benchmark rules: A/B against the previous commit, best of three, pinned to P-cores.</p>
   <ul>
@@ -541,13 +541,13 @@ end</code></pre>
 
 <section id="plan"><div class="wrap"><div class="prose">
   <h2>Plan</h2>
-  <p>Before step 1, steps 1 to 4 of <a href="vtr_clocks.html#plan">vtr_clocks.html</a> are merged: the clock record, the <code>vtr_trace</code> package with its fork sink, the C910 clock and harness time order, and cycle counting in Volna.</p>
+  <p>Steps 1 to 4 of <a href="vtr_clocks.html#plan">vtr_clocks.html</a> are done: the clock record, the <code>vtr_trace</code> package with its fork sink, the C910 clock and harness time order, and cycle counting in Volna (rulers with cursor chips, snapping, pipelines counted in their stream's clock).</p>
   <ol>
-    <li><b>Tracker and SystemVerilog binding.</b> <code>vtr_track.hpp</code> and the tracker part of <code>vtr_trace.sv</code> and <code>vtr_trace_dpi.hpp</code>, including open items ended at the sink's notice before close, with the unit tests, pipeline tracers in the SPEC SystemVerilog producer example and a RATIONALE entry. <i>Exit:</i> the unit tests pass.</li>
-    <li><b>Fork.</b> Installation of <code>vtr_track.hpp</code>, the fork regression test and the toy-core smoke test in one and two threads. <i>Exit:</i> the toy traces match exactly.</li>
-    <li><b>C910 from decode to retire.</b> The tracer and bind file, <code>PIPELINE=1</code>, <code>capture.sh --pipeline</code>, disassembly labels, <code>pipeline_replay.py</code> promoted to the differential checker, and the A/B benchmark. <i>Exit:</i> the differential check is identical on 20,000 cycles, the cost gates hold, and an example sits in <code>volna/volna/examples</code>.</li>
+    <li><b>Tracker and SystemVerilog binding.</b> <code>vtr_track.hpp</code> and the tracker part of <code>vtr_trace.sv</code> and <code>vtr_trace_dpi.hpp</code>, including the key tables dropped at the sink's notice before close, with the unit tests, pipeline tracers in the SPEC SystemVerilog producer example and a RATIONALE entry. <i>Exit:</i> the unit tests pass.</li>
+    <li><b>Fork and demo design.</b> Installation of <code>vtr_track.hpp</code>, the demo design and its script in one and two threads, and the committed <code>pipeline_demo.vtr</code> with the Volna test over it. <i>Exit:</i> the demo's transactions match the expected list exactly in both thread modes.</li>
+    <li><b>C910 from decode to retire.</b> The tracer and bind file, <code>PIPELINE=1</code>, <code>capture.sh --pipeline</code>, disassembly labels, <code>pipeline_replay.py</code> promoted to the differential checker, and the A/B benchmark. <i>Exit:</i> run locally, the differential check is identical on 20,000 cycles and the cost gates hold; <code>capture.sh --pipeline</code> writes the (uncommitted) example into <code>volna/volna/examples</code>.</li>
     <li><b>Deeper C910.</b> Fetch stages and the loop buffer, a stall lane, member matching by physical register, split uops, replay and mispredict events, dependency relations from source registers, and LSU and AXI streams with parent links.</li>
-    <li><b>Volna and VDB.</b> A palette for a dozen stages, measured behaviour at half a million rows, and a <code>c910.pipeline</code> VDB profile with stage roles and colours.</li>
+    <li><b>Volna and VDB.</b> Cycle counting is already done (see above). What remains: a palette for a dozen stages, measured behaviour at half a million rows, and a <code>c910.pipeline</code> VDB profile with stage roles and colours.</li>
     <li><b>Other simulators.</b> The standalone sink with VPI time. Its CI job runs through upstream Verilator with <code>--vpi</code>, so the portable path is tested without a commercial simulator.</li>
   </ol>
 </div></div></section>
