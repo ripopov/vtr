@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>XiangShan ZhuJiang Dual-Core</title>
-<meta name="description" content="Interactive, source-cited teaching diagram of the dual-core XiangShan Kunminghu V3 system with the ZhuJiang CHI ring NoC: system view, every ring stop and link, one HNF bank, and the SN-to-AXI memory path, with guided coherent-read, LLC-hit and LLC-miss transactions.">
+<meta name="description" content="Interactive, source-cited teaching diagram of the dual-core XiangShan Kunminghu V3 system with the ZhuJiang CHI ring NoC: system view, the internals of one XS core, every ring stop and link, one HNF bank, and the SN-to-AXI memory path, with guided coherent-read, LLC-hit and LLC-miss transactions.">
 <style>
 :root{
   --bg:#f4f5f7;--paper:#fcfcfd;--ink:#1a1f27;--muted:#5b6472;--line:#d8dce3;--line-strong:#b3bbc7;
@@ -183,7 +183,7 @@ summary{cursor:pointer;font-weight:600}
 <main id="top">
 <section class="wrap">
   <h1>Dual-core XiangShan Kunminghu V3 with the ZhuJiang CHI ring</h1>
-  <p class="lede">How the two cores reach the two HNF/LLC banks, how ZhuJiang routes CHI flits around its bidirectional ring, and where its responsibility ends at the AXI memory interface. Every block and depicted message is tied to the pinned source; anything not established from source is marked <span class="unv">unverified</span>.</p>
+  <p class="lede">What is inside each Kunminghu V3 core, how the two cores reach the two HNF/LLC banks, how ZhuJiang routes CHI flits around its bidirectional ring, and where its responsibility ends at the AXI memory interface. Every block and depicted message is tied to the pinned source; anything not established from source is marked <span class="unv">unverified</span>.</p>
   <p class="meta">Configuration studied: <code>CONFIG=DefaultConfig NUM_CORES=2 LLC=ZhuJiang</code> (CHI issue E.b). <code>make verilog</code> elaborates <code>XSTop</code> with the ZhuJiang module <code>ZCI2X2C2P1D1M1G32</code>; <code>make sim-verilog</code> or <code>make emu</code> with the same options elaborates that XSTop inside the simulation harness <code>XiangShanSim</code>, which difftest wraps as <code>SimTop</code>. Pinned sources: <code>ext/XiangShan</code> @ <code id="pin-xs"></code> (branch <code>vtr</code>), <code>XSCache</code> @ <code id="pin-xsc"></code>, <code>XSCache/ZhuJiang</code> @ <code id="pin-zj"></code>, <code>difftest</code> @ <code id="pin-dt"></code>. Line numbers below refer to these commits.</p>
 </section>
 
@@ -194,9 +194,10 @@ summary{cursor:pointer;font-weight:600}
       <div class="levelbar">
         <div role="tablist" aria-label="Diagram level" id="levels">
           <button class="btn" role="tab" id="tab-sys" data-level="sys" aria-controls="view" aria-selected="true">1 · System</button>
-          <button class="btn" role="tab" id="tab-noc" data-level="noc" aria-controls="view" aria-selected="false" tabindex="-1">2 · NoC ring</button>
-          <button class="btn" role="tab" id="tab-hnf" data-level="hnf" aria-controls="view" aria-selected="false" tabindex="-1">3 · HNF bank</button>
-          <button class="btn" role="tab" id="tab-mem" data-level="mem" aria-controls="view" aria-selected="false" tabindex="-1">4 · Memory path</button>
+          <button class="btn" role="tab" id="tab-core" data-level="core" aria-controls="view" aria-selected="false" tabindex="-1">2 · XS core</button>
+          <button class="btn" role="tab" id="tab-noc" data-level="noc" aria-controls="view" aria-selected="false" tabindex="-1">3 · NoC ring</button>
+          <button class="btn" role="tab" id="tab-hnf" data-level="hnf" aria-controls="view" aria-selected="false" tabindex="-1">4 · HNF bank</button>
+          <button class="btn" role="tab" id="tab-mem" data-level="mem" aria-controls="view" aria-selected="false" tabindex="-1">5 · Memory path</button>
         </div>
         <span class="sp"></span>
         <div class="opt" id="bankopt" hidden><span id="bank-lbl">HNF bank</span>
@@ -318,6 +319,7 @@ const PIN = {
 };
 const Z = 'XSCache/ZhuJiang/src/main/scala/';
 const L2 = 'XSCache/src/main/scala/coupledL2/';
+const XS = 'src/main/scala/xiangshan/', FE = XS + 'frontend/';
 // f: path under ext/XiangShan, l: [first, last] line, x: text that must occur in those lines.
 const CITES = {
   topoDual:   {f:'src/main/scala/top/ZhuJiangNoCTopology.scala', l:[41,56], x:'private def dualCoreNodeParams', h:'e45687196b68245f6ba7b8cb9214173601301983609ee5d275b9d1e9b1b36b78'},
@@ -371,6 +373,51 @@ const CITES = {
   topNmi:     {f:'src/main/scala/top/Top.scala', l:[153,154], x:'val nmi = InModuleBody(nmiIntNode.makeIOs())', h:'293096d0a4bdd96d0ed10ed3ded11461989c0a7f62c1f17075687d1edc333a9d'},
   dramIniOpt: {f:'difftest/src/test/csrc/common/args.cpp', l:[183,183], x:'{ "dramsim3-ini",      1, NULL,  0  },', h:'02a4ba46d9ab5a093ac7bb71f066d662c703e8a59b73a44c99f98264f9d7ccdb'},
   dramInit:   {f:'difftest/src/test/csrc/emu/emu.cpp', l:[126,126], x:'dramsim3_init(args.dramsim3_ini, args.dramsim3_outdir);', h:'72a48bbbca96732848d98b04d9d4fb07286b06df7c9a3ad06ce28ccbd9c839c8'},
+  coreTop:    {f:XS+'XSCore.scala', l:[64,71], x:'val memBlock = LazyModule(new MemBlock)', h:'9c79bf49242e32e7d5982c5e05bfd6cdb1ffa1c087f4852674f0aed872d43f58'},
+  coreItlbPtw:{f:XS+'XSCore.scala', l:[221,221], x:'memBlock.io.fetch_to_mem.itlb <> frontend.io.ptw', h:'c332ff3001eb9a16ae380dece1f8b6d30f0290c03ec20fd9e6f1f62fa46d9d55'},
+  coreVlen:   {f:XS+'Parameters.scala', l:[53,53], x:'VLEN: Int = 128,', h:'f3b33b3265746c21fb138a3e3690bec6870e7c5fbba894f1144f1822e72e5104'},
+  coreWidths: {f:XS+'Parameters.scala', l:[81,88], x:'RenameSnapshotNum: Int = 4,', h:'684e7af14cca7e935b72deb1453e215ae3b7971745de1eddb1c980d680f9c316'},
+  coreLsqP:   {f:XS+'Parameters.scala', l:[101,110], x:'StoreQueuePhysicalSize: Int = 64, // preferably a power of 2', h:'6eacde782f0f220c2f6d86542c4cbb31fc64e06073436dfe5deacfb08d12f559'},
+  coreRobP:   {f:XS+'Parameters.scala', l:[114,117], x:'RobSize: Int = 352,', h:'3b8928f2d72525496d79e20a141abf6546446a840d4a8658bde261e1a52ad8cb'},
+  corePregs:  {f:XS+'Parameters.scala', l:[121,152], x:'IntRegCacheSize: Int = 24,', h:'838e447dbdc4f8b8d6c38edef3f7af576bd194d8451933e11a775b0fe2edf6aa'},
+  corePf:     {f:XS+'Parameters.scala', l:[163,164], x:'modeStrideBerti: Int = 0b01, // 00 bothOff, 01 strideOnBertiOff, 10 strideOffBertiOn, 11 bothOn', h:'cf075107a642d46135051a0242c40bff0bcde2e50ffb0058d0a0fb704ed5dcc3'},
+  coreMemW:   {f:XS+'Parameters.scala', l:[166,176], x:'LoadPipelineWidth: Int = 3,', h:'29c1f92ebeb10c271cbfe139c56f06b02aebca042b60ab30245281ccec44712c'},
+  coreUnc:    {f:XS+'Parameters.scala', l:[188,188], x:'UncacheBufferSize: Int = 16,', h:'73ee81236ce0e57e56b66927709593e21e3dfddea6c438412e9e626c6f35712d'},
+  coreTlbP:   {f:XS+'Parameters.scala', l:[218,261], x:'itlbParameters: TLBParameters = TLBParameters(', h:'8ac78cd35c1b349e94b1369ba438c979b632c5412dfec306c7ec9ccc7e19a4a2'},
+  tlbDefault: {f:XS+'cache/mmu/MMUConst.scala', l:[27,36], x:'Associative: String = "fa", // must be fa', h:'96115cb0f99cb57f0f11c70130785f385dbb42b71d3c3606b0715818f037ab80'},
+  l2tlbP:     {f:XS+'cache/mmu/MMUConst.scala', l:[44,72], x:'case class L2TLBParameters', h:'d6bdca2036f5f70e6f98c1f2654eabaf4a335435a46cfe3c41fcc1fabfad26bd'},
+  schdInt:    {f:XS+'Parameters.scala', l:[341,452], x:'ExeUnitParams("ALU4", Seq(AluCfg, MulCfg), Seq(IntWB(port = 4, 0)), Seq(Seq(IntRD(8, 0)), Seq(IntRD(9, 1))), true, 2)', h:'f639cc669932cb53609f4b98927e74edc490dd87708c113023f039f9f2be8474'},
+  schdFp:     {f:XS+'Parameters.scala', l:[454,481], x:'ExeUnitParams("FEX1", Seq(FaluCfg, FmulCfg, FdivCfg), Seq(FpWB(port = 1, 0)), Seq(Seq(FpRD(3, 0)), Seq(FpRD(4, 0)), Seq(FpRD(5, 0)))),', h:'8e63b0a7a97dd946e6a69848ce4d47bb33f769488e395400728c094449132d40'},
+  schdVec:    {f:XS+'Parameters.scala', l:[483,552], x:'Seq(VialuCfg, VimacCfg, VmoveCfg, VfcvtCfg, VfmacCfg),', h:'267f487bae7a85d70f7f7650e553c8b51723091e1e2f2e0ec5294b282002821f'},
+  schdMap:    {f:XS+'Parameters.scala', l:[581,596], x:'IntScheduler() -> (if (EnableBackendV2Config) backend.BackendV2SchdParams.intSchdParams else intSchdParams),', h:'d4ba47f94c89cdcfe16c34673240e5e48b0533365dd758829d1993ca86548b24'},
+  bkuFu:      {f:XS+'backend/fu/Bku.scala', l:[83,90], x:'class ClmulModule(implicit p: Parameters) extends XSModule {', h:'fcd3f616ac78e0f8921f9a18680fd5c5387f545b5139f2f2ebf136e3e346243e'},
+  fmulFu:     {f:XS+'backend/fu/FuConfig.scala', l:[798,806], x:'Seq(FpData(), FpData(), FpData()),', h:'dd755dcc7598ea92dbcdaf0e55df65c4f075cfafeb1e8070d73d684452bf386b'},
+  ctrlBlk:    {f:XS+'backend/CtrlBlock.scala', l:[74,123], x:'val fusionDecoder = Module(new FusionDecoder)', h:'c2b9224f40972103653188e5b32631ff18e08346957412d747b96f65af3d1212'},
+  ctrlRedir:  {f:XS+'backend/CtrlBlock.scala', l:[380,416], x:'redirectGen.io.robFlush := s1_robFlushRedirect', h:'cc74c85078bf1e9dad56658a352b8308d07cc4bcb940b4ceedb681ec571c72f0'},
+  region:     {f:XS+'backend/Region.scala', l:[43,59], x:'val dataPath = Module(new DataPath()(p, backendParams, params)).suggestName(prefix + "DataPath")', h:'220738e42b000c650d0be7ba8f0eb5683876256fe8a3d9f8663621e2161ea124'},
+  backendRgn: {f:XS+'backend/Backend.scala', l:[177,194], x:'private val intRegion = Module(new Region(params.intSchdParams.get))', h:'c3dae24d8d263e7e89c44a65f7959434d3b300688d7f0de2e7178c8aea86d310'},
+  memUnits:   {f:XS+'mem/MemBlock.scala', l:[512,547], x:'val newLoadUnits = Seq.tabulate(LduCnt)(i => Module(new NewLoadUnit(ldaParams(i))))', h:'be417cb4fa6521fff7c08461d80bc62a9ebec0762108851ddc52e6efe508818e'},
+  memLsq:     {f:XS+'mem/MemBlock.scala', l:[588,589], x:'val sbuffer = Module(new Sbuffer)', h:'7b275630ae32532e2471fd061ee7bbd64cddb1d7edc58469ad31ce7bd3bb43e9'},
+  memDtlb:    {f:XS+'mem/MemBlock.scala', l:[654,656], x:'val dtlb_ld_tlb_ld = Module(new TLBNonBlock(TlbSubSizeVec(dtlb_ld_idx), 2, ldtlbParams))', h:'8627b3d43b0da0ff4308224999333f01061cd7bbef4fa3c74a429abee98aa8d2'},
+  memPf:      {f:XS+'mem/MemBlock.scala', l:[778,778], x:'val prefetcher = Module(new PrefetcherWrapper)', h:'4c65400a5a92d8e83c4bd5dceffc1f66ca1294ac01c015b66992e3cb3f032bd0'},
+  memNodes:   {f:XS+'mem/MemBlock.scala', l:[328,362], x:'ptw_to_l2_buffer.node := ptw.node', h:'f775a17fd1c8f9a818f795bf4af68b5314d2ac07329f8ef565084095acc2d12b'},
+  pfMode:     {f:XS+'mem/prefetch/PrefetcherWrapper.scala', l:[157,167], x:'val bertiModeEnable = modeStrideBerti =/= bothOff.U && !(modeStrideBerti === strideOnBertiOff.U && HasStreamStride.B)', h:'516e540cd5100e383c4bdb7ed1c9c291783bc00edb00b58e05f521544a17b6af'},
+  feTop:      {f:FE+'Frontend.scala', l:[125,138], x:'private val ftq          = Module(new Ftq)', h:'f19106a5282e1320906c697d7d3bc02ab481d35fb91ad5fa6c6c07635597fe30'},
+  feItlb:     {f:FE+'Frontend.scala', l:[194,201], x:'private val itlbRequestor = VecInit(Seq(icache.io.itlb))', h:'1fe2e5bb7333074038b2f35764b7af184e9b8b442f5503a821419543174bd690'},
+  feP:        {f:FE+'FrontendParameters.scala', l:[25,35], x:'FetchPorts:               Int = 2,  // 2-fetch', h:'6910b5eebaeb379343047c7e06c0f1dff53f83735adc93a243fb4fdb12d5ba81'},
+  bpuP:       {f:FE+'bpu/Parameters.scala', l:[34,53], x:'ittageParameters: IttageParameters = IttageParameters(),', h:'8fa7e9874286f7efb91f0fd8e2644e47da79bb1d928b6569f42b1428cbedbc25'},
+  ubtbP:      {f:FE+'bpu/ubtb/Parameters.scala', l:[21,30], x:'NumEntries:     Int = 32,', h:'41c4ae23efab55f4aee4ced054d5771c94fa5537f6593e234a8216cb8b4a49a4'},
+  abtbP:      {f:FE+'bpu/abtb/Parameters.scala', l:[23,34], x:'NumEntries:        Int = 1024,', h:'e2be79c756a7bf374a340119bf4d77589792b19678e3cebe5bd9f54bd340c15c'},
+  utageP:     {f:FE+'bpu/utage/Parameters.scala', l:[23,31], x:'new MicroTageInfo(512, 5, 5, 8),', h:'6a507da44f0fc1838bc10d773641b403b8775023be444109c1b3fabde49961da'},
+  mbtbP:      {f:FE+'bpu/mbtb/Parameters.scala', l:[22,26], x:'NumEntries: Int = 8192,', h:'292bc7146e1ddbde08d18218ca45a2505bbc58457fdd20782229acbe530376b2'},
+  tageP:      {f:FE+'bpu/tage/Parameters.scala', l:[23,36], x:'new TageTableInfo(4096, 2, 397)', h:'611093f79c2b530d3b7ee8ab31d2ef2c005e9fb8bf63a9603ed659ba3134a673'},
+  scP:        {f:FE+'bpu/sc/Parameters.scala', l:[23,37], x:'BiasTableInfo:       ScTableInfo = new ScTableInfo(128, 0),', h:'9f188ef20ec479af03801dfef18a7a00db327fef575a07e5015d388e7f0f769e'},
+  ittageP:    {f:FE+'bpu/ittage/Parameters.scala', l:[22,30], x:'new IttageTableInfo(512, 32)', h:'11d91b37511bdef9f5ca96c4ab2dcbe3f51a5e2ec6cc0a15a19d7ea64f3e0823'},
+  rasP:       {f:FE+'bpu/ras/Parameters.scala', l:[21,24], x:'CommitStackSize:   Int = 16, // Size of the RAS stack', h:'a779ba59aedc9816797b0988d05e232f11bb259737076b9fe22f5cf20c5c4827'},
+  ftqP:       {f:FE+'ftq/FtqParameters.scala', l:[22,27], x:'FtqSize:           Int = 64,', h:'ac257d06c256b225340648762595e07bf02fdfaccf68c14fa3e40291b42d56bf'},
+  ibufP:      {f:FE+'ibuffer/Parameters.scala', l:[22,26], x:'Size:         Int = 48,', h:'179821e8df9fd64b4f809c6991dbe289e0cb872c020312aec1e19d2cf8c7d862'},
+  icacheP:    {f:FE+'icache/Parameters.scala', l:[27,43], x:'NumPrefetchMshr: Int = 10,', h:'9926d692d266672b834237befa7a6a4ff10b186c098622ddc99a9aed91ea774d'},
+  ifuMods:    {f:FE+'ifu/Ifu.scala', l:[87,93], x:'private val predChecker        = Module(new PredChecker)', h:'0ec7820b7e7367961ef0f63d98e353e415e28753b44b3aafab7afd5f5ec96412'},
   nocTopWrap: {f:'src/main/scala/top/XSNoCTop.scala', l:[196,196], x:'new XSTileWrap()', h:'4517b6bf0d26d35d781885ca8b07507ede71c5128b984ccbfeba3bb584ce774a'},
   tileWrap:   {f:'src/main/scala/xiangshan/XSTileWrap.scala', l:[94,94], x:'decoupledCHI', h:'eb78f1378d84fb6381edc8d01cfe7ce673cf90b1b849456a74a75457b3ccd184'},
   icache:     {f:'src/main/scala/xiangshan/frontend/icache/Parameters.scala', l:[27,32], x:'nSets:      Int = 256', h:'a4c0591bd9875bb2277b6bed2641da9cb5558483fafdcf18652a2240e0956787'},
@@ -604,7 +651,7 @@ const CFG = (() => {
 const INFO = {};
 const def = (id, o) => { INFO[id] = o; };
 for (const h of [0, 1]) {
-  def(`sys.core${h}`, {title:`Core ${h} (hart ${h})`, sub:`XSTile ${h} · XSCore`, role:`One Kunminghu V3 out-of-order core: frontend with the L1 instruction cache, backend, and MemBlock with the L1 data cache and the page-table walker. XSTop instantiates one <code>XSTile</code> per entry of <code>XSTileKey</code> and gives it hart ID ${h}. XSTop uses <code>XSTile</code> directly; <code>XSTileWrap</code> is only used by <code>XSNoCTop</code>.`,
+  def(`sys.core${h}`, {title:`Core ${h} (hart ${h})`, sub:`XSTile ${h} · XSCore`, role:`One Kunminghu V3 out-of-order core: frontend with the L1 instruction cache, backend, and MemBlock with the L1 data cache and the page-table walker. XSTop instantiates one <code>XSTile</code> per entry of <code>XSTileKey</code> and gives it hart ID ${h}. XSTop uses <code>XSTile</code> directly; <code>XSTileWrap</code> is only used by <code>XSNoCTop</code>. Level 2 shows the core\'s internals.`,
     ifs:['L1I, L1D, PTW → L2 over TileLink', 'uncached loads/stores/fetches → L2 MMIO bridge', 'timer (TIMER), PLIC and debug interrupts from MemMisc; MSIs from the hart\'s IMSIC; NMI from an XSTop input'], cites:['topTiles','topHart','tileL1','memBlkL1','nocTopWrap','tileWrap','topInts','topMsi','topNmi']});
   def(`sys.l1i${h}`, {title:`L1 instruction cache, hart ${h}`, sub:'64 KiB · 4-way · 64 B lines', role:'Private instruction cache. <code>ICacheParameters</code> defaults (256 sets × 4 ways × 64 B) are not overridden by <code>DefaultConfig</code>. Misses are TileLink requests into the L2 through L2Top\'s <code>l1_xbar</code>.', ifs:['TileLink client → L2 (via l1_xbar)'], cites:['icache','cfgDefault','tileL1','l1xbar']});
   def(`sys.l1d${h}`, {title:`L1 data cache, hart ${h}`, sub:'64 KiB · 4-way · 2 memory channels', role:'Private data cache from <code>WithNKBL1D(64, ways = 4, numMemChannels = 2)</code>: 256 sets × 4 ways × 64 B. It reaches the L2 through two parallel coherent TileLink (TL-C) client ports, one per memory channel. Lines are split between the ports by PA[6], and the L2 serves port 0 from slices 0 and 2 and port 1 from slices 1 and 3. On each port the L1D acquires blocks, is probed by the L2, and releases victims.', ifs:['TL-C × 2 → L2 (Acquire/Grant, Probe/ProbeAck, Release), split by PA[6]'], cites:['cfgL1D','cfgDefault','dcPorts','l2top','tileL1']});
@@ -619,14 +666,45 @@ for (const b of [0, 1]) {
   def(`sys.hnf${b}`, {title:`HNF bank ${b} (hnf_${b})`, sub:`LLC ${CFG.llcPerBank / MiB} MiB + SF · PA[12] = ${b}`, role:`One DongJiang home node inside one <code>HomeWrapper</code> instance. It owns every normal-memory line with physical address bit 12 = ${b}. It holds half of the ${CFG.cacheSizeInB / MiB} MiB LLC, a snoop filter for the two L2s, and the point of serialization for those lines. It attaches to the ring through <b>two</b> ports: ${hex(p0.nodeId)} (stop ${p0.idx}) and ${hex(p1.nodeId)} (stop ${p1.idx}).`,
     ifs:[`port p0 ${hex(p0.nodeId)}: egress to ${nlist(p0.friends)}`, `port p1 ${hex(p1.nodeId)}: egress to ${nlist(p1.friends)}`], cites:['zjHnf','hw','zjDj','flitBank','cfgDefault']});
 }
-def('sys.ring', {title:'ZhuJiang ring (ZRING)', sub:`${RING.N} stops · REQ/RSP/DAT/HRQ × 2 directions`, role:`A bidirectional ring of ${RING.N} stops in the order of <code>dualCoreNodeParams</code>. Each stop's router forwards flits on one ring per channel in each direction. The injecting stop picks the direction by the target's position: about half of the other stops are reachable one way and half the other way. See level 2 for every stop and link.`, ifs:['4 channel rings × 2 directions per link'], cites:['topoDual','topInst','zjTop','ring','ringSide','baseRings','baseRoute','zjLR']});
+def('sys.ring', {title:'ZhuJiang ring (ZRING)', sub:`${RING.N} stops · REQ/RSP/DAT/HRQ × 2 directions`, role:`A bidirectional ring of ${RING.N} stops in the order of <code>dualCoreNodeParams</code>. Each stop's router forwards flits on one ring per channel in each direction. The injecting stop picks the direction by the target's position: about half of the other stops are reachable one way and half the other way. See level 3 for every stop and link.`, ifs:['4 channel rings × 2 directions per link'], cites:['topoDual','topInst','zjTop','ring','ringSide','baseRings','baseRoute','zjLR']});
 def('sys.hni', {title:`HNI ${hex(stop('hi').nodeId)} — chi_to_axi_lite`, sub:'default HNI · AxiLiteBridge · m_axi_main', role:'The home for Device-attribute requests, which is where the L2 MMIO bridge sends uncached accesses to devices. Because it is the default HNI, any Device request that no CC address window claims comes here. It converts them to AXI on ZhuJiang\'s cfg port <code>m_axi_main</code>, which XSTop buffers into the MemMisc <code>soc_xbar</code>. Uncached accesses to main memory are not Device accesses, so they go to an HNF instead. The node type allows ERQ, but the AxiLiteBridge ties that output off.', ifs:['CHI REQ/RSP/DAT ← ring; RSP/DAT → ring (ERQ tied off)','AXI4 master m_axi_main → soc_xbar (zhujiang-cfg-0)'], cites:['iowHi','nodeCompl','rnRouter','zjNames','topCfgMst','topCfg','l2mmioAttr','hniErq']});
 def('sys.sn', {title:`SN ${hex(stop('sn').nodeId)} — chi_to_axi`, sub:'AxiBridge · m_axi_mem_0 · 64 outstanding', role:'The only subordinate node. It converts the HNFs\' <code>ReadNoSnp</code> / <code>WriteNoSnp*</code> into AXI4 bursts on <code>m_axi_mem_0</code> and returns read data as <code>CompData</code>. When the HNF asks for direct memory transfer (DMT), that data goes straight to the requesting CC. It does <b>not</b> schedule DRAM, and it has no banks, refresh or timing model. It is a protocol bridge only.', ifs:['CHI ERQ + DAT ← ring; RSP + DAT → ring','AXI4 master m_axi_mem_0 (256-bit) → XSTop soc_xbar'], cites:['iowSn','sn','snR','topoMem','zjNames','topDdr','topMemMst']});
 def('sys.rni', {title:`RNI ${hex(stop('ri').nodeId)} — axi_to_chi`, sub:'Axi2Chi · s_axi_main · no master', role:'An AXI-slave DMA port that would inject I/O traffic into the coherent domain. ZhuJiang elaborates it, but XSTop assigns <code>DontCare</code> to its external AXI port. No DMA master drives it in this build, so it carries no traffic.', ifs:['AXI4 slave s_axi (tied off in XSTop)','CHI REQ/RSP/DAT → ring; RSP/DAT ← ring'], cites:['iowRi','topDma'], unv:'Traffic through RNI does not occur in XSTop because the port is tied off. RNI\'s own protocol behaviour is not described here.'});
 def('sys.mn', {title:`MN ${hex(stop('mn').nodeId)} — mnDev`, sub:'MiscDevice · ResetDevice', role:'The misc node drives the ring\'s reset-injection chain through its <code>ResetDevice</code>. XSTop disables hardware assertions (<code>HwaParams(enable = false)</code>), so the node has no DBG channel and no AXI port. It never carries CHI traffic here.', ifs:['ring reset chain','no CHI channels in this build'], cites:['mn','iowMn','topParams','nodeChans']});
 def('sys.socxbar', {title:'MemMisc soc_xbar', sub:'rocket-chip AXI4Xbar in XSTop', role:'An AXI4 crossbar in XSTop\'s <code>MemMisc</code>. It has two masters: <code>zhujiang-mem</code> (from the SN) and <code>zhujiang-cfg-0</code> (from the HNI). It routes addresses ≥ 0x8000_0000 to the memory port. The low 2 GiB goes through <code>AXI4ToTL</code> to the peripheral and on-chip device crossbars.', ifs:['AXI4 slave ← SN (m_axi_mem_0), HNI (m_axi_main)','AXI4 → memory port','AXI4→TL → peripherals'], cites:['socXbar','topMemMst','topCfgMst','socMem','socPeriph']});
-def('sys.mem', {title:'Memory port and simulated DRAM', sub:'XSTop.memory → XiangShanSim MemXbar → RAM', role:'XSTop exposes the AXI4 <code>memory</code> port. In simulation, <code>XiangShanSim</code> (which difftest wraps as <code>SimTop</code>) connects it to its own <code>MemXbar</code>, which also carries SimMMIO\'s DMAC, and then to <code>AXI4RAM</code> (default), or to <code>AXI4Memory</code> with DRAMsim3 timing when built with <code>WITH_DRAMSIM3=1</code> (<code>--with-dramsim3</code>). See level 4.', ifs:['AXI4 slave ← soc_xbar'], cites:['topMemPort','simClass','dtSimTop','simXbar','simDmac','simRam','memSlave','mkDram']});
+def('sys.mem', {title:'Memory port and simulated DRAM', sub:'XSTop.memory → XiangShanSim MemXbar → RAM', role:'XSTop exposes the AXI4 <code>memory</code> port. In simulation, <code>XiangShanSim</code> (which difftest wraps as <code>SimTop</code>) connects it to its own <code>MemXbar</code>, which also carries SimMMIO\'s DMAC, and then to <code>AXI4RAM</code> (default), or to <code>AXI4Memory</code> with DRAMsim3 timing when built with <code>WITH_DRAMSIM3=1</code> (<code>--with-dramsim3</code>). See level 5.', ifs:['AXI4 slave ← soc_xbar'], cites:['topMemPort','simClass','dtSimTop','simXbar','simDmac','simRam','memSlave','mkDram']});
 def('sys.periph', {title:'Peripherals', sub:'device_xbar · peripheral port · SimMMIO', role:'Reached through the HNI → <code>soc_xbar</code> → <code>AXI4ToTL</code>. On-chip devices hang off MemMisc\'s <code>device_xbar</code>: PLIC, APLIC, the per-hart IMSICs, TIMER, SYSCNT, the debug module, PMA and PLL. The rest leaves through XSTop\'s <code>peripheral</code> port to <code>SimMMIO</code>: flash at 0x1000_0000, two UARTs, SD, DMAC and the interrupt generator.', ifs:['TileLink/AXI4 ← soc_xbar'], cites:['socMisc','socDevs','topImsic','socPeriph','topPeriph','simMmio','simMmioDevs']});
+
+// XS core blocks (level "core"): one Kunminghu V3 hart, as XSCore composes it.
+def('core.bpu', {title:'Branch prediction unit (BPU)', sub:'uBTB · aBTB · uTAGE · MBTB · TAGE · SC · ITTAGE · RAS', role:'Predicts fetch blocks of up to 64 B and runs ahead of fetch (prefetch depth 32). Its sub-predictors: a 32-entry micro BTB; a 1024-entry, 4-way ahead BTB; a micro-TAGE with two 512-entry tables; an 8192-entry, 4-way main BTB; a TAGE with eight 4096-entry tables (history lengths 4 to 397); a statistical corrector; an ITTAGE with five tables for indirect targets; and a return-address stack with a 16-entry commit stack and a 32-entry speculative queue.', ifs:['fetch-block predictions → FTQ','training (resolved and committed branches) ← FTQ'], cites:['feTop','feP','bpuP','ubtbP','abtbP','utageP','mbtbP','tageP','scP','ittageP','rasP']});
+def('core.ftq', {title:'Fetch target queue (FTQ)', sub:'64 entries', role:'Holds predicted fetch blocks between the BPU and fetch. It sends fetch and prefetch requests to the ICache and IFU, takes redirects from the IFU\'s predecode check and from the backend, and feeds resolved and committed branches back to the BPU for training (16-entry resolve queue, 64-entry commit queue). The frontend has two fetch ports (<code>FetchPorts</code> = 2).', ifs:['← BPU predictions','→ ICache, IFU fetch requests','← redirects from IFU and backend','← commit from ROB'], cites:['feTop','feP','ftqP','ctrlRedir']});
+def('core.icache', {title:'L1 instruction cache', sub:'64 KiB · 256 sets × 4 ways × 64 B', role:'Parity-protected (meta and data) instruction cache with set-PLRU replacement, 4 fetch MSHRs and 10 prefetch MSHRs. It translates through the ITLB and fetches missing lines from the L2 over TileLink, through MemBlock\'s frontend bridge and L2Top\'s <code>l1_xbar</code>.', ifs:['← FTQ requests','↔ ITLB','→ IFU cache lines','→ L2 (TileLink)'], cites:['icache','icacheP','feTop','coreTop','tileL1','l1xbar']});
+def('core.itlb', {title:'Instruction TLB', sub:'48 entries · fully associative', role:'Translates fetch addresses for the ICache (one port; V3 fetch does not cross pages). It is fully associative (<code>Associative</code> = "fa", 48 ways). Misses go to the L2 TLB in MemBlock.', ifs:['↔ ICache','→ L2 TLB (page walks)'], cites:['feItlb','coreTlbP','tlbDefault','coreItlbPtw']});
+def('core.ifu', {title:'Instruction fetch unit (IFU)', sub:'predecode · RVC expand · pred check', role:'Cuts the fetched bytes into instructions (instruction boundaries), expands compressed (RVC) instructions, and checks the BPU\'s predictions against predecode; a wrong prediction redirects the FTQ. Uncached instruction fetches go through its uncache unit.', ifs:['← ICache data, FTQ requests','→ IBuffer','→ FTQ (predecode redirects)'], cites:['ifuMods','feTop']});
+def('core.ibuf', {title:'Instruction buffer', sub:'48 entries', role:'Decouples fetch from decode: 48 entries in 4 write banks and 8 read banks (at least the decode width).', ifs:['← IFU','→ Decode (8 per cycle)'], cites:['ibufP','coreWidths']});
+def('core.decode', {title:'Decode', sub:'8-wide · fusion decoder', role:'Decodes up to 8 instructions per cycle into micro-ops and fuses eligible instruction pairs with the fusion decoder.', ifs:['← IBuffer','→ Rename'], cites:['coreWidths','ctrlBlk']});
+def('core.rename', {title:'Rename', sub:'8-wide · 4 snapshots', role:'Renames up to 8 uops per cycle onto the physical register files, with 4 rename snapshots for fast recovery and a 352-entry rename buffer (RAB).', ifs:['← Decode','→ Dispatch'], cites:['coreWidths','coreRobP','ctrlBlk']});
+def('core.dispatch', {title:'Dispatch', sub:'to 23 issue queues + LSQ', role:'Sends renamed uops to the issue queues of the three regions: 13 integer (including the load, store-address and store-data queues), 4 floating-point and 6 vector. Memory uops also enqueue in the load/store queue through <code>LsqEnqCtrl</code>. Every uop gets a ROB entry.', ifs:['← Rename','→ int, FP and vector issue queues','→ ROB, LSQ'], cites:['ctrlBlk','schdMap','schdInt','schdFp','schdVec']});
+def('core.rob', {title:'Reorder buffer (ROB)', sub:'352 entries · commit 8', role:'Keeps uops in program order until they complete, commits up to 8 per cycle, raises exceptions and interrupts, and reports committed fetch blocks to the FTQ. A 64-entry vtype buffer orders vector configuration changes.', ifs:['← Dispatch','→ FTQ commit','→ redirect (ROB flush)'], cites:['coreRobP','coreWidths','ctrlBlk','ctrlRedir']});
+def('core.redirect', {title:'Redirect generator', sub:'mispredict · replay · flush', role:'Picks the oldest redirect among branch mispredictions from the execution units, load replays (memory-ordering violations) and ROB flushes, and sends it to the FTQ so fetch restarts at the right PC.', ifs:['← branch units, load replay, ROB flush','→ FTQ'], cites:['ctrlRedir','ctrlBlk']});
+def('core.intiq', {title:'Integer issue queues', sub:'13 queues', role:'Thirteen issue queues: ALU0/BJU0, ALU1/BJU1 and ALU2/BJU2 (18 entries each); ALU3, ALU4 and ALU5 (20); load LDU0 to LDU2 (20); store-address STA0 and STA1 (16); store-data STD0 and STD1 (16). ALU and load results wake up waiting uops in the other integer queues.', ifs:['← Dispatch','→ int datapath (register read)'], cites:['schdInt','coreRobP']});
+def('core.intrf', {title:'Integer register file and datapath', sub:'224 registers · 4 banks · register cache', role:'224 physical integer registers in 4 banks. A register cache (24 entries for integer results, 12 for load results) supplies recently produced values. The region\'s datapath reads operands for the execution units and the memory pipelines and writes results back.', ifs:['← issue queues','↔ integer execution units','→ MemBlock load/store pipelines'], cites:['corePregs','region','backendRgn']});
+def('core.intexu', {title:'Integer execution units', sub:'ALU ×6 · BJU ×3 · MUL ×2 · DIV · CSR', role:'ALU0 (with CSR, fence and link), ALU1 (with the divider), ALU2 (with int-to-FP moves), ALU3 (with the BKU for bit manipulation and scalar crypto, and vset), ALU4 and ALU5 (with multipliers), and three branch/jump units BJU0 to BJU2. Branch units report mispredictions to the redirect generator.', ifs:['↔ integer register file','→ redirect (branch resolution)'], cites:['schdInt','bkuFu']});
+def('core.fpiq', {title:'Floating-point issue queues', sub:'4 queues · 20 entries', role:'Four issue queues of 20 entries, one per FP execution unit. FP results and load results wake up waiting FP uops.', ifs:['← Dispatch','→ FP datapath'], cites:['schdFp']});
+def('core.fprf', {title:'Floating-point register file', sub:'256 registers', role:'256 physical FP registers. Loads write it directly; the store-data units read it for FP stores.', ifs:['← FP issue queues','↔ FP execution units'], cites:['corePregs','schdFp','schdInt']});
+def('core.fpexu', {title:'Floating-point execution units', sub:'FEX ×4', role:'FEX0: FALU, FMUL (three-source, so fused multiply-add), FCVT and FCMP; it also writes the integer register file. FEX1 and FEX2: FALU, FMUL and FDIV. FEX3: FALU and FMUL.', ifs:['↔ FP register file','→ integer register file (FEX0)'], cites:['schdFp','fmulFu']});
+def('core.veciq', {title:'Vector issue queues', sub:'6 queues · 16 entries', role:'Six issue queues of 16 entries: four for the vector execution units and two for vector store data (VSTD).', ifs:['← Dispatch','→ vector datapath'], cites:['schdVec']});
+def('core.vecrf', {title:'Vector register file', sub:'128 registers · v0 22 · vl 32', role:'128 physical vector registers of VLEN = 128 bits, plus separate files for the mask register v0 (22 entries) and vl (32 entries).', ifs:['← vector issue queues','↔ vector execution units'], cites:['corePregs','coreVlen','schdVec']});
+def('core.vecexu', {title:'Vector execution units', sub:'VFEX ×4 · VSTD ×2', role:'VFEX0: integer ALU, integer multiply-accumulate, moves, FP convert and FP multiply-accumulate. VFEX1: integer ALU, integer divide, FP multiply-accumulate and FP divide. VFEX2 and VFEX3: integer ALU. Two VSTD units pass vector store data to MemBlock\'s store-data path.', ifs:['↔ vector register file','→ MemBlock store data (VSTD)'], cites:['schdVec','memUnits']});
+def('core.lsu', {title:'Load/store pipelines', sub:'LDU ×3 · STA ×2 · STD ×2 · atomics', role:'Three load units, two store-address units, two store-data units and an atomics unit, issued from the integer scheduler. Loads write their results to the integer, FP or vector register file; vector loads and stores use the same pipelines.', ifs:['← int datapath','↔ DTLB','↔ LSQ','→ DCache'], cites:['memUnits','coreMemW','schdInt']});
+def('core.lsq', {title:'Load/store queue', sub:'LQ 120 · RAR 96 · RAW 56 · SQ 64', role:'Load side: a 120-entry virtual load queue, 96-entry RAR and 56-entry RAW queues for memory-ordering checks, a 120-entry replay queue and a 16-entry uncached-load buffer. Store side: 64 physical store-queue entries (<code>StoreQueueMultiple</code> = 2 gives a 128-entry logical size). Committed stores drain to the store buffer.', ifs:['↔ load/store pipelines','→ Sbuffer','→ Uncache'], cites:['coreLsqP','memLsq']});
+def('core.sbuf', {title:'Store buffer (Sbuffer)', sub:'16 entries', role:'Accepts up to two committed stores per cycle from the store queue, merges them into 16 cache-line entries, and writes those lines to the DCache.', ifs:['← LSQ','→ DCache'], cites:['coreMemW','memLsq']});
+def('core.dcache', {title:'L1 data cache', sub:'64 KiB · 4-way · 2 ports to L2', role:'256 sets × 4 ways × 64 B with SECDED ECC on tags and data, 16 miss entries, 8 probe entries and 18 release entries. It reaches the L2 through two TL-C ports split by PA[6] (see level 1).', ifs:['← loads, Sbuffer, prefetches','↔ L2 (TL-C ×2)'], cites:['cfgL1D','cfgDefault','dcPorts']});
+def('core.dtlb', {title:'Data TLBs', sub:'load · store · prefetch', role:'Three non-blocking data TLBs (load, store and prefetch), each fully associative with 48 entries, Misses go to the L2 TLB.', ifs:['↔ load/store pipelines','→ L2 TLB'], cites:['memDtlb','coreTlbP','tlbDefault']});
+def('core.l2tlb', {title:'L2 TLB and page-table walker', sub:'L2TLBWrapper', role:'Shared second-level TLB for the ITLB and the data TLBs. It caches page-table entries for each level and superpages, walks page tables, and reads them from the L2 over its own TileLink port.', ifs:['← ITLB, DTLBs','→ L2 (TileLink)'], cites:['memNodes','l2tlbP','coreItlbPtw','tileL1']});
+def('core.pf', {title:'L1 data prefetchers', sub:'Stream/Stride · SMS · Berti', role:'<code>PrefetcherWrapper</code> holds Stream/Stride, Berti and SMS prefetchers. The default mode (<code>modeStrideBerti</code> = 0b01) enables Stream/Stride and leaves Berti off. Prefetches fill the DCache, and the wrapper also sends prefetch hints toward the L2.', ifs:['→ DCache','→ L2 hints'], cites:['corePf','pfMode','memPf','memNodes']});
+def('core.uncache', {title:'Uncache unit', sub:'16 entries · MMIO / NC', role:'Performs uncached loads and stores (MMIO and non-cacheable memory) and sends them out through the tile\'s MMIO port to the L2\'s MMIO bridge, which turns them into CHI <code>ReadNoSnp</code>/<code>WriteNoSnpPtl</code>.', ifs:['← LSQ','→ L2 MMIO bridge'], cites:['coreUnc','memNodes','tileMmio','l2mmioOps']});
+def('core.l2', {title:'L2 cache (outside XSCore)', sub:'CoupledL2 in L2Top', role:'The hart\'s private 2 MiB L2 lives in L2Top, next to XSCore inside XSTile. It serves the ICache, the DCache\'s two ports, the page-table walker and the MMIO path, and it is the hart\'s CHI request node (see levels 1 and 3).', ifs:['← ICache, DCache, PTW, Uncache'], cites:['l2top','tileL1','l1xbar','tileMmio']});
 
 // NoC-level stop descriptions are generated from the ring model.
 const TYPE_ROLE = {
@@ -720,6 +798,36 @@ const EDGE_DOC = [
   [/^sys\.e\.x-m$/, 'soc_xbar → memory-port adapters → XSTop.memory → simulation harness.', ['socMem','topMemPort','simRam']],
   [/^sys\.e\.x-p$/, 'The low address range leaves soc_xbar through AXI4ToTL toward the peripheral and device crossbars.', ['socPeriph']],
   [/^sys\.e\.rni-x$/, 'The RNI\'s AXI slave port is assigned DontCare in XSTop: nothing drives it.', ['topDma']],
+  [/^core\.e\.bpu-ftq$/, 'The BPU enqueues predicted fetch blocks; the FTQ returns training data.', ['feTop','bpuP','ftqP']],
+  [/^core\.e\.ftq-icache$/, 'Fetch and prefetch requests for the predicted blocks.', ['feTop','icacheP']],
+  [/^core\.e\.ftq-ifu$/, 'Fetch requests go to the IFU; predecode mismatches redirect the FTQ.', ['feTop','ifuMods']],
+  [/^core\.e\.icache-ifu$/, 'Fetched cache-line data.', ['feTop']],
+  [/^core\.e\.icache-itlb$/, 'Instruction address translation.', ['feItlb']],
+  [/^core\.e\.ifu-ibuf$/, 'Instructions after boundary detection and RVC expansion.', ['feTop','ibufP']],
+  [/^core\.e\.ibuf-decode$/, 'Up to 8 instructions per cycle into the backend.', ['coreWidths','ibufP']],
+  [/^core\.e\.decode-rename$/, 'Decoded (and fused) uops.', ['ctrlBlk']],
+  [/^core\.e\.rename-dispatch$/, 'Renamed uops.', ['ctrlBlk']],
+  [/^core\.e\.dispatch-rob$/, 'Each dispatched uop gets a ROB entry.', ['ctrlBlk','coreRobP']],
+  [/^core\.e\.dispatch-(int|fp|vec)iq$/, 'Uops enter the issue queues of their region.', ['ctrlBlk','schdMap']],
+  [/^core\.e\.rob-ftq$/, 'Committed fetch blocks go back to the FTQ.', ['ctrlRedir']],
+  [/^core\.e\.redirect-ftq$/, 'Redirects (mispredictions, replays, flushes) restart fetch.', ['ctrlRedir']],
+  [/^core\.e\.intexu-redirect$/, 'Branch units report resolved branches and mispredictions.', ['ctrlRedir','schdInt']],
+  [/^core\.e\.(int|fp|vec)iq-(int|fp|vec)rf$/, 'Issued uops read their operands in the region\'s datapath.', ['region']],
+  [/^core\.e\.(int|fp|vec)rf-(int|fp|vec)exu$/, 'Operands to the execution units; results written back.', ['region']],
+  [/^core\.e\.intrf-lsu$/, 'Load, store-address and store-data uops issued from the integer scheduler, with their operands.', ['schdInt','memUnits']],
+  [/^core\.e\.vecexu-lsu$/, 'Vector store data from the VSTD units into the store-data path.', ['schdVec','memUnits']],
+  [/^core\.e\.lsu-lsq$/, 'Loads and stores record their state in the load and store queues.', ['memUnits','memLsq']],
+  [/^core\.e\.lsu-dtlb$/, 'Address translation for loads, stores and prefetches.', ['memDtlb']],
+  [/^core\.e\.lsu-dcache$/, 'Loads read the DCache.', ['memUnits']],
+  [/^core\.e\.lsq-sbuf$/, 'Committed stores drain to the store buffer.', ['memLsq']],
+  [/^core\.e\.sbuf-dcache$/, 'Merged store lines are written to the DCache.', ['memLsq','coreMemW']],
+  [/^core\.e\.dtlb-l2tlb$/, 'Data TLB misses.', ['memDtlb','memNodes']],
+  [/^core\.e\.itlb-l2tlb$/, 'Instruction TLB misses, through the frontend\'s PTW port into MemBlock.', ['coreItlbPtw']],
+  [/^core\.e\.pf-dcache$/, 'Prefetch requests into the DCache.', ['memPf']],
+  [/^core\.e\.dcache-l2$/, 'Two coherent TileLink (TL-C) ports, split by PA[6].', ['dcPorts','l2top']],
+  [/^core\.e\.icache-l2$/, 'Instruction-cache misses (TileLink), through MemBlock\'s frontend bridge.', ['coreTop','tileL1']],
+  [/^core\.e\.l2tlb-l2$/, 'Page-table reads from the walker.', ['memNodes','tileL1']],
+  [/^core\.e\.uncache-l2$/, 'Uncached accesses to the L2\'s MMIO bridge.', ['memNodes','tileMmio']],
   [/^noc\.link\d+$/, 'Two unidirectional connections between neighbouring stops, one per ring direction. Each carries one REQ, RSP, DAT and HRQ ring.', ['ring','ringSide','baseRings','topoDual']],
   [/^noc\.lan\.hf[01]p[01]$/, 'This HF stop is one ring port of the bank\'s HomeWrapper. Its inbound flits join the RX merge; outbound flits leave here when the target is one of its friends.', ['zjHnf','hwRx','hwTx']],
   [/^noc\.x\.l2_\d$/, 'Synchronous CHI socket between the hart\'s L2 and its CC stop.', ['topConnect','zjCc','socket']],
@@ -803,6 +911,71 @@ function levelSys() {
   edges.push(E('sys.e.x-p', 'sys.socxbar', 'sys.periph', 'axi', {pts:[[300, 580], [300, 598]], label:'AXI4ToTL', lblAt:[345, 590]}));
   edges.push(E('sys.e.rni-x', 'sys.rni', null, 'axi', {pts:[[125, 484], [125, 510]], label:'s_axi: DontCare', lblAt:[190, 494], opt:true}));
   return {nodes, edges, frames, vb:[1000, 660], title:'System level: two harts, private caches, ZhuJiang, memory and peripherals', hint:'Solid arrows are elaborated connections. The RNI is elaborated but its AXI port is tied off in XSTop.'};
+}
+
+function levelCore() {
+  const nodes = [], edges = [], frames = [];
+  frames.push({x:10, y:6, w:980, h:150, label:'Frontend'});
+  nodes.push(box('core.bpu', 20, 34, 140, 56, 'BPU', '7 sub-predictors', 'core'));
+  nodes.push(box('core.ftq', 185, 34, 120, 56, 'FTQ', '64 entries', 'core'));
+  nodes.push(box('core.icache', 330, 34, 170, 56, 'ICache', '64 KiB · 4-way', 'l1'));
+  nodes.push(box('core.ifu', 525, 34, 150, 56, 'IFU', 'predecode · RVC', 'core'));
+  nodes.push(box('core.ibuf', 700, 34, 150, 56, 'IBuffer', '48 entries', 'core'));
+  nodes.push(box('core.itlb', 330, 104, 170, 44, 'ITLB · 48', '', 'l1', {oneLine:true}));
+  frames.push({x:10, y:166, w:980, h:84, label:'Backend · CtrlBlock'});
+  nodes.push(box('core.redirect', 20, 190, 130, 50, 'Redirect', 'mispredict · flush', 'noc'));
+  nodes.push(box('core.rob', 170, 190, 180, 50, 'ROB', '352 · commit 8', 'noc'));
+  nodes.push(box('core.dispatch', 400, 190, 180, 50, 'Dispatch', '23 IQs + LSQ', 'noc'));
+  nodes.push(box('core.rename', 610, 190, 130, 50, 'Rename', '8-wide', 'noc'));
+  nodes.push(box('core.decode', 760, 190, 130, 50, 'Decode', '8-wide · fusion', 'noc'));
+  const col = [['int', 10, 'Int region', 20, 230], ['fp', 340, 'FP region', 350, 300], ['vec', 670, 'Vector region', 680, 300]];
+  for (const [k, fx, label, bx, bw] of col) frames.push({x:fx, y:262, w:320, h:190, label});
+  nodes.push(box('core.intiq', 20, 290, 230, 48, 'Int issue queues ×13', 'ALU · BJU · LDU · STA · STD', 'core'));
+  nodes.push(box('core.intrf', 20, 346, 230, 48, 'Int regfile · 224', '4 banks · reg cache 24+12', 'core'));
+  nodes.push(box('core.intexu', 20, 402, 230, 42, 'ALU ×6 · BJU ×3', 'MUL ×2 · DIV · CSR · BKU', 'core'));
+  nodes.push(box('core.fpiq', 350, 290, 300, 48, 'FP issue queues ×4', '20 entries each', 'core'));
+  nodes.push(box('core.fprf', 350, 346, 300, 48, 'FP regfile · 256', '', 'core', {oneLine:true}));
+  nodes.push(box('core.fpexu', 350, 402, 300, 42, 'FEX ×4', 'FALU · FMA · FDIV · FCVT', 'core'));
+  nodes.push(box('core.veciq', 680, 290, 300, 48, 'Vector issue queues ×6', '16 entries each', 'core'));
+  nodes.push(box('core.vecrf', 680, 346, 300, 48, 'Vector regfile · 128', 'plus v0: 22 · vl: 32', 'core'));
+  nodes.push(box('core.vecexu', 680, 402, 300, 42, 'VFEX ×4 · VSTD ×2', '', 'core', {oneLine:true}));
+  frames.push({x:10, y:462, w:980, h:186, label:'MemBlock'});
+  nodes.push(box('core.lsu', 20, 490, 300, 50, 'Load/store pipelines', 'LDU ×3 · STA ×2 · STD ×2', 'l1'));
+  nodes.push(box('core.dtlb', 340, 490, 150, 50, 'DTLB ×3', '48 entries each', 'l1'));
+  nodes.push(box('core.pf', 510, 490, 150, 50, 'Prefetchers', 'Stream/Stride · SMS', 'l1'));
+  nodes.push(box('core.l2tlb', 830, 490, 150, 50, 'L2 TLB', 'page walker', 'l1'));
+  nodes.push(box('core.lsq', 20, 566, 300, 50, 'LSQ', 'LQ 120 · SQ 64', 'l1'));
+  nodes.push(box('core.sbuf', 340, 566, 150, 50, 'Sbuffer', '16 lines', 'l1'));
+  nodes.push(box('core.dcache', 510, 566, 150, 50, 'DCache', '64 KiB · 4-way', 'l1'));
+  nodes.push(box('core.uncache', 680, 566, 130, 50, 'Uncache', '16 entries', 'l1'));
+  nodes.push(box('core.l2', 340, 658, 640, 36, 'L2 · CoupledL2 (L2Top, outside XSCore)', '', 'l2', {oneLine:true}));
+  const I = (id, a, b, extra) => edges.push(E(`core.e.${id}`, `core.${a}`, `core.${b}`, extra?.kind ?? 'int', extra));
+  I('bpu-ftq', 'bpu', 'ftq', {bi:true}); I('ftq-icache', 'ftq', 'icache'); I('icache-ifu', 'icache', 'ifu'); I('ifu-ibuf', 'ifu', 'ibuf');
+  I('ftq-ifu', 'ftq', 'ifu', {bi:true, pts:[[245, 34], [245, 27], [600, 27], [600, 34]]});
+  I('icache-itlb', 'icache', 'itlb', {bi:true});
+  I('ibuf-decode', 'ibuf', 'decode', {pts:[[800, 90], [800, 190]]});
+  I('decode-rename', 'decode', 'rename'); I('rename-dispatch', 'rename', 'dispatch'); I('dispatch-rob', 'dispatch', 'rob');
+  I('rob-ftq', 'rob', 'ftq', {pts:[[270, 190], [270, 90]], label:'commit', lblAt:[296, 140]});
+  I('redirect-ftq', 'redirect', 'ftq', {pts:[[120, 190], [120, 150], [200, 150], [200, 90]], label:'redirect', lblAt:[140, 136]});
+  I('dispatch-intiq', 'dispatch', 'intiq', {pts:[[430, 240], [430, 256], [135, 256], [135, 290]]});
+  I('dispatch-fpiq', 'dispatch', 'fpiq', {pts:[[500, 240], [500, 290]]});
+  I('dispatch-veciq', 'dispatch', 'veciq', {pts:[[550, 240], [550, 256], [830, 256], [830, 290]]});
+  I('intexu-redirect', 'intexu', 'redirect', {pts:[[20, 423], [14, 423], [14, 215], [20, 215]]});
+  for (const k of ['int', 'fp', 'vec']) { I(`${k}iq-${k}rf`, `${k}iq`, `${k}rf`); I(`${k}rf-${k}exu`, `${k}rf`, `${k}exu`, {bi:true}); }
+  I('intrf-lsu', 'intrf', 'lsu', {pts:[[250, 370], [290, 370], [290, 490]], label:'LDU · STA · STD', lblAt:[304, 420], lblRot:true});
+  I('vecexu-lsu', 'vecexu', 'lsu', {pts:[[830, 444], [830, 457], [230, 457], [230, 490]], label:'VSTD data', lblAt:[560, 457]});
+  I('lsu-lsq', 'lsu', 'lsq', {bi:true}); I('lsu-dtlb', 'lsu', 'dtlb', {bi:true});
+  I('lsu-dcache', 'lsu', 'dcache', {pts:[[320, 532], [330, 532], [330, 553], [560, 553], [560, 566]]});
+  I('lsq-sbuf', 'lsq', 'sbuf'); I('sbuf-dcache', 'sbuf', 'dcache');
+  I('pf-dcache', 'pf', 'dcache', {pts:[[620, 540], [620, 566]]});
+  I('dtlb-l2tlb', 'dtlb', 'l2tlb', {pts:[[415, 490], [415, 478], [905, 478], [905, 490]]});
+  I('itlb-l2tlb', 'itlb', 'l2tlb', {pts:[[500, 126], [986, 126], [986, 515], [980, 515]], label:'ITLB miss', lblAt:[700, 126]});
+  I('dcache-l2', 'dcache', 'l2', {kind:'tl', bi:true, pts:[[585, 616], [585, 658]], label:'TL-C ×2', lblAt:[620, 637]});
+  I('uncache-l2', 'uncache', 'l2', {kind:'tl', pts:[[745, 616], [745, 658]], label:'MMIO', lblAt:[770, 637]});
+  I('l2tlb-l2', 'l2tlb', 'l2', {kind:'tl', pts:[[905, 540], [905, 658]]});
+  I('icache-l2', 'icache', 'l2', {kind:'tl', pts:[[470, 34], [470, 18], [992, 18], [992, 676], [980, 676]]});
+  return {nodes, edges, frames, vb:[1000, 700], title:'XS core level: one Kunminghu V3 hart — frontend, backend (CtrlBlock and the integer, FP and vector regions) and MemBlock',
+    hint:'One hart as XSCore composes it: the frontend fetches, CtrlBlock decodes, renames and dispatches, three regions issue and execute, and MemBlock runs loads and stores. The L2 below lives in L2Top, outside XSCore. Sizes are DefaultConfig values.'};
 }
 
 function levelNoc() {
@@ -1046,7 +1219,7 @@ function offsetPoly(pts, off) {
 }
 
 function buildLevel() {
-  const L = state.level === 'sys' ? levelSys() : state.level === 'noc' ? levelNoc() : state.level === 'hnf' ? levelHnf(state.bank) : levelMem();
+  const L = state.level === 'sys' ? levelSys() : state.level === 'core' ? levelCore() : state.level === 'noc' ? levelNoc() : state.level === 'hnf' ? levelHnf(state.bank) : levelMem();
   const hnfI = state.level === 'hnf' ? hnfInfo(state.bank) : {};
   L.info = id => hnfI[id] ?? INFO[id];
   L.byId = Object.fromEntries(L.nodes.map(n => [n.id, n]));
@@ -1330,7 +1503,7 @@ document.querySelector('#facts-table tbody').innerHTML = FACTS.map(([a, b, c, cs
 document.getElementById('uncertain-list').innerHTML = UNCERTAIN.map(u => `<li>${u}</li>`).join('');
 document.querySelector('#cite-table tbody').innerHTML = Object.keys(CITES).map(k => `<tr id="cite-${k}"><td><code>${k}</code></td><td><a class="srcpath" href="${srcHref(k)}"><code>${esc(citePath(k))}</code></a><br><span class="meta">sha256 ${CITES[k].h.slice(0, 12)}…</span></td><td><code>${esc(CITES[k].x)}</code></td></tr>`).join('');
 // Audit: every drawn block and connection of every level with its references.
-const LEVELS = [['sys', 'Level 1 · System', levelSys()], ['noc', 'Level 2 · NoC ring', levelNoc()], ['hnf0', 'Level 3 · HNF bank 0', levelHnf(0)], ['hnf1', 'Level 3 · HNF bank 1', levelHnf(1)], ['mem', 'Level 4 · Memory path', levelMem()]];
+const LEVELS = [['sys', 'Level 1 · System', levelSys()], ['core', 'Level 2 · XS core', levelCore()], ['noc', 'Level 3 · NoC ring', levelNoc()], ['hnf0', 'Level 4 · HNF bank 0', levelHnf(0)], ['hnf1', 'Level 4 · HNF bank 1', levelHnf(1)], ['mem', 'Level 5 · Memory path', levelMem()]];
 document.getElementById('audit-body').innerHTML = LEVELS.map(([k, title, L]) => {
   const inf = k.startsWith('hnf') ? hnfInfo(+k[3]) : INFO, by = Object.fromEntries(L.nodes.map(n => [n.id, n]));
   const blocks = L.nodes.map(n => `<tr data-audit-node="${n.id}"><td>${esc(inf[n.id].title)}</td><td>${refLinks(inf[n.id].cites)}</td></tr>`).join('');
@@ -1368,7 +1541,7 @@ function selfTests() {
   ok(unused.length === 0, `every citation is used ${unused.join(' ')}`);
   for (const [k, sc] of Object.entries(SCEN)) {
     let lastHome = null;
-    const views = {sys:levelSys(), noc:levelNoc(), hnf:levelHnf(sc.bank), mem:levelMem()};
+    const views = {sys:levelSys(), core:levelCore(), noc:levelNoc(), hnf:levelHnf(sc.bank), mem:levelMem()};
     sc.steps.forEach((st, si) => {
       for (const m of st.msgs) {
         const tag = `${k}${si + 1} ${m.ch} ${m.op}`;

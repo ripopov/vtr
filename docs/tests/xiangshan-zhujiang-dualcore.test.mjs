@@ -108,7 +108,7 @@ const PROBE = `(() => {
   const px = texts.map(t => [parseFloat(getComputedStyle(t).fontSize) * k, t.textContent]).sort((a, c) => a[0] - c[0])[0];
   return {minPx: px[0], minText: px[1], overlaps, unfit, onBoxes, outside};
 })()`;
-const LEVELS = [['sys'], ['noc'], ['hnf', 0], ['hnf', 1], ['mem']];
+const LEVELS = [['sys'], ['core'], ['noc'], ['hnf', 0], ['hnf', 1], ['mem']];
 
 for (const [width, height] of [[1920, 1080], [1440, 900], [1366, 768], [1024, 768], [390, 844]]) test(`layout, readability and self-test at ${width}×${height}`, {timeout: 60000}, async t => {
   const b = await open(width, height); t.after(() => b.close());
@@ -170,8 +170,8 @@ test('accessibility tree, names, focus order and contrast in both themes', {time
   const prop = (n, k) => n.properties?.find(p => p.name === k)?.value?.value;
   let tree = await ax();
   const tabs = tree.filter(n => n.role?.value === 'tab');
-  assert.deepEqual(tabs.map(n => n.name.value), ['1 · System', '2 · NoC ring', '3 · HNF bank', '4 · Memory path'], 'level tabs are named tabs');
-  assert.deepEqual(tabs.map(n => prop(n, 'selected') === true), [true, false, false, false]);
+  assert.deepEqual(tabs.map(n => n.name.value), ['1 · System', '2 · XS core', '3 · NoC ring', '4 · HNF bank', '5 · Memory path'], 'level tabs are named tabs');
+  assert.deepEqual(tabs.map(n => prop(n, 'selected') === true), [true, false, false, false, false]);
   assert.ok(tree.some(n => n.role?.value === 'tablist' && n.name?.value === 'Diagram level'));
   assert.ok(tree.some(n => n.role?.value === 'tabpanel'));
   assert.ok(tree.some(n => n.role?.value === 'link' && n.name?.value === 'Skip to the interactive diagram'));
@@ -206,7 +206,7 @@ test('accessibility tree, names, focus order and contrast in both themes', {time
       const lum = c => { const [r, g, v] = rgb(c).map(x => { x /= 255; return x <= .03928 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * v; };
       const cr = (a, c) => { const x = lum(a), y = lum(c); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
       const paper = getComputedStyle(document.querySelector('.panel')).backgroundColor; let worst = [99, ''];
-      for (const lv of ['sys', 'noc', 'hnf', 'mem']) { XZ.setLevel(lv);
+      for (const lv of ['sys', 'core', 'noc', 'hnf', 'mem']) { XZ.setLevel(lv);
         for (const t of document.querySelectorAll('#svg text')) { const g = t.closest('[data-node]');
           const bg = !g ? paper : t.style.fontSize ? getComputedStyle(t.previousElementSibling.tagName === 'rect' ? t.previousElementSibling : g.querySelector('.box')).fill : getComputedStyle(g.querySelector('.box')).fill;
           const c = cr(getComputedStyle(t).fill, bg); if (c < worst[0]) worst = [c, lv + ': ' + t.textContent]; } }
@@ -431,5 +431,46 @@ test('reduced motion: flits are drawn without moving dots or line animation', {t
   assert.equal((await state(b)).drawnMsgs, 1);
   assert.equal(await b.evaluate('document.querySelectorAll("#g-msgs animateMotion").length'), 0);
   assert.equal(await b.evaluate('getComputedStyle(document.querySelector("#g-msgs path.m")).animationName'), 'none');
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('XS core level: frontend, CtrlBlock, three regions and MemBlock match the core parameters in Scala', {timeout: 30000}, async t => {
+  // Independent reading of the source: issue-queue counts per scheduler and the sizes the page draws.
+  const src = await readFile(new URL('src/main/scala/xiangshan/Parameters.scala', XS), 'utf8');
+  const fe = f => readFile(new URL(`src/main/scala/xiangshan/frontend/${f}`, XS), 'utf8');
+  const block = name => src.slice(src.indexOf(`val ${name} = {`), src.indexOf('numPregs', src.indexOf(`val ${name} = {`)));
+  const iqs = name => block(name).match(/IssueBlockParams\(/g).length;
+  const num = (text, re) => +text.match(re)[1];
+  const want = {
+    int: iqs('intSchdParams'), fp: iqs('fpSchdParams'), vec: iqs('vecSchdParams'),
+    rob: num(src, /RobSize: Int = (\d+)/), decode: num(src, /DecodeWidth: Int = (\d+)/),
+    intPreg: num(src, /intPreg: PregParams = IntPregParams\(\s*numEntries = (\d+)/), fpPreg: num(src, /fpPreg: PregParams = FpPregParams\(\s*numEntries = (\d+)/),
+    vfPreg: num(src, /vfPreg: VfPregParams = VfPregParams\(\s*numEntries = (\d+)/), ldu: num(src, /LoadPipelineWidth: Int = (\d+)/),
+    lq: num(src, /VirtualLoadQueueSize: Int = (\d+)/), sq: num(src, /StoreQueuePhysicalSize: Int = (\d+)/), sbuf: num(src, /StoreBufferSize: Int = (\d+)/),
+    ftq: num(await fe('ftq/FtqParameters.scala'), /FtqSize:\s+Int = (\d+)/), ibuf: num(await fe('ibuffer/Parameters.scala'), /Size:\s+Int = (\d+)/),
+  };
+  assert.deepEqual([want.int, want.fp, want.vec], [13, 4, 6], 'issue queues per scheduler in Scala');
+  assert.equal(block('intSchdParams').match(/ExeUnitParams\(\s*"ALU\d"/g).length, 6);
+  assert.equal(block('intSchdParams').match(/"BJU\d"/g).length, 3);
+  const b = await open(); t.after(() => b.close());
+  await b.click('#tab-core');
+  assert.equal((await state(b)).level, 'core');
+  const text = await b.evaluate('document.getElementById("g-nodes").textContent');
+  for (const s of [`Int issue queues ×${want.int}`, `FP issue queues ×${want.fp}`, `Vector issue queues ×${want.vec}`, `ROB${want.rob} · commit`, `${want.decode}-wide`,
+    `Int regfile · ${want.intPreg}`, `FP regfile · ${want.fpPreg}`, `Vector regfile · ${want.vfPreg}`, `LDU ×${want.ldu}`, `LQ ${want.lq} · SQ ${want.sq}`,
+    `${want.sbuf} lines`, `FTQ${want.ftq} entries`, `IBuffer${want.ibuf} entries`, 'ALU ×6 · BJU ×3'])
+    assert.ok(text.includes(s), `core level shows "${s}"`);
+  // Everything that leaves the core toward the L2 is drawn: ICache, DCache (two TL-C ports), page walker and uncached path.
+  const toL2 = await b.evaluate(`[...document.querySelectorAll('#g-edges [data-b="core.l2"]')].map(g => g.dataset.a).sort()`);
+  assert.deepEqual(toL2, ['core.dcache', 'core.icache', 'core.l2tlb', 'core.uncache']);
+  // The frontend-to-backend flow is connected in order.
+  const e = await b.evaluate(`[...document.querySelectorAll('#g-edges [data-edge]')].map(g => g.dataset.a + '>' + g.dataset.b)`);
+  for (const pair of ['core.bpu>core.ftq', 'core.ftq>core.icache', 'core.icache>core.ifu', 'core.ifu>core.ibuf', 'core.ibuf>core.decode', 'core.decode>core.rename', 'core.rename>core.dispatch', 'core.dispatch>core.intiq', 'core.intrf>core.lsu', 'core.lsu>core.dcache'])
+    assert.ok(e.includes(pair), pair);
+  await b.click('[data-node="core.intiq"]');
+  assert.match(await b.evaluate('document.getElementById("detail").textContent'), /ALU0\/BJU0.*18 entries.*STD0 and STD1 \(16\)/);
+  // The system level points at this level.
+  await b.click('#tab-sys'); await b.click('[data-node="sys.core0"]');
+  assert.match(await b.evaluate('document.getElementById("detail").textContent'), /Level 2 shows the core's internals/);
   assert.deepEqual(b.exceptions, []);
 });
