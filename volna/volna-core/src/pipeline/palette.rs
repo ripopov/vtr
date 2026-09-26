@@ -24,11 +24,21 @@ pub struct StageStyle {
 /// Konata's default lane, used as the primary lane whenever it occurs.
 pub const DEFAULT_LANE: &str = "0";
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct StagePalette {
     by_name: HashMap<String, StageStyle>,
     names: Vec<String>,
     primary_lane: String,
+}
+
+impl Default for StagePalette {
+    fn default() -> Self {
+        Self {
+            by_name: HashMap::new(),
+            names: Vec::new(),
+            primary_lane: DEFAULT_LANE.to_owned(),
+        }
+    }
 }
 
 impl StagePalette {
@@ -108,12 +118,10 @@ impl StagePalette {
     }
 
     /// Stages on this lane are cells; every other lane is an overlay band.
+    /// The empty name is a lane like any other: the vtr_trace package writes
+    /// its default lane as `""`.
     pub fn primary_lane(&self) -> &str {
-        if self.primary_lane.is_empty() {
-            DEFAULT_LANE
-        } else {
-            &self.primary_lane
-        }
+        &self.primary_lane
     }
 
     /// Grey for stage names outside the ladder and for transactions without stages.
@@ -208,6 +216,11 @@ mod tests {
         assert_eq!(p.primary_lane(), "main");
         assert_eq!(p.names(), ["F", "W"]);
         assert_eq!(StagePalette::default().primary_lane(), "0");
+        // The vtr_trace package's default lane is the empty name.
+        let unnamed = generator(&[&[("F", ""), ("S", "stall"), ("X", "")]]);
+        let p = StagePalette::build(&[unnamed]);
+        assert_eq!(p.primary_lane(), "");
+        assert_eq!(p.names(), ["F", "X"]);
     }
 
     #[test]

@@ -1290,6 +1290,10 @@ fn the_verilator_demo_counts_in_its_clock_and_feeds_the_transaction_panel() {
         .pipeline(id)
         .expect("a PIPELINE stream opens a pipeline panel");
     assert_eq!(p.clock(&app.doc).unwrap().path, "TOP.tb.clk");
+    // The package writes its default lane as "": those stages are the cells,
+    // each in a ladder colour, and the stall lane is the overlay band.
+    assert_eq!(p.palette().primary_lane(), "");
+    assert_eq!(p.palette().names(), ["F", "D", "Q", "X", "C", "R"]);
     let Rows::Ready(set) = p.rows(&app.doc) else {
         panic!("loaded")
     };
