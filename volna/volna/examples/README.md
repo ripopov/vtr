@@ -36,6 +36,28 @@ the waveforms then the transactions, reopens the file and checks the counts,
 statuses and size (below 250,000 bytes). Regenerate rather than preserve an
 older encoding when the writer changes.
 
+## Pipeline demo from Verilator
+
+`pipeline_demo.vtr` (2.5 KB) is the recording of the pipeline tracer suite in
+`integrations/verilator/pipeline` ([c910-verilator-tx-stream.html](../../../docs/c910-verilator-tx-stream.html)):
+a SystemVerilog tracer bound to a small scripted core writes twelve
+instructions to `TOP.tb.core.pipeline` (generator `instruction`, stages
+`F D Q X C R` and a `stall` lane) and two bus requests to `TOP.tb.core.bus`,
+parented to their loads. Five instructions retire, two of them folded into one
+ROB entry; one retires with an exception (`Error`); three wrong-path
+instructions are aborted by a mispredicted branch and two by a front-end
+flush; the last one is still `Open` at close. Both streams count in the
+declared clock `TOP.tb.clk` (10 ns from 5 ns), and the design's signals are
+recorded beside them.
+
+Regenerate from the repository root with the Verilator fork built by
+`integrations/verilator/build.sh`:
+
+```sh
+python3 integrations/verilator/pipeline/run.py \
+  --verilator bench/build/verilator/install/bin/verilator --update-example
+```
+
 ## Feature showcase
 
 `feature_showcase.vtr` is a deterministic, synthetic debugging lab: 2,048 ns of

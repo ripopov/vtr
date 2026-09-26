@@ -18,7 +18,7 @@ pub enum ActivityCommand {
     RevealBelow,
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct Activity {
     pub above: usize,
     pub below: usize,

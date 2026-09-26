@@ -443,7 +443,7 @@ pub fn paint(
     }
 
     if matches!(&rows, Rows::Ready(set) if !set.is_empty()) {
-        let activity = model.activity(doc);
+        let activity = model.last_layout().activity;
         if activity.visible == 0 {
             let message = if activity.above + activity.below == 0 {
                 match (activity.earlier, activity.later) {

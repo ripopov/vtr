@@ -185,14 +185,18 @@ windows are throttled and must not be used to claim frame-time parity.
 ## Pipeline panel checks
 
 `cargo test -p volna-core --test pipeline` builds a small PIPELINE trace and
-exercises the headless checks listed above; its last test opens the checked-in
-`volna/volna/examples/pipeline_showcase.vtr` (see the examples README). The
+exercises the headless checks listed above; two tests open checked-in
+recordings: `volna/volna/examples/pipeline_showcase.vtr` and
+`pipeline_demo.vtr`, which the Verilator pipeline tracer suite writes (see the
+examples README; its stream counts in the declared clock and a click feeds
+the Transaction panel). The
 macOS harness (`cargo test -p volna --features visual-test --test viewer`) opens
 that trace, activates both `pipeline` streams from the sidebar, asserts two
 ready panels of more than 500 rows, wheel-zooms about a point, clicks to set
 the cursor and saves `pipeline-two-cores` and `pipeline-zoomed-cursor`. Inspect
 them for: the cycle axis and `cycle` unit in every panel, stage cells in the
-first-appearance ladder colours with names once rows are tall enough, grey
+pipeline-order ladder colours (hues by each name's mean position in a row;
+neighbours alternate in lightness beyond eight names) with names once rows are tall enough, grey
 stall bands over the lower part of rows, red-tinted flushed rows with a tick in
 the label column, the dashed edge of open rows, the shared cursor chip at the
 same cycle in the wave and pipeline panels, and the hover text in the status
@@ -212,6 +216,26 @@ close panels (closing the last one brings the start panel back; `⌘W` on it
 closes the trace), and restore a saved workspace with a pipeline panel. Rows
 below two pixels must stay responsive over ten thousand rows. The harness
 saves `start-panel` after closing both pipeline panels.
+
+Large pipelines are measured, not gated:
+
+```sh
+cargo test --release -p volna-core --test pipeline half_million -- --ignored --nocapture
+VOLNA_OBJECT_MIB=2048 cargo test --release -p volna-core --test pipeline half_million -- --ignored --nocapture
+VOLNA_OBJECT_MIB=2048 VOLNA_PIPELINE_TRACE=$PWD/volna/volna/examples/c910_coremark.vtr \
+  VOLNA_PIPELINE_STREAM=TX.core0.pipeline \
+  cargo test --release -p volna-core --test pipeline half_million -- --ignored --nocapture
+```
+
+The test writes half a million C910-shaped instructions (fourteen stage
+names, a fifth of them aborted) or opens the given capture, then prints load,
+first-frame and per-frame layout-plus-paint times over the whole trace, a
+5,000-cycle and a 150-cycle window, and the process's resident memory. On an
+Apple M5: at the default 256 MiB object limit the load fails explicitly (the
+generator is 541 MiB, 699 MiB for the 411,339-row C910 capture with its fetch
+stages) and the panel offers its retry; with the limit raised the stream loads
+in 0.36 s (0.39 s for the capture), resident memory grows by 1 to 1.4 GB, and a frame takes 14 ms
+over the whole trace, 0.15 ms over 5,000 cycles and 0.01 ms over 150.
 
 ## Hierarchy browser checks
 

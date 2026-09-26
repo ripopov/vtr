@@ -1,8 +1,12 @@
-//! Stage colours. Version 1 assigns each stage name on the primary lane a
-//! hue from a ladder in order of first appearance (Konata's "unique" scheme),
-//! at a fixed lightness so the dark cell text reads in both appearances. A
-//! VDB stage table later fills the same struct with authored colours; the
-//! painter only ever asks for `style(name)`.
+//! Stage colours. Each stage name on the primary lane gets a hue from a
+//! ladder in pipeline order: names are ranked by their mean position within
+//! a transaction's primary-lane stages (ties by first appearance), so hues
+//! run from fetch to retire whatever order the trace first shows them in.
+//! Lightness is fixed so the dark cell text reads in both appearances; with
+//! more than eight names, neighbouring hues alternate between two
+//! lightnesses so a dozen stages stay apart. A VDB stage table later fills
+//! the same struct with authored colours; the painter only ever asks for
+//! `style(name)`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,24 +56,36 @@ impl StagePalette {
                 .map(|(lane, _)| (*lane).to_owned())
                 .unwrap_or_else(|| DEFAULT_LANE.to_owned())
         };
-        let mut names: Vec<String> = Vec::new();
-        for stage in generators
-            .iter()
-            .flat_map(|g| g.transactions())
-            .flat_map(|tx| &tx.stages)
-            .filter(|stage| stage.lane == primary_lane)
-        {
-            if !names.contains(&stage.name) {
-                names.push(stage.name.clone());
+        // Per name in first-appearance order: the sum and count of its positions.
+        let mut seen: Vec<(String, f64, u64)> = Vec::new();
+        for tx in generators.iter().flat_map(|g| g.transactions()) {
+            let primary = tx.stages.iter().filter(|stage| stage.lane == primary_lane);
+            for (position, stage) in primary.enumerate() {
+                match seen.iter_mut().find(|(name, _, _)| *name == stage.name) {
+                    Some((_, sum, n)) => {
+                        *sum += position as f64;
+                        *n += 1;
+                    }
+                    None => seen.push((stage.name.clone(), position as f64, 1)),
+                }
             }
         }
+        let mut order: Vec<usize> = (0..seen.len()).collect();
+        // A stable sort keeps first appearance among equal positions.
+        order.sort_by(|&a, &b| {
+            let mean = |i: usize| seen[i].1 / seen[i].2 as f64;
+            mean(a).total_cmp(&mean(b))
+        });
+        let names: Vec<String> = order.into_iter().map(|i| seen[i].0.clone()).collect();
         let steps = names.len().saturating_sub(1).max(1) as f32;
+        let alternate = names.len() > 8;
         let by_name = names
             .iter()
             .enumerate()
             .map(|(k, name)| {
                 let hue = (250.0 - k as f32 * (250.0 / steps)).rem_euclid(360.0) / 360.0;
-                (name.clone(), ladder_style(hue))
+                let lightness = if alternate && k % 2 == 1 { 0.70 } else { 0.58 };
+                (name.clone(), ladder_style(hue, lightness))
             })
             .collect();
         Self {
@@ -120,18 +136,18 @@ impl StagePalette {
     }
 }
 
-fn ladder_style(hue: f32) -> StageStyle {
+fn ladder_style(hue: f32, lightness: f32) -> StageStyle {
     StageStyle {
         fill: Color {
             h: hue,
             s: 0.52,
-            l: 0.58,
+            l: lightness,
             a: 1.0,
         },
         edge: Color {
             h: hue,
             s: 0.52,
-            l: 0.38,
+            l: lightness - 0.20,
             a: 1.0,
         },
         text: Color::rgb(0x101820),
@@ -175,13 +191,14 @@ mod tests {
     }
 
     #[test]
-    fn ladder_follows_first_appearance_on_the_primary_lane() {
+    fn ladder_follows_pipeline_position_on_the_primary_lane() {
+        // X first appears before D, but sits later in the pipeline on average.
         let g = generator(&[
             &[("F", "0"), ("stl", "1"), ("X", "0")],
             &[("F", "0"), ("D", "0"), ("X", "0")],
         ]);
         let p = StagePalette::build(&[g]);
-        assert_eq!(p.names(), ["F", "X", "D"]);
+        assert_eq!(p.names(), ["F", "D", "X"]);
         assert_eq!(p.primary_lane(), "0");
         assert_ne!(p.style("F"), p.style("X"));
         assert_eq!(p.style("stl"), StagePalette::fallback());
@@ -191,5 +208,60 @@ mod tests {
         assert_eq!(p.primary_lane(), "main");
         assert_eq!(p.names(), ["F", "W"]);
         assert_eq!(StagePalette::default().primary_lane(), "0");
+    }
+
+    #[test]
+    fn a_dozen_stages_keep_pipeline_order_and_neighbours_apart() {
+        // The C910 tracer's stages: alternatives (EX, BJ, AG) at the same position,
+        // an LSU path that makes CM and RT later on average, and first appearance
+        // out of pipeline order.
+        let alu: &[(&str, &str)] = &[
+            ("ID", ""),
+            ("IR", ""),
+            ("IS", ""),
+            ("IQ", ""),
+            ("RF", ""),
+            ("EX", ""),
+            ("CM", ""),
+            ("RT", ""),
+        ];
+        let branch: &[(&str, &str)] = &[
+            ("ID", ""),
+            ("IR", ""),
+            ("IS", ""),
+            ("IQ", ""),
+            ("RF", ""),
+            ("BJ", ""),
+            ("CM", ""),
+            ("RT", ""),
+        ];
+        let load: &[(&str, &str)] = &[
+            ("ID", ""),
+            ("IR", ""),
+            ("IS", ""),
+            ("IQ", ""),
+            ("RF", ""),
+            ("AG", ""),
+            ("DC", ""),
+            ("DA", ""),
+            ("WB", ""),
+            ("CM", ""),
+            ("RT", ""),
+        ];
+        let p = StagePalette::build(&[generator(&[alu, load, branch, alu])]);
+        assert_eq!(
+            p.names(),
+            [
+                "ID", "IR", "IS", "IQ", "RF", "EX", "AG", "BJ", "DC", "CM", "DA", "RT", "WB"
+            ]
+        );
+        for pair in p.names().windows(2) {
+            let (a, b) = (p.style(&pair[0]).fill, p.style(&pair[1]).fill);
+            assert!((a.l - b.l).abs() > 0.1, "{pair:?} differ in lightness");
+            assert!(a.h != b.h);
+        }
+        // Few stages keep one lightness.
+        let few = StagePalette::build(&[generator(&[alu])]);
+        assert!(few.names().iter().all(|n| few.style(n).fill.l == 0.58));
     }
 }

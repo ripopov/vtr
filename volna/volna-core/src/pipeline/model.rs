@@ -510,6 +510,7 @@ impl PipelineModel {
         }
         self.layout = layout;
         let activity = self.activity(doc);
+        self.layout.activity = activity;
         let area = self.layout.cells;
         let z = theme.zoom;
         let width = (170.0 * z).min(area.width());

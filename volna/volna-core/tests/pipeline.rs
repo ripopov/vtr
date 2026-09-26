@@ -1257,3 +1257,289 @@ fn the_checked_in_showcase_has_two_pipeline_streams_on_a_cycle_time_base() {
     assert!(counts.iter().all(|n| *n > 500), "{counts:?}");
     assert!(app.status().time_range.unwrap().ends_with("cycle"));
 }
+
+#[test]
+fn the_verilator_demo_counts_in_its_clock_and_feeds_the_transaction_panel() {
+    use volna_core::data::transactions::TransactionRef;
+    use volna_core::transaction::TxPanelState;
+    // Written by integrations/verilator/pipeline/run.py --update-example: the
+    // demo_core tracer's instructions and bus requests, and the tb clock.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../volna/examples/pipeline_demo.vtr");
+    let session = OpenSpec::Path(path).open().unwrap();
+    let mut app = App::new();
+    app.set_session(session.clone());
+    pump(&mut app);
+    let stream = scope(session.as_ref(), &["TOP", "tb", "core", "pipeline"]);
+    app.handle(Command::ActivateMembers(vec![Member::Stream(stream)]));
+    pump(&mut app);
+    let id = app.panels.focused_id();
+    app.handle(Command::PipelineActivity(
+        id,
+        volna_core::pipeline::ActivityCommand::Toggle,
+    ));
+    app.panels
+        .pipeline_mut(id)
+        .unwrap()
+        .rows
+        .set(RowView::default());
+    let theme = Theme::one_dark();
+    frame(&mut app, id, &theme);
+    let p = app
+        .panels
+        .pipeline(id)
+        .expect("a PIPELINE stream opens a pipeline panel");
+    assert_eq!(p.clock(&app.doc).unwrap().path, "TOP.tb.clk");
+    let Rows::Ready(set) = p.rows(&app.doc) else {
+        panic!("loaded")
+    };
+    let statuses: Vec<_> = (0..set.len())
+        .map(|r| set.get(r).unwrap().1.status)
+        .collect();
+    let count = |s| statuses.iter().filter(|x| **x == s).count();
+    assert_eq!(statuses.len(), 12);
+    assert_eq!(
+        [
+            count(vtr::TxStatus::Ok),
+            count(vtr::TxStatus::Error),
+            count(vtr::TxStatus::Aborted),
+            count(vtr::TxStatus::Open)
+        ],
+        [5, 1, 5, 1]
+    );
+    // Row 0 is the first instruction: X from 45 to 55 ns, cycle 4 of a clock whose
+    // first edge is at 5 ns. Hovering reads cycles; a click selects the row.
+    let layout = p.last_layout().clone();
+    let viewport = p.nav.viewport(&app.doc);
+    let y = layout.row_y(0) + layout.rows.row_px / 2.0;
+    let x = layout.cells.left() + viewport.x_of(50.0, layout.cells_width_f64()) as f32;
+    app.handle(Command::Pointer(
+        id,
+        PointerEvent::Move {
+            position: point(x, y),
+        },
+    ));
+    let hover = app.status().hover.unwrap();
+    assert!(hover.contains("X cycles 4–5 (1 cycle)"), "{hover}");
+    app.handle(Command::Pointer(
+        id,
+        PointerEvent::Down {
+            position: point(x, y),
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    app.handle(Command::Pointer(id, PointerEvent::Up));
+    assert_eq!(app.doc.shared.cursor, Some(45));
+    let selection = app.doc.selection().unwrap();
+    app.handle(Command::ShowTransaction { from: id });
+    let panel = app.panels.focused_id();
+    let TxPanelState::Ready(v) = app.panels.transaction(panel).unwrap().state(&app.doc) else {
+        panic!("the Transaction panel shows the selection")
+    };
+    assert_eq!(v.identity.id, selection.id);
+    assert_eq!(v.identity.label.as_deref(), Some("0100 add a0,a0,a1"));
+    assert_eq!(v.identity.stream, ["TOP", "tb", "core", "pipeline"]);
+    let names: Vec<_> = v.lifeline[0]
+        .cells
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(names, ["F", "D", "Q", "X", "C", "R"]);
+    assert!(
+        v.related
+            .rows
+            .iter()
+            .any(|r| r.group == "wakeup · to" && r.target.transaction != TransactionRef(0)),
+        "{:?}",
+        v.related.rows.iter().map(|r| &r.group).collect::<Vec<_>>()
+    );
+}
+
+/// Half a million C910-shaped instructions, or the file in `VOLNA_PIPELINE_TRACE`
+/// (with its stream path in `VOLNA_PIPELINE_STREAM`): prints load, palette, layout
+/// and paint times and the process's resident memory. A measurement, not a gate:
+///
+///     cargo test --release -p volna-core --test pipeline half_million -- --ignored --nocapture
+#[test]
+#[ignore]
+fn half_million_rows_load_lay_out_and_paint() {
+    use std::time::Instant as Clock;
+    fn rss_mib() -> f64 {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<f64>()
+            .unwrap_or(0.0)
+            / 1024.0
+    }
+    let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
+    let (path, stream_path) = match std::env::var("VOLNA_PIPELINE_TRACE") {
+        Ok(p) => (
+            std::path::PathBuf::from(p),
+            std::env::var("VOLNA_PIPELINE_STREAM").expect("VOLNA_PIPELINE_STREAM"),
+        ),
+        Err(_) => {
+            use vtr::{TxStatus, Value};
+            let t0 = Clock::now();
+            let mut w = vtr::Writer::create(file.path()).unwrap();
+            w.set_timescale(-10).unwrap();
+            let core = w
+                .add_scope(None, "core", vtr::ScopeType::Module, "")
+                .unwrap();
+            let stream = w.add_stream(Some(core), "pipeline", "PIPELINE").unwrap();
+            let insn = w.add_generator(stream, "instruction").unwrap();
+            let names: Vec<_> = [
+                "ID", "IR", "IS", "IQ", "RF", "EX", "CM", "RT", "BJ", "FX", "AG", "DC", "DA", "WB",
+            ]
+            .iter()
+            .map(|s| w.intern(s))
+            .collect();
+            let lane = w.intern("");
+            let (label, pc_key, iid_key) = (w.intern("vtr.label"), w.intern("pc"), w.intern("iid"));
+            let captions: Vec<_> = (0..2000u64)
+                .map(|pc| w.intern(&format!("0x{:04x} op{pc}", pc * 4)))
+                .collect();
+            let mut rng = 0x2545_f491_4f6c_dd1du64;
+            let mut next = || {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                rng
+            };
+            for i in 0..500_000u64 {
+                let begin = 2 * (i * 10 / 13);
+                let tx = w.begin_tx(insn, begin).unwrap();
+                let r = next();
+                let aborted = r % 5 == 0;
+                // ID IR IS IQ RF, then one of EX/BJ/FX or AG DC DA WB, then CM RT.
+                let mut path = vec![0usize, 1, 2, 3, 4];
+                match (r >> 8) % 6 {
+                    0 => path.push(8),
+                    1 => path.push(9),
+                    2 | 3 => path.extend([10, 11, 12, 13]),
+                    _ => path.push(5),
+                }
+                path.extend([6, 7]);
+                if aborted {
+                    path.truncate(1 + (r >> 16) as usize % 4);
+                }
+                let mut t = begin;
+                for &s in &path {
+                    let len = 2 * (1 + (next() % 3));
+                    w.tx_stage(tx, names[s], lane, t, t + len, &[]).unwrap();
+                    t += len;
+                }
+                w.tx_attr(tx, label, &Value::Str(captions[(i % 2000) as usize]))
+                    .unwrap();
+                w.tx_attr(tx, pc_key, &Value::U64((i % 2000) * 4)).unwrap();
+                if !aborted {
+                    w.tx_attr(tx, iid_key, &Value::U64(i % 128)).unwrap();
+                }
+                w.end_tx(
+                    tx,
+                    t,
+                    if aborted {
+                        TxStatus::Aborted
+                    } else {
+                        TxStatus::Ok
+                    },
+                )
+                .unwrap();
+            }
+            w.close().unwrap();
+            println!(
+                "generated 500000 rows in {:.2} s",
+                t0.elapsed().as_secs_f64()
+            );
+            (file.path().to_path_buf(), "core.pipeline".to_owned())
+        }
+    };
+    let rss0 = rss_mib();
+    let t0 = Clock::now();
+    let session = OpenSpec::Path(path).open().unwrap();
+    let mut app = App::new();
+    // VOLNA_OBJECT_MIB raises the object size limit (default 256 MiB).
+    if let Ok(mib) = std::env::var("VOLNA_OBJECT_MIB") {
+        for (id, v) in [
+            ("memory.budgetMiB", 8192),
+            ("memory.objectMiB", mib.parse::<i64>().unwrap()),
+        ] {
+            app.handle(Command::Settings(volna_core::app::SettingsCommand::Set {
+                id: id.into(),
+                value: volna_core::settings::Value::Integer(v),
+            }));
+        }
+    }
+    app.set_session(session.clone());
+    pump(&mut app);
+    let parts: Vec<&str> = stream_path.split('.').collect();
+    let stream = scope(session.as_ref(), &parts);
+    let opened = t0.elapsed().as_secs_f64();
+    let t1 = Clock::now();
+    app.handle(Command::ActivateMembers(vec![Member::Stream(stream)]));
+    pump(&mut app);
+    let loaded = t1.elapsed().as_secs_f64();
+    let id = app.panels.focused_id();
+    let theme = Theme::one_dark();
+    let t2 = Clock::now();
+    frame(&mut app, id, &theme);
+    let first = t2.elapsed().as_secs_f64();
+    let p = app.panels.pipeline(id).unwrap();
+    let set = match p.rows(&app.doc) {
+        Rows::Ready(set) => set,
+        Rows::Failed(e) => panic!("load failed: {e}"),
+        _ => panic!("rows not ready"),
+    };
+    let rows = set.len();
+    let stages = p.palette().names().to_vec();
+    let mut report = format!(
+        "{rows} rows, {} stage names {:?}\nopen {opened:.3} s, load {loaded:.3} s, first frame {first:.3} s, \
+         resident {:.0} MiB (+{:.0})\n",
+        stages.len(),
+        stages,
+        rss_mib(),
+        rss_mib() - rss0
+    );
+    let mid = {
+        let (b, e) = (
+            set.get(0).unwrap().1.begin,
+            set.get(rows - 1).unwrap().1.begin,
+        );
+        (b + e) as f64 / 2.0
+    };
+    for (what, window) in [
+        ("whole trace", None),
+        ("5000-cycle window", Some(10_000.0)),
+        ("150-cycle window", Some(300.0)),
+    ] {
+        match window {
+            None => {
+                app.handle_at(Command::Action(Action::ZoomFit), volna_core::Instant::now());
+                for _ in 0..200 {
+                    frame(&mut app, id, &theme);
+                }
+            }
+            Some(w) => app
+                .doc
+                .shared
+                .viewport
+                .set(volna_core::wave::viewport::Viewport {
+                    start: mid - w / 2.0,
+                    end: mid + w / 2.0,
+                }),
+        }
+        let n = 20;
+        let t = Clock::now();
+        for _ in 0..n {
+            frame(&mut app, id, &theme);
+        }
+        let per = t.elapsed().as_secs_f64() / n as f64 * 1e3;
+        let prims = app.scene().prims.len();
+        report += &format!("{what}: {per:.2} ms per layout + paint, {prims} primitives\n");
+    }
+    println!("{report}");
+}

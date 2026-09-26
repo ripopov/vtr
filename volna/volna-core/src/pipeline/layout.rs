@@ -25,6 +25,9 @@ pub const DENSITY_PX: f32 = 2.0;
 #[derive(Clone, Debug, Default)]
 pub struct PipelineLayout {
     pub activity_controls: Vec<(super::ActivityCommand, Rect, String)>,
+    /// Activity in this frame's time window, computed once per layout: it visits
+    /// every record in the window, which is every record when zoomed out.
+    pub activity: super::activity::Activity,
     pub bounds: Rect,
     pub header: Rect,
     /// Clock ruler rows below the header, across the whole panel (empty without rulers).
@@ -128,6 +131,7 @@ impl PipelineLayout {
         );
         Self {
             activity_controls: Vec::new(),
+            activity: Default::default(),
             bounds,
             header,
             rulers,
