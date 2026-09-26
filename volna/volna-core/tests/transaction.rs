@@ -54,6 +54,25 @@ fn track(session: &dyn Session, path: &str) -> TrackRef {
         .id
 }
 
+/// The record of `track` whose `vtr.label` is `label`: tests name records the
+/// way a reader sees them, so they do not depend on the writer's id order.
+fn labelled(session: &dyn Session, track: TrackRef, label: &str) -> TransactionRef {
+    use volna_core::data::transactions::AttributeValue;
+    let loaded = session.load_track(track).unwrap();
+    loaded
+        .generators
+        .iter()
+        .flat_map(|g| g.transactions())
+        .find(|t| {
+            t.attributes.iter().any(|a| {
+                a.key == "vtr.label"
+                    && matches!(&a.value, AttributeValue::Text(text) if text == label)
+            })
+        })
+        .unwrap_or_else(|| panic!("no record labelled {label:?}"))
+        .id
+}
+
 /// A trace with one pipeline panel open, loaded and laid out.
 fn with_pipeline(name: &str, stream: &str) -> (App, Arc<dyn Session>, PanelId) {
     let session = example(name);
@@ -403,7 +422,19 @@ fn every_value_tag_an_open_record_and_a_cross_stream_parent_read_as_recorded() {
     let (mut app, session, pipeline) = with_pipeline("feature_showcase.vtr", "soc.dma.memory_bus");
     let read = track(session.as_ref(), "soc.dma.memory_bus.read");
     let write = track(session.as_ref(), "soc.dma.memory_bus.write");
-    let panel = show(&mut app, pipeline, read, 3);
+    let transfer = labelled(session.as_ref(), read, "DMA transfer 0");
+    let submission = labelled(
+        session.as_ref(),
+        track(session.as_ref(), "firmware.driver.submit_transfer"),
+        "submission 0",
+    );
+    let instruction = labelled(
+        session.as_ref(),
+        track(session.as_ref(), "soc.cpu.thread0.instructions"),
+        "pc 0x80000000",
+    );
+    let unfinished = labelled(session.as_ref(), write, "unfinished write 0");
+    let panel = show(&mut app, pipeline, read, transfer.0);
     let v = view(&app, panel);
     assert_eq!(v.identity.kind, Some("consumer"));
     assert_eq!(v.identity.status_text, "ok");
@@ -434,13 +465,13 @@ fn every_value_tag_an_open_record_and_a_cross_stream_parent_read_as_recorded() {
     // The firmware span that parents it lives on another, unloaded stream.
     let parent = &v.related.rows[0];
     assert_eq!(parent.role, RefRole::Parent);
-    assert_eq!(parent.target.transaction, TransactionRef(2));
+    assert_eq!(parent.target.transaction, submission);
     assert!(!parent.loaded);
     assert!(
         v.related
             .rows
             .iter()
-            .any(|r| r.group == "request · from" && r.target.transaction == TransactionRef(1))
+            .any(|r| r.group == "request · from" && r.target.transaction == instruction)
     );
 
     // The limit cuts rows, never the count; the filter narrows the rows.
@@ -466,7 +497,7 @@ fn every_value_tag_an_open_record_and_a_cross_stream_parent_read_as_recorded() {
     assert!(view(&app, panel).attributes.collapsed);
 
     // A record still open at the end has no fabricated end.
-    select(&mut app, pipeline, write, 98);
+    select(&mut app, pipeline, write, unfinished.0);
     let v = view(&app, panel);
     assert_eq!(v.identity.status, TxStatus::Open);
     assert_eq!((v.timing.end, v.timing.end_text.as_str()), (None, "open"));

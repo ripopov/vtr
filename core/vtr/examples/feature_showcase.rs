@@ -170,15 +170,31 @@ fn write(path: &Path) -> vtr::Result<()> {
     let cpu = w.add_scope(Some(soc), "cpu", ScopeType::Core, "tiny_cpu")?;
     let pc = bits(&mut w, cpu, "pc", 32, 2, Direction::Output)?;
     let pipeline = w.add_stream(Some(cpu), "thread0", "PIPELINE")?;
+    let core_path = w.intern("soc.clk");
+    w.node_attr(pipeline, "vtr.clock", Value::Str(core_path))?;
     let instructions = w.add_generator(pipeline, "instructions")?;
     let speculative = w.add_generator(pipeline, "speculative")?;
     let dma = w.add_scope(Some(soc), "dma", ScopeType::ScModule, "dma_engine")?;
     let bus = w.add_stream(Some(dma), "memory_bus", "MEMORY_BUS")?;
+    let dma_path = w.intern("soc.dma.dma_clk");
+    w.node_attr(bus, "vtr.clock", Value::Str(dma_path))?;
     let reads = w.add_generator(bus, "read")?;
     let writes = w.add_generator(bus, "write")?;
     w.add_generator(bus, "idle")?;
     w.add_stream(Some(dma), "standby_bus", "MEMORY_BUS")?;
     let logs = w.add_stream(Some(soc), "log", vtr::LOG_STREAM_KIND)?;
+
+    // Declared clocks (docs/vtr_clocks.html). `soc.clk` is the dumped `clk`: 8 ns,
+    // rising at 4 ns and running at capture end. The DMA clock has no dumped net:
+    // 12 ns, stopped for the fault window, 6 ns while it recovers, then 16 ns.
+    let core_clk = w.add_clock(Some(soc), "clk")?;
+    w.clock_run(core_clk, 4, 8)?;
+    let dma_clk = w.add_clock(Some(dma), "dma_clk")?;
+    w.clock_run(dma_clk, 8, 12)?;
+    w.clock_stop(dma_clk, 768)?;
+    w.clock_run(dma_clk, 904, 6)?;
+    w.clock_stop(dma_clk, 1400)?;
+    w.clock_run(dma_clk, 1406, 16)?;
     let mut sites = Vec::new();
     for (i, severity) in [
         Severity::Trace,
@@ -229,13 +245,15 @@ fn write(path: &Path) -> vtr::Result<()> {
         .func("inspect_packet"),
     )?;
 
-    // A compact declaration gallery: all standard scope/variable codes plus an
-    // unknown producer code. The useful design remains at the top of the tree.
+    // A compact declaration gallery: every standard scope code under `scopes` and
+    // every variable code under `declarations`, each plus an unknown producer code.
+    // The useful design remains at the top of the tree.
     let type_gallery = w.add_scope(Some(soc), "type_gallery", ScopeType::Package, "")?;
+    let scopes = w.add_scope(Some(type_gallery), "scopes", ScopeType::Generic, "")?;
     let mut gallery = Vec::new();
     for code in (0..=22).chain(64..=68).chain([200]) {
         let kind = ScopeType::from_code(code);
-        let scope = w.add_scope(Some(type_gallery), kind.name(), kind, "")?;
+        let scope = w.add_scope(Some(scopes), kind.name(), kind, "")?;
         let signal = bits(&mut w, scope, "active", 1, 2, Direction::Implicit)?;
         gallery.push((
             signal,
@@ -583,7 +601,9 @@ fn verify(path: &Path) -> vtr::Result<()> {
             r.str(*key) == "vtr.label" && matches!(value, Value::Str(_) | Value::Text(_))
         })
     };
-    for tx in &transactions {
+    // Clock stretches are unnamed by design; every other record carries a label.
+    let clock_generators: Vec<_> = r.clocks().iter().map(|c| c.generator).collect();
+    for tx in transactions.iter().filter(|t| !clock_generators.contains(&t.generator)) {
         assert!(tx.attrs.iter().any(|attr| r.str(attr.key) == "vtr.label" && matches!(attr.value, Value::Str(_) | Value::Text(_))), "transaction {} lacks vtr.label", tx.id);
         assert!(tx.events.iter().all(|event| has_label(&event.attrs)), "transaction {} has an unlabeled event", tx.id);
         assert!(tx.stages.iter().all(|stage| has_label(&stage.attrs)), "transaction {} has an unlabeled stage", tx.id);
@@ -617,12 +637,30 @@ fn verify(path: &Path) -> vtr::Result<()> {
         true
     })?;
     assert_eq!(logs, 20);
+    let paths: Vec<&str> = r.clocks().iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, ["soc.clk", "soc.dma.dma_clk"]);
+    let core = r.clock(r.clocks()[0].id)?;
+    let clk = r.load_signal(r.find_signal("soc.clk", '.').unwrap())?;
+    let rising: Vec<u64> = (1..clk.len()).filter(|&i| clk.get(i).as_u64() == Some(1)).map(|i| clk.times()[i]).collect();
+    // The clock keeps ticking through the 960-992 recording gap, where the waveform has no values.
+    let edges: Vec<u64> = (0..core.edge_count())
+        .map(|c| core.edge(c).unwrap())
+        .filter(|t| !(960..992).contains(t))
+        .collect();
+    assert_eq!(edges, rising, "the declared core clock reproduces the dumped clk");
+    let dma = r.clock(r.clocks()[1].id)?;
+    let stretches: Vec<_> = dma.stretches().iter().map(|s| (s.begin, s.end, s.period)).collect();
+    assert_eq!(stretches, [(8, 764, 12), (904, 1396, 6), (1406, 2046, 16)]);
+    assert!(dma.cycle_at(800).unwrap().stopped);
+    let stream = |path: &[&str]| r.find_node(path).unwrap();
+    assert_eq!(r.stream_clock(stream(&["soc", "cpu", "thread0"])), Some(r.clocks()[0].id));
+    assert_eq!(r.stream_clock(stream(&["soc", "dma", "memory_bus"])), Some(r.clocks()[1].id));
     let vars = r
         .hierarchy()
         .ids()
         .filter(|&id| matches!(r.hierarchy().node(id).data, NodeData::Var { .. }))
         .count();
-    println!("{}: {size} bytes; {vars} variables / {} signals; {changes} changes; {} transactions (including {logs} logs); {relations} relations", path.display(), r.signal_count(), transactions.len());
+    println!("{}: {size} bytes; {vars} variables / {} signals; {changes} changes; {} transactions (including {logs} logs and {} clock stretches); {relations} relations", path.display(), r.signal_count(), transactions.len(), core.stretches().len() + dma.stretches().len());
     Ok(())
 }
 

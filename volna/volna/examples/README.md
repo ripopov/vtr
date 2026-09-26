@@ -39,10 +39,11 @@ older encoding when the writer changes.
 ## Feature showcase
 
 `feature_showcase.vtr` is a deterministic, synthetic debugging lab: 2,048 ns of
-CPU execution, DMA traffic, an injected fault and recovery. It is **7,419 bytes**,
+CPU execution, DMA traffic, an injected fault and recovery. It is **7,906 bytes**,
 well below the 500,000-byte limit enforced by its generator. It contains 81
-variable declarations sharing 78 signals, 17,559 changes, 98 transactions
-(including 20 log records), and 59 relations.
+variable declarations sharing 78 signals, 17,559 changes, 102 transactions
+(including 20 log records and 4 clock stretches), 59 relations and two
+declared clocks.
 
 Start at `soc`: add `clk`, `reset_n`, `valid`, `ready`, `address`, `data`,
 `state`, `temperature_c` and `phase`. The fault window is 768–896 ns;
@@ -53,6 +54,16 @@ source locations. `hotplug_sensor` is declared at 1,024 ns, after half of the
 values were written: its `reading` signal is X before then. All activity and
 log locations are synthetic.
 
+Two declared clocks ([vtr_clocks.html](../../../docs/vtr_clocks.html)) give
+the trace a cycle axis. `soc.clk` is the dumped `clk` declared as one 8 ns
+stretch from its first rising edge; it keeps ticking through the recording gap,
+where the waveform has no values. `soc.dma.dma_clk` has no dumped net: 12 ns,
+stopped for the fault window, 6 ns while the DMA recovers, then 16 ns. The
+pipeline `soc.cpu.thread0` counts in `soc.clk` and `soc.dma.memory_bus` in the
+DMA clock (`vtr.clock`), so opening either as a pipeline shows its clock as a
+ruler and cycle axis; add `soc.dma.dma_clk` to the waves for a clock row, and
+try `[`/`]`, the palette's rulers and "Go to Cycle N". `vtr clocks` lists both.
+
 Stream kinds describe their domain: `PIPELINE` for instruction execution,
 `MEMORY_BUS` for bus requests, `LOG` for messages, and `otel.scope` for software
 spans. Both `soc.dma.memory_bus` and the empty `soc.dma.standby_bus` use
@@ -61,10 +72,11 @@ spans. Both `soc.dma.memory_bus` and the empty `soc.dma.standby_bus` use
 | Area | Contents |
 | --- | --- |
 | Waveforms | 2-, 4- and 9-state logic; scalar and 32-/128-bit buses; every IEEE 1164 state; reals; UTF-8 text and arbitrary bytes; enum table references; constants; events with repeated occurrences at one timestamp; three aliases |
-| Hierarchy | Modules, CPU core, SystemC module, resource, streams and generators; every named scope type and variable type in `soc.type_gallery`; every direction; unknown scope/variable codes; literal dots and brackets in names; empty stream and empty generator |
+| Hierarchy | Modules, CPU core, SystemC module, resource, streams and generators; every named scope type in `soc.type_gallery.scopes` and variable type in `soc.type_gallery.declarations`; every direction; unknown scope/variable codes; literal dots and brackets in names; empty stream and empty generator |
 | Transactions | Overlapping instructions, speculative squashes, read/write transfers, software spans; every status and span kind; begin/record/end attributes; timestamped events; stages on `main` and `memory` lanes; unfinished operation at capture end |
 | Links | Cross-stream request relations, instruction dependencies, structural span/transfer parents and logs parented to transfers; attributes on relations, events and stages |
 | Attributes | All 18 `ValueTag` variants, including 2-/4-/9-state vectors, signed/unsigned fixed point, pointers, nested lists/maps, interned strings and inline Unicode text |
+| Clocks | A declared clock matching its dumped net and one without a net, with speed changes, a gated interval, a stretch running at capture end and `vtr.clock` links from two streams |
 | Logs | All six standard severities plus a producer-specific level; all nine log argument types; argument names; file, line and function provenance |
 | Metadata/container | Nanosecond timescale, −16 ns time-zero offset, fixed producer/date/comment, file attributes, mixed-language file type, dump-off/on markers, multiple waveform blocks, late hierarchy declarations, checksums and final directory |
 
@@ -107,6 +119,7 @@ Inspect or open it:
 cargo run -p vtr-cli --bin vtr -- info volna/volna/examples/feature_showcase.vtr
 cargo run -p vtr-cli --bin vtr -- log volna/volna/examples/feature_showcase.vtr --severity warn
 cargo run -p vtr-cli --bin vtr -- tx volna/volna/examples/feature_showcase.vtr --max 12
+cargo run -p vtr-cli --bin vtr -- clocks volna/volna/examples/feature_showcase.vtr
 cargo run -p volna --profile viewer -- volna/volna/examples/feature_showcase.vtr
 ```
 
