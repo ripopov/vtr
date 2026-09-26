@@ -28,9 +28,10 @@ async function key(b, key, code, keyCode) {
   for (const type of [text ? 'keyDown' : 'rawKeyDown', 'keyUp'])
     await b.send('Input.dispatchKeyEvent', {type, key, code, windowsVirtualKeyCode: keyCode, text: type === 'keyUp' ? undefined : text});
 }
-const KEYS = {Enter: ['Enter', 13], ArrowRight: ['ArrowRight', 39], ArrowLeft: ['ArrowLeft', 37], Escape: ['Escape', 27], Tab: ['Tab', 9]};
+const KEYS = {Enter: ['Enter', 13], ArrowRight: ['ArrowRight', 39], ArrowLeft: ['ArrowLeft', 37], ArrowDown: ['ArrowDown', 40], Escape: ['Escape', 27], Tab: ['Tab', 9], Home: ['Home', 36], End: ['End', 35]};
 const press = (b, k) => key(b, k, KEYS[k][0], KEYS[k][1]);
 const focused = b => b.evaluate('document.activeElement?.dataset?.node ?? document.activeElement?.id ?? null');
+const choose = async (b, scn) => { await b.click('#tx-pick'); await b.click(`#tx-menu [data-scn="${scn}"]`); };
 
 test('cited lines, pins and topology match the pinned XiangShan source', {timeout: 60000}, async t => {
   const b = await open(); t.after(() => b.close());
@@ -120,6 +121,17 @@ for (const [width, height] of [[1920, 1080], [1440, 900], [1366, 768], [1024, 76
   if (width >= 1320) assert.ok(geo.dl >= geo.sr, 'side panel beside the diagram');
   else assert.ok(geo.dt >= geo.sb, 'side panel below the diagram');
   assert.equal(geo.scroll, width < 960, 'only narrow screens scroll the diagram, inside its own region');
+  // The transaction player sits above the diagram, and its controls stay inside it with no overflow.
+  await b.evaluate('XZ.startScenario("a")');
+  const pl = await b.evaluate(`(() => { const p = document.getElementById('player'), r = p.getBoundingClientRect(), s = document.getElementById('svg').getBoundingClientRect();
+    const out = [...p.querySelectorAll('button, #tx-track')].filter(e => { const q = e.getBoundingClientRect(); return q.left < r.left || q.right > r.right || q.top < r.top || q.bottom > r.bottom; }).map(e => e.id);
+    return {above: r.bottom <= s.top, out, over: p.scrollWidth > p.clientWidth, track: document.getElementById('tx-track').getBoundingClientRect().width, row: (() => { const t = document.querySelector('.pl-transport').getBoundingClientRect(), m = document.querySelector('.pl-time').getBoundingClientRect(), c = (t.top + t.bottom) / 2; return c > m.top && c < m.bottom; })()}; })()`);
+  assert.ok(pl.above, 'player above the diagram');
+  assert.deepEqual(pl.out, [], 'player controls inside the toolbar');
+  assert.equal(pl.over, false, 'player does not overflow');
+  assert.ok(pl.track >= 120, `timeline is ${pl.track} px wide`);
+  assert.ok(pl.row, 'transport buttons and timeline share one row');
+  await b.evaluate('XZ.exitScenario()');
   for (const [level, bank] of LEVELS) {
     await b.evaluate(`XZ.setLevel(${JSON.stringify(level)}); ${bank !== undefined ? `XZ.setBank(${bank});` : ''} document.getElementById('workspace').scrollIntoView({behavior: 'instant'})`);
     const tag = `${level}${bank ?? ''}`;
@@ -175,8 +187,34 @@ test('accessibility tree, names, focus order and contrast in both themes', {time
   assert.ok(tree.some(n => n.role?.value === 'tablist' && n.name?.value === 'Diagram level'));
   assert.ok(tree.some(n => n.role?.value === 'tabpanel'));
   assert.ok(tree.some(n => n.role?.value === 'link' && n.name?.value === 'Skip to the interactive diagram'));
-  for (const name of ['(a) L1 miss that hits in the other core', '(b) LLC hit', '(c) LLC miss to memory', 'Previous step', 'Next step', 'Play', 'Exit', 'Toggle colour theme'])
+  for (const name of ['Choose a transaction', 'Previous step', 'Next step', 'Play', 'Exit transaction', 'Toggle colour theme'])
     assert.ok(tree.some(n => n.role?.value === 'button' && n.name?.value === name), `button "${name}"`);
+  assert.ok(tree.some(n => n.role?.value === 'region' && n.name?.value === 'Guided transactions'), 'player is a named region');
+  const slider = tree.find(n => n.role?.value === 'slider' && n.name?.value === 'Transaction step');
+  assert.ok(slider, 'timeline is a named slider');
+  // The transaction menu opens from the keyboard, lists every transaction as a radio item and returns focus on Escape.
+  await b.evaluate('document.getElementById("tx-pick").focus()');
+  await press(b, 'ArrowDown');
+  assert.equal(await b.evaluate('document.getElementById("tx-pick").getAttribute("aria-expanded")'), 'true');
+  tree = await ax();
+  assert.deepEqual(tree.filter(n => n.role?.value === 'menuitemradio').map(n => n.name.value), ['(a) L1 miss that hits in the other core', '(b) LLC hit', '(c) LLC miss to memory']);
+  assert.equal(await b.evaluate('document.activeElement.dataset.scn'), 'a');
+  await press(b, 'Escape');
+  assert.equal(await b.evaluate('document.getElementById("tx-menu").hidden'), true);
+  assert.equal(await focused(b), 'tx-pick');
+  await press(b, 'Enter');
+  assert.equal(await b.evaluate('document.activeElement.dataset.scn'), 'a', 'Enter opens the menu on the current item');
+  await press(b, 'ArrowDown');
+  await press(b, 'Enter');
+  let s = await state(b);
+  assert.equal(s.scn, 'b'); assert.equal(s.step, 0);
+  assert.equal(await focused(b), 'tx-pick', 'focus returns to the menu button');
+  tree = await ax();
+  const sl = tree.find(n => n.role?.value === 'slider');
+  assert.equal(sl.value?.value, 1); assert.equal(prop(sl, 'valuemax'), 6);
+  // Chrome's CDP tree leaves valuetext empty, so the attribute is checked in the DOM.
+  assert.equal(await b.evaluate('document.getElementById("tx-track").getAttribute("aria-valuetext")'), 'Step 1 of 6: Hart 0 misses in L1D and L2');
+  await b.evaluate('XZ.exitScenario()');
   for (const [level, bank] of LEVELS) {
     await b.evaluate(`XZ.setLevel(${JSON.stringify(level)}); ${bank !== undefined ? `XZ.setBank(${bank});` : ''}`);
     const labels = await b.evaluate(`[...document.querySelectorAll('#g-nodes [data-node]')].map(g => g.getAttribute('aria-label'))`);
@@ -348,12 +386,14 @@ const OPS = {
 };
 for (const scn of ['a', 'b', 'c']) test(`transaction (${scn}) steps show verified routes and message types`, {timeout: 60000}, async t => {
   const b = await open(); t.after(() => b.close());
-  await b.click(`[data-scn="${scn}"]`);
+  await choose(b, scn);
   let s = await state(b);
   assert.equal(s.scn, scn); assert.equal(s.step, 0); assert.equal(s.steps, EXPECT[scn].length);
-  assert.equal(await b.evaluate(`document.querySelector('[data-scn="${scn}"]').getAttribute('aria-pressed')`), 'true');
+  assert.equal(await b.evaluate(`document.querySelector('#tx-menu [data-scn="${scn}"]').getAttribute('aria-checked')`), 'true');
+  assert.equal(await b.evaluate('document.getElementById("tx-menu").hidden'), true, 'choosing closes the menu');
+  assert.equal(await b.evaluate('document.getElementById("tx-pick-lbl").textContent'), await b.evaluate(`XZ.SCEN.${scn}.name`));
   assert.equal(await b.evaluate('document.getElementById("tx-prev").disabled'), true);
-  assert.equal(await b.evaluate('document.querySelectorAll("#tx-steps li").length'), EXPECT[scn].length);
+  assert.equal(await b.evaluate('document.querySelectorAll("#tx-track .seg").length'), EXPECT[scn].length, 'one timeline segment per step');
   const ops = new Set();
   for (let i = 0; i < EXPECT[scn].length; i++) {
     if (i) await b.click('#tx-next');
@@ -379,17 +419,29 @@ for (const scn of ['a', 'b', 'c']) test(`transaction (${scn}) steps show verifie
       const hit = (a, c) => a.left < c.right - 1 && c.left < a.right - 1 && a.top < c.bottom - 1 && c.top < a.bottom - 1;
       return ls.flatMap((a, i) => [...ls.slice(i + 1), ...ts].filter(c => hit(a, c)).map(() => i)); })()`);
     assert.deepEqual(ml, [], `step ${i + 1}: message labels clear of other labels`);
-    assert.equal(await b.evaluate('document.querySelector("#tx-steps [aria-current=step]").dataset.step'), String(i));
+    assert.equal(await b.evaluate('document.getElementById("tx-track").getAttribute("aria-valuenow")'), String(i + 1));
+    assert.deepEqual(await b.evaluate('[...document.querySelectorAll("#tx-track .seg")].map(g => g.classList.contains("done"))'), EXPECT[scn].map((_, j) => j <= i), 'timeline filled up to the current step');
+    assert.equal(await b.evaluate('document.querySelector("#tx-track .seg.head").dataset.step'), String(i), 'playhead on the current step');
     assert.match(await b.evaluate('document.getElementById("tx-count").textContent'), new RegExp(`Step ${i + 1} of ${EXPECT[scn].length}`));
     assert.ok((await b.evaluate('document.querySelectorAll("#tx-text .cites li").length')) >= 1, `step ${i + 1} cites its source`);
   }
   for (const op of OPS[scn]) assert.ok(ops.has(op), `message ${op} appears`);
   assert.equal(await b.evaluate('document.getElementById("tx-next").disabled'), true, 'Next disabled on the last step');
-  // Previous goes back and redraws; a step can be picked from the list with the keyboard.
+  // Previous goes back and redraws; clicking a timeline segment jumps to it; the timeline steps by keyboard.
   await b.click('#tx-prev');
   assert.equal((await state(b)).step, EXPECT[scn].length - 2);
-  await b.evaluate('document.querySelector("#tx-steps [data-step=\'1\']").focus()');
-  await press(b, 'Enter');
+  await b.click('#tx-track .seg[data-step="2"]');
+  assert.equal((await state(b)).step, 2);
+  const tip = await b.evaluate(`(() => { const t = document.getElementById('tx-tip'), r = t.getBoundingClientRect(), p = document.getElementById('player').getBoundingClientRect(); return {hidden: t.hidden, text: t.textContent, inside: r.left >= p.left && r.right <= p.right}; })()`);
+  assert.equal(tip.hidden, false);
+  assert.equal(tip.text, await b.evaluate(`'Step 3 · ' + document.querySelector('[data-level="' + XZ.SCEN.${scn}.steps[2].level + '"]').textContent.slice(4) + XZ.SCEN.${scn}.steps[2].title`), 'tooltip names the step under the pointer');
+  assert.ok(tip.inside, 'tooltip stays inside the player');
+  assert.equal(await focused(b), 'tx-track');
+  await press(b, 'End');
+  assert.equal((await state(b)).step, EXPECT[scn].length - 1);
+  await press(b, 'Home');
+  assert.equal((await state(b)).step, 0);
+  await press(b, 'ArrowRight');
   s = await state(b);
   assert.equal(s.step, 1); assert.equal(s.level, 'noc');
   // Switching level by hand keeps the transaction position and redraws the step on its own level.
@@ -409,24 +461,37 @@ for (const scn of ['a', 'b', 'c']) test(`transaction (${scn}) steps show verifie
   await b.click('#tx-exit');
   s = await state(b);
   assert.equal(s.scn, null); assert.equal(s.drawnMsgs, 0);
+  assert.equal(await b.evaluate('document.getElementById("tx-narr").hidden'), true, 'narration hidden without a transaction');
+  assert.equal(await b.evaluate('document.getElementById("tx-exit").disabled'), true);
   assert.equal(await b.evaluate('document.getElementById("svg").classList.contains("in-step")'), false);
   assert.deepEqual(b.exceptions, []);
 });
 
 test('play advances steps automatically and stops at the end', {timeout: 60000}, async t => {
   const b = await open(); t.after(() => b.close());
-  await b.click('[data-scn="b"]');
+  await choose(b, 'b');
   await b.evaluate('(() => { const r = setInterval; window.setInterval = (f) => r(f, 60); })()');
   await b.click('#tx-play');
-  assert.equal(await b.evaluate('document.getElementById("tx-play").getAttribute("aria-pressed")'), 'true');
-  await b.wait('XZ.state().step === XZ.state().steps - 1 && document.getElementById("tx-play").getAttribute("aria-pressed") === "false"');
+  const label = 'document.getElementById("tx-play").getAttribute("aria-label")';
+  assert.equal(await b.evaluate(label), 'Pause');
+  assert.equal(await b.evaluate('document.querySelector("#tx-track .seg.filling")?.dataset.step'), '1', 'the next segment fills while playing');
+  await b.wait(`XZ.state().step === XZ.state().steps - 1 && ${label} === "Play"`);
   assert.equal((await state(b)).level, 'hnf');
+  assert.equal(await b.evaluate('document.querySelectorAll("#tx-track .seg.filling").length'), 0);
+  // Play at the end replays from the start; Pause stops where it is.
+  await b.evaluate('window.setInterval = (f) => 0');
+  await b.click('#tx-play');
+  let s = await state(b);
+  assert.equal(s.step, 0); assert.equal(s.playing, true);
+  await b.click('#tx-play');
+  s = await state(b);
+  assert.equal(s.step, 0); assert.equal(s.playing, false); assert.equal(await b.evaluate(label), 'Play');
   assert.deepEqual(b.exceptions, []);
 });
 
 test('reduced motion: flits are drawn without moving dots or line animation', {timeout: 30000}, async t => {
   const b = await open(1366, 800, [{name: 'prefers-reduced-motion', value: 'reduce'}]); t.after(() => b.close());
-  await b.click('[data-scn="c"]');
+  await choose(b, 'c');
   await b.click('#tx-next');
   assert.equal((await state(b)).drawnMsgs, 1);
   assert.equal(await b.evaluate('document.querySelectorAll("#g-msgs animateMotion").length'), 0);

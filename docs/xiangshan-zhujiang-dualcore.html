@@ -29,7 +29,7 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 @media (max-width:640px){header nav{display:none}}
-html{scroll-behavior:smooth;scroll-padding-top:60px}
+html{scroll-behavior:smooth;scroll-padding-top:52px}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;font-size:16px;line-height:1.6}
 a{color:var(--accent-ink);text-underline-offset:3px}
 code,kbd,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
@@ -71,33 +71,66 @@ tr:last-child td{border-bottom:0}
 #workspace{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
 @media (max-width:1319px){#workspace{grid-template-columns:minmax(0,1fr)}}
 .panel{background:var(--paper);border:1px solid var(--line);border-radius:10px}
-.levelbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.levelbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 12px;border-bottom:1px solid var(--line)}
+.levelbar .btn{padding:3px 10px}
 .levelbar .sp{flex:1}
 .levelbar .opt{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
-.stage{position:relative;padding:6px;overflow-x:auto;overscroll-behavior-x:contain}
+.stage{position:relative;padding:2px 6px 6px;overflow-x:auto;overscroll-behavior-x:contain}
 .stage:focus-visible{outline-offset:-3px}
 /* The SVG never shrinks below 900 px, so its smallest text stays above 11.5 screen px; narrower screens scroll the stage, not the page. */
-.stage svg{display:block;width:100%;min-width:900px;height:auto;max-height:calc(100vh - 132px);min-height:360px}
+.stage svg{display:block;width:100%;min-width:900px;height:auto;max-height:calc(100vh - 142px);min-height:360px}
 .hint{font-size:13px;color:var(--muted);padding:0 12px 10px}
 .side{display:flex;flex-direction:column;gap:12px;position:sticky;top:62px;max-height:calc(100vh - 74px);overflow:auto}
 @media (max-width:1319px){.side{position:static;max-height:none}}
 .side .panel{padding:12px 14px}
-.scn{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
-.scn .btn{text-align:left}
-.ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0 8px}
-#tx-count{font-size:12.5px;color:var(--muted);margin-left:auto}
+#tx-narr h3{display:flex;align-items:baseline;gap:8px}
+#tx-narr h3 .meta{font-weight:400}
 #tx-text{font-size:14px}
 #tx-text .stitle{font-weight:600;margin-bottom:4px}
 .msgs{display:flex;flex-direction:column;gap:4px;margin:8px 0}
 .chip{display:flex;gap:8px;align-items:baseline;font-size:12.5px;border-left:4px solid var(--c,var(--line-strong));padding:2px 0 2px 8px;background:color-mix(in srgb,var(--c,var(--line)) 8%,transparent);border-radius:0 4px 4px 0}
 .chip b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;min-width:34px}
-#tx-steps{margin:8px 0 0;padding-left:0;list-style:none;counter-reset:s}
-#tx-steps li{margin:2px 0}
-#tx-steps button{all:unset;cursor:pointer;display:block;width:100%;font-size:12.5px;padding:3px 6px;border-radius:5px;color:var(--muted)}
-#tx-steps button::before{counter-increment:s;content:counter(s) ". ";font-variant-numeric:tabular-nums}
-#tx-steps button:hover{background:var(--soft);color:var(--ink)}
-#tx-steps button[aria-current="step"]{background:var(--soft);color:var(--accent-ink);font-weight:600}
-#tx-steps button:focus-visible{outline:3px solid var(--focus);outline-offset:1px}
+/* transaction player: a media-player toolbar above the diagram */
+.player{--play-ms:3200ms;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:5px 12px;border-bottom:1px solid var(--line);border-radius:10px 10px 0 0;background:color-mix(in srgb,var(--ink) 4%,var(--paper))}
+.pl-pick{position:relative;min-width:0}
+#tx-pick{display:flex;align-items:center;gap:8px;max-width:340px;font-size:13.5px;font-weight:600;background:var(--paper);border:1px solid var(--line-strong);border-radius:7px;padding:5px 10px;cursor:pointer}
+#tx-pick:hover,#tx-pick[aria-expanded="true"]{border-color:var(--accent)}
+#tx-pick-lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tx-pick svg{flex:none}
+#tx-menu{position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:min(420px,calc(100vw - 32px));margin:0;padding:6px;list-style:none;background:var(--paper);border:1px solid var(--line-strong);border-radius:9px;box-shadow:0 10px 30px rgb(0 0 0/.18)}
+#tx-menu li{display:grid;grid-template-columns:30px 1fr;column-gap:8px;align-items:center;margin:0;padding:7px 8px;border-radius:6px;cursor:pointer}
+#tx-menu li:hover,#tx-menu li:focus{background:var(--soft);outline:none}
+#tx-menu li:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
+#tx-menu .thumb{grid-row:span 2;display:grid;place-items:center;width:30px;height:30px;border-radius:6px;background:var(--soft);color:var(--accent-ink);font-weight:700;font-size:14px}
+#tx-menu li[aria-checked="true"] .thumb{background:var(--accent);color:var(--paper)}
+#tx-menu .nm{font-size:13.5px;font-weight:600}
+#tx-menu .ds{font-size:12.5px;color:var(--muted)}
+.pl-transport{display:flex;align-items:center;gap:2px}
+.pbtn{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--ink);cursor:pointer}
+.pbtn:hover{background:var(--soft)}
+.pbtn:disabled{opacity:.35;cursor:default;background:transparent}
+.pbtn.big{width:34px;height:34px;background:var(--accent);color:var(--paper)}
+.pbtn.big:hover{background:var(--accent-ink)}
+.pbtn svg{width:18px;height:18px;fill:currentColor}
+.pbtn.big svg{width:20px;height:20px}
+.pl-time{flex:1 1 140px;min-width:0;display:flex;flex-direction:column;gap:1px}
+#tx-track{position:relative;display:flex;gap:3px;height:16px;align-items:center;cursor:pointer;touch-action:none;border-radius:4px}
+#tx-track[aria-disabled="true"]{cursor:default}
+#tx-track .seg{position:relative;flex:1;height:6px;border-radius:3px;background:color-mix(in srgb,var(--ink) 16%,transparent);transition:height .12s}
+#tx-track:not([aria-disabled="true"]):hover .seg{height:9px}
+#tx-track .fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:inherit;background:var(--accent)}
+#tx-track .seg.done .fill{width:100%}
+#tx-track .seg.head .fill::after{content:"";position:absolute;right:-7px;top:50%;width:14px;height:14px;margin-top:-7px;border-radius:50%;background:var(--accent);border:2px solid var(--paper);box-shadow:0 0 0 1px var(--accent)}
+#tx-track .seg.filling .fill{animation:plfill var(--play-ms) linear forwards}
+@keyframes plfill{to{width:100%}}
+@media (prefers-reduced-motion:reduce){#tx-track .seg.filling .fill{animation:none}#tx-track .seg{transition:none}}
+.pl-cap{display:flex;gap:10px;font-size:12.5px;line-height:15px;color:var(--muted);min-width:0;white-space:nowrap}
+#tx-count{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600}
+#tx-title{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+#tx-where{flex:none}
+@media (max-width:640px){#tx-where{display:none}}
+#tx-tip{position:absolute;z-index:31;top:20px;transform:translateX(-50%);width:max-content;max-width:300px;padding:5px 9px;border-radius:6px;background:var(--ink);color:var(--paper);font-size:12.5px;line-height:1.35;white-space:normal;pointer-events:none;box-shadow:0 4px 14px rgb(0 0 0/.2)}
+#tx-tip b{display:block;font-size:12px;opacity:.85}
 #detail h3{font-size:16px;margin-bottom:6px}
 #detail .sub{font-size:12.5px;color:var(--muted);margin:-2px 0 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 #detail p{font-size:14px}
@@ -191,6 +224,22 @@ summary{cursor:pointer;font-weight:600}
   <h2 id="diagram-h">Interactive diagram</h2>
   <div id="workspace">
     <div class="panel">
+      <div class="player" id="player" role="region" aria-label="Guided transactions">
+        <div class="pl-pick">
+          <button type="button" id="tx-pick" aria-haspopup="menu" aria-expanded="false" aria-controls="tx-menu"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><path d="M2 3h12v2H2zm0 4h12v2H2zm0 4h8v2H2z" fill="currentColor"/></svg><span id="tx-pick-lbl">Choose a transaction</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+          <ul id="tx-menu" role="menu" aria-label="Guided transactions" hidden></ul>
+        </div>
+        <div class="pl-transport">
+          <button class="pbtn" type="button" id="tx-prev" aria-label="Previous step" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h2.2v12H4zm3.2 6L16 4v12z"/></svg></button>
+          <button class="pbtn big" type="button" id="tx-play" aria-label="Play"><svg viewBox="0 0 20 20" aria-hidden="true"><path id="tx-play-icon" d="M6 3.5v13L16.5 10z"/></svg></button>
+          <button class="pbtn" type="button" id="tx-next" aria-label="Next step"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M13.8 4H16v12h-2.2zM4 4l8.8 6L4 16z"/></svg></button>
+        </div>
+        <div class="pl-time">
+          <div id="tx-track" role="slider" tabindex="0" aria-label="Transaction step" aria-valuemin="1" aria-valuemax="1" aria-valuenow="1" aria-valuetext="No transaction loaded" aria-disabled="true"><div class="seg"><div class="fill"></div></div></div>
+          <div class="pl-cap"><span id="tx-count">No transaction</span><span id="tx-title"></span><span id="tx-where"></span></div>
+        </div>
+        <button class="pbtn" type="button" id="tx-exit" aria-label="Exit transaction" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.4 4 10 8.6 14.6 4 16 5.4 11.4 10 16 14.6 14.6 16 10 11.4 5.4 16 4 14.6 8.6 10 4 5.4z"/></svg></button>
+      </div>
       <div class="levelbar">
         <div role="tablist" aria-label="Diagram level" id="levels">
           <button class="btn" role="tab" id="tab-sys" data-level="sys" aria-controls="view" aria-selected="true">1 · System</button>
@@ -215,22 +264,13 @@ summary{cursor:pointer;font-weight:600}
         <span><i class="sw" style="--c:var(--req)"></i>REQ</span><span><i class="sw" style="--c:var(--rsp)"></i>RSP</span><span><i class="sw" style="--c:var(--dat)"></i>DAT</span><span><i class="sw" style="--c:var(--snp)"></i>SNP (HRQ ring)</span><span><i class="sw" style="--c:var(--erq)"></i>ERQ (HRQ ring)</span><span><i class="sw" style="--c:var(--tl)"></i>TileLink</span><span><i class="sw" style="--c:var(--axi)"></i>AXI4</span><span><i class="sw d" style="--c:var(--dpi)"></i>DPI-C</span>
       </div>
       <p class="hint" id="hint"></p>
-      <p class="hint">Select any block (click, or <kbd>Tab</kbd> to it and press <kbd>Enter</kbd>) to highlight its connections and read its role, interfaces and source. <kbd>←</kbd>/<kbd>→</kbd> move between blocks; on the ring level they follow ring order. <kbd>Esc</kbd> clears the selection. The guided transactions switch levels as the flits move.</p>
+      <p class="hint">Select any block (click, or <kbd>Tab</kbd> to it and press <kbd>Enter</kbd>) to highlight its connections and read its role, interfaces and source. <kbd>←</kbd>/<kbd>→</kbd> move between blocks; on the ring level they follow ring order. <kbd>Esc</kbd> clears the selection. The transaction player above the diagram switches levels as the flits move: pick a transaction from its menu, then play it, step it, or drag along its timeline (<kbd>←</kbd>/<kbd>→</kbd>, <kbd>Home</kbd> and <kbd>End</kbd> work there too).</p>
     </div>
     <div class="side">
-      <div class="panel" role="region" aria-labelledby="tx-h">
-        <h3 id="tx-h">Guided transactions</h3>
-        <div class="scn" role="group" aria-label="Transaction scenario" id="scn"></div>
-        <div class="ctrl">
-          <button class="btn" type="button" id="tx-prev" aria-label="Previous step">◀ Prev</button>
-          <button class="btn" type="button" id="tx-next" aria-label="Next step">Next ▶</button>
-          <button class="btn" type="button" id="tx-play" aria-pressed="false">Play</button>
-          <button class="btn" type="button" id="tx-exit">Exit</button>
-          <span id="tx-count" aria-live="polite">No scenario</span>
-        </div>
-        <div id="tx-text" aria-live="polite"><p class="meta">Pick a scenario to step through its request, snoop, data and response flits.</p></div>
-        <ol id="tx-steps" aria-label="Steps"></ol>
-      </div>
+      <section class="panel" id="tx-narr" aria-labelledby="tx-h" hidden>
+        <h3 id="tx-h">Now playing <span class="meta" id="tx-narr-step"></span></h3>
+        <div id="tx-text" aria-live="polite"></div>
+      </section>
       <aside class="panel" id="detail" aria-labelledby="detail-h" aria-live="polite">
         <h3 id="detail-h">Select a block</h3>
         <div id="detail-body"><p class="meta">Details, interfaces and source lines appear here.</p></div>
@@ -1413,11 +1453,40 @@ gN.addEventListener('keydown', ev => {
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && state.sel) { state.sel = null; applySel(); } });
 
 // ---------------------------------------------------------------- transactions
-const scnBox = document.getElementById('scn');
+// The player works like a media toolbar: a menu of transactions, transport buttons and a
+// timeline with one segment per step. While playing, the next segment fills until it is shown.
+const PLAY_MS = 3200;
+const $ = id => document.getElementById(id);
+const pick = $('tx-pick'), menu = $('tx-menu'), track = $('tx-track'), playBtn = $('tx-play');
+const levelName = lv => tabs.find(t => t.dataset.level === lv).textContent.replace(/^\d · /, '');
+$('player').style.setProperty('--play-ms', PLAY_MS + 'ms');
 for (const [k, s] of Object.entries(SCEN)) {
-  const b = document.createElement('button'); b.className = 'btn'; b.type = 'button'; b.dataset.scn = k; b.setAttribute('aria-pressed', 'false'); b.textContent = s.name;
-  b.addEventListener('click', () => startScenario(k)); scnBox.appendChild(b);
+  const li = document.createElement('li');
+  li.setAttribute('role', 'menuitemradio'); li.setAttribute('aria-checked', 'false'); li.tabIndex = -1; li.dataset.scn = k;
+  li.setAttribute('aria-label', s.name);
+  const levels = [...new Set(s.steps.map(t => t.level))].map(levelName).join(', ');
+  li.innerHTML = `<span class="thumb" aria-hidden="true">${k}</span><span class="nm">${esc(s.name.replace(/^\([a-z]\) /, ''))}</span><span class="ds">${s.steps.length} steps · ${esc(levels)}</span>`;
+  menu.appendChild(li);
 }
+const items = () => [...menu.children];
+function openMenu(focusItem) {
+  menu.hidden = false; pick.setAttribute('aria-expanded', 'true');
+  if (focusItem) (items().find(li => li.dataset.scn === state.scn) ?? items()[0]).focus();
+}
+function closeMenu(refocus) { if (menu.hidden) return; menu.hidden = true; pick.setAttribute('aria-expanded', 'false'); if (refocus) pick.focus(); }
+pick.addEventListener('click', ev => { if (menu.hidden) openMenu(ev.detail === 0); else closeMenu(false); });
+pick.addEventListener('keydown', ev => { if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); openMenu(true); } });
+menu.addEventListener('click', ev => { const li = ev.target.closest('[data-scn]'); if (li) { closeMenu(true); startScenario(li.dataset.scn); } });
+menu.addEventListener('keydown', ev => {
+  const list = items(), i = list.indexOf(document.activeElement);
+  const to = {ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: list.length - 1}[ev.key];
+  if (to !== undefined) { ev.preventDefault(); list[(to + list.length) % list.length].focus(); }
+  else if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (i >= 0) { closeMenu(true); startScenario(list[i].dataset.scn); } }
+  else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeMenu(true); }
+  else if (ev.key === 'Tab') closeMenu(false);
+});
+document.addEventListener('pointerdown', ev => { if (!ev.target.closest('.pl-pick')) closeMenu(false); });
+
 function msgRoute(m) {
   if (m.ring) { const r = route(m.from, m.to); return {...r, nodes:r.path.map(i => `noc.${RING.nodes[i].id}`)}; }
   return {nodes:m.path};
@@ -1425,9 +1494,11 @@ function msgRoute(m) {
 function startScenario(k) {
   stopPlay();
   state.scn = k; state.step = 0;
-  for (const b of scnBox.children) b.setAttribute('aria-pressed', String(b.dataset.scn === k));
-  const ol = document.getElementById('tx-steps'); ol.replaceChildren();
-  SCEN[k].steps.forEach((s, i) => { const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button'; b.textContent = s.title; b.dataset.step = i; b.addEventListener('click', () => goStep(i)); li.appendChild(b); ol.appendChild(li); });
+  for (const li of items()) li.setAttribute('aria-checked', String(li.dataset.scn === k));
+  $('tx-pick-lbl').textContent = SCEN[k].name;
+  track.replaceChildren(...SCEN[k].steps.map((st, i) => { const d = document.createElement('div'); d.className = 'seg'; d.dataset.step = i; d.innerHTML = '<div class="fill"></div>'; return d; }));
+  track.setAttribute('aria-valuemax', SCEN[k].steps.length); track.removeAttribute('aria-disabled');
+  $('tx-exit').disabled = false; $('tx-narr').hidden = false;
   goStep(0);
 }
 function goStep(i) {
@@ -1491,35 +1562,87 @@ function drawStep() {
   });
 }
 function renderStepText() {
-  const sc = SCEN[state.scn], st = sc.steps[state.step];
-  document.getElementById('tx-count').textContent = `Step ${state.step + 1} of ${sc.steps.length}`;
+  const sc = SCEN[state.scn], st = sc.steps[state.step], n = sc.steps.length;
+  $('tx-count').textContent = `Step ${state.step + 1} of ${n}`;
+  $('tx-title').textContent = st.title;
+  $('tx-where').textContent = levelName(st.level);
+  $('tx-narr-step').textContent = `step ${state.step + 1} of ${n}`;
+  track.setAttribute('aria-valuenow', state.step + 1);
+  track.setAttribute('aria-valuetext', `Step ${state.step + 1} of ${n}: ${st.title}`);
+  renderTrack();
   const chips = st.msgs.map(m => {
     const r = msgRoute(m);
     const where = m.ring ? `${hex(stop(m.from).nodeId)} → ${hex(stop(m.to).nodeId)} · ${r.hops} hop${r.hops > 1 ? 's' : ''} · index ${r.dir === 'cw' ? '+1' : '−1'} ring` : r.nodes.map(n => (state.view.byId[n]?.label ?? n)).join(' → ');
     return `<div class="chip ch-${m.ch}"><b>${esc(m.ch)}</b><span>${esc(m.op)}${m.cond ? ' <i>(conditional)</i>' : ''} <span class="meta">${esc(where)}</span></span></div>`;
   }).join('');
-  document.getElementById('tx-text').innerHTML = `<div class="stitle">${esc(st.title)}</div><p class="meta" style="margin:0 0 4px">${esc(sc.addr)}</p><div class="msgs">${chips}</div><p>${st.text}</p><ul class="cites">${(st.cites ?? []).map(citeHtml).join('')}</ul>`;
-  for (const b of document.querySelectorAll('#tx-steps button')) { if (+b.dataset.step === state.step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); }
-  document.getElementById('tx-prev').disabled = state.step === 0;
-  document.getElementById('tx-next').disabled = state.step === sc.steps.length - 1;
+  $('tx-text').innerHTML = `<div class="stitle">${esc(st.title)}</div><p class="meta" style="margin:0 0 4px">${esc(sc.name)}: ${esc(sc.addr)}</p><div class="msgs">${chips}</div><p>${st.text}</p><ul class="cites">${(st.cites ?? []).map(citeHtml).join('')}</ul>`;
+  $('tx-prev').disabled = state.step === 0;
+  $('tx-next').disabled = state.step === n - 1;
+}
+// Segments up to the current step are full; the playhead sits at the end of the current one,
+// or rides the filling next segment while playing.
+function renderTrack() {
+  const segs = [...track.children], filling = state.playing && state.step + 1 < segs.length ? state.step + 1 : -1;
+  segs.forEach((g, i) => {
+    g.classList.toggle('done', i <= state.step);
+    g.classList.remove('filling'); if (i === filling) { void g.offsetWidth; g.classList.add('filling'); }
+    g.classList.toggle('head', filling >= 0 ? i === filling : i === state.step);
+  });
 }
 function exitScenario() {
-  stopPlay(); state.scn = null; state.step = -1;
-  for (const b of scnBox.children) b.setAttribute('aria-pressed', 'false');
-  document.getElementById('tx-steps').replaceChildren();
-  document.getElementById('tx-count').textContent = 'No scenario';
-  document.getElementById('tx-text').innerHTML = '<p class="meta">Pick a scenario to step through its request, snoop, data and response flits.</p>';
+  stopPlay(); closeMenu(false); state.scn = null; state.step = -1;
+  for (const li of items()) li.setAttribute('aria-checked', 'false');
+  $('tx-pick-lbl').textContent = 'Choose a transaction';
+  track.innerHTML = '<div class="seg"><div class="fill"></div></div>';
+  track.setAttribute('aria-disabled', 'true'); track.setAttribute('aria-valuemax', 1); track.setAttribute('aria-valuenow', 1); track.setAttribute('aria-valuetext', 'No transaction loaded');
+  $('tx-count').textContent = 'No transaction'; $('tx-title').textContent = ''; $('tx-where').textContent = '';
+  $('tx-prev').disabled = true; $('tx-next').disabled = false; $('tx-exit').disabled = true;
+  $('tx-narr').hidden = true; $('tx-text').replaceChildren();
   gM.replaceChildren(); svg.classList.remove('in-step'); for (const g of gN.children) g.classList.remove('act');
 }
-function stopPlay() { state.playing = false; clearInterval(state.timer); const b = document.getElementById('tx-play'); b.setAttribute('aria-pressed', 'false'); b.textContent = 'Play'; }
-document.getElementById('tx-prev').addEventListener('click', () => { stopPlay(); goStep(state.step - 1); });
-document.getElementById('tx-next').addEventListener('click', () => { stopPlay(); if (!state.scn) startScenario('a'); else goStep(state.step + 1); });
-document.getElementById('tx-exit').addEventListener('click', exitScenario);
-document.getElementById('tx-play').addEventListener('click', () => {
-  if (state.playing) { stopPlay(); return; }
-  if (!state.scn) startScenario('a');
-  state.playing = true; const b = document.getElementById('tx-play'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'Pause';
-  state.timer = setInterval(() => { const sc = SCEN[state.scn]; if (state.step >= sc.steps.length - 1) stopPlay(); else goStep(state.step + 1); }, 3200);
+function setPlayIcon(playing) {
+  playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  $('tx-play-icon').setAttribute('d', playing ? 'M5 3.5h3.6v13H5zm6.4 0H15v13h-3.6z' : 'M6 3.5v13L16.5 10z');
+}
+function stopPlay() {
+  const was = state.playing;
+  state.playing = false; clearInterval(state.timer); setPlayIcon(false);
+  if (was && state.scn) renderTrack();
+}
+function play() {
+  if (!state.scn) startScenario(Object.keys(SCEN)[0]);
+  else if (state.step >= SCEN[state.scn].steps.length - 1) goStep(0);   // replay from the start
+  state.playing = true; setPlayIcon(true); renderTrack();
+  state.timer = setInterval(() => {
+    const sc = SCEN[state.scn];
+    goStep(state.step + 1);
+    if (state.step >= sc.steps.length - 1) stopPlay();
+  }, PLAY_MS);
+}
+playBtn.addEventListener('click', () => state.playing ? stopPlay() : play());
+$('tx-prev').addEventListener('click', () => { stopPlay(); goStep(state.step - 1); });
+$('tx-next').addEventListener('click', () => { stopPlay(); if (!state.scn) startScenario(Object.keys(SCEN)[0]); else goStep(state.step + 1); });
+$('tx-exit').addEventListener('click', () => { exitScenario(); pick.focus(); });
+// Timeline: click or drag to scrub, arrow keys step, with a tooltip naming the step under the pointer.
+const segAt = x => { const segs = [...track.children]; let best = 0, bd = Infinity; segs.forEach((g, i) => { const r = g.getBoundingClientRect(), d = x < r.left ? r.left - x : x > r.right ? x - r.right : 0; if (d < bd) { bd = d; best = i; } }); return best; };
+const tip = document.createElement('div'); tip.id = 'tx-tip'; tip.hidden = true; tip.setAttribute('aria-hidden', 'true'); track.parentElement.style.position = 'relative'; track.parentElement.appendChild(tip);
+function showTip(i) {
+  const st = SCEN[state.scn].steps[i], r = track.children[i].getBoundingClientRect(), p = track.parentElement.getBoundingClientRect();
+  tip.innerHTML = `<b>Step ${i + 1} · ${esc(levelName(st.level))}</b>${esc(st.title)}`; tip.hidden = false;
+  const half = tip.offsetWidth / 2, x = Math.max(half, Math.min(p.width - half, r.left + r.width / 2 - p.left));
+  tip.style.left = x + 'px';
+}
+let scrubbing = false;
+track.addEventListener('pointerdown', ev => { if (!state.scn || ev.button) return; scrubbing = true; track.setPointerCapture(ev.pointerId); stopPlay(); goStep(segAt(ev.clientX)); showTip(state.step); });
+track.addEventListener('pointermove', ev => { if (!state.scn) return; const i = segAt(ev.clientX); if (scrubbing && i !== state.step) goStep(i); showTip(i); });
+track.addEventListener('pointerup', () => { scrubbing = false; });
+track.addEventListener('pointerleave', () => { if (!scrubbing) tip.hidden = true; });
+track.addEventListener('lostpointercapture', () => { scrubbing = false; if (!track.matches(':hover')) tip.hidden = true; });
+track.addEventListener('keydown', ev => {
+  if (!state.scn) return;
+  const n = SCEN[state.scn].steps.length;
+  const to = {ArrowRight: state.step + 1, ArrowUp: state.step + 1, ArrowLeft: state.step - 1, ArrowDown: state.step - 1, PageUp: state.step + 3, PageDown: state.step - 3, Home: 0, End: n - 1}[ev.key];
+  if (to !== undefined) { ev.preventDefault(); stopPlay(); goStep(to); }
 });
 
 // ---------------------------------------------------------------- static sections
@@ -1610,10 +1733,10 @@ const st = selfTests();
 document.getElementById('selftest').textContent = st.lines.join('\n');
 // Test and automation hooks.
 window.XZ = {
-  RING, CITES, PIN, PARAMS, CFG, SCEN, INFO, route, rnTarget, hnfPort, selfTests, setLevel, setBank, select, startScenario, goStep, exitScenario,
+  RING, CITES, PIN, PARAMS, CFG, SCEN, INFO, route, rnTarget, hnfPort, selfTests, setLevel, setBank, select, startScenario, goStep, exitScenario, play, stopPlay,
   state: () => {
     const sc = state.scn ? SCEN[state.scn] : null, stp = sc?.steps[state.step];
-    return {level:state.level, bank:state.bank, sel:state.sel, scn:state.scn, step:state.step, steps:sc?.steps.length ?? 0,
+    return {level:state.level, bank:state.bank, sel:state.sel, scn:state.scn, step:state.step, steps:sc?.steps.length ?? 0, playing:state.playing,
       stepLevel:stp?.level ?? null, msgs:(stp?.msgs ?? []).map(m => { const r = msgRoute(m); return m.ring ? {ch:m.ch, op:m.op, from:hex(stop(m.from).nodeId), to:hex(stop(m.to).nodeId), hops:r.hops, dir:r.dir, path:r.path} : {ch:m.ch, op:m.op, path:m.path}; }),
       drawnMsgs:gM.children.length, act:[...gN.querySelectorAll('.act')].map(g => g.dataset.node),
       nodes:[...gN.children].map(g => g.dataset.node), edges:[...gE.children].map(g => g.dataset.edge)};
