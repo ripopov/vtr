@@ -494,10 +494,8 @@ pub struct WaveModel {
     pub drag: Option<Drag>,
     /// Width of the waves column at the last layout, for keyboard zoom.
     pub wave_width: f32,
-    /// Duration of the last panel paint, and a smoothed average.
+    /// Canvas paints so far, for tests that need real repaints.
     pub frames_painted: u64,
-    pub frame_ms: f32,
-    pub frame_ms_avg: f32,
     pub menu: Option<WaveMenu>,
     /// Last known pointer position over the panel.
     pub pointer: Option<Point>,
@@ -572,8 +570,6 @@ impl WaveModel {
             drag: None,
             wave_width: 800.0,
             frames_painted: 0,
-            frame_ms: 0.0,
-            frame_ms_avg: 0.0,
             menu: None,
             pointer: None,
             pressed_record: false,
@@ -1700,17 +1696,6 @@ impl WaveModel {
             self.set_cursor(doc, Some(t));
             self.nav.reveal_cursor(doc, now);
         }
-    }
-
-    /// Record the paint time of the last frame.
-    pub fn record_frame(&mut self, ms: f32) {
-        self.frames_painted += 1;
-        self.frame_ms = ms;
-        self.frame_ms_avg = if self.frame_ms_avg == 0.0 {
-            ms
-        } else {
-            self.frame_ms_avg * 0.9 + ms * 0.1
-        };
     }
 
     // -- layout ------------------------------------------------------------------

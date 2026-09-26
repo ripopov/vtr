@@ -65,6 +65,7 @@ so their memory use differs from native streaming-file access.
 volna/volna/web/build.sh
 cargo check --locked -p volna-core --target wasm32-unknown-unknown
 cargo clippy --locked -p volna --target wasm32-unknown-unknown --lib --all-features -- -D warnings
+node --test volna/volna/tools/frame-stats.test.mjs
 ```
 
 The build script selects a wasm-capable LLVM toolchain for zstd-sys, builds the
@@ -74,6 +75,12 @@ same `CC_wasm32_unknown_unknown` and `AR_wasm32_unknown_unknown` settings; on
 macOS, use a wasm-capable Homebrew LLVM toolchain rather than Apple's clang.
 Generated web and extension media are ignored by Git. Compilation does not
 replace browser runtime checks.
+
+`tools/frame-stats.test.mjs` serves the built `web/dist` bundle to headless
+Chrome, moves the pointer over the window and reads `debug_state()`. It asserts
+that GPUI's frame profiler feeds `draw … · lat … ms` into the status bar on the
+web platform, and that an untouched window turns idle without drawing frames of
+its own. It fails when `web/dist` has not been built.
 
 ## Visual and interaction checks
 
@@ -569,8 +576,8 @@ cargo test -p volna --profile viewer --features visual-test --test viewer frame_
 The ignored harness measures synthetic traces with 10 K, 1 M and 100 M
 transitions. It uses a 1440×900 logical viewport, ten displayed signals and a
 keyboard pan per frame. Compare fit-to-view and zoomed-in costs, recording the
-hardware, toolchain and display scale with the results. `table_paint_ms` covers
-the wave table; whole-frame time includes layout, sidebar and GPU submission.
+hardware, toolchain and display scale with the results. Frame time covers the
+whole window: layout, sidebar, panels and GPU submission.
 Each timed loop asserts at least one real canvas paint per keyboard frame;
 a fresh-window split also verifies deferred installation and keyboard focus.
 Set `VOLNA_PERF_PANELS=4` for four linked panels in a balanced split layout.

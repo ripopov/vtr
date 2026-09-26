@@ -245,19 +245,12 @@ impl Panel {
         }
     }
 
-    pub fn record_frame(&mut self, ms: f32) {
+    /// Count a paint of this panel's canvas, for tests that need real repaints.
+    pub fn record_paint(&mut self) {
         match &mut self.kind {
-            PanelKind::Waves(w) => w.record_frame(ms),
-            PanelKind::Pipeline(p) => p.record_frame(ms),
+            PanelKind::Waves(w) => w.frames_painted += 1,
+            PanelKind::Pipeline(p) => p.frames_painted += 1,
             _ => {}
-        }
-    }
-
-    pub fn frame_ms_avg(&self) -> f32 {
-        match &self.kind {
-            PanelKind::Waves(w) => w.frame_ms_avg,
-            PanelKind::Pipeline(p) => p.frame_ms_avg,
-            _ => 0.0,
         }
     }
 }

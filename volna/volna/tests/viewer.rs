@@ -1035,9 +1035,8 @@ fn run(measure: bool) -> anyhow::Result<()> {
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let median = samples[samples.len() / 2];
         let p90 = samples[samples.len() * 9 / 10];
-        let paint_ms = test.update(|cx| workspace.read(cx).waves_frame_ms());
         println!(
-            "PERF panels={panel_count} transitions={n} frame_median_ms={median:.2} frame_p90_ms={p90:.2} table_paint_ms={paint_ms:.2}"
+            "PERF panels={panel_count} transitions={n} frame_median_ms={median:.2} frame_p90_ms={p90:.2}"
         );
         // Zoomed-in view as well.
         for _ in 0..6 {

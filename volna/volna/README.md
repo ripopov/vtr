@@ -116,8 +116,8 @@ The page uses WebGPU when available and falls back to WebGL2. Volna selects
 memory, without atomics/shared-memory linker flags or a threaded standard
 library. It does not require `SharedArrayBuffer` or cross-origin isolation,
 including in default VS Code without `--enable-coi`. The module
-exports `debug_state()`, which logs the viewer state to the console; browser
-verification scripts use it.
+exports `debug_state()`, which logs the viewer state to the console, one line
+per panel and a final `frames …` line; browser verification scripts use it.
 
 ## VS Code extension
 
@@ -268,7 +268,15 @@ The panel menu also provides rename and close-other-panel actions.
 The status bar shows the trace range, cursor time, pixel resolution, the
 memory budget meter (loaded trace data used / budget, red from 90%, details in
 its tooltip; click it to pick the budget or object size limit, or open the
-Memory settings) and the smoothed paint time of the wave table.
+Memory settings) and whole-window frame timing from GPUI's frame profiler:
+`draw X · lat Y ms`, the median CPU time to build and paint a frame and the
+median time from a change until it is on screen, over at least the latest 120
+frames. It turns amber when the slowest 1 % of those frames exceed 16.7 ms of
+drawing or 50 ms of latency, red at twice that, and dims when the window has
+drawn nothing of its own for about a second. Click it for recent and
+since-reset percentiles, input latency, frames per second while active, and a
+duration histogram per measurement. The command palette's **Developer: Cycle
+GPUI Frame Overlay** shows GPUI's own frame readout.
 
 `⌘`/`ctrl` + left-drag selects a time range in either direction. Vertical
 movement does not change the action; a shaded preview shows the selected range

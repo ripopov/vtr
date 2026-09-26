@@ -346,7 +346,8 @@ pub struct Status {
     /// ruler clock: `Δ 20 ns · 40 core_clk · 10 bus_clk`.
     pub delta: Option<String>,
     pub markers: Option<String>,
-    pub frame_ms: String,
+    /// Whole-window frame timing; absent until the frontend reports frames.
+    pub frames: Option<crate::frames::FrameStatus>,
     /// Decoded trace data against the open trace's memory budget.
     pub memory: Option<MemoryStatus>,
 }
@@ -513,6 +514,8 @@ pub struct App {
     pub drag: Option<ChromeDrag>,
     pub settings: settings::Store,
     pub settings_view: SettingsView,
+    /// Whole-window frame timing the frontend samples from its toolkit.
+    pub frames: crate::frames::FrameStats,
     show_all_on_open: bool,
     pub(crate) events: Vec<Event>,
     text: TextCache,
@@ -543,6 +546,7 @@ impl App {
             drag: None,
             settings: settings::Store::new(settings::Host::Native),
             settings_view: SettingsView::default(),
+            frames: Default::default(),
             show_all_on_open: false,
             events: Vec::new(),
             text: TextCache::default(),
@@ -2230,7 +2234,7 @@ impl App {
                 .map(str::to_owned)
                 .or_else(|| self.workspace.notices.last().cloned()),
             file: self.doc.name(),
-            frame_ms: format!("{:.1} ms", self.panels.focused().frame_ms_avg()),
+            frames: self.frames.status(),
             ..Default::default()
         };
         if let Some(src) = self.doc.session() {

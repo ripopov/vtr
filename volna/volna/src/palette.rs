@@ -86,6 +86,10 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Interface: Zoom Out", Box::new(app::UiZoomOut)),
         ("Interface: Reset Zoom", Box::new(app::UiZoomReset)),
         ("Toggle Sidebar", Box::new(app::ToggleSidebar)),
+        (
+            "Developer: Cycle GPUI Frame Overlay",
+            Box::new(app::CycleFrameOverlay),
+        ),
         ("Split Right", Box::new(app::SplitRight)),
         ("Split Down", Box::new(app::SplitDown)),
         ("New Waveform Tab", Box::new(app::NewPanel)),

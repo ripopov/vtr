@@ -21,6 +21,7 @@ pub mod clock;
 pub mod color;
 pub mod data;
 pub mod document;
+pub mod frames;
 pub mod geometry;
 pub mod icons;
 pub mod nav;

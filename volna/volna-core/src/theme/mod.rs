@@ -27,6 +27,8 @@ pub struct Surface<C = Color> {
     pub icon_muted: C,
     pub icon_accent: C,
     pub error: C,
+    /// Amber, for measurements over budget.
+    pub warning: C,
     values: [C; 5],
 }
 
@@ -45,6 +47,7 @@ impl<C: Copy> Surface<C> {
             icon_muted: f(self.icon_muted),
             icon_accent: f(self.icon_accent),
             error: f(self.error),
+            warning: f(self.warning),
             values: self.values.map(f),
         }
     }
@@ -286,6 +289,7 @@ impl Theme<Color> {
             icon_muted: c(0xa9afbc),
             icon_accent: c(0x74ade8),
             error: c(0xd07277),
+            warning: c(0xdec184),
             values: [
                 c(0xdce0e5),
                 c(0xd07277),
@@ -542,6 +546,7 @@ impl Surface<Color> {
             icon_muted: muted,
             icon_accent: secondary(Some(accent), text),
             error: secondary(p.error, stroke(charts[1], &[bg])),
+            warning: stroke(charts[2], &[bg]),
             values: [
                 text,
                 stroke(charts[1], &[bg]),

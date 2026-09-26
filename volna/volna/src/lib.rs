@@ -14,6 +14,7 @@ pub mod app;
 pub mod assets;
 mod canvas;
 mod dock;
+mod frame_stats;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_workspace;
 mod palette;
@@ -600,7 +601,11 @@ pub mod web {
                                     ws.after(None, cx);
                                 }
                                 HostEvent::Command(command) => ws.dispatch(command, None, cx),
-                                HostEvent::DebugState => log::info!("STATE {}", ws.debug_state()),
+                                HostEvent::DebugState => log::info!(
+                                    "STATE {}\n{}",
+                                    ws.debug_state(),
+                                    ws.app.frames.debug_state()
+                                ),
                                 #[cfg(feature = "remote-profile")]
                                 HostEvent::ProfileTracks(action) => ws.profile_tracks(&action, cx),
                             });

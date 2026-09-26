@@ -112,6 +112,8 @@ pub struct VolnaApp {
     reveal_scope: Option<usize>,
     reveal_var: Option<usize>,
     pointer_inside: bool,
+    /// Smoothed paint time of the focused panel, for the status bar.
+    paint_ms: f32,
     ids: Ids,
 }
 
@@ -132,6 +134,7 @@ impl VolnaApp {
             reveal_scope: None,
             reveal_var: None,
             pointer_inside: false,
+            paint_ms: 0.0,
             ids: Ids {
                 waves: Id::new("volna-waves"),
                 scopes: Id::new("volna-scopes"),
@@ -426,7 +429,10 @@ impl VolnaApp {
                                 }
                             }
                         });
-                        ui.label(mono(&status.frame_ms, t.bar.text_placeholder));
+                        ui.label(mono(
+                            &format!("{:.1} ms", self.paint_ms),
+                            t.bar.text_placeholder,
+                        ));
                         if let Some(s) = &status.px_per {
                             ui.label(mono(s, t.bar.text_placeholder));
                         }
@@ -1016,10 +1022,12 @@ impl VolnaApp {
             ctx.set_cursor_icon(cursor_icon(*icon));
         }
         self.scene = scene;
-        self.app
-            .panels
-            .focused_mut()
-            .record_frame(started.elapsed().as_secs_f32() * 1000.0);
+        let ms = started.elapsed().as_secs_f32() * 1000.0;
+        self.paint_ms = if self.paint_ms == 0.0 {
+            ms
+        } else {
+            self.paint_ms * 0.9 + ms * 0.1
+        };
 
         // -- wave row menu --------------------------------------------------------
         if let Some(menu) = self.app.panels.focused_waves().and_then(|w| w.menu.clone()) {

@@ -152,10 +152,8 @@ pub struct PipelineModel {
     pub drag: Option<Drag>,
     /// Last known pointer position over the panel.
     pub pointer: Option<Point>,
-    /// Duration of the last panel paint, and a smoothed average.
+    /// Canvas paints so far, for tests that need real repaints.
     pub frames_painted: u64,
-    pub frame_ms: f32,
-    pub frame_ms_avg: f32,
     attached: bool,
     palette: StagePalette,
     layout: PipelineLayout,
@@ -175,8 +173,6 @@ impl PipelineModel {
             drag: None,
             pointer: None,
             frames_painted: 0,
-            frame_ms: 0.0,
-            frame_ms_avg: 0.0,
             attached: false,
             palette: StagePalette::default(),
             layout: PipelineLayout::default(),
@@ -293,17 +289,6 @@ impl PipelineModel {
         let nav = self.nav.tick(now);
         let rows = self.rows.tick(now);
         nav || rows
-    }
-
-    /// Record the paint time of the last frame.
-    pub fn record_frame(&mut self, ms: f32) {
-        self.frames_painted += 1;
-        self.frame_ms = ms;
-        self.frame_ms_avg = if self.frame_ms_avg == 0.0 {
-            ms
-        } else {
-            self.frame_ms_avg * 0.9 + ms * 0.1
-        };
     }
 
     // -- selection ---------------------------------------------------------------

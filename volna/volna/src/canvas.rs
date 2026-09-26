@@ -11,11 +11,11 @@ use gpui_kit::{
     PinchEvent, Pixels, ScrollDelta, ScrollWheelEvent, ShapedLine, SharedString, Style, TextAlign,
     TextRun, Window, fill, point, px, quad, size,
 };
+use volna_core::FontRole;
 use volna_core::app::{Command, PanelLayout};
 use volna_core::geometry::{CursorIcon, Point as CPoint, Rect as CRect};
 use volna_core::scene::{Prim, TextMeasure};
 use volna_core::wave::PointerEvent;
-use volna_core::{FontRole, Instant};
 
 use crate::app::{TextKey, Workspace, to_modifiers};
 use crate::theme::{Theme, core_theme, hsla, theme};
@@ -444,7 +444,6 @@ impl Element for PanelCanvas {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let started = Instant::now();
         if let Some(focus) = &self.table_focus {
             for (row, node_id) in &prepaint.accessible {
                 let Some(node_id) = node_id else { continue };
@@ -499,12 +498,11 @@ impl Element for PanelCanvas {
         }
         scene.clear();
         self.register_mouse_handlers(prepaint, window);
-        let ms = started.elapsed().as_secs_f32() * 1000.0;
         self.ws.update(cx, |ws, _| {
             ws.scene = scene;
             ws.shaped = shaped;
             if let Some(panel) = ws.app.panels.get_mut(self.panel) {
-                panel.record_frame(ms);
+                panel.record_paint();
             }
         });
     }

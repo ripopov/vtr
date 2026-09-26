@@ -63,7 +63,8 @@ actions!(
         FocusPanel7,
         FocusPanel8,
         FocusPanel9,
-        NoPipelines
+        NoPipelines,
+        CycleFrameOverlay
     ]
 );
 
@@ -173,6 +174,7 @@ pub struct Workspace {
     pub(crate) scopes_scroll: UniformListScrollHandle,
     pub(crate) variables_scroll: UniformListScrollHandle,
     status_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
+    pub(crate) frame_view: crate::frame_stats::FrameView,
     /// Mirrors the focused wave panel's menu.
     wave_menu: Option<HostedWaveMenu>,
     /// The name editor over the group the focused wave panel renames.
@@ -573,7 +575,7 @@ impl Workspace {
         .detach();
         let waves_focus = cx.focus_handle();
         window.focus(&waves_focus, cx);
-        Workspace {
+        let workspace = Workspace {
             app: CoreApp::new(),
             #[cfg(target_family = "wasm")]
             remote: None,
@@ -589,6 +591,7 @@ impl Workspace {
             scopes_scroll: UniformListScrollHandle::new(),
             variables_scroll: UniformListScrollHandle::new(),
             status_menu: None,
+            frame_view: Default::default(),
             wave_menu: None,
             rename: None,
             scene: Scene::default(),
@@ -598,7 +601,9 @@ impl Workspace {
             menu_generation: None,
             #[cfg(not(target_family = "wasm"))]
             config_watcher: None,
-        }
+        };
+        workspace.start_frame_sampling(window, cx);
+        workspace
     }
 
     // -- the core loop ----------------------------------------------------------------
@@ -1192,14 +1197,6 @@ impl Workspace {
     /// One-line summary of the viewer state, for diagnostics.
     pub fn debug_state(&self) -> String {
         self.app.debug_state()
-    }
-
-    /// Smoothed paint time of the wave table, for diagnostics.
-    pub fn waves_frame_ms(&self) -> f32 {
-        self.app
-            .panels
-            .focused_waves()
-            .map_or(0.0, |w| w.frame_ms_avg)
     }
 
     // -- rendering ----------------------------------------------------------------
@@ -1814,7 +1811,9 @@ impl Workspace {
                 },
             )));
         }
-        right = right.child(mono(status.frame_ms, colors.text_placeholder));
+        if let Some(frames) = status.frames {
+            right = right.child(self.render_frame_status(frames, cx));
+        }
         right = right.child(
             div()
                 .id("stress")
@@ -1989,6 +1988,9 @@ impl Render for Workspace {
                     cx,
                 );
             }))
+            .on_action(|_: &CycleFrameOverlay, window, _| {
+                window.cycle_debug_frame_overlay_mode();
+            })
             .on_action(cx.listener(|this, _: &UiZoomReset, window, cx| {
                 this.dispatch(
                     Command::Settings(SettingsCommand::Zoom(ZoomStep::Reset)),
@@ -2063,6 +2065,7 @@ impl Render for Workspace {
                 .as_ref()
                 .map(|(p, m)| popup_at(*p, m.clone(), window, cx)),
         )
+        .children(self.render_frame_details(cx))
         .children(self.render_rename())
         .children(drag.map(|d| self.render_drag_surface(d, cx)))
         .children(dialogs)

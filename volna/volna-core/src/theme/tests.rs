@@ -278,6 +278,7 @@ fn real_and_mixed_palettes_keep_surface_text_visible() {
                 surface.icon,
                 surface.icon_accent,
                 surface.error,
+                surface.warning,
             ] {
                 assert!(contrast(over(text, surface.bg), surface.bg) >= 2.99);
             }
