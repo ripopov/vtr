@@ -1,0 +1,55 @@
+name: Pipeline tracing
+on:
+  push:
+    paths:
+      - 'core/vtr/**'
+      - 'core/vtr-capi/**'
+      - 'integrations/systemverilog/**'
+      - 'integrations/verilator/pipeline/**'
+      - 'volna/volna-core/**'
+      - 'volna/volna/examples/pipeline_demo.vtr'
+      - '.github/workflows/pipeline-tracing.yml'
+  pull_request:
+    paths:
+      - 'core/vtr/**'
+      - 'core/vtr-capi/**'
+      - 'integrations/systemverilog/**'
+      - 'integrations/verilator/pipeline/**'
+      - 'volna/volna-core/**'
+      - 'volna/volna/examples/pipeline_demo.vtr'
+      - '.github/workflows/pipeline-tracing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  # The vtr_trace package outside the VTR Verilator fork: an upstream Verilator
+  # compiles the package and the pipeline demo design, the standalone sink writes
+  # the file over VPI time, and the transactions must equal the fork's.
+  standalone-sink:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the elkrs submodule (Cargo reads its manifest)
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Install an upstream Verilator
+        run: sudo apt-get update && sudo apt-get install -y verilator && verilator --version
+      - name: Build libvtr and the vtr CLI
+        run: cargo build --locked --release -p vtr-capi -p vtr-cli
+      - name: Standalone sink under upstream Verilator
+        run: python3 integrations/systemverilog/run.py
+  # Volna's headless pipeline tests, which open the committed recording of the
+  # fork's pipeline demo, and the stage palette's unit tests.
+  volna-pipeline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the elkrs submodule (Cargo reads its manifest)
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Volna pipeline panel tests
+        run: cargo test --locked -p volna-core --test pipeline --lib

@@ -45,9 +45,9 @@ wrapper). `verilated.mk` adds `-I$(VTR_INCLUDE)`, `-L$(VTR_LIBDIR)` and
 `-lvtr` when `VM_TRACE_VTR=1`; with a static `libvtr.a` no runtime path is
 needed. CMake users get `TRACE_VTR` on `verilate()`.
 
-`build.sh` also copies `core/vtr-capi/include/vtr_trace.sv` and
-`vtr_trace_dpi.hpp` into the installed `include/vtr/`, so every install
-carries the package of the VTR revision it was built from.
+`build.sh` also copies `core/vtr-capi/include/vtr_trace.sv`,
+`vtr_trace_dpi.hpp` and `vtr_track.hpp` into the installed `include/vtr/`, so
+every install carries the package of the VTR revision it was built from.
 
 `build.sh` configures Verilator with clang++ when one is installed (set
 `CXX` to override): the host compiler is inherited by every model through
@@ -137,6 +137,27 @@ thread modes and checks that the recorded stretches reproduce the rising edges
 of the dumped waveforms, the scope paths, unit conversion and misuse warnings,
 a clock started before the file opens, a signal-free open, and that a design
 naming nothing from the package gets no package code.
+
+Pipeline tracers written against the package's tracker part (see
+[c910-verilator-tx-stream.html](../../docs/c910-verilator-tx-stream.html))
+have their own suite:
+
+```sh
+python3 integrations/verilator/pipeline/run.py \
+  --verilator bench/build/verilator/install/bin/verilator [--update-example]
+```
+
+A tracer bound to a small scripted core exercises every tracker call. In one
+and two thread modes the script compares every transaction, stage, status,
+attribute, relation, parent and time with an exact expected list, checks that
+stage boundaries fall on edges of the declared clock, that the waveforms equal
+those of the design built without the tracer, the misuse warning of a
+deliberate stale key, and a signal-free open. `--update-example` writes
+`volna/volna/examples/pipeline_demo.vtr`, which a Volna test opens.
+
+A tracer passes the hardware's own identifiers as keys; they are narrower than
+the 64-bit `vtr_key_t`, so tracer modules turn off `WIDTHEXPAND` around
+themselves (the C910 build already runs with `-Wno-fatal`).
 
 The VDB suite checks source locations and elaborated hierarchy, real-simulator
 pipeline provenance and RTL expressions, automatic attachment and identity

@@ -13,7 +13,7 @@ USAGE:
   vtr value <file.vtr> <path> <time>          value of a signal at a time
   vtr changes <file.vtr> <path> [--from T] [--to T] [--max N]
   vtr dump <file.vtr> [--from T] [--to T]     all value changes in time order (VCD-like)
-  vtr tx <file.vtr> [--stream NAME] [--from T] [--to T] [--max N] [--id ID]
+  vtr tx <file.vtr> [--stream NAME] [--from T] [--to T] [--max N] [--id ID[,ID...]]
   vtr log <file.vtr> [--stream NAME] [--severity LEVEL] [--from T] [--to T] [--max N] [--sites]
   vtr clocks <file.vtr>                       declared clocks: stretches, periods and stopped time
   vtr convert <input> <output.vtr> [--states 2|4|9] [--codec zstd|lz4|none] [--level L]
@@ -311,19 +311,21 @@ fn cmd_tx(args: &[String]) {
             println!("    stage {} lane={} [{} .. {}] {}", r.str(s.name), r.str(s.lane), s.begin, s.end.map(|e| e.to_string()).unwrap_or("open".into()), fmt_value(&r, &Value::Map(s.attrs.clone())));
         }
     };
-    if let Some(id) = flag(args, "--id") {
-        let id: u64 = id.parse().unwrap_or_else(|_| die("bad --id"));
-        match r.transaction(id).unwrap_or_else(|e| die(e)) {
-            Some(tx) => {
-                show(&tx);
-                for rel in r.relations_from(id).unwrap_or_else(|e| die(e)) {
-                    println!("    -> {} {} {}", r.str(rel.kind), rel.to, fmt_value(&r, &Value::Map(rel.attrs.clone())));
+    if let Some(ids) = flag(args, "--id") {
+        for id in ids.split(',') {
+            let id: u64 = id.parse().unwrap_or_else(|_| die("bad --id"));
+            match r.transaction(id).unwrap_or_else(|e| die(e)) {
+                Some(tx) => {
+                    show(&tx);
+                    for rel in r.relations_from(id).unwrap_or_else(|e| die(e)) {
+                        println!("    -> {} {} {}", r.str(rel.kind), rel.to, fmt_value(&r, &Value::Map(rel.attrs.clone())));
+                    }
+                    for rel in r.relations_to(id).unwrap_or_else(|e| die(e)) {
+                        println!("    <- {} {} {}", r.str(rel.kind), rel.from, fmt_value(&r, &Value::Map(rel.attrs.clone())));
+                    }
                 }
-                for rel in r.relations_to(id).unwrap_or_else(|e| die(e)) {
-                    println!("    <- {} {} {}", r.str(rel.kind), rel.from, fmt_value(&r, &Value::Map(rel.attrs.clone())));
-                }
+                None => die(format!("transaction {id} not found")),
             }
-            None => die(format!("transaction {id} not found")),
         }
         return;
     }

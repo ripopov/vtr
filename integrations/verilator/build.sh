@@ -35,8 +35,10 @@ export CXX
 make -j"${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 make install
 # The vtr_trace SystemVerilog package and its DPI bodies, from this VTR revision:
-# --trace-vtr parses include/vtr/vtr_trace.sv, verilated_vtr_dpi.cpp includes the header.
+# --trace-vtr parses include/vtr/vtr_trace.sv, verilated_vtr_dpi.cpp includes the DPI
+# header, which includes the keyed tracker beside it.
 ROOT=$("$PREFIX/bin/verilator" --getenv VERILATOR_ROOT)
 mkdir -p "$ROOT/include/vtr"
-cp "$HERE/../../core/vtr-capi/include/vtr_trace.sv" "$HERE/../../core/vtr-capi/include/vtr_trace_dpi.hpp" "$ROOT/include/vtr/"
+INC=$HERE/../../core/vtr-capi/include
+cp "$INC/vtr_trace.sv" "$INC/vtr_trace_dpi.hpp" "$INC/vtr_track.hpp" "$ROOT/include/vtr/"
 echo "$PREFIX/bin/verilator"

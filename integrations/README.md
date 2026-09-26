@@ -18,6 +18,18 @@ python3 integrations/verilator/smoke/run.py --verilator bench/build/verilator/in
 python3 integrations/verilator/logs/run.py --verilator bench/build/verilator/install/bin/verilator
 cargo build -p vtr-vdb
 python3 integrations/verilator/vdb/run.py --verilator bench/build/verilator/install/bin/verilator
+python3 integrations/verilator/clocks/run.py --verilator bench/build/verilator/install/bin/verilator
+python3 integrations/verilator/pipeline/run.py --verilator bench/build/verilator/install/bin/verilator
+```
+
+The `vtr_trace` SystemVerilog package (declared clocks and pipeline tracers,
+`core/vtr-capi/include/vtr_trace.sv`) also runs in simulators other than the
+fork through the [standalone sink](systemverilog/README.md), which writes its
+own VTR file over VPI time; its check builds the pipeline suite's design with
+an upstream Verilator:
+
+```sh
+python3 integrations/systemverilog/run.py
 ```
 
 Consult the Verilator guide for prerequisites and build options. The standalone
@@ -34,8 +46,9 @@ existing VTR/VDB consumer; Volna remains the official UI.
   the Konata reference provide existing pipeline groundwork.
 - **wavepeek:** the pinned reference under `ext/wavepeek` informs reader query
   requirements. A VTR/VDB adapter for AI-assisted debugging is planned.
-- **Other simulators:** adapters should reuse the format/library boundaries
-  and preserve trace/design identity without embedding VDB data in VTR.
+- **Other simulators:** beyond the `vtr_trace` package's standalone sink,
+  adapters for signal tracing should reuse the format/library boundaries and
+  preserve trace/design identity without embedding VDB data in VTR.
 
 These are integration directions, not placeholder implementations. Add an
 adapter directory when it has code or a concrete integration workflow.
