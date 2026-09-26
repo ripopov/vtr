@@ -24,3 +24,7 @@
 	path = ext/verilator
 	url = https://github.com/ripopov/verilator
 	branch = vtr
+[submodule "ext/XiangShan"]
+	path = ext/XiangShan
+	url = https://github.com/ripopov/XiangShan.git
+	branch = vtr
