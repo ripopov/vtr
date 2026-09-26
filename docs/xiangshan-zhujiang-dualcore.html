@@ -1,0 +1,1425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XiangShan ZhuJiang Dual-Core</title>
+<meta name="description" content="Interactive, source-cited teaching diagram of the dual-core XiangShan Kunminghu V3 system with the ZhuJiang CHI ring NoC: system view, every ring stop and link, one HNF bank, and the SN-to-AXI memory path, with guided coherent-read, LLC-hit and LLC-miss transactions.">
+<style>
+:root{
+  --bg:#f4f5f7;--paper:#fcfcfd;--ink:#1a1f27;--muted:#5b6472;--line:#d8dce3;--line-strong:#b3bbc7;
+  --accent:#2d6cb0;--accent-ink:#1f5189;--soft:#e3edf8;--focus:#d97706;--warn:#a2660f;--warn-soft:#fbf1dc;
+  --req:#2563eb;--rsp:#15803d;--dat:#c2410c;--snp:#7e22ce;--erq:#be185d;--tl:#64748b;--axi:#0f766e;--dpi:#92400e;--int:#475569;
+  --n-core:#e8eef9;--n-l1:#e6f4ea;--n-l2:#d9efe0;--n-noc:#eef0f4;--n-hf0:#fdebd3;--n-hf1:#f7dfe9;--n-io:#e2f3f1;--n-soc:#ecebf8;--n-sim:#f1efe9;--n-dj:#fff6e5;
+  --frame:#9aa3b0;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#1b1e24;--paper:#22262d;--ink:#e3e6eb;--muted:#9ba3b0;--line:#343a45;--line-strong:#4b5360;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--focus:#fbbf24;--warn:#e0b35e;--warn-soft:#3a2f1c;
+  --req:#6ea0ff;--rsp:#4ade80;--dat:#fb923c;--snp:#c084fc;--erq:#f472b6;--tl:#94a3b8;--axi:#2dd4bf;--dpi:#d6a15a;--int:#94a3b8;
+  --n-core:#27324a;--n-l1:#233a2c;--n-l2:#1f3a2a;--n-noc:#2b303a;--n-hf0:#43341f;--n-hf1:#3f2733;--n-io:#1f3a38;--n-soc:#2d2b45;--n-sim:#34312b;--n-dj:#3a3222;
+  --frame:#5b6472;
+}}
+:root[data-theme="dark"]{
+  --bg:#1b1e24;--paper:#22262d;--ink:#e3e6eb;--muted:#9ba3b0;--line:#343a45;--line-strong:#4b5360;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--focus:#fbbf24;--warn:#e0b35e;--warn-soft:#3a2f1c;
+  --req:#6ea0ff;--rsp:#4ade80;--dat:#fb923c;--snp:#c084fc;--erq:#f472b6;--tl:#94a3b8;--axi:#2dd4bf;--dpi:#d6a15a;--int:#94a3b8;
+  --n-core:#27324a;--n-l1:#233a2c;--n-l2:#1f3a2a;--n-noc:#2b303a;--n-hf0:#43341f;--n-hf1:#3f2733;--n-io:#1f3a38;--n-soc:#2d2b45;--n-sim:#34312b;--n-dj:#3a3222;
+  --frame:#5b6472;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+@media (max-width:640px){header nav{display:none}}
+html{scroll-behavior:smooth;scroll-padding-top:60px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;font-size:16px;line-height:1.6}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,kbd,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+code{font-size:.92em;background:color-mix(in srgb,var(--line) 55%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.9em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper)}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1440px;margin:auto;padding:10px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:16px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+button{font:inherit;color:inherit}
+.btn{font-size:13px;background:var(--paper);border:1px solid var(--line-strong);color:var(--ink);border-radius:6px;padding:4px 10px;cursor:pointer;line-height:1.4}
+.btn:hover{border-color:var(--accent)}
+.btn[aria-pressed="true"],.btn[aria-selected="true"]{background:var(--soft);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.wrap{max-width:1440px;margin:auto;padding-inline:16px}
+.prose{max-width:820px}
+section{padding-block:28px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(26px,3.4vw,38px);letter-spacing:-.8px;line-height:1.15;font-weight:650;margin:0 0 12px}
+h2{font-size:23px;letter-spacing:-.4px;line-height:1.25;margin:0 0 12px}
+h3{font-size:16px;margin:0 0 8px}
+p{margin:0 0 12px}
+.lede{font-size:17.5px;color:var(--muted);max-width:900px}
+.meta{font-size:13px;color:var(--muted)}
+ul,ol{padding-left:22px}li{margin:4px 0}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:12px 0;background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:7px 11px;border-bottom:1px solid var(--line)}
+th{font-size:12.5px;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+.unv{color:var(--warn);font-weight:600}
+.unvtag{display:inline-block;font-size:12px;font-weight:600;color:var(--warn);border:1px solid var(--warn);border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:1px}
+
+/* workspace */
+#workspace{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
+@media (max-width:1319px){#workspace{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:10px}
+.levelbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.levelbar .sp{flex:1}
+.levelbar .opt{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+.stage{position:relative;padding:6px;overflow-x:auto;overscroll-behavior-x:contain}
+.stage:focus-visible{outline-offset:-3px}
+/* The SVG never shrinks below 900 px, so its smallest text stays above 11.5 screen px; narrower screens scroll the stage, not the page. */
+.stage svg{display:block;width:100%;min-width:900px;height:auto;max-height:calc(100vh - 132px);min-height:360px}
+.hint{font-size:13px;color:var(--muted);padding:0 12px 10px}
+.side{display:flex;flex-direction:column;gap:12px;position:sticky;top:62px;max-height:calc(100vh - 74px);overflow:auto}
+@media (max-width:1319px){.side{position:static;max-height:none}}
+.side .panel{padding:12px 14px}
+.scn{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.scn .btn{text-align:left}
+.ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0 8px}
+#tx-count{font-size:12.5px;color:var(--muted);margin-left:auto}
+#tx-text{font-size:14px}
+#tx-text .stitle{font-weight:600;margin-bottom:4px}
+.msgs{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+.chip{display:flex;gap:8px;align-items:baseline;font-size:12.5px;border-left:4px solid var(--c,var(--line-strong));padding:2px 0 2px 8px;background:color-mix(in srgb,var(--c,var(--line)) 8%,transparent);border-radius:0 4px 4px 0}
+.chip b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;min-width:34px}
+#tx-steps{margin:8px 0 0;padding-left:0;list-style:none;counter-reset:s}
+#tx-steps li{margin:2px 0}
+#tx-steps button{all:unset;cursor:pointer;display:block;width:100%;font-size:12.5px;padding:3px 6px;border-radius:5px;color:var(--muted)}
+#tx-steps button::before{counter-increment:s;content:counter(s) ". ";font-variant-numeric:tabular-nums}
+#tx-steps button:hover{background:var(--soft);color:var(--ink)}
+#tx-steps button[aria-current="step"]{background:var(--soft);color:var(--accent-ink);font-weight:600}
+#tx-steps button:focus-visible{outline:3px solid var(--focus);outline-offset:1px}
+#detail h3{font-size:16px;margin-bottom:6px}
+#detail .sub{font-size:12.5px;color:var(--muted);margin:-2px 0 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#detail p{font-size:14px}
+#detail h4{font-size:12.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:10px 0 4px}
+#detail ul{font-size:13.5px;margin:0;padding-left:18px}
+.cites{list-style:none;padding-left:0!important}
+.cites li{font-size:13px;margin:3px 0}
+.cites code{font-size:12px}
+.srcpath{white-space:normal}
+
+/* svg */
+svg text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;fill:var(--ink)}
+.node{cursor:pointer}
+.node .box{stroke:var(--line-strong);stroke-width:1.2}
+.node .t1{font-size:15px;font-weight:600}
+.node .t2{font-size:13px;fill:var(--muted)}
+.node .badge{font-size:13px;font-weight:700;fill:var(--muted)}
+.node:hover .box{stroke:var(--accent);stroke-width:2}
+.node:focus{outline:none}
+.node:focus-visible .ring{stroke:var(--focus);stroke-width:3.5;fill:none;visibility:visible}
+.node .ring{visibility:hidden}
+.node.sel .box{stroke:var(--accent);stroke-width:3}
+.node.friend .box{stroke:var(--accent);stroke-width:2;stroke-dasharray:5 3}
+.node.act .box{stroke:var(--ink);stroke-width:2.5}
+.node.unverified .box{stroke-dasharray:4 3}
+.k-core .box{fill:var(--n-core)}.k-l1 .box{fill:var(--n-l1)}.k-l2 .box{fill:var(--n-l2)}.k-noc .box{fill:var(--n-noc)}
+.k-hf0 .box{fill:var(--n-hf0)}.k-hf1 .box{fill:var(--n-hf1)}.k-io .box{fill:var(--n-io)}.k-soc .box{fill:var(--n-soc)}
+.k-sim .box{fill:var(--n-sim)}.k-dj .box{fill:var(--n-dj)}
+.frame rect{fill:none;stroke:var(--frame);stroke-dasharray:6 4;stroke-width:1.2}
+.frame text{font-size:13.5px;fill:var(--muted);font-weight:600}
+.cap text{font-size:13px}
+.edge path{fill:none;stroke-width:1.6}
+.edge .lbl{font-size:13px;fill:var(--muted);paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}
+.edge .lblbg{fill:var(--paper);opacity:.85}
+.e-tl path{stroke:var(--tl)}.e-chi path{stroke:var(--req);stroke-width:2.2}.e-axi path{stroke:var(--axi);stroke-width:2.2}
+.e-ring path{stroke:var(--int)}.e-int path{stroke:var(--int);stroke-dasharray:3 3}.e-attach path{stroke:var(--int);stroke-width:2}
+.e-dpi path{stroke:var(--dpi);stroke-dasharray:6 3}
+.edge.opt path{stroke-dasharray:7 4}
+.edge.hl path{stroke-width:3.4}
+svg.has-sel .node:not(.sel):not(.nb):not(.friend){opacity:.38}
+svg.has-sel .edge:not(.hl){opacity:.18}
+svg.in-step .node:not(.act):not(.sel){opacity:.5}
+svg.in-step .edge{opacity:.35}
+.msg path.m{fill:none;stroke-width:3.2;stroke-linecap:round}
+.msg .ml{font-size:13px;font-weight:700}
+#g-msgs{pointer-events:none}
+.msg .mlbg{fill:var(--paper);stroke:currentColor;stroke-width:1}
+.msg circle{stroke:var(--paper);stroke-width:1.5}
+@media (prefers-reduced-motion: no-preference){
+  .msg path.m{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .9s ease-out forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+}
+.ch-REQ{color:var(--req);--c:var(--req)}.ch-RSP{color:var(--rsp);--c:var(--rsp)}.ch-DAT{color:var(--dat);--c:var(--dat)}
+.ch-SNP{color:var(--snp);--c:var(--snp)}.ch-ERQ{color:var(--erq);--c:var(--erq)}.ch-TL{color:var(--tl);--c:var(--tl)}
+.ch-AXI{color:var(--axi);--c:var(--axi)}.ch-DPI{color:var(--dpi);--c:var(--dpi)}.ch-INT{color:var(--int);--c:var(--int)}
+.msg path.m{stroke:currentColor}.msg circle{fill:currentColor}.msg .ml{fill:currentColor}
+.legend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.sw{display:inline-block;width:26px;height:0;border-top:3px solid var(--c);vertical-align:middle;margin-right:8px}
+.sw.d{border-top-style:dashed}
+.lg{list-style:none;padding:0;margin:0;font-size:13.5px}
+.lg li{margin:5px 0}
+.stripe{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted);padding:6px 12px 10px}
+#selftest{display:none}
+.skip{position:absolute;left:12px;top:-60px;z-index:50;background:var(--paper);border:2px solid var(--focus);border-radius:6px;padding:6px 12px}
+.skip:focus{top:10px}
+.conns{font-size:13.5px;padding-left:18px}
+.conns li{margin:4px 0}
+.conns .meta{font-size:12.5px}
+#audit details{margin:8px 0}
+#audit table{font-size:13px}
+details{margin:10px 0}
+summary{cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<a class="skip" href="#diagram">Skip to the interactive diagram</a>
+<header><div class="bar">
+  <a class="brand" href="#top">XiangShan KMH-V3 <span>× ZhuJiang</span></a>
+  <nav aria-label="Sections"><a href="#workspace">Diagram</a><a href="#legend">Legend</a><a href="#facts">Key numbers</a><a href="#uncertain">Unverified</a><a href="#audit">Audit</a><a href="#sources">Sources</a></nav>
+  <button id="theme" class="btn" type="button" aria-label="Toggle colour theme">Theme</button>
+</div></header>
+
+<main id="top">
+<section class="wrap">
+  <h1>Dual-core XiangShan Kunminghu V3 with the ZhuJiang CHI ring</h1>
+  <p class="lede">How the two cores reach the two HNF/LLC banks, how ZhuJiang routes CHI flits around its bidirectional ring, and where its responsibility ends at the AXI memory interface. Every block and depicted message is tied to the pinned source; anything not established from source is marked <span class="unv">unverified</span>.</p>
+  <p class="meta">Configuration studied: <code>CONFIG=DefaultConfig NUM_CORES=2 LLC=ZhuJiang</code> (CHI issue E.b). <code>make verilog</code> elaborates <code>XSTop</code> with the ZhuJiang module <code>ZCI2X2C2P1D1M1G32</code>; <code>make sim-verilog</code> or <code>make emu</code> with the same options elaborates that XSTop inside the simulation harness <code>XiangShanSim</code>, which difftest wraps as <code>SimTop</code>. Pinned sources: <code>ext/XiangShan</code> @ <code id="pin-xs"></code> (branch <code>vtr</code>), <code>XSCache</code> @ <code id="pin-xsc"></code>, <code>XSCache/ZhuJiang</code> @ <code id="pin-zj"></code>, <code>difftest</code> @ <code id="pin-dt"></code>. Line numbers below refer to these commits.</p>
+</section>
+
+<section class="wrap" id="diagram" aria-labelledby="diagram-h">
+  <h2 id="diagram-h">Interactive diagram</h2>
+  <div id="workspace">
+    <div class="panel">
+      <div class="levelbar">
+        <div role="tablist" aria-label="Diagram level" id="levels">
+          <button class="btn" role="tab" id="tab-sys" data-level="sys" aria-controls="view" aria-selected="true">1 · System</button>
+          <button class="btn" role="tab" id="tab-noc" data-level="noc" aria-controls="view" aria-selected="false" tabindex="-1">2 · NoC ring</button>
+          <button class="btn" role="tab" id="tab-hnf" data-level="hnf" aria-controls="view" aria-selected="false" tabindex="-1">3 · HNF bank</button>
+          <button class="btn" role="tab" id="tab-mem" data-level="mem" aria-controls="view" aria-selected="false" tabindex="-1">4 · Memory path</button>
+        </div>
+        <span class="sp"></span>
+        <div class="opt" id="bankopt" hidden><span id="bank-lbl">HNF bank</span>
+          <div role="group" aria-labelledby="bank-lbl"><button class="btn" type="button" data-bank="0" aria-pressed="true">bank 0</button> <button class="btn" type="button" data-bank="1" aria-pressed="false">bank 1</button></div>
+        </div>
+      </div>
+      <div class="stage" id="view" role="tabpanel" aria-labelledby="tab-sys" tabindex="0">
+        <svg id="svg" viewBox="0 0 1000 660" role="group" aria-labelledby="svg-title svg-desc">
+          <title id="svg-title"></title><desc id="svg-desc"></desc>
+          <defs id="defs"></defs>
+          <g id="g-frames"></g><g id="g-edges"></g><g id="g-nodes"></g><g id="g-msgs" aria-hidden="true"></g>
+        </svg>
+      </div>
+      <div class="stripe" aria-hidden="true">
+        <span><i class="sw" style="--c:var(--req)"></i>REQ</span><span><i class="sw" style="--c:var(--rsp)"></i>RSP</span><span><i class="sw" style="--c:var(--dat)"></i>DAT</span><span><i class="sw" style="--c:var(--snp)"></i>SNP (HRQ ring)</span><span><i class="sw" style="--c:var(--erq)"></i>ERQ (HRQ ring)</span><span><i class="sw" style="--c:var(--tl)"></i>TileLink</span><span><i class="sw" style="--c:var(--axi)"></i>AXI4</span><span><i class="sw d" style="--c:var(--dpi)"></i>DPI-C</span>
+      </div>
+      <p class="hint" id="hint"></p>
+      <p class="hint">Select any block (click, or <kbd>Tab</kbd> to it and press <kbd>Enter</kbd>) to highlight its connections and read its role, interfaces and source. <kbd>←</kbd>/<kbd>→</kbd> move between blocks; on the ring level they follow ring order. <kbd>Esc</kbd> clears the selection. The guided transactions switch levels as the flits move.</p>
+    </div>
+    <div class="side">
+      <div class="panel" role="region" aria-labelledby="tx-h">
+        <h3 id="tx-h">Guided transactions</h3>
+        <div class="scn" role="group" aria-label="Transaction scenario" id="scn"></div>
+        <div class="ctrl">
+          <button class="btn" type="button" id="tx-prev" aria-label="Previous step">◀ Prev</button>
+          <button class="btn" type="button" id="tx-next" aria-label="Next step">Next ▶</button>
+          <button class="btn" type="button" id="tx-play" aria-pressed="false">Play</button>
+          <button class="btn" type="button" id="tx-exit">Exit</button>
+          <span id="tx-count" aria-live="polite">No scenario</span>
+        </div>
+        <div id="tx-text" aria-live="polite"><p class="meta">Pick a scenario to step through its request, snoop, data and response flits.</p></div>
+        <ol id="tx-steps" aria-label="Steps"></ol>
+      </div>
+      <aside class="panel" id="detail" aria-labelledby="detail-h" aria-live="polite">
+        <h3 id="detail-h">Select a block</h3>
+        <div id="detail-body"><p class="meta">Details, interfaces and source lines appear here.</p></div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="legend" aria-labelledby="legend-h">
+  <h2 id="legend-h">Legend</h2>
+  <div class="legend-grid">
+    <div>
+      <h3>CHI channels on the ring</h3>
+      <ul class="lg">
+        <li><i class="sw" style="--c:var(--req)"></i><b>REQ</b> — requests from request nodes: <code>ReadNotSharedDirty</code>, <code>ReadUnique</code>, <code>MakeUnique</code>, <code>WriteBackFull</code> (dirty victims), <code>WriteEvictOrEvict</code> (clean victims), <code>StashOnceShared</code> (prefetch into the LLC), uncached <code>ReadNoSnp</code>/<code>WriteNoSnpPtl</code>.</li>
+        <li><i class="sw" style="--c:var(--rsp)"></i><b>RSP</b> — dataless responses: <code>CompAck</code>, <code>SnpResp</code>/<code>SnpRespFwded</code>, <code>Comp</code>, <code>DBIDResp</code>, <code>ReadReceipt</code>.</li>
+        <li><i class="sw" style="--c:var(--dat)"></i><b>DAT</b> — data: <code>CompData</code>, <code>SnpRespData(Fwded)</code>, write data.</li>
+        <li><i class="sw" style="--c:var(--snp)"></i><b>SNP</b> — snoops from an HNF to a CC node.</li>
+        <li><i class="sw" style="--c:var(--erq)"></i><b>ERQ</b> — requests issued by an HNF to the SN: <code>ReadNoSnp</code>, <code>WriteNoSnpFull</code>, <code>WriteNoSnpPtl</code>. The HNI's node type has an ERQ port, but its bridge ties it off.</li>
+        <li>SNP and ERQ share one physical ring, <b>HRQ</b>. Each ring link therefore carries four channel rings — REQ, RSP, DAT, HRQ — in each of two directions. HPR (only with an RH node) and DBG (only with hardware assertions) do not exist in this build.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Node abbreviations</h3>
+      <ul class="lg">
+        <li><b>CC</b> — CPU cluster request node (RN-F); one XiangShan tile per CC, joined through a synchronous socket.</li>
+        <li><b>HF</b> — home node, full (HNF): a <em>port</em> of a DongJiang home. Four HF entries = two banks × two ports.</li>
+        <li><b>RI</b> — I/O request node (RNI): an AXI slave port that injects DMA into CHI.</li>
+        <li><b>HI</b> — I/O home node (HNI): CHI to AXI for Device-attribute (MMIO) accesses.</li>
+        <li><b>S</b> — subordinate node (SN): CHI to AXI bridge toward memory.</li>
+        <li><b>M</b> — misc node (MN): reset sequencing (and hardware-assertion collection when enabled).</li>
+        <li><b>P</b> — pipeline stop: ring registers only, no endpoint.</li>
+        <li>IDs: node ID = ring index × 8 (<code>nodeAidBits = 3</code>).</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Cache levels and link kinds</h3>
+      <ul class="lg">
+        <li><b>L1I / L1D</b> — private per hart, 64 KiB each; TileLink to L2.</li>
+        <li><b>L2</b> — private per hart, CoupledL2 2 MiB, inclusive of L1; the hart's CHI request node.</li>
+        <li><b>LLC</b> — shared, in the HNFs: 32 MiB = 2 × 16 MiB. It is filled when an L2 evicts a line no other L2 holds (<code>WriteBackFull</code> if dirty, <code>WriteEvictOrEvict</code> if clean) and by <code>StashOnceShared</code> prefetches. A <code>ReadNotSharedDirty</code> or <code>ReadUnique</code> hit moves the line up to the L2 and invalidates it here.</li>
+        <li><b>SF</b> — snoop filter in each HNF: which CC holds each line.</li>
+        <li><i class="sw" style="--c:var(--tl)"></i><b>TileLink</b> — inside a tile (L1 ↔ L2).</li>
+        <li><i class="sw" style="--c:var(--req)"></i><b>CHI</b> — coherent protocol from L2 through ZhuJiang to the HNFs, SN and HNI.</li>
+        <li><i class="sw" style="--c:var(--axi)"></i><b>AXI4</b> — non-coherent bus after the SN/HNI: no snoops, no cache states, just addressed reads and writes.</li>
+        <li><i class="sw d" style="--c:var(--dpi)"></i><b>DPI-C</b> — simulator call into the C++ DRAMsim3 model (timing only).</li>
+        <li>Dashed block outline — present but unused, optional, or not established from source.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="facts" aria-labelledby="facts-h">
+  <h2 id="facts-h">Key numbers for this configuration</h2>
+  <div class="tablewrap"><table id="facts-table"><thead><tr><th>Item</th><th>Value</th><th>Derivation and source</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section class="wrap" id="uncertain" aria-labelledby="uncertain-h">
+  <h2 id="uncertain-h">Unverified or simplified</h2>
+  <ul class="prose" id="uncertain-list"></ul>
+</section>
+
+<section class="wrap" id="audit" aria-labelledby="audit-h">
+  <h2 id="audit-h">Diagram audit</h2>
+  <p class="meta prose">Every block and every connection drawn on each level, with the references that establish it. The page's self-test fails if a drawn block or connection lacks a description or a reference.</p>
+  <div id="audit-body"></div>
+</section>
+
+<section class="wrap" id="sources" aria-labelledby="sources-h">
+  <h2 id="sources-h">Source references</h2>
+  <p class="meta prose">Each reference is a path under <code>ext/XiangShan</code> with line numbers at the pinned commits. The headless test <code>docs/tests/xiangshan-zhujiang-dualcore.test.mjs</code> re-reads each file and fails if the cited lines no longer contain the quoted text.</p>
+  <div class="tablewrap"><table id="cite-table"><thead><tr><th>Ref</th><th>Location</th><th>Quoted text at those lines</th></tr></thead><tbody></tbody></table></div>
+</section>
+<pre id="selftest"></pre>
+</main>
+
+<script>
+(() => {
+'use strict';
+// ---------------------------------------------------------------- pins and citations
+const PIN = {
+  xs: 'aa6b52033add528a504bdb2c2b726100d89f070a',
+  xsc: '300515bc7b2f65ca988041a984204489d80ec2fb',
+  zj: 'dfcf69662f7682bbc36410b5763cc285956534c8',
+  dt: '45638f5145aa9c7eee85cd9b08eb8962ee46b586',
+};
+const Z = 'XSCache/ZhuJiang/src/main/scala/';
+const L2 = 'XSCache/src/main/scala/coupledL2/';
+// f: path under ext/XiangShan, l: [first, last] line, x: text that must occur in those lines.
+const CITES = {
+  topoDual:   {f:'src/main/scala/top/ZhuJiangNoCTopology.scala', l:[41,56], x:'private def dualCoreNodeParams', h:'e45687196b68245f6ba7b8cb9214173601301983609ee5d275b9d1e9b1b36b78'},
+  topoApply:  {f:'src/main/scala/top/ZhuJiangNoCTopology.scala', l:[14,23], x:'nodeAidBits = 3', h:'be4b68ba87bb2fa9dec50c66e94e6cb758810f2ccef785786e8179e4c133105d'},
+  topoMem:    {f:'src/main/scala/top/ZhuJiangNoCTopology.scala', l:[8,8], x:'MemoryOutstanding = 64', h:'23b8db35c2a5bd8bc5560d544cd26db7b06730288f98759fff0b58a7dd0bc465'},
+  topTiles:   {f:'src/main/scala/top/Top.scala', l:[108,115], x:'new XSTile()', h:'a4218abad02dc029b70e40e648aa14b0211d191d695255e20839b26c3ce62f59'},
+  topMemMst:  {f:'src/main/scala/top/Top.scala', l:[254,265], x:'misc.soc_xbar.get := master', h:'f11cb8bf173135d8dcd94c01cb008f258715516da55a4b413c0a133639a9245f'},
+  topCfgMst:  {f:'src/main/scala/top/Top.scala', l:[267,281], x:'misc.soc_xbar.get := AXI4Buffer() := master', h:'e021922fe21494d8d98e3ba96c78b2259ef6266e6d52edaf71375663606f2e8f'},
+  topPeriph:  {f:'src/main/scala/top/Top.scala', l:[289,291], x:'misc.peripheral', h:'89b9e6bd01d857fb1fd558085abb22f81858b1e10523dabc360986e8558b4efc'},
+  topMemPort: {f:'src/main/scala/top/Top.scala', l:[348,348], x:'memory.viewAs[AXI4Bundle] <> misc.memory', h:'266182b39b77c1e5f12414a93618cae10078e120f949f3cf32639dd7c62bff05'},
+  topParams:  {f:'src/main/scala/top/Top.scala', l:[349,352], x:'HwaParams(enable = false)', h:'b80176276d02eb6e948ab17c1a36c84e8641c74a82cc0c9f115b5f35c9d7cefe'},
+  topInst:    {f:'src/main/scala/top/Top.scala', l:[378,382], x:'new Zhujiang()(zhujiangParams)', h:'f03fe7302a0b655a779420886df132c2c8d148fd16a01a8ff2ae4c974e6a57a5'},
+  topHart:    {f:'src/main/scala/top/Top.scala', l:[459,460], x:'core.module.io.hartId := i.U', h:'f0fb053946f280263271b9fab666890c5c419e8cfbfcb652841b5103b957574e'},
+  topConnect: {f:'src/main/scala/top/Top.scala', l:[551,553], x:'connectCHIToZhuJiang(core.module.io.decoupledCHI.get, zj.ccnIO(i), ccNodes(i), zhujiangParams)', h:'a4f16949d8a5ce69517e837149660e2e901cbca22e5061a3637868282203404d'},
+  topDdr:     {f:'src/main/scala/top/Top.scala', l:[558,560], x:'connectZJToAXI4(zj.ddrIO.head, zjMemAxi)', h:'67c8efd519a296e138185736ccd8f21592a62f78ed0dcdba866d44a50bf8612e'},
+  topCfg:     {f:'src/main/scala/top/Top.scala', l:[561,564], x:'connectZJToAXI4(cfg, cfgAxi)', h:'e9f429989b361a68c5f829865dbd49b7f80b19b6f4a676889619ca2a0b504dc0'},
+  topDma:     {f:'src/main/scala/top/Top.scala', l:[565,566], x:'zj.dmaIO.foreach { axi => axi := DontCare }', h:'eee448eae9b6a88fd87cfde3f1c0f038c4456a498ba7e882307c7ae47aa9dd69'},
+  cfgDefault: {f:'src/main/scala/top/Configs.scala', l:[581,587], x:'ZhuJiangConfig("32MB", ways = 16)', h:'22be81fc9f6b5a680ad763897bdb46ea86c67f066f620f3eb31f8589925a34fe'},
+  cfgZJ:      {f:'src/main/scala/top/Configs.scala', l:[426,433], x:'cacheSizeInB = CacheSizeParser.toBytes(size)', h:'3a75a3e0f7cb585fdb030dada2d9d59ec61354b6d061c2730f9816003aa31827'},
+  cfgLLC:     {f:'src/main/scala/top/Configs.scala', l:[406,424], x:'EnableCHIAsyncBridge = None', h:'fb75005758b4e781d2844de1526dee4f36536165e44ec3099178db2242372c97'},
+  cfgL1D:     {f:'src/main/scala/top/Configs.scala', l:[296,316], x:'val sets = n * 1024 / ways / 64', h:'1b64e5872feeb18e9c66871520c0e787c6230f076c3e7e4f7e3d0bd84af2abd6'},
+  cfgL2:      {f:'src/main/scala/top/Configs.scala', l:[318,375], x:'val l2sets = nKB * 1024 / banks / ways / 64', h:'0bad9177c676526bce2a31bbff9ab54c03874f3397d435290e94d3508b730f0d'},
+  argLLC:     {f:'src/main/scala/top/ArgParser.scala', l:[90,91], x:'LLCConfig(llcString)', h:'df1d4fd528c54b616ab9868e3edece8b8c957b6ffca255793a3d7d9e4ea23edc'},
+  argCores:   {f:'src/main/scala/top/ArgParser.scala', l:[92,99], x:'"--num-cores"', h:'426527b3475d89558e69cccbc5c33bf0c32921addb3b82b052a4edea30144268'},
+  argDram:    {f:'src/main/scala/top/ArgParser.scala', l:[104,106], x:'UseDRAMSim = true', h:'39bc62e1d1b2f655bfb25f27b8853709b68d7b113839edf0672bd7030d34f253'},
+  mkDram:     {f:'Makefile', l:[191,197], x:'--with-dramsim3', h:'8fd484d35b1e804cf9996c44d7bdcf9c3333472e1631abfbe12bbe0f3af3d027'},
+  socZJ:      {f:'src/main/scala/system/SoC.scala', l:[162,180], x:'LLC=ZhuJiang only supports CHI issue E.b or newer', h:'d2323f21b4d70a7cd5347f084eabcf7cfaa154ab25f766d876d0393802cab4af'},
+  socXbar:    {f:'src/main/scala/system/SoC.scala', l:[287,287], x:'val soc_xbar = Some(AXI4Xbar())', h:'04c350b3467af30406d30bd30027dada26c6e2e220fb2313cbceadcd644e7bb7'},
+  socMem:     {f:'src/main/scala/system/SoC.scala', l:[310,367], x:'AXI4IdIndexer(idBits = 14)', h:'dc35957f04858c95d98ed70ab3f7d10733321ab1c77d31ecab4e7fff0cfae6d3'},
+  socPeriph:  {f:'src/main/scala/system/SoC.scala', l:[400,428], x:'AXI4ToTL()', h:'4977c25200837bda9b1027c448286794fac82d74dd7ce811a6f914b40350cb92'},
+  socMisc:    {f:'src/main/scala/system/SoC.scala', l:[436,443], x:'val device_xbar = Some(TLXbar())', h:'49586caacb8d6de9c7a848e6c03d69a0ebb08c6bec237f477347f2d08be07651'},
+  tileL1:     {f:'src/main/scala/xiangshan/XSTile.scala', l:[60,73], x:'L1 to l1_xbar', h:'05627c321d3febaf912ece35885beea6b746bd81f5f665678b6e0e2b201c345c'},
+  tileMmio:   {f:'src/main/scala/xiangshan/XSTile.scala', l:[98,103], x:'l2top.inner.d_mmio_port := memBlock.uncache_port', h:'98155ded3e84669536f5b9953e3709ae9b260d644d66b6fc331cade9f5c883fd'},
+  tileChi:    {f:'src/main/scala/xiangshan/XSTile.scala', l:[124,124], x:'val decoupledCHI = Option.when(isZhuJiang)(new DecoupledPortIO)', h:'5a600d71aea93590120956d8e795bf983776e1abebad75de326faa1398a77f0a'},
+  l2top:      {f:'src/main/scala/xiangshan/L2Top.scala', l:[111,150], x:'new CoupledL2()', h:'3e3f3e4cf07407aff70147dbc562547a09d2c28a0c7063bfec205d6b5f8660fa'},
+  l2topMmio:  {f:'src/main/scala/xiangshan/L2Top.scala', l:[163,172], x:'mmio_port :=', h:'b5ee530a8ea2006e2181384885f57c33ef07281dc3ca7fb3da6083b2064d44f2'},
+  l2topChi:   {f:'src/main/scala/xiangshan/L2Top.scala', l:[365,371], x:'io.decoupledCHI.get <> l2.io.decoupledCHI.get', h:'7a21a8cf8023d2565005664ed75b39869a6e71d5d73a4209c98a1cbd83241070'},
+  dcPorts:    {f:'src/main/scala/xiangshan/cache/dcache/DCacheWrapper.scala', l:[974,996], x:'name = if (i == 0) "dcache" else s"dcache_ch$i"', h:'cdb079152efa5435ca3c1a32f74408d86c68f018c32e746d23dacf177a42f2ed'},
+  l1xbar:     {f:'src/main/scala/xiangshan/L2Top.scala', l:[144,148], x:'l2_binder.get :*= l2.node :*= xbar_l2_buffer :*= l1_xbar :=* misc_l2_pmu', h:'11229996054d6de30fdf5050bc9f188f657214cd5ab3d76b9325263b68409550'},
+  topImsic:   {f:'src/main/scala/top/Top.scala', l:[190,198], x:'imsic_bus_top.axi_mem_xbar.foreach { imsicXbar =>', h:'b391a8b8847ba5545dbb2ab0a52e40a7e713e4b6e739c26a04ec31c092f31d55'},
+  topInts:    {f:'src/main/scala/top/Top.scala', l:[201,205], x:'core_with_l2(i).clint_int_node := misc.timer.intnode', h:'67766fd88df9393a2d8257e7e774d3fa3147185167b9901ad8063846684ec063'},
+  topMsi:     {f:'src/main/scala/top/Top.scala', l:[461,462], x:'core.module.io.msiInfo.valid := imsic_bus_tops(i).module.msiio.vld_req', h:'9df48df5a88b1140894520cc470c3aa4c78b4bdbed7bb03898a27dc55bc5fb06'},
+  socDevs:    {f:'src/main/scala/system/SoC.scala', l:[442,502], x:'val aplic = LazyModule(new aia.AXI4APLIC(soc.APLICParams))', h:'1047e5ff2c1f651324dba6a79e0a877e874afed5527d0c8d514c2975dc732be2'},
+  simMmioDevs:{f:'src/test/scala/top/SimMMIO.scala', l:[81,95], x:'val flash = LazyModule(new AXI4Flash(Seq(AddressSet(0x10000000L, 0xfffffff))))', h:'cd33640cc2c3389529367772def3600e02da8d5e6fd166f15bdc785cd6952006'},
+  simClass:   {f:'src/test/scala/top/SimTop.scala', l:[90,94], x:'val l_soc = LazyModule(new XSTop())', h:'77d99bcf56f7cac11b8f4185c16dab2a7998f4a3ce80b871317cfe6511f12da4'},
+  dtSimTop:   {f:'difftest/src/main/scala/SimTop.scala', l:[114,114], x:'class SimTop[T <: RawModule with HasDiffTestInterfaces](cpuGen: => T, modPrefix: Option[String]) extends Module', h:'5db082df10bfff0a74ef005541154c0569264ed6eb82802bec942774ad29fdfe'},
+  mkTop:      {f:'Makefile', l:[36,40], x:'SIMTOP  = top.XiangShanSim', h:'84d20a0af87db2c1fea4de732fb488fc9f53062b491edaa97c48fc324bdc9d69'},
+  mkLLC:      {f:'Makefile', l:[155,156], x:'COMMON_EXTRA_ARGS += --llc $(LLC)', h:'6ecd03ec955f68fe2729d6da210027b2ef8de34e2898633a83898421c51d64bf'},
+  memBlkL1:   {f:'src/main/scala/xiangshan/mem/MemBlock.scala', l:[317,332], x:'val ptw = LazyModule(new L2TLBWrapper())', h:'98e4472a5b799970990ed2a6f22ddc44d8048645b23cc01fe54f23dc35be97f2'},
+  l1dPerm:    {f:'src/main/scala/xiangshan/cache/dcache/mainpipe/MissQueue.scala', l:[983,983], x:'io.mem_acquire.bits := Mux(full_overwrite, acquirePerm, acquireBlock)', h:'38abfb0306f53dbdca06db471d26472b9eb7d8f6a9c0a701cd1b09cf4e1d24fa'},
+  topNmi:     {f:'src/main/scala/top/Top.scala', l:[153,154], x:'val nmi = InModuleBody(nmiIntNode.makeIOs())', h:'293096d0a4bdd96d0ed10ed3ded11461989c0a7f62c1f17075687d1edc333a9d'},
+  dramIniOpt: {f:'difftest/src/test/csrc/common/args.cpp', l:[183,183], x:'{ "dramsim3-ini",      1, NULL,  0  },', h:'02a4ba46d9ab5a093ac7bb71f066d662c703e8a59b73a44c99f98264f9d7ccdb'},
+  dramInit:   {f:'difftest/src/test/csrc/emu/emu.cpp', l:[126,126], x:'dramsim3_init(args.dramsim3_ini, args.dramsim3_outdir);', h:'72a48bbbca96732848d98b04d9d4fb07286b06df7c9a3ad06ce28ccbd9c839c8'},
+  nocTopWrap: {f:'src/main/scala/top/XSNoCTop.scala', l:[196,196], x:'new XSTileWrap()', h:'4517b6bf0d26d35d781885ca8b07507ede71c5128b984ccbfeba3bb584ce774a'},
+  tileWrap:   {f:'src/main/scala/xiangshan/XSTileWrap.scala', l:[94,94], x:'decoupledCHI', h:'eb78f1378d84fb6381edc8d01cfe7ce673cf90b1b849456a74a75457b3ccd184'},
+  icache:     {f:'src/main/scala/xiangshan/frontend/icache/Parameters.scala', l:[27,32], x:'nSets:      Int = 256', h:'a4c0591bd9875bb2277b6bed2641da9cb5558483fafdcf18652a2240e0956787'},
+  simXbar:    {f:'src/test/scala/top/SimTop.scala', l:[35,88], x:'val memXbar = AXI4Xbar()', h:'ea2a4c4905dee11e9a42aa0a545fb21524decd0aabefc6560a79cbcb9f4cc74f'},
+  simMmio:    {f:'src/test/scala/top/SimTop.scala', l:[108,112], x:'new SimMMIO', h:'8bf9ab9068667459b137266dc09a7f2529f29619837a02201632937b1675f217'},
+  simRam:     {f:'src/test/scala/top/SimTop.scala', l:[114,127], x:'dynamicLatency = debugOpts.UseDRAMSim', h:'4e53f563c88ba5c01fcaebdc2c239530ae567935345ed19c5dcfadab4ab12411'},
+  simDmac:    {f:'src/test/scala/top/SimMMIO.scala', l:[139,140], x:'memNode := iopmp.masterNodes(0)', h:'f93294943066c7847c3433577e4fbff89dd09dc6327f11d6bb2056d0dabc1ac9'},
+  memSlave:   {f:'src/main/scala/device/AXI4Memory.scala', l:[366,379], x:'LazyModule(new AXI4RAMWrapper(slave, memByte, useBlackBox))', h:'e29421229fab8cc137d8d76ae92255ca4e51c60059a2dda762521a1a4d10c50c'},
+  memDpi:     {f:'src/main/scala/device/AXI4Memory.scala', l:[205,215], x:'readRequest(arQueue.io.deq.valid', h:'be83dacc5a6062503e9955392293211c8323f0bc3f7c2af53c3aa33119603cd8'},
+  memHelper:  {f:'src/main/scala/device/AXI4Memory.scala', l:[27,141], x:'memory_request', h:'ff36d6f14be3e54ac876d42f07ba7f506eb2799d6bce6fe72d613d4c45fc22da'},
+  ram:        {f:'src/main/scala/device/AXI4RAM.scala', l:[26,58], x:'DifftestMem(memByte, beatBytes)', h:'8da70da70d9fde05d699d31b7bfcb35152f98a2e16c3b8a3cf8fa1a60f29ebcc'},
+  dramCpp:    {f:'difftest/src/test/csrc/common/ram.cpp', l:[549,613], x:'new ComplexCoDRAMsim3(config_file, out_dir)', h:'fc1bd2b7a02c01a104cf91749806f0f14f74a644a461f46128e5567dd58754e0'},
+  dramMk:     {f:'difftest/Makefile', l:[215,220], x:'XiangShan.ini', h:'e17660d2a8f0c671337ad9ed9c15b66749b9d33f3b75a3bc7ce093db2a3e77d8'},
+  bridge:     {f:'XSCache/src/test/scala/ZhuJiangBridge.scala', l:[76,150], x:'val socket = Module(new SocketDevSide(ccNode))', h:'a61df3abeb494d9fdc3f9ed5142e030dad414d0b19af95eac1ccde4e82f63d05'},
+  bridgeTie:  {f:'XSCache/src/test/scala/ZhuJiangBridge.scala', l:[147,147], x:'socket.io.icn.tx.req.foreach(_.ready := false.B)', h:'4a68665bd33a98ec222d7c096a35efb8c98940b2b2b36bb00153a0ccdda85aab'},
+  bridgeAxi:  {f:'XSCache/src/test/scala/ZhuJiangBridge.scala', l:[13,74], x:'axi.ar.valid := zjAxi.arvalid', h:'a65c6dabb13c1797ac48537570c8a7297cd23b48e4bba1f67176808390f714df'},
+  buildBridge:{f:'build.mill', l:[100,104], x:'ZhuJiangBridge.scala', h:'b71698dab3656163d47a00304870d998cb30f7eb61159c4ca394e873c54ac80b'},
+  l2needT:    {f:L2+'Consts.scala', l:[39,43], x:'((opcode === TLMessages.AcquireBlock || opcode === TLMessages.AcquirePerm) && param =/= TLPermissions.NtoB)', h:'6e8f5094907fdd4f11e2e668dfea12ea1ec867e7a87b1fca438357068eea0871'},
+  l2acqBlock: {f:L2+'MainPipe.scala', l:[531,533], x:'we always AcquireBlock for L1 AcquireBlock', h:'530f43212cb4448d8950c45b79865bafdfc1a7a8d5be979acb29eb2318f49043'},
+  l2release:  {f:L2+'MSHR.scala', l:[357,364], x:'val isWriteEvictOrEvict = afterIssueEbOrElse(', h:'7a6b8595f7026e90f017fe2c7b6b097525ec8811671dda448cac62fbb91e9d22'},
+  l2snpResp:  {f:L2+'MSHR.scala', l:[312,337], x:'snpToB -> Mux(req.snpHitReleaseToInval, I, SC)', h:'e71a0fc04078d982a8a7169ca69580a00a9715854548adc331573ec6a5e9825b'},
+  l2snpOp:    {f:L2+'MSHR.scala', l:[688,705], x:'Cat(true.B, false.B)  -> SnpRespFwded', h:'998ecb50a5ff3c8f7518abc87bcfcf0a7d7e642e94b112a28086e84f377aaf94'},
+  l2dirtyFwd: {f:L2+'MSHR.scala', l:[207,215], x:'val doRespData_dirty = hitDirtyOrWriteDirty && (', h:'356cebec932f8b2df9d10b25f35295db49ee5d63f487ebd59320fd82b75eae63'},
+  l2dctOrder: {f:L2+'MSHR.scala', l:[289,289], x:'val mp_dct_valid = !state.s_dct.getOrElse(true.B) && state.s_probeack', h:'78d4b62fb8ff9f433342ea129b444aa6cefeea1737e6071036d5f16cd601efa3'},
+  l2ops:      {f:L2+'MSHR.scala', l:[376,394], x:'req_needB /* Default */                            -> ReadNotSharedDirty', h:'45bb7ee04a5e5eed56679b6d039821e8fa120477fb46d1cb8ea30604f8204b39'},
+  l2ack:      {f:L2+'MSHR.scala', l:[407,416], x:'oa.expCompAck := Mux(', h:'1883fa274acaa16349e5bec5ae0c2a0e7cecbf8e5e032dac7ae69ecfe2863442'},
+  l2wb:       {f:L2+'MSHR.scala', l:[505,524], x:'isWriteBackFull       -> WriteBackFull', h:'88b57bcf543089b10310f87a2b1dcf85c04a72880fe16d85a26819079409691e'},
+  l2dct:      {f:L2+'MSHR.scala', l:[884,891], x:'mp_dct.tgtID.get := req.fwdNID.get', h:'6ab3c3475ef8e8859d0508d31f8a799561d900a21801e9837e5fa9e5a4749878'},
+  l2compack:  {f:L2+'MSHR.scala', l:[1174,1177], x:'tgtid_rcompack := rxdat.bits.homeNID.getOrElse(0.U)', h:'6418d2c8a3e995c30f6080990e9f6e73d74b79efb6fe439a5c6a42226085a932'},
+  l2probe:    {f:L2+'MainPipe.scala', l:[289,292], x:'metaOnHit_s3.state === TRUNK && metaOnHit_has_clients_s3', h:'d75f499040ade48351e45fa6a49c24048fc1eb1485a6cf85965385dc88d75a41'},
+  l2dctPipe:  {f:L2+'MainPipe.scala', l:[301,301], x:'val need_dct_s3_b = doFwd // DCT', h:'f341d5eb456c3e02c74942fc17a4888ea428ecb8e2d6a7fad9e5ed8f6046ca3a'},
+  l2mmioOps:  {f:L2+'MMIOBridge.scala', l:[235,235], x:'Mux(isRead, ReadNoSnp, WriteNoSnpPtl)', h:'77b75ffd1955933bdf9f375782ff4d465c3049e0214a23085e5021b97d5c3188'},
+  l2mmioAttr: {f:L2+'MMIOBridge.scala', l:[266,269], x:'device = !isBackTypeMM', h:'2e583146adfc185ef05c299982b19be18ff208e0f69e7980bbdaee42e46f6325'},
+  nodeTypes:  {f:Z+'xijiang/Node.scala', l:[12,23], x:'"HF" -> 3', h:'0d9d42432de1020fbafe653e8622be1311b64637eeb2ccf2c9fbf9946a913b93'},
+  nodeId:     {f:Z+'xijiang/Node.scala', l:[74,74], x:'val nodeId = globalId << aidBits', h:'f834abb065c132c7a54ea22b231bc82407989930a85ff552ff0dcb406e0dee72'},
+  nodeRouter: {f:Z+'xijiang/Node.scala', l:[80,90], x:'case NodeType.CC => Module(new RnRouter(this)(p))', h:'097d915750a1f6b9bc1f9661e0a362aaf61f03c8c69c5f7a114e41b6e89c1e69'},
+  nodeNames:  {f:Z+'xijiang/Node.scala', l:[107,121], x:'case NodeType.S  => s"chi_to_axi_$nidStr"', h:'8b864539af4112d19cf2278f0e156b3cbe46403b5d2a866365f0c940b8d815b5'},
+  nodeChans:  {f:Z+'xijiang/Node.scala', l:[137,169], x:'case NodeType.HF => (Seq("REQ", "RSP", "DAT", "HPR"), Seq("RSP", "DAT", "SNP", "ERQ"))', h:'2b1f7377f0b417bef79a0be4db636cf7f5d3eb7609e13780ca1f7f85eecff920'},
+  nodeLegal:  {f:Z+'xijiang/Node.scala', l:[171,231], x:'private def getLegalTgtSeq', h:'d1a628d2cc9e3e768668d4a03cf79b45258e106b5d6d72ea99fccb1cce9f2206'},
+  nodeCompl:  {f:Z+'xijiang/Node.scala', l:[248,274], x:'private def hnfAddrCheck', h:'89bc8a01a689cac4e0071e3494286ee1d33c409b94b401087ccd9cd24e653703'},
+  ring:       {f:Z+'xijiang/Ring.scala', l:[20,31], x:'r.router.rings.last.rx := right._1.router.rings.last.tx', h:'fc5faeba016d754446c498bf5522bd6e3bd68de5a201e78e9b27700061f2633f'},
+  ringP:      {f:Z+'xijiang/Ring.scala', l:[34,34], x:'filterNot(_._2.nodeType == NodeType.P)', h:'47e75c166facd4ae19ce71acbcff449a781d7a90d78231e3047d529ab364cfcb'},
+  zjRing:     {f:Z+'zhujiang/ZJParameters.scala', l:[99,125], x:'globalId = idx', h:'39eac196cd3173c11b72f1483e22ed2ca11cda9dfe24803e0dad7b972c4bc9c5'},
+  zjLR:       {f:Z+'zhujiang/ZJParameters.scala', l:[127,133], x:'n.rightNodes = ns.slice(0, half)', h:'9f05f2ce2fb66f4b840a920eba69a90ce41f76d2578b5acdf85faf29660a2516'},
+  zjHfFr:     {f:Z+'zhujiang/ZJParameters.scala', l:[135,159], x:'val friendsOfIdxMin', h:'f6d9135b3e0b8f7534b7d9159d0662ea58757ec36d7f99e8ec0f2bee72426ec0'},
+  zjRnFr:     {f:Z+'zhujiang/ZJParameters.scala', l:[161,177], x:'val hfDistance = hfGroupPos.map(d => math.abs(d - rnPos))', h:'d29ae80cdc19aada8977a5bd3a157145fe451150924cc64e344832807620bde4'},
+  zjDefaults: {f:Z+'zhujiang/ZJParameters.scala', l:[199,208], x:'clusterCacheSizeInB: Int = 2 * 1024 * 1024', h:'a20606aaf13e98253766ef92468f66caf1894622f46a53b01c292ca5f0932764'},
+  zjName:     {f:Z+'zhujiang/ZJParameters.scala', l:[236,237], x:'s"ZCI${nrX}X${nrC}C${nrP}P${nrD}D${nrM}M${nrG}G$cacheSizeInMiB$ciSuffix"', h:'ee03653a045b75eb31ac338724cb63e19fd21d2fe4faca2be987d93ce6e74e55'},
+  zjDj:       {f:Z+'zhujiang/ZJParameters.scala', l:[243,269], x:'llcSizeInB = cacheSizeInB / bank', h:'96867cb0ccb89026d5ee594219949eaaa236f0a4b7d149baa847a5d0718ff7b2'},
+  rnRouter:   {f:Z+'xijiang/router/package.scala', l:[11,34], x:'private val possibleCompleters', h:'10f439a7fe6f5268dacd14ead98269385e7c9f3987173fd450c42f19c12fa006'},
+  baseRings:  {f:Z+'xijiang/router/base/BaseRouter.scala', l:[14,22], x:'"HRQ" -> 3', h:'cbf74df6658e2b012c349edb9ca2fc65d5043c9250da32734b1d88d4d1d2bcb7'},
+  baseHrq:    {f:Z+'xijiang/router/base/BaseRouter.scala', l:[142,153], x:'val rxHrqArb = Module(new ResetRRArbiter(flitMap(r), 2))', h:'fccad9de69bca329f36408bf82c6ec0116f8765d93ca7a8dca348fe739ac9542'},
+  baseRoute:  {f:Z+'xijiang/router/base/BaseRouter.scala', l:[198,210], x:'tap.get.io.injectTapSelOH(0) := node.rightNodes.map(_.nodeId.U === tgt.router).reduce(_ || _)', h:'2528769d9391b39ca04def8bcf2e7c24d783fd15da333fe3171801cbbe07f056'},
+  zjTop:      {f:Z+'zhujiang/Zhujiang.scala', l:[42,42], x:'private val ring   = Module(new Ring)', h:'338ff20f1409c0eb9cbfcf9fa9d331d2d987277b510127931a4dae602bdb51e1'},
+  zjHnf:      {f:Z+'zhujiang/Zhujiang.scala', l:[68,110], x:'private val hfIcnSeq = ring.icnHfs.get.sortBy(_.node.hfpId).groupBy(_.node.bankId).toSeq', h:'ab834e398ac457c693b54e5c6012bdb4faa58d25f27f74c00decdc4d597d05fb'},
+  zjIo:       {f:Z+'zhujiang/Zhujiang.scala', l:[115,129], x:'groupBy(_.node.axiDevParams.get.wrapper)', h:'431956c75c52356872e3dd45916fb602a3abffb5a450a9f70788fe3d267bef24'},
+  zjCc:       {f:Z+'zhujiang/Zhujiang.scala', l:[131,132], x:'placeSocket(icn, Some(icn.node.domainId))', h:'de09b14ad2bbbcc56a09a4f33970f824ec418fdd17b088cb5c44e489b9dac406'},
+  zjNames:    {f:Z+'zhujiang/Zhujiang.scala', l:[192,212], x:'a.suggestName(s"m_axi$attr")', h:'753fab135adb12f6decaa2bd7a1c17b39bf1e6d8e66a5c59d15f33183782355d'},
+  zjDrv:      {f:Z+'zhujiang/Zhujiang.scala', l:[155,161], x:'val ddrDrv        = ioWrps.flatMap(_.memAxiPorts)', h:'b55c504bff809e7f40c2b78e3b26f6b63cacf0069512a816ed298733724178bd'},
+  hw:         {f:Z+'zhujiang/device/home/HomeWrapper.scala', l:[43,56], x:'private val hnx = Module(new DongJiang(node))', h:'37888ca72d28fcbc3156441c938909cacafed85b8a6c18727761fed81858cd7f'},
+  hwRx:       {f:Z+'zhujiang/device/home/HomeWrapper.scala', l:[80,89], x:'ResetRRArbiter(rxSeq.head.bits.cloneType, rxSeq.size)', h:'d34c33ba266c6388f45c7eaf9d5bafa0fb7b4d5153e5135f2054ac58da2158d7'},
+  hwTx:       {f:Z+'zhujiang/device/home/HomeWrapper.scala', l:[108,142], x:'friendsHitVec', h:'284992419eff51ef6f75eb3504d01c349020d664c9b72edea3620f12a04af181'},
+  hwErq:      {f:Z+'zhujiang/device/home/HomeWrapper.scala', l:[96,103], x:'val memSelOH = mems.map(m => m.addrCheck(addr, io.ci))', h:'fbed1d7be8b66b7002c96c8cc8a527af66a7f6d7727190bca043590ec0978ccb'},
+  hwDat:      {f:Z+'zhujiang/device/home/HomeWrapper.scala', l:[114,127], x:'res.HomeNID := srcId', h:'c0099d253d99c493fc61e816f9251cb2057fe99906ea690e945d9f701a4c996a'},
+  iowSn:      {f:Z+'zhujiang/device/io/IoWrapper.scala', l:[61,89], x:'val bridge = Module(new AxiBridge(icn.node))', h:'8d463b3a8e9c1cacc3bb3a9f5953bf94d29e9379ad3a05099bd76fa12409d3d6'},
+  iowHi:      {f:Z+'zhujiang/device/io/IoWrapper.scala', l:[91,118], x:'new AxiLiteBridge(icn.node, zjParams.cfgAxiDataBits, 3)', h:'cf4282a79bb245c00faf2b3e8ce57b9cf6423c47ceab2ad905862173640cacaa'},
+  iowRi:      {f:Z+'zhujiang/device/io/IoWrapper.scala', l:[121,148], x:'val bridge = Module(new Axi2Chi(icn.node))', h:'e833981870e0035ed8c3f6284f73e7de93ae8c45f332d1633696bac403cef5d2'},
+  iowMn:      {f:Z+'zhujiang/device/io/IoWrapper.scala', l:[151,161], x:'new MiscDevice(mnIcn.head.node)', h:'a7518f074139c68804531b59c71b2205dd1b1fb11eed782fc4f90f8f6593dd13'},
+  sn:         {f:Z+'zhujiang/device/bridge/axi/AxiBridge.scala', l:[18,27], x:'require(node.nodeType == NodeType.S)', h:'20dfbfdc218320f7da450a9d9fd80d1f0a6a071568c7492df0b91f9f328a08e9'},
+  snCms:      {f:Z+'zhujiang/device/bridge/axi/AxiBridge.scala', l:[56,71], x:'new AxiBridgeCtrlMachine(node, axiParams, node.outstanding, compareTag)', h:'94367d887e8aad3a97c6a3a1f3011e5069676dc60c7204f89aecb54e7025e4b2'},
+  snR:        {f:Z+'zhujiang/device/bridge/axi/AxiBridge.scala', l:[119,148], x:'readDataPipe.io.enq.bits.TgtID   := ctrlSel.returnNid.get', h:'b975144c20b046be2e4c49832863c78c6a4799b20c66b9b90942b3df217b8a6b'},
+  snAx:       {f:Z+'zhujiang/device/bridge/axi/AxiBridgeCtrlMachine.scala', l:[73,96], x:'axi.ar.bits.burst := 1.U', h:'cbf63ecb1b70731e6331389b543aa59f4c63e5b38e3a1c6ad362178df8bb8160'},
+  snRsp:      {f:Z+'zhujiang/device/bridge/BaseCtrlMachine.scala', l:[127,137], x:'RspOpcode.CompDBIDResp', h:'85695b2bcd71fb67288b5228f16d91684260ad30eb1590129fc5ae5121f048ca'},
+  snOps:      {f:Z+'zhujiang/device/bridge/package.scala', l:[12,48], x:'val compAck     = if (sn) None else Some(Bool())', h:'76b84b5ddb0e76bb47a5669d0b995906d1e639ee96bcfe84d3d22c089b80c944'},
+  mn:         {f:Z+'zhujiang/device/misc/MiscDevice.scala', l:[193,219], x:'private val resetDev = Module(new ResetDevice)', h:'63438b375ca661eb5bfb37c7c6f5df768ed4460bc32ec11ceaa024c19876b860'},
+  socket:     {f:Z+'zhujiang/device/socket/Socket.scala', l:[73,84], x:'new ChiPdcIcnSide(node)', h:'4c05f332beaef8b55a70672f2af6e8bda3713dc25e036c471b828c3659c9a161'},
+  flitBank:   {f:Z+'zhujiang/chi/Flit.scala', l:[163,170], x:'def checkBank(width: Int, bankId: UInt, bankOffset: Int): Bool', h:'f1f94ea7f483d2ce34fc1bfadda1742838502df96a54271d6753c7e8f3940845'},
+  dj:         {f:Z+'dongjiang/DongJiang.scala', l:[83,87], x:'val frontends = Seq.fill(djparam.nrDirBank)(Module(new Frontend()))', h:'977908e1e41a23d0d407e2a4be5263c5d4a45ebc777ab7a50c1a6f717ba5b886'},
+  djRx:       {f:Z+'dongjiang/DongJiang.scala', l:[60,67], x:'def setRx(flit: Flit, t: Int): Flit', h:'87f7b0f653fb28f4a2c8cb9598b38a88e6f66ab66102b0c9be86190e08c20e7b'},
+  chiBuf:     {f:Z+'zhujiang/chi/ChiBuffer.scala', l:[9,22], x:'class ChiBuffer(node: Node, depth: Int = 2)', h:'c4d05457d9780b8e34cd1069634d07d979479e74a06840db1cb1b8bb24862098'},
+  xbarRx:     {f:Z+'dongjiang/ChiXbar.scala', l:[55,74], x:'rxRedir(io.rxReq.inVec, reqRedirVec, io.rxReq.inVec.map(in => getDirBank(in.bits.Addr)))', h:'da957f360bf2f4dfd6b7b74c232a537e47e3b00509ab899fcdc617b2fad48d2e'},
+  xbarTx:     {f:Z+'dongjiang/ChiXbar.scala', l:[104,139], x:'io.txReq.outVec.foreach(_.bits.SrcID := 0.U)', h:'94756ce628122f5eb053da1a65570cf59a00749c184978e3777733108faa0144'},
+  posFe:      {f:Z+'dongjiang/DJParameters.scala', l:[228,228], x:'lazy val nrPoS          = djparam.nrPoS / djparam.nrDirBank', h:'91dde2033332e910770c59a2253032058f080ab2f1226292e93a506a2eb6a926'},
+  rdAll:      {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[19,160], x:'def table: Seq[DecodeType] = readNoSnpTable ++ readOnceTable ++ Seq(readNotSharedDirty, readUnique, stashOnceShared)', h:'50aad5ad87e16cc422daff5cb77ebd4da46f83d8e37d8b4fa9eae0ba25e6e22c'},
+  rdStash:    {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[143,150], x:'cdop("save") | cmtRsp(Comp) | resp(I) | wriLLC(UC)', h:'458286425f4c5db5a3d73e1487029c10f30ef769a9af40d23db9bf48cc62fd01'},
+  wrPtl:      {f:Z+'dongjiang/frontend/decode/WriteDecodeTable.scala', l:[21,26], x:'write(WriteNoSnpPtl)', h:'647288a8d61c618b8987447adf003690ae3e35aa6a72d12b131b2a644837dd0f'},
+  cmtWait:    {f:Z+'dongjiang/backend/Commit.scala', l:[363,363], x:'val needWaitAck      = Mux(io.decListIn.valid, flagReg.chi.w.compAck, alloc.chi.expCompAck)', h:'e92ece941aa68315a4d12391d4439edfab4fb7fff2a7e1664f7c10b2d19c0d11'},
+  cmtClean:   {f:Z+'dongjiang/backend/Commit.scala', l:[287,287], x:'io.cleanPoS.valid := valid & stateReg.isClean', h:'1aa788fb842c04d9d86b520acc946b2e88c1c8b1c55c35630b0218e084e14178'},
+  cmtEca:     {f:Z+'dongjiang/backend/Commit.scala', l:[252,252], x:'cmTask.chi.expCompAck := taskReg.task.expCompAck', h:'2f93c7b102dc91f8d484391cfea832dee12c367ccc9eb667087e4c960b70fe99'},
+  taskEca:    {f:Z+'dongjiang/frontend/decode/Bundle.scala', l:[262,262], x:'def taskECA: UInt', h:'9b6236a3ca56ef6a99d6f55fae6b6aa7267ccb58e2094970e9d4ff9cd638d8a8'},
+  replPolicy: {f:Z+'dongjiang/backend/ReplaceCM.scala', l:[43,47], x:'def issueWrite(toLan: Bool, dirty: Bool): Bool = !toLan || dirty', h:'c0f81896bbbbb027751c3dfc6ed3d401f240a0cf78e7c7c1cec17b3477237a81'},
+  brSrc:      {f:Z+'zhujiang/device/bridge/package.scala', l:[96,96], x:'info.srcId := req.SrcID', h:'62f2829e40c7b7cf492692f8ca7cba85584103f618b215d66799d9cca5d5e92b'},
+  baseSrc:    {f:Z+'xijiang/router/base/BaseRouter.scala', l:[208,210], x:'tap.get.io.inject.bits.src := src.asUInt', h:'20c33eec418fdc4082831b3223bc1f6ea6c174c9a552f1c881b1268484a42359'},
+  basePipe:   {f:Z+'xijiang/router/base/BaseRouter.scala', l:[185,189], x:'r.tx.getRingBundle(chn).flit := Pipe(r.rx.getRingBundle(chn).flit)', h:'bcd16e5070d90a7fbaf18706a1ef15cf89844785cbf5fc2c8ac34a72a030e391'},
+  hniErq:     {f:Z+'zhujiang/device/bridge/axilite/AxiLiteBridge.scala', l:[33,34], x:'icn.tx.req.get.valid := false.B', h:'5e8182e43249fe370bc5e94f3f8798bb17ca58a05a2efcbde35a2e5fb8a4d091'},
+  zjData:     {f:Z+'zhujiang/ZJParameters.scala', l:[188,188], x:'dataBits: Int = 256', h:'57fe9ca850d05da1e2ee83687eff45a3b42006ec9b8ab3ea7eb08eae4157e39a'},
+  zjAddr:     {f:Z+'zhujiang/ZJParameters.scala', l:[220,220], x:'lazy val requestAddrBits    = 48', h:'67f901d3e1fe5d3de917a479e6a6172da804ddc18dc22d8332fefcfc002c62d4'},
+  zjBankBits: {f:Z+'zhujiang/ZJParameters.scala', l:[61,72], x:'val hnfBankBits = if (hnfs.length > 1) getBankBits(hnfs) else 0', h:'e6dcb9d5660085b43081528d47258bf032944bd3214f0dadb7c3422fcb529cba'},
+  pdc:        {f:Z+'zhujiang/device/socket/PowerDomaincCrossing.scala', l:[20,25], x:'class PowerDomainCrossingTx[T <: Data](gen: T) extends Module', h:'dd7aedc8f43192eb644ca258c09a5e021f585fc26f295b1803665d8aecd4d83b'},
+  devParams:  {f:Z+'zhujiang/device/package.scala', l:[6,12], x:'buffers: Int = 0,', h:'7c65b33e170fb0647d44ea2b0800966803f3513ccb7e0727c758692f2eaf5abd'},
+  axiChain:   {f:Z+'zhujiang/axi/AxiBuffer.scala', l:[19,34], x:'io.out <> io.in', h:'7f7dcd67cb63a1c36e123e246c4b7e58ab4b03467c04c5f272e0ba97fc69fdc8'},
+  iowName:    {f:Z+'zhujiang/Zhujiang.scala', l:[129,129], x:'iow.suggestName(s"iowrp_${iow.icnSeq.head.node.axiDevParams.get.wrapper.toLowerCase}")', h:'966c8c5d1ac2b000054df6722b5209213fc4fb8f2e0121f2e51ebfc31aad6573'},
+  djCmt:      {f:Z+'dongjiang/DongJiang.scala', l:[155,171], x:'backend.io.cmtTaskVec.zip(frontends.map(_.io.cmtTask)).foreach { case (a, b) => a <> b }', h:'95ae4c11547c6bd91619e26d3ca3a05c64fef17f1654fa0de759f7a021759af7'},
+  beWire:     {f:Z+'dongjiang/backend/Backend.scala', l:[100,135], x:'commit.io.cmtTaskVec <> io.cmtTaskVec.map(t => Pipe(t))', h:'180d52f5c2524219e4735bfc9ad261844f2e6f4f2f7fed8ee2e2ec2c9b8d9f3f'},
+  ringSide:   {f:Z+'xijiang/router/base/BaseRouter.scala', l:[34,40], x:'val hrq = new ChannelBundle(new RingFlit(ringHrqFlitBits))', h:'911295d206b8383d8aee66cec6b4b3ff493dab5ef5ab053492697888502061c2'},
+  djWire:     {f:Z+'dongjiang/DongJiang.scala', l:[98,131], x:'chiXbar.io.txSnp.in <> backend.io.txSnp', h:'125b4347849a947c78c09fc1b2bb52692cd73255491b75bd968b370be1b11f61'},
+  djp:        {f:Z+'dongjiang/DJParameters.scala', l:[12,48], x:'lazy val llcSets = llcSizeInB / CacheLine / llcWays', h:'dd73bc64d812ffc67006133f457528ee06aa68a7a6fd17b546ce92bc567e5cf9'},
+  djAddr:     {f:Z+'dongjiang/DJParameters.scala', l:[193,199], x:'def getDirBank(a: UInt) = getUseAddr(a)(dirBank_ua_hi, dirBank_ua_lo)', h:'0f95ea7e6436cd37991ef85694714a7c06068291e367cc95c5297e16f8cb4a82'},
+  dir:        {f:Z+'dongjiang/directory/Directory.scala', l:[37,38], x:'val sfs  = Seq.fill(djparam.nrDirBank)(Module(new DirectoryBase("sf", !isTop)))', h:'88415ba633b3477dc39f4e598e47698bc6e6f678f109abfe9fffdcd30d76f268'},
+  rdTable:    {f:Z+'dongjiang/frontend/decode/Bundle.scala', l:[300,300], x:'Read_LAN_DCT_DMT.table', h:'bb128fa61122a8f33922c4a0e3c6a73382b8f9c80112a45534964c09d8b2a3e2'},
+  rdRnsd:     {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[95,120], x:'reqIs(ReadNotSharedDirty)', h:'4544827737be64c70ec8bc3b595ed602e4c08a260293e2c5921cf07e15b0330b'},
+  rdMiss:     {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[98,98], x:'(sfMiss | llcIs(I))  -> first(read(ReadNoSnp) | doDMT, wriSRC(true))', h:'c1ac8a69b1b2f2b0f2f08a37a40d46c562cb05c2e5217873d5d6b7ab2504139e'},
+  rdHit:      {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[99,101], x:'cmtDat(CompData) | resp(UC) | wriSRC(true) | wriLLC(I)', h:'82071f782e87df95c30f55d053e8ea593c9b36028a1b9cd8db018679e0661f32'},
+  rdSnp:      {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[102,103], x:'snpOne(SnpNotSharedDirtyFwd)', h:'abcc125d3186074472c14a1fac149acd0378175d0c19c553c1118cb1b536c862'},
+  rdUnique:   {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[122,140], x:'(srcMiss | othHit | llcIs(I)) -> (snpOth(SnpUniqueFwd) | needDB, Seq(', h:'ec45f6639b2a0676aa552dbf68448d63359ba87a538acd501ed37cf3fd56bfca'},
+  rdDirty:    {f:Z+'dongjiang/frontend/decode/ReadDecodeTable.scala', l:[107,107], x:'write(WriteNoSnpFull)', h:'6a233e1b344541003cbbec3a6cb844051e6734c8078b27a4884b71caaa5416c9'},
+  wbAlloc:    {f:Z+'dongjiang/frontend/decode/WriteDecodeTable.scala', l:[126,163], x:'CBRespIs(UD_PD) -> second(cdop("save") | wriSRC(false) | wriLLC(UD))', h:'4ea27c35d34a5d08c7334775f1a58fab780552a4e21f7a87a7d376cf2e809959'},
+  readCM:     {f:Z+'dongjiang/backend/ReadCM.scala', l:[80,87], x:'io.txReq.bits.ReturnNID.get   := Mux(reg.task.doDMT, reg.task.chi.nodeId', h:'3a51eb74cb3f2dd97d5c4dbc8d05be84dd0d62f900dea77bb98a4cf7331bb9b2'},
+  snoopCM:    {f:Z+'dongjiang/backend/SnoopCM.scala', l:[98,99], x:'io.txSnp.bits.FwdNID      := reg.task.chi.nodeId', h:'cbb43f685f96adfce2611687ff6b1e36316a2b804f772f0cadab70927c8309f7'},
+  replCM:     {f:Z+'dongjiang/backend/ReplaceCM.scala', l:[227,240], x:'Mux(reg.repl.toLan, WriteNoSnpFull', h:'a501ba85995cc9ab679075d7ba8bc0ad0f9bf26b733cb79a3b914a1ee64b1e2a'},
+  commit:     {f:Z+'dongjiang/backend/Commit.scala', l:[139,151], x:'val rspAckHit = rxRspHit & io.rxRsp.bits.Opcode === CompAck', h:'873be1111450d564f64c8290933662c80bfb82ef36ff8e885de53f0521c424c9'},
+};
+const srcHref = k => `../ext/XiangShan/${CITES[k].f}#L${CITES[k].l[0]}`;
+const citePath = k => `ext/XiangShan/${CITES[k].f}:${CITES[k].l[0]}${CITES[k].l[1] !== CITES[k].l[0] ? '–' + CITES[k].l[1] : ''}`;
+
+// ---------------------------------------------------------------- ring model (port of ZhuJiang elaboration)
+// Literal copy of dualCoreNodeParams (ZhuJiangNoCTopology.scala:41-56), in ring order.
+const PARAMS = [
+  {t:'HF', bank:0, hfp:0}, {t:'CC'}, {t:'HF', bank:1, hfp:0}, {t:'CC'},
+  {t:'RI', wrapper:'east', attr:'main'}, {t:'HI', wrapper:'east', attr:'main', defaultHni:true},
+  {t:'HF', bank:1, hfp:1}, {t:'S', wrapper:'south', attr:'mem_0', outstanding:64},
+  {t:'HF', bank:0, hfp:1}, {t:'M', wrapper:'misc', attr:'hwa'}, {t:'P'},
+];
+const AID_BITS = 3;
+// Node.scala:137-147 (HardwareAssertion disabled in XSTop, so no DBG).
+const INJ = {CC:['REQ','RSP','DAT'], RI:['REQ','RSP','DAT'], HF:['RSP','DAT','SNP','ERQ'], HI:['RSP','DAT','ERQ'], S:['RSP','DAT'], M:[], P:[]};
+const EJ  = {CC:['REQ','RSP','DAT','SNP'], RI:['RSP','DAT'], HF:['REQ','RSP','DAT','HPR'], HI:['REQ','RSP','DAT'], S:['ERQ','DAT'], M:[], P:[]};
+// Node.scala:171-231 getLegalTgtSeq (DBG omitted).
+const LEGAL = {
+  CC:{REQ:['CC','HF','HI','RH'], RSP:['CC','HF','RI','HI','RH'], DAT:['CC','RF','RI','HF','HI','RH']},
+  RI:{REQ:['CC','HF','HI'], RSP:['CC','HF','HI'], DAT:['CC','HF','HI']},
+  HF:{RSP:['CC','RF','RI','RH'], DAT:['CC','RF','RI','S','RH'], SNP:['CC','RF'], ERQ:['S']},
+  HI:{RSP:['CC','RF','RI','RH'], DAT:['CC','RF','RI','RH'], ERQ:['S']},
+  S:{RSP:['CC','RF','RI','HF','HI','RH'], DAT:['CC','RF','RI','HF','HI','RH']},
+};
+const RINGCH = {REQ:'REQ', RSP:'RSP', DAT:'DAT', SNP:'HRQ', ERQ:'HRQ'};
+const hex = n => '0x' + n.toString(16).padStart(2, '0');
+
+function buildRing(params) {
+  const count = {};
+  const nodes = params.map((np, idx) => {
+    const dk = ['CC','RF','RI','HF','HI','S'].includes(np.t) ? np.t : 'other';
+    const domainId = count[dk] = (count[dk] ?? -1) + 1;
+    return {...np, idx, nodeId: idx << AID_BITS, domainId, friends: [], right: [], left: []};
+  });
+  for (const n of nodes) {
+    n.id = n.t === 'HF' ? `hf${n.bank}p${n.hfp}` : n.t === 'CC' ? `cc${n.domainId}` :
+      ({RI:'ri', HI:'hi', S:'sn', M:'mn', P:'pip'})[n.t];
+  }
+  const N = nodes.length;
+  nodes.forEach((n, i) => {                                  // ZJParameters.scala:127-133
+    const ns = [...nodes.slice(i + 1), ...nodes.slice(0, i)];
+    const half = i % 2 === 1 ? Math.floor((ns.length + 1) / 2) : Math.floor(ns.length / 2);
+    n.right = ns.slice(0, half).map(x => x.idx);
+    n.left = ns.slice(half).reverse().map(x => x.idx);
+  });
+  const notFriend = x => x.t === 'HF' || x.t === 'HI' || x.t === 'P';
+  const hfNodes = nodes.filter(n => n.t === 'HF');
+  const groups = new Map();
+  for (const h of hfNodes) { if (!groups.has(h.bank)) groups.set(h.bank, []); groups.get(h.bank).push(h); }
+  for (const hfs of groups.values()) {                       // ZJParameters.scala:135-159
+    if (hfs.length === 1) { hfs[0].friends = nodes.filter(x => !notFriend(x)).map(x => x.idx); continue; }
+    const pos = hfs.map(h => h.idx), lo = Math.min(...pos), hi = Math.max(...pos);
+    const seg0 = nodes.slice(lo + 1, hi), seg1 = [...nodes.slice(hi + 1), ...nodes.slice(0, lo)];
+    const h0 = Math.floor(seg0.length / 2), h1 = Math.floor(seg1.length / 2);
+    const fMin = [...seg0.slice(0, h0), ...seg1.slice(h1)].filter(x => !notFriend(x)).map(x => x.idx);
+    const fMax = [...seg1.slice(0, h1), ...seg0.slice(h0)].filter(x => !notFriend(x)).map(x => x.idx);
+    if (lo === pos[0]) { hfs[0].friends = fMin; hfs[hfs.length - 1].friends = fMax; }
+    else { hfs[0].friends = fMax; hfs[hfs.length - 1].friends = fMin; }
+  }
+  const onePort = new Set(hfNodes.map(h => h.hfp)).size === 1;
+  for (const rn of nodes.filter(n => ['CC','RI','RH'].includes(n.t))) {   // ZJParameters.scala:161-177
+    if (onePort) { rn.friends = hfNodes.map(h => h.idx); continue; }
+    for (const g of groups.values()) {
+      const d = g.map(h => Math.abs(h.idx - rn.idx));
+      rn.friends.push(g[d.indexOf(Math.min(...d))].idx);
+    }
+  }
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  return {nodes, byId, N};
+}
+const RING = buildRing(PARAMS);
+const stop = id => RING.byId[id];
+// Direction a flit takes from one stop to another (BaseRouter.scala:198-200).
+function route(fromId, toId) {
+  const a = stop(fromId), b = stop(toId);
+  let dir, path = [a.idx];
+  if (a.right.includes(b.idx)) { dir = 'cw'; for (let i = a.idx; i !== b.idx;) { i = (i + 1) % RING.N; path.push(i); } }
+  else if (a.left.includes(b.idx)) { dir = 'ccw'; for (let i = a.idx; i !== b.idx;) { i = (i - 1 + RING.N) % RING.N; path.push(i); } }
+  else throw new Error(`no route ${fromId}→${toId}`);
+  return {dir, path, hops: path.length - 1, ring: dir === 'cw' ? 'rings(0)' : 'rings(1)'};
+}
+// RnRouter target for a normal-memory request (router/package.scala:22-27, Node.scala:248-270, Flit.scala:167-170).
+const rnTarget = (rnId, bank) => RING.nodes[stop(rnId).friends.find(i => RING.nodes[i].bank === bank)].id;
+// HomeWrapper egress port: the port of this bank whose friends contain the target (HomeWrapper.scala:108-141).
+function hnfPort(bank, tgtId) {
+  const ports = RING.nodes.filter(n => n.t === 'HF' && n.bank === bank && n.friends.includes(stop(tgtId).idx));
+  if (ports.length !== 1) throw new Error(`bank ${bank} has ${ports.length} ports for ${tgtId}`);
+  return ports[0].id;
+}
+const hexU = n => '0x' + n.toString(16);   // Scala toHexString: no zero padding (Node.scala deviceName)
+const deviceName = n => ({CC:`ccn_${n.domainId}_${hexU(n.nodeId)}`, RI:`axi_to_chi_${hexU(n.nodeId)}`, HF:`hnf_${n.bank}`, HI:`chi_to_axi_lite_${hexU(n.nodeId)}`, M:'mnDev', S:`chi_to_axi_${hexU(n.nodeId)}`, P:`pip_${n.nodeId.toString(16)}`})[n.t];
+const stopName = n => n.t === 'HF' ? `HNF bank ${n.bank} port ${n.hfp}` : n.t === 'CC' ? `CC ${n.domainId} (hart ${n.domainId})` : ({RI:'RNI', HI:'HNI (default)', S:'SN mem_0', M:'MN', P:'Pipeline stop'})[n.t];
+const nlist = idxs => idxs.map(i => `${hex(RING.nodes[i].nodeId)} ${RING.nodes[i].t}`).join(', ');
+
+// ---------------------------------------------------------------- configuration numbers (all derived, see facts table)
+const MiB = 1 << 20;
+const CFG = (() => {
+  const banks = PARAMS.filter(p => p.t === 'HF' && p.hfp === 0).length;            // ZJParameters.scala:243
+  const nrC = PARAMS.filter(p => p.t === 'CC').length;
+  const cacheSizeInB = 32 * MiB, cacheWays = 16, sfWays = 16, dirBanks = 2, outstanding = 64 * 4;
+  const llcPerBank = cacheSizeInB / banks, llcSets = llcPerBank / 64 / cacheWays;
+  const sfPerBank = 2 * MiB * 2 * nrC / banks, sfSets = sfPerBank / 64 / sfWays;
+  return {banks, nrC, cacheSizeInB, cacheWays, sfWays, dirBanks, llcPerBank, llcSets, sfPerBank, sfSets,
+    nrPoS: outstanding / banks, dataBuf: 32 * outstanding / banks, dsBanks: dirBanks * 2,
+    ciName: `ZCI${new Set(PARAMS.filter(p => p.t === 'HF').map(p => p.bank)).size}X${nrC}C${nrC}P1D1M1G${cacheSizeInB / MiB}`};
+})();
+
+// ---------------------------------------------------------------- block descriptions
+// Each entry: title, sub, role (html), ifs (interfaces), cites, unv (optional note).
+const INFO = {};
+const def = (id, o) => { INFO[id] = o; };
+for (const h of [0, 1]) {
+  def(`sys.core${h}`, {title:`Core ${h} (hart ${h})`, sub:`XSTile ${h} · XSCore`, role:`One Kunminghu V3 out-of-order core: frontend with the L1 instruction cache, backend, and MemBlock with the L1 data cache and the page-table walker. XSTop instantiates one <code>XSTile</code> per entry of <code>XSTileKey</code> and gives it hart ID ${h}. XSTop uses <code>XSTile</code> directly; <code>XSTileWrap</code> is only used by <code>XSNoCTop</code>.`,
+    ifs:['L1I, L1D, PTW → L2 over TileLink', 'uncached loads/stores/fetches → L2 MMIO bridge', 'timer (TIMER), PLIC and debug interrupts from MemMisc; MSIs from the hart\'s IMSIC; NMI from an XSTop input'], cites:['topTiles','topHart','tileL1','memBlkL1','nocTopWrap','tileWrap','topInts','topMsi','topNmi']});
+  def(`sys.l1i${h}`, {title:`L1 instruction cache, hart ${h}`, sub:'64 KiB · 4-way · 64 B lines', role:'Private instruction cache. <code>ICacheParameters</code> defaults (256 sets × 4 ways × 64 B) are not overridden by <code>DefaultConfig</code>. Misses are TileLink requests into the L2 through L2Top\'s <code>l1_xbar</code>.', ifs:['TileLink client → L2 (via l1_xbar)'], cites:['icache','cfgDefault','tileL1','l1xbar']});
+  def(`sys.l1d${h}`, {title:`L1 data cache, hart ${h}`, sub:'64 KiB · 4-way · 2 memory channels', role:'Private data cache from <code>WithNKBL1D(64, ways = 4, numMemChannels = 2)</code>: 256 sets × 4 ways × 64 B. It reaches the L2 through two parallel coherent TileLink (TL-C) client ports, one per memory channel. Lines are split between the ports by PA[6], and the L2 serves port 0 from slices 0 and 2 and port 1 from slices 1 and 3. On each port the L1D acquires blocks, is probed by the L2, and releases victims.', ifs:['TL-C × 2 → L2 (Acquire/Grant, Probe/ProbeAck, Release), split by PA[6]'], cites:['cfgL1D','cfgDefault','dcPorts','l2top','tileL1']});
+  def(`sys.ptw${h}`, {title:`Page-table walker, hart ${h}`, sub:'L2 TLB / PTW', role:'The page-table walker fetches page-table entries through the L2 like any other client.', ifs:['TileLink client → L2'], cites:['tileL1']});
+  def(`sys.l2${h}`, {title:`L2 cache, hart ${h} (CoupledL2)`, sub:'2 MiB · 8-way · 4 slices · CHI RN-F', role:'Private, inclusive L2 from <code>L2CacheConfig("2MB", banks = 4)</code> (1024 sets per slice × 8 ways × 64 B × 4). It turns TileLink misses into CHI requests with <code>ExpCompAck</code>: <code>AcquireBlock NtoB</code>, <code>Get</code> and read prefetches → <code>ReadNotSharedDirty</code>; <code>AcquireBlock NtoT</code>/<code>BtoT</code> (store misses and upgrades) and write prefetches → <code>ReadUnique</code>; <code>AcquirePerm</code> (sent by the L1D only to overwrite a whole line) → <code>MakeUnique</code>. It evicts dirty lines with <code>WriteBackFull</code> and clean ones with <code>WriteEvictOrEvict</code>. It answers snoops, forwarding data directly to the requester (DCT). Its MMIO bridge sends uncached accesses as <code>ReadNoSnp</code>/<code>WriteNoSnpPtl</code>: Device-attribute ones go to the HNI, the rest (main memory marked non-cacheable) to the HNF bank that owns the address. With <code>LLC=ZhuJiang</code> the L2 uses a decoupled CHI port with DataCheck and Poison disabled.',
+    ifs:['TileLink manager ← L1I, L1D, PTW', 'CHI TXREQ/TXRSP/TXDAT → ZhuJiang CC socket', 'CHI RXRSP/RXDAT/RXSNP ← ZhuJiang'], cites:['cfgL2','l2top','l2topChi','l2ops','l2needT','l2acqBlock','l1dPerm','l2ack','l2release','l2wb','l2dct','l2dctPipe','l2mmioOps','l2mmioAttr','rnRouter','cfgLLC']});
+  def(`sys.ccn${h}`, {title:`CC ring stop ${hex(stop('cc' + h).nodeId)} (ccn_${h})`, sub:'sync socket · RnRouter', role:`XSTop connects this hart's decoupled CHI port to ZhuJiang's CC socket with <code>connectCHIToZhuJiang</code>. The socket is the synchronous (<code>"sync"</code>) kind: a power-domain crossing with no clock crossing. XiangShan's TX channels go into the ring, and the ring's RSP, DAT and SNP come back. The CC node may also eject REQ, but XSTop ties that channel's ready low.`,
+    ifs:['CHI REQ/RSP/DAT → ring', 'CHI RSP/DAT/SNP ← ring'], cites:['topConnect','bridge','bridgeTie','zjCc','socket','pdc','buildBridge']});
+}
+for (const b of [0, 1]) {
+  const p0 = RING.nodes.find(n => n.t === 'HF' && n.bank === b && n.hfp === 0), p1 = RING.nodes.find(n => n.t === 'HF' && n.bank === b && n.hfp === 1);
+  def(`sys.hnf${b}`, {title:`HNF bank ${b} (hnf_${b})`, sub:`LLC ${CFG.llcPerBank / MiB} MiB + SF · PA[12] = ${b}`, role:`One DongJiang home node inside one <code>HomeWrapper</code> instance. It owns every normal-memory line with physical address bit 12 = ${b}. It holds half of the ${CFG.cacheSizeInB / MiB} MiB LLC, a snoop filter for the two L2s, and the point of serialization for those lines. It attaches to the ring through <b>two</b> ports: ${hex(p0.nodeId)} (stop ${p0.idx}) and ${hex(p1.nodeId)} (stop ${p1.idx}).`,
+    ifs:[`port p0 ${hex(p0.nodeId)}: egress to ${nlist(p0.friends)}`, `port p1 ${hex(p1.nodeId)}: egress to ${nlist(p1.friends)}`], cites:['zjHnf','hw','zjDj','flitBank','cfgDefault']});
+}
+def('sys.ring', {title:'ZhuJiang ring (ZRING)', sub:`${RING.N} stops · REQ/RSP/DAT/HRQ × 2 directions`, role:`A bidirectional ring of ${RING.N} stops in the order of <code>dualCoreNodeParams</code>. Each stop's router forwards flits on one ring per channel in each direction. The injecting stop picks the direction by the target's position: about half of the other stops are reachable one way and half the other way. See level 2 for every stop and link.`, ifs:['4 channel rings × 2 directions per link'], cites:['topoDual','topInst','zjTop','ring','ringSide','baseRings','baseRoute','zjLR']});
+def('sys.hni', {title:`HNI ${hex(stop('hi').nodeId)} — chi_to_axi_lite`, sub:'default HNI · AxiLiteBridge · m_axi_main', role:'The home for Device-attribute requests, which is where the L2 MMIO bridge sends uncached accesses to devices. Because it is the default HNI, any Device request that no CC address window claims comes here. It converts them to AXI on ZhuJiang\'s cfg port <code>m_axi_main</code>, which XSTop buffers into the MemMisc <code>soc_xbar</code>. Uncached accesses to main memory are not Device accesses, so they go to an HNF instead. The node type allows ERQ, but the AxiLiteBridge ties that output off.', ifs:['CHI REQ/RSP/DAT ← ring; RSP/DAT → ring (ERQ tied off)','AXI4 master m_axi_main → soc_xbar (zhujiang-cfg-0)'], cites:['iowHi','nodeCompl','rnRouter','zjNames','topCfgMst','topCfg','l2mmioAttr','hniErq']});
+def('sys.sn', {title:`SN ${hex(stop('sn').nodeId)} — chi_to_axi`, sub:'AxiBridge · m_axi_mem_0 · 64 outstanding', role:'The only subordinate node. It converts the HNFs\' <code>ReadNoSnp</code> / <code>WriteNoSnp*</code> into AXI4 bursts on <code>m_axi_mem_0</code> and returns read data as <code>CompData</code>. When the HNF asks for direct memory transfer (DMT), that data goes straight to the requesting CC. It does <b>not</b> schedule DRAM, and it has no banks, refresh or timing model. It is a protocol bridge only.', ifs:['CHI ERQ + DAT ← ring; RSP + DAT → ring','AXI4 master m_axi_mem_0 (256-bit) → XSTop soc_xbar'], cites:['iowSn','sn','snR','topoMem','zjNames','topDdr','topMemMst']});
+def('sys.rni', {title:`RNI ${hex(stop('ri').nodeId)} — axi_to_chi`, sub:'Axi2Chi · s_axi_main · no master', role:'An AXI-slave DMA port that would inject I/O traffic into the coherent domain. ZhuJiang elaborates it, but XSTop assigns <code>DontCare</code> to its external AXI port. No DMA master drives it in this build, so it carries no traffic.', ifs:['AXI4 slave s_axi (tied off in XSTop)','CHI REQ/RSP/DAT → ring; RSP/DAT ← ring'], cites:['iowRi','topDma'], unv:'Traffic through RNI does not occur in XSTop because the port is tied off. RNI\'s own protocol behaviour is not described here.'});
+def('sys.mn', {title:`MN ${hex(stop('mn').nodeId)} — mnDev`, sub:'MiscDevice · ResetDevice', role:'The misc node drives the ring\'s reset-injection chain through its <code>ResetDevice</code>. XSTop disables hardware assertions (<code>HwaParams(enable = false)</code>), so the node has no DBG channel and no AXI port. It never carries CHI traffic here.', ifs:['ring reset chain','no CHI channels in this build'], cites:['mn','iowMn','topParams','nodeChans']});
+def('sys.socxbar', {title:'MemMisc soc_xbar', sub:'rocket-chip AXI4Xbar in XSTop', role:'An AXI4 crossbar in XSTop\'s <code>MemMisc</code>. It has two masters: <code>zhujiang-mem</code> (from the SN) and <code>zhujiang-cfg-0</code> (from the HNI). It routes addresses ≥ 0x8000_0000 to the memory port. The low 2 GiB goes through <code>AXI4ToTL</code> to the peripheral and on-chip device crossbars.', ifs:['AXI4 slave ← SN (m_axi_mem_0), HNI (m_axi_main)','AXI4 → memory port','AXI4→TL → peripherals'], cites:['socXbar','topMemMst','topCfgMst','socMem','socPeriph']});
+def('sys.mem', {title:'Memory port and simulated DRAM', sub:'XSTop.memory → XiangShanSim MemXbar → RAM', role:'XSTop exposes the AXI4 <code>memory</code> port. In simulation, <code>XiangShanSim</code> (which difftest wraps as <code>SimTop</code>) connects it to its own <code>MemXbar</code>, which also carries SimMMIO\'s DMAC, and then to <code>AXI4RAM</code> (default), or to <code>AXI4Memory</code> with DRAMsim3 timing when built with <code>WITH_DRAMSIM3=1</code> (<code>--with-dramsim3</code>). See level 4.', ifs:['AXI4 slave ← soc_xbar'], cites:['topMemPort','simClass','dtSimTop','simXbar','simDmac','simRam','memSlave','mkDram']});
+def('sys.periph', {title:'Peripherals', sub:'device_xbar · peripheral port · SimMMIO', role:'Reached through the HNI → <code>soc_xbar</code> → <code>AXI4ToTL</code>. On-chip devices hang off MemMisc\'s <code>device_xbar</code>: PLIC, APLIC, the per-hart IMSICs, TIMER, SYSCNT, the debug module, PMA and PLL. The rest leaves through XSTop\'s <code>peripheral</code> port to <code>SimMMIO</code>: flash at 0x1000_0000, two UARTs, SD, DMAC and the interrupt generator.', ifs:['TileLink/AXI4 ← soc_xbar'], cites:['socMisc','socDevs','topImsic','socPeriph','topPeriph','simMmio','simMmioDevs']});
+
+// NoC-level stop descriptions are generated from the ring model.
+const TYPE_ROLE = {
+  HF:'A port of a DongJiang home node. Each HNF bank has two ports (hfpId 0 and 1) on different stops. Inbound REQ/RSP/DAT from both ports are round-robin merged into the one DongJiang. Outbound RSP/DAT/SNP/ERQ leave through the port whose <em>friends</em> list contains the target.',
+  CC:'CPU-cluster request node for one XiangShan tile. Its router (<code>RnRouter</code>) rewrites each REQ\'s target. Normal memory goes to its friend port of the HNF bank that owns the address (PA[12]). Device memory goes to a CC window or to the default HNI.',
+  RI:'I/O request node (Axi2Chi). Its friend ports are the hfp0 port of each bank: in its ring-index distances both ports tie, and the first is taken. The HNFs send their responses to it from the hfp1 ports.',
+  HI:'Default I/O home node: completes Device-attribute requests and bridges them to AXI on the cfg port <code>m_axi_main</code>. Its node type permits ERQ to an SN, but the AxiLiteBridge ties that output off.',
+  S:'Subordinate node: CHI → AXI4 bridge to memory. It ejects ERQ (on the HRQ ring) and write DAT, and injects RSP and DAT (CompData, possibly straight to the requester).',
+  M:'Misc node: reset-sequence master of the ring. It has no CHI channels here.',
+  P:'Pipeline stop: a <code>BaseRouter</code> with no ICN endpoint. It only registers the ring channels passing through, so it lengthens the ring by one hop without being a CHI target.',
+};
+for (const n of RING.nodes) {
+  const inj = INJ[n.t], ej = EJ[n.t];
+  const ifs = [`node ID ${hex(n.nodeId)} = index ${n.idx} × 8`, `injects: ${inj.length ? inj.join(', ') : 'none'} · ejects: ${ej.filter(c => c !== 'HPR').length ? ej.filter(c => c !== 'HPR').join(', ') : 'none'}`,
+    `index-increasing direction reaches: ${nlist(n.right)}`, `index-decreasing direction reaches: ${nlist(n.left)}`];
+  if (n.t === 'HF') ifs.push(`egress friends (targets sent from this port): ${nlist(n.friends)}`);
+  if (['CC','RI'].includes(n.t)) ifs.push(`request friends: bank 0 → ${hex(RING.nodes[n.friends.find(i => RING.nodes[i].bank === 0)].nodeId)}, bank 1 → ${hex(RING.nodes[n.friends.find(i => RING.nodes[i].bank === 1)].nodeId)}`);
+  const cites = ['topoDual','zjRing','nodeTypes','nodeId','nodeNames','zjLR','nodeChans'];
+  if (n.t === 'HF') cites.push('zjHfFr','hwTx','hwRx');
+  if (n.t === 'CC' || n.t === 'RI') cites.push('zjRnFr','rnRouter');
+  if (n.t === 'P') cites.push('ringP','nodeRouter','basePipe');
+  if (n.t === 'HI') cites.push('iowHi','hniErq');
+  def(`noc.${n.id}`, {title:`Stop ${n.idx}: ${hex(n.nodeId)} ${n.t} — ${stopName(n)}`, sub:`${deviceName(n)} · ring index ${n.idx}`, role:TYPE_ROLE[n.t], ifs, cites,
+    unv: n.t === 'RI' ? 'Tied off in XSTop, so it carries no traffic in this build.' : n.t === 'CC' ? 'This CC may also be a REQ completer for Device requests in its 1 MiB cluster window (Node.scala:269, ZJParameters.scala:103), but XSTop ties that channel\'s ready low. Whether any Device access targets those windows is unverified.' : undefined});
+}
+for (const b of [0, 1]) {
+  const ports = RING.nodes.filter(n => n.t === 'HF' && n.bank === b);
+  def(`noc.bank${b}`, {title:`HNF bank ${b} instance — HomeWrapper hnf_${b}`, sub:`one DongJiang · ${ports.length} ring ports`, role:`One LLC bank = one <code>HomeWrapper</code> Instance containing one <code>DongJiang</code>. ZhuJiang groups the HF ring stops by <code>bankId</code> and gives each group to one instance. Stops ${ports.map(p => p.idx).join(' and ')} are two ports of this single home, not two banks.`, ifs:ports.map(p => `lan ${p.hfp}: stop ${p.idx} ${hex(p.nodeId)} — egress to ${nlist(p.friends)}`), cites:['zjHnf','hw','hwRx','hwTx']});
+}
+def('noc.l2_0', {...INFO['sys.l20'], title:'Hart 0 L2 (CHI RN-F)'});
+def('noc.l2_1', {...INFO['sys.l21'], title:'Hart 1 L2 (CHI RN-F)'});
+def('noc.axi2chi', {...INFO['sys.rni'], title:'axi_to_chi (Axi2Chi) — s_axi tied off'});
+def('noc.axilite', {...INFO['sys.hni'], title:'chi_to_axi_lite → m_axi_main (cfg)'});
+def('noc.axibridge', {...INFO['sys.sn'], title:'chi_to_axi (AxiBridge) → m_axi_mem_0'});
+def('noc.mndev', {...INFO['sys.mn'], title:'mnDev (MiscDevice / ResetDevice)'});
+
+// HNF detail blocks (bank-specific text is produced at render time).
+const hnfInfo = b => {
+  const p = [0, 1].map(h => RING.nodes.find(n => n.t === 'HF' && n.bank === b && n.hfp === h));
+  const o = {};
+  o['hnf.p0'] = {title:`Port p0 — ${hex(p[0].nodeId)} (stop ${p[0].idx})`, sub:`hfpId 0 · friends ${nlist(p[0].friends)}`, role:'The ring port facing the CPU clusters. Every snoop and every HNF-sourced response or data flit to a CC leaves here. Every request arrives here too, because each request node\'s friend in this bank is its p0 port.', ifs:[`egress: RSP, DAT, SNP to ${nlist(p[0].friends)}`, 'ingress: REQ from the CCs (and the unused RNI); RSP and DAT from the CCs (snoop responses, CompAck, write-back data)'], cites:['zjHfFr','zjRnFr','hwTx','hwRx']};
+  o['hnf.p1'] = {title:`Port p1 — ${hex(p[1].nodeId)} (stop ${p[1].idx})`, sub:`hfpId 1 · friends ${nlist(p[1].friends)}`, role:'The ring port facing the SN, RNI and MN. ERQ requests to memory (<code>ReadNoSnp</code>, <code>WriteNoSnpFull</code>) and write data to the SN leave here, as do responses to the RNI. When the HNF uses DMT, the SN addresses its <code>CompData</code> to the requester but sets <code>HomeNID</code> to the ERQ\'s source, which the ring set to this port. The requester\'s <code>CompAck</code> therefore returns here.', ifs:[`egress: ERQ, DAT, RSP to ${nlist(p[1].friends)}`, 'ingress: RSP and DAT from the SN (write responses, read data without DMT) and CompAck after DMT; no REQ in this topology'], cites:['zjHfFr','zjRnFr','hwTx','hwErq','snR','brSrc','baseSrc']};
+  o['hnf.rx'] = {title:'RX merge (HomeWrapper)', sub:'ChiBuffer per port + ResetRRArbiter per channel', role:'Each port has one <code>ChiBuffer</code> (<code>hnxPipelineDepth</code> = 0 gives depth + 1 = 1 buffer): a 2-entry queue on every channel, inbound and outbound. A round-robin arbiter per channel (REQ, RSP, DAT) then merges both ports into DongJiang\'s single LAN interface. HPR exists only with an RH node, which this build lacks. DongJiang overwrites each inbound flit\'s target with LAN, so it cannot tell which port a flit came in on.', ifs:['REQ → ChiXbar', 'RSP → Backend', 'DAT → DataBlock and Backend'], cites:['hw','chiBuf','zjDefaults','hwRx','djRx','djWire']};
+  o['hnf.tx'] = {title:'TX port select (HomeWrapper)', sub:'friends match · HomeNID/ReturnNID fix-up', role:'For every outbound flit, the target ID is compared with each port\'s friends list, and exactly one port must match (<code>HAssert</code>). ERQ targets are chosen by address among the S nodes. If an ERQ\'s <code>ReturnNID</code> is all ones (no DMT), it is replaced by the sending port\'s ID. DAT flits get <code>HomeNID</code> = the sending port. Outbound flits then pass the same per-port <code>ChiBuffer</code>.', ifs:['RSP / DAT / SNP / ERQ → p0 or p1'], cites:['hwTx','hwErq','hwDat','chiBuf']};
+  o['hnf.xbar'] = {title:'ChiXbar', sub:'dirBank = PA[6]', role:`Steers each inbound request to the frontend of its directory bank. With bank bit PA[12] removed from the address, the directory-bank bit is the lowest line-address bit, PA[6] (<code>getDirBank</code>). Outbound REQ (ERQ), SNP and RSP from the Backend and DAT from the DataBlock also pass through ChiXbar on their way to the TX select. With a single interconnect this is a pass-through that only zeroes <code>SrcID</code> (the ring router later sets it to the sending port) and inserts <code>CBusy</code>. The diagram draws those paths directly, with the label "via ChiXbar".`, ifs:['REQ in → Frontend 0/1','TX REQ/SNP/RSP/DAT out → TX select'], cites:['dj','djWire','djAddr','xbarRx','xbarTx','baseSrc']};
+  for (const f of [0, 1]) o[`hnf.fe${f}`] = {title:`Frontend ${f} (directory bank ${f})`, sub:'TaskBuffer · Decode · PoS', role:`One frontend per directory bank (<code>nrDirBank</code> = ${CFG.dirBanks}). It buffers requests, reads the LLC directory and snoop filter in parallel, and decodes the combined state. The decode table is <code>Read_LAN_DCT_DMT</code> ++ <code>Dataless_LAN</code> ++ <code>Write_LAN</code>, the only tables in the source. Its rows use DMT (memory data straight to the requester) on most misses and a forwarding snoop (DCT) when another CC holds the line. The frontend tracks each line in its point-of-serialization (PoS) table: ${CFG.nrPoS / CFG.dirBanks} entries per frontend, ${CFG.nrPoS} per HNF.`, ifs:['REQ ← ChiXbar','dir read → LLC dir + SF','commit task → Backend'], cites:['dj','djp','rdTable','rdAll','posFe','zjDj']};
+  o['hnf.llc'] = {title:'LLC directory', sub:`2 × DirectoryBase("llc") · ${CFG.cacheWays}-way · ${CFG.llcSets} sets`, role:`Tags and states (I / SC / UC / UD) of the lines this bank holds in its LLC: ${CFG.llcSets} sets per HNF, ${CFG.llcSets / CFG.dirBanks} per directory bank, ${CFG.cacheWays} ways, 64 B lines. In the read decode tables a line is never both LLC-valid and SF-present. <code>ReadNotSharedDirty</code> and <code>ReadUnique</code> hits, which are how the L2s read on a miss, invalidate the LLC copy. Evictions of a line no other L2 holds fill it, so the LLC behaves as a victim cache of the L2s. <code>StashOnceShared</code> prefetches can also fill it from memory.`, ifs:['read ← Frontend','write/replace ← Backend'], cites:['dir','djp','zjDj','rdAll','rdHit','rdStash','wbAlloc']};
+  o['hnf.sf'] = {title:'Snoop filter', sub:`2 × DirectoryBase("sf") · ${CFG.sfWays}-way · ${CFG.sfSets} sets`, role:`Records which CC nodes hold each line with this bank's PA[12]. Size: <code>clusterCacheSizeInB</code> 2 MiB × 2 × ${CFG.nrC} CC nodes ÷ ${CFG.banks} banks = ${CFG.sfPerBank / MiB} MiB of lines per HNF (${CFG.sfSets} sets × ${CFG.sfWays} ways). An SF victim is back-invalidated with <code>SnpUnique</code>.`, ifs:['read ← Frontend','write ← Backend','victim → ReplaceCM'], cites:['dir','zjDj','zjDefaults','replCM']};
+  o['hnf.be'] = {title:'Backend control machines', sub:'ReadCM · SnoopCM · WriteCM · ReplaceCM · Commit', role:'<b>ReadCM</b> sends <code>ReadNoSnp</code> to the SN. With DMT it sets <code>ReturnNID</code> to the requester. <b>SnoopCM</b> snoops CC nodes, and forwarding snoops carry <code>FwdNID</code> = requester (DCT). <b>WriteCM</b> writes to the SN. <b>ReplaceCM</b> writes dirty LLC victims to the SN with <code>WriteNoSnpFull</code>, drops clean ones, and back-invalidates SF victims with <code>SnpUnique</code>. <b>Commit</b> waits for <code>CompAck</code> when the request had <code>ExpCompAck</code>, then releases the PoS entry.', ifs:['ERQ, SNP, RSP → TX select','RSP ← RX','dir write → LLC dir / SF','data task → DataBlock'], cites:['readCM','snoopCM','replCM','replPolicy','commit','cmtWait','cmtClean','djWire']};
+  o['hnf.data'] = {title:'DataBlock and LLC data storage', sub:`${CFG.llcPerBank / MiB} MiB · ${CFG.dsBanks} DS banks · ${CFG.dataBuf / 1024} KiB buffer`, role:`Holds this bank's ${CFG.llcPerBank / MiB} MiB of LLC data in ${CFG.dsBanks} data-storage banks (<code>nrDSBank</code> = 2 × <code>hnxDirSRAMBank</code>). It also has a ${CFG.dataBuf} B data buffer (32-byte beats) for data in flight: LLC hits sent as <code>CompData</code>, snoop data, write-backs being saved, and victims going to the SN.`, ifs:['DAT ← RX (write-back / snoop data)','DAT → TX select (CompData, write data to SN)'], cites:['djp','zjDj','djWire']};
+  o['hnf.cc'] = {title:'CC nodes (via ring)', sub:`CC0 ${hex(stop('cc0').nodeId)} · CC1 ${hex(stop('cc1').nodeId)}`, role:'The two harts\' L2s. When PA[12] selects this bank they send REQ to its p0 port (their friend), and their snoop responses, CompAcks and write-back data go to p0 as well. They receive SNP, RSP and DAT from p0. After a DMT read, their CompAck goes to p1 instead, because the SN named p1 as the data\'s HomeNID.', ifs:['REQ, RSP, DAT → p0 (CompAck after DMT → p1)','SNP/RSP/DAT ← p0'], cites:['zjRnFr','zjHfFr','l2compack','snR']};
+  o['hnf.sn'] = {title:'SN, RNI, MN (via ring)', sub:`SN ${hex(stop('sn').nodeId)} · RNI ${hex(stop('ri').nodeId)} · MN ${hex(stop('mn').nodeId)}`, role:'Port p1\'s egress friends. For memory, only the SN matters here. ERQ <code>ReadNoSnp</code>/<code>WriteNoSnpFull</code>/<code>WriteNoSnpPtl</code> and write data go out to the SN. The SN\'s <code>CompData</code> goes straight to the requester when the HNF asked for DMT, and otherwise back to p1.', ifs:['ERQ, DAT → SN','RSP, DAT ← SN'], cites:['zjHfFr','hwErq','hwDat','readCM','snR','wrPtl']};
+  o['hnf.cap'] = {title:'LLC capacity split', sub:`${CFG.cacheSizeInB / MiB} MiB = ${CFG.banks} × ${CFG.llcPerBank / MiB} MiB`, role:`<code>DefaultConfig</code> sets <code>ZhuJiangConfig("32MB", ways = 16)</code>. <code>djParams</code> divides it by the number of banks, counted as HF nodes with <code>hfpId</code> 0 (${CFG.banks}), not by the ${PARAMS.filter(p => p.t === 'HF').length} HF entries. Bank = PA[12] (<code>hnxBankOff</code> = 12). Within a bank, directory bank = PA[6]. Each bank has ${CFG.llcSets} sets × ${CFG.cacheWays} ways × 64 B.`, ifs:['bank 0: PA[12] = 0','bank 1: PA[12] = 1'], cites:['cfgDefault','cfgZJ','zjDj','zjDefaults','flitBank','djAddr']};
+  return o;
+};
+
+// Memory-path blocks.
+def('mem.hfp1', {title:'HNF ports p1', sub:`${hex(stop('hf0p1').nodeId)} (bank 0) · ${hex(stop('hf1p1').nodeId)} (bank 1)`, role:'The two HNF ports whose egress friends include the SN. Every ERQ to memory leaves the HNF here: reads for lines no cache holds, dirty LLC victims, and writes of dirty or uncached data that the LLC does not keep.', ifs:['ERQ ReadNoSnp / WriteNoSnpFull / WriteNoSnpPtl → SN','DAT (write data) → SN'], cites:['zjHfFr','hwErq','readCM','replCM','replPolicy','rdDirty','wrPtl']});
+def('mem.sn', {...INFO['sys.sn'], title:`SN ring stop ${hex(stop('sn').nodeId)}`, sub:'ejects ERQ + DAT · injects RSP + DAT'});
+def('mem.axib', {title:'AxiBridge (chi_to_axi_0x38)', sub:'64 control machines · AR/AW arbiters · data buffer', role:'Each CHI request takes one of 64 control machines. The AXI ID is the machine index, 6 bits. It issues one INCR burst of 256-bit beats: a 64 B line is <code>len</code> = 1, two beats. <code>AxCACHE</code> = {0, 0, !Device, EWA}. Each R beat becomes one <code>CompData</code> with <code>TgtID</code> = <code>ReturnNID</code> (the requester under DMT), <code>HomeNID</code> = the requesting HNF port, and <code>Resp</code> = UC. Writes are answered with <code>DBIDResp</code> and <code>Comp</code>, or one combined <code>CompDBIDResp</code>. The SN does not track <code>CompAck</code>.', ifs:['CHI ← ring (ERQ, DAT)','CHI → ring (RSP, DAT)','AXI4 AR/AW/W → ; R/B ←'], cites:['sn','snCms','snAx','snR','snRsp','snOps']});
+def('mem.iow', {title:'IoWrapper iowrp_south', sub:'clock gate · 0-stage buffer chain', role:'ZhuJiang groups AXI devices by <code>wrapper</code> name. The SN\'s wrapper is <code>"south"</code>, and the RNI and HNI share <code>"east"</code>. The south wrapper clock-gates the AxiBridge with a <code>DoubleCounterClockGate</code> and passes its AXI port through an <code>AxiBufferChain</code>. The SN\'s <code>AxiDeviceParams</code> leave <code>buffers</code> at the default 0, so the chain is a plain wire. The wrapper names its port <code>m_axi_mem_mem_0</code>; ZhuJiang exposes it at the top level as <code>m_axi_mem_0</code>.', ifs:['AXI4 in ← AxiBridge','AXI4 out → ZhuJiang IO'], cites:['zjIo','iowName','iowSn','topoDual','devParams','axiChain','zjNames']});
+def('mem.port', {title:'m_axi_mem_0 — ZhuJiang boundary', sub:'AXI4 · 256-bit data · 48-bit addr · 6-bit ID', role:'The end of ZhuJiang\'s responsibility for memory. Beyond this port there is no CHI, no coherence and no LLC, only an AXI4 master that XSTop must connect to real or simulated memory. ZhuJiang exposes a list of such ports (<code>ddrIO</code>), named <code>m_axi</code> plus the node\'s <code>attr</code>, and XSTop uses the first.', ifs:['AXI4 master'], cites:['zjDrv','zjNames','topDdr','iowSn']});
+def('mem.conn', {title:'XSTop: connectZJToAXI4 → zhujiang-mem', sub:'AXI4MasterNode · IDs 0–63', role:'XSTop wires the ZhuJiang AXI bundle field by field into a rocket-chip <code>AXI4MasterNode</code> named <code>zhujiang-mem</code>, with ID range 0 to SN outstanding (64). Data width and burst fields must match exactly (<code>require</code>).', ifs:['AXI4 → soc_xbar'], cites:['bridgeAxi','topMemMst','topDdr']});
+def('mem.hni', {...INFO['sys.hni'], title:'HNI cfg master (zhujiang-cfg-0)'});
+def('mem.xbar', {...INFO['sys.socxbar']});
+def('mem.chain', {title:'Memory-port adapters', sub:'Deinterleaver(64) · UserYanker · IdIndexer(14) · 3 × AXI4Buffer', role:'The standard MemMisc path from <code>soc_xbar</code> to the memory slave node (memory encryption is off). The ID indexer limits the port to 14 ID bits, and three buffers add pipeline stages.', ifs:['AXI4 ← soc_xbar','AXI4 → XSTop.memory'], cites:['socMem']});
+def('mem.mport', {title:'XSTop.memory', sub:'AXI4 slave port · addresses ≥ 0x8000_0000', role:'XSTop\'s external memory interface. In a real SoC a DDR controller would connect here. In simulation, the <code>XiangShanSim</code> harness connects it.', ifs:['AXI4 → XiangShanSim MemXbar'], cites:['socMem','topMemPort','simClass']});
+def('mem.periph', {...INFO['sys.periph'], title:'Peripheral branch (AXI4ToTL)'});
+def('mem.simxbar', {title:'XiangShanSim MemXbar', sub:'AXI4Xbar · cpu_node + device_node', role:'The test harness\'s own memory crossbar. It has two masters: the SoC memory port and the SimMMIO DMAC (through an IOPMP). Its single slave is the simulated memory.', ifs:['AXI4 ← XSTop.memory, SimMMIO DMAC','AXI4 → RAM model'], cites:['simXbar','simRam','simDmac']});
+def('mem.dmac', {title:'SimMMIO DMAC (via IOPMP)', sub:'second MemXbar master', role:'A simulated DMA controller in <code>SimMMIO</code> that can access memory. It enters at the harness level, below ZhuJiang, so its accesses are not coherent with the L2s or the LLC.', ifs:['AXI4 → MemXbar'], cites:['simDmac','simRam']});
+def('mem.ram', {title:'AXI4RAM (default)', sub:'AXI4RAMWrapper · DifftestMem', role:'The default simulated memory. It serves AXI bursts from <code>DifftestMem</code> storage (with <code>useBlackBox = true</code>) and has no DRAM timing model. Selected when <code>UseDRAMSim</code> is false.', ifs:['AXI4 slave'], cites:['memSlave','ram','simRam']});
+def('mem.axmem', {title:'AXI4Memory (optional)', sub:'AXI4MemoryWrapper · 64 outstanding', role:'Chosen when the build uses <code>--with-dramsim3</code> (<code>WITH_DRAMSIM3=1</code>), which sets <code>UseDRAMSim</code>. It queues AR/AW and asks the C++ model for each request\'s timing through DPI-C (<code>memory_request</code> / <code>memory_response</code>). Data still comes from <code>DifftestMem</code>.', ifs:['AXI4 slave','DPI-C → DRAMsim3'], cites:['memSlave','memDpi','memHelper','argDram','mkDram']});
+def('mem.dram', {title:'DRAMsim3 timing model (C++)', sub:'ComplexCoDRAMsim3 · external DRAMSIM3_HOME', role:'A cycle-level DRAM timing model linked into the simulator, not RTL. It decides when each request completes. By default it is configured with <code>$(DRAMSIM3_HOME)/configs/XiangShan.ini</code>; the emulator\'s <code>--dramsim3-ini</code> option selects another file.', ifs:['called from AXI4Memory via DPI-C'], cites:['dramCpp','dramMk','mkDram','dramIniOpt','dramInit'], unv:'DRAMsim3 itself and its XiangShan.ini are outside this repository (DRAMSIM3_HOME), so the model\'s DRAM parameters are unverified here.'});
+
+// ---------------------------------------------------------------- connection descriptions
+// Every drawn connection matches exactly one entry: [id pattern, what it carries, references].
+const EDGE_DOC = [
+  [/^sys\.e\.c-[idp]\d$/, 'Inside the core: the frontend fetches instructions from the L1I, MemBlock serves loads and stores from the L1D, and TLB misses go to the page-table walker.', ['memBlkL1','tileL1']],
+  [/^sys\.e\.[ip]-l2\d$/, 'TileLink client port into the L2, through L2Top\'s l1_xbar.', ['tileL1','l1xbar']],
+  [/^sys\.e\.d-l2\d$/, 'The L1D\'s two coherent TileLink (TL-C) client ports into the L2, one per memory channel; PA[6] picks the port.', ['dcPorts','cfgL1D','l2top']],
+  [/^sys\.e\.mmio\d$/, 'Uncached instruction fetches and uncached loads/stores go to the L2Top MMIO ports, which feed the L2\'s MMIO bridge rather than its cache.', ['tileMmio','l2topMmio','l1xbar']],
+  [/^sys\.e\.chi\d$/, 'The L2\'s decoupled CHI port, wired to the hart\'s CC socket by connectCHIToZhuJiang.', ['tileChi','l2topChi','topConnect']],
+  [/^sys\.e\.r-ccn\d$/, 'The CC socket is attached to its CC ring stop.', ['zjCc','socket']],
+  [/^sys\.e\.r-hnf\d$/, 'Each HNF bank attaches to the ring at two HF stops (its ports p0 and p1).', ['zjHnf','hwRx']],
+  [/^sys\.e\.r-rni$/, 'The RNI bridge is attached to its RI ring stop.', ['zjIo','iowRi']],
+  [/^sys\.e\.r-hni$/, 'The HNI bridge is attached to its HI ring stop.', ['zjIo','iowHi']],
+  [/^sys\.e\.r-sn$/, 'The SN bridge is attached to its S ring stop.', ['zjIo','iowSn']],
+  [/^sys\.e\.r-mn$/, 'The misc device is attached to its M ring stop.', ['iowMn','mn']],
+  [/^sys\.e\.sn-x$/, 'ZhuJiang\'s memory port m_axi_mem_0, wrapped as the zhujiang-mem AXI master of soc_xbar.', ['topDdr','topMemMst']],
+  [/^sys\.e\.hi-x$/, 'ZhuJiang\'s cfg port m_axi_main, buffered into soc_xbar as the zhujiang-cfg-0 master.', ['topCfg','topCfgMst']],
+  [/^sys\.e\.x-m$/, 'soc_xbar → memory-port adapters → XSTop.memory → simulation harness.', ['socMem','topMemPort','simRam']],
+  [/^sys\.e\.x-p$/, 'The low address range leaves soc_xbar through AXI4ToTL toward the peripheral and device crossbars.', ['socPeriph']],
+  [/^sys\.e\.rni-x$/, 'The RNI\'s AXI slave port is assigned DontCare in XSTop: nothing drives it.', ['topDma']],
+  [/^noc\.link\d+$/, 'Two unidirectional connections between neighbouring stops, one per ring direction. Each carries one REQ, RSP, DAT and HRQ ring.', ['ring','ringSide','baseRings','topoDual']],
+  [/^noc\.lan\.hf[01]p[01]$/, 'This HF stop is one ring port of the bank\'s HomeWrapper. Its inbound flits join the RX merge; outbound flits leave here when the target is one of its friends.', ['zjHnf','hwRx','hwTx']],
+  [/^noc\.x\.l2_\d$/, 'Synchronous CHI socket between the hart\'s L2 and its CC stop.', ['topConnect','zjCc','socket']],
+  [/^noc\.x\.ri$/, 'Axi2Chi device behind the RI stop; its AXI slave port is tied off in XSTop.', ['iowRi','topDma']],
+  [/^noc\.x\.hi$/, 'AxiLiteBridge device behind the HI stop, exposing m_axi_main.', ['iowHi','zjNames']],
+  [/^noc\.x\.sn$/, 'AxiBridge device behind the S stop, exposing m_axi_mem_0.', ['iowSn','zjNames']],
+  [/^noc\.x\.mn$/, 'MiscDevice behind the M stop; it drives the reset chain.', ['iowMn','mn']],
+  [/^hnf\.e\.cc-p0$/, 'Ring hops between the CC stops and this bank\'s p0 port: REQ arrives from the CCs; SNP, RSP and DAT to the CCs leave here.', ['zjRnFr','zjHfFr','hwTx']],
+  [/^hnf\.e\.p1-sn$/, 'Ring hops between p1 and the SN (and the RNI and MN): ERQ and write data leave here. The SN sends its responses and non-DMT read data back to this port; DMT read data goes straight to the requester, whose CompAck then returns to p1.', ['zjHfFr','hwErq','snR','snRsp','l2compack']],
+  [/^hnf\.e\.p[01]-rx$/, 'Inbound REQ, RSP and DAT from this port pass one ChiBuffer, then the per-channel round-robin merge.', ['hw','chiBuf','hwRx']],
+  [/^hnf\.e\.tx-p[01]$/, 'Outbound flits whose target is a friend of this port.', ['hwTx']],
+  [/^hnf\.e\.rx-xbar$/, 'Merged REQ channel into ChiXbar.', ['hw','djWire']],
+  [/^hnf\.e\.rx-be$/, 'Merged RSP channel (CompAck, snoop responses, SN write responses) into the backend.', ['hw','djWire']],
+  [/^hnf\.e\.rx-data$/, 'Merged DAT channel (snoop data, write data, SN read data) into the DataBlock; the backend also sees each accepted beat.', ['hw','djWire']],
+  [/^hnf\.e\.xbar-fe[01]$/, 'ChiXbar steers each request to the frontend of its directory bank, PA[6].', ['dj','djWire','djAddr']],
+  [/^hnf\.e\.fe[01]-(llc|sf)$/, 'Each frontend reads the LLC directory and the snoop filter of its directory bank.', ['dj','dir']],
+  [/^hnf\.e\.fe[01]-be$/, 'Decoded tasks go to the backend\'s Commit stage, which dispatches them to the control machines and completes them.', ['djCmt','beWire']],
+  [/^hnf\.e\.dir-be$/, 'Directory writes from the backend; directory victims return to the backend for replacement.', ['djCmt','beWire','dir','replCM']],
+  [/^hnf\.e\.be-data$/, 'The backend tells the DataBlock which data to read, save or send.', ['djCmt','beWire']],
+  [/^hnf\.e\.be-tx$/, 'Outbound ERQ, SNP and RSP from the backend, through ChiXbar, to the TX port select.', ['djWire','hwTx']],
+  [/^hnf\.e\.data-tx$/, 'Outbound DAT from the DataBlock, through ChiXbar, to the TX port select.', ['djWire','hwDat']],
+  [/^mem\.e\.hf-sn$/, 'ERQ (on the HRQ ring) and write data from each bank\'s p1 port to the SN; SN responses (and read data without DMT) back.', ['hwErq','zjHfFr','baseHrq','snR','snRsp']],
+  [/^mem\.e\.sn-ax$/, 'The S stop\'s ICN connects to the AxiBridge.', ['iowSn','sn']],
+  [/^mem\.e\.ax-iow$/, 'AxiBridge AXI4 master into the south IoWrapper\'s buffer chain, which has zero stages here.', ['iowSn','devParams','axiChain']],
+  [/^mem\.e\.iow-port$/, 'The wrapper exposes the AXI port; ZhuJiang names it m_axi plus the node attribute.', ['iowSn','zjNames','zjDrv']],
+  [/^mem\.e\.port-conn$/, 'XSTop copies the ZhuJiang AXI bundle into a rocket-chip AXI4 master node.', ['topDdr','bridgeAxi']],
+  [/^mem\.e\.conn-x$/, 'zhujiang-mem is one master of soc_xbar.', ['topMemMst']],
+  [/^mem\.e\.hni-x$/, 'zhujiang-cfg-0 (from the HNI) is the other ZhuJiang master of soc_xbar.', ['topCfgMst','topCfg']],
+  [/^mem\.e\.x-chain$/, 'soc_xbar routes memory addresses to the memory-port adapters.', ['socMem']],
+  [/^mem\.e\.x-per$/, 'Low addresses go to the peripheral branch.', ['socPeriph']],
+  [/^mem\.e\.chain-mp$/, 'The adapter chain ends at XSTop\'s memory port.', ['socMem','topMemPort']],
+  [/^mem\.e\.mp-sx$/, 'XiangShanSim connects XSTop.memory to its MemXbar.', ['simXbar','simRam']],
+  [/^mem\.e\.dmac-sx$/, 'SimMMIO\'s DMAC reaches memory through an IOPMP and the MemXbar.', ['simDmac','simXbar']],
+  [/^mem\.e\.sx-ram$/, 'Default memory slave: AXI4RAM.', ['simRam','memSlave']],
+  [/^mem\.e\.sx-axm$/, 'Alternative memory slave when UseDRAMSim is set: AXI4Memory.', ['simRam','memSlave','argDram']],
+  [/^mem\.e\.axm-dram$/, 'AXI4Memory calls the C++ DRAMsim3 model through DPI-C for request timing.', ['memDpi','memHelper','dramCpp']],
+];
+const edgeDoc = id => EDGE_DOC.filter(([re]) => re.test(id));
+
+// ---------------------------------------------------------------- level geometry
+const STOP_POS = [[120,150],[300,150],[480,150],[660,150],[840,150],[928,330],[840,510],[660,510],[480,510],[300,510],[72,330]];
+const box = (id, x, y, w, h, label, sub, kind, extra = {}) => ({id, x, y, w, h, label, sub, kind, ...extra});
+const E = (id, a, b, kind, extra = {}) => ({id, a, b, kind, ...extra});
+
+function levelSys() {
+  const nodes = [], edges = [], frames = [];
+  for (const h of [0, 1]) {
+    // Tile 0 routes its uncached path down the left edge, tile 1 down the right edge.
+    const x0 = h ? 650 : 20, bx = h ? x0 + 20 : x0 + 40, lx = h ? bx + 284 : bx - 14;
+    frames.push({x:x0, y:10, w:330, h:268, label:`XSTile ${h} (hart ${h})`});
+    nodes.push(box(`sys.core${h}`, bx, 36, 270, 44, `Core ${h}`, 'frontend · backend · MemBlock', 'core'));
+    nodes.push(box(`sys.l1i${h}`, bx, 110, 80, 50, 'L1I', '64 KiB', 'l1'));
+    nodes.push(box(`sys.l1d${h}`, bx + 95, 110, 80, 50, 'L1D', '64 KiB', 'l1'));
+    nodes.push(box(`sys.ptw${h}`, bx + 190, 110, 80, 50, 'PTW', 'L2 TLB', 'l1'));
+    nodes.push(box(`sys.l2${h}`, bx, 200, 270, 56, `L2 · CoupledL2`, '2 MiB · 8-way · 4 slices', 'l2'));
+    edges.push(E(`sys.e.c-i${h}`, `sys.core${h}`, `sys.l1i${h}`, 'int'), E(`sys.e.c-d${h}`, `sys.core${h}`, `sys.l1d${h}`, 'int'), E(`sys.e.c-p${h}`, `sys.core${h}`, `sys.ptw${h}`, 'int'));
+    edges.push(E(`sys.e.i-l2${h}`, `sys.l1i${h}`, `sys.l2${h}`, 'tl'), E(`sys.e.d-l2${h}`, `sys.l1d${h}`, `sys.l2${h}`, 'tl', {label:'TL-C ×2', bi:true}), E(`sys.e.p-l2${h}`, `sys.ptw${h}`, `sys.l2${h}`, 'tl'));
+    const edge = h ? bx + 270 : bx;
+    edges.push(E(`sys.e.mmio${h}`, `sys.core${h}`, `sys.l2${h}`, 'tl', {pts:[[edge, 58], [lx, 58], [lx, 228], [edge, 228]], label:'uncache', lblAt:[lx + (h ? 12 : -12), 143], lblRot:true}));
+  }
+  frames.push({x:20, y:300, w:960, h:206, label:`ZhuJiang (${CFG.ciName})`, lx:250});
+  nodes.push(box('sys.ccn0', 40, 326, 170, 48, 'CCN 0 · 0x08', 'CC stop + sync socket', 'noc'));
+  nodes.push(box('sys.hnf0', 250, 326, 230, 48, 'HNF bank 0', 'LLC 16 MiB + SF · PA[12]=0', 'hf0'));
+  nodes.push(box('sys.hnf1', 520, 326, 230, 48, 'HNF bank 1', 'LLC 16 MiB + SF · PA[12]=1', 'hf1'));
+  nodes.push(box('sys.ccn1', 790, 326, 170, 48, 'CCN 1 · 0x18', 'CC stop + sync socket', 'noc'));
+  nodes.push(box('sys.ring', 40, 392, 920, 26, 'Bidirectional ring · 11 stops', '', 'noc', {oneLine:true}));
+  nodes.push(box('sys.rni', 40, 436, 170, 48, 'RNI · 0x20', 'axi_to_chi · unused', 'io', {unverified:true}));
+  nodes.push(box('sys.hni', 250, 436, 230, 48, 'HNI · 0x28', 'chi_to_axi_lite (MMIO)', 'io'));
+  nodes.push(box('sys.sn', 520, 436, 230, 48, 'SN · 0x38', 'chi_to_axi (memory)', 'io'));
+  nodes.push(box('sys.mn', 790, 436, 170, 48, 'MN · 0x48', 'reset sequencing', 'noc'));
+  for (const h of [0, 1]) edges.push(E(`sys.e.chi${h}`, `sys.l2${h}`, `sys.ccn${h}`, 'chi', {label:'CHI E.b', bi:true, pts: h ? [[875, 256], [875, 326]] : [[125, 256], [125, 326]], lblAt:[h ? 838 : 162, 291]}));
+  for (const [id, x] of [['ccn0',125],['hnf0',365],['hnf1',635],['ccn1',875]]) edges.push(E(`sys.e.r-${id}`, `sys.${id}`, 'sys.ring', 'attach', {pts:[[x, 374], [x, 392]], label: id.startsWith('hnf') ? '2 ports' : undefined, lblAt:[x + 28, 385]}));
+  for (const [id, x] of [['rni',125],['hni',365],['sn',635],['mn',875]]) edges.push(E(`sys.e.r-${id}`, 'sys.ring', `sys.${id}`, 'attach', {pts:[[x, 418], [x, 436]]}));
+  frames.push({x:20, y:518, w:960, h:134, label:'XSTop MemMisc + simulation harness'});
+  nodes.push(box('sys.socxbar', 250, 540, 500, 40, 'soc_xbar (AXI4Xbar)', '', 'soc', {oneLine:true}));
+  nodes.push(box('sys.periph', 40, 598, 400, 44, 'Peripherals', 'device_xbar (PLIC, timer, debug…) · SimMMIO', 'soc'));
+  nodes.push(box('sys.mem', 520, 598, 440, 44, 'Memory: MemXbar → AXI4RAM | DRAMsim3', 'XSTop.memory → XiangShanSim', 'sim'));
+  edges.push(E('sys.e.sn-x', 'sys.sn', 'sys.socxbar', 'axi', {pts:[[635, 484], [635, 540]], label:'m_axi_mem_0', lblAt:[680, 512]}));
+  edges.push(E('sys.e.hi-x', 'sys.hni', 'sys.socxbar', 'axi', {pts:[[365, 484], [365, 540]], label:'m_axi_main (cfg)', lblAt:[420, 512]}));
+  edges.push(E('sys.e.x-m', 'sys.socxbar', 'sys.mem', 'axi', {pts:[[700, 580], [700, 598]]}));
+  edges.push(E('sys.e.x-p', 'sys.socxbar', 'sys.periph', 'axi', {pts:[[300, 580], [300, 598]], label:'AXI4ToTL', lblAt:[345, 590]}));
+  edges.push(E('sys.e.rni-x', 'sys.rni', null, 'axi', {pts:[[125, 484], [125, 510]], label:'s_axi: DontCare', lblAt:[190, 494], opt:true}));
+  return {nodes, edges, frames, vb:[1000, 660], title:'System level: two harts, private caches, ZhuJiang, memory and peripherals', hint:'Solid arrows are elaborated connections. The RNI is elaborated but its AXI port is tied off in XSTop.'};
+}
+
+function levelNoc() {
+  const nodes = [], edges = [], frames = [];
+  const kindOf = n => n.t === 'HF' ? `hf${n.bank}` : ['RI','HI','S'].includes(n.t) ? 'io' : 'noc';
+  RING.nodes.forEach((n, i) => {
+    const [cx, cy] = STOP_POS[i];
+    const sub = n.t === 'HF' ? `bank ${n.bank} · port ${n.hfp}` : n.t === 'CC' ? `ccn_${n.domainId} · hart ${n.domainId}` : ({RI:'axi_to_chi', HI:'default HNI', S:'SN · mem_0', M:'mnDev', P:'pipeline stop'})[n.t];
+    nodes.push(box(`noc.${n.id}`, cx - 62, cy - 31, 124, 62, `${hex(n.nodeId)} · ${n.t}`, sub, kindOf(n), {stop:n.idx, badge:`#${n.idx}`, unverified: n.t === 'RI'}));
+  });
+  for (let i = 0; i < RING.N; i++) {
+    const j = (i + 1) % RING.N;
+    edges.push(E(`noc.link${i}`, `noc.${RING.nodes[i].id}`, `noc.${RING.nodes[j].id}`, 'ring', {lanes:true}));
+  }
+  nodes.push(box('noc.bank0', 172, 286, 256, 88, 'HNF bank 0', 'HomeWrapper hnf_0 · DongJiang', 'hf0'));
+  nodes.push(box('noc.bank1', 532, 286, 256, 88, 'HNF bank 1', 'HomeWrapper hnf_1 · DongJiang', 'hf1'));
+  for (const n of RING.nodes.filter(n => n.t === 'HF')) {
+    const [bx, by] = [n.bank ? 660 : 300, 330], [sx, sy] = STOP_POS[n.idx];
+    edges.push(E(`noc.lan.${n.id}`, `noc.bank${n.bank}`, `noc.${n.id}`, 'attach', {label:`lan ${n.hfp}`, lblAt:[bx + (sx - bx) * .66, by + (sy - by) * .66]}));
+  }
+  nodes.push(box('noc.l2_0', 215, 20, 170, 50, 'Hart 0 L2', 'CoupledL2 · CHI RN-F', 'l2'));
+  nodes.push(box('noc.l2_1', 575, 20, 170, 50, 'Hart 1 L2', 'CoupledL2 · CHI RN-F', 'l2'));
+  nodes.push(box('noc.axi2chi', 765, 20, 150, 50, 'axi_to_chi', 's_axi tied off', 'io', {unverified:true}));
+  nodes.push(box('noc.axilite', 850, 402, 140, 50, 'chi_to_axi_lite', 'm_axi_main →', 'io'));
+  nodes.push(box('noc.axibridge', 560, 590, 200, 50, 'chi_to_axi', 'AxiBridge · m_axi_mem_0 →', 'io'));
+  nodes.push(box('noc.mndev', 215, 590, 170, 50, 'mnDev', 'ResetDevice', 'noc'));
+  edges.push(E('noc.x.l2_0', 'noc.l2_0', 'noc.cc0', 'chi', {bi:true, label:'socket'}), E('noc.x.l2_1', 'noc.l2_1', 'noc.cc1', 'chi', {bi:true, label:'socket'}));
+  edges.push(E('noc.x.ri', 'noc.axi2chi', 'noc.ri', 'attach'), E('noc.x.hi', 'noc.hi', 'noc.axilite', 'attach'), E('noc.x.sn', 'noc.sn', 'noc.axibridge', 'attach'), E('noc.x.mn', 'noc.mn', 'noc.mndev', 'attach'));
+  return {nodes, edges, frames, vb:[1000, 660], title:'NoC level: the 11 ring stops of the dual-core ZhuJiang topology in ring order, the two HNF instances and their ports',
+    hint:'Stops are drawn in ring order: index increases clockwise from #0 at the top left. Each link has an outer lane (index-increasing ring, rings(0)) and an inner lane (index-decreasing ring, rings(1)). Each lane carries the REQ, RSP, DAT and HRQ rings. Four HF stops belong to only two HNF instances.'};
+}
+
+function levelHnf(b) {
+  const nodes = [], edges = [], frames = [];
+  const p = [0, 1].map(h => RING.nodes.find(n => n.t === 'HF' && n.bank === b && n.hfp === h));
+  const k = `hf${b}`;
+  frames.push({x:10, y:6, w:380, h:588, label:`HomeWrapper hnf_${b}`});
+  frames.push({x:400, y:6, w:590, h:588, label:'DongJiang'});
+  nodes.push(box('hnf.cc', 25, 32, 160, 48, 'CC0 / CC1', 'via ring', 'noc'));
+  nodes.push(box('hnf.p0', 25, 110, 160, 64, `p0 · ${hex(p[0].nodeId)}`, `stop ${p[0].idx} · to CC0, CC1`, k));
+  nodes.push(box('hnf.p1', 25, 390, 160, 64, `p1 · ${hex(p[1].nodeId)}`, `stop ${p[1].idx} · to M, RI, S`, k));
+  nodes.push(box('hnf.sn', 20, 500, 180, 48, 'SN 0x38 (RNI, MN)', 'via ring', 'io'));
+  nodes.push(box('hnf.rx', 220, 150, 150, 70, 'RX merge', 'buffer + RR arbiter', 'dj'));
+  nodes.push(box('hnf.tx', 220, 340, 150, 70, 'TX port select', 'friends match', 'dj'));
+  nodes.push(box('hnf.xbar', 420, 40, 170, 56, 'ChiXbar', 'dirBank = PA[6]', 'dj'));
+  nodes.push(box('hnf.fe0', 620, 34, 160, 66, 'Frontend 0', 'TaskBuf · Decode · PoS', 'dj'));
+  nodes.push(box('hnf.fe1', 620, 120, 160, 66, 'Frontend 1', 'TaskBuf · Decode · PoS', 'dj'));
+  nodes.push(box('hnf.llc', 810, 34, 165, 66, 'LLC directory', `${CFG.cacheWays}-way · ${CFG.llcSets} sets`, 'dj'));
+  nodes.push(box('hnf.sf', 810, 120, 165, 66, 'Snoop filter', `${CFG.sfWays}-way · ${CFG.sfSets} sets`, 'dj'));
+  nodes.push(box('hnf.be', 420, 250, 360, 74, 'Backend', 'ReadCM · SnoopCM · WriteCM · ReplaceCM · Commit', 'dj'));
+  nodes.push(box('hnf.data', 420, 372, 360, 74, 'DataBlock', `LLC data ${CFG.llcPerBank / MiB} MiB · ${CFG.dsBanks} DS banks · buffer`, 'dj'));
+  nodes.push(box('hnf.cap', 420, 470, 555, 112, `LLC ${CFG.cacheSizeInB / MiB} MiB = 2 banks × ${CFG.llcPerBank / MiB} MiB`, '', 'dj', {capBar:b}));
+  edges.push(E('hnf.e.cc-p0', 'hnf.cc', 'hnf.p0', 'chi', {bi:true, label:'ring', lblAt:[132, 95]}));
+  edges.push(E('hnf.e.p1-sn', 'hnf.p1', 'hnf.sn', 'chi', {bi:true, label:'ring', lblAt:[132, 477]}));
+  edges.push(E('hnf.e.p0-rx', 'hnf.p0', 'hnf.rx', 'int', {pts:[[185, 142], [202, 142], [202, 172], [220, 172]]}));
+  edges.push(E('hnf.e.p1-rx', 'hnf.p1', 'hnf.rx', 'int', {pts:[[185, 405], [208, 405], [208, 200], [220, 200]]}));
+  edges.push(E('hnf.e.tx-p0', 'hnf.tx', 'hnf.p0', 'int', {pts:[[220, 355], [196, 355], [196, 160], [185, 160]]}));
+  edges.push(E('hnf.e.tx-p1', 'hnf.tx', 'hnf.p1', 'int', {pts:[[240, 410], [240, 440], [185, 440]]}));
+  edges.push(E('hnf.e.rx-xbar', 'hnf.rx', 'hnf.xbar', 'int', {label:'REQ', pts:[[370, 165], [398, 165], [398, 68], [420, 68]]}));
+  edges.push(E('hnf.e.rx-be', 'hnf.rx', 'hnf.be', 'int', {label:'RSP', pts:[[370, 190], [406, 190], [406, 270], [420, 270]]}));
+  edges.push(E('hnf.e.rx-data', 'hnf.rx', 'hnf.data', 'int', {label:'DAT', pts:[[370, 208], [392, 208], [392, 392], [420, 392]]}));
+  edges.push(E('hnf.e.xbar-fe0', 'hnf.xbar', 'hnf.fe0', 'int'), E('hnf.e.xbar-fe1', 'hnf.xbar', 'hnf.fe1', 'int', {pts:[[590, 84], [600, 84], [600, 153], [620, 153]]}));
+  edges.push(E('hnf.e.fe0-llc', 'hnf.fe0', 'hnf.llc', 'int'), E('hnf.e.fe1-sf', 'hnf.fe1', 'hnf.sf', 'int'));
+  edges.push(E('hnf.e.fe0-sf', 'hnf.fe0', 'hnf.sf', 'int', {pts:[[780, 80], [795, 80], [795, 140], [810, 140]]}), E('hnf.e.fe1-llc', 'hnf.fe1', 'hnf.llc', 'int', {pts:[[780, 166], [800, 166], [800, 90], [810, 90]]}));
+  edges.push(E('hnf.e.fe0-be', 'hnf.fe0', 'hnf.be', 'int', {pts:[[620, 92], [611, 92], [611, 250]]}));
+  edges.push(E('hnf.e.fe1-be', 'hnf.fe1', 'hnf.be', 'int', {label:'commit', pts:[[700, 186], [700, 250]], lblAt:[730, 218]}));
+  edges.push(E('hnf.e.dir-be', 'hnf.sf', 'hnf.be', 'int', {label:'dir write / victim', pts:[[892, 186], [892, 287], [780, 287]], lblAt:[900, 230]}));
+  edges.push(E('hnf.e.be-data', 'hnf.be', 'hnf.data', 'int', {label:'data task', pts:[[600, 324], [600, 372]]}));
+  edges.push(E('hnf.e.be-tx', 'hnf.be', 'hnf.tx', 'int', {label:['ERQ · SNP · RSP', 'via ChiXbar'], pts:[[420, 310], [300, 310], [300, 340]], lblAt:[300, 262]}));
+  edges.push(E('hnf.e.data-tx', 'hnf.data', 'hnf.tx', 'int', {label:['DAT', 'via ChiXbar'], pts:[[420, 430], [330, 430], [330, 410]], lblAt:[315, 452]}));
+  return {nodes, edges, frames, vb:[1000, 600], title:`HNF level: bank ${b} — HomeWrapper with two ring ports around one DongJiang home`,
+    hint:`Bank ${b} owns PA[12] = ${b}. Inbound flits from both ports merge before DongJiang. Outbound flits choose a port by the target's friends: p0 serves the CC nodes, p1 serves the SN, RNI and MN.`};
+}
+
+function levelMem() {
+  const nodes = [], edges = [], frames = [];
+  frames.push({x:10, y:8, w:980, h:112, label:`ZhuJiang (${CFG.ciName}) — CHI`});
+  frames.push({x:10, y:132, w:980, h:250, label:'XSTop (MemMisc) — AXI4'});
+  frames.push({x:10, y:394, w:980, h:250, label:'XiangShanSim harness (src/test; difftest wraps it as SimTop) — simulation only'});
+  nodes.push(box('mem.hfp1', 25, 40, 150, 64, 'HNF ports p1', '0x40 · 0x30', 'hf0'));
+  nodes.push(box('mem.sn', 205, 40, 140, 64, 'SN stop 0x38', 'ERQ + DAT in', 'io'));
+  nodes.push(box('mem.axib', 375, 40, 210, 64, 'AxiBridge', '64 CMs · CHI → AXI4', 'io'));
+  nodes.push(box('mem.iow', 615, 40, 160, 64, 'iowrp_south', 'ICG · 0-stage buffer', 'io'));
+  nodes.push(box('mem.port', 805, 40, 170, 64, 'm_axi_mem_0', '256b · ZhuJiang ends', 'io'));
+  nodes.push(box('mem.conn', 805, 160, 170, 64, 'zhujiang-mem', 'connectZJToAXI4', 'soc'));
+  nodes.push(box('mem.hni', 570, 160, 200, 64, 'zhujiang-cfg-0', 'HNI m_axi_main · AXI4Buffer', 'soc'));
+  nodes.push(box('mem.xbar', 570, 270, 200, 64, 'soc_xbar', 'AXI4Xbar (MemMisc)', 'soc'));
+  nodes.push(box('mem.chain', 290, 270, 250, 64, 'Memory-port adapters', 'Deinterleave · IdIndexer(14) · 3×Buf', 'soc'));
+  nodes.push(box('mem.periph', 805, 290, 170, 64, 'AXI4ToTL', 'peripherals (< 2 GiB)', 'soc'));
+  nodes.push(box('mem.mport', 25, 270, 230, 64, 'XSTop.memory', 'AXI4 · ≥ 0x8000_0000', 'soc'));
+  nodes.push(box('mem.simxbar', 25, 440, 230, 64, 'MemXbar', 'harness AXI4Xbar', 'sim'));
+  nodes.push(box('mem.dmac', 25, 560, 230, 64, 'SimMMIO DMAC', 'via IOPMP', 'sim'));
+  nodes.push(box('mem.ram', 315, 440, 220, 64, 'AXI4RAM (default)', 'DifftestMem storage', 'sim'));
+  nodes.push(box('mem.axmem', 315, 560, 220, 64, 'AXI4Memory', '--with-dramsim3', 'sim', {opt:true}));
+  nodes.push(box('mem.dram', 600, 560, 250, 64, 'DRAMsim3 (C++)', 'timing only · DRAMSIM3_HOME', 'sim', {unverified:true}));
+  edges.push(E('mem.e.hf-sn', 'mem.hfp1', 'mem.sn', 'chi', {label:'ring', bi:true, lblAt:[190, 58]}));
+  edges.push(E('mem.e.sn-ax', 'mem.sn', 'mem.axib', 'chi', {bi:true}));
+  edges.push(E('mem.e.ax-iow', 'mem.axib', 'mem.iow', 'axi', {bi:true}));
+  edges.push(E('mem.e.iow-port', 'mem.iow', 'mem.port', 'axi', {bi:true}));
+  edges.push(E('mem.e.port-conn', 'mem.port', 'mem.conn', 'axi', {bi:true}));
+  edges.push(E('mem.e.conn-x', 'mem.conn', 'mem.xbar', 'axi', {bi:true, pts:[[890, 224], [890, 250], [740, 250], [740, 270]]}));
+  edges.push(E('mem.e.hni-x', 'mem.hni', 'mem.xbar', 'axi', {bi:true}));
+  edges.push(E('mem.e.x-chain', 'mem.xbar', 'mem.chain', 'axi', {bi:true}));
+  edges.push(E('mem.e.x-per', 'mem.xbar', 'mem.periph', 'axi', {bi:true, pts:[[770, 322], [805, 322]]}));
+  edges.push(E('mem.e.chain-mp', 'mem.chain', 'mem.mport', 'axi', {bi:true}));
+  edges.push(E('mem.e.mp-sx', 'mem.mport', 'mem.simxbar', 'axi', {bi:true}));
+  edges.push(E('mem.e.dmac-sx', 'mem.dmac', 'mem.simxbar', 'axi', {bi:true}));
+  edges.push(E('mem.e.sx-ram', 'mem.simxbar', 'mem.ram', 'axi', {bi:true, label:'default', lblAt:[285, 460]}));
+  edges.push(E('mem.e.sx-axm', 'mem.simxbar', 'mem.axmem', 'axi', {bi:true, opt:true, label:'UseDRAMSim', pts:[[255, 490], [285, 490], [285, 592], [315, 592]], lblAt:[275, 541], lblRot:true}));
+  edges.push(E('mem.e.axm-dram', 'mem.axmem', 'mem.dram', 'dpi', {bi:true, label:'DPI-C', lblAt:[567, 575]}));
+  return {nodes, edges, frames, vb:[1000, 650], title:'Memory path: SN CHI-to-AXI bridge, XSTop AXI crossbar, simulated RAM and optional DRAMsim3',
+    hint:'ZhuJiang ends at m_axi_mem_0. The SN converts CHI to AXI and is not a DDR controller. XSTop exposes an AXI4 memory port, and only the XiangShanSim harness supplies memory, with optional DRAMsim3 timing.'};
+}
+
+// ---------------------------------------------------------------- transactions
+// Ring messages are given by endpoints; their direction and hops come from route().
+const S = (level, title, text, msgs, extra = {}) => ({level, title, text, msgs, ...extra});
+const R = (ch, op, from, to, extra = {}) => ({ch, op, from, to, ring:true, ...extra});
+const P = (ch, op, path, extra = {}) => ({ch, op, path, ...extra});
+const SCEN = {
+  a: {name:'(a) L1 miss that hits in the other core', bank:0, addr:'a line with PA[12] = 0 (HNF bank 0) and PA[6] = 0 (directory bank 0), held clean by hart 1\'s L2 (SC or UC)', steps:[
+    S('sys', 'Hart 0 misses in L1D and L2', 'A load misses in hart 0\'s L1D. The L1D sends TileLink <code>AcquireBlock</code> (NtoB) to its L2. The L2 also misses, so it allocates an MSHR and issues CHI <code>ReadNotSharedDirty</code> with <code>ExpCompAck</code> through its CHI port. (A store miss would send <code>ReadUnique</code> instead, and the home would snoop the holder with <code>SnpUniqueFwd</code>, leaving it invalid; that variant is not animated.)',
+      [P('TL', 'AcquireBlock NtoB', ['sys.l1d0', 'sys.l20']), P('REQ', 'ReadNotSharedDirty', ['sys.l20', 'sys.ccn0'])], {cites:['l2ops','l2needT','l2ack','tileL1','rdUnique']}),
+    S('noc', 'REQ steered to HNF bank 0, port 0x00', `The CC stop's <code>RnRouter</code> overwrites the target. The address is normal memory with PA[12] = 0, so the target is CC0's friend in bank 0, <code>${hex(stop(rnTarget('cc0', 0)).nodeId)}</code>, the closest bank-0 port by ring index. It is one hop in the index-decreasing direction.`,
+      [R('REQ', 'ReadNotSharedDirty', 'cc0', rnTarget('cc0', 0))], {cites:['rnRouter','zjRnFr','flitBank','nodeCompl','baseRoute']}),
+    S('hnf', 'Directory: SF hit on hart 1, LLC miss', 'The flit enters through p0 and the RX merge. ChiXbar sends it to the frontend for directory bank PA[6], which reads the LLC directory and the snoop filter together. The state <code>srcMiss | othHit | llcIs(I)</code> decodes to <code>snpOne(SnpNotSharedDirtyFwd)</code>: snoop the one other holder and have it forward the data.',
+      [P('REQ', 'ReadNotSharedDirty', ['hnf.p0', 'hnf.rx', 'hnf.xbar', 'hnf.fe0']), P('INT', 'lookup', ['hnf.fe0', 'hnf.sf']), P('INT', 'snoop task', ['hnf.fe0', 'hnf.be'])], {bank:0, cites:['hwRx','djWire','dir','rdRnsd','rdSnp','rdTable']}),
+    S('noc', 'SnpNotSharedDirtyFwd to hart 1', `SnoopCM issues the snoop with <code>FwdNID</code> = hart 0 (0x08). HomeWrapper sends it from <code>${hex(stop(hnfPort(0, 'cc1')).nodeId)}</code>, the bank-0 port whose friends include CC1. It travels on the HRQ ring, index-increasing, 3 hops.`,
+      [R('SNP', 'SnpNotSharedDirtyFwd', hnfPort(0, 'cc1'), 'cc1')], {cites:['snoopCM','hwTx','zjHfFr','baseHrq','nodeLegal']}),
+    S('sys', 'Hart 1\'s L2 services the snoop', 'Hart 1\'s L2 hits. For a to-shared snoop it first probes its L1D over TileLink, but only if the L1D holds the block with write permission (TRUNK). Otherwise it answers from the L2. Because the snoop is a forwarding snoop and the line is present, the L2 prepares direct cache transfer (DCT).',
+      [P('TL', 'Probe toB (only if L1D has T)', ['sys.l21', 'sys.l1d1'], {cond:true})], {cites:['l2probe','l2dctPipe']}),
+    S('noc', 'Snoop response to the home', `Hart 1's MSHR answers first: <code>SnpRespFwded</code> with Resp SC (it keeps a shared copy) and FwdState SC (what it forwards) goes to the snoop's source, ${hex(stop(hnfPort(0, 'cc1')).nodeId)}. That is 3 hops index-decreasing.`,
+      [R('RSP', 'SnpRespFwded SC · Fwd SC', 'cc1', hnfPort(0, 'cc1'))], {cites:['l2snpResp','l2snpOp','rdSnp','nodeLegal']}),
+    S('noc', 'DCT: data straight to hart 0', `Only after that response task has been issued does the MSHR issue the forwarded data (RSP and DAT then travel on separate channels, so they may arrive in either order): <code>CompData</code> (Resp SC) with TgtID = FwdNID (hart 0), TxnID = FwdTxnID and HomeNID = the snoop's source, ${hex(stop(hnfPort(0, 'cc1')).nodeId)}. It goes 2 hops index-decreasing, straight to hart 0, bypassing the home.`,
+      [R('DAT', 'CompData (SC, DCT)', 'cc1', 'cc0', {home:hnfPort(0, 'cc1')})], {cites:['l2dct','l2dctOrder','nodeLegal']}),
+    S('noc', 'CompAck closes the read', 'Hart 0\'s L2 fills the line, grants it to the L1D, and sends <code>CompAck</code> to the <code>HomeNID</code> of the data it received, which is the bank-0 port 0x00.',
+      [R('RSP', 'CompAck', 'cc0', hnfPort(0, 'cc1'), {ack:true})], {cites:['l2compack','commit']}),
+    S('hnf', 'Home commits', 'The <code>SnpRespFwded</code> response selects <code>second(wriSRC(true))</code>: the SF now records both harts as sharers. <code>CompAck</code> reaches Commit, which frees the PoS entry. The LLC is not touched. If hart 1 had held the line dirty, it would answer <code>SnpRespDataFwded</code> (SC_PD) and the home would also write the line back to the SN with <code>WriteNoSnpFull</code>.',
+      [P('RSP', 'SnpRespFwded, CompAck', ['hnf.p0', 'hnf.rx', 'hnf.be']), P('INT', 'SF write', ['hnf.be', 'hnf.sf'])], {bank:0, cites:['rdSnp','rdDirty','l2dirtyFwd','l2snpResp','l2snpOp','commit','cmtWait','hwRx']}),
+  ]},
+  b: {name:'(b) LLC hit', bank:0, addr:'a line with PA[12] = 0 and PA[6] = 0 that no L2 holds but the bank-0 LLC does (put there by an earlier L2 write-back)', steps:[
+    S('sys', 'Hart 0 misses in L1D and L2', 'As in (a): <code>AcquireBlock</code> from the L1D, an L2 miss, and CHI <code>ReadNotSharedDirty</code>. This line got into the LLC earlier, when the only L2 holding it evicted it with <code>WriteBackFull</code> (dirty) or <code>WriteEvictOrEvict</code> (clean) and the home saved it (<code>cdop("save") | wriLLC</code>).',
+      [P('TL', 'AcquireBlock NtoB', ['sys.l1d0', 'sys.l20']), P('REQ', 'ReadNotSharedDirty', ['sys.l20', 'sys.ccn0'])], {cites:['l2ops','l2release','l2wb','wbAlloc']}),
+    S('noc', 'REQ to HNF bank 0, port 0x00', 'Same steering as (a): one hop, index-decreasing.', [R('REQ', 'ReadNotSharedDirty', 'cc0', rnTarget('cc0', 0))], {cites:['rnRouter','zjRnFr','flitBank']}),
+    S('hnf', 'Directory: SF miss, LLC hit', 'The state <code>sfMiss | llcIs(UC)</code> (or SC/UD) decodes to <code>cdop("read","send")</code>. DataBlock reads the line from LLC data storage and sends <code>CompData</code> with Resp UC (UD_PD if the LLC copy was dirty). The directory update <code>wriSRC(true) | wriLLC(I)</code> records hart 0 in the SF and <b>invalidates the LLC copy</b>.',
+      [P('REQ', 'ReadNotSharedDirty', ['hnf.p0', 'hnf.rx', 'hnf.xbar', 'hnf.fe0']), P('INT', 'LLC hit', ['hnf.fe0', 'hnf.llc']), P('DAT', 'CompData UC', ['hnf.data', 'hnf.tx', 'hnf.p0'])], {bank:0, cites:['rdHit','dir','djWire','hwDat']}),
+    S('noc', 'CompData from the home to hart 0', `HomeWrapper sends the data from <code>${hex(stop(hnfPort(0, 'cc0')).nodeId)}</code>, whose friends include CC0, and sets <code>HomeNID</code> to that port. It travels one hop, index-increasing.`,
+      [R('DAT', 'CompData (UC)', hnfPort(0, 'cc0'), 'cc0', {home:hnfPort(0, 'cc0')})], {cites:['hwTx','hwDat','zjHfFr']}),
+    S('noc', 'CompAck to HomeNID', 'Hart 0 acknowledges to the data\'s <code>HomeNID</code> (0x00).', [R('RSP', 'CompAck', 'cc0', hnfPort(0, 'cc0'), {ack:true})], {cites:['l2compack']}),
+    S('hnf', 'Home commits', 'Commit receives <code>CompAck</code> and frees the PoS entry. The line now lives only in hart 0\'s L2. It returns to the LLC when that L2 evicts it.',
+      [P('RSP', 'CompAck', ['hnf.p0', 'hnf.rx', 'hnf.be'])], {bank:0, cites:['commit','wbAlloc']}),
+  ]},
+  c: {name:'(c) LLC miss to memory', bank:1, addr:'a line with PA[12] = 1 (HNF bank 1) and PA[6] = 0 that is in no cache', steps:[
+    S('sys', 'Hart 0 misses in L1D and L2', 'CHI <code>ReadNotSharedDirty</code> leaves hart 0\'s L2.',
+      [P('TL', 'AcquireBlock NtoB', ['sys.l1d0', 'sys.l20']), P('REQ', 'ReadNotSharedDirty', ['sys.l20', 'sys.ccn0'])], {cites:['l2ops','l2ack']}),
+    S('noc', 'REQ to HNF bank 1, port 0x10', `PA[12] = 1, so the RnRouter targets CC0's bank-1 friend <code>${hex(stop(rnTarget('cc0', 1)).nodeId)}</code>, one hop index-increasing.`, [R('REQ', 'ReadNotSharedDirty', 'cc0', rnTarget('cc0', 1))], {cites:['rnRouter','zjRnFr','flitBank']}),
+    S('hnf', 'Directory: SF miss, LLC miss → ReadNoSnp with DMT', 'The state <code>sfMiss | llcIs(I)</code> decodes to <code>read(ReadNoSnp) | doDMT</code> with <code>wriSRC(true)</code>. ReadCM builds the ERQ with <code>ReturnNID</code> = hart 0\'s node, <code>ReturnTxnID</code> = hart 0\'s TxnID, <code>Order</code> = None (so the SN sends no ReadReceipt) and <code>ExpCompAck</code> = 0. Hart 0\'s own ExpCompAck only makes Commit wait for its CompAck.',
+      [P('REQ', 'ReadNotSharedDirty', ['hnf.p0', 'hnf.rx', 'hnf.xbar', 'hnf.fe0']), P('INT', 'miss', ['hnf.fe0', 'hnf.llc']), P('ERQ', 'ReadNoSnp', ['hnf.be', 'hnf.tx', 'hnf.p1'])], {bank:1, cites:['rdMiss','readCM','cmtEca','taskEca','cmtWait','snOps','hwErq']}),
+    S('noc', 'ERQ ReadNoSnp to the SN', `HomeWrapper picks the S node by address and the port whose friends contain it: <code>${hex(stop(hnfPort(1, 'sn')).nodeId)}</code> (p1). The flit rides the HRQ ring one hop to the SN. ReturnNID is not all ones, so HomeWrapper leaves it as the requester.`,
+      [R('ERQ', 'ReadNoSnp (ReturnNID = 0x08)', hnfPort(1, 'sn'), 'sn')], {cites:['hwErq','hwTx','zjHfFr','baseHrq','nodeLegal']}),
+    S('mem', 'SN issues an AXI read', 'The AxiBridge gives the request a control machine and issues <code>AR</code>: ID = machine index, one INCR burst of two 256-bit beats. It leaves ZhuJiang on <code>m_axi_mem_0</code>, crosses XSTop\'s <code>soc_xbar</code> and memory-port adapters, and reaches the harness\'s <code>MemXbar</code> and the RAM model. With <code>--with-dramsim3</code>, AXI4Memory would ask DRAMsim3 when the data is ready.',
+      [P('AXI', 'AR', ['mem.sn', 'mem.axib', 'mem.iow', 'mem.port', 'mem.conn', 'mem.xbar', 'mem.chain', 'mem.mport', 'mem.simxbar', 'mem.ram'])], {cites:['snCms','snAx','topDdr','socMem','simRam','memSlave']}),
+    S('mem', 'R data returns to the SN', 'Two R beats come back on the same path. The SN turns each into a <code>CompData</code> flit with Resp UC, <code>TgtID</code> = ReturnNID (hart 0), <code>TxnID</code> = ReturnTxnID, and <code>HomeNID</code> = the ERQ source port (0x30).',
+      [P('AXI', 'R ×2', ['mem.ram', 'mem.simxbar', 'mem.mport', 'mem.chain', 'mem.xbar', 'mem.conn', 'mem.port', 'mem.iow', 'mem.axib', 'mem.sn'])], {cites:['snR']}),
+    S('noc', 'DMT: CompData straight to hart 0', 'The data bypasses the HNF. From the SN (stop 7) hart 0 is reachable index-increasing, so the flits pass the bank-0 p1 port, the MN, the pipeline stop and the bank-0 p0 port: 5 hops.',
+      [R('DAT', 'CompData (UC, DMT)', 'sn', 'cc0', {home:hnfPort(1, 'sn')})], {cites:['snR','nodeLegal','baseRoute']}),
+    S('noc', 'CompAck to the HNF port that asked the SN', 'Hart 0 sends <code>CompAck</code> to <code>HomeNID</code> = 0x30, the bank-1 p1 port. That is 5 hops index-increasing. The SN never waits for it.',
+      [R('RSP', 'CompAck', 'cc0', hnfPort(1, 'sn'), {ack:true})], {cites:['l2compack','snOps','commit']}),
+    S('hnf', 'Home commits; LLC not filled', 'Commit receives <code>CompAck</code> through p1 and the RX merge, then frees the PoS entry. The SF already records hart 0 (<code>wriSRC(true)</code>). The line is <b>not</b> allocated in the LLC. It enters the LLC only when an L2 later writes it back.',
+      [P('RSP', 'CompAck', ['hnf.p1', 'hnf.rx', 'hnf.be'])], {bank:1, cites:['commit','rdMiss','wbAlloc']}),
+  ]},
+};
+
+// ---------------------------------------------------------------- facts and uncertainty
+const FACTS = [
+  ['Elaboration entry points', 'top.TopMain → XSTop; top.XiangShanSim → SimTop', '<code>make verilog</code> runs <code>top.TopMain</code>; <code>make sim-verilog</code>/<code>emu</code> run <code>top.XiangShanSim</code>, which instantiates <code>XSTop</code> and is wrapped by difftest\'s <code>SimTop</code>. <code>LLC=ZhuJiang</code> becomes <code>--llc ZhuJiang</code>.', ['mkTop','mkLLC','argLLC','socZJ','simClass','dtSimTop']],
+  ['Harts / CC nodes', '2 / 2', '<code>--num-cores 2</code> → two <code>XSTile</code>s; <code>dualCoreNodeParams</code> has two CC entries.', ['argCores','topoDual','topTiles']],
+  ['Ring stops', `${RING.N} (4 HF, 2 CC, RI, HI, S, M, P)`, 'Node ID = index × 8.', ['topoDual','topoApply','nodeId']],
+  ['HNF banks vs HF ports', `${CFG.banks} banks × 2 ports`, 'ZhuJiang groups HF stops by <code>bankId</code> into one HomeWrapper Instance each. Banks are counted as HF nodes with hfpId 0.', ['zjHnf','zjDj']],
+  ['Bank select', 'PA[12]', '<code>hnxBankOff = 12</code>, 1 bank bit for 2 banks (<code>hnfBankBits</code>, <code>checkBank</code>).', ['zjDefaults','zjBankBits','flitBank']],
+  ['LLC size: ZhuJiang default vs this build', '16 MiB → 32 MiB', '<code>ZJParameters</code> defaults <code>cacheSizeInB</code> to 16 MiB; <code>DefaultConfig</code> overrides it through <code>ZhuJiangConfig("32MB")</code>.', ['zjDefaults','cfgDefault','cfgZJ']],
+  ['LLC total / per bank', `${CFG.cacheSizeInB / MiB} MiB / ${CFG.llcPerBank / MiB} MiB`, `<code>ZhuJiangConfig("32MB", ways = 16)</code>; <code>llcSizeInB = cacheSizeInB / bank</code>; ${CFG.llcSets} sets × ${CFG.cacheWays} ways × 64 B per bank.`, ['cfgDefault','cfgZJ','zjDj','djp']],
+  ['Snoop filter per bank', `${CFG.sfPerBank / MiB} MiB of lines, ${CFG.sfSets} sets × ${CFG.sfWays} ways`, '2 MiB × 2 × 2 CC ÷ 2 banks.', ['zjDefaults','zjDj']],
+  ['Directory banks / DS banks per HNF', `${CFG.dirBanks} / ${CFG.dsBanks}`, '<code>hnxDirSRAMBank = 2</code>; <code>nrDSBank = 2 × hnxDirSRAMBank</code>.', ['zjDefaults','zjDj']],
+  ['PoS entries / data buffer per HNF', `${CFG.nrPoS} (${CFG.nrPoS / CFG.dirBanks} per frontend) / ${CFG.dataBuf} B`, '<code>hnxOutstanding = 256</code> ÷ 2 banks; the PoS is split across the two directory-bank frontends.', ['zjDefaults','zjDj','posFe']],
+  ['L2 per hart', '2 MiB, 8-way, 4 slices', '<code>L2CacheConfig("2MB", inclusive = true, banks = 4)</code>.', ['cfgDefault','cfgL2']],
+  ['L1D / L1I per hart', '64 KiB 4-way / 64 KiB 4-way', '<code>WithNKBL1D(64, ways = 4, numMemChannels = 2)</code>; ICache defaults 256 × 4 × 64 B.', ['cfgL1D','icache']],
+  ['SN outstanding / AXI', '64 / 256-bit data, 48-bit address, 6-bit ID', '<code>MemoryOutstanding = 64</code> gives <code>idBits = log2(64)</code>; data and address widths are ZhuJiang\'s <code>dataBits</code> and <code>requestAddrBits</code>.', ['topoMem','sn','zjData','zjAddr']],
+  ['ZhuJiang module name', CFG.ciName, '<code>ZCI{banks}X{CC}C{cores}P{RI}D{S}M{HI}G{MiB}</code>.', ['zjName']],
+];
+const UNCERTAIN = [
+  'Physical floorplan: the RTL fixes only the logical ring order, so the diagram shows that order and not placement on a die.',
+  'Latency: the page shows which links and messages are used, not cycle counts. Ring hops per flit are computed from the routing rule. Buffering, arbitration and SRAM latencies are not modelled.',
+  'Step order inside the HNF is simplified: the exact cycle at which the SF/LLC write, the data send and the CompAck wait occur is not depicted.',
+  'Snoop details in hart 1 (a): the L1D probe is conditional (L1 holds T). The page does not model the L2 MSHR state machine beyond the cited conditions.',
+  'CC nodes as REQ completers: ZhuJiang can route Device requests in a CC\'s 1 MiB cluster window to that CC, but XSTop ties the CC\'s ejected REQ ready low. Whether any access in this system targets those windows is <span class="unv">unverified</span>.',
+  'RNI traffic: the RNI is elaborated but its AXI port is tied off in XSTop, so it carries no traffic. RNI protocol behaviour is not covered.',
+  'DRAMsim3: the model and its <code>XiangShan.ini</code> live outside this repository (DRAMSIM3_HOME), so its DRAM parameters are <span class="unv">unverified</span>. Only the DPI-C hook-up is verified.',
+  'Variants: (a) with a dirty owner, (a) for a store miss (<code>ReadUnique</code> / <code>SnpUniqueFwd</code>) and (b) with a dirty LLC line are described from the decode tables but not animated.',
+  'The SrcID low bits (aid) keep the value the L2 sent. Only the router bits are rewritten at injection. The page shows router IDs only.',
+];
+
+// ---------------------------------------------------------------- rendering
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('svg');
+const gF = document.getElementById('g-frames'), gE = document.getElementById('g-edges'), gN = document.getElementById('g-nodes'), gM = document.getElementById('g-msgs');
+const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) e.setAttribute(k, v); if (parent) parent.appendChild(e); return e; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const strip = s => String(s).replace(/<[^>]+>/g, '');
+
+const state = {level:'sys', bank:0, sel:null, scn:null, step:-1, playing:false, timer:null, view:null};
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function defs() {
+  const d = document.getElementById('defs');
+  const colors = {REQ:'--req', RSP:'--rsp', DAT:'--dat', SNP:'--snp', ERQ:'--erq', TL:'--tl', AXI:'--axi', DPI:'--dpi', INT:'--int', chi:'--req', tl:'--tl', axi:'--axi', dpi:'--dpi', int:'--int', ring:'--int', attach:'--int'};
+  for (const [k, v] of Object.entries(colors)) {
+    const m = el('marker', {id:`m-${k}`, viewBox:'0 0 10 10', refX:'9', refY:'5', markerWidth:'7', markerHeight:'7', orient:'auto-start-reverse'}, d);
+    el('path', {d:'M0,0 L10,5 L0,10 z', style:`fill:var(${v})`}, m);
+  }
+}
+const center = n => [n.x + n.w / 2, n.y + n.h / 2];
+function clip(n, [px, py], [tx, ty]) {       // point where segment centre→(tx,ty) leaves box n
+  const [cx, cy] = [px, py], dx = tx - cx, dy = ty - cy;
+  const sx = dx ? (n.w / 2) / Math.abs(dx) : Infinity, sy = dy ? (n.h / 2) / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy, 1);
+  return [cx + dx * s, cy + dy * s];
+}
+function edgePoints(e, nodes) {
+  if (e.pts) return e.pts;
+  const a = nodes[e.a], b = nodes[e.b];
+  const ca = center(a), cb = center(b);
+  return [clip(a, ca, cb), clip(b, cb, ca)];
+}
+const pathD = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+function offsetPoly(pts, off) {
+  if (!off) return pts;
+  const segN = [];
+  for (let i = 0; i + 1 < pts.length; i++) { const dx = pts[i + 1][0] - pts[i][0], dy = pts[i + 1][1] - pts[i][1], L = Math.hypot(dx, dy) || 1; segN.push([dy / L, -dx / L]); }
+  return pts.map((p, i) => { const a = segN[Math.max(0, i - 1)], b = segN[Math.min(segN.length - 1, i)]; const nx = (a[0] + b[0]) / 2, ny = (a[1] + b[1]) / 2, L = Math.hypot(nx, ny) || 1; return [p[0] + nx / L * off, p[1] + ny / L * off]; });
+}
+
+function buildLevel() {
+  const L = state.level === 'sys' ? levelSys() : state.level === 'noc' ? levelNoc() : state.level === 'hnf' ? levelHnf(state.bank) : levelMem();
+  const hnfI = state.level === 'hnf' ? hnfInfo(state.bank) : {};
+  L.info = id => hnfI[id] ?? INFO[id];
+  L.byId = Object.fromEntries(L.nodes.map(n => [n.id, n]));
+  state.view = L;
+  gF.replaceChildren(); gE.replaceChildren(); gN.replaceChildren(); gM.replaceChildren();
+  svg.setAttribute('viewBox', `0 0 ${L.vb[0]} ${L.vb[1]}`);
+  svg.dataset.level = state.level;
+  document.getElementById('svg-title').textContent = L.title;
+  document.getElementById('svg-desc').textContent = L.hint;
+  document.getElementById('hint').textContent = L.hint;
+  for (const f of L.frames) { const g = el('g', {class:'frame'}, gF); el('rect', {x:f.x, y:f.y, width:f.w, height:f.h, rx:10}, g); const t = el('text', {x:f.lx ?? f.x + 10, y:f.y + 15}, g); t.textContent = f.label; }
+  for (const e of L.edges) {
+    const g = el('g', {class:`edge e-${e.kind}${e.opt ? ' opt' : ''}`, 'data-edge':e.id, 'data-a':e.a ?? '', 'data-b':e.b ?? ''}, gE);
+    if (e.lanes) {
+      const pts = edgePoints(e, L.byId);
+      for (const [off, cls] of [[8, 'cw'], [-8, 'ccw']]) {
+        const q = offsetPoly(cls === 'cw' ? pts : [...pts].reverse(), 8);
+        el('path', {d:pathD(q), class:`lane ${cls}`, 'marker-end':'url(#m-ring)'}, g);
+      }
+      continue;
+    }
+    const pts = edgePoints(e, L.byId);
+    el('path', {d:pathD(pts), 'marker-end': e.b ? `url(#m-${e.kind === 'attach' ? 'int' : e.kind})` : undefined, 'marker-start': e.bi ? `url(#m-${e.kind})` : undefined}, g);
+    if (e.label) {
+      let [lx, ly] = e.lblAt ?? (() => { const i = Math.floor((pts.length - 1) / 2); return [(pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2]; })();
+      const lines = [].concat(e.label);
+      lines.forEach((line, i) => {
+        const t = el('text', {class:'lbl', x:lx, y:ly + 4.5 + (i - (lines.length - 1) / 2) * 16, 'text-anchor':'middle', transform: e.lblRot ? `rotate(-90 ${lx} ${ly})` : undefined}, g);
+        t.textContent = line;
+      });
+    }
+  }
+  for (const n of L.nodes) {
+    const info = L.info(n.id);
+    const g = el('g', {class:`node k-${n.kind}${n.unverified || n.opt ? ' unverified' : ''}`, 'data-node':n.id, tabindex:'0', role:'button', 'aria-pressed':'false',
+      'aria-label':`${n.label}${n.sub ? '. ' + n.sub : ''}${n.unverified ? '. Unused or unverified.' : ''}`, 'data-stop': n.stop ?? undefined}, gN);
+    el('rect', {class:'ring', x:n.x - 4, y:n.y - 4, width:n.w + 8, height:n.h + 8, rx:9}, g);
+    el('rect', {class:'box', x:n.x, y:n.y, width:n.w, height:n.h, rx:7}, g);
+    if (n.capBar !== undefined) { drawCap(g, n); continue; }
+    const cx = n.x + n.w / 2;
+    const dy = n.badge ? 5 : 0;   // leave the top-left corner to the badge
+    const t1 = el('text', {class:'t1', x:cx, y: n.oneLine || !n.sub ? n.y + n.h / 2 + 5 : n.y + n.h / 2 - 3 + dy, 'text-anchor':'middle'}, g); t1.textContent = n.label;
+    if (n.sub && !n.oneLine) { const t2 = el('text', {class:'t2', x:cx, y:n.y + n.h / 2 + 14 + dy, 'text-anchor':'middle'}, g); t2.textContent = n.sub; }
+    if (n.badge) { const b = el('text', {class:'badge', x:n.x + 7, y:n.y + 15}, g); b.textContent = n.badge; }
+    if (!info) console.warn('no info', n.id);
+  }
+  if (state.level === 'noc') {
+    const t = el('text', {x:480, y:238, 'text-anchor':'middle', class:'cap', style:'font-size:13.5px;fill:var(--muted)'}, gF);
+    t.textContent = 'each link: REQ · RSP · DAT · HRQ rings, both directions';
+    const t2 = el('text', {x:480, y:430, 'text-anchor':'middle', class:'cap', style:'font-size:13.5px;fill:var(--muted)'}, gF);
+    t2.textContent = 'outer lane → index + 1 (rings(0)) · inner lane → index − 1 (rings(1))';
+  }
+  applySel();
+  if (state.scn && state.step >= 0) drawStep();
+}
+function drawCap(g, n) {
+  const x0 = n.x + 16, w = n.w - 32, y = n.y + 30, h = 26;
+  const t = el('text', {class:'t1', x:n.x + n.w / 2, y:n.y + 20, 'text-anchor':'middle'}, g); t.textContent = n.label;
+  for (const b of [0, 1]) {
+    const bx = x0 + b * w / 2;
+    el('rect', {x:bx, y, width:w / 2 - 4, height:h, rx:3, style:`fill:var(--n-hf${b});stroke:${n.capBar === b ? 'var(--accent)' : 'var(--line-strong)'};stroke-width:${n.capBar === b ? 2.5 : 1}`}, g);
+    for (const d of [0, 1]) {
+      const dt = el('text', {x:bx + (w / 2 - 4) * (d + .5) / 2, y:y + 18, 'text-anchor':'middle', style:'font-size:13px'}, g);
+      dt.textContent = `dir ${d} · PA[6]=${d}`;
+    }
+    el('line', {x1:bx + (w / 2 - 4) / 2, x2:bx + (w / 2 - 4) / 2, y1:y + 3, y2:y + h - 3, style:'stroke:var(--line-strong)'}, g);
+    const lines = [`bank ${b}: PA[12]=${b} · ${CFG.llcPerBank / MiB} MiB`, `${CFG.llcSets} sets × ${CFG.cacheWays} ways × 64 B`];
+    lines.forEach((line, i) => { const lt = el('text', {x:bx + (w / 2 - 4) / 2, y:y + h + 18 + i * 17, 'text-anchor':'middle', class:'t2'}, g); lt.textContent = line; });
+  }
+}
+
+function neighbours(id) {
+  const L = state.view, nb = new Set(), edges = new Set();
+  for (const e of L.edges) if (e.a === id || e.b === id) { edges.add(e.id); if (e.a && e.a !== id) nb.add(e.a); if (e.b && e.b !== id) nb.add(e.b); }
+  return {nb, edges};
+}
+function friendsOf(id) {
+  if (state.level !== 'noc') return [];
+  const n = RING.nodes.find(r => `noc.${r.id}` === id);
+  return n ? n.friends.map(i => `noc.${RING.nodes[i].id}`) : [];
+}
+function applySel() {
+  const id = state.sel && state.view.byId[state.sel] ? state.sel : null;
+  svg.classList.toggle('has-sel', !!id);
+  const {nb, edges} = id ? neighbours(id) : {nb:new Set(), edges:new Set()};
+  const fr = new Set(id ? friendsOf(id) : []);
+  for (const g of gN.children) { const nid = g.dataset.node; g.classList.toggle('sel', nid === id); g.classList.toggle('nb', nb.has(nid)); g.classList.toggle('friend', fr.has(nid)); g.setAttribute('aria-pressed', String(nid === id)); }
+  for (const g of gE.children) g.classList.toggle('hl', edges.has(g.dataset.edge));
+  renderDetail(id);
+}
+function citeHtml(k) {
+  const c = CITES[k];
+  if (!c) return `<li>missing reference ${esc(k)}</li>`;
+  return `<li><a href="#cite-${k}">${esc(k)}</a> <a class="srcpath" href="${srcHref(k)}"><code>${esc(citePath(k))}</code></a></li>`;
+}
+const refLinks = ks => ks.map(k => `<a href="#cite-${k}">${esc(k)}</a>`).join(' · ');
+function connections(id) {
+  const L = state.view;
+  return L.edges.filter(e => e.a === id || e.b === id).map(e => {
+    const other = e.a === id ? e.b : e.a, arrow = e.bi ? '↔' : e.a === id ? '→' : '←';
+    const [, what, cites] = edgeDoc(e.id)[0];
+    const name = other ? (L.byId[other].label) : 'nothing (tied off)';
+    const tag = e.label ? ` <span class="meta">(${esc([].concat(e.label).join(' '))})</span>` : '';
+    return `<li data-conn="${e.id}"><b>${arrow} ${esc(name)}</b>${tag}: ${esc(what)} <span class="meta">${refLinks(cites)}</span></li>`;
+  });
+}
+function renderDetail(id) {
+  const h = document.getElementById('detail-h'), body = document.getElementById('detail-body');
+  if (!id) { h.textContent = 'Select a block'; body.innerHTML = '<p class="meta">Details, interfaces and source lines appear here.</p>'; return; }
+  const info = state.view.info(id);
+  if (!info) { h.textContent = id; body.innerHTML = ''; return; }
+  h.innerHTML = esc(info.title) + (info.unv ? '<span class="unvtag">unverified</span>' : '');
+  const fr = friendsOf(id);
+  body.innerHTML = `<div class="sub">${esc(info.sub ?? '')}</div><p>${info.role}</p>` +
+    (info.ifs?.length ? `<h4>Interfaces</h4><ul>${info.ifs.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '') +
+    (fr.length ? `<p class="meta">Dashed outline: this stop's friends.</p>` : '') +
+    `<h4>Connections (highlighted)</h4><ul class="conns">${connections(id).join('')}</ul>` +
+    (info.unv ? `<h4>Unverified</h4><p class="unv" style="font-weight:400">${esc(info.unv)}</p>` : '') +
+    `<h4>Source</h4><ul class="cites">${(info.cites ?? []).map(citeHtml).join('')}</ul>`;
+}
+
+// ---------------------------------------------------------------- level switching
+const tabs = [...document.querySelectorAll('#levels [role=tab]')];
+function setLevel(level, {focus = false, keepSel = false} = {}) {
+  state.level = level;
+  if (!keepSel) state.sel = null;
+  for (const t of tabs) { const on = t.dataset.level === level; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; if (on && focus) t.focus(); }
+  document.getElementById('view').setAttribute('aria-labelledby', `tab-${level}`);
+  document.getElementById('bankopt').hidden = level !== 'hnf';
+  buildLevel();
+}
+function setBank(b) {
+  state.bank = b;
+  for (const x of document.querySelectorAll('[data-bank]')) x.setAttribute('aria-pressed', String(+x.dataset.bank === b));
+  if (state.level === 'hnf') buildLevel();
+}
+tabs.forEach((t, i) => {
+  t.addEventListener('click', () => { stopPlay(); setLevel(t.dataset.level); });
+  t.addEventListener('keydown', ev => {
+    let j = null;
+    if (ev.key === 'ArrowRight') j = (i + 1) % tabs.length; else if (ev.key === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
+    else if (ev.key === 'Home') j = 0; else if (ev.key === 'End') j = tabs.length - 1;
+    if (j !== null) { ev.preventDefault(); stopPlay(); setLevel(tabs[j].dataset.level, {focus:true}); }
+  });
+});
+for (const x of document.querySelectorAll('[data-bank]')) x.addEventListener('click', () => setBank(+x.dataset.bank));
+
+function select(id) { state.sel = state.sel === id ? null : id; applySel(); }
+gN.addEventListener('click', ev => { const g = ev.target.closest('[data-node]'); if (g) { select(g.dataset.node); g.focus({preventScroll:true}); } });
+gN.addEventListener('keydown', ev => {
+  const g = ev.target.closest('[data-node]'); if (!g) return;
+  if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(g.dataset.node); }
+  else if (ev.key === 'Escape') { state.sel = null; applySel(); }
+  else if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft' || ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    const fwd = ev.key === 'ArrowRight' || ev.key === 'ArrowDown';
+    let list = [...gN.children];
+    if (state.level === 'noc' && g.dataset.stop !== undefined) list = list.filter(x => x.dataset.stop !== undefined).sort((a, b) => a.dataset.stop - b.dataset.stop);
+    const i = list.indexOf(g), nx = list[(i + (fwd ? 1 : -1) + list.length) % list.length];
+    nx.focus();
+  }
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && state.sel) { state.sel = null; applySel(); } });
+
+// ---------------------------------------------------------------- transactions
+const scnBox = document.getElementById('scn');
+for (const [k, s] of Object.entries(SCEN)) {
+  const b = document.createElement('button'); b.className = 'btn'; b.type = 'button'; b.dataset.scn = k; b.setAttribute('aria-pressed', 'false'); b.textContent = s.name;
+  b.addEventListener('click', () => startScenario(k)); scnBox.appendChild(b);
+}
+function msgRoute(m) {
+  if (m.ring) { const r = route(m.from, m.to); return {...r, nodes:r.path.map(i => `noc.${RING.nodes[i].id}`)}; }
+  return {nodes:m.path};
+}
+function startScenario(k) {
+  stopPlay();
+  state.scn = k; state.step = 0;
+  for (const b of scnBox.children) b.setAttribute('aria-pressed', String(b.dataset.scn === k));
+  const ol = document.getElementById('tx-steps'); ol.replaceChildren();
+  SCEN[k].steps.forEach((s, i) => { const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button'; b.textContent = s.title; b.dataset.step = i; b.addEventListener('click', () => goStep(i)); li.appendChild(b); ol.appendChild(li); });
+  goStep(0);
+}
+function goStep(i) {
+  const sc = SCEN[state.scn]; if (!sc) return;
+  state.step = Math.max(0, Math.min(sc.steps.length - 1, i));
+  const st = sc.steps[state.step];
+  state.sel = null;
+  if (st.level === 'hnf' || st.bank !== undefined) setBank(st.bank ?? sc.bank);
+  setLevel(st.level);
+  renderStepText();
+}
+function stepNodes(st) { const s = new Set(); for (const m of st.msgs) for (const n of msgRoute(m).nodes) s.add(n); return s; }
+function drawStep() {
+  gM.replaceChildren();
+  const sc = SCEN[state.scn], st = sc?.steps[state.step];
+  svg.classList.toggle('in-step', !!st);
+  if (!st || st.level !== state.level) return;
+  const act = stepNodes(st);
+  for (const g of gN.children) g.classList.toggle('act', act.has(g.dataset.node));
+  const L = state.view;
+  // Message labels go at the first point along their path where they cover no block text and no other label.
+  const ctm = svg.getScreenCTM(), user = r => ({x:(r.left - ctm.e) / ctm.a, y:(r.top - ctm.f) / ctm.d, width:r.width / ctm.a, height:r.height / ctm.d});
+  const taken = [...gN.querySelectorAll('text'), ...gE.querySelectorAll('text'), ...gF.querySelectorAll('text')].map(t => user(t.getBoundingClientRect()));   // rotated labels included
+  const free = r => taken.every(q => r.x + r.width < q.x - 2 || q.x + q.width < r.x - 2 || r.y + r.height < q.y - 1 || q.y + q.height < r.y - 1);
+  st.msgs.forEach((m, mi) => {
+    const r = msgRoute(m);
+    let pts;
+    if (m.ring) pts = offsetPoly(r.path.map(i => STOP_POS[i]), 34 + mi * 10);   // outer side for index+1, inner for index-1
+    else {
+      pts = [];
+      for (let k = 0; k + 1 < r.nodes.length; k++) {
+        const a = r.nodes[k], b = r.nodes[k + 1];
+        const e = L.edges.find(e => (e.a === a && e.b === b) || (e.a === b && e.b === a));
+        let seg = e ? edgePoints(e, L.byId) : [center(L.byId[a]), center(L.byId[b])];
+        if (e && e.a === b) seg = [...seg].reverse();
+        if (e?.lanes) seg = [center(L.byId[a]), center(L.byId[b])];
+        pts.push(...seg);
+      }
+      pts = offsetPoly(pts, (mi - (st.msgs.length - 1) / 2) * 7);
+    }
+    const g = el('g', {class:`msg ch-${m.ch}`, 'data-msg':mi}, gM);
+    const d = pathD(pts);
+    const p = el('path', {class:'m', d, 'marker-end':`url(#m-${m.ch})`}, g);
+    const len = p.getTotalLength(); p.style.setProperty('--len', len.toFixed(0));
+    if (!reduceMotion()) { const c = el('circle', {r:6}, g); el('animateMotion', {dur:`${Math.max(1.2, len / 260).toFixed(2)}s`, repeatCount:'indefinite', path:d}, c); }
+    const label = `${m.ch === 'INT' ? '' : m.ch + ' '}${m.op}`;
+    const lg = el('g', {}, g);
+    const t = el('text', {class:'ml', 'text-anchor':'middle'}, lg); t.textContent = label;
+    const tw = t.getComputedTextLength() + 14, th = 20;
+    const base = (mi + 1) / (st.msgs.length + 1);
+    const tries = [0, .08, -.08, .16, -.16, .24, -.24, .32, -.32, .4, -.4].map(d => base + d).filter(f => f > .04 && f < .96);
+    let mid = p.getPointAtLength(len * base);
+    search: for (const shift of [0, -18, 18, -34, 34, -56, 56, -84, 84, -112, 112, -140, 140, -170, 170]) for (const f of tries) {
+      const q = p.getPointAtLength(len * f), q2 = p.getPointAtLength(Math.min(len, len * f + 1)), q1 = p.getPointAtLength(Math.max(0, len * f - 1));
+      const dx = q2.x - q1.x, dy = q2.y - q1.y, n = Math.hypot(dx, dy) || 1, c = {x:q.x + dy / n * shift, y:q.y - dx / n * shift};
+      if (free({x:c.x - tw / 2, y:c.y - th / 2, width:tw, height:th})) { mid = c; break search; }
+    }
+    taken.push({x:mid.x - tw / 2, y:mid.y - th / 2, width:tw, height:th});
+    lg.insertBefore(el('rect', {class:'mlbg', x:mid.x - tw / 2, y:mid.y - th / 2, width:tw, height:th, rx:4}), t);
+    t.setAttribute('x', mid.x); t.setAttribute('y', mid.y + 4.5);
+  });
+}
+function renderStepText() {
+  const sc = SCEN[state.scn], st = sc.steps[state.step];
+  document.getElementById('tx-count').textContent = `Step ${state.step + 1} of ${sc.steps.length}`;
+  const chips = st.msgs.map(m => {
+    const r = msgRoute(m);
+    const where = m.ring ? `${hex(stop(m.from).nodeId)} → ${hex(stop(m.to).nodeId)} · ${r.hops} hop${r.hops > 1 ? 's' : ''} · index ${r.dir === 'cw' ? '+1' : '−1'} ring` : r.nodes.map(n => (state.view.byId[n]?.label ?? n)).join(' → ');
+    return `<div class="chip ch-${m.ch}"><b>${esc(m.ch)}</b><span>${esc(m.op)}${m.cond ? ' <i>(conditional)</i>' : ''} <span class="meta">${esc(where)}</span></span></div>`;
+  }).join('');
+  document.getElementById('tx-text').innerHTML = `<div class="stitle">${esc(st.title)}</div><p class="meta" style="margin:0 0 4px">${esc(sc.addr)}</p><div class="msgs">${chips}</div><p>${st.text}</p><ul class="cites">${(st.cites ?? []).map(citeHtml).join('')}</ul>`;
+  for (const b of document.querySelectorAll('#tx-steps button')) { if (+b.dataset.step === state.step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); }
+  document.getElementById('tx-prev').disabled = state.step === 0;
+  document.getElementById('tx-next').disabled = state.step === sc.steps.length - 1;
+}
+function exitScenario() {
+  stopPlay(); state.scn = null; state.step = -1;
+  for (const b of scnBox.children) b.setAttribute('aria-pressed', 'false');
+  document.getElementById('tx-steps').replaceChildren();
+  document.getElementById('tx-count').textContent = 'No scenario';
+  document.getElementById('tx-text').innerHTML = '<p class="meta">Pick a scenario to step through its request, snoop, data and response flits.</p>';
+  gM.replaceChildren(); svg.classList.remove('in-step'); for (const g of gN.children) g.classList.remove('act');
+}
+function stopPlay() { state.playing = false; clearInterval(state.timer); const b = document.getElementById('tx-play'); b.setAttribute('aria-pressed', 'false'); b.textContent = 'Play'; }
+document.getElementById('tx-prev').addEventListener('click', () => { stopPlay(); goStep(state.step - 1); });
+document.getElementById('tx-next').addEventListener('click', () => { stopPlay(); if (!state.scn) startScenario('a'); else goStep(state.step + 1); });
+document.getElementById('tx-exit').addEventListener('click', exitScenario);
+document.getElementById('tx-play').addEventListener('click', () => {
+  if (state.playing) { stopPlay(); return; }
+  if (!state.scn) startScenario('a');
+  state.playing = true; const b = document.getElementById('tx-play'); b.setAttribute('aria-pressed', 'true'); b.textContent = 'Pause';
+  state.timer = setInterval(() => { const sc = SCEN[state.scn]; if (state.step >= sc.steps.length - 1) stopPlay(); else goStep(state.step + 1); }, 3200);
+});
+
+// ---------------------------------------------------------------- static sections
+document.getElementById('pin-xs').textContent = PIN.xs.slice(0, 12);
+document.getElementById('pin-xsc').textContent = PIN.xsc.slice(0, 12);
+document.getElementById('pin-zj').textContent = PIN.zj.slice(0, 12);
+document.getElementById('pin-dt').textContent = PIN.dt.slice(0, 12);
+document.querySelector('#facts-table tbody').innerHTML = FACTS.map(([a, b, c, cs]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td><td>${c} <span class="meta">${cs.map(k => `<a href="#cite-${k}">${k}</a>`).join(' · ')}</span></td></tr>`).join('');
+document.getElementById('uncertain-list').innerHTML = UNCERTAIN.map(u => `<li>${u}</li>`).join('');
+document.querySelector('#cite-table tbody').innerHTML = Object.keys(CITES).map(k => `<tr id="cite-${k}"><td><code>${k}</code></td><td><a class="srcpath" href="${srcHref(k)}"><code>${esc(citePath(k))}</code></a><br><span class="meta">sha256 ${CITES[k].h.slice(0, 12)}…</span></td><td><code>${esc(CITES[k].x)}</code></td></tr>`).join('');
+// Audit: every drawn block and connection of every level with its references.
+const LEVELS = [['sys', 'Level 1 · System', levelSys()], ['noc', 'Level 2 · NoC ring', levelNoc()], ['hnf0', 'Level 3 · HNF bank 0', levelHnf(0)], ['hnf1', 'Level 3 · HNF bank 1', levelHnf(1)], ['mem', 'Level 4 · Memory path', levelMem()]];
+document.getElementById('audit-body').innerHTML = LEVELS.map(([k, title, L]) => {
+  const inf = k.startsWith('hnf') ? hnfInfo(+k[3]) : INFO, by = Object.fromEntries(L.nodes.map(n => [n.id, n]));
+  const blocks = L.nodes.map(n => `<tr data-audit-node="${n.id}"><td>${esc(inf[n.id].title)}</td><td>${refLinks(inf[n.id].cites)}</td></tr>`).join('');
+  const conns = L.edges.map(e => { const [, what, cites] = edgeDoc(e.id)[0]; return `<tr data-audit-edge="${e.id}"><td>${esc(by[e.a].label)} ${e.bi ? '↔' : '→'} ${e.b ? esc(by[e.b].label) : '(tied off)'}</td><td>${esc(what)} <span class="meta">${refLinks(cites)}</span></td></tr>`; }).join('');
+  return `<details><summary>${title}: ${L.nodes.length} blocks, ${L.edges.length} connections</summary><div class="tablewrap"><table><thead><tr><th>Block</th><th>References</th></tr></thead><tbody>${blocks}</tbody></table></div><div class="tablewrap"><table><thead><tr><th>Connection</th><th>What it carries and references</th></tr></thead><tbody>${conns}</tbody></table></div></details>`;
+}).join('');
+
+// ---------------------------------------------------------------- self-test (checks depicted routes against the ported source rules)
+function selfTests() {
+  const out = [], ok = (c, m) => out.push((c ? 'ok   ' : 'FAIL ') + m);
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const F = id => stop(id).friends.map(i => RING.nodes[i].nodeId);
+  ok(RING.N === 11, 'ring has 11 stops');
+  ok(eq(RING.nodes.map(n => n.t), ['HF','CC','HF','CC','RI','HI','HF','S','HF','M','P']), 'stop order matches dualCoreNodeParams');
+  ok(eq(RING.nodes.map(n => n.nodeId), [0,8,16,24,32,40,48,56,64,72,80]), 'node IDs are index << 3');
+  ok(eq(F('hf0p0'), [0x08, 0x18]) && eq(F('hf0p1'), [0x48, 0x20, 0x38]), 'bank 0 port friends');
+  ok(eq(F('hf1p0'), [0x18, 0x08]) && eq(F('hf1p1'), [0x38, 0x48, 0x20]), 'bank 1 port friends');
+  ok(eq(F('cc0'), [0x00, 0x10]) && eq(F('cc1'), [0x00, 0x10]) && eq(F('ri'), [0x00, 0x10]), 'RN friends are the hfp0 ports');
+  ok(RING.nodes.every(n => n.right.length === 5 && n.left.length === 5), 'each stop reaches 5 stops per direction');
+  ok(CFG.banks === 2 && CFG.llcPerBank === 16 * MiB && CFG.llcSets === 16384 && CFG.sfSets === 4096, 'LLC/SF geometry');
+  ok(CFG.ciName === 'ZCI2X2C2P1D1M1G32', 'ZhuJiang module name');
+  for (const [k, , L] of LEVELS) {
+    const ids = new Set(L.nodes.map(n => n.id)); const inf = k.startsWith('hnf') ? hnfInfo(+k[3]) : INFO;
+    ok(L.nodes.every(n => inf[n.id] && inf[n.id].cites?.length), `${k}: every block has a description and a source`);
+    ok(L.edges.every(e => ids.has(e.a) && (e.b === null || ids.has(e.b))), `${k}: every edge joins drawn blocks`);
+    const undoc = L.edges.filter(e => edgeDoc(e.id).length !== 1 || !edgeDoc(e.id)[0][2].every(c => CITES[c])).map(e => e.id);
+    ok(undoc.length === 0, `${k}: every connection has exactly one description with valid references ${undoc.join(' ')}`);
+    ok(L.nodes.every(n => n.x >= 0 && n.y >= 0 && n.x + n.w <= L.vb[0] && n.y + n.h <= L.vb[1]), `${k}: blocks inside the view`);
+    let overlap = 0; for (let i = 0; i < L.nodes.length; i++) for (let j = i + 1; j < L.nodes.length; j++) { const a = L.nodes[i], b = L.nodes[j]; if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) overlap++; }
+    ok(overlap === 0, `${k}: no overlapping blocks`);
+  }
+  const allCites = new Set([...EDGE_DOC.flatMap(d => d[2]), ...Object.values(INFO).flatMap(i => i.cites ?? []), ...Object.values(hnfInfo(0)).flatMap(i => i.cites ?? []), ...Object.values(SCEN).flatMap(s => s.steps.flatMap(t => t.cites ?? [])), ...FACTS.flatMap(f => f[3])]);
+  ok([...allCites].every(k => CITES[k]), 'every reference id exists');
+  const unused = Object.keys(CITES).filter(k => !allCites.has(k));
+  ok(unused.length === 0, `every citation is used ${unused.join(' ')}`);
+  for (const [k, sc] of Object.entries(SCEN)) {
+    let lastHome = null;
+    const views = {sys:levelSys(), noc:levelNoc(), hnf:levelHnf(sc.bank), mem:levelMem()};
+    sc.steps.forEach((st, si) => {
+      for (const m of st.msgs) {
+        const tag = `${k}${si + 1} ${m.ch} ${m.op}`;
+        if (m.ring) {
+          const a = stop(m.from), b = stop(m.to);
+          ok(INJ[a.t].includes(m.ch) && EJ[b.t].includes(m.ch), `${tag}: ${a.t} injects and ${b.t} ejects ${m.ch}`);
+          ok((LEGAL[a.t]?.[m.ch] ?? []).includes(b.t), `${tag}: legal target type (getLegalTgtSeq)`);
+          if (a.t === 'HF') ok(a.bank === sc.bank && a.friends.includes(b.idx), `${tag}: sent from the bank ${sc.bank} port whose friends contain the target`);
+          if (m.ch === 'REQ') ok(m.to === rnTarget(m.from, sc.bank), `${tag}: RnRouter target for PA[12] = ${sc.bank}`);
+          if (b.t === 'HF') ok(b.bank === sc.bank, `${tag}: arrives at the owning bank`);
+          if (m.home) { lastHome = m.home; ok(stop(m.home).t === 'HF' && stop(m.home).bank === sc.bank, `${tag}: HomeNID is a bank ${sc.bank} port`); }
+          if (m.ack) ok(m.to === lastHome, `${tag}: CompAck goes to the data's HomeNID`);
+          const r = route(m.from, m.to); ok(r.hops >= 1 && r.hops <= 5, `${tag}: ${r.hops} hops ${r.dir}`);
+        } else {
+          const L = views[st.level], ids = new Set(L.nodes.map(n => n.id));
+          ok(m.path.every(n => ids.has(n)), `${tag}: path blocks exist on level ${st.level}`);
+          ok(m.path.every((n, i) => i === 0 || L.edges.some(e => (e.a === m.path[i - 1] && e.b === n) || (e.b === m.path[i - 1] && e.a === n))), `${tag}: path follows drawn connections`);
+        }
+      }
+    });
+  }
+  const fails = out.filter(l => l.startsWith('FAIL')).length;
+  out.unshift(fails ? `selftest: ${fails} FAILED` : 'selftest: all passed');
+  return {fails, lines:out};
+}
+
+// ---------------------------------------------------------------- theme and boot
+const root = document.documentElement;
+try { const t = localStorage.getItem('xzj-theme'); if (t) root.dataset.theme = t; } catch {}
+document.getElementById('theme').addEventListener('click', () => {
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('xzj-theme', root.dataset.theme); } catch {}
+});
+defs();
+setLevel('sys');
+const st = selfTests();
+document.getElementById('selftest').textContent = st.lines.join('\n');
+// Test and automation hooks.
+window.XZ = {
+  RING, CITES, PIN, PARAMS, CFG, SCEN, INFO, route, rnTarget, hnfPort, selfTests, setLevel, setBank, select, startScenario, goStep, exitScenario,
+  state: () => {
+    const sc = state.scn ? SCEN[state.scn] : null, stp = sc?.steps[state.step];
+    return {level:state.level, bank:state.bank, sel:state.sel, scn:state.scn, step:state.step, steps:sc?.steps.length ?? 0,
+      stepLevel:stp?.level ?? null, msgs:(stp?.msgs ?? []).map(m => { const r = msgRoute(m); return m.ring ? {ch:m.ch, op:m.op, from:hex(stop(m.from).nodeId), to:hex(stop(m.to).nodeId), hops:r.hops, dir:r.dir, path:r.path} : {ch:m.ch, op:m.op, path:m.path}; }),
+      drawnMsgs:gM.children.length, act:[...gN.querySelectorAll('.act')].map(g => g.dataset.node),
+      nodes:[...gN.children].map(g => g.dataset.node), edges:[...gE.children].map(g => g.dataset.edge)};
+  },
+};
+window.ready = true;
+})();
+</script>
+</body>
+</html>

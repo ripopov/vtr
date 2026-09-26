@@ -216,6 +216,7 @@ requirement for embedded chat.
 
 | Need | Document |
 |---|---|
+| Dual-core Kunminghu V3 / ZhuJiang architecture: four-level diagram with source-derived ring routes, HNF internals and guided CHI transactions | [Interactive diagram](docs/xiangshan-zhujiang-dualcore.html), [headless test](docs/tests/xiangshan-zhujiang-dualcore.test.mjs) |
 | Repository boundaries, layout, and integration status | [Architecture](docs/ARCHITECTURE.md), [integrations](integrations/README.md) |
 | Normative file format | [Specification](docs/SPEC.md) |
 | Rust and C APIs | [Rust API](docs/API_RUST.md), [C header](core/vtr-capi/include/vtr.h) |

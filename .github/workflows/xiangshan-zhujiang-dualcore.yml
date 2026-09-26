@@ -1,0 +1,52 @@
+name: XiangShan ZhuJiang dual-core diagram
+on:
+  push:
+    paths:
+      - 'docs/xiangshan-zhujiang-dualcore.html'
+      - 'docs/tests/xiangshan-zhujiang-dualcore.test.mjs'
+      - 'volna/volna/tools/browser-test.mjs'
+      - 'ext/XiangShan'
+      - '.github/workflows/xiangshan-zhujiang-dualcore.yml'
+  pull_request:
+    paths:
+      - 'docs/xiangshan-zhujiang-dualcore.html'
+      - 'docs/tests/xiangshan-zhujiang-dualcore.test.mjs'
+      - 'volna/volna/tools/browser-test.mjs'
+      - 'ext/XiangShan'
+      - '.github/workflows/xiangshan-zhujiang-dualcore.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagram:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      # The source test re-reads and hashes every cited line range at the pinned
+      # commits, so it needs XiangShan with its XSCache, ZhuJiang and difftest sources.
+      - name: Check out the pinned XiangShan sources
+        run: |
+          git submodule update --init --depth 1 ext/XiangShan
+          git -C ext/XiangShan submodule update --init --depth 1 XSCache difftest
+          git -C ext/XiangShan/XSCache submodule update --init --depth 1 ZhuJiang
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Verify the headless browser prerequisite
+        env:
+          VOLNA_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: '"$VOLNA_CHROME" --version'
+      - name: Test the diagram
+        env:
+          VOLNA_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: node --test --test-concurrency=1 docs/tests/xiangshan-zhujiang-dualcore.test.mjs
