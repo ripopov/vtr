@@ -195,8 +195,10 @@ impl NavState {
         self.zoom_target_at(doc, anchor_x, width_px, factor, now);
     }
 
-    pub fn zoom_fit(&mut self, doc: &mut Document, now: Instant) {
-        self.animate_to(doc, Viewport::fit(doc.limits()), now);
+    /// The whole trace with a `margin_px` margin in a `width_px` wide area.
+    pub fn zoom_fit(&mut self, doc: &mut Document, width_px: f64, margin_px: f64, now: Instant) {
+        let target = Viewport::fit_px(doc.limits(), width_px, margin_px);
+        self.animate_to(doc, target, now);
     }
 
     pub fn zoom_to_cursor(&mut self, doc: &mut Document, now: Instant) {

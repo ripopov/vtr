@@ -227,6 +227,9 @@ struct PipelinePanel {
     )]
     cursor: Option<Box<RawValue>>,
     rows: RowView,
+    /// The two-axis zoom's row cap, when a rows-only zoom raised it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    row_cap: Option<f32>,
     label_width: f32,
     #[serde(default, skip_serializing_if = "ClockView::is_default")]
     clocks: ClockView,
@@ -385,6 +388,8 @@ impl Workspace {
                                     .then(|| serde_json::value::to_raw_value(&p.nav.local_cursor))
                                     .transpose()?,
                                 rows: p.rows.target(),
+                                row_cap: (p.row_cap != crate::pipeline::zoom::ROW_PX_CAP)
+                                    .then_some(p.row_cap),
                                 label_width: p.label_width,
                                 clocks: p.nav.clocks.clone(),
                             })?)
@@ -647,6 +652,13 @@ impl Workspace {
                     "invalid pipeline rows"
                 );
                 ensure!(
+                    saved.row_cap.is_none_or(|cap| {
+                        (crate::pipeline::zoom::ROW_PX_CAP..=crate::pipeline::rows::ROW_PX_MAX)
+                            .contains(&cap)
+                    }),
+                    "invalid pipeline row cap"
+                );
+                ensure!(
                     saved.label_width.is_finite()
                         && (crate::pipeline::layout::LABEL_W_MIN
                             ..=crate::pipeline::layout::LABEL_W_MAX)
@@ -683,6 +695,7 @@ impl Workspace {
                         serde_json::from_str(c.get()).context("invalid local cursor")?;
                 }
                 p.rows.set(saved.rows);
+                p.row_cap = saved.row_cap.unwrap_or(crate::pipeline::zoom::ROW_PX_CAP);
                 p.label_width = saved.label_width;
                 panels.push(Panel {
                     id: saved.id,

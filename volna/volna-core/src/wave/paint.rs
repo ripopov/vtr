@@ -113,6 +113,9 @@ pub fn paint(
     // -- tick grid in the waves area ---------------------------------------
     let (tick_list, unit) = column.ticks(base, t.zoom);
     overlay::grid(&mut p, &column, &tick_list);
+    if doc.is_loaded() {
+        overlay::outside_time(&mut p, &column, doc.limits());
+    }
 
     // -- rows ----------------------------------------------------------------
     // Text sits on a row's first line (`row_h`); tall rows give the waveform

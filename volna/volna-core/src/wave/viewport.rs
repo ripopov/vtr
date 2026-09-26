@@ -10,6 +10,9 @@ pub type ViewportState = Tween<Viewport>;
 const EDGE_SPACE: f64 = 0.2;
 /// Narrowest window, in time units.
 const MIN_WIDTH: f64 = 0.25;
+/// Space Zoom Fit leaves on each side of the trace, in design pixels, so
+/// the shade outside it shows that the whole trace is on screen.
+pub const FIT_MARGIN_PX: f64 = 12.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Viewport {
@@ -22,6 +25,22 @@ impl Viewport {
         let (a, b) = (range.0 as f64, range.1 as f64);
         let end = if b > a { b } else { a + 1.0 };
         Viewport { start: a, end }
+    }
+
+    /// The trace with `margin_px` on each side of a `width_px` wide area;
+    /// the exact [`Viewport::fit`] when the margins would exceed the edge
+    /// space [`Viewport::clamp`] allows.
+    pub fn fit_px(range: (u64, u64), width_px: f64, margin_px: f64) -> Self {
+        let fit = Self::fit(range);
+        let inner = width_px - 2.0 * margin_px;
+        if !(margin_px > 0.0 && inner * (1.0 + 2.0 * EDGE_SPACE) >= width_px) {
+            return fit;
+        }
+        let pad = fit.width() * margin_px / inner;
+        Viewport {
+            start: fit.start - pad,
+            end: fit.end + pad,
+        }
     }
 
     pub fn width(&self) -> f64 {
@@ -154,6 +173,17 @@ mod tests {
         };
         v.clamp((0, 1000));
         assert!((v.width() - MIN_WIDTH).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_px_leaves_the_margin_in_pixels() {
+        let v = Viewport::fit_px((0, 1000), 1024.0, 12.0);
+        assert!((v.x_of(0.0, 1024.0) - 12.0).abs() < 1e-9);
+        assert!((v.x_of(1000.0, 1024.0) - 1012.0).abs() < 1e-9);
+        assert_eq!(
+            Viewport::fit_px((0, 1000), 30.0, 12.0),
+            Viewport::fit((0, 1000))
+        );
     }
 
     #[test]

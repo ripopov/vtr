@@ -34,6 +34,7 @@ struct PipelineStamp {
     viewport: Option<Viewport>,
     cursor: Option<u64>,
     rows: RowView,
+    row_cap: f32,
     label_width: f32,
 }
 #[derive(PartialEq)]
@@ -178,6 +179,7 @@ impl Stamp {
                     p.nav.local_cursor
                 },
                 rows: p.rows.target(),
+                row_cap: p.row_cap,
                 label_width: p.label_width,
             }),
         })

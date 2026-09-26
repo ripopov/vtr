@@ -232,6 +232,6 @@ mod tests {
         assert!(dense.row_range.len() / dense.row_step <= 300 / 2 + 1);
         let few = layout(1.0, 20.0, 5);
         assert_eq!(few.row_range, 0..5);
-        assert!(few.rows.top < 0.0, "over-scroll space before the first row");
+        assert_eq!(few.rows.top, 0.0, "rows that fit start at the top edge");
     }
 }

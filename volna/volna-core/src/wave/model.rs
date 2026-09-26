@@ -1605,7 +1605,8 @@ impl WaveModel {
     }
 
     pub fn zoom_fit(&mut self, doc: &mut Document, now: Instant) {
-        self.nav.zoom_fit(doc, now);
+        let margin = super::viewport::FIT_MARGIN_PX * f64::from(self.layout.zoom.max(f32::EPSILON));
+        self.nav.zoom_fit(doc, self.wave_w(), margin, now);
     }
 
     pub fn zoom_to_cursor(&mut self, doc: &mut Document, now: Instant) {

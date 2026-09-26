@@ -181,7 +181,20 @@ fn viewer_interactions() {
     h.key(&mut app, Key::F, Modifiers::NONE);
     std::thread::sleep(std::time::Duration::from_millis(200));
     h.settle(&mut app, 4);
-    assert_eq!(viewport(&before_zoom), viewport(&app.app.debug_state()));
+    // Fit shows the whole trace with a 12 px margin on each side.
+    let waves = app.app.panels.focused_waves().unwrap();
+    let fit_layout = waves.last_layout();
+    let expected = volna_core::wave::viewport::Viewport::fit_px(
+        app.app.doc.limits(),
+        f64::from(fit_layout.waves.width()),
+        12.0 * f64::from(fit_layout.zoom),
+    );
+    let fitted = waves.viewport(&app.app.doc);
+    let eps = expected.width() * 1e-9;
+    assert!(
+        (fitted.start - expected.start).abs() < eps && (fitted.end - expected.end).abs() < eps,
+        "{fitted:?} vs {expected:?}"
+    );
 
     // Drag the sidebar sash and the names divider.
     // The panel's resize handle sits on the sidebar side of the edge.

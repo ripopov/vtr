@@ -407,8 +407,9 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 ],
             );
             shot(&mut test, "pipeline-two-cores")?;
-            // Wheel zoom about a point in the focused (cpu1) panel, then a
-            // click sets the shared cursor to an integer cycle.
+            // ⌘+wheel zooms both axes about a point in the focused (cpu1)
+            // panel (rows stop at 24 px), then a click sets the shared cursor
+            // to an integer cycle.
             let cells = test.update(|cx| {
                 let app = &workspace.read(cx).app;
                 app.panels
@@ -429,7 +430,10 @@ fn run(measure: bool) -> anyhow::Result<()> {
                         gpui_kit::PlatformInput::ScrollWheel(gpui_kit::ScrollWheelEvent {
                             position: p,
                             delta: gpui_kit::ScrollDelta::Lines(gpui_kit::Point::new(0.0, 3.0)),
-                            modifiers: Modifiers::default(),
+                            modifiers: Modifiers {
+                                platform: true,
+                                ..Modifiers::default()
+                            },
                             touch_phase: gpui_kit::TouchPhase::Moved,
                         }),
                         cx,
@@ -442,7 +446,8 @@ fn run(measure: bool) -> anyhow::Result<()> {
             test.update(|cx| {
                 let app = &workspace.read(cx).app;
                 let p = app.panels.focused().kind.pipeline().unwrap();
-                assert!(p.rows.value.row_px > 18.0, "{}", app.debug_state());
+                let row_px = p.rows.value.row_px;
+                assert!(row_px > 18.0 && row_px <= 24.0, "{}", app.debug_state());
                 assert!(app.doc.shared.cursor.is_some(), "{}", app.debug_state());
                 assert!(app.status().cursor.unwrap().ends_with("cycle"));
             });
@@ -686,12 +691,24 @@ fn run(measure: bool) -> anyhow::Result<()> {
         expect(&mut test, "menu dismissed", &["menu=false"]);
         key(&mut test, "f");
         settle(&mut test, 12);
-        let fitted = state(&mut test, "fit");
-        assert_eq!(
-            viewport(&before_zoom),
-            viewport(&fitted),
-            "fit must restore full trace range"
-        );
+        // Fit shows the whole trace with a 12 px margin on each side.
+        test.update(|cx| {
+            let app = &workspace.read(cx).app;
+            let waves = app.panels.focused_waves().unwrap();
+            let layout = waves.last_layout();
+            let expected = volna_core::wave::viewport::Viewport::fit_px(
+                app.doc.limits(),
+                f64::from(layout.waves.width()),
+                12.0 * f64::from(layout.zoom),
+            );
+            let fitted = waves.viewport(&app.doc);
+            let eps = expected.width() * 1e-9;
+            assert!(
+                (fitted.start - expected.start).abs() < eps
+                    && (fitted.end - expected.end).abs() < eps,
+                "fit must show the whole trace with margins: {fitted:?} vs {expected:?}"
+            );
+        });
         // Dock geometry and keyboard actions use the production adapter.
         let single_bounds = test.update(|cx| {
             workspace

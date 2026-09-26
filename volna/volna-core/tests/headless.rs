@@ -11,7 +11,6 @@ use volna_core::data::{
 };
 use volna_core::document::TraceState;
 use volna_core::geometry::{Modifiers, MouseButton, Rect, point};
-use volna_core::nav::Lerp;
 use volna_core::panels::PanelsCommand;
 use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
@@ -828,15 +827,25 @@ fn zoom_pan_and_fit_are_deterministic_with_an_explicit_clock() {
             .width()
             > dragged.width()
     );
+    // Fit leaves a 12 px margin on each side, so the shade outside the
+    // trace shows that all of it is on screen.
     app.handle_at(Command::Action(Action::ZoomFit), t0);
     app.tick(t0 + Duration::from_secs(1));
+    let fitted = app.panels.focused_waves().unwrap().viewport(&app.doc);
+    let width = f64::from(layout.waves.width());
     assert!(
-        app.panels
-            .focused_waves()
-            .unwrap()
-            .viewport(&app.doc)
-            .approx_eq(&full)
+        (fitted.x_of(full.start, width) - 12.0).abs() < 1e-6,
+        "{fitted:?}"
     );
+    assert!((fitted.x_of(full.end, width) - (width - 12.0)).abs() < 1e-6);
+    let scene = app.render_panel(app.panels.focused_id(), &theme, &mut MonoMeasure);
+    let shades = scene
+        .quads()
+        .filter(|(_, color)| *color == theme.wave_outside)
+        .map(|(rect, _)| rect.width())
+        .collect::<Vec<_>>();
+    assert_eq!(shades.len(), 2, "{shades:?}");
+    assert!(shades.iter().all(|w| (w - 12.0).abs() < 1.0));
     let status = app.status();
     assert!(status.px_per.as_deref().unwrap().starts_with("1 px = "));
 }

@@ -296,6 +296,39 @@ pub fn grid(p: &mut TextPainter<'_>, column: &TimeColumn, tick_list: &[Tick]) {
     });
 }
 
+/// Shade the time column's area before the trace starts and after it ends,
+/// where panning and zooming reach but no data exists. Returns the area's
+/// x range inside the trace (empty when none of it is).
+pub fn outside_time(
+    p: &mut TextPainter<'_>,
+    column: &TimeColumn,
+    limits: (u64, u64),
+) -> std::ops::Range<f32> {
+    let area = column.area;
+    let to_x = |t: u64| {
+        let x = area.left() as f64 + column.viewport.x_of(t as f64, column.width_f64());
+        x.clamp(f64::from(area.left()), f64::from(area.right())) as f32
+    };
+    let (start, end) = (to_x(limits.0), to_x(limits.1));
+    let color = p.theme.wave_outside;
+    if start > area.left() {
+        p.scene.fill(
+            Rect::new(area.origin, size(start - area.left(), area.height())),
+            color,
+        );
+    }
+    if end < area.right() {
+        p.scene.fill(
+            Rect::new(
+                point(end, area.top()),
+                size(area.right() - end, area.height()),
+            ),
+            color,
+        );
+    }
+    start..end.max(start)
+}
+
 /// Tick stubs, labels and the unit in the header cell of the time column.
 pub fn header_ticks(p: &mut TextPainter<'_>, column: &TimeColumn, tick_list: &[Tick], unit: &str) {
     let t = p.theme;

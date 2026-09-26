@@ -2031,6 +2031,9 @@ impl App {
                 Action::ClearSelection => p.escape(doc),
                 Action::MoveSelectionUp => p.move_selection(doc, panel, -1, now),
                 Action::MoveSelectionDown => p.move_selection(doc, panel, 1, now),
+                Action::IncreaseRowHeight => p.step_row_height(doc, 1, now),
+                Action::DecreaseRowHeight => p.step_row_height(doc, -1, now),
+                Action::ResetRowHeight => p.reset_row_height(doc, now),
                 Action::NextEdge
                 | Action::PrevEdge
                 | Action::RemoveSelected
@@ -2040,9 +2043,6 @@ impl App {
                 | Action::SelectAll
                 | Action::CycleFormat
                 | Action::ToggleAnalog
-                | Action::IncreaseRowHeight
-                | Action::DecreaseRowHeight
-                | Action::ResetRowHeight
                 | Action::GroupSelection
                 | Action::Ungroup
                 | Action::RenameGroup

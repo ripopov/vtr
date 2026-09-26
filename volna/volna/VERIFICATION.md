@@ -41,7 +41,7 @@ node --test volna/volna/tools/table-clipboard.test.mjs
 | FST input | Plain/gzip fixtures, raw bytes, reals, nine-state values, aliases, EVCD payloads, event occurrences, unavailable samples and explicit unsupported metadata errors |
 | FST/VTR parity | Values at every change timestamp in the committed Verilator features, operators and pipeline recordings |
 | Transactions | Unsupported versus empty capabilities, typed attributes and phases, events, stages, parents, inclusive overlap boundaries, filtering, early stopping and cross-stream relations |
-| Pipeline panel | Enter on a stream or generator opens a panel without a notice and queues one track load; a second panel on a resident track queues nothing; one quad per visible primary-lane stage and one band per overlay; unmodified zoom about the pointer keeps the time and row under it at interface zoom 1 and 2; Ctrl/Cmd-wheel zooms time only and preserves rows and activity following; linked wheel zoom moves the wave panel, unlinked does not; trackpad deltas pan; a click sets the shared cursor to the integer cycle and the wave value column follows; density steps bound painted rows by pixels; flushed and open rows differ by colour; workspace round trip, unresolved tracks and invalid saved rows; closing the last panel releases the track and a late delivery is ignored; failed loads retry; the checked-in showcase opens both cores |
+| Pipeline panel | Enter on a stream or generator opens a panel without a notice and queues one track load; a second panel on a resident track queues nothing; one quad per visible primary-lane stage and one band per overlay; Ctrl/Cmd-wheel and pinch zoom about the pointer, keeping the time and row under it at interface zoom 1 and 2; zooming out ends at the whole trace and every row with 12 px shaded margins, every notch before the end halves at least one axis, and zooming back in retraces the same scales, rows first; zooming in stops at 24 px rows and 120 px cycles; Alt-wheel zooms rows only up to 48 px and raises the cap, and the Row Height actions step and reset rows; Ctrl/Cmd-wheel over the time header zooms time only and preserves rows and activity following; Zoom Fit shrinks only rows that do not fit; linked zoom moves the wave panel, unlinked does not; plain wheel (wheel or trackpad, cells or labels) scrolls rows and Shift or sideways wheel pans time; a click sets the shared cursor to the integer cycle and the wave value column follows; density steps bound painted rows by pixels; flushed and open rows differ by colour; workspace round trip (including a raised row cap), unresolved tracks and invalid saved rows; closing the last panel releases the track and a late delivery is ignored; failed loads retry; the checked-in showcase opens both cores |
 | Analog waves | Translator numeric readings, limits and label values; reals open as linear 3× plots; `A` toggles the plottable selection and restores 1×; format-menu Draw and Range sections and the signal-menu toggle; trace, window and type ranges with window easing; zoomed-out columns keep a one-sample glitch and X breaks the line; exact samples with dots and the cursor dot; hover readouts of samples and dense columns; row-edge resizing to presets; version-3 workspace rows; summaries built on the worker, charged to the budget, waited for zoomed out, and released with the plot; summary queries against scans at every block boundary |
 | Transaction lanes | Add to Waves on generators only; one shared resident generator with pipelines, released with the last lane; default heights from stacking depth (capped at 4×); bar hits on the right sub-row, snapping to record ends, empty-space clearing and Show Transaction; edge steps through every begin and end; cut/paste across panels, Height menu, `+N` fold chip and hatching; typed workspace rows with unresolved generators; captions, value column, red failures and the density strip; stacking, boundaries and density bins against scans |
 | Baseline table panel | Generator and fixed-signal sources; shared raw ownership and native/remote admission; distinct merged timestamps and one-signal zero-axis path; bounded 256-row preparation; exact `u64` navigation and scrollbar endpoints; fixed columns; stable selection/cursor linking; details limits and cancellation; 64 KiB complete TSV; visible-row accessibility; loading/cancel/retry/refusal; versioned workspace restore at row one; browser clipboard rejection with selectable TSV and Retry |
@@ -199,7 +199,8 @@ examples README; its stream counts in the declared clock and a click feeds
 the Transaction panel). The
 macOS harness (`cargo test -p volna --features visual-test --test viewer`) opens
 that trace, activates both `pipeline` streams from the sidebar, asserts two
-ready panels of more than 500 rows, wheel-zooms about a point, clicks to set
+ready panels of more than 500 rows, ⌘-wheel-zooms about a point (rows stop at
+24 px), clicks to set
 the cursor and saves `pipeline-two-cores` and `pipeline-zoomed-cursor`. Inspect
 them for: the cycle axis and `cycle` unit in every panel, stage cells in the
 pipeline-order ladder colours (hues by each name's mean position in a row;
@@ -213,11 +214,13 @@ In each frontend (native, standalone web, VS Code), open the showcase: the
 start panel lists the trace extent, `0 variables`, its transaction tracks and
 both PIPELINE streams as buttons. Double click `soc.cpu0.pipeline` (or press
 its button): the pipeline panel takes the start panel's place and no waveform
-panel appears. Then: wheel over the cells (both axes zoom about the
-pointer, the wave panel follows; in a browser every wheel is a precise scroll,
-so hold Ctrl/⌘ to zoom time only), two-finger scroll (both axes pan), Shift+wheel
-(time only), left drag (pans; a short press sets the cursor), `↑ ↓`, `= -`,
-`F`, `L` then wheel again (the wave panel stays), `M`, drag the label divider,
+panel appears. Then: wheel (rows scroll), Ctrl/⌘+wheel or pinch over the
+cells (both axes zoom about the pointer until rows are 24 px, then time only;
+out to the whole trace and every row inside a shaded frame; the wave panel
+follows), Ctrl/⌘+wheel over the time header (time only), Alt+wheel (rows
+only), two-finger scroll (both axes pan), Shift+wheel (time only), left drag
+(pans; a short press sets the cursor), `↑ ↓`, `= -`, `F`, `L` then zoom again
+(the wave panel stays), `M`, drag the label divider,
 split the panel (`⌘\`, the copy shows the same track without a new load),
 close panels (closing the last one brings the start panel back; `⌘W` on it
 closes the trace), and restore a saved workspace with a pipeline panel. Rows

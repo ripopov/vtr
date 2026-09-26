@@ -87,8 +87,28 @@ pub fn paint(
     let (tick_list, unit) = column.ticks(base, t.zoom);
     overlay::grid(&mut p, &column, &tick_list);
 
-    // -- rows --------------------------------------------------------------------
+    // -- outside the trace: before and after its time, above and below its rows
     let rows = model.rows(doc);
+    if let Rows::Ready(set) = &rows
+        && doc.is_loaded()
+    {
+        let inside = overlay::outside_time(&mut p, &column, doc.limits());
+        let first = layout.row_y(0).clamp(cells.top(), cells.bottom());
+        let last = layout.row_y(set.len()).clamp(cells.top(), cells.bottom());
+        let width = inside.end - inside.start;
+        if width > 0.0 {
+            for (top, bottom) in [(cells.top(), first), (last, cells.bottom())] {
+                if bottom > top {
+                    p.scene.fill(
+                        Rect::new(point(inside.start, top), size(width, bottom - top)),
+                        t.wave_outside,
+                    );
+                }
+            }
+        }
+    }
+
+    // -- rows --------------------------------------------------------------------
     let hover_row = match model.hover {
         Some(Hit::Row(row) | Hit::Cell { row, .. }) => Some(row),
         _ => None,

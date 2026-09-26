@@ -7,8 +7,10 @@ use crate::nav::Lerp;
 
 /// Fraction of the visible rows the view may scroll past either end.
 const EDGE_SPACE: f64 = 0.2;
-/// Row height limits in design pixels (interface zoom 1.0).
-pub const ROW_PX_MIN: f32 = 0.5;
+/// Row height limits in design pixels (interface zoom 1.0). The floor only
+/// guards against degenerate values: zooming out stops where every row
+/// fits (see `super::zoom`), which for a million rows is far below a pixel.
+pub const ROW_PX_MIN: f32 = 1e-6;
 pub const ROW_PX_MAX: f32 = 48.0;
 /// Row height a new panel opens with, in design pixels.
 pub const ROW_PX_DEFAULT: f32 = 18.0;
@@ -78,6 +80,8 @@ impl RowView {
 
     /// Keep the window over the rows plus 20 % edge space, and the row
     /// height within its design-pixel limits at interface zoom `zoom`.
+    /// Rows that fit in the area may sit anywhere from the top edge down to
+    /// that edge space.
     pub fn clamp(&mut self, height: f32, rows: usize, zoom: f32) {
         if !self.row_px.is_finite() {
             self.row_px = ROW_PX_DEFAULT * zoom;
@@ -85,7 +89,7 @@ impl RowView {
         self.row_px = self.row_px.clamp(ROW_PX_MIN * zoom, ROW_PX_MAX * zoom);
         let visible = f64::from((height / self.row_px).max(1.0));
         let lo = -visible * EDGE_SPACE;
-        let hi = (rows as f64 - visible * (1.0 - EDGE_SPACE)).max(lo);
+        let hi = (rows as f64 - visible * (1.0 - EDGE_SPACE)).max(0.0);
         if !self.top.is_finite() {
             self.top = 0.0;
         }
@@ -122,9 +126,10 @@ mod tests {
         assert!((v.row_at(100.0) - before).abs() < 1e-9);
         v.zoom_about(0.0, 1000.0, 400.0, 1000, 1.0);
         assert_eq!(v.row_px, ROW_PX_MAX);
-        v.zoom_about(0.0, 1e-6, 400.0, 1000, 1.0);
+        v.zoom_about(0.0, 1e-12, 400.0, 1000, 1.0);
         assert_eq!(v.row_px, ROW_PX_MIN);
         // Limits are design pixels: at interface zoom 2 they double.
+        v.row_px = 20.0;
         v.zoom_about(0.0, 1000.0, 400.0, 1000, 2.0);
         assert_eq!(v.row_px, ROW_PX_MAX * 2.0);
     }
@@ -140,7 +145,10 @@ mod tests {
         v.top = 1e9;
         v.clamp(400.0, 100, 1.0);
         assert_eq!(v.top, 100.0 - 16.0);
-        // Fewer rows than fit: the only position is the top.
+        // Fewer rows than fit: from the top edge down to the edge space.
+        v.clamp(400.0, 5, 1.0);
+        assert_eq!(v.top, 0.0);
+        v.top = -1000.0;
         v.clamp(400.0, 5, 1.0);
         assert_eq!(v.top, -4.0);
         v.pan_px(40.0, 400.0, 100, 1.0);

@@ -9,6 +9,7 @@ pub mod model;
 pub mod paint;
 pub mod palette;
 pub mod rows;
+pub mod zoom;
 
 pub use layout::PipelineLayout;
 pub use model::{Hit, PipelineModel, Rows, TrackSource};

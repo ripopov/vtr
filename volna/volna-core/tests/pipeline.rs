@@ -527,6 +527,15 @@ fn zoom_about_the_pointer_keeps_time_and_row_at_both_interface_zooms() {
         let (mut app, _, _, pipeline) = opened(200);
         pump(&mut app);
         let theme = Theme::one_dark().zoomed(zoom);
+        // Rows short enough to double without reaching the 24 px cap.
+        app.panels
+            .pipeline_mut(pipeline)
+            .unwrap()
+            .rows
+            .set(RowView {
+                top: 0.0,
+                row_px: 8.0,
+            });
         let cells = cells(&mut app, pipeline, &theme);
         frame(&mut app, pipeline, &theme);
         let pointer = point(cells.left() + cells.width() * 0.3, cells.top() + 137.0);
@@ -539,22 +548,21 @@ fn zoom_about_the_pointer_keeps_time_and_row_at_both_interface_zooms() {
                 l.rows.row_px,
             )
         };
-        let now = Instant::now();
-        app.handle_at(
-            Command::Pointer(
-                pipeline,
-                PointerEvent::Wheel {
-                    position: pointer,
-                    dx: 0.0,
-                    dy: 100.0,
-                    modifiers: Modifiers::default(),
-                    precise: false,
+        // Ctrl/Cmd+wheel over the cells walks the two-axis zoom, immediately.
+        app.handle(Command::Pointer(
+            pipeline,
+            PointerEvent::Wheel {
+                position: pointer,
+                dx: 0.0,
+                dy: 120.0,
+                modifiers: Modifiers {
+                    control: true,
+                    ..Modifiers::default()
                 },
-            ),
-            now,
-        );
-        assert!(app.is_animating());
-        app.tick(now + Duration::from_secs(1));
+                precise: true,
+            },
+        ));
+        assert!(!app.is_animating());
         frame(&mut app, pipeline, &theme);
         let after = {
             let p = app.panels.pipeline(pipeline).unwrap();
@@ -607,13 +615,15 @@ fn linked_navigation_moves_the_wave_panel_and_unlinked_navigation_does_not() {
                     position: point(cells.left() + 200.0, cells.top() + 50.0),
                     dx: 0.0,
                     dy: 60.0,
-                    modifiers: Modifiers::default(),
+                    modifiers: Modifiers {
+                        platform: true,
+                        ..Modifiers::default()
+                    },
                     precise: false,
                 },
             ),
             now,
         );
-        app.tick(now + Duration::from_secs(1));
     };
     wheel(&mut app, now);
     let shared_after = app.doc.shared.viewport.value;
@@ -661,7 +671,7 @@ fn linked_navigation_moves_the_wave_panel_and_unlinked_navigation_does_not() {
     );
     assert!(p.rows.value.top > rows_before.top);
     assert_eq!(p.rows.value.row_px, rows_before.row_px);
-    // Ctrl with precise deltas zooms only time, exactly like the wave panel.
+    // Ctrl over the time header zooms only time, exactly like the wave panel.
     let viewport_before = p.nav.viewport(&app.doc);
     let anchor_x = cells.left() + 200.0;
     let time_before = p.last_layout().time_at(&viewport_before, anchor_x);
@@ -672,7 +682,7 @@ fn linked_navigation_moves_the_wave_panel_and_unlinked_navigation_does_not() {
         Command::Pointer(
             pipeline,
             PointerEvent::Wheel {
-                position: point(anchor_x, cells.top() + 50.0),
+                position: point(anchor_x, cells.top() - 10.0),
                 dx: 0.0,
                 dy: 120.0,
                 modifiers: Modifiers {
@@ -694,7 +704,8 @@ fn linked_navigation_moves_the_wave_panel_and_unlinked_navigation_does_not() {
     assert_eq!(p.rows.value, rows_before);
     assert_eq!(p.follow, volna_core::pipeline::FollowActivity::Following);
     let rows_before = p.rows.value;
-    // Keyboard: ↓ scrolls rows, = zooms both axes.
+    // Keyboard: ↓ scrolls rows, = walks the two-axis zoom: rows stop at the
+    // 24 px cap and time takes the rest of the step.
     app.handle_at(Command::Action(Action::MoveSelectionDown), now);
     app.tick(now + Duration::from_secs(1));
     let p = app.panels.pipeline(pipeline).unwrap();
@@ -704,8 +715,273 @@ fn linked_navigation_moves_the_wave_panel_and_unlinked_navigation_does_not() {
     app.handle_at(Command::Action(Action::ZoomIn), now);
     app.tick(now + Duration::from_secs(1));
     let p = app.panels.pipeline(pipeline).unwrap();
-    assert!((p.nav.viewport(&app.doc).width() - width / 2.0).abs() < 1e-6);
-    assert!((p.rows.value.row_px - (row_px * 2.0).min(48.0)).abs() < 1e-3);
+    // A cycle (one time unit here) stops at 120 px.
+    let expected = (width / 2.0).max(f64::from(cells.width()) / 120.0);
+    assert!(expected > width / 2.0, "this step reaches the cycle cap");
+    assert!((p.nav.viewport(&app.doc).width() - expected).abs() < 1e-6);
+    assert!((p.rows.value.row_px - (row_px * 2.0).min(24.0)).abs() < 1e-3);
+}
+
+fn wheel_with(app: &mut App, id: PanelId, position: Point, dx: f32, dy: f32, modifiers: Modifiers) {
+    app.handle(Command::Pointer(
+        id,
+        PointerEvent::Wheel {
+            position,
+            dx,
+            dy,
+            modifiers,
+            precise: false,
+        },
+    ));
+}
+
+fn ctrl() -> Modifiers {
+    Modifiers {
+        control: true,
+        ..Modifiers::default()
+    }
+}
+
+/// Visible time width and painted row height after a frame.
+fn scales(app: &mut App, id: PanelId, theme: &Theme) -> (f64, f32) {
+    frame(app, id, theme);
+    let p = app.panels.pipeline(id).unwrap();
+    (
+        p.nav.viewport(&app.doc).width(),
+        p.last_layout().rows.row_px,
+    )
+}
+
+fn same_scales(a: (f64, f32), b: (f64, f32)) -> bool {
+    (a.0 / b.0 - 1.0).abs() < 1e-6 && (a.1 / b.1 - 1.0).abs() < 1e-4
+}
+
+/// The shade quads over the time or rows outside the trace.
+fn shades(app: &mut App, id: PanelId, theme: &Theme) -> Vec<Rect> {
+    let scene = app.render_panel(id, theme, &mut MonoMeasure);
+    scene
+        .quads()
+        .filter(|(_, color)| *color == theme.wave_outside)
+        .map(|(rect, _)| rect)
+        .collect()
+}
+
+#[test]
+fn zoom_out_ends_at_the_whole_trace_and_every_row_and_walks_back() {
+    use volna_core::nav::Lerp;
+    use volna_core::wave::viewport::Viewport;
+    for zoom in [1.0f32, 2.0] {
+        let theme = Theme::one_dark().zoomed(zoom);
+        let start = || {
+            let (mut app, _, _, pipeline) = opened(10_000);
+            pump(&mut app);
+            app.doc.shared.viewport.set(Viewport {
+                start: 5000.0,
+                end: 5064.0,
+            });
+            (app, pipeline)
+        };
+        let (mut app, pipeline) = start();
+        let cells = cells(&mut app, pipeline, &theme);
+        let pointer = point(cells.left() + cells.width() * 0.4, cells.top() + 100.0);
+        let mut path = vec![scales(&mut app, pipeline, &theme)];
+        loop {
+            wheel_with(&mut app, pipeline, pointer, 0.0, -120.0, ctrl());
+            let next = scales(&mut app, pipeline, &theme);
+            let last = *path.last().unwrap();
+            if same_scales(next, last) {
+                break;
+            }
+            path.push(next);
+            assert!(path.len() < 64, "zoom-out never ends");
+        }
+        // Every notch but the one that reaches the end halves at least one
+        // axis: no notch is lost to an axis that already stopped.
+        for pair in path.windows(2).take(path.len() - 2) {
+            let (a, b) = (pair[0], pair[1]);
+            let time = (b.0 / a.0).ln();
+            let rows = f64::from(a.1 / b.1).ln();
+            assert!(
+                (time.max(rows) - std::f64::consts::LN_2).abs() < 1e-4,
+                "{a:?} -> {b:?}"
+            );
+        }
+        // The end is the whole trace with 12 px margins and every row.
+        let (limits, margin) = (app.doc.limits(), 12.0 * zoom);
+        let p = app.panels.pipeline(pipeline).unwrap();
+        let l = p.last_layout().clone();
+        let fit = Viewport::fit_px(limits, f64::from(l.cells.width()), f64::from(margin));
+        assert!(p.nav.viewport(&app.doc).approx_eq(&fit));
+        assert!((l.row_y(0) - (l.cells.top() + margin)).abs() < 0.01);
+        assert!((l.row_y(10_000) - (l.cells.bottom() - margin)).abs() < 0.01);
+        // Shade frames the trace: left, right, above and below.
+        let quads = shades(&mut app, pipeline, &theme);
+        assert_eq!(quads.len(), 4, "{quads:?}");
+        for q in &quads {
+            assert!((q.width().min(q.height()) - margin).abs() < 1.0, "{q:?}");
+        }
+        // Short of the end (whose last notch is cut short), zooming back in
+        // retraces the same scales: rows first, then both axes.
+        let (mut app, pipeline) = start();
+        assert!(same_scales(scales(&mut app, pipeline, &theme), path[0]));
+        let full = path.len() - 2;
+        for expected in &path[1..=full] {
+            wheel_with(&mut app, pipeline, pointer, 0.0, -120.0, ctrl());
+            assert!(same_scales(scales(&mut app, pipeline, &theme), *expected));
+        }
+        for expected in path[..full].iter().rev() {
+            wheel_with(&mut app, pipeline, pointer, 0.0, 120.0, ctrl());
+            let now = scales(&mut app, pipeline, &theme);
+            assert!(same_scales(now, *expected), "{now:?} != {expected:?}");
+        }
+    }
+}
+
+#[test]
+fn zoom_in_stops_at_readable_rows_and_wide_cycles_and_row_only_zoom_raises_the_cap() {
+    for zoom in [1.0f32, 2.0] {
+        let (mut app, _, _, pipeline) = opened(200);
+        pump(&mut app);
+        let theme = Theme::one_dark().zoomed(zoom);
+        let cells = cells(&mut app, pipeline, &theme);
+        let pointer = point(cells.left() + 300.0, cells.top() + 60.0);
+        let mut last = scales(&mut app, pipeline, &theme);
+        for _ in 0..40 {
+            wheel_with(&mut app, pipeline, pointer, 0.0, 120.0, ctrl());
+            last = scales(&mut app, pipeline, &theme);
+        }
+        let px_per_cycle = f64::from(cells.width()) / last.0;
+        assert!((px_per_cycle - 120.0 * f64::from(zoom)).abs() < 1e-6);
+        assert!((last.1 - 24.0 * zoom).abs() < 1e-4);
+        // Alt+wheel zooms rows only, up to 48 px; that height becomes the cap.
+        for _ in 0..3 {
+            let modifiers = Modifiers {
+                alt: true,
+                ..Modifiers::default()
+            };
+            wheel_with(&mut app, pipeline, pointer, 0.0, 120.0, modifiers);
+        }
+        let tall = scales(&mut app, pipeline, &theme);
+        assert_eq!(tall.0, last.0, "time unchanged");
+        assert!((tall.1 - 48.0 * zoom).abs() < 1e-4);
+        assert_eq!(app.panels.pipeline(pipeline).unwrap().row_cap, 48.0);
+        wheel_with(&mut app, pipeline, pointer, 0.0, -120.0, ctrl());
+        let out = scales(&mut app, pipeline, &theme);
+        assert!(same_scales(out, (tall.0 * 2.0, tall.1 / 2.0)), "{out:?}");
+        wheel_with(&mut app, pipeline, pointer, 0.0, 120.0, ctrl());
+        assert!(same_scales(scales(&mut app, pipeline, &theme), tall));
+        // The Row Height actions step rows and reset them to 18 px.
+        let now = Instant::now();
+        app.handle_at(Command::Action(Action::DecreaseRowHeight), now);
+        app.tick(now + Duration::from_secs(1));
+        let stepped = scales(&mut app, pipeline, &theme);
+        assert!((stepped.1 - 48.0 * zoom / std::f32::consts::SQRT_2).abs() < 1e-3);
+        assert_eq!(stepped.0, tall.0);
+        app.handle_at(Command::Action(Action::ResetRowHeight), now);
+        app.tick(now + Duration::from_secs(1));
+        assert!((scales(&mut app, pipeline, &theme).1 - 18.0 * zoom).abs() < 1e-4);
+        assert_eq!(app.panels.pipeline(pipeline).unwrap().row_cap, 24.0);
+    }
+}
+
+#[test]
+fn plain_wheel_scrolls_rows_and_shift_or_sideways_wheel_pans_time() {
+    let (mut app, _, _, pipeline) = opened(500);
+    pump(&mut app);
+    let theme = Theme::one_dark();
+    let cells = cells(&mut app, pipeline, &theme);
+    app.doc
+        .shared
+        .viewport
+        .set(volna_core::wave::viewport::Viewport {
+            start: 100.0,
+            end: 200.0,
+        });
+    frame(&mut app, pipeline, &theme);
+    let labels = app.panels.pipeline(pipeline).unwrap().last_layout().labels;
+    for (position, precise) in [
+        (point(cells.left() + 200.0, cells.top() + 50.0), false),
+        (point(cells.left() + 200.0, cells.top() + 50.0), true),
+        (point(labels.left() + 20.0, labels.top() + 50.0), false),
+    ] {
+        let before = app.panels.pipeline(pipeline).unwrap().rows.value;
+        let viewport = app.doc.shared.viewport.value;
+        app.handle(Command::Pointer(
+            pipeline,
+            PointerEvent::Wheel {
+                position,
+                dx: 0.0,
+                dy: -36.0,
+                modifiers: Modifiers::default(),
+                precise,
+            },
+        ));
+        let after = app.panels.pipeline(pipeline).unwrap().rows.value;
+        assert!((after.top - before.top - 2.0).abs() < 1e-9, "{after:?}");
+        assert_eq!(after.row_px, before.row_px);
+        assert_eq!(app.doc.shared.viewport.value, viewport);
+    }
+    let rows = app.panels.pipeline(pipeline).unwrap().rows.value;
+    let start = app.doc.shared.viewport.value.start;
+    let position = point(cells.left() + 200.0, cells.top() + 50.0);
+    wheel_with(
+        &mut app,
+        pipeline,
+        position,
+        -40.0,
+        0.0,
+        Modifiers::default(),
+    );
+    let panned = app.doc.shared.viewport.value.start;
+    assert!(panned > start);
+    let shift = Modifiers {
+        shift: true,
+        ..Modifiers::default()
+    };
+    wheel_with(&mut app, pipeline, position, 0.0, -40.0, shift);
+    assert!(app.doc.shared.viewport.value.start > panned);
+    assert_eq!(app.panels.pipeline(pipeline).unwrap().rows.value, rows);
+}
+
+#[test]
+fn zoom_fit_shrinks_rows_only_when_they_do_not_fit_and_wheel_in_restores_them() {
+    use volna_core::pipeline::FollowActivity;
+    // 16 and 64 cycles across: inside the 120 px per cycle cap.
+    for (n, fits, cycles) in [(10u64, true, 16.0), (10_000, false, 64.0)] {
+        let (mut app, _, _, pipeline) = opened(n);
+        pump(&mut app);
+        let theme = Theme::one_dark();
+        let cells = cells(&mut app, pipeline, &theme);
+        app.doc
+            .shared
+            .viewport
+            .set(volna_core::wave::viewport::Viewport {
+                start: 0.0,
+                end: cycles,
+            });
+        let before = scales(&mut app, pipeline, &theme);
+        app.panels.pipeline_mut(pipeline).unwrap().follow = FollowActivity::Following;
+        let now = Instant::now();
+        app.handle_at(Command::Action(Action::ZoomFit), now);
+        app.tick(now + Duration::from_secs(1));
+        let fitted = scales(&mut app, pipeline, &theme);
+        let p = app.panels.pipeline(pipeline).unwrap();
+        assert_eq!(p.follow, FollowActivity::Suspended, "rows moved");
+        let l = p.last_layout().clone();
+        assert!((l.row_y(0) - (l.cells.top() + 12.0)).abs() < 0.01);
+        if fits {
+            assert_eq!(fitted.1, before.1, "rows that fit keep their height");
+        } else {
+            assert!((l.row_y(n as usize) - (l.cells.bottom() - 12.0)).abs() < 0.01);
+            // From the fit, zooming in grows rows first, back towards the
+            // aspect the view had before.
+            let pointer = point(cells.left() + 100.0, cells.top() + 100.0);
+            wheel_with(&mut app, pipeline, pointer, 0.0, 120.0, ctrl());
+            let next = scales(&mut app, pipeline, &theme);
+            assert_eq!(next.0, fitted.0, "time waits");
+            assert!((next.1 / fitted.1 - 2.0).abs() < 1e-3);
+        }
+    }
 }
 
 #[test]
@@ -959,6 +1235,7 @@ fn workspace_round_trip_keeps_pipeline_panels_and_unresolved_tracks_survive() {
             row_px: 12.0,
         });
         p.label_width = 240.0;
+        p.row_cap = 40.0;
     }
     let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
     let json = serde_json::to_value(&saved).unwrap();
@@ -973,6 +1250,7 @@ fn workspace_round_trip_keeps_pipeline_panels_and_unresolved_tracks_survive() {
     assert_eq!(panel_json["rows"]["row_px"], 12.0);
     assert_eq!(panel_json["cursor"], 7);
     assert_eq!(panel_json["label_width"], 240.0);
+    assert_eq!(panel_json["row_cap"], 40.0);
     // Restore into a fresh app over the same session.
     let mut restored = App::new();
     restored.set_session(session.clone());
@@ -1000,6 +1278,7 @@ fn workspace_round_trip_keeps_pipeline_panels_and_unresolved_tracks_survive() {
         }
     );
     assert_eq!(p.label_width, 240.0);
+    assert_eq!(p.row_cap, 40.0);
     assert!(restored.panels.waves(waves).is_some());
     // The restored panel retains the track and loads it.
     let requests = restored.take_requests();

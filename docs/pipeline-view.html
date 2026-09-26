@@ -207,7 +207,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     <div class="card"><h4 style="margin-top:0">2 · Time is the document's time</h4>
       <p>The Kanata importer writes cycles as VTR time units, so the pipeline's X axis <em>is</em> the shared <code>Viewport</code>. Synchronization with the waveform panels costs nothing: the same <code>Link { viewport, cursor }</code> flags, the same shared cursor, the same markers, the same animation.</p></div>
     <div class="card"><h4 style="margin-top:0">3 · Rows are a second, local axis</h4>
-      <p>A <code>RowView { top, row_px }</code> owns the vertical axis: which row is at the top edge and how tall rows are. Zooming applies one factor to both axes about the pointer. The X axis may be shared with other panels; the row axis never is.</p></div>
+      <p>A <code>RowView { top, row_px }</code> owns the vertical axis: which row is at the top edge and how tall rows are. Zooming walks one path through both axes about the pointer: both move together until one reaches its limit, then the other takes the whole step. The X axis may be shared with other panels; the row axis never is.</p></div>
     <div class="card"><h4 style="margin-top:0">4 · Data is a loaded track, nothing more</h4>
       <p>The panel retains a stream or a single generator through <code>Document::retain_track</code> and reads the resident <code>LoadedGenerator</code> objects: transactions in begin order, their <code>stages</code>, <code>status</code> and <code>vtr.label</code>. No new loader, no new index, no new wire format; remote sessions work unchanged.</p></div>
     <div class="card"><h4 style="margin-top:0">5 · Painting is O(visible cells)</h4>
@@ -227,7 +227,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     <tr><td>Opening</td><td class="v1"><code>OpenPipeline { track }</code> accepts any stream or generator: double-click or Enter on the node, the sidebar action, or View ▸ Pipeline, which lists the recognized <code>PIPELINE</code> streams as shortcuts. It takes the place of a focused start panel, otherwise opens a panel split below the focused panel, or focuses the panel already showing that track. The core never checks the stream kind.</td><td>Open from a transaction reference elsewhere (a relation, a table row, an MCP command) with the same command.</td></tr>
     <tr><td>Rows</td><td class="v1">One row per transaction of the opened generator, or of every generator of the opened stream in catalog order, each in the resident <code>(begin, end, id)</code> order. A transaction without stages is one cell spanning its lifetime. Label column on the left: row index and the <code>vtr.label</code> text.</td><td>Row order by attribute, hide flushed, filter, multiple threads as row groups: a <code>RowIndex</code> between the loaded objects and the model.</td></tr>
     <tr><td>Cells</td><td class="v1">Each stage is a filled cell on lane <code>"0"</code>, coloured by stage name, separated from its neighbour by a gap and an edge stroke. Other lanes are drawn as a grey band over the lower part of the row. Flushed transactions (<code>TxStatus::Aborted</code>) get a tinted row.</td><td>VDB stage table (colour, role, long name), custom colour schemes, split lanes, lane heights: all through <code>StagePalette</code> and <code>LaneLayout</code>.</td></tr>
-    <tr><td>Zoom and pan</td><td class="v1">An unmodified wheel and pinch zoom about the pointer in both axes; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms only time like the wave panel; drag pans in both; keyboard zoom and pan reuse the wave panel's actions; ↑ ↓ scroll rows. Animated with the document's <code>waves.animation</code> setting.</td><td>Zoom presets, bookmarks, fit rows: commands over the same <code>RowView</code>.</td></tr>
+    <tr><td>Zoom and pan</td><td class="v1"><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel and pinch zoom about the pointer along the two-axis zoom path, in to 24 px rows and 120 px cycles, out to the whole trace and every row; over the time header they zoom time only; <kbd>Alt</kbd>+wheel zooms rows only; a plain wheel scrolls rows, <kbd>⇧</kbd> or a sideways wheel pans time; drag pans in both; keyboard zoom and pan reuse the wave panel's actions; ↑ ↓ scroll rows. Keyboard zoom is animated with the document's <code>waves.animation</code> setting.</td><td>Zoom presets, bookmarks, fit rows: commands over the same <code>RowView</code>.</td></tr>
     <tr><td>Sync</td><td class="v1">Viewport and cursor follow the shared document values unless the panel unlinks them from its header. Markers are document markers. Click sets the cursor to the cycle under the pointer.</td><td>Cursor-follow (scroll rows so the cursor's instruction is visible), cycle-to-tick clock mapping for traces whose waveform time base differs.</td></tr>
     <tr><td>Hover</td><td class="v1">The hovered row is highlighted; the status bar names the instruction and the stage under the pointer.</td><td>Tooltips with <code>detail</code> and per-stage labels, from the same hit test.</td></tr>
     <tr><td>Persistence</td><td class="v1">Workspace entry <code>kind: "pipeline"</code> with the track path (stream or generator), link flags, local viewport and cursor, row view and label width. Unresolved tracks survive saves.</td><td>Nothing else needs saving until bookmarks exist.</td></tr>
@@ -243,7 +243,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
   <div class="guide">
     <button data-guide="flush">Zoom into the first flush</button>
     <button data-guide="stall">Look at the stall burst around cycle 410</button>
-    <button data-guide="density">Zoom all the way out (density mode)</button>
+    <button data-guide="density">Fit: the whole trace and every row (density mode)</button>
     <button data-guide="unlink">Unlink the pipeline's viewport</button>
     <button data-guide="reset">Reset</button>
   </div>
@@ -258,13 +258,13 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
       <button data-act="marker">Marker at cursor (M)</button>
       <button data-act="layout">Side by side</button>
       <button data-act="reset">Reset</button>
-      <span class="pv-hint">wheel · zoom both axes · Ctrl/⌘+wheel · zoom time · drag · pan · click · cursor · ⇧wheel · pan · ↑ ↓ rows · ← → pan · Home End · C go to cursor · Tab other panel</span>
+      <span class="pv-hint">Ctrl/⌘+wheel · zoom (over the header: time) · Alt+wheel · rows · wheel · scroll rows · ⇧wheel · pan · drag · pan · click · cursor · ↑ ↓ rows · ← → pan · F fit · Home End · C go to cursor · Tab other panel</span>
     </div>
     <div class="pv-work"><div class="pv-sidebar"><div class="pv-side-title">Scopes</div><div class="pv-tree"></div><div class="pv-side-title" style="margin-top:8px"><span class="pv-vars-title">Variables</span> <small class="pv-side-sub"></small></div><div class="pv-vars"></div></div><div class="pv-main"></div></div>
     <div class="pv-status"></div>
   </div>
   <div class="pv-legend" id="pv-legend"></div>
-  <p class="pv-note"><strong>What the mock implements versus what is proposed.</strong> The mock runs the same viewport math as <code>wave/viewport.rs</code> (ported line by line, including edge space and clamping), the proposed <code>RowView</code> and <code>Tween</code>, the link semantics of <code>WaveModel::toggle_link</code>, the density rule and the stage separation rule. It draws with the HTML canvas instead of a <code>Scene</code>; a browser cannot tell a mouse wheel from a trackpad scroll, so here every unmodified wheel zooms both axes, <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms time only, and <kbd>⇧</kbd>+wheel pans, whereas the GPUI element receives precise trackpad deltas and pinch gestures and can pan on scroll. Stage colours are the v1 ladder by first appearance, not a VDB profile. The mock has no load states, no unresolved tracks and no workspace file.</p>
+  <p class="pv-note"><strong>What the mock implements versus what is proposed.</strong> The mock runs the same viewport math as <code>wave/viewport.rs</code> (ported line by line, including edge space and clamping), the proposed <code>RowView</code> and <code>Tween</code>, the link semantics of <code>WaveModel::toggle_link</code>, the density rule and the stage separation rule. It draws with the HTML canvas instead of a <code>Scene</code>; it also runs the two-axis zoom path of <code>pipeline/zoom.rs</code> and the same wheel mapping as every Volna host: a browser reports each wheel as a precise scroll and a pinch as <kbd>Ctrl</kbd>+wheel, so zoom sits on the modifier and a plain wheel moves. Its wave panel stands in for the real one and has no row scrolling. Stage colours are the v1 ladder by first appearance, not a VDB profile. The mock has no load states, no unresolved tracks and no workspace file.</p>
 </div></section>
 
 <section id="foundation"><div class="wrap">
@@ -316,11 +316,11 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
   <h3>The two axes</h3>
   <div class="axis">
     <div class="box"><h4>X · time · <code>Viewport</code> <span class="badge exist">existing</span></h4>
-      <p>Shared with the document while <code>link.viewport</code> holds, local otherwise, exactly as a wave panel. Wheel zoom calls <code>zoom_about(x, width, factor)</code> on the state's <em>target</em> and animates to it, so consecutive wheel events accumulate instead of fighting the animation. Drag calls <code>pan_px</code> on the target and jumps.</p>
+      <p>Shared with the document while <code>link.viewport</code> holds, local otherwise, exactly as a wave panel. Keyboard zoom calls <code>zoom_about(x, width, factor)</code> on the state's <em>target</em> and animates to it, so consecutive steps accumulate instead of fighting the animation; wheel and pinch zoom apply immediately. Drag calls <code>pan_px</code> on the target and jumps.</p>
       <p class="mini">Width used for the math is the cells column, not the panel: the label column is excluded, like the names and values columns of the wave panel.</p></div>
     <div class="box"><h4>Y · rows · <code>RowView</code> <span class="badge prop">proposed</span></h4>
-      <p><code>top: f64</code> is the fractional row index at the top edge of the cells area; <code>row_px: f32</code> is the row height at interface zoom 1.0. <code>row_at(y)</code>, <code>y_of(row)</code>, <code>zoom_about(y, factor, height)</code> and <code>pan_px(dy, height)</code> mirror the time axis. <code>clamp</code> allows 20 % over-scroll at both ends and keeps <code>row_px</code> within <code>[0.5, 48]</code> design pixels.</p>
-      <p class="mini">An unmodified wheel, pinch, or keyboard zoom applies the same factor to both axes, so cells keep their aspect while the user zooms here. <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel changes only time. If another panel changes the shared X viewport, rows keep their height; the aspect is a default, not an invariant.</p></div>
+      <p><code>top: f64</code> is the fractional row index at the top edge of the cells area; <code>row_px: f32</code> is the row height at interface zoom 1.0. <code>row_at(y)</code>, <code>y_of(row)</code>, <code>zoom_about(y, factor, height)</code> and <code>pan_px(dy, height)</code> mirror the time axis. <code>clamp</code> allows 20 % over-scroll at both ends (rows that all fit may sit from the top edge down to it) and keeps <code>row_px</code> within <code>(0, 48]</code> design pixels; zooming out stops where every row fits, far below a pixel for a large trace.</p>
+      <p class="mini">The two-axis zoom (<code>pipeline::zoom::walk</code>) moves a point through (ln px per time unit, ln row px) inside a box: time from the whole trace with 12 px margins to 120 px per cycle, rows from where every row fits (no lower than the 18 px opening height when they fit anyway) to 24 px, the wave row height, or a taller cap set by a rows-only zoom. Both axes move together along the aspect on screen; an axis at a limit hands the step to the other; the aspect is remembered while an axis is at a limit, so zooming out and back in retraces the same scales. If another panel changes the shared X viewport, rows keep their height; the next zoom starts from there.</p></div>
   </div>
   <div class="callout"><p><strong>Tween replaces ViewportState.</strong> <code>ViewportState</code> is an animation over one <code>Viewport</code>. The row axis needs the same eased animation with the same explicit clock, so the animation becomes <code>Tween&lt;T: Lerp&gt;</code> in <code>nav/tween.rs</code> and <code>ViewportState</code> becomes <code>Tween&lt;Viewport&gt;</code>. The wave model does not change behaviour; its tests keep passing. <code>App::tick</code> advances the shared tween once plus every local tween, as it does today.</p></div>
 
@@ -421,7 +421,7 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
   <h3>Routing</h3>
   <ul>
     <li><strong>Pointer.</strong> <code>Command::Pointer(id, ev)</code> already names a panel; <code>App::handle_at</code> dispatches through <code>Panel::pointer</code> instead of <code>panels.waves_mut(id)</code>, one match on the kind in one place.</li>
-    <li><strong>Actions.</strong> Zoom, pan, go-to, marker and link actions resolve the focused panel's <code>NavState</code> and are implemented once against it; <code>ZoomIn</code> on a pipeline panel also scales rows, <code>MoveSelectionUp/Down</code> scroll rows. Row-selection, format and edge actions are no-ops for the kind. No new <code>Action</code> variants.</li>
+    <li><strong>Actions.</strong> Zoom, pan, go-to, marker and link actions resolve the focused panel's <code>NavState</code> and are implemented once against it; <code>ZoomIn</code> on a pipeline panel walks the two-axis zoom, <code>ZoomFit</code> also fits every row, <code>Increase/Decrease/ResetRowHeight</code> zoom rows only, <code>MoveSelectionUp/Down</code> scroll rows. Row-selection, format and edge actions are no-ops for the kind. No new <code>Action</code> variants.</li>
     <li><strong>Open.</strong> <code>OpenPipeline</code> validates <code>capabilities().transactions</code> and that the track exists in the catalog, focuses an existing panel for that track, replaces a focused start panel (<code>Panels::replace</code>), or otherwise creates one with <code>Panels::open(kind, focused, Some(Axis::Vertical))</code>, <code>link</code> from <code>panels.linkByDefault</code>, and calls <code>PipelineModel::open</code>. Failures become <code>Event::Notice</code>.</li>
     <li><strong>Delivery.</strong> <code>App::deliver</code> already routes <code>LoadResult::Track</code> into the document; afterwards every pipeline panel refreshes its palette from <code>doc.track(track)</code>. Close calls <code>PipelineModel::close</code>, which releases the consumer; the document drops the load and any queued request when the count reaches zero.</li>
     <li><strong>Sidebar.</strong> <code>App::activate_members</code> already sorts members into variables, tracks and log sites; today the track branch sets <code>MemberListModel::notice</code> and emits <code>Event::Notice</code>. Version 1 makes that branch call <code>OpenPipeline { track }</code> once per distinct track, keeps the log-site notice until a log panel exists, and touches nothing else in the sidebar. The kind string is used for the icon and for the View ▸ Pipeline shortcut list, nowhere else.</li>
@@ -441,11 +441,11 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
       <h4 style="margin-top:0">Pointer</h4>
       <div class="tablewrap"><table>
         <tr><th>Input</th><th>Effect</th></tr>
-        <tr><td>Mouse wheel</td><td>Zoom about the pointer, both axes; factor <code>2^(−Δy / 100 px)</code>, clamped per event, animated to the accumulated target.</td></tr>
-        <tr><td>Trackpad scroll (precise deltas)</td><td>Pan both axes, no animation.</td></tr>
-        <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + wheel</td><td>Zoom the time axis only about the pointer, immediately, matching the wave panel.</td></tr>
+        <tr><td>Wheel or trackpad scroll</td><td>Scroll rows with the vertical delta, pan time with the horizontal one, no animation; the same over the label column and in every host.</td></tr>
+        <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + wheel</td><td>Walk the two-axis zoom about the pointer by <code>2^(Δy / 120 px)</code>, immediately; over the time header and rulers, zoom time only, matching the wave panel.</td></tr>
+        <tr><td><kbd>Alt</kbd> + wheel</td><td>Zoom rows only about the pointer, from where every row fits up to 48 px; a height above 24 px becomes the two-axis zoom's cap.</td></tr>
         <tr><td><kbd>⇧</kbd> + wheel</td><td>Pan time only.</td></tr>
-        <tr><td>Pinch (<code>PointerEvent::Pinch</code>)</td><td>Zoom about the pointer by the gesture's scale.</td></tr>
+        <tr><td>Pinch (<code>PointerEvent::Pinch</code>)</td><td>Walk the two-axis zoom about the pointer by the gesture's scale.</td></tr>
         <tr><td>Drag in the cells area</td><td>Pan both axes; pointer becomes a grab hand after a 3 px threshold.</td></tr>
         <tr><td>Click in the cells area</td><td>Cursor to <code>floor(time)</code> at the pointer: cycles are integers, so no snapping is needed.</td></tr>
         <tr><td>Drag on the label divider</td><td>Resize the label column, stored at zoom 1.0 like the wave columns.</td></tr>
@@ -455,8 +455,8 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
     <div class="card">
       <h4 style="margin-top:0">Keyboard (existing actions, pipeline meaning)</h4>
       <div class="keys">
-        <kbd>=</kbd> <span>zoom in ×2 about the centre, both axes</span>
-        <kbd>−</kbd> <span>zoom out ×½, both axes</span>
+        <kbd>=</kbd> <span>zoom in ×2 along the two-axis path, about the cursor or centre</span>
+        <kbd>−</kbd> <span>zoom out ×½ along the path</span>
         <kbd>F</kbd> <span>fit the trace in time</span>
         <kbd>C</kbd> <span>centre the cursor</span>
         <kbd>←</kbd> <kbd>→</kbd> <span>pan a tenth of the window</span>
@@ -525,7 +525,8 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
     <div class="card"><h4 style="margin-top:0">Embed Konata's renderer</h4><p>The pinned Konata is a browser application; hosting it in a web view or wasm would put viewer logic outside the toolkit-free core, duplicate the time axis, and make the shared cursor a bridge protocol. It would also not run in the native GPUI window without a browser engine.</p></div>
     <div class="card"><h4 style="margin-top:0">A separate time axis with cycle mapping in v1</h4><p>The importer already writes cycles as time units; a mixed trace has one time base. A mapping would add a setting, a dialog and a second viewport to keep consistent, for no case the first version can exercise.</p></div>
     <div class="card"><h4 style="margin-top:0">Lock both axes to square cells</h4><p>Konata keeps cells square because it owns both axes. Here the X axis is shared with panels that have no rows, so a square-cell invariant would either break the link or resize rows behind the user's back. One factor per gesture, otherwise independent axes.</p></div>
-    <div class="card"><h4 style="margin-top:0">Wheel scrolls rows, <kbd>Ctrl</kbd>+wheel zooms</h4><p>Konata's default. It conflicts with the wave panel, where wheel already zooms time, and with the map model the user asked for. Drag and ↑ ↓ cover vertical movement; trackpad scroll pans.</p></div>
+    <div class="card"><h4 style="margin-top:0">An unmodified wheel zooms both axes</h4><p>The first release's mapping. Browsers report every wheel as a precise scroll, so it never reached the web and VS Code hosts, where a pinch arrived as <kbd>Ctrl</kbd>+wheel and zoomed time only; and it broke the wave panel's convention that a plain wheel moves. Konata's mapping, wheel scrolls rows and <kbd>Ctrl</kbd>+wheel zooms, replaced it.</p></div>
+    <div class="card"><h4 style="margin-top:0">One factor per axis, clamped separately</h4><p>Rows stopped at 0.5 px, so a large trace never showed every row; rows grew to 48 px, far past readable; notches past a limit did nothing or changed the aspect, and zooming out and back in landed elsewhere. The two-axis path replaced it.</p></div>
     <div class="card"><h4 style="margin-top:0">Require the <code>PIPELINE</code> stream kind</h4><p>The panel needs stages and lifetimes, which every generator has. Gating on a kind string would refuse gem5 or SystemC generators that render perfectly well and would push a presentation decision into the loader. The kind stays a recognition hint: an icon in the tree and a shortcut list in the menu.</p></div>
     <div class="card"><h4 style="margin-top:0">Rows as a second shared axis</h4><p>No other panel has instruction rows, and two pipeline panels over the same stream are a legitimate way to look at two places at once. Rows stay local.</p></div>
     <div class="card"><h4 style="margin-top:0">A generic "transaction panel" that also covers Gantt views</h4><p>Tempting, but a Gantt view groups by generator and stacks overlapping transactions; a pipeline view is one row per transaction with stage cells. They share the loader and the overlay, which this design already factors out, and nothing else worth abstracting yet.</p></div>
@@ -547,6 +548,7 @@ pub enum PanelLayout&lt;'a&gt; { Waves(&amp;'a WaveLayout), Pipeline(&amp;'a Pip
     <li>The scope tree of a Kanata trace lists <code>cpu › thread0</code> with the pipeline icon and its member pane lists <code>instruction</code> (already covered by the hierarchy browser tests); Enter on either opens a panel instead of posting the notice, <code>sidebar_notice</code> stays <code>None</code>, and a non-<code>PIPELINE</code> stream gets the generic icon and still opens.</li>
     <li>Opening a stream or a generator queues exactly one <code>LoadRequest::Track</code>; delivery paints one quad per visible lane-0 stage and one band per overlay stage; a second panel on the same stream queues nothing.</li>
     <li>Zoom about a pointer position keeps the same <code>(time, row)</code> under it in both axes, at interface zoom 1.0 and 2.0.</li>
+    <li>Zooming out ends at the whole trace and every row with shaded 12 px margins; every notch before the end halves an axis; zooming back in retraces the same scales; zooming in stops at 24 px rows and 120 px cycles.</li>
     <li>With the viewport linked, a wheel event in the pipeline changes the wave panel's viewport to the same value; unlinked, the shared value is unchanged and the local one moves.</li>
     <li>A click sets the shared cursor to the integer cycle under the pointer; the wave panel's value column shows the value at that cycle in the same frame.</li>
     <li>At <code>row_px = 0.5</code> over ten thousand rows, the scene holds at most <code>height / 2 + 1</code> row quads and painting stays under the wave panel's frame budget in the ignored benchmark harness.</li>
@@ -586,6 +588,9 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
   const LIM = D.limits;
   const N_OPS = D.ops.length;
   const EDGE_SPACE = 0.2, MIN_WIDTH = 0.25;
+  // Zoom Fit's margin, the two-axis zoom's row cap and opening row height, and
+  // its cycle cap (the recording counts one time unit per cycle), in px.
+  const FIT_MARGIN = 12, ROW_CAP = 24, ROW_DEFAULT = 18, CYCLE_PX_MAX = 120;
   const ANIM_MS = 140, WHEEL_MS = 90;
   const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
   const SANS = '"IBM Plex Sans", system-ui, sans-serif';
@@ -596,6 +601,12 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
   class Viewport {
     constructor(s, e) { this.start = s; this.end = e; }
     static fit() { return new Viewport(LIM[0], LIM[1] > LIM[0] ? LIM[1] : LIM[0] + 1); }
+    // The trace with `m` px on each side of a `w` px wide area (Viewport::fit_px).
+    static fitPx(w, m) {
+      const f = Viewport.fit(), inner = w - 2 * m;
+      if (!(m > 0 && inner * (1 + 2 * EDGE_SPACE) >= w)) return f;
+      const pad = f.width() * m / inner; return new Viewport(f.start - pad, f.end + pad);
+    }
     clone() { return new Viewport(this.start, this.end); }
     width() { return this.end - this.start; }
     pxPerUnit(w) { return w / this.width(); }
@@ -627,7 +638,7 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
 
   // ------------------------------------------------------------------ RowView
   // The proposed pipeline row axis: fractional top row + row height in px.
-  const ROW_PX_MIN = 0.5, ROW_PX_MAX = 48;
+  const ROW_PX_MIN = 1e-6, ROW_PX_MAX = 48;
   class RowView {
     constructor(top, rowPx) { this.top = top; this.rowPx = rowPx; }
     clone() { return new RowView(this.top, this.rowPx); }
@@ -641,11 +652,36 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
     panPx(dy, h) { this.top += dy / this.rowPx; return this.clamp(h); }
     clamp(h) {
       const visible = Math.max(1, h / this.rowPx);
-      const lo = -visible * EDGE_SPACE, hi = Math.max(lo, N_OPS - visible * (1 - EDGE_SPACE));
+      const lo = -visible * EDGE_SPACE, hi = Math.max(0, N_OPS - visible * (1 - EDGE_SPACE));
       this.top = Math.min(hi, Math.max(lo, this.top)); return this;
     }
     lerp(b, t) { return new RowView(this.top + (b.top - this.top) * t, this.rowPx + (b.rowPx - this.rowPx) * t); }
     approxEq(o) { return Math.abs(this.top - o.top) < 1e-6 && Math.abs(this.rowPx - o.rowPx) < 1e-6; }
+  }
+
+  // ---------------------------------------------------------- two-axis zoom
+  // Port of volna-core/src/pipeline/zoom.rs: walk `step` (ln of the factor) from
+  // {time: ln px per unit, rows: ln row px} along the line of `aspect` clipped
+  // into box {time: [lo, hi], rows: [lo, hi]}; an axis at a limit hands the
+  // step to the other, off the line the lagging (zoom in) or leading (zoom
+  // out) axis moves until the point is back on it.
+  const EPS = 1e-9, PINNED = 1e-6;
+  const interior = (b, p) => p.time > b.time[0] + PINNED && p.time < b.time[1] - PINNED && p.rows > b.rows[0] + PINNED && p.rows < b.rows[1] - PINNED;
+  function room(v, r, dir) { return Math.max(0, dir > 0 ? Math.max(r[1], v) - v : v - Math.min(r[0], v)); }
+  function walk(from, b, aspect, step) {
+    if (!isFinite(step)) return from;
+    const dir = Math.sign(step); let left = Math.abs(step); const p = { time: from.time, rows: from.rows };
+    for (let i = 0; i < 8 && left > EPS; i++) {
+      const rt = room(p.time, b.time, dir), rr = room(p.rows, b.rows, dir);
+      if (rt <= EPS && rr <= EPS) break;
+      const dev = p.rows - p.time - aspect;
+      if (Math.abs(dev) <= EPS && rt > EPS && rr > EPS) { const d = Math.min(left, rt, rr); p.time += dir * d; p.rows += dir * d; left -= d; continue; }
+      const preferRows = Math.abs(dev) <= EPS ? rr > EPS : dir > 0 ? dev < 0 : dev > 0;
+      const moveRows = preferRows ? rr > EPS : rt <= EPS;
+      if (moveRows) { let d = Math.min(left, rr); if (Math.abs(dev) > EPS && dev * dir < 0) d = Math.min(d, Math.abs(dev)); p.rows += dir * d; left -= d; }
+      else { let d = Math.min(left, rt); if (Math.abs(dev) > EPS && dev * dir > 0) d = Math.min(d, Math.abs(dev)); p.time += dir * d; left -= d; }
+    }
+    return p;
   }
 
   // -------------------------------------------------------------------- Tween
@@ -719,7 +755,7 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
     }
     zoomRowsAt() {}
     zoomCenter(f) { this.zoomAt(this.waveX0() + this.waveW() / 2, this.bodyH() / 2, f, ANIM_MS); }
-    fit() { const st = this.vpState(); st.animateTo(Viewport.fit(), now(), ANIM_MS); invalidate(); }
+    fit() { const st = this.vpState(); st.animateTo(Viewport.fitPx(this.waveW(), FIT_MARGIN), now(), ANIM_MS); invalidate(); }
     panFraction(frac) { const st = this.vpState(); st.animateTo(st.target().clone().panPx(frac * this.waveW(), this.waveW()), now(), ANIM_MS); invalidate(); }
     panPx(dx) { const st = this.vpState(); st.set(st.target().clone().panPx(dx, this.waveW())); invalidate(); }
     goToStart() { const st = this.vpState(); st.animateTo(st.target().clone().goToStart(), now(), ANIM_MS); invalidate(); }
@@ -757,12 +793,18 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
       invalidate();
     }
     click(p) { if (p.x < this.waveX0()) return; const t = Math.floor(this.vp().timeAt(p.x - this.waveX0(), this.waveW())); this.setCursor(Math.min(LIM[1], Math.max(LIM[0], t))); }
+    // Ctrl/⌘+wheel (a browser pinch arrives as one) zooms this panel, Alt+wheel
+    // its rows, Shift+wheel pans time; a plain wheel moves.
     wheel(p, dx, dy, e) {
-      if (e.ctrlKey || e.metaKey) { this.zoomTimeAt(p.x, Math.pow(2, -dy / 120), 0); invalidate(); return; }
-      if (e.shiftKey || (Math.abs(dx) > Math.abs(dy))) { this.panPx(e.shiftKey ? dy : dx); return; }
-      const f = Math.pow(2, -Math.max(-100, Math.min(100, dy)) / 100);
-      this.zoomAt(p.x, p.y, f, WHEEL_MS);
+      const f = Math.pow(2, -dy / 120);
+      if (e.ctrlKey || e.metaKey) { this.zoomPanelAt(p, f); invalidate(); return; }
+      if (e.altKey) { this.zoomRowsOnly(p, f); invalidate(); return; }
+      if (e.shiftKey) { this.panPx(dx + dy); return; }
+      this.scroll(p, dx, dy);
     }
+    zoomPanelAt(p, f) { this.zoomTimeAt(p.x, f, 0); }
+    zoomRowsOnly() {}
+    scroll(p, dx, dy) { this.panPx(dx + dy); }
     updateHover() {}
     resize(w, h) {
       this.w = w; this.h = h; const dpr = window.devicePixelRatio || 1;
@@ -831,7 +873,7 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
     panel: '#1f2a32', bar: '#182129', line: '#2c3a42', grid: 'rgba(255,255,255,.045)', tick: '#5d6f77', tickText: '#8fa39c',
     text: '#e3ebe7', muted: '#8fa39c', dim: '#5d6f77', cursor: '#f07a76', cursorDim: 'rgba(240,122,118,.5)', marker: '#e0a94a',
     flush: 'rgba(240,122,118,.16)', hover: 'rgba(255,255,255,.06)', wave: '#4fc3a1', bus: '#7fb0ef', busFill: 'rgba(127,176,239,.16)',
-    stall: 'rgba(200,205,210,.35)', stallLine: 'rgba(200,205,210,.55)',
+    stall: 'rgba(200,205,210,.35)', stallLine: 'rgba(200,205,210,.55)', outside: 'rgba(0,0,0,.22)',
   };
 
   // ------------------------------------------------------------- Waves panel
@@ -851,6 +893,7 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
       const ctx = this.ctx, w = this.w, h = this.h, x0 = this.waveX0(), ww = this.waveW(), vp = this.vp(), c = this.cursor();
       ctx.clearRect(0, 0, w, h); ctx.fillStyle = THEME.panel; ctx.fillRect(0, 0, w, h);
       paintTimeline(ctx, x0, ww, h, vp, THEME);
+      paintOutside(ctx, x0, ww, HDR, h, vp);
       ctx.fillStyle = THEME.bar; ctx.fillRect(0, 0, x0, HDR);
       ctx.font = '10.5px ' + SANS; ctx.fillStyle = THEME.muted; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
       ctx.fillText('Signal', 8, HDR / 2); ctx.fillText(c == null ? 'Value' : 'Value @ ' + fmt(c), NAME_W + 6, HDR / 2);
@@ -890,6 +933,15 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
       paintCursorAndMarkers(ctx, this, x0, ww, h, THEME);
     }
   }
+  // Shade the time before and after the trace (overlay::outside_time); returns
+  // the column's x range inside the trace.
+  function paintOutside(ctx, x0, w, top, h, vp) {
+    const l = Math.min(Math.max(x0 + vp.xOf(LIM[0], w), x0), x0 + w), r = Math.max(Math.min(x0 + vp.xOf(LIM[1], w), x0 + w), l);
+    ctx.fillStyle = THEME.outside;
+    if (l > x0) ctx.fillRect(x0, top, l - x0, h - top);
+    if (r < x0 + w) ctx.fillRect(r, top, x0 + w - r, h - top);
+    return [l, r];
+  }
   function upper(ch, t) { let lo = 0, hi = ch.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ch[m][0] <= t) lo = m + 1; else hi = m; } return lo; }
 
   // ---------------------------------------------------------- Pipeline panel
@@ -901,12 +953,47 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
   class PipelinePanel extends Panel {
     constructor() {
       super('pipeline', 'Pipeline 2 · cpu.thread0.instruction');
-      this.rows = new Tween(new RowView(0, 18)); this.labelW = 190; this.hoverCell = null;
+      this.rows = new Tween(new RowView(0, ROW_DEFAULT)); this.labelW = 190; this.hoverCell = null;
+      this.rowCap = ROW_CAP; this.aspect = null;
     }
     waveX0() { return this.labelW; }
     bodyH() { return Math.max(1, this.h - HDR); }
     tickRows(t) { return this.rows.tick(t); }
-    zoomRowsAt(y, f, dur) { const t = this.rows.target().clone().zoomAbout(y - HDR, f, this.bodyH()); this.rows.animateTo(t, now(), dur); }
+    // -- the two-axis zoom (PipelineModel::zoom_path)
+    fitRowPx() { const h = this.bodyH(), inner = h - 2 * FIT_MARGIN; return (inner >= h / 2 ? inner : h) / N_OPS; }
+    zoomBox() {
+      const w = this.waveW(), tLo = Math.log(w / Viewport.fitPx(w, FIT_MARGIN).width());
+      const rLo = Math.min(this.fitRowPx(), ROW_DEFAULT, this.rowCap);
+      return { time: [tLo, Math.max(tLo, Math.log(CYCLE_PX_MAX))], rows: [Math.log(rLo), Math.log(this.rowCap)] };
+    }
+    point(vp, rv) { return { time: Math.log(this.waveW() / vp.width()), rows: Math.log(rv.rowPx) }; }
+    keepAspect(b, at) { if (this.aspect == null || interior(b, at)) this.aspect = at.rows - at.time; return this.aspect; }
+    zoomPath(x, y, f, dur) {
+      const st = this.vpState(), vp = st.target(), rv = this.rows.target(), b = this.zoomBox();
+      const from = this.point(vp, rv), to = walk(from, b, this.keepAspect(b, from), Math.log(f));
+      if (to.time < from.time && to.time <= b.time[0] + PINNED) { const fit = Viewport.fitPx(this.waveW(), FIT_MARGIN); if (dur) st.animateTo(fit, now(), dur); else st.set(fit); }
+      else if (to.time !== from.time) this.zoomTimeAt(x, Math.exp(to.time - from.time), dur);
+      const r = rv.clone();
+      if (to.rows < from.rows && to.rows <= b.rows[0] + PINNED) { r.rowPx = Math.exp(to.rows); r.top = -FIT_MARGIN / r.rowPx; r.clamp(this.bodyH()); }
+      else if (to.rows !== from.rows) r.zoomAbout(y - HDR, Math.exp(to.rows - from.rows), this.bodyH());
+      this.rows.animateTo(r, now(), dur); invalidate();
+    }
+    zoomAt(x, y, f, dur) { this.zoomPath(x, y, f, dur); }
+    zoomCenter(f) { this.zoomPath(this.waveX0() + this.waveW() / 2, HDR + this.bodyH() / 2, f, ANIM_MS); }
+    zoomPanelAt(p, f) { if (p.y < HDR) { this.zoomTimeAt(p.x, f, 0); this.aspect = null; } else this.zoomPath(p.x, p.y, f, 0); }
+    zoomRowsOnly(p, f) {
+      const r = this.rows.target().clone(), lo = Math.min(this.fitRowPx(), ROW_DEFAULT, r.rowPx);
+      const target = Math.min(ROW_PX_MAX, Math.max(lo, r.rowPx * f));
+      r.zoomAbout(Math.max(0, p.y - HDR), target / r.rowPx, this.bodyH());
+      this.rowCap = Math.max(ROW_CAP, r.rowPx); this.aspect = null; this.rows.set(r);
+    }
+    scroll(p, dx, dy) { this.panPx(dx); this.rows.set(this.rows.target().clone().panPx(dy, this.bodyH())); invalidate(); }
+    fit() {
+      const rv = this.rows.target(), b = this.zoomBox(); this.keepAspect(b, this.point(this.vpState().target(), rv));
+      super.fit();
+      const r = rv.clone(); r.rowPx = Math.min(r.rowPx, this.fitRowPx()); r.top = -FIT_MARGIN / r.rowPx;
+      this.rows.animateTo(r.clamp(this.bodyH()), now(), ANIM_MS); invalidate();
+    }
     scrollRows(n) { const t = this.rows.target().clone(); t.top += n; t.clamp(this.bodyH()); this.rows.animateTo(t, now(), ANIM_MS); invalidate(); }
     setRows(top, rowPx, dur) { const t = new RowView(top, rowPx).clamp(this.bodyH()); this.rows.animateTo(t, now(), dur); invalidate(); }
     onResize() { this.rows.set(this.rows.target().clone().clamp(this.bodyH())); }
@@ -930,6 +1017,10 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
       const ctx = this.ctx, w = this.w, h = this.h, lw = this.labelW, ww = this.waveW(), vp = this.vp(), rv = this.rows.value;
       ctx.clearRect(0, 0, w, h); ctx.fillStyle = THEME.panel; ctx.fillRect(0, 0, w, h);
       paintTimeline(ctx, lw, ww, h, vp, THEME);
+      const [inL, inR] = paintOutside(ctx, lw, ww, HDR, h, vp);
+      const yFirst = Math.max(HDR, HDR + rv.yOf(0)), yLast = Math.min(h, HDR + rv.yOf(N_OPS));
+      if (yFirst > HDR) ctx.fillRect(inL, HDR, inR - inL, yFirst - HDR);
+      if (yLast < h) ctx.fillRect(inL, yLast, inR - inL, h - yLast);
       const rowPx = rv.rowPx, bodyH = this.bodyH();
       const first = Math.max(0, Math.floor(rv.top)), last = Math.min(N_OPS - 1, Math.ceil(rv.top + bodyH / rowPx));
       const step = rowPx < 2 ? Math.ceil(2 / rowPx) : 1;           // density rule: ≥ 2 px per painted row
@@ -1057,14 +1148,15 @@ const PV_DATA = {"source":"ext/Konata/docs/kanata-sample-2.log.gz, first 600 ins
   function reset() {
     doc.shared.vp.set(new Viewport(0, 140)); doc.shared.cursor = null; doc.markers = []; doc.nextMarker = 1;   // as if the user had zoomed the waves to the first cycles
     for (const p of panels) { p.link = { viewport: true, cursor: true }; p.localVp.set(Viewport.fit()); p.localCursor = null; }
-    pipeline.rows.set(new RowView(0, 18).clamp(pipeline.bodyH())); pipeline.labelW = 190;
+    pipeline.rows.set(new RowView(0, ROW_DEFAULT).clamp(pipeline.bodyH())); pipeline.labelW = 190;
+    pipeline.rowCap = ROW_CAP; pipeline.aspect = null;
     focus(pipeline); invalidate();
   }
   const guides = {
     reset,
     flush() { reset(); focus(pipeline); pipeline.setCursor(15); doc.shared.vp.animateTo(new Viewport(-2, 60), now(), ANIM_MS); pipeline.setRows(-0.5, 22, ANIM_MS); },
     stall() { reset(); focus(pipeline); pipeline.setCursor(410); doc.shared.vp.animateTo(new Viewport(380, 470), now(), ANIM_MS); pipeline.setRows(150, 14, ANIM_MS); },
-    density() { reset(); focus(pipeline); doc.shared.vp.animateTo(Viewport.fit(), now(), ANIM_MS); pipeline.setRows(-10, 0.8, ANIM_MS); },
+    density() { reset(); focus(pipeline); pipeline.fit(); },
     unlink() { reset(); focus(pipeline); pipeline.setCursor(233); doc.shared.vp.animateTo(new Viewport(200, 300), now(), ANIM_MS); pipeline.setRows(80, 20, ANIM_MS); setTimeout(() => { pipeline.toggleLink('viewport'); waves.fit(); }, ANIM_MS + 30); },
     marker() { if (focusedPanel.cursor() == null) focusedPanel.setCursor(Math.round((focusedPanel.vp().start + focusedPanel.vp().end) / 2)); doc.addMarker(focusedPanel.cursor()); invalidate(); },
   };

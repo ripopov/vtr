@@ -170,7 +170,8 @@ and optional labels, translators, and load generations. Every timed panel embeds
 a `nav::NavState`: two link flags choosing between document navigation and local
 navigation through effective accessors, the local viewport tween and the local
 cursor, and the time-axis commands (zoom about a pixel, fit, go to, pan) every
-panel kind shares. Each `WaveModel` adds its rows, selection, columns, scroll and
+panel kind shares. Fit leaves a 12 px margin on each side of the trace
+(`Viewport::fit_px`), so the shade outside it frames the whole trace. Each `WaveModel` adds its rows, selection, columns, scroll and
 transient input. Linked viewports share one animation; `App::tick` advances it
 once, plus every independent animation. Unlink snapshots the displayed shared
 value; relink adopts the retained shared position even if no panels currently
@@ -352,16 +353,42 @@ cycle under the pointer: the last edge of the stream's `vtr.clock` at or
 before it, or the whole time unit when the stream names no clock. The Y axis is local: `pipeline::RowView`
 (fractional top row, row height at interface zoom 1.0) with the same
 zoom-about, pan and 20 % edge-space clamp as `Viewport`, animated through the
-same `Tween`. A mouse wheel zooms both axes about the pointer by one factor
-(`2^(dy/100 px)`, animated to the accumulated target); a trackpad's precise
-deltas pan both axes. Ctrl/⌘+wheel zooms only the time axis, with the same
-immediate pointer-anchored behavior as the wave panel; Shift+wheel pans time;
-pinch zooms both axes immediately;
-a left drag past three pixels pans both axes, a shorter press is a click.
+same `Tween`; rows that all fit may sit anywhere from the top edge down to
+that edge space.
+
+Zooming both axes walks a path, `pipeline::zoom::walk`, through (ln pixels
+per time unit, ln row height) space inside a box from `PipelineModel::zoom_box`:
+time from the whole trace with 12 px margins (`Viewport::fit_px`) to 120 px per
+cycle of the stream's clock around the view centre (per time unit without a
+clock); rows from the height at which every row fits with the same margins
+(but no lower than the 18 px opening height when they fit anyway) to the
+panel's `row_cap`, 24 px (the wave row height) unless a rows-only zoom raised
+it. On the line of the remembered aspect both axes move by the step's factor;
+an axis at a limit hands the whole step to the other; off the line (only
+along an edge) zooming in moves the lagging axis and zooming out the leading
+one until the point is back on it. The aspect is the one on screen while the
+point is inside the box and is kept while an axis is at a limit, so zooming
+out and back in retraces the same scales; a time-only or rows-only zoom
+forgets it. A value outside its range, such as a deeper time zoom from a
+linked wave panel, is moved back but never further out. An axis that reaches
+its low end snaps to the fit position.
+
+Ctrl/⌘+wheel (browsers also deliver a pinch this way) and a native pinch walk
+the path about the pointer, immediately; over the time header and rulers
+Ctrl/⌘+wheel zooms time only, as in the wave panel. Alt+wheel zooms rows only,
+from where every row fits up to 48 px; a height above 24 px becomes the
+panel's `row_cap` (saved as `row_cap` in the workspace payload), and the
+Increase / Decrease / Reset Row Height actions step rows by √2 or restore
+18 px and the cap. An unmodified wheel scrolls rows with its vertical delta
+and pans time with its horizontal one, in every host and over the label
+column too; Shift+wheel pans time.
+A left drag past three pixels pans both axes, a shorter press is a click.
 A click on a row or cell also makes that record the document selection (a
 click in the label column selects without moving the cursor; below the rows it
-clears the selection). Keyboard actions are the wave panel's: `= -` zoom both
-axes, `F C Home End` and the arrows move time, `↑ ↓` move the selection by one
+clears the selection). Keyboard actions are the wave panel's: `= -` walk the
+zoom path about the visible cursor (else the centre) and the middle row, `F`
+fits the whole trace and every row (rows that already fit keep their height),
+`C Home End` and the arrows move time, `↑ ↓` move the selection by one
 row and keep it visible (without one they scroll three rows), `⏎` shows the
 selection in a Transaction panel, `M ⇧M` markers, `L ⇧L` links, Escape cancels
 a drag, then clears the selection, then the cursor. Formats and edge actions
@@ -376,7 +403,8 @@ ranked by distance to the current row center. Rows move only when that candidate
 leaves the middle 60% safe band; row height and document navigation stay fixed.
 Vertical pan, row-navigation keys and two-axis zoom suspend follow until the
 toolbar's **Resume follow** is activated. Horizontal navigation, including
-Ctrl/⌘+wheel time zoom, keeps it active.
+the time-only zoom over the time header, keeps it active; Zoom Fit and the
+rows-only zoom suspend it.
 Top/bottom indicators count off-screen intersecting rows and reveal the nearest
 one without enabling follow; toolbar equivalents support native accessibility.
 Idle time windows retain the row position and display earlier/later activity
@@ -408,11 +436,14 @@ enough for the shaped name, labels from seven. `StagePalette` assigns each
 primary-lane stage name a hue from a ladder by first appearance (a VDB stage
 table later fills the same struct). The header ticks, cursor line and chip,
 and marker lines and chips come from `wave::overlay`, shared with the wave
-painter. Times are formatted through `TimeBase`: the timescale exponent, or
+painter, as does `overlay::outside_time`, which shades the time before and
+after the trace (`wave_outside`) in both panel kinds; the pipeline painter
+also shades the space above the first row and below the last within the
+trace's time. Times are formatted through `TimeBase`: the timescale exponent, or
 the producer's `time.unit` file attribute (`cycle`) when it names one.
 
 Workspace files save a `"pipeline"` panel: the track path, links, local
-viewport and cursor, `rows` and `label_width`; restore resolves the path
+viewport and cursor, `rows`, `row_cap` (only when raised) and `label_width`; restore resolves the path
 against the track catalog and keeps unresolved tracks as an empty state that
 is written back unchanged. The autosave stamp covers the same fields. GPUI
 hosts the panel in the same `PanelCanvas` element and dock view as waves;

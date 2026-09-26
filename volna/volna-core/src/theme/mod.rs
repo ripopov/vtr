@@ -114,6 +114,9 @@ pub struct Theme<C = Color> {
     pub wave_tick_text: C,
     pub wave_row_selected: C,
     pub wave_row_hover: C,
+    /// Shade over time and rows outside the trace, where panning and
+    /// zooming may reach but no data exists.
+    pub wave_outside: C,
     pub wave_cursor: C,
     pub wave_cursor_inactive: C,
     pub wave_cursor_text: C,
@@ -222,6 +225,7 @@ impl<C: Copy> Theme<C> {
             wave_tick_text: f(self.wave_tick_text),
             wave_row_selected: f(self.wave_row_selected),
             wave_row_hover: f(self.wave_row_hover),
+            wave_outside: f(self.wave_outside),
             wave_cursor: f(self.wave_cursor),
             wave_cursor_inactive: f(self.wave_cursor_inactive),
             wave_cursor_text: f(self.wave_cursor_text),
@@ -340,6 +344,7 @@ impl Theme<Color> {
             wave_tick_text: c(0xa9afbc),
             wave_row_selected: ca(0x74ade8, 0.10),
             wave_row_hover: ca(0xc8ccd4, 0.04),
+            wave_outside: ca(0x000000, 0.22),
             wave_cursor: c(0x74ade8),
             wave_cursor_inactive: c(0x74ade8).with_alpha(0.45),
             wave_cursor_text: c(0x282c33),
@@ -462,6 +467,13 @@ impl Theme<Color> {
         }
         t.wave_row_selected = accent.with_alpha(if hc { 0.08 } else { 0.10 });
         t.wave_row_hover = t.editor.text.with_alpha(0.04);
+        // Darken, except on a black high-contrast background.
+        t.wave_outside = match (dark, hc) {
+            (true, true) => t.editor.text.with_alpha(0.12),
+            (true, false) => c(0).with_alpha(0.22),
+            (false, true) => c(0).with_alpha(0.12),
+            (false, false) => c(0).with_alpha(0.06),
+        };
         let backgrounds = [
             t.editor.bg,
             over(t.wave_row_selected, t.editor.bg),

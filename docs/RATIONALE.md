@@ -39,13 +39,42 @@ time axis is the document's shared `Viewport` because the Kanata importer and
 the showcase write cycles as time units, so linking with the wave panels costs
 nothing and needs no cycle-to-tick mapping until a trace with two time bases
 exists. Rows are a second, local axis (`RowView`) with the same zoom-about,
-pan, edge-space clamp and eased `Tween` as the time axis; one wheel gesture
-applies one factor to both when unmodified, while Ctrl/Command+wheel follows
-the wave panel and zooms time only. A linked wave panel changing the shared
-time axis leaves row heights alone, so cells are square by default, not by
-invariant. Locking both axes (Konata) would either break the link or resize
-rows behind the user's back; a wheel that scrolls rows and zooms only with a
-modifier (Konata's default) would conflict with the wave panel's wheel.
+pan, edge-space clamp and eased `Tween` as the time axis. A linked wave panel
+changing the shared time axis leaves row heights alone; locking both axes
+(Konata) would either break the link or resize rows behind the user's back.
+
+Zooming both axes walks one path (`pipeline::zoom`) instead of applying one
+factor to each axis under its own fixed clamp. The fixed clamps (rows 0.5–48
+px, time to 1.4× the trace) could not show every row of a large trace (12 000
+rows in 400 px stopped at 800), let rows grow far past readable, spent notches
+past the trace, and drifted the aspect whenever one axis stopped, so zooming
+out and back in landed elsewhere. The path runs through log(pixels per time
+unit) × log(row height) inside a box whose ends come from the content: the
+whole trace with 12 px margins and every row at the zoom-out end, rows at the
+wave row height (24 px) and 120 px per clock cycle at the zoom-in end. Both
+axes move together along the aspect on screen, an axis at a limit hands the
+whole step to the other, and the aspect is remembered while an axis is at a
+limit, which makes out-then-in retrace the same scales. The step keeps its
+factor when only one axis moves; doubling it there would make fewer notches
+on large traces at the cost of an uneven speed, and Zoom Fit already jumps to
+the end. A value outside the box (a deeper linked wave zoom, a taller hand-set
+row) moves back but never further out, so no gesture snaps a view it did not
+make. Rows that all fit keep at least the 18 px opening height instead of
+collapsing the row range to the cap.
+
+The wheel follows the wave panel's convention (Vaporview, GTKWave): a plain
+wheel moves, a modifier zooms. The earlier rejection of that mapping assumed
+the wave panel's wheel zooms; it pans. Browsers also report every wheel as a
+precise scroll and a pinch as Ctrl+wheel, so an unmodified-wheel zoom never
+reached the web or VS Code hosts and a pinch there zoomed time only.
+Ctrl/Command+wheel now means "zoom this panel" in both kinds: time in a wave
+panel, both axes in a pipeline panel; pointing at the time header selects time
+only, Alt+wheel rows only. Rows fitting the visible time automatically was
+rejected: it is content-driven layout magic, and one long-stalled transaction
+makes the row set jump; an explicit command remains possible. Transient
+chips and an elastic bounce at the limits were rejected because Surfer and the
+wave panel stop silently; shading the time and rows outside the trace, with
+Zoom Fit's margins, shows the limits persistently in both panel kinds.
 
 Data is the document's loaded track: rows index the resident
 `LoadedGenerator` slices through prefix sums and the panel retains and
@@ -76,8 +105,9 @@ The middle 60% is a safe band: a candidate already there causes no movement.
 Idle windows retain rows and show the direction of activity. Following changes
 only row top, never height, cursor or shared time. Immediate row placement
 avoids a second lagging animation while shared time itself animates.
-Vertical pan, row keys and two-axis zoom suspend following; horizontal input,
-including Ctrl/Command+wheel time zoom, does not. Explicit resume and one-shot
+Vertical pan, row keys, Zoom Fit, rows-only and two-axis zoom suspend
+following; horizontal input, including the time-only zoom over the time
+header, does not. Explicit resume and one-shot
 edge navigation avoid silently taking control back after manual inspection.
 Follow state is saved per panel and copied on split. Native toolbar equivalents
 expose the canvas edge actions to keyboard and accessibility users. Protocols
