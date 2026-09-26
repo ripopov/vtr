@@ -1591,3 +1591,8 @@ that shaped the format:
   derived each frame from the open pipeline panels rather than stored, so
   opening or closing a pipeline changes them without a hidden per-panel
   choice. An explicit ruler choice replaces the default for that panel.
+* The cursor's cycle is a chip on every ruler, next to the time chip on the
+  time ruler. A per-panel cycle axis (the main ruler and its chip counting
+  one clock) was built first and removed: it showed one clock at a time,
+  added a mode to every panel and the workspace, and repeated what the ruler
+  chips show for all clocks at once. Go-to counts the selected clock.

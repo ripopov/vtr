@@ -130,7 +130,7 @@ struct WavePanel {
     columns: Columns,
     rows: Vec<Row>,
     selected: BTreeSet<usize>,
-    /// Clock rulers, cycle axis, snapping clock and cycle origin.
+    /// Clock rulers, snapping clock and cycle origin.
     #[serde(default, skip_serializing_if = "ClockView::is_default")]
     clocks: ClockView,
 }

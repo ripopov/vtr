@@ -113,8 +113,8 @@ actions!(
     ]
 );
 
-/// A clock choice of the focused panel (a ruler, the cycle axis, the
-/// selected clock, go to cycle), from the command palette.
+/// A clock choice of the focused panel (a ruler, the selected clock, go to
+/// cycle), from the command palette.
 #[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
 #[action(namespace = waves, no_json)]
 pub struct ClockAction {

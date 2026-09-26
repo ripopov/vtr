@@ -1,6 +1,6 @@
 //! Declared clocks (`docs/vtr_clocks.html`): the catalog of a trace's `CLOCK`
 //! streams, their timelines built from loaded stretches, each panel's clock
-//! choices, and the ruler, axis and readout arithmetic every timed panel
+//! choices, and the ruler and readout arithmetic every timed panel
 //! shares.
 //!
 //! A clock is an ordinary transaction stream, so its stretches load through
@@ -15,7 +15,7 @@ pub use vtr::{ClockTimeline, CycleAt};
 
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::{AttributeValue, Track, TrackKind, TrackRef, TxStatus};
-use crate::wave::timeline::{Tick, TimeBase};
+use crate::wave::timeline::TimeBase;
 use crate::wave::viewport::Viewport;
 
 /// Stream kind of a clock.
@@ -189,12 +189,8 @@ pub struct ClockView {
     /// clocks the workspace's pipelines count in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rulers: Option<Vec<String>>,
-    /// Count the main ruler, the cursor chip and go-to in cycles of this
-    /// clock instead of time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub axis: Option<String>,
-    /// The clock clicks snap to and `[` / `]` step through; defaults to the
-    /// axis clock, else the first ruler.
+    /// The clock clicks snap to, `[` / `]` step through and go-to counts in;
+    /// defaults to the first ruler.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
     /// Time whose cycle every clock of the panel numbers 0; `None` numbers
@@ -221,17 +217,28 @@ impl ClockView {
             .collect()
     }
 
-    pub fn axis<'a>(&self, clocks: &'a Clocks) -> Option<&'a Clock> {
-        clocks.find(self.axis.as_deref()?)
-    }
-
     /// The clock clicks snap to and cycle steps follow.
     pub fn selected<'a>(&self, clocks: &'a Clocks) -> Option<&'a Clock> {
         self.selected
             .as_deref()
             .and_then(|p| clocks.find(p))
-            .or_else(|| self.axis(clocks))
             .or_else(|| self.rulers(clocks).into_iter().next())
+    }
+
+    /// Show a ruler row (starting from the default set) unless it is shown.
+    pub fn show_ruler(&mut self, clocks: &Clocks, path: &str) {
+        let mut rulers = self.ruler_paths(clocks).to_vec();
+        if !rulers.iter().any(|p| p == path) {
+            rulers.push(path.to_owned());
+        }
+        self.rulers = Some(rulers);
+    }
+
+    /// Hide a ruler row (starting from the default set) if it is shown.
+    pub fn hide_ruler(&mut self, clocks: &Clocks, path: &str) {
+        if self.ruler_paths(clocks).iter().any(|p| p == path) {
+            self.toggle_ruler(clocks, path);
+        }
     }
 
     /// Show or hide a ruler row, starting from the default set.
@@ -386,7 +393,7 @@ pub fn speed_label(period: u64, base: TimeBase<'_>) -> String {
     format!("→ {value:.2} {suffix}")
 }
 
-// -- ruler and axis marks ---------------------------------------------------------
+// -- ruler marks -------------------------------------------------------------------
 
 /// One rising edge on a ruler; labelled edges carry their displayed cycle.
 #[derive(Clone, Debug, PartialEq)]
@@ -428,8 +435,8 @@ fn label_step(cycle_px: f64, min_px: f64) -> u64 {
 
 /// Ticks, flags and stopped intervals of a clock in `viewport`, labelling
 /// every `step`th displayed cycle, where each stretch picks its own step so
-/// labels stay at least `min_label_px` apart. With `every_edge` false only
-/// labelled edges are ticked (the main ruler of a cycle axis).
+/// labels stay at least `min_label_px` apart. Edges closer than
+/// [`MIN_TICK_PX`] are ticked only where labelled.
 pub fn ruler_marks(
     view: &ClockView,
     timeline: &ClockTimeline,
@@ -437,7 +444,6 @@ pub fn ruler_marks(
     width_px: f64,
     min_label_px: f64,
     base: TimeBase<'_>,
-    every_edge: bool,
 ) -> RulerMarks {
     let mut marks = RulerMarks::default();
     let stretches = timeline.stretches();
@@ -493,7 +499,7 @@ pub fn ruler_marks(
         };
         let shown = |k: u64| (s.first_cycle + k) as i64 - origin;
         let label = |k: u64| (shown(k).rem_euclid(step as i64) == 0).then(|| shown(k).to_string());
-        if every_edge && cycle_px >= MIN_TICK_PX {
+        if cycle_px >= MIN_TICK_PX {
             for k in k0..=k1 {
                 if marks.ticks.len() >= MAX_TICKS {
                     break;
@@ -519,35 +525,6 @@ pub fn ruler_marks(
         }
     }
     marks
-}
-
-/// The main ruler of a panel counting in cycles: labelled edges as ticks.
-pub fn axis_ticks(
-    view: &ClockView,
-    timeline: &ClockTimeline,
-    viewport: &Viewport,
-    width_px: f64,
-    min_label_px: f64,
-    base: TimeBase<'_>,
-) -> Vec<Tick> {
-    ruler_marks(
-        view,
-        timeline,
-        viewport,
-        width_px,
-        min_label_px,
-        base,
-        false,
-    )
-    .ticks
-    .into_iter()
-    .filter_map(|t| {
-        Some(Tick {
-            time: t.time as f64,
-            label: t.label?,
-        })
-    })
-    .collect()
 }
 
 #[cfg(test)]
@@ -579,7 +556,7 @@ mod tests {
             start: 0.0,
             end: 5000.0,
         };
-        let m = ruler_marks(&view, &t, &vp, 1000.0, 64.0, TimeBase::si(-12), true);
+        let m = ruler_marks(&view, &t, &vp, 1000.0, 64.0, TimeBase::si(-12));
         // 334 ps is 66.8 px: every edge is ticked and labelled.
         let times: Vec<u64> = m.ticks.iter().map(|t| t.time).collect();
         assert_eq!(times, (0..14).map(|k| 400 + k * 334).collect::<Vec<_>>());
@@ -591,7 +568,7 @@ mod tests {
             start: 0.0,
             end: 100_000.0,
         };
-        let m = ruler_marks(&view, &t, &vp, 1000.0, 64.0, TimeBase::si(-12), true);
+        let m = ruler_marks(&view, &t, &vp, 1000.0, 64.0, TimeBase::si(-12));
         // 3.34 px per cycle in the first stretch: only every 20th edge, labelled.
         let first: Vec<_> = m.ticks.iter().filter(|t| t.time < 20000).collect();
         assert!(first.iter().all(|t| {
@@ -629,7 +606,7 @@ mod tests {
             start: 0.0,
             end: 2000.0,
         };
-        let m = ruler_marks(&view, &t, &vp, 2000.0, 20.0, TimeBase::si(-9), true);
+        let m = ruler_marks(&view, &t, &vp, 2000.0, 20.0, TimeBase::si(-9));
         assert_eq!(m.stopped, vec![(100.0, 1000.0), (1100.0, 2000.0)]);
         // 10 px per cycle: every second displayed cycle is labelled.
         assert_eq!(m.ticks[0].label, None);

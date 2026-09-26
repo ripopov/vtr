@@ -10,6 +10,7 @@ use gpui_kit::{
     uniform_list,
 };
 use volna_core::app::Command;
+use volna_core::data::Member;
 use volna_core::sidebar::Key;
 use volna_core::sidebar::icons::{direction_icon, member_icon};
 use volna_core::sidebar::members::{describe, log_site, member_detail};
@@ -167,6 +168,8 @@ impl Workspace {
                         let addable = member.var().is_some()
                             || (matches!(member, volna_core::data::Member::Generator(_))
                                 && !h.is_log(member));
+                        // A clock's generator is shown as a ruler or as a waveform row.
+                        let clock = this.app.member_clock(member).is_some();
                         let mut row = div()
                             .id(("var", ix))
                             .w_full()
@@ -257,11 +260,12 @@ impl Workspace {
                             )
                             .context_menu(move |menu, _, _cx| {
                                 let owner = owner.clone();
-                                let add_owner = owner.clone();
-                                let menu = if addable {
-                                    menu.item(PopupMenuItem::new("Add to Waves").on_click(
-                                        move |_, window, cx| {
-                                            _ = add_owner.update(cx, |workspace, cx| {
+                                // The clicked row, or the whole selection when it is part of it.
+                                let add =
+                                    |label: &'static str, command: fn(Vec<Member>) -> Command| {
+                                        let owner = owner.clone();
+                                        PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                                            _ = owner.update(cx, |workspace, cx| {
                                                 let list = &workspace.app.variables;
                                                 let members = if list.selected.contains(&ix) {
                                                     list.selected
@@ -272,13 +276,18 @@ impl Workspace {
                                                     vec![member]
                                                 };
                                                 workspace.dispatch(
-                                                    Command::AddToWaves(members),
+                                                    command(members),
                                                     Some(window),
                                                     cx,
                                                 );
                                             });
-                                        },
-                                    ))
+                                        })
+                                    };
+                                let menu = if clock {
+                                    menu.item(add("Add as Ruler", Command::AddClockRulers))
+                                        .item(add("Add as Waveform", Command::AddToWaves))
+                                } else if addable {
+                                    menu.item(add("Add to Waves", Command::AddToWaves))
                                 } else {
                                     menu
                                 };

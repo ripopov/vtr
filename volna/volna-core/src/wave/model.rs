@@ -316,6 +316,8 @@ pub enum MenuAction {
     Draw(Option<AnalogDraw>),
     Range(AnalogRange),
     ToggleAnalog,
+    /// Hide the ruler of the clock with this path.
+    HideRuler(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -354,6 +356,8 @@ impl MenuItem {
 pub enum WaveMenuKind {
     Format,
     Signal,
+    /// A clock ruler's menu; `row` is the ruler's index.
+    Ruler,
 }
 
 /// A format-badge or signal-name menu. The frontend shows its own popup widget
@@ -1164,8 +1168,38 @@ impl WaveModel {
 
     /// The frontend's popup reported a choice.
     /// Return a failed canonical signal to retry through the document owner.
+    /// Open the menu of clock ruler `ruler` (its index among the panel's rulers).
+    pub fn open_ruler_menu(&mut self, doc: &Document, ruler: usize, position: Point) {
+        let Some(path) = self
+            .nav
+            .clocks
+            .rulers(&doc.clocks)
+            .get(ruler)
+            .map(|c| c.path.clone())
+        else {
+            return;
+        };
+        self.menu = Some(WaveMenu {
+            kind: WaveMenuKind::Ruler,
+            row: ruler,
+            position,
+            entries: vec![MenuEntry::Item(MenuItem::plain(
+                MenuAction::HideRuler(path),
+                "Hide Ruler",
+            ))],
+        });
+    }
+
     pub fn menu_select(&mut self, doc: &Document, action: &MenuAction) -> Option<SignalRef> {
         let menu = self.menu.take()?;
+        match action {
+            MenuAction::HideRuler(path) => {
+                self.nav.clocks.hide_ruler(&doc.clocks, path);
+                return None;
+            }
+            _ if menu.kind == WaveMenuKind::Ruler => return None,
+            _ => {}
+        }
         if matches!(
             action,
             MenuAction::OpenTable
@@ -1717,6 +1751,10 @@ impl WaveModel {
             .collect();
         let ruler = layout.ruler_at(p, rulers.len());
         if let Some(ix) = ruler {
+            if button == MouseButton::Right {
+                self.open_ruler_menu(doc, ix, p);
+                return;
+            }
             self.nav.select_clock(&rulers[ix]);
         }
         if layout.header.contains(p) || ruler.is_some() {

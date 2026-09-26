@@ -39,25 +39,16 @@ fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Action>)> {
                 clock(ClockCommand::GoToCycle(cycle)),
             ));
         }
-        for (path, ruler, axis) in &choices.clocks {
+        for (path, ruler) in &choices.clocks {
             let verb = if *ruler { "Hide" } else { "Show" };
             all.push((
                 format!("{verb} Clock Ruler: {path}"),
                 clock(ClockCommand::ToggleRuler(path.clone())),
             ));
-            if !axis {
-                all.push((
-                    format!("Count Cycles of: {path}"),
-                    clock(ClockCommand::SetAxis(Some(path.clone()))),
-                ));
-            }
             all.push((
                 format!("Snap and Step to Clock: {path}"),
                 clock(ClockCommand::Select(path.clone())),
             ));
-        }
-        if choices.clocks.iter().any(|(_, _, axis)| *axis) {
-            all.push(("Count Time".into(), clock(ClockCommand::SetAxis(None))));
         }
         all.push((
             if choices.origin {

@@ -160,16 +160,15 @@ ul.prose{margin-top:0}
   <p class="prose">The page turns each clock's <code>vtr_clock_run</code> and <code>vtr_clock_stop</code> calls into stretches with the proposed writer. Everything is drawn from those stretches, including the clock rows, and a self-test checks that they reproduce every edge the simulator would toggle. The side panel lists the stretches exactly as the file would store them.</p>
   <div class="steps" role="group" aria-label="Guided scenarios">
     <button type="button" data-guide="rulers">1 · Three rulers<span>One cycle ruler per clock under the time ruler</span></button>
-    <button type="button" data-guide="axis">2 · Count in core cycles<span>The main axis and cursor switch to cycles</span></button>
+    <button type="button" data-guide="chips">2 · Cycles at the cursor<span>Every ruler's chip reads the cursor in its clock</span></button>
     <button type="button" data-guide="dvfs">3 · Frequency change<span>334 → 500 ps, numbering stays continuous</span></button>
     <button type="button" data-guide="gated">4 · Gated clock<span>No edges, no cycles: shown as stopped</span></button>
     <button type="button" data-guide="measure">5 · Measure across domains<span>One interval, counted in every clock</span></button>
     <button type="button" data-guide="rounded">6 · Whole periods<span>3 GHz requested, 334 ps recorded</span></button>
   </div>
-  <div class="chips" role="group" aria-label="Main axis">
-    <span>Axis</span>
-    <button type="button" data-axis="time">time</button><button type="button" data-axis="core_clk">core_clk</button><button type="button" data-axis="bus_clk">bus_clk</button><button type="button" data-axis="periph_clk">periph_clk</button>
-    <button type="button" id="cgrid" aria-label="Toggle the edge grid">edge grid</button>
+  <div class="chips" role="group" aria-label="Grid">
+    <span>Grid</span>
+    <button type="button" id="cgrid" aria-label="Toggle the edge grid of the selected clock">edges of the selected clock</button>
   </div>
   <figure class="pv" id="cw" tabindex="0" aria-label="Waves panel mock with clock rulers">
     <div class="pv-title"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><b>soc_dvfs.vtr</b><span>Waves</span><span class="data">generated scenario · clocks drawn from stretches</span></div>
@@ -179,7 +178,7 @@ ul.prose{margin-top:0}
     </div>
     <div class="pv-foot" id="cfoot"></div>
   </figure>
-  <p class="hint">Click places the cursor, snapping to the nearest edge of the selected clock. Click a ruler to select its clock. <kbd>[</kbd> <kbd>]</kbd> step one cycle, <kbd>M</kbd> puts the marker at the cursor, <kbd>G</kbd> toggles the edge grid, <kbd>F</kbd> fits, <kbd>Esc</kbd> clears. Wheel pans; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms.</p>
+  <p class="hint">Click places the cursor, snapping to the nearest edge of the selected clock; each ruler's chip shows the cursor's cycle in that clock. Click a ruler to select its clock. <kbd>[</kbd> <kbd>]</kbd> step one cycle, <kbd>M</kbd> puts the marker at the cursor, <kbd>G</kbd> toggles the edge grid, <kbd>F</kbd> fits, <kbd>Esc</kbd> clears. Wheel pans; <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+wheel zooms.</p>
 </div></section>
 
 <section id="problem"><div class="wrap"><div class="prose">
@@ -352,14 +351,14 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
   <p>Every query is a binary search over the stretches and one multiplication. The CLI gains <code>vtr clocks file.vtr</code>, which lists each clock with its stretches, periods and stopped time.</p>
   <p>Volna loads all clock timelines when a file opens, next to the hierarchy. It then offers:</p>
   <ul>
-    <li><b>Clock rulers.</b> Under the time ruler, one row per chosen clock, with ticks at rising edges labelled by cycle number. Each stretch picks its own label spacing, a frequency change gets a small flag such as "→ 2.00 GHz", and a stopped interval is hatched. By default a panel shows the clocks that the workspace's pipelines count in; the palette shows and hides each clock's ruler.</li>
-    <li><b>A cycle axis.</b> Any panel can count its main ruler in cycles of one clock. The cursor chip then reads <code>150231 + 0.42</code>, and the status bar keeps the time.</li>
+    <li><b>Clock rulers.</b> Under the time ruler, one row per chosen clock, with ticks at rising edges labelled by cycle number. Each stretch picks its own label spacing, a frequency change gets a small flag such as "→ 2.00 GHz", and a stopped interval is hatched. By default a panel shows the clocks that the workspace's pipelines count in; the palette shows and hides each clock's ruler, and a clock generator's context menu in the sidebar offers <i>Add as Ruler</i> beside <i>Add as Waveform</i>. A ruler's own context menu in a waveform panel hides it.</li>
+    <li><b>Cursor chips on the rulers.</b> The cursor line crosses every ruler, and each ruler carries its own chip with the cursor's cycle in that clock, for example <code>150231 + 0.42</code>, while the time ruler's chip keeps the time. Every clock reads at once, so the main ruler never switches to one clock's cycles.</li>
     <li><b>Readouts and measurements.</b> The status bar shows the cursor's cycle in each ruler clock, and the new cursor-to-marker delta reads, for example, "Δ 20.0 ns · 40 core · 10 bus".</li>
-    <li><b>Snapping and stepping.</b> Clicks snap to the nearest edge of the selected clock (a click on a ruler selects its clock; the axis clock, else the first ruler, is the default), <kbd>[</kbd> and <kbd>]</kbd> step one cycle, and typing a number in the palette offers "Go to Cycle N". A cycle origin set at the cursor renumbers the panel's clocks from there.</li>
+    <li><b>Snapping and stepping.</b> Clicks snap to the nearest edge of the selected clock (a click on a ruler selects its clock; the first ruler is the default), <kbd>[</kbd> and <kbd>]</kbd> step one cycle, and typing a number in the palette offers "Go to Cycle N" of the selected clock. A cycle origin set at the cursor renumbers the panel's clocks from there.</li>
     <li><b>Clock rows without waveforms.</b> Adding a clock stream to the waves shows a clock row even when its net was never dumped, drawn from its stretches with a 50% duty cycle (the file records no falling edges), with the cursor's cycle in its value column.</li>
     <li><b>Pipelines in cycles.</b> The Pipeline panel counts stages in its stream's <code>vtr.clock</code> instead of assuming one unit per cycle. A stream without <code>vtr.clock</code> keeps today's behaviour, one time unit per cycle.</li>
   </ul>
-  <p>Each piece has a home in <code>volna-core</code>. A clock is an ordinary stream, so its stretches load as a track, through the requests and the remote protocol that already serve every other stream; <code>Document</code> retains every clock's track when a trace opens and keeps the resulting timelines in <code>clock::Clocks</code>, which also resolves each stream's <code>vtr.clock</code>. <code>clock.rs</code> holds a panel's choices (<code>ClockView</code>), the ruler, axis and readout arithmetic and a lazy one-bit history for clock rows; <code>NavState</code> carries the <code>ClockView</code> and the cycle steps; the shared overlay paints the rulers and the cycle axis for the wave and pipeline panels alike; <code>snapped_time</code> gains the selected clock as an edge source; and <code>cycle_at</code> in the pipeline model asks the stream's clock. Which clocks a panel shows, its axis, its selected clock and any custom cycle origin are saved in the workspace, never in the VTR file.</p>
+  <p>Each piece has a home in <code>volna-core</code>. A clock is an ordinary stream, so its stretches load as a track, through the requests and the remote protocol that already serve every other stream; <code>Document</code> retains every clock's track when a trace opens and keeps the resulting timelines in <code>clock::Clocks</code>, which also resolves each stream's <code>vtr.clock</code>. <code>clock.rs</code> holds a panel's choices (<code>ClockView</code>), the ruler and readout arithmetic and a lazy one-bit history for clock rows; <code>NavState</code> carries the <code>ClockView</code> and the cycle steps; the shared overlay paints the rulers and their cursor chips for the wave and pipeline panels alike; <code>snapped_time</code> gains the selected clock as an edge source; and <code>cycle_at</code> in the pipeline model asks the stream's clock. Which clocks a panel shows, its selected clock and any custom cycle origin are saved in the workspace, never in the VTR file.</p>
   <p>VDB and VTR meet by path. A VDB profile can say that a clock stream is "the core clock" or that one clock is derived from another, without the trace saying so.</p>
 </div></div></section>
 
@@ -372,7 +371,7 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
     <li><b>Round trip.</b> A <code>core/vtr/tests/</code> test writes clocks through every writer call and checks <code>cycle_at</code>, <code>edge</code> and stepping against brute-force edge counting, also on a crash-recovered file.</li>
     <li><b>Fork.</b> <code>integrations/verilator/clocks/run.py</code>, beside the log and VDB suites (the fork's own <code>test_regress</code> has no VTR library to run a model against), checks that the package resolves with <code>--trace-vtr</code> alone. It drives one testbench clock, which changes speed in both directions and is gated, through <code>vtr_clock_run</code> and <code>vtr_clock_stop</code>. It requires stretches whose edges equal the rising edges of the dumped clock waveform, in one and two thread modes. It also checks that a run on a running clock is reported. It also checks the unit conversion, including a period that is not a whole number of file units and its simulation log warning, the scope paths <code>""</code>, <code>"^"</code> and <code>$root</code>, a clock declared before the file opens, that a signal-free open still records the clock, and that a design that uses nothing from the package gets no package code, dependency or VDB source entry.</li>
     <li><b>C910.</b> With the clocks declared in the testbench, the capture holds one <code>clk</code> stretch of period 2 starting on the first rising edge of the recorded <code>clk</code>, with an edge count equal to the rising edges of that waveform: <code>capture.sh --check</code> runs <code>check_clock.py</code>.</li>
-    <li><b>Volna.</b> Headless tests cover clock ruler ticks, the cycle axis, snapping, stepping, the delta readout, the Pipeline panel in cycles on a Kanata import, the workspace round trip, and clocks loaded through the remote protocol.</li>
+    <li><b>Volna.</b> Headless tests cover clock ruler ticks and cursor chips, snapping, stepping, the delta readout, the Pipeline panel in cycles on a Kanata import, the workspace round trip, and clocks loaded through the remote protocol.</li>
     <li><b>This page.</b> <code>node --test docs/tests/vtr_clocks.test.mjs</code> drives the demo in headless Chrome, and a workflow runs it when the page changes.</li>
   </ul>
 </div></div></section>
@@ -401,7 +400,7 @@ timeline.next_edge(t), timeline.prev_edge(t)</code></pre>
     <li><b>Format and core.</b> SPEC additions (<code>CLOCK</code>, <code>vtr.period</code>, <code>vtr.clock</code>), the three writer calls, the dedicated clock block, <code>ClockTimeline</code>, the C API, <code>vtr clocks</code> and the Kanata clock, with the writer, round-trip and recovery tests and a RATIONALE entry. <i>Exit:</i> the core tests pass.</li>
     <li><b>Package and fork.</b> <code>vtr_trace.sv</code> with the common part and the clock functions; <code>vtr_trace_dpi.hpp</code> with the sink interface, scope paths, replay at open, misuse counts and the unit conversion; installation by <code>build.sh</code>, automatic parsing and pruning under <code>--trace-vtr</code>, the context sink in <code>VerilatedVtr</code>, <code>verilated.mk</code> plumbing and the signal-free open, with the integration test and a SPEC producer example next to the Verilator log example. <i>Exit:</i> the integration test passes in both thread modes.</li>
     <li><b>C910.</b> The harness time order, the declared <code>clk</code> in the testbench, and the A/B benchmark. <i>Exit:</i> the C910 checks pass and write time and size stay within noise.</li>
-    <li><b>Volna.</b> Timelines in <code>Document</code>, clock rulers, the cycle axis, readouts, snapping and stepping, clock rows, pipelines in cycles and workspace support. <i>Exit:</i> the headless tests pass.</li>
+    <li><b>Volna.</b> Timelines in <code>Document</code>, clock rulers with cursor chips, readouts, snapping and stepping, clock rows, pipelines in cycles and workspace support. <i>Exit:</i> the headless tests pass.</li>
     <li><b>Models.</b> Clock stretches from the planned gem5 and SystemC integrations. Not needed by pipeline tracing.</li>
   </ol>
   <p>Postponed, with no step yet: observed clocks, that is <code>clock_edge</code>, <code>vtr_clock_edge</code>, an observer module and <code>vtr convert --clock</code>. They are added to the writer and the package when a design needs a clock whose period nobody declares.</p>
@@ -661,8 +660,8 @@ const ROWS = [
   {kind: 'clock', clock: 'bus_clk'}, {kind: 'bit', sig: 'bus.valid'},
   {kind: 'clock', clock: 'periph_clk'}, {kind: 'bit', sig: 'periph.gate_en'},
 ];
-const st = {vp: {start: 0, end: L.END}, axis: 'time', rulers: ['core_clk', 'bus_clk', 'periph_clk'], active: 'core_clk',
-  cursor: null, marker: null, grid: true, guide: null, w: 0, h: 0};
+const st = {vp: {start: 0, end: L.END}, rulers: ['core_clk', 'bus_clk', 'periph_clk'], active: 'core_clk',
+  cursor: null, marker: null, grid: false, guide: null, chips: [], w: 0, h: 0};
 let dpr = 1, g = null;
 
 function geom() {
@@ -679,8 +678,7 @@ function resize() {
 }
 const X = t => g.NW + L.xOf(st.vp, g.plotW, t);
 const T = x => L.tAt(st.vp, g.plotW, x - g.NW);
-const axisClock = () => st.axis === 'time' ? null : L.byName[st.axis];
-const snapClock = () => L.byName[st.axis === 'time' ? st.active : st.axis];
+const snapClock = () => L.byName[st.active];
 
 function draw() {
   g = geom();
@@ -688,10 +686,10 @@ function draw() {
   ctx.fillStyle = '#1b242a'; ctx.fillRect(0, 0, st.w, st.h);
   ctx.textBaseline = 'middle';
   const rowsTop = g.header;
-  // grid at active edges of the axis clock (or time ticks)
+  // grid at the edges of the selected clock, or at time ticks
   ctx.save(); ctx.beginPath(); ctx.rect(g.NW, rowsTop, g.plotW, st.h - rowsTop); ctx.clip();
-  const ac = axisClock();
-  if (st.grid && ac) {
+  const ac = st.grid ? snapClock() : null;
+  if (ac) {
     const ppc = g.plotW / (st.vp.end - st.vp.start);
     for (const t of L.clockTicks(ac, st.vp, g.plotW, 6)) {
       const p = (ac.at(t.t).period ?? 0) * ppc;
@@ -708,6 +706,7 @@ function draw() {
   // header: time ruler + clock rulers
   ctx.fillStyle = '#151c21'; ctx.fillRect(0, 0, st.w, g.header);
   drawTimeRuler();
+  st.chips = [];
   st.rulers.forEach((name, i) => drawClockRuler(L.byName[name], g.TR + i * g.CR));
   ctx.strokeStyle = '#2c3a42'; ctx.beginPath(); ctx.moveTo(0, g.header - .5); ctx.lineTo(st.w, g.header - .5);
   ctx.moveTo(g.NW - .5, 0); ctx.lineTo(g.NW - .5, st.h); ctx.stroke();
@@ -725,25 +724,16 @@ function vline(t, color, chip) {
 function drawTimeRuler() {
   ctx.font = '10.5px "IBM Plex Mono", monospace';
   ctx.fillStyle = '#8d9f99'; ctx.textAlign = 'left';
-  const ac = axisClock();
-  ctx.fillText(ac ? 'cycles of ' + ac.name : 'time', 8, g.TR / 2);
+  ctx.fillText('time', 8, g.TR / 2);
   ctx.save(); ctx.beginPath(); ctx.rect(g.NW, 0, g.plotW, g.TR); ctx.clip();
   ctx.textAlign = 'center';
-  if (ac) {
-    ctx.fillStyle = '#d7e1dd';
-    for (const t of L.clockTicks(ac, st.vp, g.plotW, 70)) {
-      const x = X(t.t); ctx.fillRect(Math.round(x), g.TR - 6, 1, 6); ctx.fillText(String(t.cycle), x, g.TR / 2 - 1);
-    }
-  } else {
-    ctx.fillStyle = '#d7e1dd';
-    for (const t of L.timeTicks(st.vp, g.plotW, 96).ticks) {
-      const x = X(t); ctx.fillRect(Math.round(x), g.TR - 6, 1, 6);
-      if (st.cursor == null || Math.abs(x - X(st.cursor)) > 44) ctx.fillText(L.fmtTime(t), x, g.TR / 2 - 1);
-    }
+  ctx.fillStyle = '#d7e1dd';
+  for (const t of L.timeTicks(st.vp, g.plotW, 96).ticks) {
+    const x = X(t); ctx.fillRect(Math.round(x), g.TR - 6, 1, 6);
+    if (st.cursor == null || Math.abs(x - X(st.cursor)) > 44) ctx.fillText(L.fmtTime(t), x, g.TR / 2 - 1);
   }
   if (st.cursor != null) {
-    const x = X(st.cursor), a = ac && ac.at(st.cursor);
-    const label = ac ? (a ? String(a.cycle) + (a.frac > 0.001 ? '+' + a.frac.toFixed(2) : '') : '—') : L.fmtTime(st.cursor);
+    const x = X(st.cursor), label = L.fmtTime(st.cursor);
     ctx.font = '600 10.5px "IBM Plex Mono", monospace';
     const w = ctx.measureText(label).width + 10;
     ctx.fillStyle = '#f1d05c'; ctx.fillRect(x - w / 2, 3, w, g.TR - 7); ctx.fillStyle = '#10181c'; ctx.fillText(label, x, g.TR / 2 - 1);
@@ -757,7 +747,7 @@ function hatch(x1, x2, y, h, color) {
   ctx.restore();
 }
 function drawClockRuler(clk, y) {
-  const h = g.CR, active = clk.name === (st.axis === 'time' ? st.active : st.axis);
+  const h = g.CR, active = clk.name === st.active;
   ctx.fillStyle = active ? '#1f2c33' : '#172026'; ctx.fillRect(0, y, st.w, h);
   ctx.fillStyle = clk.color; ctx.fillRect(4, y + 5, 3, h - 10);
   ctx.font = '10.5px "IBM Plex Mono", monospace'; ctx.textAlign = 'left'; ctx.fillStyle = active ? '#e2eae6' : '#9fb1ab';
@@ -796,6 +786,17 @@ function drawClockRuler(clk, y) {
     ctx.textAlign = 'left'; ctx.fillStyle = '#e2eae6'; ctx.fillText(label, x + 12, y + h / 2);
   });
   ctx.font = '10.5px "IBM Plex Mono", monospace'; ctx.textAlign = 'center';
+  // the cursor's cycle in this clock, in a chip on the cursor line
+  if (st.cursor != null) {
+    const a = clk.at(st.cursor), x = X(st.cursor);
+    const label = !a ? '—' : a.stopped ? a.cycle + ' stopped' : a.cycle + (a.frac > 0.001 ? ' + ' + a.frac.toFixed(2) : '');
+    st.chips.push({clock: clk.name, label});
+    ctx.font = '600 10px "IBM Plex Mono", monospace';
+    const w = ctx.measureText(label).width + 10, left = x + w > st.w - 2 ? x - w : x;
+    ctx.fillStyle = '#f1d05c'; ctx.fillRect(left, y + 3, w, h - 6);
+    ctx.fillStyle = '#10181c'; ctx.textAlign = 'left'; ctx.fillText(label, left + 5, y + h / 2);
+    ctx.font = '10.5px "IBM Plex Mono", monospace'; ctx.textAlign = 'center';
+  }
   // at extreme zoom, show the spacing of consecutive edges (334 ps for the 3 GHz request)
   const vis = clk.at(Math.max(st.vp.start, clk.segs[0].begin));
   if (vis && vis.period && vis.period * ppu > 70) {
@@ -885,9 +886,7 @@ function readout() {
   side.innerHTML = h;
   const span = st.vp.end - st.vp.start;
   foot.innerHTML = `<span>view <b>${L.fmtTime(Math.max(0, st.vp.start))} – ${L.fmtTime(st.vp.end)}</b></span>`
-    + `<span>axis <b>${st.axis === 'time' ? 'time' : 'cycles of ' + st.axis}</b></span>`
     + `<span>snap <b>${sc.name} edges</b></span><span>1 px <b>${(span / g.plotW).toFixed(1)} ps</b></span>`;
-  document.querySelectorAll('[data-axis]').forEach(b => b.classList.toggle('on', b.dataset.axis === st.axis));
   document.getElementById('cgrid').classList.toggle('on', st.grid);
 }
 
@@ -945,20 +944,19 @@ root.addEventListener('keydown', e => {
   else return;
   e.preventDefault();
 });
-document.querySelectorAll('[data-axis]').forEach(b => b.addEventListener('click', () => { st.axis = b.dataset.axis; if (st.axis !== 'time') st.active = st.axis; draw(); }));
 document.getElementById('cgrid').addEventListener('click', () => { st.grid = !st.grid; draw(); });
 
 const GUIDES = {
-  rulers: () => ({vp: [0, L.END], axis: 'time', active: 'core_clk', cursor: 27300, marker: null}),
-  axis: () => ({vp: [24000, 29000], axis: 'core_clk', active: 'core_clk', cursor: L.byName.core_clk.edge(L.byName.core_clk.at(26000).cycle), marker: null}),
-  dvfs: () => ({vp: [18800, 22300], axis: 'time', active: 'core_clk', cursor: null, marker: null}),
-  gated: () => ({vp: [26000, 76000], axis: 'time', active: 'periph_clk', cursor: 50000, marker: null}),
-  measure: () => ({vp: [10000, 60000], axis: 'time', active: 'bus_clk', cursor: L.byName.bus_clk.edge(26), marker: L.byName.bus_clk.edge(6)}),
-  rounded: () => ({vp: [380, 2100], axis: 'core_clk', active: 'core_clk', cursor: L.byName.core_clk.edge(3), marker: null}),
+  rulers: () => ({vp: [0, L.END], active: 'core_clk', cursor: 27300, marker: null}),
+  chips: () => ({vp: [24000, 29000], active: 'core_clk', cursor: 26150, marker: null}),
+  dvfs: () => ({vp: [18800, 22300], active: 'core_clk', cursor: null, marker: null}),
+  gated: () => ({vp: [26000, 76000], active: 'periph_clk', cursor: 50000, marker: null}),
+  measure: () => ({vp: [10000, 60000], active: 'bus_clk', cursor: L.byName.bus_clk.edge(26), marker: L.byName.bus_clk.edge(6)}),
+  rounded: () => ({vp: [380, 2100], active: 'core_clk', cursor: L.byName.core_clk.edge(3), marker: null}),
 };
 function guide(name) {
   const q = GUIDES[name]();
-  st.vp = {start: q.vp[0], end: q.vp[1]}; st.axis = q.axis; st.active = q.active; st.cursor = q.cursor; st.marker = q.marker;
+  st.vp = {start: q.vp[0], end: q.vp[1]}; st.active = q.active; st.cursor = q.cursor; st.marker = q.marker;
   st.guide = name;
   document.querySelectorAll('[data-guide]').forEach(b => b.classList.toggle('on', b.dataset.guide === name));
   draw();
@@ -977,7 +975,7 @@ document.getElementById('theme').addEventListener('click', () => {
 
 // Hooks for docs/tests/vtr_clocks.test.mjs.
 window.CLK = {
-  state: () => ({axis: view.st.axis, active: view.st.active, cursor: view.st.cursor, marker: view.st.marker,
+  state: () => ({chips: view.st.chips.map(c => ({...c})), active: view.st.active, cursor: view.st.cursor, marker: view.st.marker,
     vp: {...view.st.vp}, guide: view.st.guide, side: document.getElementById('cside').textContent,
     rulerText: null}),
   guide: n => view.guide(n),

@@ -1,5 +1,5 @@
-//! Declared clocks in Volna (docs/vtr_clocks.html): clock rulers, the cycle
-//! axis, snapping and stepping, readouts, clock rows, pipelines counted in
+//! Declared clocks in Volna (docs/vtr_clocks.html): clock rulers and their
+//! cursor chips, snapping and stepping, readouts, clock rows, pipelines counted in
 //! their stream's clock (also on a Kanata import), workspaces and remote
 //! loading. Headless: commands in, state and scenes out.
 
@@ -208,12 +208,15 @@ fn clocks_load_with_the_trace_and_rulers_tick_edges_labels_and_speed_flags() {
 }
 
 #[test]
-fn a_cycle_axis_counts_the_main_ruler_the_cursor_chip_and_go_to() {
+fn each_ruler_has_a_cursor_chip_with_its_cycle_and_go_to_counts_the_selected_clock() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
-    app.handle(Command::Clocks(ClockCommand::SetAxis(Some(
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
         "top.core_clk".into(),
-    ))));
+    )));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+        "top.bus_clk".into(),
+    )));
     app.doc.shared.viewport.set(Viewport {
         start: 0.0,
         end: 10_000.0,
@@ -222,12 +225,14 @@ fn a_cycle_axis_counts_the_main_ruler_the_cursor_chip_and_go_to() {
     app.doc.shared.cursor = Some(edges[12] + 167);
     frame(&mut app, panel, &theme);
     let texts: Vec<String> = app.scene().texts().map(str::to_owned).collect();
-    assert!(texts.iter().any(|t| t == "core_clk cycles"), "{texts:?}");
+    // The time ruler keeps its time chip; every ruler adds its own cycle chip.
+    assert!(texts.iter().any(|t| t == "4.575 ns"), "{texts:?}");
     assert!(
         texts.iter().any(|t| t == "12 + 0.50"),
-        "cursor chip in cycles: {texts:?}"
+        "core chip: {texts:?}"
     );
-    // Go to cycle puts the cursor on the edge and centres it.
+    assert!(texts.iter().any(|t| t == "1 + 0.79"), "bus chip: {texts:?}");
+    // Go to cycle counts the selected clock (the first ruler by default), centred.
     app.handle(Command::Clocks(ClockCommand::GoToCycle(100)));
     assert_eq!(app.doc.shared.cursor, Some(edges[100]));
     app.handle(Command::Clocks(ClockCommand::GoToCycle(1_000_000)));
@@ -236,7 +241,12 @@ fn a_cycle_axis_counts_the_main_ruler_the_cursor_chip_and_go_to() {
         Some(edges[100]),
         "a missing cycle leaves the cursor"
     );
+    app.handle(Command::Clocks(ClockCommand::Select("top.bus_clk".into())));
+    app.handle(Command::Clocks(ClockCommand::GoToCycle(10)));
+    assert_eq!(app.doc.shared.cursor, Some(1000 + 10 * 2000));
     // A custom origin renumbers every clock of the panel.
+    app.handle(Command::Clocks(ClockCommand::Select("top.core_clk".into())));
+    app.doc.shared.cursor = Some(edges[100]);
     app.handle(Command::Action(Action::ToggleCycleOrigin));
     app.doc.shared.cursor = Some(edges[103]);
     app.doc.shared.viewport.set(Viewport {
@@ -251,9 +261,6 @@ fn a_cycle_axis_counts_the_main_ruler_the_cursor_chip_and_go_to() {
     );
     app.handle(Command::Clocks(ClockCommand::GoToCycle(-100)));
     assert_eq!(app.doc.shared.cursor, Some(edges[0]));
-    app.handle(Command::Clocks(ClockCommand::SetAxis(None)));
-    frame(&mut app, panel, &theme);
-    assert!(!app.scene().texts().any(|t| t == "core_clk cycles"));
 }
 
 #[test]
@@ -361,12 +368,10 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     app.handle(Command::Action(Action::NextEdge));
     assert_eq!(app.doc.shared.cursor, Some(5000));
     // Save and restore: the row and the panel's clock choices come back.
-    app.handle(Command::Clocks(ClockCommand::SetAxis(Some(
-        "top.core_clk".into(),
-    ))));
     app.handle(Command::Clocks(ClockCommand::ToggleRuler(
         "top.bus_clk".into(),
     )));
+    app.handle(Command::Clocks(ClockCommand::Select("top.bus_clk".into())));
     app.handle(Command::Action(Action::ToggleCycleOrigin));
     let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
     let json = serde_json::to_value(&saved).unwrap();
@@ -377,7 +382,7 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     );
     assert_eq!(
         panel_json["clocks"],
-        serde_json::json!({"rulers": ["top.bus_clk"], "axis": "top.core_clk", "origin": 5000})
+        serde_json::json!({"rulers": ["top.bus_clk"], "selected": "top.bus_clk", "origin": 5000})
     );
     let mut restored = App::new();
     restored.set_session(session.clone());
@@ -417,7 +422,6 @@ fn a_pipeline_counts_in_its_stream_clock_and_its_clock_becomes_the_default_ruler
     ));
     let p = app.panels.pipeline(pipeline).unwrap();
     assert_eq!(p.clock(&app.doc).unwrap().path, "top.core_clk");
-    assert_eq!(p.nav.clocks.axis.as_deref(), Some("top.core_clk"));
     app.doc.shared.viewport.set(Viewport {
         start: 0.0,
         end: 8000.0,
@@ -506,8 +510,9 @@ fn a_kanata_import_counts_its_pipeline_in_the_cycle_clock() {
     let theme = Theme::one_dark();
     frame(&mut app, pipeline, &theme);
     let p = app.panels.pipeline(pipeline).unwrap();
-    assert_eq!(p.nav.clocks.axis.as_deref(), Some("cpu.cycle"));
-    assert!(app.scene().texts().any(|t| t == "cycles"));
+    // The stream's clock is the pipeline's default ruler.
+    assert_eq!(p.last_layout().rulers.height(), 16.0 * theme.zoom);
+    assert!(app.scene().texts().any(|t| t == "cycle"));
     let layout = p.last_layout().clone();
     let y = layout.row_y(0) + layout.rows.row_px / 2.0;
     let viewport = p.nav.viewport(&app.doc);
@@ -624,4 +629,80 @@ fn clocks_load_through_the_remote_protocol_like_any_track() {
     )
     .unwrap();
     server.join().unwrap().unwrap();
+}
+
+#[test]
+fn a_clock_generator_adds_as_a_ruler_or_as_a_waveform() {
+    let (mut app, session, panel) = waves();
+    let theme = Theme::one_dark();
+    let h = session.hierarchy();
+    let bus_stream = scope(session.as_ref(), &["top", "bus_clk"]);
+    let edges = h
+        .generators
+        .iter()
+        .position(|g| g.stream == bus_stream)
+        .unwrap();
+    let member = Member::Generator(edges);
+    assert_eq!(app.member_clock(member).as_deref(), Some("top.bus_clk"));
+    assert_eq!(
+        app.member_clock(Member::Var(0)),
+        None,
+        "a variable declares no clock"
+    );
+    // Add as Ruler: the wave panel shows the clock's ruler, and adding it again changes nothing.
+    app.handle(Command::AddClockRulers(vec![member, Member::Var(0)]));
+    app.handle(Command::AddClockRulers(vec![member]));
+    frame(&mut app, panel, &theme);
+    let w = app.panels.waves(panel).unwrap();
+    assert_eq!(
+        w.nav.clocks.rulers.as_deref(),
+        Some(&["top.bus_clk".to_owned()][..])
+    );
+    assert_eq!(w.last_layout().rulers.height(), 16.0 * theme.zoom);
+    assert_eq!(w.items.len(), 1, "a ruler adds no row");
+    // Add as Waveform: a clock row, not a transaction lane of its stretches.
+    app.handle(Command::AddToWaves(vec![member]));
+    let w = app.panels.waves(panel).unwrap();
+    assert!(matches!(&w.items[1], WaveRow::Clock(c) if c.path == "top.bus_clk"));
+}
+
+#[test]
+fn a_ruler_context_menu_hides_it() {
+    use volna_core::wave::model::{MenuAction, MenuEntry, WaveMenuKind};
+    let (mut app, _, panel) = waves();
+    let theme = Theme::one_dark();
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+        "top.core_clk".into(),
+    )));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+        "top.bus_clk".into(),
+    )));
+    frame(&mut app, panel, &theme);
+    let layout = app.panels.waves(panel).unwrap().last_layout().clone();
+    // A right click on the second ruler opens its menu.
+    let at = point(
+        layout.waves.left() + 40.0,
+        layout.rulers.top() + 1.5 * 16.0 * theme.zoom,
+    );
+    let right = PointerEvent::Down {
+        position: at,
+        button: MouseButton::Right,
+        modifiers: Modifiers::default(),
+    };
+    app.handle(Command::Pointer(panel, right));
+    let menu = app.panels.waves(panel).unwrap().menu.clone().unwrap();
+    assert_eq!((menu.kind, menu.row), (WaveMenuKind::Ruler, 1));
+    let hide = MenuAction::HideRuler("top.bus_clk".into());
+    assert!(
+        matches!(&menu.entries[..], [MenuEntry::Item(i)] if i.label == "Hide Ruler" && i.action == hide)
+    );
+    app.handle(Command::MenuSelect(panel, hide));
+    frame(&mut app, panel, &theme);
+    let w = app.panels.waves(panel).unwrap();
+    assert_eq!(
+        w.nav.clocks.rulers.as_deref(),
+        Some(&["top.core_clk".to_owned()][..])
+    );
+    assert_eq!(w.last_layout().rulers.height(), 16.0 * theme.zoom);
+    assert!(w.menu.is_none());
 }

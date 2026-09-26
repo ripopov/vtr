@@ -69,54 +69,13 @@ impl TimeColumn {
             TICK_SPACING_PX * f64::from(zoom),
         )
     }
-
-    /// The main ruler's ticks and unit: time, or cycles of the panel's axis clock.
-    pub fn main_ticks(
-        &self,
-        base: TimeBase<'_>,
-        zoom: f32,
-        view: &ClockView,
-        clocks: &Clocks,
-    ) -> (Vec<Tick>, String) {
-        if let Some(axis) = view.axis(clocks)
-            && let Some(timeline) = axis.timeline()
-        {
-            let ticks = clock::axis_ticks(
-                view,
-                timeline,
-                &self.viewport,
-                self.width_f64(),
-                TICK_SPACING_PX * f64::from(zoom),
-                base,
-            );
-            // A clock already named for its cycles (Kanata's `cycle`) says so once.
-            let unit = if ["cycle", "cycles"].contains(&axis.name.to_ascii_lowercase().as_str()) {
-                "cycles".to_owned()
-            } else {
-                format!("{} cycles", axis.name)
-            };
-            return (ticks, unit);
-        }
-        let (ticks, unit) = self.ticks(base, zoom);
-        (ticks, unit.to_owned())
-    }
-}
-
-/// The cursor chip's text: the time, or the position in the axis clock.
-pub fn cursor_label(cursor: u64, base: TimeBase<'_>, view: &ClockView, clocks: &Clocks) -> String {
-    if let Some(timeline) = view.axis(clocks).and_then(|c| c.timeline())
-        && let Some(at) = timeline.cycle_at(cursor)
-    {
-        return clock::format_position(view, timeline, &at);
-    }
-    format_time(cursor as f64, base)
 }
 
 /// Clock ruler rows: each clock's name in `names` (the band's cells left of
 /// the time column) and, in the time column, a tick at each rising edge,
-/// cycle labels spaced per stretch, a flag at each change of speed and
-/// hatching where the clock is stopped. The selected clock's name is
-/// highlighted.
+/// cycle labels spaced per stretch, a flag at each change of speed,
+/// hatching where the clock is stopped and a cursor chip with the cursor's
+/// cycle in that clock. The selected clock's name is highlighted.
 pub fn clock_rulers(
     p: &mut TextPainter<'_>,
     column: &TimeColumn,
@@ -124,6 +83,7 @@ pub fn clock_rulers(
     view: &ClockView,
     clocks: &Clocks,
     base: TimeBase<'_>,
+    cursor: Option<u64>,
 ) {
     let rows = view.rulers(clocks);
     if rows.is_empty() || column.rulers.height() <= 0.0 {
@@ -196,7 +156,6 @@ pub fn clock_rulers(
             column.width_f64(),
             RULER_LABEL_PX * f64::from(t.zoom),
             base,
-            true,
         );
         let x_of = |time: f64| column.x_of(time);
         let mut hatch = Vec::new();
@@ -224,6 +183,27 @@ pub fn clock_rulers(
             let w = p.width(text, FontRole::UiSemibold, t.ui_size_small);
             flags.push((x, text.clone(), w));
         }
+        // The cursor's cycle in this clock, beside the cursor line like the time chip.
+        let chip = cursor
+            .filter(|&c| {
+                let x = column.viewport.x_of(c as f64, column.width_f64());
+                (-1.0..=column.width_f64() + 1.0).contains(&x)
+            })
+            .and_then(|c| Some((c, timeline.cycle_at(c)?)))
+            .map(|(c, at)| {
+                let text = clock::format_position(view, timeline, &at);
+                let w = p.width(&text, FontRole::Mono, t.ui_size_small) + z(10.0);
+                let x = x_of(c as f64);
+                let left = if x + 1.0 + w > band.right() - z(SCROLLBAR_W) {
+                    x - w
+                } else {
+                    x + 1.0
+                };
+                (
+                    Rect::new(point(left, y + z(1.0)), size(w, row_h - z(2.0))),
+                    text,
+                )
+            });
         p.scene.clipped(band, |scene| {
             if !hatch.is_empty() {
                 scene.lines(hatch, t.wave_dense, 1.0);
@@ -252,6 +232,17 @@ pub fn clock_rulers(
                     FontRole::UiSemibold,
                     t.ui_size_small,
                     t.badge.text,
+                );
+            }
+            if let Some((rect, text)) = chip {
+                scene.quad(rect, t.wave_cursor, z(3.0), 0.0, Color::TRANSPARENT);
+                scene.text(
+                    point(rect.left() + z(5.0), rect.top()),
+                    rect.height(),
+                    text,
+                    FontRole::Mono,
+                    t.ui_size_small,
+                    t.wave_cursor_text,
                 );
             }
         });
@@ -406,7 +397,7 @@ pub fn cursor(
     p: &mut TextPainter<'_>,
     column: &TimeColumn,
     cursor: Option<u64>,
-    label: impl FnOnce(u64) -> String,
+    base: TimeBase<'_>,
     focused: bool,
     right_inset: f32,
 ) {
@@ -421,7 +412,7 @@ pub fn cursor(
         return;
     }
     let x = snap(area.left() + xf as f32);
-    let label = label(c);
+    let label = format_time(c as f64, base);
     let label_w = p.width(&label, FontRole::Mono, t.ui_size_small);
     let chip_w = label_w + z(10.0);
     let mut cx0 = x + 1.0;

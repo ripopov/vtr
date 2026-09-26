@@ -14,7 +14,7 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/document.rs        Document: open trace, shared navigation, markers, selection, translators, loads
   src/panels/            stable IDs, split/tab layout, focus, per-panel wave, pipeline, table and transaction models
   src/nav/               Tween<T> animation, NavState (links, local viewport/cursor, clocks) of every timed panel
-  src/clock.rs           declared clocks: catalog, timelines, a panel's ClockView, ruler/axis/readout math
+  src/clock.rs           declared clocks: catalog, timelines, a panel's ClockView, ruler/readout math
   src/pipeline/          RowView row axis, PipelineModel, PipelineLayout, stage palette, painter → Scene
   src/table/             fixed sources/columns, exact row viewport, bounded preparation, painter → Scene
   src/transaction/       TxView of one record (pure, bounded), TransactionModel: history, pin, prefs
@@ -409,16 +409,18 @@ resulting immutable `vtr::ClockTimeline`s and resolves each stream's
 
 Each timed panel's `NavState` carries a `ClockView`: the ruler rows (by clock
 path; `None` follows the clocks the workspace's pipelines count in, which the
-app refreshes before each layout), the axis clock that counts the main ruler,
-cursor chip and go-to in cycles, the selected clock that clicks snap to and
-`[`/`]` step through, and a cycle origin. Layouts add the ruler band below the
-header; the shared overlay paints rulers (ticks at edges, per-stretch cycle
-label steps of the 1-2-5 series, speed flags, hatching where stopped) and the
-cycle axis for both the wave and the pipeline panel. A pipeline opens with its
-stream's clock as its axis. `WaveRow::Clock` draws a clock from its stretches
-through `ClockHistory`, a lazy one-bit `SignalHistory` (50% duty, nothing
-materialized), and reuses the bit painter. The status bar reads the cursor's
-cycle in each ruler clock and the cursor-to-nearest-marker delta in time and
+app refreshes before each layout), the selected clock that clicks snap to,
+`[`/`]` step through and go-to counts in, and a cycle origin. Layouts add the
+ruler band below the header; the shared overlay paints rulers (ticks at edges,
+per-stretch cycle label steps of the 1-2-5 series, speed flags, hatching where
+stopped) and every ruler's cursor chip (the cursor's cycle in that clock,
+beside the time ruler's time chip) for both the wave and the pipeline panel.
+`WaveRow::Clock` draws a clock from its stretches through `ClockHistory`, a lazy one-bit `SignalHistory` (50% duty, nothing
+materialized), and reuses the bit painter. In the sidebar a clock's generator
+offers *Add as Ruler* (`Command::AddClockRulers`) and *Add as Waveform*;
+right-clicking a ruler in a wave panel opens `WaveMenuKind::Ruler` (*Hide
+Ruler*). The
+status bar reads the cursor's cycle in each ruler clock and the cursor-to-nearest-marker delta in time and
 cycles. Workspaces save a panel's `clocks` and `clock` rows by path, never
 anything in the trace.
 

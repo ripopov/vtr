@@ -55,13 +55,13 @@ values were written: its `reading` signal is X before then. All activity and
 log locations are synthetic.
 
 Two declared clocks ([vtr_clocks.html](../../../docs/vtr_clocks.html)) give
-the trace a cycle axis. `soc.clk` is the dumped `clk` declared as one 8 ns
+the trace cycle rulers. `soc.clk` is the dumped `clk` declared as one 8 ns
 stretch from its first rising edge; it keeps ticking through the recording gap,
 where the waveform has no values. `soc.dma.dma_clk` has no dumped net: 12 ns,
 stopped for the fault window, 6 ns while the DMA recovers, then 16 ns. The
 pipeline `soc.cpu.thread0` counts in `soc.clk` and `soc.dma.memory_bus` in the
 DMA clock (`vtr.clock`), so opening either as a pipeline shows its clock as a
-ruler and cycle axis; add `soc.dma.dma_clk` to the waves for a clock row, and
+ruler with a cursor chip in cycles; add `soc.dma.dma_clk` to the waves for a clock row, and
 try `[`/`]`, the palette's rulers and "Go to Cycle N". `vtr clocks` lists both.
 
 Stream kinds describe their domain: `PIPELINE` for instruction execution,

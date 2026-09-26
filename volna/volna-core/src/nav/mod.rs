@@ -38,7 +38,7 @@ pub struct NavState {
     pub link: Link,
     pub local_viewport: Tween<Viewport>,
     pub local_cursor: Option<u64>,
-    /// Clock rulers, cycle axis, snapping clock and cycle origin.
+    /// Clock rulers, snapping clock and cycle origin.
     pub clocks: crate::clock::ClockView,
 }
 
@@ -275,8 +275,8 @@ impl NavState {
         true
     }
 
-    /// Put the cursor on the edge of displayed cycle `shown` of the axis
-    /// clock (else the selected clock) and centre it.
+    /// Put the cursor on the edge of displayed cycle `shown` of the selected
+    /// clock and centre it.
     pub fn go_to_cycle(
         &mut self,
         doc: &mut Document,
@@ -285,8 +285,7 @@ impl NavState {
     ) -> Result<(), String> {
         let clock = self
             .clocks
-            .axis(&doc.clocks)
-            .or_else(|| self.clocks.selected(&doc.clocks))
+            .selected(&doc.clocks)
             .ok_or("no clock to count cycles in")?;
         let name = clock.name.clone();
         let timeline = clock

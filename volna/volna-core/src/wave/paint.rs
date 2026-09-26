@@ -107,7 +107,7 @@ pub fn paint(
     p.scene.fill(layout.header, t.panel.bg);
 
     // -- tick grid in the waves area ---------------------------------------
-    let (tick_list, unit) = column.main_ticks(base, t.zoom, clocks, &doc.clocks);
+    let (tick_list, unit) = column.ticks(base, t.zoom);
     overlay::grid(&mut p, &column, &tick_list);
 
     // -- rows ----------------------------------------------------------------
@@ -539,7 +539,7 @@ pub fn paint(
             );
         },
     );
-    overlay::header_ticks(&mut p, &column, &tick_list, &unit);
+    overlay::header_ticks(&mut p, &column, &tick_list, unit);
     overlay::clock_rulers(
         &mut p,
         &column,
@@ -553,18 +553,12 @@ pub fn paint(
         clocks,
         &doc.clocks,
         base,
+        cursor,
     );
 
     // -- markers and cursor --------------------------------------------------------
     overlay::markers(&mut p, &column, doc, &layout.marker_chips, model.pointer);
-    overlay::cursor(
-        &mut p,
-        &column,
-        cursor,
-        |c| overlay::cursor_label(c, base, clocks, &doc.clocks),
-        focused,
-        z(SCROLLBAR_W),
-    );
+    overlay::cursor(&mut p, &column, cursor, base, focused, z(SCROLLBAR_W));
     paint_analog_overlays(model, doc, &layout, &viewport, cursor, &mut p);
 
     // -- borders --------------------------------------------------------------

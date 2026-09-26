@@ -61,11 +61,14 @@ test('the file holds few stretches of begin, end and period', {timeout: 30000}, 
   assert.deepEqual(b.exceptions, []);
 });
 
-test('guided scenarios drive axis, readouts and measurement', {timeout: 30000}, async t => {
+test('guided scenarios drive ruler chips, readouts and measurement', {timeout: 30000}, async t => {
   const b = await open(1280); t.after(() => b.close());
-  await b.click('[data-guide="axis"]');
+  await b.click('[data-guide="chips"]');
   let s = await state(b);
-  assert.equal(s.axis, 'core_clk'); assert.match(s.side, /core_clk\s*cycle \d+/);
+  // One chip per ruler, each reading the cursor in its own clock.
+  const want = await b.evaluate('["core_clk", "bus_clk", "periph_clk"].map(n => { const a = CLK.at(n, 26150); return {clock: n, label: a.cycle + (a.frac > 0.001 ? " + " + a.frac.toFixed(2) : "")}; })');
+  assert.deepEqual(s.chips, want);
+  assert.match(s.side, /core_clk\s*cycle \d+/);
   await b.click('[data-guide="gated"]');
   s = await state(b);
   assert.match(s.side, /periph_clk\s*stopped · cycle 8/);
@@ -97,9 +100,8 @@ test('clicks snap to edges, brackets step cycles, rulers select clocks', {timeou
   await key(b, ']', 'BracketRight', 221);
   const bus = await b.evaluate(`CLK.at("bus_clk", ${(await state(b)).cursor})`);
   assert.equal(bus.frac, 0, 'stepping lands on a bus_clk edge');
-  await b.click('[data-axis="bus_clk"]');
-  assert.equal((await state(b)).axis, 'bus_clk');
-  await b.evaluate('document.getElementById("cw").focus({preventScroll: true})');   // the chip took focus
+  await b.click('#cgrid');
+  await b.evaluate('document.getElementById("cw").focus({preventScroll: true})');   // the grid toggle took focus
   await key(b, 'm', 'KeyM', 77);
   assert.equal((await state(b)).marker, (await state(b)).cursor);
   assert.deepEqual(b.exceptions, []);

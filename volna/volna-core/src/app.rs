@@ -134,8 +134,12 @@ pub enum Command {
     /// Add rows for these variables to the wave view.
     AddVars(Vec<VarId>),
     /// Add members to the wave view: variables as signal rows, generators as
-    /// transaction lanes. Streams and log sites have no row form.
+    /// transaction lanes, clock streams and generators as clock rows. Other
+    /// streams and log sites have no row form.
     AddToWaves(Vec<Member>),
+    /// Show the clocks of these members (clock streams or their generators;
+    /// other members are ignored) as rulers of the panel `AddToWaves` targets.
+    AddClockRulers(Vec<Member>),
     ActivateMembers(Vec<Member>),
     /// Show a stream or generator as a pipeline panel: focus the panel that
     /// already shows it, or open one below the focused panel.
@@ -168,8 +172,7 @@ pub enum Command {
         from: PanelId,
     },
     Transaction(PanelId, TransactionCommand),
-    /// The focused panel's clocks: rulers, cycle axis, the selected clock
-    /// and go-to-cycle.
+    /// The focused panel's clocks: rulers, the selected clock and go-to-cycle.
     Clocks(ClockCommand),
     /// Scroll the pipeline showing this panel's record to its row and fit the
     /// time axis to its lifetime, or open that track as a pipeline.
@@ -207,8 +210,8 @@ pub enum Command {
 /// The focused timed panel's clock choices, for menus and the palette.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ClockChoices {
-    /// Every clock of the trace: path, shown as a ruler, counted on the main ruler.
-    pub clocks: Vec<(String, bool, bool)>,
+    /// Every clock of the trace: its path and whether it is shown as a ruler.
+    pub clocks: Vec<(String, bool)>,
     /// Cycles are numbered from a chosen origin.
     pub origin: bool,
 }
@@ -218,12 +221,10 @@ pub struct ClockChoices {
 pub enum ClockCommand {
     /// Show or hide the ruler of the clock with this path.
     ToggleRuler(String),
-    /// Count the main ruler in cycles of this clock, or in time (`None`).
-    SetAxis(Option<String>),
     /// The clock clicks snap to and `[` / `]` step through.
     Select(String),
-    /// Put the cursor on this cycle, as the panel numbers the cycles of its
-    /// axis clock (else its selected clock).
+    /// Put the cursor on this cycle of the panel's selected clock, as the
+    /// panel numbers its cycles.
     GoToCycle(i64),
 }
 
@@ -946,6 +947,7 @@ impl App {
             }
             Command::AddVars(vars) => self.add_vars(&vars),
             Command::AddToWaves(members) => self.add_to_waves(&members),
+            Command::AddClockRulers(members) => self.add_clock_rulers(&members),
             Command::ActivateMembers(members) => self.activate_members(&members),
             Command::OpenPipeline { track } => self.open_pipeline(track),
             Command::OpenTable { selected, clicked } => self.open_table(&selected, clicked),
@@ -1519,15 +1521,13 @@ impl App {
             self.panel_command(PanelsCommand::Focus(id));
             return;
         }
-        let mut model = PipelineModel::new(
+        let model = PipelineModel::new(
             TrackSource::Resolved {
                 track,
                 path: declaration.path.clone(),
             },
             self.settings.resolved().link_by_default(),
         );
-        // A pipeline counts in its stream's clock: its main ruler shows cycles.
-        model.nav.clocks.axis = self.doc.clocks.linked(track).map(|c| c.path.clone());
         let focused = self.panels.focused_id();
         if self.panels.focused().kind.is_start() {
             _ = self.replace_panel(focused, PanelKind::Pipeline(Box::new(model)));
@@ -1576,15 +1576,14 @@ impl App {
         let vars: Vec<VarId> = members.iter().filter_map(|m| m.var()).collect();
         let mut tracks = Vec::new();
         let mut clocks: Vec<String> = Vec::new();
-        let catalog = self.doc.session().map(|s| s.tracks()).unwrap_or(&[]);
         for &member in members {
             let Some(track) = h.member_track(member) else {
                 continue;
             };
             // A clock stream or its generator is drawn from its stretches.
-            if let Some(clock) = self.doc.clocks.of_track(track, catalog) {
-                if !clocks.contains(&clock.path) {
-                    clocks.push(clock.path.clone());
+            if let Some(path) = self.member_clock(member) {
+                if !clocks.contains(&path) {
+                    clocks.push(path);
                 }
             } else if matches!(member, Member::Generator(_))
                 && !h.is_log(member)
@@ -1606,6 +1605,39 @@ impl App {
             w.add_clocks(&clocks);
         }
         self.sync_lane_tracks();
+        self.changed();
+    }
+
+    /// The path of the clock a sidebar member declares: a clock stream or its
+    /// generator. Frontends offer it as a ruler or a clock row.
+    pub fn member_clock(&self, member: Member) -> Option<String> {
+        let session = self.doc.session()?;
+        let track = session.hierarchy().member_track(member)?;
+        let clock = self.doc.clocks.of_track(track, session.tracks())?;
+        Some(clock.path.clone())
+    }
+
+    fn add_clock_rulers(&mut self, members: &[Member]) {
+        let mut paths: Vec<String> = Vec::new();
+        for &member in members {
+            if let Some(path) = self.member_clock(member)
+                && !paths.contains(&path)
+            {
+                paths.push(path);
+            }
+        }
+        if paths.is_empty() {
+            return;
+        }
+        let Some(target) = self.waves_target() else {
+            return;
+        };
+        let Self { panels, doc, .. } = self;
+        if let Some(w) = panels.waves_mut(target) {
+            for path in &paths {
+                w.nav.clocks.show_ruler(&doc.clocks, path);
+            }
+        }
         self.changed();
     }
 
@@ -1692,7 +1724,6 @@ impl App {
         };
         match command {
             ClockCommand::ToggleRuler(path) => nav.clocks.toggle_ruler(&doc.clocks, &path),
-            ClockCommand::SetAxis(path) => nav.clocks.axis = path,
             ClockCommand::Select(path) => nav.select_clock(&path),
             ClockCommand::GoToCycle(cycle) => {
                 if let Err(message) = nav.go_to_cycle(doc, cycle, now) {
@@ -1714,13 +1745,7 @@ impl App {
         Some(ClockChoices {
             clocks: clocks
                 .iter()
-                .map(|c| {
-                    (
-                        c.path.clone(),
-                        rulers.contains(&c.path),
-                        nav.clocks.axis.as_deref() == Some(&c.path),
-                    )
-                })
+                .map(|c| (c.path.clone(), rulers.contains(&c.path)))
                 .collect(),
             origin: nav.clocks.origin.is_some(),
         })
