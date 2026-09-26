@@ -47,7 +47,6 @@ actions!(
         SaveWorkspaceAs,
         ToggleSidebar,
         CloseTrace,
-        OpenStressMenu,
         Quit,
         OpenSettings,
         CommandPalette,
@@ -528,22 +527,6 @@ fn memory_meter(
         )
 }
 
-/// A Volna-styled popup menu whose items act in `focus`.
-fn build_popup(
-    items: Vec<PopupMenuItem>,
-    focus: FocusHandle,
-    window: &mut Window,
-    cx: &mut Context<Workspace>,
-) -> Entity<PopupMenu> {
-    let min_w = theme(cx).px(200.0);
-    PopupMenu::build(window, cx, |mut menu, _, _| {
-        for item in items {
-            menu = menu.item(item);
-        }
-        menu.min_w(min_w).action_context(focus)
-    })
-}
-
 pub(crate) fn to_modifiers(m: gpui_kit::Modifiers) -> volna_core::geometry::Modifiers {
     volna_core::geometry::Modifiers {
         shift: m.shift,
@@ -958,11 +941,6 @@ impl Workspace {
         self.after(None, cx);
     }
 
-    pub fn open_synthetic(&mut self, transitions: usize, cx: &mut Context<Self>) {
-        self.app.open_synthetic(transitions);
-        self.after(None, cx);
-    }
-
     /// Replace the session immediately (tests and hosts that already hold one).
     pub fn set_session(&mut self, session: std::sync::Arc<dyn Session>, cx: &mut Context<Self>) {
         self.app.set_session(session);
@@ -1084,35 +1062,6 @@ impl Workspace {
                 crate::theme::install(crate::theme::CoreTheme::one_dark(), cx);
             }
         }
-    }
-
-    fn open_status_menu(
-        &mut self,
-        position: gpui_kit::Point<Pixels>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let items: Vec<_> = [
-            (10_000usize, "10 K transitions"),
-            (1_000_000, "1 M transitions"),
-            (100_000_000, "100 M transitions"),
-        ]
-        .into_iter()
-        .map(|(n, label)| {
-            PopupMenuItem::new(label).on_click(cx.listener(move |this, _, _, cx| {
-                this.open_synthetic(n, cx);
-                this.status_menu = None;
-            }))
-        })
-        .collect();
-        let menu = build_popup(items, self.focus_handle.clone(), window, cx);
-        cx.subscribe(&menu, move |this, _, _: &gpui_kit::DismissEvent, cx| {
-            this.status_menu = None;
-            cx.notify();
-        })
-        .detach();
-        self.status_menu = Some((position, menu));
-        cx.notify();
     }
 
     /// The memory meter's menu: both limits as preset submenus, then the
@@ -1640,7 +1589,7 @@ impl Workspace {
             )
     }
 
-    /// The status bar: context on the left, a message slot, and fixed tools
+    /// The status bar: context on the left, a message slot, and fixed meters
     /// on the right. The right group never shrinks and its changing numbers
     /// keep a minimum width, so hover text and notices cannot move the meters;
     /// when space runs out the message slot empties first, then the left
@@ -1870,39 +1819,15 @@ impl Workspace {
                     .child(self.render_frame_status(frames, cx)),
             );
         }
-        let stress = div()
-            .id("stress")
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_1()
-            .px_1p5()
-            .h(t.px(18.0))
-            .rounded_sm()
-            .cursor(CursorStyle::PointingHand)
-            .text_color(colors.text_muted)
-            .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
-            .tooltip(|w, cx| Tooltip::new("Open a synthetic stress trace").build(w, cx))
-            .on_click(cx.listener(|this, ev: &gpui_kit::ClickEvent, window, cx| {
-                let p = ev.position();
-                let t = theme(cx);
-                this.open_status_menu(point(p.x - t.px(160.0), p.y - t.px(120.0)), window, cx);
-            }))
-            .child(
-                Icon::new(IconName::Activity)
-                    .size(t.px(12.0))
-                    .inherit_color(),
-            )
-            .child(div().text_size(px(t.ui_size_small)).child("Stress"));
         let right = div()
             .debug_selector(|| "status-right".into())
             .flex()
             .flex_none()
             .items_center()
             .gap_3()
-            .when(has_nav, |d| d.child(nav).child(sep()))
-            .when(has_meters, |d| d.child(meters).child(sep()))
-            .child(stress);
+            .when(has_nav, |d| d.child(nav))
+            .when(has_nav && has_meters, |d| d.child(sep()))
+            .when(has_meters, |d| d.child(meters));
         div()
             .flex()
             .flex_none()

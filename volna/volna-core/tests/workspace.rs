@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use std::sync::Arc;
-use volna_core::data::synth::SynthSource;
 use volna_core::panels::{PanelId, PanelsCommand};
+use volna_core::testing::ProceduralTrace;
 use volna_core::workspace::{MAX_BYTES, Workspace, resolve_trace};
 use volna_core::{Action, App, Command};
 
@@ -9,9 +9,18 @@ const TRACE: &str = "vscode-remote://ssh-remote+board/home/user/trace.vtr";
 const LOCATION: &str = "vscode-remote://ssh-remote+board/home/user/trace.vtr.volna.json";
 fn app() -> App {
     let mut app = App::new();
-    app.set_session(Arc::new(SynthSource::new(100)));
+    app.set_session(Arc::new(ProceduralTrace::new(100)));
     app.handle(Command::AddVars(vec![0, 1, 2]));
     app
+}
+/// Open [`TRACE`] as the procedural trace [`app`] shows.
+fn open(app: &mut App) {
+    let spec = volna_core::session::OpenSpec::Bytes {
+        name: "trace.vtr".into(),
+        bytes: Vec::new(),
+    };
+    app.open_resource(spec, TRACE.into());
+    volna_core::testing::complete_open(app, ProceduralTrace::session(100));
 }
 fn capture(app: &App) -> Workspace {
     Workspace::capture(app, "trace.vtr".into(), None).unwrap()
@@ -148,7 +157,7 @@ fn stale_plan_cannot_replace_a_new_trace_and_timescale_mismatch_only_warns() {
     v["trace"]["timescale"] = json!(-3);
     let plan = prepare(&v, &app).unwrap();
     assert_eq!(plan.report().notices.len(), 1);
-    app.set_session(Arc::new(SynthSource::new(20)));
+    app.set_session(Arc::new(ProceduralTrace::new(20)));
     let before = app.debug_state();
     assert!(plan.commit(&mut app).is_err());
     assert_eq!(app.debug_state(), before);
@@ -325,10 +334,7 @@ fn fallback_base_survives_permission_changes_and_disappearance_of_the_sidecar() 
 fn persistent_app() -> App {
     let mut app = App::new();
     app.configure_persistence(Persistence::Auto);
-    app.open_resource(volna_core::session::OpenSpec::Synthetic(100), TRACE.into());
-    for request in app.take_requests() {
-        app.deliver(request.perform());
-    }
+    open(&mut app);
     app.restore_candidates(
         TRACE,
         Candidate {
@@ -390,10 +396,7 @@ fn app_autosave_tracks_edits_but_not_hover_noops_or_animation_frames() {
 fn automatic_corruption_suspends_saves_but_explicit_failures_leave_policy_and_state_intact() {
     let mut app = App::new();
     app.configure_persistence(Persistence::Auto);
-    app.open_resource(volna_core::session::OpenSpec::Synthetic(100), TRACE.into());
-    for request in app.take_requests() {
-        app.deliver(request.perform());
-    }
+    open(&mut app);
     let mut future = value(&app);
     future["version"] = json!(99);
     app.restore_candidates(
@@ -480,7 +483,7 @@ fn opaque_panel_rename_preserves_unknown_members_and_large_numbers() {
 #[test]
 fn a_lone_start_panel_round_trips_and_gives_way_to_a_saved_waveform_panel() {
     let mut app = App::new();
-    app.set_session(Arc::new(SynthSource::new(100)));
+    app.set_session(Arc::new(ProceduralTrace::new(100)));
     assert!(app.panels.focused().kind.is_start());
     let before = value(&app);
     assert_eq!(before["panels"][0]["kind"], "start");
@@ -571,7 +574,7 @@ fn row_heights_round_trip_and_restore_tall_row_geometry() {
 
     // Restore into a fresh session: heights, geometry and the file agree.
     let mut restored = App::new();
-    restored.set_session(Arc::new(SynthSource::new(100)));
+    restored.set_session(Arc::new(ProceduralTrace::new(100)));
     prepare(&saved, &restored)
         .unwrap()
         .commit(&mut restored)
@@ -634,10 +637,7 @@ fn row_height_changes_schedule_an_autosave() {
 fn restoring_app(policy: Persistence) -> App {
     let mut app = App::new();
     app.configure_persistence(policy);
-    app.open_resource(volna_core::session::OpenSpec::Synthetic(100), TRACE.into());
-    for request in app.take_requests() {
-        app.deliver(request.perform());
-    }
+    open(&mut app);
     app
 }
 

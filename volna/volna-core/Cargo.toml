@@ -24,7 +24,13 @@ sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 
+[features]
+# Test fixtures (`volna_core::testing`) for this crate's integration tests and
+# for frontend tests.
+testing = []
+
 [dev-dependencies]
+volna-core = { path = ".", features = ["testing"] }
 tempfile = "3"
 # The Kanata importer, for a pipeline counted in its cycle clock.
 vtr-cli = { path = "../../tools/vtr-cli" }

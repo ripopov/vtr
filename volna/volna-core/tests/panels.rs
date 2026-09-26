@@ -5,15 +5,15 @@ use volna_core::Document;
 use volna_core::Session;
 use volna_core::app::SettingsCommand;
 use volna_core::data::source::Lookup;
-use volna_core::data::synth::SynthSource;
 use volna_core::panels::PanelsCommand;
 use volna_core::panels::{Axis, Layout, PanelId, PanelKind, Panels};
+use volna_core::testing::ProceduralTrace;
 use volna_core::wave::model::{LinkDim, PointerEvent};
 use volna_core::{Action, App, Command, Instant};
 
 fn linked_app() -> App {
     let mut app = App::new();
-    app.set_session(Arc::new(SynthSource::new(100)));
+    app.set_session(Arc::new(ProceduralTrace::new(100)));
     app.handle(Command::AddVars(vec![0, 1]));
     app
 }
@@ -178,7 +178,7 @@ fn pending_and_loaded_histories_are_shared_across_all_panels() {
     assert_eq!(
         weak.strong_count(),
         1,
-        "only the synthetic source retains its history"
+        "only the procedural source retains its history"
     );
     app.close_trace();
     assert!(weak.upgrade().is_none());
@@ -224,7 +224,7 @@ fn pointer_targets_do_not_drift_when_focus_changes_or_a_trace_is_replaced() {
 
 #[test]
 fn hierarchy_locators_round_trip_declarations_and_literal_dots() {
-    let source = SynthSource::new(10);
+    let source = ProceduralTrace::new(10);
     let mut h = source.hierarchy().clone();
     h.scopes[0].name = "test.bench".into();
     h.vars[0].name = "\\escaped.name".into();
@@ -242,7 +242,7 @@ fn hierarchy_locators_round_trip_declarations_and_literal_dots() {
 
 #[test]
 fn duplicate_variables_require_occurrence_but_duplicate_scopes_cannot_be_guessed() {
-    let source = SynthSource::new(10);
+    let source = ProceduralTrace::new(10);
     let mut h = source.hierarchy().clone();
     let duplicate = h.vars.len();
     h.vars.push(h.vars[0].clone());
@@ -363,7 +363,7 @@ fn invalid_and_stale_dock_proposals_are_atomic() {
 fn split_copies_rows_but_shares_history_and_clears_transient_input() {
     let mut p = wave_panels();
     let mut doc = Document::new();
-    let source = Arc::new(SynthSource::new(10));
+    let source = Arc::new(ProceduralTrace::new(10));
     doc.set_session(source.clone());
     let a = p.focused_id();
     let w = p.focused_mut().kind.waves_mut().unwrap();
@@ -473,7 +473,7 @@ fn close_others_keeps_any_kind_and_a_lone_settings_tab_gets_a_start_panel() {
 #[test]
 fn the_start_panel_gives_way_to_content_and_returns_when_the_last_panel_closes() {
     let mut app = App::new();
-    app.set_session(Arc::new(SynthSource::new(100)));
+    app.set_session(Arc::new(ProceduralTrace::new(100)));
     let start = app.panels.focused_id();
     assert!(app.panels.focused().kind.is_start());
     assert_eq!(app.panels.len(), 1);

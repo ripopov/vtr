@@ -370,7 +370,7 @@ mod tests {
         let mut client =
             RemoteClient::new(1, 1024 * 1024, MemoryBudget::new(4 * 1024 * 1024)).unwrap();
         let open = client.take_command().unwrap().unwrap();
-        let local = OpenSpec::Synthetic(100).open().unwrap();
+        let local = crate::testing::ProceduralTrace::session(100);
         let opened = object(
             &mut client,
             open.request,
@@ -487,7 +487,7 @@ mod tests {
         let mut client =
             RemoteClient::new(1, 1024 * 1024, MemoryBudget::new(4 * 1024 * 1024)).unwrap();
         let open = client.take_command().unwrap().unwrap();
-        let local = OpenSpec::Synthetic(100).open().unwrap();
+        let local = crate::testing::ProceduralTrace::session(100);
         let LoadResult::Opened { result, .. } = object(
             &mut client,
             open.request,
@@ -531,7 +531,7 @@ mod tests {
         let open = client.take_command().unwrap().unwrap();
         assert_eq!(open.session, 0);
         assert!(client.take_command().unwrap().is_none());
-        let local = OpenSpec::Synthetic(100).open().unwrap();
+        let local = crate::testing::ProceduralTrace::session(100);
         let opened = object(
             &mut client,
             open.request,

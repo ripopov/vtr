@@ -556,7 +556,7 @@ pub struct Panel { pub id: PanelId, pub title: Option&lt;String&gt;, pub kind: P
   <h3>Global settings <span class="badge prop">implemented</span></h3>
   <p>Look and feel that is not part of any session lives in <code>&lt;config dir&gt;/volna/settings.json</code> (theme, default link flags for new panels, animation, snapping, autosave policy, recent-list limit), with the recent traces and workspaces in <code>state.json</code> beside it. The config dir is <code>$XDG_CONFIG_HOME/volna</code> or <code>~/.config/volna</code> on Linux and macOS, <code>%APPDATA%\volna</code> on Windows; <code>VOLNA_CONFIG_DIR</code> overrides it. The model, file format, editor and search are described in <a href="user-settings.html">Volna user settings</a>. Inside VS Code the theme comes from the host and the same keys are contributed <code>volna.*</code> settings that reach the viewer live, so nothing is written to <code>~/.config</code> by the extension.</p>
   <h3>Command line <span class="badge prop">implemented</span></h3>
-  <pre><code>volna [FILE.vtr|FILE.fst|FILE.volna.json] [--synthetic N]
+  <pre><code>volna [FILE.vtr|FILE.fst|FILE.volna.json]
       [--workspace PATH]        <span class="c">// load and autosave this workspace file, ignoring sidecars</span>
       [--no-workspace]          <span class="c">// never read or write workspace files this run</span>
       [--config-dir DIR]        <span class="c">// settings.json, state.json and themes/ (also VOLNA_CONFIG_DIR)</span>

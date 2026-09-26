@@ -1,18 +1,19 @@
-//! Synthetic trace source for stress testing.
+//! Test fixtures, built only for tests and with the `testing` feature.
 //!
-//! Histories are procedural: change `i` happens at `i * period + jitter(i)`
-//! and its value is a hash of `i`, so a 100-million-transition signal costs
-//! no memory and the renderer's search path is exercised exactly as it would
-//! be on a file-backed history.
+//! [`ProceduralTrace`] computes its histories: change `i` happens at
+//! `i * period + jitter(i)` and its value is a hash of `i`, so a
+//! 100-million-transition signal costs no memory and the renderer's search
+//! path is exercised exactly as it would be on a file-backed history.
 
 use std::sync::Arc;
 
-use super::history::SignalHistory;
-use super::source::{Direction, Hierarchy, SignalRef, TraceInfo, Variable};
-use super::value::{Bit, SignalShape, WaveValue};
-use crate::session::Session;
+use crate::App;
+use crate::data::history::SignalHistory;
+use crate::data::source::{Direction, Hierarchy, SignalRef, TraceInfo, Variable};
+use crate::data::value::{Bit, SignalShape, WaveValue};
+use crate::session::{LoadRequest, LoadResult, Session};
 
-pub struct SynthSource {
+pub struct ProceduralTrace {
     info: TraceInfo,
     hierarchy: Hierarchy,
     signals: Vec<Arc<dyn SignalHistory>>,
@@ -146,8 +147,8 @@ impl SignalHistory for ProceduralHistory {
     }
 }
 
-impl SynthSource {
-    /// A synthetic trace whose busiest signal has `transitions` changes.
+impl ProceduralTrace {
+    /// A trace whose busiest signal has `transitions` changes.
     pub fn new(transitions: usize) -> Self {
         let transitions = transitions.max(2);
         let period = 10u64; // time units per clock half-period
@@ -336,17 +337,44 @@ impl SynthSource {
         let end = (transitions as u64) * period;
         let info = TraceInfo {
             design_id: None,
-            name: format!("synthetic ({} transitions)", human(transitions)),
+            name: format!("procedural ({} transitions)", human(transitions)),
             timescale: -9,
             time_range: (0, end),
             signal_count: signals.len(),
             change_count: Some(signals.iter().map(|s| s.len() as u64).sum()),
             time_unit: None,
         };
-        SynthSource {
+        ProceduralTrace {
             info,
             hierarchy,
             signals,
+        }
+    }
+}
+
+impl ProceduralTrace {
+    /// [`ProceduralTrace::new`] as a shared session.
+    pub fn session(transitions: usize) -> Arc<dyn Session> {
+        Arc::new(Self::new(transitions))
+    }
+}
+
+/// Perform `app`'s requests until none remain, completing every trace open
+/// with `session` instead of opening its spec.
+pub fn complete_open(app: &mut App, session: Arc<dyn Session>) {
+    loop {
+        let requests = app.take_requests();
+        if requests.is_empty() {
+            return;
+        }
+        for request in requests {
+            app.deliver(match request {
+                LoadRequest::Open { generation, .. } => LoadResult::Opened {
+                    generation,
+                    result: Ok(session.clone()),
+                },
+                request => request.perform(),
+            });
         }
     }
 }
@@ -361,7 +389,7 @@ fn human(n: usize) -> String {
     }
 }
 
-impl Session for SynthSource {
+impl Session for ProceduralTrace {
     fn info(&self) -> &TraceInfo {
         &self.info
     }
@@ -382,7 +410,7 @@ mod tests {
 
     #[test]
     fn procedural_times_are_monotonic_and_searchable() {
-        let src = SynthSource::new(10_000);
+        let src = ProceduralTrace::new(10_000);
         for var in &src.hierarchy().vars {
             let h = src.load_signal(var.signal).unwrap();
             for i in 1..h.len().min(2000) {

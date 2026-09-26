@@ -573,7 +573,7 @@ groups").
 cargo test -p volna --profile viewer --features visual-test --test viewer frame_times -- --ignored
 ```
 
-The ignored harness measures synthetic traces with 10 K, 1 M and 100 M
+The ignored harness measures procedural test traces with 10 K, 1 M and 100 M
 transitions. It uses a 1440×900 logical viewport, ten displayed signals and a
 keyboard pan per frame. Compare fit-to-view and zoomed-in costs, recording the
 hardware, toolchain and display scale with the results. Frame time covers the

@@ -54,6 +54,9 @@ gpui-kit = { version = "=0.6.1", features = ["tree-sitter"] }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 libtest-mimic = { version = "0.8", optional = true }
 
+[dev-dependencies]
+volna-core = { path = "../volna-core", features = ["testing"] }
+
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 gpui-kit = { version = "=0.6.1", features = ["test-support"] }
 

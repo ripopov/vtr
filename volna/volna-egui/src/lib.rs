@@ -382,7 +382,6 @@ impl VolnaApp {
     fn statusbar(&mut self, root: &mut Ui) {
         let t = self.theme;
         let status = self.app.status();
-        let mut synthetic = None;
         Panel::bottom("volna-status")
             .exact_size(self.core_theme.statusbar_height)
             .frame(
@@ -417,18 +416,6 @@ impl VolnaApp {
                         ui.label(mono(s, t.bar.text_placeholder));
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.menu_button("Stress", |ui| {
-                            for (n, label) in [
-                                (10_000usize, "10 K transitions"),
-                                (1_000_000, "1 M transitions"),
-                                (100_000_000, "100 M transitions"),
-                            ] {
-                                if ui.button(label).clicked() {
-                                    synthetic = Some(n);
-                                    ui.close();
-                                }
-                            }
-                        });
                         ui.label(mono(
                             &format!("{:.1} ms", self.paint_ms),
                             t.bar.text_placeholder,
@@ -439,9 +426,6 @@ impl VolnaApp {
                     });
                 });
             });
-        if let Some(n) = synthetic {
-            self.app.open_synthetic(n);
-        }
     }
 
     fn sidebar(&mut self, root: &mut Ui) {

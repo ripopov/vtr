@@ -34,6 +34,8 @@ pub mod session;
 pub mod settings;
 pub mod sidebar;
 pub mod table;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 pub mod theme;
 pub mod transaction;
 pub mod wave;

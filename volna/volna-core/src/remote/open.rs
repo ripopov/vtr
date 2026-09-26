@@ -181,7 +181,6 @@ mod tests {
     use super::*;
     use crate::remote::objects::Metadata;
     use crate::remote::transport::DATA_BYTES;
-    use crate::session::OpenSpec;
 
     fn packet(sequence: u64, body: Body) -> Packet {
         Packet {
@@ -193,7 +192,7 @@ mod tests {
     }
 
     fn decode_without_end(transfer: &mut OpenTransfer) -> u64 {
-        let local = OpenSpec::Synthetic(100).open().unwrap();
+        let local = crate::testing::ProceduralTrace::session(100);
         let bytes = bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap();
         assert!(matches!(
             transfer

@@ -141,8 +141,8 @@ Consequences:
 - the ignored frame-time harness measures scaling from 10 K to 100 M
   transitions for a fixed viewport (see `VERIFICATION.md`), and
 - a history only needs `len`, `time(i)`, `value(i)`; VTR's `SignalData` gives
-  this directly from its shared immutable buffers, and the synthetic source
-  computes it procedurally.
+  this directly from its shared immutable buffers, and the procedural test
+  trace computes it.
 
 Text runs and 1 px lines are snapped to whole logical pixels, so they are crisp
 at 1× and 2× DPI. The display list uses a reused buffer, and the shaped-text
@@ -611,7 +611,9 @@ variable rows and loaded histories follow the same declaration.
 `LocalSession` implements it over `vtr::Reader`, memory-mapped from a path
 natively and parsed from an in-memory image on wasm. The private FST adapter
 owns a buffered file or byte cursor and serializes mutable fst-reader access
-inside the backend. `SynthSource` supplies the procedural stress trace.
+inside the backend. The test-only `testing::ProceduralTrace` (volna-core's
+`testing` feature) computes its histories, so tests and the frame-time
+harness can use 100 M transitions without memory.
 `OpenSpec::open` detects the format from the image header.
 
 The document coalesces queued signal loads into `LoadRequest::Signals`; FST
@@ -625,7 +627,7 @@ metadata limitations and explicit unsupported cases.
 
 `Session::capabilities()` reports supported data independently of recorded
 content. VTR supports transactions and relations even for an empty recording;
-FST and the synthetic waveform source support waveforms only. `tracks()` is
+FST and the procedural test trace support waveforms only. `tracks()` is
 resident metadata. `load_track()` is the single backend operation for a complete
 stream or generator, including records, typed attributes, events,
 stages, parent locations and incident relations.

@@ -17,7 +17,7 @@ fn main() {
     };
     if options.help {
         println!(
-            "usage: volna [FILE.vtr|FILE.fst|FILE.volna.json] [--synthetic N]\n  --workspace FILE   load and autosave an explicit workspace\n  --no-workspace     disable workspace reads and writes\n  --config-dir DIR   settings directory (settings.json, state.json, themes/)\nEnvironment: VOLNA_WORKSPACE=off|FILE, VOLNA_CONFIG_DIR=DIR"
+            "usage: volna [FILE.vtr|FILE.fst|FILE.volna.json]\n  --workspace FILE   load and autosave an explicit workspace\n  --no-workspace     disable workspace reads and writes\n  --config-dir DIR   settings directory (settings.json, state.json, themes/)\nEnvironment: VOLNA_WORKSPACE=off|FILE, VOLNA_CONFIG_DIR=DIR"
         );
         return;
     }
@@ -42,8 +42,6 @@ fn main() {
                 ws.enable_native_persistence(store, policy, true, cx);
                 if let Some(path) = options.file {
                     ws.open_path(path, cx);
-                } else if let Some(n) = options.synthetic {
-                    ws.open_synthetic(n, cx);
                 } else if let Persistence::Explicit(target) = &ws.app.workspace.scheduler.policy
                     && let Ok(path) = volna::native_workspace::path_from_uri(target.location())
                 {

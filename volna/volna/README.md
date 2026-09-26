@@ -81,7 +81,6 @@ assert on model state and on the display list, and run on every platform.
 ```sh
 cd volna/volna
 cargo run -p volna --profile viewer -- examples/picorv32.vtr
-cargo run -p volna --profile viewer -- --synthetic 100000000
 cargo test -p volna
 ```
 
@@ -89,7 +88,6 @@ cargo test -p volna
 
 ```sh
 cargo run -p volna-egui --profile viewer -- volna/volna/examples/picorv32.vtr
-cargo run -p volna-egui --profile viewer -- --synthetic 100000000
 cargo test -p volna-egui       # headless interaction test; PNGs under volna/volna-egui/results/egui/
 ```
 
@@ -280,7 +278,7 @@ GPUI Frame Overlay** shows GPUI's own frame readout.
 
 The bar has three divided zones: trace context and cursor readouts on the
 left, a message slot for pipeline hover details and notices, and the fixed
-tools on the right. Long messages are cropped with an ellipsis and never move
+links and meters on the right. Long messages are cropped with an ellipsis and never move
 the right-hand items; in a narrow window the message slot empties first, then
 the left zone is clipped.
 
@@ -311,7 +309,7 @@ runs on the macOS main thread using `libtest-mimic` (normal test filters and
 `--list` work); other platforms report a skip. The same interactions are
 asserted headlessly in `volna-core/tests/headless.rs` on every platform.
 
-The separate ignored `frame_times` test measures synthetic traces of 10 K,
+The separate ignored `frame_times` test measures procedural test traces of 10 K,
 1 M and 100 M transitions without pass/fail timing thresholds. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for how rendering cost is kept proportional
 to the viewport width, and [VERIFICATION.md](VERIFICATION.md) for coverage and measurement instructions.

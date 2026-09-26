@@ -516,7 +516,6 @@ pub struct App {
     pub settings_view: SettingsView,
     /// Whole-window frame timing the frontend samples from its toolkit.
     pub frames: crate::frames::FrameStats,
-    show_all_on_open: bool,
     pub(crate) events: Vec<Event>,
     text: TextCache,
     scene: Scene,
@@ -547,7 +546,6 @@ impl App {
             settings: settings::Store::new(settings::Host::Native),
             settings_view: SettingsView::default(),
             frames: Default::default(),
-            show_all_on_open: false,
             events: Vec::new(),
             text: TextCache::default(),
             scene: Scene::default(),
@@ -569,21 +567,15 @@ impl App {
     /// Open a VTR file from disk (native).
     #[cfg(not(target_family = "wasm"))]
     pub fn open_path(&mut self, path: std::path::PathBuf) {
-        self.open(OpenSpec::Path(path), false);
+        self.open(OpenSpec::Path(path));
     }
 
     /// Open a VTR image held in memory (web hosts and drag-drop).
     pub fn open_bytes(&mut self, name: String, bytes: Vec<u8>) {
-        self.open(OpenSpec::Bytes { name, bytes }, false);
+        self.open(OpenSpec::Bytes { name, bytes });
     }
 
-    /// Open the synthetic stress trace and show all of its signals.
-    pub fn open_synthetic(&mut self, transitions: usize) {
-        self.open(OpenSpec::Synthetic(transitions), true);
-    }
-
-    pub(crate) fn open_now(&mut self, spec: OpenSpec, show_all: bool) {
-        self.show_all_on_open = show_all;
+    pub(crate) fn open_now(&mut self, spec: OpenSpec) {
         self.doc.open(spec);
         self.changed();
     }
@@ -714,12 +706,8 @@ impl App {
                 self.sync_analog_summaries();
                 self.changed();
             }
-            Some(Delivered::Opened(Ok(session))) => {
+            Some(Delivered::Opened(Ok(_))) => {
                 self.on_session_changed();
-                if self.show_all_on_open {
-                    let count = session.hierarchy().vars.len();
-                    self.add_vars(&(0..count).collect::<Vec<_>>());
-                }
                 self.session_ready_for_workspace();
             }
             Some(Delivered::Opened(Err(_))) => {
@@ -938,7 +926,7 @@ impl App {
                 self.events.push(Event::Notice(message));
                 self.changed();
             }
-            Command::Open(spec) => self.open(spec, false),
+            Command::Open(spec) => self.open(spec),
             Command::RequestOpenDialog => self.events.push(Event::OpenFileDialog),
             Command::RequestOpenWorkspace | Command::RequestSaveWorkspaceAs => {
                 if self.workspace.scheduler.enabled() {

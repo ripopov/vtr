@@ -567,7 +567,6 @@ impl crate::Workspace {
 
 pub struct Options {
     pub file: Option<PathBuf>,
-    pub synthetic: Option<usize>,
     pub policy: Persistence,
     pub config_dir: Option<PathBuf>,
     pub help: bool,
@@ -581,7 +580,6 @@ impl Options {
     ) -> Result<Self> {
         let mut options = Self {
             file: None,
-            synthetic: None,
             policy: match workspace_env.as_deref() {
                 None => Persistence::Auto,
                 Some("off") => Persistence::Disabled,
@@ -607,15 +605,6 @@ impl Options {
                     options.config_dir =
                         Some(args.next().context("--config-dir requires a path")?.into())
                 }
-                "--synthetic" => {
-                    options.synthetic = Some(
-                        args.next()
-                            .context("--synthetic requires a count")?
-                            .replace('_', "")
-                            .parse()
-                            .context("invalid synthetic count")?,
-                    )
-                }
                 "-h" | "--help" => options.help = true,
                 "--" => {
                     if let Some(path) = args.next() {
@@ -635,10 +624,6 @@ impl Options {
         if disabled {
             options.policy = Persistence::Disabled;
         }
-        ensure!(
-            options.file.is_none() || options.synthetic.is_none(),
-            "choose a file or --synthetic"
-        );
         Ok(options)
     }
 }
@@ -672,7 +657,6 @@ mod tests {
         for args in [
             vec!["--workspace"],
             vec!["--config-dir"],
-            vec!["--synthetic", "bad"],
             vec!["--typo"],
             vec!["a", "b"],
         ] {

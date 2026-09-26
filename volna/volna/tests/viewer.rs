@@ -210,7 +210,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         // Verify the deferred install produces painted panels and live focus.
         test.update(|cx| {
             workspace.update(cx, |ws, cx| {
-                ws.set_session(Arc::new(volna_core::data::synth::SynthSource::new(100)), cx);
+                ws.set_session(volna_core::testing::ProceduralTrace::session(100), cx);
                 ws.dispatch(volna_core::Command::AddVars(vec![0]), None, cx);
                 ws.dispatch(
                     volna_core::Command::Action(volna_core::Action::SplitRight),
@@ -974,7 +974,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // 4. Frame-time benchmark: synthetic traces, identical viewport and window.
+    // 4. Frame-time benchmark: procedural traces, identical viewport and window.
     let panel_count: usize = std::env::var("VOLNA_PERF_PANELS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -984,7 +984,13 @@ fn run(measure: bool) -> anyhow::Result<()> {
         "VOLNA_PERF_PANELS must be 1 or 4"
     );
     for n in [10_000usize, 1_000_000, 100_000_000] {
-        test.update(|cx| workspace.update(cx, |ws, cx| ws.open_synthetic(n, cx)));
+        test.update(|cx| {
+            workspace.update(cx, |ws, cx| {
+                ws.set_session(volna_core::testing::ProceduralTrace::session(n), cx);
+                let count = ws.app.doc.hierarchy().unwrap().vars.len();
+                ws.dispatch(volna_core::Command::AddVars((0..count).collect()), None, cx);
+            })
+        });
         settle(&mut test, 4);
         if panel_count == 4 {
             for command in [
@@ -1082,7 +1088,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
             samples[samples.len() * 9 / 10]
         );
         if n == 100_000_000 {
-            shot(&mut test, "06-synthetic-100m")?;
+            shot(&mut test, "06-procedural-100m")?;
         }
     }
     Ok(())

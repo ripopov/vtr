@@ -15,7 +15,6 @@
 
 use std::sync::Arc;
 
-use crate::data::synth::SynthSource;
 use crate::data::{Hierarchy, SignalHistory, SignalRef, TraceInfo};
 
 pub use crate::data::vtr_source::LocalSession;
@@ -251,8 +250,6 @@ pub enum OpenSpec {
     Path(std::path::PathBuf),
     /// A VTR or FST image already in memory (web hosts, drag and drop of bytes).
     Bytes { name: String, bytes: Vec<u8> },
-    /// The procedural stress trace with this many transitions on its busiest signal.
-    Synthetic(usize),
 }
 
 impl OpenSpec {
@@ -266,7 +263,6 @@ impl OpenSpec {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             OpenSpec::Bytes { name, .. } => name.clone(),
-            OpenSpec::Synthetic(n) => format!("synthetic {n}"),
         }
     }
 
@@ -307,7 +303,6 @@ impl OpenSpec {
                     Ok(Arc::new(LocalSession::from_bytes(name, bytes)?))
                 }
             }
-            OpenSpec::Synthetic(n) => Ok(Arc::new(SynthSource::new(n))),
         }
     }
 }

@@ -310,7 +310,7 @@ mod tests {
             attributes: vec![],
         });
 
-        let local = crate::session::OpenSpec::Synthetic(1).open().unwrap();
+        let local = crate::testing::ProceduralTrace::session(1);
         let mut metadata = crate::remote::objects::Metadata::from_session(local.as_ref());
         metadata.tracks = catalog;
         metadata.capabilities.transactions = true;

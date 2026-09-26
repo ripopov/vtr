@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::time::Duration;
 
 use volna_core::app::{Action, App, Command, Event};
-use volna_core::data::synth::SynthSource;
 use volna_core::data::{
     Bit, Hierarchy, SignalHistory, SignalRef, SignalShape, TraceInfo, WaveValue,
 };
@@ -17,13 +16,14 @@ use volna_core::panels::PanelsCommand;
 use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use volna_core::sidebar::Key;
+use volna_core::testing::ProceduralTrace;
 use volna_core::wave::{MenuEntry, PointerEvent, RowHeight, WaveMenuKind};
 use volna_core::{Instant, Theme};
 
-/// A synthetic source that counts loads, can fail on demand, and has an
+/// A procedural source that counts loads, can fail on demand, and has an
 /// alias variable sharing signal 0.
 struct Source {
-    inner: SynthSource,
+    inner: ProceduralTrace,
     hierarchy: Hierarchy,
     loads: AtomicUsize,
     fail: AtomicBool,
@@ -31,7 +31,7 @@ struct Source {
 
 impl Source {
     fn new(n: usize) -> Arc<Self> {
-        let inner = SynthSource::new(n);
+        let inner = ProceduralTrace::new(n);
         let mut hierarchy = inner.hierarchy().clone();
         let mut alias = hierarchy.vars[0].clone();
         alias.name = "alias".into();
@@ -390,9 +390,9 @@ fn failed_loads_can_retry_for_all_alias_rows() {
 }
 
 #[test]
-fn latest_open_wins_and_stale_open_cannot_add_rows() {
+fn latest_open_wins_and_a_stale_open_cannot_replace_the_trace() {
     let mut app = App::new();
-    app.open_synthetic(50);
+    app.open_bytes("slow.vtr".into(), Vec::new());
     let slow = app.take_requests().pop().unwrap();
     let LoadRequest::Open {
         generation: slow_gen,
@@ -402,8 +402,8 @@ fn latest_open_wins_and_stale_open_cannot_add_rows() {
         panic!("expected an open request");
     };
     assert!(matches!(app.trace_state(), TraceState::Loading { .. }));
-    let current: Arc<dyn Session> = Arc::new(SynthSource::new(7));
-    app.handle(Command::Open(OpenSpec::Synthetic(7)));
+    let current = ProceduralTrace::session(7);
+    app.open_bytes("current.vtr".into(), Vec::new());
     let new = app.take_requests().pop().unwrap();
     let LoadRequest::Open {
         generation: new_gen,
@@ -416,10 +416,10 @@ fn latest_open_wins_and_stale_open_cannot_add_rows() {
         generation: new_gen,
         result: Ok(current.clone()),
     });
-    // The slow open completes later, with show-all semantics that must not apply.
+    // The slow open completes later and must not apply.
     app.deliver(LoadResult::Opened {
         generation: slow_gen,
-        result: Ok(Arc::new(SynthSource::new(100))),
+        result: Ok(ProceduralTrace::session(100)),
     });
     assert!(matches!(app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current)));
     assert!(app.panels.focused().kind.is_start(), "no rows were added");
@@ -429,7 +429,7 @@ fn latest_open_wins_and_stale_open_cannot_add_rows() {
 fn closing_invalidates_pending_success_and_error() {
     let mut app = App::new();
     for fail in [false, true] {
-        app.handle(Command::Open(OpenSpec::Synthetic(10)));
+        app.open_bytes("t.vtr".into(), Vec::new());
         let LoadRequest::Open { generation, .. } = app.take_requests().pop().unwrap() else {
             panic!("expected an open request");
         };
@@ -437,7 +437,7 @@ fn closing_invalidates_pending_success_and_error() {
         let result = if fail {
             Err(anyhow::anyhow!("late error"))
         } else {
-            Ok(Arc::new(SynthSource::new(10)) as Arc<dyn Session>)
+            Ok(ProceduralTrace::session(10))
         };
         app.deliver(LoadResult::Opened { generation, result });
         assert!(matches!(app.trace_state(), TraceState::Empty));
@@ -450,20 +450,17 @@ fn open_errors_are_reported_and_a_later_open_recovers() {
     app.open_bytes("bad.vtr".into(), vec![0; 16]);
     pump(&mut app);
     assert!(matches!(app.trace_state(), TraceState::Error(e) if !e.is_empty()));
-    app.open_synthetic(10);
-    pump(&mut app);
+    app.open_bytes("good.vtr".into(), Vec::new());
+    volna_core::testing::complete_open(&mut app, ProceduralTrace::session(10));
     assert!(app.doc.is_loaded());
-    assert_eq!(
-        app.panels.focused_waves().unwrap().items.len(),
-        app.doc.hierarchy().unwrap().vars.len()
-    );
+    assert!(app.panels.focused().kind.is_start());
 }
 
 #[test]
-fn synthetic_open_shows_all_signals_and_events_coalesce() {
+fn open_events_coalesce() {
     let mut app = App::new();
-    app.open_synthetic(1000);
-    pump(&mut app);
+    app.open_bytes("t.vtr".into(), Vec::new());
+    volna_core::testing::complete_open(&mut app, ProceduralTrace::session(1000));
     let events = app.take_events();
     assert_eq!(
         events,
@@ -473,11 +470,6 @@ fn synthetic_open_shows_all_signals_and_events_coalesce() {
                 revision: app.panels.revision()
             }
         ]
-    );
-    assert!(app.panels.focused_waves().unwrap().loaded_count() > 0);
-    assert_eq!(
-        app.panels.focused_waves().unwrap().loaded_count(),
-        app.panels.focused_waves().unwrap().items.len()
     );
 }
 
@@ -889,7 +881,7 @@ struct BurstSource {
 
 impl BurstSource {
     fn new() -> Arc<Self> {
-        let synth = SynthSource::new(10);
+        let synth = ProceduralTrace::new(10);
         let mut hierarchy = synth.hierarchy().clone();
         hierarchy.vars.truncate(1);
         hierarchy.vars[0].shape = SignalShape::Bit;

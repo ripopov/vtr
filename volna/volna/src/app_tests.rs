@@ -5,8 +5,8 @@
 use super::*;
 use gpui_kit::TestAppContext;
 use std::sync::Arc;
-use volna_core::data::synth::SynthSource;
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec};
+use volna_core::testing::ProceduralTrace;
 
 fn init(cx: &mut TestAppContext) {
     cx.update(crate::init_app);
@@ -16,13 +16,21 @@ fn init(cx: &mut TestAppContext) {
 fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);
+    let trace = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr");
     window
-        .update(cx, |ws, _, cx| ws.open_synthetic(1000, cx))
+        .update(cx, |ws, _, cx| ws.open_path(trace.into(), cx))
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, window, cx| {
+            assert!(ws.app.doc.is_loaded());
+            let count = ws.app.doc.hierarchy().unwrap().vars.len();
+            ws.dispatch(Command::AddVars((0..count).collect()), Some(window), cx);
+        })
         .unwrap();
     cx.run_until_parked();
     window
         .update(cx, |ws, _, _| {
-            assert!(ws.app.doc.is_loaded());
             assert!(!ws.app.panels.focused_waves().unwrap().items.is_empty());
             assert_eq!(
                 ws.app.panels.focused_waves().unwrap().loaded_count(),
@@ -33,22 +41,23 @@ fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
+fn latest_open_wins_and_a_stale_open_cannot_replace_the_trace(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);
     // Take the slow open's request out of the queue so it can complete late.
+    let trace = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr");
     let slow = window
         .update(cx, |ws, _, cx| {
-            ws.app.open_synthetic(50);
+            ws.app.open_path(trace.into());
             let mut reqs = ws.app.take_requests();
             ws.after(None, cx);
             reqs.pop().unwrap()
         })
         .unwrap();
-    let current: Arc<dyn Session> = Arc::new(SynthSource::new(7));
+    let current = ProceduralTrace::session(7);
     window
         .update(cx, |ws, _, cx| {
-            ws.app.handle(Command::Open(OpenSpec::Synthetic(7)));
+            ws.app.open_bytes("current.vtr".into(), Vec::new());
             let LoadRequest::Open { generation, .. } = ws.app.take_requests().pop().unwrap() else {
                 panic!("expected an open request");
             };
@@ -80,7 +89,7 @@ fn latest_open_wins_and_stale_demo_cannot_add_rows(cx: &mut TestAppContext) {
 fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);
-    let source: Arc<dyn Session> = Arc::new(SynthSource::new(100));
+    let source: Arc<dyn Session> = Arc::new(ProceduralTrace::new(100));
     window
         .update(cx, |ws, _, cx| {
             ws.set_session(source.clone(), cx);
@@ -284,7 +293,7 @@ fn settings_tab_results_json_view_and_palette_render(cx: &mut TestAppContext) {
         })
         .unwrap();
     cx.run_until_parked();
-    let source: Arc<dyn Session> = Arc::new(SynthSource::new(20));
+    let source: Arc<dyn Session> = Arc::new(ProceduralTrace::new(20));
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(source, cx);
@@ -348,7 +357,7 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
         root,
         workspace: workspace.unwrap(),
     };
-    let source: Arc<dyn Session> = Arc::new(SynthSource::new(100));
+    let source: Arc<dyn Session> = Arc::new(ProceduralTrace::new(100));
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(source.clone(), cx);
@@ -511,7 +520,7 @@ fn tab_close_buttons_and_middle_click_close_their_own_tab(cx: &mut TestAppContex
     };
     let (first, second, settings) = window
         .update(cx, |ws, window, cx| {
-            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
             ws.app.handle(Command::AddVars(vec![0; 4]));
             let first = ws.app.panels.focused_id();
             ws.dispatch(
@@ -585,7 +594,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
     };
     window
         .update(cx, |ws, window, cx| {
-            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
             ws.dispatch(Command::AddVars(vec![0, 1, 2]), Some(window), cx);
         })
         .unwrap();
@@ -662,7 +671,7 @@ fn wave_copy_paste_keys_duplicate_rows(cx: &mut TestAppContext) {
     };
     window
         .update(cx, |ws, window, cx| {
-            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
             ws.dispatch(Command::AddVars(vec![0, 1, 2]), Some(window), cx);
         })
         .unwrap();
@@ -936,7 +945,7 @@ fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
     };
     window
         .update(cx, |ws, window, cx| {
-            let session = Arc::new(SynthSource::new(100));
+            let session = Arc::new(ProceduralTrace::new(100));
             ws.set_session(session.clone(), cx);
             let vector = session
                 .hierarchy()
@@ -1041,7 +1050,7 @@ fn group_keys_and_the_hosted_name_editor(cx: &mut TestAppContext) {
     };
     window
         .update(cx, |ws, window, cx| {
-            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
             ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
         })
         .unwrap();

@@ -4,10 +4,11 @@
 use std::time::Duration;
 
 use volna_core::Instant;
-use volna_core::app::{App, Command, Event, SettingsCommand};
+use volna_core::app::{Action, App, Command, Event, SettingsCommand};
 use volna_core::panels::PanelsCommand;
 use volna_core::session::OpenSpec;
 use volna_core::settings::{Animation, Host, Value, WRITE_IDLE, ZoomStep};
+use volna_core::testing::{ProceduralTrace, complete_open};
 use volna_core::workspace::persistence::{Candidate, Content, Persistence, Target};
 
 fn pump(app: &mut App) {
@@ -155,8 +156,9 @@ fn syntax_errors_keep_values_and_block_gui_edits_until_fixed() {
     );
     assert!(app.settings.editable());
     // New panels take the live default.
-    app.open_synthetic(10);
-    pump(&mut app);
+    app.open_bytes("t.vtr".into(), Vec::new());
+    complete_open(&mut app, ProceduralTrace::session(10));
+    app.handle(Command::Action(Action::NewPanel));
     assert!(app.panels.focused_waves().unwrap().nav.link.viewport);
 }
 
@@ -212,8 +214,12 @@ fn the_settings_tab_is_chrome_that_survives_traces_and_never_reaches_a_workspace
     app.handle_at(Command::Settings(SettingsCommand::ToggleJson), t0);
     assert!(app.settings_view.json);
     // A trace opens and closes around the tab; it keeps its id and focus.
-    app.open_resource(OpenSpec::Synthetic(50), "file:///t.vtr".into());
-    pump(&mut app);
+    let spec = OpenSpec::Bytes {
+        name: "t.vtr".into(),
+        bytes: Vec::new(),
+    };
+    app.open_resource(spec, "file:///t.vtr".into());
+    complete_open(&mut app, ProceduralTrace::session(50));
     app.restore_candidates(
         "file:///t.vtr",
         Candidate {

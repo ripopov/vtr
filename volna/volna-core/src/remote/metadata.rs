@@ -252,10 +252,9 @@ pub(super) fn attribute(
 mod tests {
     use super::*;
     use crate::remote::transport::DATA_BYTES;
-    use crate::session::OpenSpec;
 
     fn sample() -> Metadata {
-        let source = OpenSpec::Synthetic(100).open().unwrap();
+        let source = crate::testing::ProceduralTrace::session(100);
         let mut metadata = Metadata::from_session(source.as_ref());
         metadata.info.design_id = Some("build λ".into());
         use AttributeValue::*;
@@ -417,7 +416,8 @@ mod tests {
 
     #[test]
     fn malformed_metadata_never_becomes_a_validated_session() {
-        let mut metadata = Metadata::from_session(OpenSpec::Synthetic(10).open().unwrap().as_ref());
+        let mut metadata =
+            Metadata::from_session(crate::testing::ProceduralTrace::session(10).as_ref());
         let valid = bincode::serialize(&metadata).unwrap();
         let mut cases = vec![valid[..valid.len() - 1].to_vec()];
         let mut trailing = valid.clone();

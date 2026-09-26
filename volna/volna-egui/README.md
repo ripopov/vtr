@@ -11,7 +11,6 @@ formats use the same core and background load loop. See the
 
 ```sh
 cargo run -p volna-egui --profile viewer -- volna/volna/examples/picorv32.vtr
-cargo run -p volna-egui --profile viewer -- --synthetic 100000000
 cargo test -p volna-egui          # headless interaction test with PNGs in results/egui/
 ```
 

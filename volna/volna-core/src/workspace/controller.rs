@@ -22,7 +22,6 @@ pub struct State {
 enum Transition {
     Open {
         spec: OpenSpec,
-        show_all: bool,
         uri: Option<String>,
     },
     Close,
@@ -43,17 +42,12 @@ impl App {
     pub fn open_resource(&mut self, spec: OpenSpec, trace_uri: String) {
         self.transition(Transition::Open {
             spec,
-            show_all: false,
             uri: Some(trace_uri),
         });
     }
 
-    pub(crate) fn open(&mut self, spec: OpenSpec, show_all: bool) {
-        self.transition(Transition::Open {
-            spec,
-            show_all,
-            uri: None,
-        });
+    pub(crate) fn open(&mut self, spec: OpenSpec) {
+        self.transition(Transition::Open { spec, uri: None });
     }
 
     pub fn close_trace(&mut self) {
@@ -93,11 +87,7 @@ impl App {
         }
         let transition = self.workspace.pending.take().unwrap();
         match transition {
-            Transition::Open {
-                spec,
-                show_all,
-                uri,
-            } => {
+            Transition::Open { spec, uri } => {
                 if !self.begin_unsaved() {
                     return;
                 }
@@ -105,7 +95,7 @@ impl App {
                 self.workspace.trace_uri = None;
                 self.workspace.loading = true;
                 self.workspace.notices.clear();
-                self.open_now(spec, show_all);
+                self.open_now(spec);
             }
             Transition::Close => {
                 if !self.begin_unsaved() {
