@@ -25,6 +25,8 @@ pub struct PanelCanvas {
     panel: volna_core::panels::PanelId,
     generation: u64,
     table_focus: Option<gpui_kit::FocusHandle>,
+    /// A waveform panel: its rows are exposed as a tree.
+    waves: bool,
 }
 
 impl PanelCanvas {
@@ -34,7 +36,13 @@ impl PanelCanvas {
             panel,
             generation,
             table_focus: None,
+            waves: false,
         }
+    }
+
+    pub fn waves(mut self, waves: bool) -> Self {
+        self.waves = waves;
+        self
     }
 
     pub fn table(mut self, focus: gpui_kit::FocusHandle) -> Self {
@@ -53,6 +61,8 @@ pub struct CanvasPrepaint {
         Option<gpui_kit::accesskit::NodeId>,
     )>,
     table_status: Option<String>,
+    /// Wave rows on screen, while assistive technology is active.
+    wave_rows: Vec<volna_core::wave::model::AccessibleRow>,
     scale: f64,
 }
 
@@ -121,6 +131,29 @@ fn shape(
     window
         .text_system()
         .shape_line(text, px(size), &[run], None)
+}
+
+/// A wave row as a tree item: its name, level, selection and, for a group,
+/// whether it is expanded.
+pub(crate) fn wave_row_node(
+    row: &volna_core::wave::model::AccessibleRow,
+    scale: f64,
+) -> gpui_kit::accesskit::Node {
+    use gpui_kit::accesskit::{Node, Rect, Role};
+    let mut node = Node::new(Role::TreeItem);
+    node.set_label(row.label.clone());
+    node.set_level(row.level);
+    node.set_selected(row.selected);
+    if let Some(expanded) = row.expanded {
+        node.set_expanded(expanded);
+    }
+    node.set_bounds(Rect::new(
+        row.bounds.left() as f64 * scale,
+        row.bounds.top() as f64 * scale,
+        row.bounds.right() as f64 * scale,
+        row.bounds.bottom() as f64 * scale,
+    ));
+    node
 }
 
 /// Width measurement through GPUI's text system.
@@ -256,13 +289,19 @@ impl Element for PanelCanvas {
     type PrepaintState = CanvasPrepaint;
 
     fn id(&self) -> Option<ElementId> {
-        self.table_focus
-            .as_ref()
-            .map(|_| ElementId::Name("table-rows".into()))
+        if self.table_focus.is_some() {
+            Some(ElementId::Name("table-rows".into()))
+        } else {
+            self.waves.then(|| ElementId::Name("wave-rows".into()))
+        }
     }
 
     fn a11y_role(&self) -> Option<gpui_kit::Role> {
-        self.table_focus.as_ref().map(|_| gpui_kit::Role::ListBox)
+        if self.table_focus.is_some() {
+            Some(gpui_kit::Role::ListBox)
+        } else {
+            self.waves.then_some(gpui_kit::Role::Tree)
+        }
     }
 
     fn a11y_synthetic_children(
@@ -271,6 +310,17 @@ impl Element for PanelCanvas {
         builder: &mut gpui_kit::A11ySubtreeBuilder,
     ) {
         use gpui_kit::accesskit::{Action, Node, Rect, Role};
+        if self.waves {
+            builder.parent_node().set_label("Waveform rows");
+            builder
+                .parent_node()
+                .set_description("Groups fold with Left and Right. Only visible rows are exposed.");
+            for row in &prepaint.wave_rows {
+                let node_id = builder.synthetic_node_id((self.generation, self.panel.0, row.entry));
+                builder.push_child(node_id, wave_row_node(row, prepaint.scale));
+            }
+            return;
+        }
         builder
             .parent_node()
             .set_label(prepaint.table_status.as_deref().unwrap_or("Table rows"));
@@ -369,6 +419,17 @@ impl Element for PanelCanvas {
                 .map(|table| table.accessible_rows().map(|row| (row, None)).collect())
                 .unwrap_or_default(),
             table_status: table.map(|table| format!("Table rows. {}", table.status())),
+            wave_rows: if self.waves && window.is_a11y_active() {
+                self.ws
+                    .read(cx)
+                    .app
+                    .panels
+                    .waves(self.panel)
+                    .map(|w| w.accessible_rows().collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            },
             scale: window.scale_factor() as f64,
         }
     }
@@ -481,6 +542,8 @@ impl PanelCanvas {
                 if ws.read(cx).app.doc.generation() != generation {
                     return;
                 }
+                // A press anywhere else keeps the name typed so far.
+                ws.update(cx, |ws, cx| ws.commit_rename(window, cx));
                 let focus = ws
                     .read(cx)
                     .dock
@@ -505,7 +568,27 @@ impl PanelCanvas {
                         || p.kind.table().is_some()
                         || p.kind.waves().is_some_and(|w| w.pressed_record)
                 });
+                // A second click on a group's name renames it.
+                let group_name = ws
+                    .read(cx)
+                    .app
+                    .panels
+                    .waves(panel)
+                    .and_then(|w| w.group_name_at(cpoint(ev.position)))
+                    .is_some();
                 if ev.click_count >= 2
+                    && button == volna_core::geometry::MouseButton::Left
+                    && group_name
+                {
+                    ws.update(cx, |ws, cx| {
+                        ws.dispatch_if_current(
+                            generation,
+                            Command::Action(volna_core::app::Action::RenameGroup),
+                            Some(window),
+                            cx,
+                        )
+                    });
+                } else if ev.click_count >= 2
                     && button == volna_core::geometry::MouseButton::Left
                     && selects
                 {

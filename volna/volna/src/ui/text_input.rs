@@ -1,5 +1,6 @@
-//! A minimal single-line text field (filter box). Handles printable input,
-//! backspace, word delete and escape. No IME or selection; enough for a filter.
+//! A minimal single-line text field (filter box, group name editor). Handles
+//! printable input, backspace, word delete and escape. No IME or selection;
+//! enough for a filter or a name.
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -15,7 +16,7 @@ pub enum TextInputEvent {
     Changed,
     /// Enter was pressed.
     Submit,
-    /// Escape was pressed with empty text.
+    /// Escape was pressed with empty text (any text, when plain).
     Cancel,
 }
 
@@ -23,6 +24,12 @@ pub struct TextInput {
     text: String,
     placeholder: SharedString,
     focus_handle: FocusHandle,
+    /// An editor rather than a filter: no search icon or clear button, it
+    /// fills its box, and Escape cancels at once.
+    plain: bool,
+    /// The whole text is selected: typing replaces it, Backspace clears it,
+    /// and any other key just drops the selection.
+    all_selected: bool,
 }
 
 impl EventEmitter<TextInputEvent> for TextInput {}
@@ -39,7 +46,23 @@ impl TextInput {
             text: String::new(),
             placeholder: placeholder.into(),
             focus_handle: cx.focus_handle(),
+            plain: false,
+            all_selected: false,
         }
+    }
+
+    /// Select the whole text, as a rename starts: typing replaces it.
+    pub fn select_all(&mut self, cx: &mut Context<Self>) {
+        if !self.all_selected && !self.text.is_empty() {
+            self.all_selected = true;
+            cx.notify();
+        }
+    }
+
+    /// An editor that fills its box (see the `plain` field).
+    pub fn plain(mut self) -> Self {
+        self.plain = true;
+        self
     }
 
     pub fn text(&self) -> &str {
@@ -74,7 +97,16 @@ impl TextInput {
 
     fn on_key_down(&mut self, ev: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let ks = &ev.keystroke;
+        if (ks.modifiers.platform || ks.modifiers.control) && ks.key == "a" {
+            self.select_all(cx);
+            return;
+        }
+        let selected = std::mem::take(&mut self.all_selected);
+        if selected {
+            cx.notify();
+        }
         match ks.key.as_str() {
+            "backspace" if selected => self.clear(cx),
             "backspace" => {
                 if ks.modifiers.alt || ks.modifiers.platform {
                     let trimmed = self.text.trim_end().len();
@@ -87,7 +119,7 @@ impl TextInput {
                 cx.notify();
             }
             "escape" => {
-                if self.text.is_empty() {
+                if self.text.is_empty() || self.plain {
                     cx.emit(TextInputEvent::Cancel);
                 } else {
                     self.clear(cx);
@@ -101,6 +133,9 @@ impl TextInput {
                 if let Some(c) = ks.key_char.as_deref()
                     && !c.chars().any(|ch| ch.is_control())
                 {
+                    if selected {
+                        self.text.clear();
+                    }
                     self.text.push_str(c);
                     cx.emit(TextInputEvent::Changed);
                     cx.notify();
@@ -128,7 +163,8 @@ impl Render for TextInput {
             .flex()
             .items_center()
             .gap_2()
-            .h(t.px(24.0))
+            .when(self.plain, |el| el.size_full())
+            .when(!self.plain, |el| el.h(t.px(24.0)))
             .px_2()
             .rounded_md()
             .bg(t.input.bg)
@@ -140,11 +176,13 @@ impl Render for TextInput {
             .text_size(px(t.ui_size))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_click(cx.listener(|this, _, window, cx| window.focus(&this.focus_handle, cx)))
-            .child(
-                Icon::new(IconName::Search)
-                    .size(t.px(14.0))
-                    .color(colors.icon_muted),
-            )
+            .when(!self.plain, |el| {
+                el.child(
+                    Icon::new(IconName::Search)
+                        .size(t.px(14.0))
+                        .color(colors.icon_muted),
+                )
+            })
             .child(
                 div()
                     .flex_1()
@@ -159,13 +197,14 @@ impl Render for TextInput {
                     } else {
                         div()
                             .text_color(colors.text)
+                            .when(self.all_selected, |el| el.bg(t.selection.bg))
                             .child(SharedString::from(self.text.clone()))
                     })
                     .when(focused, |el| {
                         el.child(div().w(px(1.0)).h(t.px(14.0)).bg(colors.text))
                     }),
             )
-            .when(!empty, |el| {
+            .when(!empty && !self.plain, |el| {
                 el.child(
                     div()
                         .id("clear")

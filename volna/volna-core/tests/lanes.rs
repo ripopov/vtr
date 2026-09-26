@@ -339,7 +339,7 @@ fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
     app.handle(Command::Action(Action::PasteSignals));
     pump(&mut app);
     let w = app.panels.waves(other).unwrap();
-    assert!(matches!(w.items[0], WaveRow::Lane(_)));
+    assert!(matches!(w.items[0].row, WaveRow::Lane(_)));
     assert_eq!(w.items[0].height().multiple(), 4);
     assert!(w.items[0].lane().unwrap().generator(&app.doc).is_some());
 

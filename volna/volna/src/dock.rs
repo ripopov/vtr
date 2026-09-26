@@ -840,11 +840,8 @@ impl Render for CanvasPanelView {
                     .child("Unsupported panel — saved content is preserved")
             })
             .when(!unsupported, |el| {
-                el.child(crate::canvas::PanelCanvas::new(
-                    ws,
-                    self.id,
-                    self.generation,
-                ))
+                let waves = ws.read(cx).app.panels.waves(self.id).is_some();
+                el.child(crate::canvas::PanelCanvas::new(ws, self.id, self.generation).waves(waves))
             })
             .into_any_element()
     }

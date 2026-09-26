@@ -197,6 +197,13 @@ impl Hierarchy {
 
     /// Resolve literal path segments, including dots and escaped HDL names.
     /// Every scope along the path must be unambiguous.
+    /// Whether `scope` or a scope below it declares a variable.
+    pub fn has_vars(&self, scope: ScopeId) -> bool {
+        self.scopes
+            .get(scope)
+            .is_some_and(|s| !s.vars.is_empty() || s.children.iter().any(|&c| self.has_vars(c)))
+    }
+
     pub fn find_scope(&self, path: &[impl AsRef<str>]) -> Lookup<ScopeId> {
         let mut children = &self.roots;
         let mut result = Lookup::Missing;

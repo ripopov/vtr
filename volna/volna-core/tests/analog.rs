@@ -656,7 +656,7 @@ fn analog_rows_round_trip_through_workspaces() {
     let saved =
         serde_json::to_value(Workspace::capture(&app, TRACE.into(), None).unwrap()).unwrap();
     let panel = &saved["panels"][0];
-    assert_eq!(panel["version"], 3);
+    assert_eq!(panel["version"], 4);
     assert_eq!(
         panel["rows"][0]["analog"],
         serde_json::json!({"draw": "step", "range": "window"})

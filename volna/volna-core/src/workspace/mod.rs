@@ -12,7 +12,8 @@ use crate::transaction::{ShownRecord, TransactionModel, ViewPrefs, view::Section
 use crate::wave::{
     analog::{Analog, AnalogDraw, AnalogRange},
     lane::TxLane,
-    model::{DisplayedSignal, Link, RowHeight, RowSource, WaveModel, WaveRow},
+    model::{DisplayedSignal, GroupRow, Link, RowHeight, RowSource, WaveModel, WaveRow},
+    tree::{self, Entry},
     viewport::Viewport,
 };
 use crate::{App, data::source::Lookup, data::transactions::TrackKind, document::Marker};
@@ -72,7 +73,8 @@ struct Columns {
     values: f32,
 }
 
-/// A wave row: a signal with its format, or a generator's transaction lane.
+/// A wave row: a signal with its format, a generator's transaction lane, a
+/// clock, or a group holding rows.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Row {
@@ -97,6 +99,69 @@ enum Row {
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
     },
+    /// A named group; its rows follow it on screen, indented.
+    Group {
+        name: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        collapsed: bool,
+        #[serde(default, skip_serializing_if = "RowHeight::is_default")]
+        height: RowHeight,
+        rows: Vec<Row>,
+    },
+}
+
+/// Rows as the tree a workspace stores: each group holds its rows.
+fn nest(items: &[Entry], row: &dyn Fn(&WaveRow) -> Row) -> Vec<Row> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < items.len() {
+        let end = tree::subtree_end(items, i);
+        out.push(match &items[i].row {
+            WaveRow::Group(g) => Row::Group {
+                name: g.name.clone(),
+                collapsed: g.collapsed,
+                height: g.height,
+                rows: nest(&items[i + 1..end], row),
+            },
+            other => row(other),
+        });
+        i = end;
+    }
+    out
+}
+
+/// The stored tree as pre-order rows with depths, refusing groups nested
+/// deeper than [`tree::MAX_DEPTH`].
+fn flatten(rows: Vec<Row>, depth: u8, out: &mut Vec<(u8, Row)>) -> Result<()> {
+    for row in rows {
+        ensure!(
+            depth < tree::MAX_DEPTH,
+            "groups nested deeper than {}",
+            tree::MAX_DEPTH
+        );
+        match row {
+            Row::Group {
+                name,
+                collapsed,
+                height,
+                rows,
+            } => {
+                ensure!(!name.trim().is_empty(), "empty group name");
+                out.push((
+                    depth,
+                    Row::Group {
+                        name,
+                        collapsed,
+                        height,
+                        rows: Vec::new(),
+                    },
+                ));
+                flatten(rows, depth + 1, out)?;
+            }
+            row => out.push((depth, row)),
+        }
+    }
+    Ok(())
 }
 
 /// A signal row drawn as a plot.
@@ -107,8 +172,9 @@ struct SavedAnalog {
 }
 
 /// The wave panel format: version 2 added transaction lanes as typed rows,
-/// version 3 analog rows.
-const WAVES_VERSION: u32 = 3;
+/// version 3 analog rows, version 4 groups (rows as a tree; `selected`
+/// counts rows in pre-order, groups included).
+const WAVES_VERSION: u32 = 4;
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
 #[derive(Serialize, Deserialize)]
@@ -407,33 +473,30 @@ impl Workspace {
                         _ => unreachable!("settings panels are not saved"),
                     };
                 };
-                let rows = w
-                    .items
-                    .iter()
-                    .map(|row| match row {
-                        WaveRow::Signal(item) => {
-                            let (signal, nth) = item.source.locator(h);
-                            Row::Signal {
-                                signal,
-                                nth,
-                                format: item.format_id(),
-                                height: item.height,
-                                analog: item.analog.as_ref().map(|a| SavedAnalog {
-                                    draw: a.draw,
-                                    range: a.range,
-                                }),
-                            }
+                let rows = nest(&w.items, &|row| match row {
+                    WaveRow::Signal(item) => {
+                        let (signal, nth) = item.source.locator(h);
+                        Row::Signal {
+                            signal,
+                            nth,
+                            format: item.format_id(),
+                            height: item.height,
+                            analog: item.analog.as_ref().map(|a| SavedAnalog {
+                                draw: a.draw,
+                                range: a.range,
+                            }),
                         }
-                        WaveRow::Lane(lane) => Row::Lane {
-                            generator: lane.source.path().to_vec(),
-                            height: lane.height,
-                        },
-                        WaveRow::Clock(clock) => Row::Clock {
-                            clock: clock.path.clone(),
-                            height: clock.height,
-                        },
-                    })
-                    .collect();
+                    }
+                    WaveRow::Lane(lane) => Row::Lane {
+                        generator: lane.source.path().to_vec(),
+                        height: lane.height,
+                    },
+                    WaveRow::Clock(clock) => Row::Clock {
+                        clock: clock.path.clone(),
+                        height: clock.height,
+                    },
+                    WaveRow::Group(_) => unreachable!("nest writes groups"),
+                });
                 Ok(serde_json::value::to_raw_value(&WavePanel {
                     id: panel.id,
                     kind: "waves".into(),
@@ -775,9 +838,11 @@ impl Workspace {
                 });
                 continue;
             }
-            let saved: WavePanel =
+            let mut saved: WavePanel =
                 serde_json::from_str(raw.get()).context("invalid waveform panel")?;
-            row_count += saved.rows.len();
+            let mut flat = Vec::new();
+            flatten(std::mem::take(&mut saved.rows), 0, &mut flat)?;
+            row_count += flat.len();
             ensure!(row_count <= MAX_ROWS, "too many workspace rows");
             ensure!(
                 saved.scroll_y.is_finite() && saved.scroll_y >= 0.0,
@@ -790,7 +855,7 @@ impl Workspace {
                 "invalid column width"
             );
             ensure!(
-                saved.selected.iter().all(|i| *i < saved.rows.len()),
+                saved.selected.iter().all(|i| *i < flat.len()),
                 "invalid selected row"
             );
             ensure!(
@@ -815,9 +880,7 @@ impl Workspace {
             w.scroll_y = saved.scroll_y;
             w.names_width = saved.columns.names;
             w.values_width = saved.columns.values;
-            w.selected = saved.selected;
-            w.anchor = w.selected.first().copied();
-            for row in saved.rows {
+            for (depth, row) in flat {
                 let (signal, nth, format, height, analog) = match row {
                     Row::Signal {
                         signal,
@@ -843,7 +906,7 @@ impl Workspace {
                                 TxLane::unresolved(generator, height)
                             }
                         };
-                        w.items.push(WaveRow::Lane(lane));
+                        w.items.push(Entry::new(depth, WaveRow::Lane(lane)));
                         continue;
                     }
                     Row::Clock { clock, height } => {
@@ -851,10 +914,29 @@ impl Workspace {
                         if app.doc.clocks.find(&clock).is_none() {
                             report.push(format!("Missing clock: {clock}"));
                         }
-                        w.items.push(WaveRow::Clock(crate::wave::model::ClockRow {
-                            height,
-                            ..crate::wave::model::ClockRow::new(&clock)
-                        }));
+                        w.items.push(Entry::new(
+                            depth,
+                            WaveRow::Clock(crate::wave::model::ClockRow {
+                                height,
+                                ..crate::wave::model::ClockRow::new(&clock)
+                            }),
+                        ));
+                        continue;
+                    }
+                    Row::Group {
+                        name,
+                        collapsed,
+                        height,
+                        ..
+                    } => {
+                        w.items.push(Entry::new(
+                            depth,
+                            WaveRow::Group(GroupRow {
+                                name,
+                                collapsed,
+                                height,
+                            }),
+                        ));
                         continue;
                     }
                 };
@@ -902,19 +984,26 @@ impl Workspace {
                 if requested.is_none() {
                     report.push(format!("Unknown translator: {format}"));
                 }
-                w.items.push(WaveRow::Signal(DisplayedSignal {
-                    source,
-                    requested_format: requested.is_none().then_some(format),
-                    name,
-                    scope,
-                    shape,
-                    translator,
-                    history: None,
-                    error: None,
-                    height,
-                    analog: analog.map(|a| Analog::new(a.draw, a.range)),
-                }));
+                w.items.push(Entry::new(
+                    depth,
+                    WaveRow::Signal(DisplayedSignal {
+                        source,
+                        requested_format: requested.is_none().then_some(format),
+                        name,
+                        scope,
+                        shape,
+                        translator,
+                        history: None,
+                        error: None,
+                        height,
+                        analog: analog.map(|a| Analog::new(a.draw, a.range)),
+                    }),
+                ));
             }
+            // Selected rows inside folded groups select the group instead.
+            w.selected = saved.selected;
+            w.anchor = w.selected.first().copied();
+            w.fix_hidden_selection();
             panels.push(Panel {
                 id: saved.id,
                 title: saved.title,

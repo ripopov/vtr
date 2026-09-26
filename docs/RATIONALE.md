@@ -1496,6 +1496,112 @@ threshold, so it scans them (1.4 ms). The window and type ranges cost the same
 as the whole-trace range with the summary. The digital bus stays far cheaper
 because dense columns become a band without reading values.
 
+## Volna signal groups
+
+Named, nested, foldable groups of wave rows, designed in
+[docs/wave_groups.html](wave_groups.html) after surveying Verdi, SimVision,
+Questa, GTKWave, Surfer, Vivado and Perfetto. A group is a row
+(`WaveRow::Group`) and the rows stay one vector: `WaveModel::items` holds
+`Entry { depth, row }` in pre-order, so an entry's subtree is the entry and
+every following deeper one (Surfer's representation). Selection, clipboard
+ranges, moves and row heights remain index and splice operations, and all
+nesting logic lives in the pure `wave/tree.rs` (validate, subtree, parent,
+visible, roots, gap depths, planned moves, group, ungroup, extract, insert),
+checked by a randomized test that every edit keeps the invariant and the rows,
+and that a moved subtree moved back restores the list. `Entry` dereferences to
+its row, so code that reads rows is unchanged. Rejected: a pointer tree (every
+row operation becomes a tree walk), GTKWave's begin/end marker rows (structure
+can be malformed on disk) and Surfer's flat list with levels that may be
+flagged invalid (the workspace stores a real tree instead). Groups nest at
+most eight levels (`MAX_DEPTH`), checked on every edit and on load.
+
+Two index spaces: entries (selection, hover, menus, drags, clipboard) and
+visible positions (what `WaveLayout` lays out). `tree::visible` skips folded
+subtrees and is recomputed by every layout together with the row tops, which
+were already O(rows) per frame, so it needs no invalidation rule; the layout
+keeps the list it used, so hit tests map exactly what was painted. Folding
+moves the selection of hidden rows to the group, so no command acts on rows
+that cannot be seen. Row commands take subtrees (`roots` of the selection),
+value commands (format, `T`, analog, `A`) reach the signals below a group, and
+height is the group row's own.
+
+Keys. The proposal's mock used `←`/`→` for tree navigation, but in Volna they
+pan. They fold and unfold only when the anchored selected row is a group and
+pan otherwise; `←` on a row inside a group does not jump to the group, which
+would take panning away whenever a grouped row is selected. `G`, `shift-G`,
+`F2`, `alt-←`/`alt-→`, the chevron (with `alt` for the groups inside),
+double-click on a group name and the row menu cover the rest. The name editor
+is core state (`WaveModel::rename`, `rename_rect`); GPUI hosts a plain
+`TextInput` over it and answers with `Command::RenameGroup`, and a press
+elsewhere keeps the typed name. Dragging chooses the level from the pointer's
+x among the depths the gap allows (`tree::gap_depths`), and the middle half of
+a folded group's row drops into it.
+
+A folded group draws its signals' merged activity in the bus shape: a
+boundary per change of any signal, a band where changes are denser than boxes,
+and the X colour wherever one is undefined; the value cell reads "k of n
+changed" and the number of X signals, the pointer lists each signal's value,
+and `shift-←/→` steps through the union of changes (`EdgeSource::Group`).
+Surfer, Vivado and GTKWave draw nothing for a folded group, which hides
+whether anything happened; Perfetto-style mini-lanes are 2 px each at 1× and
+are left to a later tall group style.
+
+The proposal made a merged summary conditional ("if a frame exceeds 4 ms").
+It is needed. Sampling every signal per pixel column, as the bus painter does,
+cost 261 ms for a folded 1,000-signal group of 10⁷ changes zoomed out (8 ms at
+1/100 of the trace, 2.3 ms over 200 ticks). The painter now counts the
+signals' visible changes (two binary searches per signal) and walks them
+directly when there are at most 16,384 (`group::walk`, O(signals × log +
+visible changes)); busier views read a `GroupSummary`. It stores, per block of
+2^k ticks (at most 2²⁰ blocks over the trace), a saturating change count (one
+byte: only none, one and several matter) and an undefined bit, with levels 16×
+coarser above; a frame sums the coarsest level with at least one block per
+column. Blocks straddle column edges, so a change may land one column over
+(checked against the walk in `wave/group.rs`); views finer than the finest
+blocks are short enough to walk. The document builds one summary per visible
+folded group whose signals change more than 16,384 times, on the load worker
+(`LoadRequest::GroupSummary`), keyed by the identities of the signals'
+histories so panels folding the same signals share it, charged to the memory
+budget (about 0.75 MB for 10⁷ ticks) and released when no panel folds that
+group; a folded row says "Summarizing…" meanwhile, and a refused summary
+falls back to the walk. Undefined tests read `value_view` (logic codes)
+instead of allocating a `WaveValue` per change.
+
+Measurements (`group_cost`; Apple M5, `nightly-2026-04-13`, release, best of
+5; core layout and `Scene` painting of a 1400×300 panel; signals change at
+random ticks, one change per tick overall):
+
+| Signals × changes each | Folded, zoomed out, ms | Folded, 1/100, ms | Folded, 200 ticks, ms | Open (a screen of rows), zoomed out, ms | Summary build (worker), ms |
+|---:|---:|---:|---:|---:|---:|
+| 100 × 10⁴ | 0.01 | 0.19 (walked) | 0.02 | 0.13 | 19 |
+| 1,000 × 10³ | 0.05 | 0.30 (walked) | 0.11 | 0.11 | 18 |
+| 1,000 × 10⁴ | 261 → 0.10 | 8.0 → 0.07 | 2.3 → 0.15 | 0.14 | 176 |
+| 10,000 × 10³ | 1.2 | 0.75 | 1.5 | 0.18 | 173 |
+
+At 10,000 signals the per-signal binary searches dominate (about 1.5 ms).
+
+Storage. The waves workspace panel moved to version 4: rows are a tree whose
+group entries hold their rows (`name`, optional `collapsed` and `height`),
+flattened on load with the depth and row limits (`MAX_ROWS` counts groups);
+`selected` counts pre-order rows and selected rows inside folded groups select
+the group. Version 3 panels are reported and kept unchanged
+(`PanelKind::Unsupported`); the checked-in example workspace was moved to
+version 4. Groups never reach VTR, the protocol or `settings.json`.
+
+Accessibility. `WaveModel::accessible_rows` exposes the rows on screen with
+level, expanded state (groups) and selection, and the GPUI canvas publishes
+them as an AccessKit `Tree` of `TreeItem`s (`canvas::wave_row_node`, tested in
+`app_tests.rs`). The proposal planned a browser test of the web build's tree,
+but gpui's web platform (`gpui-pre-web` 0.3.4) has no AccessKit adapter and its
+test platform never activates accessibility, so the tree is asserted through
+the core query and the node mapping instead.
+
+Scopes add as groups from the scope tree's menu (`Command::AddScopeAsGroup`),
+with child scopes that have variables as folded subgroups, or this scope only.
+Not implemented: group row styles (stacked area, heat lanes, horizon; the
+proposal's step 9, deferred until plain groups exist) and VDB profile group
+templates (postponed).
+
 ## Volna FST signal histories
 
 The FST loader stored every change as a `WaveValue::Bits(String)` in a

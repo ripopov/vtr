@@ -24,7 +24,7 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/data/fst_source.rs private fst-reader adapter and mutable reader ownership
   src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
   src/data/              values, histories, translators, hierarchy, bounded record text (text.rs)
-  src/wave/              viewport math, timeline, WaveModel, WaveLayout, painter → Scene, shared overlay
+  src/wave/              viewport math, timeline, WaveModel, row tree, WaveLayout, painter → Scene, shared overlay
   src/sidebar/           ScopeTreeModel, MemberListModel, semantic icons and row descriptions
   src/scene.rs           Scene display list, FontRole, TextMeasure, TextCache
   src/theme/             Theme<C> tokens, One Dark, host palettes, VS Code snapshot parser
@@ -213,10 +213,10 @@ format badge stay on the first line. Resizing keeps the menu row, or the
 keyboard anchor, at the same place on screen. The Increase, Decrease and Reset
 Row Height actions step the selection through the same presets.
 
-Rows are `WaveRow`s: a signal (`DisplayedSignal`) or a transaction lane
+Rows are `WaveRow`s: a signal (`DisplayedSignal`), a transaction lane
 (`wave::lane::TxLane`), a generator shown as one row of bars over record
-lifetimes. Selection, reordering, the clipboard, heights, removal and
-workspace entries treat both kinds alike; formats and badges belong to signals
+lifetimes, a clock or a group. Selection, reordering, the clipboard, heights,
+removal and workspace entries treat every kind alike; formats and badges belong to signals
 only. **Add to Waves** on a sidebar generator sends `Command::AddToWaves`;
 activating a generator still opens its Pipeline panel. A lane holds no
 records: it reads the document's resident `LoadedGenerator`, and `App` keeps
@@ -259,6 +259,26 @@ built by `LoadRequest::Summary` on the load worker and held by the
 arrives a zoomed-out plot shows "Summarizing…". Dragging the bottom edge of
 any row's name cell resizes it through the height presets. The design is
 [docs/analog-waves.html](../../docs/analog-waves.html).
+
+Rows form a tree of groups (`WaveRow::Group`, `wave::tree`): `WaveModel::items`
+holds `Entry { depth, row }` in pre-order, so a group's rows are the deeper
+entries that follow it, and every nesting rule is a pure function in
+`wave/tree.rs`. Model state (selection, hover, menus, drags, the clipboard)
+names entries; `WaveLayout` lays out the visible ones (`tree::visible`, rebuilt
+with the row tops every layout) and maps positions back through
+`WaveLayout::entry`. Row commands take a selected group with its rows, value
+commands (formats, analog) reach the signals below it, height is the group
+row's own. `G`, `shift-G`, `F2` and the row menu group, dissolve and rename;
+the chevron, `←`/`→` on a selected group and `alt` variants fold. The GPUI
+frontend hosts the name editor over `WaveModel::rename_rect` and answers with
+`Command::RenameGroup`. A folded group paints its signals' merged changes and
+X stretches in the bus shape (`wave::group`), walking the visible changes when
+there are few and otherwise reading a `GroupSummary` of per-block counts that
+`LoadRequest::GroupSummary` builds on the load worker and the `Document`
+holds, reconciled by `App` with the visible folded groups like analog
+summaries. Rows on screen are exposed as an AccessKit tree
+(`WaveModel::accessible_rows`). The design is
+[docs/wave_groups.html](../../docs/wave_groups.html).
 
 Pointer commands name a panel; keyboard actions and sidebar additions resolve
 focus when handled. Deliveries fan out shared history Arcs to all matching

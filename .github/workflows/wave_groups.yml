@@ -1,16 +1,18 @@
-name: Wave groups HTML demo
+name: Wave groups
 on:
   push:
     paths:
       - 'docs/wave_groups.html'
       - 'docs/tests/wave_groups.test.mjs'
       - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/volna-core/**'
       - '.github/workflows/wave_groups.yml'
   pull_request:
     paths:
       - 'docs/wave_groups.html'
       - 'docs/tests/wave_groups.test.mjs'
       - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/volna-core/**'
       - '.github/workflows/wave_groups.yml'
   workflow_dispatch:
 permissions:
@@ -28,5 +30,18 @@ jobs:
           node-version: 22
       - name: Verify headless browser prerequisite
         run: google-chrome --version
-      - name: Test the proposal demo
+      - name: Test the design demo
         run: node --test --test-concurrency=1 docs/tests/wave_groups.test.mjs
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # Cargo reads the manifests of path dependencies in these submodules to
+      # resolve the workspace.
+      - name: Check out the elkrs and Surfer submodules
+        run: git submodule update --init --depth 1 ext/elkrs ext/surfer
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Test the headless viewer core, groups included
+        run: cargo test --locked -p volna-core

@@ -605,7 +605,8 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
             })
             .unwrap()
     };
-    // All three new rows are selected: Shift+F10, then Height ▸ 2×.
+    // All three new rows are selected: Shift+F10, then (past Group
+    // selection) Height ▸ 2×.
     vcx.simulate_keystrokes("shift-f10");
     vcx.run_until_parked();
     assert!(
@@ -614,7 +615,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
             .unwrap(),
         "the popup is hosted"
     );
-    vcx.simulate_keystrokes("down down down down right down enter");
+    vcx.simulate_keystrokes("down down down down down right down enter");
     vcx.run_until_parked();
     assert_eq!(heights(&mut vcx), [2, 2, 2]);
     window
@@ -941,4 +942,155 @@ fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
     vcx.simulate_keystrokes("a");
     vcx.run_until_parked();
     assert_eq!(row(&mut vcx), (None, 1));
+}
+
+/// Groups from the keyboard: `G` groups the selection and opens the name
+/// editor over the group, typing and Enter rename it, `F2` and Escape leave
+/// the name, `Alt+←`/`Alt+→` fold and unfold, and `Shift+G` dissolves it.
+#[gpui_kit::test]
+fn group_keys_and_the_hosted_name_editor(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(SynthSource::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let outline = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                ws.app
+                    .panels
+                    .focused_waves()
+                    .unwrap()
+                    .items
+                    .iter()
+                    .map(|e| {
+                        let mark = match e.group() {
+                            Some(g) if g.collapsed => "+",
+                            Some(_) => "-",
+                            None => "",
+                        };
+                        format!("{}{mark}{}", "  ".repeat(usize::from(e.depth)), e.name())
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    };
+    let names: Vec<String> = outline(&mut vcx);
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let w = ws.app.panels.focused_waves_mut().unwrap();
+            w.selected = [1, 2].into();
+            w.anchor = Some(1);
+        })
+        .unwrap();
+    vcx.simulate_keystrokes("g");
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let editing = window
+        .update(&mut vcx, |ws, window, cx| {
+            let hosted = ws.rename.as_ref().expect("the name editor is hosted");
+            let focused = hosted.input.read(cx).focus_handle(cx).is_focused(window);
+            (hosted.input.read(cx).text().to_owned(), focused)
+        })
+        .unwrap();
+    assert_eq!(editing, ("Group 1".to_owned(), true));
+    // The name starts selected, so typing replaces it.
+    vcx.simulate_keystrokes("a x i enter");
+    vcx.run_until_parked();
+    assert_eq!(
+        outline(&mut vcx),
+        [
+            names[0].clone(),
+            "-axi".into(),
+            format!("  {}", names[1]),
+            format!("  {}", names[2]),
+            names[3].clone()
+        ]
+    );
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, _| ws.rename.is_none())
+            .unwrap()
+    );
+    // The keys are the panel's again: F2 reopens the editor, Escape keeps the name.
+    vcx.simulate_keystrokes("f2");
+    vcx.run_until_parked();
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, _| ws.rename.is_some())
+            .unwrap()
+    );
+    vcx.simulate_keystrokes("z escape");
+    vcx.run_until_parked();
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, _| ws.rename.is_none())
+            .unwrap()
+    );
+    assert_eq!(outline(&mut vcx)[1], "-axi");
+    // After an arrow key the name is no longer selected and typing appends.
+    vcx.simulate_keystrokes("f2 right 2 enter");
+    vcx.run_until_parked();
+    assert_eq!(outline(&mut vcx)[1], "-axi2");
+    // Enter alone keeps the selected name.
+    vcx.simulate_keystrokes("f2 enter");
+    vcx.run_until_parked();
+    assert_eq!(outline(&mut vcx)[1], "-axi2");
+    vcx.simulate_keystrokes("alt-left");
+    vcx.run_until_parked();
+    assert_eq!(outline(&mut vcx)[1], "+axi2");
+    vcx.simulate_keystrokes("alt-right");
+    vcx.run_until_parked();
+    assert_eq!(outline(&mut vcx)[1], "-axi2");
+    vcx.simulate_keystrokes("shift-g");
+    vcx.run_until_parked();
+    assert_eq!(outline(&mut vcx), names);
+}
+
+/// A wave row becomes a tree item with its level, selection and, for a
+/// group, its expanded state.
+#[test]
+fn wave_rows_are_tree_items() {
+    use gpui_kit::accesskit::Role;
+    use volna_core::geometry::Rect;
+    use volna_core::wave::model::AccessibleRow;
+    let row = AccessibleRow {
+        entry: 3,
+        label: "Write, 7 rows".into(),
+        level: 2,
+        expanded: Some(false),
+        selected: true,
+        bounds: Rect::from_xywh(0.0, 48.0, 220.0, 24.0),
+    };
+    let node = crate::canvas::wave_row_node(&row, 2.0);
+    assert_eq!(node.role(), Role::TreeItem);
+    assert_eq!(node.level(), Some(2));
+    assert_eq!(node.is_expanded(), Some(false));
+    assert_eq!(node.is_selected(), Some(true));
+    assert_eq!(node.label(), Some("Write, 7 rows"));
+    assert_eq!(node.bounds().map(|b| b.y1), Some(144.0));
+    let leaf = crate::canvas::wave_row_node(
+        &AccessibleRow {
+            expanded: None,
+            selected: false,
+            ..row
+        },
+        1.0,
+    );
+    assert_eq!(leaf.is_expanded(), None);
 }

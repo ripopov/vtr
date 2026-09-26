@@ -46,8 +46,9 @@ struct WaveStamp {
     columns: (f32, f32),
     rows: usize,
     selected: Option<BTreeSet<usize>>,
-    /// Per-row format and height, compared only for commands that set them.
-    styles: Option<Vec<(String, RowHeight)>>,
+    /// Per-row format, depth and height, compared only for commands that
+    /// set them.
+    styles: Option<Vec<(String, u8, RowHeight)>>,
 }
 impl Stamp {
     pub(crate) fn capture(app: &App, command: &Command) -> Option<Self> {
@@ -84,6 +85,7 @@ impl Stamp {
             Command::Pointer(id, _)
             | Command::PipelineActivity(id, _)
             | Command::MenuSelect(id, _)
+            | Command::RenameGroup(id, _)
             | Command::Panels(crate::panels::PanelsCommand::ToggleLink { panel: id, .. }) => *id,
             _ => app.panels.focused_id(),
         };
@@ -99,7 +101,15 @@ impl Stamp {
                             | Action::IncreaseRowHeight
                             | Action::DecreaseRowHeight
                             | Action::ResetRowHeight
+                            | Action::PanLeft
+                            | Action::PanRight
+                            | Action::FoldGroupDeep
+                            | Action::UnfoldGroupDeep
+                            | Action::GroupSelection
+                            | Action::Ungroup
                     )
+                    | Command::RenameGroup(..)
+                    | Command::AddScopeAsGroup { .. }
             );
         let scope = matches!(
             command,
@@ -134,7 +144,7 @@ impl Stamp {
                     w.items
                         .iter()
                         .map(|row| {
-                            let style = match row {
+                            let style = match &row.row {
                                 WaveRow::Signal(item) => match &item.analog {
                                     Some(a) => format!(
                                         "{}:{}:{}",
@@ -148,8 +158,11 @@ impl Stamp {
                                     format!("lane:{}", lane.source.path().join("."))
                                 }
                                 WaveRow::Clock(clock) => format!("clock:{}", clock.path),
+                                WaveRow::Group(g) => {
+                                    format!("group:{}:{}", g.collapsed, g.name)
+                                }
                             };
-                            (style, row.height())
+                            (style, row.depth, row.height())
                         })
                         .collect()
                 }),

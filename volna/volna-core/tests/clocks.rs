@@ -402,7 +402,7 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     );
     plan.commit(&mut restored).unwrap();
     let w = restored.panels.waves(panel).unwrap();
-    assert!(matches!(&w.items[1], WaveRow::Clock(c) if c.path == "top.bus_clk"));
+    assert!(matches!(&w.items[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
     assert_eq!(w.nav.clocks, app.panels.waves(panel).unwrap().nav.clocks);
 }
 
@@ -663,7 +663,7 @@ fn a_clock_generator_adds_as_a_ruler_or_as_a_waveform() {
     // Add as Waveform: a clock row, not a transaction lane of its stretches.
     app.handle(Command::AddToWaves(vec![member]));
     let w = app.panels.waves(panel).unwrap();
-    assert!(matches!(&w.items[1], WaveRow::Clock(c) if c.path == "top.bus_clk"));
+    assert!(matches!(&w.items[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
 }
 
 #[test]

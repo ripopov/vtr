@@ -95,9 +95,11 @@ pub struct Document {
     /// Wave rows copied for pasting into any wave panel of this trace. They
     /// hold no histories or records; a paste shares resident data or loads
     /// it again.
-    pub copied_rows: Vec<crate::wave::WaveRow>,
+    pub copied_rows: Vec<crate::wave::Entry>,
     /// Analog summaries of resident histories, per signal and reading.
     summaries: HashMap<(SignalRef, NumericKind), SummaryLoad>,
+    /// Activity summaries of folded groups, by their signals' identity.
+    group_summaries: HashMap<Vec<usize>, crate::wave::group::SummaryLoad>,
     /// The trace's declared clocks; their stretches load when the trace opens.
     pub clocks: crate::clock::Clocks,
 }
@@ -160,6 +162,7 @@ impl Document {
             selection: None,
             copied_rows: Vec::new(),
             summaries: HashMap::new(),
+            group_summaries: HashMap::new(),
             clocks: crate::clock::Clocks::default(),
         }
     }
@@ -278,6 +281,7 @@ impl Document {
         self.markers.clear();
         self.copied_rows.clear();
         self.summaries.clear();
+        self.group_summaries.clear();
         self.clocks = crate::clock::Clocks::default();
     }
 
@@ -316,6 +320,35 @@ impl Document {
                 signal,
                 history,
                 kind,
+                budget: budget.clone(),
+            });
+        }
+    }
+
+    /// The activity summary of the folded group whose signals are `key`.
+    pub fn group_summary(&self, key: &[usize]) -> Option<&crate::wave::group::SummaryLoad> {
+        self.group_summaries.get(key)
+    }
+
+    /// Hold summaries for exactly the `wanted` folded groups (by the key of
+    /// their signals): queue builds for new ones and release the others.
+    pub(crate) fn sync_group_summaries(
+        &mut self,
+        wanted: HashMap<Vec<usize>, Vec<Arc<dyn crate::data::SignalHistory>>>,
+        budget: &crate::remote::memory::MemoryBudget,
+    ) {
+        self.group_summaries
+            .retain(|key, _| wanted.contains_key(key));
+        for (key, members) in wanted {
+            if self.group_summaries.contains_key(&key) {
+                continue;
+            }
+            self.group_summaries
+                .insert(key, crate::wave::group::SummaryLoad::Building);
+            self.requests.push(LoadRequest::GroupSummary {
+                generation: self.generation,
+                members,
+                range: self.limits(),
                 budget: budget.clone(),
             });
         }
@@ -597,6 +630,22 @@ impl Document {
                 *load = match result {
                     Ok(summary) => SummaryLoad::Ready(summary),
                     Err(_) => SummaryLoad::Failed { history },
+                };
+                Some(Delivered::Summary)
+            }
+            LoadResult::GroupSummary {
+                generation,
+                key,
+                result,
+            } => {
+                use crate::wave::group::SummaryLoad;
+                let load = self.group_summaries.get_mut(&key)?;
+                if generation != self.generation || !matches!(load, SummaryLoad::Building) {
+                    return None;
+                }
+                *load = match result {
+                    Ok(summary) => SummaryLoad::Ready(summary),
+                    Err(_) => SummaryLoad::Failed,
                 };
                 Some(Delivered::Summary)
             }

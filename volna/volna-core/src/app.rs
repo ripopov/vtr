@@ -67,6 +67,17 @@ pub enum Action {
     ResetRowHeight,
     MoveSelectionUp,
     MoveSelectionDown,
+    /// `G`: put the selected wave rows under a new group and rename it.
+    GroupSelection,
+    /// `Shift+G`: dissolve the selected groups, keeping their rows.
+    Ungroup,
+    /// `F2`: rename the selected group.
+    RenameGroup,
+    /// `Alt+←` / `Alt+→`: fold or unfold the selected group and every group
+    /// inside it. Plain `←` / `→` ([`Action::PanLeft`] / [`Action::PanRight`])
+    /// fold and unfold a selected group, and pan otherwise.
+    FoldGroupDeep,
+    UnfoldGroupDeep,
     /// Step the cursor to the next / previous rising edge of the panel's
     /// selected clock (`]` / `[`).
     NextCycle,
@@ -195,6 +206,15 @@ pub enum Command {
     /// Enter in the filter box: add the selected variables, or all.
     AddSelectedOrAllVars,
     VariablesKey(Key, Modifiers),
+    /// Add a scope's variables to the wave view as a group named after it;
+    /// with `recursive`, child scopes with variables become folded subgroups.
+    AddScopeAsGroup {
+        scope: ScopeId,
+        recursive: bool,
+    },
+    /// The frontend's name editor finished: `Some` renames the group being
+    /// renamed, `None` cancels.
+    RenameGroup(PanelId, Option<String>),
     /// Open the selected signal's row menu, or report a wave-row menu choice.
     OpenSignalMenu(PanelId),
     MenuSelect(PanelId, MenuAction),
@@ -639,7 +659,7 @@ impl App {
         self.panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| &waves.items)
+            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
             .filter_map(WaveRow::signal_ref)
             .chain(
                 self.panels
@@ -905,6 +925,10 @@ impl App {
         let tracked = before.as_ref().map(|_| command.clone());
         let selection = self.doc.selection();
         let pointer = matches!(command, Command::Pointer(..));
+        let press = matches!(
+            command,
+            Command::Pointer(_, PointerEvent::Down { .. } | PointerEvent::Up)
+        );
         match command {
             Command::Notice(message) => {
                 self.events.push(Event::Notice(message));
@@ -1059,6 +1083,15 @@ impl App {
                     self.changed();
                 }
             }
+            Command::AddScopeAsGroup { scope, recursive } => self.add_scope_group(scope, recursive),
+            Command::RenameGroup(panel, name) => {
+                if let Some(waves) = self.panels.waves_mut(panel)
+                    && waves.rename.is_some()
+                {
+                    waves.finish_rename(name.as_deref());
+                    self.changed();
+                }
+            }
             Command::OpenSignalMenu(panel) => {
                 if let Some(waves) = self.panels.waves_mut(panel) {
                     waves.open_selected_signal_menu(&self.doc);
@@ -1127,7 +1160,7 @@ impl App {
                 {
                     for panel in self.panels.iter_mut() {
                         if let Some(waves) = panel.kind.waves_mut() {
-                            for row in waves.items.iter_mut().filter_map(WaveRow::signal_mut) {
+                            for row in waves.items.iter_mut().filter_map(|e| e.row.signal_mut()) {
                                 if row.source.signal() == Some(signal) {
                                     row.error = None;
                                 }
@@ -1161,10 +1194,13 @@ impl App {
             }
             Command::Settings(command) => self.settings_command(command, now),
         }
-        // Pointer input moves rows but never adds or removes them.
+        // Pointer input moves rows but never adds or removes them; a press
+        // or release may fold a group.
         if !pointer {
             self.sync_lane_tracks();
             self.sync_analog_summaries();
+        } else if press {
+            self.sync_group_summaries();
         }
         if self.doc.selection() != selection {
             self.sync_selection();
@@ -1331,7 +1367,7 @@ impl App {
         self.panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| &waves.items)
+            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
             .filter_map(WaveRow::signal)
             .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
             .chain(
@@ -1429,9 +1465,13 @@ impl App {
         };
         let source = if let Some(waves) = self.panels.get(panel).and_then(|p| p.kind.waves()) {
             let rows = match row {
-                Some(row) if !waves.selected.contains(&row) => vec![row],
-                _ => waves.selected.iter().copied().collect(),
+                Some(row) if !waves.selected.contains(&row) => {
+                    std::collections::BTreeSet::from([row])
+                }
+                _ => waves.selected.clone(),
             };
+            // A group opens the rows it holds.
+            let rows = crate::wave::tree::selected_leaves(&waves.items, &rows);
             let vars = rows
                 .iter()
                 .filter_map(|&index| match waves.signal(index)?.source {
@@ -1552,6 +1592,18 @@ impl App {
         }
     }
 
+    fn add_scope_group(&mut self, scope: ScopeId, recursive: bool) {
+        let Some(target) = self.waves_target() else {
+            return;
+        };
+        let loaded = self.resident_histories();
+        if let Some(w) = self.panels.waves_mut(target)
+            && w.add_scope_group(&mut self.doc, scope, recursive, loaded)
+        {
+            self.changed();
+        }
+    }
+
     fn add_vars(&mut self, vars: &[VarId]) {
         if vars.is_empty() {
             return;
@@ -1651,7 +1703,7 @@ impl App {
             .panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| &waves.items)
+            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
             .filter_map(WaveRow::signal)
             .filter(|s| s.analog.is_some())
             .filter_map(|s| {
@@ -1664,6 +1716,28 @@ impl App {
             .collect();
         let budget = self.table_memory_budget();
         self.doc.sync_summaries(wanted, &budget);
+        self.sync_group_summaries();
+    }
+
+    /// Hold an activity summary for every visible folded group whose
+    /// signals change more often than a frame can walk, and release the
+    /// others with their memory.
+    pub(crate) fn sync_group_summaries(&mut self) {
+        let mut wanted = std::collections::HashMap::new();
+        for waves in self.panels.iter().filter_map(|panel| panel.kind.waves()) {
+            for &i in waves.visible().iter() {
+                let i = i as usize;
+                if !waves.items[i].group().is_some_and(|g| g.collapsed) {
+                    continue;
+                }
+                let members = waves.group_histories(i);
+                if members.iter().map(|h| h.len()).sum::<usize>() > crate::wave::group::WALK_MAX {
+                    wanted.insert(crate::wave::group::key(&members), members);
+                }
+            }
+        }
+        let budget = self.table_memory_budget();
+        self.doc.sync_group_summaries(wanted, &budget);
     }
 
     pub(crate) fn sync_lane_tracks(&mut self) {
@@ -1675,7 +1749,7 @@ impl App {
             .panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| &waves.items)
+            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
             .filter_map(WaveRow::lane_track)
             .collect();
         let held = &mut self.lane_tracks.1;
@@ -1866,7 +1940,12 @@ impl App {
                 | Action::ToggleAnalog
                 | Action::IncreaseRowHeight
                 | Action::DecreaseRowHeight
-                | Action::ResetRowHeight => return,
+                | Action::ResetRowHeight
+                | Action::GroupSelection
+                | Action::Ungroup
+                | Action::RenameGroup
+                | Action::FoldGroupDeep
+                | Action::UnfoldGroupDeep => return,
                 Action::SplitRight
                 | Action::SplitDown
                 | Action::NewPanel
@@ -1889,8 +1968,21 @@ impl App {
                 Action::GoToStart => w.go_to_start(doc, now),
                 Action::GoToEnd => w.go_to_end(doc, now),
                 Action::GoToCursor => w.go_to_cursor(doc, now),
-                Action::PanLeft => w.pan_fraction(doc, -0.25, now),
-                Action::PanRight => w.pan_fraction(doc, 0.25, now),
+                Action::PanLeft => {
+                    if !w.fold_key(false, false) {
+                        w.pan_fraction(doc, -0.25, now);
+                    }
+                }
+                Action::PanRight => {
+                    if !w.fold_key(true, false) {
+                        w.pan_fraction(doc, 0.25, now);
+                    }
+                }
+                Action::FoldGroupDeep => _ = w.fold_key(false, true),
+                Action::UnfoldGroupDeep => _ = w.fold_key(true, true),
+                Action::GroupSelection => _ = w.group_selected(),
+                Action::Ungroup => _ = w.ungroup_selected(),
+                Action::RenameGroup => _ = w.start_rename(),
                 Action::NextEdge => w.next_edge(doc, now),
                 Action::PrevEdge => w.prev_edge(doc, now),
                 Action::AddMarker => {
@@ -1959,7 +2051,12 @@ impl App {
                 | Action::ToggleAnalog
                 | Action::IncreaseRowHeight
                 | Action::DecreaseRowHeight
-                | Action::ResetRowHeight => return,
+                | Action::ResetRowHeight
+                | Action::GroupSelection
+                | Action::Ungroup
+                | Action::RenameGroup
+                | Action::FoldGroupDeep
+                | Action::UnfoldGroupDeep => return,
                 Action::SplitRight
                 | Action::SplitDown
                 | Action::NewPanel

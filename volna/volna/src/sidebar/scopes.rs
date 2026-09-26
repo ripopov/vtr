@@ -1,5 +1,6 @@
 //! The scope tree panel: GPUI rows over `ScopeTreeModel`.
 
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -140,6 +141,12 @@ impl Workspace {
                                         .inherit_color(),
                                     )
                             });
+                        // Scopes with variables add as a group; child scopes
+                        // with variables become folded subgroups unless only
+                        // this scope is asked for.
+                        let addable = h.has_vars(id);
+                        let nested = scope.children.iter().any(|&c| h.has_vars(c));
+                        let owner = cx.weak_entity();
                         let (icon, tint) = scope_icon(scope);
                         let tooltip = format!(
                             "{} — {} {}",
@@ -147,6 +154,38 @@ impl Workspace {
                             scope.kind,
                             scope.component
                         );
+                        let scope_menu = move |menu: gpui_kit::component::menu::PopupMenu,
+                                               _: &mut Window,
+                                               _: &mut gpui_kit::Context<
+                            gpui_kit::component::menu::PopupMenu,
+                        >| {
+                            if !addable {
+                                return menu.item(
+                                    PopupMenuItem::new("No variables to add").disabled(true),
+                                );
+                            }
+                            let add = |label: &'static str, recursive: bool| {
+                                let owner = owner.clone();
+                                PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                                    _ = owner.update(cx, |ws, cx| {
+                                        ws.dispatch(
+                                            Command::AddScopeAsGroup {
+                                                scope: id,
+                                                recursive,
+                                            },
+                                            Some(window),
+                                            cx,
+                                        )
+                                    });
+                                })
+                            };
+                            let menu = menu.item(add("Add to Waves as Group", true));
+                            if nested {
+                                menu.item(add("Add to Waves as Group, This Scope Only", false))
+                            } else {
+                                menu
+                            }
+                        };
                         row.tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
                             .child(chevron)
                             .child(Icon::new(icon).size(t.px(14.0)).color(tint.color(&t)))
@@ -175,6 +214,7 @@ impl Workspace {
                                         .child(SharedString::from(tag.to_owned())),
                                 )
                             })
+                            .context_menu(scope_menu)
                     })
                     .collect()
             }),

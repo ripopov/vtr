@@ -1094,6 +1094,7 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
             (&MenuAction::OpenTable, "Open in table"),
             (&MenuAction::CutSignals, "Cut"),
             (&MenuAction::CopySignals, "Copy"),
+            (&MenuAction::Group, "Group selection"),
             (
                 &MenuAction::RowHeight(RowHeight::PRESETS[0]),
                 "1× (Default)"
@@ -1111,6 +1112,8 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
             MenuEntry::Item(_),
             MenuEntry::Separator,
             MenuEntry::Item(_),
+            MenuEntry::Item(_),
+            MenuEntry::Separator,
             MenuEntry::Item(_),
             MenuEntry::Separator,
             MenuEntry::Submenu { label, .. },

@@ -350,6 +350,13 @@ pub enum LoadRequest {
         kind: crate::data::NumericKind,
         budget: crate::remote::memory::MemoryBudget,
     },
+    /// Summarize a folded group's signals over `range` (client-side work).
+    GroupSummary {
+        generation: u64,
+        members: Vec<Arc<dyn crate::data::SignalHistory>>,
+        range: (u64, u64),
+        budget: crate::remote::memory::MemoryBudget,
+    },
 }
 
 impl LoadRequest {
@@ -358,7 +365,7 @@ impl LoadRequest {
     pub fn remote_id(&self) -> Option<u64> {
         match self {
             Self::Signals { session, .. } | Self::Track { session, .. } => session.remote_id(),
-            Self::Open { .. } | Self::Summary { .. } => None,
+            Self::Open { .. } | Self::Summary { .. } | Self::GroupSummary { .. } => None,
         }
     }
 
@@ -402,6 +409,15 @@ impl LoadRequest {
                 signal,
                 kind,
                 history: crate::wave::analog::history_identity(&history),
+                result: Err(error),
+            },
+            Self::GroupSummary {
+                generation,
+                members,
+                ..
+            } => LoadResult::GroupSummary {
+                generation,
+                key: crate::wave::group::key(&members),
                 result: Err(error),
             },
         }
@@ -448,6 +464,19 @@ impl LoadRequest {
                     .account(&budget)
                     .map(Arc::new),
             },
+            LoadRequest::GroupSummary {
+                generation,
+                members,
+                range,
+                budget,
+            } => {
+                let summary = crate::wave::group::GroupSummary::build(&members, range);
+                LoadResult::GroupSummary {
+                    generation,
+                    key: summary.key().to_vec(),
+                    result: summary.account(&budget).map(Arc::new),
+                }
+            }
         }
     }
 }
@@ -475,5 +504,11 @@ pub enum LoadResult {
         /// Identity of the summarized history.
         history: usize,
         result: anyhow::Result<Arc<crate::wave::analog::AnalogSummary>>,
+    },
+    GroupSummary {
+        generation: u64,
+        /// Identity of the summarized signals ([`crate::wave::group::key`]).
+        key: Vec<usize>,
+        result: anyhow::Result<Arc<crate::wave::group::GroupSummary>>,
     },
 }

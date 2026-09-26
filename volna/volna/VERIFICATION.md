@@ -544,6 +544,22 @@ build, and prints best-of-five core frames (layout and `Scene` painting at
 plots in each range, zoomed out, at 1/100 of the trace and over 200 ticks.
 Results are in `docs/RATIONALE.md` ("Volna analog waves").
 
+### Signal groups
+
+```sh
+cargo run --release -p volna-core --example group_cost -- 1000 10000
+```
+
+`group_cost` writes M signals under one scope (a third 1-bit, the rest 16-bit
+4-state buses, C changes each on average at random ticks, with a one-tick X on
+some of them mid-trace), adds the scope as a group, folds it with `←`, times
+the activity summary build and prints best-of-five core frames (1400×300,
+`MonoMeasure`) with the group folded and open, zoomed out, at 1/100 of the
+trace and over 200 ticks. The group behaviour itself is asserted in
+`volna-core/tests/groups.rs` and the GPUI key and editor path in
+`volna/src/app_tests.rs`. Results are in `docs/RATIONALE.md` ("Volna signal
+groups").
+
 ### Painting
 
 ```sh

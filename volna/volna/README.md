@@ -251,11 +251,12 @@ The panel menu also provides rename and close-other-panel actions.
 | Set cursor | click or drag in the waves or the timeline (snaps to nearby edges) | `shift-←/→` previous/next edge of the selected signal |
 | Zoom | `⌘`/`ctrl` + wheel, pinch | `=` / `-`, `F` or `shift-F` fit, `shift-Z` zoom and centre on cursor |
 | Zoom to selected area | `⌘`/`ctrl` + left-drag across a time range | `esc` cancels the selection |
-| Pan | wheel/trackpad over waves, middle/right-drag | `←` `→`, `PageUp` later / `PageDown` earlier, `Home`/`S` start, `End`/`E` end, `C` centre on cursor |
+| Pan | wheel/trackpad over waves, middle/right-drag | `←` `→` (unless a group is selected), `PageUp` later / `PageDown` earlier, `Home`/`S` start, `End`/`E` end, `C` centre on cursor |
 | Markers | click a chip to jump, `shift`-click to remove | `M` add at cursor, `shift-M` clear |
 | Value format | click the badge in the values column | `T` cycles binary / hex / decimal / signed / float |
 | Signal rows | click, `shift`/`⌘` multi-select; right-click a signal name for row actions; drag the column dividers | `↑` `↓`, `⌫` remove, `⌘A`, `esc`; `shift-F10` row actions |
-| Reorder rows | drag a signal name (or a selected group) up or down; a line marks the drop point, and the edges of the rows scroll | `esc` cancels the drag |
+| Reorder rows | drag a signal name (or several selected rows) up or down; a line marks the drop point and its level, the pointer's x picks among the levels a gap allows, the middle of a folded group's row drops into it, and the edges of the rows scroll | `esc` cancels the drag |
+| Signal groups | right-click a signal name, **Group selection**; click a group's chevron to fold it (`alt` folds the groups inside too); double-click its name to rename; right-click a sidebar scope, **Add to Waves as Group**. A folded group draws its signals' changes and X values in one row, reads "k of n changed" at the cursor, and lists their values under the pointer | `G` group, `shift-G` ungroup, `F2` rename, `←` / `→` fold / unfold a selected group (`alt` for the groups inside); `shift-←/→` steps through the changes of any signal in it; `⌫` removes a group with its rows |
 | Duplicate rows | right-click a signal name, **Copy** / **Cut**, then **Paste** in any waveform panel | `⌘C` `⌘X` `⌘V`; pasted rows share the original's data |
 | Transaction lanes | right-click a generator in the sidebar, **Add to Waves**; click a bar to select its record (**Enter** or a double-click opens the Transaction panel), click empty lane space to clear | `shift-←/→` on a lane steps through record begins and ends |
 | Row height | right-click a signal name, **Height** ▸ 1×, 2×, 3×, 4× or 8× (applies to the selection) | command palette: Increase / Decrease / Reset Row Height |

@@ -11,6 +11,7 @@ use web_time::Instant;
 use super::analog::{self, Analog, AnalogDraw, AnalogRange};
 use super::lane::{self, LaneGeometry, TxLane};
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
+use super::tree::{self, Entry, Place};
 use super::viewport::Viewport;
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::TrackRef;
@@ -176,14 +177,36 @@ impl ClockRow {
     }
 }
 
+/// A named group of rows. Folded, it hides its rows and draws their
+/// activity in its own row (`docs/wave_groups.html`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupRow {
+    pub name: String,
+    pub collapsed: bool,
+    /// The group's own row; its members keep their heights.
+    pub height: RowHeight,
+}
+
+impl GroupRow {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            collapsed: false,
+            height: RowHeight::DEFAULT,
+        }
+    }
+}
+
 /// One row of the waveform panel: a signal, a transaction generator shown
-/// as a lane of bars, or a declared clock. All share the row operations
-/// (selection, reordering, clipboard, heights, removal and workspace entries).
+/// as a lane of bars, a declared clock, or a group of rows. All share the
+/// row operations (selection, reordering, clipboard, heights, removal and
+/// workspace entries).
 #[derive(Clone)]
 pub enum WaveRow {
     Signal(DisplayedSignal),
     Lane(TxLane),
     Clock(ClockRow),
+    Group(GroupRow),
 }
 
 impl WaveRow {
@@ -192,6 +215,7 @@ impl WaveRow {
             Self::Signal(s) => &s.name,
             Self::Lane(l) => &l.name,
             Self::Clock(c) => &c.name,
+            Self::Group(g) => &g.name,
         }
     }
 
@@ -200,6 +224,7 @@ impl WaveRow {
             Self::Signal(s) => s.height,
             Self::Lane(l) => l.height,
             Self::Clock(c) => c.height,
+            Self::Group(g) => g.height,
         }
     }
 
@@ -217,6 +242,7 @@ impl WaveRow {
                 l.auto_height = false;
             }
             Self::Clock(c) => c.height = height,
+            Self::Group(g) => g.height = height,
         }
     }
 
@@ -248,6 +274,13 @@ impl WaveRow {
         }
     }
 
+    pub fn group(&self) -> Option<&GroupRow> {
+        match self {
+            Self::Group(g) => Some(g),
+            _ => None,
+        }
+    }
+
     /// The loaded signal of a signal row.
     pub fn signal_ref(&self) -> Option<SignalRef> {
         self.signal()?.source.signal()
@@ -264,6 +297,8 @@ enum EdgeSource<'a> {
     History(Arc<dyn SignalHistory>),
     Lane(&'a LoadedGenerator),
     Clock(Arc<crate::clock::ClockTimeline>),
+    /// A folded or open group: every change of its loaded signals.
+    Group(Vec<Arc<dyn SignalHistory>>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -288,14 +323,17 @@ pub enum Drag {
         top: f32,
     },
     /// Moving the selected rows by their names. `gap` is the insertion point
-    /// (a row index, or the row count for the end) once the press has moved
-    /// far enough and the drop would change the order. A plain press on an
-    /// already selected row keeps the group for dragging and narrows the
-    /// selection to `collapse` only if it ends as a click.
+    /// (a visible position, or the visible row count for the end) once the
+    /// press has moved far enough and the drop would change the tree; the
+    /// rows land at `depth`, or inside the folded group `into` (an entry).
+    /// A plain press on an already selected row keeps the selection for
+    /// dragging and narrows it to `collapse` only if it ends as a click.
     Rows {
         press_y: f32,
         started: bool,
         gap: Option<usize>,
+        depth: u8,
+        into: Option<usize>,
         collapse: Option<usize>,
         /// Last auto-scroll step, while the pointer is in an edge zone.
         scrolled_at: Option<Instant>,
@@ -318,6 +356,15 @@ pub enum MenuAction {
     ToggleAnalog,
     /// Hide the ruler of the clock with this path.
     HideRuler(String),
+    /// Put the selected rows under a new group and rename it.
+    Group,
+    /// Dissolve the selected groups, keeping their rows.
+    Ungroup,
+    Rename,
+    /// Fold (`true`) or unfold the menu's group.
+    Fold(bool),
+    /// Fold or unfold every group of the panel.
+    FoldAll(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -412,8 +459,24 @@ pub enum PointerEvent {
     },
 }
 
+/// A wave row as assistive technology sees it (a tree item).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccessibleRow {
+    pub entry: usize,
+    pub label: String,
+    /// 1 at the top level.
+    pub level: usize,
+    /// Groups only: whether their rows are shown.
+    pub expanded: Option<bool>,
+    pub selected: bool,
+    /// The row's name cell.
+    pub bounds: crate::geometry::Rect,
+}
+
 pub struct WaveModel {
-    pub items: Vec<WaveRow>,
+    /// The rows as a tree in pre-order (see [`tree`]).
+    pub items: Vec<Entry>,
+    /// Selected entries; always visible ones.
     pub selected: BTreeSet<usize>,
     pub anchor: Option<usize>,
     /// Link flags and the local viewport/cursor kept while unlinked.
@@ -441,6 +504,10 @@ pub struct WaveModel {
     /// The last press landed on a lane bar and selected its record, so a
     /// second click opens it.
     pub pressed_record: bool,
+    /// The group whose name is being edited; the frontend hosts a text
+    /// input over [`WaveModel::rename_rect`] and answers with
+    /// `Command::RenameGroup`.
+    pub rename: Option<usize>,
     /// When analog ranges last eased, while one is moving.
     analog_eased_at: Option<Instant>,
     layout: WaveLayout,
@@ -510,6 +577,7 @@ impl WaveModel {
             menu: None,
             pointer: None,
             pressed_record: false,
+            rename: None,
             analog_eased_at: None,
             layout: WaveLayout::default(),
         }
@@ -524,6 +592,7 @@ impl WaveModel {
         self.scroll_y = 0.0;
         self.menu = None;
         self.drag = None;
+        self.rename = None;
         self.hover_row = None;
         self.badge_hover = None;
     }
@@ -550,14 +619,25 @@ impl WaveModel {
             .filter_map(|row| row.signal()?.analog.as_ref())
     }
 
+    fn signals_mut(&mut self) -> impl Iterator<Item = &mut DisplayedSignal> {
+        self.items.iter_mut().filter_map(|e| e.row.signal_mut())
+    }
+
     /// Fit the visible plots' target ranges to the current viewport.
     fn update_analog_targets(&mut self, doc: &Document) {
         let vp = self.viewport(doc);
-        let rows = self.layout.rows.clone();
-        let len = self.items.len();
-        for item in self.items[rows.start.min(len)..rows.end.min(len)]
+        let entries: Vec<usize> = self
+            .layout
+            .rows
+            .clone()
+            .filter_map(|pos| self.layout.entry(pos))
+            .collect();
+        let items = &mut self.items;
+        for item in items
             .iter_mut()
-            .filter_map(WaveRow::signal_mut)
+            .enumerate()
+            .filter(|(i, _)| entries.binary_search(i).is_ok())
+            .filter_map(|(_, e)| e.row.signal_mut())
         {
             if let (Some(a), Some(h)) = (&mut item.analog, &item.history)
                 && let Some(kind) = item.translator.numeric_kind()
@@ -575,7 +655,7 @@ impl WaveModel {
             now.saturating_duration_since(at).as_secs_f64().min(0.1)
         });
         let mut moving = false;
-        for item in self.items.iter_mut().filter_map(WaveRow::signal_mut) {
+        for item in self.signals_mut() {
             if let Some(a) = &mut item.analog {
                 moving |= a.ease(dt);
             }
@@ -598,6 +678,23 @@ impl WaveModel {
 
     // -- items ---------------------------------------------------------------
 
+    /// The painted rows in order, as entry indices: every entry outside a
+    /// folded group.
+    pub fn visible(&self) -> Arc<[u32]> {
+        tree::visible(&self.items)
+    }
+
+    /// Append `rows` at the top level and select them.
+    fn push_rows(&mut self, rows: impl IntoIterator<Item = WaveRow>) {
+        let first_new = self.items.len();
+        self.items
+            .extend(rows.into_iter().map(|row| Entry::new(0, row)));
+        if self.items.len() > first_new {
+            self.selected = (first_new..self.items.len()).collect();
+            self.anchor = Some(first_new);
+        }
+    }
+
     /// Append rows for `vars`, sharing `loaded` histories for the same signal
     /// and queuing a load for the rest.
     pub fn add_vars(
@@ -606,87 +703,72 @@ impl WaveModel {
         vars: &[VarId],
         loaded: HashMap<SignalRef, Arc<dyn SignalHistory>>,
     ) {
+        let rows = var_rows(doc, vars, &loaded);
+        self.push_rows(rows);
+    }
+
+    /// Append a group named after `scope` holding its variables and, when
+    /// `recursive`, a folded subgroup for each child scope that has
+    /// variables; select it. Scopes deeper than groups can nest are left out.
+    pub fn add_scope_group(
+        &mut self,
+        doc: &mut Document,
+        scope: crate::data::ScopeId,
+        recursive: bool,
+        loaded: HashMap<SignalRef, Arc<dyn SignalHistory>>,
+    ) -> bool {
         let Some(session) = doc.session().cloned() else {
-            return;
+            return false;
         };
         let h = session.hierarchy();
-        let first_new = self.items.len();
-        for &var in vars {
-            let Some(v) = h.vars.get(var) else { continue };
-            let translator = doc.translators.default_for(v.shape);
-            // Variable identity/format stay per row; aliases share immutable data.
-            let history = loaded.get(&v.signal).cloned();
-            let needs_load = history.is_none();
-            // Reals open as plots: their text is rarely readable at a glance.
-            let analog = (v.shape == SignalShape::Real
-                && analog::supports(v.shape, translator.as_ref()))
-            .then(|| {
-                let mut a = Analog::new(AnalogDraw::Linear, AnalogRange::Trace);
-                a.restore_height = Some(RowHeight::DEFAULT);
-                a
-            });
-            self.items.push(WaveRow::Signal(DisplayedSignal {
-                source: RowSource::Resolved {
-                    var,
-                    signal: v.signal,
-                },
-                requested_format: None,
-                name: v.name.clone(),
-                scope: h.scope_path(v.scope).join("."),
-                shape: v.shape,
-                translator,
-                history,
-                error: None,
-                height: if analog.is_some() {
-                    RowHeight::ANALOG
-                } else {
-                    RowHeight::DEFAULT
-                },
-                analog,
-            }));
-            if needs_load {
-                doc.request_signal(v.signal);
+        let mut entries = Vec::new();
+        let mut stack = vec![(scope, 0u8)];
+        while let Some((id, depth)) = stack.pop() {
+            let Some(s) = h.scopes.get(id) else { continue };
+            let mut group = GroupRow::new(s.name.clone());
+            group.collapsed = depth > 0;
+            entries.push(Entry::new(depth, WaveRow::Group(group)));
+            let rows = var_rows(doc, &s.vars, &loaded);
+            entries.extend(rows.into_iter().map(|row| Entry::new(depth + 1, row)));
+            // Child scopes with variables below them, while groups can nest.
+            if recursive && depth + 2 < tree::MAX_DEPTH {
+                let children = s.children.iter().rev().filter(|&&c| h.has_vars(c));
+                stack.extend(children.map(|&c| (c, depth + 1)));
             }
         }
-        if self.items.len() > first_new {
-            self.selected.clear();
-            self.selected.extend(first_new..self.items.len());
-            self.anchor = Some(first_new);
+        if entries.is_empty() {
+            return false;
         }
+        let first = self.items.len();
+        self.items.extend(entries);
+        debug_assert!(tree::validate(&self.items).is_ok());
+        self.selected = BTreeSet::from([first]);
+        self.anchor = Some(first);
+        self.menu = None;
+        true
     }
 
     /// Append a lane for each generator in `tracks` and select them. A lane
     /// takes the default height for its depth as soon as its records are
     /// resident; the app retains them for as long as a lane shows them.
     pub fn add_lanes(&mut self, doc: &Document, tracks: &[TrackRef]) {
-        let first_new = self.items.len();
-        self.items.extend(
-            tracks
-                .iter()
-                .filter_map(|&track| TxLane::new(doc, track))
-                .map(WaveRow::Lane),
-        );
-        if self.items.len() > first_new {
-            self.selected = (first_new..self.items.len()).collect();
-            self.anchor = Some(first_new);
-        }
+        let lanes: Vec<WaveRow> = tracks
+            .iter()
+            .filter_map(|&track| TxLane::new(doc, track))
+            .map(WaveRow::Lane)
+            .collect();
+        self.push_rows(lanes);
     }
 
     /// Append a clock row for each clock path and select them.
     pub fn add_clocks(&mut self, paths: &[String]) {
-        let first_new = self.items.len();
-        self.items
-            .extend(paths.iter().map(|p| WaveRow::Clock(ClockRow::new(p))));
-        if self.items.len() > first_new {
-            self.selected = (first_new..self.items.len()).collect();
-            self.anchor = Some(first_new);
-        }
+        self.push_rows(paths.iter().map(|p| WaveRow::Clock(ClockRow::new(p))));
     }
 
     /// Records arrived: new lanes take their default height.
     pub fn fit_lanes(&mut self, doc: &Document) {
         for row in &mut self.items {
-            if let WaveRow::Lane(lane) = row {
+            if let WaveRow::Lane(lane) = &mut row.row {
                 lane.fit_height(doc);
             }
         }
@@ -700,9 +782,7 @@ impl WaveModel {
     ) {
         let result = result.map_err(|e| e.to_string());
         for item in self
-            .items
-            .iter_mut()
-            .filter_map(WaveRow::signal_mut)
+            .signals_mut()
             .filter(|i| i.source.signal() == Some(signal))
         {
             item.history = result.as_ref().ok().cloned();
@@ -710,45 +790,39 @@ impl WaveModel {
         }
     }
 
-    pub fn remove_selected(&mut self) {
-        if self.selected.is_empty() {
-            return;
-        }
-        let mut ix = 0;
-        let selected = std::mem::take(&mut self.selected);
-        self.items.retain(|_| {
-            let keep = !selected.contains(&ix);
-            ix += 1;
-            keep
-        });
-        self.anchor = None;
+    /// The rows changed shape: forget state that names entries.
+    fn edited(&mut self) {
+        self.rename = None;
+        self.menu = None;
     }
 
-    /// Copy the selected rows, in display order, to the document clipboard.
-    /// Rows keep their format and height; histories stay with the panels.
+    /// Remove the selected rows; a selected group goes with everything in it.
+    pub fn remove_selected(&mut self) {
+        let selected = std::mem::take(&mut self.selected);
+        if tree::remove(&mut self.items, &selected).is_some() {
+            self.anchor = None;
+            self.edited();
+        }
+    }
+
+    /// Copy the selected rows, in display order and with the groups they
+    /// head, to the document clipboard. Rows keep their format and height;
+    /// histories stay with the panels.
     pub fn copy_selected(&self, doc: &mut Document) {
         if self.selected.is_empty() {
             return;
         }
-        doc.copied_rows = self
-            .selected
-            .iter()
-            .filter_map(|&row| self.items.get(row))
-            .map(|row| match row {
-                WaveRow::Signal(item) => WaveRow::Signal(DisplayedSignal {
-                    history: None,
+        doc.copied_rows = tree::extract(&self.items, &self.selected)
+            .into_iter()
+            .map(|mut e| {
+                if let WaveRow::Signal(item) = &mut e.row {
+                    item.history = None;
                     // A resolved row reloads on paste; an unresolved one keeps its reason.
-                    error: item
-                        .source
-                        .signal()
-                        .is_none()
-                        .then(|| item.error.clone())
-                        .flatten(),
-                    ..item.clone()
-                }),
-                // Lanes and clocks hold no data; the document keeps what they show.
-                WaveRow::Lane(lane) => WaveRow::Lane(lane.clone()),
-                WaveRow::Clock(clock) => WaveRow::Clock(clock.clone()),
+                    if item.source.signal().is_some() {
+                        item.error = None;
+                    }
+                }
+                e
             })
             .collect();
     }
@@ -758,50 +832,32 @@ impl WaveModel {
         self.remove_selected();
     }
 
-    /// Where the selected rows land, in display order, if moved to `gap`
-    /// (`0..=len`), or `None` when that would not change the order.
-    fn move_target(&self, gap: usize) -> Option<usize> {
-        let first = *self.selected.first()?;
-        let last = *self.selected.last()?;
-        if last >= self.items.len() {
-            return None;
-        }
-        let gap = gap.min(self.items.len());
-        let at = gap - self.selected.range(..gap).count();
-        let contiguous = last - first + 1 == self.selected.len();
-        (!contiguous || at != first).then_some(at)
-    }
-
-    /// Move the selected rows, keeping their order, to the insertion point
-    /// `gap` (`0..=len`, counted before the move); they stay selected.
-    /// Returns whether the order changed.
-    pub fn move_selected_to(&mut self, gap: usize) -> bool {
-        let Some(at) = self.move_target(gap) else {
+    /// Move the selected rows, with the rows of selected groups and keeping
+    /// their order, to `to`; they stay selected. Returns whether the tree
+    /// changed.
+    pub fn move_selected_to(&mut self, to: Place) -> bool {
+        let Some(moved) = tree::plan_move(&self.items, &self.selected, to) else {
             return false;
         };
-        let anchor = self
-            .anchor
-            .and_then(|a| self.selected.iter().position(|row| *row == a));
-        let (mut moved, mut rest) = (Vec::new(), Vec::new());
-        for (ix, item) in std::mem::take(&mut self.items).into_iter().enumerate() {
-            if self.selected.contains(&ix) {
-                moved.push(item);
-            } else {
-                rest.push(item);
-            }
-        }
-        let count = moved.len();
-        rest.splice(at..at, moved);
-        self.items = rest;
-        self.selected = (at..at + count).collect();
-        self.anchor = Some(at + anchor.unwrap_or(0));
-        self.menu = None;
+        let rank = self.anchor.and_then(|a| {
+            tree::roots(&self.items, &self.selected)
+                .iter()
+                .position(|r| *r == a)
+        });
+        let roots = moved.roots.clone();
+        moved.apply(&mut self.items);
+        self.anchor = rank
+            .and_then(|k| roots.iter().nth(k).copied())
+            .or_else(|| roots.first().copied());
+        self.selected = roots;
+        self.edited();
         true
     }
 
-    /// Insert the document clipboard below the selection (or at the end) and
-    /// select the new rows. Duplicates share `loaded` histories for the same
-    /// signal; the rest load once, like newly added variables.
+    /// Insert the document clipboard below the last selected row, at its
+    /// level (or at the end), and select the new rows. Duplicates share
+    /// `loaded` histories for the same signal; the rest load once, like newly
+    /// added variables.
     pub fn paste(
         &mut self,
         doc: &mut Document,
@@ -810,12 +866,18 @@ impl WaveModel {
         if doc.copied_rows.is_empty() {
             return;
         }
-        let at = self
-            .selected
-            .last()
-            .map_or(self.items.len(), |&row| (row + 1).min(self.items.len()));
+        let to = match tree::roots(&self.items, &self.selected).last() {
+            Some(&r) => Place {
+                at: tree::subtree_end(&self.items, r),
+                depth: self.items[r].depth,
+            },
+            None => Place {
+                at: self.items.len(),
+                depth: 0,
+            },
+        };
         let mut rows = doc.copied_rows.clone();
-        for row in rows.iter_mut().filter_map(WaveRow::signal_mut) {
+        for row in rows.iter_mut().filter_map(|e| e.row.signal_mut()) {
             if let Some(signal) = row.source.signal() {
                 row.history = loaded.get(&signal).cloned();
                 if row.history.is_none() {
@@ -823,21 +885,33 @@ impl WaveModel {
                 }
             }
         }
-        let count = rows.len();
-        self.items.splice(at..at, rows);
-        self.selected = (at..at + count).collect();
-        self.anchor = Some(at);
-        self.menu = None;
+        let to = if rows.iter().any(|e| e.depth + to.depth >= tree::MAX_DEPTH) {
+            Place {
+                at: self.items.len(),
+                depth: 0,
+            }
+        } else {
+            to
+        };
+        let Some(roots) = tree::insert(&mut self.items, to, rows) else {
+            return;
+        };
+        self.anchor = roots.first().copied();
+        self.selected = roots;
+        self.edited();
     }
 
     pub fn select_all(&mut self) {
-        self.selected = (0..self.items.len()).collect();
+        self.selected = self.visible().iter().map(|&i| i as usize).collect();
     }
 
-    /// Escape: cancel a drag, close the menu, clear selection, then clear cursor.
+    /// Escape: cancel a drag or a rename, close the menu, clear selection,
+    /// then clear cursor.
     pub fn clear_selection(&mut self, doc: &mut Document) {
         if self.drag.is_some() {
             self.drag = None;
+        } else if self.rename.is_some() {
+            self.rename = None;
         } else if self.menu.is_some() {
             self.menu = None;
         } else if !self.selected.is_empty() {
@@ -848,26 +922,192 @@ impl WaveModel {
     }
 
     /// Click selection with platform conventions: plain = single, cmd/ctrl =
-    /// toggle, shift = range from the anchor.
+    /// toggle, shift = the visible rows from the anchor.
     fn select_row(&mut self, row: usize, modifiers: Modifiers) {
         if row >= self.items.len() {
+            return;
+        }
+        if modifiers.shift {
+            let visible = self.visible();
+            let pos = |i: usize| visible.binary_search(&(i as u32)).ok();
+            if let Some(b) = pos(row) {
+                let a = self.anchor.and_then(pos).unwrap_or(b);
+                self.selected
+                    .extend(visible[a.min(b)..=a.max(b)].iter().map(|&i| i as usize));
+            }
             return;
         }
         selection::select(&mut self.selected, &mut self.anchor, row, modifiers);
     }
 
+    /// Select the visible row `delta` rows from the anchor.
     pub fn move_selection(&mut self, delta: isize) {
-        if self.items.is_empty() {
+        let visible = self.visible();
+        if visible.is_empty() {
             return;
         }
-        let current = self
+        let pos = self
             .anchor
             .or_else(|| self.selected.iter().next().copied())
+            .and_then(|i| visible.binary_search(&(i as u32)).ok())
             .unwrap_or(0) as isize;
-        let next = (current + delta).clamp(0, self.items.len() as isize - 1) as usize;
+        let next = visible[(pos + delta).clamp(0, visible.len() as isize - 1) as usize] as usize;
         self.selected.clear();
         self.selected.insert(next);
         self.anchor = Some(next);
+    }
+
+    // -- groups ------------------------------------------------------------------
+
+    /// A name no group of the panel has yet: "Group 1", "Group 2", …
+    fn fresh_group_name(&self) -> String {
+        (1..)
+            .map(|n| format!("Group {n}"))
+            .find(|name| {
+                !self
+                    .items
+                    .iter()
+                    .any(|e| e.group().is_some_and(|g| g.name == *name))
+            })
+            .expect("unbounded")
+    }
+
+    /// `G`: put the selected rows, in order, under a new group at the place
+    /// of the first one, select it and start renaming it.
+    pub fn group_selected(&mut self) -> bool {
+        let group = WaveRow::Group(GroupRow::new(self.fresh_group_name()));
+        let Some(g) = tree::group(&mut self.items, &self.selected, group) else {
+            return false;
+        };
+        self.edited();
+        self.selected = BTreeSet::from([g]);
+        self.anchor = Some(g);
+        self.rename = Some(g);
+        true
+    }
+
+    /// `Shift+G`: dissolve the selected groups; their rows move up one level
+    /// in place and become the selection.
+    pub fn ungroup_selected(&mut self) -> bool {
+        let groups: BTreeSet<usize> = self
+            .selected
+            .iter()
+            .copied()
+            .filter(|&i| self.items.get(i).is_some_and(Entry::is_group))
+            .collect();
+        if groups.is_empty() {
+            return false;
+        }
+        let children = tree::ungroup(&mut self.items, &groups);
+        self.edited();
+        self.anchor = children.first().copied();
+        self.selected = children;
+        self.fix_hidden_selection();
+        true
+    }
+
+    /// Start renaming the anchored group (`F2`, double-click).
+    pub fn start_rename(&mut self) -> bool {
+        let Some(g) = self
+            .anchor
+            .filter(|a| self.selected.contains(a))
+            .or_else(|| self.selected.first().copied())
+            .filter(|&i| self.items.get(i).is_some_and(Entry::is_group))
+        else {
+            return false;
+        };
+        self.menu = None;
+        self.rename = Some(g);
+        true
+    }
+
+    /// Finish renaming: `Some` commits a non-empty name, `None` cancels.
+    pub fn finish_rename(&mut self, name: Option<&str>) -> bool {
+        let Some(g) = self.rename.take() else {
+            return false;
+        };
+        let name = name.map(str::trim).filter(|n| !n.is_empty());
+        match (name, self.items.get_mut(g).map(|e| &mut e.row)) {
+            (Some(name), Some(WaveRow::Group(group))) if group.name != name => {
+                group.name = name.to_owned();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Fold or unfold group `i`, and with `deep` every group inside it.
+    /// Selected rows the fold hides leave the selection, and the group takes
+    /// their place, so no command acts on rows that cannot be seen.
+    pub fn set_folded(&mut self, i: usize, collapsed: bool, deep: bool) -> bool {
+        if !self.items.get(i).is_some_and(Entry::is_group) {
+            return false;
+        }
+        let changed = tree::set_collapsed(&mut self.items, i, collapsed, deep);
+        self.fix_hidden_selection();
+        if changed {
+            self.edited();
+        }
+        changed
+    }
+
+    /// Fold or unfold every group.
+    pub fn fold_all(&mut self, collapsed: bool) -> bool {
+        let mut changed = false;
+        for i in 0..self.items.len() {
+            changed |= tree::set_collapsed(&mut self.items, i, collapsed, false);
+        }
+        self.fix_hidden_selection();
+        if changed {
+            self.edited();
+        }
+        changed
+    }
+
+    /// `←` / `→` on a selected group: fold it (`open == false`) or unfold
+    /// it. Returns `false` when the anchor is not a group, so the keys pan.
+    pub fn fold_key(&mut self, open: bool, deep: bool) -> bool {
+        let Some(g) = self
+            .anchor
+            .filter(|a| self.selected.contains(a))
+            .filter(|&a| self.items.get(a).is_some_and(Entry::is_group))
+        else {
+            return false;
+        };
+        self.set_folded(g, !open, deep);
+        true
+    }
+
+    /// Replace selected rows hidden inside folded groups by the visible
+    /// group that holds them.
+    pub(crate) fn fix_hidden_selection(&mut self) {
+        let visible = self.visible();
+        let shown = |items: &[Entry], mut i: usize| {
+            while visible.binary_search(&(i as u32)).is_err() {
+                match tree::parent(items, i) {
+                    Some(p) => i = p,
+                    None => break,
+                }
+            }
+            i
+        };
+        let selected = std::mem::take(&mut self.selected);
+        self.selected = selected
+            .into_iter()
+            .filter(|&i| i < self.items.len())
+            .map(|i| shown(&self.items, i))
+            .collect();
+        self.anchor = self
+            .anchor
+            .filter(|&a| a < self.items.len())
+            .map(|a| shown(&self.items, a));
+    }
+
+    /// The signal, lane and clock entries of `rows` and the groups among
+    /// them: value commands such as formats apply to these.
+    fn leaves_of(&self, rows: &[usize]) -> Vec<usize> {
+        let set: BTreeSet<usize> = rows.iter().copied().collect();
+        tree::selected_leaves(&self.items, &set)
     }
 
     // -- translators -----------------------------------------------------------
@@ -877,7 +1117,7 @@ impl WaveModel {
             return;
         };
         for &row in rows {
-            if let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut)
+            if let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut())
                 && t.applies(item.shape)
             {
                 item.translator = t.clone();
@@ -887,9 +1127,9 @@ impl WaveModel {
     }
 
     pub fn cycle_format(&mut self, doc: &Document) {
-        let rows: Vec<usize> = self.selected.iter().copied().collect();
+        let rows = tree::selected_leaves(&self.items, &self.selected);
         for row in rows {
-            let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut) else {
+            let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut()) else {
                 continue;
             };
             let options = doc.translators.applicable(item.shape);
@@ -922,7 +1162,7 @@ impl WaveModel {
             if draw.is_some() && !self.can_plot(row) {
                 continue;
             }
-            let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut) else {
+            let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut()) else {
                 continue;
             };
             match (draw, &mut item.analog) {
@@ -953,7 +1193,7 @@ impl WaveModel {
     /// `A`: plot the selected rows, or turn them all back to digital when
     /// every plottable one already is a plot.
     pub fn toggle_analog(&mut self) {
-        let rows: Vec<usize> = self.selected.iter().copied().collect();
+        let rows = tree::selected_leaves(&self.items, &self.selected);
         self.toggle_analog_rows(&rows);
     }
 
@@ -978,7 +1218,7 @@ impl WaveModel {
     /// only to formats that have them.
     pub fn set_analog_range(&mut self, rows: &[usize], range: AnalogRange) {
         for &row in rows {
-            if let Some(item) = self.items.get_mut(row).and_then(WaveRow::signal_mut)
+            if let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut())
                 && (range != AnalogRange::Type || item.translator.limits(item.shape).is_some())
                 && let Some(a) = &mut item.analog
             {
@@ -1108,9 +1348,9 @@ impl WaveModel {
                 "Paste",
             )));
         }
-        let plottable: Vec<usize> = targets
-            .iter()
-            .copied()
+        let plottable: Vec<usize> = self
+            .leaves_of(&targets)
+            .into_iter()
             .filter(|&r| self.can_plot(r))
             .collect();
         if !plottable.is_empty() {
@@ -1128,7 +1368,48 @@ impl WaveModel {
                 }),
             ]);
         }
+        // Groups: make one, and dissolve, rename or fold the ones selected.
+        let group = self.items[row].group();
+        let any_group = targets.iter().any(|&r| self.items[r].is_group());
         let menu = self.menu.as_mut().expect("just opened");
+        menu.entries.extend([
+            MenuEntry::Separator,
+            MenuEntry::Item(MenuItem {
+                badge: Some("G".into()),
+                ..MenuItem::plain(MenuAction::Group, "Group selection")
+            }),
+        ]);
+        if any_group {
+            menu.entries.push(MenuEntry::Item(MenuItem {
+                badge: Some("⇧G".into()),
+                ..MenuItem::plain(MenuAction::Ungroup, "Ungroup")
+            }));
+        }
+        if let Some(g) = group {
+            menu.entries.extend([
+                MenuEntry::Item(MenuItem {
+                    badge: Some("F2".into()),
+                    ..MenuItem::plain(MenuAction::Rename, "Rename…")
+                }),
+                MenuEntry::Item(if g.collapsed {
+                    MenuItem {
+                        badge: Some("→".into()),
+                        ..MenuItem::plain(MenuAction::Fold(false), "Unfold")
+                    }
+                } else {
+                    MenuItem {
+                        badge: Some("←".into()),
+                        ..MenuItem::plain(MenuAction::Fold(true), "Fold")
+                    }
+                }),
+            ]);
+        }
+        if self.items.iter().any(Entry::is_group) {
+            menu.entries.extend([
+                MenuEntry::Item(MenuItem::plain(MenuAction::FoldAll(true), "Fold all")),
+                MenuEntry::Item(MenuItem::plain(MenuAction::FoldAll(false), "Unfold all")),
+            ]);
+        }
         menu.entries.extend([
             MenuEntry::Separator,
             MenuEntry::Submenu {
@@ -1138,7 +1419,9 @@ impl WaveModel {
             MenuEntry::Separator,
             MenuEntry::Item(MenuItem::plain(
                 MenuAction::RemoveSignals,
-                if self.items[row].lane().is_some() {
+                if any_group {
+                    "Remove with contents"
+                } else if self.items[row].lane().is_some() {
                     "Remove lane"
                 } else {
                     "Remove signal"
@@ -1157,8 +1440,11 @@ impl WaveModel {
         else {
             return;
         };
-        let y = (self.layout.row_y(row) + self.layout.row_height(row))
-            .clamp(self.layout.names.top(), self.layout.names.bottom());
+        let bottom = self
+            .layout
+            .entry_span(row)
+            .map_or(self.layout.names.top(), |(y, h)| y + h);
+        let y = bottom.clamp(self.layout.names.top(), self.layout.names.bottom());
         self.open_signal_menu(
             doc,
             row,
@@ -1211,12 +1497,21 @@ impl WaveModel {
             return None;
         }
         let rows = self.menu_rows(menu.row);
+        let leaves = self.leaves_of(&rows);
         match action {
-            MenuAction::Format(id) => self.set_translator(doc, &rows, id),
+            MenuAction::Format(id) => self.set_translator(doc, &leaves, id),
             MenuAction::RowHeight(height) => self.resize_rows(&rows, menu.row, |_| *height),
-            MenuAction::Draw(draw) => self.set_analog(&rows, *draw),
-            MenuAction::Range(range) => self.set_analog_range(&rows, *range),
-            MenuAction::ToggleAnalog => self.toggle_analog_rows(&rows),
+            MenuAction::Draw(draw) => self.set_analog(&leaves, *draw),
+            MenuAction::Range(range) => self.set_analog_range(&leaves, *range),
+            MenuAction::ToggleAnalog => self.toggle_analog_rows(&leaves),
+            MenuAction::Group => _ = self.group_selected(),
+            MenuAction::Ungroup => _ = self.ungroup_selected(),
+            MenuAction::Rename => {
+                self.anchor = Some(menu.row);
+                self.start_rename();
+            }
+            MenuAction::Fold(collapsed) => _ = self.set_folded(menu.row, *collapsed, false),
+            MenuAction::FoldAll(collapsed) => _ = self.fold_all(*collapsed),
             _ => {
                 let row = self.signal(menu.row)?;
                 return row.error.as_ref().and_then(|_| row.source.signal());
@@ -1238,9 +1533,10 @@ impl WaveModel {
 
     /// Top of `row` in multiples of the base row height.
     fn row_units_before(&self, row: usize) -> u32 {
-        self.items[..row.min(self.items.len())]
+        self.visible()
             .iter()
-            .map(|item| u32::from(item.height().multiple()))
+            .take_while(|&&i| (i as usize) < row)
+            .map(|&i| u32::from(self.items[i as usize].height().multiple()))
             .sum()
     }
 
@@ -1254,7 +1550,8 @@ impl WaveModel {
         let before = self.row_units_before(anchor);
         for &row in rows {
             if let Some(item) = self.items.get_mut(row) {
-                item.set_height(height(item.height()));
+                let h = height(item.height());
+                item.set_height(h);
             }
         }
         let shift = self.row_units_before(anchor) as f32 - before as f32;
@@ -1344,11 +1641,19 @@ impl WaveModel {
     /// What row `row` snaps to: a signal's changes or a lane's record
     /// begins and ends.
     fn edge_source<'a>(&self, doc: &'a Document, row: usize) -> Option<EdgeSource<'a>> {
-        match self.items.get(row)? {
+        match &self.items.get(row)?.row {
             WaveRow::Signal(s) => s.history.clone().map(EdgeSource::History),
             WaveRow::Lane(l) => l.generator(doc).map(EdgeSource::Lane),
             WaveRow::Clock(c) => c.timeline(doc).cloned().map(EdgeSource::Clock),
+            WaveRow::Group(_) => Some(EdgeSource::Group(self.group_histories(row))),
         }
+    }
+
+    /// The loaded histories of the signals in group `group`, in order.
+    pub fn group_histories(&self, group: usize) -> Vec<Arc<dyn SignalHistory>> {
+        tree::leaves(&self.items, group)
+            .filter_map(|j| self.items[j].signal()?.history.clone())
+            .collect()
     }
 
     fn edge_row(&self) -> Option<usize> {
@@ -1367,6 +1672,9 @@ impl WaveModel {
             Some(EdgeSource::History(h)) => h.next_change_after(from),
             Some(EdgeSource::Lane(g)) => g.next_boundary(from),
             Some(EdgeSource::Clock(c)) => c.next_edge(from),
+            Some(EdgeSource::Group(hs)) => {
+                hs.iter().filter_map(|h| h.next_change_after(from)).min()
+            }
             None => return,
         };
         if let Some(t) = next {
@@ -1383,6 +1691,9 @@ impl WaveModel {
             Some(EdgeSource::History(h)) => h.prev_change_before(from),
             Some(EdgeSource::Lane(g)) => g.prev_boundary(from),
             Some(EdgeSource::Clock(c)) => c.prev_edge(from),
+            Some(EdgeSource::Group(hs)) => {
+                hs.iter().filter_map(|h| h.prev_change_before(from)).max()
+            }
             None => return,
         };
         if let Some(t) = prev {
@@ -1418,6 +1729,8 @@ impl WaveModel {
             self.scroll_y *= theme.row_height / self.layout.row_h;
         }
         let rulers = self.nav.clocks.rulers(&doc.clocks).len();
+        let visible = self.visible();
+        let items = &self.items;
         let layout = WaveLayout::compute(LayoutInput {
             bounds,
             row_h: theme.row_height,
@@ -1426,7 +1739,8 @@ impl WaveModel {
             zoom: theme.zoom,
             names_width: self.names_width,
             values_width: self.values_width,
-            row_tops: super::layout::row_tops(self.items.iter().map(WaveRow::height)),
+            row_tops: super::layout::row_tops(visible.iter().map(|&i| items[i as usize].height())),
+            visible,
             scroll_y: self.scroll_y,
             markers: &doc.markers,
             viewport: self.viewport(doc),
@@ -1448,7 +1762,7 @@ impl WaveModel {
     // -- moving rows by drag ---------------------------------------------------
 
     /// Follow the pointer during a row drag: start once it has moved far
-    /// enough, then track the insertion gap under it.
+    /// enough, then track the drop under it.
     fn update_row_drag(&mut self) {
         let (
             Some(Drag::Rows {
@@ -1456,6 +1770,7 @@ impl WaveModel {
                 started,
                 collapse,
                 scrolled_at,
+                depth,
                 ..
             }),
             Some(p),
@@ -1463,30 +1778,141 @@ impl WaveModel {
         else {
             return;
         };
-        let layout = &self.layout;
-        let started = started || (p.y - press_y).abs() >= ROW_DRAG_MIN_PX * layout.zoom;
-        let gap = started
-            .then(|| self.gap_at(p.y))
-            .and_then(|gap| self.move_target(gap).map(|_| gap));
+        let started = started || (p.y - press_y).abs() >= ROW_DRAG_MIN_PX * self.layout.zoom;
+        let (gap, depth, into) = match started.then(|| self.drop_at(p)).flatten() {
+            Some((gap, depth, into)) => (Some(gap), depth, into),
+            None => (None, depth, None),
+        };
         self.drag = Some(Drag::Rows {
             press_y,
             started,
             gap,
+            depth,
+            into,
             collapse,
             scrolled_at,
         });
     }
 
-    /// The insertion gap nearest to `y`, which is clamped to the rows area.
+    /// Where dragged rows would land under `p`: a visible gap, the depth
+    /// there (chosen by the pointer's x among the valid depths), and the
+    /// folded group the middle of whose row takes them. `None` when that
+    /// drop would not change the tree.
+    fn drop_at(&self, p: Point) -> Option<(usize, u8, Option<usize>)> {
+        let layout = &self.layout;
+        let visible = &layout.visible;
+        let y = p.y.clamp(layout.names.top(), layout.names.bottom() - 1.0);
+        if let Some(pos) = layout.row_at(y).filter(|&pos| pos < visible.len()) {
+            let group = visible[pos] as usize;
+            let (top, h) = (layout.row_y(pos), layout.row_height(pos));
+            let f = (y - top) / h.max(1.0);
+            if (0.25..0.75).contains(&f) && self.items[group].group().is_some_and(|g| g.collapsed) {
+                let to = Place::into(&self.items, group);
+                if tree::plan_move(&self.items, &self.selected, to).is_some() {
+                    return Some((pos, to.depth, Some(group)));
+                }
+            }
+        }
+        let gap = self.gap_at(y);
+        let depths = tree::gap_depths(&self.items, visible, gap);
+        let indent = super::layout::INDENT * layout.zoom;
+        let want = ((p.x - super::layout::indent_x(layout.names.left(), 0, layout.zoom)) / indent)
+            .floor()
+            .max(0.0)
+            .min(f32::from(tree::MAX_DEPTH)) as u8;
+        let depth = want.clamp(*depths.start(), *depths.end());
+        let to = Place::gap(&self.items, visible, gap, depth);
+        tree::plan_move(&self.items, &self.selected, to).map(|_| (gap, depth, None))
+    }
+
+    /// Where a finished drag drops, from its gap, depth and target group.
+    fn drag_place(&self, gap: usize, depth: u8, into: Option<usize>) -> Place {
+        match into {
+            Some(group) => Place::into(&self.items, group),
+            None => Place::gap(&self.items, &self.layout.visible, gap, depth),
+        }
+    }
+
+    /// The visible insertion gap nearest to `y`, which is clamped to the rows area.
     fn gap_at(&self, y: f32) -> usize {
         let layout = &self.layout;
-        let len = self.items.len();
+        let len = layout.visible.len();
         let y = y.clamp(layout.names.top(), layout.names.bottom() - 1.0);
         match layout.row_at(y).filter(|row| *row < len) {
             Some(row) if y >= layout.row_y(row) + layout.row_height(row) / 2.0 => row + 1,
             Some(row) => row,
             None => len,
         }
+    }
+
+    /// Where the name editor of the group being renamed sits: over its name,
+    /// after the chevron, to the end of the names column.
+    pub fn rename_rect(&self) -> Option<crate::geometry::Rect> {
+        let g = self.rename?;
+        let (y, _) = self.layout.entry_span(g)?;
+        let layout = &self.layout;
+        let x = super::layout::indent_x(layout.names.left(), self.items.get(g)?.depth, layout.zoom)
+            + super::layout::CHEVRON_W * layout.zoom;
+        let right = layout.names.right() - 4.0 * layout.zoom;
+        (right > x && y + layout.row_h > layout.names.top() && y < layout.names.bottom())
+            .then(|| crate::geometry::Rect::from_xywh(x, y, right - x, layout.row_h))
+    }
+
+    /// The group whose name (not its chevron) is under `p`: a double-click
+    /// there renames it.
+    pub fn group_name_at(&self, p: Point) -> Option<usize> {
+        if !self.layout.names.contains(p) || self.chevron_at(p).is_some() {
+            return None;
+        }
+        let i = self.layout.entry_at(p.y)?;
+        self.items.get(i)?.is_group().then_some(i)
+    }
+
+    /// The rows on screen for assistive technology, as a tree: each with its
+    /// level, its expanded state (groups only) and its selection.
+    pub fn accessible_rows(&self) -> impl Iterator<Item = AccessibleRow> + '_ {
+        let layout = &self.layout;
+        layout.rows.clone().filter_map(move |pos| {
+            let entry = layout.entry(pos)?;
+            let e = &self.items[entry];
+            let (label, expanded) = match &e.row {
+                WaveRow::Group(g) => {
+                    let n = tree::leaves(&self.items, entry).count();
+                    (
+                        format!("{}, {n} row{}", g.name, if n == 1 { "" } else { "s" }),
+                        Some(!g.collapsed),
+                    )
+                }
+                row => (row.name().to_owned(), None),
+            };
+            Some(AccessibleRow {
+                entry,
+                label,
+                level: usize::from(e.depth) + 1,
+                expanded,
+                selected: self.selected.contains(&entry),
+                bounds: crate::geometry::Rect::from_xywh(
+                    layout.names.left(),
+                    layout.row_y(pos),
+                    layout.names.width(),
+                    layout.row_height(pos),
+                ),
+            })
+        })
+    }
+
+    /// The group whose chevron is under `p`.
+    fn chevron_at(&self, p: Point) -> Option<usize> {
+        let layout = &self.layout;
+        if !layout.names.contains(p) {
+            return None;
+        }
+        let i = layout.entry_at(p.y)?;
+        let e = self.items.get(i).filter(|e| e.is_group())?;
+        let (y, _) = layout.entry_span(i)?;
+        let x = super::layout::indent_x(layout.names.left(), e.depth, layout.zoom);
+        let w = super::layout::CHEVRON_W * layout.zoom;
+        (p.x >= x - 4.0 * layout.zoom && p.x < x + w && p.y < y + layout.row_h).then_some(i)
     }
 
     /// Auto-scroll speed in pixels per second while a started row drag holds
@@ -1546,12 +1972,8 @@ impl WaveModel {
         if lane::is_density(generator, ppu) {
             return None;
         }
-        let geometry = LaneGeometry::new(
-            layout.row_y(row),
-            layout.row_height(row),
-            layout.row_h,
-            lane.height,
-        );
+        let (y, h) = layout.entry_span(row)?;
+        let geometry = LaneGeometry::new(y, h, layout.row_h, lane.height);
         let sub = geometry.sub_at(p.y)?;
         let time = viewport.time_at(f64::from(p.x - layout.waves.left()), width);
         let tolerance = 3.0 * f64::from(layout.zoom) / ppu;
@@ -1560,7 +1982,7 @@ impl WaveModel {
         Some((tx.generator, tx.id))
     }
 
-    /// The visible row whose name-cell bottom edge is under `p`.
+    /// The entry whose name-cell bottom edge is under `p`.
     pub fn row_edge_at(&self, p: Point) -> Option<usize> {
         let layout = &self.layout;
         if !layout.names.contains(p) {
@@ -1570,20 +1992,20 @@ impl WaveModel {
         layout
             .rows
             .clone()
-            .filter(|&r| r < self.items.len())
+            .filter(|&r| r < layout.visible.len())
             .map(|r| (r, (layout.row_y(r) + layout.row_height(r) - p.y).abs()))
             .filter(|&(r, d)| {
                 d <= grab && layout.row_y(r) + layout.row_height(r) > layout.names.top() + grab
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(r, _)| r)
+            .and_then(|(r, _)| layout.entry(r))
     }
 
     fn update_hover(&mut self) {
         self.edge_hover = self.pointer.and_then(|p| self.row_edge_at(p));
         let (hover_row, badge_hover) = match self.pointer {
             Some(p) if self.layout.bounds.contains(p) && p.y >= self.layout.names.top() => {
-                let row = self.layout.row_at(p.y).filter(|r| *r < self.items.len());
+                let row = self.layout.entry_at(p.y);
                 let badge = self.layout.badge_at(p).map(|(ix, _)| ix);
                 (row, badge)
             }
@@ -1631,11 +2053,19 @@ impl WaveModel {
             PointerEvent::Move { position } => self.pointer_move(doc, position),
             PointerEvent::Up => {
                 let had = self.drag.is_some();
-                if let Some(Drag::Rows { gap, collapse, .. }) = self.drag {
+                if let Some(Drag::Rows {
+                    gap,
+                    depth,
+                    into,
+                    collapse,
+                    ..
+                }) = self.drag
+                {
                     self.drag = None;
                     match (gap, collapse) {
                         (Some(gap), _) => {
-                            self.move_selected_to(gap);
+                            let to = self.drag_place(gap, depth, into);
+                            self.move_selected_to(to);
                         }
                         (None, Some(row)) => self.select_row(row, Modifiers::default()),
                         (None, None) => {}
@@ -1774,7 +2204,7 @@ impl WaveModel {
             }
             return;
         }
-        let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
+        let row = layout.entry_at(p.y);
         if in_waves_x {
             match button {
                 MouseButton::Left => {
@@ -1825,11 +2255,16 @@ impl WaveModel {
         if button != MouseButton::Left {
             return;
         }
-        if let Some(row) = self.row_edge_at(p) {
-            self.drag = Some(Drag::RowHeight {
-                row,
-                top: layout.row_y(row),
-            });
+        if let Some(row) = self.row_edge_at(p)
+            && let Some((top, _)) = layout.entry_span(row)
+        {
+            self.drag = Some(Drag::RowHeight { row, top });
+            return;
+        }
+        // The chevron folds or unfolds its group; Alt does the groups inside too.
+        if let Some(g) = self.chevron_at(p) {
+            let collapsed = self.items[g].group().is_some_and(|g| g.collapsed);
+            self.set_folded(g, !collapsed, modifiers.alt);
             return;
         }
         if let Some((ix, b)) = layout.badge_at(p) {
@@ -1855,6 +2290,8 @@ impl WaveModel {
                 press_y: p.y,
                 started: false,
                 gap: None,
+                depth: 0,
+                into: None,
                 collapse: keep_group.then_some(r),
                 scrolled_at: None,
             });
@@ -1872,7 +2309,7 @@ impl WaveModel {
             }
             Some(Drag::Cursor) => {
                 let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
-                let row = layout.row_at(p.y).filter(|r| *r < self.items.len());
+                let row = layout.entry_at(p.y);
                 let clock = self.nav.selected_clock(doc);
                 let t = snapped_time(
                     &self.viewport(doc),
@@ -1996,6 +2433,57 @@ impl WaveModel {
     }
 }
 
+/// Rows for `vars`, as [`WaveModel::add_vars`] adds them.
+fn var_rows(
+    doc: &mut Document,
+    vars: &[VarId],
+    loaded: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
+) -> Vec<WaveRow> {
+    let Some(session) = doc.session().cloned() else {
+        return Vec::new();
+    };
+    let h = session.hierarchy();
+    let mut rows = Vec::with_capacity(vars.len());
+    for &var in vars {
+        let Some(v) = h.vars.get(var) else { continue };
+        let translator = doc.translators.default_for(v.shape);
+        // Variable identity/format stay per row; aliases share immutable data.
+        let history = loaded.get(&v.signal).cloned();
+        let needs_load = history.is_none();
+        // Reals open as plots: their text is rarely readable at a glance.
+        let analog = (v.shape == SignalShape::Real
+            && analog::supports(v.shape, translator.as_ref()))
+        .then(|| {
+            let mut a = Analog::new(AnalogDraw::Linear, AnalogRange::Trace);
+            a.restore_height = Some(RowHeight::DEFAULT);
+            a
+        });
+        rows.push(WaveRow::Signal(DisplayedSignal {
+            source: RowSource::Resolved {
+                var,
+                signal: v.signal,
+            },
+            requested_format: None,
+            name: v.name.clone(),
+            scope: h.scope_path(v.scope).join("."),
+            shape: v.shape,
+            translator,
+            history,
+            error: None,
+            height: if analog.is_some() {
+                RowHeight::ANALOG
+            } else {
+                RowHeight::DEFAULT
+            },
+            analog,
+        }));
+        if needs_load {
+            doc.request_signal(v.signal);
+        }
+    }
+    rows
+}
+
 /// Where a click on the waves at `x_px` lands after snapping to the nearest
 /// edge within `snap_px` pixels (0 disables snapping): of the row (a signal
 /// transition, a lane's record begin or end, a clock row's edge) or of the
@@ -2029,11 +2517,19 @@ fn snapped_time(
 
 /// The edge of a row nearest to `raw` within `tol`.
 fn row_edge(edges: &EdgeSource<'_>, raw: f64, exact: f64, tol: f64) -> Option<u64> {
-    let h = match edges {
-        EdgeSource::History(h) => h.as_ref(),
-        EdgeSource::Lane(g) => return lane::nearest_boundary(g, exact, tol),
-        EdgeSource::Clock(c) => return crate::clock::nearest_edge(c, exact, tol),
-    };
+    match edges {
+        EdgeSource::History(h) => history_edge(h.as_ref(), raw, tol),
+        EdgeSource::Lane(g) => lane::nearest_boundary(g, exact, tol),
+        EdgeSource::Clock(c) => crate::clock::nearest_edge(c, exact, tol),
+        EdgeSource::Group(hs) => hs
+            .iter()
+            .filter_map(|h| history_edge(h.as_ref(), raw, tol))
+            .min_by(|a, b| (*a as f64 - raw).abs().total_cmp(&(*b as f64 - raw).abs())),
+    }
+}
+
+/// The change of `h` nearest to `raw` within `tol`.
+fn history_edge(h: &dyn SignalHistory, raw: f64, tol: f64) -> Option<u64> {
     let t = raw as u64;
     let mut best: Option<(f64, u64)> = None;
     let mut consider = |cand: u64| {

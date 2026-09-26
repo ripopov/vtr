@@ -17,11 +17,15 @@ use crate::pipeline::PipelineModel;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
 use crate::wave::analog::{self, Analog, AnalogDraw, Plot, Readout, Series};
+use crate::wave::group;
 use crate::wave::lane::{self, LaneData, LaneGeometry, TxLane};
-use crate::wave::layout::{SCROLLBAR_W, WaveLayout};
-use crate::wave::model::{DisplayedSignal, Drag, RowSource, WaveModel, WaveRow, ZOOM_RANGE_MIN_PX};
+use crate::wave::layout::{CHEVRON_W, SCROLLBAR_W, WaveLayout, indent_x};
+use crate::wave::model::{
+    DisplayedSignal, Drag, GroupRow, RowSource, WaveModel, WaveRow, ZOOM_RANGE_MIN_PX,
+};
 use crate::wave::overlay::{self, TextPainter, TimeColumn};
 use crate::wave::timeline::format_time;
+use crate::wave::tree;
 use crate::wave::viewport::Viewport;
 
 // Pixel constants are design sizes at zoom 1.0; the painter multiplies them
@@ -114,12 +118,15 @@ pub fn paint(
     // Text sits on a row's first line (`row_h`); tall rows give the waveform
     // their full height.
     let row_h = layout.row_h;
-    for ix in layout.rows.clone() {
-        let Some(row) = model.items.get(ix) else {
+    for pos in layout.rows.clone() {
+        let Some(ix) = layout.entry(pos) else {
             continue;
         };
-        let y = layout.row_y(ix);
-        let full_h = layout.row_height(ix);
+        let entry = &model.items[ix];
+        let row = &entry.row;
+        let y = layout.row_y(pos);
+        let full_h = layout.row_height(pos);
+        let name_x = indent_x(layout.names.left(), entry.depth, t.zoom);
         let is_selected = model.selected.contains(&ix);
         let is_hover = model.hover_row == Some(ix);
         let left_row = Rect::new(
@@ -140,31 +147,46 @@ pub fn paint(
             p.scene.fill(left_row, t.hover.bg);
             p.scene.fill(wave_row, t.wave_row_hover);
         }
+        // One guide per enclosing group, down the rows it holds.
+        for d in 0..entry.depth {
+            let x = snap(indent_x(layout.names.left(), d, t.zoom) + z(CHEVRON_W / 2.0));
+            p.scene.clipped(layout.names, |scene| {
+                scene.fill(Rect::from_xywh(x, y, 1.0, full_h), t.border_variant);
+            });
+        }
         let colors = t.row(is_selected, is_hover);
+        let cells = LaneCells {
+            layout: &layout,
+            pos,
+            name_x,
+            viewport,
+            cursor,
+            text: colors.text,
+            muted: colors.text_placeholder,
+        };
         let item = match row {
             WaveRow::Signal(item) => item,
             WaveRow::Lane(lane) => {
-                let cells = LaneCells {
-                    layout: &layout,
-                    ix,
-                    viewport,
-                    cursor,
-                    text: colors.text,
-                    muted: colors.text_placeholder,
-                };
                 paint_lane_row(lane, doc, &cells, &mut p);
                 continue;
             }
             WaveRow::Clock(clock) => {
-                let cells = LaneCells {
-                    layout: &layout,
-                    ix,
-                    viewport,
-                    cursor,
-                    text: colors.text,
-                    muted: colors.text_placeholder,
-                };
                 paint_clock_row(clock, &model.nav.clocks, doc, &cells, &mut p);
+                continue;
+            }
+            WaveRow::Group(g) => {
+                let members = model.group_histories(ix);
+                let group = GroupCells {
+                    row: g,
+                    count: tree::leaves(&model.items, ix).count(),
+                    members: &members,
+                    renaming: model.rename == Some(ix),
+                    reading: (model.hover_row == Some(ix)
+                        && matches!(model.drag, None | Some(Drag::Cursor)))
+                    .then_some(model.pointer)
+                    .flatten(),
+                };
+                paint_group_row(&group, model, doc, &cells, char_w, &mut p);
                 continue;
             }
         };
@@ -172,7 +194,7 @@ pub fn paint(
         // Name column: leaf name, then a muted range badge for vectors.
         {
             let pad = z(12.0);
-            let avail = layout.names.width() - pad * 2.0;
+            let avail = layout.names.right() - name_x - pad;
             let dims = item.shape.dims();
             let max_chars = (avail / char_w).floor().max(0.0) as usize;
             let dims_chars = if dims.is_empty() {
@@ -183,7 +205,7 @@ pub fn paint(
             let name_budget = max_chars.saturating_sub(dims_chars.min(max_chars / 2));
             if let Some(name) = truncate_chars(&item.name, name_budget) {
                 let name_w = p.width(&name, FontRole::Mono, t.mono_size);
-                let origin = point(layout.names.left() + pad, y);
+                let origin = point(name_x, y);
                 let names_rect = layout.names;
                 let name_len = name.chars().count();
                 p.scene.clipped(names_rect, |scene| {
@@ -225,7 +247,7 @@ pub fn paint(
             let label = format!("{} · {}", a.draw.label(), a.range.label());
             p.scene.clipped(layout.names, |scene| {
                 scene.text(
-                    point(layout.names.left() + z(12.0), y + row_h - z(4.0)),
+                    point(name_x, y + row_h - z(4.0)),
                     row_h,
                     label,
                     FontRole::Ui,
@@ -429,28 +451,48 @@ pub fn paint(
         );
     }
 
-    // Where dragged rows will land: a line across every column at the gap.
-    if let Some(Drag::Rows { gap: Some(gap), .. }) = model.drag {
+    // Where dragged rows will land: a line from the level they take across
+    // every column at the gap, or an outline of the folded group they join.
+    if let Some(Drag::Rows {
+        gap: Some(gap),
+        depth,
+        into,
+        ..
+    }) = model.drag
+    {
         let rows_area = Rect::new(
             layout.names.origin,
             size(bounds.width(), layout.names.height()),
         );
-        let y = snap(layout.row_y(gap)).clamp(rows_area.top() + 1.0, rows_area.bottom() - 1.0);
         let w = z(2.0).max(2.0);
-        p.scene.clipped(rows_area, |scene| {
-            scene.fill(
-                Rect::from_xywh(bounds.left(), y - w / 2.0, bounds.width(), w),
-                t.border_focused,
+        if into.is_some() {
+            let r = Rect::from_xywh(
+                bounds.left() + 1.0,
+                layout.row_y(gap) + 1.0,
+                bounds.width() - 2.0,
+                layout.row_height(gap) - 2.0,
             );
-            let knob = z(6.0);
-            scene.quad(
-                Rect::from_xywh(bounds.left() + z(2.0), y - knob / 2.0, knob, knob),
-                t.border_focused,
-                knob / 2.0,
-                0.0,
-                Color::TRANSPARENT,
-            );
-        });
+            p.scene.clipped(rows_area, |scene| {
+                scene.quad(r, Color::TRANSPARENT, z(2.0), w, t.border_focused);
+            });
+        } else {
+            let y = snap(layout.row_y(gap)).clamp(rows_area.top() + 1.0, rows_area.bottom() - 1.0);
+            let x = indent_x(bounds.left(), depth, t.zoom) - z(8.0);
+            p.scene.clipped(rows_area, |scene| {
+                scene.fill(
+                    Rect::from_xywh(x, y - w / 2.0, bounds.right() - x, w),
+                    t.border_focused,
+                );
+                let knob = z(6.0);
+                scene.quad(
+                    Rect::from_xywh(x, y - knob / 2.0, knob, knob),
+                    t.border_focused,
+                    knob / 2.0,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+            });
+        }
     }
 
     if let Some(Drag::ZoomRange { start, current }) = model.drag {
@@ -607,8 +649,12 @@ pub fn paint(
         Some(Drag::RowHeight { row, .. }) => Some(row),
         _ => model.edge_hover,
     };
-    for ix in layout.rows.clone().filter(|ix| *ix < model.items.len()) {
-        let bottom = layout.row_y(ix) + layout.row_height(ix);
+    for pos in layout
+        .rows
+        .clone()
+        .filter(|pos| *pos < layout.visible.len())
+    {
+        let bottom = layout.row_y(pos) + layout.row_height(pos);
         if bottom <= layout.names.top() {
             continue;
         }
@@ -622,7 +668,7 @@ pub fn paint(
             ),
             CursorIcon::ResizeUpDown,
         ));
-        if resizing == Some(ix) {
+        if resizing.is_some() && resizing == layout.entry(pos) {
             p.scene.fill(
                 Rect::from_xywh(
                     layout.names.left(),
@@ -849,7 +895,10 @@ fn paint_analog_overlays(
     let z = |v: f32| v * t.zoom;
     let waves = layout.waves;
     let reading = matches!(model.drag, None | Some(Drag::Cursor));
-    for ix in layout.rows.clone() {
+    for pos in layout.rows.clone() {
+        let Some(ix) = layout.entry(pos) else {
+            continue;
+        };
         let Some(item) = model.signal(ix) else {
             continue;
         };
@@ -861,9 +910,9 @@ fn paint_analog_overlays(
         }
         let wave_row = Rect::from_xywh(
             waves.left(),
-            layout.row_y(ix),
+            layout.row_y(pos),
             waves.width(),
-            layout.row_height(ix),
+            layout.row_height(pos),
         );
         let Some(plot) = analog_plot(a, wave_row, t.zoom) else {
             continue;
@@ -1308,10 +1357,13 @@ fn paint_bus_row(
     });
 }
 
-/// Where one lane row is painted and what it reads.
+/// Where one lane, clock or group row is painted and what it reads.
 struct LaneCells<'a> {
     layout: &'a WaveLayout,
-    ix: usize,
+    /// Visible position of the row.
+    pos: usize,
+    /// Where its name starts, after the indentation of its depth.
+    name_x: f32,
     viewport: Viewport,
     cursor: Option<u64>,
     text: Color,
@@ -1333,8 +1385,8 @@ fn paint_clock_row(
     let layout = cells.layout;
     let (names, values, waves) = (layout.names, layout.values, layout.waves);
     let row_h = layout.row_h;
-    let y = layout.row_y(cells.ix);
-    let full_h = layout.row_height(cells.ix);
+    let y = layout.row_y(cells.pos);
+    let full_h = layout.row_height(cells.pos);
     let timeline = row.timeline(doc);
     let name = row.name.clone();
     let name_color = if timeline.is_some() {
@@ -1344,7 +1396,7 @@ fn paint_clock_row(
     };
     p.scene.clipped(names, |scene| {
         scene.text(
-            point(names.left() + z(12.0), y),
+            point(cells.name_x, y),
             row_h,
             name,
             FontRole::Mono,
@@ -1385,6 +1437,362 @@ fn paint_clock_row(
     }
 }
 
+/// What a group row shows besides its place.
+struct GroupCells<'a> {
+    row: &'a GroupRow,
+    /// Rows below it that are not groups.
+    count: usize,
+    /// Loaded histories of the signals below it.
+    members: &'a [std::sync::Arc<dyn SignalHistory>],
+    /// Its name is being edited; the frontend draws the editor there.
+    renaming: bool,
+    /// The pointer, when it hovers the row and may read values.
+    reading: Option<Point>,
+}
+
+/// A group: a chevron, its name and member count. Folded, it also reads its
+/// members at the cursor ("2 of 9 changed · 1 X"), draws their merged
+/// activity, and under the pointer lists their values.
+fn paint_group_row(
+    group: &GroupCells<'_>,
+    model: &WaveModel,
+    doc: &Document,
+    cells: &LaneCells<'_>,
+    char_w: f32,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let layout = cells.layout;
+    let (names, values, waves) = (layout.names, layout.values, layout.waves);
+    let row_h = layout.row_h;
+    let y = layout.row_y(cells.pos);
+    let full_h = layout.row_height(cells.pos);
+    let g = group.row;
+
+    // Chevron: › folded, ⌄ open.
+    let cx = cells.name_x + z(CHEVRON_W / 2.0);
+    let cy = y + row_h / 2.0;
+    let a = z(3.5);
+    let chevron = if g.collapsed {
+        vec![
+            [point(cx - a / 2.0, cy - a), point(cx + a / 2.0, cy)],
+            [point(cx + a / 2.0, cy), point(cx - a / 2.0, cy + a)],
+        ]
+    } else {
+        vec![
+            [point(cx - a, cy - a / 2.0), point(cx, cy + a / 2.0)],
+            [point(cx, cy + a / 2.0), point(cx + a, cy - a / 2.0)],
+        ]
+    };
+    p.scene.clipped(names, |scene| {
+        scene.lines(chevron, cells.muted, z(1.4).max(1.0));
+    });
+    if !group.renaming {
+        let x = cells.name_x + z(CHEVRON_W);
+        let name = g.name.clone();
+        let name_w = p.width(&name, FontRole::UiSemibold, t.ui_size);
+        let count = group.count.to_string();
+        p.scene.clipped(names, |scene| {
+            scene.text(
+                point(x, y),
+                row_h,
+                name,
+                FontRole::UiSemibold,
+                t.ui_size,
+                cells.text,
+            );
+            scene.text(
+                point(x + name_w + z(6.0), y),
+                row_h,
+                count,
+                FontRole::Ui,
+                t.ui_size_small,
+                cells.muted,
+            );
+        });
+    }
+    if !g.collapsed {
+        return;
+    }
+
+    // Values column: how many members change at the cursor, and how many are X.
+    if let Some(c) = cells.cursor {
+        let reading = group::Reading::at(group.members, c);
+        let text = reading.text();
+        let color = if reading.changed > 0 {
+            cells.text
+        } else {
+            cells.muted
+        };
+        let x = values.left() + z(8.0);
+        let w = p.width(&text, FontRole::Ui, t.ui_size_small);
+        let undefined = (reading.undefined > 0).then(|| format!(" · {} X", reading.undefined));
+        p.scene.clipped(values, |scene| {
+            scene.text(
+                point(x, y),
+                row_h,
+                text,
+                FontRole::Ui,
+                t.ui_size_small,
+                color,
+            );
+            if let Some(u) = undefined {
+                scene.text(
+                    point(x + w, y),
+                    row_h,
+                    u,
+                    FontRole::Ui,
+                    t.ui_size_small,
+                    t.value_color(ValueKind::Undef),
+                );
+            }
+        });
+    }
+
+    // Waves column: the members' merged activity in the bus shape.
+    let wave_row = Rect::from_xywh(waves.left(), y, waves.width(), full_h);
+    let summary = doc.group_summary(&group::key(group.members));
+    paint_group_summary(group.members, summary, &cells.viewport, wave_row, waves, p);
+
+    // Under the pointer: each member's value at that time.
+    let Some(pointer) = group.reading.filter(|pt| waves.contains(*pt)) else {
+        return;
+    };
+    let time = cells
+        .viewport
+        .time_at(f64::from(pointer.x - waves.left()), layout.wave_width_f64())
+        .max(0.0) as u64;
+    let Some(ix) = layout.entry(cells.pos) else {
+        return;
+    };
+    const SHOWN: usize = 8;
+    let leaves: Vec<usize> = tree::leaves(&model.items, ix).collect();
+    let mut lines: Vec<(String, String, Color)> = leaves
+        .iter()
+        .take(SHOWN)
+        .map(|&j| {
+            let row = &model.items[j];
+            let (value, color) = match row.signal() {
+                Some(s) => match &s.history {
+                    Some(h) => {
+                        let tr = s.translator.translate(&h.value(h.index_at(time)));
+                        let color = if tr.kind == ValueKind::Normal {
+                            t.tooltip.text
+                        } else {
+                            t.value_color(tr.kind)
+                        };
+                        (tr.text, color)
+                    }
+                    None => ("–".into(), t.editor.text_placeholder),
+                },
+                None => ("–".into(), t.editor.text_placeholder),
+            };
+            (row.name().to_owned(), value, color)
+        })
+        .collect();
+    if leaves.len() > SHOWN {
+        lines.push((
+            format!("+{} more", leaves.len() - SHOWN),
+            String::new(),
+            t.editor.text_placeholder,
+        ));
+    }
+    let header = format!("{} · {}", format_time(time as f64, doc.time_base()), g.name);
+    let line_h = z(18.0);
+    let name_w = lines
+        .iter()
+        .map(|(n, _, _)| n.chars().count())
+        .max()
+        .unwrap_or(0) as f32
+        * char_w;
+    let value_w = lines
+        .iter()
+        .map(|(_, v, _)| v.chars().count())
+        .max()
+        .unwrap_or(0) as f32
+        * char_w;
+    let header_w = p.width(&header, FontRole::Ui, t.ui_size_small);
+    let w = (name_w + value_w + z(12.0)).max(header_w) + z(14.0);
+    let h = line_h * (lines.len() + 1) as f32 + z(8.0);
+    let x = (pointer.x + z(14.0))
+        .min(waves.right() - w - z(4.0))
+        .max(waves.left());
+    let top = (pointer.y + z(14.0))
+        .min(waves.bottom() - h - z(4.0))
+        .max(waves.top());
+    let chip = Rect::from_xywh(snap(x), snap(top), w, h);
+    p.scene.clipped(waves, |scene| {
+        scene.quad(chip, t.tooltip.bg, z(4.0), 1.0, t.border);
+        let left = chip.left() + z(7.0);
+        let mut ly = chip.top() + z(4.0);
+        scene.text(
+            point(left, ly),
+            line_h,
+            header,
+            FontRole::Ui,
+            t.ui_size_small,
+            t.editor.text_placeholder,
+        );
+        for (name, value, color) in lines {
+            ly += line_h;
+            scene.text(
+                point(left, ly),
+                line_h,
+                name,
+                FontRole::Mono,
+                t.mono_size,
+                t.editor.text_placeholder,
+            );
+            scene.text(
+                point(left + name_w + z(12.0), ly),
+                line_h,
+                value,
+                FontRole::Mono,
+                t.mono_size,
+                color,
+            );
+        }
+    });
+}
+
+/// A folded group's activity: a box between consecutive changes of any
+/// member, a band where changes are denser than boxes can show, and the X
+/// colour wherever a member is undefined.
+fn paint_group_summary(
+    members: &[std::sync::Arc<dyn SignalHistory>],
+    summary: Option<&group::SummaryLoad>,
+    vp: &Viewport,
+    area: Rect,
+    clip: Rect,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let w_px = area.width().floor().max(0.0) as usize;
+    if w_px == 0 || members.is_empty() {
+        return;
+    }
+    // Few visible changes are walked; more read the summary, and while it
+    // builds the row says so rather than scanning on the UI thread.
+    let columns = if group::visible_changes(members, vp) <= group::WALK_MAX {
+        group::walk(members, vp, w_px)
+    } else {
+        match summary {
+            Some(group::SummaryLoad::Ready(s)) => s
+                .columns(vp, w_px)
+                .unwrap_or_else(|| group::walk(members, vp, w_px)),
+            Some(group::SummaryLoad::Building) => {
+                p.scene.clipped(intersect(area, clip), |scene| {
+                    scene.text(
+                        point(area.left() + 8.0 * t.zoom, area.top()),
+                        area.height(),
+                        "Summarizing…",
+                        FontRole::Ui,
+                        t.ui_size_small,
+                        t.editor.text_placeholder,
+                    );
+                });
+                return;
+            }
+            _ => group::walk(members, vp, w_px),
+        }
+    };
+    let x0 = area.left();
+    let top = area.top() + TRACE_PAD * t.zoom;
+    let bottom = area.bottom() - TRACE_PAD * t.zoom;
+    let mid = top + (bottom - top) / 2.0;
+
+    // Column counts → segments, as the bus painter does.
+    let mut segments: Vec<(usize, usize, bool)> = Vec::new();
+    let mut start = 0usize;
+    for (x, c) in columns.iter().enumerate() {
+        if c.changes == 0 {
+            continue;
+        }
+        if x > start {
+            segments.push((start, x, false));
+        }
+        if c.changes == 1 {
+            start = x;
+        } else {
+            match segments.last_mut() {
+                Some(last) if last.2 && last.1 == x => last.1 = x + 1,
+                _ => segments.push((x, x + 1, true)),
+            }
+            start = x + 1;
+        }
+    }
+    if w_px > start {
+        segments.push((start, w_px, false));
+    }
+    let mut merged: Vec<(usize, usize, bool)> = Vec::with_capacity(segments.len());
+    for (a, b, dense) in segments {
+        let dense = dense || (b - a < MIN_SEGMENT_PX && a != 0 && b != w_px);
+        match merged.last_mut() {
+            Some(last) if last.2 && dense && last.1 == a => last.1 = b,
+            _ => merged.push((a, b, dense)),
+        }
+    }
+
+    let undef = t.value_color(ValueKind::Undef);
+    let slant_w = 3.0 * t.zoom;
+    p.scene.clipped(clip, |scene| {
+        let mut slants: Vec<[Point; 2]> = Vec::new();
+        let mut undef_slants: Vec<[Point; 2]> = Vec::new();
+        for (a, b, dense) in merged {
+            let (xa, xb) = (x0 + a as f32, x0 + b as f32);
+            // A box's first column holds the change into it, and with it the
+            // value before; only a band's own columns all count.
+            let own = if dense || a == 0 { a } else { (a + 1).min(b) };
+            let undefined = columns[own..b].iter().any(|c| c.undefined);
+            if dense {
+                let color = if undefined { undef } else { t.wave_dense };
+                scene.fill(Rect::from_xywh(xa, top, xb - xa, bottom - top), color);
+                continue;
+            }
+            // Undefined stretches inside a box are filled column by column.
+            let mut x = own;
+            while x < b {
+                if !columns[x].undefined {
+                    x += 1;
+                    continue;
+                }
+                let run = columns[x..b].iter().take_while(|c| c.undefined).count();
+                scene.fill(
+                    Rect::from_xywh(x0 + x as f32, top, run as f32, bottom - top),
+                    undef.with_alpha(0.14),
+                );
+                x += run;
+            }
+            let color = if undefined { undef } else { t.wave_signal };
+            let tw = slant_w.min((xb - xa) / 2.0);
+            let (open_left, open_right) = (a == 0, b == w_px);
+            let la = if open_left { xa } else { xa + tw };
+            let rb = if open_right { xb } else { xb - tw };
+            if rb > la {
+                scene.fill(Rect::from_xywh(la, top, rb - la, 1.0), color);
+                scene.fill(Rect::from_xywh(la, bottom - 1.0, rb - la, 1.0), color);
+            }
+            let lines = if undefined {
+                &mut undef_slants
+            } else {
+                &mut slants
+            };
+            let (topf, botf) = (top + 0.5, bottom - 0.5);
+            if !open_left {
+                lines.push([point(xa, mid), point(xa + tw, topf)]);
+                lines.push([point(xa, mid), point(xa + tw, botf)]);
+            }
+            if !open_right {
+                lines.push([point(xb, mid), point(xb - tw, topf)]);
+                lines.push([point(xb, mid), point(xb - tw, botf)]);
+            }
+        }
+        scene.lines(slants, t.wave_signal, 1.0);
+        scene.lines(undef_slants, undef, 1.0);
+    });
+}
+
 /// A bar prepared for painting: its lifetime, the solid stage spans inside
 /// it, and a caption when one fits.
 struct Bar {
@@ -1405,8 +1813,8 @@ fn paint_lane_row(lane: &TxLane, doc: &Document, cells: &LaneCells<'_>, p: &mut 
     let layout = cells.layout;
     let (names, values, waves) = (layout.names, layout.values, layout.waves);
     let row_h = layout.row_h;
-    let y = layout.row_y(cells.ix);
-    let full_h = layout.row_height(cells.ix);
+    let y = layout.row_y(cells.pos);
+    let full_h = layout.row_height(cells.pos);
     let data = lane.data(doc);
     let generator = match data {
         LaneData::Ready(g) => Some(g),
@@ -1416,7 +1824,7 @@ fn paint_lane_row(lane: &TxLane, doc: &Document, cells: &LaneCells<'_>, p: &mut 
 
     // Name column: the generator, a "+N" chip while sub-rows are folded,
     // and on taller rows the record count and the stacking.
-    let pad = z(12.0);
+    let pad = cells.name_x - names.left();
     let name_w = p.width(&lane.name, FontRole::Mono, t.mono_size);
     let name_color = if lane.track().is_some() {
         cells.text

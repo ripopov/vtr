@@ -19,6 +19,18 @@ pub const MIN_COLUMN: f32 = 72.0;
 const SPLITTER_TOLERANCE: f32 = 4.0;
 pub const SCROLLBAR_W: f32 = 10.0;
 const BADGE_W: f32 = 36.0;
+/// Left padding of a row's name at the top level.
+pub const NAME_PAD: f32 = 12.0;
+/// Each group level indents the names below it by this much.
+pub const INDENT: f32 = 14.0;
+/// A group's chevron sits before its name in a box this wide.
+pub const CHEVRON_W: f32 = 16.0;
+
+/// Where a name at `depth` starts in a names column whose left edge is
+/// `left`; a group's chevron sits there and its name follows the chevron.
+pub fn indent_x(left: f32, depth: u8, zoom: f32) -> f32 {
+    left + (NAME_PAD + INDENT * f32::from(depth)) * zoom
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct WaveLayout {
@@ -29,7 +41,11 @@ pub struct WaveLayout {
     pub names: Rect,
     pub values: Rect,
     pub waves: Rect,
+    /// Visible positions on screen; [`WaveLayout::entry`] maps one to its
+    /// entry in the model's row tree.
     pub rows: Range<usize>,
+    /// Entry index of each visible row, in order.
+    pub visible: Arc<[u32]>,
     /// Height of a default (1×) row; taller rows are whole multiples.
     pub row_h: f32,
     /// Row tops in multiples of `row_h`, with the content height last.
@@ -41,7 +57,8 @@ pub struct WaveLayout {
     pub max_scroll: f32,
     /// Track and thumb, when the rows overflow.
     pub scrollbar: Option<(Rect, Rect)>,
-    /// Format badges of the visible rows, right-aligned in the values column.
+    /// Format badges of the rows on screen (by entry), right-aligned in the
+    /// values column.
     pub badges: Vec<(usize, Rect)>,
     /// Marker chips in the header, for markers inside the viewport.
     pub marker_chips: Vec<(usize, Rect)>,
@@ -62,8 +79,10 @@ pub struct LayoutInput<'a> {
     pub zoom: f32,
     pub names_width: f32,
     pub values_width: f32,
-    /// From [`row_tops`]: one entry per row plus the content height.
+    /// From [`row_tops`]: one entry per visible row plus the content height.
     pub row_tops: Arc<[u32]>,
+    /// Entry index of each visible row (see [`crate::wave::tree::visible`]).
+    pub visible: Arc<[u32]>,
     pub scroll_y: f32,
     pub markers: &'a [Marker],
     pub viewport: Viewport,
@@ -152,7 +171,9 @@ impl WaveLayout {
                 point(values.right() - z(BADGE_W + 6.0), y + z(4.0)),
                 size(z(BADGE_W), row_h - z(8.0)),
             );
-            badges.push((ix, b));
+            if let Some(&entry) = input.visible.get(ix) {
+                badges.push((entry as usize, b));
+            }
         }
 
         let wave_wf = f64::from(waves_w).max(1.0);
@@ -198,6 +219,7 @@ impl WaveLayout {
             values,
             waves,
             rows,
+            visible: input.visible,
             row_h,
             tops,
             zoom,
@@ -241,6 +263,27 @@ impl WaveLayout {
             _ => 1,
         };
         self.row_h * units as f32
+    }
+
+    /// The entry shown at visible position `pos`.
+    pub fn entry(&self, pos: usize) -> Option<usize> {
+        self.visible.get(pos).map(|&i| i as usize)
+    }
+
+    /// The visible position of entry `entry`, unless a folded group hides it.
+    pub fn position(&self, entry: usize) -> Option<usize> {
+        self.visible.binary_search(&(entry as u32)).ok()
+    }
+
+    /// The entry under `y`, if a row is drawn there.
+    pub fn entry_at(&self, y: f32) -> Option<usize> {
+        self.entry(self.row_at(y)?)
+    }
+
+    /// Top and height of entry `entry`, when it is visible.
+    pub fn entry_span(&self, entry: usize) -> Option<(f32, f32)> {
+        let pos = self.position(entry)?;
+        Some((self.row_y(pos), self.row_height(pos)))
     }
 
     pub fn badge_at(&self, p: Point) -> Option<(usize, Rect)> {
@@ -291,6 +334,7 @@ mod tests {
             names_width: 220.0,
             values_width: 120.0,
             row_tops: row_tops(vec![RowHeight::DEFAULT; items]),
+            visible: (0..items as u32).collect(),
             scroll_y: 0.0,
             markers: &[Marker {
                 id: 1,
@@ -344,6 +388,7 @@ mod tests {
             names_width: 220.0,
             values_width: 120.0,
             row_tops: row_tops(heights),
+            visible: (0..5).collect(),
             scroll_y,
             markers: &[],
             viewport: Viewport {

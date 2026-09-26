@@ -14,7 +14,7 @@ use gpui_kit::{
     Animation, AnimationExt, App, Context, CursorStyle, Entity, FocusHandle, Focusable,
     IntoElement, KeyBinding, Menu, MenuItem, MouseButton, MouseMoveEvent, MouseUpEvent,
     ParentElement, Pixels, Render, ShapedLine, SharedString, Styled, Transformation,
-    UniformListScrollHandle, Window, actions, div, percentage, point, px,
+    UniformListScrollHandle, Window, actions, anchored, deferred, div, percentage, point, px,
 };
 use volna_core::app::{Action, ChromeDrag, Command, Event, SettingsCommand};
 use volna_core::data::transactions::TrackRef;
@@ -110,6 +110,11 @@ actions!(
         NextCycle,
         PrevCycle,
         ToggleCycleOrigin,
+        GroupSelection,
+        Ungroup,
+        RenameGroup,
+        FoldGroupDeep,
+        UnfoldGroupDeep,
     ]
 );
 
@@ -170,6 +175,8 @@ pub struct Workspace {
     status_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
     /// Mirrors the focused wave panel's menu.
     wave_menu: Option<HostedWaveMenu>,
+    /// The name editor over the group the focused wave panel renames.
+    pub(crate) rename: Option<HostedRename>,
     /// Display list buffer and shaped-text cache, reused across frames.
     pub(crate) scene: Scene,
     pub(crate) shaped: HashMap<TextKey, ShapedLine>,
@@ -181,6 +188,13 @@ pub struct Workspace {
     menu_generation: Option<u64>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) config_watcher: Option<notify::RecommendedWatcher>,
+}
+
+pub(crate) struct HostedRename {
+    panel: volna_core::panels::PanelId,
+    entry: usize,
+    pub(crate) input: Entity<TextInput>,
+    _subscription: gpui_kit::Subscription,
 }
 
 struct HostedWaveMenu {
@@ -337,6 +351,11 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("down", MoveSelectionDown, Some("Waves")),
         KeyBinding::new("]", NextCycle, Some("Waves")),
         KeyBinding::new("[", PrevCycle, Some("Waves")),
+        KeyBinding::new("g", GroupSelection, Some("Waves")),
+        KeyBinding::new("shift-g", Ungroup, Some("Waves")),
+        KeyBinding::new("f2", RenameGroup, Some("Waves")),
+        KeyBinding::new("alt-left", FoldGroupDeep, Some("Waves")),
+        KeyBinding::new("alt-right", UnfoldGroupDeep, Some("Waves")),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.set_menus(menus(&[]));
@@ -571,6 +590,7 @@ impl Workspace {
             variables_scroll: UniformListScrollHandle::new(),
             status_menu: None,
             wave_menu: None,
+            rename: None,
             scene: Scene::default(),
             shaped: HashMap::new(),
             embedded: false,
@@ -691,7 +711,8 @@ impl Workspace {
                 }
             }
         }
-        self.sync_wave_menu(window, cx);
+        self.sync_wave_menu(window.as_deref_mut(), cx);
+        self.sync_rename(window, cx);
         self.sync_filter(cx);
         self.sync_menus(cx);
         self.run_requests(cx);
@@ -814,6 +835,80 @@ impl Workspace {
             popup: menu,
         });
         cx.notify();
+    }
+
+    /// Keep the name editor in step with the core's group rename: open it
+    /// with the group's name and focus it, and when the core finishes or
+    /// cancels, close it and give the keys back to the panel.
+    fn sync_rename(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
+        let panel = self.app.panels.focused_id();
+        // Focus moved to another panel: keep the name typed so far.
+        if let Some(h) = self.rename.as_ref().filter(|h| h.panel != panel) {
+            let name = h.input.read(cx).text().to_owned();
+            self.app.handle(Command::RenameGroup(h.panel, Some(name)));
+        }
+        let want = self
+            .app
+            .panels
+            .focused_waves()
+            .and_then(|w| Some((w.rename?, w.items.get(w.rename?)?.name().to_owned())));
+        if self.rename.as_ref().map(|h| (h.panel, h.entry))
+            == want.as_ref().map(|(entry, _)| (panel, *entry))
+        {
+            return;
+        }
+        let Some(window) = window else { return };
+        if self.rename.take().is_some() {
+            let focus = self
+                .dock
+                .as_ref()
+                .and_then(|dock| dock.focus(panel, cx))
+                .unwrap_or_else(|| self.waves_focus.clone());
+            window.focus(&focus, cx);
+            cx.notify();
+        }
+        let Some((entry, name)) = want else { return };
+        let input = cx.new(|cx| {
+            let mut input = TextInput::new("Group name", cx).plain();
+            input.set_text(name, cx);
+            // Typing replaces the name; Enter keeps it.
+            input.select_all(cx);
+            input
+        });
+        let generation = self.app.doc.generation();
+        let subscription = cx.subscribe_in(
+            &input,
+            window,
+            move |this, input, event: &TextInputEvent, window, cx| {
+                let name = match event {
+                    TextInputEvent::Submit => Some(input.read(cx).text().to_owned()),
+                    TextInputEvent::Cancel => None,
+                    TextInputEvent::Changed => return,
+                };
+                this.dispatch_if_current(
+                    generation,
+                    Command::RenameGroup(panel, name),
+                    Some(window),
+                    cx,
+                );
+            },
+        );
+        window.focus(&input.read(cx).focus_handle(cx), cx);
+        self.rename = Some(HostedRename {
+            panel,
+            entry,
+            input,
+            _subscription: subscription,
+        });
+        cx.notify();
+    }
+
+    /// A press elsewhere ends a rename by keeping the typed name.
+    pub(crate) fn commit_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(h) = &self.rename {
+            let command = Command::RenameGroup(h.panel, Some(h.input.read(cx).text().to_owned()));
+            self.dispatch(command, Some(window), cx);
+        }
     }
 
     /// The core owns the filter text; the text box shows it.
@@ -1420,6 +1515,11 @@ impl Workspace {
                 NextCycle,
                 PrevCycle,
                 ToggleCycleOrigin,
+                GroupSelection,
+                Ungroup,
+                RenameGroup,
+                FoldGroupDeep,
+                UnfoldGroupDeep,
             ]
         );
         let mut dock = self
@@ -1757,6 +1857,32 @@ impl Workspace {
     }
 }
 
+impl Workspace {
+    /// The name editor, laid over the renamed group's name.
+    fn render_rename(&self) -> Option<impl IntoElement> {
+        let hosted = self.rename.as_ref()?;
+        let rect = self
+            .app
+            .panels
+            .waves(hosted.panel)
+            .and_then(|w| w.rename_rect())?;
+        Some(
+            deferred(
+                anchored()
+                    .position(point(px(rect.left()), px(rect.top())))
+                    .child(
+                        div()
+                            .id("group-rename")
+                            .w(px(rect.width()))
+                            .h(px(rect.height()))
+                            .child(hosted.input.clone()),
+                    ),
+            )
+            .with_priority(5),
+        )
+    }
+}
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_wave_menu(Some(window), cx);
@@ -1937,6 +2063,7 @@ impl Render for Workspace {
                 .as_ref()
                 .map(|(p, m)| popup_at(*p, m.clone(), window, cx)),
         )
+        .children(self.render_rename())
         .children(drag.map(|d| self.render_drag_surface(d, cx)))
         .children(dialogs)
     }
