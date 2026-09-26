@@ -332,7 +332,6 @@ pub struct Status {
     pub panel: Option<String>,
     /// What the pointer is over in the focused pipeline panel.
     pub hover: Option<String>,
-    pub links: Option<crate::nav::Link>,
     pub file: Option<String>,
     pub time_range: Option<String>,
     pub signals: Option<String>,
@@ -2252,7 +2251,6 @@ impl App {
                 PanelKind::Table(table) => (&table.nav, f64::from(table.layout.body.width())),
                 _ => return s,
             };
-            s.links = Some(nav.link);
             let vp = nav.viewport(&self.doc);
             let px_per = vp.width() / width.max(1.0);
             s.px_per = Some(format!("1 px = {}", format_time(px_per, base)));

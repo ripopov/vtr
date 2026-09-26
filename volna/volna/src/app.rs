@@ -32,7 +32,7 @@ use crate::ui::{
     popup_at, render_window_controls,
 };
 use gpui_kit::component::{
-    Selectable, Sizable,
+    Selectable,
     button::{Button, ButtonVariants},
     menu::{PopupMenu, PopupMenuItem},
     tooltip::Tooltip,
@@ -1746,58 +1746,9 @@ impl Workspace {
             message = message.child(crop(notice, colors.text_muted, false));
         }
 
-        let has_nav = status.links.is_some() || status.px_per.is_some();
+        let has_nav = status.px_per.is_some();
         let has_meters = status.memory.is_some() || status.frames.is_some();
         let mut nav = group();
-        if let Some(link) = status.links {
-            let chip = |id, text: &'static str, linked, action| {
-                let icon = if linked {
-                    gpui_kit::assets::IconName::Link
-                } else {
-                    gpui_kit::assets::IconName::Unlink
-                };
-                let tooltip = format!(
-                    "{} {} link",
-                    if linked { "Disable" } else { "Enable" },
-                    text.to_lowercase()
-                );
-                div()
-                    .id(id)
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .px_1p5()
-                    .h(t.px(18.0))
-                    .rounded_sm()
-                    .cursor(CursorStyle::PointingHand)
-                    .text_size(px(t.ui_size_small))
-                    .text_color(if linked {
-                        colors.icon_accent
-                    } else {
-                        colors.text_muted
-                    })
-                    .hover(move |s| s.bg(t.bar_hover.bg).text_color(t.bar_hover.text))
-                    .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
-                    .child(gpui_kit::component::Icon::new(icon).with_size(t.px(12.0)))
-                    .child(text)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.dispatch(Command::Action(action), Some(window), cx)
-                    }))
-            };
-            nav = nav
-                .child(chip(
-                    "status-view-link",
-                    "View",
-                    link.viewport,
-                    Action::ToggleViewportLink,
-                ))
-                .child(chip(
-                    "status-cursor-link",
-                    "Cursor",
-                    link.cursor,
-                    Action::ToggleCursorLink,
-                ));
-        }
         if let Some(s) = status.px_per {
             nav = nav.child(mono(s, colors.text_placeholder).min_w(mono_w(16.0)));
         }
