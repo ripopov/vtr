@@ -129,3 +129,38 @@ test('the catalogue filter hides rows of other kinds and their empty groups', {t
   assert.equal(await b.evaluate(`document.querySelectorAll('#catalogue tbody tr[hidden]').length`), 0);
   assert.deepEqual(b.exceptions, []);
 });
+
+test('row styles: the row switch, the ROB raster and its age order', {timeout: 30000}, async t => {
+  const b = await open(1280); t.after(() => b.close());
+  const styles = ['bars', 'horizon', 'fan', 'density', 'raster', 'lqraster', 'iqh', 'state', 'istack'];
+  let s = await state(b);
+  assert.ok(styles.every(id => s.ids.includes(id)) && s.ids.includes('topdown'), 'all rows by default');
+  await b.click('#seg-r [data-v="style"]');
+  s = await state(b);
+  assert.deepEqual(s.ids, ['phase', ...styles], 'row styles alone');
+  await b.click('#seg-r [data-v="signal"]');
+  s = await state(b);
+  assert.ok(!s.ids.some(id => styles.includes(id)) && s.ids.includes('rob'), 'signals alone');
+  await b.click('#seg-r [data-v="style"]');
+  assert.equal(await b.evaluate('document.querySelector("#seg-a button").disabled'), true, 'age order applies to cycle-level views only');
+  await b.click('[data-view="0"]');
+  // In age order the valid entries sit at the bottom lanes: at the cursor, lane 0 is lit exactly when the ROB is not empty.
+  await b.click('#seg-a [data-v="age"]');
+  const r = await b.evaluate('PF.rowRect("raster")');
+  const found = await b.evaluate(`(() => {
+    const M = PF.st.M, g = PF.st.g, v = PF.st.v, left = document.getElementById("cv").getBoundingClientRect().left;
+    for (let i = Math.ceil(v.b0) + 5; i < v.b1 - 5; i++) if (M.series.rob[i] >= 20) return {x: left + PFL.xOf(v, g, i + 0.5), n: M.series.rob[i]};
+    return null; })()`);
+  assert.ok(found, 'the stretch has a cycle with at least 20 ROB entries');
+  const lane = (k) => r.y + r.h - 2 - (k + 0.5) * (r.h - 4) / 64;
+  const lit = px => px[1] > 90;   // the raster's teal against the dark background
+  assert.ok(lit(await b.evaluate(`PF.pixel(${found.x}, ${lane(1)})`)), 'the oldest entries are lit at the bottom');
+  assert.ok(!lit(await b.evaluate(`PF.pixel(${found.x}, ${lane(62)})`)), 'the top lanes are empty with fewer than 62 entries');
+  await mouse(b, 'mouseMoved', {x: found.x, y: lane(10)}, {button: 'none'});
+  s = await state(b);
+  assert.equal(s.values.raster, `${found.n} valid`, 'the raster reads the popcount at the pointer');
+  assert.match(s.values.iqh, /^\d+ \d+ \d+ \d+ \d+$/, 'the horizon group reads each queue');
+  assert.match(s.values.state, /renaming|front end|bad speculation|back end/);
+  assert.deepEqual(b.exceptions, []);
+});
+

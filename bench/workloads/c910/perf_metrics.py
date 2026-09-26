@@ -87,6 +87,12 @@ probe("rb", LSU + "x_ct_lsu_rb.rb_entry_vld", 8, "pop")
 probe("lfb", LSU + "x_ct_lsu_lfb.lfb_addr_entry_vld", 8, "pop")
 probe("ibuf", IFU + "x_ct_ifu_ibuf.entry_vld", 32, "pop")
 probe("preg_free", RTU + "x_ct_rtu_pst_preg.dealloc", 96, "pop")
+# Whole vectors and an FSM, for the row styles that draw them as they are.
+probe("rob_vld", RTU + "x_ct_rtu_rob.entry_vld", 64)
+probe("lq_vld", LSU + "x_ct_lsu_lq.lq_entry_vld", 16)
+probe("lbuf_state", IFU + "x_ct_ifu_lbuf.lbuf_cur_state", 6)
+# lbuf_cur_state is one-hot (ct_ifu_lbuf.v); index 0 is IDLE, index k the state with bit k-1.
+LBUF_STATES = ["IDLE", "FILL", "FRONT_BRANCH", "CACHE", "ACTIVE", "FRONT_FILL", "FRONT_CACHE"]
 probe("div_state", "x_ct_iu_top.x_ct_iu_div.div_cur_state", 6)
 for s in ("biu_pad_arvalid", "pad_biu_arready", "pad_biu_rvalid", "biu_pad_rready", "pad_biu_rlast",
           "biu_pad_awvalid", "pad_biu_awready", "biu_pad_wvalid", "pad_biu_wready"):
@@ -174,6 +180,8 @@ def metrics(v, n):
                 "rob_full", "iq_full"):
         m[key] = v[key]
     m["div_busy"] = (v["div_state"] >> 1) & 1
+    st = np.asarray(v["lbuf_state"], dtype=np.int64)
+    m["lbuf"] = np.where(st > 0, np.log2(np.maximum(st, 1)).astype(np.int64) + 1, 0)
     # Bus: handshakes, beats (16 bytes each on the 128-bit port) and reads in flight.
     ar = v["biu_pad_arvalid"] & v["pad_biu_arready"]
     # The memory model pulses RVALID and RLAST in reset; a read beat needs a request first.
@@ -316,6 +324,12 @@ def main():
               f"  ROB {p_['rob_mean']:5.1f}  top-down ret/bad/fe/be-core/be-mem "
               + "/".join(f"{x:.2f}" for x in p_["td"]))
 
+    bits = {k: (np.asarray(v[k], dtype=np.uint64)[:, None] >> np.arange(width, dtype=np.uint64)
+                & np.uint64(1)).astype(np.uint8) for k, width in (("rob_vld", 64), ("lq_vld", 16))}
+    print(f"ROB valid bits agree with rob_entry_num on {np.mean(bits['rob_vld'].sum(axis=1) == m['rob']):.4%} of cycles;"
+          f" loop buffer cycles per state "
+          + " ".join(f"{s}={c}" for s, c in zip(LBUF_STATES, np.bincount(m["lbuf"], minlength=len(LBUF_STATES)))))
+
     if args.demo_js:
         w = args.window
         # Whole run: per window of w cycles the sum (a rate is sum / w) and, for levels, the maximum.
@@ -327,6 +341,14 @@ def main():
         nw = cycles // w
         win = {k: np.asarray(m[k][:nw * w]).reshape(nw, w).sum(axis=1).tolist() for k in sum_keys}
         win.update({k + "_max": np.asarray(m[k][:nw * w]).reshape(nw, w).max(axis=1).tolist() for k in max_keys})
+        # Distributions per window: ROB occupancy in 16 bins of 4 entries and its 10th,
+        # 50th and 90th percentiles.
+        rob_w = np.asarray(m["rob"][:nw * w]).reshape(nw, w)
+        win["rob_hist"] = [np.bincount(np.minimum(r // 4, 15), minlength=16).tolist() for r in rob_w]
+        win["rob_pct"] = np.percentile(rob_w, [10, 50, 90], axis=1, method="lower").astype(int).T.tolist()
+        # Per-entry duty of the ROB and LQ valid vectors, 0..15 per window as one hex digit.
+        duty = {k: (bitmap[:nw * w].reshape(nw, w, -1).mean(axis=1) * 15).round().astype(int) for k, bitmap in bits.items()}
+        win.update({k + "_duty": ["".join("%x" % x for x in row) for row in d] for k, d in duty.items()})
         win_kernel = [collections.Counter(kernel[i * w:(i + 1) * w]).most_common(1)[0][0] for i in range(nw)]
         # Details: every cycle, each series one character per cycle (value + offset in ALPHABET).
         cyc_keys = ["retired", "renamed", "mispredict", "rob", "lq", "sq", "aiq0", "aiq1", "biq", "lsiq", "sdiq", "lfb",
@@ -337,6 +359,10 @@ def main():
             name, t0, t1 = spec.split(":")
             i0, i1 = int(np.searchsorted(edges, int(t0))), int(np.searchsorted(edges, int(t1)))
             series = {k: "".join(ALPHABET[int(x)] for x in m[k][i0:i1]) for k in cyc_keys}
+            # Whole valid vectors, bit 0 first: hex digits per cycle, 16 for the ROB, 4 for the LQ.
+            for k, bitmap in bits.items():
+                nib = bitmap[i0:i1].reshape(i1 - i0, -1, 4) @ np.array([1, 2, 4, 8])
+                series[k] = "".join("".join("%x" % x for x in row) for row in nib)
             details.append({"name": name, "from_cycle": i0, "kernel": kernel[i0], "series": series})
         hist_lat = collections.defaultdict(list)
         for _, l, i in lat:
