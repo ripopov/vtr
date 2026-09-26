@@ -10,21 +10,21 @@
   --accent:#2d6cb0;--accent-ink:#1f5189;--soft:#e3edf8;--focus:#d97706;--warn:#a2660f;--warn-soft:#fbf1dc;
   --req:#2563eb;--rsp:#15803d;--dat:#c2410c;--snp:#7e22ce;--erq:#be185d;--tl:#64748b;--axi:#0f766e;--dpi:#92400e;--int:#475569;
   --n-core:#e8eef9;--n-l1:#e6f4ea;--n-l2:#d9efe0;--n-noc:#eef0f4;--n-hf0:#fdebd3;--n-hf1:#f7dfe9;--n-io:#e2f3f1;--n-soc:#ecebf8;--n-sim:#f1efe9;--n-dj:#fff6e5;
-  --frame:#9aa3b0;
+  --frame:#9aa3b0;--nav:#0e7490;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#1b1e24;--paper:#22262d;--ink:#e3e6eb;--muted:#9ba3b0;--line:#343a45;--line-strong:#4b5360;
   --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--focus:#fbbf24;--warn:#e0b35e;--warn-soft:#3a2f1c;
   --req:#6ea0ff;--rsp:#4ade80;--dat:#fb923c;--snp:#c084fc;--erq:#f472b6;--tl:#94a3b8;--axi:#2dd4bf;--dpi:#d6a15a;--int:#94a3b8;
   --n-core:#27324a;--n-l1:#233a2c;--n-l2:#1f3a2a;--n-noc:#2b303a;--n-hf0:#43341f;--n-hf1:#3f2733;--n-io:#1f3a38;--n-soc:#2d2b45;--n-sim:#34312b;--n-dj:#3a3222;
-  --frame:#5b6472;
+  --frame:#5b6472;--nav:#22d3ee;
 }}
 :root[data-theme="dark"]{
   --bg:#1b1e24;--paper:#22262d;--ink:#e3e6eb;--muted:#9ba3b0;--line:#343a45;--line-strong:#4b5360;
   --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;--focus:#fbbf24;--warn:#e0b35e;--warn-soft:#3a2f1c;
   --req:#6ea0ff;--rsp:#4ade80;--dat:#fb923c;--snp:#c084fc;--erq:#f472b6;--tl:#94a3b8;--axi:#2dd4bf;--dpi:#d6a15a;--int:#94a3b8;
   --n-core:#27324a;--n-l1:#233a2c;--n-l2:#1f3a2a;--n-noc:#2b303a;--n-hf0:#43341f;--n-hf1:#3f2733;--n-io:#1f3a38;--n-soc:#2d2b45;--n-sim:#34312b;--n-dj:#3a3222;
-  --frame:#5b6472;
+  --frame:#5b6472;--nav:#22d3ee;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -188,6 +188,19 @@ svg.in-step .edge{opacity:.35}
 #scene .aura.out{transition:opacity .9s;opacity:0}
 @keyframes aura-in{from{opacity:0}}
 @keyframes aura-pulse{from{opacity:.12}to{opacity:.42}}
+/* Blocks another level details: outlined under the blocks, entered by double-click or the magnifier. */
+.nav{transition:opacity .25s}
+.nav rect{fill:none;stroke:var(--nav);stroke-width:2.2;pointer-events:none}
+.nav .nav-area{fill:transparent;pointer-events:all;cursor:zoom-in}
+.nav.hot rect{stroke-width:3.5}
+.nav.hot .nav-area{fill:color-mix(in srgb,var(--nav) 7%,transparent)}
+.nav .zoom{cursor:zoom-in}
+.nav .zoom circle{fill:var(--nav);stroke:var(--paper);stroke-width:2}
+.nav .zoom path{fill:none;stroke:var(--paper);stroke-width:1.9;stroke-linecap:round}
+.nav .zoom:focus{outline:none}
+.nav .zoom:focus-visible circle{stroke:var(--focus);stroke-width:3.5}
+svg.flying .nav{opacity:0}
+svg.flying .nav *{pointer-events:none}
 svg.in-step .node.lit:not(.act):not(.sel),svg.has-sel .node.lit:not(.sel):not(.nb):not(.friend){opacity:1}
 svg.in-step .edge.lit,svg.has-sel .edge.lit:not(.hl){opacity:1}
 .msg path.m{fill:none;stroke-width:3.2;stroke-linecap:round}
@@ -280,7 +293,7 @@ summary{cursor:pointer;font-weight:600}
         <span><i class="sw" style="--c:var(--req)"></i>REQ</span><span><i class="sw" style="--c:var(--rsp)"></i>RSP</span><span><i class="sw" style="--c:var(--dat)"></i>DAT</span><span><i class="sw" style="--c:var(--snp)"></i>SNP (HRQ ring)</span><span><i class="sw" style="--c:var(--erq)"></i>ERQ (HRQ ring)</span><span><i class="sw" style="--c:var(--tl)"></i>TileLink</span><span><i class="sw" style="--c:var(--axi)"></i>AXI4</span><span><i class="sw d" style="--c:var(--dpi)"></i>DPI-C</span>
       </div>
       <p class="hint" id="hint"></p>
-      <p class="hint">Select any block (click, or <kbd>Tab</kbd> to it and press <kbd>Enter</kbd>) to highlight its connections and read its role, interfaces and source. <kbd>←</kbd>/<kbd>→</kbd> move between blocks; on the ring level they follow ring order. <kbd>Esc</kbd> clears the selection. Changing level lights up the block that holds it and zooms into it, and the transaction player above the diagram zooms between levels as the flits move: pick a transaction from its menu, then play it, step it, or drag along its timeline (<kbd>←</kbd>/<kbd>→</kbd>, <kbd>Home</kbd> and <kbd>End</kbd> work there too).</p>
+      <p class="hint">Select any block (click, or <kbd>Tab</kbd> to it and press <kbd>Enter</kbd>) to highlight its connections and read its role, interfaces and source. <kbd>←</kbd>/<kbd>→</kbd> move between blocks; on the ring level they follow ring order. <kbd>Esc</kbd> clears the selection. Blocks outlined in cyan are detailed by another level: double-click them, or press their magnifier, to zoom in. Changing level lights up the block that holds it and zooms into it, and the transaction player above the diagram zooms between levels as the flits move: pick a transaction from its menu, then play it, step it, or drag along its timeline (<kbd>←</kbd>/<kbd>→</kbd>, <kbd>Home</kbd> and <kbd>End</kbd> work there too).</p>
     </div>
     <div class="side">
       <section class="panel" id="tx-narr" aria-labelledby="tx-h" hidden>
@@ -1318,6 +1331,7 @@ function buildLevel({deferStep = false} = {}) {
   document.getElementById('svg-desc').textContent = L.hint;
   document.getElementById('hint').textContent = L.hint;
   drawLevel(L, state.level, gF, gE, gN);
+  drawNav(L);
   for (const n of L.nodes) if (!L.info(n.id)) console.warn('no info', n.id);
   applySel();
   if (state.scn && state.step >= 0 && !deferStep) drawStep();
@@ -1445,11 +1459,13 @@ const PLACE = (() => {
   const around = (L, ids) => { const b = L.nodes.filter(n => ids.includes(n.id)), x = Math.min(...b.map(n => n.x)), y = Math.min(...b.map(n => n.y));
     return {x, y, w:Math.max(...b.map(n => n.x + n.w)) - x, h:Math.max(...b.map(n => n.y + n.h)) - y}; };
   const fit = (parent, anchor, [w, h]) => { const s = Math.min(anchor.w / w, anchor.h / h); return {parent, anchor, x:anchor.x + (anchor.w - w * s) / 2, y:anchor.y + (anchor.h - h * s) / 2, s}; };
+  // `ids` lists the blocks a level details when they are not simply the blocks inside its frame.
+  const mem = ['sys.sn', 'sys.socxbar', 'sys.mem'];
   return {sys:{parent:null, x:0, y:0, s:1},
     core:fit('sys', sys.frames.find(f => f.label.startsWith('XSTile 0')), VB.cor),
     noc:fit('sys', sys.frames.find(f => f.label.startsWith('ZhuJiang')), VB.noc),
-    mem:fit('sys', around(sys, ['sys.sn', 'sys.socxbar', 'sys.mem']), VB.mem),
-    hnf0:fit('noc', block('noc.bank0'), VB.hnf), hnf1:fit('noc', block('noc.bank1'), VB.hnf)};
+    mem:{...fit('sys', around(sys, mem), VB.mem), ids:mem},
+    hnf0:{...fit('noc', block('noc.bank0'), VB.hnf), ids:['noc.bank0']}, hnf1:{...fit('noc', block('noc.bank1'), VB.hnf), ids:['noc.bank1']}};
 })();
 const vbOf = key => VB[key.slice(0, 3)];
 const chain = key => { const c = []; for (let k = key; k; k = PLACE[k].parent) c.unshift(k); return c; };   // root first
@@ -1493,7 +1509,7 @@ function frameAt(t) {
 }
 function land() {
   const f = flight; if (!f) return;
-  flight = null; cancelAnimationFrame(f.raf); clearTimeout(f.safety);
+  flight = null; cancelAnimationFrame(f.raf); clearTimeout(f.safety); svg.classList.remove('flying');
   for (const [k, g] of f.layers) if (g !== live) g.remove();
   live.querySelector(':scope > .card')?.remove();
   // After zooming out, the outline of the block we came from fades away on the landed level.
@@ -1510,7 +1526,7 @@ function aura(parent, key, kind) {
   for (const cls of ['glow', 'edge']) el('rect', {class:cls, x:a.x - pad, y:a.y - pad, width:a.w + 2 * pad, height:a.h + 2 * pad, rx:14}, g);
   parent.insertBefore(g, parent === live ? gM : parent.lastChild);
   if (kind !== 'to') return;
-  const t = el('text', {x:a.x + a.w / 2, 'text-anchor':'middle'}, g); t.textContent = key.startsWith('hnf') ? `HNF bank ${key[3]}` : levelName(key);
+  const t = el('text', {x:a.x + a.w / 2, 'text-anchor':'middle'}, g); t.textContent = zoomName(key);
   const tw = t.getComputedTextLength() + 20, y = Math.max(12, a.y - pad);
   t.setAttribute('y', y + 5);
   g.insertBefore(el('rect', {class:'pill', x:a.x + a.w / 2 - tw / 2, y:y - 11, width:tw, height:22, rx:11}), t);
@@ -1559,6 +1575,7 @@ function show(level, bank, {animate = false, keepSel = true} = {}) {
   const c0 = camOf(from), c1 = camOf(to), path = flightPath(c0, c1, camOf(top), top !== from && top !== to);
   const ms = Math.round(Math.min(1600, Math.max(500, 550 * path.S)));
   flight = {from, to, keys, top, layers, c0, c1, path, pre, ms, t0:performance.now()};
+  svg.classList.add('flying');
   frameAt(0);
   const tick = now => { if (!flight) return; const t = (now - flight.t0 - pre) / ms; if (t >= 1) land(); else { frameAt(Math.max(0, t)); flight.raf = requestAnimationFrame(tick); } };
   flight.raf = requestAnimationFrame(tick);
@@ -1587,6 +1604,54 @@ tabs.forEach((t, i) => {
   });
 });
 for (const x of document.querySelectorAll('[data-bank]')) x.addEventListener('click', () => setBank(+x.dataset.bank, {animate:true}));
+
+// Blocks that another level details can be entered in place: they are outlined in the navigation colour,
+// and a double-click on them (or a click on their magnifier) makes the same zoom as the level's tab.
+const zoomName = key => key.startsWith('hnf') ? `HNF bank ${key[3]}` : levelName(key);
+function navTargets(key, L) {                    // the blocks PLACE lists, or else every block inside the frame
+  const kids = Object.keys(PLACE).filter(k => PLACE[k].parent === key), listed = new Set(kids.flatMap(k => PLACE[k].ids ?? []));
+  const inside = (n, a) => n.x >= a.x && n.y >= a.y && n.x + n.w <= a.x + a.w && n.y + n.h <= a.y + a.h;
+  return kids.map(k => ({key:k, frame:!PLACE[k].ids, ids:PLACE[k].ids ?? L.nodes.filter(n => !listed.has(n.id) && inside(n, PLACE[k].anchor)).map(n => n.id)}));
+}
+function drawNav(L) {
+  L.navOf = {};
+  for (const t of navTargets(viewKey(), L)) {
+    const a = PLACE[t.key].anchor, g = el('g', {class:'nav', 'data-nav':t.key}, gF);
+    el('title', {}, g).textContent = `Double-click to zoom into ${zoomName(t.key)}`;
+    for (const id of t.ids) L.navOf[id] = t.key;
+    if (t.frame) el('rect', {class:'nav-area', x:a.x, y:a.y, width:a.w, height:a.h, rx:10}, g);
+    else for (const id of t.ids) { const n = L.byId[id]; el('rect', {x:n.x - 5, y:n.y - 5, width:n.w + 10, height:n.h + 10, rx:11}, g); }
+    // The magnifier sits on the top edge of the frame, or of the first block, near its right end.
+    const at = t.frame ? a : L.byId[t.ids[0]], x = at.x + at.w - 26, y = Math.max(14, t.frame ? at.y : at.y - 5);
+    const z = el('g', {class:'zoom', tabindex:'0', role:'button', 'aria-label':`Zoom into ${zoomName(t.key)}`}, g);
+    el('circle', {cx:x, cy:y, r:12.5}, z);
+    el('path', {d:`M${x - 7},${y - 1.5} a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0 M${x + 2.4},${y + 2.4} L${x + 6.5},${y + 6.5} M${x - 4.3},${y - 1.5} h5.6 M${x - 1.5},${y - 4.3} v5.6`}, z);
+  }
+}
+function enter(key, {focus = false} = {}) {
+  stopPlay();
+  const level = key.startsWith('hnf') ? 'hnf' : key, ms = show(level, level === 'hnf' ? +key[3] : state.bank, {animate:true, keepSel:false});
+  if (focus) tabs.find(t => t.dataset.level === level).focus();
+  return ms;
+}
+// The level a pointer target leads into: its outline, its block, or a connection between its blocks.
+function navAt(t) {
+  if (!live.contains(t)) return;
+  const of = state.view.navOf, g = t.closest('[data-nav]'), n = t.closest('[data-node]'), e = t.closest('[data-edge]');
+  if (g) return g.dataset.nav;
+  if (n) return of[n.dataset.node];
+  if (e && of[e.dataset.a] && (!e.dataset.b || of[e.dataset.b] === of[e.dataset.a])) return of[e.dataset.a];
+}
+svg.addEventListener('dblclick', ev => { const k = !flight && navAt(ev.target); if (k) enter(k); });
+svg.addEventListener('mousedown', ev => { if (ev.detail > 1) ev.preventDefault(); });   // no word selection on double-click
+const hot = k => { for (const g of gF.querySelectorAll('.nav')) g.classList.toggle('hot', g.dataset.nav === k); };
+svg.addEventListener('pointerover', ev => hot(navAt(ev.target)));
+svg.addEventListener('pointerleave', () => hot());
+gF.addEventListener('click', ev => { const z = ev.target.closest('.zoom'); if (z) enter(z.parentNode.dataset.nav); });
+gF.addEventListener('keydown', ev => {
+  const z = ev.target.closest('.zoom');
+  if (z && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); enter(z.parentNode.dataset.nav, {focus:true}); }
+});
 
 function select(id) { state.sel = state.sel === id ? null : id; applySel(); }
 gN.addEventListener('click', ev => { const g = ev.target.closest('[data-node]'); if (g) { select(g.dataset.node); g.focus({preventScroll:true}); } });
@@ -1893,10 +1958,10 @@ const st = selfTests();
 document.getElementById('selftest').textContent = st.lines.join('\n');
 // Test and automation hooks.
 window.XZ = {
-  RING, CITES, PIN, PARAMS, CFG, SCEN, INFO, PLACE, placeOf, setDwell: ms => { PLAY_MS = ms; }, route, rnTarget, hnfPort, selfTests, setLevel, setBank, select, startScenario, goStep, exitScenario, play, stopPlay,
+  RING, CITES, PIN, PARAMS, CFG, SCEN, INFO, PLACE, placeOf, setDwell: ms => { PLAY_MS = ms; }, route, rnTarget, hnfPort, selfTests, setLevel, setBank, select, startScenario, goStep, exitScenario, play, stopPlay, enter,
   state: () => {
     const sc = state.scn ? SCEN[state.scn] : null, stp = sc?.steps[state.step];
-    return {level:state.level, bank:state.bank, sel:state.sel, scn:state.scn, step:state.step, steps:sc?.steps.length ?? 0, playing:state.playing, flying:!!flight,
+    return {level:state.level, bank:state.bank, sel:state.sel, scn:state.scn, step:state.step, steps:sc?.steps.length ?? 0, playing:state.playing, flying:!!flight, zoom:flight && {from:flight.from, to:flight.to, ms:flight.pre + flight.ms},
       stepLevel:stp?.level ?? null, msgs:(stp?.msgs ?? []).map(m => { const r = msgRoute(m); return m.ring ? {ch:m.ch, op:m.op, from:hex(stop(m.from).nodeId), to:hex(stop(m.to).nodeId), hops:r.hops, dir:r.dir, path:r.path} : {ch:m.ch, op:m.op, path:m.path}; }),
       drawnMsgs:gM.children.length, act:[...gN.querySelectorAll('.act')].map(g => g.dataset.node),
       nodes:[...gN.children].map(g => g.dataset.node), edges:[...gE.children].map(g => g.dataset.edge)};

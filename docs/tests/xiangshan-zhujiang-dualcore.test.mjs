@@ -104,6 +104,7 @@ const PROBE = `(() => {
   // Labels on one line keep a 6 px gap; stacked lines may not overlap by more than 1 px.
   const clash = (a, c) => Math.abs(a.top - c.top) < 2 ? a.left < c.right + 6 && c.left < a.right + 6 : hit(a, c);
   for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) if (clash(rect(texts[i]), rect(texts[j]))) overlaps.push(texts[i].textContent + ' | ' + texts[j].textContent);
+  for (const z of s.querySelectorAll('#live .zoom')) for (const t of texts) if (hit(rect(z), rect(t))) overlaps.push('magnifier | ' + t.textContent);
   const boxes = [...s.querySelectorAll('#g-nodes [data-node]')].map(g => [g, g.querySelector('.box')]);
   const unfit = boxes.flatMap(([g, bx]) => { const r = bx.getBBox(); return [...g.querySelectorAll('text')].filter(t => { const q = t.getBBox(); return q.x < r.x + 2 || q.x + q.width > r.x + r.width - 2 || q.y < r.y || q.y + q.height > r.y + r.height; }).map(t => g.dataset.node + ': ' + t.textContent); });
   const onBoxes = [...s.querySelectorAll('#g-edges text, #g-frames text')].flatMap(t => boxes.filter(([, bx]) => hit(rect(t), rect(bx))).map(([g]) => t.textContent + ' on ' + g.dataset.node));
@@ -580,6 +581,59 @@ test('changing level zooms smoothly through the levels between and lands on the 
   // After landing, blocks are clickable at their drawn place.
   await b.click('[data-node="hnf.xbar"]');
   assert.equal((await state(b)).sel, 'hnf.xbar');
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('double-clicking an outlined block zooms into its level exactly as its tab does', {timeout: 60000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  // Clicking a tab scrolls it into view, so each point is taken with the diagram scrolled back.
+  const at = (x, y) => b.evaluate(`(() => { document.getElementById('svg').scrollIntoView({block: 'center', behavior: 'instant'}); const p = new DOMPoint(${x}, ${y}).matrixTransform(document.getElementById('g-frames').getScreenCTM()); return {x: p.x, y: p.y}; })()`);
+  const centre = sel => b.evaluate(`(() => { document.getElementById('svg').scrollIntoView({block: 'center', behavior: 'instant'}); const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2}; })()`);
+  const mouse = (type, p, clickCount = 1) => b.send('Input.dispatchMouseEvent', {type, button: type === 'mouseMoved' ? 'none' : 'left', clickCount, ...p});
+  const dbl = async p => { for (const n of [1, 2]) { await mouse('mousePressed', p, n); await mouse('mouseReleased', p, n); } };
+  const zoomBy = async act => { await act(); const s = await state(b); await settle(b); return s.zoom; };
+  const hover = async p => { await mouse('mouseMoved', p); return b.evaluate('[...document.querySelectorAll("#live .nav.hot")].map(g => g.dataset.nav)'); };
+  const navs = () => b.evaluate(`[...document.querySelectorAll('#live .nav')].map(g => [g.dataset.nav, g.querySelectorAll('rect').length, g.querySelector('.zoom').getAttribute('aria-label')])`);
+  // The system outlines tile 0 (the core), the ZhuJiang frame (the ring) and the three blocks of the memory path.
+  assert.deepEqual(await navs(), [['core', 1, 'Zoom into XS core'], ['noc', 1, 'Zoom into NoC ring'], ['mem', 3, 'Zoom into Memory path']]);
+  const colours = await b.evaluate(`(() => { const c = s => getComputedStyle(document.querySelector(s)).stroke, p = document.body.appendChild(document.createElement('i'));
+    p.style.color = 'var(--nav)'; const nav = getComputedStyle(p).color; p.style.color = 'var(--accent)'; const accent = getComputedStyle(p).color; p.remove();
+    return {nav, accent, outline: c('#live .nav rect'), frame: c('#live .frame rect'), box: c('#live .box')}; })()`);
+  assert.equal(colours.outline, colours.nav, 'outlines use the navigation colour');
+  assert.equal(new Set([colours.nav, colours.accent, colours.frame, colours.box]).size, 4, 'the navigation colour differs from frames, blocks and the accent');
+  const empty = await at(970, 495);   // inside the ZhuJiang frame, beside the MN
+  assert.equal(await b.evaluate(`document.elementFromPoint(${empty.x}, ${empty.y}).getAttribute('class')`), 'nav-area');
+  // Hovering shows which level a double-click enters: the SN belongs to the memory path although it sits on the ring.
+  assert.deepEqual(await hover(await centre('[data-node="sys.l1d0"]')), ['core']);
+  assert.deepEqual(await hover(await centre('[data-node="sys.sn"]')), ['mem']);
+  assert.deepEqual(await hover(empty), ['noc']);
+  assert.deepEqual(await hover(await centre('[data-node="sys.l1d1"]')), [], 'tile 1 leads nowhere');
+  // Double-clicks make the same flight as the tabs.
+  const viaTab = {};
+  for (const lv of ['core', 'noc', 'mem']) { viaTab[lv] = await zoomBy(() => b.click(`#tab-${lv}`)); await b.evaluate('XZ.setLevel("sys")'); }
+  for (const [lv, p] of [['core', () => centre('[data-node="sys.l1d0"]')], ['mem', () => centre('[data-node="sys.socxbar"]')], ['noc', () => at(970, 495)]]) {
+    assert.deepEqual(await zoomBy(async () => dbl(await p())), viaTab[lv], `double-click into ${lv}`);
+    const s = await state(b);
+    assert.equal(s.level, lv); assert.equal(s.sel, null, 'the clicks of a double-click leave no selection');
+    assert.deepEqual(await navs(), lv === 'noc' ? [['hnf0', 1, 'Zoom into HNF bank 0'], ['hnf1', 1, 'Zoom into HNF bank 1']] : [], `${lv}: outlines`);
+    if (lv !== 'noc') await b.evaluate('XZ.setLevel("sys")');
+  }
+  // Ring → bank 1 selects the bank and flies as the HNF tab does with bank 1 chosen.
+  await b.evaluate('XZ.setBank(1)');
+  const bank1 = await zoomBy(() => b.click('#tab-hnf'));
+  await b.evaluate('XZ.setLevel("noc"); XZ.setBank(0)');
+  assert.deepEqual(await zoomBy(async () => dbl(await centre('[data-node="noc.bank1"]'))), bank1);
+  assert.deepEqual(bank1, {from: 'noc', to: 'hnf1', ms: bank1.ms});
+  assert.equal((await state(b)).bank, 1);
+  // A block no level details does nothing.
+  await b.evaluate('XZ.setLevel("sys")');
+  await dbl(await centre('[data-node="sys.periph"]'));
+  assert.equal((await state(b)).flying, false); assert.equal((await state(b)).level, 'sys');
+  // The magnifier is a button: a click or Enter makes the same zoom, and Enter leaves focus on the level's tab.
+  assert.deepEqual(await zoomBy(() => b.click('#live [data-nav="noc"] .zoom')), viaTab.noc);
+  await b.evaluate('XZ.setLevel("sys"); document.querySelector(\'#live [data-nav="mem"] .zoom\').focus()');
+  assert.deepEqual(await zoomBy(() => press(b, 'Enter')), viaTab.mem);
+  assert.equal(await focused(b), 'tab-mem');
   assert.deepEqual(b.exceptions, []);
 });
 
