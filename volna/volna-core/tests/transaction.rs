@@ -431,7 +431,7 @@ fn every_value_tag_an_open_record_and_a_cross_stream_parent_read_as_recorded() {
     let instruction = labelled(
         session.as_ref(),
         track(session.as_ref(), "soc.cpu.thread0.instructions"),
-        "pc 0x80000000",
+        "0x80000004 sw zero,8(s1)",
     );
     let unfinished = labelled(session.as_ref(), write, "unfinished write 0");
     let panel = show(&mut app, pipeline, read, transfer.0);

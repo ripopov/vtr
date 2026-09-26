@@ -61,10 +61,10 @@ python3 integrations/verilator/pipeline/run.py \
 ## Feature showcase
 
 `feature_showcase.vtr` is a deterministic, synthetic debugging lab: 2,048 ns of
-CPU execution, DMA traffic, an injected fault and recovery. It is **7,906 bytes**,
+CPU execution, DMA traffic, an injected fault and recovery. It is **8,878 bytes**,
 well below the 500,000-byte limit enforced by its generator. It contains 81
-variable declarations sharing 78 signals, 17,559 changes, 102 transactions
-(including 20 log records and 4 clock stretches), 59 relations and two
+variable declarations sharing 78 signals, 17,559 changes, 214 transactions
+(including 20 log records and 4 clock stretches), 99 relations and two
 declared clocks.
 
 Start at `soc`: add `clk`, `reset_n`, `valid`, `ready`, `address`, `data`,
@@ -75,6 +75,18 @@ exercise mixed hierarchy results. `soc.log` demonstrates severity badges and
 source locations. `hotplug_sensor` is declared at 1,024 ns, after half of the
 values were written: its `reading` signal is X before then. All activity and
 log locations are synthetic.
+
+`soc.cpu.thread0` is a five-stage in-order pipeline (`fetch`, `decode`,
+`execute`, `memory`, `writeback` on lane `main`), simulated cycle by cycle
+over a short boot and a 12-iteration loop: up to five instructions in flight,
+160 records. A second lane, `stall`, says why an instruction waits: `operand`
+while a load or multiply result it needs is not ready, `dcache miss` for four
+extra memory cycles, and `bus fault` for the access caught in memory by the
+fault at 768 ns, which waits there until recovery at 896 ns. Statically
+mispredicted branches squash the two instructions fetched behind them; those
+are the `speculative` generator's aborted records, and the branch carries a
+`mispredict` event. Each loop iteration rings the DMA doorbell (`sw a1,8(s1)`),
+the source of the `request` relations to the DMA transfers.
 
 Two declared clocks ([vtr_clocks.html](../../../docs/vtr_clocks.html)) give
 the trace cycle rulers. `soc.clk` is the dumped `clk` declared as one 8 ns
@@ -95,8 +107,8 @@ spans. Both `soc.dma.memory_bus` and the empty `soc.dma.standby_bus` use
 | --- | --- |
 | Waveforms | 2-, 4- and 9-state logic; scalar and 32-/128-bit buses; every IEEE 1164 state; reals; UTF-8 text and arbitrary bytes; enum table references; constants; events with repeated occurrences at one timestamp; three aliases |
 | Hierarchy | Modules, CPU core, SystemC module, resource, streams and generators; every named scope type in `soc.type_gallery.scopes` and variable type in `soc.type_gallery.declarations`; every direction; unknown scope/variable codes; literal dots and brackets in names; empty stream and empty generator |
-| Transactions | Overlapping instructions, speculative squashes, read/write transfers, software spans; every status and span kind; begin/record/end attributes; timestamped events; stages on `main` and `memory` lanes; unfinished operation at capture end |
-| Links | Cross-stream request relations, instruction dependencies, structural span/transfer parents and logs parented to transfers; attributes on relations, events and stages |
+| Transactions | Overlapping instructions, speculative squashes, read/write transfers, software spans; every status and span kind; begin/record/end attributes; timestamped events; stages on `main`, `stall` and `memory` lanes; unfinished operation at capture end |
+| Links | Cross-stream request relations, operand dependencies between instructions, structural span/transfer parents and logs parented to transfers; attributes on relations, events and stages |
 | Attributes | All 18 `ValueTag` variants, including 2-/4-/9-state vectors, signed/unsigned fixed point, pointers, nested lists/maps, interned strings and inline Unicode text |
 | Clocks | A declared clock matching its dumped net and one without a net, with speed changes, a gated interval, a stretch running at capture end and `vtr.clock` links from two streams |
 | Logs | All six standard severities plus a producer-specific level; all nine log argument types; argument names; file, line and function provenance |

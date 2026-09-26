@@ -4,7 +4,7 @@
 use std::path::Path;
 use vtr::{
     Direction, LogArg, LogArgType, LogQuery, LogSiteSpec, NodeData, NodeId, Reader, ScopeType,
-    Severity, SignalId, SignalKind, TxKind, TxQuery, TxStatus, Value, VarType, Writer,
+    Severity, SignalId, SignalKind, TxId, TxKind, TxQuery, TxStatus, Value, VarType, Writer,
     WriterOptions,
 };
 
@@ -77,6 +77,277 @@ fn attributes(w: &mut Writer) -> Vec<(vtr::StrId, Value)> {
     .into_iter()
     .map(|(key, value)| (w.intern(key), value))
     .collect()
+}
+
+// -- soc.cpu: a five-stage in-order pipeline, simulated cycle by cycle ---------
+//
+// One instruction per stage and cycle. Execute forwards results, so only a
+// load (value after memory) or a multiply (three execute cycles) makes a
+// dependent instruction wait in decode. Branches are predicted statically
+// (backward taken, forward not taken) and resolve when they leave execute;
+// the wrong-path instructions fetched meanwhile are squashed. Loads miss the
+// data cache now and then (four extra memory cycles), and the first memory
+// access after the injected fault at 768 ns waits in memory until recovery.
+
+const STAGES: [&str; 5] = ["fetch", "decode", "execute", "memory", "writeback"];
+const RESET_CYCLE: u64 = 4; // first rising edge after reset_n rises at 32 ns
+const LOOP_ITERATIONS: u64 = 12;
+
+/// The rising edge that begins core clock cycle `cycle`: `soc.clk` rises at 4 ns, every 8 ns.
+fn cycle_time(cycle: u64) -> u64 {
+    4 + 8 * cycle
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Op {
+    Alu,
+    Mul,
+    Load,
+    Store,
+    Branch(u64),
+    Halt,
+}
+
+struct Instr {
+    asm: &'static str,
+    op: Op,
+    dst: Option<&'static str>,
+    src: &'static [&'static str],
+}
+
+const fn ins(asm: &'static str, op: Op, dst: Option<&'static str>, src: &'static [&'static str]) -> Instr {
+    Instr { asm, op, dst, src }
+}
+
+const TEXT: u64 = 0x8000_0000;
+const LOOP: u64 = TEXT + 0x18;
+/// Boot, then a loop that sums and multiplies pairs of words, stores a
+/// result on some iterations and rings the DMA doorbell (`8(s1)`) on each.
+const PROGRAM: &[Instr] = &[
+    ins("lui s1,0x10000", Op::Alu, Some("s1"), &[]),
+    ins("sw zero,8(s1)", Op::Store, None, &["s1"]),
+    ins("lui a0,0x80010", Op::Alu, Some("a0"), &[]),
+    ins("addi s2,zero,12", Op::Alu, Some("s2"), &[]),
+    ins("addi a1,zero,0", Op::Alu, Some("a1"), &[]),
+    ins("addi a2,zero,0", Op::Alu, Some("a2"), &[]),
+    ins("lw t1,0(a0)", Op::Load, Some("t1"), &["a0"]),
+    ins("add a1,a1,t1", Op::Alu, Some("a1"), &["a1", "t1"]),
+    ins("lw t2,4(a0)", Op::Load, Some("t2"), &["a0"]),
+    ins("mul t3,t2,t1", Op::Mul, Some("t3"), &["t2", "t1"]),
+    ins("addi a0,a0,8", Op::Alu, Some("a0"), &["a0"]),
+    ins("xor a2,a2,t3", Op::Alu, Some("a2"), &["a2", "t3"]),
+    ins("andi t4,a1,3", Op::Alu, Some("t4"), &["a1"]),
+    ins("beq t4,zero,0x8000003c", Op::Branch(TEXT + 0x3c), None, &["t4"]),
+    ins("sw a2,-8(a0)", Op::Store, None, &["a2", "a0"]),
+    ins("sw a1,8(s1)", Op::Store, None, &["a1", "s1"]),
+    ins("addi s2,s2,-1", Op::Alu, Some("s2"), &["s2"]),
+    ins("bne s2,zero,0x80000018", Op::Branch(LOOP), None, &["s2"]),
+    ins("fence", Op::Alu, None, &[]),
+    ins("wfi", Op::Halt, None, &[]),
+];
+
+/// A deterministic hash for "random" outcomes.
+fn mix(mut x: u64) -> u64 {
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+struct Stall {
+    name: &'static str,
+    label: String,
+    begin: u64,
+    end: u64,
+}
+
+/// One fetched instruction; times are core clock cycles.
+struct Insn {
+    pc: u64,
+    asm: &'static str,
+    op: Op,
+    wrong_path: bool,
+    /// Position on the committed path (wrong-path instructions share their predecessor's).
+    order: u64,
+    enter: [Option<u64>; 5],
+    end: u64,
+    squashed: bool,
+    busy: u64,
+    /// Source register and producing instruction.
+    deps: Vec<(&'static str, usize)>,
+    miss: bool,
+    /// The cycle the injected fault caught this access in memory.
+    fault: Option<u64>,
+    mispredict: bool,
+    redirect: u64,
+    waiting: Option<(u64, &'static str, usize)>,
+    stalls: Vec<Stall>,
+}
+
+impl Insn {
+    fn label(&self) -> String {
+        let path = if self.wrong_path { " (wrong path)" } else { "" };
+        format!("0x{:08x} {}{path}", self.pc, self.asm)
+    }
+}
+
+fn simulate() -> Vec<Insn> {
+    let mut run: Vec<Insn> = Vec::new();
+    let mut slot: [Option<usize>; 5] = [None; 5];
+    let mut last_writer: std::collections::HashMap<&str, usize> = Default::default();
+    let (mut fetch_pc, mut wrong_path, mut halted) = (TEXT, false, false);
+    let (mut order, mut iteration, mut fault_pending) = (0u64, 0u64, true);
+    let mut cycle = RESET_CYCLE;
+    let recovery = (0..).find(|&c| cycle_time(c) >= 896).unwrap();
+    let is_access = |insn: &Insn| matches!(insn.op, Op::Load | Op::Store) && !insn.wrong_path;
+    loop {
+        // The fault catches the access in memory, or the next one to get there.
+        if fault_pending && cycle_time(cycle) >= 768 {
+            if let Some(k) = slot[3].filter(|&k| is_access(&run[k])) {
+                fault_pending = false;
+                run[k].fault = Some(cycle);
+                run[k].busy = recovery;
+            }
+        }
+        // Writeback retires.
+        if let Some(k) = slot[4].filter(|&k| run[k].busy <= cycle) {
+            run[k].end = cycle;
+            slot[4] = None;
+        }
+        // Memory to writeback; a long memory access is a stall.
+        if let Some(k) = slot[3].filter(|&k| run[k].busy <= cycle && slot[4].is_none()) {
+            let entered = run[k].enter[3].unwrap();
+            let fault = run[k].fault.map_or(cycle, |at| at.max(entered + 1));
+            if fault > entered + 1 {
+                let label = format!("data cache miss at 0x{:08x}", run[k].pc);
+                run[k].stalls.push(Stall { name: "dcache miss", label, begin: entered + 1, end: fault });
+            }
+            if fault < cycle {
+                let label = "bus fault: the access is retried until recovery".to_owned();
+                run[k].stalls.push(Stall { name: "bus fault", label, begin: fault, end: cycle });
+            }
+            run[k].enter[4] = Some(cycle);
+            run[k].busy = cycle + 1;
+            slot[3] = None;
+            slot[4] = Some(k);
+        }
+        // Execute to memory; a mispredicted branch squashes what follows it.
+        if let Some(k) = slot[2].filter(|&k| run[k].busy <= cycle && slot[3].is_none()) {
+            let mut busy = cycle + 1;
+            if is_access(&run[k]) {
+                if fault_pending && cycle_time(cycle) >= 768 {
+                    fault_pending = false;
+                    run[k].fault = Some(cycle);
+                    busy = recovery;
+                } else if run[k].miss {
+                    busy += 4;
+                }
+            }
+            run[k].enter[3] = Some(cycle);
+            run[k].busy = busy;
+            slot[2] = None;
+            slot[3] = Some(k);
+            if run[k].mispredict {
+                for younger in [slot[1].take(), slot[0].take()].into_iter().flatten() {
+                    run[younger].end = cycle;
+                    run[younger].squashed = true;
+                }
+                fetch_pc = run[k].redirect;
+                wrong_path = false;
+            }
+        }
+        // Decode to execute, once every operand can be forwarded.
+        if let Some(k) = slot[1].filter(|&k| run[k].busy <= cycle) {
+            let blocked = run[k].deps.iter().copied().find(|&(_, p)| {
+                let producer = &run[p];
+                let available = match producer.op {
+                    Op::Load => producer.enter[4],
+                    _ => producer.enter[3],
+                };
+                !available.is_some_and(|at| at <= cycle)
+            });
+            match (blocked, run[k].waiting) {
+                (Some((reg, p)), None) => run[k].waiting = Some((cycle, reg, p)),
+                (None, Some((begin, reg, p))) => {
+                    let label = format!("waits for {reg} from 0x{:08x} {}", run[p].pc, run[p].asm);
+                    run[k].stalls.push(Stall { name: "operand", label, begin, end: cycle });
+                    run[k].waiting = None;
+                }
+                _ => {}
+            }
+            if blocked.is_none() && slot[2].is_none() {
+                run[k].enter[2] = Some(cycle);
+                run[k].busy = cycle + if run[k].op == Op::Mul { 3 } else { 1 };
+                slot[1] = None;
+                slot[2] = Some(k);
+            }
+        }
+        // Fetch to decode.
+        if let Some(k) = slot[0].filter(|&k| run[k].busy <= cycle && slot[1].is_none()) {
+            run[k].enter[1] = Some(cycle);
+            run[k].busy = cycle + 1;
+            slot[0] = None;
+            slot[1] = Some(k);
+        }
+        // Fetch along the predicted path.
+        if slot[0].is_none() && !halted {
+            let instr = &PROGRAM[((fetch_pc - TEXT) / 4) as usize];
+            let k = run.len();
+            let deps = instr.src.iter().filter_map(|reg| last_writer.get(reg).map(|&p| (*reg, p))).collect();
+            let mut insn = Insn {
+                pc: fetch_pc,
+                asm: instr.asm,
+                op: instr.op,
+                wrong_path,
+                order,
+                enter: [Some(cycle), None, None, None, None],
+                end: 0,
+                squashed: false,
+                busy: cycle + 1,
+                deps,
+                miss: instr.op == Op::Load && mix(order + 4) % 4 == 0,
+                fault: None,
+                mispredict: false,
+                redirect: 0,
+                waiting: None,
+                stalls: Vec::new(),
+            };
+            let mut next = fetch_pc + 4;
+            if let Op::Branch(target) = instr.op {
+                let predicted = target < fetch_pc;
+                let taken = if wrong_path {
+                    predicted
+                } else if target == LOOP {
+                    iteration += 1;
+                    iteration < LOOP_ITERATIONS
+                } else {
+                    mix(1000 + iteration) % 3 == 0
+                };
+                if !wrong_path && taken != predicted {
+                    insn.mispredict = true;
+                    insn.redirect = if taken { target } else { fetch_pc + 4 };
+                    wrong_path = true;
+                }
+                if predicted {
+                    next = target;
+                }
+            }
+            if !wrong_path || insn.mispredict {
+                if let Some(dst) = instr.dst {
+                    last_writer.insert(dst, k);
+                }
+                order += 1;
+                halted = instr.op == Op::Halt;
+            }
+            fetch_pc = next;
+            slot[0] = Some(k);
+            run.push(insn);
+        }
+        if halted && slot.iter().all(Option::is_none) {
+            return run;
+        }
+        cycle += 1;
+        assert!(cycle_time(cycle) < 2040, "the program runs past the capture");
+    }
 }
 
 fn write(path: &Path) -> vtr::Result<()> {
@@ -405,110 +676,128 @@ fn write(path: &Path) -> vtr::Result<()> {
         }
     }
 
-    let fetch = w.intern("fetch");
-    let decode = w.intern("decode");
-    let execute = w.intern("execute");
-    let retire = w.intern("retire");
-    let lane = w.intern("main");
+    // soc.cpu.thread0: the five-stage pipeline below, one record per fetched
+    // instruction. Stages sit on lane `main`; the `stall` lane marks why an
+    // instruction waits (an operand, a cache miss, the bus fault).
+    let main_lane = w.intern("main");
+    let stall_lane = w.intern("stall");
+    let stage_names: Vec<_> = STAGES.iter().map(|name| w.intern(name)).collect();
+    let execute = stage_names[2];
     let memory = w.intern("memory");
     let dependency = w.intern("dependency");
     let request = w.intern("request");
+    let retire = w.intern("retire");
+    let mispredict = w.intern("mispredict");
     let label_key = w.intern("vtr.label");
     let pc_key = w.intern("pc");
     let fault = w.intern("fault_injected");
-    let mut previous = None;
-    for i in 0..48u64 {
-        let begin = 64 + i * 32;
-        let tx = w.begin_tx(
-            if i % 9 == 8 {
-                speculative
-            } else {
-                instructions
-            },
-            begin,
-        )?;
-        w.tx_attr(
-            tx,
-            pc_key,
-            &Value::U64(0x8000_0000 + i * 4),
-        )?;
-        let tx_label = w.intern(&format!("pc 0x{:08x}", 0x8000_0000 + i * 4));
-        w.tx_attr(tx, label_key, &Value::Str(tx_label))?;
-        let fetch_label = w.intern(&format!("fetch pc 0x{:08x}", 0x8000_0000 + i * 4));
-        w.tx_stage(tx, fetch, lane, begin, begin + 8, &[(label_key, Value::Str(fetch_label))])?;
-        let decode_label = w.intern(&format!("decode pc 0x{:08x}", 0x8000_0000 + i * 4));
-        w.tx_stage(tx, decode, lane, begin + 8, begin + 16, &[(label_key, Value::Str(decode_label))])?;
-        w.tx_stage_begin(tx, execute, lane, begin + 16)?;
-        let execute_label = w.intern(&format!("execute pc 0x{:08x}", 0x8000_0000 + i * 4));
-        w.tx_stage_attr(tx, label_key, &Value::Str(execute_label))?;
-        w.tx_stage_attr(tx, fault, &Value::Bool(i == 22))?;
-        w.tx_stage_end(tx, execute, lane, begin + 32)?;
-        let retire_label = w.intern(&format!("retire pc 0x{:08x}", 0x8000_0000 + i * 4));
-        w.tx_event(tx, begin + 32, retire, &[(label_key, Value::Str(retire_label))])?;
-        if let Some(prev) = previous {
-            let dependency_label = w.intern(&format!("dependency {prev} to {tx}"));
-            w.relate(dependency, prev, tx, &[(label_key, Value::Str(dependency_label))])?;
-        }
-        previous = Some(tx);
-        if i % 4 == 0 {
-            let span = w.begin_tx(spans, begin)?;
-            w.set_tx_kind(span, TxKind::Client)?;
-            let span_label = w.intern(&format!("submission {i}"));
-            w.tx_attr(span, label_key, &Value::Str(span_label))?;
-            let transfer = w.begin_tx(if i % 8 == 0 { reads } else { writes }, begin + 16)?;
-            w.set_tx_parent(transfer, span)?;
-            w.set_tx_kind(transfer, TxKind::Consumer)?;
-            let transfer_label = w.intern(&format!("DMA transfer {i}"));
-            w.tx_attr(transfer, label_key, &Value::Str(transfer_label))?;
-            for (key, value) in &attrs {
-                w.tx_attr(transfer, *key, value)?;
+    let cpu_run = simulate();
+    let mut insn_tx = Vec::with_capacity(cpu_run.len());
+    for insn in &cpu_run {
+        let begin = cycle_time(insn.enter[0].unwrap());
+        let tx = w.begin_tx(if insn.wrong_path { speculative } else { instructions }, begin)?;
+        insn_tx.push(tx);
+        w.tx_attr(tx, pc_key, &Value::U64(insn.pc))?;
+        let label = w.intern(&insn.label());
+        w.tx_attr(tx, label_key, &Value::Str(label))?;
+        let end = cycle_time(insn.end);
+        for (s, name) in stage_names.iter().enumerate() {
+            let Some(enter) = insn.enter[s] else { break };
+            let leave = insn.enter.get(s + 1).copied().flatten().map_or(end, cycle_time);
+            let stage_label = w.intern(&format!("{} 0x{:08x}", STAGES[s], insn.pc));
+            let mut attrs = vec![(label_key, Value::Str(stage_label))];
+            if s == 3 && matches!(insn.op, Op::Load | Op::Store) {
+                attrs.push((fault, Value::Bool(insn.fault.is_some())));
             }
-            let memory_label = w.intern(&format!("DMA memory access {i}"));
-            let mut stage_attrs = attrs[..2].to_vec();
-            stage_attrs.push((label_key, Value::Str(memory_label)));
-            w.tx_stage(
-                transfer,
-                execute,
-                memory,
-                begin + 16,
-                begin + 56,
-                &stage_attrs,
-            )?;
-            let request_label = w.intern(&format!("DMA request {i}"));
-            let mut event_attrs = attrs[2..4].to_vec();
-            event_attrs.push((label_key, Value::Str(request_label)));
-            w.tx_event(transfer, begin + 40, request, &event_attrs)?;
-            let relation_label = w.intern(&format!("instruction {i} starts DMA transfer"));
-            let mut relation_attrs = attrs[4..6].to_vec();
-            relation_attrs.push((label_key, Value::Str(relation_label)));
-            w.relate(request, tx, transfer, &relation_attrs)?;
-            let log_label = format!("DMA issue log {i}");
-            w.log_with_parent(
-                sites[2],
-                begin + 20,
-                Some(transfer),
-                &[LogArg::U64(i), LogArg::Text("DMA issued"), LogArg::Text(&log_label)],
-            )?;
-            w.end_tx(
-                transfer,
-                begin + 64,
-                if i == 24 {
-                    TxStatus::Error
-                } else {
-                    TxStatus::Ok
-                },
-            )?;
-            w.end_tx(span, begin + 72, TxStatus::Ok)?;
+            w.tx_stage(tx, *name, main_lane, cycle_time(enter), leave, &attrs)?;
         }
+        for stall in &insn.stalls {
+            let name = w.intern(stall.name);
+            let stall_label = w.intern(&stall.label);
+            w.tx_stage(tx, name, stall_lane, cycle_time(stall.begin), cycle_time(stall.end), &[(label_key, Value::Str(stall_label))])?;
+        }
+        if insn.mispredict {
+            let resolve = cycle_time(insn.enter[3].unwrap());
+            let event_label = w.intern(&format!("mispredicted 0x{:08x}; fetch redirected", insn.pc));
+            w.tx_event(tx, resolve, mispredict, &[(label_key, Value::Str(event_label))])?;
+        }
+        if !insn.squashed {
+            let event_label = w.intern(&format!("retire 0x{:08x}", insn.pc));
+            w.tx_event(tx, end, retire, &[(label_key, Value::Str(event_label))])?;
+        }
+        w.end_tx(tx, end, if insn.squashed { TxStatus::Aborted } else { TxStatus::Ok })?;
+    }
+    // Operand dependencies between nearby instructions of the committed path.
+    for (k, insn) in cpu_run.iter().enumerate() {
+        for &(reg, producer) in &insn.deps {
+            if insn.squashed || insn.order - cpu_run[producer].order > 4 {
+                continue;
+            }
+            let dependency_label = w.intern(&format!("{reg}: 0x{:08x} to 0x{:08x}", cpu_run[producer].pc, insn.pc));
+            w.relate(dependency, insn_tx[producer], insn_tx[k], &[(label_key, Value::Str(dependency_label))])?;
+        }
+    }
+    // DMA doorbell stores, in the order their memory stage begins.
+    let doorbells: Vec<(u64, TxId)> = cpu_run
+        .iter()
+        .zip(&insn_tx)
+        .filter(|(insn, _)| !insn.squashed && insn.asm.ends_with(",8(s1)"))
+        .map(|(insn, tx)| (cycle_time(insn.enter[3].unwrap()), *tx))
+        .collect();
+    // One DMA transfer every 128 ns, each requested by the latest doorbell store
+    // whose memory stage began by then.
+    for i in (0..48u64).step_by(4) {
+        let begin = 64 + i * 32;
+        let rung = doorbells.iter().take_while(|(t, _)| *t <= begin + 16).count();
+        let doorbell = doorbells[rung.max(1) - 1].1;
+        let span = w.begin_tx(spans, begin)?;
+        w.set_tx_kind(span, TxKind::Client)?;
+        let span_label = w.intern(&format!("submission {i}"));
+        w.tx_attr(span, label_key, &Value::Str(span_label))?;
+        let transfer = w.begin_tx(if i % 8 == 0 { reads } else { writes }, begin + 16)?;
+        w.set_tx_parent(transfer, span)?;
+        w.set_tx_kind(transfer, TxKind::Consumer)?;
+        let transfer_label = w.intern(&format!("DMA transfer {i}"));
+        w.tx_attr(transfer, label_key, &Value::Str(transfer_label))?;
+        for (key, value) in &attrs {
+            w.tx_attr(transfer, *key, value)?;
+        }
+        let memory_label = w.intern(&format!("DMA memory access {i}"));
+        let mut stage_attrs = attrs[..2].to_vec();
+        stage_attrs.push((label_key, Value::Str(memory_label)));
+        w.tx_stage(
+            transfer,
+            execute,
+            memory,
+            begin + 16,
+            begin + 56,
+            &stage_attrs,
+        )?;
+        let request_label = w.intern(&format!("DMA request {i}"));
+        let mut event_attrs = attrs[2..4].to_vec();
+        event_attrs.push((label_key, Value::Str(request_label)));
+        w.tx_event(transfer, begin + 40, request, &event_attrs)?;
+        let relation_label = w.intern(&format!("doorbell store starts DMA transfer {i}"));
+        let mut relation_attrs = attrs[4..6].to_vec();
+        relation_attrs.push((label_key, Value::Str(relation_label)));
+        w.relate(request, doorbell, transfer, &relation_attrs)?;
+        let log_label = format!("DMA issue log {i}");
+        w.log_with_parent(
+            sites[2],
+            begin + 20,
+            Some(transfer),
+            &[LogArg::U64(i), LogArg::Text("DMA issued"), LogArg::Text(&log_label)],
+        )?;
         w.end_tx(
-            tx,
-            begin + 40,
-            if i % 9 == 8 {
-                TxStatus::Aborted
+            transfer,
+            begin + 64,
+            if i == 24 {
+                TxStatus::Error
             } else {
                 TxStatus::Ok
             },
         )?;
+        w.end_tx(span, begin + 72, TxStatus::Ok)?;
     }
     for (i, site) in sites.into_iter().enumerate() {
         let log_label = format!("injected fault log {i}");
@@ -655,6 +944,16 @@ fn verify(path: &Path) -> vtr::Result<()> {
     let stream = |path: &[&str]| r.find_node(path).unwrap();
     assert_eq!(r.stream_clock(stream(&["soc", "cpu", "thread0"])), Some(r.clocks()[0].id));
     assert_eq!(r.stream_clock(stream(&["soc", "dma", "memory_bus"])), Some(r.clocks()[1].id));
+    // The pipeline: several instructions in flight at once, stages on the main
+    // lane and waits on the stall lane, wrong-path instructions squashed.
+    let instructions = stream(&["soc", "cpu", "thread0", "instructions"]);
+    let speculative = stream(&["soc", "cpu", "thread0", "speculative"]);
+    let insns: Vec<_> = transactions.iter().filter(|t| t.generator == instructions).collect();
+    let lanes: std::collections::BTreeSet<_> = insns.iter().flat_map(|t| &t.stages).map(|s| r.str(s.lane)).collect();
+    assert_eq!(lanes, ["main", "stall"].into());
+    let in_flight = |t: u64| insns.iter().filter(|i| i.begin <= t && t < i.end).count();
+    assert_eq!((0..2048).map(in_flight).max(), Some(5));
+    assert!(transactions.iter().filter(|t| t.generator == speculative).all(|t| t.status == TxStatus::Aborted));
     let vars = r
         .hierarchy()
         .ids()

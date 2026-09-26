@@ -1259,6 +1259,48 @@ fn the_checked_in_showcase_has_two_pipeline_streams_on_a_cycle_time_base() {
 }
 
 #[test]
+fn the_feature_showcase_cpu_paints_stage_cells_and_stall_bands() {
+    // core/vtr/examples/feature_showcase.rs: a five-stage in-order pipeline with
+    // its waits on a second lane and squashed wrong-path instructions.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../volna/examples/feature_showcase.vtr");
+    let session = OpenSpec::Path(path).open().unwrap();
+    let mut app = App::new();
+    app.set_session(session.clone());
+    pump(&mut app);
+    let stream = scope(session.as_ref(), &["soc", "cpu", "thread0"]);
+    app.handle(Command::ActivateMembers(vec![Member::Stream(stream)]));
+    pump(&mut app);
+    let id = app.panels.focused_id();
+    let theme = Theme::one_dark();
+    frame(&mut app, id, &theme);
+    let p = app.panels.pipeline(id).expect("a pipeline panel");
+    assert_eq!(p.palette().primary_lane(), "main");
+    let stages = ["fetch", "decode", "execute", "memory", "writeback"];
+    assert_eq!(p.palette().names(), stages);
+    let Rows::Ready(set) = p.rows(&app.doc) else {
+        panic!("loaded")
+    };
+    let aborted = (0..set.len())
+        .filter(|r| set.get(*r).unwrap().1.status == vtr::TxStatus::Aborted)
+        .count();
+    assert_eq!((set.len(), aborted), (160, 14));
+    let fills: Vec<_> = stages.iter().map(|s| p.palette().style(s).fill).collect();
+    let band = theme.editor.text.with_alpha(0.28);
+    let cells = p.last_layout().cells;
+    let inside: Vec<_> = app
+        .scene()
+        .quads()
+        .filter(|(rect, _)| cells.contains(rect.origin))
+        .map(|(_, color)| color)
+        .collect();
+    for fill in &fills {
+        assert!(inside.contains(fill), "a {fill:?} cell");
+    }
+    assert!(inside.contains(&band), "a stall band");
+}
+
+#[test]
 fn the_verilator_demo_counts_in_its_clock_and_feeds_the_transaction_panel() {
     use volna_core::data::transactions::TransactionRef;
     use volna_core::transaction::TxPanelState;
