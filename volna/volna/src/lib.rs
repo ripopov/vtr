@@ -13,6 +13,8 @@
 pub mod app;
 pub mod assets;
 mod canvas;
+#[cfg(not(target_family = "wasm"))]
+pub mod desktop;
 mod dock;
 mod frame_stats;
 #[cfg(not(target_family = "wasm"))]
@@ -91,6 +93,10 @@ fn window_options(cx: &mut App) -> WindowOptions {
         app_owns_titlebar_drag: true,
         window_decorations: Some(window_decorations(decorations.as_deref())),
         window_min_size: Some(size(px(800.0), px(500.0))),
+        #[cfg(not(target_family = "wasm"))]
+        app_id: Some(desktop::APP_ID.into()),
+        #[cfg(target_os = "linux")]
+        icon: Some(desktop::window_icon()),
         ..Default::default()
     }
 }

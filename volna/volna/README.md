@@ -73,6 +73,11 @@ lockfile. Root commands without `-p` build the core crates; use `-p volna`,
 `-p volna-core` or `-p volna-egui` for the viewer, or `--workspace` to include
 everything.
 
+The desktop icon checks require `uv` with Python 3.11+ (isolated dependencies
+are pinned in the scripts), plus `desktop-file-utils` on Linux. They render the
+SVG headlessly, compare every committed raster representation, and validate
+the three distribution layouts in temporary directories.
+
 `cargo test -p volna-core` runs the headless viewer tests: they feed commands,
 assert on model state and on the display list, and run on every platform.
 
@@ -83,6 +88,70 @@ cd volna/volna
 cargo run -p volna --profile viewer -- examples/picorv32.vtr
 cargo test -p volna
 ```
+
+## Desktop packaging and application icons
+
+The GPUI application uses `assets/app-icon/volna.svg` as its canonical artwork.
+Its generated PNG, ICO and ICNS assets are checked in, so normal Cargo builds
+do not need an SVG converter. [Regeneration instructions](assets/app-icon/README.md)
+describe how to update them together.
+
+Build on the destination OS, then stage its native distribution from the
+repository root (Python 3.11+):
+
+```sh
+cargo build --locked -p volna --profile viewer
+
+# macOS: creates target/desktop/Volna.app with Info.plist and ICNS resources.
+python3 volna/volna/tools/package-desktop.py --platform macos \
+  --binary target/viewer/volna --output target/desktop
+
+# Linux: creates a prefix tree with bin/, share/applications/ and share/icons/.
+python3 volna/volna/tools/package-desktop.py --platform linux \
+  --binary target/viewer/volna --output target/desktop/linux
+
+# Windows (PowerShell): the ICO is already embedded by Cargo's build script.
+python volna/volna/tools/package-desktop.py --platform windows --binary target/viewer/volna.exe --output target/desktop/windows
+```
+
+On macOS, copy `target/desktop/Volna.app` into `/Applications` or
+`~/Applications`. Finder and the Dock use its bundle icon. An unbundled
+`cargo run` also sets the Dock icon at startup. The staging command does not
+sign or notarize the application.
+
+On Linux, install the staged tree into `/usr/local`:
+
+```sh
+sudo cp -R target/desktop/linux/. /usr/local/
+sudo update-desktop-database /usr/local/share/applications
+sudo gtk-update-icon-cache --force --ignore-theme-index /usr/local/share/icons/hicolor
+```
+
+The launcher, Wayland app ID and X11 WM class all use
+`io.github.ripopov.volna`. X11 also receives embedded PNG pixels, including
+when launched through Cargo. Wayland resolves the icon from the installed
+desktop entry and icon theme, so install those files before running from Cargo
+if you want a Wayland taskbar icon. The icon cache command requires GTK tools;
+the desktop database command requires `desktop-file-utils`.
+
+On Windows, use the staged `volna.exe`, or create a normal Windows shortcut to
+it. Explorer, shortcuts, the taskbar and GPUI's window class use the executable's
+embedded icon resource. Building requires the Windows SDK resource compiler
+(`rc.exe` for MSVC, or the corresponding MinGW/LLVM resource compiler when
+cross-compiling); its absence is a build failure.
+
+Validate a built distribution without opening a window:
+
+```sh
+uv run --script volna/volna/tools/check-desktop.py \
+  --platform macos --binary target/viewer/volna
+```
+
+Substitute `linux` or `windows` and the native binary path as appropriate.
+`.github/workflows/volna-desktop.yml` builds and checks all three platforms,
+including the actual Windows PE icon resources and the native window identity.
+The standalone web page uses the SVG as its favicon. The minimal egui frontend
+retains its existing packaging.
 
 ## Build and run (native, egui)
 

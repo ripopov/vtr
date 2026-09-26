@@ -27,7 +27,7 @@ default = []
 # Browser verification of complete transaction loads before a track UI exists.
 remote-profile = []
 # Offscreen Metal rendering for screenshots and frame-time measurement (macOS).
-visual-test = ["dep:image", "dep:libtest-mimic"]
+visual-test = ["dep:libtest-mimic"]
 
 [dependencies]
 # `profiler` records whole-window frame histograms for the status bar.
@@ -47,12 +47,18 @@ env_logger = "0.11"
 tempfile = "3"
 url = "2"
 notify = "7"
+image = { version = "0.25", default-features = false, features = ["png"] }
 # JSON highlighting in the settings editor; the web build keeps the stub.
 gpui-kit = { version = "=0.6.1", features = ["tree-sitter"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 libtest-mimic = { version = "0.8", optional = true }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSImage"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData"] }
+
+[build-dependencies]
+embed-resource = "3"
 
 [dev-dependencies]
 volna-core = { path = "../volna-core", features = ["testing"] }

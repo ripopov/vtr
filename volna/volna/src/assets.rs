@@ -1,4 +1,4 @@
-//! GPUI asset source over the icons and fonts bundled in `volna_core`.
+//! GPUI assets: frontend branding plus shared semantic icons and fonts.
 
 use std::borrow::Cow;
 
@@ -14,6 +14,12 @@ pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        if let Some((_, bytes)) = crate::ui::branding::ASSETS
+            .iter()
+            .find(|(name, _)| *name == path)
+        {
+            return Ok(Some(Cow::Borrowed(bytes)));
+        }
         match IconName::from_path(path) {
             Some(icon) => Ok(Some(Cow::Borrowed(icon.svg()))),
             None => ComponentAssets.load(path),
@@ -22,6 +28,13 @@ impl AssetSource for Assets {
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut paths = ComponentAssets.list(path)?;
+        paths.extend(
+            crate::ui::branding::ASSETS
+                .iter()
+                .map(|(name, _)| *name)
+                .filter(|name| name.starts_with(path))
+                .map(SharedString::from),
+        );
         paths.extend(
             IconName::ALL
                 .iter()

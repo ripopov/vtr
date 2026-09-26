@@ -30,6 +30,9 @@ fn main() {
     };
     let policy = options.policy;
     volna::application().run(move |cx| {
+        cx.set_app_identity(volna::desktop::APP_ID, "Volna");
+        #[cfg(target_os = "macos")]
+        volna::desktop::set_dock_icon();
         volna::init_app(cx);
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {

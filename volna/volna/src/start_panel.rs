@@ -16,7 +16,7 @@ use volna_core::panels::{PanelId, PanelsCommand};
 
 use crate::app::Workspace;
 use crate::theme::{ThemePx, theme};
-use crate::ui::{Icon, IconName};
+use crate::ui::{IconName, branding};
 
 /// Streams listed as shortcuts before the list is cut.
 const MAX_LISTED: usize = 8;
@@ -138,11 +138,7 @@ impl Render for StartPanelView {
             .bg(colors.bg)
             .font_family(t.ui_font)
             .text_size(px(t.ui_size))
-            .child(
-                Icon::new(IconName::ListTree)
-                    .size(t.px(40.0))
-                    .color(colors.text_placeholder),
-            );
+            .child(branding::seal(t.px(96.0), colors.text_placeholder));
         let Some(summary) = summary else {
             return body.child(div().text_color(colors.text_muted).child("No trace open"));
         };

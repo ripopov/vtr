@@ -1,0 +1,52 @@
+name: Volna desktop icons
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+            binary: target/debug/volna
+          - os: macos-14
+            platform: macos
+            binary: target/debug/volna
+          - os: windows-2022
+            platform: windows
+            binary: target/debug/volna.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      VOLNA_WORKSPACE: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace path dependency
+        run: git submodule update --init --depth 1 ext/elkrs
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: Install Linux native build and desktop validation dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y desktop-file-utils libasound2-dev libfontconfig1-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xinput-dev
+      - name: Verify the macOS Metal compiler
+        if: runner.os == 'macOS'
+        run: xcrun -sdk macosx metal --version
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Check icon renderings and distribution layouts without a display
+        run: uv run --script volna/volna/tools/check-desktop.py
+      - name: Build the native executable including platform icon resources
+        run: cargo build --locked -p volna --bin volna
+      - name: Check native window identity without a display
+        run: cargo test --locked -p volna --lib desktop_
+      - name: Validate the linked executable and package
+        run: uv run --script volna/volna/tools/check-desktop.py --platform ${{ matrix.platform }} --binary ${{ matrix.binary }}

@@ -2,6 +2,7 @@
 set -eu
 export VOLNA_WORKSPACE=off
 cd "$(dirname "$0")"
+uv run --script tools/check-desktop.py
 # The toolkit-free core, the GPUI frontend (this crate) and the egui frontend.
 cargo fmt --package volna-core --package volna --package volna-egui -- --check
 cargo clippy --locked -p volna-core -p volna -p volna-egui --all-targets --all-features -- -D warnings

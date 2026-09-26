@@ -13,6 +13,32 @@ tools, viewers and integrations. Consumers, including Surfer, reference these
 canonical paths directly.
 See the [architecture guide](ARCHITECTURE.md) for boundaries and integration status.
 
+## Volna application identity and icons
+
+Application branding belongs to the GPUI frontend in `volna/volna/assets`,
+separate from the toolkit-neutral semantic icons in `volna-core`. A single SVG
+produces committed PNG, ICO and ICNS assets through a pinned resvg renderer;
+ordinary builds do not depend on an image-conversion toolchain.
+
+The integration follows the native shell contracts:
+[Apple's bundle icon key](https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html#//apple_ref/doc/uid/TP40009249-SW10),
+[Windows icon resources](https://learn.microsoft.com/en-us/windows/win32/menurc/about-icons),
+and the [freedesktop desktop entry specification](https://specifications.freedesktop.org/desktop-entry/latest-single/).
+GPUI 0.3.4's Windows backend loads numeric icon resource 1, while its X11
+backend consumes `WindowOptions::icon` and its Wayland backend publishes
+`WindowOptions::app_id`. The desktop entry, WM class and bundle identifier use
+`io.github.ripopov.volna`. macOS bundles carry the ICNS resource; the native
+entry point also sets AppKit's application icon for unbundled Cargo runs.
+
+A window icon alone was rejected: it cannot brand macOS Finder bundles or
+Windows executable files, and Wayland needs an installed desktop entry.
+Embedding the PNG inside an SVG was also rejected because it would discard
+the scalable source. A small staging script supplies the native layouts
+without introducing an installer framework. Headless checks compare decoded
+pixels at every size, validate staged metadata and inspect the linked Windows
+resources; the CI matrix builds on macOS, Linux and Windows without opening
+desktop windows.
+
 ## Volna hierarchy browser
 
 Scopes and streams share the existing container tree; variables and generators

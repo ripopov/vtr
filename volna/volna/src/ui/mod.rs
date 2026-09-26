@@ -1,5 +1,6 @@
 //! Reusable, theme-driven UI primitives.
 
+pub(crate) mod branding;
 pub mod button;
 pub mod header;
 pub mod icon;

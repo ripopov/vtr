@@ -13,6 +13,25 @@ fn init(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn desktop_window_matches_shell_identity(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        let options = crate::window_options(cx);
+        assert_eq!(options.app_id.as_deref(), Some(crate::desktop::APP_ID));
+        let launcher = include_str!("../packaging/io.github.ripopov.volna.desktop");
+        let wm_class = launcher
+            .lines()
+            .find_map(|line| line.strip_prefix("StartupWMClass="));
+        assert_eq!(options.app_id.as_deref(), wm_class);
+        #[cfg(target_os = "linux")]
+        {
+            let icon = options.icon.expect("X11 window icon");
+            assert_eq!(icon.dimensions(), (256, 256));
+            assert!(icon.pixels().any(|pixel| pixel.0[0] > 240));
+        }
+    });
+}
+
+#[gpui_kit::test]
 fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);

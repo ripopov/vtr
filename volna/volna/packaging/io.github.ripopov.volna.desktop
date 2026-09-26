@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Volna
+Comment=VTR and FST waveform viewer
+Exec=volna %f
+TryExec=volna
+Icon=io.github.ripopov.volna
+Terminal=false
+Categories=Development;Electronics;
+StartupWMClass=io.github.ripopov.volna

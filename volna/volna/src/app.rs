@@ -1276,7 +1276,6 @@ impl Workspace {
                             window.show_window_menu(ev.position)
                         })
                     })
-                    .child(Icon::new(IconName::AudioWaveform).color(colors.icon_accent))
                     .child(
                         div()
                             .font_weight(gpui_kit::FontWeight::SEMIBOLD)
@@ -1522,11 +1521,10 @@ impl Workspace {
             .bg(t.editor.bg)
             .font_family(t.ui_font)
             .text_size(px(t.ui_size))
-            .child(
-                Icon::new(IconName::AudioWaveform)
-                    .size(t.px(40.0))
-                    .color(colors.text_placeholder),
-            )
+            .child(crate::ui::branding::seal(
+                t.px(96.0),
+                colors.text_placeholder,
+            ))
             .child(
                 div()
                     .mt_2()

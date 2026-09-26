@@ -8515,6 +8515,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
+ "embed-resource",
  "env_logger",
  "futures",
  "gpui-kit",
@@ -8525,6 +8526,9 @@ dependencies = [
  "log",
  "lsp-types",
  "notify",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "serde",
  "serde_json",
  "tempfile",

@@ -1,0 +1,2 @@
+// ID 1 is used by GPUI's Windows LoadImageW call.
+1 ICON "assets/app-icon/volna.ico"
