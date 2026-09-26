@@ -1596,3 +1596,131 @@ that shaped the format:
   one clock) was built first and removed: it showed one clock at a time,
   added a mode to every panel and the workspace, and repeated what the ruler
   chips show for all clocks at once. Go-to counts the selected clock.
+
+## Pipeline tracers: keyed items over the transaction writer
+
+**Chosen**: pipeline producers describe hardware events against keys the
+hardware already has, and a header-only keyed tracker (`vtr_track.hpp`) owns
+transaction identity: key spaces, groups, ordered aborts and buffered
+attributes, over the unchanged C API. The `vtr_trace` package exposes it to
+SystemVerilog through plain DPI-C imports. The design, its C910 proof of
+concept and the rejected alternatives are in
+[c910-verilator-tx-stream.html](c910-verilator-tx-stream.html); the points that
+shaped the API:
+
+* Instructions change names on the way through a core (a front-end order, a
+  ROB index assigned at dispatch, physical registers), so a single transaction
+  handle or one debug sequence number carried in the RTL (BOOM's `fetch_seq`,
+  XiangShan's `seqNum`, RSD's `sid`) is either unavailable to a bound tracer or
+  requires changing the design. Key chaining reaches the same identity from
+  signals the RTL already has; a design that carries a sequence number uses one
+  key space.
+* One key naming several items (a group) exists because the C910 folds up to
+  three instructions into one ROB entry and retires them with one signal.
+  `bind_oldest` moves the oldest items of an in-order space so the tracer need
+  not know which front-end sequence numbers a ROB create port consumed.
+* Items are ordered by open, not by a key comparison: ROB indices wrap and the
+  C910 restarts IIDs at zero after every ROB flush, so "younger than" is only
+  well defined as open order. `abort_younger` is then a range of an ordered map.
+* A key reused before its item ended aborts that item and counts a diagnostic
+  instead of failing: at simulator speed a missed retirement is a tracer bug to
+  report in the log, not a reason to stop a run. The same rule covers calls
+  on keys that name nothing.
+* Attributes are buffered with last value wins because the writer forbids a
+  repeated key and the C910 learns an instruction's full PC only at retire.
+  Items open at close get their buffered attributes written before the writer
+  ends them with status *open*; the key tables are dropped at the close notice
+  so a file opened later never addresses the previous file's transactions.
+* Questa's `$begin_transaction` family and UVM's `uvm_tr_database` match VTR's
+  stream/transaction/relation model, and the package mirrors their names, but
+  they have no keys, stages or ordered aborts: the three things pipeline
+  tracers need. Native system tasks in the fork were rejected until the cost
+  gate says otherwise, because a non-context DPI import with scalar arguments
+  already compiles to a direct call; the gates hold with DPI.
+* Entering the stage an item is already in continues it. Pipeline register
+  valids stay high while a stage holds, and tracers that report them every
+  cycle would otherwise split one stage into many; two consecutive stages
+  of the same name on one lane carry no information a viewer could show.
+* The C910 tracer opens instructions in IR, not at decode as first designed.
+  The C910 inserts uops between decode and rename, so decode-opened items
+  would not be in program order and `bind_oldest` would group an
+  instruction with its successor instead of its own uop. Opening at the
+  first stage where the order is final and back-dating the earlier stage
+  keeps open order equal to program order without new API (an insert-after
+  open was considered and dropped). Instructions a flush catches in ID are
+  opened and aborted at the flush.
+* Probes that are pipeline register valids are applied one edge late with
+  `_at` times; the front end runs entirely one edge late because telling a
+  further uop from the next instruction needs the IR register's new
+  contents. The Python differential checker runs the same rules in the same
+  order over the recorded probes of a full-dump capture and must find the
+  identical stream (411,324 transactions and 1,167 relations on one
+  CoreMark iteration). It found the one real bug: on a ROB-flush edge the
+  create ports show a dispatch the ROB discards (it resets its create
+  pointer), which left orphan entries that collided with the IIDs issued
+  after the flush.
+* Cost, measured by `pipeline_cost.py` (docs/BENCHMARK_RESULTS.md): the
+  first build cost 1.23x (pipeline only, on the waveform-capable model) and
+  1.045x (full dump plus pipeline) against gates of 1.10x and 1.03x. The
+  time went to `vtr_writer_intern` on every stage name and attribute key
+  (UTF-8 check and SipHash across the FFI), heap allocation per item, name
+  and group, a global map and mutex on the way to the context's runtime,
+  and two attributes derivable from others (`pc_partial`, a retire
+  counter). The tracker now keeps an FNV-hashed cache in front of the
+  interner, recycles items with their buffers, uses open-addressing key
+  tables with inline groups and sorted vectors for open order, the fork's
+  sink caches the runtime per thread, and the tracer binds only the probe
+  bits it reads. The remaining 0.7 s of a waveform-capable model is
+  `--trace-vtr`'s instrumentation, present even with no signal registered,
+  so pipeline-only runs use a model with every file `tracing_off`
+  (`SIGNALS=0`): 1.05x and 1.00x. Fetch, member stages, dependencies and
+  the memory trackers added about 30% more calls; replacing the runtime's
+  pthread mutex with a spin lock (uncontended in a single-threaded model),
+  caching the file and host time exponents at open (the fork's sink
+  computed the file's with `log10` on every call) and relating groups
+  without temporary vectors brought it back to 1.08x and 1.00x.
+* Folded members get their own stages through the tracer's shadow of
+  physical registers, not through a tracker feature: dispatch reports each
+  instruction's destination register in program order, and a pipe that
+  names a destination register names its instruction. Pipes without one
+  fall back to the entry's first waiting member without a destination;
+  0.03% of retired instructions then show no execute stage (the old replay
+  matched members in program order and lost 2.5%). The same shadow gives
+  `wakeup` relations, one per producer, from the in-flight producers of
+  the source registers at the first register read; a producer that
+  already retired has no transaction to point at.
+* Fetch stages are attached by matching the oldest fetch block that holds
+  an instruction's 16-byte chunk, dropping blocks ID has moved past (a new
+  chunk, or a PC not after the last one taken, which a loop re-entering
+  its chunk produces). A per-instruction fetch identity does not exist in
+  the C910; the matching leaves 15 instructions at boot without fetch
+  stages. A pipe cancel only stops the block leaving IP; treating it as a
+  kill of the block in IB lost 11% of the matches.
+* Memory-side transactions use their own trackers keyed by what the
+  hardware uses: store queue entries (aborted by the flush pop when
+  uncommitted) and AXI ids. The prefetcher issues several reads with one
+  id, which AXI answers in order, so a read's key is its id plus 32 times
+  its sequence number for that id. A read-buffer read belongs to the load
+  or store that missed; once a store has retired its store queue entry is
+  the parent, which yields the instruction, store, bus read chain.
+* The standalone sink opens its file at the first package call rather than
+  at a start-of-simulation callback, because Verilator only runs VPI
+  callbacks its harness forwards; it closes at `cbEndOfSimulation`, with a
+  process-exit fallback. `+vtr_trace=` names the file so that a simulator
+  without it records nothing.
+* Volna's stage palette orders names by their mean position within a row
+  rather than first appearance, so hues follow the pipeline whatever the
+  trace shows first; with more than eight names neighbours alternate
+  between two lightnesses, since 250 degrees of hue give a dozen stages
+  only 20 degrees each. At half a million rows a loaded generator is about
+  1.1 KB per transaction (541 MiB; 699 MiB for the C910 iteration with fetch stages), above
+  the default 256 MiB object limit, so the panel's explicit refusal and
+  retry apply. A compact loaded form for large pipelines is the fix at the
+  owning layer and is not done.
+* A tracer places its streams with the package's scope rule, and `"/TX.core0"`
+  names a scope of the file's own rather than an instance: the C910 tracer
+  groups its streams and the core clock under a root `TX` per core instead
+  of seven levels down the SoC's instance tree, where they were hard to find
+  among 7,000 scopes. Hierarchy nodes need no instance behind them (SPEC 5),
+  so this is placement only; the clock loses its pairing with the dumped net
+  by path, which Volna does not use.

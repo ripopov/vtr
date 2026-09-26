@@ -650,9 +650,10 @@ edges. It uses the transaction encoding and adds no section, value tag or
 node kind.
 
 * A clock is a stream of kind `CLOCK` with exactly one generator, named
-  `edges`. The stream is named after the clock net and placed in the net's
-  scope, so a reader pairs it with the net's waveform by path when that was
-  dumped. A clock's path is its stream's path joined with `.`.
+  `edges`. The stream is normally named after the clock net and placed in the
+  net's scope, so a reader pairs it with the net's waveform by path when that
+  was dumped; a producer may place it elsewhere, for example beside the
+  streams counted in it, and the pairing by path is then lost. A clock's path is its stream's path joined with `.`.
 * A *stretch* is one transaction of `edges`: `begin` is its first rising
   edge, `end` its last, and the attribute `vtr.period` (tag 10, *time*) the
   spacing between them, in file units. `end - begin` is a whole multiple of
@@ -865,3 +866,35 @@ the calling instance's scope, next to the net's waveform; `vtr_clock_run`
 and `vtr_clock_stop` become stretches in the recording's time unit. A period
 that is not a whole number of file units is not rounded: it is reported as a
 warning in the `simulation_log` stream at close.
+
+### Producer example: SystemVerilog pipeline tracers
+
+A tracer module, bound to an unchanged design, records instructions through the
+tracker part of the same package. It names items by (key space, key), the
+identifiers the hardware already has; `vtr_track.hpp` maps them to open
+transactions:
+
+```systemverilog
+import vtr_trace::*;
+initial begin
+  p  = vtr_pipeline("^", "pipeline", "clk");  // PIPELINE stream, generator "instruction"
+  sn = vtr_keyspace(p, "sn");
+end
+always @(posedge clk) begin                  // oldest pipeline position first
+  if (retire)  vtr_item_close(sn, k_w, VTR_TX_OK);
+  if (squash)  void'(vtr_item_abort_younger(sn, k_x));
+  if (id_load) vtr_item_stage(sn, k_f, "D");
+  if (if_fire) begin k_f = ++n; vtr_item_open(sn, k_f, "F"); vtr_item_attr_u64(sn, k_f, "pc", pc); end
+end
+```
+
+Each tracker is a stream (here of kind `PIPELINE`) with one generator, placed
+by a scope path: beside the bound unit (`"^"`), or in a scope of the file's
+own outside the instance tree (`"/TX.core0"`, a root node `TX`). Its
+`vtr.clock` (7.4) names the clock its stages are counted in. An item is one
+transaction, a stage a stage on the default lane (or a named lane), and aborts
+end items with status *aborted*; items still in flight at close keep status
+*open*. Keys are not recorded: a tracer that wants an identifier in the file
+sets it as an attribute. Misuse (a key that names no item, a key reused before
+its item ended) is reported as warnings in the `simulation_log` stream at
+close. The package adds no section, value tag or format version.

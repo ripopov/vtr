@@ -45,23 +45,24 @@ for (const width of [1280, 390]) test(`page layout, self-test and accessibility 
   assert.equal(await b.evaluate('document.querySelectorAll(".callout,.card,.badge").length'), 0, 'no callout boxes');
   assert.equal(await b.evaluate('document.querySelectorAll("table").length'), 2, 'at most two tables in the prose');
   assert.equal(await b.evaluate('document.getElementById("cv").clientWidth > 300'), true, 'the pipeline canvas is visible');
-  assert.equal(await b.evaluate('document.getElementById("n-ab").textContent'), '111', 'prose counts come from the data');
+  assert.equal(await b.evaluate('document.getElementById("n-ab").textContent'), String(await b.evaluate('C9L.counts().aborted')), 'prose counts come from the data');
   assert.deepEqual(b.exceptions, []);
 });
 
 test('guided scenarios select the recorded instructions', {timeout: 30000}, async t => {
   const b = await open(1280); t.after(() => b.close());
+  const guideSeq = name => b.evaluate(`C9L.GUIDES.${name}().seq`);
   await b.click('[data-guide="fold"]');
   let s = await state(b);
-  assert.equal(s.sel, 412); assert.match(s.detail, /ROB entry shared with/); assert.match(s.detail, /fold3/);
+  assert.equal(s.sel, await guideSeq('fold')); assert.match(s.detail, /ROB entry shared with/); assert.match(s.detail, /fold3/);
   await b.click('[data-guide="load"]');
   s = await state(b);
-  assert.match(s.selText, /^lh /); assert.match(s.detail, /AG.*DC.*DA.*WB/s);
-  const p = await b.evaluate('C9.cellPoint(415, "DC")');
+  assert.match(s.selText, /^lhu? /); assert.match(s.detail, /AG.*DC.*DA.*WB/s);
+  const p = await b.evaluate(`C9.cellPoint(${await guideSeq('load')}, "DC", 0.15)`);  // beside the cell's caption
   assert.ok(near(await b.evaluate(`C9.pixel(${p.x}, ${p.y})`), hexRgb(await b.evaluate('C9.color("DC")'))), 'the DC cell is painted');
   await b.click('[data-guide="flush"]');
   s = await state(b);
-  assert.equal(s.sel, 445); assert.equal(s.selStatus, 'ok'); assert.match(s.selText, /^beq /);
+  assert.equal(s.sel, await guideSeq('flush')); assert.equal(s.selStatus, 'ok'); assert.match(s.selText, /^b/);
   await b.click('[data-guide="wrong"]');
   s = await state(b);
   assert.equal(s.selStatus, 'aborted'); assert.match(s.detail, /aborted \(flushed\)/);
@@ -75,13 +76,14 @@ test('pointer and keyboard drive selection, cursor and zoom', {timeout: 30000}, 
   const b = await open(1280); t.after(() => b.close());
   await b.click('[data-guide="fit"]');
   await b.click('[data-guide="load"]');
-  const p = await b.evaluate('C9.cellPoint(415, "AG")');
+  const load = await b.evaluate('C9L.GUIDES.load().seq');
+  const p = await b.evaluate(`C9.cellPoint(${load}, "AG")`);
   await click(b, p);
   let s = await state(b);
-  assert.equal(s.sel, 415, 'a click on a cell selects its instruction');
-  assert.equal(s.cursor, (await b.evaluate('C9L.bySeq.get(415).stages.find(x => x.name === "AG").b')), 'and puts the cursor on its cycle');
+  assert.equal(s.sel, load, 'a click on a cell selects its instruction');
+  assert.equal(s.cursor, (await b.evaluate(`C9L.bySeq.get(${load}).stages.find(x => x.name === "AG").b`)), 'and puts the cursor on its cycle');
   await key(b, 'ArrowDown', 'ArrowDown', 40);
-  assert.equal((await state(b)).sel, 416);
+  assert.equal((await state(b)).sel, await b.evaluate(`C9L.rows[C9L.bySeq.get(${load}).i + 1].seq`));
   await key(b, 'ArrowRight', 'ArrowRight', 39);
   assert.equal((await state(b)).cursor, s.cursor + 1);
   const before = await state(b);

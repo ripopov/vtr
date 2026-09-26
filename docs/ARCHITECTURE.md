@@ -50,9 +50,9 @@ backpressure and remote admission limits stay in the protocol adapter. See
 
 | Area | Present in this repository | Direction |
 |---|---|---|
-| Verilator / RTL | Pinned backend with direct VTR tracing, VDB export/source indexing, smoke/logging/VDB checks | Preserve elaborated source semantics and explicit trace/design identity |
+| Verilator / RTL | Pinned backend with direct VTR tracing, VDB export/source indexing, smoke/logging/VDB checks; the `vtr_trace` package (declared clocks, pipeline trackers) with a standalone sink for other simulators | Preserve elaborated source semantics and explicit trace/design identity |
 | SystemC / ESL | C ABI usable from C++/SystemC; Verilator SystemC trace wrapper; FTR conversion and LWTR4SC reference/benchmarks | Broader SystemC instrumentation and ESL design semantics |
-| gem5 / pipelines | Kanata conversion, Konata reference, VDB application note and pipeline UX demo | Native gem5 integration with VTR/VDB; no gem5 backend is implemented here |
+| gem5 / pipelines | Kanata conversion, Konata reference, VDB application note and pipeline UX demo; SystemVerilog pipeline tracers over `vtr_track.hpp`, proven on the openC910 with a differential checker | Native gem5 integration with VTR/VDB over the same keyed tracker; no gem5 backend is implemented here |
 | wavepeek / AI agents | Pinned reference consumer used to study waveform query needs | VTR/VDB integration for AI-assisted debugging; no adapter is implemented here |
 | Volna / UI | VTR and FST waveforms through a shared core; GPUI native/web/VS Code and minimal native egui | VDB attachment, source and transaction views, complete-object remote loading |
 | Surfer | Pinned external VTR/VDB consumer and source-view integration | Existing integration remains usable; Volna is the official UI |

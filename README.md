@@ -32,6 +32,12 @@ The current implementation provides:
 - A pinned Verilator 5.050 backend in `ext/verilator`. The integration in
   `integrations/verilator` adds `--trace-vtr` beside `--trace-fst`; the
   benchmarks use it for a full openC910 CoreMark run.
+- The `vtr_trace` SystemVerilog package: declared clocks and pipeline
+  tracers bound to an unchanged design, which record instructions as
+  transactions through a keyed tracker (`vtr_track.hpp`), in the fork's
+  waveform file or, in other simulators, through a standalone sink. The
+  openC910 tracer records every CoreMark instruction with its stages, folds
+  and flushes; see [pipeline tracing](docs/c910-verilator-tx-stream.html).
 - `verilator_vdb_index`, a slang-based source indexer in the pinned Verilator,
   and a Surfer source tile that uses its static VDB index for highlighting,
   cursor-time signal values, and navigation without starting another process.
