@@ -174,6 +174,22 @@ svg.has-sel .node:not(.sel):not(.nb):not(.friend){opacity:.38}
 svg.has-sel .edge:not(.hl){opacity:.18}
 svg.in-step .node:not(.act):not(.sel){opacity:.5}
 svg.in-step .edge{opacity:.35}
+#scene .ghost{pointer-events:none}
+#scene .card{fill:var(--paper);stroke:var(--accent);stroke-width:2}
+/* The block a zoom enters glows first; the block it leaves keeps a dashed outline. */
+#scene .aura{animation:aura-in .3s ease-out both}
+#scene .aura rect{fill:none}
+#scene .aura.to .edge{stroke:var(--accent);stroke-width:3.5;fill:color-mix(in srgb,var(--accent) 8%,transparent)}
+#scene .aura.to .glow{stroke:var(--accent);stroke-width:18;opacity:.3;animation:aura-pulse .7s ease-in-out infinite alternate}
+#scene .aura.from .edge{stroke:var(--muted);stroke-width:2.5;stroke-dasharray:9 6}
+#scene .aura.from .glow{display:none}
+#scene .aura .pill{fill:var(--accent)}
+#scene .aura text{fill:var(--paper);font-size:14px;font-weight:700}
+#scene .aura.out{transition:opacity .9s;opacity:0}
+@keyframes aura-in{from{opacity:0}}
+@keyframes aura-pulse{from{opacity:.12}to{opacity:.42}}
+svg.in-step .node.lit:not(.act):not(.sel),svg.has-sel .node.lit:not(.sel):not(.nb):not(.friend){opacity:1}
+svg.in-step .edge.lit,svg.has-sel .edge.lit:not(.hl){opacity:1}
 .msg path.m{fill:none;stroke-width:3.2;stroke-linecap:round}
 .msg .ml{font-size:13px;font-weight:700}
 #g-msgs{pointer-events:none}
@@ -257,14 +273,14 @@ summary{cursor:pointer;font-weight:600}
         <svg id="svg" viewBox="0 0 1000 660" role="group" aria-labelledby="svg-title svg-desc">
           <title id="svg-title"></title><desc id="svg-desc"></desc>
           <defs id="defs"></defs>
-          <g id="g-frames"></g><g id="g-edges"></g><g id="g-nodes"></g><g id="g-msgs" aria-hidden="true"></g>
+          <g id="scene"><g id="live"><g id="g-frames"></g><g id="g-edges"></g><g id="g-nodes"></g><g id="g-msgs" aria-hidden="true"></g></g></g>
         </svg>
       </div>
       <div class="stripe" aria-hidden="true">
         <span><i class="sw" style="--c:var(--req)"></i>REQ</span><span><i class="sw" style="--c:var(--rsp)"></i>RSP</span><span><i class="sw" style="--c:var(--dat)"></i>DAT</span><span><i class="sw" style="--c:var(--snp)"></i>SNP (HRQ ring)</span><span><i class="sw" style="--c:var(--erq)"></i>ERQ (HRQ ring)</span><span><i class="sw" style="--c:var(--tl)"></i>TileLink</span><span><i class="sw" style="--c:var(--axi)"></i>AXI4</span><span><i class="sw d" style="--c:var(--dpi)"></i>DPI-C</span>
       </div>
       <p class="hint" id="hint"></p>
-      <p class="hint">Select any block (click, or <kbd>Tab</kbd> to it and press <kbd>Enter</kbd>) to highlight its connections and read its role, interfaces and source. <kbd>←</kbd>/<kbd>→</kbd> move between blocks; on the ring level they follow ring order. <kbd>Esc</kbd> clears the selection. The transaction player above the diagram switches levels as the flits move: pick a transaction from its menu, then play it, step it, or drag along its timeline (<kbd>←</kbd>/<kbd>→</kbd>, <kbd>Home</kbd> and <kbd>End</kbd> work there too).</p>
+      <p class="hint">Select any block (click, or <kbd>Tab</kbd> to it and press <kbd>Enter</kbd>) to highlight its connections and read its role, interfaces and source. <kbd>←</kbd>/<kbd>→</kbd> move between blocks; on the ring level they follow ring order. <kbd>Esc</kbd> clears the selection. Changing level lights up the block that holds it and zooms into it, and the transaction player above the diagram zooms between levels as the flits move: pick a transaction from its menu, then play it, step it, or drag along its timeline (<kbd>←</kbd>/<kbd>→</kbd>, <kbd>Home</kbd> and <kbd>End</kbd> work there too).</p>
     </div>
     <div class="side">
       <section class="panel" id="tx-narr" aria-labelledby="tx-h" hidden>
@@ -1249,12 +1265,13 @@ const UNCERTAIN = [
 // ---------------------------------------------------------------- rendering
 const NS = 'http://www.w3.org/2000/svg';
 const svg = document.getElementById('svg');
+const scene = document.getElementById('scene'), live = document.getElementById('live');
 const gF = document.getElementById('g-frames'), gE = document.getElementById('g-edges'), gN = document.getElementById('g-nodes'), gM = document.getElementById('g-msgs');
 const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) e.setAttribute(k, v); if (parent) parent.appendChild(e); return e; };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 const strip = s => String(s).replace(/<[^>]+>/g, '');
 
-const state = {level:'sys', bank:0, sel:null, scn:null, step:-1, playing:false, timer:null, view:null};
+const state = {level:'sys', bank:0, sel:null, scn:null, step:-1, playing:false, timer:null, dwell:0, view:null};
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function defs() {
@@ -1286,8 +1303,10 @@ function offsetPoly(pts, off) {
   return pts.map((p, i) => { const a = segN[Math.max(0, i - 1)], b = segN[Math.min(segN.length - 1, i)]; const nx = (a[0] + b[0]) / 2, ny = (a[1] + b[1]) / 2, L = Math.hypot(nx, ny) || 1; return [p[0] + nx / L * off, p[1] + ny / L * off]; });
 }
 
-function buildLevel() {
-  const L = state.level === 'sys' ? levelSys() : state.level === 'core' ? levelCore() : state.level === 'noc' ? levelNoc() : state.level === 'hnf' ? levelHnf(state.bank) : levelMem();
+const makeLevel = key => key === 'sys' ? levelSys() : key === 'core' ? levelCore() : key === 'noc' ? levelNoc() : key === 'mem' ? levelMem() : levelHnf(+key[3]);
+const viewKey = () => state.level === 'hnf' ? `hnf${state.bank}` : state.level;
+function buildLevel({deferStep = false} = {}) {
+  const L = makeLevel(viewKey());
   const hnfI = state.level === 'hnf' ? hnfInfo(state.bank) : {};
   L.info = id => hnfI[id] ?? INFO[id];
   L.byId = Object.fromEntries(L.nodes.map(n => [n.id, n]));
@@ -1298,18 +1317,27 @@ function buildLevel() {
   document.getElementById('svg-title').textContent = L.title;
   document.getElementById('svg-desc').textContent = L.hint;
   document.getElementById('hint').textContent = L.hint;
+  drawLevel(L, state.level, gF, gE, gN);
+  for (const n of L.nodes) if (!L.info(n.id)) console.warn('no info', n.id);
+  applySel();
+  if (state.scn && state.step >= 0 && !deferStep) drawStep();
+}
+// Draws a level's frames, connections and blocks. Blocks are buttons unless the level is only
+// passed through during a zoom (inert).
+function drawLevel(L, level, gF, gE, gN, inert = false) {
+  const byId = Object.fromEntries(L.nodes.map(n => [n.id, n]));
   for (const f of L.frames) { const g = el('g', {class:'frame'}, gF); el('rect', {x:f.x, y:f.y, width:f.w, height:f.h, rx:10}, g); const t = el('text', {x:f.lx ?? f.x + 10, y:f.y + 15}, g); t.textContent = f.label; }
   for (const e of L.edges) {
     const g = el('g', {class:`edge e-${e.kind}${e.opt ? ' opt' : ''}`, 'data-edge':e.id, 'data-a':e.a ?? '', 'data-b':e.b ?? ''}, gE);
     if (e.lanes) {
-      const pts = edgePoints(e, L.byId);
+      const pts = edgePoints(e, byId);
       for (const [off, cls] of [[8, 'cw'], [-8, 'ccw']]) {
         const q = offsetPoly(cls === 'cw' ? pts : [...pts].reverse(), 8);
         el('path', {d:pathD(q), class:`lane ${cls}`, 'marker-end':'url(#m-ring)'}, g);
       }
       continue;
     }
-    const pts = edgePoints(e, L.byId);
+    const pts = edgePoints(e, byId);
     el('path', {d:pathD(pts), 'marker-end': e.b ? `url(#m-${e.kind === 'attach' ? 'int' : e.kind})` : undefined, 'marker-start': e.bi ? `url(#m-${e.kind})` : undefined}, g);
     if (e.label) {
       let [lx, ly] = e.lblAt ?? (() => { const i = Math.floor((pts.length - 1) / 2); return [(pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2]; })();
@@ -1321,9 +1349,8 @@ function buildLevel() {
     }
   }
   for (const n of L.nodes) {
-    const info = L.info(n.id);
-    const g = el('g', {class:`node k-${n.kind}${n.unverified || n.opt ? ' unverified' : ''}`, 'data-node':n.id, tabindex:'0', role:'button', 'aria-pressed':'false',
-      'aria-label':`${n.label}${n.sub ? '. ' + n.sub : ''}${n.unverified ? '. Unused or unverified.' : ''}`, 'data-stop': n.stop ?? undefined}, gN);
+    const g = el('g', {class:`node k-${n.kind}${n.unverified || n.opt ? ' unverified' : ''}`, 'data-node':n.id, 'data-stop': n.stop ?? undefined,
+      ...(inert ? {} : {tabindex:'0', role:'button', 'aria-pressed':'false', 'aria-label':`${n.label}${n.sub ? '. ' + n.sub : ''}${n.unverified ? '. Unused or unverified.' : ''}`})}, gN);
     el('rect', {class:'ring', x:n.x - 4, y:n.y - 4, width:n.w + 8, height:n.h + 8, rx:9}, g);
     el('rect', {class:'box', x:n.x, y:n.y, width:n.w, height:n.h, rx:7}, g);
     if (n.capBar !== undefined) { drawCap(g, n); continue; }
@@ -1332,16 +1359,13 @@ function buildLevel() {
     const t1 = el('text', {class:'t1', x:cx, y: n.oneLine || !n.sub ? n.y + n.h / 2 + 5 : n.y + n.h / 2 - 3 + dy, 'text-anchor':'middle'}, g); t1.textContent = n.label;
     if (n.sub && !n.oneLine) { const t2 = el('text', {class:'t2', x:cx, y:n.y + n.h / 2 + 14 + dy, 'text-anchor':'middle'}, g); t2.textContent = n.sub; }
     if (n.badge) { const b = el('text', {class:'badge', x:n.x + 7, y:n.y + 15}, g); b.textContent = n.badge; }
-    if (!info) console.warn('no info', n.id);
   }
-  if (state.level === 'noc') {
+  if (level === 'noc') {
     const t = el('text', {x:480, y:238, 'text-anchor':'middle', class:'cap', style:'font-size:13.5px;fill:var(--muted)'}, gF);
     t.textContent = 'each link: REQ · RSP · DAT · HRQ rings, both directions';
     const t2 = el('text', {x:480, y:430, 'text-anchor':'middle', class:'cap', style:'font-size:13.5px;fill:var(--muted)'}, gF);
     t2.textContent = 'outer lane → index + 1 (rings(0)) · inner lane → index − 1 (rings(1))';
   }
-  applySel();
-  if (state.scn && state.step >= 0) drawStep();
 }
 function drawCap(g, n) {
   const x0 = n.x + 16, w = n.w - 32, y = n.y + 30, h = 26;
@@ -1410,30 +1434,159 @@ function renderDetail(id) {
 }
 
 // ---------------------------------------------------------------- level switching
-const tabs = [...document.querySelectorAll('#levels [role=tab]')];
-function setLevel(level, {focus = false, keepSel = false} = {}) {
-  state.level = level;
+// All levels share one scene. Each level sits inside the block of its parent that it details: the ring
+// inside the ZhuJiang frame, an HNF bank inside its box on the ring, the core inside tile 0 and the
+// memory path below the SN. Changing level flies the camera along the smooth zoom-and-pan path of
+// van Wijk and Nuij ("Smooth and efficient zooming and panning", 2003, as in d3-interpolate's
+// interpolateZoom), cross-fading each level as it comes to fill the view.
+const VB = Object.fromEntries(['sys', 'core', 'noc', 'mem', 'hnf0'].map(k => [k.slice(0, 3), makeLevel(k).vb]));
+const PLACE = (() => {
+  const sys = levelSys(), noc = levelNoc(), block = id => noc.nodes.find(n => n.id === id);
+  const around = (L, ids) => { const b = L.nodes.filter(n => ids.includes(n.id)), x = Math.min(...b.map(n => n.x)), y = Math.min(...b.map(n => n.y));
+    return {x, y, w:Math.max(...b.map(n => n.x + n.w)) - x, h:Math.max(...b.map(n => n.y + n.h)) - y}; };
+  const fit = (parent, anchor, [w, h]) => { const s = Math.min(anchor.w / w, anchor.h / h); return {parent, anchor, x:anchor.x + (anchor.w - w * s) / 2, y:anchor.y + (anchor.h - h * s) / 2, s}; };
+  return {sys:{parent:null, x:0, y:0, s:1},
+    core:fit('sys', sys.frames.find(f => f.label.startsWith('XSTile 0')), VB.cor),
+    noc:fit('sys', sys.frames.find(f => f.label.startsWith('ZhuJiang')), VB.noc),
+    mem:fit('sys', around(sys, ['sys.sn', 'sys.socxbar', 'sys.mem']), VB.mem),
+    hnf0:fit('noc', block('noc.bank0'), VB.hnf), hnf1:fit('noc', block('noc.bank1'), VB.hnf)};
+})();
+const vbOf = key => VB[key.slice(0, 3)];
+const chain = key => { const c = []; for (let k = key; k; k = PLACE[k].parent) c.unshift(k); return c; };   // root first
+function placeOf(key) {                         // scene position and scale of a level
+  const p = PLACE[key]; if (!p.parent) return {x:0, y:0, s:1};
+  const q = placeOf(p.parent); return {x:q.x + q.s * p.x, y:q.y + q.s * p.y, s:q.s * p.s};
+}
+const camOf = key => { const p = placeOf(key), [w, h] = vbOf(key); return {cx:p.x + w * p.s / 2, cy:p.y + h * p.s / 2, w:w * p.s, ar:h / w}; };
+// van Wijk–Nuij path. rho trades zooming against panning: larger rho pulls back further mid-flight.
+function zoomPath(c0, c1, rho) {
+  const r2 = rho * rho, dx = c1.cx - c0.cx, dy = c1.cy - c0.cy, d2 = dx * dx + dy * dy, w0 = c0.w, w1 = c1.w;
+  if (d2 < 1e-9) { const S = Math.log(w1 / w0) / rho; return {S:Math.abs(S), apex:Math.max(w0, w1), at:t => [c0.cx, c0.cy, w0 * Math.exp(rho * t * S)]}; }
+  const d1 = Math.sqrt(d2), b0 = (w1 * w1 - w0 * w0 + r2 * r2 * d2) / (2 * w0 * r2 * d1), b1 = (w1 * w1 - w0 * w0 - r2 * r2 * d2) / (2 * w1 * r2 * d1);
+  const r0 = Math.log(Math.sqrt(b0 * b0 + 1) - b0), r1 = Math.log(Math.sqrt(b1 * b1 + 1) - b1), S = (r1 - r0) / rho;
+  return {S, apex:r0 < 0 && r1 > 0 ? w0 * Math.cosh(r0) : Math.max(w0, w1),   // widest view, where rho·s + r0 = 0
+    at:t => { const u = w0 / (r2 * d1) * (Math.cosh(r0) * Math.tanh(rho * t * S + r0) - Math.sinh(r0)); return [c0.cx + u * dx, c0.cy + u * dy, w0 * Math.cosh(r0) / Math.cosh(rho * t * S + r0)]; }};
+}
+// Between sibling levels the camera pulls back to nearly their whole parent, so the way between them is
+// seen; no flight pulls back beyond the level that contains both ends.
+function flightPath(c0, c1, top, sibling) {
+  const want = sibling ? .75 * top.w : Math.min(top.w, zoomPath(c0, c1, Math.SQRT2).apex);
+  let lo = .05, hi = 8;
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (zoomPath(c0, c1, m).apex > want) hi = m; else lo = m; }
+  return zoomPath(c0, c1, lo);
+}
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+let flight = null;
+// A level fades in on an opaque card over the block it details while it still covers only a fifth to
+// two fifths of the view, then the camera flies into the card; zooming out reverses this.
+function frameAt(t) {
+  const f = flight, e = (1 - Math.cos(Math.PI * t)) / 2, [cx, cy, w] = f.path.at(e), ar = f.c0.ar + (f.c1.ar - f.c0.ar) * e, h = w * ar;
+  f.t = t;
+  svg.setAttribute('viewBox', `0 0 1000 ${(1000 * ar).toFixed(2)}`);
+  scene.setAttribute('transform', `scale(${1000 / w}) translate(${-(cx - w / 2)} ${-(cy - h / 2)})`);
+  const x0 = cx - w / 2, y0 = cy - h / 2, raw = {};
+  for (const k of f.keys) {
+    const p = placeOf(k), [lw, lh] = vbOf(k), ix = Math.min(x0 + w, p.x + lw * p.s) - Math.max(x0, p.x), iy = Math.min(y0 + h, p.y + lh * p.s) - Math.max(y0, p.y);
+    raw[k] = k === f.top ? 1 : smooth(.18, .4, Math.max(0, ix) * Math.max(0, iy) / (w * h));
+  }
+  for (const [k, g] of f.layers) g.style.opacity = raw[k].toFixed(3);
+}
+function land() {
+  const f = flight; if (!f) return;
+  flight = null; cancelAnimationFrame(f.raf); clearTimeout(f.safety);
+  for (const [k, g] of f.layers) if (g !== live) g.remove();
+  live.querySelector(':scope > .card')?.remove();
+  // After zooming out, the outline of the block we came from fades away on the landed level.
+  for (const a of live.querySelectorAll(':scope > .aura')) { a.classList.add('out'); setTimeout(() => a.remove(), 1000); }
+  scene.removeAttribute('transform'); live.removeAttribute('transform'); live.style.opacity = '';
+  svg.setAttribute('viewBox', `0 0 ${state.view.vb[0]} ${state.view.vb[1]}`);
+  if (state.scn && state.step >= 0) drawStep();
+}
+const flightLeft = () => flight ? Math.max(0, flight.pre + flight.ms - (performance.now() - flight.t0)) : 0;
+const PRE_MS = 700;   // the camera holds while the block it is about to enter lights up
+// Outlines the block of the parent level that `key` details, and lifts the dimming of the blocks inside it.
+function aura(parent, key, kind) {
+  const a = PLACE[key].anchor, pad = 7, g = el('g', {class:`aura ${kind}`, 'data-aura':key});
+  for (const cls of ['glow', 'edge']) el('rect', {class:cls, x:a.x - pad, y:a.y - pad, width:a.w + 2 * pad, height:a.h + 2 * pad, rx:14}, g);
+  parent.insertBefore(g, parent === live ? gM : parent.lastChild);
+  if (kind !== 'to') return;
+  const t = el('text', {x:a.x + a.w / 2, 'text-anchor':'middle'}, g); t.textContent = key.startsWith('hnf') ? `HNF bank ${key[3]}` : levelName(key);
+  const tw = t.getComputedTextLength() + 20, y = Math.max(12, a.y - pad);
+  t.setAttribute('y', y + 5);
+  g.insertBefore(el('rect', {class:'pill', x:a.x + a.w / 2 - tw / 2, y:y - 11, width:tw, height:22, rx:11}), t);
+  for (const n of parent.querySelectorAll('[data-node]')) {
+    const b = n.querySelector('.box'), x = +b.getAttribute('x'), y = +b.getAttribute('y');
+    if (x >= a.x && y >= a.y && x + +b.getAttribute('width') <= a.x + a.w && y + +b.getAttribute('height') <= a.y + a.h) n.classList.add('lit');
+  }
+  const lit = id => parent.querySelector(`[data-node="${id}"]`)?.classList.contains('lit');
+  for (const e of parent.querySelectorAll('[data-edge]')) if (lit(e.dataset.a) && (!e.dataset.b || lit(e.dataset.b))) e.classList.add('lit');
+}
+function layer(cls) { const g = el('g', {class:`ghost ${cls}`, 'aria-hidden':'true'}); return [g, ...['frames', 'edges', 'nodes', 'msgs'].map(() => el('g', {}, g))]; }
+// Shows a level. With animate, the old level's drawing stays on screen as a layer while the camera flies
+// through every level between the two (up to their common ancestor and down again). Returns the flight time.
+function show(level, bank, {animate = false, keepSel = true} = {}) {
+  const from = viewKey();
+  land();
+  for (const a of live.querySelectorAll(':scope > .aura')) a.remove();
+  state.level = level; state.bank = bank;
   if (!keepSel) state.sel = null;
-  for (const t of tabs) { const on = t.dataset.level === level; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; if (on && focus) t.focus(); }
+  for (const t of tabs) { const on = t.dataset.level === level; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; }
+  for (const x of document.querySelectorAll('[data-bank]')) x.setAttribute('aria-pressed', String(+x.dataset.bank === bank));
   document.getElementById('view').setAttribute('aria-labelledby', `tab-${level}`);
   document.getElementById('bankopt').hidden = level !== 'hnf';
-  buildLevel();
+  const to = viewKey();
+  if (!animate || from === to || reduceMotion()) { buildLevel(); return 0; }
+  const [old, ...parts] = layer('old');
+  [gF, gE, gN, gM].forEach((g, i) => parts[i].replaceChildren(...g.childNodes));
+  for (const n of old.querySelectorAll('[tabindex]')) n.removeAttribute('tabindex');
+  buildLevel({deferStep:true});
+  const ca = chain(from), cb = chain(to); let i = 0;
+  while (i < ca.length && i < cb.length && ca[i] === cb[i]) i++;
+  const top = ca[i - 1], keys = [...new Set([...ca.slice(i - 1), ...cb.slice(i - 1)])];
+  const layers = new Map(keys.map(k => {
+    if (k === to) return [k, live];
+    if (k === from) return [k, old];
+    const [g, f, e, n] = layer('via'); drawLevel(makeLevel(k), k.startsWith('hnf') ? 'hnf' : k, f, e, n, true); return [k, g];
+  }));
+  for (const k of [...keys].sort((a, b) => chain(a).length - chain(b).length)) {
+    const g = layers.get(k), p = placeOf(k), [w, h] = vbOf(k);
+    if (k !== top) g.prepend(el('rect', {class:'card', x:0, y:0, width:w, height:h, rx:12}));
+    g.setAttribute('transform', `translate(${p.x} ${p.y}) scale(${p.s})`); scene.appendChild(g);
+  }
+  // Children on the way in glow; children on the way out get a dashed outline.
+  for (const k of keys) if (k !== top) aura(layers.get(PLACE[k].parent), k, cb.includes(k) ? 'to' : 'from');
+  const pre = from === top ? PRE_MS : 0;
+  const c0 = camOf(from), c1 = camOf(to), path = flightPath(c0, c1, camOf(top), top !== from && top !== to);
+  const ms = Math.round(Math.min(1600, Math.max(500, 550 * path.S)));
+  flight = {from, to, keys, top, layers, c0, c1, path, pre, ms, t0:performance.now()};
+  frameAt(0);
+  const tick = now => { if (!flight) return; const t = (now - flight.t0 - pre) / ms; if (t >= 1) land(); else { frameAt(Math.max(0, t)); flight.raf = requestAnimationFrame(tick); } };
+  flight.raf = requestAnimationFrame(tick);
+  flight.safety = setTimeout(land, pre + ms + 250);    // lands even when animation frames are throttled
+  return pre + ms;
 }
-function setBank(b) {
+const tabs = [...document.querySelectorAll('#levels [role=tab]')];
+function setLevel(level, {focus = false, keepSel = false, animate = false} = {}) {
+  const ms = show(level, state.bank, {animate, keepSel});
+  if (focus) tabs.find(t => t.dataset.level === level).focus();
+  return ms;
+}
+function setBank(b, {animate = false} = {}) {
+  if (state.level === 'hnf') return show('hnf', b, {animate});
   state.bank = b;
   for (const x of document.querySelectorAll('[data-bank]')) x.setAttribute('aria-pressed', String(+x.dataset.bank === b));
-  if (state.level === 'hnf') buildLevel();
+  return 0;
 }
 tabs.forEach((t, i) => {
-  t.addEventListener('click', () => { stopPlay(); setLevel(t.dataset.level); });
+  t.addEventListener('click', () => { stopPlay(); setLevel(t.dataset.level, {animate:true}); });
   t.addEventListener('keydown', ev => {
     let j = null;
     if (ev.key === 'ArrowRight') j = (i + 1) % tabs.length; else if (ev.key === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
     else if (ev.key === 'Home') j = 0; else if (ev.key === 'End') j = tabs.length - 1;
-    if (j !== null) { ev.preventDefault(); stopPlay(); setLevel(tabs[j].dataset.level, {focus:true}); }
+    if (j !== null) { ev.preventDefault(); stopPlay(); setLevel(tabs[j].dataset.level, {focus:true, animate:true}); }
   });
 });
-for (const x of document.querySelectorAll('[data-bank]')) x.addEventListener('click', () => setBank(+x.dataset.bank));
+for (const x of document.querySelectorAll('[data-bank]')) x.addEventListener('click', () => setBank(+x.dataset.bank, {animate:true}));
 
 function select(id) { state.sel = state.sel === id ? null : id; applySel(); }
 gN.addEventListener('click', ev => { const g = ev.target.closest('[data-node]'); if (g) { select(g.dataset.node); g.focus({preventScroll:true}); } });
@@ -1455,7 +1608,7 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && state.se
 // ---------------------------------------------------------------- transactions
 // The player works like a media toolbar: a menu of transactions, transport buttons and a
 // timeline with one segment per step. While playing, the next segment fills until it is shown.
-const PLAY_MS = 3200;
+let PLAY_MS = 3200;
 const $ = id => document.getElementById(id);
 const pick = $('tx-pick'), menu = $('tx-menu'), track = $('tx-track'), playBtn = $('tx-play');
 const levelName = lv => tabs.find(t => t.dataset.level === lv).textContent.replace(/^\d · /, '');
@@ -1501,14 +1654,14 @@ function startScenario(k) {
   $('tx-exit').disabled = false; $('tx-narr').hidden = false;
   goStep(0);
 }
-function goStep(i) {
-  const sc = SCEN[state.scn]; if (!sc) return;
+// Moves to a step, zooming to its level unless animate is off. Returns the zoom time.
+function goStep(i, {animate = true} = {}) {
+  const sc = SCEN[state.scn]; if (!sc) return 0;
   state.step = Math.max(0, Math.min(sc.steps.length - 1, i));
   const st = sc.steps[state.step];
-  state.sel = null;
-  if (st.level === 'hnf' || st.bank !== undefined) setBank(st.bank ?? sc.bank);
-  setLevel(st.level);
+  const ms = show(st.level, st.level === 'hnf' || st.bank !== undefined ? st.bank ?? sc.bank : state.bank, {animate, keepSel:false});
   renderStepText();
+  return ms;
 }
 function stepNodes(st) { const s = new Set(); for (const m of st.msgs) for (const n of msgRoute(m).nodes) s.add(n); return s; }
 function drawStep() {
@@ -1580,12 +1733,12 @@ function renderStepText() {
   $('tx-next').disabled = state.step === n - 1;
 }
 // Segments up to the current step are full; the playhead sits at the end of the current one,
-// or rides the filling next segment while playing.
+// or rides the filling next segment while playing, which fills over the time until the next step.
 function renderTrack() {
   const segs = [...track.children], filling = state.playing && state.step + 1 < segs.length ? state.step + 1 : -1;
   segs.forEach((g, i) => {
     g.classList.toggle('done', i <= state.step);
-    g.classList.remove('filling'); if (i === filling) { void g.offsetWidth; g.classList.add('filling'); }
+    g.classList.remove('filling'); if (i === filling) { g.style.setProperty('--play-ms', state.dwell + 'ms'); void g.offsetWidth; g.classList.add('filling'); }
     g.classList.toggle('head', filling >= 0 ? i === filling : i === state.step);
   });
 }
@@ -1606,18 +1759,21 @@ function setPlayIcon(playing) {
 }
 function stopPlay() {
   const was = state.playing;
-  state.playing = false; clearInterval(state.timer); setPlayIcon(false);
+  state.playing = false; clearTimeout(state.timer); setPlayIcon(false);
   if (was && state.scn) renderTrack();
 }
 function play() {
   if (!state.scn) startScenario(Object.keys(SCEN)[0]);
   else if (state.step >= SCEN[state.scn].steps.length - 1) goStep(0);   // replay from the start
-  state.playing = true; setPlayIcon(true); renderTrack();
-  state.timer = setInterval(() => {
-    const sc = SCEN[state.scn];
+  state.playing = true; setPlayIcon(true); next();
+}
+// Each step stays on screen for PLAY_MS after its zoom lands.
+function next() {
+  state.dwell = Math.round(flightLeft()) + PLAY_MS; renderTrack();
+  state.timer = setTimeout(() => {
     goStep(state.step + 1);
-    if (state.step >= sc.steps.length - 1) stopPlay();
-  }, PLAY_MS);
+    if (state.step >= SCEN[state.scn].steps.length - 1) stopPlay(); else next();
+  }, state.dwell);
 }
 playBtn.addEventListener('click', () => state.playing ? stopPlay() : play());
 $('tx-prev').addEventListener('click', () => { stopPlay(); goStep(state.step - 1); });
@@ -1634,7 +1790,7 @@ function showTip(i) {
 }
 let scrubbing = false;
 track.addEventListener('pointerdown', ev => { if (!state.scn || ev.button) return; scrubbing = true; track.setPointerCapture(ev.pointerId); stopPlay(); goStep(segAt(ev.clientX)); showTip(state.step); });
-track.addEventListener('pointermove', ev => { if (!state.scn) return; const i = segAt(ev.clientX); if (scrubbing && i !== state.step) goStep(i); showTip(i); });
+track.addEventListener('pointermove', ev => { if (!state.scn) return; const i = segAt(ev.clientX); if (scrubbing && i !== state.step) goStep(i, {animate:false}); showTip(i); });
 track.addEventListener('pointerup', () => { scrubbing = false; });
 track.addEventListener('pointerleave', () => { if (!scrubbing) tip.hidden = true; });
 track.addEventListener('lostpointercapture', () => { scrubbing = false; if (!track.matches(':hover')) tip.hidden = true; });
@@ -1676,6 +1832,10 @@ function selfTests() {
   ok(RING.nodes.every(n => n.right.length === 5 && n.left.length === 5), 'each stop reaches 5 stops per direction');
   ok(CFG.banks === 2 && CFG.llcPerBank === 16 * MiB && CFG.llcSets === 16384 && CFG.sfSets === 4096, 'LLC/SF geometry');
   ok(CFG.ciName === 'ZCI2X2C2P1D1M1G32', 'ZhuJiang module name');
+  for (const [k, p] of Object.entries(PLACE)) if (p.parent) {
+    const [w, h] = vbOf(k), [pw, ph] = vbOf(p.parent), a = p.anchor, e = 1e-6;
+    ok(p.x >= a.x - e && p.y >= a.y - e && p.x + w * p.s <= a.x + a.w + e && p.y + h * p.s <= a.y + a.h + e && a.x >= 0 && a.y >= 0 && a.x + a.w <= pw && a.y + a.h <= ph, `${k} zooms out of its block in ${p.parent}`);
+  }
   for (const [k, , L] of LEVELS) {
     const ids = new Set(L.nodes.map(n => n.id)); const inf = k.startsWith('hnf') ? hnfInfo(+k[3]) : INFO;
     ok(L.nodes.every(n => inf[n.id] && inf[n.id].cites?.length), `${k}: every block has a description and a source`);
@@ -1733,10 +1893,10 @@ const st = selfTests();
 document.getElementById('selftest').textContent = st.lines.join('\n');
 // Test and automation hooks.
 window.XZ = {
-  RING, CITES, PIN, PARAMS, CFG, SCEN, INFO, route, rnTarget, hnfPort, selfTests, setLevel, setBank, select, startScenario, goStep, exitScenario, play, stopPlay,
+  RING, CITES, PIN, PARAMS, CFG, SCEN, INFO, PLACE, placeOf, setDwell: ms => { PLAY_MS = ms; }, route, rnTarget, hnfPort, selfTests, setLevel, setBank, select, startScenario, goStep, exitScenario, play, stopPlay,
   state: () => {
     const sc = state.scn ? SCEN[state.scn] : null, stp = sc?.steps[state.step];
-    return {level:state.level, bank:state.bank, sel:state.sel, scn:state.scn, step:state.step, steps:sc?.steps.length ?? 0, playing:state.playing,
+    return {level:state.level, bank:state.bank, sel:state.sel, scn:state.scn, step:state.step, steps:sc?.steps.length ?? 0, playing:state.playing, flying:!!flight,
       stepLevel:stp?.level ?? null, msgs:(stp?.msgs ?? []).map(m => { const r = msgRoute(m); return m.ring ? {ch:m.ch, op:m.op, from:hex(stop(m.from).nodeId), to:hex(stop(m.to).nodeId), hops:r.hops, dir:r.dir, path:r.path} : {ch:m.ch, op:m.op, path:m.path}; }),
       drawnMsgs:gM.children.length, act:[...gN.querySelectorAll('.act')].map(g => g.dataset.node),
       nodes:[...gN.children].map(g => g.dataset.node), edges:[...gE.children].map(g => g.dataset.edge)};

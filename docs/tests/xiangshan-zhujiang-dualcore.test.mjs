@@ -31,7 +31,9 @@ async function key(b, key, code, keyCode) {
 const KEYS = {Enter: ['Enter', 13], ArrowRight: ['ArrowRight', 39], ArrowLeft: ['ArrowLeft', 37], ArrowDown: ['ArrowDown', 40], Escape: ['Escape', 27], Tab: ['Tab', 9], Home: ['Home', 36], End: ['End', 35]};
 const press = (b, k) => key(b, k, KEYS[k][0], KEYS[k][1]);
 const focused = b => b.evaluate('document.activeElement?.dataset?.node ?? document.activeElement?.id ?? null');
-const choose = async (b, scn) => { await b.click('#tx-pick'); await b.click(`#tx-menu [data-scn="${scn}"]`); };
+// Level changes zoom; geometry and overlays are checked once the camera lands.
+const settle = b => b.wait('!XZ.state().flying');
+const choose = async (b, scn) => { await b.click('#tx-pick'); await b.click(`#tx-menu [data-scn="${scn}"]`); await settle(b); };
 
 test('cited lines, pins and topology match the pinned XiangShan source', {timeout: 60000}, async t => {
   const b = await open(); t.after(() => b.close());
@@ -362,9 +364,10 @@ test('selecting blocks highlights connections and explains them, by mouse and ke
   await press(b, 'ArrowRight');
   assert.equal((await state(b)).level, 'mem');
   assert.equal(await b.evaluate('document.getElementById("bankopt").getClientRects().length'), 0, 'bank selector hidden on other levels');
+  await settle(b);
   await b.click('[data-node="mem.axib"]');
   assert.match(await b.evaluate('document.getElementById("detail").textContent'), /TgtID.*ReturnNID/);
-  await b.click('#tab-sys');
+  await b.click('#tab-sys'); await settle(b);
   await b.click('[data-node="sys.sn"]');
   assert.match(await b.evaluate('document.getElementById("detail").textContent'), /not.*schedule DRAM/);
   await b.click('[data-node="sys.rni"]');
@@ -396,9 +399,23 @@ for (const scn of ['a', 'b', 'c']) test(`transaction (${scn}) steps show verifie
   assert.equal(await b.evaluate('document.querySelectorAll("#tx-track .seg").length'), EXPECT[scn].length, 'one timeline segment per step');
   const ops = new Set();
   for (let i = 0; i < EXPECT[scn].length; i++) {
-    if (i) await b.click('#tx-next');
-    s = await state(b);
     const [level, ring] = EXPECT[scn][i];
+    if (i) {
+      await b.click('#tx-next');
+      s = await state(b);
+      // A step on another level zooms there first and draws its flits once the camera lands.
+      if (level !== EXPECT[scn][i - 1][0]) {
+        assert.equal(s.flying, true, `step ${i + 1} zooms to ${level}`); assert.equal(s.drawnMsgs, 0);
+        // Zooming in, the block entered glows and its blocks are not dimmed like the rest of the step.
+        const outward = {noc: ['sys'], hnf: ['noc', 'sys'], mem: ['sys']}[EXPECT[scn][i - 1][0]]?.includes(level);
+        const lit = await b.evaluate(`(() => { const l = [...document.querySelectorAll('#scene .ghost .node.lit')], o = [...document.querySelectorAll('#scene .ghost .node:not(.lit):not(.act)')];
+          return {n: l.length, bright: l.every(g => getComputedStyle(g).opacity === '1'), dim: o.every(g => getComputedStyle(g).opacity === '0.5'), glow: document.querySelectorAll('#scene .aura.to').length}; })()`);
+        if (outward) assert.deepEqual([lit.n, lit.glow], [0, 0], `step ${i + 1}: nothing glows when zooming out`);
+        else assert.ok(lit.n > 0 && lit.bright && lit.dim && lit.glow > 0, `step ${i + 1}: the entered block glows and stands out ${JSON.stringify(lit)}`);
+      }
+      await settle(b);
+    }
+    s = await state(b);
     assert.equal(s.step, i);
     assert.equal(s.level, level, `step ${i + 1} switches to ${level}`);
     assert.equal(s.stepLevel, level);
@@ -428,9 +445,9 @@ for (const scn of ['a', 'b', 'c']) test(`transaction (${scn}) steps show verifie
   for (const op of OPS[scn]) assert.ok(ops.has(op), `message ${op} appears`);
   assert.equal(await b.evaluate('document.getElementById("tx-next").disabled'), true, 'Next disabled on the last step');
   // Previous goes back and redraws; clicking a timeline segment jumps to it; the timeline steps by keyboard.
-  await b.click('#tx-prev');
+  await b.click('#tx-prev'); await settle(b);
   assert.equal((await state(b)).step, EXPECT[scn].length - 2);
-  await b.click('#tx-track .seg[data-step="2"]');
+  await b.click('#tx-track .seg[data-step="2"]'); await settle(b);
   assert.equal((await state(b)).step, 2);
   const tip = await b.evaluate(`(() => { const t = document.getElementById('tx-tip'), r = t.getBoundingClientRect(), p = document.getElementById('player').getBoundingClientRect(); return {hidden: t.hidden, text: t.textContent, inside: r.left >= p.left && r.right <= p.right}; })()`);
   assert.equal(tip.hidden, false);
@@ -441,14 +458,14 @@ for (const scn of ['a', 'b', 'c']) test(`transaction (${scn}) steps show verifie
   assert.equal((await state(b)).step, EXPECT[scn].length - 1);
   await press(b, 'Home');
   assert.equal((await state(b)).step, 0);
-  await press(b, 'ArrowRight');
+  await press(b, 'ArrowRight'); await settle(b);
   s = await state(b);
   assert.equal(s.step, 1); assert.equal(s.level, 'noc');
   // Switching level by hand keeps the transaction position and redraws the step on its own level.
-  await b.click('#tab-mem');
+  await b.click('#tab-mem'); await settle(b);
   s = await state(b);
   assert.equal(s.step, 1); assert.equal(s.drawnMsgs, 0, 'no overlay on a level the step does not use');
-  await b.click('#tab-noc');
+  await b.click('#tab-noc'); await settle(b);
   assert.equal((await state(b)).drawnMsgs, 1);
   // Each drawn flit starts at its sender and ends at its receiver.
   const ends = await b.evaluate(`(() => { const p = document.querySelector('#g-msgs path.m'), L = p.getTotalLength(), a = p.getPointAtLength(0), z = p.getPointAtLength(L);
@@ -470,7 +487,7 @@ for (const scn of ['a', 'b', 'c']) test(`transaction (${scn}) steps show verifie
 test('play advances steps automatically and stops at the end', {timeout: 60000}, async t => {
   const b = await open(); t.after(() => b.close());
   await choose(b, 'b');
-  await b.evaluate('(() => { const r = setInterval; window.setInterval = (f) => r(f, 60); })()');
+  await b.evaluate('(() => { const r = setTimeout; window.setTimeout = (f, ms) => r(f, Math.min(ms, 60)); })()');
   await b.click('#tx-play');
   const label = 'document.getElementById("tx-play").getAttribute("aria-label")';
   assert.equal(await b.evaluate(label), 'Pause');
@@ -479,7 +496,7 @@ test('play advances steps automatically and stops at the end', {timeout: 60000},
   assert.equal((await state(b)).level, 'hnf');
   assert.equal(await b.evaluate('document.querySelectorAll("#tx-track .seg.filling").length'), 0);
   // Play at the end replays from the start; Pause stops where it is.
-  await b.evaluate('window.setInterval = (f) => 0');
+  await b.evaluate('window.setTimeout = () => 0');
   await b.click('#tx-play');
   let s = await state(b);
   assert.equal(s.step, 0); assert.equal(s.playing, true);
@@ -496,6 +513,105 @@ test('reduced motion: flits are drawn without moving dots or line animation', {t
   assert.equal((await state(b)).drawnMsgs, 1);
   assert.equal(await b.evaluate('document.querySelectorAll("#g-msgs animateMotion").length'), 0);
   assert.equal(await b.evaluate('getComputedStyle(document.querySelector("#g-msgs path.m")).animationName'), 'none');
+  assert.deepEqual(b.exceptions, []);
+});
+
+// Records every animation frame of the current zoom: camera scale, and each drawn level with its opacity.
+const SAMPLE = `new Promise(done => { const out = [], sc = document.getElementById('scene');
+  const f = () => { const m = sc.transform.baseVal.consolidate()?.matrix;
+    const auras = [...sc.querySelectorAll('.aura')].map(a => ({kind: a.classList.contains('to') ? 'to' : 'from', key: a.dataset.aura, in: a.closest('#scene > g').querySelector('[data-node]').dataset.node.split('.')[0],
+      label: a.querySelector('text')?.textContent ?? null, box: (r => [r.x, r.y, r.width, r.height].map(Math.round))(a.querySelector('.edge').getBBox())}));
+    out.push({ms: performance.now(), auras, k: m ? m.a : 1, vb: document.getElementById('svg').getAttribute('viewBox'), layers: [...sc.children].map(g => ({live: g.id === 'live', hidden: g.getAttribute('aria-hidden'),
+      level: g.querySelector('[data-node]')?.dataset.node.split('.')[0], op: g.style.opacity === '' ? 1 : +g.style.opacity, focusable: g.querySelectorAll('[tabindex]').length}))});
+    if (XZ.state().flying) requestAnimationFrame(f); else done(out); };
+  f(); })`;
+const rising = (xs, tol = 1e-6) => xs.every((x, i) => !i || x >= xs[i - 1] - tol);
+test('changing level zooms smoothly through the levels between and lands on the plain level', {timeout: 60000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  // System → ring: one zoom into the ZhuJiang frame while the system fades and the ring appears.
+  await b.click('#tab-noc');
+  assert.equal((await state(b)).flying, true, 'the tab starts a zoom');
+  let fr = await b.evaluate(SAMPLE);
+  const fly = fr.slice(0, -1), end = fr.at(-1), rect = await b.evaluate('XZ.placeOf("noc")');
+  assert.ok(fly.length >= 8, `${fly.length} frames`);
+  // First the camera holds while the ZhuJiang frame it will enter glows, labelled with the level.
+  assert.deepEqual(fly[0].auras, [{kind: 'to', key: 'noc', in: 'sys', label: 'NoC ring', box: [13, 293, 974, 220]}], 'the block to be entered is outlined first');
+  const hold = fly.filter(f => f.ms - fly[0].ms < 550);
+  assert.ok(hold.length >= 5 && hold.every(f => f.k === 1), 'the camera waits while the block lights up');
+  assert.ok(fly[0].k < 1.15 && fly.at(-1).k > 2.6, `scale ${fly[0].k} → ${fly.at(-1).k}`);
+  assert.ok(rising(fly.map(f => f.k)), 'zoom only moves inward');
+  assert.ok(fly.every((f, i) => !i || f.k / fly[i - 1].k < 1.25), 'no jumps between frames');
+  assert.deepEqual(fly[0].layers.map(l => [l.level, l.live]), [['sys', false], ['noc', true]], 'the ring is drawn over the system it details');
+  const op = lv => fly.map(f => f.layers.find(l => l.level === lv).op);
+  assert.ok(op('noc')[0] < .05 && op('noc').at(-1) > .95 && rising(op('noc')) && op('sys').every(o => o === 1), 'the ring fades in on its card over the system');
+  assert.equal(await b.evaluate('document.querySelectorAll("#scene .card").length'), 0, 'the card goes with the zoom');
+  assert.ok(fly.every(f => f.layers.every(l => l.live || (l.hidden === 'true' && l.focusable === 0))), 'levels passed through are hidden from assistive technology and focus');
+  assert.deepEqual(end.layers.map(l => l.live), [true], 'only the ring remains after landing');
+  assert.equal(end.k, 1); assert.equal(end.vb, '0 0 1000 660');
+  assert.equal(rect.s.toFixed(3), (206 / 660).toFixed(3), 'the ring fills the ZhuJiang frame height');
+  // Ring → memory path: the camera pulls back to the system between them and zooms in again.
+  await b.click('#tab-mem');
+  fr = await b.evaluate(SAMPLE);
+  const k = fr.slice(0, -1).map(f => f.k);
+  assert.ok(Math.min(...k) < 0.7 * Math.min(k[0], k.at(-1)), `pulls back between siblings: ${Math.min(...k).toFixed(2)}`);
+  assert.deepEqual(fr[0].layers.map(l => l.level).sort(), ['mem', 'noc', 'sys']);
+  assert.deepEqual(fr[0].auras.map(a => [a.kind, a.key, a.in, a.label]).sort(), [['from', 'noc', 'sys', null], ['to', 'mem', 'sys', 'Memory path']], 'the block left is outlined, the block entered glows');
+  assert.ok(fr[1].k < fr[0].k, 'between siblings the camera pulls back at once');
+  const ring = fr.slice(0, -1).map(f => f.layers.find(l => l.level === 'noc').op), mem = fr.slice(0, -1).map(f => f.layers.find(l => l.level === 'mem').op);
+  assert.ok(ring[0] > .95 && mem.at(-1) > .95 && ring.some((o, i) => o < .05 && mem[i] < .05), 'the ring card fades out before the memory card fades in, over the system');
+  assert.equal(fr.at(-1).vb, '0 0 1000 650');
+  // Memory path → HNF bank 0 passes through the system and the ring; the bank grows out of its ring box.
+  await b.click('#tab-hnf');
+  fr = await b.evaluate(SAMPLE);
+  assert.deepEqual(fr[0].layers.map(l => l.level), ['sys', 'mem', 'noc', 'hnf'], 'levels drawn parent below child');
+  assert.ok(fr.at(-2).k > 15, `deep zoom into the bank: ${fr.at(-2).k.toFixed(1)}`);
+  // Bank switch pulls back to the ring and zooms into the other bank.
+  await b.click('[data-bank="1"]');
+  assert.equal((await state(b)).bank, 1);
+  fr = await b.evaluate(SAMPLE);
+  assert.deepEqual(fr[0].layers.map(l => l.level), ['noc', 'hnf', 'hnf']);
+  assert.deepEqual(fr[0].auras.map(a => [a.kind, a.key, a.label]).sort(), [['from', 'hnf0', null], ['to', 'hnf1', 'HNF bank 1']]);
+  assert.ok(fr.some(f => f.layers[1].op < .05 && f.layers[2].op < .05), 'the ring is shown between the banks');
+  // Zooming out leaves a fading outline of the block we came from on the landed level.
+  await b.click('#tab-noc'); await settle(b);
+  assert.deepEqual(await b.evaluate('[...document.querySelectorAll("#live > .aura.out")].map(a => a.dataset.aura)'), ['hnf1']);
+  await b.wait('!document.querySelector("#live > .aura")');
+  await b.click('#tab-hnf'); await settle(b);
+  // After landing, blocks are clickable at their drawn place.
+  await b.click('[data-node="hnf.xbar"]');
+  assert.equal((await state(b)).sel, 'hnf.xbar');
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('a transaction replays on one zooming view and waits for each zoom before the next step', {timeout: 60000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  await choose(b, 'c');
+  // Record the level and whether the camera is moving at every frame of a full replay, with short dwell.
+  await b.evaluate('XZ.setDwell(250)');
+  const log = b.evaluate(`new Promise(done => { const out = []; let idle = 0; const f = () => { const s = XZ.state();
+    if (s.playing || out.length) out.push([s.step, s.level, s.flying, s.drawnMsgs]);
+    idle = out.length && !s.playing && !s.flying ? idle + 1 : 0;
+    if (idle < 5) requestAnimationFrame(f); else done(out); }; requestAnimationFrame(f); })`);
+  await b.click('#tx-play');
+  const out = await log;
+  const steps = [...new Set(out.map(o => o[0]))];
+  assert.deepEqual(steps, [...Array(9).keys()], 'every step is shown in order');
+  for (const i of steps) {
+    const at = out.filter(o => o[0] === i), still = at.filter(o => !o[2]);
+    assert.ok(still.length >= 3, `step ${i + 1} is shown at rest before the next`);
+    assert.ok(still.every(o => o[3] >= 1), `step ${i + 1} draws its flits once landed`);
+    assert.ok(at.filter(o => o[2]).every(o => o[3] === 0), `step ${i + 1}: no flits while zooming`);
+  }
+  assert.ok(out.some(o => o[2]), 'steps on other levels zoom');
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('reduced motion: level changes are immediate', {timeout: 30000}, async t => {
+  const b = await open(1366, 800, [{name: 'prefers-reduced-motion', value: 'reduce'}]); t.after(() => b.close());
+  await b.click('#tab-noc');
+  const s = await state(b);
+  assert.equal(s.level, 'noc'); assert.equal(s.flying, false);
+  assert.equal(await b.evaluate('document.querySelectorAll("#scene > g").length'), 1);
   assert.deepEqual(b.exceptions, []);
 });
 
@@ -518,7 +634,7 @@ test('XS core level: frontend, CtrlBlock, three regions and MemBlock match the c
   assert.equal(block('intSchdParams').match(/ExeUnitParams\(\s*"ALU\d"/g).length, 6);
   assert.equal(block('intSchdParams').match(/"BJU\d"/g).length, 3);
   const b = await open(); t.after(() => b.close());
-  await b.click('#tab-core');
+  await b.click('#tab-core'); await settle(b);
   assert.equal((await state(b)).level, 'core');
   const text = await b.evaluate('document.getElementById("g-nodes").textContent');
   for (const s of [`Int issue queues ×${want.int}`, `FP issue queues ×${want.fp}`, `Vector issue queues ×${want.vec}`, `ROB${want.rob} · commit`, `${want.decode}-wide`,
@@ -535,7 +651,7 @@ test('XS core level: frontend, CtrlBlock, three regions and MemBlock match the c
   await b.click('[data-node="core.intiq"]');
   assert.match(await b.evaluate('document.getElementById("detail").textContent'), /ALU0\/BJU0.*18 entries.*STD0 and STD1 \(16\)/);
   // The system level points at this level.
-  await b.click('#tab-sys'); await b.click('[data-node="sys.core0"]');
+  await b.click('#tab-sys'); await settle(b); await b.click('[data-node="sys.core0"]');
   assert.match(await b.evaluate('document.getElementById("detail").textContent'), /Level 2 shows the core's internals/);
   assert.deepEqual(b.exceptions, []);
 });
