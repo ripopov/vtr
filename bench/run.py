@@ -718,6 +718,9 @@ def render(results, path):
     comp = os.path.join(ROOT, "bench", "results", "latest", "compilers.json")
     if os.path.exists(comp):
         L.extend(render_compilers(json.load(open(comp))))
+    pipe = os.path.join(ROOT, "bench", "results", "latest", "c910_pipeline.json")
+    if os.path.exists(pipe):
+        L.extend(render_c910_pipeline(json.load(open(pipe))))
     L.append("\n## Workload descriptions\n")
     for r in rtl + tx + logs:
         L.append(f"- **{r['workload']}**: {r['info'].get('description', '')}")
@@ -776,6 +779,29 @@ def render_logs(logs):
                      f"(3 header lines) and bread lines {c.get('binlog_lines', 0):,} for {c.get('text_lines', 0):,} messages.")
         cw = w["clp-ir"]
         L.append(f"\nThe CLP row includes producing the text first ({cw.get('format_s', 0):.3f}s of its hot path is the fprintf-style formatting, the rest is parsing, encoding and zstd).\n")
+    return L
+
+
+def render_c910_pipeline(p):
+    """Section for the C910 pipeline tracer's cost gates (bench/workloads/c910/pipeline_cost.py)."""
+    m, w, b, g = p["machine"], p["wall_s"], p["bytes"], p["gates"]
+    L = ["\n## C910 pipeline tracing: cost gates\n"]
+    L.append("The pipeline tracer of docs/c910-verilator-tx-stream.html bound to the C910 model, one CoreMark iteration "
+             f"({p['cycles']:,} cycles, {p['pipeline_transactions']:,} instructions recorded), measured by `bench/workloads/c910/pipeline_cost.py`: "
+             f"the four models interleaved in one session, best of {p['best_of']}. Run on {m['cpu']}, {m['os']}, {p['date']}. "
+             "The pipeline-only model traces no signal (`make model MODE=vtr PIPELINE=1 SIGNALS=0`) and runs with `--no-signals`.\n")
+    L.append("| run | model | wall | cpu | file |")
+    L.append("|---|---|---:|---:|---:|")
+    rows = [("untraced", "obj_none", "untraced"), ("pipeline only", "obj_vtr_pipeline_only", "pipeline_only"),
+            ("full dump", "obj_vtr", "full_dump"), ("full dump + pipeline", "obj_vtr_pipeline", "full_dump_pipeline")]
+    for label, model, key in rows:
+        size = fmt_bytes(b[key]) if key in b else "-"
+        L.append(f"| {label} | {model} | {w[key]:.2f} s | {p['cpu_s'][key]:.2f} s | {size} |")
+    L.append(f"\nGates: pipeline only / untraced = **{g['pipeline_only_vs_untraced']:.3f}x** (limit {g['limit_1']:.2f}x); "
+             f"full dump + pipeline / full dump = **{g['full_dump_pipeline_vs_full_dump']:.3f}x** (limit {g['limit_2']:.2f}x). "
+             f"The pipeline adds {fmt_bytes(p['pipeline_bytes_in_full_dump'])} to the full dump; `vtr tx` reads the whole stream in "
+             f"{p['read_pipeline_s']['pipeline_only']:.2f} s from the pipeline-only file and {p['read_pipeline_s']['full_dump_pipeline']:.2f} s "
+             "from the full dump.\n")
     return L
 
 

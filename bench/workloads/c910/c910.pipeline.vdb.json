@@ -1,0 +1,64 @@
+{
+  "vdb": 1,
+  "name": "c910.pipeline",
+  "about": "Presentation of the openC910 pipeline stream written by tb/c910_tracer.sv (docs/c910-verilator-tx-stream.html), in the schema of docs/VDB_APPNOTE.md section 2. Stage names are those of the C910 manual as the tracer records them; roles, colours and hiding rules live here, not in the trace. pipeline_replay.py checks that every recorded stage name has an entry.",
+  "applies_to": {
+    "streams": "TX.*.pipeline",
+    "generator": "instruction"
+  },
+  "rows": {
+    "order": "begin_time",
+    "hide_when": { "status": "aborted" }
+  },
+  "lanes": {
+    "": { "role": "pipeline", "order": 0 },
+    "stall": { "role": "stall", "order": 1 }
+  },
+  "stages": {
+    "IF": { "role": "fetch",    "long": "Instruction fetch (I-cache)", "color": { "h": 276, "s": 45, "l": 64 } },
+    "IP": { "role": "fetch",    "long": "Predecode, branch prediction", "color": { "h": 266, "s": 45, "l": 72 } },
+    "IB": { "role": "wait",     "long": "Instruction buffer",      "color": { "h": 258, "s": 30, "l": 76 } },
+    "LB": { "role": "fetch",    "long": "Loop buffer",             "color": { "h": 286, "s": 45, "l": 66 } },
+    "ID": { "role": "decode",   "long": "Decode",                  "color": { "h": 250, "s": 55, "l": 62 } },
+    "IR": { "role": "rename",   "long": "Rename",                  "color": { "h": 228, "s": 55, "l": 70 } },
+    "IS": { "role": "dispatch", "long": "Issue select (dispatch)", "color": { "h": 206, "s": 55, "l": 62 } },
+    "IQ": { "role": "wait",     "long": "Issue queue",             "color": { "h": 184, "s": 45, "l": 72 } },
+    "RF": { "role": "issue",    "long": "Register file read",      "color": { "h": 162, "s": 55, "l": 60 } },
+    "EX": { "role": "execute",  "long": "ALU / multiply / divide", "color": { "h": 120, "s": 55, "l": 58 } },
+    "BJ": { "role": "execute",  "long": "Branch / jump unit",      "color": { "h": 96,  "s": 60, "l": 62 } },
+    "FX": { "role": "execute",  "long": "Floating point / vector", "color": { "h": 140, "s": 50, "l": 68 } },
+    "AG": { "role": "execute",  "long": "Address generation",      "color": { "h": 72,  "s": 60, "l": 60 } },
+    "DC": { "role": "memory",   "long": "Data cache access",       "color": { "h": 54,  "s": 65, "l": 64 } },
+    "DA": { "role": "memory",   "long": "Data arrival",            "color": { "h": 40,  "s": 65, "l": 60 } },
+    "WB": { "role": "memory",   "long": "Load write-back",         "color": { "h": 28,  "s": 60, "l": 66 } },
+    "CM": { "role": "complete", "long": "Complete, in the ROB",    "color": { "h": 300, "s": 25, "l": 74 } },
+    "RT": { "role": "retire",   "long": "Retire",                  "color": { "h": 330, "s": 50, "l": 64 } },
+    "dispatch": { "role": "stall", "long": "Dispatch stall (ROB or issue queue full)", "color": { "h": 0, "s": 0, "l": 70 } },
+    "*":  { "color": "auto" }
+  },
+  "flush": {
+    "status": "aborted",
+    "overlay": { "color": { "h": 0, "s": 80, "l": 50, "a": 0.3 } }
+  },
+  "events": {
+    "replay": { "role": "replay", "long": "Launch failed; back to the issue queue" },
+    "mispredict": { "role": "mispredict", "long": "Branch or jump mispredicted; the front end is flushed" }
+  },
+  "relations": {
+    "uop_of": { "long": "Further uop of a split instruction, to the instruction" }
+  },
+  "labels": {
+    "name": { "attribute": "vtr.label" }
+  },
+  "attributes": {
+    "pc":   { "format": "hex", "long": "PC (decode PC[15:1] until retire; full at retire)" },
+    "insn": { "format": "hex", "long": "Opcode" },
+    "iid":  { "long": "ROB entry (IID with wrap bit)" },
+    "fold": { "long": "Instructions folded into the ROB entry" },
+    "uop":  { "long": "Further uop of a split instruction" }
+  },
+  "stats": {
+    "branch": { "stage_role": "execute", "stage": "BJ" },
+    "memory": { "stage": "AG" }
+  }
+}

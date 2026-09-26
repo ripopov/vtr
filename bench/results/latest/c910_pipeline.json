@@ -1,0 +1,39 @@
+{
+ "best_of": 5,
+ "wall_s": {
+  "untraced": 7.1475,
+  "pipeline_only": 7.7492,
+  "full_dump": 30.2169,
+  "full_dump_pipeline": 30.2822
+ },
+ "cpu_s": {
+  "untraced": 7.1355,
+  "pipeline_only": 7.8238,
+  "full_dump": 35.895,
+  "full_dump_pipeline": 36.1264
+ },
+ "bytes": {
+  "pipeline_only": 2090187,
+  "full_dump": 280518473,
+  "full_dump_pipeline": 282855251
+ },
+ "pipeline_bytes_in_full_dump": 2336778,
+ "read_pipeline_s": {
+  "pipeline_only": 0.15614733402617276,
+  "full_dump_pipeline": 0.15854075003881007
+ },
+ "gates": {
+  "pipeline_only_vs_untraced": 1.0842,
+  "limit_1": 1.1,
+  "full_dump_pipeline_vs_full_dump": 1.0022,
+  "limit_2": 1.03
+ },
+ "cycles": 254753,
+ "pipeline_transactions": 411339,
+ "machine": {
+  "cpu": "Apple M5",
+  "os": "Darwin 25.6.0",
+  "arch": "arm64"
+ },
+ "date": "2026-09-26T13:06:11"
+}

@@ -14,6 +14,7 @@ python3 bench/run.py report          # re-render the Markdown from results.json
 python3 bench/run.py compilers       # host-compiler study on the C910 model (~1.5 hours)
 sh bench/log/fetch_refs.sh           # shallow-clones NanoLog, binlog, Quill and CLP into ext/ (pinned commits; run.py does it when missing)
 python3 bench/run.py log             # log-writer comparison only (a few minutes)
+python3 bench/workloads/c910/pipeline_cost.py   # C910 pipeline tracer cost gates (~5 minutes, models built first)
 ```
 
 `bench/run.py` builds the Rust crates (`cargo build --release`), the C/C++
@@ -226,6 +227,19 @@ binary runs the same CoreMark iteration pinned to one performance core,
 best of N. The table also lists text size and the share of instructions
 with a memory operand, which is where the two compilers differ most on
 this code.
+
+C910 pipeline tracing (`bench/workloads/c910/pipeline_cost.py`): the
+pipeline tracer of `docs/c910-verilator-tx-stream.html` bound to the C910
+model. Four models run one CoreMark iteration each, interleaved in one
+session, best of N (default 3): untraced (`make model MODE=none`), the
+pipeline alone (`MODE=vtr PIPELINE=1 SIGNALS=0`, no signal traced, run with
+`--no-signals`), the full dump (`MODE=vtr`) and the full dump plus the
+pipeline (`MODE=vtr PIPELINE=1`). The gates are the ratios pipeline only /
+untraced (at most 1.10) and full dump plus pipeline / full dump (at most
+1.03); the script also reports file sizes and the time `vtr tx` takes to
+read the whole stream, and exits nonzero when a gate fails. Its JSON
+(`bench/results/latest/c910_pipeline.json`) records the host, which may
+differ from the rest of the report's.
 
 Transaction navigation (`vtr-bench tx-read`): open, scan all
 transactions, 1000 random lookups by id, 1000 relation queries (from and

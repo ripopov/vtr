@@ -60,7 +60,8 @@ module top (
   vtr_clock_t vtr_clk;
   bit         vtr_clk_on;
   // verilator tracing_on
-  initial vtr_clk = vtr_clock("", "clk");
+  // Declared in TX.core0 beside the core's streams, not in this instance's scope.
+  initial vtr_clk = vtr_clock("/TX.core0", "clk");
   always @(posedge clk) if (!vtr_clk_on) begin vtr_clock_run(vtr_clk, 200, VTR_PS); vtr_clk_on = 1; end
 `endif
 

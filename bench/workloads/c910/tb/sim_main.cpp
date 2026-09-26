@@ -6,7 +6,11 @@
 // wall_s covers reset, the whole run and closing the dump; cpu_s is the process
 // CPU time of the same interval (all threads).
 //
-//   Vtop [--dump=<file>] [--max-cycles=N]        (run in the directory holding inst.pat/data.pat)
+//   Vtop [--dump=<file>] [--no-signals] [--max-cycles=N]
+//                                  (run in the directory holding inst.pat/data.pat)
+//
+// --no-signals opens a VTR dump without the design's signals: it then holds the
+// declared clock, the simulation log and, in a PIPELINE=1 model, the pipeline.
 
 #include <verilated.h>
 #if VM_TRACE_FST
@@ -51,6 +55,13 @@ double cpu_seconds() {
            + ru.ru_stime.tv_usec * 1e-6;
 }
 
+bool arg_flag(int argc, char** argv, const char* key) {
+    for (int i = 1; i < argc; ++i) {
+        if (!std::strcmp(argv[i], key)) return true;
+    }
+    return false;
+}
+
 uint64_t file_size(const char* path) {
     struct stat st;
     return (path && stat(path, &st) == 0) ? static_cast<uint64_t>(st.st_size) : 0;
@@ -62,6 +73,7 @@ int main(int argc, char** argv, char**) {
     const char* dump = arg_str(argc, argv, "--dump");
     const char* mc = arg_str(argc, argv, "--max-cycles");
     const uint64_t max_cycles = mc ? std::strtoull(mc, nullptr, 0) : 5000000ULL;
+    const bool no_signals = arg_flag(argc, argv, "--no-signals");
 
     const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
     contextp->debug(0);
@@ -74,7 +86,7 @@ int main(int argc, char** argv, char**) {
     std::unique_ptr<TraceFile> tfp;
     if (dump) {
         tfp.reset(new TraceFile);
-        top->trace(tfp.get(), 99);
+        if (!no_signals) top->trace(tfp.get(), 99);
     }
 #else
     if (dump) {

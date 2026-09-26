@@ -2,6 +2,9 @@
 # whole design traced to FST or VTR.
 #
 #   make model MODE=none|fst|vtr     # Verilated model in $(BUILD)/obj_$(MODE)/Vtop
+#   make model MODE=vtr PIPELINE=1   # plus the pipeline tracer: $(BUILD)/obj_vtr_pipeline/Vtop
+#   make model MODE=vtr PIPELINE=1 SIGNALS=0
+#                                    # the pipeline alone, no signal traced: obj_vtr_pipeline_only
 #   make sw                          # CoreMark image in $(BUILD)/sw/coremark
 #
 # MODE=vtr needs VTR_INCLUDE (directory of vtr.h) and VTR_LIBDIR (directory of
@@ -16,6 +19,8 @@ MODE   ?= none
 JOBS   ?= $(shell nproc)
 VERILATOR ?= verilator
 ITERATIONS ?= 1
+PIPELINE ?= 0
+SIGNALS ?= 1
 
 C910 := $(ROOT)/ext/pulp-c910
 export CODE_BASE_PATH := $(C910)/vendor/thead_openc910/C910_RTL_FACTORY
@@ -23,7 +28,22 @@ export SMART_PATH     := $(C910)/vendor/thead_openc910/smart_run
 export SYSMAP_INCDIR  := $(BUILD)/sysmap
 export HERE
 
+# PIPELINE=1 binds the pipeline tracer (tb/c910_tracer.sv, docs/c910-verilator-tx-stream.html)
+# to ct_core; its model is kept apart from the plain VTR one for A/B runs.
+ifeq ($(PIPELINE),1)
+ifneq ($(MODE),vtr)
+$(error PIPELINE=1 needs MODE=vtr)
+endif
+PIPE_SRC := tb/c910_tracer.sv tb/c910_bind.sv tb/c910_label.cpp
+OBJDIR := $(BUILD)/obj_vtr_pipeline
+ifeq ($(SIGNALS),0)
+PIPE_SRC += tb/no_signals.vlt
+OBJDIR := $(BUILD)/obj_vtr_pipeline_only
+endif
+else
+PIPE_SRC :=
 OBJDIR := $(BUILD)/obj_$(MODE)
+endif
 MODEL  := $(OBJDIR)/Vtop
 
 VFLAGS := --cc --exe --top-module top -Wno-fatal \
@@ -61,9 +81,9 @@ $(BUILD)/rtl/ct_lsu_ctrl.v: $(CODE_BASE_PATH)/gen_rtl/lsu/rtl/ct_lsu_ctrl.v
 $(C910_FILELIST): $(CODE_BASE_PATH)/gen_rtl/filelists/C910_asic_rtl.fl $(BUILD)/rtl/ct_lsu_ctrl.v
 	sed -e 's|^.*/lsu/rtl/ct_lsu_ctrl.v$$|$(BUILD)/rtl/ct_lsu_ctrl.v|' $< > $@
 
-$(MODEL): $(SYSMAP_INCDIR)/sysmap.h $(C910_FILELIST) rtl/c910_soc.f rtl/tc_sram.sv tb/tb_c910_bench.sv tb/sim_main.cpp
+$(MODEL): $(SYSMAP_INCDIR)/sysmap.h $(C910_FILELIST) rtl/c910_soc.f rtl/tc_sram.sv tb/tb_c910_bench.sv tb/sim_main.cpp $(PIPE_SRC)
 	@mkdir -p $(OBJDIR)
-	$(VERILATOR) $(VFLAGS) -f rtl/c910_soc.f tb/tb_c910_bench.sv tb/sim_main.cpp > $(OBJDIR)/verilator.log 2>&1
+	$(VERILATOR) $(VFLAGS) -f rtl/c910_soc.f tb/tb_c910_bench.sv $(PIPE_SRC) tb/sim_main.cpp > $(OBJDIR)/verilator.log 2>&1
 	$(MAKE) -C $(OBJDIR) -f Vtop.mk -j$(JOBS) OPT_FAST="-O2" OPT_SLOW="-O1" \
 	    VTR_INCLUDE="$(VTR_INCLUDE)" VTR_LIBDIR="$(VTR_LIBDIR)" > $(OBJDIR)/make.log 2>&1
 

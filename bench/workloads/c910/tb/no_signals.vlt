@@ -1,0 +1,5 @@
+// Pipeline-only builds (make model MODE=vtr PIPELINE=1 SIGNALS=0): no signal is
+// traced, so the model carries no waveform instrumentation. The VTR file holds the
+// declared clock, the simulation log and the pipeline stream.
+`verilator_config
+tracing_off -file "*"

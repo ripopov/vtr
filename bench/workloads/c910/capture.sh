@@ -10,7 +10,13 @@
 # so no explicit export step is needed.
 #
 #   capture.sh [--out DIR] [--iterations N] [--max-cycles N]
-#              [--format vtr|fst] [--check]
+#              [--format vtr|fst] [--pipeline] [--check]
+#
+# --pipeline builds the VTR model with the pipeline tracer bound to ct_core
+# (tb/c910_tracer.sv, docs/c910-verilator-tx-stream.html): the recording gains
+# the streams TX.core0.pipeline, .store_queue and .lsu_bus (a root tree of
+# their own, beside the design's signals they are derived from). With --check, pipeline_replay.py then replays the tracer's rules over
+# the recorded probes and requires the identical transactions.
 #
 # Requires cargo, a riscv64-unknown-elf- toolchain, and the pinned Verilator
 # fork with --trace-vtr built by integrations/verilator/build.sh to
@@ -26,6 +32,7 @@ ITERATIONS=${ITERATIONS:-1}
 MAX_CYCLES=${MAX_CYCLES:-}
 FORMAT=${FORMAT:-vtr}
 CHECK=${CHECK:-0}
+PIPELINE=${PIPELINE:-0}
 VERILATOR=${VERILATOR:-"$ROOT/bench/build/verilator/install/bin/verilator"}
 VTR_INCLUDE="$ROOT/core/vtr-capi/include"
 VTR_LIBDIR=${VTR_LIBDIR:-"$ROOT/target/release"}
@@ -39,6 +46,7 @@ while [ $# -gt 0 ]; do
     --max-cycles) MAX_CYCLES="$2"; shift 2 ;;
     --format) FORMAT="$2"; shift 2 ;;
     --check) CHECK=1; shift ;;
+    --pipeline) PIPELINE=1; shift ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -46,6 +54,12 @@ case "$FORMAT" in
   vtr|fst) ;;
   *) echo "--format must be vtr or fst (got: $FORMAT)" >&2; exit 2 ;;
 esac
+if [ "$PIPELINE" -eq 1 ] && [ "$FORMAT" != vtr ]; then
+  echo "--pipeline needs --format vtr" >&2
+  exit 2
+fi
+OBJ="$BUILD/obj_$FORMAT"
+if [ "$PIPELINE" -eq 1 ]; then OBJ="$BUILD/obj_vtr_pipeline"; fi
 
 if [ ! -x "$VERILATOR" ]; then
   echo "verilator --trace-vtr not found at $VERILATOR; build it with:" >&2
@@ -70,8 +84,8 @@ fi
 echo "[capture] building the CoreMark image ($ITERATIONS iteration)"
 make -C "$HERE" sw BUILD="$BUILD" ITERATIONS="$ITERATIONS"
 
-echo "[capture] building the --trace-$FORMAT C910 model"
-make -C "$HERE" model MODE="$FORMAT" BUILD="$BUILD" JOBS="$JOBS" \
+echo "[capture] building the --trace-$FORMAT C910 model$([ "$PIPELINE" -eq 1 ] && echo " with the pipeline tracer")"
+make -C "$HERE" model MODE="$FORMAT" PIPELINE="$PIPELINE" BUILD="$BUILD" JOBS="$JOBS" \
   VERILATOR="$VERILATOR" VTR_INCLUDE="$VTR_INCLUDE" VTR_LIBDIR="$VTR_LIBDIR"
 
 # The testbench $readmemh's inst.pat/data.pat relative to the working dir.
@@ -79,7 +93,7 @@ TRACE="$OUT/c910_coremark.$FORMAT"
 MAX_ARG=
 if [ -n "$MAX_CYCLES" ]; then MAX_ARG="--max-cycles=$MAX_CYCLES"; fi
 set +e
-(cd "$BUILD/sw/coremark" && "$BUILD/obj_$FORMAT/Vtop" --dump="$TRACE" $MAX_ARG)
+(cd "$BUILD/sw/coremark" && "$OBJ/Vtop" --dump="$TRACE" $MAX_ARG)
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
@@ -101,5 +115,9 @@ if [ "$FORMAT" = vtr ]; then
     echo "[capture] declared core clock check"
     (cd "$ROOT" && cargo build --release -p vtr-cli)
     python3 "$HERE/check_clock.py" "$ROOT/target/release/vtr" "$TRACE"
+    if [ "$PIPELINE" -eq 1 ]; then
+      echo "[capture] pipeline differential check (replay of the tracer's rules over the probes)"
+      python3 "$HERE/pipeline_replay.py" "$TRACE" "$BUILD/sw/coremark/coremark.dis"
+    fi
   fi
 fi

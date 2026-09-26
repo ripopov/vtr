@@ -333,6 +333,20 @@ Compilers: `g++-16` = g++-16 (Ubuntu 16-20260322-1ubuntu1) 16.0.1 20260322 (expe
 | gcc-16 -O2 source function order (probe) | 35.84 s | 5.24x | 5.9 MB | 1.26 M | 33% | 11 s |
 
 
+## C910 pipeline tracing: cost gates
+
+The pipeline tracer of docs/c910-verilator-tx-stream.html bound to the C910 model, one CoreMark iteration (254,753 cycles, 411,339 instructions recorded), measured by `bench/workloads/c910/pipeline_cost.py`: the four models interleaved in one session, best of 5. Run on Apple M5, Darwin 25.6.0, 2026-09-26T13:06:11. The pipeline-only model traces no signal (`make model MODE=vtr PIPELINE=1 SIGNALS=0`) and runs with `--no-signals`.
+
+| run | model | wall | cpu | file |
+|---|---|---:|---:|---:|
+| untraced | obj_none | 7.15 s | 7.14 s | - |
+| pipeline only | obj_vtr_pipeline_only | 7.75 s | 7.82 s | 1.99 MiB |
+| full dump | obj_vtr | 30.22 s | 35.90 s | 267.52 MiB |
+| full dump + pipeline | obj_vtr_pipeline | 30.28 s | 36.13 s | 269.75 MiB |
+
+Gates: pipeline only / untraced = **1.084x** (limit 1.10x); full dump + pipeline / full dump = **1.002x** (limit 1.03x). The pipeline adds 2.23 MiB to the full dump; `vtr tx` reads the whole stream in 0.16 s from the pipeline-only file and 0.16 s from the full dump.
+
+
 ## Workload descriptions
 
 - **scr1_axi**: SCR1 RISC-V core with AXI testbench, Verilator FST fixture from the wavepeek repository (real RTL, small design)
