@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::transactions::{Relation, TrackRef, Transaction, TransactionRef};
+use super::transactions::{Relation, TrackRef, Transaction, TransactionRef, TransactionStage};
 
 /// Interval-tree subtrees with at most this many leaves are scanned flat.
 const SCAN_LEAVES: usize = 32;
@@ -52,6 +52,89 @@ pub struct LoadedGenerator {
     depth: u16,
     /// Median `end - begin`, which sets when a lane is too dense for bars.
     median_lifetime: u64,
+    /// Stage names per lane, counted at load for the stage palette.
+    stage_census: StageCensus,
+}
+
+/// The stage names of a generator by lane, counted in one pass at load so a
+/// stage palette (`pipeline::palette`) never scans records. Lanes and the
+/// names within a lane keep their first appearance in record order.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StageCensus {
+    pub lanes: Vec<LaneCensus>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LaneCensus {
+    pub lane: String,
+    /// Stages recorded on this lane.
+    pub stages: u64,
+    pub names: Vec<NameCensus>,
+}
+
+/// One stage name on one lane: how often it occurs and the sum of its
+/// positions among a record's stages on that lane (first stage is 0).
+#[derive(Clone, Debug, PartialEq)]
+pub struct NameCensus {
+    pub name: String,
+    pub count: u64,
+    pub position_sum: u64,
+}
+
+impl StageCensus {
+    /// Count one record's stages. `cursors` is scratch space reused across
+    /// records: per lane, the next position and the name after the last one
+    /// matched. Stages mostly arrive in pipeline order, so that name and the
+    /// previous stage's lane are tried before a search.
+    fn add(&mut self, stages: &[TransactionStage], cursors: &mut Vec<(u64, usize)>) {
+        cursors.iter_mut().for_each(|cursor| *cursor = (0, 0));
+        let mut lane = 0;
+        for stage in stages {
+            if self.lanes.get(lane).is_none_or(|l| l.lane != stage.lane) {
+                lane = match self.lanes.iter().position(|l| l.lane == stage.lane) {
+                    Some(lane) => lane,
+                    None => {
+                        self.lanes.push(LaneCensus {
+                            lane: stage.lane.clone(),
+                            stages: 0,
+                            names: Vec::new(),
+                        });
+                        cursors.push((0, 0));
+                        self.lanes.len() - 1
+                    }
+                };
+            }
+            let census = &mut self.lanes[lane];
+            census.stages += 1;
+            let (position, hint) = cursors[lane];
+            let name = if census.names.get(hint).is_some_and(|n| n.name == stage.name) {
+                hint
+            } else if let Some(name) = census.names.iter().position(|n| n.name == stage.name) {
+                name
+            } else {
+                census.names.push(NameCensus {
+                    name: stage.name.clone(),
+                    count: 0,
+                    position_sum: 0,
+                });
+                census.names.len() - 1
+            };
+            census.names[name].count += 1;
+            census.names[name].position_sum += position;
+            cursors[lane] = (position + 1, name + 1);
+        }
+    }
+
+    fn bytes(&self) -> u64 {
+        let lane = std::mem::size_of::<LaneCensus>() as u64;
+        let name = std::mem::size_of::<NameCensus>() as u64;
+        self.lanes.iter().fold(0, |bytes, l| {
+            l.names.iter().fold(
+                bytes.saturating_add(lane + l.lane.capacity() as u64),
+                |bytes, n| bytes.saturating_add(name + n.name.capacity() as u64),
+            )
+        })
+    }
 }
 
 impl LoadedGenerator {
@@ -86,7 +169,8 @@ impl LoadedGenerator {
                 std::mem::size_of::<TransactionRef>(),
                 self.by_endpoint.values().map(Vec::capacity).sum(),
                 std::mem::size_of::<u32>(),
-            ));
+            ))
+            .saturating_add(self.stage_census.bytes());
         let transactions =
             self.transactions.iter().fold(fixed, |bytes, tx| {
                 bytes
@@ -273,6 +357,12 @@ impl LoadedGenerator {
             sub_rows.push(row);
             open.push(std::cmp::Reverse((tx.end, row)));
         }
+        let mut stage_census = StageCensus::default();
+        let mut cursors = Vec::new();
+        for tx in &transactions {
+            checkpoint().await;
+            stage_census.add(&tx.stages, &mut cursors);
+        }
         let median_lifetime = {
             let mut lifetimes: Vec<u64> = transactions.iter().map(|tx| tx.end - tx.begin).collect();
             let mid = lifetimes.len() / 2;
@@ -296,6 +386,7 @@ impl LoadedGenerator {
             sub_rows,
             depth,
             median_lifetime,
+            stage_census,
         })
     }
 
@@ -349,6 +440,11 @@ impl LoadedGenerator {
     /// Median record lifetime, in trace time units.
     pub fn median_lifetime(&self) -> u64 {
         self.median_lifetime
+    }
+
+    /// Stage names per lane, counted at load.
+    pub fn stage_census(&self) -> &StageCensus {
+        &self.stage_census
     }
 
     /// The first record begin or end strictly after `time`. Ends after
@@ -553,6 +649,42 @@ mod tests {
         );
         assert_eq!(count, 1);
         assert!(loaded.visit_window(2, 1, |_| true).is_err());
+    }
+
+    #[test]
+    fn stage_census_counts_lanes_names_and_positions_in_any_order() {
+        let stage = |name: &str, lane: &str| TransactionStage {
+            name: name.into(),
+            lane: lane.into(),
+            begin: 0,
+            end: Some(1),
+            attributes: vec![],
+        };
+        let mut a = tx(0, 0, 4);
+        a.stages = vec![
+            stage("F", ""),
+            stage("s", "x"),
+            stage("E", ""),
+            stage("W", ""),
+        ];
+        // Out of pipeline order, so the next-name guess misses.
+        let mut b = tx(1, 1, 5);
+        b.stages = vec![stage("F", ""), stage("W", ""), stage("E", "")];
+        let loaded = LoadedGenerator::new(TrackRef(1), vec![a, b], HashMap::new(), vec![]).unwrap();
+        let census = loaded.stage_census();
+        let lanes: Vec<_> = census
+            .lanes
+            .iter()
+            .map(|l| (l.lane.as_str(), l.stages))
+            .collect();
+        assert_eq!(lanes, [("", 6), ("x", 1)]);
+        let names: Vec<_> = census.lanes[0]
+            .names
+            .iter()
+            .map(|n| (n.name.as_str(), n.count, n.position_sum))
+            .collect();
+        assert_eq!(names, [("F", 2, 0), ("E", 2, 3), ("W", 2, 3)]);
+        assert_eq!(census.lanes[1].names[0].position_sum, 0);
     }
 
     #[test]

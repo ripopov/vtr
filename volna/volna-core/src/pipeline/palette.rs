@@ -4,9 +4,11 @@
 //! run from fetch to retire whatever order the trace first shows them in.
 //! Lightness is fixed so the dark cell text reads in both appearances; with
 //! more than eight names, neighbouring hues alternate between two
-//! lightnesses so a dozen stages stay apart. A VDB stage table later fills
-//! the same struct with authored colours; the painter only ever asks for
-//! `style(name)`.
+//! lightnesses so a dozen stages stay apart. The counts come from each
+//! generator's `StageCensus`, taken once at load, so building a palette
+//! costs lanes × names rather than a scan of every record. A VDB stage table
+//! later fills the same struct with authored colours; the painter only ever
+//! asks for `style(name)`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -46,15 +48,14 @@ impl StagePalette {
     /// The primary lane is `0` when any stage uses it, otherwise the lane
     /// with the most stages (ties go to the first seen).
     pub fn build(generators: &[Arc<LoadedGenerator>]) -> Self {
-        let mut lane_counts: Vec<(&str, usize)> = Vec::new();
-        for stage in generators
-            .iter()
-            .flat_map(|g| g.transactions())
-            .flat_map(|tx| &tx.stages)
-        {
-            match lane_counts.iter_mut().find(|(lane, _)| *lane == stage.lane) {
-                Some((_, n)) => *n += 1,
-                None => lane_counts.push((&stage.lane, 1)),
+        // Merging the census of each generator in order keeps first
+        // appearance across generators, so no record is scanned here.
+        let lanes = || generators.iter().flat_map(|g| &g.stage_census().lanes);
+        let mut lane_counts: Vec<(&str, u64)> = Vec::new();
+        for lane in lanes() {
+            match lane_counts.iter_mut().find(|(name, _)| *name == lane.lane) {
+                Some((_, n)) => *n += lane.stages,
+                None => lane_counts.push((&lane.lane, lane.stages)),
             }
         }
         let primary_lane = if lane_counts.iter().any(|(lane, _)| *lane == DEFAULT_LANE) {
@@ -67,23 +68,23 @@ impl StagePalette {
                 .unwrap_or_else(|| DEFAULT_LANE.to_owned())
         };
         // Per name in first-appearance order: the sum and count of its positions.
-        let mut seen: Vec<(String, f64, u64)> = Vec::new();
-        for tx in generators.iter().flat_map(|g| g.transactions()) {
-            let primary = tx.stages.iter().filter(|stage| stage.lane == primary_lane);
-            for (position, stage) in primary.enumerate() {
-                match seen.iter_mut().find(|(name, _, _)| *name == stage.name) {
-                    Some((_, sum, n)) => {
-                        *sum += position as f64;
-                        *n += 1;
-                    }
-                    None => seen.push((stage.name.clone(), position as f64, 1)),
+        let mut seen: Vec<(String, u64, u64)> = Vec::new();
+        for census in lanes()
+            .filter(|lane| lane.lane == primary_lane)
+            .flat_map(|lane| &lane.names)
+        {
+            match seen.iter_mut().find(|(name, _, _)| *name == census.name) {
+                Some((_, sum, n)) => {
+                    *sum += census.position_sum;
+                    *n += census.count;
                 }
+                None => seen.push((census.name.clone(), census.position_sum, census.count)),
             }
         }
         let mut order: Vec<usize> = (0..seen.len()).collect();
         // A stable sort keeps first appearance among equal positions.
         order.sort_by(|&a, &b| {
-            let mean = |i: usize| seen[i].1 / seen[i].2 as f64;
+            let mean = |i: usize| seen[i].1 as f64 / seen[i].2 as f64;
             mean(a).total_cmp(&mean(b))
         });
         let names: Vec<String> = order.into_iter().map(|i| seen[i].0.clone()).collect();
@@ -276,5 +277,23 @@ mod tests {
         // Few stages keep one lightness.
         let few = StagePalette::build(&[generator(&[alu])]);
         assert!(few.names().iter().all(|n| few.style(n).fill.l == 0.58));
+    }
+
+    #[test]
+    fn generators_merge_as_one_record_list() {
+        // X is seen before D, but D sits earlier once both generators count;
+        // lane "p" is primary only by the combined stage count.
+        let first: &[&[(&str, &str)]] = &[&[("F", "p"), ("X", "p")], &[("s", "q"), ("s", "q")]];
+        let second: &[&[(&str, &str)]] = &[
+            &[("F", "p"), ("D", "p"), ("X", "p")],
+            &[("s", "q"), ("F", "p"), ("D", "p"), ("X", "p")],
+        ];
+        let merged = StagePalette::build(&[generator(first), generator(second)]);
+        let together = [first, second].concat();
+        let single = StagePalette::build(&[generator(&together)]);
+        assert_eq!(merged.primary_lane(), "p");
+        assert_eq!(merged.names(), ["F", "D", "X"]);
+        assert_eq!(merged.names(), single.names());
+        assert_eq!(merged.style("D"), single.style("D"));
     }
 }

@@ -433,8 +433,11 @@ of its rows. Painting is `O(painted rows × stages per row)`: transactions and
 stages outside the time window are skipped, cells narrower than a pixel are
 widened to one, stage names appear from ten pixels per row in cells wide
 enough for the shaped name, labels from seven. `StagePalette` assigns each
-primary-lane stage name a hue from a ladder by first appearance (a VDB stage
-table later fills the same struct). The header ticks, cursor line and chip,
+primary-lane stage name a hue from a ladder in pipeline order (mean position
+among a record's primary-lane stages). It merges the `StageCensus` each
+`LoadedGenerator` counts once at load (stages per lane, count and position
+sum per name), so neither the pipeline nor a Transaction panel scans records
+for colours (a VDB stage table later fills the same struct). The header ticks, cursor line and chip,
 and marker lines and chips come from `wave::overlay`, shared with the wave
 painter, as does `overlay::outside_time`, which shades the time before and
 after the trace (`wave_outside`) in both panel kinds; the pipeline painter
