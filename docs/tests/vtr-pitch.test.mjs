@@ -6,7 +6,7 @@ import {test} from 'node:test';
 import {browserTest} from '../../volna/volna/tools/browser-test.mjs';
 const html = await readFile(new URL('../vtr-pitch.html', import.meta.url), 'utf8');
 const routes = {'/': {type: 'text/html', body: html}};
-const SLIDES = ['level-up', 'down-up', 'one-file'];
+const SLIDES = ['level-up', 'down-up', 'one-file', 'everywhere'];
 const bench = JSON.parse(await readFile(new URL('../../bench/results/latest/results.json', import.meta.url), 'utf8'));
 const settle = 'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))';
 const SENTENCES = [
@@ -23,7 +23,7 @@ async function open(width = 1280, height = 900) {
   return b;
 }
 
-test('three slides; the staircase: headline, one described diagram, captions per level, embedded fonts', {timeout: 30000}, async t => {
+test('four slides; the staircase: headline, one described diagram, captions per level, embedded fonts', {timeout: 30000}, async t => {
   const b = await open(); t.after(() => b.close());
   assert.deepEqual(await b.evaluate(`[...document.querySelectorAll('.slide')].map(s => s.id)`), SLIDES);
   const r = await b.evaluate(`(() => { const s = document.getElementById('level-up'); return {
@@ -136,6 +136,45 @@ test('one file: FST and FTR feed VTR, and the benchmarks are the checked-in resu
   for (const gone of ['BENCHMARKS', 'variant', 'workloads', 'FST + FTR']) assert.ok(!v.texts.some(s => s.includes(gone)), `no fine print: ${gone}`);
 });
 
+test('Volna: five viewers each feed the panel their idea became, in one core that runs natively, in VS Code and in CI', {timeout: 30000}, async t => {
+  const b = await open(1280, 800); t.after(() => b.close());
+  await b.evaluate(`PITCH.show(3); ${settle}`);
+  const v = await b.evaluate(`(() => { const s = document.getElementById('everywhere'), svg = s.querySelector('svg.dg');
+    const texts = [...svg.querySelectorAll('text')], bb = e => { const r = e.getBBox(); return {x: r.x, y: r.y, w: r.width, h: r.height}; };
+    const within = (r, q) => q.x > r.x && q.x < r.x + r.width && q.y > r.y && q.y < r.y + r.height;
+    const titled = e => { const r = e.getBBox(), t = texts.find(q => q.classList.contains('w6') && within(r, q.getBBox())); return {...bb(e), title: t?.textContent, tone: [...(t?.classList ?? [])].find(c => c.startsWith('c-'))}; };
+    const tone = e => [...e.classList].find(c => /^(f|ln)-/.test(c) && !['f-idea'].includes(c)).replace(/^(f|ln)-/, '');
+    return {title: s.querySelector('h1').textContent, sub: s.querySelector('.sub').textContent, label: svg.getAttribute('aria-label'),
+      cards: [...svg.querySelectorAll('rect.f-panel[data-box]')].map(titled), core: [...svg.querySelectorAll('rect.f-lift[data-box]')].map(titled),
+      ideas: [...svg.querySelectorAll('rect.f-idea')].map(e => ({...titled(e), tone: tone(e), fill: getComputedStyle(e).fill})),
+      feeds: [...svg.querySelectorAll('path.feed')].map(e => ({...bb(e), tone: tone(e)})),
+      arrows: [...svg.querySelectorAll('path[marker-end]')].map(bb), texts: texts.map(e => e.textContent)}; })()`);
+  assert.equal(v.title, 'Five viewers. One modern framework.');
+  assert.equal(v.sub, 'Volna packs the best ideas of five viewers into one Rust core that runs everywhere.');
+  for (const word of ['GTKWave', 'Surfer', 'SCViewer', 'Perfetto', 'Konata', 'Rust', 'GPUI', 'VS Code', 'WASM', 'CI', 'headless']) assert.ok(v.label.includes(word), `the description mentions ${word}`);
+  const viewers = v.cards.filter(c => c.y === 0), targets = v.cards.filter(c => c.y > 0);
+  assert.deepEqual(viewers.map(c => c.title), ['GTKWave', 'Surfer', 'SCViewer', 'Perfetto', 'Konata']);
+  assert.deepEqual(targets.map(c => c.title), ['Rust + GPUI', 'VS Code plugin', 'WASM in CI']);
+  assert.deepEqual(v.core.map(c => c.title), ['Volna']);
+  const [core] = v.core;
+  assert.deepEqual([core.x, core.w], [viewers[0].x, viewers[4].x + viewers[4].w], 'the core spans every viewer');
+  assert.deepEqual([targets[0].x, targets[2].x + targets[2].w], [core.x, core.x + core.w], 'the core spans every place it runs');
+  for (const c of viewers) assert.deepEqual([c.w, c.h], [viewers[0].w, viewers[0].h], `${c.title}: equal cards`);
+  assert.equal(new Set(viewers.map((c, i) => i && c.x - viewers[i - 1].x - viewers[i - 1].w).slice(1)).size, 1, 'even gaps');
+  // One colour per viewer, carried from its name down its feed line into the panel it inspired.
+  assert.equal(new Set(v.ideas.map(c => c.fill)).size, 5, 'five viewer colours');
+  assert.deepEqual(v.ideas.map(c => c.title), ['Waves', 'Workspace', 'Transactions', 'Summaries', 'Pipeline']);
+  viewers.forEach((c, i) => {
+    const idea = v.ideas[i], feed = v.feeds[i], cx = c.x + c.w / 2;
+    assert.equal(c.tone, `c-${idea.tone}`, `${c.title}: its name and its panel share a colour`);
+    assert.equal(feed.tone, idea.tone, `${c.title}: its feed line has its colour`);
+    assert.equal(idea.x + idea.w / 2, cx, `${c.title}: its panel sits straight under it`);
+    assert.ok(Math.abs(feed.x - cx) < 0.01 && feed.y === c.y + c.h && feed.y + feed.h === idea.y, `${c.title}: the feed drops from the card into its panel`);
+    assert.ok(idea.y > core.y && idea.y + idea.h < core.y + core.h, `${c.title}: its panel is inside Volna`);
+  });
+  for (const c of targets) assert.ok(v.arrows.some(a => Math.abs(a.x + 0.75 - (c.x + c.w / 2)) < 1 && a.y >= core.y + core.h && a.y + a.h <= c.y), `${c.title}: an arrow from Volna runs into it`);
+});
+
 test('text stays inside the margins, inside its boxes and apart on every slide', {timeout: 30000}, async t => {
   const b = await open(1280, 800); t.after(() => b.close());
   for (const [n, id] of SLIDES.entries()) {
@@ -175,7 +214,7 @@ test('diagram text paints where it is laid out, even after the canvas rescales o
   const b = await browserTest(routes); t.after(() => b.close());
   await b.send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 900, deviceScaleFactor: 1, mobile: false});
   await b.wait('window.ready === true');
-  for (const n of [1, 2, 0]) {
+  for (const n of [1, 2, 3, 0]) {
     await b.evaluate(`PITCH.show(${n}); ${settle}`);
     const shot = (await b.send('Page.captureScreenshot', {format: 'png'})).data;
     const dark = await b.evaluate(`(async () => {
@@ -254,12 +293,14 @@ test('keys, buttons and links switch slides; P presents full screen; Escape leav
   await b.wait('PITCH.current() === 1 && document.getElementById("said").textContent.startsWith("2 ·")');
   await key('3', 'Digit3', 51);
   await b.wait('PITCH.current() === 2 && location.hash === "#one-file"');
+  await key('4', 'Digit4', 52);
+  await b.wait('PITCH.current() === 3 && location.hash === "#everywhere"');
   await key('ArrowRight', 'ArrowRight', 39);
-  await b.wait('PITCH.current() === 2');
+  await b.wait('PITCH.current() === 3');
   await key('Home', 'Home', 36);
   await b.wait('PITCH.current() === 0');
   await key('End', 'End', 35);
-  await b.wait('PITCH.current() === 2');
+  await b.wait('PITCH.current() === 3');
   await b.evaluate('location.hash = "#level-up"');
   await b.wait('PITCH.current() === 0');
   await key('p', 'KeyP', 80);
@@ -280,7 +321,8 @@ test('text contrast on every surface it is drawn on', {timeout: 30000}, async t 
   const pairs = [['ink', 'bg'], ['mut', 'bg'], ['acc-ink', 'bg'], ['ink', 'step-top'], ['mut', 'step-top'], ['acc-ink', 'step-top'],
     ['ink', 'panel'], ['mut', 'panel'], ['acc-ink', 'panel'], ['ok', 'panel'], ['warn-ink', 'panel'], ['ink', 'chip'],
     ['acc-ink', 'acc-soft'], ['ink', 'acc-soft'], ['mut', 'acc-soft'], ['ink', 'warn-soft'], ['on-acc', 'acc'], ['on-warn', 'warn'],
-    ['ink', 'band'], ['mut', 'band'], ['acc-ink', 'band'], ['ink', 'acc2'], ['fst', 'panel'], ['ftr', 'panel'], ['vtr', 'panel'], ['vtr', 'acc-soft']];
+    ['ink', 'band'], ['mut', 'band'], ['acc-ink', 'band'], ['ink', 'acc2'], ['fst', 'panel'], ['ftr', 'panel'], ['vtr', 'panel'], ['vtr', 'acc-soft'],
+    ['surfer', 'panel'], ['perfetto', 'panel'], ['konata', 'panel'], ...['fst', 'surfer', 'ftr', 'perfetto', 'konata'].map(c => ['on-acc', c])];
   const r = await b.evaluate(`(() => {
     const lum = h => { const v = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(x => x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
     const cs = getComputedStyle(document.querySelector('.slide')), hex = n => cs.getPropertyValue('--' + n).trim(), out = {};

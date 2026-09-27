@@ -10,6 +10,10 @@ Slide 3 is VTR itself: the ideas it takes from FST (waveforms) and FTR
 (transactions), packed into one compressed file, and the measured result against
 the best FST or FTR variant per metric, read from bench/results/latest/results.json.
 
+Slide 4 is Volna: the best ideas of five viewers (GTKWave, Surfer, SCViewer,
+Perfetto, Konata), each feeding the panel it inspired in one Rust core, which
+runs as a native GPUI app, a VS Code plugin and a WASM page for CI.
+
 "Level up your traces" is drawn as a staircase: L0 your RTL and its simulation,
 L1 the AI skill and the VTR monitor it writes, L2 VTR transactions named by VDB,
 L3 what you get in Volna (pipeline, sequence and bandwidth). Four equal
@@ -43,6 +47,8 @@ V_TITLE = 'Optimized down. Lifted back up.'
 V_SUBTITLE = 'Optimization pushes every design down to RTL, the only executable spec as detailed as silicon.'
 F_TITLE = 'Two formats. One modern file.'
 F_SUBTITLE = 'VTR packs the best ideas of FST waveforms and FTR transactions into one compressed format.'
+W_TITLE = 'Five viewers. One modern framework.'
+W_SUBTITLE = 'Volna packs the best ideas of five viewers into one Rust core that runs everywhere.'
 SENTENCES = (
     'An AI skill reads your RTL and generates monitors with automated checks.',
     'VTR records transactions and runtime links; VDB gives them design meaning.',
@@ -438,6 +444,98 @@ def one_file():
                     '<rect width="2" height="6" class="f-vtr hatch"/></pattern>')
 
 
+# Slide 4: what Volna takes from each viewer, and the panel each idea became.
+VIEWERS = (('GTKWave', 'fst', 'the FST classic', ('signal tree + list', 'baseline marker'), 'Waves'),
+           ('Surfer', 'surfer', 'Rust waveforms', ('tiled workspace', 'event arrows, 0–9 keys'), 'Workspace'),
+           ('SCViewer', 'ftr', 'SystemC transactions', ('transaction streams', 'relations as arrows'), 'Transactions'),
+           ('Perfetto', 'perfetto', 'system traces', ('summary tracks', 'details follow selection'), 'Summaries'),
+           ('Konata', 'konata', 'CPU pipelines', ('stages per instruction', 'stage colour ladder'), 'Pipeline'))
+TARGETS = (('Rust + GPUI', ('native desktop app', 'on Zed’s GPU UI toolkit')),
+           ('VS Code plugin', ('the WASM build in a webview', 'remote traces via volna-server')),
+           ('WASM in CI', ('any browser, nothing to install', 'one link from a failing run')))
+
+
+def everywhere():
+    """Slide 4: five viewers' best ideas feed one Volna core, which runs natively, in VS Code and in CI."""
+    said = '; '.join(f'{name} ({note}): {" and ".join(ideas)}, which became Volna\'s {panel.lower()}'
+                     for name, _, note, ideas, panel in VIEWERS)
+    runs = '; '.join(f'{t}: {", ".join(n)}' for t, n in TARGETS)
+    s = Svg('w', 1136, 446,
+            f'Five viewers feed one framework. {said}. Volna is one Rust core with every panel, tested headless, '
+            f'and it runs in three places: {runs}.')
+    CW, GAP = 212, 19
+    s.rect(0, 156, 1136, 112, 'f-lift', r=12)
+    s.text(36, 246, 'Volna', 22, 'c-vtr', weight=600)
+    s.text(112, 246, 'one Rust core for every panel · tested headless', 13, 'c-mut')
+    for i, (name, tone, note, ideas, panel) in enumerate(VIEWERS):
+        x = i * (CW + GAP)
+        cx, gx, gy = x + CW / 2, x + 144, 16
+        s.rect(x, 0, CW, 124, 'f-panel', r=12)
+        s.text(x + 18, 30, name, 17, f'c-{tone}', weight=600)
+        s.text(x + 18, 50, note, 11, 'c-mut')
+        if tone == 'fst':
+            s.clock(gx, gy + 6, 6.5, 8, 8, 'ln-fst')
+            s.wave(gx, gy + 22, 6.5, '00111001', 8, 'ln-fst')
+        elif tone == 'surfer':
+            for tx, ty, tw, th in ((0, 0, 22, 28), (26, 0, 26, 12), (26, 16, 26, 12)):
+                s.rect(gx + tx, gy + ty, tw, th, 'o-surfer', r=2, box=False)
+        elif tone == 'ftr':
+            for n, (a, w) in enumerate(((0, 36), (10, 24), (20, 32))):
+                s.rect(gx + a, gy + 2 + 9 * n, w, 6, 'f-ftr', r=2, box=False)
+        elif tone == 'perfetto':
+            for a, d, w in ((0, 0, 52), (0, 1, 22), (26, 1, 20), (4, 2, 10), (30, 2, 8)):
+                s.rect(gx + a, gy + 2 + 9 * d, w, 6, 'f-perfetto', r=1, box=False)
+        else:
+            for r in range(3):
+                for c in range(3):
+                    s.rect(gx + 10 * (r + c), gy + 2 + 9 * r, 8, 6, 'f-konata', r=1, box=False)
+        for n, idea in enumerate(ideas):
+            s.path(f'M{x + 18} {80 + 22 * n} H{x + 24}', f'ln-{tone}')
+            s.text(x + 32, 84 + 22 * n, idea, 11, mono=True)
+        # Each viewer's idea drops straight into the panel it became.
+        s.path(f'M{cx} 124 V172', f'ln-{tone} feed')
+        s.rect(cx - 70, 172, 140, 30, f'f-idea f-{tone}', r=15)
+        s.text(cx, 192, panel, 13, 'c-on-acc', weight=600, anchor='middle')
+
+    TW = 368
+    for i, (title, notes) in enumerate(TARGETS):
+        x = i * (TW + 16)
+        s.arrow(x + TW / 2, 268, x + TW / 2, 298, 'acc')
+        s.rect(x, 304, TW, 142, 'f-panel', r=12)
+        gx, gy = x + 20, 332
+        if i < 2:
+            s.rect(gx, gy, 124, 86, 'f-chip', r=6, box=False)
+        if i == 0:
+            for n in range(3):
+                s.add(f'<circle cx="{gx + 10 + 9 * n}" cy="{gy + 9}" r="2.5" class="f-hair"/>')
+            s.clock(gx + 12, gy + 34, 12.5, 8, 10, 'ln-vtr')
+            s.wave(gx + 12, gy + 54, 12.5, '00111100', 10)
+            s.wave(gx + 12, gy + 72, 12.5, '00001110', 10)
+        elif i == 1:
+            s.path(f'M{gx + 18} {gy} V{gy + 86}', 'ln-hair')
+            for n in range(3):
+                s.rect(gx + 5, gy + 10 + 16 * n, 8, 8, 'f-hair', r=2, box=False)
+            s.rect(gx + 18, gy, 56, 16, 'f-lift', r=0, box=False)
+            s.clock(gx + 28, gy + 38, 11, 8, 10, 'ln-vtr')
+            s.wave(gx + 28, gy + 58, 11, '00111100', 10)
+            s.wave(gx + 28, gy + 76, 11, '00001110', 10)
+        else:
+            for n, (step, ok) in enumerate((('lint', True), ('build', True), ('sim', False))):
+                s.rect(gx, gy + 8 + 26 * n, 54, 18, 'f-chip', r=9, box=False)
+                s.text(gx + 7, gy + 21 + 26 * n, step, 9, 'c-mut', mono=True)
+                s.mark(gx + 39, gy + 22 + 26 * n, '✓' if ok else '×', 12, 'c-ok' if ok else 'c-warn')
+            s.arrow(gx + 56, gy + 69, gx + 62, gy + 69, 'warn')
+            s.rect(gx + 66, gy + 8, 58, 70, 'f-chip', r=4, box=False)
+            s.rect(gx + 71, gy + 13, 48, 7, 'f-hair', r=3, box=False)
+            s.wave(gx + 72, gy + 40, 5.75, '00111000', 8, 'ln-vtr')
+            s.wave(gx + 72, gy + 58, 5.75, '01100110', 8)
+            s.path(f'M{gx + 101} {gy + 28} V{gy + 72}', 'ln-warn')
+        s.text(x + 164, 352, title, 17, 'c-vtr', weight=600)
+        for n, note in enumerate(notes):
+            s.text(x + 164, 378 + 20 * n, note, 12, 'c-mut')
+    return s.render()
+
+
 CAPTIONS = (('L0 · Input', 'cap', 'Your RTL source and its simulation.'), ('L1 · AI skill', 's', SENTENCES[0]),
             ('L2 · VTR + VDB', 's', SENTENCES[1]), ('L3 · Volna', 's', SENTENCES[2]))
 
@@ -473,7 +571,7 @@ def main():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Level up your traces</title>
-<meta name="description" content="Pitch slides for the AI skill, VTR/VDB and Volna: the staircase from your RTL to design insight, the design optimized down to RTL with its trace lifted back up by agents, and VTR, one file for FST's waveforms and FTR's transactions, with benchmarks.">
+<meta name="description" content="Pitch slides for the AI skill, VTR/VDB and Volna: the staircase from your RTL to design insight, the design optimized down to RTL with its trace lifted back up by agents, VTR, one file for FST's waveforms and FTR's transactions, with benchmarks, and Volna, the best of five viewers in one Rust core that runs natively, in VS Code and in CI.">
 <!-- Generated by docs/slides/build-vtr-pitch.py; edit the generator, not this file. -->
 <style>{faces}
 {css}</style>
@@ -488,11 +586,15 @@ def main():
 <figure class="fig">{down_up()}</figure></section>
 <section class="slide" id="one-file" aria-roledescription="slide" aria-label="3 · Two formats, one modern file" hidden>
 <h1>{F_TITLE}</h1><p class="sub">{F_SUBTITLE}</p>
-<figure class="fig">{one_file()}</figure></section></div>
+<figure class="fig">{one_file()}</figure></section>
+<section class="slide" id="everywhere" aria-roledescription="slide" aria-label="4 · Five viewers, one modern framework" hidden>
+<h1>{W_TITLE}</h1><p class="sub">{W_SUBTITLE}</p>
+<figure class="fig">{everywhere()}</figure></section></div>
 </main>
 <nav class="ctl" aria-label="Slides"><button type="button" data-go="0"><b>1</b> Level up</button>
 <button type="button" data-go="1"><b>2</b> Down and up</button>
 <button type="button" data-go="2"><b>3</b> One file</button>
+<button type="button" data-go="3"><b>4</b> Volna</button>
 <span class="keys">← → to switch · P to present</span>
 <button type="button" class="present" data-present>Present</button></nav>
 <p class="sr" aria-live="polite" id="said"></p>
