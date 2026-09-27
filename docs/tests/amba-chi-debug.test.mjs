@@ -20,7 +20,7 @@ async function clickAt(b, p) { await mouse(b, 'mouseMoved', p, {button: 'none'})
 async function key(b, key, code, keyCode = 0) {
   for (const type of ['rawKeyDown', 'keyUp']) await b.send('Input.dispatchKeyEvent', {type, key, code, windowsVirtualKeyCode: keyCode, text: type === 'rawKeyDown' && key.length === 1 ? key : undefined});
 }
-const CANVASES = ['flow-cv', 'ring-map', 'ring-marey', 'line-cv', 'lat-cv', 'hang-strip', 'hang-graph'];
+const CANVASES = ['flow-cv', 'ring-map', 'ring-marey', 'line-cv', 'lat-cv', 'hang-strip', 'hang-graph', 'u-flow-cv', 'u-ring-map', 'u-ring-marey', 'u-lat-cv', 'u-hang-strip', 'u-hang-graph'];
 // A canvas is drawn when it has more than a few distinct colours.
 const drawn = (b, id) => b.evaluate(`(() => { const c = document.querySelector('#${id} canvas'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const s = new Set(); for (let i = 0; i < d.length; i += 400) s.add(d[i] << 16 | d[i + 1] << 8 | d[i + 2]); return s.size; })()`);
 const corner = (b, id) => b.evaluate(`(() => { const c = document.querySelector('#${id} canvas'); const d = c.getContext('2d').getImageData(c.width - 3, c.height - 3, 1, 1).data; return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join(''); })()`);
@@ -46,14 +46,16 @@ test('both themes: every mock redraws with the theme and keeps readable contrast
     await b.evaluate(`document.documentElement.dataset.theme = '${theme}'`);
     await b.evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
     assert.equal((await state(b)).theme, theme);
-    const bg = await b.evaluate('CHIDEMO.C.bg');
+    const bg = await b.evaluate('CHIDEMO.C.bg'), band = await b.evaluate('CHIDEMO.C.band');
     for (const id of CANVASES) {
-      assert.equal(await corner(b, id), bg, `${id} is painted with the ${theme} background`);
+      // the corner is the background, or a lane band when the last lane is a banded one
+      assert.ok([bg, band].includes(await corner(b, id)), `${id} is painted with the ${theme} background`);
       assert.ok(await drawn(b, id) > 8, `${id} is drawn in ${theme}`);
     }
     seen[theme] = bg;
     // WCAG ratios: text 4.5 (7 for body text), graphics 3 (1.4.11), captions on fills 4.5.
-    const r = await b.evaluate(`(() => { const {C} = CHIDEMO;
+    for (const doc of ['CHIDEMO', 'UCIEDEMO']) {
+    const r = await b.evaluate(`(() => { const {C} = ${doc};
       const lum = h => { const m = h.match(/[0-9a-f]{2}/gi).slice(0, 3).map(x => parseInt(x, 16) / 255).map(v => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return .2126 * m[0] + .7152 * m[1] + .0722 * m[2]; };
       const cr = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
       const bad = [];
@@ -64,7 +66,7 @@ test('both themes: every mock redraws with the theme and keeps readable contrast
       for (const [k, v] of Object.entries(C.path)) need('class ' + k, v, C.bg, 3);
       for (const [k, v] of Object.entries(C.st)) if (v) need('text on state ' + k, C.onFill, v, 4.5);
       for (const [k, v] of Object.entries(C.agentFill)) need('text on request ' + k, C.onFill, v, 4.5);
-      need('text on one holder', C.onFill, C.dir1, 4.5); need('text on two holders', C.onFill, C.dir2, 4.5);
+      if (C.dir1) { need('text on one holder', C.onFill, C.dir1, 4.5); need('text on two holders', C.onFill, C.dir2, 4.5); }
       for (const v of C.data) need('data chip', v, C.band, 1.3);
       for (const [k, v] of Object.entries(C.cat)) need('category ' + k, v, C.bg, 1.25);
       need('caption', C.capTx, C.bg, 7); need('critical path', C.crit, C.bg, 1.9);
@@ -72,7 +74,10 @@ test('both themes: every mock redraws with the theme and keeps readable contrast
       need('page ink', css('--ink'), css('--bg'), 7); need('page muted', css('--muted'), css('--bg'), 4.5);
       need('mock text', css('--pv-tx'), css('--pv-p'), 7); need('mock muted', css('--pv-mu'), css('--pv-p'), 4.5);
       return bad; })()`);
-    assert.deepEqual(r, [], `${theme} contrast`);
+    assert.deepEqual(r, [], `${doc} ${theme} contrast`);
+    }
+    // UCIe prose channel names take the second pack's colours
+    assert.equal(await b.evaluate(`document.querySelector('.ch[data-pack="ucie"][data-ch="NAK"], .ch[data-pack="ucie"][data-ch="REQ"]').style.color !== ''`), true);
     // prose channel colours come from the same profile hues as the canvases
     assert.equal(await b.evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--req').trim()`), await b.evaluate('CHIDEMO.C.ch.REQ'));
   }
@@ -85,8 +90,11 @@ test('both themes: every mock redraws with the theme and keeps readable contrast
 
 test('architecture: the analyses know no protocol, and survive renaming every name', {timeout: 60000}, async t => {
   const b = await open(); t.after(() => b.close());
-  const leaks = await b.evaluate(`CHIDEMO.CAUSAL.open.toString().match(/chi\\.|dj\\.|TX\\.|Comp[A-Z]|Snp|Read[A-Z]|hnf|cc[01]|RN-F|HN-F|received_by|blocked_by/g)`);
-  assert.equal(leaks, null, 'volna-core logic names no CHI stream, key, opcode or relation');
+  // The causal module, the session and every panel, legend and printer are shared by both packs: their
+  // source names no stream, key, opcode, relation or term of either protocol.
+  const leaks = await b.evaluate(`(() => { const src = [CHIDEMO.CAUSAL.open, openSession, FlowPanel, TopologyPanel, HistoryPanel, LatencyPanel, HangPanel, Explorer, flowLegend, historyLegend, profileHTML, paintProse, bindTimeNav, mkAxis].map(f => f.toString()).join('\\n');
+    return src.match(/chi\\.|dj\\.|zj\\.|TX\\.|\\bCHI\\b|Comp[A-Z]|Snp|Read[A-Z]|hnf|cc[01]|RN-F|HN-F|received_by|blocked_by|[Ss]noop|\\bDCT\\b|\\bDMT\\b|\\bLLC\\b|MSHR|ZhuJiang|XiangShan|ucie|UCIe|cxl|CXL|LLCRD|MemRd|MemData|\\bNak\\b|replays|\\bFDI\\b|\\bRDI\\b|'write'|'DAT'/g); })()`);
+  assert.equal(leaks, null, 'shared code names no CHI or UCIe stream, key, opcode, relation or term');
   const r = await b.evaluate(`(() => { const {CAUSAL, PROFILE, TR} = CHIDEMO;
     const R = [['TX.chi.', 'sys.fab.'], ['TX.chi', 'sys.fab'], ['chi.', 'p.'], ['dj.', 'h.'], ['zj.', 'z.'], ['ring.', 'r.'], ['received_by', 'delivered_to'], ['blocked_by', 'queued_behind'], ['wait CompAck', 'await ack'], ['blocked', 'held']];
     const ren = s => typeof s !== 'string' ? s : R.reduce((a, [x, y]) => a.split(x).join(y), s);
@@ -101,13 +109,32 @@ test('architecture: the analyses know no protocol, and survive renaming every na
       trees: M.roots.map(r => { const t = M.tree(r.id); return [t.recs.map(x => x.id), t.msgs.map(f => f.id)]; }),
       checks: M.check().map(c => [c.id, c.total, c.bad.map(x => x.rec.id)]),
       waits: M.waitChains().edges.map(e => [e.from.id, e.to.id]),
-      hot: M.hotSubjects().map(h => [h.txns, h.moves, h.blocked, h.snoops]),
-      hist: [...M.bySubject.keys()].map(a => { const h = M.history(a); return [Object.values(h.rn).map(v => v.map(e => [e.t, e.st, e.silent ?? null])), h.sf.map(e => e.t), h.faults.length]; }),
+      hot: M.hotSubjects().map(h => [h.roots, h.moves, h.waited, h.probes]),
+      hist: [...M.bySubject.keys()].map(a => { const h = M.history(a); return [Object.values(h.states).map(v => v.map(e => [e.t, e.st, e.silent ?? null])), h.dir.map(e => e.t), h.faults.length]; }),
       classes: M.roots.map(M.classOf), transits: M.msgs.map(f => [f.path.join(), f.tInj]) });
     return {renamed: tr2.recs[0].stream, same: sig(A) === sig(B), n: B.roots.length}; })()`);
   assert.match(r.renamed, /^sys\.fab\./);
   assert.equal(r.n, 1468);
   assert.equal(r.same, true, 'every result is unchanged under renaming');
+  const u = await b.evaluate(`(() => { const {CAUSAL, PROFILE, TR} = UCIEDEMO;
+    const R = [['TX.ucie.', 'sys.d2d.'], ['TX.ucie', 'sys.d2d'], ['ucie.', 'u.'], ['cxl.', 'c.'], ['link.', 'l.'], ['received_by', 'delivered_to'], ['replays', 'resends'], ['rxq', 'inq'], ['wait ack', 'await ack']];
+    const ren = s => typeof s !== 'string' ? s : R.reduce((a, [x, y]) => a.split(x).join(y), s);
+    const renObj = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [ren(k), typeof v === 'string' && /^TX\\./.test(v) ? ren(v) : v]));
+    const deep = o => Array.isArray(o) ? o.map(deep) : o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).map(([k, v]) => [ren(k), deep(v)])) : ren(o);
+    const tr2 = {...TR, hier: TR.hier.map(h => ({...h, path: ren(h.path), attrs: renObj(h.attrs)})),
+      recs: TR.recs.map(r => ({...r, stream: ren(r.stream), attrs: renObj(r.attrs), stages: r.stages.map(s => ({...s, name: ren(s.name)}))})),
+      rels: TR.rels.map(x => ({...x, kind: ren(x.kind)}))};
+    const A = CAUSAL.open(TR, PROFILE), B = CAUSAL.open(tr2, deep(PROFILE));
+    const sig = M => JSON.stringify({
+      cps: M.roots.map(r => M.criticalPath(r.id).segs.map(s => [s.a, s.b, Object.keys(M.CAT).indexOf(s.cat)])),
+      trees: M.roots.map(r => { const t = M.tree(r.id); return [t.recs.map(x => x.id), t.msgs.map(f => f.id)]; }),
+      checks: M.check().map(c => [c.id, c.total, c.bad.map(x => [x.rec.id, x.t])]),
+      waits: M.waitChains().edges.map(e => [e.from.id, e.to.id]), pool: [...M.poolSeries(M.P.bind.waits[0], 5)],
+      classes: M.roots.map(r => M.P.classes.findIndex(c => c.is === M.classOf(r))), transits: M.msgs.map(f => [f.path.join(), f.at.map(a => a.t).join(), M.superseded(f)]) });
+    return {renamed: tr2.recs[0].stream, same: sig(A) === sig(B), n: B.roots.length}; })()`);
+  assert.match(u.renamed, /^sys\.d2d\./);
+  assert.ok(u.n > 300, `${u.n} UCIe requests`);
+  assert.equal(u.same, true, 'every UCIe result is unchanged under renaming');
   // derived transits equal the model's ground truth
   assert.equal(await b.evaluate(`CHIDEMO.TR.flits.filter(f => { const g = CHIDEMO.M.msg.get(f.id); return !g || g.path.join() !== f.path.join() || g.tInj !== f.tInj || g.tEj !== f.tEj || g.dir !== f.dir || g.src !== f.src || g.tgt !== f.tgt; }).length`), 0);
   // the profile section prints the object the analyses run on
@@ -117,6 +144,10 @@ test('architecture: the analyses know no protocol, and survive renaming every na
   assert.equal(prof.same, true, 'the printed profile parses back to the object the analyses run on');
   assert.ok(prof.width <= 110, `profile lines wrap (${prof.width} columns)`);
   assert.ok(prof.swatches >= 20, `${prof.swatches} hue swatches`);
+  const uprof = await b.evaluate(`(() => { const t = document.getElementById('u-profile-json').textContent;
+    return {same: JSON.stringify(JSON.parse(t.replace(/\\/\\/[^\\n]*/g, ''))) === JSON.stringify(UCIEDEMO.PROFILE), width: Math.max(...t.split('\\n').map(l => l.length))}; })()`);
+  assert.equal(uprof.same, true, 'the printed UCIe pack parses back to the object the second session runs on');
+  assert.ok(uprof.width <= 110, `UCIe profile lines wrap (${uprof.width} columns)`);
   // the hierarchy tree is printed from the trace
   assert.match(await b.evaluate('document.getElementById("rec-tree").textContent'), /hf0p0 … pip\s+scope × 11/);
   assert.deepEqual(b.exceptions, []);
@@ -223,7 +254,8 @@ test('ring panel: utilization is derived exactly and the chart hit-tests flits',
   // prefix sums against a brute-force count over the model's own flits, for every DAT link
   const bad = await b.evaluate(`(() => { const {TR, RINGV} = CHIDEMO; const out = [];
     for (const d of ['cw', 'ccw']) for (let i = 0; i < 11; i++) {
-      let n = 0; for (const f of TR.flits) if (f.ch === 'DAT' && f.dir === d) for (let k = 0; k < f.hops; k++) { const t = f.tInj + k; if (f.path[k] === i && t >= 3500 && t < 5000) n++; }
+      // link i joins stops i and i+1: an index-increasing hop from i uses it, an index-decreasing hop into i too
+      let n = 0; for (const f of TR.flits) if (f.ch === 'DAT' && f.dir === d) for (let k = 0; k < f.hops; k++) { const t = f.tInj + k, link = d === 'cw' ? f.path[k] : f.path[k + 1]; if (link === i && t >= 3500 && t < 5000) n++; }
       if (Math.abs(RINGV.util('DAT', d, i, 3500, 5000) - n / 1500) > 1e-9) out.push(d + i);
     } return out; })()`);
   assert.deepEqual(bad, []);
@@ -249,14 +281,14 @@ test('line history: counter, race, silent upgrade and the lock line', {timeout: 
   await step(b, 'line', 'counter');
   assert.equal((await state(b)).line, '0x80003040');
   const moves = await b.evaluate(`CHIDEMO.LINEV.rows()[0]`);
-  assert.equal(moves.addr, '0x80003040'); assert.equal(moves.moves, 12);
+  assert.equal(moves.key, '0x80003040'); assert.equal(moves.moves, 12);
   assert.match(await b.evaluate('document.querySelector("#line-steps [data-step=counter]").textContent'), /Ownership moves 12 times/);
   await step(b, 'line', 'race');
-  const race = await b.evaluate(`(() => { const h = CHIDEMO.LINEV.st.hist; return {cc1: h.rn.cc1.map(e => e.st), cc0: h.rn.cc0.filter(e => e.t <= 5660).at(-1).st, empty: h.data.filter(d => !d.v).map(d => d.op), faults: h.faults.length}; })()`);
+  const race = await b.evaluate(`(() => { const h = CHIDEMO.LINEV.st.hist; return {cc1: h.states.cc1.map(e => e.st), cc0: h.states.cc0.filter(e => e.t <= 5660).at(-1).st, empty: h.data.filter(d => !d.v).map(d => d.op), faults: h.faults.length}; })()`);
   assert.ok(race.cc1.includes('UD') && race.cc1.at(-1) === 'I');
   assert.equal(race.cc0, 'UD'); assert.deepEqual(race.empty, ['CopyBackWrData']); assert.equal(race.faults, 0);
   await step(b, 'line', 'silent');
-  assert.equal(await b.evaluate(`['cc0', 'cc1'].some(a => CHIDEMO.LINEV.st.hist.rn[a].some(e => e.silent === 'UD'))`), true);
+  assert.equal(await b.evaluate(`['cc0', 'cc1'].some(a => CHIDEMO.LINEV.st.hist.states[a].some(e => e.silent === 'UD'))`), true);
   await step(b, 'line', 'lock');
   const lock = await b.evaluate(`(() => { const r = CHIDEMO.M.byId.get(CHIDEMO.state().sel); return [CHIDEMO.state().line, r.status, r.stream]; })()`);
   assert.deepEqual(lock, ['0x80002000', 'open', 'TX.chi.hnf0.task']);
@@ -323,4 +355,111 @@ test('references: numbered, external, and every in-text citation exists', {timeo
   assert.ok(max <= refs.length, `citation [${max}] exists`);
   assert.match(refs[0], /documentation-service\.arm\.com/, 'the CHI specification is reference 1');
   assert.match(refs[61], /Charles_Ibry/, 'the Marey chart citation points at Ibry');
+});
+
+// ---- the second pack: UCIe with CXL.mem on the same panel code
+const ustate = b => b.evaluate('UCIEDEMO.state()');
+
+test('every guided step of both packs runs and tells its story', {timeout: 90000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  const r = await b.evaluate(`(() => { const out = []; for (const box of document.querySelectorAll('.steps[id$="-steps"]')) for (const btn of box.querySelectorAll('button[data-step]')) {
+    btn.click(); const story = document.getElementById(box.id.replace(/steps$/, 'story')).textContent;
+    out.push([box.id + ':' + btn.dataset.step, story.length]); } return out; })()`);
+  assert.ok(r.length >= 45, `${r.length} steps`);
+  assert.deepEqual(r.filter(([, n]) => n < 60).map(([k]) => k), [], 'every step narrates');
+  assert.ok(r.some(([k]) => k.startsWith('u-hang-steps')), 'the UCIe steps ran');
+  await b.wait('!CHIDEMO.RINGV.st.playing && !UCIEDEMO.RINGV.st.playing');
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('UCIe: the hang is credit starvation, and the same analyses find the leak', {timeout: 30000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  const r = await b.evaluate(`(() => { const {M, HANGV, Q, TR} = UCIEDEMO;
+    const roots = M.roots.filter(r => r.status === 'ok');
+    return {
+      open: HANGV.W8.open.map(r => [r.stream, r.stages.at(-1).name]),
+      ends: HANGV.W8.roots.map(r => [r.stream, r.status, M.sentBy(r, 'TX.ucie.a1.retry').map(f => f.op).sort().join()]),
+      leaks: Q.leaks.map(b => b.rec.id), injected: TR.injected, cancels: Q.cancels.length,
+      gaps: Q.leaks.map(b => b.t - Q.cancelBefore(b.t).tEj),
+      failed: HANGV.CHECKS.filter(c => c.bad.length).map(c => [c.id, c.bad.length]),
+      cpBad: roots.filter(r => { const c = M.criticalPath(r.id); return c.segs.reduce((a, s) => a + s.b - s.a, 0) !== r.end - r.begin; }).length,
+      replayRetry: roots.filter(r => M.classOf(r) === 'replayed').every(r => (M.criticalPath(r.id).by.retry ?? 0) > 0),
+      hops: TR.flits.filter(f => { const g = M.msg.get(f.id); return !g || g.at.length !== f.hops.length + 1 || f.hops.some(([, b, e], k) => g.at[k].t !== b || g.at[k + 1].t !== e); }).length,
+      dropped: M.msgs.filter(f => f.reach !== f.tgt).every(f => M.superseded(f) && !M.recvOf.has(f.id)),
+      pool: [0, 2000, 4000, 7000].map(t => Math.round(M.poolSeries(M.P.bind.waits[0], 5)[t / 5])),
+      answer: document.getElementById('u-agent-answer').textContent, log: M.logs.map(l => l.text),
+    }; })()`);
+  assert.ok(r.open.length >= 20, `${r.open.length} open`);
+  assert.ok(r.open.every(([s, st]) => s === 'TX.ucie.host.req' && st === 'credit'), 'every open record is a host request at the credit gate');
+  assert.equal(r.ends.length, 12);
+  assert.ok(r.ends.every(([s, st, ops]) => s === 'TX.ucie.dev.req' && st === 'ok' && !ops.includes('LLCRD') && ops.includes('MemData')), 'the waits end at served entries that returned no credit');
+  assert.deepEqual(r.ends.length, r.leaks.length);
+  assert.equal(r.injected, 12); assert.equal(r.cancels, 12, 'one pl_flit_cancel per injected CRC error');
+  assert.ok(r.gaps.every(g => g > 0 && g < 80), `each lost credit follows a cancel (${r.gaps})`);
+  assert.deepEqual(r.failed.map(([id]) => id), ['credit', 'timeout']);
+  assert.equal(r.cpBad, 0, 'critical paths add up to latency');
+  assert.equal(r.replayRetry, true, 'every replayed read spends time in retry');
+  assert.equal(r.hops, 0, 'hop times read from the records equal the model\'s');
+  assert.equal(r.dropped, true, 'dropped flits are superseded and have no receiver');
+  assert.ok(r.pool[0] <= 2 && r.pool[3] === 12 && r.pool[1] < r.pool[2], `the credits held ratchet up: ${r.pool}`);
+  assert.match(r.answer, /waits for a request credit.*one of 12.*without sending LLCRD, and so did 11 more/);
+  assert.match(r.log[0], /^CXL\.mem: no completion for \d+ ns, \d+ requests pending/);
+});
+
+test('UCIe flow: the cancelled flit, the Nak and the replay are drawn and selectable', {timeout: 60000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  await step(b, 'u-flow', 'crc');
+  const m = await b.evaluate(`UCIEDEMO.FLOW.build().tree.msgs.map(f => f.op + ':' + f.src + '>' + f.reach + (UCIEDEMO.M.superseded(f) ? ':replaced' : ''))`);
+  assert.ok(m.includes('MemRd:ad0>pl1:replaced') && m.includes('Nak:ad1>ad0') && m.includes('MemRd:ad0>pl1') && m.includes('MemData:ad1>pl0'), m.join());
+  assert.match(await b.evaluate('document.getElementById("u-flow-story").textContent'), /\d+ ns of retry/);
+  const p = await b.evaluate(`(() => { const a = UCIEDEMO.FLOW.geo().arrows.find(a => a.f.op === 'Nak'); const r = document.getElementById('u-flow-cv').getBoundingClientRect(); return {x: r.left + (a.x0 + a.x1) / 2, y: r.top + (a.y0 + a.y1) / 2, id: a.f.id}; })()`);
+  await clickAt(b, p);
+  assert.equal((await ustate(b)).sel, p.id);
+  assert.match(await b.evaluate('document.getElementById("u-flow-side").textContent'), /Nak/);
+  await step(b, 'u-flow', 'victim');
+  assert.ok((await b.evaluate(`UCIEDEMO.FLOW.build().tree.msgs.filter(f => f.reach === 'ad1').length`)) >= 1, 'the go-back-N victim stops at AD1');
+  await step(b, 'u-flow', 'leak');
+  const leak = await b.evaluate(`(() => { const r = UCIEDEMO.M.byId.get(UCIEDEMO.state().sel); return [r.stream, UCIEDEMO.M.sentBy(r, 'TX.ucie.a1.retry').map(f => f.op).join()]; })()`);
+  assert.deepEqual(leak, ['TX.ucie.dev.req', 'MemData']);
+  // the two sessions keep separate selections
+  assert.notEqual((await state(b)).sel, (await ustate(b)).sel);
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('UCIe topology: recorded hops give exact link occupancy on a chain', {timeout: 60000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  await step(b, 'u-ring', 'burst');
+  const bad = await b.evaluate(`(() => { const {TR, RINGV} = UCIEDEMO; const out = [];
+    const idx = {tx: [1, 2], wire: [2, 3], rx: [3, 4], fdi: [4, 5]}, up = {tx: [4, 3], wire: [3, 2], rx: [2, 1], fdi: [1, 0]};
+    for (const d of ['down', 'up']) for (let i = 0; i < 5; i++) {
+      let n = 0; for (const f of TR.flits) if (f.dir === d) for (const [name, b0, e0] of f.hops) { const [a, c] = (d === 'down' ? idx : up)[name]; if (Math.min(a, c) === i) for (let t = b0; t < e0; t++) if (t >= 4380 && t < 5450) n++; }
+      if (Math.abs(RINGV.util('LINK', d, i, 4380, 5450) - n / 1070) > 1e-9) out.push(d + i);
+    } return out; })()`);
+  assert.deepEqual(bad, []);
+  const busy = await b.evaluate(`UCIEDEMO.RINGV.busiest(4380, 5450, ['LINK'])`);
+  assert.equal(busy.d, 'up', 'the link back to the host is the busy one in the burst');
+  assert.match(await b.evaluate('document.getElementById("u-ring-story").textContent'), /carries a flit \d+% of the time/);
+  // the chain map hit-tests a stop
+  const p = await b.evaluate(`(() => { const s = UCIEDEMO.RINGV.mgeo().stops[4]; const r = document.getElementById('u-ring-map').getBoundingClientRect(); return {x: r.left + s.x, y: r.top + s.y}; })()`);
+  await mouse(b, 'mouseMoved', p, {button: 'none'});
+  assert.match(await b.evaluate(`document.querySelector('#u-ring-pv .tip').textContent`), /layer 4 · AD1/);
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('UCIe latency: replays cost retry, and the burst waits for credits', {timeout: 60000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  await step(b, 'u-lat', 'creep');
+  const r = await b.evaluate(`(() => { const {LATV, M} = UCIEDEMO; const by = {};
+    for (const id of LATV.st.sel) { const c = LATV.cp(M.byId.get(id)); for (const [k, v] of Object.entries(c.by)) by[k] = (by[k] ?? 0) + v; }
+    const kv = [...document.querySelectorAll('#u-lat-side .kv span')].map(s => s.textContent);
+    const i = kv.indexOf('in flight, measured'), j = kv.indexOf('λ × W');
+    return {top: Object.entries(by).sort((a, b) => b[1] - a[1])[0][0], measured: parseFloat(kv[i + 1]), little: parseFloat(kv[j + 1]), axis: document.getElementById('u-lat-sub').textContent}; })()`);
+  assert.equal(r.top, 'credit', 'credit wait dominates the burst');
+  // unlike CHI's burst, the backlog grows through the window, so in flight exceeds throughput × latency
+  assert.ok((r.measured - r.little) / r.measured > 0.1, `a growing backlog: ${r.measured} vs ${r.little}`);
+  assert.match(await b.evaluate('document.getElementById("u-lat-story").textContent'), new RegExp(`${r.measured.toFixed(1)} requests in flight, against ${r.little.toFixed(1)}`));
+  await step(b, 'u-lat', 'retry');
+  assert.match(await b.evaluate('document.getElementById("u-lat-story").textContent'), /spend \d+% of their critical path in retry/);
+  assert.match(await b.evaluate(`document.getElementById('u-lat-tools').textContent`), /class\s*initiator\s*opcode\s*Include\s*writes/);
+  assert.deepEqual(b.exceptions, []);
 });

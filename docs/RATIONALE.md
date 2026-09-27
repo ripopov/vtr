@@ -1053,6 +1053,34 @@ lifetime. A parent-id range in TX_BLOCK is a format change and is taken only
 if a measured XiangShan run shows the window lookup is too slow. Sizes, write
 times and read times on a real run are not measured yet.
 
+A second pack tests the claim that CHI lives only in monitors and in a pack.
+The page runs the same causal module and panels on a UCIe x16 link carrying
+CXL.mem between two dies: host requests, Adapter retry-buffer entries, CRC
+failures, device requests and link flits. UCIe was chosen over UPI (another
+coherence protocol, no public protocol specification), NVLink (not licensed
+for third-party implementation) and Ethernet (between chips, not inside an
+SoC). It stresses what CHI does not: a layered stack, go-back-N flit retry,
+flits cancelled after early forwarding, credit flow control and nanosecond
+time. The pack needed seven generic additions and no protocol code. Hops are
+either derived (the ZhuJiang ring) or recorded as a message's stages (an
+Adapter can hold or drop a flit). Topologies can be rings or chains. A pool wait
+points at every receiver that took a credit and has not released it. A
+`superseded_by` relation marks retransmissions for `delivered` and for the
+critical path. `sends` gains `via` (a message sent through child work) and
+`due` (the stage whose end it is due by). Classes can match a stage or a
+relation in the tree. Nouns, the time unit, History rows and panel toggles
+moved from the panels into each pack's presentation section. On all 1,468 CHI
+requests every tree, critical path, history, wait chain, check and transit is
+identical before and after the additions. On the UCIe model trace (415
+requests, 1,173 flits, 12 injected CRC errors) the Hang panel's pool wait ends
+at exactly the 12 device entries that lost a credit. The same `sends` template
+that found CHI's lost CompAck names them. The headless test also scans the
+causal module, the session and the panel code for either protocol's names and
+renames both packs. Link `i` joins stops `i` and `i+1`, and a hop's direction
+says which way it crosses. Rejected: a panel set per protocol, which would fork
+the painters and their tests; and binding the History view without subject
+states, which has nothing to rebuild for CXL.mem.
+
 ## CHI NoC packet visualization fixture
 
 Surfer's `examples/chi_noc.vtr` reuses the existing transaction and timed-event
