@@ -57,6 +57,47 @@ exists. Iterative flattening supports deep trees without recursion. The metadata
 extension uses remote protocol version 2; VTR encodings and C/Rust reader APIs
 are unchanged.
 
+## Volna marker interactions (proposal)
+
+The [marker proposal](markers-ux.html) models three things on the time axis:
+the cursor (where values are read), markers (kept instants with a number and
+an optional name, shared by all panels) and at most one reference (a time, or
+a marker it follows). Commercial viewers pair a cursor with a baseline or
+secondary cursor (Verdi, GTKWave, SimVision, Vivado, Visualizer); Wireshark's
+time reference and Perfetto's temporary span note are the same idea. Several
+peer cursors (Questa, Aldec) were rejected because a click then needs a rule
+for which cursor moves, which is Questa's most common complaint.
+
+Measure only from the explicit reference. Today's nearest-marker delta changes
+meaning as the cursor moves, and making each new marker the reference would
+move the origin while marking the second end of a pair. Draw the reference to
+cursor span and the spans between adjacent markers on two lanes of the time
+axis; issue trackers of GTKWave, VaporView and Surfer show that deltas in a
+toolbar or status bar go unnoticed. Reject an all-pairs matrix (Surfer): it
+grows with the square of the marker count, and the reference answers any pair.
+
+Count cycles as the difference of clock positions (recorded edges at or before
+t plus the running fraction, which is 0 while a clock is stopped). The result
+is the exact edge count in (a, b] when both ends lie on edges and stays right
+across DVFS and gating; dividing by a period does not. The existing
+`ClockTimeline::cycle_at` is sufficient, so the reader API is unchanged.
+
+Number a new marker with the lowest free positive integer and never renumber a
+live marker, so digit keys keep reaching the markers a user has; monotonic
+numbers grow past nine in a long session. Every marker edit is an `Edit` whose
+application returns its inverse, kept in a bounded journal for undo; the
+reference is navigation state and is not journaled. Remove the clear-all key
+(`Shift+M` removes the marker at the cursor instead) and retire Shift-click
+removal, since Shift-click extends selections elsewhere. Crowded chips shorten
+their labels, then show numbers, then merge into clusters, so every marker
+stays visible. Keep one sorted `Vec` as the index until the `frame_times`
+test shows a need for more.
+
+Markers, the reference, the measurement, the lane layout and the gestures
+belong in `volna-core`; frontends host a text field and the palette list. The
+workspace stores markers and the reference; VTR, VDB and the remote protocol
+never see them.
+
 ## Volna pipeline panel
 
 The panel is one `PanelKind` next to waves and settings, not a viewer mode: the
