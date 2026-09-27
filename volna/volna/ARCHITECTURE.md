@@ -543,7 +543,9 @@ saved `supersedes` SHA-256 against the exact sidecar bytes and preserves its bas
 `App::new()` disables persistence. Native `main` configures a byte store that
 reads bounded files and writes through a same-directory temporary file and
 rename. The WASM entry point accepts both opaque restore candidates with the
-trace, then passes core save events to the host. VS Code uses `workspace.fs`
+trace, then passes core save events to the host. The standalone page
+offers a fetched `workspace=` file as a read-only sidecar, so saves go to a
+fallback it never stores. VS Code uses `workspace.fs`
 for files and `workspaceState` for fallback storage; ticket counters cross
 JavaScript as decimal strings. Its custom editor disables multiple editors per
 document, requests a snapshot on hide and flushes the last received snapshot

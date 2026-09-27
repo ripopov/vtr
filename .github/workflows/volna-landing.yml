@@ -1,0 +1,80 @@
+name: Volna landing page
+on:
+  push:
+    paths:
+      - 'docs/volna-landing.html'
+      - 'docs/tests/volna-landing.test.mjs'
+      - 'docs/vtr-pitch.html'
+      - 'bench/results/latest/results.json'
+      - 'core/vtr/**'
+      - 'volna/**'
+      - 'tools/volna-server/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/volna-landing.yml'
+  pull_request:
+    paths:
+      - 'docs/volna-landing.html'
+      - 'docs/tests/volna-landing.test.mjs'
+      - 'docs/vtr-pitch.html'
+      - 'bench/results/latest/results.json'
+      - 'core/vtr/**'
+      - 'volna/**'
+      - 'tools/volna-server/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/volna-landing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  landing:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            chrome: /usr/bin/google-chrome
+          - os: macos-14
+            chrome: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      VOLNA_CHROME: ${{ matrix.chrome }}
+      VOLNA_WORKSPACE: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace path dependency
+        run: git submodule update --init --depth 1 ext/elkrs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the repository Rust toolchain and wasm32 target
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Install a clang that targets wasm32 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm
+      - name: Verify prerequisites
+        shell: bash
+        run: |
+          "$VOLNA_CHROME" --version
+          if [ "$RUNNER_OS" = Linux ]; then /usr/lib/llvm-18/bin/clang --print-targets | grep -q wasm32; fi
+      - name: Install wasm-bindgen matching Cargo.lock
+        shell: bash
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Regenerate the demo trace and workspace and compare
+        shell: bash
+        run: |
+          cargo run --locked -p vtr --example landing -- "$RUNNER_TEMP/landing.vtr"
+          cargo run --locked -p volna-core --example landing_workspace -- "$RUNNER_TEMP/landing.vtr"
+          cmp "$RUNNER_TEMP/landing.vtr" volna/volna/examples/landing.vtr
+          cmp "$RUNNER_TEMP/landing.vtr.volna.json" volna/volna/examples/landing.vtr.volna.json
+      - name: Restore the demo workspace headlessly
+        run: cargo test --locked -p volna-core --test landing
+      - name: Build the WASM viewer
+        run: volna/volna/web/build.sh
+      - name: Test the landing page and its live demo
+        run: node --test --test-concurrency=1 docs/tests/volna-landing.test.mjs

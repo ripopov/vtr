@@ -29,8 +29,9 @@ __pycache__/
 /ext/binlog/
 /ext/quill/
 
-# Viewer workspaces beside bundled example traces.
+# Viewer workspaces beside bundled example traces; the landing demo's is checked in.
 /volna/volna/examples/*.volna.json
+!/volna/volna/examples/landing.vtr.volna.json
 
 # Large local C910 CoreMark example artifacts.
 /volna/volna/examples/c910_coremark.*

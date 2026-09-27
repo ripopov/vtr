@@ -4,7 +4,7 @@ set -eu
 cd "$(dirname "$0")/.."
 # zstd-sys needs a clang that targets wasm32; Apple's does not, Homebrew LLVM does.
 if [ -z "${CC_wasm32_unknown_unknown:-}" ]; then
-  for llvm in /opt/homebrew/opt/llvm /opt/homebrew/opt/llvm@20 /opt/homebrew/opt/llvm@19 /usr/lib/llvm-20 /usr/lib/llvm-19; do
+  for llvm in /opt/homebrew/opt/llvm /opt/homebrew/opt/llvm@20 /opt/homebrew/opt/llvm@19 /usr/lib/llvm-20 /usr/lib/llvm-19 /usr/lib/llvm-18; do
     if [ -x "$llvm/bin/clang" ]; then
       export CC_wasm32_unknown_unknown="$llvm/bin/clang"
       export AR_wasm32_unknown_unknown="$llvm/bin/llvm-ar"

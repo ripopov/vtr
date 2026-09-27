@@ -1,5 +1,44 @@
 # Volna example traces
 
+## Landing demo
+
+`landing.vtr` (8,952 bytes) and its checked-in workspace `landing.vtr.volna.json`
+are the live demo of the [landing page](../../../docs/volna-landing.html). A
+five-stage core (`soc.cpu0.pipeline`, stages `F D X M W` and a `stall` lane,
+counted in the declared clock `soc.clk`, 2 ns) runs a dot-product loop for 420
+instructions: loads miss L1 one time in three, an L1 miss is served by L2
+(`soc.l2.bus`, `read` and `write` with `addr` and `data` stages) or refilled
+from DRAM (`soc.dram.bus.burst`, `act`/`cas`/`burst`, parented to its L2 read
+and linked by `refill`), a multiply takes three cycles and every fifth loop
+branch mispredicts and flushes two instructions (`Aborted`). At 757 ns a device
+interrupt (`soc.cpu0.irq`) runs a six-instruction handler whose uncached read
+goes to DRAM. The ninth refill has a corrected ECC error (`Error`). The DRAM
+clock `soc.dram.dram_clk` has no net: 3 ns, boosted to 2 ns at the interrupt,
+gated for 40 ns once the core idles. Waveforms: `phase` text, `pc`, `stall`,
+`flush`, `retired`, the L2 request/response port with X and Z while idle, the
+MSHR count and the analog `soc.perf` signals `ipc`, `l2_bandwidth_gbps` and
+`temperature_c`. `soc.log` holds ten records at info, warn and error severity.
+
+The workspace centres on the interrupt: waves with the `cpu0` group, the three
+transaction lanes, the folded `l2 port` group, the `perf` plots, a clock row
+and both clocks as rulers; the pipeline following activity at the cursor; the
+handler's device read pinned in a Transaction panel; the L2 reads in a table;
+markers `irq` and `refill done`. Open it on the web page with
+`web/index.html?file=../examples/landing.vtr&workspace=../examples/landing.vtr.volna.json`,
+or natively, where it is the trace's sidecar.
+
+Regenerate both from the repository root; the workspace generator reads the
+record ids and times it needs from the trace, restores the result into a
+headless `App` and refuses any restore notice:
+
+```sh
+cargo run --locked -p vtr --example landing -- volna/volna/examples/landing.vtr
+cargo run --locked -p volna-core --example landing_workspace -- volna/volna/examples/landing.vtr
+```
+
+`volna-core/tests/landing.rs` restores the checked-in pair and checks every
+panel; the landing-page workflow regenerates both and compares bytes.
+
 ## Pipeline showcase
 
 `pipeline_showcase.vtr` exercises the pipeline panel: two synthetic cores run

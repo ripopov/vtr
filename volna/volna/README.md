@@ -176,7 +176,13 @@ script picks up Homebrew LLVM automatically, or set `CC_wasm32_unknown_unknown`)
 ./web/build.sh                                     # → web/dist and vscode-ext/media
 python3 -m http.server 8080                        # from volna/volna/
 open "http://localhost:8080/web/?file=../examples/picorv32.vtr"
+open "http://localhost:8080/web/?file=../examples/landing.vtr&workspace=../examples/landing.vtr.volna.json"
 ```
+
+`workspace=` restores a saved workspace with the trace. The page cannot write
+files, so it offers the workspace as a read-only sidecar: changes stay in memory
+and a reload starts over. The [landing page](../../docs/volna-landing.html)
+embeds the viewer this way.
 
 The page uses WebGPU when available and falls back to WebGL2. Volna selects
 `gpui_kit::platform::single_threaded_web()` and builds ordinary, unshared WASM

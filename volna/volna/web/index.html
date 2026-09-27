@@ -15,7 +15,7 @@
   <body>
     <input id="picker" type="file" accept=".vtr,.fst" />
     <script type="module">
-      import init, { open_trace } from "./dist/volna.js";
+      import init, { open_trace, open_resource } from "./dist/volna.js";
       const picker = document.getElementById("picker");
       // The app calls this to ask for a file.
       window.volnaOpen = () => picker.click();
@@ -26,12 +26,31 @@
         open_trace(file.name, bytes);
         picker.value = "";
       });
-      // Optional: ?file=examples/picorv32.vtr loads a trace on start.
+      // Optional: ?file=examples/picorv32.vtr loads a trace on start, and
+      // &workspace=examples/picorv32.vtr.volna.json restores a saved layout
+      // with it. The page cannot write, so the viewer keeps changes in memory.
       window.volnaReady = async () => {
-        const url = new URLSearchParams(location.search).get("file");
+        const params = new URLSearchParams(location.search);
+        const url = params.get("file");
         if (!url) return;
         const res = await fetch(url);
-        if (res.ok) open_trace(url.split("/").pop(), new Uint8Array(await res.arrayBuffer()));
+        if (!res.ok) return;
+        const name = url.split("/").pop();
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const workspace = params.get("workspace");
+        if (!workspace) return open_trace(name, bytes);
+        const traceUri = new URL(url, location.href).href;
+        const saved = await fetch(workspace).catch(error => ({ ok: false, statusText: String(error) }));
+        const content = saved.ok
+          ? { status: "bytes", value: Array.from(new Uint8Array(await saved.arrayBuffer())) }
+          : { status: "error", value: `cannot fetch ${workspace}: ${saved.status ?? ""} ${saved.statusText}` };
+        open_resource(name, bytes, JSON.stringify({
+          traceUri,
+          candidates: {
+            sidecar: { target: { kind: "file", uri: new URL(workspace, location.href).href }, content, writable: false },
+            fallback: { target: { kind: "storage", key: `volna.workspace:${traceUri}` }, content: { status: "missing" }, writable: false },
+          },
+        }));
       };
       await init();
     </script>

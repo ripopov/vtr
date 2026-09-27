@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna — Level up your traces</title>
+<meta name="description" content="Volna shows waveforms, transactions and CPU pipelines of one VTR recording on one time axis: natively, in VS Code and in your browser.">
+<link rel="icon" type="image/svg+xml" href="../volna/volna/assets/app-icon/volna.svg">
+<style>
+@font-face{font-family:Plex;src:url(../volna/volna-core/assets/fonts/IBMPlexSans-Regular.ttf) format('truetype');font-weight:400;font-display:swap}
+@font-face{font-family:Plex;src:url(../volna/volna-core/assets/fonts/IBMPlexSans-SemiBold.ttf) format('truetype');font-weight:600;font-display:swap}
+@font-face{font-family:Lilex;src:url(../volna/volna-core/assets/fonts/Lilex-Regular.ttf) format('truetype');font-weight:400;font-display:swap}
+:root{
+  --sans:Plex,'IBM Plex Sans',system-ui,sans-serif;--mono:Lilex,ui-monospace,'SF Mono',Menlo,monospace;
+  --bg:#0a0d13;--bg2:#0f141d;--card:#121925;--card2:#172030;--line:#243044;--line2:#31405a;
+  --ink:#edf1f7;--mut:#a1acbd;--dim:#7c889b;
+  --acc:#2fe0c0;--acc-ink:#6af0d6;--acc-soft:#0f2e2b;--blue:#80a3ff;--blue-soft:#16213a;
+  --fst:#e9b44c;--ftr:#ee8dbb;--vtr:#2fe0c0;--surfer:#ff8a5c;--perfetto:#58b4ff;--konata:#b79bff;--gtk:#e9b44c;--scv:#ee8dbb;
+  --warn:#ffad4a;--one-dark:#282c33;
+  --wrap:1180px;--gutter:24px;color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+code,kbd,.mono{font-family:var(--mono)}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 var(--gutter)}
+/* -- nav -- */
+.nav{position:sticky;top:0;z-index:20;background:rgba(10,13,19,.78);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid rgba(49,64,90,.5)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;text-decoration:none;letter-spacing:.01em}
+.brand img{width:26px;height:26px}
+.nav nav{display:flex;gap:22px;font-size:14px;color:var(--mut)}
+.nav nav a{text-decoration:none}
+.nav nav a:hover{color:var(--ink)}
+.nav .end{margin-left:auto;display:flex;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:9px;border:1px solid var(--line2);background:var(--card);color:var(--ink);font:600 14px var(--sans);text-decoration:none;white-space:nowrap;transition:background .15s,border-color .15s}
+.btn:hover{background:var(--card2);border-color:#44557a}
+.btn.primary{background:var(--ink);color:#0a0d13;border-color:var(--ink)}
+.btn.primary:hover{background:#fff}
+.btn.small{height:32px;padding:0 12px;font-size:13px;border-radius:8px}
+.btn svg{width:16px;height:16px}
+/* -- hero -- */
+.hero{position:relative;text-align:center;padding:88px 0 40px}
+.hero::before{content:"";position:absolute;inset:-60px 0 auto;height:560px;z-index:-1;pointer-events:none;
+  background:radial-gradient(640px 280px at 50% 18%,rgba(47,224,192,.16),transparent 70%),radial-gradient(520px 260px at 22% 40%,rgba(128,163,255,.12),transparent 70%),radial-gradient(520px 260px at 80% 38%,rgba(183,155,255,.10),transparent 70%)}
+.pill{display:inline-flex;align-items:center;gap:10px;padding:5px 14px 5px 6px;border:1px solid var(--line2);border-radius:999px;background:rgba(18,25,37,.8);font-size:13px;color:var(--mut);text-decoration:none}
+.pill b{white-space:nowrap;background:var(--acc-soft);color:var(--acc-ink);border-radius:999px;padding:2px 9px;font-weight:600;font-size:12px}
+.pill:hover{color:var(--ink)}
+h1{font-size:clamp(44px,7.4vw,86px);line-height:1.02;letter-spacing:-.035em;font-weight:600;margin:26px auto 22px;max-width:15ch}
+h1 .grad{background:linear-gradient(92deg,var(--acc) 0%,var(--blue) 55%,var(--konata) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{font-size:clamp(17px,2vw,20px);color:var(--mut);max-width:44em;margin:0 auto}
+.lede strong{color:var(--ink);font-weight:600}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:34px 0 14px}
+.cta .btn{height:46px;padding:0 22px;font-size:15px}
+.fine{font-size:13px;color:var(--dim)}
+/* -- demo -- */
+.demo{padding:28px 0 16px}
+.demo .wrap{max-width:1440px}
+.tabs{display:flex;justify-content:center;gap:4px;flex-wrap:wrap;margin:0 auto 14px;padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);width:max-content;max-width:100%}
+.tabs button{font:500 13px var(--sans);color:var(--mut);background:none;border:0;border-radius:8px;padding:7px 14px;cursor:pointer}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-selected=true]{background:var(--card2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line2)}
+.tip{min-height:48px;text-align:center;color:var(--mut);font-size:14px;max-width:62em;margin:0 auto 18px}
+.tip kbd{font-size:12px;padding:1px 6px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;background:var(--card);color:var(--ink);white-space:nowrap}
+.window{position:relative;border:1px solid var(--line2);border-radius:14px;overflow:hidden;background:var(--one-dark);
+  box-shadow:0 40px 120px -30px rgba(47,224,192,.22),0 30px 80px -20px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.02)}
+.stage{position:relative;overflow:hidden;background:var(--one-dark)}
+.stage iframe{display:block;border:0;transform-origin:0 0;background:var(--one-dark)}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;background:var(--one-dark);color:#abb2bf;font-size:14px;transition:opacity .35s}
+.overlay[hidden]{display:grid;opacity:0;pointer-events:none}
+.overlay .spin{width:34px;height:34px;margin:0 auto 14px;border-radius:50%;border:3px solid #3e4451;border-top-color:var(--acc);animation:spin 0.9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.missing{max-width:560px;text-align:left;padding:28px}
+.missing h3{font-size:18px;color:var(--ink);margin-bottom:8px}
+.missing pre{margin:14px 0;padding:12px 14px;border-radius:8px;background:#1d2129;border:1px solid #353b45;font:13px/1.6 var(--mono);color:#d7dae0;overflow:auto}
+.caption{display:flex;flex-wrap:wrap;gap:8px 22px;justify-content:center;margin:18px auto 0;font-size:13px;color:var(--dim)}
+.caption a{color:var(--mut)}
+/* -- strip -- */
+.strip{padding:56px 0 24px;text-align:center}
+.strip p{font-size:13px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-bottom:18px}
+.logos{display:flex;flex-wrap:wrap;justify-content:center;gap:12px 34px;font:600 19px var(--sans);color:#7f8ba0}
+.logos span{display:inline-flex;align-items:center;gap:8px}
+.logos small{font:400 12px var(--mono);color:var(--dim)}
+/* -- sections -- */
+section.block{padding:110px 0 20px}
+.kicker{font:600 12.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--acc-ink);margin-bottom:14px}
+h2{font-size:clamp(32px,4.6vw,52px);line-height:1.08;letter-spacing:-.025em;font-weight:600;max-width:26ch}
+.center{text-align:center}.center h2,.center .sub{margin-left:auto;margin-right:auto}
+.sub{font-size:18px;color:var(--mut);max-width:40em;margin-top:16px}
+/* level up: a staircase of four cards */
+.stairs{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:40px;align-items:end}
+.step{position:relative;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--card2),var(--card));padding:18px;display:flex;flex-direction:column;gap:14px}
+.step:nth-child(1){margin-top:108px}.step:nth-child(2){margin-top:72px}.step:nth-child(3){margin-top:36px}
+.step.top{border-color:rgba(47,224,192,.45);box-shadow:0 20px 60px -30px rgba(47,224,192,.5)}
+.tag{font:600 12px var(--mono);letter-spacing:.06em;color:var(--acc-ink)}
+.step p{font-size:15px;color:var(--mut)}
+.art{border:1px solid var(--line);border-radius:10px;background:#0b1019;padding:12px;min-height:128px;display:flex;flex-direction:column;justify-content:center;gap:8px;font:12px/1.5 var(--mono);color:#c8d0dc}
+.art svg{width:100%;height:auto;display:block}
+.art .k{color:var(--konata)}.art .t{color:var(--acc-ink)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);border-radius:6px;padding:2px 8px;background:var(--card);font:12px var(--mono);color:#d4dae4;white-space:nowrap}
+.chip.hot{border-color:rgba(255,173,74,.5);color:var(--warn)}
+.chip.ok{border-color:rgba(47,224,192,.5);color:var(--acc-ink)}
+.arrow{color:var(--dim);font-family:var(--mono)}
+.pipe{display:grid;grid-template-columns:34px repeat(7,1fr);gap:3px;font:11px var(--mono)}
+.pipe b{font-weight:400;color:var(--mut)}
+.pipe i{font-style:normal;text-align:center;border-radius:3px;padding:1px 0;color:#0a0d13}
+.pipe i.F{background:#8c7cf0}.pipe i.D{background:#58b4ff}.pipe i.E{background:#5ed6a0}.pipe i.M{background:#e0d15a}.pipe i.W{background:#f06b6b}.pipe i.s{background:none;color:var(--dim)}.pipe i.x{background:#ffad4a}
+/* down and up */
+.downup{display:grid;grid-template-columns:1fr 240px 1fr;gap:14px 22px;margin-top:56px;align-items:stretch}
+.col-h{font:600 12px var(--mono);letter-spacing:.1em;color:var(--dim);text-transform:uppercase;padding-bottom:4px}
+.col-h.l{color:#c9a2ff;grid-column:1;grid-row:1}.col-h.r{color:var(--acc-ink);text-align:right;grid-column:3;grid-row:1}
+.downup .design{grid-column:1;grid-row:calc(var(--r) + 1)}.downup .mid{grid-column:2;grid-row:calc(var(--r) + 1)}.downup .trace{grid-column:3;grid-row:calc(var(--r) + 1)}
+.lvl{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px 18px}
+.lvl b{display:block;font-size:17px;font-weight:600}
+.lvl span{font-size:14px;color:var(--mut)}
+.lvl.design{border-left:3px solid #9b7cff}
+.lvl.trace{border-right:3px solid var(--acc);text-align:right}
+.lvl.rtl{border-color:rgba(155,124,255,.6);background:linear-gradient(90deg,#1d1734,var(--card))}
+.lvl.waves{background:linear-gradient(270deg,#0f2b2a,var(--card))}
+.mid{display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:var(--dim)}
+.mid .chip{font-size:12.5px;padding:6px 10px;white-space:normal}
+.mid.concept{border:1px dashed var(--line2);border-radius:12px;padding:8px}
+.here{grid-column:3;grid-row:6;text-align:right;font:12px var(--mono);color:var(--warn);margin-top:-6px}
+/* format */
+.format{display:grid;grid-template-columns:1.05fr 1fr;gap:36px;margin-top:56px;align-items:start}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.fcard{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:16px 18px}
+.fcard h3{font-size:20px;margin-bottom:2px}
+.fcard .by{font-size:13px;color:var(--dim);margin-bottom:10px}
+.fcard ul{list-style:none;display:grid;gap:5px;font-size:14px;color:#d4dae4}
+.fcard li::before{content:"";display:inline-block;width:6px;height:6px;border-radius:2px;margin-right:9px;vertical-align:2px;background:currentColor;opacity:.7}
+.fcard.fst{border-top:3px solid var(--fst)}.fcard.fst li::before{background:var(--fst)}
+.fcard.ftr{border-top:3px solid var(--ftr)}.fcard.ftr li::before{background:var(--ftr)}
+.into{text-align:center;color:var(--dim);font:12.5px var(--mono);padding:12px 0}
+.fcard.vtr{border:1px solid rgba(47,224,192,.45);background:linear-gradient(180deg,#0f2320,var(--card))}
+.fcard.vtr h3{color:var(--acc-ink)}
+.sections{display:flex;gap:4px;margin:10px 0 6px;flex-wrap:wrap}
+.sections span{font:600 11px var(--mono);padding:4px 7px;border-radius:5px;background:#16303a;color:#bfeee4}
+.sections span.s{background:#2a2412;color:var(--fst)}.sections span.t{background:#33192a;color:var(--ftr)}.sections span.l{background:#1b2440;color:var(--blue)}
+.fcard.vtr .note{font:12px var(--mono);color:var(--dim);margin-bottom:12px}
+.fcard.vtr ul{grid-template-columns:1fr 1fr}
+.fcard.vtr li::before{background:var(--acc)}
+.bars{display:grid;gap:18px}
+.bars h3{font-size:14px;font-weight:600;color:var(--mut);letter-spacing:.02em}
+.bar{display:grid;grid-template-columns:118px 1fr;gap:4px 16px;align-items:center}
+.ratio{grid-row:span 2;display:flex;flex-direction:column;line-height:1.1}
+.ratio b{font-size:34px;font-weight:600;letter-spacing:-.02em;color:var(--acc-ink)}
+.ratio span{font-size:13px;color:var(--mut)}
+.track{position:relative;height:22px}
+.track .fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;display:flex;align-items:center;padding:0 8px;font:12px var(--mono);color:#0a0d13;white-space:nowrap}
+.track .fill.them.fst{background:var(--fst)}.track .fill.them.ftr{background:var(--ftr)}
+.track .fill.ours{background:var(--vtr)}
+.track .ghost{position:absolute;top:0;bottom:0;border-radius:0 4px 4px 0;background:repeating-linear-gradient(135deg,rgba(47,224,192,.28) 0 4px,transparent 4px 8px);border:1px dashed rgba(47,224,192,.45);border-left:0}
+.bench-note{font-size:13px;color:var(--dim)}
+.bench-note a{color:var(--mut)}
+/* viewers */
+.viewers{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:56px}
+.viewer{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px;display:flex;flex-direction:column;gap:8px;border-top:3px solid var(--c)}
+.viewer h3{font-size:17px}
+.viewer .by{font-size:13px;color:var(--dim)}
+.viewer ul{list-style:none;font-size:14px;color:#d4dae4;display:grid;gap:4px;flex:1}
+.viewer li::before{content:"+ ";color:var(--c)}
+.viewer .becomes{margin-top:6px;font:12px var(--mono);color:var(--dim)}
+.viewer .becomes b{display:inline-block;margin-left:4px;padding:2px 8px;border-radius:6px;border:1px solid var(--c);color:var(--c);font-weight:600}
+.core{margin:18px 0;border:1px solid rgba(47,224,192,.45);border-radius:14px;padding:18px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:linear-gradient(90deg,#0f2320,var(--card) 70%)}
+.core img{width:44px;height:44px}
+.core b{font-size:20px}
+.core span{color:var(--mut)}
+.targets{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.target{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:16px 18px}
+.target h3{font-size:17px;margin-bottom:4px}
+.target p{font-size:14px;color:var(--mut)}
+.target.this{border-color:rgba(128,163,255,.5)}
+.target .badge{display:inline-block;margin-left:6px;font:600 11px var(--mono);color:var(--blue);border:1px solid rgba(128,163,255,.5);border-radius:5px;padding:1px 6px;vertical-align:2px}
+/* features */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:56px}
+.feature{border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--card2),var(--card));padding:20px;display:flex;flex-direction:column;gap:8px}
+.feature .ico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue);font:600 15px var(--mono)}
+.feature h3{font-size:17px}
+.feature p{font-size:14.5px;color:var(--mut);flex:1}
+.feature .look{font:12px var(--mono);color:var(--acc-ink)}
+/* closing */
+.closing{text-align:center;padding:120px 0 40px}
+.closing h2{margin:0 auto}
+.closing .cta{margin-top:30px}
+footer{border-top:1px solid var(--line);margin-top:80px;padding:34px 0 48px;color:var(--dim);font-size:13.5px}
+footer .wrap{display:flex;gap:24px 40px;flex-wrap:wrap;justify-content:space-between}
+footer nav{display:flex;gap:18px;flex-wrap:wrap}
+footer a{color:var(--mut);text-decoration:none}
+footer a:hover{color:var(--ink)}
+/* responsive */
+@media (max-width:1060px){
+  .viewers{grid-template-columns:repeat(3,1fr)}
+  .format{grid-template-columns:1fr}
+  .features{grid-template-columns:repeat(2,1fr)}
+  .stairs{grid-template-columns:repeat(2,1fr)}
+  .step:nth-child(n){margin-top:0}
+}
+@media (max-width:760px){
+  :root{--gutter:16px}
+  .nav nav{display:none}
+  .nav .wrap{gap:12px}
+  .hero{padding-top:56px}
+  section.block{padding-top:80px}
+  .stairs,.features,.targets,.pair{grid-template-columns:1fr}
+  .viewers{grid-template-columns:1fr 1fr}
+  .downup{grid-template-columns:1fr 1fr;gap:10px}
+  .downup .col-h.r{grid-column:2;text-align:left}
+  .downup .design{grid-row:calc(var(--r) * 2)}.downup .trace{grid-column:2;grid-row:calc(var(--r) * 2);text-align:left}
+  .downup .mid{grid-column:1/-1;grid-row:calc(var(--r) * 2 + 1)}
+  .here{grid-column:2;grid-row:10;text-align:left}
+  .fcard.vtr ul{grid-template-columns:1fr}
+  .bar{grid-template-columns:86px 1fr}
+  .ratio b{font-size:26px}
+  .tabs{width:100%}
+}
+@media (max-width:420px){.viewers{grid-template-columns:1fr}.nav .end .btn:not(.primary){display:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.overlay .spin{animation:none}}
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="../volna/volna/assets/app-icon/volna.svg" alt="">Volna</a>
+    <nav aria-label="Sections">
+      <a href="#demo">Demo</a><a href="#level-up">How it works</a><a href="#one-file">Format</a><a href="#five-viewers">Viewers</a><a href="#features">Features</a>
+    </nav>
+    <div class="end">
+      <a class="btn small" href="https://github.com/ripopov/vtr">GitHub</a>
+      <a class="btn small primary" href="#demo">Try it</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap">
+    <a class="pill" href="#one-file"><b>VTR 1.1</b>Waveforms, transactions and logs in one file →</a>
+    <h1>Level up <span class="grad">your traces.</span></h1>
+    <p class="lede">See your hardware run at the level you designed it. <strong>Volna</strong> shows the waveforms, transactions and CPU pipelines of one recording on one time axis: as a native app, in VS Code, and right here in your browser.</p>
+    <div class="cta">
+      <a class="btn primary" href="#demo">Try the live demo</a>
+      <a class="btn" href="https://github.com/ripopov/vtr">View on GitHub</a>
+    </div>
+    <p class="fine">Open research in Rust · the demo below is the real viewer compiled to WebAssembly · nothing is uploaded</p>
+  </div>
+</section>
+
+<section class="demo" id="demo" aria-label="Live demo">
+  <div class="wrap">
+    <div class="tabs" role="tablist" aria-label="What to try">
+      <button role="tab" aria-selected="true" data-tip="waves">Waves</button>
+      <button role="tab" aria-selected="false" data-tip="pipeline">Pipeline</button>
+      <button role="tab" aria-selected="false" data-tip="transactions">Transactions</button>
+      <button role="tab" aria-selected="false" data-tip="clocks">Clocks &amp; markers</button>
+      <button role="tab" aria-selected="false" data-tip="workspace">Workspace</button>
+    </div>
+    <p class="tip" id="tip" role="tabpanel" aria-live="polite"></p>
+    <div class="window" id="viewer" data-state="loading">
+      <div class="stage" id="stage">
+        <iframe id="volna" title="Volna viewer showing landing.vtr" src="about:blank" allow="clipboard-read; clipboard-write"></iframe>
+        <div class="overlay" id="overlay" role="status">
+          <div class="loading"><div class="spin"></div>Starting Volna in WebAssembly…</div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">
+      <span><code>landing.vtr</code>: 1.7 µs of a dot-product loop, cache misses, DRAM refills and one interrupt, in <span id="trace-size">8.7 KB</span></span>
+      <a id="fullscreen" href="../volna/volna/web/index.html?file=../examples/landing.vtr&amp;workspace=../examples/landing.vtr.volna.json">Open in a full window ↗</a>
+      <a href="../volna/volna/examples/landing.vtr" download>Download the trace</a>
+      <a href="../volna/volna/examples/landing.vtr.volna.json">Its workspace</a>
+    </p>
+  </div>
+</section>
+
+<section class="strip" aria-label="Formats and integrations">
+  <div class="wrap">
+    <p>Opens VTR and FST · converts the rest in one command</p>
+    <div class="logos">
+      <span>VTR</span><span>FST</span><span>VCD <small>convert</small></span><span>FTR / LWTR4SC <small>convert</small></span><span>Konata <small>convert</small></span><span>OpenTelemetry <small>convert</small></span><span>Verilator <small>--trace-vtr</small></span>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="level-up">
+  <div class="wrap">
+    <p class="kicker">How it works</p>
+    <h2>Level up your traces</h2>
+    <p class="sub">See your hardware run at the level you designed it.</p>
+    <div class="stairs">
+      <article class="step">
+        <span class="tag">L0 · Input</span>
+        <div class="art" aria-hidden="true">
+          <div><span class="k">module</span> top;<br>&nbsp;&nbsp;cpu u_cpu (.*);<br><span class="k">endmodule</span></div>
+          <svg viewBox="0 0 200 54"><g fill="none" stroke="#5ed6a0" stroke-width="1.5"><path d="M30 12h12v-8h12v8h12v-8h12v8h12v-8h12v8h12v-8h12v8h12v-8h12v8h12"/><path d="M30 32h36v-8h60v8h60"/><path d="M30 52h60v-8h60v8h36"/></g><g fill="#7c889b" font-family="Lilex,monospace" font-size="9"><text x="0" y="11">clk</text><text x="0" y="31">req</text><text x="0" y="51">ack</text></g></svg>
+        </div>
+        <p>Your RTL source and its simulation.</p>
+      </article>
+      <article class="step">
+        <span class="tag">L1 · AI skill</span>
+        <div class="art" aria-hidden="true">
+          <div class="chips"><span class="chip">RTL</span><span class="arrow">→</span><span class="chip ok">Monitor</span></div>
+          <div class="t">Generate. Check. Refine.</div>
+          <svg viewBox="0 0 200 34"><g fill="none" stroke="#6af0d6" stroke-width="1.4"><path d="M20 17a14 14 0 1 1 28 0" /><path d="M48 17a14 14 0 1 1-28 0"/><path d="M60 17h120" stroke-dasharray="3 4"/></g><g fill="#6af0d6"><path d="M46 13l4 5 3-6z"/><circle cx="184" cy="17" r="3"/></g></svg>
+        </div>
+        <p>An AI skill reads your RTL and generates monitors with automated checks.</p>
+      </article>
+      <article class="step">
+        <span class="tag">L2 · VTR + VDB</span>
+        <div class="art" aria-hidden="true">
+          <div class="chips"><span class="chip">CPU</span><span class="arrow">load →</span><span class="chip">L2</span></div>
+          <div class="chips"><span class="chip hot">L2</span><span class="arrow">miss →</span><span class="chip">DRAM</span></div>
+          <div class="chips"><span class="chip">DRAM</span><span class="arrow">read →</span><span class="chip ok">CPU</span></div>
+        </div>
+        <p>VTR records transactions and runtime links; VDB gives them design meaning.</p>
+      </article>
+      <article class="step top">
+        <span class="tag">L3 · Volna</span>
+        <div class="art" aria-hidden="true">
+          <div class="pipe">
+            <b>ld</b><i class="F">F</i><i class="D">D</i><i class="E">E</i><i class="M x">M</i><i class="M x">M</i><i class="M x">M</i><i class="W">W</i>
+            <b>add</b><i class="F">F</i><i class="D">D</i><i class="E">E</i><i class="s">-</i><i class="s">-</i><i class="E">E</i><i class="W">W</i>
+            <b>st</b><i class="F">F</i><i class="D">D</i><i class="s">-</i><i class="s">-</i><i class="E">E</i><i class="M">M</i><i class="W">W</i>
+          </div>
+          <div class="chips"><span class="chip">Sequence</span><span class="chip">Bandwidth</span></div>
+        </div>
+        <p>Volna makes stalls and bottlenecks visible in an interactive view of your design.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="down-up">
+  <div class="wrap">
+    <p class="kicker">Why levels</p>
+    <h2>Optimized down. Lifted back up.</h2>
+    <p class="sub">Optimization pushes every design down to RTL, the only executable spec as detailed as silicon.</p>
+    <div class="downup">
+      <div class="col-h l">Design ↓ pushed down by optimization</div><div class="col-h r">Trace ↑ lifted by agents</div>
+      <div class="lvl design" style="--r:1"><b>Architecture</b><span>what it should do</span></div>
+      <div class="mid concept" style="--r:1">concept space: where the design began, and where Volna shows the run</div>
+      <div class="lvl trace" style="--r:1"><b>Flows, performance</b><span>bandwidth, latency</span></div>
+      <div class="lvl design" style="--r:2"><b>Micro-architecture</b><span>pipelines, queues</span></div>
+      <div class="mid" style="--r:2"><span class="chip ok">AI skill · monitors, checked on signals</span></div>
+      <div class="lvl trace" style="--r:2"><b>Pipelines, causes</b><span>who waits on whom</span></div>
+      <div class="lvl design" style="--r:3"><b>Interfaces</b><span>protocols, handshakes</span></div>
+      <div class="mid" style="--r:3"><span class="chip ok">VTR · VDB · records and names every level</span></div>
+      <div class="lvl trace" style="--r:3"><b>Transactions</b><span>requests, responses</span></div>
+      <div class="lvl design rtl" style="--r:4"><b>RTL</b><span>the executable spec</span></div>
+      <div class="mid" style="--r:4">simulate → as detailed as silicon</div>
+      <div class="lvl trace waves" style="--r:4"><b>Waveforms</b><span>FST, FSDB, VCD</span></div>
+      <div class="here">today, debug starts here</div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="one-file">
+  <div class="wrap">
+    <p class="kicker">The format</p>
+    <h2>Two formats. One modern file.</h2>
+    <p class="sub">VTR packs the best ideas of FST waveforms and FTR transactions into one compressed format.</p>
+    <div class="format">
+      <div>
+        <div class="pair">
+          <div class="fcard fst"><h3>FST</h3><p class="by">waveforms, GTKWave</p>
+            <ul><li>value chains per signal</li><li>time blocks and frames</li><li>hierarchy, aliases</li></ul></div>
+          <div class="fcard ftr"><h3>FTR</h3><p class="by">transactions, SystemC</p>
+            <ul><li>streams, generators</li><li>begin, end, attributes</li><li>relations between tx</li></ul></div>
+        </div>
+        <p class="into">↓ packed into one file ↓</p>
+        <div class="fcard vtr"><h3>VTR</h3><p class="by">one time base for waves, transactions and logs</p>
+          <div class="sections" aria-label="File sections in order"><span>META</span><span>STR</span><span>HIER</span><span class="s">SIGNAL</span><span class="t">TX</span><span class="s">SIGNAL</span><span class="t">TX</span><span class="l">LOG</span><span>DIR</span></div>
+          <p class="note">blocks in time order · directory last · no seek-back</p>
+          <ul><li>zstd columnar runs</li><li>random-access reads</li><li>background encoder</li><li>crash-recoverable</li><li>Rust and C APIs</li><li>stages, logs, clocks</li></ul>
+        </div>
+      </div>
+      <div class="bars" id="bench">
+        <h3>Waveforms vs FST</h3>
+        <div class="bar" data-them="407820587" data-ours="254937343" data-vs="fst"><div class="ratio"><b>1.6×</b><span>smaller file</span></div>
+          <div class="track"><div class="fill them fst">FST 389 MiB</div></div><div class="track"><div class="fill ours">VTR 243 MiB</div><div class="ghost"></div></div></div>
+        <div class="bar" data-them="14.25611" data-ours="9.036818917" data-vs="fst"><div class="ratio"><b>1.6×</b><span>faster write</span></div>
+          <div class="track"><div class="fill them fst">FST 14.3 s</div></div><div class="track"><div class="fill ours">VTR 9.0 s</div><div class="ghost"></div></div></div>
+        <div class="bar" data-them="0.030787" data-ours="0.006607179" data-vs="fst"><div class="ratio"><b>4.7×</b><span>faster read</span></div>
+          <div class="track"><div class="fill them fst">FST 30.8 ms</div></div><div class="track"><div class="fill ours">VTR 6.6 ms</div><div class="ghost"></div></div></div>
+        <h3>Transactions vs FTR</h3>
+        <div class="bar" data-them="114045140" data-ours="38225052" data-vs="ftr"><div class="ratio"><b>3.0×</b><span>smaller file</span></div>
+          <div class="track"><div class="fill them ftr">FTR 109 MiB</div></div><div class="track"><div class="fill ours">VTR 36.5 MiB</div><div class="ghost"></div></div></div>
+        <div class="bar" data-them="0.529902" data-ours="0.415165954" data-vs="ftr"><div class="ratio"><b>1.3×</b><span>faster write</span></div>
+          <div class="track"><div class="fill them ftr">FTR 0.53 s</div></div><div class="track"><div class="fill ours">VTR 0.42 s</div><div class="ghost"></div></div></div>
+        <p class="bench-note">openC910 CoreMark in Verilator (67,144 signals) and one million TLM transactions, against the best FST or FTR writer and reader for each metric. <a href="BENCHMARK_RESULTS.md">Benchmark report</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="five-viewers">
+  <div class="wrap">
+    <p class="kicker">The viewer</p>
+    <h2>Five viewers. One modern framework.</h2>
+    <p class="sub">Volna packs the best ideas of five viewers into one Rust core that runs everywhere.</p>
+    <div class="viewers">
+      <article class="viewer" style="--c:var(--gtk)"><h3>GTKWave</h3><p class="by">the FST classic</p><ul><li>signal tree + list</li><li>baseline marker</li></ul><p class="becomes">→<b>Waves</b></p></article>
+      <article class="viewer" style="--c:var(--surfer)"><h3>Surfer</h3><p class="by">Rust waveforms</p><ul><li>tiled workspace</li><li>event arrows, 0–9 keys</li></ul><p class="becomes">→<b>Workspace</b></p></article>
+      <article class="viewer" style="--c:var(--scv)"><h3>SCViewer</h3><p class="by">SystemC transactions</p><ul><li>transaction streams</li><li>relations as arrows</li></ul><p class="becomes">→<b>Transactions</b></p></article>
+      <article class="viewer" style="--c:var(--perfetto)"><h3>Perfetto</h3><p class="by">system traces</p><ul><li>summary tracks</li><li>details follow selection</li></ul><p class="becomes">→<b>Summaries</b></p></article>
+      <article class="viewer" style="--c:var(--konata)"><h3>Konata</h3><p class="by">CPU pipelines</p><ul><li>stages per instruction</li><li>stage colour ladder</li></ul><p class="becomes">→<b>Pipeline</b></p></article>
+    </div>
+    <div class="core"><img src="../volna/volna/assets/app-icon/volna.svg" alt=""><div><b>Volna</b><br><span>one Rust core for every panel · tested headless</span></div></div>
+    <div class="targets">
+      <article class="target"><h3>Rust + GPUI</h3><p>native desktop app, on Zed’s GPU UI toolkit</p></article>
+      <article class="target"><h3>VS Code plugin</h3><p>the WASM build in a webview; remote traces via volna-server</p></article>
+      <article class="target this"><h3>WASM in CI <span class="badge">this page</span></h3><p>any browser, nothing to install; one link from a failing run</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="features">
+  <div class="wrap">
+    <p class="kicker">Everything in the demo</p>
+    <h2>One recording. Every view of it.</h2>
+    <p class="sub">The workspace above opens each of these on the same trace. Every panel shares the time axis, the cursor and the markers.</p>
+    <div class="features">
+      <article class="feature"><div class="ico">∿</div><h3>Waveforms</h3><p>Bits, buses, X and Z, text, and events drawn as arrows. Painting walks pixel columns, not transitions, so its cost follows the window width even at a hundred million changes.</p><p class="look">Waves › cpu0</p></article>
+      <article class="feature"><div class="ico">⊞</div><h3>Signal groups</h3><p>Group rows, rename them and fold a group into one summary row of its merged changes and X stretches.</p><p class="look">Waves › l2 port (folded)</p></article>
+      <article class="feature"><div class="ico">⌇</div><h3>Analog plots</h3><p>Buses and reals as step or linear plots at 1×–8× height, ranged to the whole trace, the visible window or the type.</p><p class="look">Waves › perf</p></article>
+      <article class="feature"><div class="ico">▭</div><h3>Transaction lanes</h3><p>Bus requests as bars beside the signals that carry them: address and data stages, overlaps stacked, failures in red.</p><p class="look">Waves › read, write, burst</p></article>
+      <article class="feature"><div class="ico">≣</div><h3>Pipeline</h3><p>Konata-style stages per instruction with stalls, flushes and dependency arrows, zoomed in time and rows at once, following the activity at the cursor.</p><p class="look">Pipeline 2</p></article>
+      <article class="feature"><div class="ico">◎</div><h3>Transaction details</h3><p>Identity, timing, a lifeline of stages, typed attributes and related records you can jump to. Pin one to compare.</p><p class="look">Transaction 3 (pinned)</p></article>
+      <article class="feature"><div class="ico">▦</div><h3>Tables</h3><p>Any generator or set of signals as rows: exact scrolling to any row, bounded preparation, selection shared with every panel, TSV copy.</p><p class="look">Table 4</p></article>
+      <article class="feature"><div class="ico">⏱</div><h3>Clocks and cycles</h3><p>Declared clocks become cycle rulers with speed changes and gated stretches; clicks snap to edges and the cursor reads in cycles.</p><p class="look">Rulers · dram_clk</p></article>
+      <article class="feature"><div class="ico">M</div><h3>Markers</h3><p>Named markers shared by every timed panel; the status bar reads the span to the cursor in time and in cycles.</p><p class="look">M1 irq · M2 refill done</p></article>
+      <article class="feature"><div class="ico">⧉</div><h3>Docking workspace</h3><p>Split, tab and drag panels; link or unlink each panel’s viewport and cursor. The layout saves to a small JSON file beside the trace.</p><p class="look">landing.vtr.volna.json</p></article>
+      <article class="feature"><div class="ico">⌘</div><h3>Palette and settings</h3><p>A command palette over every action and setting, a settings file edited in place with comments kept, and bundled themes.</p><p class="look">⌘K / Ctrl K</p></article>
+      <article class="feature"><div class="ico">⇄</div><h3>Remote traces</h3><p>In VS Code, a server beside a remote recording sends only the metadata and the signals you open. Navigation stays local.</p><p class="look">VS Code + volna-server</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="closing">
+  <div class="wrap">
+    <h2>Bring your traces up a level.</h2>
+    <p class="sub center" style="margin-inline:auto">Convert an FST or VCD you already have, or record VTR straight from Verilator, and open it in Volna.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/ripopov/vtr">Get the source</a>
+      <a class="btn" href="../volna/volna/README.md">Build Volna</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>VTR · VDB · Volna, an open hardware-debugging research project.</span>
+    <nav aria-label="Documentation">
+      <a href="../README.md">README</a><a href="SPEC.md">VTR spec</a><a href="RATIONALE.md">Rationale</a><a href="BENCHMARK_RESULTS.md">Benchmarks</a><a href="vtr-pitch.html">Pitch slides</a><a href="../volna/volna/ARCHITECTURE.md">Volna architecture</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // What to try in each part of the demo workspace.
+  const TIPS = {
+    waves: 'Click or drag in the waves to set the cursor, <kbd>Ctrl</kbd>+wheel to zoom, <kbd>F</kbd> to fit. Unfold <b>l2 port</b> with its chevron; select a bus and press <kbd>A</kbd> to plot it.',
+    pipeline: 'One row per instruction: <b>F D X M W</b> stages with stall bands, flushed rows tinted. The wheel scrolls rows, <kbd>Ctrl</kbd>+wheel zooms both axes, a drag pans; click a row to select it everywhere and <kbd>⏎</kbd> opens its details.',
+    transactions: 'The pinned panel holds the interrupt handler’s device read: its lifeline, attributes, stages and the L2 read and DRAM refill it caused. Click a bar in <b>read</b> or <b>burst</b> to select that record in every panel.',
+    clocks: 'The rulers count <b>clk</b> and <b>dram_clk</b> cycles: the DRAM clock speeds up at the interrupt and is gated near the end. <kbd>M</kbd> drops a marker at the cursor, <kbd>[</kbd> <kbd>]</kbd> step clock edges, and the status bar reads the span to a marker in cycles.',
+    workspace: 'Drag tabs to rearrange panels, <kbd>Ctrl</kbd>+<kbd>\\</kbd> splits the focused one, <kbd>L</kbd> unlinks its viewport, <kbd>Ctrl</kbd>+<kbd>K</kbd> opens the command palette (<kbd>⌘</kbd> on a Mac). Reload the page to start over.',
+  };
+  const tip = document.getElementById('tip');
+  const tabs = [...document.querySelectorAll('.tabs button')];
+  const show = button => {
+    for (const b of tabs) b.setAttribute('aria-selected', String(b === button));
+    tip.innerHTML = TIPS[button.dataset.tip];
+  };
+  tabs.forEach(b => b.addEventListener('click', () => show(b)));
+  show(tabs[0]);
+
+  // Benchmark bars drawn to scale from their data.
+  for (const bar of document.querySelectorAll('#bench .bar')) {
+    const share = Number(bar.dataset.ours) / Number(bar.dataset.them);
+    bar.querySelector('.fill.them').style.width = '100%';
+    bar.querySelector('.fill.ours').style.width = `${(share * 100).toFixed(3)}%`;
+    const ghost = bar.querySelector('.ghost');
+    ghost.style.left = `${(share * 100).toFixed(3)}%`;
+    ghost.style.width = `${((1 - share) * 100).toFixed(3)}%`;
+  }
+
+  // The live viewer: the WASM page with the demo trace and its workspace.
+  // It needs a desktop-sized window, so narrow screens get it scaled down.
+  const viewer = document.getElementById('viewer');
+  const stage = document.getElementById('stage');
+  const frame = document.getElementById('volna');
+  const overlay = document.getElementById('overlay');
+  const MIN_W = 1100;
+  const fit = () => {
+    const width = stage.clientWidth;
+    const logical = Math.max(width, MIN_W);
+    const scale = width / logical;
+    const height = Math.round(Math.min(Math.max(logical * 0.6, 640), 840));
+    frame.style.width = `${logical}px`;
+    frame.style.height = `${height}px`;
+    frame.style.transform = scale < 1 ? `scale(${scale})` : '';
+    stage.style.height = `${Math.round(height * scale)}px`;
+  };
+  fit();
+  addEventListener('resize', fit);
+  const set = state => { viewer.dataset.state = state; window.volnaDemo = {state}; };
+  set('loading');
+  const page = document.getElementById('fullscreen').getAttribute('href');
+  const bundle = new URL('../volna/volna/web/dist/volna_bg.wasm', location.href);
+  fetch(bundle, {method: 'HEAD'}).then(r => {
+    if (!r.ok) throw new Error(String(r.status));
+    frame.src = page;
+    const started = Date.now();
+    const poll = setInterval(() => {
+      let ready = false;
+      try { ready = !!frame.contentDocument?.querySelector('canvas'); } catch {}
+      if (ready) {
+        clearInterval(poll);
+        // Give the viewer a moment to restore the workspace before revealing it.
+        setTimeout(() => { overlay.hidden = true; set('ready'); }, 600);
+      } else if (Date.now() - started > 60000) {
+        clearInterval(poll);
+        overlay.querySelector('.loading').textContent = 'Volna did not start. It needs WebGPU or WebGL2.';
+        set('failed');
+      }
+    }, 100);
+  }).catch(() => {
+    overlay.innerHTML = `<div class="missing"><h3>The live viewer is not built here</h3>
+      <p>This page embeds Volna’s WebAssembly build, which is not checked in. Build it once from the repository root and reload:</p>
+      <pre>volna/volna/web/build.sh
+python3 -m http.server 8080
+open http://localhost:8080/docs/volna-landing.html</pre>
+      <p>The build needs the <code>wasm32-unknown-unknown</code> target, <code>wasm-bindgen-cli</code> and a clang that targets wasm32; see <a href="../volna/volna/README.md">Volna’s README</a>.</p></div>`;
+    set('missing');
+  });
+})();
+</script>
+</body>
+</html>
