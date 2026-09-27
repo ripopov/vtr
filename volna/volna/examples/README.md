@@ -37,7 +37,8 @@ cargo run --locked -p volna-core --example landing_workspace -- volna/volna/exam
 ```
 
 `volna-core/tests/landing.rs` restores the checked-in pair and checks every
-panel; the landing-page workflow regenerates both and compares bytes.
+panel. `docs/tests/volna-landing.test.mjs` checks the page and its live demo
+after `web/build.sh`.
 
 ## Pipeline showcase
 
