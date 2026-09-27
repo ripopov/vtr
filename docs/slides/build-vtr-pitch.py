@@ -6,6 +6,10 @@ executable specification as detailed as silicon; agents lift its simulation back
 up, each lifted level facing the design level it came from.
 
 
+Slide 3 is VTR itself: the ideas it takes from FST (waveforms) and FTR
+(transactions), packed into one compressed file, and the measured result against
+the best FST or FTR variant per metric, read from bench/results/latest/results.json.
+
 "Level up your traces" is drawn as a staircase: L0 your RTL and its simulation,
 L1 the AI skill and the VTR monitor it writes, L2 VTR transactions named by VDB,
 L3 what you get in Volna (pipeline, sequence and bandwidth). Four equal
@@ -22,6 +26,7 @@ renders identically offline and in CI. Subsetting needs fontTools and brotli:
 import base64
 import html
 import io
+import json
 from pathlib import Path
 
 from fontTools import subset
@@ -30,11 +35,14 @@ from fontTools.ttLib import TTFont
 ROOT = Path(__file__).resolve().parents[2]
 FONTS = ROOT / 'volna/volna-core/assets/fonts'
 OUT = ROOT / 'docs/vtr-pitch.html'
+RESULTS = ROOT / 'bench/results/latest/results.json'
 
 TITLE = 'Level up your traces'
 SUBTITLE = 'See your hardware run at the level you designed it.'
 V_TITLE = 'Optimized down. Lifted back up.'
 V_SUBTITLE = 'Optimization pushes every design down to RTL, the only executable spec as detailed as silicon.'
+F_TITLE = 'Two formats. One modern file.'
+F_SUBTITLE = 'VTR packs the best ideas of FST waveforms and FTR transactions into one compressed format.'
 SENTENCES = (
     'An AI skill reads your RTL and generates monitors with automated checks.',
     'VTR records transactions and runtime links; VDB gives them design meaning.',
@@ -324,6 +332,112 @@ def down_up():
     return s.render()
 
 
+def benchmarks():
+    """The measured rows of slide 3: VTR against the best FST or FTR variant for each metric."""
+    d = json.loads(RESULTS.read_text())
+    rtl = next(r for r in d['rtl'] if r['workload'] == 'c910_coremark')
+    tlm = next(r for r in d['tx'] if r['workload'] == 'tlm_1m')
+    fst = [rtl['writers'][k] for k in ('fstapi-lz4', 'fstapi-zlib', 'fstcpp-lz4')]
+    vtr, rd = rtl['writers']['vtr-rust'], rtl['readers']
+    ftr = [tlm['writers'][k] for k in ('ftr-lz4', 'ftr-raw')]
+    mib = lambda b: f'{b / 2**20:.0f} MiB' if b >= 100 * 2**20 else f'{b / 2**20:.1f} MiB'
+    sec = lambda t: f'{t:.1f} s' if t >= 1 else f'{t:.2f} s'
+    ms = lambda t: f'{t * 1e3:.1f} ms'
+    info = rtl['info']
+    return (
+        ('Waveforms vs FST',
+         f'openC910 CoreMark · {info["signals"]:,} signals · {info["changes"] / 1e6:.0f} M changes',
+         (('File size', 'FST', min(w['bytes'] for w in fst), vtr['bytes'], mib, 'smaller'),
+          ('Write time', 'FST', min(w['wall_s'] for w in fst), vtr['wall_s'], sec, 'faster'),
+          ('Read one signal', 'FST', min(rd['vs_fstapi_zlib']['load_1']['fst_wellen'], rd['fstapi_reader_zlib']['load_1_s'],
+                                         rd['fstapi_reader_lz4']['load_1_s']), rd['vs_fstapi_zlib']['load_1']['vtr'], ms, 'faster'))),
+        ('Transactions vs FTR',
+         f'SystemC TLM · {tlm["writers"]["vtr-rust"]["transactions"] / 1e6:.0f} M transactions · '
+         f'{tlm["writers"]["vtr-rust"]["attributes"] / 1e6:.0f} M attributes',
+         (('File size', 'FTR', min(w['bytes'] for w in ftr), tlm['writers']['vtr-rust']['bytes'], mib, 'smaller'),
+          ('Write time', 'FTR', min(w['wall_s'] for w in ftr), tlm['writers']['vtr-rust']['wall_s'], sec, 'faster'))))
+
+
+def one_file():
+    """Slide 3: FST's and FTR's ideas packed into one VTR file, and what that measures."""
+    groups = benchmarks()
+    said = '; '.join(f'{label.lower()}: {name} {fmt(them)}, VTR {fmt(v)}, {them / v:.1f} times {verb}'
+                     for _, _, rows in groups for label, name, them, v, fmt, verb in rows)
+    s = Svg('f', 1136, 446,
+            'VTR takes the ideas of two formats: from FST, per-signal value chains, time blocks and frames, hierarchy and '
+            'aliases; from FTR, streams and generators, transactions with begin and end times and attributes, and relations. '
+            'It packs them into one file of time-ordered signal, transaction and log blocks with a directory at the end, '
+            'compressed with zstd in columnar runs, read by random access and recoverable after a crash. '
+            f'Benchmarks against the best FST or FTR variant per metric, {groups[0][1]}, and {groups[1][1]}: {said}.')
+
+    for x, name, note, ideas in ((0, 'FST', 'waveforms, GTKWave',
+                                  ('value chains per signal', 'time blocks and frames', 'hierarchy, aliases')),
+                                 (264, 'FTR', 'transactions, SystemC',
+                                  ('streams, generators', 'begin, end, attributes', 'relations between tx'))):
+        s.rect(x, 28, 236, 150, 'f-panel', r=12)
+        s.text(x + 20, 60, name, 17, f'c-{name.lower()}', weight=600)
+        s.text(x + 20, 82, note, 12, 'c-mut')
+        if name == 'FST':
+            s.clock(x + 152, 50, 8, 8, 8, 'ln-fst')
+            s.wave(x + 152, 66, 8, '00111001', 8, 'ln-fst')
+        else:
+            for n, (a, w) in enumerate(((0, 64), (10, 38), (22, 30))):
+                s.rect(x + 152 + a, 44 + 9 * n, w, 6, 'f-ftr', r=2, box=False)
+        for n, idea in enumerate(ideas):
+            s.path(f'M{x + 20} {110 + 22 * n} H{x + 26}', 'ln-acc')
+            s.text(x + 34, 114 + 22 * n, idea, 11, mono=True)
+
+    # Both formats feed one file.
+    s.path('M118 178 V202 H382 V178', 'ln-acc')
+    s.arrow(250, 202, 250, 228, 'acc')
+    s.text(262, 220, 'packed into one file', 10, 'c-mut', mono=True)
+
+    s.rect(0, 234, 500, 212, 'f-lift', r=12)
+    s.text(20, 266, 'VTR', 17, 'c-vtr', weight=600)
+    s.text(20, 288, 'one time base for waves, transactions and logs', 12, 'c-mut')
+    x = 20
+    for name, w, cls, ink in (('META', 44, 'f-chip', 'c-ink'), ('STR', 40, 'f-chip', 'c-ink'), ('HIER', 44, 'f-chip', 'c-ink'),
+                              ('SIGNAL', 64, 'f-acc', 'c-on-acc'), ('TX', 40, 'f-acc2', 'c-ink'), ('SIGNAL', 64, 'f-acc', 'c-on-acc'),
+                              ('TX', 40, 'f-acc2', 'c-ink'), ('LOG', 40, 'f-chip', 'c-ink'), ('DIR', 40, 'f-chip', 'c-acc-ink')):
+        s.rect(x, 304, w, 26, cls, r=4)
+        s.text(x + w / 2, 321, name, 10, ink, mono=True, anchor='middle')
+        x += w + 4
+    s.text(20, 350, 'blocks in time order · directory last · no seek-back', 10, 'c-mut', mono=True)
+    s.text(20, 380, 'NEW IN VTR', 10, 'c-acc-ink', mono=True, track=1.2)
+    for n, item in enumerate(('zstd columnar runs', 'random-access reads', 'background encoder',
+                              'crash-recoverable', 'Rust and C APIs', 'stages, logs, clocks')):
+        cx, cy = 20 + 156 * (n % 3), 404 + 24 * (n // 3)
+        s.path(f'M{cx} {cy - 4} H{cx + 6}', 'ln-acc')
+        s.text(cx + 14, cy, item, 11, mono=True)
+
+    # Measured: one bar pair per metric, the competitor's bar at full length, VTR's to the same scale.
+    PX, PW, BX, BW = 580, 532, 712, 300
+    SAYS = {'File size': 'smaller file', 'Write time': 'faster write', 'Read one signal': 'faster read'}
+    s.rect(556, 28, 580, 418, 'f-panel', r=12)
+    y = 60
+    for g, (title, _, rows) in enumerate(groups):
+        if g:
+            s.path(f'M{PX} {y - 26} H{PX + PW}', 'ln-hair')
+        s.text(PX, y, title, 15, weight=600)
+        y += 16
+        for label, name, them, v, fmt, _ in rows:
+            fmt_name = name.lower()
+            s.text(PX, y + 28, f'{them / v:.1f}×', 30, 'c-vtr', weight=600)
+            s.text(PX, y + 52, SAYS[label], 12, 'c-mut')
+            s.rect(BX, y + 8, BW, 12, f'f-them f-{fmt_name}', r=3, box=False)
+            s.text(BX + BW + 8, y + 18, f'{name} {fmt(them)}', 11, f'c-{fmt_name}', mono=True)
+            w = round(BW * v / them, 1)
+            # What VTR saves stays visible as a hatched ghost out to the competitor's length.
+            s.add(f'<rect x="{BX + w - 3}" y="{y + 26.5}" width="{BW - w + 2.5}" height="11" rx="3" class="f-save"'
+                  f' fill="url(#f-hatch)"/>')
+            s.rect(BX, y + 26, w, 12, 'f-vtr', r=3, box=False)
+            s.text(BX + BW + 8, y + 36, f'VTR {fmt(v)}', 11, 'c-vtr', mono=True)
+            y += 64
+        y += 30
+    return s.render('<pattern id="f-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+                    '<rect width="2" height="6" class="f-vtr hatch"/></pattern>')
+
+
 CAPTIONS = (('L0 · Input', 'cap', 'Your RTL source and its simulation.'), ('L1 · AI skill', 's', SENTENCES[0]),
             ('L2 · VTR + VDB', 's', SENTENCES[1]), ('L3 · Volna', 's', SENTENCES[2]))
 
@@ -359,7 +473,7 @@ def main():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Level up your traces</title>
-<meta name="description" content="Pitch slides for the AI skill, VTR/VDB and Volna: the staircase from your RTL to design insight, and the design optimized down to RTL with its trace lifted back up by agents.">
+<meta name="description" content="Pitch slides for the AI skill, VTR/VDB and Volna: the staircase from your RTL to design insight, the design optimized down to RTL with its trace lifted back up by agents, and VTR, one file for FST's waveforms and FTR's transactions, with benchmarks.">
 <!-- Generated by docs/slides/build-vtr-pitch.py; edit the generator, not this file. -->
 <style>{faces}
 {css}</style>
@@ -371,10 +485,14 @@ def main():
 <figure class="fig">{staircase()}</figure><ol class="copy">{copy}</ol></section>
 <section class="slide" id="down-up" aria-roledescription="slide" aria-label="2 · Optimized down, lifted back up" hidden>
 <h1>{V_TITLE}</h1><p class="sub">{V_SUBTITLE}</p>
-<figure class="fig">{down_up()}</figure></section></div>
+<figure class="fig">{down_up()}</figure></section>
+<section class="slide" id="one-file" aria-roledescription="slide" aria-label="3 · Two formats, one modern file" hidden>
+<h1>{F_TITLE}</h1><p class="sub">{F_SUBTITLE}</p>
+<figure class="fig">{one_file()}</figure></section></div>
 </main>
 <nav class="ctl" aria-label="Slides"><button type="button" data-go="0"><b>1</b> Level up</button>
 <button type="button" data-go="1"><b>2</b> Down and up</button>
+<button type="button" data-go="2"><b>3</b> One file</button>
 <span class="keys">← → to switch · P to present</span>
 <button type="button" class="present" data-present>Present</button></nav>
 <p class="sr" aria-live="polite" id="said"></p>

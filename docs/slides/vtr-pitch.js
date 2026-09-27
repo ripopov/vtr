@@ -24,7 +24,7 @@ document.querySelector('[data-present]').addEventListener('click', () => present
 document.addEventListener('keydown', e => {
   if (e.altKey || e.ctrlKey || e.metaKey) return;
   const go = {ArrowRight: current + 1, ArrowDown: current + 1, PageDown: current + 1, ' ': current + 1,
-    ArrowLeft: current - 1, ArrowUp: current - 1, PageUp: current - 1, Home: 0, End: slides.length - 1, 1: 0, 2: 1}[e.key];
+    ArrowLeft: current - 1, ArrowUp: current - 1, PageUp: current - 1, Home: 0, End: slides.length - 1}[e.key] ?? (/^[1-9]$/.test(e.key) && e.key <= slides.length ? e.key - 1 : undefined);
   if (go !== undefined) { e.preventDefault(); show(go); }
   else if (e.key === 'p' || e.key === 'P') present(!root.classList.contains('present'));
   else if (e.key === 'Escape' && root.classList.contains('present')) present(false);

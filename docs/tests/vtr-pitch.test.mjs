@@ -6,7 +6,8 @@ import {test} from 'node:test';
 import {browserTest} from '../../volna/volna/tools/browser-test.mjs';
 const html = await readFile(new URL('../vtr-pitch.html', import.meta.url), 'utf8');
 const routes = {'/': {type: 'text/html', body: html}};
-const SLIDES = ['level-up', 'down-up'];
+const SLIDES = ['level-up', 'down-up', 'one-file'];
+const bench = JSON.parse(await readFile(new URL('../../bench/results/latest/results.json', import.meta.url), 'utf8'));
 const settle = 'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))';
 const SENTENCES = [
   'An AI skill reads your RTL and generates monitors with automated checks.',
@@ -22,7 +23,7 @@ async function open(width = 1280, height = 900) {
   return b;
 }
 
-test('two slides; the staircase: headline, one described diagram, captions per level, embedded fonts', {timeout: 30000}, async t => {
+test('three slides; the staircase: headline, one described diagram, captions per level, embedded fonts', {timeout: 30000}, async t => {
   const b = await open(); t.after(() => b.close());
   assert.deepEqual(await b.evaluate(`[...document.querySelectorAll('.slide')].map(s => s.id)`), SLIDES);
   const r = await b.evaluate(`(() => { const s = document.getElementById('level-up'); return {
@@ -78,6 +79,63 @@ test('two columns: design optimized down to RTL faces the trace lifted by agents
   assert.ok(a[0] === a[2] && c[0] === c[2] && a[0] < v.left[0].x && c[0] > v.right[0].x + v.right[0].w, 'the arms run straight down the outer edges');
 });
 
+test('one file: FST and FTR feed VTR, and the benchmarks are the checked-in results drawn to scale', {timeout: 30000}, async t => {
+  const b = await open(1280, 800); t.after(() => b.close());
+  await b.evaluate(`PITCH.show(2); ${settle}`);
+  const v = await b.evaluate(`(() => { const s = document.getElementById('one-file'), svg = s.querySelector('svg.dg');
+    const texts = [...svg.querySelectorAll('text')];
+    const titled = cls => [...svg.querySelectorAll(cls)].map(e => { const r = e.getBBox(), t = texts.find(q => { const b = q.getBBox(); return q.classList.contains('w6') && b.x > r.x && b.x < r.x + r.width && b.y > r.y && b.y < r.y + 40; }); return {x: r.x, y: r.y, w: r.width, h: r.height, title: t?.textContent}; });
+    const bars = cls => [...svg.querySelectorAll(cls)].map(e => e.getBBox()).map(r => [r.x, r.y, r.width]);
+    return {title: s.querySelector('h1').textContent, sub: s.querySelector('.sub').textContent, label: svg.getAttribute('aria-label'),
+      formats: titled('rect.f-panel').filter(c => c.w === 236), vtr: titled('rect.f-lift'), them: bars('rect.f-them'), ours: bars('rect.f-vtr[data-box], rect.f-vtr:not(.hatch)'), saved: bars('rect.f-save'), tones: [...svg.querySelectorAll('rect.f-them')].map(e => e.getAttribute('class')),
+      down: [...svg.querySelectorAll('path[marker-end]')].map(e => e.getBBox()).map(r => [r.x, r.y, r.height]),
+      texts: texts.map(e => e.textContent)}; })()`);
+  assert.equal(v.title, 'Two formats. One modern file.');
+  assert.equal(v.sub, 'VTR packs the best ideas of FST waveforms and FTR transactions into one compressed format.');
+  for (const word of ['FST', 'FTR', 'value chains', 'relations', 'one file', 'zstd', 'random access', 'crash', 'Benchmarks']) assert.ok(v.label.includes(word), `the description mentions ${word}`);
+  assert.deepEqual(v.formats.map(c => c.title), ['FST', 'FTR']);
+  const colours = await b.evaluate(`(() => { const s = document.getElementById('one-file'), fill = sel => getComputedStyle(s.querySelector(sel)).fill;
+    return [fill('rect.f-them.f-fst'), fill('rect.f-them.f-ftr'), fill('rect.f-vtr')]; })()`);
+  assert.equal(new Set(colours).size, 3, `VTR, FST and FTR each have their own colour: ${colours}`);
+  assert.deepEqual(v.vtr.map(c => c.title), ['VTR']);
+  const [fst, ftr] = v.formats, [vtr] = v.vtr;
+  assert.equal(fst.y, ftr.y, 'the two formats sit side by side');
+  assert.equal(fst.x, vtr.x, 'VTR spans both formats');
+  assert.equal(ftr.x + ftr.w, vtr.x + vtr.w, 'VTR spans both formats');
+  assert.ok(v.down.some(([x, y, h]) => Math.abs(x + 0.75 - (vtr.x + vtr.w / 2)) < 1 && y >= fst.y + fst.h && y + h <= vtr.y), 'one arrow feeds VTR from between the formats');
+
+  // The rows, recomputed from the benchmark data: best FST or FTR variant per metric against VTR.
+  const c910 = bench.rtl.find(r => r.workload === 'c910_coremark'), tlm = bench.tx.find(r => r.workload === 'tlm_1m');
+  const fstW = ['fstapi-lz4', 'fstapi-zlib', 'fstcpp-lz4'].map(k => c910.writers[k]), ftrW = ['ftr-lz4', 'ftr-raw'].map(k => tlm.writers[k]);
+  const rd = c910.readers, min = a => Math.min(...a);
+  const rows = [
+    [min(fstW.map(w => w.bytes)), c910.writers['vtr-rust'].bytes, 'fst', 'smaller file'],
+    [min(fstW.map(w => w.wall_s)), c910.writers['vtr-rust'].wall_s, 'fst', 'faster write'],
+    [min([rd.vs_fstapi_zlib.load_1.fst_wellen, rd.fstapi_reader_zlib.load_1_s, rd.fstapi_reader_lz4.load_1_s]), rd.vs_fstapi_zlib.load_1.vtr, 'fst', 'faster read'],
+    [min(ftrW.map(w => w.bytes)), tlm.writers['vtr-rust'].bytes, 'ftr', 'smaller file'],
+    [min(ftrW.map(w => w.wall_s)), tlm.writers['vtr-rust'].wall_s, 'ftr', 'faster write']];
+  assert.equal(v.them.length, rows.length);
+  assert.equal(v.ours.length, rows.length);
+  assert.equal(v.saved.length, rows.length);
+  const at = (s, i) => v.texts.indexOf(s, i);
+  let k = -1;
+  rows.forEach(([them, ours, tone, says], i) => {
+    assert.ok(ours < them, `row ${i}: VTR wins`);
+    k = at(`${(them / ours).toFixed(1)}×`, k + 1);
+    assert.ok(k >= 0 && v.texts[k + 1] === says, `row ${i}: the ratio reads ${(them / ours).toFixed(1)}× ${says}`);
+    assert.ok(v.tones[i].includes(`f-${tone}`), `row ${i}: the competitor bar has ${tone}'s colour`);
+    const [tx, ty, tw] = v.them[i], [ox, oy, ow] = v.ours[i];
+    assert.equal(tx, ox, `row ${i}: both bars start on one axis`);
+    assert.equal(tw, v.them[0][2], `row ${i}: the competitor bar is full scale`);
+    assert.ok(Math.abs(ow / tw - ours / them) < 0.001, `row ${i}: the VTR bar is drawn to scale (${ow}/${tw} vs ${ours}/${them})`);
+    assert.equal(oy - ty, 18, `row ${i}: VTR under its competitor`);
+    const [sx, , sw] = v.saved[i];
+    assert.ok(sx < ox + ow && Math.abs(sx + sw - (tx + tw)) < 1, `row ${i}: the hatched saving runs from VTR's bar out to the competitor's length`);
+  });
+  assert.ok(v.label.includes(`${c910.info.signals.toLocaleString('en-US')} signals`), 'the description names the workload');
+  for (const gone of ['BENCHMARKS', 'variant', 'workloads', 'FST + FTR']) assert.ok(!v.texts.some(s => s.includes(gone)), `no fine print: ${gone}`);
+});
+
 test('text stays inside the margins, inside its boxes and apart on every slide', {timeout: 30000}, async t => {
   const b = await open(1280, 800); t.after(() => b.close());
   for (const [n, id] of SLIDES.entries()) {
@@ -117,7 +175,7 @@ test('diagram text paints where it is laid out, even after the canvas rescales o
   const b = await browserTest(routes); t.after(() => b.close());
   await b.send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 900, deviceScaleFactor: 1, mobile: false});
   await b.wait('window.ready === true');
-  for (const n of [1, 0]) {
+  for (const n of [1, 2, 0]) {
     await b.evaluate(`PITCH.show(${n}); ${settle}`);
     const shot = (await b.send('Page.captureScreenshot', {format: 'png'})).data;
     const dark = await b.evaluate(`(async () => {
@@ -161,7 +219,7 @@ test('everything sits on the staircase grid', {timeout: 30000}, async t => {
 
 for (const [width, height] of [[1920, 1080], [1280, 800], [1024, 768]]) test(`the slides keep 16:9 and fit the window at ${width}px`, {timeout: 30000}, async t => {
   const b = await open(width, height); t.after(() => b.close());
-  for (const n of [0, 1]) {
+  for (const n of SLIDES.keys()) {
   await b.evaluate(`PITCH.show(${n}); ${settle}`);
   const r = await b.evaluate(`(() => { const q = document.querySelector('.slide:not([hidden])').getBoundingClientRect(), n = document.querySelector('.ctl').getBoundingClientRect(); return {w: q.width, h: q.height, bottom: q.bottom, right: q.right, nav: n.top}; })()`);
   assert.ok(Math.abs(r.w / r.h - 16 / 9) < 0.01, JSON.stringify(r));
@@ -172,7 +230,7 @@ for (const [width, height] of [[1920, 1080], [1280, 800], [1024, 768]]) test(`th
 
 test('phone width: a readable document, the diagram scrolls inside its frame', {timeout: 30000}, async t => {
   const b = await open(390, 844); t.after(() => b.close());
-  for (const n of [0, 1]) {
+  for (const n of SLIDES.keys()) {
   await b.evaluate(`PITCH.show(${n}); ${settle}`);
   assert.equal(await b.evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'no page overflow');
   const r = await b.evaluate(`(() => { const s = document.querySelector('.slide:not([hidden])');
@@ -194,6 +252,14 @@ test('keys, buttons and links switch slides; P presents full screen; Escape leav
   await b.wait('PITCH.current() === 0');
   await b.evaluate('document.querySelector("[data-go=\\"1\\"]").click()');
   await b.wait('PITCH.current() === 1 && document.getElementById("said").textContent.startsWith("2 ·")');
+  await key('3', 'Digit3', 51);
+  await b.wait('PITCH.current() === 2 && location.hash === "#one-file"');
+  await key('ArrowRight', 'ArrowRight', 39);
+  await b.wait('PITCH.current() === 2');
+  await key('Home', 'Home', 36);
+  await b.wait('PITCH.current() === 0');
+  await key('End', 'End', 35);
+  await b.wait('PITCH.current() === 2');
   await b.evaluate('location.hash = "#level-up"');
   await b.wait('PITCH.current() === 0');
   await key('p', 'KeyP', 80);
@@ -214,7 +280,7 @@ test('text contrast on every surface it is drawn on', {timeout: 30000}, async t 
   const pairs = [['ink', 'bg'], ['mut', 'bg'], ['acc-ink', 'bg'], ['ink', 'step-top'], ['mut', 'step-top'], ['acc-ink', 'step-top'],
     ['ink', 'panel'], ['mut', 'panel'], ['acc-ink', 'panel'], ['ok', 'panel'], ['warn-ink', 'panel'], ['ink', 'chip'],
     ['acc-ink', 'acc-soft'], ['ink', 'acc-soft'], ['mut', 'acc-soft'], ['ink', 'warn-soft'], ['on-acc', 'acc'], ['on-warn', 'warn'],
-    ['ink', 'band'], ['mut', 'band'], ['acc-ink', 'band']];
+    ['ink', 'band'], ['mut', 'band'], ['acc-ink', 'band'], ['ink', 'acc2'], ['fst', 'panel'], ['ftr', 'panel'], ['vtr', 'panel'], ['vtr', 'acc-soft']];
   const r = await b.evaluate(`(() => {
     const lum = h => { const v = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(x => x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
     const cs = getComputedStyle(document.querySelector('.slide')), hex = n => cs.getPropertyValue('--' + n).trim(), out = {};

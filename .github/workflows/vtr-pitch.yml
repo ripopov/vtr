@@ -7,6 +7,7 @@ on:
       - 'docs/slides/vtr-pitch.css'
       - 'docs/slides/vtr-pitch.js'
       - 'docs/tests/vtr-pitch.test.mjs'
+      - 'bench/results/latest/results.json'
       - 'volna/volna/tools/browser-test.mjs'
       - '.github/workflows/vtr-pitch.yml'
   pull_request:
@@ -16,6 +17,7 @@ on:
       - 'docs/slides/vtr-pitch.css'
       - 'docs/slides/vtr-pitch.js'
       - 'docs/tests/vtr-pitch.test.mjs'
+      - 'bench/results/latest/results.json'
       - 'volna/volna/tools/browser-test.mjs'
       - '.github/workflows/vtr-pitch.yml'
   workflow_dispatch:
