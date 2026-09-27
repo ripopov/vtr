@@ -23,7 +23,9 @@ h1{left:72px;font:600 68px/1.04 var(--sans);letter-spacing:-.028em;text-wrap:bal
 .tag{display:block;margin-bottom:8px;font:400 11px/16px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--acc-ink)}
 
 /* Diagram vocabulary: every colour is a slide token. */
-.dg text{dominant-baseline:auto}
+/* Scale-independent text layout: with hinted metrics Chrome paints SVG text in a slide that
+   was hidden while the canvas rescaled at the old scale, away from where it is laid out. */
+.dg text{dominant-baseline:auto;text-rendering:geometricPrecision}
 .ff-sans{font-family:var(--sans)}.ff-mono{font-family:var(--mono);font-variant-ligatures:none}.w6{font-weight:600}
 .c-ink{fill:var(--ink)}.c-mut{fill:var(--mut)}.c-acc-ink{fill:var(--acc-ink)}.c-ok{fill:var(--ok)}.c-warn{fill:var(--warn-ink)}
 .c-inv{fill:var(--inv)}.c-inv-mut{fill:var(--inv-mut)}.c-ok-inv{fill:var(--ok-inv)}.c-warn-inv{fill:var(--warn-inv)}
@@ -32,6 +34,7 @@ h1{left:72px;font:600 68px/1.04 var(--sans);letter-spacing:-.028em;text-wrap:bal
 .f-soft{fill:var(--soft);stroke:var(--hair)}.f-acc-soft{fill:var(--acc-soft);stroke:var(--acc-line)}
 .f-acc{fill:var(--acc)}.f-acc2{fill:var(--acc2)}.f-warn{fill:var(--warn)}.f-warn-soft{fill:var(--warn-soft);stroke:var(--warn)}
 .f-hair{fill:var(--hair)}.f-bw{fill:var(--acc);fill-opacity:.7}.f-bw-stall{fill:var(--warn)}
+.f-lift{fill:var(--acc-soft);stroke:var(--acc-line)}.f-band{fill:var(--band);stroke:var(--acc-line);stroke-dasharray:4 4}
 .f-stall{fill:var(--warn-soft);stroke:var(--warn);stroke-dasharray:2 2}.f-panel{fill:var(--panel);stroke:var(--panel-line)}.f-chip{fill:var(--chip);stroke:var(--panel-line)}
 .dg rect{stroke-width:1}
 .dg path{stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
@@ -48,17 +51,21 @@ marker path{stroke-width:1.6}
   --acc:#80a3ff;--acc-ink:#9db8ff;--acc2:#4262b4;--acc-soft:#16213a;--acc-line:#2c3d63;
   --warn:#ffad4a;--warn-ink:#ffb65f;--warn-soft:#3a2912;--ok:#5ed6a0;--on-acc:#0a1122;--on-warn:#1c1204;
   --ink-card:#101826;--inv:#edf1f7;--inv-mut:#98a4b8;--inv-chip:#18233a;--inv-line:#2c3a55;--ok-inv:#5ed6a0;--warn-inv:#ffad4a;--m-ok:#5ed6a0;
-  --panel:#0f1624;--panel-line:#2a3852;--chip:#18233a;--step-top:#152036;--step-bot:#080c13}
+  --band:#0d1422;--panel:#0f1624;--panel-line:#2a3852;--chip:#18233a;--step-top:#152036;--step-bot:#080c13}
 .slide h1{top:96px;font-size:64px}.slide .sub{top:176px}.slide .fig{left:72px;top:96px}
 .slide .copy li{position:absolute;width:252px}
 .slide .copy li:nth-child(1){left:88px;top:604px}.slide .copy li:nth-child(2){left:372px;top:552px}
 .slide .copy li:nth-child(3){left:656px;top:500px}.slide .copy li:nth-child(4){left:940px;top:448px}
 .slide .copy li.s p{color:var(--ink)}
+#down-up .fig{top:238px}
 
 /* Controls around the canvas. */
 .ctl{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;padding:16px 16px 20px}
 .ctl button{font:500 14px/1 var(--sans);color:var(--page-mut);background:transparent;border:1px solid var(--page-line);border-radius:999px;padding:9px 16px;cursor:pointer}
 .ctl button:focus-visible{outline:2px solid #80a3ff;outline-offset:2px}
+.ctl button b{font-family:var(--mono);font-weight:400;margin-right:4px;color:var(--page-ink)}
+.ctl button[aria-current=true]{background:var(--page-ink);color:var(--page);border-color:var(--page-ink)}
+.ctl button[aria-current=true] b{color:var(--page)}
 .ctl .keys{font:400 12px/1 var(--mono);color:var(--page-mut);margin:0 8px}
 html.present body{background:#000}
 html.present .ctl{display:none}

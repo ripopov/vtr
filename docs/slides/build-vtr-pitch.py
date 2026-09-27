@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Generate docs/vtr-pitch.html: the hero slide for the AI skill, VTR/VDB and Volna.
+"""Generate docs/vtr-pitch.html: the pitch slides for the AI skill, VTR/VDB and Volna.
+
+Slide 2 is two columns: optimization pushes the design down to RTL, the only
+executable specification as detailed as silicon; agents lift its simulation back
+up, each lifted level facing the design level it came from.
+
 
 "Level up your traces" is drawn as a staircase: L0 your RTL and its simulation,
 L1 the AI skill and the VTR monitor it writes, L2 VTR transactions named by VDB,
@@ -28,6 +33,8 @@ OUT = ROOT / 'docs/vtr-pitch.html'
 
 TITLE = 'Level up your traces'
 SUBTITLE = 'See your hardware run at the level you designed it.'
+V_TITLE = 'Optimized down. Lifted back up.'
+V_SUBTITLE = 'Optimization pushes every design down to RTL, the only executable spec as detailed as silicon.'
 SENTENCES = (
     'An AI skill reads your RTL and generates monitors with automated checks.',
     'VTR records transactions and runtime links; VDB gives them design meaning.',
@@ -220,6 +227,103 @@ def staircase():
     return s.render(grad)
 
 
+def down_up():
+    """Slide 2: two columns. Optimization pushes the design down to RTL; agents lift its run back up."""
+    s = Svg('v', 1136, 450,
+            'Two columns. The left column is the design, pushed down by optimization through architecture, '
+            'micro-architecture and interfaces to RTL, the only executable specification as detailed as silicon. '
+            'At the bottom the RTL is simulated into waveforms, where debug starts today. The '
+            'right column is the trace, lifted by agents level by level: waveforms, transactions, pipelines and '
+            'causes, flows and performance. An AI skill lifts the waveforms, VTR and VDB record and name every '
+            'level, and Volna shows the run back in the concept space where the design began. Each lifted level '
+            'faces the design level it came from.')
+    W, H, CX = 300, 72, 568
+    left = (('Architecture', 'what it should do'), ('Micro-architecture', 'pipelines, queues'),
+            ('Interfaces', 'protocols, handshakes'), ('RTL', 'the executable spec'))
+    right = (('Flows, performance', 'bandwidth, latency'), ('Pipelines, causes', 'who waits on whom'),
+             ('Transactions', 'requests, responses'), ('Waveforms', 'FST, FSDB, VCD'))
+    row_y = lambda i: 38 + 100 * i
+    lx = lambda i: 24
+    rx = lambda i: 1136 - 24 - W
+
+    s.text(0, 12, 'DESIGN ↓ PUSHED DOWN BY OPTIMIZATION', 11, 'c-mut', mono=True, track=1.2)
+    s.text(1136, 12, 'TRACE ↑ LIFTED BY AGENTS', 11, 'c-acc-ink', mono=True, anchor='end', track=1.2)
+    s.rect(0, 24, 1136, 100, 'f-band', r=14, box=False)
+    s.text(CX, 58, 'CONCEPT SPACE', 11, 'c-acc-ink', mono=True, anchor='middle', track=1.2)
+    s.text(CX, 80, 'where the design began,', 13, 'c-mut', anchor='middle')
+    s.text(CX, 98, 'and where Volna shows the run', 13, 'c-ink', anchor='middle')
+
+    # The arms: mirrored vertical arrows along the outer edges of the columns, down then up.
+    s.arrow(lx(0) - 14, row_y(0) + H / 2, lx(3) - 14, row_y(3) + H / 2, 'mut')
+    s.arrow(rx(3) + W + 14, row_y(3) + H / 2, rx(0) + W + 14, row_y(0) + H / 2, 'acc')
+
+    def glyph(kind, x, y):
+        """A 72x40 miniature of what the level looks like, drawn at (x, y)."""
+        if kind == 'spec':
+            s.rect(x + 16, y, 40, 40, 'f-chip', r=4, box=False)
+            s.path(f'M{x + 24} {y + 10} H{x + 44}', 'ln-acc')
+            for n in range(3):
+                s.path(f'M{x + 24} {y + 19 + 7 * n} H{x + 48 - 6 * (n == 2)}', 'ln-mut')
+        elif kind == 'uarch':
+            for n in range(3):
+                s.rect(x + 26 * n, y + 12, 18, 16, 'f-chip', r=3, box=False)
+            s.path(f'M{x + 19} {y + 20} H{x + 25} M{x + 45} {y + 20} H{x + 51}', 'ln-mut')
+        elif kind == 'iface':
+            s.rect(x + 2, y + 6, 20, 28, 'f-chip', r=3, box=False)
+            s.rect(x + 50, y + 6, 20, 28, 'f-chip', r=3, box=False)
+            s.arrow(x + 26, y + 14, x + 46, y + 14, 'mut')
+            s.arrow(x + 46, y + 26, x + 26, y + 26, 'mut')
+        elif kind == 'rtl':
+            for n, (w, tone) in enumerate(((44, 'ln-acc'), (56, 'ln-mut'), (38, 'ln-mut'), (30, 'ln-acc'))):
+                s.path(f'M{x + 8 + 10 * (n in (1, 2))} {y + 6 + 9 * n} H{x + 8 + w}', tone)
+        elif kind == 'perf':
+            for n, v in enumerate((0.7, 0.8, 0.75, 0.15, 0.1, 0.95, 0.8)):
+                h = round(36 * v)
+                s.rect(x + 2 + 10 * n, y + 38 - h, 8, h, 'f-bw-stall' if n in (3, 4) else 'f-bw', r=1.5, box=False)
+        elif kind == 'pipe':
+            for r, (start, stall) in enumerate(((0, (3,)), (1, (3,)), (2, ()))):
+                for c in range(4):
+                    s.rect(x + 2 + 12 * (start + c), y + 4 + 12 * r, 10, 9,
+                           'f-warn' if (start + c) in stall else 'f-chip', r=2, box=False)
+        elif kind == 'txn':
+            for n, (a, w, cls) in enumerate(((0, 64, 'f-acc'), (10, 38, 'f-acc2'), (22, 30, 'f-warn'))):
+                s.rect(x + 4 + a, y + 4 + 13 * n, w, 9, cls, r=2, box=False)
+        elif kind == 'wave':
+            s.clock(x + 2, y + 8, 8, 8, 8)
+            s.wave(x + 2, y + 21, 8, '00111000', 8)
+            s.wave(x + 2, y + 34, 8, '00011100', 8)
+
+    kinds = (('spec', 'perf'), ('uarch', 'pipe'), ('iface', 'txn'), ('rtl', 'wave'))
+    for i in range(4):
+        y = row_y(i)
+        for (title, note), x, cls, kind in ((left[i], lx(i), 'f-panel', kinds[i][0]),
+                                            (right[i], rx(i), 'f-lift', kinds[i][1])):
+            s.rect(x, y, W, H, cls, r=12)
+            s.text(x + 16, y + 31, title, 16, weight=600)
+            s.text(x + 16, y + 52, note, 12, 'c-mut')
+            glyph(kind, x + W - 88, y + 16)
+
+    # What sits between the arms, bottom to top: the skill lifts, VTR and VDB keep, Volna shows.
+    for i, (chip, note) in ((2, ('AI skill', 'monitors, checked on signals')),
+                            (1, ('VTR · VDB', 'records and names every level'))):
+        cy = row_y(i) + 30
+        s.path(f'M{lx(i) + W + 8} {cy} H{CX - 72}', 'ln-hair', dash='3 4')
+        s.path(f'M{CX + 72} {cy} H{rx(i) - 8}', 'ln-hair', dash='3 4')
+        s.rect(CX - 64, cy - 15, 128, 30, 'f-acc-soft', r=15)
+        s.text(CX, cy + 5, chip, 13, 'c-acc-ink', weight=600, anchor='middle')
+        s.text(CX, cy + 36, note, 11, 'c-mut', mono=True, anchor='middle')
+    s.path(f'M{lx(0) + W + 8} {row_y(0) + 36} H{CX - 128}', 'ln-hair', dash='3 4')
+    s.path(f'M{CX + 128} {row_y(0) + 36} H{rx(0) - 8}', 'ln-hair', dash='3 4')
+
+    # The vertex: RTL is simulated into waveforms, where today's debug starts.
+    cy = row_y(3) + 36
+    s.arrow(lx(3) + W + 10, cy, rx(3) - 10, cy, 'mut')
+    s.text(CX, cy - 8, 'simulate', 11, 'c-mut', mono=True, anchor='middle')
+    s.text(lx(3) + W / 2, row_y(3) + H + 26, 'as detailed as silicon', 11, 'c-mut', mono=True, anchor='middle')
+    s.text(rx(3) + W / 2, row_y(3) + H + 26, 'today, debug starts here', 11, 'c-warn', mono=True, anchor='middle')
+    return s.render()
+
+
 CAPTIONS = (('L0 · Input', 'cap', 'Your RTL source and its simulation.'), ('L1 · AI skill', 's', SENTENCES[0]),
             ('L2 · VTR + VDB', 's', SENTENCES[1]), ('L3 · Volna', 's', SENTENCES[2]))
 
@@ -255,19 +359,25 @@ def main():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Level up your traces</title>
-<meta name="description" content="The hero slide for the AI skill, VTR/VDB and Volna: from your RTL to pipeline, sequence and bandwidth views.">
+<meta name="description" content="Pitch slides for the AI skill, VTR/VDB and Volna: the staircase from your RTL to design insight, and the design optimized down to RTL with its trace lifted back up by agents.">
 <!-- Generated by docs/slides/build-vtr-pitch.py; edit the generator, not this file. -->
 <style>{faces}
 {css}</style>
 </head>
 <body>
 <main class="stage" aria-label="Level up your traces">
-<div class="frame"><section class="slide" id="pitch" aria-label="Level up your traces">
+<div class="frame"><section class="slide" id="level-up" aria-roledescription="slide" aria-label="1 · Level up your traces">
 <h1>{TITLE}</h1><p class="sub">{SUBTITLE}</p>
-<figure class="fig">{staircase()}</figure><ol class="copy">{copy}</ol></section></div>
+<figure class="fig">{staircase()}</figure><ol class="copy">{copy}</ol></section>
+<section class="slide" id="down-up" aria-roledescription="slide" aria-label="2 · Optimized down, lifted back up" hidden>
+<h1>{V_TITLE}</h1><p class="sub">{V_SUBTITLE}</p>
+<figure class="fig">{down_up()}</figure></section></div>
 </main>
-<nav class="ctl" aria-label="Presentation"><span class="keys">P to present · Esc to leave</span>
+<nav class="ctl" aria-label="Slides"><button type="button" data-go="0"><b>1</b> Level up</button>
+<button type="button" data-go="1"><b>2</b> Down and up</button>
+<span class="keys">← → to switch · P to present</span>
 <button type="button" class="present" data-present>Present</button></nav>
+<p class="sr" aria-live="polite" id="said"></p>
 <script>{js}</script>
 </body>
 </html>
