@@ -970,6 +970,48 @@ reentry warnings and context ownership. Reentrant trace warnings release the
 trace lock before invoking a log sink. Coverage and verification commands are
 in [the integration guide](../integrations/verilator/logs/README.md).
 
+## CHI debug: a causal record model and protocol packs (proposal)
+
+[CHI debug](amba-chi-debug.html) records each CHI agent's part as ordinary VTR
+transactions: requester requests, home PoS entries, snoops, SN accesses and
+ring flits. A flit's parent is its sender and a `received_by` relation names
+its receiver. `blocked_by` and `evicts` carry the causes that are not
+parenthood. Monitors resolve the links from CHI's own identifiers while the
+simulation runs, and the home records which request caused each snoop, because
+no flit carries that link. None of this changes the format.
+
+volna-core analyses a causal model that names no protocol. Its six concepts
+(agent, work, cause, message, wait, subject) map onto scopes, transactions,
+`parent` and relations. CHI is a VDB protocol pack: a binding of those concepts
+to CHI names, read classes, latency categories, parameters for six rule
+templates (sends, bounded, delivered, unique-while-live, single-writer,
+directory-agrees), the ring topology, and colours given as hues. Borrowed:
+span trees and producer/consumer links from Dapper and OpenTelemetry;
+critical path by last-arriving input from Jaeger and CRISP; space-time
+diagrams from Lamport and the CHI specification; the hot-line table from
+perf c2c; the time–distance (Marey) chart for ring transits; and
+per-appearance lightness from Volna's stage palette. Ring hops are derived
+from inject time, route and the ring clock, because ZhuJiang flits never stall
+once injected.
+
+The page's model trace checks the design. Analyses rewritten against the
+profile gave identical trees, critical paths, line histories, wait chains and
+rule results to the CHI-specific version on all 1,468 requests. Transits
+derived from records equal the model's 6,622 flits exactly. Renaming every
+stream, key, relation kind and bound stage name in both the trace and the
+profile leaves every result unchanged, and a headless test keeps it so.
+
+Rejected: a CHI model in volna-core, because TileLink, AXI and the next NoC
+would each need another; a CHI file section; flits stitched afterwards by time
+and address, which cannot name the cause of a non-forwarding snoop; per-hop
+ring records, which are derivable; cache states as signals, which are
+unbounded; hex colours in the profile, which are right in only one theme; and
+a rule language, which is deferred until a second pack needs more than the
+templates. Children of a record are found by a window over the parent's
+lifetime. A parent-id range in TX_BLOCK is a format change and is taken only
+if a measured XiangShan run shows the window lookup is too slow. Sizes, write
+times and read times on a real run are not measured yet.
+
 ## CHI NoC packet visualization fixture
 
 Surfer's `examples/chi_noc.vtr` reuses the existing transaction and timed-event
