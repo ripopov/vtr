@@ -1,5 +1,8 @@
 //! The `memory.*` settings a trace is opened with, for local and remote traces.
 
+/// Total and per-object limits in MiB (defaults 512 and 256, each within
+/// `1..=MAX_MEMORY_MIB`). Hosts take them from [`crate::settings::Settings::limits`].
+/// A remote trace keeps the object limit it sent with its Open command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(default)]
 pub struct Limits {

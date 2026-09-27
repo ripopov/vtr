@@ -393,12 +393,16 @@ impl LoadedGenerator {
     pub fn generator(&self) -> TrackRef {
         self.generator
     }
+    /// Records in canonical `(begin, end, id)` order.
     pub fn transactions(&self) -> &[Transaction] {
         &self.transactions
     }
+    /// Incident relations (either endpoint here), with identities and
+    /// endpoint owners, in recording order.
     pub fn relations(&self) -> &[LoadedRelation] {
         &self.relations
     }
+    /// The parent's location, including its owner when that track is not loaded.
     pub fn parent(&self, child: TransactionRef) -> Option<TransactionLocation> {
         self.parents.get(&child).copied()
     }

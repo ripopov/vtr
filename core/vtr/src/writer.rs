@@ -1,8 +1,41 @@
 //! Streaming writer.
 //!
-//! The writer is single-threaded from the caller's point of view. Encoding and
-//! compression of finished blocks run on a background thread by default so the
-//! simulator thread only pays for logging.
+//! [`Writer`] appends sections and never seeks; the directory and trailer are
+//! written by [`Writer::close`]. It is `Send` but not `Sync`: drive it from one
+//! thread at a time. By default encoding and compression run on a background
+//! thread (`vtr-writer`), so the simulator thread only buffers records.
+//!
+//! Ordering rules:
+//! * Set metadata right after creation: the `Meta` section is written at the
+//!   first flush, after which the setters return [`Error::State`].
+//! * Declare nodes at any time; each names its parent (`None` = a root).
+//!   Attributes can be added to a node only until the next flush.
+//! * Call [`Writer::set_time`] (non-decreasing) before emitting the values of
+//!   a time step. Transactions, log records and clock stretches carry their
+//!   own timestamps and are independent of it.
+//! * Call [`Writer::close`] and check its result; `Drop` closes too but
+//!   discards errors. Errors from the background thread surface on the next
+//!   call that talks to it and on `close`; a failed writer cannot resume, and
+//!   the reader recovers what was completely written.
+//!
+//! Memory is bounded by `block_records`, `tx_block_bytes`, the pending
+//! hierarchy chunk and the attributes, events and stages of open transactions.
+//!
+//! # Values
+//!
+//! Every `emit_*` validates the signal id and kind, stamps the value with the
+//! current time step and returns [`Error::Invalid`] for a value the signal's
+//! states cannot hold. Logic codes are `0 1 X Z U W L H -` = 0..=8
+//! ([`crate::signal`]). A bit vector holding only 0/1 is stored compact
+//! (2-state packing), which makes `emit_u64` and `emit_words` the cheapest
+//! paths; use `emit_logic_str` for converting textual formats.
+//!
+//! With [`WriterOptions::dedup`] a non-event signal drops an emit whose value
+//! and packing equal its last one, starting from the default value (so a
+//! first `0.0`, empty byte string or all-X value is dropped, but a first zero
+//! on a 2-state signal is recorded). Reals compare by bit pattern. Different
+//! values at the same time step are all recorded in emission order, and
+//! every emit on an event signal ([`VarType::Event`]) records an occurrence.
 
 use crate::clock::{self, ClockId};
 use crate::block::{self, BlockInput, ChunkEnc, ChunkInput, EncoderScratch, Record, COMPACT_FLAG, NO_BLOCK};
@@ -38,34 +71,46 @@ fn ensure_unique_attrs(attrs: &[(StrId, Value)]) -> Result<()> {
     Ok(())
 }
 
-/// Writer configuration.
+/// Writer configuration. Defaults are tuned for simulator traces.
 #[derive(Clone, Debug)]
 pub struct WriterOptions {
-    /// Codec and level for all compressed payloads.
+    /// Codec and level for all compressed payloads. Default
+    /// [`Compression::ZSTD_DEFAULT`] (zstd level 3). A payload that does not
+    /// shrink is stored raw.
     pub compression: Compression,
-    /// Signals per value-change group. Larger groups compress better; smaller
-    /// groups make single-signal reads cheaper. Fixed for the file's lifetime.
+    /// Signals per value-change group, rounded up to a power of two. Larger
+    /// groups compress better; smaller groups make single-signal reads
+    /// cheaper. Fixed for the file's lifetime. Default 256.
     pub group_size: u32,
-    /// Value changes per signal block (the compression unit).
+    /// Value changes per signal block, the compression unit. Larger blocks
+    /// compress better; smaller ones make random access touch less data.
+    /// Default 16 Mi.
     pub block_records: usize,
     /// Value changes handed to the background encoder at a time (the pipelining unit).
     /// A lower bound: the writer raises it to [`CHUNK_RECORDS_PER_SIGNAL`] changes per
     /// declared signal so that per-signal column fragments do not become tiny.
+    /// Default 512 Ki.
     pub chunk_records: usize,
     /// Raw bytes per independently compressed column run inside a group.
     /// Bounds how much must be decompressed to read one signal in one block.
+    /// Default 64 KiB.
     pub run_bytes: usize,
-    /// Row bytes buffered before a transaction block is emitted.
+    /// Row bytes buffered before a transaction block (or a log block) is
+    /// emitted. Default 4 MiB.
     pub tx_block_bytes: usize,
-    /// Encode and compress on a background thread.
+    /// Encode and compress on a background thread; a bounded channel applies
+    /// back-pressure. With `false` the work runs inline. Default `true`.
     pub background: bool,
     /// Helper threads that encode and compress log blocks (only with `background`);
     /// 0 encodes them on the sink thread. Blocks are written in production
-    /// order whatever the number of threads.
+    /// order whatever the number of threads. Default 2.
     pub log_encoders: usize,
-    /// Drop unchanged values on non-event signals. Event occurrences are never dropped.
+    /// Drop unchanged values on non-event signals (see the
+    /// [module documentation](crate::writer#values)).
+    /// Event occurrences are never dropped. Default `true`.
     pub dedup: bool,
-    /// Store a CRC32 for every section.
+    /// Store a CRC32 of every section payload; the reader checks it only with
+    /// [`ReadOptions::verify_crc`](crate::ReadOptions::verify_crc). Default `true`.
     pub checksums: bool,
 }
 
@@ -577,7 +622,13 @@ struct ClockState {
     last_edge: Option<u64>,
 }
 
-/// Streaming VTR writer.
+/// Streaming VTR writer. See the [module documentation](crate::writer) for
+/// the ordering rules and value semantics.
+///
+/// Errors: [`Error::Invalid`] for a wrong argument (unknown id, wrong signal
+/// kind, time going backwards, unrepresentable value); [`Error::State`] for
+/// an operation not allowed now; [`Error::Io`] and [`Error::Codec`] from the
+/// file and compressor. A rejected call changes nothing.
 pub struct Writer {
     opts: WriterOptions,
     sink: Sink,
@@ -654,6 +705,8 @@ impl Writer {
         Self::create_with(path, WriterOptions::default())
     }
 
+    /// Creates (truncates) a trace file. `Meta` starts with timescale `-9`,
+    /// [`FileType::Verilog`] and writer name `"vtr <crate version>"`.
     pub fn create_with(path: impl AsRef<Path>, opts: WriterOptions) -> Result<Writer> {
         let mut file = File::create(path)?;
         container::write_file_header(&mut file)?;
@@ -784,31 +837,39 @@ impl Writer {
         Ok(&mut self.meta)
     }
     /// Time unit as a power of ten seconds (`-9` = ns). Default `-9`.
+    ///
+    /// Like every metadata setter, fails with [`Error::State`] after the
+    /// first flush.
     pub fn set_timescale(&mut self, exp: i8) -> Result<()> {
         self.meta_mut()?.timescale = exp;
         Ok(())
     }
+    /// Display offset added to every time (FST `timezero`). Default 0.
     pub fn set_time_zero(&mut self, t: i64) -> Result<()> {
         self.meta_mut()?.time_zero = t;
         Ok(())
     }
+    /// Default [`FileType::Verilog`].
     pub fn set_file_type(&mut self, ft: FileType) -> Result<()> {
         self.meta_mut()?.file_type = ft;
         Ok(())
     }
+    /// Name of the producing tool. Default `"vtr <crate version>"`.
     pub fn set_writer_name(&mut self, s: &str) -> Result<()> {
         self.meta_mut()?.writer = s.to_string();
         Ok(())
     }
+    /// Free-form date. Default empty.
     pub fn set_date(&mut self, s: &str) -> Result<()> {
         self.meta_mut()?.date = s.to_string();
         Ok(())
     }
+    /// Free-form comment. Default empty.
     pub fn set_comment(&mut self, s: &str) -> Result<()> {
         self.meta_mut()?.comment = s.to_string();
         Ok(())
     }
-    /// File-level attribute.
+    /// Appends a file-level attribute to [`Meta::attrs`].
     pub fn set_file_attr(&mut self, key: &str, value: Value) -> Result<()> {
         let k = self.strings.intern(key);
         self.meta_mut()?.attrs.push((k, value));
@@ -816,15 +877,18 @@ impl Writer {
     }
 
     /// Interns a string (attribute keys, event names, ...). Cheap when already interned.
+    /// Id 0 is always the empty string. Transaction and log methods take
+    /// `StrId`s so that hot paths do no hashing: intern keys once.
     pub fn intern(&mut self, s: &str) -> StrId {
         self.strings.intern(s)
     }
 
+    /// Options in effect (`group_size` rounded).
     pub fn options(&self) -> &WriterOptions {
         &self.opts
     }
 
-    /// Looks up an interned string.
+    /// Looks up an interned string. Panics for an id not returned by [`intern`](Self::intern).
     pub fn string(&self, id: StrId) -> &str {
         self.strings.get(id)
     }
@@ -851,7 +915,13 @@ impl Writer {
         Ok(())
     }
 
-    /// Declares a scope under `parent` (`None` = a root).
+    /// Declares a scope under `parent` (`None` = a root). `component` is the
+    /// module or entity type name, `""` when unknown.
+    ///
+    /// Nodes are numbered densely in declaration order. Scopes, variables,
+    /// enum tables and streams go under a scope or at the root; generators
+    /// under a stream. An unknown parent or one of the wrong kind is
+    /// [`Error::Invalid`]. The writer keeps no current scope.
     pub fn add_scope(&mut self, parent: Option<NodeId>, name: &str, scope_type: ScopeType, component: &str) -> Result<NodeId> {
         self.check_parent(NodeKind::Scope, parent)?;
         let name = self.strings.intern(name);
@@ -860,6 +930,9 @@ impl Writer {
     }
 
     /// Declares a variable with a new signal under `parent` (`None` = a root).
+    /// Signal ids are dense in declaration order; `states` other than 2 or 4
+    /// is stored as 9. Until its first change the signal has its default
+    /// value (all X for 4/9 states, zeros for 2 states, `0.0`, empty bytes).
     pub fn add_var(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, kind: SignalKind) -> Result<(NodeId, SignalId)> {
         self.check_parent(NodeKind::Var, parent)?;
         let name = self.strings.intern(name);
@@ -868,7 +941,9 @@ impl Writer {
         Ok((id, sig))
     }
 
-    /// Declares a variable under `parent` that aliases an existing signal.
+    /// Declares a variable under `parent` that aliases an existing signal
+    /// (the VCD "same id code" case). The alias must agree with the
+    /// declaration on being an event ([`VarType::Event`]) or not.
     pub fn add_alias(&mut self, parent: Option<NodeId>, name: &str, var_type: VarType, direction: Direction, signal: SignalId) -> Result<NodeId> {
         self.check_parent(NodeKind::Var, parent)?;
         if signal.0 as usize >= self.kinds.len() {
@@ -881,7 +956,9 @@ impl Writer {
         Ok(self.push_node(Node { parent, name, data: NodeData::Var { var_type, direction, signal, declares: None }, attrs: Vec::new() }))
     }
 
-    /// Declares an enumeration table of (literal, value) pairs under `parent`.
+    /// Declares an enumeration table of `(literal, bit-string value)` pairs
+    /// under `parent`. Link it to variables by a node attribute convention;
+    /// the library does not.
     pub fn add_enum_table(&mut self, parent: Option<NodeId>, name: &str, entries: &[(&str, &str)]) -> Result<NodeId> {
         self.check_parent(NodeKind::EnumTable, parent)?;
         let name = self.strings.intern(name);
@@ -889,8 +966,9 @@ impl Writer {
         Ok(self.push_node(Node { parent, name, data: NodeData::EnumTable { entries }, attrs: Vec::new() }))
     }
 
-    /// Declares a transaction stream under `parent`. `kind` is free form;
-    /// log streams use [`LOG_STREAM_KIND`](crate::LOG_STREAM_KIND).
+    /// Declares a transaction stream under `parent`. `kind` is free form
+    /// (`"TRANSACTOR"`, `"PIPELINE"`, ...); log streams use
+    /// [`LOG_STREAM_KIND`](crate::LOG_STREAM_KIND).
     pub fn add_stream(&mut self, parent: Option<NodeId>, name: &str, kind: &str) -> Result<NodeId> {
         self.check_parent(NodeKind::Stream, parent)?;
         let name = self.strings.intern(name);
@@ -898,14 +976,17 @@ impl Writer {
         Ok(self.push_node(Node { parent, name, data: NodeData::Stream { kind }, attrs: Vec::new() }))
     }
 
-    /// Declares a transaction generator (type) within a stream.
+    /// Declares a transaction generator (type) within a stream. This is the
+    /// node [`begin_tx`](Self::begin_tx) takes.
     pub fn add_generator(&mut self, stream: NodeId, name: &str) -> Result<NodeId> {
         self.check_parent(NodeKind::Generator, Some(stream))?;
         let name = self.strings.intern(name);
         Ok(self.push_node(Node { parent: Some(stream), name, data: NodeData::Generator, attrs: Vec::new() }))
     }
 
-    /// Attaches an attribute to a node created since the last flush.
+    /// Attaches an attribute to a node created since the last flush
+    /// ([`Error::State`] otherwise): add attributes right after declaring the
+    /// node. Keys are unique per node.
     pub fn node_attr(&mut self, node: NodeId, key: &str, value: Value) -> Result<()> {
         let n_nodes = self.node_kinds.len() as u32;
         let first_pending = n_nodes - self.pending_nodes.len() as u32;
@@ -969,17 +1050,22 @@ impl Writer {
         id
     }
 
+    /// Number of declared signals.
     pub fn signal_count(&self) -> u32 {
         self.kinds.len() as u32
     }
 
+    /// Kind of a declared signal.
     pub fn signal_kind(&self, s: SignalId) -> Option<SignalKind> {
         self.kinds.get(s.0 as usize).copied()
     }
 
     // ----- time -----
 
-    /// Advances simulation time. Must be non-decreasing.
+    /// Starts the time step `t` for the values emitted after it. Must be
+    /// non-decreasing ([`Error::Invalid`] otherwise); the first call may use
+    /// any value and repeating the current time is a no-op. Values emitted
+    /// before the first call belong to the first time step.
     pub fn set_time(&mut self, t: u64) -> Result<()> {
         if t < self.time && !self.times.is_empty() {
             return Err(Error::invalid(format!("time {t} is earlier than current time {}", self.time)));
@@ -992,21 +1078,25 @@ impl Writer {
         Ok(())
     }
 
+    /// Time of the current time step (0 before the first [`set_time`](Self::set_time)).
     pub fn current_time(&self) -> u64 {
         self.time
     }
 
-    /// Stops recording values (VCD `$dumpoff`).
+    /// Records a [`Blackout`] marker "dumping stopped" at the current time
+    /// (VCD `$dumpoff`). Markers are returned verbatim by the reader; the
+    /// writer keeps recording whatever the caller emits.
     pub fn dump_off(&mut self) {
         self.blackout.push(Blackout { time: self.time, active: false });
     }
 
-    /// Resumes recording (VCD `$dumpon`).
+    /// Records a "dumping resumed" marker at the current time (VCD `$dumpon`).
     pub fn dump_on(&mut self) {
         self.blackout.push(Blackout { time: self.time, active: true });
     }
 
-    /// Records a dump-on/off transition at an explicit time (for converters).
+    /// Records a blackout marker at an explicit time (for converters). Not
+    /// validated or sorted.
     pub fn blackout_at(&mut self, time: u64, active: bool) {
         self.blackout.push(Blackout { time, active });
     }
@@ -1112,6 +1202,7 @@ impl Writer {
     }
 
     /// Emits a single-bit value: logic code 0..=8 (see [`crate::signal`]).
+    /// On a wider vector emits `code & 1`.
     #[inline]
     pub fn emit_bit(&mut self, sig: SignalId, code: u8) -> Result<()> {
         let s = self.check_sig(sig)?;
@@ -1132,7 +1223,8 @@ impl Writer {
         }
     }
 
-    /// Emits a 2-state integer value (zero-extended / truncated to the signal width).
+    /// Emits a 2-state integer value, zero-extended or truncated to the signal
+    /// width. On a real signal stores `value as f64`.
     #[inline]
     pub fn emit_u64(&mut self, sig: SignalId, value: u64) -> Result<()> {
         let s = self.check_sig(sig)?;
@@ -1167,6 +1259,7 @@ impl Writer {
     }
 
     /// Emits a 2-state value given as little-endian 32-bit words (word 0 = bits 0..32).
+    /// Missing words are zero; bits above the width are ignored.
     pub fn emit_words(&mut self, sig: SignalId, words: &[u32]) -> Result<()> {
         let s = self.check_sig(sig)?;
         match self.kinds[s] {
@@ -1189,6 +1282,12 @@ impl Writer {
     }
 
     /// Emits a value given as an ASCII bit string (MSB first, VCD style: `01xzXZuUwWlLhH-`).
+    ///
+    /// Other characters mean X. A shorter string is left-extended VCD style
+    /// (with its first character when that is X/Z/U/W/L/H/-, else with 0); a
+    /// longer one keeps its last `width` characters; a width-1 signal uses
+    /// the last character. On a real signal the text is parsed as `f64`; on
+    /// a variable-length signal the bytes are stored as given.
     pub fn emit_logic_str(&mut self, sig: SignalId, s_ascii: &[u8]) -> Result<()> {
         let s = self.check_sig(sig)?;
         match self.kinds[s] {
@@ -1245,7 +1344,9 @@ impl Writer {
     }
 
     /// Emits a value already packed in VTR layout with `states` states per bit
-    /// (2 for a compact value on a multi-state signal).
+    /// (2 for a compact value on a multi-state signal, else the declared
+    /// states). `data` must hold at least `packed_len(width, states)` bytes;
+    /// codes are not checked against the declared states.
     pub fn emit_packed(&mut self, sig: SignalId, states: u8, data: &[u8]) -> Result<()> {
         let s = self.check_sig(sig)?;
         match self.kinds[s] {
@@ -1273,6 +1374,7 @@ impl Writer {
         }
     }
 
+    /// Emits a real value; stored as its IEEE bits (NaN payloads and `-0.0` survive).
     pub fn emit_real(&mut self, sig: SignalId, value: f64) -> Result<()> {
         let s = self.check_sig(sig)?;
         match self.kinds[s] {
@@ -1281,7 +1383,7 @@ impl Writer {
         }
     }
 
-    /// Emits a variable-length value (strings, byte blobs).
+    /// Emits a variable-length value (strings, byte blobs; any length, need not be UTF-8).
     pub fn emit_varlen(&mut self, sig: SignalId, bytes: &[u8]) -> Result<()> {
         let s = self.check_sig(sig)?;
         if self.kinds[s] != SignalKind::VarLen {
@@ -1397,7 +1499,12 @@ impl Writer {
         Ok(())
     }
 
-    /// Emits the buffered value changes as a block (forces a block boundary).
+    /// Writes pending strings, metadata and hierarchy, and the buffered value
+    /// changes, transactions, log records and clock stretches as blocks.
+    ///
+    /// Flushing is automatic (`block_records`, `tx_block_bytes`, `close`);
+    /// explicit flushes force block boundaries and make files larger and
+    /// slower to read. With `background` it returns once the work is queued.
     pub fn flush(&mut self) -> Result<()> {
         self.flush_meta_and_hierarchy()?;
         if !self.records.is_empty() || self.wide_bytes > 0 || self.block_pending > 0 {
@@ -1555,7 +1662,14 @@ impl Writer {
         Ok(())
     }
 
-    /// Begins a transaction of generator `gen` at `time`. Returns its id.
+    /// Begins a transaction of generator `gen` at `time` and returns its id.
+    ///
+    /// Ids are unique in the file, dense and increasing from 1; log records
+    /// and clock stretches share the id space. A transaction is *open* until
+    /// [`end_tx`](Self::end_tx): the `set_tx_*`, `tx_*` and `end_tx` methods
+    /// take an open id and return [`Error::Invalid`] otherwise. Transaction
+    /// times are independent of [`set_time`](Self::set_time) and need not be
+    /// monotonic.
     pub fn begin_tx(&mut self, gen: NodeId, time: u64) -> Result<TxId> {
         self.check_gen(gen)?;
         let id = self.next_tx_id;
@@ -1566,18 +1680,21 @@ impl Writer {
         Ok(id)
     }
 
-    /// Sets the parent transaction (structural nesting).
+    /// Sets the parent transaction (structural nesting, such as an
+    /// OpenTelemetry parent span). `parent` is not validated.
     pub fn set_tx_parent(&mut self, tx: TxId, parent: TxId) -> Result<()> {
         self.open.get(tx)?.parent = parent + 1;
         Ok(())
     }
 
+    /// Sets the span kind. Default [`TxKind::Unspecified`].
     pub fn set_tx_kind(&mut self, tx: TxId, kind: TxKind) -> Result<()> {
         self.open.get(tx)?.kind = kind as u8;
         Ok(())
     }
 
-    /// Records an attribute on an open transaction.
+    /// Records an attribute on an open transaction. Keys are unique per
+    /// transaction; a repeated key is [`Error::Invalid`].
     #[inline]
     pub fn tx_attr(&mut self, tx: TxId, key: StrId, value: &Value) -> Result<()> {
         let t = self.open.get(tx)?;
@@ -1589,7 +1706,8 @@ impl Writer {
         Ok(())
     }
 
-    /// Records a timestamped event on an open transaction.
+    /// Records a timestamped point event on an open transaction. `time` is not
+    /// checked against the transaction's interval.
     pub fn tx_event(&mut self, tx: TxId, time: u64, name: StrId, attrs: &[(StrId, Value)]) -> Result<()> {
         ensure_unique_attrs(attrs)?;
         let t = self.open.get(tx)?;
@@ -1600,7 +1718,9 @@ impl Writer {
         Ok(())
     }
 
-    /// Opens a stage on `lane`; an open stage on the same lane is closed at `time`.
+    /// Opens a stage on `lane` (a pipeline stage; lanes are arbitrary strings
+    /// such as `"0"`). The most recent open stage on the same lane is closed
+    /// at `time` (no earlier than its begin).
     pub fn tx_stage_begin(&mut self, tx: TxId, name: StrId, lane: StrId, time: u64) -> Result<()> {
         let t = self.open.get(tx)?;
         for s in t.stages.iter_mut().rev() {
@@ -1633,7 +1753,7 @@ impl Writer {
         Ok(false)
     }
 
-    /// Records a complete stage.
+    /// Records a complete stage; `end` is clamped to `>= begin`.
     pub fn tx_stage(&mut self, tx: TxId, name: StrId, lane: StrId, begin: u64, end: u64, attrs: &[(StrId, Value)]) -> Result<()> {
         ensure_unique_attrs(attrs)?;
         let t = self.open.get(tx)?;
@@ -1654,7 +1774,8 @@ impl Writer {
         Ok(())
     }
 
-    /// Attaches an attribute to the most recently begun stage.
+    /// Attaches an attribute to the most recently begun stage, open or not
+    /// ([`Error::State`] when there is none).
     pub fn tx_stage_attr(&mut self, tx: TxId, key: StrId, value: &Value) -> Result<()> {
         let t = self.open.get(tx)?;
         let s = t.stages.last_mut().ok_or(Error::State("transaction has no stage"))?;
@@ -1666,7 +1787,10 @@ impl Writer {
         Ok(())
     }
 
-    /// Ends a transaction. `time` must not precede its begin time.
+    /// Ends a transaction with `status`. The end is clamped to `>= begin` and
+    /// still-open stages close at it. Transactions are stored in `end_tx`
+    /// order; those still open at [`close`](Self::close) are written with
+    /// [`TxStatus::Open`] at the current time.
     pub fn end_tx(&mut self, tx: TxId, time: u64, status: TxStatus) -> Result<()> {
         let t = self.open.get(tx)?;
         let end = time.max(t.begin);
@@ -1680,7 +1804,9 @@ impl Writer {
         Ok(())
     }
 
-    /// Records a relation of kind `kind` from transaction `from` to `to`.
+    /// Records a directed relation of kind `kind` (`"wakeup"`, `"follows_from"`,
+    /// ...) from transaction `from` to `to`. The endpoints are not validated
+    /// and may be open or ended.
     pub fn relate(&mut self, kind: StrId, from: TxId, to: TxId, attrs: &[(StrId, Value)]) -> Result<()> {
         ensure_unique_attrs(attrs)?;
         varint::put_u64(&mut self.rel_rows, kind.0 as u64);
@@ -1694,6 +1820,8 @@ impl Writer {
         Ok(())
     }
 
+    /// Transactions begun and not yet ended. Each holds its attributes,
+    /// events and stages in memory until [`end_tx`](Self::end_tx).
     pub fn open_tx_count(&self) -> usize {
         self.open.live
     }
@@ -1716,10 +1844,12 @@ impl Writer {
 
     // ----- logs -----
 
-    /// Registers a log call site: a generator of `spec.stream` named by the
-    /// format string and carrying the severity, argument types and names and
-    /// the source location as attributes (`log.*`). Register each call site
-    /// once and keep the returned handle; `log` then costs a few bytes per call.
+    /// Registers a log call site: a generator of `spec.stream` (a stream of
+    /// kind [`LOG_STREAM_KIND`](crate::LOG_STREAM_KIND)) named by the format
+    /// string and carrying the severity, argument types and names and the
+    /// source location as attributes (`log.*`). Argument names default to
+    /// `"0"`, `"1"`, ... and must be unique. Register each call site once and
+    /// keep the returned handle; `log` then costs a few bytes per call.
     pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> Result<LogSiteId> {
         self.check_parent(NodeKind::Generator, Some(spec.stream))?;
         let resolved_names: Vec<String> = (0..spec.args.len())
@@ -1775,6 +1905,8 @@ impl Writer {
 
     /// Records a log message of `site` at `time`. `args` must match the site's
     /// declared types in number and type. Returns the record's transaction id.
+    /// `time` is independent of [`set_time`](Self::set_time). No allocation:
+    /// the row is appended to a buffer flushed at `tx_block_bytes`.
     #[inline]
     pub fn log(&mut self, site: LogSiteId, time: u64, args: &[LogArg]) -> Result<TxId> {
         self.log_with_parent(site, time, None, args)
@@ -1854,6 +1986,11 @@ impl Writer {
     /// Declares a clock: a stream of kind `CLOCK` named `name` under `scope`,
     /// with its `edges` generator. Name it after the clock net and place it in
     /// the net's scope, so viewers pair it with the net's waveform by path.
+    ///
+    /// A clock is recorded as steady stretches, one call per change of speed
+    /// and nothing per edge. A gated clock is a stop when the gate closes and
+    /// a run at the first edge after it opens. Clock ids are dense in
+    /// declaration order and equal the reader's.
     pub fn add_clock(&mut self, scope: Option<NodeId>, name: &str) -> Result<ClockId> {
         let stream = self.add_stream(scope, name, clock::STREAM_KIND)?;
         let gen = self.add_generator(stream, clock::GENERATOR)?;
@@ -1870,9 +2007,9 @@ impl Writer {
         self.clocks.get_mut(clock.0 as usize).ok_or_else(|| Error::invalid(format!("unknown clock {}", clock.0)))
     }
 
-    /// From edge `first`, one edge every `period`, until [`clock_stop`](Self::clock_stop).
-    /// The clock must not be running, and `first` must follow the previous
-    /// stretch's last edge. To change speed, stop the clock where the
+    /// From edge `first`, one edge every `period` (>= 1), until [`clock_stop`](Self::clock_stop).
+    /// The clock must not be running ([`Error::State`]), and `first` must follow the previous
+    /// stretch's last edge ([`Error::Invalid`]). To change speed, stop the clock where the
     /// generator's delay changes and run it again at the next rising edge.
     pub fn clock_run(&mut self, clock: ClockId, first: u64, period: u64) -> Result<()> {
         if period == 0 {
@@ -1892,8 +2029,9 @@ impl Writer {
     }
 
     /// No more edges at the current speed after `t`: the running stretch ends
-    /// at its last edge at or before `t`. Stopping a clock that is not running
-    /// does nothing.
+    /// at its last edge at or before `t` (`t` must not precede its first
+    /// edge). Stopping a clock that is not running does nothing. `close` ends
+    /// a running stretch at the current time with status `Open`.
     pub fn clock_stop(&mut self, clock: ClockId, t: u64) -> Result<()> {
         let c = self.clock_state(clock)?;
         let Some((_, first, _)) = c.running else { return Ok(()) };
@@ -1945,7 +2083,10 @@ impl Writer {
 
     // ----- close -----
 
-    /// Finishes the file. Also invoked by `Drop`, but errors are only reported here.
+    /// Finishes the file: writes open transactions and running clocks with
+    /// status `Open`, flushes everything, and writes the directory and
+    /// trailer. Idempotent. Also invoked by `Drop`, but errors are only
+    /// reported here, including the first error of the background thread.
     pub fn close(&mut self) -> Result<()> {
         if self.closed {
             return Ok(());
@@ -1980,7 +2121,7 @@ impl Writer {
         self.sink.close()
     }
 
-    /// Number of value changes handed to the encoder so far.
+    /// Counters; cheap, callable before or after `close`.
     pub fn stats(&self) -> WriterStats {
         WriterStats {
             blocks: self.block_count,
@@ -2002,11 +2143,16 @@ impl Drop for Writer {
 /// Writer counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WriterStats {
+    /// Signal blocks handed to the encoder.
     pub blocks: u32,
+    /// Value changes recorded after deduplication, including buffered ones.
     pub records: u64,
+    /// Transactions ended with `end_tx` (not those closed by `close`).
     pub transactions: u64,
     /// Log records written with `log` (not included in `transactions`).
     pub log_records: u64,
+    /// Declared signals.
     pub signals: u32,
+    /// Declared hierarchy nodes.
     pub nodes: u32,
 }

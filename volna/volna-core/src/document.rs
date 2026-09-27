@@ -133,6 +133,7 @@ pub struct TrackLoad {
     pub state: TrackLoadState,
 }
 
+/// Load state of a retained track, read without querying the session.
 pub enum TrackLoadState {
     Loading,
     Ready(LoadedTrack),
@@ -448,10 +449,12 @@ impl Document {
         Some(id)
     }
 
+    /// Load state of a retained track; `None` when no consumer retains it.
     pub fn track(&self, track: TrackRef) -> Option<&TrackLoadState> {
         self.tracks.get(&track).map(|load| &load.state)
     }
 
+    /// Drop one consumer; the last one forgets the track and its queued load.
     pub fn release_track(&mut self, track: TrackRef) {
         let Some(load) = self.tracks.get_mut(&track) else {
             return;
@@ -464,6 +467,9 @@ impl Document {
         }
     }
 
+    /// Re-request a failed track under a new request identity, so a late
+    /// completion of the superseded load is ignored. Returns whether a
+    /// request was queued.
     pub fn retry_track(&mut self, track: TrackRef) -> bool {
         let Some(session) = self.session().cloned() else {
             return false;

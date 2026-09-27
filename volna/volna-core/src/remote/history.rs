@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 const LOGIC: &[u8; 9] = b"01xzuwlh-";
 pub mod stream;
 
+/// A [`SignalHistory`] over packed storage: fixed-width values use fixed
+/// strides, logic uses nibbles, and only variable-length values need offsets.
+/// Initial availability, same-time order, real bit patterns and raw bytes
+/// survive transport; deserialization validates the storage.
 #[derive(Debug, Serialize)]
 pub struct PackedHistory {
     shape: SignalShape,

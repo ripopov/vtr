@@ -3,6 +3,11 @@
 //! The hierarchy is a forest of nodes. Every node has a kind, an optional
 //! parent, a name and an ordered list of typed attributes. Nodes are stored
 //! append-only in `Hierarchy` sections; the node id is its position.
+//!
+//! A `Var` node names a signal: the variable that declares it carries
+//! `declares: Some(kind)`, aliases `None`. [`SignalKind`] fixes the storage;
+//! [`VarType`] is descriptive, except that [`VarType::Event`] gives a signal
+//! occurrence semantics (every emit is a change).
 
 use crate::error::{Error, Result};
 use crate::strings::StrId;
@@ -205,6 +210,7 @@ impl ScopeType {
 }
 
 /// Variable types. Values 0..=29 are identical to FST's `FST_VT_*` codes.
+/// Descriptive only: storage is fixed by [`SignalKind`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VarType {
     Event,
@@ -362,7 +368,7 @@ impl VarType {
     }
 }
 
-/// Port direction (identical to FST `FST_VD_*`).
+/// Port direction (identical to FST `FST_VD_*`). Unknown codes decode as `Implicit`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Direction {
@@ -417,6 +423,7 @@ impl SignalKind {
             SignalKind::VarLen => None,
         }
     }
+    /// Bits per value: 64 for `Real`, 0 for `VarLen`.
     pub fn width(self) -> u32 {
         match self {
             SignalKind::Bits { width, .. } => width,
@@ -424,6 +431,7 @@ impl SignalKind {
             SignalKind::VarLen => 0,
         }
     }
+    /// States per bit: 2, 4 or 9; 0 for `Real` and `VarLen`.
     pub fn states(self) -> u8 {
         match self {
             SignalKind::Bits { states, .. } => states,
@@ -742,7 +750,8 @@ impl Hierarchy {
         self.indexed = true;
     }
 
-    /// The node as a value (enum tables and attributes are copied). Panics when out of range.
+    /// The node as a value (enum tables and attributes are copied; prefer the
+    /// field accessors in loops). Panics when out of range.
     pub fn node(&self, id: NodeId) -> Node {
         let i = id.0 as usize;
         let (w0, w1) = (self.w0[i], self.w1[i]);

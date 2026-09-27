@@ -102,8 +102,9 @@ A format change requires all of the following in the same change:
 3. A rationale entry in `docs/RATIONALE.md`.
 4. Regenerated fixtures where applicable.
 
-Update `docs/SPEC.md`, `docs/RATIONALE.md`, API references, implementations,
-and callers together. Keep documentation focused on current architecture,
+Update `docs/SPEC.md`, `docs/RATIONALE.md`, API documentation, implementations,
+and callers together. Document public Rust APIs in concise rustdoc next to the
+code (and the C API in `vtr.h`), not in separate reference documents. Keep documentation focused on current architecture,
 behavior, requirements, and reproducible workflows. Use Git for history; do
 not append dated progress reports, migration diaries, or per-change
 verification records.

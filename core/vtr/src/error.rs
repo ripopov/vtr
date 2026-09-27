@@ -2,19 +2,23 @@
 
 use std::fmt;
 
-/// All VTR operations return this error type.
+/// All VTR operations return this error type. A rejected writer call
+/// leaves the writer unchanged.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The file is not a VTR file, or a structural invariant is violated.
     #[error("corrupt VTR file: {0}")]
     Corrupt(&'static str),
     /// The file has a newer major version than this library understands.
+    /// Newer minor versions are always accepted.
     #[error("unsupported VTR version {major}.{minor} (this library reads up to major {supported})")]
     UnsupportedVersion { major: u16, minor: u16, supported: u16 },
     /// A caller-supplied argument was invalid (bad id, non-monotonic time, ...).
     #[error("invalid argument: {0}")]
     Invalid(String),
-    /// Operation is not permitted in the writer's current state.
+    /// Operation is not permitted in the writer's current state (metadata
+    /// after the first flush, attributes on a flushed node, background
+    /// writer failed).
     #[error("invalid state: {0}")]
     State(&'static str),
     /// Underlying I/O failure.

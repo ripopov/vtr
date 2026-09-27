@@ -52,6 +52,7 @@ pub struct Meta {
     pub comment: String,
     /// Signals per value-change group (constant for the whole file).
     pub group_size: u32,
+    /// File attributes in the order set.
     pub attrs: Vec<(StrId, Value)>,
 }
 
@@ -98,7 +99,8 @@ impl Meta {
     }
 }
 
-/// One dump-on/off transition.
+/// One dump-on/off transition (VCD `$dumpoff`/`$dumpon`), returned in the
+/// order recorded. Values are still recorded during a blackout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Blackout {
     pub time: u64,

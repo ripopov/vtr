@@ -50,7 +50,9 @@ pub enum ValueKind {
 /// The storage shape of a signal, independent of the HDL variable type.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SignalShape {
-    /// Timestamped occurrences, not a held logic level.
+    /// Timestamped occurrences, not a held logic level (VTR and FST event
+    /// variables). History times are occurrences, including same-time
+    /// duplicates; no level is held between them.
     Event,
     /// A single logic bit.
     Bit,
@@ -91,14 +93,16 @@ impl SignalShape {
 #[derive(Clone, PartialEq, Debug)]
 pub enum WaveValue {
     /// No recorded value is available at this time. Distinct from a recorded
-    /// X, a NaN real, or an empty byte string.
+    /// X, a NaN real, or an empty byte string. FST histories start with it;
+    /// VTR histories start with the format-defined initial value.
     Unavailable,
     /// MSB-first logic characters from the alphabet `01xzuwlh-`.
     Bits(String),
     Real(f64),
     Text(String),
-    /// Uninterpreted variable-length bytes. Text presentation may escape them;
-    /// the raw query value never guesses a character encoding.
+    /// Uninterpreted variable-length bytes (VTR VarLen, FST strings and
+    /// complete FST port payloads). Text presentation may escape them; the
+    /// raw query value never guesses a character encoding.
     Bytes(Vec<u8>),
 }
 

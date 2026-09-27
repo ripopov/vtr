@@ -125,6 +125,7 @@ impl StringTable {
         self.len() == 0
     }
 
+    /// The string; `""` for an out-of-range id (never panics).
     pub fn get(&self, id: StrId) -> &str {
         let i = id.0 as usize;
         if i + 1 >= self.offsets.len() {

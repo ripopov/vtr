@@ -24,6 +24,7 @@ pub use crate::data::vtr_source::LocalSession;
 /// whole batch. Duplicate successful identities share an immutable history.
 pub type SignalLoads = Vec<(SignalRef, anyhow::Result<Arc<dyn SignalHistory>>)>;
 
+/// Kinds of data a backend can serve: VTR supports all three, FST waveforms only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Capabilities {
     pub waveforms: bool,
@@ -31,6 +32,15 @@ pub struct Capabilities {
     pub relations: bool,
 }
 
+/// An opened trace.
+///
+/// [`info`](Self::info), [`hierarchy`](Self::hierarchy) and
+/// [`tracks`](Self::tracks) are resident metadata. The `load_*` methods are
+/// blocking complete-object queries for a loader executor; their results are
+/// immutable, shared and remain valid after the session is dropped.
+/// `SignalRef`, `TrackRef` and `TransactionRef` belong to this session and must
+/// not be reused after it is replaced. Remote sessions reject the blocking
+/// loads; their requests go through [`crate::remote::client::RemoteClient`].
 pub trait Session: Send + Sync {
     /// Bytes retained by the opened session before on-demand signal/track
     /// owners are loaded (mapped/input image, hierarchy and backend indexes).
@@ -65,8 +75,10 @@ pub trait Session: Send + Sync {
     }
     fn info(&self) -> &TraceInfo;
     fn hierarchy(&self) -> &Hierarchy;
-    /// Load all records and incident relations of a stream or generator.
-    /// This is blocking work for a loader executor, never a painting call.
+    /// Load all records and incident relations of a stream or generator,
+    /// including empty member generators. Invalid identities and unsupported
+    /// backends return errors. This is blocking work for a loader executor,
+    /// never a painting call.
     fn load_track(
         &self,
         _track: crate::data::transactions::TrackRef,
@@ -78,6 +90,7 @@ pub trait Session: Send + Sync {
 
     /// Load complete histories together. Backends can override this to share a
     /// filtered read. This is an expensive query, not resident metadata access.
+    /// See [`SignalLoads`] for result order and errors.
     fn load_signals(&self, signals: &[SignalRef]) -> SignalLoads {
         let mut loaded = std::collections::BTreeMap::new();
         signals

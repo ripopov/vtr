@@ -11,6 +11,9 @@ use crate::session::Capabilities;
 use std::future::Future;
 use std::pin::Pin;
 
+/// Decodes one metadata object from bounded chunks, reserving decoded storage
+/// (and validation workspace) from the budget before allocation. Nested
+/// attributes are limited to 128 levels. Dropping it releases everything.
 pub struct MetadataDecoder(Decoder<Metadata>);
 
 pub struct ValidatedMetadata {
@@ -19,8 +22,11 @@ pub struct ValidatedMetadata {
 }
 
 pub enum MetadataStep {
+    /// Feed another chunk.
     NeedInput,
+    /// Yield to input and painting, then step again.
     Yield,
+    /// Validated, but private until the protocol End.
     Decoded(Box<ValidatedMetadata>),
 }
 

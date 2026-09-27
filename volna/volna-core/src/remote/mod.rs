@@ -26,6 +26,7 @@ fn serialize_bytes<S: serde::Serializer>(bytes: &[u8], serializer: S) -> Result<
     serializer.serialize_bytes(bytes)
 }
 
+/// What a host does after feeding one packet to a transfer.
 pub enum ClientStep {
     /// Send only after the current step returns, releasing the next frame.
     Ack(Packet),

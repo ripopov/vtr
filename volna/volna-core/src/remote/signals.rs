@@ -9,6 +9,12 @@ use crate::data::SignalRef;
 use crate::session::LoadResult;
 use std::sync::Arc;
 
+/// Receives one signal batch into [`LoadResult::Signals`]. Each history is
+/// admitted against the object limit and reserved from the budget before
+/// allocation; the reservation follows the history to its last owner. An
+/// object refused by admission is drained and reported as that signal's error,
+/// so later objects in the batch still succeed. The final acknowledgement is
+/// withheld until validation succeeds.
 pub struct SignalTransfer {
     receiver: Receiver,
     generation: u64,

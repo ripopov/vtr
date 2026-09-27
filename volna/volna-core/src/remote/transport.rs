@@ -1,8 +1,22 @@
 //! Versioned binary frames and the receive-side object lifecycle.
 //!
-//! Every packet is one independently checksummed LZ4 frame. This bounds decode
-//! work and lets a web receiver yield and acknowledge between packets. Objects
-//! may span any number of packets; only their explicit End makes them complete.
+//! This is the raw query transport between a Volna client and
+//! `volna-server`. It is versioned by [`VERSION`], separately from the VTR
+//! file format, and a peer with another version is rejected; there is no
+//! negotiation or old-version support.
+//!
+//! A frame is the magic `VLNA`, the `u32` little-endian [`VERSION`], the `u32`
+//! little-endian body length (at most [`MAX_FRAME_BYTES`]) and the body: one
+//! LZ4 frame with a content checksum holding a fixed-int little-endian
+//! bincode [`Packet`]. Every packet is independently checksummed, which bounds
+//! decode work and lets a web receiver yield and acknowledge between packets.
+//! Objects span a `Begin`, any number of `Data` chunks of at most
+//! [`DATA_BYTES`] and an explicit `End`; only the End makes them complete.
+//!
+//! [`ResponseWriter`] sends a response in bounded chunks and waits for each
+//! acknowledgement; [`Receiver`] validates one request's object identities,
+//! sequence numbers, declared sizes and completion. Neither installs objects
+//! or performs viewer navigation. Native local loading does not use this codec.
 
 use std::io::{Read, Write};
 
@@ -10,9 +24,13 @@ use bincode::Options;
 use lz4_flex::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 use serde::{Deserialize, Serialize};
 
+/// Protocol version carried in every frame header.
 pub const VERSION: u32 = 4;
+/// Largest encoded frame body.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+/// Largest `Data` chunk payload.
 pub const DATA_BYTES: usize = 256 * 1024;
+/// Most signals in one `Signals` command.
 pub const MAX_BATCH: usize = 64;
 const MAGIC: &[u8; 4] = b"VLNA";
 const HEADER_BYTES: usize = 12;

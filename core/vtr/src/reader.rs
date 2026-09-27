@@ -1,8 +1,33 @@
 //! Random-access reader over a memory-mapped VTR file.
 //!
-//! Opening a file reads only the directory, metadata, string table and
-//! hierarchy. Value changes and transactions are decoded on demand, one
-//! compressed group (a few hundred signals of one block) at a time.
+//! Opening a file reads only the directory, metadata, string table,
+//! hierarchy, block headers and blackout markers. Value changes and
+//! transactions are decoded on demand, one compressed column run (at most
+//! `run_bytes` of a group in one block) at a time.
+//!
+//! [`Reader`] is `Send + Sync`: share it (for example in an `Arc`) between
+//! query threads. Decompressed pieces live in an LRU cache and decoded time
+//! tables and transaction blocks in per-block `OnceLock`s until
+//! [`Reader::clear_cache`]. Results are owned and immutable: point queries
+//! return [`OwnedSignalValue`]; [`SignalData`], [`ClockTimeline`] and block
+//! time tables share storage and outlive the reader.
+//!
+//! Choosing a signal query:
+//! * [`Reader::value_at`]: one value, decompressing at most one run.
+//! * [`Reader::changes`]: a time window of one signal.
+//! * [`Reader::load_signals`]: complete histories of many signals, each run
+//!   decompressed once.
+//! * [`Reader::for_each_change`]: every change of every signal in time order
+//!   (export, statistics), not random access.
+//!
+//! Bit vectors from point queries and `for_each_change` keep the stored
+//! packing, which is 2-state for compact values; use
+//! [`SignalValue::to_ascii`] or [`SignalValue::as_u64`] to be
+//! packing-agnostic. [`SignalData`] widens to the declared packing.
+//!
+//! Errors: [`Error::Invalid`] for an unknown signal id, [`Error::Corrupt`],
+//! [`Error::Codec`] or [`Error::Checksum`] for damaged data,
+//! [`Error::UnsupportedVersion`] for a newer major format version.
 
 use crate::block::{self, BlockHeader, ColumnIter, GroupView, NO_BLOCK};
 use crate::clock::{self, ClockId, ClockInfo, ClockTimeline};
@@ -25,9 +50,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// Reader configuration.
 #[derive(Clone, Debug, Default)]
 pub struct ReadOptions {
-    /// Verify section checksums when a section is first accessed.
+    /// Verify the CRC32 of every section at open, which makes opening read
+    /// the whole file; transaction and log blocks are verified again when
+    /// decoded. For validation tools, not viewers. Default `false`.
     pub verify_crc: bool,
-    /// Number of decompressed group pieces kept in the cache (default 256).
+    /// Number of decompressed group pieces (frames or column runs) kept in
+    /// the shared LRU cache; `None` = 256, `Some(0)` disables caching. Raise
+    /// it for viewers with many visible signals.
     pub group_cache: Option<usize>,
 }
 
@@ -153,7 +182,8 @@ impl GroupCache {
     }
 }
 
-/// Random-access VTR reader. Safe to share between threads.
+/// Random-access VTR reader. Safe to share between threads; see the
+/// [module documentation](crate::reader).
 pub struct Reader {
     data: Data,
     container: Container,
@@ -246,6 +276,7 @@ impl SignalData {
         self.inner.kind.packed_len().unwrap_or(0)
     }
 
+    /// Number of changes.
     pub fn len(&self) -> usize {
         self.inner.times.len()
     }
@@ -254,7 +285,7 @@ impl SignalData {
         self.inner.times.is_empty()
     }
 
-    /// Value of change `i`.
+    /// Value of change `i`, widened to the declared packing. Panics when `i >= len()`.
     pub fn get(&self, i: usize) -> SignalValue<'_> {
         match self.inner.kind {
             SignalKind::VarLen => SignalValue::VarLen(&self.inner.data[self.inner.offsets[i] as usize..self.inner.offsets[i + 1] as usize]),
@@ -265,7 +296,7 @@ impl SignalData {
         }
     }
 
-    /// Initial value.
+    /// Value before the first change.
     pub fn initial(&self) -> SignalValue<'_> {
         block::frame_value(self.inner.kind, &self.inner.initial)
     }
@@ -416,10 +447,18 @@ impl Reader {
     }
 
     /// Opens a file with default options.
+    ///
+    /// The file is memory-mapped and must not be modified while the reader
+    /// exists. A file without a valid trailer (the writer crashed) is
+    /// recovered by scanning its sections: everything completely written is
+    /// readable and [`recovered`](Self::recovered) returns `true`. Unknown
+    /// section kinds are skipped when marked optional, otherwise
+    /// [`Error::Corrupt`].
     pub fn open(path: impl AsRef<Path>) -> Result<Reader> {
         Self::open_with(path, ReadOptions::default())
     }
 
+    /// Opens a file with explicit options.
     pub fn open_with(path: impl AsRef<Path>, opts: ReadOptions) -> Result<Reader> {
         let file = std::fs::File::open(path)?;
         // Safety: the file is only read; concurrent modification is a documented caller error.
@@ -429,7 +468,8 @@ impl Reader {
         Self::from_data(Data::Mmap(mmap), opts)
     }
 
-    /// Opens an in-memory image.
+    /// Opens an in-memory image with default options (for example a file on
+    /// slow network storage read in one go).
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Reader> {
         Self::from_data(Data::Vec(bytes), ReadOptions::default())
     }
@@ -579,11 +619,12 @@ impl Reader {
 
     // ----- metadata -----
 
+    /// File metadata; [`Meta::default`] when the writer crashed before its first flush.
     pub fn meta(&self) -> &Meta {
         &self.meta
     }
 
-    /// Format version of the file.
+    /// Format version of the file, `(major, minor)`.
     pub fn version(&self) -> (u16, u16) {
         self.container.version
     }
@@ -593,26 +634,32 @@ impl Reader {
         self.container.recovered
     }
 
+    /// The string table (all strings validated UTF-8 at open).
     pub fn strings(&self) -> &StringTable {
         &self.strings
     }
 
+    /// Resolves a string id; `""` for an out-of-range id.
     pub fn str(&self, id: StrId) -> &str {
         self.strings.get(id)
     }
 
+    /// The indexed design hierarchy.
     pub fn hierarchy(&self) -> &Hierarchy {
         &self.hier
     }
 
+    /// Dump on/off markers in the order recorded.
     pub fn blackout(&self) -> &[Blackout] {
         &self.blackout
     }
 
+    /// Number of signals.
     pub fn signal_count(&self) -> u32 {
         self.hier.signals.len() as u32
     }
 
+    /// Declared kind of a signal ([`Error::Invalid`] for an unknown id).
     pub fn signal_kind(&self, s: SignalId) -> Result<SignalKind> {
         self.hier.signal_kind(s).ok_or_else(|| Error::invalid(format!("unknown signal {}", s.0)))
     }
@@ -622,7 +669,8 @@ impl Reader {
         self.hier.signal_var_type(s).ok_or_else(|| Error::invalid(format!("unknown signal {}", s.0)))
     }
 
-    /// Time span covered by signal and transaction data.
+    /// Time span covered by signal and transaction data, from the block
+    /// headers; `None` for a file with neither.
     pub fn time_range(&self) -> Option<(u64, u64)> {
         let mut r: Option<(u64, u64)> = None;
         let mut add = |a: u64, b: u64| {
@@ -644,12 +692,12 @@ impl Reader {
         r
     }
 
-    /// Name of a node.
+    /// Name of a node. Panics for an out-of-range id.
     pub fn name(&self, n: NodeId) -> &str {
         self.str(self.hier.name(n))
     }
 
-    /// Full hierarchical path of a node joined with `sep`.
+    /// Full hierarchical path of a node, names from the root joined with `sep`.
     pub fn full_path(&self, n: NodeId, sep: &str) -> String {
         let mut parts = Vec::new();
         let mut cur = Some(n);
@@ -661,7 +709,9 @@ impl Reader {
         parts.join(sep)
     }
 
-    /// Finds a node by path components (linear scan per level).
+    /// Finds a node of any kind by path components from the roots; the first
+    /// match wins. A linear scan per level: for repeated lookups build a map
+    /// from [`full_path`](Self::full_path).
     pub fn find_node(&self, path: &[&str]) -> Option<NodeId> {
         let mut level: Vec<NodeId> = self.hier.roots().collect();
         let mut found = None;
@@ -675,19 +725,20 @@ impl Reader {
         found
     }
 
-    /// Finds a variable by dotted path and returns its signal.
+    /// Finds a variable (declaration or alias) by a `sep`-joined path and
+    /// returns its signal.
     pub fn find_signal(&self, path: &str, sep: char) -> Option<SignalId> {
         let parts: Vec<&str> = path.split(sep).collect();
         let n = self.find_node(&parts)?;
         self.hier.signal_of(n)
     }
 
-    /// Stream nodes.
+    /// Stream nodes in declaration order.
     pub fn streams(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.hier.nodes_of_kind(NodeKind::Stream)
     }
 
-    /// Generator nodes.
+    /// Generator nodes in declaration order.
     pub fn generators(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.hier.nodes_of_kind(NodeKind::Generator)
     }
@@ -698,11 +749,12 @@ impl Reader {
         self.data.bytes()
     }
 
+    /// Number of signal blocks.
     pub fn block_count(&self) -> usize {
         self.sig_blocks.len()
     }
 
-    /// Time range of a signal block.
+    /// `(start_time, end_time)` of signal block `i`. Panics when out of range.
     pub fn block_range(&self, i: usize) -> (u64, u64) {
         let h = &self.sig_blocks[i].header;
         (h.start_time, h.end_time)
@@ -712,7 +764,8 @@ impl Reader {
         Container::payload(self.bytes(), &b.entry, false)
     }
 
-    /// Time table of block `i` (cached).
+    /// Time table of block `i`, decoded once and cached. Consecutive blocks
+    /// may share their boundary time step.
     pub fn block_times(&self, i: usize) -> Result<Arc<Vec<u64>>> {
         let b = &self.sig_blocks[i];
         if let Some(t) = b.times.get() {
@@ -724,7 +777,7 @@ impl Reader {
         Ok(b.times.get().unwrap().clone())
     }
 
-    /// Global sorted table of all distinct time steps.
+    /// All distinct time steps in ascending order (block tables merged), cached.
     pub fn time_table(&self) -> Result<&[u64]> {
         if let Some(t) = self.global_times.get() {
             return Ok(t);
@@ -851,7 +904,12 @@ impl Reader {
     // ----- signal queries -----
 
     /// Value of `sig` at time `t`: the last change at or before `t`, or the
-    /// initial value if the signal has not changed yet.
+    /// initial value if the signal has not changed yet (all X for 4/9-state
+    /// vectors, zeros for 2-state, `0.0`, empty bytes).
+    ///
+    /// Costs binary searches over block headers and one block's dirty index,
+    /// then at most one run decompression (cached) and a walk of at most 256
+    /// entries from a skip-index checkpoint.
     pub fn value_at(&self, sig: SignalId, t: u64) -> Result<OwnedSignalValue> {
         let kind = self.signal_kind(sig)?;
         let g = self.group_of(sig);
@@ -900,7 +958,9 @@ impl Reader {
         }
     }
 
-    /// All changes of `sig` with time in `[t0, t1]`.
+    /// All changes of `sig` with `t0 <= time <= t1`, in time order and, at
+    /// equal times, emission order. Visits only the blocks overlapping the
+    /// window and only the run holding `sig` in each.
     pub fn changes(&self, sig: SignalId, t0: u64, t1: u64) -> Result<Vec<(u64, OwnedSignalValue)>> {
         let kind = self.signal_kind(sig)?;
         let g = self.group_of(sig);
@@ -961,7 +1021,7 @@ impl Reader {
         Ok(out)
     }
 
-    /// Loads all changes of one signal.
+    /// Loads all changes of one signal (see [`load_signals`](Self::load_signals)).
     pub fn load_signal(&self, sig: SignalId) -> Result<SignalData> {
         Ok(self.load_signals(&[sig])?.pop().unwrap())
     }
@@ -969,6 +1029,10 @@ impl Reader {
     /// Loads histories in request order, decoding each distinct signal only once.
     /// Repeated IDs share immutable storage, as do clones of the returned handles.
     /// Sharing is local to this call; separate calls do not retain loaded histories.
+    ///
+    /// Per block, each column run holding a requested signal is decompressed
+    /// once, so loading a whole group costs about one decompression of it.
+    /// Any invalid id or decoding error fails the whole call.
     pub fn load_signals(&self, sigs: &[SignalId]) -> Result<Vec<SignalData>> {
         if sigs.is_empty() {
             return Ok(Vec::new());
@@ -1048,7 +1112,9 @@ impl Reader {
 
     /// Streams every change of every signal in time order within `[t0, t1]`
     /// (VCD-style dump). The callback receives `(time, signal, value)`.
-    /// Within one time step the order of signals is deterministic but unspecified.
+    /// Within one time step the order of signals is deterministic but unspecified;
+    /// changes of one signal keep emission order. Values borrow a per-block
+    /// buffer (`to_owned` keeps one). Bypasses the group cache.
     ///
     /// Per block every run is decompressed once and a cursor is opened on every
     /// non-empty column. Blocks with few active columns are merged through a
@@ -1314,6 +1380,7 @@ impl Reader {
 
     // ----- transactions -----
 
+    /// Number of transaction blocks (log blocks not included).
     pub fn tx_block_count(&self) -> usize {
         self.tx_blocks.len()
     }
@@ -1334,8 +1401,13 @@ impl Reader {
         self.hier.parent(gen)
     }
 
-    /// Visits transactions matching `q` in file order; stop by returning `false`.
-    /// Log records are visited too, viewed as zero-duration transactions.
+    /// Visits transactions matching `q` in file order (within a block,
+    /// `end_tx` order); stop by returning `false`. Log records are visited
+    /// too, viewed as zero-duration transactions, and clock stretches.
+    ///
+    /// Blocks are skipped from their headers when their time range misses
+    /// `window` or their generator list lacks `generator`; the `stream`
+    /// filter decodes every candidate block. Decoded blocks stay cached.
     pub fn visit_transactions(&self, q: &TxQuery, mut f: impl FnMut(&Transaction) -> bool) -> Result<()> {
         for &(is_log, idx) in &self.tx_order {
             let i = idx as usize;
@@ -1395,7 +1467,8 @@ impl Reader {
         Ok(v)
     }
 
-    /// Looks up one transaction (or log record) by id.
+    /// Looks up one transaction (or log record) by id, decoding only the
+    /// block whose id range covers it.
     pub fn transaction(&self, id: TxId) -> Result<Option<Transaction>> {
         for i in 0..self.tx_blocks.len() {
             let h = &self.tx_blocks[i].header;
@@ -1448,7 +1521,8 @@ impl Reader {
         Ok(None)
     }
 
-    /// Resolve many transaction/log owners in one pass over relevant blocks.
+    /// Resolves many transaction/log owners in one pass over relevant blocks
+    /// (cheaper than repeated [`transaction_generator`](Self::transaction_generator)).
     /// Results follow input order, including duplicates; missing IDs are `None`.
     /// No transaction attributes, events or stages are cloned.
     pub fn transaction_generators(&self, ids: &[TxId]) -> Result<Vec<Option<NodeId>>> {
@@ -1510,7 +1584,8 @@ impl Reader {
     }
 
     /// The stretches of a clock, loaded once and shared. Decodes only the
-    /// transaction blocks that hold the clock's generator.
+    /// transaction blocks that hold the clock's generator. The timeline stays
+    /// valid after the reader is dropped.
     pub fn clock(&self, id: ClockId) -> Result<Arc<ClockTimeline>> {
         let info = self.clocks.get(id.0 as usize).ok_or_else(|| Error::invalid(format!("unknown clock {}", id.0)))?;
         let slot = &self.clock_timelines[id.0 as usize];
@@ -1556,6 +1631,7 @@ impl Reader {
         }
     }
 
+    /// Number of log blocks.
     pub fn log_block_count(&self) -> usize {
         self.log_blocks.len()
     }
@@ -1678,7 +1754,8 @@ impl Reader {
         Ok(true)
     }
 
-    /// Relations whose source is `id`.
+    /// Relations whose source is `id`. Blocks are pruned by their source id
+    /// range, so relations between distant ids prune poorly.
     pub fn relations_from(&self, id: TxId) -> Result<Vec<Relation>> {
         let mut v = Vec::new();
         for i in 0..self.tx_blocks.len() {
@@ -1728,12 +1805,14 @@ impl Reader {
         (a + self.log_count(), b)
     }
 
-    /// Directory entries (for tools).
+    /// Directory entries as read or rebuilt (for inspection tools; see
+    /// [`crate::container`]).
     pub fn sections(&self) -> &[DirEntry] {
         &self.container.entries
     }
 
-    /// Size of the packed representation of one value of a signal, if fixed.
+    /// Bytes per value in declared packing (8 for reals); `None` for
+    /// variable-length or unknown signals.
     pub fn packed_len(&self, s: SignalId) -> Option<usize> {
         self.hier.signal_kind(s).and_then(|k| match k {
             SignalKind::Bits { width, states } => Some(packed_len(width, states)),

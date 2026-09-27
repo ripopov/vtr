@@ -1,8 +1,8 @@
 //! Compression codecs used for section payloads and value-change groups.
 //!
-//! Every compressed blob in a VTR file is prefixed by the caller with its
-//! codec id and uncompressed length, so a reader can always allocate the
-//! exact output buffer.
+//! Every compressed blob in a VTR file is prefixed with its codec id and
+//! uncompressed length, so a file may mix codecs, a reader needs no
+//! configuration and can always allocate the exact output buffer.
 
 use crate::error::{Error, Result};
 
@@ -40,7 +40,9 @@ pub struct Compression {
 impl Compression {
     pub const NONE: Compression = Compression { codec: Codec::None, level: 0 };
     pub const LZ4: Compression = Compression { codec: Codec::Lz4, level: 0 };
+    /// zstd level 1; `Compression::default()`.
     pub const ZSTD_FAST: Compression = Compression { codec: Codec::Zstd, level: 1 };
+    /// zstd level 3; the [`WriterOptions`](crate::WriterOptions) default.
     pub const ZSTD_DEFAULT: Compression = Compression { codec: Codec::Zstd, level: 3 };
     pub const ZSTD_HIGH: Compression = Compression { codec: Codec::Zstd, level: 9 };
 }

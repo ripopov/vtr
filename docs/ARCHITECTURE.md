@@ -68,8 +68,9 @@ The nine Rust packages share one root Cargo workspace and lockfile.
 Native viewer checks still require the platform SDK and desktop services.
 
 `bench/` contains the shared orchestrator, C/C++ harnesses, simulator workloads
-and results. `docs/` contains the normative specification, API references,
-research and benchmark reports.
+and results. `docs/` contains the normative specification, research and
+benchmark reports. API documentation lives with the code: rustdoc in each
+crate and the C header `core/vtr-capi/include/vtr.h`.
 `demos/` contains examples and UI prototypes, not additional production viewers.
 
 The Surfer submodule uses the VTR and VDB libraries and C headers directly

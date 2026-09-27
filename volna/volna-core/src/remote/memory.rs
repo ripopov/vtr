@@ -5,12 +5,17 @@ use std::sync::{Arc, Mutex};
 
 const MIB: u64 = 1024 * 1024;
 
+/// A shared pool of decoded client storage with a total and a per-object limit.
+///
+/// Both limits can change while the pool is live (the `memory.budgetMiB` and
+/// `memory.objectMiB` settings): raising one admits new loads at once, and
+/// lowering one never evicts; existing reservations stay and only new
+/// admissions are refused. A host uses one budget for histories, metadata,
+/// tracks, indexes and transport scratch. It bounds admitted data, not
+/// process RSS.
 #[derive(Clone, Debug)]
 pub struct MemoryBudget(Arc<Budget>);
 
-/// Both limits can change while the pool is live (the `memory.budgetMiB` and
-/// `memory.objectMiB` settings). Lowering one never evicts: existing
-/// reservations stay and only new admissions are refused.
 #[derive(Debug)]
 struct Budget {
     state: Mutex<State>,
@@ -24,6 +29,8 @@ struct State {
     used: u64,
 }
 
+/// Admitted bytes, returned to the budget on drop. Carried by the object it
+/// pays for, so the last shared owner releases it.
 #[derive(Debug)]
 pub struct Reservation {
     budget: MemoryBudget,

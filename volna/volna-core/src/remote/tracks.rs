@@ -11,6 +11,8 @@ use crate::data::transactions::*;
 use crate::session::Session;
 use std::sync::Arc;
 
+/// Reconstructs and validates a complete track (records, typed details,
+/// incident relations and interval indexes) in cooperative steps.
 pub struct TrackDecoder(Decoder<LoadedTrack>);
 
 pub enum TrackStep {

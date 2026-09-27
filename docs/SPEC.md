@@ -13,7 +13,8 @@ selected signals, cursors and markers live in the separate client-owned
 Volna's [hierarchy browser](../volna/volna/ARCHITECTURE.md#hierarchy-browser)
 projects existing scope, stream, generator and enum-reference declarations;
 its icons, tints and activation rules add no file fields or encodings. The
-separately versioned raw query transport is documented in [API_RUST.md](API_RUST.md).
+separately versioned raw query transport is documented in
+[`remote::transport`](../volna/volna-core/src/remote/transport.rs).
 
 Notation: `u8/u16/u32/u64` are unsigned little-endian fixed-width integers;
 `i8`/`i64` signed likewise. `varint` is an unsigned LEB128 integer
@@ -838,7 +839,8 @@ presentation state remain outside VTR.
 The Rust reader supports explicit decoded-cache eviction through
 `Reader::clear_cache`; the C projection is `vtr_reader_clear_cache`. This
 changes in-memory ownership only, with no file-format or version change.
-See the API references for exclusive-access requirements and result lifetimes.
+See the rustdoc of `Reader::clear_cache` and `vtr.h` for exclusive-access
+requirements and result lifetimes.
 
 ### Producer example: Verilator reporting tasks
 

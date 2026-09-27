@@ -185,6 +185,10 @@ impl LogArgType {
 }
 
 /// One argument of a log record. Borrowed: logging allocates nothing.
+///
+/// `From` converts integers (signed to `I64`, unsigned to `U64`), floats,
+/// `bool`, `&str`/`&String` (as `Text`), `&[u8]` (as `Bytes`) and `StrId`, so
+/// `&[a.into(), name.into()]` builds an argument list.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LogArg<'a> {
     Bool(bool),
@@ -718,6 +722,7 @@ pub fn decode_log_block<'t>(p: &[u8], d: &mut Decompressor, types: impl Fn(u32) 
 // ---------------------------------------------------------------------------
 
 /// One log record as returned by the reader (borrows the decoded block).
+/// Render its message with `format` / `format_into`.
 #[derive(Clone, Copy)]
 pub struct LogRecord<'a> {
     pub id: TxId,
@@ -733,12 +738,14 @@ impl<'a> LogRecord<'a> {
     pub(crate) fn new(site: &'a LogSite, fmt: &'a ParsedFmt, rec: &'a LogRec, block: &'a LogBlockData) -> Self {
         LogRecord { id: rec.id, time: rec.time, parent: if rec.parent == 0 { None } else { Some(rec.parent - 1) }, site, fmt, rec, block }
     }
+    /// Severity of the record's site.
     pub fn severity(&self) -> Severity {
         self.site.severity
     }
     pub fn arg_count(&self) -> usize {
         self.rec.n_args as usize
     }
+    /// Argument `i`, typed as the site declares; `Text` and `Bytes` borrow the block.
     pub fn arg(&self, i: usize) -> Option<LogArg<'a>> {
         self.block.arg(self.rec, i)
     }

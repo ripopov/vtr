@@ -79,6 +79,7 @@ impl TxKind {
     }
 }
 
+/// A transaction attribute; keys are unique per transaction.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TxAttr {
     pub key: StrId,
@@ -99,25 +100,35 @@ pub struct TxStage {
     pub name: StrId,
     pub lane: StrId,
     pub begin: u64,
-    /// `None` = still open when the transaction ended.
+    /// `None` = still open when the transaction ended; never produced by
+    /// [`Writer`](crate::Writer), which closes stages at `end_tx`.
     pub end: Option<u64>,
     pub attrs: Vec<(StrId, Value)>,
 }
 
+/// A timed interval of a generator. Log records read as transactions have
+/// `begin == end` and their arguments as attributes; clock stretches span
+/// their first to last edge.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Transaction {
     pub id: TxId,
+    /// Generator node (the transaction type).
     pub generator: NodeId,
     pub begin: u64,
+    /// `>= begin`.
     pub end: u64,
     pub status: TxStatus,
     pub kind: TxKind,
+    /// Structural parent (nesting), not necessarily in the same stream.
     pub parent: Option<TxId>,
+    /// Attributes, events and stages in the order they were recorded.
     pub attrs: Vec<TxAttr>,
     pub events: Vec<TxEvent>,
     pub stages: Vec<TxStage>,
 }
 
+/// A directed, typed edge between two transactions (`kind` is interned, for
+/// example `"wakeup"` or `"follows_from"`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Relation {
     pub kind: StrId,

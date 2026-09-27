@@ -10,6 +10,8 @@ use crate::session::LoadResult;
 use crate::session::Session;
 use std::sync::Arc;
 
+/// Drives one Open response: acknowledges consumed chunks and yields
+/// [`LoadResult::Opened`] only after the matching End.
 pub struct OpenTransfer {
     request: u64,
     generation: u64,

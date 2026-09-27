@@ -8,6 +8,10 @@ use crate::data::transactions::TrackRef;
 use crate::session::{LoadResult, Session};
 use std::sync::Arc;
 
+/// Receives one track and publishes [`LoadResult::Track`] with the original
+/// document generation and request identity after the protocol End.
+/// Admission or record failures drain the object into a track error; protocol
+/// errors poison the transfer and are returned by `accept`.
 pub struct TrackTransfer {
     generation: u64,
     request_id: u64,

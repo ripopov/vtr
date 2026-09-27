@@ -8,6 +8,9 @@ use crate::data::{Hierarchy, SignalHistory, SignalRef, TraceInfo};
 use crate::session::{Capabilities, Session};
 use std::sync::Arc;
 
+/// Validated remote metadata with a nonzero server identity. Its blocking
+/// `load_*` methods fail: histories and tracks come through
+/// [`super::client::RemoteClient`].
 pub struct RemoteSession {
     id: u64,
     metadata: Metadata,

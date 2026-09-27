@@ -363,9 +363,12 @@ impl SourceIndex {
 /// Exact attachment emitted alongside a simulator recording.
 #[derive(Clone, Debug, Deserialize)]
 pub struct TraceBinding {
+    /// Simulator wrapper scope the recording used.
     pub prefix: String,
+    /// VDB symbol path to the recorded VTR signal path.
     pub signals: BTreeMap<String, String>,
 }
+/// A validated RTL VDB export (`format = "vtr-rtl-vdb"`, version 2).
 #[derive(Clone, Debug, Deserialize)]
 pub struct Database {
     pub format: String,
@@ -387,6 +390,8 @@ pub struct Database {
     pub processes: Vec<Process>,
 }
 impl Database {
+    /// Reads and validates a VDB file: format and version, symbol keys, the
+    /// source index, process targets and netlist ownership.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, String> {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         let header: serde_json::Value =

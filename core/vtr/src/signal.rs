@@ -276,6 +276,10 @@ pub fn narrow_to_two_state(data: &[u8], width: u32, states: u8, out: &mut Vec<u8
 }
 
 /// A borrowed signal value as stored in the file.
+///
+/// Equality compares packing too: the same 0/1 vector in compact and in
+/// declared packing is not `==`; compare [`to_ascii`](Self::to_ascii) or
+/// [`as_u64`](Self::as_u64) instead.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SignalValue<'a> {
     /// Packed bit vector. `states` is the packing actually used (2 when the
@@ -286,7 +290,7 @@ pub enum SignalValue<'a> {
 }
 
 impl<'a> SignalValue<'a> {
-    /// ASCII spelling: bit string (MSB first), `%.17g`-like real, or raw bytes.
+    /// ASCII spelling: bit string (MSB first), `Display` of a real, or bytes as lossy UTF-8.
     pub fn to_ascii(&self) -> String {
         match *self {
             SignalValue::Bits { width, states, data } => {
@@ -299,7 +303,8 @@ impl<'a> SignalValue<'a> {
         }
     }
 
-    /// Value as an integer when it is a 2-state vector of at most 64 bits.
+    /// Value as an integer when it is a vector of at most 64 bits whose codes
+    /// are all 0 or 1 (whatever its packing).
     pub fn as_u64(&self) -> Option<u64> {
         match *self {
             SignalValue::Bits { width, states, data } if width <= 64 => {
@@ -318,6 +323,7 @@ impl<'a> SignalValue<'a> {
         }
     }
 
+    /// Copies the value out of the borrowed buffer.
     pub fn to_owned(&self) -> OwnedSignalValue {
         match *self {
             SignalValue::Bits { width, states, data } => {
@@ -338,6 +344,7 @@ pub enum OwnedSignalValue {
 }
 
 impl OwnedSignalValue {
+    /// Borrowed view, for [`SignalValue::as_u64`] and friends.
     pub fn borrow(&self) -> SignalValue<'_> {
         match self {
             OwnedSignalValue::Bits { width, states, data } => {
@@ -352,7 +359,8 @@ impl OwnedSignalValue {
     }
 }
 
-/// Default value of a signal before its first change.
+/// Appends the default value of a signal before its first change: all X for
+/// 4/9 states, zeros for 2 states, `0.0` for reals, nothing for `VarLen`.
 pub fn default_value(kind: SignalKind, out: &mut Vec<u8>) {
     match kind {
         SignalKind::Bits { width, states } => {

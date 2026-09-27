@@ -1,4 +1,22 @@
-//! Source semantics remain in VDB. This crate only reads immutable VTR runtime data.
+//! RTL Volna Data Base (VDB) companion to VTR: temporal driver tracing and
+//! module netlists over a recorded trace.
+//!
+//! Source semantics remain in VDB. This crate only reads immutable VTR runtime
+//! data. See `docs/VDB_RTL.md` for the schema and semantic contract.
+//!
+//! * [`Database::open`] loads and validates a VDB v2 export (v1 exports must
+//!   be regenerated).
+//! * [`Debugger::attach`] maps VDB symbols onto signals of a [`vtr::Reader`];
+//!   [`Debugger::trace`] returns a [`TraceNode`] dependency tree whose
+//!   [`render`](TraceNode::render) is the CLI's plain-text output.
+//! * [`netlist`] builds per-module connectivity views and, with the `layout`
+//!   feature, ELK geometry and SVG.
+//!
+//! The `layout` feature (default) enables ELK layout and the `vtr-vdb` binary.
+//! Without it the typed database and netlist remain available for hosts that
+//! lay out the netlist themselves. Requires Rust 1.88+.
+//!
+//! All operations report errors as `String`.
 mod model;
 pub mod netlist;
 pub use model::*;
@@ -39,6 +57,8 @@ pub struct Dependency {
     pub why: String,
     pub source: Source,
 }
+/// One traced value: its moment, value, reason, source location, diagnostic
+/// notes and the dependencies that produced it.
 #[derive(Clone, Debug)]
 pub struct TraceNode {
     pub symbol: String,
@@ -82,8 +102,11 @@ struct Execution {
     controls: Vec<Dependency>,
 }
 
-/// A checked structural mapping. Missing signals are retained as diagnostics;
-/// incompatible widths and ambiguous names prevent attachment.
+/// A checked structural mapping from VDB symbols to recorded signals.
+///
+/// Missing signals are retained as diagnostics; incompatible widths and
+/// ambiguous names prevent attachment. Borrows the immutable database and
+/// reader and caches each loaded signal history by id.
 pub struct Debugger<'a> {
     db: &'a Database,
     reader: &'a Reader,
@@ -93,6 +116,11 @@ pub struct Debugger<'a> {
 }
 impl<'a> Debugger<'a> {
     /// `prefix` is an explicit simulator wrapper (e.g. `TOP`), never a suffix guess.
+    ///
+    /// When the database carries a [`TraceBinding`], pass an empty prefix: the
+    /// recorded paths are used exactly, the trace must carry a matching
+    /// `design.vdb_id` file attribute, and a conflicting explicit prefix is an
+    /// error. Unbound exports match structurally under `prefix`.
     pub fn attach(db: &'a Database, reader: &'a Reader, prefix: &str) -> Result<Self, String> {
         let prefix = if let Some(binding) = &db.trace_binding {
             if !prefix.is_empty() && prefix.trim_end_matches('.') != binding.prefix {

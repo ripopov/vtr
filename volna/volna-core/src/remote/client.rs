@@ -25,6 +25,10 @@ enum Active {
     },
 }
 
+/// Queues Open, signal and track loads for one connection and runs one
+/// command at a time; signal requests are deduplicated and split into
+/// [`MAX_BATCH`] batches. Hosts send each [`ClientStep`] acknowledgement and
+/// deliver its result before [`take_command`](Self::take_command).
 pub struct RemoteClient {
     session: Option<u64>,
     request: u64,

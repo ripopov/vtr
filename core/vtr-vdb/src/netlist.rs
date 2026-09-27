@@ -1,4 +1,15 @@
 //! Module-local RTL connectivity. Children are opaque, navigable blocks.
+//!
+//! [`NetlistIndex`] borrows a [`Database`]; [`NetlistIndex::module`] returns an
+//! owned [`Netlist`], `Netlist::layout` (feature `layout`) adds ELK geometry, and
+//! [`LaidOutNetlist::svg`] samples an attached [`Debugger`] at one time.
+//! Repeated times reuse the geometry and the debugger's cached histories.
+//!
+//! ```rust,ignore
+//! let index = vtr_vdb::netlist::NetlistIndex::new(&database)?;
+//! let view = index.module("top.u0")?.layout()?;
+//! std::fs::write("stage.svg", view.svg(&mut debugger, 26)?)?;
+//! ```
 use crate::{Database, Debugger, Expr, ExprOp, Instance, Moment, Process, Statement};
 use serde_json::Value;
 #[cfg(feature = "layout")]
@@ -23,6 +34,7 @@ pub struct Block {
     pub child: Option<String>,
     pub pins: Vec<Pin>,
 }
+/// A connection between two block pins, as `(block index, pin index)`.
 #[derive(Clone, Debug)]
 pub struct Wire {
     pub source: (usize, usize),
@@ -143,6 +155,7 @@ impl<'a> NetlistIndex<'a> {
             members,
         })
     }
+    /// Blocks and wires of the module instance at `path`.
     pub fn module(&self, path: &str) -> Result<Netlist, String> {
         let instance = self
             .instances
@@ -468,6 +481,7 @@ pub struct LaidOutNetlist {
     pub geometry: Value,
 }
 impl Netlist {
+    /// Computes ELK geometry (feature `layout`).
     #[cfg(feature = "layout")]
     pub fn layout(self) -> Result<LaidOutNetlist, String> {
         let nodes:Vec<_>=self.blocks.iter().map(|b| {

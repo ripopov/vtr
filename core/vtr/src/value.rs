@@ -72,14 +72,20 @@ impl ValueTag {
 }
 
 /// A typed attribute value.
+///
+/// Used on file metadata, hierarchy nodes, transactions, events, stages and
+/// relations. `F64` compares by IEEE rules, so `Value` is not `Eq`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
+    /// Absent value.
     Null,
     Bool(bool),
     I64(i64),
     U64(u64),
     F64(f64),
+    /// Interned string: intern with `Writer::intern`, resolve with `Reader::str`.
     Str(StrId),
+    /// Opaque blob.
     Bytes(Vec<u8>),
     /// 2-state vector, `width` bits, packed LSB-first (bit i at byte i/8, bit i%8).
     Bits { width: u32, data: Vec<u8> },
@@ -87,14 +93,22 @@ pub enum Value {
     Logic { width: u32, data: Vec<u8> },
     /// 9-state vector, 4 bits per bit (codes: 0,1,X,Z,U,W,L,H,-), LSB-first.
     Logic9 { width: u32, data: Vec<u8> },
+    /// Time in the file's timescale units.
     Time(u64),
+    /// Enumeration literal: integer value and interned name.
     Enum { value: i64, name: StrId },
+    /// Opaque pointer or handle.
     Pointer(u64),
+    /// Signed fixed point: value = `raw * 2^-scale`.
     Fixed { raw: i64, scale: i32 },
+    /// Unsigned fixed point: value = `raw * 2^-scale`.
     UFixed { raw: u64, scale: i32 },
+    /// Ordered list; nesting allowed.
     List(Vec<Value>),
+    /// Ordered key/value pairs with interned keys.
     Map(Vec<(StrId, Value)>),
     /// Inline UTF-8 text, stored verbatim (unlike `Str`, which is an interned id).
+    /// Requires format 1.1.
     Text(String),
 }
 
@@ -251,7 +265,8 @@ fn states_of(tag: ValueTag) -> u8 {
     }
 }
 
-/// Number of bytes needed to pack `width` bits of a `states`-state vector.
+/// Number of bytes needed to pack `width` bits of a `states`-state vector
+/// (`states` other than 2 or 4 counts as 9).
 #[inline]
 pub fn packed_len(width: u32, states: u8) -> usize {
     let w = width as usize;

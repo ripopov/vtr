@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// Resident raw metadata of one recording, validated (tree membership and
+/// track references) before installation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Metadata {
     pub info: TraceInfo,
@@ -167,6 +169,8 @@ pub struct GeneratorPayload {
     pub relations: Vec<LoadedRelation>,
 }
 
+/// Serializable form of a [`LoadedTrack`]. Transactions travel in
+/// `(begin, end, id)` order within each generator.
 #[derive(Debug, Serialize)]
 pub struct TrackPayload {
     pub track: TrackRef,
