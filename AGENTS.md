@@ -5,6 +5,15 @@ Instructions for coding agents working in this repository. Read
 requirements, architecture direction, repository layout, documentation links,
 and build commands. This file contains the ground rules for making changes.
 
+## Project status and workflow
+
+The whole project is pure research, built largely by vibe coding with agents.
+It has no real users, so there are no compatibility, migration, deprecation or
+release obligations toward anyone.
+
+Work and commit directly on `master`. Do not create feature branches or pull
+requests unless explicitly asked.
+
 ## Scope and ownership
 
 Add first-party code under the component that owns it. Do not work around a
