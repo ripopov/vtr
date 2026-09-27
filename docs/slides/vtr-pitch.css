@@ -1,0 +1,80 @@
+:root{--sans:'Plex','IBM Plex Sans',system-ui,sans-serif;--mono:'Lilex',ui-monospace,'SF Mono',Menlo,monospace;--s:1;
+  --page:#15181e;--page-ink:#e9edf3;--page-mut:#a3adbb;--page-line:#343b47;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--page);color:var(--page-ink);font-family:var(--sans);display:flex;flex-direction:column}
+[hidden]{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+/* One 1280x720 canvas, scaled as a whole so every placement stays exact. */
+.stage{flex:1;min-height:0;display:grid;place-items:center;padding:24px 24px 0}
+.frame{position:relative;width:calc(1280px*var(--s));height:calc(720px*var(--s));border-radius:8px;overflow:hidden;
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 24px 64px rgba(0,0,0,.5)}
+.slide{position:absolute;left:0;top:0;width:1280px;height:720px;overflow:hidden;transform:scale(var(--s));transform-origin:0 0;
+  background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;font-kerning:normal}
+.slide>*{position:absolute;z-index:1;margin:0}
+.slide .fig{z-index:0}
+h1{left:72px;font:600 68px/1.04 var(--sans);letter-spacing:-.028em;text-wrap:balance}
+.sub{left:72px;font:400 24px/1.35 var(--sans);color:var(--mut);letter-spacing:-.005em}
+.fig svg{display:block}
+.copy{padding:0;list-style:none}
+.copy p{margin:0;font:400 17px/25px var(--sans);letter-spacing:-.003em}
+.copy p.cap{color:var(--mut)}
+.tag{display:block;margin-bottom:8px;font:400 11px/16px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--acc-ink)}
+
+/* Diagram vocabulary: every colour is a slide token. */
+.dg text{dominant-baseline:auto}
+.ff-sans{font-family:var(--sans)}.ff-mono{font-family:var(--mono);font-variant-ligatures:none}.w6{font-weight:600}
+.c-ink{fill:var(--ink)}.c-mut{fill:var(--mut)}.c-acc-ink{fill:var(--acc-ink)}.c-ok{fill:var(--ok)}.c-warn{fill:var(--warn-ink)}
+.c-inv{fill:var(--inv)}.c-inv-mut{fill:var(--inv-mut)}.c-ok-inv{fill:var(--ok-inv)}.c-warn-inv{fill:var(--warn-inv)}
+.c-on-acc{fill:var(--on-acc)}.c-on-warn{fill:var(--on-warn)}
+.f-card{fill:var(--card);stroke:var(--hair)}.f-ink{fill:var(--ink-card)}.f-inv-chip{fill:var(--inv-chip);stroke:var(--inv-line)}
+.f-soft{fill:var(--soft);stroke:var(--hair)}.f-acc-soft{fill:var(--acc-soft);stroke:var(--acc-line)}
+.f-acc{fill:var(--acc)}.f-acc2{fill:var(--acc2)}.f-warn{fill:var(--warn)}.f-warn-soft{fill:var(--warn-soft);stroke:var(--warn)}
+.f-hair{fill:var(--hair)}.f-bw{fill:var(--acc);fill-opacity:.7}.f-bw-stall{fill:var(--warn)}
+.f-stall{fill:var(--warn-soft);stroke:var(--warn);stroke-dasharray:2 2}.f-panel{fill:var(--panel);stroke:var(--panel-line)}.f-chip{fill:var(--chip);stroke:var(--panel-line)}
+.dg rect{stroke-width:1}
+.dg path{stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln-hair{stroke:var(--hair)}.ln-mut{stroke:var(--mut)}.ln-acc{stroke:var(--acc)}.ln-ok{stroke:var(--ok)}.ln-warn{stroke:var(--warn)}
+.ln-ok-inv{stroke:var(--ok-inv)}.ln-warn-inv{stroke:var(--warn-inv)}.ln-inv-line{stroke:var(--inv-line)}.ln-sig{stroke:var(--sig)}.dg path.bus{fill:var(--bus)}
+.ln-tread{stroke:var(--acc);stroke-width:2!important}.ln-riser{stroke:var(--hair)}
+.ln-guide{stroke:var(--acc);stroke-width:1.25!important;opacity:.8}
+.mk-mut{stroke:var(--mut)}.mk-acc{stroke:var(--acc)}.mk-ok{stroke:var(--m-ok)}.mk-warn{stroke:var(--warn)}.mk-inv{stroke:var(--inv)}
+marker path{stroke-width:1.6}
+.st-top{stop-color:var(--step-top)}.st-bot{stop-color:var(--step-bot)}
+
+/* Night palette; each level is a step that bleeds off the bottom edge. */
+.slide{--bg:#080c13;--ink:#edf1f7;--mut:#98a4b8;--hair:#26324a;--soft:#131c2c;--sig:#7d8ca4;--bus:#101826;
+  --acc:#80a3ff;--acc-ink:#9db8ff;--acc2:#4262b4;--acc-soft:#16213a;--acc-line:#2c3d63;
+  --warn:#ffad4a;--warn-ink:#ffb65f;--warn-soft:#3a2912;--ok:#5ed6a0;--on-acc:#0a1122;--on-warn:#1c1204;
+  --ink-card:#101826;--inv:#edf1f7;--inv-mut:#98a4b8;--inv-chip:#18233a;--inv-line:#2c3a55;--ok-inv:#5ed6a0;--warn-inv:#ffad4a;--m-ok:#5ed6a0;
+  --panel:#0f1624;--panel-line:#2a3852;--chip:#18233a;--step-top:#152036;--step-bot:#080c13}
+.slide h1{top:96px;font-size:64px}.slide .sub{top:176px}.slide .fig{left:72px;top:96px}
+.slide .copy li{position:absolute;width:252px}
+.slide .copy li:nth-child(1){left:88px;top:604px}.slide .copy li:nth-child(2){left:372px;top:552px}
+.slide .copy li:nth-child(3){left:656px;top:500px}.slide .copy li:nth-child(4){left:940px;top:448px}
+.slide .copy li.s p{color:var(--ink)}
+
+/* Controls around the canvas. */
+.ctl{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;padding:16px 16px 20px}
+.ctl button{font:500 14px/1 var(--sans);color:var(--page-mut);background:transparent;border:1px solid var(--page-line);border-radius:999px;padding:9px 16px;cursor:pointer}
+.ctl button:focus-visible{outline:2px solid #80a3ff;outline-offset:2px}
+.ctl .keys{font:400 12px/1 var(--mono);color:var(--page-mut);margin:0 8px}
+html.present body{background:#000}
+html.present .ctl{display:none}
+html.present .stage{padding:0}
+html.present .frame{border-radius:0;box-shadow:none}
+
+/* Phone: the canvas becomes a document; diagrams keep their drawn scale and scroll. */
+@media (max-width:760px){
+  .stage{display:block;padding:16px 16px 0}
+  .frame{width:auto;max-width:100%;height:auto;border-radius:12px;overflow:hidden}
+  .slide{position:relative;transform:none;width:auto;height:auto;padding:24px 20px 28px;display:flex;flex-direction:column;gap:16px}
+  .slide>*,.slide .copy li{position:static!important;width:auto!important;min-width:0}
+  h1,.slide h1{font-size:40px;width:auto}
+  .sub{font-size:19px}
+  .fig{overflow-x:auto;margin:8px -20px!important;padding:0 20px}
+  .copy{display:flex;flex-direction:column;gap:18px}
+  .copy p{font-size:17px}
+  .ctl .keys{display:none}
+}

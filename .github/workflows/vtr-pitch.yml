@@ -1,0 +1,38 @@
+name: Pitch slide
+on:
+  push:
+    paths:
+      - 'docs/vtr-pitch.html'
+      - 'docs/slides/build-vtr-pitch.py'
+      - 'docs/slides/vtr-pitch.css'
+      - 'docs/slides/vtr-pitch.js'
+      - 'docs/tests/vtr-pitch.test.mjs'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/vtr-pitch.yml'
+  pull_request:
+    paths:
+      - 'docs/vtr-pitch.html'
+      - 'docs/slides/build-vtr-pitch.py'
+      - 'docs/slides/vtr-pitch.css'
+      - 'docs/slides/vtr-pitch.js'
+      - 'docs/tests/vtr-pitch.test.mjs'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/vtr-pitch.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  demo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      VOLNA_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify headless browser prerequisite
+        run: google-chrome --version
+      - name: Test the pitch slide
+        run: node --test --test-concurrency=1 docs/tests/vtr-pitch.test.mjs
