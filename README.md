@@ -217,7 +217,7 @@ requirement for embedded chat.
 | Need | Document |
 |---|---|
 | Dual-core Kunminghu V3 / ZhuJiang architecture: four-level diagram with source-derived ring routes, HNF internals and guided CHI transactions | [Interactive diagram](docs/xiangshan-zhujiang-dualcore.html), [headless test](docs/tests/xiangshan-zhujiang-dualcore.test.mjs) |
-| AMBA CHI debugging: CHI recorded as VTR transactions and relations with a VDB profile, and five Volna views (transaction flow, ring map and Marey chart, cache-line history, latency, hangs and checks) on a model trace of the dual-core ZhuJiang system; research survey and references (proposal/demo) | [CHI debug](docs/amba-chi-debug.html), [headless test](docs/tests/amba-chi-debug.test.mjs) |
+| AMBA CHI debugging: a CHI primer, a research survey with a capability matrix, a protocol-neutral causal record model in volna-core with CHI as a VDB protocol pack, and five Volna views (transaction flow, ring map and Marey chart, cache-line history, latency, hangs and rule findings) on a model trace of the dual-core ZhuJiang system, in light and dark themes (proposal/demo) | [CHI debug](docs/amba-chi-debug.html), [headless test](docs/tests/amba-chi-debug.test.mjs) |
 | Repository boundaries, layout, and integration status | [Architecture](docs/ARCHITECTURE.md), [integrations](integrations/README.md) |
 | Normative file format | [Specification](docs/SPEC.md) |
 | Rust and C APIs | [Rust API](docs/API_RUST.md), [C header](core/vtr-capi/include/vtr.h) |
