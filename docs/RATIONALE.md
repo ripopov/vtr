@@ -165,6 +165,55 @@ belong in `volna-core`; frontends host a text field and the palette list. The
 workspace stores markers and the reference; VTR, VDB and the remote protocol
 never see them.
 
+## Volna agent control (proposal)
+
+The [agent control proposal](volna-mcp.html) lets an external agent such as
+Codex operate a running Volna while the user keeps working. It adopts MCP,
+served by a thin adapter over a catalogue of semantic commands and queries in
+`volna-core`. Every host an engineer is likely to use (Codex, Claude Code, VS
+Code, JetBrains, Zed) is an MCP client, and the vendors that expose stateful
+applications to agents mostly do so through MCP. A Volna-specific control
+protocol with an MCP bridge was rejected, although it is the shape of the
+Blender, Vivado and Xcelium bridges: it would be a second contract with no
+client. The relay between the MCP process and the viewer forwards MCP messages
+unchanged instead.
+
+Surfer's Waveform Control Protocol was not adopted as the agent contract. At
+version "0" it has 17 commands and no reads of the cursor, view, values,
+hierarchy, formats or selection. It has one client, no undo or batching, and
+its greeting advertises command names that differ from the wire ones. Every
+MCP bridge over WCP therefore re-reads the trace file to answer questions,
+which can disagree with what the viewer shows. The open Surfer and GTKWave
+merge requests for hierarchy queries, values, undo and a cursor event confirm
+the gaps. Its capability greeting, server-minted item references and wasm
+message entry point are borrowed. A WCP facade for language servers is
+deferred.
+
+Screen automation was rejected because Volna's waves are a canvas that
+accessibility trees cannot see, and measured agent benchmarks favour API tools
+over UI automation. Embedded scripting was rejected for the first stages:
+it covers everything but pushes safety into generated code, as the Blender and
+Figma servers warn.
+
+From the survey the proposal borrows these patterns:
+
+- A compact semantic snapshot plus targeted reads (Playwright, Chrome
+  DevTools, Grafana).
+- One registry of named commands with JSON Schemas feeding UI and automation
+  (JupyterLab, Perfetto, Zed).
+- Agent edits as named steps in the application's own undo (KiCad commits,
+  Ghidra transactions, Figma `commitUndo`).
+- Busy instead of interference (KiCad `AS_BUSY`).
+- Refusing to act on what the user owns (LLDB's `session_close`).
+- Discovery records for running instances (LLDB, IDE lock files).
+
+Rows, panels, markers and transactions are addressed by the identities the
+workspace codec already stores, so no per-snapshot handle table is needed.
+Each agent call is one core command and one undo step that carries its origin
+and never merges with a user step. The agent may undo only its own newest
+step. Speech stays in the conversation hosts, which already own capture,
+transcription, turn-taking and replies, and MCP has no audio primitive.
+
 ## Volna pipeline panel
 
 The panel is one `PanelKind` next to waves and settings, not a viewer mode: the
