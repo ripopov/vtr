@@ -15,7 +15,7 @@ export async function until(fn, description, timeout = 10000) {
   }
   throw new Error(`Timed out: ${description}`);
 }
-export async function browserTest(routes, {graphics = false, url, ready = 'window.ready === true', readyTimeout = 10000} = {}) {
+export async function browserTest(routes, {graphics = false, url, ready = 'window.ready === true', readyTimeout = 10000, args = []} = {}) {
   const candidates = [process.env.VOLNA_CHROME,
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
@@ -40,7 +40,7 @@ export async function browserTest(routes, {graphics = false, url, ready = 'windo
     '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
     '--window-size=1000,700', '--force-device-scale-factor=1',
     ...(graphics ? ['--enable-unsafe-swiftshader', '--use-angle=swiftshader',
-      '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader'] : []), 'about:blank'],
+      '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader'] : []), ...args, 'about:blank'],
   {stdio: ['ignore', 'ignore', 'pipe']});
   let stderr = '', spawnError;
   child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-10000); });

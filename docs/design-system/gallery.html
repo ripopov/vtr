@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna component gallery</title>
+<link rel="icon" href="../../volna/volna/assets/app-icon/volna.svg">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* Gallery scaffolding only; every specimen uses the design system's own classes. */
+.g-head{padding-block:var(--space-12) var(--space-6)}
+.g-head h1{font:var(--display-weight) var(--text-h1)/var(--leading-snug) var(--font-display);letter-spacing:var(--heading-tracking)}
+.g-head p{color:var(--text-2);margin-top:var(--space-3);max-width:var(--measure)}
+.g-sec{border-top:var(--border-width) solid var(--border)}
+.g-sec>.v-wrap{padding-block:var(--space-8) var(--space-4)}
+.g-sec h2{font:var(--display-weight) var(--text-h3)/var(--leading-snug) var(--font-display)}
+.g-theme{background:var(--bg);color:var(--text-1);padding-block:var(--space-8)}
+.g-theme+.g-theme{border-top:var(--border-width) solid var(--border)}
+.g-label{font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);text-transform:uppercase;color:var(--text-3);margin-bottom:var(--space-4)}
+.g-row{display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center}
+.g-stack{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-6)}
+.g-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:var(--space-6);align-items:start}
+.g-docs{border:var(--border-width) solid var(--border);border-radius:var(--radius-lg)}
+</style>
+</head>
+<body>
+<a class="v-skip" href="#actions">Skip to the specimens</a>
+<header class="v-wrap g-head">
+  <p class="v-kicker">Volna design system</p>
+  <h1>Component gallery</h1>
+  <p>Every <code>v-</code> class in <code>components/components.css</code> and <code>components/base.css</code>, in the dark and the light theme. <code>docs/tests/design-system-visual.test.mjs</code> screenshots each section and compares it with <code>baselines/</code>.</p>
+</header>
+
+<section class="g-sec" id="actions" data-gallery>
+  <div class="v-wrap"><h2>Actions</h2></div>
+  <template>
+    <div class="v-wrap g-stack">
+      <div><p class="g-label">Buttons</p>
+        <div class="g-row">
+          <button type="button" class="v-btn v-btn--primary">Try the live demo</button>
+          <button type="button" class="v-btn">View on GitHub</button>
+          <button type="button" class="v-btn v-btn--ghost">Documentation</button>
+          <button type="button" class="v-btn" disabled>Disabled</button>
+          <a class="v-btn" href="#actions" aria-disabled="true">Unavailable</a>
+          <button type="button" class="v-btn v-btn--icon" aria-label="Search"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/search.svg)"></span></button>
+        </div>
+        <div class="g-row" style="margin-top:var(--space-3)">
+          <button type="button" class="v-btn v-btn--primary v-btn--lg">Download Volna</button>
+          <button type="button" class="v-btn v-btn--lg v-btn--icon" aria-label="Settings"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/settings.svg)"></span></button>
+          <button type="button" class="v-btn v-btn--sm"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/package.svg);--icon-size:14px"></span>volna-linux-x86_64.tar.gz<span class="v-btn__meta">wasm · 9 MiB</span></button>
+          <button type="button" class="v-btn v-btn--sm v-btn--icon" aria-label="Close"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/x.svg);--icon-size:14px"></span></button>
+        </div>
+      </div>
+      <div><p class="g-label">Links</p>
+        <p class="g-row"><a class="v-link" href="#actions">Read the format specification</a> <a class="v-link v-link--quiet" href="#actions">Quiet link</a> <a class="v-link v-link--arrow" href="#actions">See all benchmarks</a> <a class="v-link v-link--external" href="#actions">Surfer</a> <a href="#actions">Plain anchor</a></p>
+      </div>
+    </div>
+  </template>
+</section>
+
+<section class="g-sec" id="content" data-gallery>
+  <div class="v-wrap"><h2>Content</h2></div>
+  <template>
+    <div class="v-wrap g-stack">
+      <div class="g-row">
+        <p class="v-kicker" style="margin:0">The format</p>
+        <a class="v-pill" href="#content"><b>New</b><span class="v-pill__label">Pipeline view for every openC910 CoreMark instruction</span></a>
+      </div>
+      <div class="g-row">
+        <span class="v-chip">rsa256.vtr</span>
+        <span class="v-chip v-chip--accent">Recommended</span>
+        <span class="v-chip v-chip--warning">Planned</span>
+        <span class="v-chip v-chip--danger">X on bus</span>
+        <span class="v-chip"><span class="v-chip__swatch" style="--swatch:var(--wave-signal)"></span>top.core.pc</span>
+        <kbd class="v-kbd">A</kbd>
+        <span class="v-keys"><kbd class="v-kbd">Ctrl</kbd><span aria-hidden="true">+</span><kbd class="v-kbd">Shift</kbd><span aria-hidden="true">+</span><kbd class="v-kbd">P</kbd></span>
+        <span class="v-mono v-num">243.13 MiB</span><span class="v-tabular">1.58×</span><code>--trace-vtr</code>
+      </div>
+      <div class="g-cols">
+        <div class="v-code">
+          <div class="v-code__head"><span>sh</span><button type="button" class="v-code__copy">Copy</button><span class="v-visually-hidden" aria-live="polite"></span></div>
+<pre><code><span class="tok-c"># Trace a Verilator model into VTR</span>
+<span class="tok-p">$ </span>verilator<span class="tok-k"> --cc</span><span class="tok-k"> --trace-vtr</span> top.sv
+<span class="tok-p">$ </span>volna trace.vtr</code></pre>
+        </div>
+        <div class="v-code">
+          <div class="v-code__head"><span>writer.rs</span><button type="button" class="v-code__copy" data-copied="true">Copied</button></div>
+<pre><code><span class="tok-k">let</span> w = <span class="tok-f">Writer::create</span>(<span class="tok-s">"trace.vtr"</span>)?;
+w.<span class="tok-f">change</span>(clk, <span class="tok-n">1</span>)?; <span class="tok-c">// one value change</span></code></pre>
+        </div>
+        <div class="v-code v-code--bare"><div class="v-code__head"></div><pre><code>vtr info trace.vtr</code></pre></div>
+      </div>
+      <div class="g-cols">
+        <aside class="v-callout"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/circle-dot.svg)"></span><div class="v-callout__title">WebGPU or WebGL2</div><div class="v-callout__body"><p>The browser build needs WebGPU or WebGL2.</p></div></aside>
+        <aside class="v-callout v-callout--success"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/circle-dot.svg)"></span><div class="v-callout__title">Values match</div><div class="v-callout__body">Values and change counts are identical between wellen and VTR on all workloads.</div></aside>
+        <aside class="v-callout v-callout--warning"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/triangle-alert.svg)"></span><div class="v-callout__title">Planned</div><div class="v-callout__body">Agent control over MCP is planned.</div></aside>
+        <aside class="v-callout v-callout--danger"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/triangle-alert.svg)"></span><div class="v-callout__title">Incompatible file</div><div class="v-callout__body">Files from an older format version fail to open with a clear error.</div></aside>
+      </div>
+    </div>
+  </template>
+</section>
+
+<section class="g-sec" id="navigation" data-gallery>
+  <div class="v-wrap"><h2>Navigation</h2></div>
+  <template>
+    <header class="v-nav">
+      <div class="v-wrap v-nav__bar">
+        <a class="v-brand" href="#navigation"><img src="../../volna/volna/assets/app-icon/volna.svg" alt="">Volna</a>
+        <nav class="v-nav__links" aria-label="Main"><a href="#navigation" aria-current="page">Overview</a><a href="#navigation">Benchmarks</a><a href="#navigation">VTR format</a><a href="#navigation">Docs</a></nav>
+        <div class="v-nav__end">
+          <span class="v-hide-md"><a class="v-btn v-btn--ghost v-btn--sm" href="#navigation">GitHub</a></span>
+          <span class="v-hide-sm"><span class="v-seg" role="group" aria-label="Theme"><button type="button" aria-pressed="false">Light</button><button type="button" aria-pressed="true">Dark</button><button type="button" aria-pressed="false">Auto</button></span></span>
+          <a class="v-btn v-btn--primary v-btn--sm" href="#navigation">Download</a>
+          <details class="v-nav__menu">
+            <summary class="v-btn v-btn--ghost v-btn--sm v-btn--icon" aria-label="Menu"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/panel-left.svg)"></span></summary>
+            <nav class="v-nav__sheet" aria-label="Main"><a href="#navigation">Overview</a><a href="#navigation">Benchmarks</a><a href="#navigation">Docs</a></nav>
+          </details>
+        </div>
+      </div>
+    </header>
+    <div class="v-wrap g-stack" style="padding-top:var(--space-8)">
+      <div class="v-tabs">
+        <div role="tablist" aria-label="Demo" class="v-tabs__list v-tabs__list--center">
+          <button type="button" role="tab" aria-selected="true" class="v-tabs__tab">Waveforms</button><button type="button" role="tab" aria-selected="false" tabindex="-1" class="v-tabs__tab">Pipeline</button><button type="button" role="tab" aria-selected="false" tabindex="-1" class="v-tabs__tab">Transactions</button>
+        </div>
+      </div>
+      <div class="v-tabs">
+        <div role="tablist" aria-label="Install" class="v-tabs__list v-tabs__list--line">
+          <button type="button" role="tab" aria-selected="true" class="v-tabs__tab">Linux</button><button type="button" role="tab" aria-selected="false" tabindex="-1" class="v-tabs__tab">macOS</button><button type="button" role="tab" aria-selected="false" tabindex="-1" class="v-tabs__tab">From source</button>
+        </div>
+        <div role="tabpanel" class="v-tabs__panel"><p>Build with <code>cargo build --release -p volna</code>.</p></div>
+      </div>
+    </div>
+    <footer class="v-footer">
+      <div class="v-wrap">
+        <div class="v-footer__grid">
+          <div class="v-footer__about"><p>Volna is an open waveform and transaction viewer for hardware simulation.</p></div>
+          <div><h4>Product</h4><ul><li><a href="#navigation">Download</a></li><li><a href="#navigation">Benchmarks</a></li></ul></div>
+          <div><h4>Format</h4><ul><li><a href="#navigation">Specification</a></li><li><a href="#navigation">C API</a></li></ul></div>
+        </div>
+        <div class="v-footer__base"><span>Open source · VTR, VDB, Volna</span><span>github.com/ripopov/vtr</span></div>
+      </div>
+    </footer>
+  </template>
+</section>
+
+<section class="g-sec" id="marketing" data-gallery>
+  <div class="v-wrap"><h2>Marketing</h2></div>
+  <template>
+    <section class="v-hero">
+      <div class="v-wrap">
+        <a class="v-pill" href="#marketing"><b>VTR</b><span class="v-pill__label">One open file for waveforms, transactions and logs</span></a>
+        <h1 class="v-hero__title">Level up your <em>traces</em>.</h1>
+        <p class="v-hero__lede">Volna shows your hardware run at the level you designed it. <strong>243 MiB vs 389 MiB</strong> on openC910 CoreMark.</p>
+        <div class="v-hero__cta"><a class="v-btn v-btn--primary v-btn--lg" href="#marketing">Try the live demo</a><a class="v-btn v-btn--lg" href="#marketing">View on GitHub</a></div>
+        <p class="v-hero__fine">Native, WebAssembly and VS Code · Open source</p>
+      </div>
+    </section>
+    <section class="v-hero v-hero--left">
+      <div class="v-wrap">
+        <h1 class="v-hero__title">One recording. Every view of it.</h1>
+        <p class="v-hero__lede">Waveforms, transactions, pipeline stages and simulator logs from one file.</p>
+        <div class="v-hero__cta"><a class="v-btn v-btn--primary" href="#marketing">Read the docs</a></div>
+      </div>
+    </section>
+    <section class="v-section v-section--center">
+      <div class="v-wrap">
+        <p class="v-kicker">Proof</p>
+        <h2 class="v-section__title">Smaller and faster on every benchmark we run.</h2>
+        <p class="v-section__sub">Numbers from the benchmark report, best-of-N on the same machine.</p>
+        <div class="v-stats" style="margin-top:var(--space-12);text-align:left">
+          <div class="v-stat"><div class="v-stat__value">63<small>%</small></div><div class="v-stat__label">of the smallest FST on openC910 CoreMark</div><div class="v-stat__detail">243.13 MiB vs 388.93 MiB</div></div>
+          <div class="v-stat"><div class="v-stat__value">1.58<small>×</small></div><div class="v-stat__label">faster writing than the fastest FST writer</div><div class="v-stat__detail">c910_coremark · 9.037 s vs 14.256 s</div></div>
+          <div class="v-stat"><div class="v-stat__value">18–34<small>%</small></div><div class="v-stat__label">of FTR-LZ4 size for transactions</div><div class="v-stat__detail">ooo_1m, kanata_sample2, tlm_1m</div></div>
+        </div>
+      </div>
+    </section>
+    <section class="v-section">
+      <div class="v-wrap">
+        <h2 class="v-section__title">Five viewers. One modern framework.</h2>
+        <div class="v-feature-grid">
+          <article class="v-feature"><div class="v-feature__icon"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/audio-waveform.svg);--icon-size:18px"></span></div><h3>Waveforms</h3><p>Painting walks pixel columns, not transitions, so its cost follows the window width.</p><p class="v-feature__look">rsa256.vtr</p></article>
+          <article class="v-feature"><div class="v-feature__icon"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/chart-no-axes-gantt.svg);--icon-size:18px"></span></div><h3>Pipeline</h3><p>Every CoreMark instruction with its stages, folds and flushes.</p><p class="v-feature__look">c910 CoreMark</p></article>
+          <article class="v-feature"><div class="v-feature__icon"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/scroll-text.svg);--icon-size:18px"></span></div><h3>Logs</h3><p>Simulator messages as typed, timestamped records beside the waves.</p></article>
+        </div>
+        <div class="v-feature-row">
+          <div class="v-feature-row__text"><p class="v-kicker">Waveforms</p><h3>See the run, not the file.</h3><p>Press <kbd class="v-kbd">A</kbd> to plot a signal.</p><ul><li><span>Open a 243 MiB trace instantly</span></li><li><span>Search values across the window</span></li></ul></div>
+          <div><img src="assets/screens/volna-waves.png" alt="Volna showing rsa256 waveforms" width="1200" height="800" style="border-radius:var(--radius-lg)"></div>
+        </div>
+        <div class="v-feature-row v-feature-row--flip">
+          <div class="v-feature-row__text"><h3>Remote traces, same session.</h3><p>Local and remote loading share one interface.</p></div>
+          <div><img src="assets/screens/volna-remote.png" alt="Volna waveforms for picorv32" width="1200" height="800" style="border-radius:var(--radius-lg)"></div>
+        </div>
+      </div>
+    </section>
+    <div class="v-wrap v-wrap--wide g-cols" style="margin-top:var(--space-12)">
+      <figure style="margin:0">
+        <div class="v-frame">
+          <div class="v-frame__bar"><b>Volna</b><span>rsa256.vtr</span><span class="v-frame__actions"><a href="#marketing">Open full window ↗</a></span></div>
+          <div class="v-frame__stage"><img src="assets/screens/volna-waves.png" alt="Volna showing the rsa256 trace"></div>
+        </div>
+        <figcaption class="v-frame__caption"><span>Live WebAssembly viewer</span><code>rsa256.vtr</code></figcaption>
+      </figure>
+      <div class="v-frame">
+        <div class="v-frame__bar"><b>Volna</b><span>landing.vtr</span></div>
+        <div class="v-frame__stage"><div class="v-frame__overlay" role="status"><div><div class="v-frame__spin"></div>Starting Volna in WebAssembly…</div></div></div>
+      </div>
+    </div>
+    <div class="v-wrap" style="margin-top:var(--space-12)">
+      <div class="v-downloads">
+        <article class="v-download v-download--current">
+          <div class="v-download__head"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/terminal.svg);--icon-size:20px"></span><h3>Linux</h3><span class="v-chip v-chip--accent">Your platform</span></div>
+          <p class="v-download__desc">Native build for x86_64.</p>
+          <ul class="v-download__files"><li class="v-download__file"><a class="v-btn v-btn--primary" href="#marketing">volna-linux-x86_64<span class="v-btn__meta">tar.gz</span></a><div class="v-download__meta" style="flex-basis:100%">No release is published yet; build from source.</div></li></ul>
+        </article>
+        <article class="v-download">
+          <div class="v-download__head"><span class="v-icon" aria-hidden="true" style="--icon:url(../../volna/volna-core/assets/icons/server.svg);--icon-size:20px"></span><h3>Web</h3><span class="v-chip">WASM</span></div>
+          <p class="v-download__desc">Runs in the browser with WebGPU or WebGL2.</p>
+          <ul class="v-download__files"><li class="v-download__file"><a class="v-btn" href="#marketing">Open the web viewer</a></li></ul>
+          <div class="v-download__meta">volna/volna/web/build.sh</div>
+        </article>
+      </div>
+    </div>
+  </template>
+</section>
+
+<section class="g-sec" id="data" data-gallery>
+  <div class="v-wrap"><h2>Data</h2></div>
+  <template>
+    <div class="v-wrap g-cols">
+      <div class="v-table-wrap" role="region" aria-label="File size" tabindex="0">
+        <table class="v-table">
+          <thead><tr><th scope="col">workload</th><th scope="col">best FST</th><th scope="col" class="is-ours">VTR</th><th scope="col">VTR vs FST</th></tr></thead>
+          <tbody>
+            <tr><td>scr1_axi</td><td>2.36 MiB</td><td class="is-ours">1.19 MiB</td><td class="is-ratio">50%</td></tr>
+            <tr><td>c910_coremark</td><td>388.93 MiB</td><td class="is-ours">243.13 MiB</td><td class="is-ratio">63%</td></tr>
+            <tr><td>scr1_x8</td><td>25.31 MiB</td><td class="is-ours">11.88 MiB</td><td class="is-ratio">47%</td></tr>
+            <tr><td>rsa256</td><td>31.66 MiB</td><td class="is-ours">30.99 MiB</td><td class="is-ratio">98%</td></tr>
+          </tbody>
+          <caption>File size, zstd-3. Smallest FST variant per workload.</caption>
+        </table>
+      </div>
+      <div class="v-bars">
+        <h3 class="v-bars__title">File size on openC910 CoreMark</h3>
+        <div class="v-bar" role="img" aria-label="FST 388.93 MiB, VTR 243.13 MiB: 63% of FST">
+          <div class="v-bar__ratio"><b>63%</b><span>of FST</span></div>
+          <div class="v-bar__track"><div class="v-bar__fill v-bar__fill--theirs" style="width:100%">FST 388.93 MiB</div></div>
+          <div class="v-bar__track"><div class="v-bar__fill v-bar__fill--ours" style="width:62.51%">VTR 243.13 MiB</div><div class="v-bar__ghost" style="left:62.51%"></div></div>
+        </div>
+        <div class="v-bar" role="img" aria-label="FST 2.36 MiB, VTR 1.19 MiB: 50% of FST">
+          <div class="v-bar__ratio"><b>50%</b><span>of FST</span></div>
+          <div class="v-bar__track"><div class="v-bar__fill v-bar__fill--theirs" style="width:100%">FST 2.36 MiB</div></div>
+          <div class="v-bar__track"><div class="v-bar__fill v-bar__fill--ours" style="width:50.42%">VTR 1.19 MiB</div><div class="v-bar__ghost" style="left:50.42%"></div></div>
+        </div>
+        <p class="v-bars__note">scr1_axi and c910_coremark, zstd-3 against the smallest FST.</p>
+      </div>
+    </div>
+  </template>
+</section>
+
+<section class="g-sec" id="docs" data-gallery>
+  <div class="v-wrap"><h2>Docs</h2></div>
+  <template>
+    <div class="v-wrap"><div class="g-docs">
+      <div class="v-docs">
+        <aside class="v-docs__side" aria-label="Documentation">
+          <details open>
+            <summary>Contents<span aria-hidden="true">▾</span></summary>
+            <div class="v-docs__group"><h4>Start</h4><ul><li><a href="#docs" aria-current="page">Install</a></li><li><a href="#docs">Open a trace</a></li></ul></div>
+            <div class="v-docs__group"><h4>Format</h4><ul><li><a href="#docs">Overview</a></li><li><a href="#docs">C API</a></li></ul></div>
+          </details>
+        </aside>
+        <main class="v-docs__main">
+          <nav class="v-docs__crumbs" aria-label="Breadcrumb"><a href="#docs">Docs</a><span aria-hidden="true">/</span><span>Install</span></nav>
+          <article class="v-prose">
+            <h1>Install Volna</h1>
+            <p class="v-lede">Volna runs natively, in the browser and inside VS Code.</p>
+            <h2>Build from source</h2>
+            <p>Volna needs a <strong>stable Rust</strong> toolchain.</p>
+            <ul><li>Linux and macOS are supported.</li><li>The web build needs WebGPU or WebGL2.</li></ul>
+            <h3>Check the build</h3>
+            <ol><li>Run the headless tests.</li><li>Open a trace.</li></ol>
+          </article>
+          <nav class="v-docs__pager" aria-label="Pager"><a href="#docs"><small>← Previous</small>Overview</a><a href="#docs"><small>Next →</small>Open a trace</a></nav>
+        </main>
+        <nav class="v-toc" aria-label="On this page"><h4>On this page</h4><ul><li><a href="#docs" aria-current="true">Build from source</a></li><li class="is-sub"><a href="#docs">Check the build</a></li></ul></nav>
+      </div>
+    </div></div>
+  </template>
+</section>
+
+<script>
+// Render each specimen once per theme. Everything else on the page is static.
+for (const section of document.querySelectorAll('[data-gallery]')) {
+  const template = section.querySelector('template');
+  for (const theme of ['dark', 'light']) {
+    const pane = document.createElement('div');
+    pane.className = 'g-theme';
+    pane.dataset.theme = theme;
+    pane.append(template.content.cloneNode(true));
+    section.append(pane);
+  }
+}
+window.ready = true;
+</script>
+</body>
+</html>

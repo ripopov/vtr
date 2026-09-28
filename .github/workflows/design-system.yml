@@ -3,7 +3,7 @@ on:
   push:
     paths:
       - 'docs/design-system/**'
-      - 'docs/tests/design-system.test.mjs'
+      - 'docs/tests/design-system*.mjs'
       - 'volna/volna-core/assets/fonts/**'
       - 'volna/volna-core/assets/icons/**'
       - 'volna/volna/assets/app-icon/**'
@@ -12,7 +12,7 @@ on:
   pull_request:
     paths:
       - 'docs/design-system/**'
-      - 'docs/tests/design-system.test.mjs'
+      - 'docs/tests/design-system*.mjs'
       - 'volna/volna-core/assets/fonts/**'
       - 'volna/volna-core/assets/icons/**'
       - 'volna/volna/assets/app-icon/**'
@@ -34,5 +34,16 @@ jobs:
           node-version: 22
       - name: Verify headless browser prerequisite
         run: google-chrome --version
-      - name: Test the design system references and fonts
-        run: node --test --test-concurrency=1 docs/tests/design-system.test.mjs
+      - name: Test the design system references, rules and baselines
+        env:
+          DESIGN_DIFF_DIR: ${{ runner.temp }}/design-diff
+        run: >-
+          node --test --test-concurrency=1 docs/tests/design-system.test.mjs
+          docs/tests/design-system-rules.test.mjs docs/tests/design-system-visual.test.mjs
+      - name: Upload screenshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-diff
+          path: ${{ runner.temp }}/design-diff
+          if-no-files-found: ignore

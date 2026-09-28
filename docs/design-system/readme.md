@@ -6,10 +6,20 @@ Design system for every HTML page in this repository: the Volna website (marketi
 
 This directory is the source of truth. It started as a Claude Design export; edit it here, not in Claude Design, and do not re-import over it.
 
-- **Maintained:** `styles.css`, `tokens/`, `components/base.css`, `components/components.css`, `guidelines/` and `fonts/build.sh`. Pages use this layer: link `styles.css`, set `data-theme`, and compose the `v-` classes in static HTML. New tokens and `v-` classes go here, with a guideline card when they add a foundation, instead of into a page's own `<style>`.
+- **Maintained:** `styles.css`, `tokens/`, `components/base.css`, `components/components.css`, `gallery.html`, `baselines/`, `guidelines/` and `fonts/build.sh`. Pages use this layer: link `styles.css`, set `data-theme`, and compose the `v-` classes in static HTML. New tokens and `v-` classes go here, with a guideline card when they add a foundation, instead of into a page's own `<style>`.
 - **Frozen reference:** `components/**/*.jsx`, `*.d.ts`, `*.prompt.md`, `_ds_bundle.js` (compiled from the JSX by Claude Design; nothing here rebuilds it), `ui_kits/website/`, and the export metadata `_ds_manifest.json`, `_adherence.oxlintrc.json`, `.thumbnail`, `thumbnail.html` and the `@dsCard` comments. They show the intended pages and component markup; copy their structure into static HTML rather than editing or extending them.
 - **Referenced, never copied:** fonts (`volna/volna-core/assets/fonts`), viewer icons (`volna/volna-core/assets/icons`) and the app icon (`volna/volna/assets/app-icon`).
-- `docs/tests/design-system.test.mjs` checks that every relative reference resolves and that the fonts, icons and app icon load headlessly.
+- `gallery.html` renders every `v-` class in both themes. A new class gets a specimen there in the same change.
+
+### Guardrails
+
+All headless, run by `.github/workflows/design-system.yml`:
+
+- `docs/tests/design-system.test.mjs`: every relative reference resolves; the fonts, icons and app icon load.
+- `docs/tests/design-system-rules.test.mjs`: pages that link `styles.css` (the adopting pages) contain no colour literals, font families, custom tokens, raw radii or shadows, `@font-face`, or other stylesheets; the maintained stylesheets take colours and fonts from tokens; the gallery covers every `v-` class; every rendered text run and the foundation token pairs meet WCAG AA (4.5:1 text, 3:1 large text and marks) in both themes.
+- `docs/tests/design-system-visual.test.mjs`: the gallery's computed styles and per-section screenshots match `baselines/`; adopting pages fit 360px without horizontal scrolling; every keyboard stop shows the focus ring; reduced motion stops all motion.
+
+After an intended visual change, run `UPDATE_BASELINES=1 node --test --test-concurrency=1 docs/tests/design-system-visual.test.mjs` and review the `baselines/` diff (PNG before/after and `styles.json`) before committing. A failing comparison writes baseline, current and diff images to `DESIGN_DIFF_DIR` (CI uploads them as the `design-diff` artifact). Screenshots hide product images, so only the design is compared.
 
 ## Product context
 

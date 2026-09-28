@@ -124,7 +124,10 @@ the `volna-design` project skill) before creating or restyling a page.
   `_ds_bundle.js`, `ui_kits/website`, export metadata) as its readme defines.
 - Reference fonts, icons and the app icon from `volna/`; never copy them.
 - Numbers come from the benchmark report; imagery is real product output.
-- Run `docs/tests/design-system.test.mjs` after changing the design system.
+- Run the `docs/tests/design-system*.test.mjs` guardrails after changing the
+  design system or an adopting page. A new `v-` class gets a specimen in
+  `gallery.html`; intended visual changes regenerate `baselines/` with
+  `UPDATE_BASELINES=1`, and the baseline diff is reviewed with the change.
 
 ## Format and documentation changes
 
