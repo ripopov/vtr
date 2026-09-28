@@ -1,6 +1,6 @@
 //! Pixel layout of the pipeline panel for one frame: the header, the label
 //! column, the cells area, the visible row range and density step, and the
-//! small interactive rectangles (label divider, marker chips, retry). Pure:
+//! small interactive rectangles (label divider, Markers lane chips, retry). Pure:
 //! computed from the panel bounds and model state, then read by both the
 //! painter and the input handlers so a click lands on exactly what was drawn.
 
@@ -9,7 +9,7 @@ use std::ops::Range;
 use super::rows::RowView;
 use crate::document::Marker;
 use crate::geometry::{Point, Rect, point, size};
-use crate::wave::overlay::marker_chips;
+use crate::wave::overlay::{LANE_H, MarkerLane, marker_lane};
 use crate::wave::viewport::Viewport;
 
 // Design-time sizes in logical pixels at zoom 1.0.
@@ -46,7 +46,8 @@ pub struct PipelineLayout {
     pub row_step: usize,
     pub row_count: usize,
     pub zoom: f32,
-    pub marker_chips: Vec<(usize, Rect)>,
+    /// The Markers lane below the rulers, across the whole panel.
+    pub marker_lane: MarkerLane,
     /// The retry button of a failed load.
     pub retry: Option<Rect>,
 }
@@ -89,8 +90,13 @@ impl PipelineLayout {
             point(bounds.left(), header.bottom()),
             size(bounds.width(), ruler_h),
         );
-        let rows_top = bounds.top() + header_h + ruler_h;
-        let rows_h = (bounds.height() - header_h - ruler_h).max(0.0);
+        let lane_h = z(LANE_H).min((bounds.height() - header_h - ruler_h).max(0.0));
+        let lane = Rect::new(
+            point(bounds.left(), rulers.bottom()),
+            size(bounds.width(), lane_h),
+        );
+        let rows_top = lane.bottom();
+        let rows_h = (bounds.bottom() - rows_top).max(0.0);
         let labels = Rect::new(point(bounds.left(), rows_top), size(labels_w, rows_h));
         let cells = Rect::new(
             point(labels.right(), rows_top),
@@ -108,8 +114,8 @@ impl PipelineLayout {
         let last = ((rows.top + f64::from(rows_h / rows.row_px)).ceil().max(0.0) as usize)
             .min(input.row_count);
         let row_range = first.min(last)..last;
-        let marker_chips = marker_chips(
-            header,
+        let marker_lane = marker_lane(
+            lane,
             cells.left(),
             f64::from(cells.width()).max(1.0),
             input.viewport,
@@ -143,7 +149,7 @@ impl PipelineLayout {
             row_step,
             row_count: input.row_count,
             zoom,
-            marker_chips,
+            marker_lane,
             retry,
         }
     }
@@ -160,13 +166,6 @@ impl PipelineLayout {
     /// Top of row `ix` in the panel's coordinate space.
     pub fn row_y(&self, ix: usize) -> f32 {
         self.cells.top() + self.rows.y_of(ix as f64)
-    }
-
-    pub fn chip_at(&self, p: Point) -> Option<usize> {
-        self.marker_chips
-            .iter()
-            .find(|(_, b)| b.contains(p))
-            .map(|(ix, _)| *ix)
     }
 
     pub fn cells_width_f64(&self) -> f64 {
@@ -219,11 +218,12 @@ mod tests {
             assert_eq!(l.rows.row_px, 20.0 * zoom);
             assert_eq!(l.row_step, 1);
             assert_eq!(l.row_range.start, 3);
-            let visible = ((332.0 - 32.0 * zoom) / (20.0 * zoom)).ceil() as usize;
+            let visible = ((332.0 - (32.0 + LANE_H) * zoom) / (20.0 * zoom)).ceil() as usize;
             assert_eq!(l.row_range.end, 3 + visible);
             assert_eq!(l.row_at(l.cells.top() + 20.0 * zoom * 1.5), Some(4));
             assert_eq!(l.row_at(l.cells.top() - 1.0), None);
-            assert_eq!(l.marker_chips.len(), 1);
+            assert_eq!(l.marker_lane.chips.len(), 1);
+            assert_eq!(l.marker_lane.band.bottom(), l.cells.top());
             assert_eq!(l.label_split.width(), 8.0 * zoom);
         }
         let dense = layout(1.0, 0.5, 100_000);

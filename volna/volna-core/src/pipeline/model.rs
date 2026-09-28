@@ -59,9 +59,14 @@ impl TrackSource {
 pub enum Hit {
     Activity(super::ActivityCommand),
     Row(usize),
-    Cell { row: usize, stage: usize },
+    Cell {
+        row: usize,
+        stage: usize,
+    },
     LabelSplit,
     Header,
+    /// A chip on the Markers lane, by its index in the lane layout.
+    Marker(usize),
     Retry,
 }
 
@@ -560,7 +565,10 @@ impl PipelineModel {
         if layout.retry.is_some_and(|r| r.contains(p)) {
             return Some(Hit::Retry);
         }
-        if layout.header.contains(p) {
+        if let Some(chip) = layout.marker_lane.chip_at(p) {
+            return Some(Hit::Marker(chip));
+        }
+        if layout.header.contains(p) || layout.marker_lane.band.contains(p) {
             return Some(Hit::Header);
         }
         let row = layout.row_at(p.y)?;
@@ -972,7 +980,7 @@ impl PipelineModel {
         doc: &mut Document,
         panel: PanelId,
         event: PointerEvent,
-        _now: Instant,
+        now: Instant,
     ) -> bool {
         match event {
             PointerEvent::Down {
@@ -980,7 +988,7 @@ impl PipelineModel {
                 button,
                 modifiers,
             } => {
-                self.pointer_down(doc, panel, position, button, modifiers);
+                self.pointer_down(doc, panel, position, button, modifiers, now);
                 true
             }
             PointerEvent::Move { position } => self.pointer_move(doc, position),
@@ -1040,6 +1048,7 @@ impl PipelineModel {
         p: Point,
         button: MouseButton,
         modifiers: Modifiers,
+        now: Instant,
     ) {
         self.pointer = Some(p);
         if button == MouseButton::Left
@@ -1048,6 +1057,7 @@ impl PipelineModel {
             self.activity_command(doc, command);
             return;
         }
+        let lane_hit = self.layout.marker_lane.hit(p);
         let layout = &self.layout;
         if button == MouseButton::Left {
             if layout.label_split.contains(p) {
@@ -1058,13 +1068,8 @@ impl PipelineModel {
                 self.retry(doc);
                 return;
             }
-            if let Some(ix) = layout.chip_at(p) {
-                if modifiers.shift {
-                    doc.remove_marker(ix);
-                } else {
-                    let t = doc.markers()[ix].time;
-                    self.nav.set_cursor(doc, Some(t));
-                }
+            if let Some(hit) = lane_hit {
+                crate::marker::press(doc, &mut self.nav, hit, modifiers, now);
                 return;
             }
             // A press on a clock ruler selects its clock, then works like the header.
@@ -1079,7 +1084,8 @@ impl PipelineModel {
             if let Some(ix) = ruler {
                 self.nav.select_clock(&rulers[ix]);
             }
-            if (layout.header.contains(p) || ruler.is_some()) && p.x >= layout.cells.left() {
+            let strip = layout.header.contains(p) || layout.marker_lane.band.contains(p);
+            if (strip || ruler.is_some()) && p.x >= layout.cells.left() {
                 let cycle = self.cycle_at(doc, p.x);
                 self.nav.set_cursor(doc, Some(cycle));
                 self.drag = Some(Drag::Cursor);

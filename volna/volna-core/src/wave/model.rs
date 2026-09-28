@@ -573,9 +573,10 @@ pub struct WaveModel {
     pub badge_hover: Option<usize>,
     /// The row whose bottom edge the pointer can drag to resize it.
     pub edge_hover: Option<usize>,
-    /// Pointer is over a column divider / a marker chip (drives repaints).
+    /// Pointer is over a column divider (drives repaints).
     pub split_hover: bool,
-    pub chip_hover: bool,
+    /// The Markers lane chip under the pointer (drives repaints).
+    pub chip_hover: Option<usize>,
     pub drag: Option<Drag>,
     /// Width of the waves column at the last layout, for keyboard zoom.
     pub wave_width: f32,
@@ -652,7 +653,7 @@ impl WaveModel {
             badge_hover: None,
             edge_hover: None,
             split_hover: false,
-            chip_hover: false,
+            chip_hover: None,
             drag: None,
             wave_width: 800.0,
             frames_painted: 0,
@@ -2420,12 +2421,12 @@ impl WaveModel {
             || self.badge_hover.is_some()
             || self.edge_hover.is_some()
             || self.split_hover
-            || self.chip_hover;
+            || self.chip_hover.is_some();
         self.hover_row = None;
         self.badge_hover = None;
         self.edge_hover = None;
         self.split_hover = false;
-        self.chip_hover = false;
+        self.chip_hover = None;
         had
     }
 
@@ -2446,7 +2447,7 @@ impl WaveModel {
                 button,
                 modifiers,
             } => {
-                self.pointer_down(doc, panel, position, button, modifiers);
+                self.pointer_down(doc, panel, position, button, modifiers, now);
                 true
             }
             PointerEvent::Move { position } => self.pointer_move(doc, position),
@@ -2516,6 +2517,7 @@ impl WaveModel {
         p: Point,
         button: MouseButton,
         modifiers: Modifiers,
+        now: Instant,
     ) {
         let layout = self.layout.clone();
         self.pointer = Some(p);
@@ -2548,13 +2550,8 @@ impl WaveModel {
                     return;
                 }
             }
-            if let Some(ix) = layout.chip_at(p) {
-                if modifiers.shift {
-                    doc.remove_marker(ix);
-                } else {
-                    let t = doc.markers()[ix].time;
-                    self.set_cursor(doc, Some(t));
-                }
+            if let Some(hit) = layout.marker_lane.hit(p) {
+                crate::marker::press(doc, &mut self.nav, hit, modifiers, now);
                 return;
             }
         }
@@ -2586,7 +2583,8 @@ impl WaveModel {
             }
             self.nav.select_clock(&rulers[ix]);
         }
-        if layout.header.contains(p) || ruler.is_some() {
+        // The time strip above the rows: header, rulers and the lane between chips.
+        if layout.header.contains(p) || ruler.is_some() || layout.marker_lane.band.contains(p) {
             if in_waves_x && button == MouseButton::Left {
                 let x = f64::from(p.x - layout.waves.left());
                 let clock = self.nav.selected_clock(doc);
@@ -2782,7 +2780,7 @@ impl WaveModel {
                 );
                 if layout.bounds.contains(p) {
                     self.split_hover = layout.near_split(p);
-                    self.chip_hover = layout.chip_at(p).is_some();
+                    self.chip_hover = layout.marker_lane.chip_at(p);
                     self.update_hover();
                 } else {
                     self.clear_hover();

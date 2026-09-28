@@ -425,7 +425,7 @@ protocol change: `LoadRequest::Track` already delivers complete objects.
 
 `PipelineLayout` is computed per frame from the bounds, the zoomed row view
 (clamped and written back), the row count and the markers; it yields the
-label, cells and divider rectangles, the marker chips, the visible row range
+label, cells and divider rectangles, the Markers lane, the visible row range
 and the density step. Below two pixels per row the painter paints every
 `step`-th row at the step's combined height, so the number of painted rows
 never exceeds half the panel height in pixels; a step shows the flush of any
@@ -438,8 +438,8 @@ among a record's primary-lane stages). It merges the `StageCensus` each
 `LoadedGenerator` counts once at load (stages per lane, count and position
 sum per name), so neither the pipeline nor a Transaction panel scans records
 for colours (a VDB stage table later fills the same struct). The header ticks, cursor line and chip,
-and marker lines and chips come from `wave::overlay`, shared with the wave
-painter, as does `overlay::outside_time`, which shades the time before and
+and the Markers lane with its marker lines come from `wave::overlay`, shared
+with the wave painter, as does `overlay::outside_time`, which shades the time before and
 after the trace (`wave_outside`) in both panel kinds; the pipeline painter
 also shades the space above the first row and below the last within the
 trace's time. Times are formatted through `TimeBase`: the timescale exponent, or
@@ -477,6 +477,21 @@ Ruler*). The
 status bar reads the cursor's cycle in each ruler clock and the cursor-to-nearest-marker delta in time and
 cycles. Workspaces save a panel's `clocks` and `clock` rows by path, never
 anything in the trace.
+
+## Markers
+
+Every timed panel has a Markers lane below the ruler band
+([docs/markers-ux.html](../../docs/markers-ux.html)). `wave::overlay::marker_lane`
+lays it out from `Document::markers`, which is sorted by time, in one pass
+over the viewport's slice found by binary search. Each marker gets a chip
+with its number, and a chip that would touch the one before it joins it in a
+cluster (`…4`). Chip widths come from a fixed advance per character, so the
+layout needs no font. Painting and hit testing read the same `MarkerLane`,
+and `marker::press` answers a press for both panel kinds. A chip moves the
+cursor to its marker, and Shift-click removes the marker. A cluster lists its
+markers on hover and zooms to them on click. A press on the lane between
+chips moves the cursor, as on the header. Each marker's line runs from its
+chip down through the rows.
 
 ## Transaction panel
 
@@ -795,7 +810,7 @@ client-side frame, shadow and resize edges. The filter stays custom on
 both targets because the component input's focus-loss path in `gpui-pre-web`
 0.3.4 blurs the browser's keyboard receiver; see the [rationale](../../docs/RATIONALE.md#volna-viewer).
 `WaveTable` is a custom element: `prepaint` asks the core for the layout and
-inserts hitboxes for the dividers, badges and marker chips; `paint` builds the
+inserts hitboxes for the dividers, badges and Markers lane chips; `paint` builds the
 `Scene` with GPUI's text system as the measurer, walks it into `paint_quad`,
 `paint_path`, shaped lines and SVGs, and forwards mouse events as
 `PointerEvent`s. Nested `PushClip` becomes nested content masks.

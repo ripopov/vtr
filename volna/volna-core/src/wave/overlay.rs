@@ -1,13 +1,16 @@
 //! What every timed panel paints over its time column: the tick grid, the
-//! header's tick labels and unit, the clock rulers under it, marker lines
-//! with their chips, and the cursor line with its time or cycle chip. The
-//! wave and pipeline painters call these with their own rectangles so both
-//! agree pixel for pixel.
+//! header's tick labels and unit, the clock rulers under it, the Markers
+//! lane with its chips and marker lines, and the cursor line with its time
+//! or cycle chip. The wave and pipeline painters call these with their own
+//! rectangles so both agree pixel for pixel.
+
+use std::ops::Range;
 
 use crate::clock::{self, ClockView, Clocks};
 use crate::color::Color;
 use crate::document::{Document, Marker};
 use crate::geometry::{CursorIcon, Point, Rect, point, size, snap};
+use crate::marker::LaneHit;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
 use crate::wave::layout::SCROLLBAR_W;
@@ -17,8 +20,23 @@ use crate::wave::viewport::Viewport;
 /// Pixel constants are design sizes at zoom 1.0; painters multiply them by
 /// the theme's zoom. Hairlines stay one pixel.
 pub const TICK_SPACING_PX: f64 = 96.0;
-/// Width of a marker chip at zoom 1.0.
-pub const CHIP_W: f32 = 24.0;
+/// Height of the Markers lane at zoom 1.0.
+pub const LANE_H: f32 = 22.0;
+/// Height of a chip on the Markers lane at zoom 1.0.
+pub const CHIP_H: f32 = 16.0;
+/// Horizontal padding inside a chip at zoom 1.0.
+const CHIP_PAD: f32 = 5.0;
+/// Chips closer than this at zoom 1.0 merge into a cluster.
+const CHIP_GAP: f32 = 3.0;
+/// Advance of one chip character at zoom 1.0. Chips hold digits and `…`,
+/// whose semibold UI glyphs are about this wide; the layout needs no font.
+const CHIP_CHAR_W: f32 = 7.0;
+/// The grab area of a chip reaches this far past its left and right edges
+/// at zoom 1.0, because a thin flag at the edge of a busy lane is a small
+/// target.
+const CHIP_GRAB: (f32, f32) = (3.0, 2.0);
+/// A cluster's tooltip lists at most this many markers.
+const CLUSTER_LIST: usize = 8;
 /// Height of one clock ruler row at zoom 1.0.
 pub const RULER_H: f32 = 16.0;
 /// Cycle labels on a clock ruler stay at least this far apart at zoom 1.0.
@@ -41,11 +59,12 @@ impl TextPainter<'_> {
 }
 
 /// The time column of a panel: its header cell, the clock rulers below it
-/// (empty without rulers) and the rows area below them.
+/// (empty without rulers), the Markers lane and the rows area below them.
 #[derive(Clone, Copy, Debug)]
 pub struct TimeColumn {
     pub header: Rect,
     pub rulers: Rect,
+    pub lane: Rect,
     pub area: Rect,
     pub viewport: Viewport,
 }
@@ -249,33 +268,108 @@ pub fn clock_rulers(
     }
 }
 
-/// Marker chip rectangle for a marker line at panel x.
-pub fn marker_chip_bounds(header: Rect, x: f32, zoom: f32) -> Rect {
-    Rect::new(
-        point(x + 1.0, header.top() + 2.0 * zoom),
-        size(CHIP_W * zoom, 14.0 * zoom),
-    )
+/// One chip on the Markers lane: a single marker, or a cluster of markers
+/// too close together to draw apart at this zoom.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MarkerChip {
+    /// Indices into the document's markers, consecutive in time.
+    pub markers: Range<usize>,
+    /// Its left edge is the first marker's time.
+    pub rect: Rect,
+    /// The marker's number, or `…` and the count of a cluster.
+    pub text: String,
 }
 
-/// Chips of the markers inside the viewport, in marker order.
-pub fn marker_chips(
-    header: Rect,
-    area_left: f32,
+impl MarkerChip {
+    pub fn is_cluster(&self) -> bool {
+        self.markers.len() > 1
+    }
+}
+
+/// The laid-out Markers lane of one panel. Pure: computed from times and
+/// pixel geometry, then read by the painter and the input handlers alike.
+#[derive(Clone, Debug, Default)]
+pub struct MarkerLane {
+    /// The lane across the whole panel, below the clock rulers.
+    pub band: Rect,
+    /// Left edge of the time column; the cells left of it hold the title.
+    pub time_left: f32,
+    /// Markers inside the viewport, each in exactly one chip.
+    pub visible: Range<usize>,
+    /// Chips left to right; they never overlap.
+    pub chips: Vec<MarkerChip>,
+    pub zoom: f32,
+}
+
+impl MarkerLane {
+    /// Index of the chip whose grab area holds `p`.
+    pub fn chip_at(&self, p: Point) -> Option<usize> {
+        if !self.band.contains(p) || p.x < self.time_left {
+            return None;
+        }
+        let (left, right) = (CHIP_GRAB.0 * self.zoom, CHIP_GRAB.1 * self.zoom);
+        self.chips
+            .iter()
+            .position(|c| p.x >= c.rect.left() - left && p.x <= c.rect.right() + right)
+    }
+
+    /// What `p` is over on the lane.
+    pub fn hit(&self, p: Point) -> Option<LaneHit> {
+        let chip = &self.chips[self.chip_at(p)?];
+        Some(if chip.is_cluster() {
+            LaneHit::Cluster(chip.markers.clone())
+        } else {
+            LaneHit::Chip(chip.markers.start)
+        })
+    }
+}
+
+/// Lay out the Markers lane `band`, whose time column starts at `time_left`
+/// and is `width_px` wide. One pass over the markers inside the viewport,
+/// found by binary search in the time-sorted list: each gets a chip with its
+/// number, and a chip that would touch the one before it joins it in a
+/// cluster.
+pub fn marker_lane(
+    band: Rect,
+    time_left: f32,
     width_px: f64,
     viewport: Viewport,
     markers: &[Marker],
     zoom: f32,
-) -> Vec<(usize, Rect)> {
-    let mut chips = Vec::new();
-    for (ix, m) in markers.iter().enumerate() {
-        let x = viewport.x_of(m.time as f64, width_px);
-        if x < 0.0 || x > width_px {
-            continue;
+) -> MarkerLane {
+    let z = |v: f32| v * zoom;
+    let first = markers.partition_point(|m| (m.time as f64) < viewport.start);
+    let last = first + markers[first..].partition_point(|m| (m.time as f64) <= viewport.end);
+    let chip_h = z(CHIP_H);
+    let top = snap(band.top() + (band.height() - chip_h) / 2.0);
+    let width = |text: &str| text.chars().count() as f32 * z(CHIP_CHAR_W) + z(2.0 * CHIP_PAD);
+    let mut chips: Vec<MarkerChip> = Vec::new();
+    for (ix, m) in markers.iter().enumerate().take(last).skip(first) {
+        let x = snap(time_left + viewport.x_of(m.time as f64, width_px) as f32);
+        match chips.last_mut() {
+            Some(chip) if x < chip.rect.right() + z(CHIP_GAP) => {
+                chip.markers.end = ix + 1;
+                chip.text = format!("…{}", chip.markers.len());
+                let w = chip.rect.width().max(width(&chip.text));
+                chip.rect = Rect::new(chip.rect.origin, size(w, chip_h));
+            }
+            _ => {
+                let text = m.id.to_string();
+                chips.push(MarkerChip {
+                    markers: ix..ix + 1,
+                    rect: Rect::new(point(x, top), size(width(&text), chip_h)),
+                    text,
+                });
+            }
         }
-        let xp = snap(area_left + x as f32);
-        chips.push((ix, marker_chip_bounds(header, xp, zoom)));
     }
-    chips
+    MarkerLane {
+        band,
+        time_left,
+        visible: first..last,
+        chips,
+        zoom,
+    }
 }
 
 /// One-pixel tick lines down the rows area.
@@ -376,51 +470,225 @@ pub fn header_ticks(p: &mut TextPainter<'_>, column: &TimeColumn, tick_list: &[T
     });
 }
 
-/// Marker lines down the rows area and their chips in the header.
-pub fn markers(
+/// The Markers lane: its title in `title` (the band's cells left of the
+/// time column), the marker count or the marker under the cursor in
+/// `value` when the panel has a values column, the chips, and a line for
+/// every visible marker from its chip down through the rows. Hovering a
+/// cluster lists its markers.
+#[allow(clippy::too_many_arguments)]
+pub fn marker_lane_paint(
     p: &mut TextPainter<'_>,
     column: &TimeColumn,
+    lane: &MarkerLane,
+    title: Rect,
+    value: Option<Rect>,
     doc: &Document,
-    chips: &[(usize, Rect)],
+    cursor: Option<u64>,
     pointer: Option<Point>,
 ) {
     let t = p.theme;
     let z = |v: f32| v * t.zoom;
-    let area = column.area;
-    for (ix, chip) in chips {
-        let m = &doc.markers()[*ix];
-        let x = column.x_of(m.time as f64);
-        let marker = t.marker(m.id.saturating_sub(1) as usize);
-        let color = marker.stroke;
-        p.scene.clipped(area, |scene| {
-            scene.fill(
-                Rect::new(point(x, area.top()), size(1.0, area.height())),
+    let band = lane.band;
+    if band.height() <= 0.0 {
+        return;
+    }
+    let markers = doc.markers();
+    p.scene.fill(band, t.panel.bg);
+    p.scene.fill(
+        Rect::new(
+            point(band.left(), band.bottom() - 1.0),
+            size(band.width(), 1.0),
+        ),
+        t.border_variant,
+    );
+    let cell = |r: Rect| {
+        Rect::new(
+            point(r.left(), band.top()),
+            size(r.width(), band.height() - 1.0),
+        )
+    };
+    let title = cell(title);
+    p.scene.clipped(title, |scene| {
+        scene.text(
+            point(title.left() + z(12.0), title.top()),
+            title.height(),
+            "Markers",
+            FontRole::UiSemibold,
+            t.ui_size_small,
+            t.panel.text_muted,
+        );
+    });
+    if let Some(value) = value.map(cell) {
+        let here = cursor.and_then(|c| markers.iter().find(|m| m.time == c));
+        let (text, color) = match (here, markers.len()) {
+            (Some(m), _) => (format!("at {}", m.id), t.panel.text),
+            (None, 0) => ("no markers".into(), t.panel.text_placeholder),
+            (None, 1) => ("1 marker".into(), t.panel.text_muted),
+            (None, n) => (format!("{n} markers"), t.panel.text_muted),
+        };
+        p.scene.clipped(value, |scene| {
+            scene.text(
+                point(value.left() + z(8.0), value.top()),
+                value.height(),
+                text,
+                FontRole::Mono,
+                t.ui_size_small,
                 color,
             );
         });
-        let hovered = pointer.is_some_and(|mp| chip.contains(mp));
-        let bg = if hovered {
-            marker.hover
-        } else {
-            marker.background
-        };
-        p.scene.quad(*chip, bg, z(3.0), 0.0, Color::TRANSPARENT);
-        let label = format!("M{}", m.id);
-        let w = p.width(&label, FontRole::UiSemibold, t.ui_size_small);
-        p.scene.text(
-            point(snap(chip.left() + (chip.width() - w) / 2.0), chip.top()),
-            chip.height(),
-            label,
-            FontRole::UiSemibold,
-            t.ui_size_small,
-            if hovered {
-                marker.hover_text
-            } else {
-                marker.text
-            },
-        );
-        p.scene.cursors.push((*chip, CursorIcon::PointingHand));
     }
+
+    let hovered = pointer.and_then(|mp| lane.chip_at(mp));
+    let time_band = Rect::new(
+        point(column.lane.left(), band.top()),
+        size(column.lane.width(), band.height()),
+    );
+    let lines_clip = Rect::new(
+        point(column.area.left(), band.top()),
+        size(column.area.width(), column.area.bottom() - band.top()),
+    );
+    let line_top = lane.chips.first().map_or(band.top(), |c| c.rect.top());
+    let lines: Vec<_> = markers[lane.visible.clone()]
+        .iter()
+        .map(|m| {
+            (
+                column.x_of(m.time as f64),
+                t.marker(m.id.saturating_sub(1) as usize).stroke,
+            )
+        })
+        .collect();
+    p.scene.clipped(lines_clip, |scene| {
+        for (x, color) in lines {
+            scene.fill(
+                Rect::new(
+                    point(x, line_top),
+                    size(1.0, column.area.bottom() - line_top),
+                ),
+                color,
+            );
+        }
+    });
+    let mut chips = Vec::new();
+    for (i, chip) in lane.chips.iter().enumerate() {
+        let hover = hovered == Some(i);
+        let (bg, fg) = if chip.is_cluster() {
+            let s = if hover { t.badge_hover } else { t.badge };
+            (s.bg, s.text)
+        } else {
+            let c = t.marker(markers[chip.markers.start].id.saturating_sub(1) as usize);
+            if hover {
+                (c.hover, c.hover_text)
+            } else {
+                (c.background, c.text)
+            }
+        };
+        let w = p.width(&chip.text, FontRole::UiSemibold, t.ui_size_small);
+        chips.push((chip.rect, chip.text.clone(), w, bg, fg));
+    }
+    p.scene.clipped(time_band, |scene| {
+        for (rect, text, w, bg, fg) in chips {
+            // One quad: marker backgrounds may be translucent, so parts must not overlap.
+            scene.quad(rect, bg, z(3.0), 0.0, Color::TRANSPARENT);
+            scene.text(
+                point(snap(rect.left() + (rect.width() - w) / 2.0), rect.top()),
+                rect.height(),
+                text,
+                FontRole::UiSemibold,
+                t.ui_size_small,
+                fg,
+            );
+        }
+    });
+    for chip in &lane.chips {
+        p.scene.cursors.push((chip.rect, CursorIcon::PointingHand));
+    }
+    if let (Some(i), Some(mp)) = (hovered, pointer)
+        && lane.chips[i].is_cluster()
+    {
+        cluster_tooltip(p, column, &markers[lane.chips[i].markers.clone()], doc, mp);
+    }
+}
+
+/// The markers of a hovered cluster, each with its time.
+fn cluster_tooltip(
+    p: &mut TextPainter<'_>,
+    column: &TimeColumn,
+    markers: &[Marker],
+    doc: &Document,
+    pointer: Point,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let base = doc.time_base();
+    let mut lines: Vec<(String, String)> = markers
+        .iter()
+        .take(CLUSTER_LIST)
+        .map(|m| (format!("Marker {}", m.id), format_time(m.time as f64, base)))
+        .collect();
+    if markers.len() > CLUSTER_LIST {
+        lines.push((
+            format!("+{} more", markers.len() - CLUSTER_LIST),
+            String::new(),
+        ));
+    }
+    let header = format!("{} markers · click to zoom in", markers.len());
+    let line_h = z(18.0);
+    let mut name_w: f32 = 0.0;
+    let mut time_w: f32 = 0.0;
+    for (name, time) in &lines {
+        name_w = name_w.max(p.width(name, FontRole::Ui, t.ui_size_small));
+        time_w = time_w.max(p.width(time, FontRole::Mono, t.ui_size_small));
+    }
+    let header_w = p.width(&header, FontRole::Ui, t.ui_size_small);
+    let w = (name_w + time_w + z(16.0)).max(header_w) + z(14.0);
+    let h = line_h * (lines.len() + 1) as f32 + z(8.0);
+    let clip = Rect::new(
+        point(column.area.left(), column.lane.top()),
+        size(
+            column.area.width(),
+            column.area.bottom() - column.lane.top(),
+        ),
+    );
+    let x = (pointer.x + z(14.0))
+        .min(clip.right() - w - z(4.0))
+        .max(clip.left());
+    let top = (column.lane.bottom() + z(4.0))
+        .min(clip.bottom() - h)
+        .max(clip.top());
+    let tip = Rect::from_xywh(snap(x), snap(top), w, h);
+    let time_x = tip.left() + z(7.0) + name_w + z(16.0);
+    p.scene.clipped(clip, |scene| {
+        scene.quad(tip, t.tooltip.bg, z(4.0), 1.0, t.border);
+        let left = tip.left() + z(7.0);
+        let mut y = tip.top() + z(4.0);
+        scene.text(
+            point(left, y),
+            line_h,
+            header,
+            FontRole::Ui,
+            t.ui_size_small,
+            t.editor.text_placeholder,
+        );
+        for (name, time) in lines {
+            y += line_h;
+            scene.text(
+                point(left, y),
+                line_h,
+                name,
+                FontRole::Ui,
+                t.ui_size_small,
+                t.tooltip.text,
+            );
+            scene.text(
+                point(time_x, y),
+                line_h,
+                time,
+                FontRole::Mono,
+                t.ui_size_small,
+                t.tooltip.text,
+            );
+        }
+    });
 }
 
 /// The cursor line from just above the header's bottom edge to the bottom
@@ -479,4 +747,147 @@ pub fn cursor(
             t.wave_cursor_text,
         );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lane(markers: &[Marker], viewport: Viewport, zoom: f32) -> MarkerLane {
+        let band = Rect::from_xywh(0.0, 50.0, 900.0, LANE_H * zoom);
+        marker_lane(band, 200.0, 700.0, viewport, markers, zoom)
+    }
+
+    fn at(times: &[u64]) -> Vec<Marker> {
+        times
+            .iter()
+            .enumerate()
+            .map(|(i, &time)| Marker {
+                id: i as u64 + 1,
+                time,
+                label: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_visible_marker_is_in_exactly_one_chip_and_chips_never_overlap() {
+        let mut seed = 7u64;
+        let mut rnd = |n: u64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) % n
+        };
+        for trial in 0..300 {
+            let mut times: Vec<u64> = (0..1 + rnd(80)).map(|_| rnd(100_000)).collect();
+            times.sort_unstable();
+            times.dedup();
+            let markers = at(&times);
+            let start = rnd(80_000) as f64;
+            let viewport = Viewport {
+                start,
+                end: start + 50.0 + rnd(100_000) as f64,
+            };
+            let zoom = [1.0, 1.5, 2.0][trial % 3];
+            let l = lane(&markers, viewport, zoom);
+            let visible: Vec<usize> = (0..markers.len())
+                .filter(|&i| {
+                    let t = markers[i].time as f64;
+                    t >= viewport.start && t <= viewport.end
+                })
+                .collect();
+            let covered: Vec<usize> = l.chips.iter().flat_map(|c| c.markers.clone()).collect();
+            assert_eq!(covered, visible, "trial {trial}");
+            assert_eq!(
+                l.visible,
+                visible
+                    .first()
+                    .map_or(l.visible.start..l.visible.start, |&a| a..visible
+                        .last()
+                        .unwrap()
+                        + 1)
+            );
+            for pair in l.chips.windows(2) {
+                assert!(
+                    pair[0].rect.right() + CHIP_GAP * zoom <= pair[1].rect.left(),
+                    "trial {trial}: {pair:?}"
+                );
+            }
+            for c in &l.chips {
+                assert!(l.band.contains(c.rect.origin) && c.rect.bottom() <= l.band.bottom());
+                let text = if c.is_cluster() {
+                    format!("…{}", c.markers.len())
+                } else {
+                    markers[c.markers.start].id.to_string()
+                };
+                assert_eq!(c.text, text);
+            }
+        }
+    }
+
+    #[test]
+    fn close_markers_cluster_when_zoomed_out_and_split_when_zoomed_in() {
+        let markers = at(&[1000, 1010, 1020, 1030, 5000]);
+        let out = lane(
+            &markers,
+            Viewport {
+                start: 0.0,
+                end: 10_000.0,
+            },
+            1.0,
+        );
+        assert_eq!(out.chips.len(), 2);
+        assert_eq!(out.chips[0].markers, 0..4);
+        assert_eq!(out.chips[0].text, "…4");
+        assert_eq!(out.chips[1].text, "5");
+        // 10 time units are 64 px apart here: room for 17 px chips, not 68 px ones.
+        let near = Viewport {
+            start: 990.0,
+            end: 1100.0,
+        };
+        let texts: Vec<_> = lane(&markers, near, 1.0)
+            .chips
+            .into_iter()
+            .map(|c| c.text)
+            .collect();
+        assert_eq!(texts, ["1", "2", "3", "4"]);
+        // A larger interface zoom widens chips, so they merge sooner.
+        let wide = lane(&markers, near, 4.0);
+        assert!(wide.chips.len() < 4);
+    }
+
+    #[test]
+    fn a_chip_is_grabbed_a_little_beyond_its_flag_and_hits_its_markers() {
+        let markers = at(&[1000, 1010, 1020, 5000]);
+        let l = lane(
+            &markers,
+            Viewport {
+                start: 0.0,
+                end: 10_000.0,
+            },
+            1.0,
+        );
+        let y = l.band.top() + LANE_H / 2.0;
+        let one = &l.chips[1];
+        assert_eq!(
+            l.hit(point(one.rect.left() - 2.0, y)),
+            Some(LaneHit::Chip(3))
+        );
+        assert_eq!(
+            l.hit(point(one.rect.right() + 1.0, y)),
+            Some(LaneHit::Chip(3))
+        );
+        assert_eq!(l.hit(point(one.rect.right() + 6.0, y)), None);
+        assert_eq!(
+            l.hit(point(l.chips[0].rect.left() + 1.0, y)),
+            Some(LaneHit::Cluster(0..3))
+        );
+        assert_eq!(l.hit(point(one.rect.left(), l.band.bottom() + 1.0)), None);
+        assert_eq!(
+            l.hit(point(150.0, y)),
+            None,
+            "the title cells hold no chips"
+        );
+    }
 }

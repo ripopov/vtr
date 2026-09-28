@@ -358,7 +358,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   <h2 id="today-h">Where Volna is today</h2>
   <div class="cols2">
     <div>
-      <p><code>Document</code> keeps <code>markers: Vec&lt;Marker { id, time, label }&gt;</code>, sorted by time, in a <code>history::Journaled</code> field, so every marker edit is already an undoable step. It rejects a second marker at the same time (<code>volna-core/src/document.rs</code>). The shared overlay draws a line and a chip labelled <code>M{id}</code> for every visible marker, in both wave and pipeline panels (<code>wave/overlay.rs</code>). Workspaces save the list.</p>
+      <p><code>Document</code> keeps <code>markers: Vec&lt;Marker { id, time, label }&gt;</code>, sorted by time, in a <code>history::Journaled</code> field, so every marker edit is already an undoable step. It rejects a second marker at the same time (<code>volna-core/src/document.rs</code>). Every wave and pipeline panel has a Markers lane under the clock rulers, where each visible marker has a chip with its number and a line down through the rows. Chips too close to draw apart merge into a cluster that zooms in on click (<code>wave/overlay.rs</code>, <code>marker.rs</code>). Workspaces save the list.</p>
       <p>The GPUI frontend binds <kbd>M</kbd> to <i>Add Marker</i> and <kbd>⇧M</kbd> to <i>Clear Markers</i>. Clicking a chip moves the cursor there, and Shift-clicking a chip removes it. The status bar shows the cursor minus the <i>nearest</i> marker, in time and in whole cycles of each ruler clock.</p>
     </div>
     <div>
@@ -368,7 +368,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
         <li><b>One keystroke clears the session's work.</b> <kbd>⇧M</kbd> removes every marker. Undo brings them back, but the key sits next to <kbd>M</kbd>.</li>
         <li><b>Numbers only grow.</b> After a day of adding and removing, markers are numbered in the 40s, which no key can reach.</li>
         <li><b>No marker navigation, no dragging, no list.</b></li>
-        <li><b>The wave and pipeline models each handle chip clicks</b> (<code>wave/model.rs</code>, <code>pipeline/model.rs</code>), with the same code twice.</li>
+        
       </ul>
     </div>
   </div>

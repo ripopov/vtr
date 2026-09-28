@@ -143,14 +143,22 @@ across DVFS and gating; dividing by a period does not. The existing
 
 Number a new marker with the lowest free positive integer and never renumber a
 live marker, so digit keys keep reaching the markers a user has; monotonic
-numbers grow past nine in a long session. Every marker edit is an `Edit` whose
-application returns its inverse, kept in a bounded journal for undo; the
-reference is navigation state and is not journaled. Remove the clear-all key
+numbers grow past nine in a long session. Every marker edit is a step of the
+app-wide undo journal; the reference is navigation state and is not
+journaled. Remove the clear-all key
 (`Shift+M` removes the marker at the cursor instead) and retire Shift-click
 removal, since Shift-click extends selections elsewhere. Crowded chips shorten
 their labels, then show numbers, then merge into clusters, so every marker
 stays visible. Keep one sorted `Vec` as the index until the `frame_times`
 test shows a need for more.
+
+The Markers lane sits below the clock rulers on every timed panel, even one
+without markers. Showing it only once a marker exists would move every row
+down by the lane's 22 px at the first `M`. Today's chips in the time header
+were rejected because the header's tick labels, unit and cursor chip
+already compete for that strip. Chips hold only digits and `…`, so their
+widths use a fixed advance per character, and the layout stays a pure
+function of times and geometry that input handlers can call without a font.
 
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The

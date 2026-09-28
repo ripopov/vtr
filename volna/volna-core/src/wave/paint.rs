@@ -91,6 +91,10 @@ pub fn paint(
             point(waves.left(), layout.rulers.top()),
             size(waves.width(), layout.rulers.height()),
         ),
+        lane: Rect::new(
+            point(waves.left(), layout.marker_lane.band.top()),
+            size(waves.width(), layout.marker_lane.band.height()),
+        ),
         area: waves,
         viewport,
     };
@@ -602,7 +606,16 @@ pub fn paint(
     );
 
     // -- markers and cursor --------------------------------------------------------
-    overlay::markers(&mut p, &column, doc, &layout.marker_chips, model.pointer);
+    overlay::marker_lane_paint(
+        &mut p,
+        &column,
+        &layout.marker_lane,
+        layout.names,
+        Some(layout.values),
+        doc,
+        cursor,
+        model.pointer,
+    );
     overlay::cursor(&mut p, &column, cursor, base, focused, z(SCROLLBAR_W));
     paint_analog_overlays(model, doc, &layout, &viewport, cursor, &mut p);
 

@@ -382,12 +382,12 @@ impl Element for PanelCanvas {
                 Some(PanelLayout::Waves(layout)) => {
                     let mut rects = vec![layout.names_split, layout.values_split];
                     rects.extend(layout.badges.iter().map(|(_, b)| *b));
-                    rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
+                    rects.extend(layout.marker_lane.chips.iter().map(|c| c.rect));
                     rects
                 }
                 Some(PanelLayout::Pipeline(layout)) => {
                     let mut rects = vec![layout.label_split];
-                    rects.extend(layout.marker_chips.iter().map(|(_, b)| *b));
+                    rects.extend(layout.marker_lane.chips.iter().map(|c| c.rect));
                     rects.extend(layout.retry);
                     rects.extend(layout.activity_controls.iter().map(|(_, rect, _)| *rect));
                     rects

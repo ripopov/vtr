@@ -984,6 +984,161 @@ fn zoom_fit_shrinks_rows_only_when_they_do_not_fit_and_wheel_in_restores_them() 
     }
 }
 
+fn marker_lane(app: &mut App, id: PanelId, theme: &Theme) -> volna_core::wave::overlay::MarkerLane {
+    match app.layout_panel(id, BOUNDS, theme).unwrap() {
+        PanelLayout::Waves(l) => l.marker_lane.clone(),
+        PanelLayout::Pipeline(l) => l.marker_lane.clone(),
+        PanelLayout::Table(_) => panic!("a table panel has no time axis"),
+    }
+}
+
+fn press(app: &mut App, id: PanelId, position: Point, modifiers: Modifiers) {
+    app.handle(Command::Pointer(
+        id,
+        PointerEvent::Down {
+            position,
+            button: MouseButton::Left,
+            modifiers,
+        },
+    ));
+    app.handle(Command::Pointer(id, PointerEvent::Up));
+}
+
+#[test]
+fn the_markers_lane_is_the_same_in_wave_and_pipeline_panels() {
+    let (mut app, _, waves, pipeline) = opened(60);
+    pump(&mut app);
+    let theme = Theme::one_dark();
+    let (lo, hi) = app.doc.limits();
+    let near = lo + (hi - lo) / 4;
+    let far = lo + (hi - lo) * 3 / 4;
+    for t in [near, near + 1, near + 2, far] {
+        app.doc.add_marker(t);
+    }
+    let texts = |lane: &volna_core::wave::overlay::MarkerLane| {
+        lane.chips
+            .iter()
+            .map(|c| c.text.clone())
+            .collect::<Vec<_>>()
+    };
+    for id in [waves, pipeline] {
+        let lane = marker_lane(&mut app, id, &theme);
+        let first = &lane.chips[0];
+        assert!(
+            first.is_cluster() && first.markers.start == 0,
+            "markers a cycle apart share a chip"
+        );
+        assert_eq!(texts(&lane).last().unwrap(), "4");
+        frame(&mut app, id, &theme);
+        assert!(
+            app.scene().texts().any(|t| t == "Markers"),
+            "the lane has its title"
+        );
+        assert!(app.scene().texts().any(|t| *t == first.text));
+    }
+    let centre = |r: Rect| point(r.left() + r.width() / 2.0, r.top() + r.height() / 2.0);
+
+    // The display list, in a dark and a light theme: a marker's chip and line
+    // in its palette colours, a cluster in the badge colours.
+    let light = Theme::from_host(&volna_core::theme::vscode::host_palette(include_str!(
+        "fixtures/vscode/light-modern.txt"
+    )));
+    for theme in [Theme::one_dark(), light] {
+        let lane = marker_lane(&mut app, waves, &theme);
+        frame(&mut app, waves, &theme);
+        let quads: Vec<(Rect, volna_core::color::Color)> = app
+            .scene()
+            .prims
+            .iter()
+            .filter_map(|p| match p {
+                Prim::Quad { rect, fill, .. } => Some((*rect, *fill)),
+                _ => None,
+            })
+            .collect();
+        let far_chip = lane.chips.last().unwrap();
+        let colours = theme.marker(3);
+        assert!(
+            quads.contains(&(far_chip.rect, colours.background)),
+            "chip 4 in marker colour 4"
+        );
+        assert!(
+            quads.iter().any(|(r, c)| *c == colours.stroke
+                && r.width() == 1.0
+                && r.top() == far_chip.rect.top()),
+            "marker 4's line starts at its chip"
+        );
+        assert!(
+            quads.contains(&(lane.chips[0].rect, theme.badge.bg)),
+            "a cluster in badge colours"
+        );
+        assert!(app.scene().prims.iter().any(|p| matches!(p,
+            Prim::Text { text, color, .. } if text == "4" && *color == colours.text)));
+    }
+
+    // A click on a chip moves the shared cursor onto its marker, from either panel.
+    let lane = marker_lane(&mut app, pipeline, &theme);
+    press(
+        &mut app,
+        pipeline,
+        centre(lane.chips.last().unwrap().rect),
+        Modifiers::default(),
+    );
+    assert_eq!(app.doc.shared.cursor, Some(far));
+    frame(&mut app, waves, &theme);
+    assert!(
+        app.scene().texts().any(|t| t == "at 4"),
+        "the value cell names the marker under the cursor"
+    );
+
+    // Hovering a cluster lists its markers, and a click zooms to them.
+    let lane = marker_lane(&mut app, waves, &theme);
+    let cluster = centre(lane.chips[0].rect);
+    let members = lane.chips[0].markers.len();
+    let last = near + members as u64 - 1;
+    app.handle(Command::Pointer(
+        waves,
+        PointerEvent::Move { position: cluster },
+    ));
+    frame(&mut app, waves, &theme);
+    let title = format!("{members} markers · click to zoom in");
+    assert!(app.scene().texts().any(|t| *t == title));
+    assert!(app.scene().texts().any(|t| t == "Marker 2"));
+    press(&mut app, waves, cluster, Modifiers::default());
+    let target = app.doc.shared.viewport.target();
+    assert!(target.start < near as f64 && target.end > last as f64);
+    assert!(
+        target.width() < 4.0,
+        "zoomed to the cluster, not beyond: {target:?}"
+    );
+    app.doc.shared.viewport.set(target);
+    for id in [waves, pipeline] {
+        assert_eq!(texts(&marker_lane(&mut app, id, &theme)), ["1", "2", "3"]);
+    }
+
+    // Shift-click removes a marker; a click beside the chips moves the cursor like the header.
+    let lane = marker_lane(&mut app, pipeline, &theme);
+    let shift = Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    press(&mut app, pipeline, centre(lane.chips[1].rect), shift);
+    assert_eq!(
+        app.doc.markers().iter().map(|m| m.id).collect::<Vec<_>>(),
+        [1, 3, 4]
+    );
+    let lane = marker_lane(&mut app, waves, &theme);
+    let beside = point(
+        (lane.chips[0].rect.right() + lane.chips[1].rect.left()) / 2.0,
+        lane.band.top() + 4.0,
+    );
+    press(&mut app, waves, beside, Modifiers::default());
+    let cursor = app.doc.shared.cursor.unwrap();
+    assert!(
+        cursor > near && cursor < near + 2,
+        "cursor {cursor} between markers 1 and 3"
+    );
+}
+
 #[test]
 fn click_sets_the_shared_cursor_to_the_cycle_and_the_wave_value_follows() {
     let (mut app, _, waves, pipeline) = opened(60);

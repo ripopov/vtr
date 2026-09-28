@@ -677,15 +677,18 @@ impl Document {
 
     // -- cursor and markers ----------------------------------------------------------
 
-    /// Install already validated marker identities, preserving monotonic allocation.
-    pub(crate) fn restore_markers(&mut self, markers: Vec<Marker>) {
+    /// Install already validated marker identities, preserving monotonic
+    /// allocation, in time order whatever order the workspace listed them in.
+    pub(crate) fn restore_markers(&mut self, mut markers: Vec<Marker>) {
         self.next_marker = self
             .next_marker
             .max(markers.iter().map(|m| m.id).max().unwrap_or(0) + 1);
+        markers.sort_by_key(|m| m.time);
         self.markers.restore(markers);
     }
 
-    /// The markers, in time order.
+    /// The markers, in time order: the Markers lane finds the visible ones
+    /// by binary search.
     pub fn markers(&self) -> &[Marker] {
         &self.markers
     }

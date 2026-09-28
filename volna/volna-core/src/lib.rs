@@ -26,6 +26,7 @@ pub mod frames;
 pub mod geometry;
 pub mod history;
 pub mod icons;
+pub mod marker;
 pub mod nav;
 pub mod panels;
 pub mod pipeline;

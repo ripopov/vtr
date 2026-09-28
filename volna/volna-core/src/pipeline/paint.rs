@@ -75,6 +75,10 @@ pub fn paint(
             point(cells.left(), layout.rulers.top()),
             size(cells.width(), layout.rulers.height()),
         ),
+        lane: Rect::new(
+            point(cells.left(), layout.marker_lane.band.top()),
+            size(cells.width(), layout.marker_lane.band.height()),
+        ),
         area: cells,
         viewport,
     };
@@ -540,7 +544,16 @@ pub fn paint(
     );
 
     // -- markers and cursor -----------------------------------------------------
-    overlay::markers(&mut p, &column, doc, &layout.marker_chips, model.pointer);
+    overlay::marker_lane_paint(
+        &mut p,
+        &column,
+        &layout.marker_lane,
+        labels,
+        None,
+        doc,
+        cursor,
+        model.pointer,
+    );
     overlay::cursor(&mut p, &column, cursor, base, focused, z(4.0));
 
     // -- borders and pointer shapes ---------------------------------------------

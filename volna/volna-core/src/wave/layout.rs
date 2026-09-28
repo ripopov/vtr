@@ -1,6 +1,6 @@
 //! Pixel layout of the wave panel for one frame: the three columns, the
 //! visible row range, the scrollbar, and the small interactive rectangles
-//! (format badges, marker chips, column dividers). Pure: computed from the
+//! (format badges, Markers lane chips, column dividers). Pure: computed from the
 //! panel bounds and model state, then read by both the painter and the input
 //! handlers so a click lands on exactly what was drawn.
 
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::document::Marker;
 use crate::geometry::{Point, Rect, point, size};
 use crate::wave::model::RowHeight;
-use crate::wave::overlay::marker_chips;
+use crate::wave::overlay::{LANE_H, MarkerLane, marker_lane};
 use crate::wave::viewport::Viewport;
 
 // Design-time sizes in logical pixels at zoom 1.0; the layout multiplies
@@ -60,8 +60,8 @@ pub struct WaveLayout {
     /// Format badges of the rows on screen (by entry), right-aligned in the
     /// values column.
     pub badges: Vec<(usize, Rect)>,
-    /// Marker chips in the header, for markers inside the viewport.
-    pub marker_chips: Vec<(usize, Rect)>,
+    /// The Markers lane below the rulers, across the whole panel.
+    pub marker_lane: MarkerLane,
     /// Grab zones of the two column dividers.
     pub names_split: Rect,
     pub values_split: Rect,
@@ -138,8 +138,13 @@ impl WaveLayout {
             point(bounds.left(), header.bottom()),
             size(bounds.width(), ruler_h),
         );
-        let rows_top = bounds.top() + header_h + ruler_h;
-        let rows_h = (bounds.height() - header_h - ruler_h).max(0.0);
+        let lane_h = z(LANE_H).min((bounds.height() - header_h - ruler_h).max(0.0));
+        let lane = Rect::new(
+            point(bounds.left(), rulers.bottom()),
+            size(bounds.width(), lane_h),
+        );
+        let rows_top = lane.bottom();
+        let rows_h = (bounds.bottom() - rows_top).max(0.0);
         let names = Rect::new(point(bounds.left(), rows_top), size(names_w, rows_h));
         let values = Rect::new(point(names.right(), rows_top), size(values_w, rows_h));
         let waves_w = (bounds.width() - names_w - values_w).max(0.0);
@@ -177,8 +182,8 @@ impl WaveLayout {
         }
 
         let wave_wf = f64::from(waves_w).max(1.0);
-        let marker_chips = marker_chips(
-            header,
+        let marker_lane = marker_lane(
+            lane,
             waves.left(),
             wave_wf,
             input.viewport,
@@ -227,7 +232,7 @@ impl WaveLayout {
             max_scroll,
             scrollbar,
             badges,
-            marker_chips,
+            marker_lane,
             names_split: split_zone(names.right()),
             values_split: split_zone(values.right()),
         }
@@ -290,13 +295,6 @@ impl WaveLayout {
         self.badges.iter().copied().find(|(_, b)| b.contains(p))
     }
 
-    pub fn chip_at(&self, p: Point) -> Option<usize> {
-        self.marker_chips
-            .iter()
-            .find(|(_, b)| b.contains(p))
-            .map(|(ix, _)| *ix)
-    }
-
     pub fn near_split(&self, p: Point) -> bool {
         self.names_split.contains(p) || self.values_split.contains(p)
     }
@@ -322,7 +320,7 @@ pub fn ruler_row(band: Rect, p: Point, count: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wave::overlay::CHIP_W;
+    use crate::wave::overlay::CHIP_H;
 
     fn layout(zoom: f32, items: usize) -> WaveLayout {
         WaveLayout::compute(LayoutInput {
@@ -362,13 +360,16 @@ mod tests {
             let (_, b) = l.badges[0];
             assert_eq!(b.width(), BADGE_W * zoom);
             assert_eq!(b.height(), (24.0 - 8.0) * zoom);
-            let (_, chip) = l.marker_chips[0];
-            assert_eq!(chip.width(), CHIP_W * zoom);
-            assert_eq!(chip.height(), 14.0 * zoom);
+            assert_eq!(l.marker_lane.band.height(), LANE_H * zoom);
+            assert_eq!(l.names.top(), (32.0 + LANE_H) * zoom);
+            let chip = &l.marker_lane.chips[0];
+            assert_eq!(chip.markers, 0..1);
+            assert_eq!(chip.rect.height(), CHIP_H * zoom);
+            assert_eq!(chip.rect.left(), l.waves.left() + l.waves.width() / 2.0);
             let (track, _) = l.scrollbar.unwrap();
             assert_eq!(track.width(), SCROLLBAR_W * zoom);
             // Rows per screen follow the row height.
-            let visible = (300.0 - 32.0 * zoom) / (24.0 * zoom);
+            let visible = (300.0 - (32.0 + LANE_H) * zoom) / (24.0 * zoom);
             assert_eq!(l.rows.len(), visible.ceil() as usize);
             assert_eq!(l.row_at(l.names.top() + 24.0 * zoom * 3.5), Some(3));
         }
@@ -380,7 +381,7 @@ mod tests {
     fn tall_rows_shift_every_row_below_and_hit_test_to_their_full_height() {
         let heights = [1, 4, 1, 8, 2].map(|h| RowHeight::try_from(h).unwrap());
         let input = |scroll_y| LayoutInput {
-            bounds: Rect::from_xywh(0.0, 0.0, 2000.0, 32.0 + 24.0 * 5.0),
+            bounds: Rect::from_xywh(0.0, 0.0, 2000.0, 32.0 + LANE_H + 24.0 * 5.0),
             row_h: 24.0,
             header_h: 32.0,
             ruler_h: 0.0,

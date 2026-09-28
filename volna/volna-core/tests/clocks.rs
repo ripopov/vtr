@@ -189,7 +189,8 @@ fn clocks_load_with_the_trace_and_rulers_tick_edges_labels_and_speed_flags() {
     frame(&mut app, panel, &theme);
     let layout = app.panels.waves(panel).unwrap().last_layout().clone();
     assert_eq!(layout.rulers.height(), 2.0 * 16.0 * theme.zoom);
-    assert_eq!(layout.names.top(), layout.rulers.bottom());
+    assert_eq!(layout.marker_lane.band.top(), layout.rulers.bottom());
+    assert_eq!(layout.names.top(), layout.marker_lane.band.bottom());
     let texts: Vec<String> = app.scene().texts().map(str::to_owned).collect();
     for want in ["core_clk", "bus_clk", "→ 2.00 GHz"] {
         assert!(texts.iter().any(|t| t == want), "{want} in {texts:?}");

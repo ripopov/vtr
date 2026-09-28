@@ -535,17 +535,18 @@ fn cursor_markers_and_selection_follow_the_document() {
     assert_eq!(app.doc.markers()[0].time, cursor);
     frame(&mut app, &theme);
     assert!(
-        app.scene().texts().any(|t| t == "M1"),
+        app.scene().texts().any(|t| t == "1"),
         "marker chip is painted"
     );
-    // Shift-click on the chip removes it; a plain click jumps the cursor.
+    // Shift-click on the chip removes it.
     let chip = app
         .panels
         .focused_waves()
         .unwrap()
         .last_layout()
-        .marker_chips[0]
-        .1;
+        .marker_lane
+        .chips[0]
+        .rect;
     let chip_p = point(chip.left() + 2.0, chip.top() + 2.0);
     app.handle(Command::Pointer(
         app.panels.focused_id(),
