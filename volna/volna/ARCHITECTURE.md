@@ -569,8 +569,13 @@ selected clock (`… cyc`), else the signed time. The painter tints the
 measured interval across the rows, draws a dashed line at the reference,
 and rings the reference's marker chip, all in the cursor colour. Hovering
 the live span shows the full measurement with 1/Δt. A press on the live
-span keeps the cursor, which is one of its ends, and a double-click zooms
-to it; elsewhere the lane works like the header. `Z`
+span or the `R` tag keeps the cursor, which is one of the span's ends, and
+a double-click on the span zooms to it; elsewhere the lane works like the
+header. A `×` at the right end of the lane's cells before the time column
+(`MeasureLane::clear`, `LaneHit::ClearReference`), clear of the column
+divider's grab zone, clears the reference. Because `⇧R` is hard to
+discover, the status bar's *Measuring from … · ⇧R clears*, the live span's
+and the tag's tooltips, and the `×`'s tooltip all name the key. `Z`
 (`ZoomToMeasurement`, `marker::zoom_between`) zooms to the reference and the
 cursor with 15% margins. The three are also `setReference`,
 `clearReference` and `zoomToMeasurement` through `Command::named`, and none

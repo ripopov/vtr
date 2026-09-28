@@ -2534,10 +2534,13 @@ impl App {
                     return;
                 }
                 match reference {
-                    crate::marker::Reference::Marker(id) => format!("Measuring from marker {id}"),
-                    crate::marker::Reference::Time(t) => {
-                        format!("Measuring from {}", format_time(t as f64, doc.time_base()))
+                    crate::marker::Reference::Marker(id) => {
+                        format!("Measuring from marker {id} · ⇧R clears")
                     }
+                    crate::marker::Reference::Time(t) => format!(
+                        "Measuring from {} · ⇧R clears",
+                        format_time(t as f64, doc.time_base())
+                    ),
                 }
             }
             (Action::SetReference, None) => "Place the cursor first".into(),

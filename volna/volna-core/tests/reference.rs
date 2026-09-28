@@ -97,7 +97,10 @@ fn r_measures_from_the_cursor_and_shift_r_stops() {
     mark(&mut app, 1200);
     act(&mut app, Action::SetReference);
     assert_eq!(app.doc.reference(), Some(Reference::Marker(id(1))));
-    assert_eq!(said(&app).as_deref(), Some("Measuring from marker 1"));
+    assert_eq!(
+        said(&app).as_deref(),
+        Some("Measuring from marker 1 · ⇧R clears")
+    );
     app.doc.shared.cursor = Some(1500);
     act(&mut app, Action::SetReference);
     assert_eq!(app.doc.reference(), Some(Reference::Time(1500)));
@@ -395,4 +398,66 @@ fn workspaces_keep_the_reference_and_reject_one_without_its_marker() {
 
     json["version"] = 3.into();
     assert!(restore(&serde_json::to_vec(&json).unwrap()).is_err());
+}
+
+#[test]
+fn the_measure_lanes_close_button_clears_the_reference_and_names_the_key() {
+    let mut app = app();
+    mark(&mut app, 1300);
+    act(&mut app, Action::SetReference);
+    app.doc.shared.cursor = Some(1700);
+    let l = lane(&mut app);
+    let m = l.measure.clone().unwrap();
+    // The × sits in the lane's cells, clear of the time column and of the
+    // values column's divider.
+    let values = app.panels.focused_waves().unwrap().last_layout().values;
+    assert!(m.clear.right() <= l.time_left - 4.0 && m.clear.left() > values.left());
+    assert!(m.band.contains(m.clear.origin) && m.clear.bottom() <= m.band.bottom());
+    let centre = |r: Rect| point(r.left() + r.width() / 2.0, r.top() + r.height() / 2.0);
+    assert_eq!(
+        l.hit(centre(m.clear)),
+        Some(volna_core::marker::LaneHit::ClearReference)
+    );
+    assert_eq!(l.hit(centre(m.tag)), Some(volna_core::marker::LaneHit::Tag));
+
+    // Hovering each part names ⇧R.
+    let tip = |app: &mut App, p: Point| -> Vec<String> {
+        pointer(app, PointerEvent::Move { position: p });
+        frame(app, &Theme::one_dark())
+            .texts()
+            .map(str::to_owned)
+            .collect()
+    };
+    let texts = tip(&mut app, centre(m.clear));
+    assert!(
+        texts.iter().any(|t| t == "Clear reference · ⇧R"),
+        "{texts:?}"
+    );
+    let texts = tip(&mut app, centre(m.tag));
+    assert!(
+        texts.iter().any(|t| t == "Reference · ⇧R clears"),
+        "{texts:?}"
+    );
+    assert!(texts.iter().any(|t| t == "Marker 1"), "{texts:?}");
+    let live = m.live.clone().unwrap();
+    let on_live = point((live.x0 + live.x1) / 2.0, centre(m.band).y);
+    let texts = tip(&mut app, on_live);
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "R → cursor · double-click to zoom · ⇧R clears"),
+        "{texts:?}"
+    );
+
+    // A press on the tag keeps the cursor; one on the × clears.
+    press(&mut app, centre(m.tag), MouseButton::Left, false);
+    pointer(&mut app, PointerEvent::Up);
+    assert_eq!(app.doc.shared.cursor, Some(1700));
+    assert!(app.doc.reference().is_some());
+    press(&mut app, centre(m.clear), MouseButton::Left, false);
+    pointer(&mut app, PointerEvent::Up);
+    assert_eq!(app.doc.reference(), None);
+    assert_eq!(app.doc.shared.cursor, Some(1700));
+    assert!(lane(&mut app).measure.is_none(), "the lane goes with it");
+    assert_eq!(app.undo_label(), Some("Add marker 1"), "not an edit");
 }

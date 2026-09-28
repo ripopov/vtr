@@ -1716,7 +1716,8 @@ fn double_click_on_a_span_zooms_to_it(cx: &mut TestAppContext) {
 }
 
 /// `R` measures from the cursor, `⇧R` stops, `Z` zooms to the measurement,
-/// and a double-click on the live span zooms to it too.
+/// a double-click on the live span zooms to it too, and the Measure lane's
+/// `×` clears the reference.
 #[gpui_kit::test]
 fn reference_keys_and_a_double_click_on_the_live_span(cx: &mut TestAppContext) {
     use gpui_kit::{
@@ -1811,6 +1812,33 @@ fn reference_keys_and_a_double_click_on_the_live_span(cx: &mut TestAppContext) {
         v.start < fa && v.end > fb && v.width() < (fb - fa) * 1.5,
         "{v:?}"
     );
+    // A click on the Measure lane's × clears the reference.
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let clear = window
+        .update(&mut vcx, |ws, _, _| {
+            let lane = ws.app.panels.focused().kind.marker_lane().unwrap().clone();
+            lane.measure.expect("the Measure lane").clear
+        })
+        .unwrap();
+    let at = point(
+        gpui_kit::px(clear.left() + clear.width() / 2.0),
+        gpui_kit::px(clear.top() + clear.height() / 2.0),
+    );
+    vcx.simulate_event(MouseDownEvent {
+        button: MouseButton::Left,
+        position: at,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
+    });
+    vcx.simulate_event(MouseUpEvent {
+        button: MouseButton::Left,
+        position: at,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+    });
+    vcx.run_until_parked();
+    assert_eq!(reference(&mut vcx), None);
 }
 
 /// The start page lists what was opened, newest first; the keys reopen it,

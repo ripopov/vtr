@@ -17,6 +17,7 @@ use crate::data::transactions::{
 };
 use crate::document::{Document, TrackLoadState, TxSelection};
 use crate::geometry::{Modifiers, MouseButton, Point};
+use crate::marker::LaneHit;
 use crate::nav::{Link, NavState, Tween};
 use crate::panels::PanelId;
 use crate::theme::Theme;
@@ -72,6 +73,10 @@ pub enum Hit {
     Span(usize),
     /// The live span on the Measure lane.
     Live,
+    /// The reference's `R` tag on the Measure lane.
+    ReferenceTag,
+    /// The Measure lane's `×`.
+    ClearReference,
     Retry,
 }
 
@@ -577,8 +582,11 @@ impl PipelineModel {
         if layout.retry.is_some_and(|r| r.contains(p)) {
             return Some(Hit::Retry);
         }
-        if layout.marker_lane.live_at(p) {
-            return Some(Hit::Live);
+        match layout.marker_lane.hit(p) {
+            Some(LaneHit::Live) => return Some(Hit::Live),
+            Some(LaneHit::Tag) => return Some(Hit::ReferenceTag),
+            Some(LaneHit::ClearReference) => return Some(Hit::ClearReference),
+            _ => {}
         }
         if let Some(chip) = layout.marker_lane.chip_at(p) {
             return Some(Hit::Marker(chip));

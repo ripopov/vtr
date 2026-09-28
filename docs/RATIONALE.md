@@ -204,7 +204,11 @@ bring the marker back with a reference that no longer follows it. A press on the
 moving it as on the header: the cursor is one end of the span, so the first
 click of a double-click would otherwise change what the double-click zooms
 to. A middle click measures on release and pans once it moves 3 px, so the
-existing middle-drag pan keeps working.
+existing middle-drag pan keeps working. The lane carries a `×` that clears
+the reference, like closing a tab, because `⇧R` alone is hard to discover;
+clearing by a click on the `R` tag was rejected as too easy to hit by
+accident, and toggling with a second `R` would give one key two meanings
+depending on where the cursor is.
 
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The

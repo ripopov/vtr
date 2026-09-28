@@ -57,6 +57,8 @@ const SPAN_INSET: f32 = 2.0;
 const SPAN_MIN: f32 = 6.0;
 /// Width of the reference's `R` tag on the Measure lane at zoom 1.0.
 const TAG_W: f32 = 16.0;
+/// Side of the Measure lane's `×` button at zoom 1.0.
+const CLEAR_W: f32 = 16.0;
 /// The live span's arrow head at the cursor end, at zoom 1.0.
 const ARROW: f32 = 6.0;
 /// Opacity of the tint over the measured interval.
@@ -463,6 +465,9 @@ pub struct MeasureLane {
     pub reference: u64,
     /// The `R` tag centred on the reference's time; it may lie off the lane.
     pub tag: Rect,
+    /// The `×` button that clears the reference, at the right end of the
+    /// lane's cells left of the time column.
+    pub clear: Rect,
     /// The span from the reference to the cursor, unless there is no cursor
     /// or it sits on the reference.
     pub live: Option<LiveSpan>,
@@ -583,6 +588,14 @@ impl MarkerLane {
 
     /// What `p` is over on the lanes.
     pub fn hit(&self, p: Point) -> Option<LaneHit> {
+        if let Some(m) = &self.measure {
+            if m.clear.contains(p) && m.clear.left() >= self.band.left() {
+                return Some(LaneHit::ClearReference);
+            }
+            if m.band.contains(p) && p.x >= self.time_left && m.tag.contains(p) {
+                return Some(LaneHit::Tag);
+            }
+        }
         if self.live_at(p) {
             return Some(LaneHit::Live);
         }
@@ -744,10 +757,19 @@ pub fn measure_lane(
                 labels,
             }
         });
+    let clear = Rect::new(
+        point(
+            // Clear of the column divider's grab zone.
+            time_left - z(6.0) - z(CLEAR_W),
+            snap(band.top() + (band.height() - z(CLEAR_W)) / 2.0),
+        ),
+        size(z(CLEAR_W), z(CLEAR_W)),
+    );
     MeasureLane {
         band,
         reference: measuring.reference,
         tag,
+        clear,
         live,
         selected: clocks.selected,
     }
@@ -1056,13 +1078,13 @@ pub fn marker_lane_paint(
     for chip in &lane.chips {
         p.scene.cursors.push((chip.rect, CursorIcon::PointingHand));
     }
-    let live = lane
-        .measure
-        .as_ref()
-        .and_then(|m| m.live.as_ref())
-        .filter(|_| pointer.is_some_and(|mp| lane.live_at(mp)));
-    if let (Some(live), Some(mp)) = (live, pointer) {
-        live_tooltip(p, column, live, doc, mp);
+    let over_measure = pointer.and_then(|mp| {
+        let hit = lane.hit(mp)?;
+        let on_measure = matches!(hit, LaneHit::Live | LaneHit::Tag | LaneHit::ClearReference);
+        Some((hit, lane.measure.as_ref()?, mp)).filter(|_| on_measure)
+    });
+    if let Some((hit, measure, mp)) = over_measure {
+        measure_tooltip(p, column, hit, measure, doc, mp);
     } else if let (Some(i), Some(mp)) = (hovered, pointer) {
         let under = &markers[lane.chips[i].markers.clone()];
         let header = match under {
@@ -1120,9 +1142,39 @@ fn measure_lane_paint(
             t.panel.text_muted,
         );
     });
+    // The × that clears the reference, where the lane's cells meet the time column.
+    let clear = measure.clear;
+    let clear_hover = pointer.is_some_and(|mp| clear.contains(mp));
+    if clear.left() >= band.left() {
+        let (bg, fg) = if clear_hover {
+            (t.badge_hover.bg, t.panel.text)
+        } else {
+            (Color::TRANSPARENT, t.panel.text_muted)
+        };
+        let c = point(
+            clear.left() + clear.width() / 2.0,
+            clear.top() + clear.height() / 2.0,
+        );
+        let r = z(3.5);
+        p.scene.quad(clear, bg, z(3.0), 0.0, Color::TRANSPARENT);
+        p.scene.lines(
+            vec![
+                [point(c.x - r, c.y - r), point(c.x + r, c.y + r)],
+                [point(c.x - r, c.y + r), point(c.x + r, c.y - r)],
+            ],
+            fg,
+            1.0,
+        );
+        p.scene.cursors.push((clear, CursorIcon::PointingHand));
+    }
     let base = doc.time_base();
     let live = measure.live.as_ref();
-    if let Some(value) = value.map(cell) {
+    if let Some(value) = value.map(cell).map(|v| {
+        Rect::new(
+            v.origin,
+            size((measure.clear.left() - v.left()).max(0.0), v.height()),
+        )
+    }) {
         let (text, color) = match live {
             Some(live) => (
                 live_value(&live.measurement, measure.selected, base),
@@ -1257,32 +1309,52 @@ fn live_value(m: &Measurement, selected: Option<usize>, base: TimeBase<'_>) -> S
     }
 }
 
-/// The hovered live span's full measurement, as on a span's tooltip.
-fn live_tooltip(
+/// A tooltip on the Measure lane: the live span's full measurement, as on
+/// a span's tooltip; where the `R` tag is; or what the `×` does. Each names
+/// `⇧R`, which clears the reference.
+fn measure_tooltip(
     p: &mut TextPainter<'_>,
     column: &TimeColumn,
-    live: &LiveSpan,
+    hit: LaneHit,
+    measure: &MeasureLane,
     doc: &Document,
     pointer: Point,
 ) {
     let base = doc.time_base();
-    let m = &live.measurement;
-    let mut lines = vec![("Time".to_owned(), signed_time(m.dt(), base))];
-    lines.extend(
-        m.clocks
-            .iter()
-            .map(|c| (c.name.clone(), format!("{} cycles", c.cycles))),
-    );
-    if let Some(f) = clock::frequency(m.dt().unsigned_abs() as f64, base) {
-        lines.push(("1/Δt".into(), f));
-    }
-    tooltip(
-        p,
-        column,
-        "R → cursor · double-click to zoom".into(),
-        lines,
-        pointer,
-    );
+    let (header, lines) = match (hit, &measure.live) {
+        (LaneHit::Live, Some(live)) => {
+            let m = &live.measurement;
+            let mut lines = vec![("Time".to_owned(), signed_time(m.dt(), base))];
+            lines.extend(
+                m.clocks
+                    .iter()
+                    .map(|c| (c.name.clone(), format!("{} cycles", c.cycles))),
+            );
+            if let Some(f) = clock::frequency(m.dt().unsigned_abs() as f64, base) {
+                lines.push(("1/Δt".into(), f));
+            }
+            ("R → cursor · double-click to zoom · ⇧R clears", lines)
+        }
+        (LaneHit::Tag, _) => {
+            let name = match doc.reference() {
+                Some(crate::marker::Reference::Marker(id)) => {
+                    match doc.markers().iter().find(|m| m.id == id) {
+                        Some(Marker {
+                            label: Some(label), ..
+                        }) => format!("Marker {id} {label}"),
+                        _ => format!("Marker {id}"),
+                    }
+                }
+                _ => "Time".into(),
+            };
+            (
+                "Reference · ⇧R clears",
+                vec![(name, format_time(measure.reference as f64, base))],
+            )
+        }
+        _ => ("Clear reference · ⇧R", Vec::new()),
+    };
+    tooltip(p, column, header.into(), lines, pointer);
 }
 
 /// Each span as a dimension line with end stops where its markers are in

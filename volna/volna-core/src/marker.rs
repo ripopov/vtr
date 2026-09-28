@@ -201,6 +201,10 @@ pub enum LaneHit {
     Span(usize),
     /// The live span from the reference to the cursor, on the Measure lane.
     Live,
+    /// The reference's `R` tag on the Measure lane.
+    Tag,
+    /// The Measure lane's `×` button, which clears the reference.
+    ClearReference,
 }
 
 /// Zooming to markers or a measurement keeps this fraction of their time span as margin on
@@ -243,7 +247,9 @@ pub fn zoom_between(doc: &mut Document, nav: &mut NavState, a: u64, b: u64, now:
 /// cluster zooms the view to its markers. A span takes no press here: a
 /// click on it moves the cursor like one on the header, and a double-click
 /// zooms to it ([`zoom_to`]). The live span keeps the cursor, which is one
-/// of its ends; a double-click zooms to it. Returns whether anything changed.
+/// of its ends; a double-click zooms to it. The `R` tag keeps the cursor
+/// too, and the Measure lane's `×` clears the reference. Returns whether
+/// anything changed.
 /// No modifier removes a marker: Shift-click extends selections elsewhere,
 /// and `⇧M` removes the marker at the cursor.
 pub fn press(doc: &mut Document, nav: &mut NavState, hit: LaneHit, now: Instant) -> bool {
@@ -258,7 +264,8 @@ pub fn press(doc: &mut Document, nav: &mut NavState, hit: LaneHit, now: Instant)
         LaneHit::Cluster(markers) => {
             !markers.is_empty() && zoom_to(doc, nav, markers.start, markers.end - 1, now)
         }
-        LaneHit::Span(_) | LaneHit::Live => false,
+        LaneHit::ClearReference => doc.set_reference(None),
+        LaneHit::Span(_) | LaneHit::Live | LaneHit::Tag => false,
     }
 }
 

@@ -2137,4 +2137,21 @@ fn the_pipeline_measures_from_the_reference_like_the_waves() {
     assert_eq!(app.doc.reference(), None, "measured on release");
     app.handle(Command::Pointer(pipeline, PointerEvent::Up));
     assert_eq!(app.doc.reference_time(), Some(t));
+
+    // The × at the end of the label column clears it.
+    let clear = marker_lane(&mut app, pipeline, &theme)
+        .measure
+        .unwrap()
+        .clear;
+    assert!(clear.left() > 0.0);
+    press(
+        &mut app,
+        pipeline,
+        point(
+            clear.left() + clear.width() / 2.0,
+            clear.top() + clear.height() / 2.0,
+        ),
+        Modifiers::default(),
+    );
+    assert_eq!(app.doc.reference(), None);
 }
