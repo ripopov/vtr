@@ -3,12 +3,15 @@
 //! before, and the reader's per-panel preferences. Data is the document's
 //! loaded track; the model never copies records.
 
+use std::collections::BTreeMap;
+
 use web_time::Instant;
 
 use super::view::{SectionKey, TxView, VIEW_BYTES, ViewPrefs};
 use crate::data::text::{COPY_BYTES, Radix};
 use crate::data::transactions::{TrackRef, TransactionRef};
 use crate::document::{Document, TrackLoadState, TxSelection};
+use crate::history::{Before, Edit, History, MergeKey, Prop};
 use crate::pipeline::TrackSource;
 use crate::remote::memory::{MemoryBudget, Reservation};
 use crate::wave::viewport::Viewport;
@@ -76,11 +79,13 @@ pub struct TransactionModel {
     /// A pinned panel ignores the document selection, so two panels
     /// compare. Journaled with the radixes (`docs/undo-redo.html`).
     pinned: bool,
-    pub prefs: ViewPrefs,
+    /// The reader's choices; the radixes are journaled and change only
+    /// through [`TransactionCommand::Radix`]. Read with [`TransactionModel::prefs`].
+    prefs: ViewPrefs,
     /// The pin (and the record it froze) and the radixes before their first
     /// change since the app last collected edits.
-    pin_before: Option<(bool, Option<ShownRecord>)>,
-    radix_before: Option<std::collections::BTreeMap<String, Radix>>,
+    pin_before: Before<(bool, Option<ShownRecord>)>,
+    radix_before: Before<BTreeMap<String, Radix>>,
     /// The track retained for the shown record, released when it changes.
     retained: Option<TrackRef>,
     attached: bool,
@@ -99,8 +104,8 @@ impl TransactionModel {
             history: Vec::new(),
             cursor: 0,
             pinned: false,
-            pin_before: None,
-            radix_before: None,
+            pin_before: Before::default(),
+            radix_before: Before::default(),
             prefs: ViewPrefs {
                 detail_items: detail_items.clamp(1, 1000),
                 ..ViewPrefs::default()
@@ -141,7 +146,7 @@ impl TransactionModel {
         doc: &mut Document,
         (pinned, record): (bool, Option<ShownRecord>),
     ) -> (bool, Option<ShownRecord>) {
-        debug_assert!(self.pin_before.is_none(), "edits were not collected");
+        debug_assert!(!self.pin_before.is_held(), "edits were not collected");
         let old = (self.pinned, self.shown().cloned());
         self.pinned = pinned;
         if !pinned {
@@ -153,31 +158,55 @@ impl TransactionModel {
     }
 
     /// Install radixes while undoing or redoing; returns the replaced ones.
-    pub(crate) fn swap_radix(
-        &mut self,
-        radix: std::collections::BTreeMap<String, Radix>,
-    ) -> std::collections::BTreeMap<String, Radix> {
-        debug_assert!(self.radix_before.is_none(), "edits were not collected");
+    pub(crate) fn swap_radix(&mut self, radix: BTreeMap<String, Radix>) -> BTreeMap<String, Radix> {
+        debug_assert!(!self.radix_before.is_held(), "edits were not collected");
         std::mem::replace(&mut self.prefs.radix, radix)
     }
 
-    /// The pin before the edits since the last call, unless they cancelled out.
-    pub(crate) fn take_pin_edit(&mut self) -> Option<(bool, Option<ShownRecord>)> {
-        let pinned = self.pinned;
-        self.pin_before
-            .take()
-            .filter(|(before, _)| *before != pinned)
+    /// The reader's choices: radixes, collapsed sections, filter, item limit.
+    pub fn prefs(&self) -> &ViewPrefs {
+        &self.prefs
     }
 
-    /// The radixes before the edits since the last call, unless they
-    /// cancelled out.
-    pub(crate) fn take_radix_edit(&mut self) -> Option<std::collections::BTreeMap<String, Radix>> {
-        let current = &self.prefs.radix;
-        self.radix_before.take().filter(|before| before != current)
-    }
-
-    pub(crate) fn has_edits(&self) -> bool {
-        self.pin_before.is_some() || self.radix_before.is_some()
+    /// Hand the pin and radixes before the edits since the last call to the
+    /// undo journal, unless they cancelled out. A radix change merges with
+    /// the next one of the same attribute within the merge window.
+    pub(crate) fn take_edits(&mut self, panel: crate::panels::PanelId, history: &mut History) {
+        if let Some((pinned, record)) = self.pin_before.take()
+            && pinned != self.pinned
+        {
+            let label = if pinned {
+                "Unpin transaction"
+            } else {
+                "Pin transaction"
+            };
+            history.record(
+                Edit::Prop {
+                    panel,
+                    prop: Prop::Pin(pinned, record),
+                },
+                Some(label.into()),
+            );
+        }
+        if let Some(radix) = self.radix_before.take()
+            && radix != self.prefs.radix
+        {
+            let now = &self.prefs.radix;
+            let key = radix
+                .keys()
+                .chain(now.keys())
+                .find(|k| radix.get(*k) != now.get(*k))
+                .cloned()
+                .unwrap_or_default();
+            history.record(
+                Edit::Prop {
+                    panel,
+                    prop: Prop::Radix(radix),
+                },
+                Some(format!("Radix of {key}")),
+            );
+            history.set_merge(MergeKey::of("radix", &key).in_panel(panel));
+        }
     }
 
     pub fn can_go_back(&self) -> bool {
@@ -416,8 +445,9 @@ impl TransactionModel {
             }
             TransactionCommand::Pin(pinned) => {
                 let changed = self.pinned != pinned;
-                if changed && self.pin_before.is_none() {
-                    self.pin_before = Some((self.pinned, self.shown().cloned()));
+                if changed {
+                    let (was, shown) = (self.pinned, self.shown().cloned());
+                    self.pin_before.note(|| (was, shown));
                 }
                 self.pinned = pinned;
                 if changed && !pinned {
@@ -445,9 +475,8 @@ impl TransactionModel {
                 true
             }
             TransactionCommand::Radix(key) => {
-                if self.radix_before.is_none() {
-                    self.radix_before = Some(self.prefs.radix.clone());
-                }
+                let radix = &self.prefs.radix;
+                self.radix_before.note(|| radix.clone());
                 let next = self.prefs.radix_of(&key).next();
                 if next == Radix::default() {
                     self.prefs.radix.remove(&key);

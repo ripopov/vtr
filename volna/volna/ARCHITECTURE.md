@@ -572,8 +572,13 @@ ruler methods, the transaction panel's pin and radix, and `WaveModel`, whose
 row vector is private and changes only through `WaveModel::splice`. Row edits
 are planned by the pure functions of `wave::tree` as `Splice`s on the
 pre-order rows; `tree::apply` performs them and returns their inverse with the
-replaced rows detached (no history, no error). `App::handle_at` opens a step
-and, after the command, collects every field's inverse into it. A step stays
+replaced rows detached (no history, no error). Every inverse is held in a
+`history::Before`, and each owner hands its own over in `take_edits`
+(`Document`, and `Panel::take_edits`, which covers the title, a timed panel's
+`NavState` and the kind's fields). `App::handle_at` opens a step and, after
+the command, collects every inverse into it; debug builds count the held
+`Before`s and assert that none is left, so a field whose owner forgets to
+hand it over fails the next command in any test. A step stays
 open while a panel holds pointer capture, so a drag is one step; Esc or ⌘Z
 during it rolls it back. Panel structure changes go through
 `App::restructure`, which collects pending edits first, records a `Structure`

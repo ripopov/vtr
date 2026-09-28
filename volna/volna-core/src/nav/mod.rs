@@ -42,7 +42,7 @@ pub struct NavState {
     /// origin are journaled cockpit state: they change only through the
     /// methods below, which keep their value before the first change.
     clocks: crate::clock::ClockView,
-    clocks_before: Option<ClockChoice>,
+    clocks_before: crate::history::Before<ClockChoice>,
 }
 
 /// A timed panel's ruler rows and cycle origin, as the undo journal swaps them.
@@ -61,7 +61,7 @@ impl NavState {
             local_viewport: Tween::new(Viewport::fit((0, 1000))),
             local_cursor: None,
             clocks: crate::clock::ClockView::default(),
-            clocks_before: None,
+            clocks_before: Default::default(),
         }
     }
 
@@ -72,7 +72,7 @@ impl NavState {
             local_viewport: Tween::new(self.local_viewport.value),
             local_cursor: self.local_cursor,
             clocks: self.clocks.clone(),
-            clocks_before: None,
+            clocks_before: Default::default(),
         }
     }
 
@@ -353,21 +353,21 @@ impl NavState {
     }
 
     fn note_clocks(&mut self) {
-        if self.clocks_before.is_none() {
-            self.clocks_before = Some((self.clocks.rulers.clone(), self.clocks.origin));
-        }
+        let clocks = &self.clocks;
+        self.clocks_before
+            .note(|| (clocks.rulers.clone(), clocks.origin));
     }
 
     /// Install clock choices that are not an edit (a restored workspace).
     pub(crate) fn restore_clocks(&mut self, view: crate::clock::ClockView) {
         self.clocks = view;
-        self.clocks_before = None;
+        self.clocks_before.take();
     }
 
     /// Install rulers and origin while undoing or redoing; returns the
     /// replaced ones.
     pub(crate) fn swap_clocks(&mut self, (rulers, origin): ClockChoice) -> ClockChoice {
-        debug_assert!(self.clocks_before.is_none(), "edits were not collected");
+        debug_assert!(!self.clocks_before.is_held(), "edits were not collected");
         let old = (
             std::mem::replace(&mut self.clocks.rulers, rulers),
             std::mem::replace(&mut self.clocks.origin, origin),
@@ -385,13 +385,28 @@ impl NavState {
         old
     }
 
-    /// The rulers and origin before the edits since the last call, unless
-    /// they cancelled out.
-    pub(crate) fn take_clocks_edit(&mut self) -> Option<ClockChoice> {
-        let current = (&self.clocks.rulers, &self.clocks.origin);
-        self.clocks_before
-            .take()
-            .filter(|(rulers, origin)| (rulers, origin) != current)
+    /// Hand the rulers and origin before the edits since the last call to
+    /// the undo journal, unless they cancelled out.
+    pub(crate) fn take_edits(
+        &mut self,
+        panel: crate::panels::PanelId,
+        clocks: &crate::clock::Clocks,
+        history: &mut crate::history::History,
+    ) {
+        let Some((rulers, origin)) = self.clocks_before.take() else {
+            return;
+        };
+        if (&rulers, &origin) == (&self.clocks.rulers, &self.clocks.origin) {
+            return;
+        }
+        let label = clocks_label(clocks, &rulers, origin, &self.clocks);
+        history.record(
+            crate::history::Edit::Prop {
+                panel,
+                prop: crate::history::Prop::Clocks { rulers, origin },
+            },
+            Some(label),
+        );
     }
 
     /// Scroll the window so the cursor is visible, if it is not.
@@ -403,5 +418,28 @@ impl NavState {
             target.center_on(c, doc.limits());
             self.animate_to(doc, target, now);
         }
+    }
+}
+
+/// "Show ruler core_clk", "Hide ruler bus_clk", "Set cycle origin".
+fn clocks_label(
+    clocks: &crate::clock::Clocks,
+    rulers: &Option<Vec<String>>,
+    origin: Option<u64>,
+    now: &crate::clock::ClockView,
+) -> String {
+    let before = rulers.as_deref().unwrap_or(&clocks.defaults);
+    let after = now.ruler_paths(clocks);
+    let name = |path: &str| path.rsplit('.').next().unwrap_or(path).to_owned();
+    if let Some(shown) = after.iter().find(|p| !before.contains(p)) {
+        return format!("Show ruler {}", name(shown));
+    }
+    if let Some(hidden) = before.iter().find(|p| !after.contains(p)) {
+        return format!("Hide ruler {}", name(hidden));
+    }
+    match (origin, now.origin) {
+        (_, Some(_)) if origin != now.origin => "Set cycle origin".into(),
+        (Some(_), None) => "Clear cycle origin".into(),
+        _ => "Clock rulers".into(),
     }
 }

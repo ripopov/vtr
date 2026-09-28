@@ -239,6 +239,38 @@ impl Panel {
         }
     }
 
+    /// Hand every journaled field of the panel to the undo journal: its
+    /// title, a timed panel's rulers and origin, and its kind's own fields.
+    /// A new kind with journaled state hands it over here.
+    pub(crate) fn take_edits(
+        &mut self,
+        clocks: &crate::clock::Clocks,
+        history: &mut crate::history::History,
+    ) {
+        let id = self.id;
+        if let Some(title) = self.title.take_before() {
+            history.record(
+                crate::history::Edit::Prop {
+                    panel: id,
+                    prop: crate::history::Prop::Title(title),
+                },
+                Some("Rename panel".into()),
+            );
+        }
+        if let Some(nav) = self.kind.nav_mut() {
+            nav.take_edits(id, clocks, history);
+        }
+        match &mut self.kind {
+            PanelKind::Waves(w) => w.take_edits(id, history),
+            PanelKind::Table(t) => t.take_edits(id, history),
+            PanelKind::Transaction(t) => t.take_edits(id, history),
+            PanelKind::Pipeline(_)
+            | PanelKind::Start
+            | PanelKind::Settings
+            | PanelKind::Unsupported(_) => {}
+        }
+    }
+
     /// Drop pointer capture without finishing the gesture (Esc or ⌘Z
     /// during a drag): the undo journal rolls back what it changed.
     pub(crate) fn cancel_drag(&mut self) {

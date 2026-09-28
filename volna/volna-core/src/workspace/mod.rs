@@ -456,13 +456,13 @@ impl Workspace {
                                     })
                                     .flatten(),
                                 collapsed: model
-                                    .prefs
+                                    .prefs()
                                     .collapsed
                                     .iter()
                                     .map(|section| section.key().to_owned())
                                     .collect(),
                                 radix: model
-                                    .prefs
+                                    .prefs()
                                     .radix
                                     .iter()
                                     .map(|(key, radix)| (key.clone(), radix.name().to_owned()))

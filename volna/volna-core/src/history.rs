@@ -28,6 +28,81 @@ pub const MERGE_WINDOW: Duration = Duration::from_secs(1);
 /// always kept, even when it alone is larger.
 pub const MAX_BYTES: usize = 64 << 20;
 
+/// The value a journaled field had before its first change since the app
+/// last collected edits. Every journaled field keeps its inverse in one of
+/// these. Debug builds count the ones that hold a value on each thread, so
+/// the app can check that collecting took every one ([`pending`]): a field
+/// its owner forgot to hand over fails the next command in any test.
+pub struct Before<T>(Option<T>);
+
+#[cfg(debug_assertions)]
+thread_local! {
+    static PENDING: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many [`Before`]s on this thread hold a value; always 0 in release
+/// builds.
+pub fn pending() -> usize {
+    #[cfg(debug_assertions)]
+    return PENDING.with(std::cell::Cell::get);
+    #[cfg(not(debug_assertions))]
+    0
+}
+
+impl<T> Before<T> {
+    /// Keep `value()` unless a value is already kept.
+    pub(crate) fn note(&mut self, value: impl FnOnce() -> T) {
+        if self.0.is_none() {
+            self.0 = Some(value());
+            #[cfg(debug_assertions)]
+            PENDING.with(|n| n.set(n.get() + 1));
+        }
+    }
+
+    /// The kept value, handed to the journal.
+    pub(crate) fn take(&mut self) -> Option<T> {
+        let value = self.0.take();
+        #[cfg(debug_assertions)]
+        if value.is_some() {
+            PENDING.with(|n| n.set(n.get() - 1));
+        }
+        value
+    }
+
+    pub(crate) fn is_held(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+impl<T> Default for Before<T> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+/// A copy holds nothing: the pending inverse stays with the original.
+impl<T> Clone for Before<T> {
+    fn clone(&self) -> Self {
+        Self(None)
+    }
+}
+
+impl<T> Drop for Before<T> {
+    fn drop(&mut self) {
+        self.take();
+    }
+}
+
+impl<T> std::fmt::Debug for Before<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.is_held() {
+            "Before(held)"
+        } else {
+            "Before(none)"
+        })
+    }
+}
+
 /// A field of cockpit state that only changes through [`Journaled::set`]
 /// (or [`Journaled::update`]), which remembers the value before the first
 /// change since the last [`Journaled::take_before`]. Reads go through
@@ -35,14 +110,14 @@ pub const MAX_BYTES: usize = 64 << 20;
 #[derive(Debug, Default)]
 pub struct Journaled<T> {
     value: T,
-    before: Option<T>,
+    before: Before<T>,
 }
 
 impl<T: Clone + PartialEq> Journaled<T> {
     pub fn new(value: T) -> Self {
         Self {
             value,
-            before: None,
+            before: Before::default(),
         }
     }
 
@@ -55,11 +130,8 @@ impl<T: Clone + PartialEq> Journaled<T> {
         if self.value == value {
             return false;
         }
-        if self.before.is_none() {
-            self.before = Some(std::mem::replace(&mut self.value, value));
-        } else {
-            self.value = value;
-        }
+        let old = std::mem::replace(&mut self.value, value);
+        self.before.note(|| old);
         true
     }
 
@@ -74,12 +146,12 @@ impl<T: Clone + PartialEq> Journaled<T> {
     /// trace): nothing is remembered.
     pub(crate) fn restore(&mut self, value: T) {
         self.value = value;
-        self.before = None;
+        self.before.take();
     }
 
     /// Install `value` while undoing or redoing; returns the value it replaces.
     pub(crate) fn swap(&mut self, value: T) -> T {
-        debug_assert!(self.before.is_none(), "edits were not collected");
+        debug_assert!(!self.before.is_held(), "edits were not collected");
         std::mem::replace(&mut self.value, value)
     }
 
@@ -101,7 +173,7 @@ impl<T: Clone> Clone for Journaled<T> {
     fn clone(&self) -> Self {
         Self {
             value: self.value.clone(),
-            before: None,
+            before: Before::default(),
         }
     }
 }
@@ -684,6 +756,25 @@ mod tests {
         field.restore(9);
         assert_eq!((*field, field.take_before()), (9, None));
         assert_eq!(field.clone().take_before(), None);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    fn debug_builds_count_inverses_nobody_collected() {
+        let base = pending();
+        let mut field = Journaled::new(1);
+        field.set(2);
+        field.set(3);
+        let copy = field.clone();
+        assert_eq!(pending(), base + 1, "one per field, none for a copy");
+        field.take_before();
+        assert_eq!(pending(), base);
+        let mut kept = Before::default();
+        kept.note(|| 5);
+        drop(copy);
+        assert_eq!(pending(), base + 1);
+        drop(kept);
+        assert_eq!(pending(), base, "dropping a held value releases it");
     }
 
     fn step_with(history: &mut History, at: Instant, edit: Edit, merge: Option<MergeKey>) {

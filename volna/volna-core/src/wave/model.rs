@@ -18,7 +18,7 @@ use crate::data::transactions::TrackRef;
 use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
 use crate::document::{Document, TxSelection};
 use crate::geometry::{Modifiers, MouseButton, Point, point};
-use crate::history::{MergeKey, RowSelection, count};
+use crate::history::{Before, Edit, History, MergeKey, RowSelection, count};
 use crate::nav::NavState;
 pub use crate::nav::{Link, LinkDim};
 use crate::panels::PanelId;
@@ -539,8 +539,9 @@ pub struct AccessibleRow {
 pub(crate) struct RowJournal {
     /// Each edit's label and inverse splices, in the order they were made.
     pub edits: Vec<(String, Vec<Splice>)>,
-    /// The selection before the first of them.
-    pub selection: Option<RowSelection>,
+    /// The selection before the first of them; holding it marks the
+    /// journal as waiting to be collected.
+    pub selection: Before<RowSelection>,
     /// The adjustment the edits repeat, and one they may be continued by.
     pub merge: Option<MergeKey>,
     pub continues: Option<MergeKey>,
@@ -788,9 +789,8 @@ impl WaveModel {
         if splices.is_empty() {
             return;
         }
-        if self.journal.selection.is_none() {
-            self.journal.selection = Some(self.row_selection());
-        }
+        let selection_before = self.row_selection();
+        self.journal.selection.note(|| selection_before);
         let inverse = self
             .splice(splices)
             .expect("row edits are planned against the current rows");
@@ -865,14 +865,25 @@ impl WaveModel {
         self.fix_hidden_selection();
     }
 
-    /// The row edits since the last call, for the undo journal.
-    pub(crate) fn take_journal(&mut self) -> RowJournal {
-        std::mem::take(&mut self.journal)
-    }
-
-    /// Whether row edits wait to be collected.
-    pub(crate) fn has_journal(&self) -> bool {
-        !self.journal.is_empty()
+    /// Hand the row edits since the last call to the undo journal, with the
+    /// selection before them and their merge keys.
+    pub(crate) fn take_edits(&mut self, panel: crate::panels::PanelId, history: &mut History) {
+        if self.journal.is_empty() {
+            return;
+        }
+        let mut journal = std::mem::take(&mut self.journal);
+        if let Some(selection) = journal.selection.take() {
+            history.note_selection(panel, selection);
+        }
+        for (label, splices) in journal.edits {
+            history.record(Edit::Rows { panel, splices }, Some(label));
+        }
+        if let Some(key) = journal.merge {
+            history.set_merge(key.in_panel(panel));
+        }
+        if let Some(key) = journal.continues {
+            history.set_continues(key.in_panel(panel));
+        }
     }
 
     /// Install rows that are not an edit (a restored workspace).

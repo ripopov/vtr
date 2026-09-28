@@ -561,10 +561,16 @@ impl Driver {
         text
     }
 
-    /// Select a record of a resident generator and show it in a
-    /// transaction panel.
+    /// Select a record of a resident generator (the first by identity, so a
+    /// seed replays the same inputs) and show it in a transaction panel.
     fn show_record(&mut self) -> String {
-        let Some(generator) = self.app.doc.resident_generators().next().cloned() else {
+        let Some(generator) = self
+            .app
+            .doc
+            .resident_generators()
+            .min_by_key(|g| g.generator().0)
+            .cloned()
+        else {
             return "no record".into();
         };
         let txs = generator.transactions();
@@ -1119,7 +1125,13 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
 
     // A transaction panel pinned on a record comes back pinned on it.
     pump(&mut app);
-    let generator = app.doc.resident_generators().next().cloned().unwrap();
+    let track = app
+        .doc
+        .hierarchy()
+        .unwrap()
+        .member_track(generator)
+        .unwrap();
+    let generator = app.doc.resident_generator(track).unwrap();
     let [first, second] = [&generator.transactions()[0], &generator.transactions()[1]];
     let select = |app: &mut App, tx: &volna_core::data::transactions::Transaction| {
         app.handle(Command::SelectTransaction {
@@ -1148,7 +1160,7 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
     ));
     assert_eq!(app.undo_label(), Some("Radix of addr"));
     app.handle(Command::Undo);
-    assert!(app.panels.transaction(tx).unwrap().prefs.radix.is_empty());
+    assert!(app.panels.transaction(tx).unwrap().prefs().radix.is_empty());
 }
 
 #[test]

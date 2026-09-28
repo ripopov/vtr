@@ -130,7 +130,7 @@ impl TransactionPanelView {
             .app
             .panels
             .transaction(self.id)
-            .map(|model| model.prefs.filter.clone())
+            .map(|model| model.prefs().filter.clone())
         else {
             return;
         };

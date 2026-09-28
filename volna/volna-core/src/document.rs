@@ -723,9 +723,20 @@ impl Document {
         ix < self.markers.len() && self.markers.update(|markers| markers[ix].label = label)
     }
 
-    /// The markers before the edits since the last call (the undo journal).
-    pub(crate) fn take_markers_edit(&mut self) -> Option<Vec<Marker>> {
-        self.markers.take_before()
+    /// Hand the markers before the edits since the last call to the undo
+    /// journal, unless they cancelled out.
+    pub(crate) fn take_edits(&mut self, history: &mut crate::history::History) {
+        let Some(before) = self.markers.take_before() else {
+            return;
+        };
+        let count = |n| crate::history::count(n, "marker", "markers");
+        let label = match (before.len(), self.markers.len()) {
+            (b, a) if a == b + 1 => "Add marker".into(),
+            (b, a) if a + 1 == b => "Remove marker".into(),
+            (b, 0) => format!("Clear {}", count(b)),
+            _ => "Change markers".into(),
+        };
+        history.record(crate::history::Edit::Markers(before), Some(label));
     }
 
     /// Install markers while undoing or redoing; returns the replaced ones.

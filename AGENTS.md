@@ -39,8 +39,9 @@ core commands and query APIs and must preserve the VTR/VDB boundary.
 Every new viewer feature decides whether each of its user actions is undoable
 ([docs/undo-redo.html](docs/undo-redo.html)). Changes to what a workspace
 stores are cockpit edits: route them through the field's single journaled
-writer (`history::Journaled`, `WaveModel` row edits, `App::restructure`) so
-they become labelled steps, and drive them in the model-based test
+writer (`history::Journaled` or `history::Before`, `WaveModel` row edits,
+`App::restructure`), hand them over in the owner's `take_edits` so they
+become labelled steps, and drive them in the model-based test
 (`volna/volna-core/tests/history.rs`). Navigation, selection, chrome and
 settings stay out of the journal.
 

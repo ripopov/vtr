@@ -746,6 +746,24 @@ impl TableModel {
         true
     }
 
+    /// Hand the columns before the edits since the last call to the undo
+    /// journal, unless they cancelled out.
+    pub(crate) fn take_edits(
+        &mut self,
+        panel: crate::panels::PanelId,
+        history: &mut crate::history::History,
+    ) {
+        if let Some(columns) = self.columns.take_before() {
+            history.record(
+                crate::history::Edit::Prop {
+                    panel,
+                    prop: crate::history::Prop::Columns(columns),
+                },
+                Some("Change columns".into()),
+            );
+        }
+    }
+
     /// Install columns while undoing or redoing; returns the replaced ones.
     pub(crate) fn swap_columns(&mut self, columns: ColumnSet) -> ColumnSet {
         let old = self.columns.swap(columns);

@@ -6,7 +6,7 @@ use anyhow::{Context as _, Result};
 use web_time::Instant;
 
 use super::{App, Event};
-use crate::history::{Context, Edit, MergeKey, Prop, Step, Structure, count};
+use crate::history::{Context, Edit, Prop, Step, Structure};
 use crate::panels::{Panel, PanelId, Panels};
 
 impl App {
@@ -47,103 +47,21 @@ impl App {
         }
     }
 
-    /// Move the inverses the journaled fields keep into the open step, in
-    /// the order the fields' owners are visited. Called after each command
-    /// and before every layout edit, so a closed panel's edits are
-    /// collected while it still exists.
+    /// Move the inverses the journaled fields keep into the open step: the
+    /// document's, then each panel's (see [`Panel::take_edits`]). Called
+    /// after each command and before every layout edit, so a closed panel's
+    /// edits are collected while it still exists. Debug builds then check
+    /// that no journaled field still holds an inverse nobody took.
     pub(super) fn collect_edits(&mut self) {
-        let history = &mut self.history;
-        if let Some(markers) = self.doc.take_markers_edit() {
-            let label = markers_label(markers.len(), self.doc.markers().len());
-            history.record(Edit::Markers(markers), Some(label));
-        }
-        let clocks = &self.doc.clocks;
+        self.doc.take_edits(&mut self.history);
         for panel in self.panels.iter_mut() {
-            let id = panel.id;
-            if let Some(title) = panel.title.take_before() {
-                history.record(
-                    Edit::Prop {
-                        panel: id,
-                        prop: Prop::Title(title),
-                    },
-                    Some("Rename panel".into()),
-                );
-            }
-            if let Some(nav) = panel.kind.nav_mut()
-                && let Some((rulers, origin)) = nav.take_clocks_edit()
-            {
-                let label = clocks_label(clocks, &rulers, origin, nav.clocks());
-                history.record(
-                    Edit::Prop {
-                        panel: id,
-                        prop: Prop::Clocks { rulers, origin },
-                    },
-                    Some(label),
-                );
-            }
-            if let Some(waves) = panel.kind.waves_mut()
-                && waves.has_journal()
-            {
-                let journal = waves.take_journal();
-                if let Some(selection) = journal.selection {
-                    history.note_selection(id, selection);
-                }
-                for (label, splices) in journal.edits {
-                    history.record(Edit::Rows { panel: id, splices }, Some(label));
-                }
-                if let Some(key) = journal.merge {
-                    history.set_merge(key.in_panel(id));
-                }
-                if let Some(key) = journal.continues {
-                    history.set_continues(key.in_panel(id));
-                }
-            }
-            if let Some(table) = panel.kind.table_mut()
-                && let Some(columns) = table.columns.take_before()
-            {
-                history.record(
-                    Edit::Prop {
-                        panel: id,
-                        prop: Prop::Columns(columns),
-                    },
-                    Some("Change columns".into()),
-                );
-            }
-            if let Some(model) = panel.kind.transaction_mut()
-                && model.has_edits()
-            {
-                if let Some((pinned, record)) = model.take_pin_edit() {
-                    let label = if pinned {
-                        "Unpin transaction"
-                    } else {
-                        "Pin transaction"
-                    };
-                    history.record(
-                        Edit::Prop {
-                            panel: id,
-                            prop: Prop::Pin(pinned, record),
-                        },
-                        Some(label.into()),
-                    );
-                }
-                if let Some(radix) = model.take_radix_edit() {
-                    let key = radix
-                        .keys()
-                        .chain(model.prefs.radix.keys())
-                        .find(|k| radix.get(*k) != model.prefs.radix.get(*k))
-                        .cloned()
-                        .unwrap_or_default();
-                    history.record(
-                        Edit::Prop {
-                            panel: id,
-                            prop: Prop::Radix(radix),
-                        },
-                        Some(format!("Radix of {key}")),
-                    );
-                    history.set_merge(MergeKey::of("radix", &key).in_panel(id));
-                }
-            }
+            panel.take_edits(&self.doc.clocks, &mut self.history);
         }
+        debug_assert_eq!(
+            crate::history::pending(),
+            0,
+            "a journaled field changed but its owner did not hand the edit over"
+        );
     }
 
     /// Perform a change of the panel structure as a layout edit. `op`
@@ -266,7 +184,7 @@ impl App {
                         Prop::Radix(radix) => p
                             .kind
                             .transaction()
-                            .is_some_and(|m| m.prefs.radix == *radix),
+                            .is_some_and(|m| m.prefs().radix == *radix),
                     }
                 }
                 Edit::Layout(s) => {
@@ -489,38 +407,5 @@ impl App {
         self.events
             .push(Event::Notice(format!("Undo history cleared: {error:#}")));
         self.changed();
-    }
-}
-
-/// "Add marker", "Remove marker", "Clear 4 markers".
-fn markers_label(before: usize, after: usize) -> String {
-    match (before, after) {
-        (b, a) if a == b + 1 => "Add marker".into(),
-        (b, a) if a + 1 == b => "Remove marker".into(),
-        (b, 0) => format!("Clear {}", count(b, "marker", "markers")),
-        _ => "Change markers".into(),
-    }
-}
-
-/// "Show ruler core_clk", "Hide ruler bus_clk", "Set cycle origin".
-fn clocks_label(
-    clocks: &crate::clock::Clocks,
-    rulers: &Option<Vec<String>>,
-    origin: Option<u64>,
-    now: &crate::clock::ClockView,
-) -> String {
-    let before = rulers.as_deref().unwrap_or(&clocks.defaults);
-    let after = now.ruler_paths(clocks);
-    let name = |path: &str| path.rsplit('.').next().unwrap_or(path).to_owned();
-    if let Some(shown) = after.iter().find(|p| !before.contains(p)) {
-        return format!("Show ruler {}", name(shown));
-    }
-    if let Some(hidden) = before.iter().find(|p| !after.contains(p)) {
-        return format!("Hide ruler {}", name(hidden));
-    }
-    match (origin, now.origin) {
-        (_, Some(_)) if origin != now.origin => "Set cycle origin".into(),
-        (Some(_), None) => "Clear cycle origin".into(),
-        _ => "Clock rulers".into(),
     }
 }
