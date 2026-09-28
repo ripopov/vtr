@@ -463,7 +463,11 @@ impl Driver {
                 }
                 action(Action::AddMarker)
             }
-            57 => action(Action::ClearMarkers),
+            57 => action(if self.rng.chance(2) {
+                Action::RemoveMarkerAtCursor
+            } else {
+                Action::RemoveAllMarkers
+            }),
             58..=59 if !self.catalog.clocks.is_empty() => {
                 let path = self.catalog.clocks[self.rng.below(self.catalog.clocks.len())].clone();
                 (Kind::Edit, Command::Clocks(ClockCommand::ToggleRuler(path)))
@@ -1074,9 +1078,27 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
         set_cursor(&mut app, t);
         app.handle(Command::Action(Action::AddMarker));
     }
-    assert_eq!(app.undo_label(), Some("Add marker"));
-    app.handle(Command::Action(Action::ClearMarkers));
-    assert_eq!(app.undo_label(), Some("Clear 3 markers"));
+    assert_eq!(app.undo_label(), Some("Add marker 3"));
+    // ⇧M removes the marker at the cursor; its number is free again.
+    set_cursor(&mut app, 200);
+    app.handle(Command::Action(Action::RemoveMarkerAtCursor));
+    assert_eq!(app.undo_label(), Some("Remove marker 2"));
+    set_cursor(&mut app, 400);
+    app.handle(Command::Action(Action::AddMarker));
+    assert_eq!(app.undo_label(), Some("Add marker 2"));
+    app.handle(Command::Undo);
+    app.handle(Command::Undo);
+    assert_eq!(
+        app.doc
+            .markers()
+            .iter()
+            .map(|m| (m.id.get(), m.time))
+            .collect::<Vec<_>>(),
+        [(1, 100), (2, 200), (3, 300)],
+        "undo restores the removed marker with its number"
+    );
+    app.handle(Command::Action(Action::RemoveAllMarkers));
+    assert_eq!(app.undo_label(), Some("Remove all markers"));
     app.handle(Command::Undo);
     assert_eq!(app.doc.markers().len(), 3);
 

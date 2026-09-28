@@ -2551,7 +2551,7 @@ impl WaveModel {
                 }
             }
             if let Some(hit) = layout.marker_lane.hit(p) {
-                crate::marker::press(doc, &mut self.nav, hit, modifiers, now);
+                crate::marker::press(doc, &mut self.nav, hit, now);
                 return;
             }
         }

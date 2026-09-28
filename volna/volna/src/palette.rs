@@ -126,7 +126,11 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Reset Row Height", Box::new(app::ResetRowHeight)),
         ("Toggle Analog Drawing", Box::new(app::ToggleAnalog)),
         ("Add Marker at Cursor", Box::new(app::AddMarker)),
-        ("Clear Markers", Box::new(app::ClearMarkers)),
+        (
+            "Remove Marker at Cursor",
+            Box::new(app::RemoveMarkerAtCursor),
+        ),
+        ("Remove All Markers", Box::new(app::RemoveAllMarkers)),
     ]
 }
 

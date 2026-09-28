@@ -984,11 +984,9 @@ impl PipelineModel {
     ) -> bool {
         match event {
             PointerEvent::Down {
-                position,
-                button,
-                modifiers,
+                position, button, ..
             } => {
-                self.pointer_down(doc, panel, position, button, modifiers, now);
+                self.pointer_down(doc, panel, position, button, now);
                 true
             }
             PointerEvent::Move { position } => self.pointer_move(doc, position),
@@ -1047,7 +1045,6 @@ impl PipelineModel {
         panel: PanelId,
         p: Point,
         button: MouseButton,
-        modifiers: Modifiers,
         now: Instant,
     ) {
         self.pointer = Some(p);
@@ -1069,7 +1066,7 @@ impl PipelineModel {
                 return;
             }
             if let Some(hit) = lane_hit {
-                crate::marker::press(doc, &mut self.nav, hit, modifiers, now);
+                crate::marker::press(doc, &mut self.nav, hit, now);
                 return;
             }
             // A press on a clock ruler selects its clock, then works like the header.

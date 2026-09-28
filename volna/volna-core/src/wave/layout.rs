@@ -7,8 +7,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::document::Marker;
 use crate::geometry::{Point, Rect, point, size};
+use crate::marker::Marker;
 use crate::wave::model::RowHeight;
 use crate::wave::overlay::{LANE_H, MarkerLane, marker_lane};
 use crate::wave::viewport::Viewport;
@@ -335,7 +335,7 @@ mod tests {
             visible: (0..items as u32).collect(),
             scroll_y: 0.0,
             markers: &[Marker {
-                id: 1,
+                id: crate::marker::MarkerId::new(1).unwrap(),
                 time: 50,
                 label: None,
             }],

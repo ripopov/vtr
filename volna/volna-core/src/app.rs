@@ -49,8 +49,12 @@ pub enum Action {
     PanRight,
     NextEdge,
     PrevEdge,
+    /// `M`: mark the focused panel's cursor.
     AddMarker,
-    ClearMarkers,
+    /// `⇧M`: remove the marker at the focused panel's cursor.
+    RemoveMarkerAtCursor,
+    /// Palette only: remove every marker, as one undoable step.
+    RemoveAllMarkers,
     RemoveSelected,
     /// Copy the selected wave rows to the document clipboard; cut also
     /// removes them. Paste inserts copies below the selection, sharing data.
@@ -1937,6 +1941,37 @@ impl App {
             self.paste_signals(panel);
             return;
         }
+        // Markers belong to the document; a timed panel only lends its cursor.
+        if matches!(
+            action,
+            Action::AddMarker | Action::RemoveMarkerAtCursor | Action::RemoveAllMarkers
+        ) {
+            let cursor = self
+                .panels
+                .focused()
+                .kind
+                .nav()
+                .and_then(|n| n.cursor(&self.doc));
+            let changed = match (action, cursor) {
+                (Action::RemoveAllMarkers, _) => self.doc.remove_all_markers(),
+                (Action::AddMarker, Some(c)) => self.doc.add_marker(c).is_some(),
+                (Action::RemoveMarkerAtCursor, Some(c)) => {
+                    match crate::marker::at(self.doc.markers(), c).map(|m| m.id) {
+                        Some(id) => self.doc.remove_marker(id),
+                        None => {
+                            self.events
+                                .push(Event::Announce("No marker at the cursor".into()));
+                            false
+                        }
+                    }
+                }
+                _ => false,
+            };
+            if changed {
+                self.changed();
+            }
+            return;
+        }
         if matches!(
             action,
             Action::NextCycle | Action::PrevCycle | Action::ToggleCycleOrigin
@@ -1984,8 +2019,6 @@ impl App {
                 | Action::PanRight
                 | Action::NextEdge
                 | Action::PrevEdge
-                | Action::AddMarker
-                | Action::ClearMarkers
                 | Action::RemoveSelected
                 | Action::CopySignals
                 | Action::CutSignals
@@ -2011,7 +2044,10 @@ impl App {
                 | Action::ToggleCursorLink
                 | Action::NextCycle
                 | Action::PrevCycle
-                | Action::ToggleCycleOrigin => unreachable!(),
+                | Action::ToggleCycleOrigin
+                | Action::AddMarker
+                | Action::RemoveMarkerAtCursor
+                | Action::RemoveAllMarkers => unreachable!(),
             },
             PanelKind::Waves(w) => match action {
                 Action::ZoomIn => w.zoom_in(doc, now),
@@ -2040,12 +2076,6 @@ impl App {
                 Action::RenameGroup => _ = w.start_rename(),
                 Action::NextEdge => w.next_edge(doc, now),
                 Action::PrevEdge => w.prev_edge(doc, now),
-                Action::AddMarker => {
-                    if let Some(c) = w.cursor(doc) {
-                        doc.add_marker(c);
-                    }
-                }
-                Action::ClearMarkers => _ = doc.clear_markers(),
                 Action::RemoveSelected => w.remove_selected(),
                 Action::CopySignals => w.copy_selected(doc),
                 Action::CutSignals => w.cut_selected(doc),
@@ -2070,7 +2100,10 @@ impl App {
                 | Action::ToggleCursorLink
                 | Action::NextCycle
                 | Action::PrevCycle
-                | Action::ToggleCycleOrigin => unreachable!(),
+                | Action::ToggleCycleOrigin
+                | Action::AddMarker
+                | Action::RemoveMarkerAtCursor
+                | Action::RemoveAllMarkers => unreachable!(),
             },
             // The same keys, with rows in place of selection: ↑ ↓ scroll rows,
             // zoom scales both axes, Escape cancels a drag then the cursor.
@@ -2086,12 +2119,6 @@ impl App {
                 Action::GoToCursor => p.go_to_cursor(doc, now),
                 Action::PanLeft => p.pan_fraction(doc, -0.25, now),
                 Action::PanRight => p.pan_fraction(doc, 0.25, now),
-                Action::AddMarker => {
-                    if let Some(c) = p.nav.cursor(doc) {
-                        doc.add_marker(c);
-                    }
-                }
-                Action::ClearMarkers => _ = doc.clear_markers(),
                 Action::ClearSelection => p.escape(doc),
                 Action::MoveSelectionUp => p.move_selection(doc, panel, -1, now),
                 Action::MoveSelectionDown => p.move_selection(doc, panel, 1, now),
@@ -2122,7 +2149,10 @@ impl App {
                 | Action::ToggleCursorLink
                 | Action::NextCycle
                 | Action::PrevCycle
-                | Action::ToggleCycleOrigin => unreachable!(),
+                | Action::ToggleCycleOrigin
+                | Action::AddMarker
+                | Action::RemoveMarkerAtCursor
+                | Action::RemoveAllMarkers => unreachable!(),
             },
             _ => return,
         }

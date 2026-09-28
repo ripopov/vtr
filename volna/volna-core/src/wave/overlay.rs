@@ -8,9 +8,9 @@ use std::ops::Range;
 
 use crate::clock::{self, ClockView, Clocks};
 use crate::color::Color;
-use crate::document::{Document, Marker};
+use crate::document::Document;
 use crate::geometry::{CursorIcon, Point, Rect, point, size, snap};
-use crate::marker::LaneHit;
+use crate::marker::{LaneHit, Marker};
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
 use crate::wave::layout::SCROLLBAR_W;
@@ -553,7 +553,7 @@ pub fn marker_lane_paint(
         .map(|m| {
             (
                 column.x_of(m.time as f64),
-                t.marker(m.id.saturating_sub(1) as usize).stroke,
+                t.marker(m.id.palette_index()).stroke,
             )
         })
         .collect();
@@ -575,7 +575,7 @@ pub fn marker_lane_paint(
             let s = if hover { t.badge_hover } else { t.badge };
             (s.bg, s.text)
         } else {
-            let c = t.marker(markers[chip.markers.start].id.saturating_sub(1) as usize);
+            let c = t.marker(markers[chip.markers.start].id.palette_index());
             if hover {
                 (c.hover, c.hover_text)
             } else {
@@ -763,7 +763,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, &time)| Marker {
-                id: i as u64 + 1,
+                id: crate::marker::MarkerId::new(i as u32 + 1).unwrap(),
                 time,
                 label: None,
             })

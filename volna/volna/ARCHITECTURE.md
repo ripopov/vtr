@@ -480,6 +480,17 @@ anything in the trace.
 
 ## Markers
 
+A marker (`marker::Marker`) has a number, a time and an optional name. The
+number (`MarkerId`) is the lowest free positive integer when the marker is
+created and does not change while the marker exists, so digit keys keep
+reaching the markers a user has. `Document` is the single writer of the
+time-sorted list: `add_marker`, `remove_marker(id)`, `remove_all_markers` and
+`set_marker_label` go through its journaled field, and `take_edits` labels
+each step with the number (*Add marker 2*, *Remove marker 2*, *Remove all
+markers*). `M` marks the focused panel's cursor; `⇧M` removes the marker
+there, and *Remove All Markers* is a palette command. Workspaces store the
+numbers, and restore rejects zero and duplicates.
+
 Every timed panel has a Markers lane below the ruler band
 ([docs/markers-ux.html](../../docs/markers-ux.html)). `wave::overlay::marker_lane`
 lays it out from `Document::markers`, which is sorted by time, in one pass
@@ -488,7 +499,8 @@ with its number, and a chip that would touch the one before it joins it in a
 cluster (`…4`). Chip widths come from a fixed advance per character, so the
 layout needs no font. Painting and hit testing read the same `MarkerLane`,
 and `marker::press` answers a press for both panel kinds. A chip moves the
-cursor to its marker, and Shift-click removes the marker. A cluster lists its
+cursor to its marker; no modifier removes one, since Shift-click extends
+selections elsewhere. A cluster lists its
 markers on hover and zooms to them on click. A press on the lane between
 chips moves the cursor, as on the header. Each marker's line runs from its
 chip down through the rows.

@@ -15,7 +15,7 @@ use std::time::Duration;
 use web_time::Instant;
 
 use crate::data::text::Radix;
-use crate::document::Marker;
+use crate::marker::Marker;
 use crate::panels::{Layout, Panel, PanelId};
 use crate::table::columns::ColumnSet;
 use crate::transaction::ShownRecord;
@@ -735,7 +735,7 @@ mod tests {
         times
             .iter()
             .map(|&time| Marker {
-                id: time,
+                id: crate::marker::MarkerId::new(time as u32 + 1).unwrap(),
                 time,
                 label: None,
             })

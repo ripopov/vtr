@@ -538,7 +538,7 @@ fn cursor_markers_and_selection_follow_the_document() {
         app.scene().texts().any(|t| t == "1"),
         "marker chip is painted"
     );
-    // Shift-click on the chip removes it.
+    // Shift-click on the chip no longer removes it; ⇧M removes the marker at the cursor.
     let chip = app
         .panels
         .focused_waves()
@@ -559,7 +559,16 @@ fn cursor_markers_and_selection_follow_the_document() {
             },
         },
     ));
+    assert_eq!(app.doc.markers().len(), 1, "Shift-click keeps the marker");
+    app.handle(Command::Action(Action::RemoveMarkerAtCursor));
     assert!(app.doc.markers().is_empty());
+    app.take_events();
+    app.handle(Command::Action(Action::RemoveMarkerAtCursor));
+    assert!(
+        app.take_events()
+            .contains(&Event::Announce("No marker at the cursor".into())),
+        "⇧M with no marker at the cursor says so"
+    );
     // Escape: clear selection first, then cursor.
     app.handle(Command::Action(Action::ClearSelection));
     assert!(app.panels.focused_waves().unwrap().selected.is_empty());

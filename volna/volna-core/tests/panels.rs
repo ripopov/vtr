@@ -123,9 +123,13 @@ fn cursor_links_are_independent_of_view_links_and_markers_use_the_focused_cursor
     app.handle(Command::Action(Action::AddMarker));
     let ids: BTreeSet<_> = app.doc.markers().iter().map(|m| m.id).collect();
     assert_eq!(ids.len(), 2);
-    app.handle(Command::Action(Action::ClearMarkers));
+    app.handle(Command::Action(Action::RemoveAllMarkers));
     app.handle(Command::Action(Action::AddMarker));
-    assert!(!ids.contains(&app.doc.markers()[0].id));
+    assert_eq!(
+        app.doc.markers()[0].id.get(),
+        1,
+        "a new marker takes the lowest free number"
+    );
 }
 
 #[test]

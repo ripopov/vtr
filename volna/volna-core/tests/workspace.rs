@@ -48,8 +48,8 @@ fn complete_round_trip_preserves_layout_rows_links_chrome_and_exact_times() {
         });
     w.scroll_y = 2.5;
     app.doc.shared.cursor = Some(u64::MAX - 1);
-    app.doc.add_marker(u64::MAX - 2);
-    app.doc.set_marker_label(0, Some("interrupt".into()));
+    let id = app.doc.add_marker(u64::MAX - 2).unwrap();
+    app.doc.set_marker_label(id, Some("interrupt".into()));
     app.handle(Command::SetFilter("clock".into()));
     app.handle(Command::Panels(PanelsCommand::Rename(
         app.panels.focused_id(),
@@ -61,8 +61,16 @@ fn complete_round_trip_preserves_layout_rows_links_chrome_and_exact_times() {
     plan.commit(&mut app).unwrap();
     assert_eq!(value(&app), before);
     assert_eq!(app.doc.shared.cursor, Some(u64::MAX - 1));
-    app.doc.add_marker(10);
-    assert_ne!(app.doc.markers()[0].id, app.doc.markers()[1].id);
+    // Restore keeps the saved number; a new marker takes the lowest free one.
+    assert_eq!(app.doc.add_marker(10).map(|id| id.get()), Some(2));
+    assert_eq!(
+        app.doc
+            .markers()
+            .iter()
+            .map(|m| m.id.get())
+            .collect::<Vec<_>>(),
+        [2, 1]
+    );
 }
 
 #[test]
@@ -139,6 +147,9 @@ fn invalid_restores_are_atomic_and_unlinked_null_cursor_is_required() {
     prepare(&original, &app).unwrap().commit(&mut app).unwrap();
     let mut v = original.clone();
     v["shared"]["markers"] = json!([{"id":1,"time":1,"label":null},{"id":1,"time":2,"label":null}]);
+    invalid.push(v);
+    let mut v = original.clone();
+    v["shared"]["markers"] = json!([{"id":0,"time":1,"label":null}]);
     invalid.push(v);
     let mut v = original.clone();
     v["trace"]["path"] = json!("different.vtr");

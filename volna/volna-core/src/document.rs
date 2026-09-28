@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::data::loaded_tracks::{LoadedGenerator, LoadedTrack};
 use crate::data::transactions::{TrackKind, TrackRef, TransactionRef};
 use crate::data::{Hierarchy, NumericKind, SignalRef, Translators};
+use crate::marker::{self, Marker, MarkerId};
 use crate::nav::Tween;
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::wave::analog::AnalogSummary;
@@ -19,13 +20,6 @@ pub enum TraceState {
     Loading { name: String },
     Loaded(Arc<dyn Session>),
     Error(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Marker {
-    pub id: u64,
-    pub time: u64,
-    pub label: Option<String>,
 }
 
 /// The record every panel over the open trace agrees is selected: which
@@ -87,7 +81,6 @@ pub struct Document {
     /// Journaled cockpit state (`docs/undo-redo.html`); read through
     /// [`Document::markers`].
     markers: crate::history::Journaled<Vec<Marker>>,
-    next_marker: u64,
     pub translators: Translators,
     pending: HashSet<SignalRef>,
     requests: Vec<LoadRequest>,
@@ -156,7 +149,6 @@ impl Document {
             shared: Shared::default(),
             navigation: Navigation::default(),
             markers: Default::default(),
-            next_marker: 1,
             translators: Translators::builtin(),
             pending: HashSet::new(),
             requests: Vec::new(),
@@ -677,12 +669,9 @@ impl Document {
 
     // -- cursor and markers ----------------------------------------------------------
 
-    /// Install already validated marker identities, preserving monotonic
-    /// allocation, in time order whatever order the workspace listed them in.
+    /// Install already validated markers, in time order whatever order the
+    /// workspace listed them in.
     pub(crate) fn restore_markers(&mut self, mut markers: Vec<Marker>) {
-        self.next_marker = self
-            .next_marker
-            .max(markers.iter().map(|m| m.id).max().unwrap_or(0) + 1);
         markers.sort_by_key(|m| m.time);
         self.markers.restore(markers);
     }
@@ -693,37 +682,45 @@ impl Document {
         &self.markers
     }
 
-    pub fn add_marker(&mut self, c: u64) -> bool {
-        if self.markers.iter().any(|m| m.time == c) {
-            return false;
+    /// Mark `time` with the lowest free number; `None` when a marker is
+    /// already there.
+    pub fn add_marker(&mut self, time: u64) -> Option<MarkerId> {
+        if marker::at(&self.markers, time).is_some() {
+            return None;
         }
-        let Some(next) = self.next_marker.checked_add(1) else {
-            return false;
-        };
-        let id = self.next_marker;
-        self.next_marker = next;
+        let id = marker::free_id(&self.markers)?;
+        let ix = self.markers.partition_point(|m| m.time < time);
         self.markers.update(|markers| {
-            markers.push(Marker {
-                id,
-                time: c,
-                label: None,
-            });
-            markers.sort_by_key(|m| m.time);
-        })
+            markers.insert(
+                ix,
+                Marker {
+                    id,
+                    time,
+                    label: None,
+                },
+            )
+        });
+        Some(id)
     }
 
-    pub fn clear_markers(&mut self) -> bool {
+    pub fn remove_marker(&mut self, id: MarkerId) -> bool {
+        match self.markers.iter().position(|m| m.id == id) {
+            Some(ix) => self.markers.update(|markers| _ = markers.remove(ix)),
+            None => false,
+        }
+    }
+
+    pub fn remove_all_markers(&mut self) -> bool {
         self.markers.set(Vec::new())
     }
 
-    pub fn remove_marker(&mut self, ix: usize) -> bool {
-        ix < self.markers.len() && self.markers.update(|markers| _ = markers.remove(ix))
-    }
-
-    /// Name marker `ix`, or clear its name with `None`.
-    pub fn set_marker_label(&mut self, ix: usize, label: Option<String>) -> bool {
+    /// Name marker `id`, or clear its name with `None`.
+    pub fn set_marker_label(&mut self, id: MarkerId, label: Option<String>) -> bool {
         let label = label.filter(|l| !l.trim().is_empty());
-        ix < self.markers.len() && self.markers.update(|markers| markers[ix].label = label)
+        match self.markers.iter().position(|m| m.id == id) {
+            Some(ix) => self.markers.update(|markers| markers[ix].label = label),
+            None => false,
+        }
     }
 
     /// Hand the markers before the edits since the last call to the undo
@@ -732,11 +729,20 @@ impl Document {
         let Some(before) = self.markers.take_before() else {
             return;
         };
-        let count = |n| crate::history::count(n, "marker", "markers");
+        // The one marker in `a` that `b` lacks.
+        let only = |a: &[Marker], b: &[Marker]| {
+            a.iter()
+                .find(|m| !b.iter().any(|n| n.id == m.id))
+                .map(|m| m.id)
+        };
         let label = match (before.len(), self.markers.len()) {
-            (b, a) if a == b + 1 => "Add marker".into(),
-            (b, a) if a + 1 == b => "Remove marker".into(),
-            (b, 0) => format!("Clear {}", count(b)),
+            (b, a) if a == b + 1 => only(&self.markers, &before)
+                .map_or_else(|| "Add marker".into(), |id| format!("Add marker {id}")),
+            (b, a) if a + 1 == b => only(&before, &self.markers).map_or_else(
+                || "Remove marker".into(),
+                |id| format!("Remove marker {id}"),
+            ),
+            (_, 0) => "Remove all markers".into(),
             _ => "Change markers".into(),
         };
         history.record(crate::history::Edit::Markers(before), Some(label));
@@ -744,9 +750,6 @@ impl Document {
 
     /// Install markers while undoing or redoing; returns the replaced ones.
     pub(crate) fn swap_markers(&mut self, markers: Vec<Marker>) -> Vec<Marker> {
-        self.next_marker = self
-            .next_marker
-            .max(markers.iter().map(|m| m.id).max().unwrap_or(0) + 1);
         self.markers.swap(markers)
     }
 }

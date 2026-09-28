@@ -1,6 +1,6 @@
 //! Compare only the persistent fields an input can touch. In particular pointer
 //! motion never walks signal rows or serializes a workspace.
-use crate::document::Marker;
+use crate::marker::Marker;
 use crate::panels::PanelId;
 use crate::pipeline::RowView;
 use crate::wave::{

@@ -1115,15 +1115,23 @@ fn the_markers_lane_is_the_same_in_wave_and_pipeline_panels() {
         assert_eq!(texts(&marker_lane(&mut app, id, &theme)), ["1", "2", "3"]);
     }
 
-    // Shift-click removes a marker; a click beside the chips moves the cursor like the header.
+    // Shift-click only goes to the marker; ⇧M then removes the one at the
+    // cursor. A click beside the chips moves the cursor like the header.
     let lane = marker_lane(&mut app, pipeline, &theme);
     let shift = Modifiers {
         shift: true,
         ..Default::default()
     };
     press(&mut app, pipeline, centre(lane.chips[1].rect), shift);
+    assert_eq!(app.doc.markers().len(), 4);
+    assert_eq!(app.doc.shared.cursor, Some(near + 1));
+    app.handle(Command::Action(Action::RemoveMarkerAtCursor));
     assert_eq!(
-        app.doc.markers().iter().map(|m| m.id).collect::<Vec<_>>(),
+        app.doc
+            .markers()
+            .iter()
+            .map(|m| m.id.get())
+            .collect::<Vec<_>>(),
         [1, 3, 4]
     );
     let lane = marker_lane(&mut app, waves, &theme);

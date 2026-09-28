@@ -16,7 +16,7 @@ use crate::wave::{
     tree::{self, Entry},
     viewport::Viewport,
 };
-use crate::{App, data::source::Lookup, data::transactions::TrackKind, document::Marker};
+use crate::{App, data::source::Lookup, data::transactions::TrackKind, marker::Marker};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -617,10 +617,8 @@ impl Workspace {
         valid_viewport(self.shared.viewport)?;
         let mut marker_ids = HashSet::new();
         for m in &self.shared.markers {
-            ensure!(
-                m.id > 0 && m.id < u64::MAX && marker_ids.insert(m.id),
-                "invalid or duplicate marker ID"
-            );
+            // Numbers are positive by type; a zero fails to parse.
+            ensure!(marker_ids.insert(m.id), "duplicate marker ID");
         }
         ensure!(
             self.sidebar.width.is_finite() && self.sidebar.width > 0.0,

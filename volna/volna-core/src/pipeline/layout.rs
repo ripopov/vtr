@@ -7,8 +7,8 @@
 use std::ops::Range;
 
 use super::rows::RowView;
-use crate::document::Marker;
 use crate::geometry::{Point, Rect, point, size};
+use crate::marker::Marker;
 use crate::wave::overlay::{LANE_H, MarkerLane, marker_lane};
 use crate::wave::viewport::Viewport;
 
@@ -197,7 +197,7 @@ mod tests {
             rows: RowView { top: 3.0, row_px },
             row_count: rows,
             markers: &[Marker {
-                id: 1,
+                id: crate::marker::MarkerId::new(1).unwrap(),
                 time: 50,
                 label: None,
             }],
