@@ -93,7 +93,7 @@ actions!(
         PanRight,
         NextEdge,
         PrevEdge,
-        AddMarker,
+        AddOrRenameMarker,
         RemoveMarkerAtCursor,
         RemoveAllMarkers,
         NextMarker,
@@ -189,7 +189,8 @@ pub struct Workspace {
     pub(crate) frame_view: crate::frame_stats::FrameView,
     /// Mirrors the focused wave panel's menu.
     wave_menu: Option<HostedWaveMenu>,
-    /// The name editor over the group the focused wave panel renames.
+    /// The text field over what the core edits (`App::text_edit`): a group
+    /// or marker name.
     pub(crate) rename: Option<HostedRename>,
     /// Display list buffer and shaped-text cache, reused across frames.
     pub(crate) scene: Scene,
@@ -206,8 +207,7 @@ pub struct Workspace {
 }
 
 pub(crate) struct HostedRename {
-    panel: volna_core::panels::PanelId,
-    entry: usize,
+    target: volna_core::app::EditTarget,
     pub(crate) input: Entity<TextInput>,
     _subscription: gpui_kit::Subscription,
 }
@@ -369,7 +369,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("right", PanRight, Some("Waves")),
         KeyBinding::new("shift-right", NextEdge, Some("Waves")),
         KeyBinding::new("shift-left", PrevEdge, Some("Waves")),
-        KeyBinding::new("m", AddMarker, Some("Waves")),
+        KeyBinding::new("m", AddOrRenameMarker, Some("Waves")),
         KeyBinding::new("shift-m", RemoveMarkerAtCursor, Some("Waves")),
         // Bare keys: the table's row field lives in its panel, so not there.
         // Other text fields are hosted outside the panels' key context.
@@ -912,24 +912,18 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Keep the name editor in step with the core's group rename: open it
-    /// with the group's name and focus it, and when the core finishes or
-    /// cancels, close it and give the keys back to the panel.
+    /// Keep the text field in step with the core's text edit (a group or
+    /// marker name): open it with its text and focus it, and when the core
+    /// finishes or cancels, close it and give the keys back to the panel.
     fn sync_rename(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
         let panel = self.app.panels.focused_id();
-        // Focus moved to another panel: keep the name typed so far.
-        if let Some(h) = self.rename.as_ref().filter(|h| h.panel != panel) {
-            let name = h.input.read(cx).text().to_owned();
-            self.app.handle(Command::RenameGroup(h.panel, Some(name)));
+        // Focus moved to another panel: keep the text typed so far.
+        if let Some(h) = self.rename.as_ref().filter(|h| h.target.panel() != panel) {
+            let text = h.input.read(cx).text().to_owned();
+            self.app.handle(Command::CommitText(h.target, Some(text)));
         }
-        let want = self
-            .app
-            .panels
-            .focused_waves()
-            .and_then(|w| Some((w.rename?, w.items().get(w.rename?)?.name().to_owned())));
-        if self.rename.as_ref().map(|h| (h.panel, h.entry))
-            == want.as_ref().map(|(entry, _)| (panel, *entry))
-        {
+        let want = self.app.text_edit();
+        if self.rename.as_ref().map(|h| h.target) == want.as_ref().map(|e| e.target) {
             return;
         }
         let Some(window) = window else { return };
@@ -942,27 +936,30 @@ impl Workspace {
             window.focus(&focus, cx);
             cx.notify();
         }
-        let Some((entry, name)) = want else { return };
+        let Some(edit) = want else { return };
         let input = cx.new(|cx| {
-            let mut input = TextInput::new("Group name", cx).plain();
-            input.set_text(name, cx);
-            // Typing replaces the name; Enter keeps it.
-            input.select_all(cx);
+            let mut input = TextInput::new(edit.label.clone(), cx).plain();
+            input.set_text(edit.text.clone(), cx);
+            // Typing replaces the text; Enter keeps it.
+            if edit.select_all {
+                input.select_all(cx);
+            }
             input
         });
         let generation = self.app.doc.generation();
+        let target = edit.target;
         let subscription = cx.subscribe_in(
             &input,
             window,
             move |this, input, event: &TextInputEvent, window, cx| {
-                let name = match event {
+                let text = match event {
                     TextInputEvent::Submit => Some(input.read(cx).text().to_owned()),
                     TextInputEvent::Cancel => None,
                     TextInputEvent::Changed => return,
                 };
                 this.dispatch_if_current(
                     generation,
-                    Command::RenameGroup(panel, name),
+                    Command::CommitText(target, text),
                     Some(window),
                     cx,
                 );
@@ -970,18 +967,17 @@ impl Workspace {
         );
         window.focus(&input.read(cx).focus_handle(cx), cx);
         self.rename = Some(HostedRename {
-            panel,
-            entry,
+            target,
             input,
             _subscription: subscription,
         });
         cx.notify();
     }
 
-    /// A press elsewhere ends a rename by keeping the typed name.
+    /// A press elsewhere ends an edit by keeping the typed text.
     pub(crate) fn commit_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(h) = &self.rename {
-            let command = Command::RenameGroup(h.panel, Some(h.input.read(cx).text().to_owned()));
+            let command = Command::CommitText(h.target, Some(h.input.read(cx).text().to_owned()));
             self.dispatch(command, Some(window), cx);
         }
     }
@@ -1529,7 +1525,7 @@ impl Workspace {
                 PanRight,
                 NextEdge,
                 PrevEdge,
-                AddMarker,
+                AddOrRenameMarker,
                 RemoveMarkerAtCursor,
                 RemoveAllMarkers,
                 NextMarker,
@@ -1892,21 +1888,26 @@ impl Workspace {
 }
 
 impl Workspace {
-    /// The name editor, laid over the renamed group's name.
+    /// The text field, laid over the renamed group's name or marker's chip.
     fn render_rename(&self) -> Option<impl IntoElement> {
         let hosted = self.rename.as_ref()?;
         let rect = self
             .app
-            .panels
-            .waves(hosted.panel)
-            .and_then(|w| w.rename_rect())?;
+            .text_edit()
+            .filter(|e| e.target == hosted.target)?
+            .rect?;
+        let id = match hosted.target {
+            volna_core::app::EditTarget::Group { .. } => "group-rename",
+            volna_core::app::EditTarget::Marker { .. } => "marker-name",
+        };
         Some(
             deferred(
                 anchored()
                     .position(point(px(rect.left()), px(rect.top())))
                     .child(
                         div()
-                            .id("group-rename")
+                            .id(id)
+                            .debug_selector(move || id.into())
                             .w(px(rect.width()))
                             .h(px(rect.height()))
                             .child(hosted.input.clone()),

@@ -109,7 +109,7 @@ fn cursor_links_are_independent_of_view_links_and_markers_use_the_focused_cursor
         .waves_mut(b)
         .unwrap()
         .set_cursor(&mut app.doc, Some((1 << 54) + 1));
-    app.handle(Command::Action(Action::AddMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
     assert_eq!(app.doc.markers()[0].time, (1 << 54) + 1);
     assert_eq!(app.panels.waves(a).unwrap().cursor(&app.doc), Some(1 << 54));
     panel(
@@ -120,11 +120,11 @@ fn cursor_links_are_independent_of_view_links_and_markers_use_the_focused_cursor
         },
     );
     assert_eq!(app.panels.waves(b).unwrap().cursor(&app.doc), Some(1 << 54));
-    app.handle(Command::Action(Action::AddMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
     let ids: BTreeSet<_> = app.doc.markers().iter().map(|m| m.id).collect();
     assert_eq!(ids.len(), 2);
     app.handle(Command::Action(Action::RemoveAllMarkers));
-    app.handle(Command::Action(Action::AddMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
     assert_eq!(
         app.doc.markers()[0].id.get(),
         1,

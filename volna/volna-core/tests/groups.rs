@@ -236,13 +236,19 @@ fn view(app: &mut App, id: PanelId, start: f64, end: f64) {
 }
 
 /// clk, rst_n, [AXI: awvalid, wdata, bvalid, [Read: rvalid, rdata]], pc.
+/// Answer the open name field, as the frontend does with the typed text.
+fn commit_name(app: &mut App, text: &str) {
+    let target = app.text_edit().expect("a name field is open").target;
+    app.handle(Command::CommitText(target, Some(text.into())));
+}
+
 fn grouped(app: &mut App, id: PanelId) {
     select(app, id, &[5, 6]);
     app.handle(Command::Action(Action::GroupSelection));
-    app.handle(Command::RenameGroup(id, Some("Read".into())));
+    commit_name(app, "Read");
     select(app, id, &[2, 3, 4, 5]);
     app.handle(Command::Action(Action::GroupSelection));
-    app.handle(Command::RenameGroup(id, Some("AXI".into())));
+    commit_name(app, "AXI");
     frame(app, id);
     assert_eq!(
         outline(app, id),
@@ -287,11 +293,11 @@ fn g_groups_the_selection_in_place_and_starts_renaming_it() {
     assert!(!texts(frame(&mut app, id)).contains(&"Group 1"));
 
     // Enter commits, an empty name or Escape keeps the old one.
-    app.handle(Command::RenameGroup(id, Some("  Write  ".into())));
+    commit_name(&mut app, "  Write  ");
     assert_eq!(waves(&app, id).items()[3].name(), "Write");
     assert_eq!(waves(&app, id).rename, None);
     app.handle(Command::Action(Action::RenameGroup));
-    app.handle(Command::RenameGroup(id, Some("   ".into())));
+    commit_name(&mut app, "   ");
     assert_eq!(waves(&app, id).items()[3].name(), "Write");
     app.handle(Command::Action(Action::RenameGroup));
     app.handle(Command::Action(Action::ClearSelection));
@@ -780,7 +786,7 @@ fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
     grouped(&mut app, id);
     select(&mut app, id, &[2]);
     app.handle(Command::Action(Action::RenameGroup));
-    app.handle(Command::RenameGroup(id, Some("AXI master".into())));
+    commit_name(&mut app, "AXI master");
     app.handle(Command::Action(Action::IncreaseRowHeight));
     select(&mut app, id, &[7]);
     app.handle(Command::Action(Action::IncreaseRowHeight));

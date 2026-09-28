@@ -64,7 +64,7 @@ fn scene(app: &mut App) -> Scene {
     ];
     for t in at {
         app.doc.shared.cursor = Some(t);
-        app.handle(Command::Action(Action::AddMarker));
+        app.handle(Command::Action(Action::AddOrRenameMarker));
     }
     assert_eq!(app.doc.markers().len(), 4);
     let view = Viewport {
@@ -297,4 +297,167 @@ fn hosts_reach_the_walk_by_name() {
     );
     assert_eq!(named("goToMarker0"), None);
     assert_eq!(named("goToMarker"), None);
+}
+
+fn frame(app: &mut App) -> &volna_core::Scene {
+    let theme = volna_core::Theme::one_dark();
+    let id = app.panels.focused_id();
+    app.layout_panel(
+        id,
+        volna_core::geometry::Rect::from_xywh(0.0, 0.0, 1200.0, 600.0),
+        &theme,
+    );
+    app.render_panel(id, &theme, &mut volna_core::scene::MonoMeasure)
+}
+
+fn lane(app: &App) -> volna_core::wave::overlay::MarkerLane {
+    app.panels
+        .focused()
+        .kind
+        .marker_lane()
+        .expect("a timed panel")
+        .clone()
+}
+
+#[test]
+fn m_on_a_marker_opens_its_name_field_and_the_chip_grows_to_the_name() {
+    use volna_core::app::EditTarget;
+    let mut app = app();
+    let s = scene(&mut app);
+    let panel = app.panels.focused_id();
+    assert_eq!(app.text_edit(), None);
+
+    app.doc.shared.cursor = Some(s.at[1]);
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    assert_eq!(
+        app.doc.markers().len(),
+        4,
+        "no second marker at the same time"
+    );
+    frame(&mut app);
+    let edit = app.text_edit().expect("the name field is open");
+    assert_eq!(edit.target, EditTarget::Marker { panel, id: id(2) });
+    assert_eq!((edit.text.as_str(), edit.select_all), ("", true));
+    // Over the chip, after its number, inside the lane.
+    let l = lane(&app);
+    let chip = l.chips.iter().find(|c| c.markers.contains(&1)).unwrap();
+    let rect = edit.rect.expect("the chip is in view");
+    assert!(rect.left() > chip.rect.left() && rect.left() <= chip.rect.right());
+    assert!(rect.top() >= l.band.top() && rect.bottom() <= l.band.bottom());
+    assert!(rect.right() <= l.band.right());
+
+    app.handle(Command::CommitText(edit.target, Some("  req B  ".into())));
+    assert_eq!(app.text_edit(), None);
+    assert_eq!(app.doc.markers()[1].label.as_deref(), Some("req B"));
+    assert_eq!(app.undo_label(), Some("Rename marker 2"));
+    frame(&mut app);
+    let chip = lane(&app)
+        .chips
+        .into_iter()
+        .find(|c| c.markers.contains(&1))
+        .unwrap();
+    assert_eq!(chip.text, "2 req B");
+
+    // Opening again starts with the name; cancelling keeps it, and an
+    // empty name returns the chip to its number.
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    let edit = app.text_edit().unwrap();
+    assert_eq!(edit.text, "req B");
+    app.handle(Command::CommitText(edit.target, None));
+    assert_eq!(app.doc.markers()[1].label.as_deref(), Some("req B"));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    let target = app.text_edit().unwrap().target;
+    app.handle(Command::CommitText(target, Some("   ".into())));
+    assert_eq!(app.doc.markers()[1].label, None);
+    frame(&mut app);
+    let chip = lane(&app)
+        .chips
+        .into_iter()
+        .find(|c| c.markers.contains(&1))
+        .unwrap();
+    assert_eq!(chip.text, "2");
+
+    // A stale answer is ignored.
+    app.handle(Command::CommitText(target, Some("late".into())));
+    assert_eq!(app.doc.markers()[1].label, None);
+}
+
+#[test]
+fn a_key_that_reaches_the_panel_closes_the_name_field_without_renaming() {
+    let mut app = app();
+    let s = scene(&mut app);
+    app.doc.shared.cursor = Some(s.at[0]);
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    let target = app.text_edit().unwrap().target;
+    app.handle(Command::Action(Action::ZoomIn));
+    assert_eq!(app.text_edit(), None);
+    app.handle(Command::CommitText(target, Some("x".into())));
+    assert_eq!(app.doc.markers()[0].label, None);
+}
+
+#[test]
+fn renaming_by_chip_reveals_the_marker_and_follows_panel_focus() {
+    use volna_core::app::EditTarget;
+    let mut app = app();
+    let s = scene(&mut app);
+    let a = app.panels.focused_id();
+    // Marker 3 is off the view: naming it pans there, keeping the zoom.
+    app.handle(Command::RenameMarker(a, id(3)));
+    assert!(centred_on(view(&app), s.at[2]) && same_width(view(&app), s.view));
+    app.tick(Instant::now() + std::time::Duration::from_secs(5));
+    frame(&mut app);
+    assert!(app.text_edit().unwrap().rect.is_some());
+    // The field belongs to its panel: another focused panel shows none.
+    app.handle(Command::Panels(PanelsCommand::Split {
+        panel: a,
+        axis: Axis::Vertical,
+    }));
+    assert_eq!(app.text_edit(), None);
+    app.handle(Command::Panels(PanelsCommand::Focus(a)));
+    let edit = app.text_edit().unwrap();
+    assert_eq!(
+        edit.target,
+        EditTarget::Marker {
+            panel: a,
+            id: id(3)
+        }
+    );
+    app.handle(Command::CommitText(edit.target, Some("irq".into())));
+    assert_eq!(app.doc.markers()[3].label.as_deref(), Some("irq"));
+    // Removing the marker closes a field open on it.
+    app.handle(Command::RenameMarker(a, id(1)));
+    assert!(app.text_edit().is_some());
+    assert!(app.doc.remove_marker(id(1)));
+    assert_eq!(app.text_edit(), None);
+}
+
+#[test]
+fn the_tooltip_of_a_chip_has_the_full_name() {
+    use volna_core::geometry::point;
+    use volna_core::wave::PointerEvent;
+    let mut app = app();
+    let s = scene(&mut app);
+    let long = "the first beat of the read burst on AXI";
+    assert!(app.doc.rename_marker(id(1), long));
+    // Zoomed out, marker 2 is close enough that the name is cut before it.
+    app.doc.shared.viewport.set(Viewport {
+        start: s.view.start,
+        end: s.view.start + s.view.width() * 4.0,
+    });
+    frame(&mut app);
+    let chip = lane(&app).chips[0].clone();
+    assert!(
+        chip.text.starts_with("1 the") && chip.text.ends_with('…'),
+        "{}",
+        chip.text
+    );
+    assert!(!frame(&mut app).texts().any(|t| t == long));
+    let p = point(chip.rect.left() + 4.0, chip.rect.top() + 4.0);
+    app.handle(Command::Pointer(
+        app.panels.focused_id(),
+        PointerEvent::Move { position: p },
+    ));
+    let texts: Vec<String> = frame(&mut app).texts().map(str::to_owned).collect();
+    assert!(texts.iter().any(|t| t == "Marker 1"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == long), "{texts:?}");
 }

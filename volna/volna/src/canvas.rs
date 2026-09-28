@@ -574,7 +574,37 @@ impl PanelCanvas {
                     .waves(panel)
                     .and_then(|w| w.group_name_at(cpoint(ev.position)))
                     .is_some();
+                // A second click on a marker's chip names it.
+                let chip_marker = {
+                    let app = &ws.read(cx).app;
+                    match app
+                        .panels
+                        .get(panel)
+                        .and_then(|p| p.kind.marker_lane())
+                        .and_then(|lane| lane.hit(cpoint(ev.position)))
+                    {
+                        Some(volna_core::marker::LaneHit::Chip(ix)) => {
+                            app.doc.markers().get(ix).map(|m| m.id)
+                        }
+                        _ => None,
+                    }
+                };
                 if ev.click_count >= 2
+                    && button == volna_core::geometry::MouseButton::Left
+                    && let Some(id) = chip_marker
+                {
+                    ws.update(cx, |ws, cx| {
+                        ws.dispatch_if_current(
+                            generation,
+                            Command::RenameMarker(panel, id),
+                            Some(window),
+                            cx,
+                        )
+                    });
+                    // The field now has the keys; the panel's own
+                    // focus-on-press must not take them back.
+                    window.prevent_default();
+                } else if ev.click_count >= 2
                     && button == volna_core::geometry::MouseButton::Left
                     && group_name
                 {
@@ -586,6 +616,9 @@ impl PanelCanvas {
                             cx,
                         )
                     });
+                    // The field now has the keys; the panel's own
+                    // focus-on-press must not take them back.
+                    window.prevent_default();
                 } else if ev.click_count >= 2
                     && button == volna_core::geometry::MouseButton::Left
                     && selects

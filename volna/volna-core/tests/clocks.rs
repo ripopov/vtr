@@ -329,7 +329,7 @@ fn the_status_bar_reads_cycles_and_the_cursor_to_marker_delta() {
     frame(&mut app, panel, &theme);
     let edges = core_edges();
     app.doc.shared.cursor = Some(edges[10]);
-    app.handle(Command::Action(Action::AddMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
     app.doc.shared.cursor = Some(edges[50] + 167);
     let s = app.status();
     assert_eq!(s.clocks, ["core_clk 50 + 0.50", "bus_clk 8 + 0.13"]);

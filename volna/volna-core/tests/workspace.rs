@@ -49,7 +49,7 @@ fn complete_round_trip_preserves_layout_rows_links_chrome_and_exact_times() {
     w.scroll_y = 2.5;
     app.doc.shared.cursor = Some(u64::MAX - 1);
     let id = app.doc.add_marker(u64::MAX - 2).unwrap();
-    app.doc.set_marker_label(id, Some("interrupt".into()));
+    app.doc.rename_marker(id, "interrupt");
     app.handle(Command::SetFilter("clock".into()));
     app.handle(Command::Panels(PanelsCommand::Rename(
         app.panels.focused_id(),

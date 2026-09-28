@@ -28,9 +28,14 @@ pub const CHIP_H: f32 = 16.0;
 const CHIP_PAD: f32 = 5.0;
 /// Chips closer than this at zoom 1.0 merge into a cluster.
 const CHIP_GAP: f32 = 3.0;
-/// Advance of one chip character at zoom 1.0. Chips hold digits and `…`,
-/// whose semibold UI glyphs are about this wide; the layout needs no font.
+/// Advance of a digit or `…` in a chip at zoom 1.0: the semibold UI glyphs
+/// are about this wide. Names use [`chip_char_w`]; the layout needs no font.
 const CHIP_CHAR_W: f32 = 7.0;
+/// A shortened name keeps at least this many characters, or the chip shows
+/// only the number.
+const NAME_MIN_CHARS: usize = 3;
+/// Width of a marker's name field at zoom 1.0, unless the lane ends sooner.
+const NAME_FIELD_W: f32 = 180.0;
 /// The grab area of a chip reaches this far past its left and right edges
 /// at zoom 1.0, because a thin flag at the edge of a busy lane is a small
 /// target.
@@ -268,6 +273,41 @@ pub fn clock_rulers(
     }
 }
 
+/// Estimated advance of `c` in the chip font at zoom 1.0, by glyph class of
+/// a proportional semibold UI face at 11 px. Estimates keep the layout
+/// font-free; the painter trims a name whose measured text is wider.
+fn chip_char_w(c: char) -> f32 {
+    match c {
+        '0'..='9' | '…' => CHIP_CHAR_W,
+        'i' | 'l' | 'j' | '\'' | '.' | ',' | ':' | ';' | '|' | '!' => 3.3,
+        'f' | 't' | 'r' | ' ' | 'I' | '(' | ')' | '[' | ']' | '-' | '/' => 4.4,
+        'm' | 'w' | 'M' | 'W' => 9.9,
+        'A'..='Z' => 7.7,
+        c if c.is_ascii() => 6.4,
+        _ => 11.0,
+    }
+}
+
+/// Estimated width of a chip holding `text` at zoom 1.0, padding included.
+fn chip_w(text: &str) -> f32 {
+    text.chars().map(chip_char_w).sum::<f32>() + 2.0 * CHIP_PAD
+}
+
+/// The chip text for marker `id` named `name` in `room` design pixels: the
+/// number and the whole name, else the number and the name cut to at least
+/// [`NAME_MIN_CHARS`] characters and `…`, else `None` (the number alone).
+fn fit_name(id: crate::marker::MarkerId, name: &str, room: f32) -> Option<String> {
+    let full = format!("{id} {name}");
+    if chip_w(&full) <= room {
+        return Some(full);
+    }
+    let cuts: Vec<usize> = name.char_indices().map(|(i, _)| i).collect();
+    (NAME_MIN_CHARS..cuts.len())
+        .rev()
+        .map(|n| format!("{id} {}…", name[..cuts[n]].trim_end()))
+        .find(|text| chip_w(text) <= room)
+}
+
 /// One chip on the Markers lane: a single marker, or a cluster of markers
 /// too close together to draw apart at this zoom.
 #[derive(Clone, Debug, PartialEq)]
@@ -276,7 +316,8 @@ pub struct MarkerChip {
     pub markers: Range<usize>,
     /// Its left edge is the first marker's time.
     pub rect: Rect,
-    /// The marker's number, or `…` and the count of a cluster.
+    /// The marker's number and as much of its name as fits, or `…` and the
+    /// count of a cluster.
     pub text: String,
 }
 
@@ -313,6 +354,25 @@ impl MarkerLane {
             .position(|c| p.x >= c.rect.left() - left && p.x <= c.rect.right() + right)
     }
 
+    /// Where the name field of marker `ix` (an index into the markers)
+    /// sits: over its chip, after the number, reaching [`NAME_FIELD_W`] or
+    /// the chip's end, cut at the lane's end. `None` while the marker is
+    /// off the view.
+    pub fn name_field(&self, ix: usize, id: crate::marker::MarkerId) -> Option<Rect> {
+        let chip = self.chips.iter().find(|c| c.markers.contains(&ix))?;
+        let z = |v: f32| v * self.zoom;
+        let left = chip.rect.left() + z(chip_w(&id.to_string()));
+        let right = (left + z(NAME_FIELD_W))
+            .max(chip.rect.right())
+            .min(self.band.right());
+        (right > left).then(|| {
+            Rect::new(
+                point(left, self.band.top() + 1.0),
+                size(right - left, (self.band.height() - 2.0).max(0.0)),
+            )
+        })
+    }
+
     /// What `p` is over on the lane.
     pub fn hit(&self, p: Point) -> Option<LaneHit> {
         let chip = &self.chips[self.chip_at(p)?];
@@ -328,7 +388,8 @@ impl MarkerLane {
 /// and is `width_px` wide. One pass over the markers inside the viewport,
 /// found by binary search in the time-sorted list: each gets a chip with its
 /// number, and a chip that would touch the one before it joins it in a
-/// cluster.
+/// cluster. Then each named marker's chip grows to its name, or a shortened
+/// one, where the gap to the next chip or the lane's end allows.
 pub fn marker_lane(
     band: Rect,
     time_left: f32,
@@ -342,7 +403,7 @@ pub fn marker_lane(
     let last = first + markers[first..].partition_point(|m| (m.time as f64) <= viewport.end);
     let chip_h = z(CHIP_H);
     let top = snap(band.top() + (band.height() - chip_h) / 2.0);
-    let width = |text: &str| text.chars().count() as f32 * z(CHIP_CHAR_W) + z(2.0 * CHIP_PAD);
+    let width = |text: &str| z(chip_w(text));
     let mut chips: Vec<MarkerChip> = Vec::new();
     for (ix, m) in markers.iter().enumerate().take(last).skip(first) {
         let x = snap(time_left + viewport.x_of(m.time as f64, width_px) as f32);
@@ -361,6 +422,24 @@ pub fn marker_lane(
                     text,
                 });
             }
+        }
+    }
+    for k in 0..chips.len() {
+        let chip = &chips[k];
+        if chip.is_cluster() {
+            continue;
+        }
+        let m = &markers[chip.markers.start];
+        let Some(name) = m.label.as_deref() else {
+            continue;
+        };
+        let end = chips
+            .get(k + 1)
+            .map_or(band.right(), |next| next.rect.left() - z(CHIP_GAP));
+        if let Some(text) = fit_name(m.id, name, (end - chip.rect.left()) / zoom) {
+            let chip = &mut chips[k];
+            chip.rect = Rect::new(chip.rect.origin, size(width(&text), chip_h));
+            chip.text = text;
         }
     }
     MarkerLane {
@@ -582,8 +661,8 @@ pub fn marker_lane_paint(
                 (c.background, c.text)
             }
         };
-        let w = p.width(&chip.text, FontRole::UiSemibold, t.ui_size_small);
-        chips.push((chip.rect, chip.text.clone(), w, bg, fg));
+        let (text, w) = fit_chip_text(p, &chip.text, chip.rect.width() - z(2.0 * CHIP_PAD));
+        chips.push((chip.rect, text, w, bg, fg));
     }
     p.scene.clipped(time_band, |scene| {
         for (rect, text, w, bg, fg) in chips {
@@ -602,17 +681,41 @@ pub fn marker_lane_paint(
     for chip in &lane.chips {
         p.scene.cursors.push((chip.rect, CursorIcon::PointingHand));
     }
-    if let (Some(i), Some(mp)) = (hovered, pointer)
-        && lane.chips[i].is_cluster()
-    {
-        cluster_tooltip(p, column, &markers[lane.chips[i].markers.clone()], doc, mp);
+    if let (Some(i), Some(mp)) = (hovered, pointer) {
+        let under = &markers[lane.chips[i].markers.clone()];
+        let header = match under {
+            [one] => format!("Marker {}", one.id),
+            many => format!("{} markers · click to zoom in", many.len()),
+        };
+        marker_tooltip(p, column, header, under, doc, mp);
     }
 }
 
-/// The markers of a hovered cluster, each with its time.
-fn cluster_tooltip(
+/// `text` as measured, or shortened with `…` until it fits `max` pixels:
+/// the layout's width estimates can fall short of the real font.
+fn fit_chip_text(p: &mut TextPainter<'_>, text: &str, max: f32) -> (String, f32) {
+    let size = p.theme.ui_size_small;
+    let w = p.width(text, FontRole::UiSemibold, size);
+    if w <= max {
+        return (text.to_owned(), w);
+    }
+    let base = text.strip_suffix('…').unwrap_or(text);
+    let cuts: Vec<usize> = base.char_indices().map(|(i, _)| i).collect();
+    for &cut in cuts.iter().rev() {
+        let shorter = format!("{}…", base[..cut].trim_end());
+        let w = p.width(&shorter, FontRole::UiSemibold, size);
+        if w <= max {
+            return (shorter, w);
+        }
+    }
+    (text.to_owned(), w)
+}
+
+/// The markers under a hovered chip, each with its full name and time.
+fn marker_tooltip(
     p: &mut TextPainter<'_>,
     column: &TimeColumn,
+    header: String,
     markers: &[Marker],
     doc: &Document,
     pointer: Point,
@@ -620,10 +723,16 @@ fn cluster_tooltip(
     let t = p.theme;
     let z = |v: f32| v * t.zoom;
     let base = doc.time_base();
+    let name = |m: &Marker| match (&m.label, markers.len()) {
+        (Some(label), 1) => label.clone(),
+        (Some(label), _) => format!("{} {label}", m.id),
+        (None, 1) => "No name".into(),
+        (None, _) => format!("Marker {}", m.id),
+    };
     let mut lines: Vec<(String, String)> = markers
         .iter()
         .take(CLUSTER_LIST)
-        .map(|m| (format!("Marker {}", m.id), format_time(m.time as f64, base)))
+        .map(|m| (name(m), format_time(m.time as f64, base)))
         .collect();
     if markers.len() > CLUSTER_LIST {
         lines.push((
@@ -631,7 +740,6 @@ fn cluster_tooltip(
             String::new(),
         ));
     }
-    let header = format!("{} markers · click to zoom in", markers.len());
     let line_h = z(18.0);
     let mut name_w: f32 = 0.0;
     let mut time_w: f32 = 0.0;
@@ -783,7 +891,14 @@ mod tests {
             let mut times: Vec<u64> = (0..1 + rnd(80)).map(|_| rnd(100_000)).collect();
             times.sort_unstable();
             times.dedup();
-            let markers = at(&times);
+            let mut markers = at(&times);
+            for m in &mut markers {
+                m.label = match rnd(3) {
+                    0 => None,
+                    1 => Some("irq".into()),
+                    _ => Some("the first beat of the read burst".into()),
+                };
+            }
             let start = rnd(80_000) as f64;
             let viewport = Viewport {
                 start,
@@ -816,14 +931,94 @@ mod tests {
             }
             for c in &l.chips {
                 assert!(l.band.contains(c.rect.origin) && c.rect.bottom() <= l.band.bottom());
-                let text = if c.is_cluster() {
-                    format!("…{}", c.markers.len())
+                // Only a name must fit the lane; a number chip at its end may overhang.
+                assert!(
+                    c.rect.right() <= l.band.right() + 0.01 || !c.text.contains(' '),
+                    "trial {trial}: {c:?}"
+                );
+                if c.is_cluster() {
+                    assert_eq!(c.text, format!("…{}", c.markers.len()));
                 } else {
-                    markers[c.markers.start].id.to_string()
-                };
-                assert_eq!(c.text, text);
+                    let m = &markers[c.markers.start];
+                    let number = m.id.to_string();
+                    let name = c.text.strip_prefix(&number).unwrap();
+                    assert!(name.is_empty() || m.label.is_some(), "trial {trial}");
+                    if let Some(name) = name.strip_prefix(' ') {
+                        let label = m.label.as_deref().unwrap();
+                        let shown = name.strip_suffix('…').unwrap_or(name);
+                        assert!(
+                            label.starts_with(shown) && shown.chars().count() >= NAME_MIN_CHARS
+                        );
+                    }
+                }
             }
         }
+    }
+
+    #[test]
+    fn chips_grow_to_names_that_fit_cut_those_that_do_not_or_show_numbers() {
+        let named = |names: &[(u64, &str)]| -> Vec<Marker> {
+            let mut markers = at(&names.iter().map(|(t, _)| *t).collect::<Vec<_>>());
+            for (m, (_, name)) in markers.iter_mut().zip(names) {
+                m.label = (!name.is_empty()).then(|| name.to_string());
+            }
+            markers
+        };
+        let view = Viewport {
+            start: 0.0,
+            end: 7000.0,
+        };
+        // 100 time units are 10 px here.
+        let texts = |markers: &[Marker]| -> Vec<String> {
+            lane(markers, view, 1.0)
+                .chips
+                .into_iter()
+                .map(|c| c.text)
+                .collect()
+        };
+        let m = named(&[
+            (0, "req A"),
+            (2000, "response"),
+            (2600, "irq"),
+            (6800, "tail"),
+        ]);
+        // Marker 4's name would run past the lane's end.
+        assert_eq!(texts(&m), ["1 req A", "2 resp…", "3 irq", "4"]);
+        // Too little room for three letters: the number alone.
+        let m = named(&[(0, "request"), (300, "")]);
+        assert_eq!(texts(&m), ["1", "2"]);
+        // A name never pushes a neighbour: the next chip keeps its place.
+        let m = named(&[(0, "a very long name indeed"), (1000, "")]);
+        let l = lane(&m, view, 1.0);
+        assert!(l.chips[0].rect.right() + CHIP_GAP <= l.chips[1].rect.left());
+        assert_eq!(l.chips[1].rect.left(), 200.0 + 100.0);
+        // Names follow the interface zoom like numbers.
+        let m = named(&[(0, "req A"), (3000, "")]);
+        let big = lane(&m, view, 2.0);
+        assert_eq!(big.chips[0].text, "1 req A");
+        assert_eq!(big.chips[0].rect.width(), 2.0 * chip_w("1 req A"));
+    }
+
+    #[test]
+    fn a_name_field_sits_after_the_number_and_stays_in_the_lane() {
+        let mut markers = at(&[1000, 6700]);
+        markers[0].label = Some("req A".into());
+        let view = Viewport {
+            start: 0.0,
+            end: 7000.0,
+        };
+        let l = lane(&markers, view, 1.0);
+        let first = l.name_field(0, markers[0].id).unwrap();
+        assert_eq!(first.left(), l.chips[0].rect.left() + chip_w("1"));
+        assert_eq!(first.width(), NAME_FIELD_W);
+        assert!(first.top() > l.band.top() && first.bottom() < l.band.bottom());
+        let last = l.name_field(1, markers[1].id).unwrap();
+        assert_eq!(last.right(), l.band.right(), "cut at the lane's end");
+        let away = Viewport {
+            start: 2000.0,
+            end: 3000.0,
+        };
+        assert_eq!(lane(&markers, away, 1.0).name_field(0, markers[0].id), None);
     }
 
     #[test]

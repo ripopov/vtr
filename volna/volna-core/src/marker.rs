@@ -55,6 +55,20 @@ pub struct Marker {
     pub label: Option<String>,
 }
 
+/// The longest marker name, in characters; longer names are cut.
+pub const MAX_NAME: usize = 48;
+
+/// A typed marker name as stored: trimmed, at most [`MAX_NAME`] characters,
+/// and `None` when nothing is left, which returns the chip to its number.
+pub fn clean_name(name: &str) -> Option<String> {
+    let name = name.trim();
+    let name = match name.char_indices().nth(MAX_NAME) {
+        Some((cut, _)) => name[..cut].trim_end(),
+        None => name,
+    };
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
 /// The lowest positive number no marker has, if one is left.
 pub fn free_id(markers: &[Marker]) -> Option<MarkerId> {
     let mut used: Vec<u32> = markers.iter().map(|m| m.id.get()).collect();
@@ -249,6 +263,17 @@ mod tests {
         assert_eq!(go(id(4), None), Some(4));
         assert_eq!(go(id(5), Some(10)), None);
         assert_eq!(walk_target(&[], Walk::Next, Some(0), view), None);
+    }
+
+    #[test]
+    fn names_are_trimmed_cut_and_empty_means_none() {
+        assert_eq!(clean_name("  req B \t"), Some("req B".into()));
+        assert_eq!(clean_name("   "), None);
+        assert_eq!(clean_name(""), None);
+        let long = "é".repeat(60);
+        assert_eq!(clean_name(&long).unwrap().chars().count(), MAX_NAME);
+        let spaced = format!("{} tail", "a".repeat(MAX_NAME - 1));
+        assert_eq!(clean_name(&spaced), Some("a".repeat(MAX_NAME - 1)));
     }
 
     #[test]

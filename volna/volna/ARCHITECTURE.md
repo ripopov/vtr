@@ -271,8 +271,8 @@ with the row tops every layout) and maps positions back through
 commands (formats, analog) reach the signals below it, height is the group
 row's own. `G`, `shift-G`, `F2` and the row menu group, dissolve and rename;
 the chevron, `←`/`→` on a selected group and `alt` variants fold. The GPUI
-frontend hosts the name editor over `WaveModel::rename_rect` and answers with
-`Command::RenameGroup`. A folded group paints its signals' merged changes and
+frontend hosts the name editor that `App::text_edit` reports over
+`WaveModel::rename_rect` and answers with `Command::CommitText`. A folded group paints its signals' merged changes and
 X stretches in the bus shape (`wave::group`), walking the visible changes when
 there are few and otherwise reading a `GroupSummary` of per-block counts that
 `LoadRequest::GroupSummary` builds on the load worker and the `Document`
@@ -486,10 +486,11 @@ number (`MarkerId`) is the lowest free positive integer when the marker is
 created and does not change while the marker exists, so digit keys keep
 reaching the markers a user has. `Document` is the single writer of the
 time-sorted list: `add_marker`, `remove_marker(id)`, `remove_all_markers` and
-`set_marker_label` go through its journaled field, and `take_edits` labels
-each step with the number (*Add marker 2*, *Remove marker 2*, *Remove all
-markers*). `M` marks the focused panel's cursor; `⇧M` removes the marker
-there, and *Remove All Markers* is a palette command. Workspaces store the
+`rename_marker` go through its journaled field, and `take_edits` labels
+each step with the number (*Add marker 2*, *Remove marker 2*, *Rename marker
+2*, *Remove all markers*). `M` (`Action::AddOrRenameMarker`) marks the
+focused panel's cursor, or opens the name field of the marker already there;
+`⇧M` removes the marker there, and *Remove All Markers* is a palette command. Workspaces store the
 numbers, and restore rejects zero and duplicates.
 
 Every timed panel has a Markers lane below the ruler band
@@ -505,6 +506,22 @@ selections elsewhere. A cluster lists its
 markers on hover and zooms to them on click. A press on the lane between
 chips moves the cursor, as on the header. Each marker's line runs from its
 chip down through the rows.
+
+After clustering, a named marker's chip grows to its number and name, or to
+the name cut to at least three characters and `…`, where the gap to the next
+chip or the lane's end allows; otherwise it keeps the number. Name widths are
+estimated per glyph class, so the layout stays font-free, and the painter
+trims a name whose measured text is wider. Hovering a chip shows its full
+name and time; a cluster lists its markers with their names. `M` on a marker
+or a double-click on its chip (`Command::RenameMarker`, which also reveals
+the marker) opens a name field: `App::text_edit` reports one `TextEdit` for
+a group or a marker name (target, rectangle from `MarkerLane::name_field`,
+text, whether it starts selected), the frontend hosts a text field there and
+answers with `Command::CommitText(target, Some(text) | None)`. The field
+belongs to the panel it opened in, and a key that reaches the panel closes
+it without renaming, since the open field holds the keys. `rename_marker`
+trims the name and cuts it to 48 characters; an empty name clears it. egui
+shows names but hosts no field.
 
 `.` and `,` move the focused panel's cursor to the next or previous marker
 and `1`–`9` onto marker *n* (`Action::{NextMarker, PrevMarker, GoToMarker}`,

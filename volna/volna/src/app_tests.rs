@@ -1149,12 +1149,48 @@ fn group_keys_and_the_hosted_name_editor(cx: &mut TestAppContext) {
     vcx.simulate_keystrokes("f2 enter");
     vcx.run_until_parked();
     assert_eq!(outline(&mut vcx)[1], "-axi2");
+    // A double-click on the group's name opens the editor with the keys.
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let at = window
+        .update(&mut vcx, |ws, _, _| {
+            let w = ws.app.panels.focused_waves().unwrap();
+            let l = w.last_layout();
+            let (y, _) = l.entry_span(1).unwrap();
+            // The middle of the name, clear of the chevron and the sidebar's sash.
+            let on_name: Vec<_> = (0..400)
+                .map(|dx| volna_core::geometry::point(l.names.left() + dx as f32, y + 4.0))
+                .filter(|&p| w.group_name_at(p) == Some(1))
+                .collect();
+            on_name[on_name.len() / 2]
+        })
+        .unwrap();
+    let at = gpui_kit::point(gpui_kit::px(at.x), gpui_kit::px(at.y));
+    vcx.simulate_mouse_move(at, None, gpui_kit::Modifiers::default());
+    for click_count in [1, 2] {
+        vcx.simulate_event(gpui_kit::MouseDownEvent {
+            button: gpui_kit::MouseButton::Left,
+            position: at,
+            modifiers: gpui_kit::Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        });
+        vcx.simulate_event(gpui_kit::MouseUpEvent {
+            button: gpui_kit::MouseButton::Left,
+            position: at,
+            modifiers: gpui_kit::Modifiers::default(),
+            click_count,
+        });
+    }
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("b u s enter");
+    vcx.run_until_parked();
+    assert_eq!(outline(&mut vcx)[1], "-bus");
     vcx.simulate_keystrokes("alt-left");
     vcx.run_until_parked();
-    assert_eq!(outline(&mut vcx)[1], "+axi2");
+    assert_eq!(outline(&mut vcx)[1], "+bus");
     vcx.simulate_keystrokes("alt-right");
     vcx.run_until_parked();
-    assert_eq!(outline(&mut vcx)[1], "-axi2");
+    assert_eq!(outline(&mut vcx)[1], "-bus");
     vcx.simulate_keystrokes("shift-g");
     vcx.run_until_parked();
     assert_eq!(outline(&mut vcx), names);
@@ -1414,7 +1450,7 @@ fn marker_walk_keys_move_the_cursor(cx: &mut TestAppContext) {
             let (near, far) = (lo + (hi - lo) / 4, lo + (hi - lo) * 3 / 4);
             for t in [near, far] {
                 ws.app.doc.shared.cursor = Some(t);
-                ws.dispatch(Command::Action(Action::AddMarker), Some(window), cx);
+                ws.dispatch(Command::Action(Action::AddOrRenameMarker), Some(window), cx);
             }
             ws.app.doc.shared.cursor = Some(lo);
             (near, far)
@@ -1442,4 +1478,146 @@ fn marker_walk_keys_move_the_cursor(cx: &mut TestAppContext) {
     assert_eq!(state(&mut vcx).0, Some(far));
     vcx.simulate_keystrokes("9");
     assert_eq!(state(&mut vcx), (Some(far), Some("No marker 9".into())));
+}
+
+/// `M` on a marker, or a double-click on its chip, opens a name field over
+/// the chip; the field keeps the keys the panel binds, and `↵` names it.
+#[gpui_kit::test]
+fn marker_name_field_opens_over_the_chip_and_keeps_its_keys(cx: &mut TestAppContext) {
+    use gpui_kit::{
+        Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, VisualTestContext, point,
+    };
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let (near, far) = window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            let (near, far) = (lo + (hi - lo) / 4, lo + (hi - lo) * 3 / 4);
+            for t in [near, far] {
+                ws.app.doc.shared.cursor = Some(t);
+                ws.dispatch(Command::Action(Action::AddOrRenameMarker), Some(window), cx);
+            }
+            ws.app.doc.shared.cursor = Some(near);
+            (near, far)
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    let draw = |vcx: &mut VisualTestContext| {
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+    };
+    draw(&mut vcx);
+    let names = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                let m = ws.app.doc.markers();
+                (
+                    m[0].label.clone(),
+                    m[1].label.clone(),
+                    ws.app.doc.shared.cursor,
+                )
+            })
+            .unwrap()
+    };
+
+    vcx.simulate_keystrokes("m");
+    draw(&mut vcx);
+    let field = vcx
+        .debug_bounds("marker-name")
+        .expect("the name field is laid over the chip");
+    let chip = window
+        .update(&mut vcx, |ws, _, _| {
+            ws.app.panels.focused().kind.marker_lane().unwrap().chips[0].rect
+        })
+        .unwrap();
+    assert!(
+        f32::from(field.origin.x) > chip.left() && f32::from(field.origin.y) >= chip.top() - 4.0
+    );
+    // `2` and `.` walk markers in the panel, but type into the field.
+    vcx.simulate_keystrokes("r e q space 2 . enter");
+    draw(&mut vcx);
+    assert_eq!(names(&mut vcx), (Some("req 2.".into()), None, Some(near)));
+    assert!(
+        vcx.debug_bounds("marker-name").is_none(),
+        "Enter closes the field"
+    );
+
+    // A double-click on marker 2's chip opens its field; Escape cancels.
+    let chip = window
+        .update(&mut vcx, |ws, _, _| {
+            ws.app.panels.focused().kind.marker_lane().unwrap().chips[1].rect
+        })
+        .unwrap();
+    let at = point(
+        gpui_kit::px(chip.left() + 3.0),
+        gpui_kit::px(chip.top() + 3.0),
+    );
+    for click_count in [1, 2] {
+        vcx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        });
+        vcx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+        });
+    }
+    draw(&mut vcx);
+    assert!(vcx.debug_bounds("marker-name").is_some());
+    let focused = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, window, cx| {
+                ws.rename
+                    .as_ref()
+                    .is_some_and(|h| h.input.read(cx).focus_handle(cx).is_focused(window))
+            })
+            .unwrap()
+    };
+    assert!(
+        focused(&mut vcx),
+        "the field has the keys after a double-click"
+    );
+    vcx.simulate_keystrokes("x escape");
+    draw(&mut vcx);
+    assert_eq!(names(&mut vcx), (Some("req 2.".into()), None, Some(far)));
+    assert!(vcx.debug_bounds("marker-name").is_none());
+    // Double-click again and type a name.
+    for click_count in [1, 2] {
+        vcx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        });
+        vcx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+        });
+    }
+    draw(&mut vcx);
+    vcx.simulate_keystrokes("e n d enter");
+    draw(&mut vcx);
+    assert_eq!(
+        names(&mut vcx),
+        (Some("req 2.".into()), Some("end".into()), Some(far))
+    );
 }

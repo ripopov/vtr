@@ -529,8 +529,8 @@ fn cursor_markers_and_selection_follow_the_document() {
         vec![1]
     );
     // Markers are document state.
-    app.handle(Command::Action(Action::AddMarker));
-    app.handle(Command::Action(Action::AddMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
     assert_eq!(app.doc.markers().len(), 1, "duplicate marker is ignored");
     assert_eq!(app.doc.markers()[0].time, cursor);
     frame(&mut app, &theme);

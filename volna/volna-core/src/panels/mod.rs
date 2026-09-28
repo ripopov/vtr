@@ -157,6 +157,15 @@ impl PanelKind {
         }
     }
 
+    /// The Markers lane of the last layout, in panels that have one.
+    pub fn marker_lane(&self) -> Option<&crate::wave::overlay::MarkerLane> {
+        match self {
+            Self::Waves(w) => Some(&w.last_layout().marker_lane),
+            Self::Pipeline(p) => Some(&p.last_layout().marker_lane),
+            _ => None,
+        }
+    }
+
     /// The content a split copies: rows for waves, the track for a pipeline.
     /// A new tab next to a pipeline starts as an empty wave panel. The start
     /// panel has nothing to copy: the owner replaces it instead.

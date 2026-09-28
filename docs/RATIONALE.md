@@ -170,6 +170,17 @@ history to browse; the undo journal is not used for it, since jumps are
 navigation. Its text in the status bar lasts until the next key or click,
 because a lingering *At marker 4* would be wrong once the cursor moves.
 
+Marker names reuse the group name editor instead of a dialog: the core
+reports one `TextEdit` (a group or a marker, where, what text) and takes one
+`CommitText`, so GPUI hosts a single field. The field opens empty or with the
+current name; pre-filling the selected row's change at the marker
+(`req_valid ↑`) was dropped as rules for bit, bus and missing changes that
+save a few keystrokes. Chip layout stays font-free, as for numbers: name
+widths come from per-class glyph estimates (narrow, lowercase, capital,
+wide), and the painter, which measures, cuts a name that turns out wider.
+Passing a text measurer into every panel layout was rejected, because
+frontends and tests lay panels out before any font is at hand.
+
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The
 workspace stores markers and the reference; VTR, VDB and the remote protocol
@@ -1824,8 +1835,9 @@ pan otherwise; `←` on a row inside a group does not jump to the group, which
 would take panning away whenever a grouped row is selected. `G`, `shift-G`,
 `F2`, `alt-←`/`alt-→`, the chevron (with `alt` for the groups inside),
 double-click on a group name and the row menu cover the rest. The name editor
-is core state (`WaveModel::rename`, `rename_rect`); GPUI hosts a plain
-`TextInput` over it and answers with `Command::RenameGroup`, and a press
+is core state (`WaveModel::rename`, `rename_rect`, reported with marker names
+as one `App::text_edit`); GPUI hosts a plain `TextInput` over it and answers
+with `Command::CommitText`, and a press
 elsewhere keeps the typed name. Dragging chooses the level from the pointer's
 x among the depths the gap allows (`tree::gap_depths`), and the middle half of
 a folded group's row drops into it.

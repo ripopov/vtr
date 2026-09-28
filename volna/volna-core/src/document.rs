@@ -714,9 +714,10 @@ impl Document {
         self.markers.set(Vec::new())
     }
 
-    /// Name marker `id`, or clear its name with `None`.
-    pub fn set_marker_label(&mut self, id: MarkerId, label: Option<String>) -> bool {
-        let label = label.filter(|l| !l.trim().is_empty());
+    /// Name marker `id` (see [`marker::clean_name`]); an empty name clears
+    /// it. Returns whether the name changed.
+    pub fn rename_marker(&mut self, id: MarkerId, name: &str) -> bool {
+        let label = marker::clean_name(name);
         match self.markers.iter().position(|m| m.id == id) {
             Some(ix) => self.markers.update(|markers| markers[ix].label = label),
             None => false,
@@ -728,6 +729,14 @@ impl Document {
     pub(crate) fn take_edits(&mut self, history: &mut crate::history::History) {
         let Some(before) = self.markers.take_before() else {
             return;
+        };
+        // The one marker whose name alone differs between `a` and `b`.
+        let renamed = |a: &[Marker], b: &[Marker]| {
+            let mut diff = a.iter().zip(b).filter(|(x, y)| x != y);
+            match (diff.next(), diff.next()) {
+                (Some((x, y)), None) if (x.id, x.time) == (y.id, y.time) => Some(x.id),
+                _ => None,
+            }
         };
         // The one marker in `a` that `b` lacks.
         let only = |a: &[Marker], b: &[Marker]| {
@@ -743,6 +752,10 @@ impl Document {
                 |id| format!("Remove marker {id}"),
             ),
             (_, 0) => "Remove all markers".into(),
+            (b, a) if a == b => renamed(&before, &self.markers).map_or_else(
+                || "Change markers".into(),
+                |id| format!("Rename marker {id}"),
+            ),
             _ => "Change markers".into(),
         };
         history.record(crate::history::Edit::Markers(before), Some(label));

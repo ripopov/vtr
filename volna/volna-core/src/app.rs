@@ -49,8 +49,9 @@ pub enum Action {
     PanRight,
     NextEdge,
     PrevEdge,
-    /// `M`: mark the focused panel's cursor.
-    AddMarker,
+    /// `M`: mark the focused panel's cursor, or open the name field of the
+    /// marker already there.
+    AddOrRenameMarker,
     /// `⇧M`: remove the marker at the focused panel's cursor.
     RemoveMarkerAtCursor,
     /// Palette only: remove every marker, as one undoable step.
@@ -138,6 +139,43 @@ impl Command {
         };
         Some(Self::Action(action))
     }
+}
+
+/// What the text field the frontend hosts edits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditTarget {
+    /// The name of group row `entry` of a wave panel.
+    Group { panel: PanelId, entry: usize },
+    /// The name of a marker, over its chip in `panel`'s Markers lane.
+    Marker {
+        panel: PanelId,
+        id: crate::marker::MarkerId,
+    },
+}
+
+impl EditTarget {
+    pub fn panel(self) -> PanelId {
+        match self {
+            Self::Group { panel, .. } | Self::Marker { panel, .. } => panel,
+        }
+    }
+}
+
+/// A text field the frontend hosts over a panel: it opens one when this
+/// appears, answers with [`Command::CommitText`], and closes it when the
+/// target changes or goes away.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextEdit {
+    pub target: EditTarget,
+    /// Where the field sits in the panel; `None` while its subject is out
+    /// of view, and the field waits hidden.
+    pub rect: Option<Rect>,
+    /// The text it opens with.
+    pub text: String,
+    /// Whether the text starts selected, so typing replaces it.
+    pub select_all: bool,
+    /// Its accessible name, also shown while it is empty.
+    pub label: String,
 }
 
 /// Which sash of the workspace chrome is being dragged.
@@ -240,9 +278,12 @@ pub enum Command {
         scope: ScopeId,
         recursive: bool,
     },
-    /// The frontend's name editor finished: `Some` renames the group being
-    /// renamed, `None` cancels.
-    RenameGroup(PanelId, Option<String>),
+    /// The frontend's text field over [`App::text_edit`] finished: `Some`
+    /// commits the text to its target, `None` cancels.
+    CommitText(EditTarget, Option<String>),
+    /// Open the name field of a marker over its chip in a panel (a
+    /// double-click on the chip).
+    RenameMarker(PanelId, crate::marker::MarkerId),
     /// Open the selected signal's row menu, or report a wave-row menu choice.
     OpenSignalMenu(PanelId),
     MenuSelect(PanelId, MenuAction),
@@ -551,6 +592,8 @@ pub struct App {
     pub history: crate::history::History,
     /// What the last undo or redo did, shown until the next edit.
     announcement: Option<String>,
+    /// The marker whose name field is open, over its chip in this panel.
+    marker_edit: Option<(PanelId, crate::marker::MarkerId)>,
     /// Whole-window frame timing the frontend samples from its toolkit.
     pub frames: crate::frames::FrameStats,
     pub(crate) events: Vec<Event>,
@@ -584,6 +627,7 @@ impl App {
             settings_view: SettingsView::default(),
             history: Default::default(),
             announcement: None,
+            marker_edit: None,
             frames: Default::default(),
             events: Vec::new(),
             text: TextCache::default(),
@@ -646,6 +690,7 @@ impl App {
     fn on_session_changed(&mut self) {
         self.history.clear();
         self.announcement = None;
+        self.marker_edit = None;
         if let Err(e) = self.panels.reset() {
             self.events.push(Event::Notice(e.to_string()));
         }
@@ -660,6 +705,7 @@ impl App {
     pub(crate) fn workspace_restored(&mut self) {
         self.history.clear();
         self.announcement = None;
+        self.marker_edit = None;
         self.sync_lane_tracks();
         self.sync_analog_summaries();
         self.drag = None;
@@ -990,6 +1036,11 @@ impl App {
         if key_or_click && self.announcement.take().is_some() {
             self.changed();
         }
+        // The name field holds the keys while it is open, so a key reaching
+        // the panel means it lost them: close it without renaming.
+        if matches!(command, Command::Action(_)) && self.marker_edit.take().is_some() {
+            self.changed();
+        }
         match command {
             Command::Notice(message) => {
                 self.events.push(Event::Notice(message));
@@ -1147,14 +1198,8 @@ impl App {
                 }
             }
             Command::AddScopeAsGroup { scope, recursive } => self.add_scope_group(scope, recursive),
-            Command::RenameGroup(panel, name) => {
-                if let Some(waves) = self.panels.waves_mut(panel)
-                    && waves.rename.is_some()
-                {
-                    waves.finish_rename(name.as_deref());
-                    self.changed();
-                }
-            }
+            Command::CommitText(target, text) => self.commit_text(target, text),
+            Command::RenameMarker(panel, id) => self.open_marker_name(panel, id, now),
             Command::OpenSignalMenu(panel) => {
                 if let Some(waves) = self.panels.waves_mut(panel) {
                     waves.open_selected_signal_menu(&self.doc);
@@ -1967,7 +2012,7 @@ impl App {
         // Markers belong to the document; a timed panel only lends its cursor.
         if matches!(
             action,
-            Action::AddMarker | Action::RemoveMarkerAtCursor | Action::RemoveAllMarkers
+            Action::AddOrRenameMarker | Action::RemoveMarkerAtCursor | Action::RemoveAllMarkers
         ) {
             let cursor = self
                 .panels
@@ -1977,7 +2022,15 @@ impl App {
                 .and_then(|n| n.cursor(&self.doc));
             let changed = match (action, cursor) {
                 (Action::RemoveAllMarkers, _) => self.doc.remove_all_markers(),
-                (Action::AddMarker, Some(c)) => self.doc.add_marker(c).is_some(),
+                (Action::AddOrRenameMarker, Some(c)) => {
+                    match crate::marker::at(self.doc.markers(), c).map(|m| m.id) {
+                        Some(id) => {
+                            self.open_marker_name(panel, id, now);
+                            false
+                        }
+                        None => self.doc.add_marker(c).is_some(),
+                    }
+                }
                 (Action::RemoveMarkerAtCursor, Some(c)) => {
                     match crate::marker::at(self.doc.markers(), c).map(|m| m.id) {
                         Some(id) => self.doc.remove_marker(id),
@@ -2092,7 +2145,7 @@ impl App {
                 | Action::NextCycle
                 | Action::PrevCycle
                 | Action::ToggleCycleOrigin
-                | Action::AddMarker
+                | Action::AddOrRenameMarker
                 | Action::RemoveMarkerAtCursor
                 | Action::RemoveAllMarkers
                 | Action::NextMarker
@@ -2152,7 +2205,7 @@ impl App {
                 | Action::NextCycle
                 | Action::PrevCycle
                 | Action::ToggleCycleOrigin
-                | Action::AddMarker
+                | Action::AddOrRenameMarker
                 | Action::RemoveMarkerAtCursor
                 | Action::RemoveAllMarkers
                 | Action::NextMarker
@@ -2205,7 +2258,7 @@ impl App {
                 | Action::NextCycle
                 | Action::PrevCycle
                 | Action::ToggleCycleOrigin
-                | Action::AddMarker
+                | Action::AddOrRenameMarker
                 | Action::RemoveMarkerAtCursor
                 | Action::RemoveAllMarkers
                 | Action::NextMarker
@@ -2362,6 +2415,81 @@ impl App {
             tracks: session.tracks().len(),
             pipelines: self.pipeline_streams(),
         })
+    }
+
+    /// The text field the frontend should host: an open marker name field in
+    /// the focused panel, else the focused wave panel's group rename.
+    pub fn text_edit(&self) -> Option<TextEdit> {
+        let panel = self.panels.focused_id();
+        if let Some((p, id)) = self.marker_edit.filter(|(p, _)| *p == panel) {
+            let ix = self.doc.markers().iter().position(|m| m.id == id)?;
+            let rect = self
+                .panels
+                .get(p)?
+                .kind
+                .marker_lane()
+                .and_then(|lane| lane.name_field(ix, id));
+            return Some(TextEdit {
+                target: EditTarget::Marker { panel: p, id },
+                rect,
+                text: self.doc.markers()[ix].label.clone().unwrap_or_default(),
+                select_all: true,
+                label: format!("Name of marker {id}"),
+            });
+        }
+        let waves = self.panels.focused_waves()?;
+        let entry = waves.rename?;
+        Some(TextEdit {
+            target: EditTarget::Group { panel, entry },
+            rect: waves.rename_rect(),
+            text: waves.items().get(entry)?.name().to_owned(),
+            select_all: true,
+            label: "Group name".into(),
+        })
+    }
+
+    /// Open marker `id`'s name field over its chip in `panel`, revealing the
+    /// marker when it is off the view.
+    fn open_marker_name(&mut self, panel: PanelId, id: crate::marker::MarkerId, now: Instant) {
+        let Some(time) = self
+            .doc
+            .markers()
+            .iter()
+            .find(|m| m.id == id)
+            .map(|m| m.time)
+        else {
+            return;
+        };
+        let doc = &mut self.doc;
+        let Some(nav) = self.panels.get_mut(panel).and_then(|p| p.kind.nav_mut()) else {
+            return;
+        };
+        nav.reveal(doc, time, now);
+        self.marker_edit = Some((panel, id));
+        self.changed();
+    }
+
+    fn commit_text(&mut self, target: EditTarget, text: Option<String>) {
+        match target {
+            EditTarget::Group { panel, entry } => {
+                if let Some(waves) = self.panels.waves_mut(panel)
+                    && waves.rename == Some(entry)
+                {
+                    waves.finish_rename(text.as_deref());
+                    self.changed();
+                }
+            }
+            EditTarget::Marker { panel, id } => {
+                if self.marker_edit != Some((panel, id)) {
+                    return;
+                }
+                self.marker_edit = None;
+                if let Some(text) = text {
+                    self.doc.rename_marker(id, &text);
+                }
+                self.changed();
+            }
+        }
     }
 
     pub fn status(&self) -> Status {

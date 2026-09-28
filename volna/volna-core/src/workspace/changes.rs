@@ -86,8 +86,9 @@ impl Stamp {
             Command::Pointer(id, _)
             | Command::PipelineActivity(id, _)
             | Command::MenuSelect(id, _)
-            | Command::RenameGroup(id, _)
+            | Command::RenameMarker(id, _)
             | Command::Panels(crate::panels::PanelsCommand::ToggleLink { panel: id, .. }) => *id,
+            Command::CommitText(target, _) => target.panel(),
             _ => app.panels.focused_id(),
         };
         let selection = pointer.is_none_or(|(_, event)| matches!(event, PointerEvent::Down { .. }));
@@ -109,7 +110,7 @@ impl Stamp {
                             | Action::GroupSelection
                             | Action::Ungroup
                     )
-                    | Command::RenameGroup(..)
+                    | Command::CommitText(crate::app::EditTarget::Group { .. }, _)
                     | Command::AddScopeAsGroup { .. }
             );
         let scope = matches!(

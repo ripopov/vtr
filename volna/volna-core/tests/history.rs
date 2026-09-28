@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use volna_core::app::{Action, App, ClockCommand, Command, Event};
+use volna_core::app::{Action, App, ClockCommand, Command, EditTarget, Event};
 use volna_core::data::Member;
 use volna_core::data::transactions::TrackRef;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
@@ -448,7 +448,10 @@ impl Driver {
                     self.now += Duration::from_secs(5);
                     return (
                         Kind::Edit,
-                        self.run(Command::RenameGroup(id, name)) + &label,
+                        self.run(Command::CommitText(
+                            self.app.text_edit().expect("the name field is open").target,
+                            name,
+                        )) + &label,
                     );
                 }
                 return (Kind::Edit, label);
@@ -457,11 +460,32 @@ impl Driver {
             53 => (Kind::Look, Command::Action(Action::FoldGroupDeep)),
             54 => (Kind::Look, Command::Action(Action::UnfoldGroupDeep)),
             55..=56 => {
-                let t = self.rng.below(2000) as u64 * 10;
+                // Half the time on a marker, where M opens its name field.
+                let on_marker = self.rng.below(self.app.doc.markers().len() * 2);
+                let t = match self.app.doc.markers().get(on_marker) {
+                    Some(m) => m.time,
+                    None => self.rng.below(2000) as u64 * 10,
+                };
                 if let Some(nav) = self.app.panels.focused_mut().kind.nav_mut() {
                     nav.set_cursor(&mut self.app.doc, Some(t));
                 }
-                action(Action::AddMarker)
+                let label = self.run(Command::Action(Action::AddOrRenameMarker));
+                let Some(edit) = self
+                    .app
+                    .text_edit()
+                    .filter(|e| matches!(e.target, EditTarget::Marker { .. }))
+                else {
+                    return (Kind::Edit, label);
+                };
+                let name = match self.rng.below(4) {
+                    0 => None,
+                    1 => Some(" ".into()),
+                    n => Some(format!("m{n}")),
+                };
+                return (
+                    Kind::Edit,
+                    self.run(Command::CommitText(edit.target, name)) + &label,
+                );
             }
             57 => action(if self.rng.chance(2) {
                 Action::RemoveMarkerAtCursor
@@ -761,7 +785,7 @@ fn a_new_group_and_its_name_are_one_step() {
     assert_eq!(app.undo_label(), Some("Group 2 rows"));
     // Typing the name takes a while; it still joins the group's step.
     app.handle_at(
-        Command::RenameGroup(id, Some("bus".into())),
+        Command::CommitText(app.text_edit().unwrap().target, Some("bus".into())),
         now + Duration::from_secs(30),
     );
     assert_eq!(app.history.undo_steps().count(), steps + 1);
@@ -925,7 +949,7 @@ fn navigation_never_makes_a_step_and_undo_keeps_the_time_axis() {
     let (mut app, id, _) = four_rows();
     // A marker to walk to, away from the cursor.
     app.doc.shared.cursor = Some(5);
-    app.handle(Command::Action(Action::AddMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
     app.doc.shared.cursor = Some(0);
     select(&mut app, id, &[0]);
     app.handle(Command::Action(Action::RemoveSelected));
@@ -1096,7 +1120,7 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
     };
     for t in [100, 200, 300] {
         set_cursor(&mut app, t);
-        app.handle(Command::Action(Action::AddMarker));
+        app.handle(Command::Action(Action::AddOrRenameMarker));
     }
     assert_eq!(app.undo_label(), Some("Add marker 3"));
     // ⇧M removes the marker at the cursor; its number is free again.
@@ -1104,7 +1128,7 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
     app.handle(Command::Action(Action::RemoveMarkerAtCursor));
     assert_eq!(app.undo_label(), Some("Remove marker 2"));
     set_cursor(&mut app, 400);
-    app.handle(Command::Action(Action::AddMarker));
+    app.handle(Command::Action(Action::AddOrRenameMarker));
     assert_eq!(app.undo_label(), Some("Add marker 2"));
     app.handle(Command::Undo);
     app.handle(Command::Undo);
@@ -1121,6 +1145,17 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
     assert_eq!(app.undo_label(), Some("Remove all markers"));
     app.handle(Command::Undo);
     assert_eq!(app.doc.markers().len(), 3);
+    // M on a marker opens its name field; the name is one step.
+    set_cursor(&mut app, 300);
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    assert_eq!(app.doc.markers().len(), 3, "M on a marker adds none");
+    let target = app.text_edit().unwrap().target;
+    app.handle(Command::CommitText(target, Some("retry".into())));
+    assert_eq!(app.undo_label(), Some("Rename marker 3"));
+    app.handle(Command::Undo);
+    assert_eq!(app.doc.markers()[2].label, None);
+    app.handle(Command::Redo);
+    assert_eq!(app.doc.markers()[2].label.as_deref(), Some("retry"));
 
     let clock = catalog.clocks[0].clone();
     let name = clock.rsplit('.').next().unwrap().to_owned();

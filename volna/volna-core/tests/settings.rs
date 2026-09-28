@@ -248,7 +248,10 @@ fn the_settings_tab_is_chrome_that_survives_traces_and_never_reaches_a_workspace
         .unwrap();
     // The saved workspace never mentions the tab.
     app.handle_at(Command::Panels(PanelsCommand::Focus(waves)), t0);
-    app.handle_at(Command::Action(volna_core::app::Action::AddMarker), t0);
+    app.handle_at(
+        Command::Action(volna_core::app::Action::AddOrRenameMarker),
+        t0,
+    );
     app.handle_at(Command::SaveWorkspace, t0);
     let saved = events(&mut app)
         .into_iter()

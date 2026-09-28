@@ -1096,7 +1096,7 @@ fn wave_action(key: Key, m: egui::Modifiers) -> Option<Action> {
         Key::ArrowRight if m.shift => Action::NextEdge,
         Key::ArrowRight => Action::PanRight,
         Key::M if m.shift => Action::RemoveMarkerAtCursor,
-        Key::M => Action::AddMarker,
+        Key::M => Action::AddOrRenameMarker,
         Key::Period => Action::NextMarker,
         Key::Comma => Action::PrevMarker,
         Key::Backtick => Action::JumpBack,
