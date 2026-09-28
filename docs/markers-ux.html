@@ -256,7 +256,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
 .shot .pv-status:empty{display:none}
 .shot-edit{position:absolute;display:none;align-items:center;white-space:nowrap}
 .shot-edit.pv-edit{display:flex}
-.shot-edit span{background:color-mix(in srgb,var(--mk) 45%,transparent)}
+.shot-edit span{border-right:1px solid currentColor;padding-right:1px}
 .shot-nav .pv-nav{position:static;transform:none;width:auto;box-shadow:var(--pv-frame)}
 .nav-q .q{flex:1;min-width:0;color:var(--tx);font:13px "IBM Plex Sans",sans-serif}
 .hero-fig figcaption{max-width:980px}
@@ -492,7 +492,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   <p class="prose">A marker at an exact time needs no dialog: type the time or cycle into the palette (<i>Go to 186 ns</i>, <i>Go to Cycle 185</i>, which the palette already offers), then press <kbd>M</kbd>. The other direction matters as much. <i>Copy as text</i> on a chip or a span puts a readable reference on the clipboard, such as <code>lsu_ddr.vtr marker 4 “req B” at 186 ns (core_clk 185, axi_clk 73)</code>, for a bug report, a chat or an agent. This is the “readable trace, signal and time reference” that the README's agent feedback path asks for, and MCP's <code>markers.list</code> returns the same text.</p>
 
   <h3>Names</h3>
-  <p class="prose">A second <kbd>M</kbd>, a double-click or <kbd>F2</kbd> in the navigator opens a text field over the chip. The frontend hosts it over a rectangle the core reports, the way it already hosts the group-name editor. When the marker has no name and the selected row changes exactly at the marker, the field offers that change as the name (<code>req_valid ↑</code>, <code>state=SREF</code>), fully selected: <kbd>↵</kbd> keeps it and typing replaces it. That is a suggestion the user sees and accepts, not an automatic label. Names are trimmed and limited to 48 characters. An empty name returns the chip to its number.</p>
+  <p class="prose">A second <kbd>M</kbd>, a double-click or <kbd>F2</kbd> in the navigator opens a text field over the chip. The frontend hosts it over a rectangle the core reports, the way it already hosts the group-name editor. It starts with the marker's name, selected, or empty: <kbd>↵</kbd> keeps what is typed and <kbd>Esc</kbd> cancels. Names are trimmed and limited to 48 characters. An empty name returns the chip to its number.</p>
 
   <h3>Crowding</h3>
   <p class="prose">The Markers lane is laid out from left to right in one pass over the visible markers, which a binary search finds in the sorted list. Each chip first gets its number. Chips that would touch merge into a cluster (<code>⋯3</code>). Then each chip grows to its name if the gap to the next chip allows, or to a name truncated to at least three letters. Spans are drawn between consecutive chips, and also to the nearest marker beyond each edge of the view, so an interval that crosses the edge still shows. A span label takes the longest of four forms that fits. The self-test checks these rules on random marker sets and zooms: every visible marker is in exactly one chip, no two chips overlap, and every label fits its gap. The layout of 10 000 markers, with a view on a few hundred of them, takes <span id="perf-ms">…</span> ms in this page.</p>
@@ -643,7 +643,8 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
     <li><b>Relabelling the time axis at the reference.</b> Absolute times must match simulator logs, so the relative reading gets its own lane.</li>
     <li><b>Markers in VTR or VDB.</b> Markers are annotations of one investigation, not facts of the run or of the design.</li>
     <li><b>Dividing Δt by the clock period.</b> This is wrong across DVFS and gating (see <a href="#measure">Measuring</a>).</li>
-    <li><b>Auto-generated names.</b> A name that appears without being asked for is noise. The editor's suggestion is visible and must be accepted.</li>
+    <li><b>Auto-generated names.</b> A name that appears without being asked for is noise.</li>
+    <li><b>Suggested names.</b> Pre-filling the name field with the selected row's change at the marker (<code>req_valid ↑</code>) saves a few keystrokes but adds rules for bit, bus and missing changes. The field starts empty.</li>
   </ul>
 </section>
 
@@ -744,16 +745,16 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
     <div>
       <p class="stage-n">Commit 4</p>
       <h3 id="stage-4-h">Names</h3>
-      <p><kbd>M</kbd> on an existing marker, or a double-click on its chip, opens a name field over the chip. When the selected row changes exactly at the marker, the field offers that change (<code>req_valid ↑</code>) fully selected: <kbd>↵</kbd> keeps it, typing replaces it, <kbd>Esc</kbd> cancels, and an empty name returns the chip to its number. Chips grow to their name where there is room, shorten it to at least three letters, and otherwise show the number. The tooltip always has the full name.</p>
+      <p><kbd>M</kbd> on an existing marker, or a double-click on its chip, opens a name field over the chip. <kbd>↵</kbd> keeps the typed name, <kbd>Esc</kbd> cancels, and an empty name returns the chip to its number. Chips grow to their name where there is room, shorten it to at least three letters, and otherwise show the number. The tooltip always has the full name.</p>
       <dl class="stage-dl">
         <div><dt>Core</dt><dd>The lane layout gains the label step. <code>AddMarker</code> becomes <code>AddOrRenameMarker</code>. The group-rename editor is generalized to <code>TextEdit { target: Group(..) | Marker(id), rect, text, select_all }</code>, answered by one <code>Command::CommitText</code>. <code>Document::rename_marker</code> trims names and limits them to 48 characters.</dd></div>
         <div><dt>Frontends</dt><dd>GPUI hosts the field over the rectangle the core reports. egui shows names but offers no editing.</dd></div>
         <div><dt>Undo</dt><dd><i>Rename marker 4</i> is one step. Workspaces already store <code>label</code>.</dd></div>
-        <div><dt>Tests</dt><dd>Label rules in the layout. Suggestions for bit and bus rows. Commit, cancel and an empty name. The rename step in the history test.</dd></div>
+        <div><dt>Tests</dt><dd>Label rules in the layout. Commit, cancel and an empty name. The rename step in the history test.</dd></div>
       </dl>
     </div>
-    <figure class="shot" data-stage="4"><div class="figcv"><canvas role="img" aria-label="Named marker chips; the name field is open over marker 4 with the suggestion req_valid rising selected"></canvas><div class="shot-edit" aria-hidden="true"></div><div class="pv-status"></div></div>
-      <figcaption><kbd>M</kbd> on marker 4 with <code>lsu.req_valid</code> selected. The suggestion is selected, so typing replaces it.</figcaption></figure>
+    <figure class="shot" data-stage="4"><div class="figcv"><canvas role="img" aria-label="Named marker chips; the name field is open over marker 4 with req B typed"></canvas><div class="shot-edit" aria-hidden="true"></div><div class="pv-status"></div></div>
+      <figcaption><kbd>M</kbd> on marker 4 opened its name field over the chip. <kbd>↵</kbd> keeps <i>req B</i>, and the chip grows to show it.</figcaption></figure>
   </article>
 
   <article class="stage" id="stage-5" aria-labelledby="stage-5-h">
@@ -1806,14 +1807,6 @@ class MarkerApp {
       rename: () => `renamed marker ${e.id}`, replace: () => e.items.length ? `restored ${e.items.length} markers` : 'removed all markers'}[e.kind]();
   }
   changed() { this.emit('markers'); this.paint(); if (this.nav) this.renderNav(); }
-  // Default label offered by the editor: the selected row's change at the marker, if it has one.
-  suggestion(m) {
-    const r = this.selRow !== null ? TRACE.rows[this.selRow] : null;
-    if (!r || !r.changes) return '';
-    const i = r.changes.findIndex(c => c[0] === m.time); if (i <= 0) return '';
-    const short = r.name.split('.').pop(), v = r.changes[i][1];
-    return r.kind === 'bit' ? `${short} ${v ? '↑' : '↓'}` : `${short}=${v}`;
-  }
   // ---- hosted label editor over the chip
   openEditor(id) {
     this.closeMenu(); this.closeNav();
@@ -1825,8 +1818,7 @@ class MarkerApp {
     const inp = document.createElement('input');
     inp.className = 'pv-edit'; inp.type = 'text'; inp.maxLength = MAX_LABEL; inp.spellcheck = false;
     inp.setAttribute('aria-label', `Name of marker ${id}`);
-    const sug = m.label ? '' : this.suggestion(m);
-    inp.value = m.label || sug; inp.placeholder = 'name this marker';
+    inp.value = m.label || ''; inp.placeholder = 'name this marker';
     // the number stays visible on the chip; the field starts after it
     const x = (ch ? ch.x : this.wv.x(m.time)) + this.wv.measureText(String(id), 'chip') + 2 * LANE.PAD;
     inp.style.left = Math.min(x, g.W - 190) + 'px'; inp.style.top = (g.lane.y + 1) + 'px';
@@ -2152,10 +2144,10 @@ const GUIDES = {
     await sleep(700); APP.edgeStep(1); await sleep(600);
     const m = APP.addOrRename(); APP.paint(); await sleep(700);
     APP.addOrRename(); await sleep(400);
-    const inp = APP.editorEl; const sug = inp.value;
-    await sleep(700); inp.value = ''; await type(inp, 'req B'); await sleep(300);
+    const inp = APP.editorEl;
+    await sleep(700); await type(inp, 'req B'); await sleep(300);
     inp.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
-    say(`<kbd>M</kbd> dropped marker <b>${m.id}</b> at the cursor, ${ns(m.time)}; its number is the lowest free one, so a digit key reaches it. <kbd>M</kbd> again on the same marker opened its name editor, pre-filled with the selected row's change there (<code>${esc(sug)}</code>, selected, so <kbd>↵</kbd> keeps it and typing replaces it). The chip shows number and name while there is room.`);
+    say(`<kbd>M</kbd> dropped marker <b>${m.id}</b> at the cursor, ${ns(m.time)}; its number is the lowest free one, so a digit key reaches it. <kbd>M</kbd> again on the same marker opened its name editor, and <kbd>↵</kbd> kept the typed name. The chip shows number and name while there is room.`);
   },
   async measure() {
     base({view: [168000, 204000], cursor: EV.B.req});
@@ -2306,7 +2298,7 @@ const SHOTS = (() => {
     3: {markers: [mk(1, E.A.req), mk(2, E.A.resp), mk(3, E.irq), mk(4, E.B.req)], view: [140000, 260000], cursor: E.B.req,
       rows: ['lsu.req_valid', 'lsu.req_addr'], features: numbers, status: () => status(E.B.req, [notice('At marker 4 · ` returns')])},
     4: {markers: [mk(1, E.A.req, 'req A'), mk(2, E.A.resp, 'resp A'), mk(3, E.irq, 'irq'), mk(4, E.B.req)], view: [140000, 260000], cursor: E.B.req,
-      rows: ['lsu.req_valid', 'lsu.req_addr'], selRow: 0, editor: 4, features: noSpans},
+      rows: ['lsu.req_valid', 'lsu.req_addr'], editor: 4, typed: 'req B', features: noSpans},
     5: {markers: [mk(1, E.A.req, 'req A'), mk(2, E.A.resp, 'resp A'), mk(4, E.B.req, 'req B')], view: [150000, 340000], cursor: E.B.resp,
       rows: ['ddr.state', 'lsu.resp_valid'], features: noSpans, status: () => {
         const m = MEASURE.between(TRACE.clocks, E.B.req, E.B.resp);
@@ -2328,14 +2320,12 @@ const SHOTS = (() => {
     const wv = new WaveView(fig.querySelector('canvas'), st, {rows: d.rows.map(r => TRACE.rows[rowIx(r)]), features: d.features ?? {}, narrowBelow: 540});
     shots.push({stage: n, fig, st, wv, d});
   }
-  // The name editor of commit 4, as the frontend hosts it over the chip, with its suggestion selected.
+  // The name editor of commit 4, as the frontend hosts it over the chip, with a name typed.
   const editor = (s, P) => {
     const el = s.fig.querySelector('.shot-edit'), m = s.st.markers.get(s.d.editor), g = s.wv.g;
-    const r = TRACE.rows[rowIx(s.d.rows[s.d.selRow])], i = r.changes.findIndex(c => c[0] === m.time);
-    const sug = i > 0 ? (r.kind === 'bit' ? `${r.name.split('.').pop()} ${r.changes[i][1] ? '↑' : '↓'}` : `${r.name.split('.').pop()}=${r.changes[i][1]}`) : '';
     const ch = s.wv.lane.chips.find(c => c.kind === 'one' && c.marker.id === m.id);
     const x = (ch ? ch.x : s.wv.x(m.time)) + s.wv.measureText(String(m.id), 'chip') + 2 * LANE.PAD;
-    el.className = 'shot-edit pv-edit'; el.innerHTML = `<span>${esc(sug)}</span>`;
+    el.className = 'shot-edit pv-edit'; el.innerHTML = `<span>${esc(s.d.typed)}</span>`;
     el.style.left = Math.min(x, g.W - 190) + 'px'; el.style.top = (g.lane.y + 1) + 'px';
     el.style.setProperty('--mk', markerColor(P, m.id)); el.style.color = onColor(markerColor(P, m.id), P);
   };

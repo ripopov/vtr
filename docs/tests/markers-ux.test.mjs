@@ -96,7 +96,7 @@ test('each commit of the plan has a picture with only its features', {timeout: 3
   assert.ok(by(1).chips.some(c => c.kind === 'cluster' && c.text === '⋯4'), 'commit 1 shows a cluster');
   assert.deepEqual(by(2).chips.map(c => c.text), ['1', '3', '4', '2'], 'commit 2 reuses the free number');
   assert.match(by(3).status, /At marker 4/);
-  assert.equal(by(4).editor, 'req_valid ↑', 'commit 4 offers the selected row change as the name');
+  assert.equal(by(4).editor, 'req B', 'commit 4 shows the name field with a typed name');
   assert.ok(by(4).chips.some(c => c.text === '1 req A' || c.text === '3 irq'), 'commit 4 chips carry names');
   assert.match(by(5).status, /Δ 126 ns · 80 core_clk · 26\.4 axi_clk/);
   assert.ok(by(6).spans >= 1, 'commit 6 labels adjacent spans');
@@ -115,7 +115,6 @@ test('guided scenarios end in the states their text describes', {timeout: 60000}
   let s = await state(b);
   assert.deepEqual(s.markers.find(m => m.id === 4), {id: 4, time: ev.B.req, label: 'req B'}, 'marker 4 takes the lowest free number and the typed name');
   assert.equal(s.editor, null);
-  assert.match(await b.evaluate('story.textContent'), /req_valid ↑/, 'the editor offered the selected row\'s change');
 
   await guide(b, 'measure');
   s = await state(b);
