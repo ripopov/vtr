@@ -6,7 +6,7 @@
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    App, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, InteractiveElement,
+    App, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, Hsla, InteractiveElement,
     IntoElement, KeyBinding, KeyDownEvent, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Window, actions, div, px,
 };
@@ -56,6 +56,10 @@ pub struct TextInput {
     /// The whole text is selected: typing replaces it, Backspace clears it,
     /// and any other key just drops the selection.
     all_selected: bool,
+    /// The colour of what the field names (a marker's): a thicker outline
+    /// in it, square on the left where the field meets its chip, and the
+    /// selection tinted with it.
+    accent: Option<Hsla>,
     /// Text before each undoable edit, and text undone.
     undo: Vec<String>,
     redo: Vec<String>,
@@ -78,6 +82,7 @@ impl TextInput {
             focus_handle: cx.focus_handle(),
             plain: false,
             all_selected: false,
+            accent: None,
             undo: Vec::new(),
             redo: Vec::new(),
             last_edit: None,
@@ -96,6 +101,17 @@ impl TextInput {
     pub fn plain(mut self) -> Self {
         self.plain = true;
         self
+    }
+
+    /// Outline the field in `color` (see the `accent` field).
+    pub fn accent(mut self, color: Hsla) -> Self {
+        self.accent = Some(color);
+        self
+    }
+
+    #[cfg(test)]
+    pub fn accent_color(&self) -> Option<Hsla> {
+        self.accent
     }
 
     pub fn text(&self) -> &str {
@@ -259,11 +275,19 @@ impl Render for TextInput {
             .when(self.plain, |el| el.size_full())
             .when(!self.plain, |el| el.h(t.px(24.0)))
             .px_2()
-            .rounded_md()
             .bg(t.input.bg)
-            .border_1()
-            .border_color(border)
-            .hover(move |s| s.border_color(hover_border))
+            .map(|el| match self.accent {
+                Some(accent) => el
+                    .border_2()
+                    .border_color(accent)
+                    .rounded_r(t.px(4.0))
+                    .ml(px(-1.0)),
+                None => el
+                    .rounded_md()
+                    .border_1()
+                    .border_color(border)
+                    .hover(move |s| s.border_color(hover_border)),
+            })
             .cursor(CursorStyle::IBeam)
             .font_family(t.ui_font)
             .text_size(px(t.ui_size))
@@ -290,7 +314,9 @@ impl Render for TextInput {
                     } else {
                         div()
                             .text_color(colors.text)
-                            .when(self.all_selected, |el| el.bg(t.selection.bg))
+                            .when(self.all_selected, |el| {
+                                el.bg(self.accent.map_or(t.selection.bg, |a| a.alpha(0.45)))
+                            })
                             .child(SharedString::from(self.text.clone()))
                     })
                     .when(focused, |el| {

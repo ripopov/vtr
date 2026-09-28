@@ -1107,6 +1107,19 @@ fn group_keys_and_the_hosted_name_editor(cx: &mut TestAppContext) {
         })
         .unwrap();
     assert_eq!(editing, ("Group 1".to_owned(), true));
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, cx| ws
+                .rename
+                .as_ref()
+                .unwrap()
+                .input
+                .read(cx)
+                .accent_color())
+            .unwrap()
+            .is_none(),
+        "a group's name field keeps the input's outline"
+    );
     // The name starts selected, so typing replaces it.
     vcx.simulate_keystrokes("a x i enter");
     vcx.run_until_parked();
@@ -1544,6 +1557,20 @@ fn marker_name_field_opens_over_the_chip_and_keeps_its_keys(cx: &mut TestAppCont
     assert!(
         f32::from(field.origin.x) > chip.left() && f32::from(field.origin.y) >= chip.top() - 4.0
     );
+    // Outlined in marker 1's chip colour.
+    let (accent, chip) = window
+        .update(&mut vcx, |ws, _, cx| {
+            let chip = crate::theme::core_theme(cx)
+                .marker(0)
+                .background
+                .with_alpha(1.0);
+            (
+                ws.rename.as_ref().unwrap().input.read(cx).accent_color(),
+                crate::theme::hsla(chip),
+            )
+        })
+        .unwrap();
+    assert_eq!(accent, Some(chip));
     // `2` and `.` walk markers in the panel, but type into the field.
     vcx.simulate_keystrokes("r e q space 2 . enter");
     draw(&mut vcx);

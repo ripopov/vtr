@@ -937,8 +937,22 @@ impl Workspace {
             cx.notify();
         }
         let Some(edit) = want else { return };
+        // A marker's field is outlined in the marker's chip colour.
+        let accent = match edit.target {
+            volna_core::app::EditTarget::Marker { id, .. } => Some(crate::theme::hsla(
+                crate::theme::core_theme(cx)
+                    .marker(id.palette_index())
+                    .background
+                    .with_alpha(1.0),
+            )),
+            volna_core::app::EditTarget::Group { .. } => None,
+        };
         let input = cx.new(|cx| {
-            let mut input = TextInput::new(edit.label.clone(), cx).plain();
+            let input = TextInput::new(edit.label.clone(), cx).plain();
+            let mut input = match accent {
+                Some(accent) => input.accent(accent),
+                None => input,
+            };
             input.set_text(edit.text.clone(), cx);
             // Typing replaces the text; Enter keeps it.
             if edit.select_all {
