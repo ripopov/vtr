@@ -92,6 +92,9 @@ pub enum Drag {
     },
     Cursor,
     LabelSplit,
+    /// A marker chip held by the pointer: a click goes to the marker, a
+    /// drag moves it onto cycles.
+    Marker(crate::marker::MarkerDrag),
 }
 
 /// The rows a panel shows, or why it shows none.
@@ -1020,6 +1023,10 @@ impl PipelineModel {
             PointerEvent::Move { position } => self.pointer_move(doc, position),
             PointerEvent::Up => {
                 let drag = self.drag.take();
+                if let Some(Drag::Marker(held)) = drag {
+                    held.release(doc, &mut self.nav, now);
+                    return true;
+                }
                 // A middle click without dragging measures from its point.
                 if let Some(Drag::Pan {
                     button: MouseButton::Middle,
@@ -1125,9 +1132,25 @@ impl PipelineModel {
                 self.retry(doc);
                 return;
             }
-            if let Some(hit) = lane_hit.filter(|h| !matches!(h, crate::marker::LaneHit::Span(_))) {
-                crate::marker::press(doc, &mut self.nav, hit, now);
-                return;
+            match lane_hit {
+                Some(LaneHit::Chip(ix)) => {
+                    let marker_x = doc.markers().get(ix).map_or(p.x, |m| {
+                        layout.cells.left()
+                            + self
+                                .nav
+                                .viewport(doc)
+                                .x_of(m.time as f64, layout.cells_width_f64())
+                                as f32
+                    });
+                    self.drag =
+                        crate::marker::MarkerDrag::begin(doc, ix, p, marker_x).map(Drag::Marker);
+                    return;
+                }
+                Some(LaneHit::Span(_)) | None => {}
+                Some(hit) => {
+                    crate::marker::press(doc, &mut self.nav, hit, now);
+                    return;
+                }
             }
             // A press on a clock ruler selects its clock, then works like the header.
             let rulers: Vec<String> = self
@@ -1192,6 +1215,16 @@ impl PipelineModel {
                     self.pan_px(doc, last.x - p.x, last.y - p.y);
                 }
                 moved
+            }
+            Some(Drag::Marker(mut held)) => {
+                let Some(x) = held.target_x(p, self.layout.zoom) else {
+                    return false;
+                };
+                let x = x.clamp(self.layout.cells.left(), self.layout.cells.right());
+                let cycle = self.cycle_at(doc, x);
+                self.drag = Some(Drag::Marker(held));
+                doc.move_marker(held.id, cycle);
+                true
             }
             Some(Drag::Cursor) => {
                 let x =

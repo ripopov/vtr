@@ -210,6 +210,17 @@ clearing by a click on the `R` tag was rejected as too easy to hit by
 accident, and toggling with a second `R` would give one key two meanings
 depending on where the cursor is.
 
+A dragged marker is written to the document at every pointer move rather
+than previewed beside it: the lanes, spans, the reference and the value
+column then read one source, and the undo machinery already keeps an open
+gesture's edits one step and rolls them back on `Esc`. A chip click
+therefore acts on release (a jump to the marker) instead of on press, so a
+press can become a drag. The lane's menus are built as data in the core and
+held by `App` rather than by each panel kind, so wave and pipeline panels
+share them and hosts show them with the popup they already use for row
+menus. *Copy as Text* goes through an event because the clipboard belongs to
+the host.
+
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The
 workspace stores markers and the reference; VTR, VDB and the remote protocol

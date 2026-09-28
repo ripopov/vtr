@@ -594,7 +594,27 @@ impl PanelCanvas {
                         _ => (None, None, false),
                     }
                 };
-                if ev.click_count >= 2 && button == volna_core::geometry::MouseButton::Left && live
+                // On the time header or an empty part of the Markers lane,
+                // where the first click put the cursor, a second one adds a
+                // marker (or names the one already there).
+                let adds_marker = ws.read(cx).app.adds_marker_at(panel, cpoint(ev.position));
+                if ev.click_count >= 2
+                    && button == volna_core::geometry::MouseButton::Left
+                    && adds_marker
+                {
+                    ws.update(cx, |ws, cx| {
+                        ws.dispatch_if_current(
+                            generation,
+                            Command::Action(volna_core::app::Action::AddOrRenameMarker),
+                            Some(window),
+                            cx,
+                        )
+                    });
+                    // A name field may open, and it keeps the keys.
+                    window.prevent_default();
+                } else if ev.click_count >= 2
+                    && button == volna_core::geometry::MouseButton::Left
+                    && live
                 {
                     ws.update(cx, |ws, cx| {
                         ws.dispatch_if_current(

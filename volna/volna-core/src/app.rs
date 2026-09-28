@@ -13,6 +13,8 @@ use crate::data::transactions::{TrackRef, TransactionRef};
 use crate::data::{ScopeId, VarId};
 use crate::document::{Delivered, Document, TraceState};
 use crate::geometry::{Modifiers, Rect};
+use crate::geometry::{MouseButton, Point};
+use crate::marker::{LaneHit, LaneVerb, Reference};
 use crate::panels::{Panel, PanelId, PanelKind, Panels, PanelsCommand};
 use crate::pipeline::{PipelineLayout, PipelineModel, TrackSource};
 use crate::scene::{Scene, TextCache, TextMeasure};
@@ -22,7 +24,7 @@ use crate::sidebar::{Key, MemberListModel, ScopeTreeModel};
 use crate::theme::Theme;
 use crate::transaction::{TransactionCommand, TransactionModel};
 use crate::wave::layout::WaveLayout;
-use crate::wave::model::{MenuAction, PointerEvent, WaveMenuKind, WaveRow};
+use crate::wave::model::{MenuAction, PointerEvent, WaveMenu, WaveMenuKind, WaveRow};
 use crate::wave::timeline::{TimeBase, format_time};
 
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
@@ -411,6 +413,8 @@ pub enum Event {
     },
     /// Move keyboard focus to the settings search box.
     FocusSettingsSearch,
+    /// Put this text on the system clipboard (a marker's *Copy as Text*).
+    CopyText(String),
 }
 
 /// Transient state of the settings editor, owned by the core.
@@ -619,6 +623,10 @@ pub struct App {
     announcement: Option<String>,
     /// The marker whose name field is open, over its chip in this panel.
     marker_edit: Option<(PanelId, crate::marker::MarkerId)>,
+    /// The open Markers or Measure lane menu and the panel it belongs to.
+    lane_menu: Option<(PanelId, WaveMenu)>,
+    /// Lane menus opened so far; each new one gets a new `row`.
+    lane_menus: usize,
     /// Whole-window frame timing the frontend samples from its toolkit.
     pub frames: crate::frames::FrameStats,
     pub(crate) events: Vec<Event>,
@@ -653,6 +661,8 @@ impl App {
             history: Default::default(),
             announcement: None,
             marker_edit: None,
+            lane_menu: None,
+            lane_menus: 0,
             frames: Default::default(),
             events: Vec::new(),
             text: TextCache::default(),
@@ -717,6 +727,7 @@ impl App {
         self.history.clear();
         self.announcement = None;
         self.marker_edit = None;
+        self.lane_menu = None;
         if let Err(e) = self.panels.reset() {
             self.events.push(Event::Notice(e.to_string()));
         }
@@ -732,6 +743,7 @@ impl App {
         self.history.clear();
         self.announcement = None;
         self.marker_edit = None;
+        self.lane_menu = None;
         self.sync_lane_tracks();
         self.sync_analog_summaries();
         self.drag = None;
@@ -1102,6 +1114,13 @@ impl App {
             Command::Pointer(id, ev) => {
                 if matches!(ev, PointerEvent::Down { .. }) && self.panels.get(id).is_some() {
                     self.panel_command(PanelsCommand::Focus(id));
+                    if self.lane_menu.take().is_some() {
+                        self.changed();
+                    }
+                    if self.lane_press(id, ev) {
+                        self.changed();
+                        return;
+                    }
                 }
                 if let Some(panel) = self.panels.get_mut(id)
                     && panel.pointer(&mut self.doc, ev, now)
@@ -1235,6 +1254,12 @@ impl App {
                     }
                 }
             }
+            Command::MenuSelect(panel, MenuAction::Lane(verb)) => {
+                if self.lane_menu.take().is_some_and(|(p, _)| p == panel) {
+                    self.lane_verb(panel, verb, now);
+                    self.changed();
+                }
+            }
             Command::MenuSelect(panel, action) => {
                 if matches!(action, MenuAction::OpenTable) {
                     let row = self
@@ -1302,6 +1327,9 @@ impl App {
             Command::MenuDismiss(panel) => {
                 if let Some(w) = self.panels.waves_mut(panel) {
                     w.menu_dismiss();
+                }
+                if self.lane_menu.as_ref().is_some_and(|(p, _)| *p == panel) {
+                    self.lane_menu = None;
                 }
                 self.changed();
             }
@@ -2555,6 +2583,153 @@ impl App {
         };
         self.announce(text);
         self.changed();
+    }
+
+    /// The context menu the frontend should show for the focused panel: an
+    /// open lane menu, else the focused wave panel's row menu.
+    pub fn menu(&self) -> Option<&WaveMenu> {
+        let panel = self.panels.focused_id();
+        match &self.lane_menu {
+            Some((p, menu)) if *p == panel => Some(menu),
+            _ => self.panels.focused_waves()?.menu.as_ref(),
+        }
+    }
+
+    /// Where a double-click adds a marker in `panel` (after its first click
+    /// put the cursor there): the time header, or the Markers lane away
+    /// from its chips and spans.
+    pub fn adds_marker_at(&self, panel: PanelId, p: Point) -> bool {
+        let Some(panel) = self.panels.get(panel) else {
+            return false;
+        };
+        let (header, lane) = match &panel.kind {
+            PanelKind::Waves(w) => (w.last_layout().header, &w.last_layout().marker_lane),
+            PanelKind::Pipeline(p) => (p.last_layout().header, &p.last_layout().marker_lane),
+            _ => return false,
+        };
+        p.x >= lane.time_left
+            && (header.contains(p) || (lane.band.contains(p) && lane.hit(p).is_none()))
+    }
+
+    /// Gestures on the lanes that every timed panel answers alike, before
+    /// the panel sees the press: a right-click opens the lane menu, and
+    /// Alt-click or a middle click on a chip measures from its marker.
+    /// Returns whether the press was taken.
+    fn lane_press(&mut self, panel: PanelId, ev: PointerEvent) -> bool {
+        let PointerEvent::Down {
+            position,
+            button,
+            modifiers,
+        } = ev
+        else {
+            return false;
+        };
+        let Some(hit) = self
+            .panels
+            .get(panel)
+            .and_then(|p| p.kind.marker_lane())
+            .and_then(|lane| lane.hit(position))
+        else {
+            return false;
+        };
+        match (button, hit) {
+            (MouseButton::Right, hit) => {
+                let Some(entries) = crate::marker::menu(&self.doc, &hit) else {
+                    return false;
+                };
+                if let Some(w) = self.panels.waves_mut(panel) {
+                    w.menu_dismiss();
+                }
+                self.lane_menus += 1;
+                self.lane_menu = Some((
+                    panel,
+                    WaveMenu {
+                        kind: WaveMenuKind::Lane,
+                        row: self.lane_menus,
+                        position,
+                        entries,
+                    },
+                ));
+                true
+            }
+            (MouseButton::Middle, LaneHit::Chip(ix)) | (MouseButton::Left, LaneHit::Chip(ix))
+                if button == MouseButton::Middle || modifiers.alt =>
+            {
+                match self.doc.markers().get(ix).map(|m| m.id) {
+                    Some(id) => {
+                        self.doc.set_reference(Some(Reference::Marker(id)));
+                        true
+                    }
+                    None => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Carry out a lane menu's choice in `panel`.
+    fn lane_verb(&mut self, panel: PanelId, verb: LaneVerb, now: Instant) {
+        let find = |doc: &Document, id| doc.markers().iter().find(|m| m.id == id).cloned();
+        match verb {
+            LaneVerb::GoTo(id) => {
+                let doc = &mut self.doc;
+                if let Some(nav) = self.panels.get_mut(panel).and_then(|p| p.kind.nav_mut()) {
+                    let text = crate::marker::walk(doc, nav, crate::marker::Walk::To(id), now)
+                        .unwrap_or_else(|missing| missing);
+                    self.announce(text);
+                }
+            }
+            LaneVerb::Rename(id) => self.open_marker_name(panel, id, now),
+            LaneVerb::MeasureFrom(id) => {
+                self.doc.set_reference(Some(Reference::Marker(id)));
+            }
+            LaneVerb::MoveToCursor(id) => {
+                let cursor = self
+                    .panels
+                    .get(panel)
+                    .and_then(|p| p.kind.nav())
+                    .and_then(|n| n.cursor(&self.doc));
+                match cursor {
+                    Some(c) if self.doc.move_marker(id, c) => {}
+                    Some(_) => self.announce("Another marker is at the cursor".into()),
+                    None => self.announce("Place the cursor first".into()),
+                }
+            }
+            LaneVerb::Remove(id) => {
+                self.doc.remove_marker(id);
+            }
+            LaneVerb::MeasureSpan(a, b) => {
+                let Some(to) = find(&self.doc, b) else { return };
+                self.doc.set_reference(Some(Reference::Marker(a)));
+                let doc = &mut self.doc;
+                if let Some(nav) = self.panels.get_mut(panel).and_then(|p| p.kind.nav_mut()) {
+                    nav.jump_cursor(doc, to.time, now);
+                }
+            }
+            LaneVerb::ZoomToSpan(a, b) => self.zoom_to_span(panel, a, b, now),
+            LaneVerb::Copy(_) | LaneVerb::CopySpan(..) => {
+                let Some(nav) = self.panels.get(panel).and_then(|p| p.kind.nav()) else {
+                    return;
+                };
+                let rulers = nav.clocks().rulers(&self.doc.clocks);
+                let trace = self.doc.name().unwrap_or_default();
+                let base = self.doc.time_base();
+                let text = match verb {
+                    LaneVerb::Copy(id) => find(&self.doc, id)
+                        .map(|m| crate::marker::text(&trace, &m, base, nav.clocks(), &rulers)),
+                    LaneVerb::CopySpan(a, b) => find(&self.doc, a)
+                        .zip(find(&self.doc, b))
+                        .map(|(a, b)| crate::marker::span_text(&trace, &a, &b, base, &rulers)),
+                    _ => None,
+                };
+                if let Some(text) = text {
+                    self.events.push(Event::CopyText(text));
+                    self.announce("Copied".into());
+                }
+            }
+            LaneVerb::ZoomToMeasurement => self.reference_action(Action::ZoomToMeasurement, now),
+            LaneVerb::ClearReference => self.reference_action(Action::ClearReference, now),
+        }
     }
 
     /// Zoom `panel` to the markers `from` and `to` and the time between.

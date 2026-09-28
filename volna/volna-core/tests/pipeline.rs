@@ -2155,3 +2155,72 @@ fn the_pipeline_measures_from_the_reference_like_the_waves() {
     );
     assert_eq!(app.doc.reference(), None);
 }
+
+#[test]
+fn a_pipeline_chip_goes_on_click_moves_onto_cycles_on_drag_and_esc_cancels() {
+    let (mut app, _, _, pipeline) = opened(60);
+    pump(&mut app);
+    let theme = Theme::one_dark();
+    let (lo, hi) = app.doc.limits();
+    let a = lo + (hi - lo) / 4;
+    app.doc.add_marker(a);
+    app.handle(Command::Panels(PanelsCommand::Focus(pipeline)));
+    app.doc.shared.cursor = Some(lo);
+    let lane = marker_lane(&mut app, pipeline, &theme);
+    let chip = lane.chips[0].rect;
+    let p = point(chip.left() + 3.0, chip.top() + chip.height() / 2.0);
+    let down = |app: &mut App, p| {
+        app.handle(Command::Pointer(
+            pipeline,
+            PointerEvent::Down {
+                position: p,
+                button: MouseButton::Left,
+                modifiers: Modifiers::default(),
+            },
+        ))
+    };
+    let to = |app: &mut App, x: f32| {
+        app.handle(Command::Pointer(
+            pipeline,
+            PointerEvent::Move {
+                position: point(x, p.y),
+            },
+        ))
+    };
+    // Under the slop: a click, which goes to the marker.
+    down(&mut app, p);
+    to(&mut app, p.x + 2.0);
+    app.handle(Command::Pointer(pipeline, PointerEvent::Up));
+    assert_eq!(app.doc.shared.cursor, Some(a));
+    assert_eq!(app.doc.markers()[0].time, a);
+
+    // A drag lands on the cycle under the flag, and is one step.
+    down(&mut app, p);
+    to(&mut app, p.x + 40.0);
+    to(&mut app, p.x + 83.0);
+    app.handle(Command::Pointer(pipeline, PointerEvent::Up));
+    let moved = app.doc.markers()[0].time;
+    assert!(moved > a, "{moved}");
+    let expected = {
+        let model = app.panels.pipeline(pipeline).unwrap();
+        let v = model.nav.viewport(&app.doc);
+        model.last_layout().time_at(&v, chip.left() + 83.0).floor() as u64
+    };
+    assert_eq!(moved, expected, "a whole cycle in this cycle-counted trace");
+    assert_eq!(app.undo_label(), Some("Move marker 1"));
+    assert_eq!(app.doc.shared.cursor, Some(a), "a drag keeps the cursor");
+
+    // Esc during a drag puts it back and records nothing.
+    let lane = marker_lane(&mut app, pipeline, &theme);
+    let chip = lane.chips[0].rect;
+    let p = point(chip.left() + 3.0, chip.top() + chip.height() / 2.0);
+    down(&mut app, p);
+    to(&mut app, p.x - 60.0);
+    assert_ne!(app.doc.markers()[0].time, moved);
+    app.handle(Command::Action(Action::ClearSelection));
+    app.handle(Command::Pointer(pipeline, PointerEvent::Up));
+    assert_eq!(app.doc.markers()[0].time, moved);
+    assert_eq!(app.undo_label(), Some("Move marker 1"));
+    app.handle(Command::Undo);
+    assert_eq!(app.doc.markers()[0].time, a);
+}

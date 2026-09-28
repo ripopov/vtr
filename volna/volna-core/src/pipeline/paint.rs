@@ -553,6 +553,10 @@ pub fn paint(
         doc,
         cursor,
         model.pointer,
+        match model.drag {
+            Some(super::model::Drag::Marker(held)) if held.moved => Some(held.from),
+            _ => None,
+        },
     );
     overlay::cursor(&mut p, &column, cursor, base, focused, z(4.0));
 

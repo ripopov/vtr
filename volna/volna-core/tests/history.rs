@@ -357,6 +357,42 @@ impl Driver {
         true
     }
 
+    /// Drag a marker chip some way along its lane, or only click it, then
+    /// release or cancel with Esc: one step, or none.
+    fn drag_marker(&mut self, cancel: bool) -> bool {
+        let Some(lane) = self
+            .app
+            .panels
+            .get(self.focused())
+            .and_then(|p| p.kind.marker_lane())
+        else {
+            return false;
+        };
+        let chips: Vec<_> = lane.chips.iter().filter(|c| !c.is_cluster()).collect();
+        if chips.is_empty() {
+            return false;
+        }
+        let chip = chips[self.rng.below(chips.len())].rect;
+        let a = point(chip.left() + 2.0, chip.top() + chip.height() / 2.0);
+        let dx = self.rng.below(240) as f32 - 120.0;
+        self.pointer(PointerEvent::Down {
+            position: a,
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+        });
+        self.pointer(PointerEvent::Move {
+            position: point(a.x + dx / 2.0, a.y),
+        });
+        self.pointer(PointerEvent::Move {
+            position: point(a.x + dx, a.y),
+        });
+        if cancel {
+            self.send(Command::Action(Action::ClearSelection));
+        }
+        self.pointer(PointerEvent::Up);
+        true
+    }
+
     /// Drag a row's bottom edge down a few rows and back or not, then
     /// release or cancel with Esc.
     fn drag_height(&mut self, cancel: bool) -> bool {
@@ -564,10 +600,15 @@ impl Driver {
                 )
             }
             81 => return (Kind::Edit, self.rearrange()),
-            82..=86 => {
+            82..=84 => {
                 let cancel = self.rng.chance(4);
                 self.drag_rows(cancel);
                 return (Kind::Edit, format!("drag rows (cancel {cancel})"));
+            }
+            85..=86 => {
+                let cancel = self.rng.chance(4);
+                self.drag_marker(cancel);
+                return (Kind::Edit, format!("drag marker (cancel {cancel})"));
             }
             87..=89 => {
                 let cancel = self.rng.chance(4);

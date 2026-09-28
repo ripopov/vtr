@@ -768,6 +768,24 @@ impl Document {
         Some(id)
     }
 
+    /// Move marker `id` to `time`, keeping the list in time order; a
+    /// reference on the marker follows it. Refused when another marker is
+    /// already there. Returns whether it moved.
+    pub fn move_marker(&mut self, id: MarkerId, time: u64) -> bool {
+        let Some(ix) = self.markers.iter().position(|m| m.id == id) else {
+            return false;
+        };
+        if self.markers[ix].time == time || marker::at(&self.markers, time).is_some() {
+            return false;
+        }
+        self.markers.update(|markers| {
+            let mut m = markers.remove(ix);
+            m.time = time;
+            let at = markers.partition_point(|n| n.time < time);
+            markers.insert(at, m);
+        })
+    }
+
     /// Remove marker `id`; a reference on it stays at its time.
     pub fn remove_marker(&mut self, id: MarkerId) -> bool {
         let Some(ix) = self.markers.iter().position(|m| m.id == id) else {
@@ -817,6 +835,17 @@ impl Document {
                 .find(|m| !b.iter().any(|n| n.id == m.id))
                 .map(|m| m.id)
         };
+        // The one marker whose time alone differs between `a` and `b`.
+        let moved = |a: &[Marker], b: &[Marker]| {
+            let mut diff = a.iter().filter(|x| !b.contains(x));
+            match (diff.next(), diff.next()) {
+                (Some(x), None) => b
+                    .iter()
+                    .find(|y| y.id == x.id && y.label == x.label && y.time != x.time)
+                    .map(|_| x.id),
+                _ => None,
+            }
+        };
         let label = match (before.len(), self.markers.len()) {
             (b, a) if a == b + 1 => only(&self.markers, &before)
                 .map_or_else(|| "Add marker".into(), |id| format!("Add marker {id}")),
@@ -825,10 +854,14 @@ impl Document {
                 |id| format!("Remove marker {id}"),
             ),
             (_, 0) => "Remove all markers".into(),
-            (b, a) if a == b => renamed(&before, &self.markers).map_or_else(
-                || "Change markers".into(),
-                |id| format!("Rename marker {id}"),
-            ),
+            (b, a) if a == b => match (
+                renamed(&before, &self.markers),
+                moved(&before, &self.markers),
+            ) {
+                (Some(id), _) => format!("Rename marker {id}"),
+                (None, Some(id)) => format!("Move marker {id}"),
+                (None, None) => "Change markers".into(),
+            },
             _ => "Change markers".into(),
         };
         history.record(

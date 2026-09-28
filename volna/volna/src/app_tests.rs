@@ -1841,6 +1841,158 @@ fn reference_keys_and_a_double_click_on_the_live_span(cx: &mut TestAppContext) {
     assert_eq!(reference(&mut vcx), None);
 }
 
+/// A marker chip drags with the mouse as one step, a right-click hosts its
+/// menu, *Copy as Text* reaches the clipboard, and a double-click on the
+/// time header adds a marker.
+#[gpui_kit::test]
+fn marker_chips_drag_open_menus_copy_and_double_click_adds(cx: &mut TestAppContext) {
+    use gpui_kit::{
+        Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, VisualTestContext,
+        point,
+    };
+    use volna_core::marker::LaneVerb;
+    use volna_core::wave::model::MenuAction;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let a = window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            let a = lo + (hi - lo) / 4;
+            ws.app.doc.shared.cursor = Some(a);
+            ws.dispatch(Command::Action(Action::AddOrRenameMarker), Some(window), cx);
+            a
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let chip = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                let lane = ws.app.panels.focused().kind.marker_lane().unwrap().clone();
+                let r = lane.chips[0].rect;
+                (r.left() + 3.0, r.top() + r.height() / 2.0)
+            })
+            .unwrap()
+    };
+    let (x, y) = chip(&mut vcx);
+    let at = |x: f32, y: f32| point(gpui_kit::px(x), gpui_kit::px(y));
+    vcx.simulate_event(MouseDownEvent {
+        button: MouseButton::Left,
+        position: at(x, y),
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
+    });
+    for dx in [30.0, 90.0] {
+        vcx.simulate_event(MouseMoveEvent {
+            position: at(x + dx, y),
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::default(),
+        });
+    }
+    vcx.simulate_event(MouseUpEvent {
+        button: MouseButton::Left,
+        position: at(x + 90.0, y),
+        modifiers: Modifiers::default(),
+        click_count: 1,
+    });
+    vcx.run_until_parked();
+    let (moved, label) = window
+        .update(&mut vcx, |ws, _, _| {
+            (
+                ws.app.doc.markers()[0].time,
+                ws.app.undo_label().map(str::to_owned),
+            )
+        })
+        .unwrap();
+    assert!(moved > a, "{moved} > {a}");
+    assert_eq!(label.as_deref(), Some("Move marker 1"));
+
+    // A right-click on the chip hosts its menu; Copy as Text fills the clipboard.
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let (x, y) = chip(&mut vcx);
+    vcx.simulate_event(MouseDownEvent {
+        button: MouseButton::Right,
+        position: at(x, y),
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
+    });
+    vcx.simulate_event(MouseUpEvent {
+        button: MouseButton::Right,
+        position: at(x, y),
+        modifiers: Modifiers::default(),
+        click_count: 1,
+    });
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            assert!(ws.wave_menu.is_some(), "the lane menu is hosted");
+            let panel = ws.app.panels.focused_id();
+            let id = ws.app.doc.markers()[0].id;
+            ws.dispatch(
+                Command::MenuSelect(panel, MenuAction::Lane(LaneVerb::Copy(id))),
+                Some(window),
+                cx,
+            );
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    let copied = vcx
+        .read_from_clipboard()
+        .and_then(|item| item.text())
+        .unwrap_or_default();
+    assert!(copied.contains(" marker 1 at "), "{copied}");
+
+    // A double-click on the time header marks where it lands.
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let (hx, hy) = window
+        .update(&mut vcx, |ws, _, _| {
+            let l = ws.app.panels.focused_waves().unwrap().last_layout();
+            (l.waves.left() + l.waves.width() * 0.8, l.header.top() + 6.0)
+        })
+        .unwrap();
+    for click_count in [1, 2] {
+        vcx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: at(hx, hy),
+            modifiers: Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        });
+        vcx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: at(hx, hy),
+            modifiers: Modifiers::default(),
+            click_count,
+        });
+    }
+    vcx.run_until_parked();
+    let (count, cursor, last) = window
+        .update(&mut vcx, |ws, _, _| {
+            (
+                ws.app.doc.markers().len(),
+                ws.app.doc.shared.cursor,
+                ws.app.doc.markers().last().map(|m| m.time),
+            )
+        })
+        .unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(last, cursor);
+}
+
 /// The start page lists what was opened, newest first; the keys reopen it,
 /// a missing file stays listed, and a workspace is listed as itself
 /// (`docs/recent_sessions.html`).

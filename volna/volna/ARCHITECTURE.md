@@ -506,9 +506,11 @@ over the viewport's slice found by binary search. Each marker gets a chip
 with its number, and a chip that would touch the one before it joins it in a
 cluster (`…4`). Chip widths come from a fixed advance per character, so the
 layout needs no font. Painting and hit testing read the same `MarkerLane`,
-and `marker::press` answers a press for both panel kinds. A chip moves the
-cursor to its marker; no modifier removes one, since Shift-click extends
-selections elsewhere. A cluster lists its
+and `marker::press` answers a press for both panel kinds. A left press on
+a chip holds it (`marker::MarkerDrag`, `Drag::Marker` in both panel kinds):
+released within 3 px it moves the cursor to the marker as a jump, and
+dragged it moves the marker; no modifier removes one, since Shift-click
+extends selections elsewhere. A cluster lists its
 markers on hover and zooms to them on click. A press on the lane between
 chips moves the cursor, as on the header. Each marker's line runs from its
 chip down through the rows.
@@ -582,6 +584,34 @@ cursor with 15% margins. The three are also `setReference`,
 is an undoable edit. Workspaces (version 4) store `shared.reference` as
 `{"marker": n}`, `{"time": t}` or `null`, and restore rejects a reference to
 a missing marker.
+
+Direct manipulation. A dragged chip keeps its grab offset, and its time
+snaps like the cursor's: to the selected clock's edges and the changes of
+the row under the pointer within six pixels in waves, to the cycle in a
+pipeline. `Document::move_marker` writes each position, keeps the list in
+time order, refuses a time another marker holds, and a reference on the
+marker follows it. The open gesture keeps the moves one step, which
+`take_edits` labels *Move marker 4*; `Esc` rolls it back, and a drag that
+ends where it began records nothing. While it moves, the painter draws the
+start as a dotted line (`marker_lane_paint`'s `dragged_from`). `App`
+answers the lane gestures common to every timed panel before the panel
+sees the press (`App::lane_press`): Alt-click or a middle click on a chip
+puts the reference on its marker, and a right-click on a chip, a span, the
+live span, the `R` tag or the `×` opens a lane menu. `marker::menu` builds
+it as data (`MenuAction::Lane(LaneVerb)` entries with their keys as badges):
+a chip offers *Go to Marker*, *Rename…*, *Measure from Here*, *Copy as
+Text*, *Move to Cursor* and *Remove Marker*; a span *Measure 1 → 2*
+(reference on the first, cursor on the second), *Zoom to Span* and *Copy as
+Text*; the measurement *Zoom to Measurement* and *Clear Reference*; a
+cluster none. `App::menu` returns the open lane menu or the focused wave
+panel's row menu, which GPUI and egui host the same way; any press closes
+it, and a choice made without it open is ignored. *Copy as Text* emits
+`Event::CopyText` with `marker::text` (`trace marker 4 “req B” at 186 ns
+(core_clk 185, axi_clk 73)`, positions in the panel's ruler clocks) or
+`marker::span_text`; the host writes the clipboard. A double-click on the
+time header or an empty part of the Markers lane (`App::adds_marker_at`)
+sends `M` after its first click has put the cursor there, so it adds a
+marker, or names the one already there.
 
 `.` and `,` move the focused panel's cursor to the next or previous marker
 and `1`–`9` onto marker *n* (`Action::{NextMarker, PrevMarker, GoToMarker}`,

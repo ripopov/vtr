@@ -218,6 +218,7 @@ impl VolnaApp {
                 | Event::Quit => {}
                 Event::Changed | Event::LayoutChanged { .. } => ctx.request_repaint(),
                 Event::Notice(text) => log::warn!("{text}"),
+                Event::CopyText(text) => ctx.copy_text(text),
                 Event::Announce(text) => log::info!("{text}"),
                 Event::OpenFileDialog => self.open_file_dialog(),
                 Event::RevealScopeRow(ix) => self.reveal_scope = Some(ix),
@@ -915,11 +916,7 @@ impl VolnaApp {
         self.app.layout_panel(panel, bounds, &self.core_theme);
 
         // -- input ------------------------------------------------------------
-        let menu_was_open = self
-            .app
-            .panels
-            .focused_waves()
-            .is_some_and(|w| w.menu.is_some());
+        let menu_was_open = self.app.menu().is_some();
         let pos = ctx.input(|i| i.pointer.latest_pos());
         let inside = pos.is_some_and(|p| rect.contains(p));
         let modifiers = to_modifiers(ctx.input(|i| i.modifiers));
@@ -1018,7 +1015,7 @@ impl VolnaApp {
         };
 
         // -- wave row menu --------------------------------------------------------
-        if let Some(menu) = self.app.panels.focused_waves().and_then(|w| w.menu.clone()) {
+        if let Some(menu) = self.app.menu().cloned() {
             let t = self.theme;
             let mut chosen = None;
             let area = Area::new(self.ids.wave_menu)

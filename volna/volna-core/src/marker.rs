@@ -1,7 +1,8 @@
 //! Markers: kept instants with a number people type and an optional name,
 //! owned by [`Document`] as one time-sorted list. This module holds the
 //! marker type, numbering and lookups, and the Markers lane input shared by
-//! every timed panel. The lane's layout and painting live in
+//! every timed panel: presses, chip drags, the lane's context menus as data
+//! and the readable text they copy. The lane's layout and painting live in
 //! [`crate::wave::overlay`]; the wave and pipeline models hit-test their
 //! [`MarkerLane`] and hand the hit here, so both panels answer the same
 //! gesture the same way.
@@ -12,8 +13,12 @@ use std::fmt;
 use std::num::NonZeroU32;
 use std::ops::Range;
 
+use crate::clock::{Clock, ClockView};
 use crate::document::Document;
+use crate::geometry::Point;
 use crate::nav::NavState;
+use crate::wave::model::{MenuAction, MenuEntry, MenuItem};
+use crate::wave::timeline::{TimeBase, format_time};
 use crate::wave::viewport::Viewport;
 use web_time::Instant;
 
@@ -243,30 +248,222 @@ pub fn zoom_between(doc: &mut Document, nav: &mut NavState, a: u64, b: u64, now:
     );
 }
 
-/// A left press on the lane: a chip moves the cursor to its marker, and a
-/// cluster zooms the view to its markers. A span takes no press here: a
-/// click on it moves the cursor like one on the header, and a double-click
-/// zooms to it ([`zoom_to`]). The live span keeps the cursor, which is one
-/// of its ends; a double-click zooms to it. The `R` tag keeps the cursor
-/// too, and the Measure lane's `×` clears the reference. Returns whether
-/// anything changed.
-/// No modifier removes a marker: Shift-click extends selections elsewhere,
-/// and `⇧M` removes the marker at the cursor.
+/// A left press on the lane: a cluster zooms the view to its markers, and
+/// the Measure lane's `×` clears the reference. A chip takes no press here:
+/// the panel holds it as a [`MarkerDrag`], which goes to the marker on
+/// release or moves it. A span takes none either: a click on it moves the
+/// cursor like one on the header, and a double-click zooms to it
+/// ([`zoom_to`]). The live span and the `R` tag keep the cursor, which is
+/// one of the span's ends; a double-click on the span zooms to it. Returns
+/// whether anything changed. No modifier removes a marker: Shift-click
+/// extends selections elsewhere, and `⇧M` removes the marker at the cursor.
 pub fn press(doc: &mut Document, nav: &mut NavState, hit: LaneHit, now: Instant) -> bool {
     match hit {
-        LaneHit::Chip(ix) => match doc.markers().get(ix) {
-            Some(m) => {
-                let time = m.time;
-                nav.set_cursor(doc, Some(time))
-            }
-            None => false,
-        },
         LaneHit::Cluster(markers) => {
             !markers.is_empty() && zoom_to(doc, nav, markers.start, markers.end - 1, now)
         }
         LaneHit::ClearReference => doc.set_reference(None),
-        LaneHit::Span(_) | LaneHit::Live | LaneHit::Tag => false,
+        LaneHit::Chip(_) | LaneHit::Span(_) | LaneHit::Live | LaneHit::Tag => false,
     }
+}
+
+/// A press must travel this far (at zoom 1.0) to drag a chip; shorter
+/// presses are clicks.
+pub const DRAG_SLOP_PX: f32 = 3.0;
+
+/// A marker chip held by the pointer. Released where it was pressed, it
+/// moves the cursor to the marker; dragged, it moves the marker, which the
+/// panel snaps like the cursor. The document changes as the pointer moves,
+/// and the open gesture keeps the edits one undo step (*Move marker 4*),
+/// which `Esc` rolls back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MarkerDrag {
+    pub id: MarkerId,
+    /// Where the marker was at the press; painted dotted while it moves.
+    pub from: u64,
+    /// The pointer's x minus the marker's at the press, so the flag keeps
+    /// its place under the pointer.
+    pub grab_dx: f32,
+    pub start: Point,
+    pub moved: bool,
+}
+
+impl MarkerDrag {
+    /// Hold marker `ix` (an index into the markers), drawn at `marker_x`.
+    pub fn begin(doc: &Document, ix: usize, p: Point, marker_x: f32) -> Option<Self> {
+        let m = doc.markers().get(ix)?;
+        Some(Self {
+            id: m.id,
+            from: m.time,
+            grab_dx: p.x - marker_x,
+            start: p,
+            moved: false,
+        })
+    }
+
+    /// Where the marker's flag should go for pointer `p`, once the press has
+    /// travelled [`DRAG_SLOP_PX`]; `None` while it is still a click.
+    pub fn target_x(&mut self, p: Point, zoom: f32) -> Option<f32> {
+        self.moved |= (p.x - self.start.x).hypot(p.y - self.start.y) > DRAG_SLOP_PX * zoom;
+        self.moved.then_some(p.x - self.grab_dx)
+    }
+
+    /// The press ended. A click moves the cursor to the marker as a jump
+    /// (`` ` `` returns); a drag has already moved it. Returns whether the
+    /// cursor moved.
+    pub fn release(self, doc: &mut Document, nav: &mut NavState, now: Instant) -> bool {
+        if self.moved {
+            return false;
+        }
+        let Some(time) = doc
+            .markers()
+            .iter()
+            .find(|m| m.id == self.id)
+            .map(|m| m.time)
+        else {
+            return false;
+        };
+        nav.jump_cursor(doc, time, now)
+    }
+}
+
+/// What a lane menu offers. Menus list the same verbs as the keys and
+/// gestures, with those shown beside them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaneVerb {
+    GoTo(MarkerId),
+    Rename(MarkerId),
+    MeasureFrom(MarkerId),
+    Copy(MarkerId),
+    MoveToCursor(MarkerId),
+    Remove(MarkerId),
+    /// Put the reference on the first marker and the cursor on the second.
+    MeasureSpan(MarkerId, MarkerId),
+    ZoomToSpan(MarkerId, MarkerId),
+    CopySpan(MarkerId, MarkerId),
+    ZoomToMeasurement,
+    ClearReference,
+}
+
+fn item(verb: LaneVerb, label: impl Into<String>, badge: Option<&str>) -> MenuEntry {
+    MenuEntry::Item(MenuItem {
+        action: MenuAction::Lane(verb),
+        label: label.into(),
+        badge: badge.map(str::to_owned),
+        checked: false,
+    })
+}
+
+/// `4 “req B”`, or `4` without a name.
+pub fn name(m: &Marker) -> String {
+    match &m.label {
+        Some(label) => format!("{} “{label}”", m.id),
+        None => m.id.to_string(),
+    }
+}
+
+/// The context menu of what `hit` is over, or `None` where the lane has
+/// no menu (a cluster).
+pub fn menu(doc: &Document, hit: &LaneHit) -> Option<Vec<MenuEntry>> {
+    let markers = doc.markers();
+    let measure = || {
+        vec![
+            item(
+                LaneVerb::ZoomToMeasurement,
+                "Zoom to Measurement",
+                Some("Z"),
+            ),
+            item(LaneVerb::ClearReference, "Clear Reference", Some("⇧R")),
+        ]
+    };
+    Some(match *hit {
+        LaneHit::Chip(ix) => {
+            let m = markers.get(ix)?;
+            let id = m.id;
+            let digit = (id.get() <= 9).then(|| id.to_string());
+            vec![
+                MenuEntry::Label(format!("Marker {}", name(m))),
+                item(LaneVerb::GoTo(id), "Go to Marker", digit.as_deref()),
+                item(LaneVerb::Rename(id), "Rename…", Some("double-click")),
+                item(
+                    LaneVerb::MeasureFrom(id),
+                    "Measure from Here",
+                    Some("Alt-click"),
+                ),
+                item(LaneVerb::Copy(id), "Copy as Text", None),
+                MenuEntry::Separator,
+                item(LaneVerb::MoveToCursor(id), "Move to Cursor", None),
+                item(LaneVerb::Remove(id), "Remove Marker", None),
+            ]
+        }
+        LaneHit::Span(ix) => {
+            let (a, b) = (markers.get(ix)?.id, markers.get(ix + 1)?.id);
+            vec![
+                item(
+                    LaneVerb::MeasureSpan(a, b),
+                    format!("Measure {a} → {b}"),
+                    None,
+                ),
+                item(
+                    LaneVerb::ZoomToSpan(a, b),
+                    "Zoom to Span",
+                    Some("double-click"),
+                ),
+                item(LaneVerb::CopySpan(a, b), "Copy as Text", None),
+            ]
+        }
+        LaneHit::Live | LaneHit::Tag | LaneHit::ClearReference => {
+            doc.reference()?;
+            measure()
+        }
+        LaneHit::Cluster(_) => return None,
+    })
+}
+
+/// A marker as a readable reference for a bug report, a chat or an agent:
+/// `lsu_ddr.vtr marker 4 “req B” at 186 ns (core_clk 185, axi_clk 73)`,
+/// with the marker's position in each ruler clock.
+pub fn text(
+    trace: &str,
+    m: &Marker,
+    base: TimeBase<'_>,
+    view: &ClockView,
+    rulers: &[&Clock],
+) -> String {
+    let mut text = format!(
+        "{trace} marker {} at {}",
+        name(m),
+        format_time(m.time as f64, base)
+    );
+    if !rulers.is_empty() {
+        let clocks: Vec<String> = rulers
+            .iter()
+            .map(|c| crate::clock::position_at(view, c, m.time))
+            .collect();
+        text.push_str(&format!(" ({})", clocks.join(", ")));
+    }
+    text
+}
+
+/// The span between two markers as text: `lsu_ddr.vtr marker 1 “req A” →
+/// marker 2 “resp A”: 126 ns · 80 core_clk · 26.4 axi_clk`.
+pub fn span_text(
+    trace: &str,
+    a: &Marker,
+    b: &Marker,
+    base: TimeBase<'_>,
+    rulers: &[&Clock],
+) -> String {
+    let m = crate::measure::measure(rulers, a.time, b.time);
+    let parts: Vec<String> = std::iter::once(crate::wave::overlay::signed_time(m.dt(), base))
+        .chain(m.clocks.iter().map(|c| format!("{} {}", c.cycles, c.name)))
+        .collect();
+    format!(
+        "{trace} marker {} → marker {}: {}",
+        name(a),
+        name(b),
+        parts.join(" · ")
+    )
 }
 
 #[cfg(test)]

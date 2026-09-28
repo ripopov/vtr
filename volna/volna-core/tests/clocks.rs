@@ -807,3 +807,88 @@ fn spans_between_markers_count_cycles_and_zoom_on_a_double_click() {
     assert!((v.width() - (b - a) * 1.3).abs() < 1.0, "{v:?}");
     assert_eq!(app.undo_label().map(str::to_owned), undo);
 }
+
+#[test]
+fn a_dragged_marker_snaps_to_the_selected_clock_and_copies_its_cycles() {
+    let (mut app, _, panel) = waves();
+    let theme = Theme::one_dark();
+    for path in ["top.core_clk", "top.bus_clk"] {
+        app.handle(Command::Clocks(ClockCommand::ToggleRuler(path.into())));
+    }
+    app.handle(Command::Clocks(ClockCommand::Select("top.core_clk".into())));
+    let edges = core_edges();
+    app.doc.shared.viewport.set(Viewport {
+        start: edges[5] as f64,
+        end: edges[35] as f64,
+    });
+    app.doc.shared.cursor = Some(edges[10]);
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    frame(&mut app, panel, &theme);
+    let chip = app
+        .panels
+        .waves(panel)
+        .unwrap()
+        .last_layout()
+        .marker_lane
+        .chips[0]
+        .rect;
+    let grab = point(chip.left() + 3.0, chip.top() + chip.height() / 2.0);
+    let press = PointerEvent::Down {
+        position: grab,
+        button: MouseButton::Left,
+        modifiers: Modifiers::default(),
+    };
+    app.handle(Command::Pointer(panel, press));
+    // Two pixels past edge 20, with the grab offset kept.
+    let x = waves_x(&app, panel, edges[20] as f64) + (grab.x - chip.left()) + 2.0;
+    app.handle(Command::Pointer(
+        panel,
+        PointerEvent::Move {
+            position: point(x, grab.y),
+        },
+    ));
+    app.handle(Command::Pointer(panel, PointerEvent::Up));
+    assert_eq!(
+        app.doc.markers()[0].time,
+        edges[20],
+        "snapped onto the edge"
+    );
+    assert_eq!(app.undo_label(), Some("Move marker 1"));
+
+    // Copy as Text names the cycle of every ruler clock.
+    frame(&mut app, panel, &theme);
+    let chip = app
+        .panels
+        .waves(panel)
+        .unwrap()
+        .last_layout()
+        .marker_lane
+        .chips[0]
+        .rect;
+    let right = PointerEvent::Down {
+        position: point(chip.left() + 3.0, chip.top() + 3.0),
+        button: MouseButton::Right,
+        modifiers: Modifiers::default(),
+    };
+    app.handle(Command::Pointer(panel, right));
+    let id = app.doc.markers()[0].id;
+    app.take_events();
+    app.handle(Command::MenuSelect(
+        panel,
+        volna_core::wave::model::MenuAction::Lane(volna_core::marker::LaneVerb::Copy(id)),
+    ));
+    let text = app
+        .take_events()
+        .into_iter()
+        .find_map(|e| match e {
+            volna_core::Event::CopyText(text) => Some(text),
+            _ => None,
+        })
+        .expect("copied");
+    let trace = app.doc.name().unwrap();
+    assert!(
+        text.starts_with(&format!("{trace} marker 1 at "))
+            && text.contains(" (core_clk 20, bus_clk "),
+        "{text}"
+    );
+}

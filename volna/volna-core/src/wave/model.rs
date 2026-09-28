@@ -371,6 +371,9 @@ pub enum Drag {
         start: Point,
         current: Point,
     },
+    /// A marker chip held by the pointer: a click goes to the marker, a
+    /// drag moves it.
+    Marker(crate::marker::MarkerDrag),
     /// Panning with the middle or right button. A middle press that has
     /// not moved yet keeps its `click` point: released there, it measures
     /// from that point instead.
@@ -432,6 +435,8 @@ pub enum MenuAction {
     Fold(bool),
     /// Fold or unfold every group of the panel.
     FoldAll(bool),
+    /// A choice of a Markers or Measure lane menu (`WaveMenuKind::Lane`).
+    Lane(crate::marker::LaneVerb),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -472,6 +477,9 @@ pub enum WaveMenuKind {
     Signal,
     /// A clock ruler's menu; `row` is the ruler's index.
     Ruler,
+    /// A Markers or Measure lane menu, which the app holds for any timed
+    /// panel (`App::menu`); `row` counts the menus opened, so each is new.
+    Lane,
 }
 
 /// A format-badge or signal-name menu. The frontend shows its own popup widget
@@ -2468,7 +2476,10 @@ impl WaveModel {
             PointerEvent::Move { position } => self.pointer_move(doc, position),
             PointerEvent::Up => {
                 let had = self.drag.is_some();
-                if let Some(Drag::Pan {
+                if let Some(Drag::Marker(held)) = self.drag {
+                    self.drag = None;
+                    held.release(doc, &mut self.nav, now);
+                } else if let Some(Drag::Pan {
                     click: Some(click), ..
                 }) = self.drag
                 {
@@ -2599,13 +2610,22 @@ impl WaveModel {
                     return;
                 }
             }
-            if let Some(hit) = layout
-                .marker_lane
-                .hit(p)
-                .filter(|h| !matches!(h, crate::marker::LaneHit::Span(_)))
-            {
-                crate::marker::press(doc, &mut self.nav, hit, now);
-                return;
+            match layout.marker_lane.hit(p) {
+                Some(crate::marker::LaneHit::Chip(ix)) => {
+                    let viewport = self.viewport(doc);
+                    let marker_x = doc.markers().get(ix).map_or(p.x, |m| {
+                        layout.waves.left()
+                            + viewport.x_of(m.time as f64, layout.wave_width_f64()) as f32
+                    });
+                    self.drag =
+                        crate::marker::MarkerDrag::begin(doc, ix, p, marker_x).map(Drag::Marker);
+                    return;
+                }
+                Some(crate::marker::LaneHit::Span(_)) | None => {}
+                Some(hit) => {
+                    crate::marker::press(doc, &mut self.nav, hit, now);
+                    return;
+                }
             }
         }
         let in_waves_x = p.x >= layout.waves.left() && p.x < layout.waves.right();
@@ -2785,6 +2805,26 @@ impl WaveModel {
                     doc.navigation.snap_px * f64::from(layout.zoom),
                 );
                 self.set_cursor(doc, Some(t));
+                true
+            }
+            Some(Drag::Marker(mut held)) => {
+                // Snapped like the cursor: to the selected clock and the row
+                // under the pointer.
+                let Some(x) = held.target_x(p, layout.zoom) else {
+                    return false;
+                };
+                let row = layout.entry_at(p.y).filter(|_| p.y >= layout.waves.top());
+                let clock = self.nav.selected_clock(doc);
+                let t = snapped_time(
+                    &self.viewport(doc),
+                    row.and_then(|r| self.edge_source(doc, r)).as_ref(),
+                    clock.as_deref(),
+                    f64::from(x - layout.waves.left()).clamp(0.0, wave_wf),
+                    wave_wf,
+                    doc.navigation.snap_px * f64::from(layout.zoom),
+                );
+                self.drag = Some(Drag::Marker(held));
+                doc.move_marker(held.id, t);
                 true
             }
             Some(Drag::Pan { last_x, click }) => {

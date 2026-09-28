@@ -615,6 +615,10 @@ pub fn paint(
         doc,
         cursor,
         model.pointer,
+        match model.drag {
+            Some(Drag::Marker(held)) if held.moved => Some(held.from),
+            _ => None,
+        },
     );
     overlay::cursor(&mut p, &column, cursor, base, focused, z(SCROLLBAR_W));
     paint_analog_overlays(model, doc, &layout, &viewport, cursor, &mut p);

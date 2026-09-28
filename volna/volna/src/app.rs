@@ -865,6 +865,9 @@ impl Workspace {
                         }
                     }
                     Event::SettingsChanged { keys } => self.settings_changed(&keys, cx),
+                    Event::CopyText(text) => {
+                        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
+                    }
                     Event::FocusSettingsSearch => {
                         if let (Some(window), Some(id)) =
                             (window.as_deref_mut(), self.app.panels.settings_id())
@@ -934,15 +937,11 @@ impl Workspace {
         .detach();
     }
 
-    /// Keep the GPUI popup in step with the core's wave-row menu.
+    /// Keep the GPUI popup in step with the core's menu: a wave row's or a
+    /// Markers or Measure lane's (`App::menu`).
     fn sync_wave_menu(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
         let panel = self.app.panels.focused_id();
-        let Some(m) = self
-            .app
-            .panels
-            .focused_waves()
-            .and_then(|w| w.menu.as_ref())
-        else {
+        let Some(m) = self.app.menu() else {
             self.wave_menu = None;
             return;
         };

@@ -934,7 +934,8 @@ pub fn header_ticks(p: &mut TextPainter<'_>, column: &TimeColumn, tick_list: &[T
 /// the chips, and a line for every visible marker from its chip down
 /// through the rows. Hovering a chip or cluster lists its markers, and
 /// hovering a span gives its full measurement. The Measure lane follows
-/// ([`measure_lane_paint`]).
+/// ([`measure_lane_paint`]). While a chip is dragged, `dragged_from` is
+/// where its marker started, drawn as a dotted line.
 #[allow(clippy::too_many_arguments)]
 pub fn marker_lane_paint(
     p: &mut TextPainter<'_>,
@@ -945,6 +946,7 @@ pub fn marker_lane_paint(
     doc: &Document,
     cursor: Option<u64>,
     pointer: Option<Point>,
+    dragged_from: Option<u64>,
 ) {
     let t = p.theme;
     let z = |v: f32| v * t.zoom;
@@ -1025,7 +1027,22 @@ pub fn marker_lane_paint(
             )
         })
         .collect();
+    let ghost = dragged_from.map(|t| {
+        let x = column.x_of(t as f64);
+        let (dot, gap) = (z(2.0).round().max(1.0), z(3.0).round().max(1.0));
+        let mut dots = Vec::new();
+        let mut y = band.top();
+        while y < column.area.bottom() {
+            dots.push(Rect::new(point(x, y), size(1.0, dot)));
+            y += dot + gap;
+        }
+        dots
+    });
+    let ghost_color = t.panel.text_muted;
     p.scene.clipped(lines_clip, |scene| {
+        for dot in ghost.into_iter().flatten() {
+            scene.fill(dot, ghost_color);
+        }
         for (x, color) in lines {
             scene.fill(
                 Rect::new(

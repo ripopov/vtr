@@ -559,6 +559,7 @@ fn cursor_markers_and_selection_follow_the_document() {
             },
         },
     ));
+    app.handle(Command::Pointer(app.panels.focused_id(), PointerEvent::Up));
     assert_eq!(app.doc.markers().len(), 1, "Shift-click keeps the marker");
     app.handle(Command::Action(Action::RemoveMarkerAtCursor));
     assert!(app.doc.markers().is_empty());
