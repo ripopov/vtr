@@ -31,6 +31,8 @@ pub const ZOOM_RANGE_MIN_PX: f32 = 4.0;
 /// A press on a signal name must travel this far (at zoom 1.0) to start
 /// moving rows; shorter presses are clicks.
 pub const ROW_DRAG_MIN_PX: f32 = 4.0;
+/// A middle press that moves less than this is a click, not a pan.
+const CLICK_SLOP_PX: f32 = 3.0;
 /// A press this close (at zoom 1.0) to the bottom edge of a row's name cell
 /// resizes the row instead of selecting it.
 pub const ROW_EDGE_GRAB_PX: f32 = 3.0;
@@ -369,8 +371,12 @@ pub enum Drag {
         start: Point,
         current: Point,
     },
+    /// Panning with the middle or right button. A middle press that has
+    /// not moved yet keeps its `click` point: released there, it measures
+    /// from that point instead.
     Pan {
         last_x: f32,
+        click: Option<Point>,
     },
     NamesSplit,
     ValuesSplit,
@@ -2146,6 +2152,12 @@ impl WaveModel {
             scroll_y: self.scroll_y,
             markers: doc.markers(),
             spans,
+            measuring: doc
+                .reference_time()
+                .map(|reference| super::overlay::Measuring {
+                    reference,
+                    cursor: self.nav.cursor(doc),
+                }),
             viewport: self.viewport(doc),
         });
         self.scroll_y = layout.scroll_y;
@@ -2456,7 +2468,13 @@ impl WaveModel {
             PointerEvent::Move { position } => self.pointer_move(doc, position),
             PointerEvent::Up => {
                 let had = self.drag.is_some();
-                if let Some(Drag::Rows {
+                if let Some(Drag::Pan {
+                    click: Some(click), ..
+                }) = self.drag
+                {
+                    self.drag = None;
+                    self.measure_from(doc, click);
+                } else if let Some(Drag::Rows {
                     gap,
                     depth,
                     into,
@@ -2513,6 +2531,34 @@ impl WaveModel {
         }
     }
 
+    /// Put the document's reference at `p` (Alt-click, a middle click),
+    /// snapped like the cursor to the selected clock and the row under the
+    /// pointer, and onto a marker there.
+    fn measure_from(&mut self, doc: &mut Document, p: Point) {
+        let layout = &self.layout;
+        let wave_wf = layout.wave_width_f64();
+        let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
+        let snap_px = doc.navigation.snap_px * f64::from(layout.zoom);
+        let viewport = self.viewport(doc);
+        let clock = self.nav.selected_clock(doc);
+        let edges = layout
+            .entry_at(p.y)
+            .filter(|_| p.y >= layout.waves.top())
+            .and_then(|r| self.edge_source(doc, r));
+        let t = snapped_time(
+            &viewport,
+            edges.as_ref(),
+            clock.as_deref(),
+            x,
+            wave_wf,
+            snap_px,
+        );
+        let raw = viewport.time_at(x, wave_wf);
+        let tolerance = snap_px / viewport.px_per_unit(wave_wf);
+        let reference = crate::marker::reference_near(doc.markers(), raw, tolerance, t);
+        doc.set_reference(Some(reference));
+    }
+
     fn pointer_down(
         &mut self,
         doc: &mut Document,
@@ -2565,6 +2611,18 @@ impl WaveModel {
         let in_waves_x = p.x >= layout.waves.left() && p.x < layout.waves.right();
         let wave_wf = layout.wave_width_f64();
         let snap_px = doc.navigation.snap_px * f64::from(layout.zoom);
+        // Alt-click measures from the pointer; a middle click does on release.
+        if in_waves_x && button == MouseButton::Left && modifiers.alt {
+            self.measure_from(doc, p);
+            return;
+        }
+        if in_waves_x && button == MouseButton::Middle {
+            self.drag = Some(Drag::Pan {
+                last_x: p.x,
+                click: Some(p),
+            });
+            return;
+        }
         if in_waves_x && button == MouseButton::Left && (modifiers.control || modifiers.platform) {
             let displayed = self.viewport(doc);
             self.nav.viewport_state_mut(doc).set(displayed);
@@ -2591,7 +2649,7 @@ impl WaveModel {
             self.nav.select_clock(&rulers[ix]);
         }
         // The time strip above the rows: header, rulers and the lane between chips.
-        if layout.header.contains(p) || ruler.is_some() || layout.marker_lane.band.contains(p) {
+        if layout.header.contains(p) || ruler.is_some() || layout.marker_lane.strip().contains(p) {
             if in_waves_x && button == MouseButton::Left {
                 let x = f64::from(p.x - layout.waves.left());
                 let clock = self.nav.selected_clock(doc);
@@ -2642,7 +2700,10 @@ impl WaveModel {
                     }
                 }
                 MouseButton::Middle | MouseButton::Right => {
-                    self.drag = Some(Drag::Pan { last_x: p.x });
+                    self.drag = Some(Drag::Pan {
+                        last_x: p.x,
+                        click: None,
+                    });
                 }
             }
             return;
@@ -2726,9 +2787,18 @@ impl WaveModel {
                 self.set_cursor(doc, Some(t));
                 true
             }
-            Some(Drag::Pan { last_x }) => {
+            Some(Drag::Pan { last_x, click }) => {
+                // A middle press pans once it moves past the threshold.
+                if let Some(c) = click
+                    && (p.x - c.x).hypot(p.y - c.y) <= CLICK_SLOP_PX * layout.zoom
+                {
+                    return false;
+                }
                 let dx = last_x - p.x;
-                self.drag = Some(Drag::Pan { last_x: p.x });
+                self.drag = Some(Drag::Pan {
+                    last_x: p.x,
+                    click: None,
+                });
                 self.pan_px(doc, dx);
                 true
             }

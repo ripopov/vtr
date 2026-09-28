@@ -101,6 +101,9 @@ actions!(
         NextMarker,
         PrevMarker,
         JumpBack,
+        SetReference,
+        ClearReference,
+        ZoomToMeasurement,
         RemoveSelected,
         CopySignals,
         CutSignals,
@@ -419,6 +422,9 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("shift-left", PrevEdge, Some("Waves")),
         KeyBinding::new("m", AddOrRenameMarker, Some("Waves")),
         KeyBinding::new("shift-m", RemoveMarkerAtCursor, Some("Waves")),
+        KeyBinding::new("r", SetReference, Some("Waves && !Table")),
+        KeyBinding::new("shift-r", ClearReference, Some("Waves && !Table")),
+        KeyBinding::new("z", ZoomToMeasurement, Some("Waves && !Table")),
         // Bare keys: the table's row field lives in its panel, so not there.
         // Other text fields are hosted outside the panels' key context.
         KeyBinding::new(".", NextMarker, Some("Waves && !Table")),
@@ -1654,6 +1660,9 @@ impl Workspace {
                 NextMarker,
                 PrevMarker,
                 JumpBack,
+                SetReference,
+                ClearReference,
+                ZoomToMeasurement,
                 RemoveSelected,
                 CopySignals,
                 CutSignals,
@@ -2067,7 +2076,7 @@ impl Workspace {
         for c in status.clocks {
             position = position.child(mono(c, colors.text_muted));
         }
-        if let Some(d) = status.delta {
+        if let Some(d) = status.measure {
             position = position.child(mono(d, colors.text));
         }
         if let Some(m) = status.markers {

@@ -475,8 +475,8 @@ materialized), and reuses the bit painter. In the sidebar a clock's generator
 offers *Add as Ruler* (`Command::AddClockRulers`) and *Add as Waveform*;
 right-clicking a ruler in a wave panel opens `WaveMenuKind::Ruler` (*Hide
 Ruler*). The
-status bar reads the cursor's cycle in each ruler clock and the cursor-to-nearest-marker delta in time and
-cycles. `measure::measure` counts those cycles rather than dividing by a
+status bar reads the cursor's cycle in each ruler clock and the measurement
+from the reference to the cursor (`Status::measure`) in time and cycles. `measure::measure` counts those cycles rather than dividing by a
 period: a clock's position at `t` is its recorded edges at or before `t`
 plus the running cycle's fraction (0 before the first edge and while the
 clock is stopped, from `ClockTimeline::cycle_at`), and a count is the
@@ -541,6 +541,40 @@ monospace font fits. Hovering a span shows the full measurement with 1/Δt
 (`clock::frequency`). A click on a span moves the cursor as on the header
 (`marker::press` leaves `LaneHit::Span` alone), and a double-click zooms to
 it (`Command::ZoomToSpan`, `marker::zoom_to`, navigation only).
+
+The reference (`marker::Reference::{Time, Marker}`) is where measurements
+start: at most one per document, beside the journaled marker list but
+outside it, since it is navigation state like the cursor. `R`
+(`Action::SetReference`) puts it at the focused panel's cursor, attached to
+a marker exactly there, and `⇧R` (`ClearReference`) clears it. Alt-click
+puts it at the pointer, and so does a middle click released within 3 px of
+its press (a middle drag still pans): the time snaps like the cursor, to the
+selected clock and the row under the pointer in waves and to the cycle in a
+pipeline, and `marker::reference_near` attaches it to a marker within the
+snap distance unless a snapped edge is closer. A marker reference follows
+its marker; when an edit removes that marker (remove, remove all, an undo of
+its add), `Document` keeps the reference at the marker's last time. Undo
+never restores the attachment.
+
+While a reference exists, every timed panel adds a Measure lane under the
+Markers lane (`MarkerLane::measure`, `wave::overlay::measure_lane`; layouts
+reserve two lane heights, and `MarkerLane::strip` covers both). It holds the
+`R` tag on the reference and the live span to the cursor, measured with
+`measure::measure` from the reference (so negative before it) and labelled
+with the same forms as the spans between markers. Its title reads
+*R → cursor*; with a values column its value cell counts the span in the
+selected clock (`… cyc`), else the signed time. The painter tints the
+measured interval across the rows, draws a dashed line at the reference,
+and rings the reference's marker chip, all in the cursor colour. Hovering
+the live span shows the full measurement with 1/Δt. A press on the live
+span keeps the cursor, which is one of its ends, and a double-click zooms
+to it; elsewhere the lane works like the header. `Z`
+(`ZoomToMeasurement`, `marker::zoom_between`) zooms to the reference and the
+cursor with 15% margins. The three are also `setReference`,
+`clearReference` and `zoomToMeasurement` through `Command::named`, and none
+is an undoable edit. Workspaces (version 4) store `shared.reference` as
+`{"marker": n}`, `{"time": t}` or `null`, and restore rejects a reference to
+a missing marker.
 
 `.` and `,` move the focused panel's cursor to the next or previous marker
 and `1`–`9` onto marker *n* (`Action::{NextMarker, PrevMarker, GoToMarker}`,

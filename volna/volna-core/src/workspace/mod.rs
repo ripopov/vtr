@@ -16,14 +16,19 @@ use crate::wave::{
     tree::{self, Entry},
     viewport::Viewport,
 };
-use crate::{App, data::source::Lookup, data::transactions::TrackKind, marker::Marker};
+use crate::{
+    App,
+    data::source::Lookup,
+    data::transactions::TrackKind,
+    marker::{Marker, Reference},
+};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::{BTreeSet, HashSet};
 
 pub const FORMAT: &str = "volna-workspace";
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_ROWS: usize = 100_000;
 
@@ -55,6 +60,8 @@ pub struct Shared {
     pub viewport: Viewport,
     pub cursor: Option<u64>,
     pub markers: Vec<Marker>,
+    /// Where measurements start: `{"marker": n}` or `{"time": t}`.
+    pub reference: Option<Reference>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -555,6 +562,7 @@ impl Workspace {
                 viewport: app.doc.shared.viewport.target(),
                 cursor: app.doc.shared.cursor,
                 markers: app.doc.markers().to_vec(),
+                reference: app.doc.reference(),
             },
             sidebar: Sidebar {
                 visible: app.sidebar_visible,
@@ -619,6 +627,9 @@ impl Workspace {
         for m in &self.shared.markers {
             // Numbers are positive by type; a zero fails to parse.
             ensure!(marker_ids.insert(m.id), "duplicate marker ID");
+        }
+        if let Some(Reference::Marker(id)) = self.shared.reference {
+            ensure!(marker_ids.contains(&id), "reference to missing marker {id}");
         }
         ensure!(
             self.sidebar.width.is_finite() && self.sidebar.width > 0.0,
@@ -1078,6 +1089,7 @@ impl RestorePlan {
         app.doc.shared.viewport = Tween::new(self.shared.viewport);
         app.doc.shared.cursor = self.shared.cursor;
         app.doc.restore_markers(self.shared.markers);
+        app.doc.set_reference(self.shared.reference);
         app.panels = self.panels;
         let mut report = self.report;
         for panel in app.panels.iter_mut() {

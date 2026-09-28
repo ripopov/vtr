@@ -317,7 +317,7 @@ fn clicks_snap_to_the_selected_clock_and_brackets_step_cycles() {
 }
 
 #[test]
-fn the_status_bar_reads_cycles_and_the_cursor_to_marker_delta() {
+fn the_status_bar_reads_cycles_and_the_reference_to_cursor_measure() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
     app.handle(Command::Clocks(ClockCommand::ToggleRuler(
@@ -331,6 +331,11 @@ fn the_status_bar_reads_cycles_and_the_cursor_to_marker_delta() {
     app.doc.shared.cursor = Some(edges[10]);
     app.handle(Command::Action(Action::AddOrRenameMarker));
     app.doc.shared.cursor = Some(edges[50] + 167);
+    // A marker alone measures nothing: only the reference does.
+    assert_eq!(app.status().measure, None);
+    app.doc.shared.cursor = Some(edges[10]);
+    app.handle(Command::Action(Action::SetReference));
+    app.doc.shared.cursor = Some(edges[50] + 167);
     let s = app.status();
     assert_eq!(s.clocks, ["core_clk 50 + 0.50", "bus_clk 8 + 0.13"]);
     // Counted, not divided: the marker is on core edge 10 and the cursor
@@ -338,17 +343,20 @@ fn the_status_bar_reads_cycles_and_the_cursor_to_marker_delta() {
     // and the cursor 0.13 into cycle 8, so 6.8 cycles, where subtracting
     // cycle numbers said 7.
     assert_eq!(
-        s.delta.as_deref(),
-        Some("Δ 13.53 ns · 40.5 core_clk · 6.8 bus_clk")
+        s.measure.as_deref(),
+        Some("R → cursor 13.53 ns · 40.5 core_clk · 6.8 bus_clk")
     );
     // Both ends on core edges: a whole count.
     app.doc.shared.cursor = Some(edges[50]);
     let s = app.status();
-    assert!(s.delta.unwrap().contains(" · 40 core_clk · "));
-    // Before the marker the delta is negative.
+    assert!(s.measure.unwrap().contains(" · 40 core_clk · "));
+    // Before the reference the measure is negative.
     app.doc.shared.cursor = Some(edges[4]);
     let s = app.status();
-    assert!(s.delta.unwrap().starts_with("Δ −"));
+    assert!(s.measure.unwrap().starts_with("R → cursor −"));
+    // It stays put while other markers come and go near the cursor.
+    app.handle(Command::Action(Action::AddOrRenameMarker));
+    assert!(app.status().measure.unwrap().contains(" · −6 core_clk · "));
 }
 
 #[test]

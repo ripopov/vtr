@@ -92,8 +92,8 @@ pub fn paint(
             size(waves.width(), layout.rulers.height()),
         ),
         lane: Rect::new(
-            point(waves.left(), layout.marker_lane.band.top()),
-            size(waves.width(), layout.marker_lane.band.height()),
+            point(waves.left(), layout.marker_lane.strip().top()),
+            size(waves.width(), layout.marker_lane.strip().height()),
         ),
         area: waves,
         viewport,

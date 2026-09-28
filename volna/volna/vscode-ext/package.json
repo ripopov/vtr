@@ -91,6 +91,18 @@
         "title": "Volna: Return to Before the Last Jump"
       },
       {
+        "command": "volna.setReference",
+        "title": "Volna: Measure from Cursor"
+      },
+      {
+        "command": "volna.clearReference",
+        "title": "Volna: Clear Reference"
+      },
+      {
+        "command": "volna.zoomToMeasurement",
+        "title": "Volna: Zoom to Measurement"
+      },
+      {
         "command": "volna.focusPanel1",
         "title": "Volna: Focus Panel 1"
       },

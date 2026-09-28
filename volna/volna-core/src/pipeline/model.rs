@@ -70,6 +70,8 @@ pub enum Hit {
     Marker(usize),
     /// A span on the Markers lane, by its index in the lane layout.
     Span(usize),
+    /// The live span on the Measure lane.
+    Live,
     Retry,
 }
 
@@ -499,6 +501,12 @@ impl PipelineModel {
             row_count,
             markers: doc.markers(),
             spans: SpanClocks::of(&rulers, self.nav.clocks(), &doc.clocks, doc.time_base()),
+            measuring: doc
+                .reference_time()
+                .map(|reference| crate::wave::overlay::Measuring {
+                    reference,
+                    cursor: self.nav.cursor(doc),
+                }),
             viewport: self.nav.viewport(doc),
             failed,
         };
@@ -569,13 +577,16 @@ impl PipelineModel {
         if layout.retry.is_some_and(|r| r.contains(p)) {
             return Some(Hit::Retry);
         }
+        if layout.marker_lane.live_at(p) {
+            return Some(Hit::Live);
+        }
         if let Some(chip) = layout.marker_lane.chip_at(p) {
             return Some(Hit::Marker(chip));
         }
         if let Some(span) = layout.marker_lane.span_at(p) {
             return Some(Hit::Span(span));
         }
-        if layout.header.contains(p) || layout.marker_lane.band.contains(p) {
+        if layout.header.contains(p) || layout.marker_lane.strip().contains(p) {
             return Some(Hit::Header);
         }
         let row = layout.row_at(p.y)?;
@@ -991,14 +1002,27 @@ impl PipelineModel {
     ) -> bool {
         match event {
             PointerEvent::Down {
-                position, button, ..
+                position,
+                button,
+                modifiers,
             } => {
-                self.pointer_down(doc, panel, position, button, now);
+                self.pointer_down(doc, panel, position, button, modifiers, now);
                 true
             }
             PointerEvent::Move { position } => self.pointer_move(doc, position),
             PointerEvent::Up => {
                 let drag = self.drag.take();
+                // A middle click without dragging measures from its point.
+                if let Some(Drag::Pan {
+                    button: MouseButton::Middle,
+                    start,
+                    moved: false,
+                    ..
+                }) = drag
+                {
+                    self.measure_from(doc, start);
+                    return true;
+                }
                 if let Some(Drag::Pan {
                     button: MouseButton::Left,
                     start,
@@ -1046,12 +1070,28 @@ impl PipelineModel {
         }
     }
 
+    /// Put the document's reference at `p` (Alt-click, a middle click), on
+    /// the start of the cycle there like the cursor, or onto a marker there.
+    fn measure_from(&mut self, doc: &mut Document, p: Point) {
+        let x =
+            p.x.clamp(self.layout.cells.left(), self.layout.cells.right());
+        let t = self.cycle_at(doc, x);
+        let viewport = self.nav.viewport(doc);
+        let width = self.layout.cells_width_f64();
+        let raw = self.layout.time_at(&viewport, x);
+        let tolerance =
+            doc.navigation.snap_px * f64::from(self.layout.zoom) / viewport.px_per_unit(width);
+        let reference = crate::marker::reference_near(doc.markers(), raw, tolerance, t);
+        doc.set_reference(Some(reference));
+    }
+
     fn pointer_down(
         &mut self,
         doc: &mut Document,
         panel: PanelId,
         p: Point,
         button: MouseButton,
+        modifiers: Modifiers,
         now: Instant,
     ) {
         self.pointer = Some(p);
@@ -1063,6 +1103,11 @@ impl PipelineModel {
         }
         let lane_hit = self.layout.marker_lane.hit(p);
         let layout = &self.layout;
+        let in_time = p.x >= layout.cells.left() && layout.bounds.contains(p);
+        if button == MouseButton::Left && modifiers.alt && in_time && lane_hit.is_none() {
+            self.measure_from(doc, p);
+            return;
+        }
         if button == MouseButton::Left {
             if layout.label_split.contains(p) {
                 self.drag = Some(Drag::LabelSplit);
@@ -1088,7 +1133,7 @@ impl PipelineModel {
             if let Some(ix) = ruler {
                 self.nav.select_clock(&rulers[ix]);
             }
-            let strip = layout.header.contains(p) || layout.marker_lane.band.contains(p);
+            let strip = layout.header.contains(p) || layout.marker_lane.strip().contains(p);
             if (strip || ruler.is_some()) && p.x >= layout.cells.left() {
                 let cycle = self.cycle_at(doc, p.x);
                 self.nav.set_cursor(doc, Some(cycle));
@@ -1107,12 +1152,13 @@ impl PipelineModel {
                 return;
             }
         }
-        if layout.cells.contains(p) {
+        // A middle press measures from its point unless it drags, which pans.
+        if layout.cells.contains(p) || (button == MouseButton::Middle && in_time) {
             self.drag = Some(Drag::Pan {
                 button,
                 start: p,
                 last: p,
-                moved: button != MouseButton::Left,
+                moved: button == MouseButton::Right,
             });
         }
     }

@@ -1715,6 +1715,104 @@ fn double_click_on_a_span_zooms_to_it(cx: &mut TestAppContext) {
     assert!(v.width() < (b - a) * 1.5, "zoomed in to the span: {v:?}");
 }
 
+/// `R` measures from the cursor, `⇧R` stops, `Z` zooms to the measurement,
+/// and a double-click on the live span zooms to it too.
+#[gpui_kit::test]
+fn reference_keys_and_a_double_click_on_the_live_span(cx: &mut TestAppContext) {
+    use gpui_kit::{
+        Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, VisualTestContext, point,
+    };
+    use volna_core::marker::Reference;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let (a, b) = window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            let (a, b) = (lo + (hi - lo) * 2 / 5, lo + (hi - lo) / 2);
+            ws.app.doc.shared.cursor = Some(a);
+            (a, b)
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let reference = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| ws.app.doc.reference())
+            .unwrap()
+    };
+    vcx.simulate_keystrokes("r");
+    assert_eq!(reference(&mut vcx), Some(Reference::Time(a)));
+    vcx.simulate_keystrokes("shift-r");
+    assert_eq!(reference(&mut vcx), None);
+    vcx.simulate_keystrokes("r");
+    window
+        .update(&mut vcx, |ws, _, _| ws.app.doc.shared.cursor = Some(b))
+        .unwrap();
+    vcx.simulate_keystrokes("z");
+    let v = window
+        .update(&mut vcx, |ws, _, _| ws.app.doc.shared.viewport.target())
+        .unwrap();
+    let (fa, fb) = (a as f64, b as f64);
+    assert!(
+        v.start < fa && v.end > fb && v.width() < (fb - fa) * 1.5,
+        "{v:?}"
+    );
+
+    // Zoom out again, then double-click the live span.
+    vcx.simulate_keystrokes("f");
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let (x, y) = window
+        .update(&mut vcx, |ws, _, _| {
+            let lane = ws.app.panels.focused().kind.marker_lane().unwrap().clone();
+            let m = lane.measure.clone().expect("the Measure lane");
+            let (x0, x1) = lane.live_shown(m.live.as_ref().expect("the live span"));
+            ((x0 + x1) / 2.0, m.band.top() + m.band.height() / 2.0)
+        })
+        .unwrap();
+    let at = point(gpui_kit::px(x), gpui_kit::px(y));
+    for click_count in [1, 2] {
+        vcx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        });
+        vcx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+        });
+    }
+    vcx.run_until_parked();
+    let (v, cursor) = window
+        .update(&mut vcx, |ws, _, _| {
+            (
+                ws.app.doc.shared.viewport.target(),
+                ws.app.doc.shared.cursor,
+            )
+        })
+        .unwrap();
+    assert_eq!(cursor, Some(b), "a press on the live span keeps the cursor");
+    assert!(
+        v.start < fa && v.end > fb && v.width() < (fb - fa) * 1.5,
+        "{v:?}"
+    );
+}
+
 /// The start page lists what was opened, newest first; the keys reopen it,
 /// a missing file stays listed, and a workspace is listed as itself
 /// (`docs/recent_sessions.html`).

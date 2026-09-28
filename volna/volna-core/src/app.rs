@@ -64,6 +64,13 @@ pub enum Action {
     /// `` ` ``: return to the cursor and view from before the last marker
     /// jump; again, go forward to where the return started.
     JumpBack,
+    /// `R`: measure from the focused panel's cursor, attached to a marker
+    /// there.
+    SetReference,
+    /// `⇧R`: stop measuring.
+    ClearReference,
+    /// `Z`: zoom the focused panel to the reference and the cursor.
+    ZoomToMeasurement,
     RemoveSelected,
     /// Copy the selected wave rows to the document clipboard; cut also
     /// removes them. Paste inserts copies below the selection, sharing data.
@@ -126,6 +133,9 @@ impl Command {
             "nextMarker" => Action::NextMarker,
             "prevMarker" => Action::PrevMarker,
             "jumpBack" => Action::JumpBack,
+            "setReference" => Action::SetReference,
+            "clearReference" => Action::ClearReference,
+            "zoomToMeasurement" => Action::ZoomToMeasurement,
             _ if name.starts_with("goToMarker") => {
                 let n = name.strip_prefix("goToMarker")?.parse::<u32>().ok()?;
                 Action::GoToMarker(crate::marker::MarkerId::new(n)?)
@@ -427,10 +437,10 @@ pub struct Status {
     /// The cursor's cycle in each clock ruler of the focused panel, e.g.
     /// `core_clk 150231 + 0.42`.
     pub clocks: Vec<String>,
-    /// Cursor minus the nearest marker, in time and in counted cycles of
-    /// each ruler clock (see [`crate::measure`]): `Δ 20 ns · 40 core_clk ·
-    /// 10.5 bus_clk`.
-    pub delta: Option<String>,
+    /// From the reference to the cursor, in time and in counted cycles of
+    /// each ruler clock (see [`crate::measure`]): `R → cursor 20 ns · 40
+    /// core_clk · 10.5 bus_clk`.
+    pub measure: Option<String>,
     pub markers: Option<String>,
     /// What the last undo, redo or marker jump did, or why it did nothing,
     /// until the next key, click or edit.
@@ -2092,6 +2102,13 @@ impl App {
         }
         if matches!(
             action,
+            Action::SetReference | Action::ClearReference | Action::ZoomToMeasurement
+        ) {
+            self.reference_action(action, now);
+            return;
+        }
+        if matches!(
+            action,
             Action::NextCycle | Action::PrevCycle | Action::ToggleCycleOrigin
         ) {
             let doc = &mut self.doc;
@@ -2169,7 +2186,10 @@ impl App {
                 | Action::NextMarker
                 | Action::PrevMarker
                 | Action::GoToMarker(_)
-                | Action::JumpBack => unreachable!(),
+                | Action::JumpBack
+                | Action::SetReference
+                | Action::ClearReference
+                | Action::ZoomToMeasurement => unreachable!(),
             },
             PanelKind::Waves(w) => match action {
                 Action::ZoomIn => w.zoom_in(doc, now),
@@ -2229,7 +2249,10 @@ impl App {
                 | Action::NextMarker
                 | Action::PrevMarker
                 | Action::GoToMarker(_)
-                | Action::JumpBack => unreachable!(),
+                | Action::JumpBack
+                | Action::SetReference
+                | Action::ClearReference
+                | Action::ZoomToMeasurement => unreachable!(),
             },
             // The same keys, with rows in place of selection: ↑ ↓ scroll rows,
             // zoom scales both axes, Escape cancels a drag then the cursor.
@@ -2282,7 +2305,10 @@ impl App {
                 | Action::NextMarker
                 | Action::PrevMarker
                 | Action::GoToMarker(_)
-                | Action::JumpBack => unreachable!(),
+                | Action::JumpBack
+                | Action::SetReference
+                | Action::ClearReference
+                | Action::ZoomToMeasurement => unreachable!(),
             },
             _ => return,
         }
@@ -2487,6 +2513,47 @@ impl App {
         self.changed();
     }
 
+    /// `R`, `⇧R` and `Z` in the focused timed panel. The reference is
+    /// navigation state: none of these is an undoable edit.
+    fn reference_action(&mut self, action: Action, now: Instant) {
+        let doc = &mut self.doc;
+        let Some(nav) = self.panels.focused_mut().kind.nav_mut() else {
+            return;
+        };
+        let cursor = nav.cursor(doc);
+        let text = match (action, cursor) {
+            (Action::ClearReference, _) => {
+                if !doc.set_reference(None) {
+                    return;
+                }
+                "Reference cleared".into()
+            }
+            (Action::SetReference, Some(c)) => {
+                let reference = crate::marker::reference_at(doc.markers(), c);
+                if !doc.set_reference(Some(reference)) {
+                    return;
+                }
+                match reference {
+                    crate::marker::Reference::Marker(id) => format!("Measuring from marker {id}"),
+                    crate::marker::Reference::Time(t) => {
+                        format!("Measuring from {}", format_time(t as f64, doc.time_base()))
+                    }
+                }
+            }
+            (Action::SetReference, None) => "Place the cursor first".into(),
+            (_, cursor) => match (doc.reference_time(), cursor) {
+                (Some(r), Some(c)) => {
+                    crate::marker::zoom_between(doc, nav, r, c, now);
+                    self.changed();
+                    return;
+                }
+                _ => "Nothing to zoom to · R measures from the cursor".into(),
+            },
+        };
+        self.announce(text);
+        self.changed();
+    }
+
     /// Zoom `panel` to the markers `from` and `to` and the time between.
     fn zoom_to_span(
         &mut self,
@@ -2583,21 +2650,18 @@ impl App {
                     .iter()
                     .map(|clock| crate::clock::position_at(nav.clocks(), clock, c))
                     .collect();
-                if let Some(m) = self.doc.markers().iter().min_by_key(|m| m.time.abs_diff(c)) {
-                    let dt = c as i128 - m.time as i128;
-                    let sign = if dt < 0 { "−" } else { "" };
-                    let mut parts = vec![format!(
-                        "Δ {sign}{}",
-                        format_time(dt.unsigned_abs() as f64, base)
-                    )];
-                    let measured = crate::measure::measure(&rulers, m.time, c);
-                    parts.extend(
-                        measured
-                            .clocks
-                            .iter()
-                            .map(|count| format!("{} {}", count.cycles, count.name)),
-                    );
-                    s.delta = Some(parts.join(" · "));
+                if let Some(r) = self.doc.reference_time() {
+                    let measured = crate::measure::measure(&rulers, r, c);
+                    let parts: Vec<String> =
+                        std::iter::once(crate::wave::overlay::signed_time(measured.dt(), base))
+                            .chain(
+                                measured
+                                    .clocks
+                                    .iter()
+                                    .map(|count| format!("{} {}", count.cycles, count.name)),
+                            )
+                            .collect();
+                    s.measure = Some(format!("R → cursor {}", parts.join(" · ")));
                 }
             }
             if !self.doc.markers().is_empty() {

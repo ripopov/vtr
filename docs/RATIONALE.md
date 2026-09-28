@@ -191,6 +191,18 @@ steps down to a shorter form when the font turns out wider. A single click
 on a span keeps the header's meaning (move the cursor), so only the
 double-click, which the frontend reports as `ZoomToSpan`, zooms.
 
+The Measure lane, unlike the Markers lane, exists only while a reference
+does: it is set on purpose, a few times per session, and an always-present
+lane would stay empty for most of it, so the one shift of the rows by a lane
+at `R` was accepted. The reference is navigation state, so undo does not
+restore it; when an edit removes the reference's marker, the reference stays
+at that marker's time rather than vanishing, since the measurement it anchors
+is still meaningful. A press on the live span keeps the cursor instead of
+moving it as on the header: the cursor is one end of the span, so the first
+click of a double-click would otherwise change what the double-click zooms
+to. A middle click measures on release and pans once it moves 3 px, so the
+existing middle-drag pan keeps working.
+
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The
 workspace stores markers and the reference; VTR, VDB and the remote protocol

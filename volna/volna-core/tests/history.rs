@@ -80,6 +80,7 @@ fn projection(app: &App) -> Value {
     let shared = o["shared"].as_object_mut().unwrap();
     shared.remove("viewport");
     shared.remove("cursor");
+    shared.remove("reference");
     strip_layout(&mut o["layout"]);
     for panel in o["panels"].as_array_mut().unwrap() {
         let p = panel.as_object_mut().unwrap();
@@ -586,6 +587,15 @@ impl Driver {
                     n => Action::GoToMarker(volna_core::marker::MarkerId::new(n as u32).unwrap()),
                 };
                 (Kind::Look, Command::Action(walk))
+            }
+            // The reference is navigation state: never a step.
+            98 => {
+                let measure = match self.rng.below(3) {
+                    0 => Action::SetReference,
+                    1 => Action::ClearReference,
+                    _ => Action::ZoomToMeasurement,
+                };
+                (Kind::Look, Command::Action(measure))
             }
             _ => (Kind::Look, Command::Action(Action::ZoomFit)),
         };

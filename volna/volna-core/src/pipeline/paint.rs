@@ -76,8 +76,8 @@ pub fn paint(
             size(cells.width(), layout.rulers.height()),
         ),
         lane: Rect::new(
-            point(cells.left(), layout.marker_lane.band.top()),
-            size(cells.width(), layout.marker_lane.band.height()),
+            point(cells.left(), layout.marker_lane.strip().top()),
+            size(cells.width(), layout.marker_lane.strip().height()),
         ),
         area: cells,
         viewport,

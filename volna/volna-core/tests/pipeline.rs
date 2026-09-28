@@ -2075,3 +2075,66 @@ fn marker_walks_move_a_pipeline_panel_cursor_like_a_wave_panel_cursor() {
     app.handle(Command::Action(Action::JumpBack));
     assert_eq!(cursor(&app, pipeline), Some(near));
 }
+
+#[test]
+fn the_pipeline_measures_from_the_reference_like_the_waves() {
+    let (mut app, _, waves, pipeline) = opened(60);
+    pump(&mut app);
+    let theme = Theme::one_dark();
+    let (lo, hi) = app.doc.limits();
+    let (a, b) = (lo + (hi - lo) / 4, lo + (hi - lo) / 2);
+    app.doc.add_marker(a);
+    app.handle(Command::Panels(PanelsCommand::Focus(pipeline)));
+    app.doc.shared.cursor = Some(a);
+    app.handle(Command::Action(Action::SetReference));
+    assert_eq!(
+        app.doc.reference(),
+        Some(volna_core::marker::Reference::Marker(
+            volna_core::marker::MarkerId::new(1).unwrap()
+        ))
+    );
+    app.doc.shared.cursor = Some(b);
+    // Both panels show the same Measure lane, and the pipeline's rows move
+    // down under it.
+    for id in [waves, pipeline] {
+        let lane = marker_lane(&mut app, id, &theme);
+        let m = lane.measure.expect("the Measure lane");
+        let live = m.live.expect("the live span");
+        assert_eq!((live.measurement.from, live.measurement.to), (a, b));
+        frame(&mut app, id, &theme);
+        assert!(app.scene().texts().any(|t| t == "R → cursor"));
+    }
+    let cells_top = match app.layout_panel(pipeline, BOUNDS, &theme).unwrap() {
+        PanelLayout::Pipeline(l) => l.cells.top(),
+        _ => unreachable!(),
+    };
+    let lane = marker_lane(&mut app, pipeline, &theme);
+    assert_eq!(cells_top, lane.strip().bottom());
+
+    // Alt-click and a middle click in the cells measure from a cycle there.
+    let x = (lane.time_left + lane.band.right()) / 2.0;
+    let p = point(x, cells_top + 3.0);
+    let alt = Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    press(&mut app, pipeline, p, alt);
+    let t = app.doc.reference_time().unwrap();
+    assert!(matches!(
+        app.doc.reference(),
+        Some(volna_core::marker::Reference::Time(_))
+    ));
+    assert_eq!(app.doc.shared.cursor, Some(b), "Alt-click keeps the cursor");
+    app.handle(Command::Action(Action::ClearReference));
+    app.handle(Command::Pointer(
+        pipeline,
+        PointerEvent::Down {
+            position: p,
+            button: MouseButton::Middle,
+            modifiers: Modifiers::default(),
+        },
+    ));
+    assert_eq!(app.doc.reference(), None, "measured on release");
+    app.handle(Command::Pointer(pipeline, PointerEvent::Up));
+    assert_eq!(app.doc.reference_time(), Some(t));
+}

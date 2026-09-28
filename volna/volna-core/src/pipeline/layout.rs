@@ -9,7 +9,7 @@ use std::ops::Range;
 use super::rows::RowView;
 use crate::geometry::{Point, Rect, point, size};
 use crate::marker::Marker;
-use crate::wave::overlay::{LANE_H, MarkerLane, SpanClocks, marker_lane};
+use crate::wave::overlay::{LANE_H, MarkerLane, Measuring, SpanClocks, marker_lane};
 use crate::wave::viewport::Viewport;
 
 // Design-time sizes in logical pixels at zoom 1.0.
@@ -68,6 +68,8 @@ pub struct LayoutInput<'a> {
     pub markers: &'a [Marker],
     /// Labels the spans between markers.
     pub spans: SpanClocks<'a>,
+    /// Adds the Measure lane under the Markers lane.
+    pub measuring: Option<Measuring>,
     pub viewport: Viewport,
     pub failed: bool,
 }
@@ -92,7 +94,8 @@ impl PipelineLayout {
             point(bounds.left(), header.bottom()),
             size(bounds.width(), ruler_h),
         );
-        let lane_h = z(LANE_H).min((bounds.height() - header_h - ruler_h).max(0.0));
+        let lanes = if input.measuring.is_some() { 2.0 } else { 1.0 };
+        let lane_h = (z(LANE_H) * lanes).min((bounds.height() - header_h - ruler_h).max(0.0));
         let lane = Rect::new(
             point(bounds.left(), rulers.bottom()),
             size(bounds.width(), lane_h),
@@ -123,6 +126,7 @@ impl PipelineLayout {
             input.viewport,
             input.markers,
             input.spans,
+            input.measuring,
             zoom,
         );
         let retry = input.failed.then(|| {
@@ -206,6 +210,7 @@ mod tests {
                 label: None,
             }],
             spans: SpanClocks::time_only(TimeBase::si(-9)),
+            measuring: None,
             viewport: Viewport {
                 start: 0.0,
                 end: 100.0,

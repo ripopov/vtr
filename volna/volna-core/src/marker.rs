@@ -55,6 +55,47 @@ pub struct Marker {
     pub label: Option<String>,
 }
 
+/// Where measurements start: a time, or a marker whose time it follows.
+/// At most one exists per document. It is navigation state like the cursor:
+/// saved in workspaces, never journaled. Workspaces store it as
+/// `{"marker": 4}` or `{"time": 186000}`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reference {
+    Time(u64),
+    Marker(MarkerId),
+}
+
+/// The reference for `time`: the marker exactly there, else the time.
+pub fn reference_at(markers: &[Marker], time: u64) -> Reference {
+    at(markers, time).map_or(Reference::Time(time), |m| Reference::Marker(m.id))
+}
+
+/// Where a measuring gesture at `raw` puts the reference: on the nearest
+/// marker within `tolerance` time units, unless the cursor's snapping put
+/// `snapped` on an edge closer to the pointer; else at `snapped`.
+pub fn reference_near(markers: &[Marker], raw: f64, tolerance: f64, snapped: u64) -> Reference {
+    let ix = markers.partition_point(|m| (m.time as f64) < raw);
+    let distance = |t: u64| (t as f64 - raw).abs();
+    let nearest = [ix.checked_sub(1), Some(ix)]
+        .into_iter()
+        .flatten()
+        .filter_map(|i| markers.get(i))
+        .min_by(|a, b| distance(a.time).total_cmp(&distance(b.time)));
+    // Without an edge nearby, snapping leaves the rounded pointer time.
+    let edge = if snapped == raw.round().max(0.0) as u64 {
+        f64::INFINITY
+    } else {
+        distance(snapped)
+    };
+    match nearest {
+        Some(m) if distance(m.time) <= tolerance && distance(m.time) <= edge => {
+            Reference::Marker(m.id)
+        }
+        _ => reference_at(markers, snapped),
+    }
+}
+
 /// The longest marker name, in characters; longer names are cut.
 pub const MAX_NAME: usize = 48;
 
@@ -158,9 +199,11 @@ pub enum LaneHit {
     Cluster(Range<usize>),
     /// The span from a marker to the next one.
     Span(usize),
+    /// The live span from the reference to the cursor, on the Measure lane.
+    Live,
 }
 
-/// Zooming to markers keeps this fraction of their time span as margin on
+/// Zooming to markers or a measurement keeps this fraction of their time span as margin on
 /// each side, so the outer ones stay clear of the view's edges.
 const ZOOM_MARGIN: f64 = 0.15;
 
@@ -176,7 +219,15 @@ pub fn zoom_to(
     let (Some(a), Some(b)) = (doc.markers().get(first), doc.markers().get(last)) else {
         return false;
     };
-    let (start, end) = (a.time as f64, b.time as f64);
+    let (start, end) = (a.time, b.time);
+    zoom_between(doc, nav, start, end, now);
+    true
+}
+
+/// Zoom `nav`'s view to the time between `a` and `b`, in either order,
+/// with [`ZOOM_MARGIN`] of it on each side, animated.
+pub fn zoom_between(doc: &mut Document, nav: &mut NavState, a: u64, b: u64, now: Instant) {
+    let (start, end) = (a.min(b) as f64, a.max(b) as f64);
     let margin = ((end - start) * ZOOM_MARGIN).max(1.0);
     nav.animate_to(
         doc,
@@ -186,13 +237,13 @@ pub fn zoom_to(
         },
         now,
     );
-    true
 }
 
 /// A left press on the lane: a chip moves the cursor to its marker, and a
 /// cluster zooms the view to its markers. A span takes no press here: a
 /// click on it moves the cursor like one on the header, and a double-click
-/// zooms to it ([`zoom_to`]). Returns whether anything changed.
+/// zooms to it ([`zoom_to`]). The live span keeps the cursor, which is one
+/// of its ends; a double-click zooms to it. Returns whether anything changed.
 /// No modifier removes a marker: Shift-click extends selections elsewhere,
 /// and `⇧M` removes the marker at the cursor.
 pub fn press(doc: &mut Document, nav: &mut NavState, hit: LaneHit, now: Instant) -> bool {
@@ -207,7 +258,7 @@ pub fn press(doc: &mut Document, nav: &mut NavState, hit: LaneHit, now: Instant)
         LaneHit::Cluster(markers) => {
             !markers.is_empty() && zoom_to(doc, nav, markers.start, markers.end - 1, now)
         }
-        LaneHit::Span(_) => false,
+        LaneHit::Span(_) | LaneHit::Live => false,
     }
 }
 
@@ -285,6 +336,27 @@ mod tests {
         assert_eq!(clean_name(&long).unwrap().chars().count(), MAX_NAME);
         let spaced = format!("{} tail", "a".repeat(MAX_NAME - 1));
         assert_eq!(clean_name(&spaced), Some("a".repeat(MAX_NAME - 1)));
+    }
+
+    #[test]
+    fn a_measuring_gesture_attaches_to_a_marker_unless_an_edge_is_closer() {
+        let markers = with_ids(&[1, 2]); // at 0 and 10
+        let near = |raw, snapped| reference_near(&markers, raw, 3.0, snapped);
+        let marker = |n| Reference::Marker(MarkerId::new(n).unwrap());
+        assert_eq!(
+            near(12.2, 12),
+            marker(2),
+            "no edge: the marker within reach"
+        );
+        assert_eq!(near(14.0, 14), Reference::Time(14), "out of reach");
+        assert_eq!(near(11.6, 12), marker(2), "a rounded time is no edge");
+        assert_eq!(
+            near(12.4, 13),
+            Reference::Time(13),
+            "an edge nearer than the marker"
+        );
+        assert_eq!(near(11.0, 13), marker(2), "the marker nearer than the edge");
+        assert_eq!(near(0.0, 0), marker(1), "exactly on a marker");
     }
 
     #[test]

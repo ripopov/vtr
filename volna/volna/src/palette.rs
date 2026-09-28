@@ -147,6 +147,9 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Next Marker", Box::new(app::NextMarker)),
         ("Previous Marker", Box::new(app::PrevMarker)),
         ("Return to Before the Last Jump", Box::new(app::JumpBack)),
+        ("Measure from Cursor", Box::new(app::SetReference)),
+        ("Clear Reference", Box::new(app::ClearReference)),
+        ("Zoom to Measurement", Box::new(app::ZoomToMeasurement)),
     ]
 }
 

@@ -1,6 +1,6 @@
 {
   "format": "volna-workspace",
-  "version": 3,
+  "version": 4,
   "trace": {
     "path": "landing.vtr",
     "name": "landing.vtr",
@@ -86,7 +86,8 @@
         "time": 799,
         "label": "refill done"
       }
-    ]
+    ],
+    "reference": null
   },
   "sidebar": {
     "visible": true,

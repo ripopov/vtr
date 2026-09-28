@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::data::loaded_tracks::{LoadedGenerator, LoadedTrack};
 use crate::data::transactions::{TrackKind, TrackRef, TransactionRef};
 use crate::data::{Hierarchy, NumericKind, SignalRef, Translators};
-use crate::marker::{self, Marker, MarkerId};
+use crate::marker::{self, Marker, MarkerId, Reference};
 use crate::nav::Tween;
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::wave::analog::AnalogSummary;
@@ -81,6 +81,8 @@ pub struct Document {
     /// Journaled cockpit state (`docs/undo-redo.html`); read through
     /// [`Document::markers`].
     markers: crate::history::Journaled<Vec<Marker>>,
+    /// Where measurements start; navigation state, outside the journal.
+    reference: Option<Reference>,
     pub translators: Translators,
     pending: HashSet<SignalRef>,
     requests: Vec<LoadRequest>,
@@ -149,6 +151,7 @@ impl Document {
             shared: Shared::default(),
             navigation: Navigation::default(),
             markers: Default::default(),
+            reference: None,
             translators: Translators::builtin(),
             pending: HashSet::new(),
             requests: Vec::new(),
@@ -274,6 +277,7 @@ impl Document {
             .retain(|r| matches!(r, LoadRequest::Open { .. }));
         self.shared = Shared::default();
         self.markers.restore(Vec::new());
+        self.reference = None;
         self.copied_rows.clear();
         self.summaries.clear();
         self.group_summaries.clear();
@@ -676,6 +680,46 @@ impl Document {
         self.markers.restore(markers);
     }
 
+    /// Where measurements start, if anywhere.
+    pub fn reference(&self) -> Option<Reference> {
+        self.reference
+    }
+
+    /// The reference's time: its own, or its marker's.
+    pub fn reference_time(&self) -> Option<u64> {
+        match self.reference? {
+            Reference::Time(t) => Some(t),
+            Reference::Marker(id) => self.markers.iter().find(|m| m.id == id).map(|m| m.time),
+        }
+    }
+
+    /// Set or clear the reference. Not an undoable edit: the reference is
+    /// navigation state like the cursor. A marker reference must name an
+    /// existing marker. Returns whether it changed.
+    pub fn set_reference(&mut self, reference: Option<Reference>) -> bool {
+        if let Some(Reference::Marker(id)) = reference
+            && !self.markers.iter().any(|m| m.id == id)
+        {
+            return false;
+        }
+        let changed = self.reference != reference;
+        self.reference = reference;
+        changed
+    }
+
+    /// Keep the reference where its marker was when an edit removed that
+    /// marker; `before` is the list before the edit.
+    fn detach_reference(&mut self, before: &[Marker]) {
+        if let Some(Reference::Marker(id)) = self.reference
+            && !self.markers.iter().any(|m| m.id == id)
+        {
+            self.reference = before
+                .iter()
+                .find(|m| m.id == id)
+                .map(|m| Reference::Time(m.time));
+        }
+    }
+
     /// The markers, in time order: the Markers lane finds the visible ones
     /// by binary search.
     pub fn markers(&self) -> &[Marker] {
@@ -703,15 +747,22 @@ impl Document {
         Some(id)
     }
 
+    /// Remove marker `id`; a reference on it stays at its time.
     pub fn remove_marker(&mut self, id: MarkerId) -> bool {
-        match self.markers.iter().position(|m| m.id == id) {
-            Some(ix) => self.markers.update(|markers| _ = markers.remove(ix)),
-            None => false,
-        }
+        let Some(ix) = self.markers.iter().position(|m| m.id == id) else {
+            return false;
+        };
+        let removed = [self.markers[ix].clone()];
+        let changed = self.markers.update(|markers| _ = markers.remove(ix));
+        self.detach_reference(&removed);
+        changed
     }
 
     pub fn remove_all_markers(&mut self) -> bool {
-        self.markers.set(Vec::new())
+        let before = self.markers.to_vec();
+        let changed = self.markers.set(Vec::new());
+        self.detach_reference(&before);
+        changed
     }
 
     /// Name marker `id` (see [`marker::clean_name`]); an empty name clears
@@ -763,6 +814,8 @@ impl Document {
 
     /// Install markers while undoing or redoing; returns the replaced ones.
     pub(crate) fn swap_markers(&mut self, markers: Vec<Marker>) -> Vec<Marker> {
-        self.markers.swap(markers)
+        let before = self.markers.swap(markers);
+        self.detach_reference(&before);
+        before
     }
 }
