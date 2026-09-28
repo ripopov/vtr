@@ -6,6 +6,8 @@ on:
       - 'docs/tests/design-system*.mjs'
       - 'docs/volna-theme.html'
       - 'docs/tests/volna-theme.test.mjs'
+      - 'docs/hierarchy-activity.html'
+      - 'docs/tests/hierarchy-activity.test.mjs'
       - 'volna/volna-core/assets/fonts/**'
       - 'volna/volna-core/assets/icons/**'
       - 'volna/volna/assets/app-icon/**'
@@ -17,6 +19,8 @@ on:
       - 'docs/tests/design-system*.mjs'
       - 'docs/volna-theme.html'
       - 'docs/tests/volna-theme.test.mjs'
+      - 'docs/hierarchy-activity.html'
+      - 'docs/tests/hierarchy-activity.test.mjs'
       - 'volna/volna-core/assets/fonts/**'
       - 'volna/volna-core/assets/icons/**'
       - 'volna/volna/assets/app-icon/**'
@@ -38,13 +42,13 @@ jobs:
           node-version: 22
       - name: Verify headless browser prerequisite
         run: google-chrome --version
-      - name: Test the design system references, rules, baselines and the viewer theme proposal
+      - name: Test the design system references, rules, baselines, the viewer theme proposal and the hierarchy activity design
         env:
           DESIGN_DIFF_DIR: ${{ runner.temp }}/design-diff
         run: >-
           node --test --test-concurrency=1 docs/tests/design-system.test.mjs
           docs/tests/design-system-rules.test.mjs docs/tests/design-system-visual.test.mjs
-          docs/tests/volna-theme.test.mjs
+          docs/tests/volna-theme.test.mjs docs/tests/hierarchy-activity.test.mjs
       - name: Upload screenshot diffs
         if: failure()
         uses: actions/upload-artifact@v4
