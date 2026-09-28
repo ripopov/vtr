@@ -621,7 +621,13 @@ also `markerNavigator` through `Command::named`, and a *Markers…* button on
 a timed panel's toolbar while markers exist) emits
 `Event::OpenMarkerNavigator`, and GPUI opens its palette with `@` typed; any
 palette query starting with `@` is the marker mode
-(`marker::navigator_query`). `App::navigator_rows` lists the markers in time
+(`marker::navigator_query`). The ordinary palette leads there too: it offers
+*Find Marker… (@)*, which switches the open palette to `@`, and a query
+with a word that starts *markers* (at least `mar`, `marker::palette_preview`)
+also lists up to eight markers filtered by its other words, in a Markers
+group placed above the commands while it has markers, so `mar` shows them
+first and `remove all markers` still runs with `↵`. The empty palette's
+placeholder names `@`. `App::navigator_rows` lists the markers in time
 order (`marker::navigator_rows`): number, name, time, the step from the
 previous marker of the whole list, and the distance from the reference in
 time and in cycles of the focused panel's selected clock. Every word of the

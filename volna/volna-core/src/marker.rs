@@ -426,6 +426,22 @@ pub fn navigator_query(query: &str) -> Option<&str> {
     query.trim_start().strip_prefix('@')
 }
 
+/// Markers an ordinary palette query asks for: when one of its words starts
+/// the word *markers* (at least `mar`), the other words, which then filter
+/// the markers as in the navigator. `None` otherwise.
+pub fn palette_preview(query: &str) -> Option<String> {
+    let words: Vec<&str> = query.split_whitespace().collect();
+    let asks = |w: &str| w.len() >= 3 && "markers".starts_with(&w.to_lowercase());
+    let ix = words.iter().position(|w| asks(w))?;
+    let rest: Vec<&str> = words
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != ix)
+        .map(|(_, w)| *w)
+        .collect();
+    Some(rest.join(" "))
+}
+
 /// One row of the marker navigator (the palette's marker mode).
 #[derive(Clone, Debug, PartialEq)]
 pub struct NavigatorRow {
@@ -634,6 +650,17 @@ mod tests {
         );
         assert_eq!(near(11.0, 13), marker(2), "the marker nearer than the edge");
         assert_eq!(near(0.0, 0), marker(1), "exactly on a marker");
+    }
+
+    #[test]
+    fn a_palette_query_asks_for_markers_by_a_prefix_of_markers() {
+        assert_eq!(palette_preview("mar"), Some(String::new()));
+        assert_eq!(palette_preview("Markers"), Some(String::new()));
+        assert_eq!(palette_preview("marker req b"), Some("req b".into()));
+        assert_eq!(palette_preview("req mark"), Some("req".into()));
+        assert_eq!(palette_preview("ma"), None, "too short");
+        assert_eq!(palette_preview("market"), None);
+        assert_eq!(palette_preview("zoom"), None);
     }
 
     #[test]

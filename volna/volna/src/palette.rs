@@ -28,7 +28,25 @@ pub(crate) struct PaletteModel {
     settings: Vec<(&'static settings::Spec, bool)>,
     /// The marker navigator's rows while the query starts with `@`.
     markers: Option<Vec<NavigatorRow>>,
+    /// Outside `@` mode, whether *Find Marker…* is offered, and the first
+    /// markers when a query word starts *markers* ([`PREVIEW`] at most).
+    find_marker: bool,
+    preview: Vec<NavigatorRow>,
 }
+
+impl PaletteModel {
+    /// The Markers group comes first while it previews markers, so a query
+    /// such as `mar` shows them above the many marker commands; otherwise
+    /// the commands lead, and `remove all markers` runs with `↵`.
+    fn markers_section(&self) -> usize {
+        if self.preview.is_empty() { 1 } else { 0 }
+    }
+}
+
+/// Markers an ordinary query shows before `@` lists them all.
+const PREVIEW: usize = 8;
+/// What *Find Marker…* is found by.
+const FIND_MARKER: &str = "Find Marker… (@)";
 
 gpui_kit::actions!(
     palette,
@@ -179,7 +197,6 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Next Marker", Box::new(app::NextMarker)),
         ("Previous Marker", Box::new(app::PrevMarker)),
         ("Return to Before the Last Jump", Box::new(app::JumpBack)),
-        ("Find Marker…", Box::new(app::MarkerNavigator)),
         ("Measure from Cursor", Box::new(app::SetReference)),
         ("Clear Reference", Box::new(app::ClearReference)),
         ("Zoom to Measurement", Box::new(app::ZoomToMeasurement)),
@@ -195,6 +212,8 @@ impl PaletteModel {
                 commands: Vec::new(),
                 settings: Vec::new(),
                 markers: Some(app.navigator_rows(query)),
+                find_marker: false,
+                preview: Vec::new(),
             };
         }
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
@@ -223,10 +242,24 @@ impl PaletteModel {
                 })
                 .collect()
         };
+        // Typing "mar…" shows markers here and offers the navigator.
+        let asked = volna_core::marker::palette_preview(query);
+        let loaded = app.doc.is_loaded();
+        let find = FIND_MARKER.to_lowercase();
         Self {
             commands,
             settings,
             markers: None,
+            find_marker: loaded
+                && (asked.is_some() || words.iter().all(|w| find.contains(w.as_str()))),
+            preview: asked
+                .filter(|_| loaded)
+                .map(|rest| {
+                    let mut rows = app.navigator_rows(&rest);
+                    rows.truncate(PREVIEW);
+                    rows
+                })
+                .unwrap_or_default(),
         }
     }
 }
@@ -330,7 +363,7 @@ impl Workspace {
                         .placeholder(if navigator {
                             "Find a marker by name or number…"
                         } else {
-                            "Type a command or search settings…"
+                            "Type a command, search settings, or @ for markers…"
                         })
                         .on_query({
                             let ws = query_ws.clone();
@@ -347,13 +380,34 @@ impl Workspace {
                         .on_confirm({
                             let ws = confirm_ws.clone();
                             let model = confirm_model.clone();
+                            let state = state.clone();
                             move |path, window, cx| {
-                                let marker = model
-                                    .read(cx)
-                                    .markers
-                                    .as_ref()
-                                    .and_then(|rows| rows.get(path.row))
-                                    .map(|row| row.id);
+                                // Sections: commands, markers, settings; or
+                                // only markers in `@` mode.
+                                let (find, marker) = {
+                                    let read = model.read(cx);
+                                    match &read.markers {
+                                        Some(rows) => (false, rows.get(path.row).map(|r| r.id)),
+                                        None if path.section == read.markers_section() => {
+                                            let row = path.row;
+                                            match (read.find_marker, row) {
+                                                (true, 0) => (true, None),
+                                                (true, row) => {
+                                                    (false, read.preview.get(row - 1).map(|r| r.id))
+                                                }
+                                                (false, row) => {
+                                                    (false, read.preview.get(row).map(|r| r.id))
+                                                }
+                                            }
+                                        }
+                                        None => (false, None),
+                                    }
+                                };
+                                if find {
+                                    // Stay open, listing every marker.
+                                    state.update(cx, |state, cx| state.set_query("@", window, cx));
+                                    return;
+                                }
                                 if let Some(id) = marker {
                                     window.close_dialog(cx);
                                     _ = ws.update(cx, |ws, cx| {
@@ -367,7 +421,8 @@ impl Workspace {
                                 }
                                 let chosen = {
                                     let read = model.read(cx);
-                                    if path.section == 1 {
+                                    if path.section == 2 {
+                                        // Settings come last either way.
                                         read.settings.get(path.row).copied()
                                     } else {
                                         None
@@ -429,15 +484,35 @@ impl Workspace {
                             });
                         return content.child(navigator_keys(palette, &state, &model, &query_ws));
                     }
-                    let mut group = CommandGroup::new().label("Commands");
+                    let mut commands = CommandGroup::new().label("Commands");
                     for (label, action) in &read.commands {
-                        group = group.item(
+                        commands = commands.item(
                             CommandItem::new()
                                 .label(label.clone())
                                 .action(action.boxed_clone()),
                         );
                     }
-                    palette = palette.group(group);
+                    let mut markers = CommandGroup::new().label("Markers");
+                    if read.find_marker {
+                        markers = markers.item(CommandItem::new().label(FIND_MARKER));
+                    }
+                    for row in &read.preview {
+                        let label = match &row.name {
+                            Some(name) => format!("{} {name}", row.id),
+                            None => row.id.to_string(),
+                        };
+                        let row = row.clone();
+                        markers = markers.item(
+                            CommandItem::new()
+                                .label(label)
+                                .child(move |_, cx| marker_row(&row, cx)),
+                        );
+                    }
+                    palette = if read.markers_section() == 0 {
+                        palette.group(markers).group(commands)
+                    } else {
+                        palette.group(commands).group(markers)
+                    };
                     let mut group = CommandGroup::new().label("Settings");
                     for (spec, on) in &read.settings {
                         group = group.item(

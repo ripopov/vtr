@@ -2118,6 +2118,94 @@ fn the_marker_navigator_lists_filters_and_acts_on_markers(cx: &mut TestAppContex
     assert_eq!(cursor, Some(times[2]));
 }
 
+/// Typing "mar…" in the palette shows markers under the commands, filtered
+/// by the other words, and *Find Marker… (@)* switches the open palette to
+/// the marker mode.
+#[gpui_kit::test]
+fn the_palette_offers_markers_when_the_query_asks_for_them(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            for (k, name) in [(1, "req A"), (2, "resp A"), (3, "req B")] {
+                let t = lo + (hi - lo) * k / 5;
+                ws.app.doc.shared.cursor = Some(t);
+                ws.dispatch(Command::Action(Action::AddOrRenameMarker), Some(window), cx);
+                let id = ws
+                    .app
+                    .doc
+                    .markers()
+                    .iter()
+                    .find(|m| m.time == t)
+                    .unwrap()
+                    .id;
+                ws.app.doc.rename_marker(id, name);
+            }
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, window, cx| ws.open_palette(window, cx))
+        .unwrap();
+    vcx.run_until_parked();
+    let shown = |vcx: &mut VisualTestContext| {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        [
+            vcx.debug_bounds("marker-row-1").is_some(),
+            vcx.debug_bounds("marker-row-2").is_some(),
+            vcx.debug_bounds("marker-row-3").is_some(),
+        ]
+    };
+    assert_eq!(
+        shown(&mut vcx),
+        [false; 3],
+        "an empty query lists no markers"
+    );
+    vcx.simulate_input("mar");
+    vcx.run_until_parked();
+    assert_eq!(shown(&mut vcx), [true; 3]);
+    vcx.simulate_input(" req");
+    vcx.run_until_parked();
+    assert_eq!(
+        shown(&mut vcx),
+        [true, false, true],
+        "the other words filter"
+    );
+
+    // Find Marker… switches to @ in place: the palette stays open with all.
+    vcx.simulate_keystrokes("escape");
+    vcx.run_until_parked();
+    vcx.simulate_input("find marker");
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    assert_eq!(shown(&mut vcx), [true; 3]);
+    // Still the palette: ↵ goes to the first marker and closes it.
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    assert_eq!(shown(&mut vcx), [false; 3]);
+    let at = window
+        .update(&mut vcx, |ws, _, _| {
+            (ws.app.doc.shared.cursor, ws.app.doc.markers()[0].time)
+        })
+        .unwrap();
+    assert_eq!(at.0, Some(at.1));
+}
+
 /// A command chosen in the palette with the keyboard runs in the panel
 /// that had focus before the palette opened.
 #[gpui_kit::test]
