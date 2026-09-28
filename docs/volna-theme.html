@@ -140,7 +140,7 @@
     <p class="v-frame__caption"><span>Drag to pan. With the proposed rules, hover a row to find its nearest edge and, on a bus, every segment with the same value.</span><code>volna/volna/examples/landing.vtr · 0–1685 ns</code></p>
 
     <div class="t-body">
-      <p>We read the renderers of Surfer, GTKWave, PulseView and vaporview. All four sample each pixel column and keep only its last state, so <strong>an X that starts and ends inside one column disappears when you zoom out</strong>; PulseView's source says its merged edges become ambiguous. None of them highlights every occurrence of a value. The rules below borrow what they do well: PulseView's per-block change summaries for skipping quiet stretches, Surfer's 6px edge snap and event clusters with counts, Tracy's count on folded zones, and Perfetto's min, max and last value per pixel with the range printed on the track.</p>
+      <p>We read the renderers of Surfer, GTKWave, PulseView and vaporview. All four sample each pixel column and keep only its last state, so <strong>an X that starts and ends inside one column disappears when you zoom out</strong>; PulseView's source says its merged edges become ambiguous. None of them highlights every occurrence of a value. Dinotrace, GTKWave and Surfer draw an all-zero bus as a low line, which Volna adopts. The rules below borrow what they do well: PulseView's per-block change summaries for skipping quiet stretches, Surfer's 6px edge snap and event clusters with counts, Tracy's count on folded zones, and Perfetto's min, max and last value per pixel with the range printed on the track.</p>
     </div>
     <ol class="t-rules">
       <li><strong>Geometry is time.</strong>Every edge sits on its change's pixel column, and on a bus the crossing point, not the slant, marks the change. Level lines and edges are 1px, snapped to the device pixel grid and drawn without anti-aliasing; only slants and analog lines are smoothed.</li>
@@ -152,8 +152,9 @@
       <li><strong>Numbers keep their last digits.</strong>When a hex or decimal value does not fit, it keeps its least significant digits behind a leading ellipsis, …0210 rather than 8000…, because neighbouring addresses and counters differ at the end. Text and enum values keep their beginning. A label shorter than two characters is dropped rather than shown as a lone ellipsis.</li>
       <li><strong>States get a tint.</strong>Enum and text rows, such as FSM states and phases, fill each segment with a stable tint derived from its value, so a recurring state is recognisable before its label is readable. Numbers stay outlines. The tint takes one of six hues that stay clear of the X red and the Z amber, at 22%, too faint to compete with a state colour.</li>
       <li><strong>Z and partial X keep their shape on buses.</strong>A high-impedance bus is a line at mid level, as a single bit is; today it is an amber hexagon. A bus with only some bits unknown keeps its signal outline and shows the unknown digits in the X colour; only a fully unknown value gets the hatched band.</li>
+      <li><strong>Zero reads as idle.</strong>A bus holding all zeros is drawn as a low line that the neighbouring slants run into, without a label, as Dinotrace, GTKWave and Surfer do. An idle counter, an empty queue or a cleared data bus then looks like a low signal, and every nonzero value stands out as a hexagon. The value is still one hover away.</li>
       <li><strong>Analog rows show their scale.</strong>The row prints its maximum and minimum in its corner in faint Lilex. Aliased columns keep today's min–max envelope over the 10% area fill, so a one-sample spike survives any zoom.</li>
-      <li><strong>The pointer finds edges.</strong>Hovering a row marks its nearest change within 6px with a 2px accent line and its time in the header, and a click puts the cursor on that edge. On a bus row, every segment holding the hovered value lights up, so repeats and a state's return are found without a search.</li>
+      <li><strong>The pointer finds edges.</strong>Hovering a row marks its nearest change within 6px with a 2px accent line and its time in the header,, and a click puts the cursor on that edge. On a bus row, every segment holding the hovered value lights up, so repeats and a state's return are found without a search.</li>
       <li><strong>Events count themselves; scaffolding recedes.</strong>A coalesced event arrow carries a ×n count when there is room. Rows stay 24px without zebra stripes; groups are divided by a 1px border; the time grid is drawn only at labelled ticks, and a clock ruler adds a cycle grid once a cycle is 8px wide.</li>
     </ol>
 
@@ -828,6 +829,12 @@ function labBus(g, k, ch, cols, x0, W, top, bottom, row, proposed) {
     if (s.i < 0) continue;
     const v = ch[s.i][1], kind = kindOf(v), col = k[kind];
     if (proposed && kind === 'highimp') { fill(g, col, xa, Math.round(mid), xb - xa, 1); continue; }
+    if (proposed && /^0+$/.test(v)) {
+      // Zero reads as a low line: the slants meet it, and the label goes; hover still reads it.
+      const tw = Math.min(tw0, (xb - xa) / 2), la = s.xs === 0 ? xa : xa + tw, rb = s.xe === W ? xb : xb - tw;
+      g.beginPath(); g.moveTo(xa, mid); g.lineTo(la, bottom - 0.5); g.lineTo(rb, bottom - 0.5); g.lineTo(xb, mid);
+      g.strokeStyle = css(col); g.lineWidth = 1; g.stroke(); LAB.zeros = (LAB.zeros || 0) + 1; continue;
+    }
     const tw = Math.min(tw0, (xb - xa) / 2), la = s.xs === 0 ? xa : xa + tw, rb = s.xe === W ? xb : xb - tw;
     g.beginPath(); g.moveTo(xa, mid); g.lineTo(la, top + 0.5); g.lineTo(rb, top + 0.5); g.lineTo(xb, mid); g.lineTo(rb, bottom - 0.5); g.lineTo(la, bottom - 0.5); g.closePath();
     const same = hover && hover.value === v;
@@ -881,7 +888,8 @@ function labClock(g, k, row, vs, ve, x0, W, top, bottom, proposed) {
     if (p / 2 / (ve - vs) * W >= 3) {
       // Wide enough for edges: a square wave without the high fill, which would only add stripes.
       g.save(); g.beginPath(); g.rect(x0 + xa, top - 1, xb - xa, bottom - top + 2); g.clip();
-      labBit(g, k, ch, cols, x0, W, top, bottom, true, true); g.restore();
+      labBit(g, k, ch, cols, x0, W, top, bottom, true, true);
+      g.restore();
     } else {
       fill(g, k.signal.slice(0, 3).concat(0.16), x0 + xa, top, xb - xa, bottom - top);
       fill(g, k.signal, x0 + xa, top, xb - xa, 1); fill(g, k.signal, x0 + xa, bottom - 1, xb - xa, 1);
@@ -916,7 +924,7 @@ function niceStep(span, px) { const raw = span / px, p = 10 ** Math.floor(Math.l
 const fmtNs = t => (Math.round(t * 1000) / 1000) + ' ns';
 function drawLab() {
   const canvas = document.getElementById('lab-canvas'), k = skin(document.getElementById('lab-frame'), true), proposed = LAB.rules === 'proposed';
-  LAB.labels = [];
+  LAB.labels = []; LAB.zeros = 0;
   const {g, w} = surface(canvas, labGeometry(canvas.parentElement.clientWidth).H);
   const G = labGeometry(w), [vs, ve] = LAB.view, xt = t => G.x0 + (t - vs) / (ve - vs) * G.W;
   fill(g, k.canvas, 0, 0, w, G.H); fill(g, k.panel, 0, 0, G.namesW, G.H); fill(g, k.panel, 0, 0, w, G.HEAD);
@@ -1462,7 +1470,7 @@ function measure() {
   document.getElementById('stat-cvd-today').textContent = 'One Dark today: ' + (Math.floor(a.today.cvd * 10) / 10).toFixed(1);
   return a;
 }
-window.THEME = {audit, skin, ladder, contrast, parse, render, state: () => ({skin: DEMO.skin, vision: DEMO.vision, values: VALUES.vision}), lab: {state: () => ({rules: LAB.rules, view: LAB.view.slice(), labels: LAB.labels.slice(), hover: LAB.hover && {row: LAB.hover.row.name, edge: LAB.hover.edge, value: LAB.hover.value}}), geometry: () => labGeometry(document.getElementById('lab-canvas').clientWidth), sample, fitLabel: (s, w, p) => fitLabel(document.createElement('canvas').getContext('2d'), skin(document.getElementById('lab-frame'), true), s, w, p)}, hier: {facts: hbFacts, state: () => ({rules: HBS.rules, query: HBS.query, selected: HB.scopes[HBS.selected].path, focus: HBS.focus, member: HBS.member, mscroll: HBS.mscroll, scroll: HBS.scroll, sticky: (HBS.sticky || []).map(i => HBS.rows[i].kind === 'scope' ? HB.scopes[HBS.rows[i].id].path : HBS.rows[i].run.stem),
+window.THEME = {audit, skin, ladder, contrast, parse, render, state: () => ({skin: DEMO.skin, vision: DEMO.vision, values: VALUES.vision}), lab: {state: () => ({rules: LAB.rules, view: LAB.view.slice(), labels: LAB.labels.slice(), hover: LAB.hover && {row: LAB.hover.row.name, edge: LAB.hover.edge, value: LAB.hover.value}, zeros: LAB.zeros}), geometry: () => labGeometry(document.getElementById('lab-canvas').clientWidth), sample, fitLabel: (s, w, p) => fitLabel(document.createElement('canvas').getContext('2d'), skin(document.getElementById('lab-frame'), true), s, w, p)}, hier: {facts: hbFacts, state: () => ({rules: HBS.rules, query: HBS.query, selected: HB.scopes[HBS.selected].path, focus: HBS.focus, member: HBS.member, mscroll: HBS.mscroll, scroll: HBS.scroll, sticky: (HBS.sticky || []).map(i => HBS.rows[i].kind === 'scope' ? HB.scopes[HBS.rows[i].id].path : HBS.rows[i].run.stem),
   rows: HBS.rows.map(r => r.kind === 'scope' ? {kind: 'scope', path: HB.scopes[r.id].path, depth: r.depth} : {kind: 'run', stem: r.run.stem, lo: r.run.lo, hi: r.run.hi, n: r.run.ids.length, depth: r.depth}),
   members: HBS.members.map(m => ({path: m.v.path, value: hbValue(m.v), width: m.v.width, more: m.more || 0, pos: m.pos || null})),
   waves: HBS.waves.map(v => v.path), counts: HBS.matches && Object.fromEntries([...HBS.matches.counts].map(([id, n]) => [HB.scopes[id].path, n]))}),

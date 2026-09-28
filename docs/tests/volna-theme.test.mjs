@@ -315,3 +315,18 @@ test('the hierarchy browser adds by keyboard, double-click and drag, and reveals
   assert.deepEqual(await pixel(b, 'hb-canvas', 0.5, G.memTop + (s.member - s.mscroll) * G.ROW + 12), accent);
   assert.deepEqual(b.exceptions, []);
 });
+
+test('the rendering lab draws an all-zero bus as a low line', {timeout: 60000}, async t => {
+  const b = await browser();
+  t.after(() => b.close());
+  await b.open(page);
+  await b.wait('window.ready === true');
+  const lab = () => b.evaluate('THEME.lab.state()');
+  const labels = async row => (await lab()).labels.filter(l => l[0] === row).map(l => l[1]);
+  await b.click('#lab-view [data-view="irq"]');
+  assert.ok((await lab()).zeros > 0, 'zero segments drawn as low lines');
+  assert.ok(!(await labels('mshr_used')).includes('0') && (await labels('mshr_used')).includes('1'), 'zero loses its label, nonzero keeps it');
+  await b.click('#lab-rules [data-rules="today"]');
+  assert.ok((await labels('mshr_used')).includes('0'), 'today zero is a labelled hexagon');
+  assert.deepEqual(b.exceptions, []);
+});
