@@ -212,6 +212,7 @@ impl VolnaApp {
                 | Event::WriteSettings { .. }
                 | Event::SettingsChanged { .. }
                 | Event::FocusSettingsSearch
+                | Event::OpenMarkerNavigator
                 | Event::TraceOpened { .. }
                 | Event::OpenRecent(_)
                 | Event::RecentChanged

@@ -73,6 +73,9 @@ pub enum Action {
     ClearReference,
     /// `Z`: zoom the focused panel to the reference and the cursor.
     ZoomToMeasurement,
+    /// `'`: find a marker by name or number; the host opens its palette in
+    /// marker mode ([`Event::OpenMarkerNavigator`]).
+    MarkerNavigator,
     RemoveSelected,
     /// Copy the selected wave rows to the document clipboard; cut also
     /// removes them. Paste inserts copies below the selection, sharing data.
@@ -138,6 +141,7 @@ impl Command {
             "setReference" => Action::SetReference,
             "clearReference" => Action::ClearReference,
             "zoomToMeasurement" => Action::ZoomToMeasurement,
+            "markerNavigator" => Action::MarkerNavigator,
             _ if name.starts_with("goToMarker") => {
                 let n = name.strip_prefix("goToMarker")?.parse::<u32>().ok()?;
                 Action::GoToMarker(crate::marker::MarkerId::new(n)?)
@@ -296,6 +300,9 @@ pub enum Command {
     /// Open the name field of a marker over its chip in a panel (a
     /// double-click on the chip).
     RenameMarker(PanelId, crate::marker::MarkerId),
+    /// A marker verb for the focused panel without a menu: the navigator's
+    /// `↵` (go), `⇧↵` (measure from), `F2` (rename) and `Del` (remove).
+    Lane(crate::marker::LaneVerb),
     /// Zoom a panel to the span between two markers (a double-click on the
     /// span).
     ZoomToSpan(PanelId, crate::marker::MarkerId, crate::marker::MarkerId),
@@ -415,6 +422,9 @@ pub enum Event {
     FocusSettingsSearch,
     /// Put this text on the system clipboard (a marker's *Copy as Text*).
     CopyText(String),
+    /// Open the palette in marker mode (`@`), listing
+    /// [`App::navigator_rows`].
+    OpenMarkerNavigator,
 }
 
 /// Transient state of the settings editor, owned by the core.
@@ -1253,6 +1263,11 @@ impl App {
                         self.changed();
                     }
                 }
+            }
+            Command::Lane(verb) => {
+                let panel = self.panels.focused_id();
+                self.lane_verb(panel, verb, now);
+                self.changed();
             }
             Command::MenuSelect(panel, MenuAction::Lane(verb)) => {
                 if self.lane_menu.take().is_some_and(|(p, _)| p == panel) {
@@ -2128,6 +2143,10 @@ impl App {
             self.announce(text);
             return;
         }
+        if action == Action::MarkerNavigator {
+            self.events.push(Event::OpenMarkerNavigator);
+            return;
+        }
         if matches!(
             action,
             Action::SetReference | Action::ClearReference | Action::ZoomToMeasurement
@@ -2217,7 +2236,8 @@ impl App {
                 | Action::JumpBack
                 | Action::SetReference
                 | Action::ClearReference
-                | Action::ZoomToMeasurement => unreachable!(),
+                | Action::ZoomToMeasurement
+                | Action::MarkerNavigator => unreachable!(),
             },
             PanelKind::Waves(w) => match action {
                 Action::ZoomIn => w.zoom_in(doc, now),
@@ -2280,7 +2300,8 @@ impl App {
                 | Action::JumpBack
                 | Action::SetReference
                 | Action::ClearReference
-                | Action::ZoomToMeasurement => unreachable!(),
+                | Action::ZoomToMeasurement
+                | Action::MarkerNavigator => unreachable!(),
             },
             // The same keys, with rows in place of selection: ↑ ↓ scroll rows,
             // zoom scales both axes, Escape cancels a drag then the cursor.
@@ -2336,7 +2357,8 @@ impl App {
                 | Action::JumpBack
                 | Action::SetReference
                 | Action::ClearReference
-                | Action::ZoomToMeasurement => unreachable!(),
+                | Action::ZoomToMeasurement
+                | Action::MarkerNavigator => unreachable!(),
             },
             _ => return,
         }
@@ -2583,6 +2605,18 @@ impl App {
         };
         self.announce(text);
         self.changed();
+    }
+
+    /// The marker navigator's rows for `query` (after the `@`), with
+    /// distances in the focused panel's selected clock.
+    pub fn navigator_rows(&self, query: &str) -> Vec<crate::marker::NavigatorRow> {
+        let selected = self
+            .panels
+            .focused()
+            .kind
+            .nav()
+            .and_then(|nav| nav.clocks().selected(&self.doc.clocks));
+        crate::marker::navigator_rows(&self.doc, query, selected)
     }
 
     /// The context menu the frontend should show for the focused panel: an

@@ -892,3 +892,30 @@ fn a_dragged_marker_snaps_to_the_selected_clock_and_copies_its_cycles() {
         "{text}"
     );
 }
+
+#[test]
+fn the_navigator_counts_distances_in_the_selected_clock() {
+    let (mut app, _, _) = waves();
+    for path in ["top.core_clk", "top.bus_clk"] {
+        app.handle(Command::Clocks(ClockCommand::ToggleRuler(path.into())));
+    }
+    app.handle(Command::Clocks(ClockCommand::Select("top.core_clk".into())));
+    let edges = core_edges();
+    for k in [10, 30] {
+        app.doc.shared.cursor = Some(edges[k]);
+        app.handle(Command::Action(Action::AddOrRenameMarker));
+    }
+    app.doc.shared.cursor = Some(edges[10]);
+    app.handle(Command::Action(Action::SetReference));
+    let rows = app.navigator_rows("");
+    let far = rows[1].from_reference.as_deref().unwrap();
+    assert!(far.ends_with(" · 20 core_clk"), "{far}");
+    assert!(!far.contains("bus_clk"), "only the selected clock: {far}");
+    assert!(
+        rows[0]
+            .from_reference
+            .as_deref()
+            .unwrap()
+            .ends_with(" · 0 core_clk")
+    );
+}

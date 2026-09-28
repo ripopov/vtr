@@ -420,6 +420,79 @@ pub fn menu(doc: &Document, hit: &LaneHit) -> Option<Vec<MenuEntry>> {
     })
 }
 
+/// The query of the palette's marker mode: what follows a leading `@`, or
+/// `None` for an ordinary palette query.
+pub fn navigator_query(query: &str) -> Option<&str> {
+    query.trim_start().strip_prefix('@')
+}
+
+/// One row of the marker navigator (the palette's marker mode).
+#[derive(Clone, Debug, PartialEq)]
+pub struct NavigatorRow {
+    pub id: MarkerId,
+    pub name: Option<String>,
+    /// The marker's time.
+    pub time: String,
+    /// From the previous marker in time, `+400 ns`; `None` for the first.
+    pub step: Option<String>,
+    /// From the reference, in time and in cycles of the selected clock:
+    /// `−126 ns · −80 core_clk`; `None` without a reference.
+    pub from_reference: Option<String>,
+    /// Whether the reference is this marker.
+    pub is_reference: bool,
+}
+
+/// Whether marker `m` matches every word of `query`: a word of digits
+/// matches its number, and any word a part of its name, ignoring case.
+fn matches_query(m: &Marker, query: &str) -> bool {
+    let name = m.label.as_deref().unwrap_or_default().to_lowercase();
+    query.split_whitespace().all(|word| {
+        let word = word.to_lowercase();
+        word == m.id.to_string() || name.contains(&word)
+    })
+}
+
+/// The navigator's rows for `query`, in time order. Steps are measured from
+/// the previous marker of the whole list, so filtering does not change
+/// them, and distances from the reference count cycles of `selected`.
+pub fn navigator_rows(doc: &Document, query: &str, selected: Option<&Clock>) -> Vec<NavigatorRow> {
+    let base = doc.time_base();
+    let reference = doc.reference_time();
+    let attached = match doc.reference() {
+        Some(Reference::Marker(id)) => Some(id),
+        _ => None,
+    };
+    let clocks: Vec<&Clock> = selected.into_iter().collect();
+    let markers = doc.markers();
+    markers
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| matches_query(m, query))
+        .map(|(ix, m)| NavigatorRow {
+            id: m.id,
+            name: m.label.clone(),
+            time: format_time(m.time as f64, base),
+            step: ix.checked_sub(1).map(|p| {
+                let dt = i128::from(m.time) - i128::from(markers[p].time);
+                format!("+{}", crate::wave::overlay::signed_time(dt, base))
+            }),
+            from_reference: reference.map(|r| {
+                let measured = crate::measure::measure(&clocks, r, m.time);
+                std::iter::once(crate::wave::overlay::signed_time(measured.dt(), base))
+                    .chain(
+                        measured
+                            .clocks
+                            .iter()
+                            .map(|c| format!("{} {}", c.cycles, c.name)),
+                    )
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            }),
+            is_reference: attached == Some(m.id),
+        })
+        .collect()
+}
+
 /// A marker as a readable reference for a bug report, a chat or an agent:
 /// `lsu_ddr.vtr marker 4 “req B” at 186 ns (core_clk 185, axi_clk 73)`,
 /// with the marker's position in each ruler clock.

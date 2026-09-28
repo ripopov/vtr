@@ -104,6 +104,7 @@ actions!(
         SetReference,
         ClearReference,
         ZoomToMeasurement,
+        MarkerNavigator,
         RemoveSelected,
         CopySignals,
         CutSignals,
@@ -290,6 +291,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-y", Redo, Some("Workspace && !Embedded")),
     ]);
     crate::ui::text_input::bind_keys(cx);
+    // The marker navigator's keys, after gpui-kit's own so `Del` comes first.
+    cx.bind_keys(crate::palette::key_bindings());
     // gpui-kit inputs (settings search and JSON) bind their text undo for
     // the platform only; bind the rest so no undo key falls through to the
     // cockpit while one has focus.
@@ -425,6 +428,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("r", SetReference, Some("Waves && !Table")),
         KeyBinding::new("shift-r", ClearReference, Some("Waves && !Table")),
         KeyBinding::new("z", ZoomToMeasurement, Some("Waves && !Table")),
+        KeyBinding::new("'", MarkerNavigator, Some("Waves && !Table")),
         // Bare keys: the table's row field lives in its panel, so not there.
         // Other text fields are hosted outside the panels' key context.
         KeyBinding::new(".", NextMarker, Some("Waves && !Table")),
@@ -865,6 +869,13 @@ impl Workspace {
                         }
                     }
                     Event::SettingsChanged { keys } => self.settings_changed(&keys, cx),
+                    Event::OpenMarkerNavigator => {
+                        if let Some(window) = window.as_deref_mut() {
+                            cx.defer_in(window, |ws, window, cx| {
+                                ws.open_palette_with("@", window, cx)
+                            });
+                        }
+                    }
                     Event::CopyText(text) => {
                         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
                     }
@@ -1662,6 +1673,7 @@ impl Workspace {
                 SetReference,
                 ClearReference,
                 ZoomToMeasurement,
+                MarkerNavigator,
                 RemoveSelected,
                 CopySignals,
                 CutSignals,

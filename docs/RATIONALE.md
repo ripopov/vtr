@@ -221,6 +221,15 @@ share them and hosts show them with the popup they already use for row
 menus. *Copy as Text* goes through an event because the clipboard belongs to
 the host.
 
+The navigator is a mode of the existing palette (`@`, as in Sublime's and
+VS Code's symbol pickers) rather than a separate list panel: finding a
+marker is a momentary jump, and the palette already has the filter field,
+the keyboard selection and the focus handling. The core builds the rows and
+the frontend only lays them out. Steps are measured on the whole list, so a
+filter does not change what a row says. `Del` removes a marker while the
+query field has focus, which a text field normally uses to delete forward;
+it falls through to the field whenever no marker row is highlighted.
+
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The
 workspace stores markers and the reference; VTR, VDB and the remote protocol

@@ -678,6 +678,43 @@ impl Panel for CanvasPanelView {
                 );
             }
         }
+        // Timed panels open the marker navigator from here too.
+        let timed = self.ws.upgrade().is_some_and(|owner| {
+            let ws = owner.read(cx);
+            ws.app
+                .panels
+                .get(self.id)
+                .is_some_and(|p| p.kind.marker_lane().is_some() && !ws.app.doc.markers().is_empty())
+        });
+        if timed {
+            let id = self.id;
+            let generation = self.generation;
+            let owner = self.ws.clone();
+            buttons.insert(
+                0,
+                Button::new("markers")
+                    .label("Markers…")
+                    .ghost()
+                    .xsmall()
+                    .tooltip("Find a marker by name or number (')")
+                    .on_click(move |_, window, cx| {
+                        _ = owner.update(cx, |ws, cx| {
+                            ws.dispatch_if_current(
+                                generation,
+                                Command::Panels(PanelsCommand::Focus(id)),
+                                Some(window),
+                                cx,
+                            );
+                            ws.dispatch_if_current(
+                                generation,
+                                Command::Action(volna_core::app::Action::MarkerNavigator),
+                                Some(window),
+                                cx,
+                            );
+                        });
+                    }),
+            );
+        }
         // A pipeline row that is selected can be read in a Transaction panel.
         let selected_here = self
             .ws

@@ -1993,6 +1993,131 @@ fn marker_chips_drag_open_menus_copy_and_double_click_adds(cx: &mut TestAppConte
     assert_eq!(last, cursor);
 }
 
+/// `'` opens the palette's marker mode: rows in time order, filtered by
+/// typing, where `⇧↵` measures from the highlighted marker, `Del` removes it
+/// and keeps the list, `F2` renames it and `↵` goes to it.
+#[gpui_kit::test]
+fn the_marker_navigator_lists_filters_and_acts_on_markers(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use volna_core::marker::Reference;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let (start, times) = window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            let times = [
+                lo + (hi - lo) / 5,
+                lo + (hi - lo) * 2 / 5,
+                lo + (hi - lo) * 3 / 5,
+            ];
+            for (t, name) in times.iter().zip(["req A", "resp A", "req B"]) {
+                ws.app.doc.shared.cursor = Some(*t);
+                ws.dispatch(Command::Action(Action::AddOrRenameMarker), Some(window), cx);
+                let id = ws
+                    .app
+                    .doc
+                    .markers()
+                    .iter()
+                    .find(|m| m.time == *t)
+                    .unwrap()
+                    .id;
+                ws.app.doc.rename_marker(id, name);
+            }
+            ws.app.doc.shared.cursor = Some(lo);
+            (lo, times)
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let shown = |vcx: &mut VisualTestContext| {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        [
+            vcx.debug_bounds("marker-row-1").is_some(),
+            vcx.debug_bounds("marker-row-2").is_some(),
+            vcx.debug_bounds("marker-row-3").is_some(),
+        ]
+    };
+    assert_eq!(shown(&mut vcx), [false; 3]);
+    vcx.simulate_keystrokes("'");
+    vcx.run_until_parked();
+    assert_eq!(shown(&mut vcx), [true; 3], "every marker is listed");
+    let rows = |vcx: &mut VisualTestContext| {
+        vcx.debug_bounds("marker-row-1")
+            .zip(vcx.debug_bounds("marker-row-3"))
+    };
+    let (one, three) = rows(&mut vcx).unwrap();
+    assert!(one.top() < three.top(), "in time order");
+
+    // Typing filters by name words. With nothing highlighted, Del edits the
+    // query as usual: removing the stray "x" brings “req B” back.
+    vcx.simulate_input(" req bx");
+    vcx.run_until_parked();
+    assert_eq!(shown(&mut vcx), [false; 3]);
+    vcx.simulate_keystrokes("left delete");
+    vcx.run_until_parked();
+    assert_eq!(shown(&mut vcx), [false, false, true]);
+    // ⇧↵ measures from the match without moving the cursor.
+    vcx.simulate_keystrokes("shift-enter");
+    vcx.run_until_parked();
+    let (reference, cursor) = window
+        .update(&mut vcx, |ws, _, _| {
+            (ws.app.doc.reference(), ws.app.doc.shared.cursor)
+        })
+        .unwrap();
+    assert_eq!(
+        reference,
+        Some(Reference::Marker(
+            volna_core::marker::MarkerId::new(3).unwrap()
+        ))
+    );
+    assert_eq!(cursor, Some(start), "no jump");
+    assert_eq!(shown(&mut vcx), [false; 3], "the palette closed");
+
+    // Del removes the highlighted marker and keeps the list open.
+    vcx.simulate_keystrokes("'");
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("delete");
+    vcx.run_until_parked();
+    assert_eq!(shown(&mut vcx), [false, true, true]);
+    let label = window
+        .update(&mut vcx, |ws, _, _| ws.app.undo_label().map(str::to_owned))
+        .unwrap();
+    assert_eq!(label.as_deref(), Some("Remove marker 1"));
+
+    // F2 opens the highlighted marker's name field.
+    vcx.simulate_keystrokes("f2");
+    vcx.run_until_parked();
+    let edit = window
+        .update(&mut vcx, |ws, _, _| ws.app.text_edit().map(|e| e.text))
+        .unwrap();
+    assert_eq!(edit.as_deref(), Some("resp A"));
+    vcx.simulate_keystrokes("escape");
+    vcx.run_until_parked();
+
+    // ↵ goes to a marker found by number.
+    vcx.simulate_keystrokes("'");
+    vcx.run_until_parked();
+    vcx.simulate_input("3");
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    let cursor = window
+        .update(&mut vcx, |ws, _, _| ws.app.doc.shared.cursor)
+        .unwrap();
+    assert_eq!(cursor, Some(times[2]));
+}
+
 /// The start page lists what was opened, newest first; the keys reopen it,
 /// a missing file stays listed, and a workspace is listed as itself
 /// (`docs/recent_sessions.html`).

@@ -1,26 +1,58 @@
 //! The ⌘K command palette: every registered action with its key hint, and
 //! the settings the core matcher ranks for the query. Choosing a boolean
 //! setting toggles it in place; any other setting opens the Settings tab
-//! filtered to it.
+//! filtered to it. A query starting with `@` (or `'` in a timed panel)
+//! switches to the marker navigator: the core's
+//! [`volna_core::marker::navigator_rows`], where `↵` goes to a marker, `⇧↵`
+//! measures from it, `F2` renames it and `Del` removes it.
 
 use gpui_kit::component::{
     WindowExt,
     command::{Command as Palette, CommandGroup, CommandItem, CommandState},
 };
 use gpui_kit::prelude::*;
-use gpui_kit::{Action, Context, Focusable, WeakEntity, Window};
+use gpui_kit::{Action, Context, Focusable, SharedString, WeakEntity, Window, div, px};
 use volna_core::app::{ClockCommand, SettingsCommand};
+use volna_core::marker::{LaneVerb, NavigatorRow};
 use volna_core::settings::{self, Kind, Value};
 use volna_core::{App as CoreApp, Command};
 
 use crate::app::{self, Workspace};
 use crate::settings_panel::ToggleSettingsJson;
+use crate::theme::ThemePx;
 
 /// The palette can only read this entity while the dialog renders, never
 /// the workspace (which is mid-render then), so everything it shows is here.
 pub(crate) struct PaletteModel {
     commands: Vec<(String, Box<dyn Action>)>,
     settings: Vec<(&'static settings::Spec, bool)>,
+    /// The marker navigator's rows while the query starts with `@`.
+    markers: Option<Vec<NavigatorRow>>,
+}
+
+gpui_kit::actions!(
+    palette,
+    [
+        /// `⇧↵` in the marker navigator: measure from the marker.
+        MeasureFromMarker,
+        /// `F2` in the marker navigator: rename the marker.
+        RenameMarker,
+        /// `Del` in the marker navigator: remove the marker. Elsewhere the
+        /// key falls through to the query field.
+        RemoveMarker,
+    ]
+);
+
+/// Keys of the marker navigator. `Del` is bound where the query field binds
+/// it, and later, so it comes first; outside marker mode its handler
+/// propagates and the field deletes a character.
+pub(crate) fn key_bindings() -> Vec<gpui_kit::KeyBinding> {
+    use gpui_kit::KeyBinding;
+    vec![
+        KeyBinding::new("shift-enter", MeasureFromMarker, Some("Command")),
+        KeyBinding::new("f2", RenameMarker, Some("Command")),
+        KeyBinding::new("delete", RemoveMarker, Some("Input")),
+    ]
 }
 
 /// Every palette command: label and the action it dispatches. The open
@@ -147,6 +179,7 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Next Marker", Box::new(app::NextMarker)),
         ("Previous Marker", Box::new(app::PrevMarker)),
         ("Return to Before the Last Jump", Box::new(app::JumpBack)),
+        ("Find Marker…", Box::new(app::MarkerNavigator)),
         ("Measure from Cursor", Box::new(app::SetReference)),
         ("Clear Reference", Box::new(app::ClearReference)),
         ("Zoom to Measurement", Box::new(app::ZoomToMeasurement)),
@@ -157,6 +190,13 @@ const MAX_SETTINGS: usize = 8;
 
 impl PaletteModel {
     fn compute(query: &str, app: &CoreApp) -> Self {
+        if let Some(query) = volna_core::marker::navigator_query(query) {
+            return Self {
+                commands: Vec::new(),
+                settings: Vec::new(),
+                markers: Some(app.navigator_rows(query)),
+            };
+        }
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         let commands = commands(app, query)
             .into_iter()
@@ -183,14 +223,88 @@ impl PaletteModel {
                 })
                 .collect()
         };
-        Self { commands, settings }
+        Self {
+            commands,
+            settings,
+            markers: None,
+        }
     }
+}
+
+/// One navigator row: number, name, time, the step from the previous marker
+/// and the distance from the reference, in fixed columns.
+fn marker_row(row: &NavigatorRow, cx: &gpui_kit::App) -> gpui_kit::Div {
+    let t = *crate::theme::theme(cx);
+    let colors = t.editor;
+    let mono = |text: String, color: gpui_kit::Hsla, w: f32| {
+        div()
+            .flex_none()
+            .w(t.px(w))
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .font_family(t.mono_font)
+            .text_size(px(t.ui_size_small))
+            .text_color(color)
+            .child(SharedString::from(text))
+    };
+    let marker = t.marker(row.id.palette_index());
+    let number = if row.is_reference {
+        format!("{} R", row.id)
+    } else {
+        row.id.to_string()
+    };
+    div()
+        .debug_selector(move || format!("marker-row-{}", row.id))
+        .flex()
+        .items_center()
+        .gap_2()
+        .w_full()
+        .child(mono(number, marker.stroke, 36.0))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_color(if row.name.is_some() {
+                    colors.text
+                } else {
+                    colors.text_placeholder
+                })
+                .child(SharedString::from(
+                    row.name.clone().unwrap_or_else(|| "No name".into()),
+                )),
+        )
+        .child(mono(row.time.clone(), colors.text_muted, 84.0))
+        .child(mono(
+            row.step.clone().unwrap_or_default(),
+            colors.text_muted,
+            84.0,
+        ))
+        .child(mono(
+            row.from_reference
+                .clone()
+                .map(|d| format!("R {d}"))
+                .unwrap_or_default(),
+            colors.text_muted,
+            190.0,
+        ))
 }
 
 impl Workspace {
     pub(crate) fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette_with("", window, cx);
+    }
+
+    /// Open the palette with `query` typed, such as `@` for the markers.
+    pub(crate) fn open_palette_with(
+        &mut self,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let state = cx.new(|cx| CommandState::new(window, cx));
-        let model = cx.new(|_| PaletteModel::compute("", &self.app));
+        let model = cx.new(|_| PaletteModel::compute(query, &self.app));
         let ws: WeakEntity<Workspace> = cx.weak_entity();
         let query_ws = ws.clone();
         let query_model = model.clone();
@@ -209,10 +323,15 @@ impl Workspace {
                 .overlay_closable(true)
                 .content(move |content, _, cx| {
                     let read = model.read(cx);
+                    let navigator = read.markers.is_some();
                     let mut palette = Palette::new(&state)
                         .filterable(false)
                         .bordered(false)
-                        .placeholder("Type a command or search settings…")
+                        .placeholder(if navigator {
+                            "Find a marker by name or number…"
+                        } else {
+                            "Type a command or search settings…"
+                        })
                         .on_query({
                             let ws = query_ws.clone();
                             let model = query_model.clone();
@@ -229,6 +348,23 @@ impl Workspace {
                             let ws = confirm_ws.clone();
                             let model = confirm_model.clone();
                             move |path, window, cx| {
+                                let marker = model
+                                    .read(cx)
+                                    .markers
+                                    .as_ref()
+                                    .and_then(|rows| rows.get(path.row))
+                                    .map(|row| row.id);
+                                if let Some(id) = marker {
+                                    window.close_dialog(cx);
+                                    _ = ws.update(cx, |ws, cx| {
+                                        ws.dispatch(
+                                            Command::Lane(LaneVerb::GoTo(id)),
+                                            Some(window),
+                                            cx,
+                                        );
+                                    });
+                                    return;
+                                }
                                 let chosen = {
                                     let read = model.read(cx);
                                     if path.section == 1 {
@@ -253,6 +389,43 @@ impl Workspace {
                             }
                         })
                         .on_cancel(|window, cx| window.close_dialog(cx));
+                    if let Some(rows) = &read.markers {
+                        let mut group = CommandGroup::new().label("Markers");
+                        for row in rows {
+                            let label = match &row.name {
+                                Some(name) => format!("{} {name}", row.id),
+                                None => row.id.to_string(),
+                            };
+                            let row = row.clone();
+                            group = group.item(
+                                CommandItem::new()
+                                    .label(label)
+                                    .child(move |_, cx| marker_row(&row, cx)),
+                            );
+                        }
+                        let empty = if read.markers.as_ref().is_some_and(|_| {
+                            query_ws
+                                .upgrade()
+                                .is_some_and(|ws| ws.read(cx).app.doc.markers().is_empty())
+                        }) {
+                            "No markers yet · M marks the cursor"
+                        } else {
+                            "No marker matches"
+                        };
+                        let palette = palette
+                            .group(group)
+                            .empty(move |_, _, _| div().p_3().child(empty))
+                            .footer(|_, _, cx| {
+                                let t = *crate::theme::theme(cx);
+                                div()
+                                    .px_3()
+                                    .py_1()
+                                    .text_size(px(t.ui_size_small))
+                                    .text_color(t.editor.text_muted)
+                                    .child("↵ go to · ⇧↵ measure from · F2 rename · Del remove")
+                            });
+                        return content.child(navigator_keys(palette, &state, &model, &query_ws));
+                    }
                     let mut group = CommandGroup::new().label("Commands");
                     for (label, action) in &read.commands {
                         group = group.item(
@@ -275,7 +448,64 @@ impl Workspace {
                     content.child(palette)
                 })
         });
+        if !query.is_empty() {
+            focus_state.update(cx, |state, cx| state.set_query(query, window, cx));
+        }
         let focus = focus_state.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
     }
+}
+
+/// The navigator's own keys around `palette`: each acts on the highlighted
+/// marker and closes the palette, except `Del`, which removes it and keeps
+/// the list open. Outside marker mode they propagate.
+fn navigator_keys(
+    palette: Palette,
+    state: &gpui_kit::Entity<CommandState>,
+    model: &gpui_kit::Entity<PaletteModel>,
+    ws: &WeakEntity<Workspace>,
+) -> gpui_kit::Div {
+    let selected = {
+        let (state, model) = (state.clone(), model.clone());
+        move |cx: &gpui_kit::App| {
+            let row = state.read(cx).selected_index()?.row;
+            model.read(cx).markers.as_ref()?.get(row).map(|r| r.id)
+        }
+    };
+    let act = {
+        let (ws, model, state) = (ws.clone(), model.clone(), state.clone());
+        move |verb: LaneVerb, close: bool, window: &mut Window, cx: &mut gpui_kit::App| {
+            if close {
+                window.close_dialog(cx);
+            }
+            let Some(owner) = ws.upgrade() else { return };
+            owner.update(cx, |ws, cx| {
+                ws.dispatch(Command::Lane(verb), Some(window), cx)
+            });
+            if !close {
+                let query = state.read(cx).query(cx).to_string();
+                let next = PaletteModel::compute(&query, &owner.read(cx).app);
+                model.update(cx, |model, cx| {
+                    *model = next;
+                    cx.notify();
+                });
+            }
+        }
+    };
+    let (s1, s2, s3) = (selected.clone(), selected.clone(), selected);
+    let (a1, a2, a3) = (act.clone(), act.clone(), act);
+    div()
+        .on_action(move |_: &MeasureFromMarker, window, cx| match s1(cx) {
+            Some(id) => a1(LaneVerb::MeasureFrom(id), true, window, cx),
+            None => cx.propagate(),
+        })
+        .on_action(move |_: &RenameMarker, window, cx| match s2(cx) {
+            Some(id) => a2(LaneVerb::Rename(id), true, window, cx),
+            None => cx.propagate(),
+        })
+        .on_action(move |_: &RemoveMarker, window, cx| match s3(cx) {
+            Some(id) => a3(LaneVerb::Remove(id), false, window, cx),
+            None => cx.propagate(),
+        })
+        .child(palette)
 }

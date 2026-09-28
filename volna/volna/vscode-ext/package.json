@@ -103,6 +103,10 @@
         "title": "Volna: Zoom to Measurement"
       },
       {
+        "command": "volna.markerNavigator",
+        "title": "Volna: Find Marker…"
+      },
+      {
         "command": "volna.focusPanel1",
         "title": "Volna: Focus Panel 1"
       },

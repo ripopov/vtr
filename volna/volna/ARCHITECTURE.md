@@ -613,6 +613,25 @@ time header or an empty part of the Markers lane (`App::adds_marker_at`)
 sends `M` after its first click has put the cursor there, so it adds a
 marker, or names the one already there.
 
+The marker navigator finds any marker. `'` (`Action::MarkerNavigator`,
+also `markerNavigator` through `Command::named`, and a *Markers…* button on
+a timed panel's toolbar while markers exist) emits
+`Event::OpenMarkerNavigator`, and GPUI opens its palette with `@` typed; any
+palette query starting with `@` is the marker mode
+(`marker::navigator_query`). `App::navigator_rows` lists the markers in time
+order (`marker::navigator_rows`): number, name, time, the step from the
+previous marker of the whole list, and the distance from the reference in
+time and in cycles of the focused panel's selected clock. Every word of the
+query must match, a word of digits by number and any word by part of the
+name, ignoring case. `↵` goes to the highlighted marker as a jump, `⇧↵`
+measures from it, `F2` opens its name field, and `Del` removes it and keeps
+the list open; the palette sends these as `Command::Lane(LaneVerb)`, the
+lane menu's verbs without a menu. `Del` is bound in the `Input` context
+after gpui-kit's own binding, so it comes first; with no marker
+highlighted, or outside marker mode, its handler propagates and the query
+field deletes a character. Only removal is an undo step. egui has no
+palette and ignores the event.
+
 `.` and `,` move the focused panel's cursor to the next or previous marker
 and `1`–`9` onto marker *n* (`Action::{NextMarker, PrevMarker, GoToMarker}`,
 also `nextMarker`, `prevMarker` and `goToMarker1`… through `Command::named`).
