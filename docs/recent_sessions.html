@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volna Recent Sessions</title>
+<meta name="description" content="Design proposal: reopen recent traces and workspaces from Volna's start page with one click or one key. Interactive demo, behaviour rules and ownership.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f4f5f7;--paper:#fcfcfd;--ink:#1a1f27;--muted:#5b6472;--line:#d8dce3;--line-strong:#bcc3ce;
+  --accent:#2d6cb0;--accent-ink:#1f5189;--soft:#e3edf8;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#1d2026;--paper:#23272e;--ink:#e3e6eb;--muted:#9ba3b0;--line:#323741;--line-strong:#434955;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;
+}}
+:root[data-theme="dark"]{
+  --bg:#1d2026;--paper:#23272e;--ink:#e3e6eb;--muted:#9ba3b0;--line:#323741;--line-strong:#434955;
+  --accent:#74ade8;--accent-ink:#a4c9f0;--soft:#263447;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+a{color:var(--accent-ink);text-underline-offset:3px}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1080px;margin:auto;padding:11px 16px;display:flex;align-items:center;gap:18px}
+.brand{font-weight:600;text-decoration:none;color:var(--ink);white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;min-width:0}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav a:hover{color:var(--ink)}
+#theme{font:inherit;font-size:12px;background:none;border:1px solid var(--line-strong);color:var(--muted);border-radius:5px;padding:2px 8px;cursor:pointer;flex:none}
+.wrap{max-width:1080px;margin:auto;padding-inline:16px}
+.prose{max-width:740px}
+section{padding-block:36px}
+section + section{border-top:1px solid var(--line)}
+h1{font-size:clamp(30px,4.4vw,44px);letter-spacing:-1.2px;line-height:1.1;font-weight:600;margin:0 0 16px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+h2{font-size:24px;letter-spacing:-.5px;line-height:1.25;margin:0 0 14px}
+p{margin:0 0 14px}
+.lede{font-size:19px;color:var(--muted);max-width:720px}
+.rules{list-style:none;padding:0;counter-reset:r;max-width:740px;margin:0}
+.rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 18px}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules b{display:block;font-size:17px;margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper);max-width:740px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 13px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap;font-weight:500}
+footer{padding:28px 0 48px;color:var(--muted);font-size:13px}
+
+/* ---- demo: a Volna window in its default One Dark theme ---- */
+.demo{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:22px;align-items:start;margin-top:22px}
+.win{--v-bg:#282c34;--v-bar:#21252b;--v-text:#dcdfe4;--v-muted:#8b929e;--v-faint:#5c6370;--v-hover:#2f343d;--v-sel:#2c3a4f;--v-accent:#74ade8;--v-line:#181a1f;--v-err:#e06c75;--v-badge:#3a3f4b;
+  border-radius:10px;overflow:hidden;border:1px solid var(--line-strong);box-shadow:0 14px 40px rgb(0 0 0 / .18);background:var(--v-bg);color:var(--v-text);font:13px/1.4 "IBM Plex Sans",system-ui,sans-serif;outline:none}
+.win:focus-visible{box-shadow:0 0 0 2px var(--accent),0 14px 40px rgb(0 0 0 / .18)}
+.titlebar{height:34px;background:var(--v-bar);border-bottom:1px solid var(--v-line);display:flex;align-items:center;gap:14px;padding:0 12px;color:var(--v-muted);font-size:12px}
+.titlebar .dots{display:flex;gap:6px}.titlebar .dots i{width:10px;height:10px;border-radius:50%;background:#3b4048}
+.titlebar .menu span{margin-right:12px}
+.page{min-height:470px;display:flex;flex-direction:column;align-items:center;padding:34px 16px 30px}
+.seal{width:64px;height:64px;color:var(--v-faint)}
+.page h3{margin:10px 0 2px;font-size:16px;font-weight:600}
+.page .sub{color:var(--v-muted);text-align:center}
+.openbtn{margin-top:14px;font:inherit;display:inline-flex;align-items:center;gap:7px;background:#3d6ea5;color:#fff;border:0;border-radius:5px;padding:5px 12px;cursor:pointer}
+.openbtn:hover{background:#4a7cb4}
+.openbtn svg{width:14px;height:14px}
+.err{margin-top:10px;display:flex;gap:8px;align-items:center;border:1px solid var(--v-err);color:var(--v-err);border-radius:6px;padding:4px 10px;font-size:12.5px;max-width:100%}
+.recent{margin-top:22px;width:min(460px,100%)}
+.recent .head{display:flex;justify-content:space-between;color:var(--v-muted);font-size:11.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;padding:0 8px 5px}
+.recent ul{list-style:none;margin:0;padding:0}
+.recent li{position:relative;display:grid;grid-template-columns:18px minmax(0,1fr) auto 22px;gap:9px;align-items:center;padding:5px 8px;border-radius:5px;cursor:pointer}
+.recent li:hover{background:var(--v-hover)}
+.recent li.sel{background:var(--v-sel)}
+.recent li svg.k{width:15px;height:15px;color:var(--v-muted)}
+.recent li.ws svg.k{color:#c678dd}
+.recent .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent .nm b{font-weight:500}
+.recent .nm .dir{color:var(--v-muted);margin-left:8px;font-size:12px}
+.recent .when{color:var(--v-muted);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.recent .num{font:11px "IBM Plex Mono",monospace;color:var(--v-faint);position:absolute;left:-14px}
+.recent li.gone .nm,.recent li.gone svg.k{opacity:.5}
+.recent li.gone .when{color:var(--v-err)}
+.recent .x{visibility:hidden;background:none;border:0;color:var(--v-muted);cursor:pointer;border-radius:4px;width:20px;height:20px;padding:0;font-size:15px;line-height:20px}
+.recent li:hover .x,.recent li.sel .x{visibility:visible}
+.recent .x:hover{background:var(--v-badge);color:var(--v-text)}
+.more{margin-top:4px;background:none;border:0;color:var(--v-accent);font:inherit;font-size:12px;cursor:pointer;padding:2px 8px}
+.hints{margin-top:22px;display:flex;flex-direction:column;gap:5px;font-size:12px;width:240px}
+.hints div{display:flex;justify-content:space-between;color:var(--v-muted)}
+.hints span:last-child,.foot kbd{font:11px "IBM Plex Mono",monospace;background:var(--v-badge);color:var(--v-text);border:0;border-radius:3px;padding:1px 5px}
+.foot{margin-top:14px;color:var(--v-faint);font-size:11.5px;text-align:center}
+.foot kbd{font-size:10.5px;margin:0 2px}
+.status{height:24px;border-top:1px solid var(--v-line);background:var(--v-bar);color:var(--v-muted);font-size:11.5px;display:flex;align-items:center;padding:0 12px}
+.side h4{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:600}
+.side button{display:block;width:100%;text-align:left;font:inherit;font-size:14px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 11px;margin-bottom:7px;cursor:pointer}
+.side button:hover{border-color:var(--line-strong)}
+.side button[aria-pressed="true"]{border-color:var(--accent);background:var(--soft)}
+.side p{font-size:13.5px;color:var(--muted);margin-top:14px}
+#log{font:12px "IBM Plex Mono",monospace;color:var(--muted);min-height:1.5em;margin-top:8px;overflow-wrap:anywhere}
+#selftest{display:none}
+@media (max-width:760px){.demo{grid-template-columns:1fr}.recent .nm .dir{display:none}.recent .num{display:none}.page{padding-inline:10px}.titlebar .menu{display:none}}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#top">Volna <span>recent sessions</span></a>
+  <nav><a href="#demo">Demo</a><a href="#behaviour">Behaviour</a><a href="#details">Details</a><a href="#refs">References</a></nav>
+  <button id="theme" type="button" aria-label="Toggle colour theme">Theme</button>
+</div></header>
+
+<main class="wrap" id="top">
+<section>
+  <h1>Pick up where you <em>left off</em></h1>
+  <p class="lede">Volna already remembers every trace and workspace it opens, but nothing shows that list. This proposal puts it on the start page: launch Volna, press <kbd>Enter</kbd>, and yesterday's trace comes back with its panels, signals and markers.</p>
+</section>
+
+<section id="demo">
+  <h2>Try it</h2>
+  <p class="prose">The window below is Volna's start page with the proposed list. Click an entry, or focus the window and use the keys shown under the list. Opening an entry is simulated: it moves to the top, as it would the next time Volna starts.</p>
+  <div class="demo">
+    <div class="win" id="win" tabindex="0" aria-label="Volna start page demo">
+      <div class="titlebar"><span class="dots"><i></i><i></i><i></i></span><span class="menu"><span>File</span><span>View</span><span>Help</span></span><span style="margin-left:auto">Volna</span></div>
+      <div class="page" id="page"></div>
+      <div class="status" id="vstatus">Ready</div>
+    </div>
+    <div class="side">
+      <h4>Scenario</h4>
+      <button type="button" data-scn="returning" aria-pressed="true">Returning user</button>
+      <button type="button" data-scn="first">First run, nothing recent</button>
+      <button type="button" data-scn="long">Long history (14 entries)</button>
+      <div id="log" aria-live="polite"></div>
+      <p>The entry for <code>picorv32.fst</code> points at a deleted file, and two entries are both called <code>top.vtr</code>; the folder tells them apart.</p>
+    </div>
+  </div>
+</section>
+
+<section id="behaviour">
+  <h2>Behaviour</h2>
+  <ol class="rules">
+    <li><b>One list, most recent first.</b>Traces and workspaces share one list ordered by when they were last opened. A trace entry reopens the trace, and its sidecar workspace restores the session exactly as the <a href="workspaces.html">workspace design</a> already does. A workspace entry opens that workspace file, which names its own trace. Opening anything again moves it to the top; nothing is listed twice.</li>
+    <li><b>The last session is one key away.</b>The first entry is selected when the page appears, so <kbd>Enter</kbd> reopens it. <kbd>↑</kbd> <kbd>↓</kbd> move the selection, <kbd>1</kbd>–<kbd>9</kbd> open an entry by position, and a single click opens the entry under the pointer. The start page has no other use for these keys.</li>
+    <li><b>Each row answers "which one was it?"</b>The file name leads, followed by its folder with the home directory shortened to <code>~</code> and long paths shortened in the middle, and the time it was last opened on the right. Hovering shows the full path. A workspace row has its own icon and names the trace it opens.</li>
+    <li><b>Short by default.</b>The page shows up to eight entries. <em>Show all</em> expands the list in place, up to the existing <code>workspace.recentLimit</code> setting (20 by default).</li>
+    <li><b>Missing files stay visible.</b>When the page appears, each entry is checked on disk. A missing one is dimmed and says <em>Not found</em> instead of a time; opening it shows the usual open error and keeps the entry. Entries are never pruned automatically, because an unmounted drive or a rebuilt directory often comes back.</li>
+    <li><b>Removing is explicit.</b>The <kbd>×</kbd> on a hovered or selected row, or <kbd>Delete</kbd>, removes that entry. <em>File ▸ Open Recent ▸ Clear Recent</em> empties the list. The list is application state, not part of a session, so removal is not an undo step.</li>
+    <li><b>First run teaches the keys.</b>With nothing recent, the page keeps today's shortcut hints. Once there is a list, the hints give way to it, and one footer line keeps the keys that apply to the list.</li>
+    <li><b>The same list elsewhere.</b><em>File ▸ Open Recent</em> lists the same entries while a trace is open, and the command palette offers <em>Open Recent: name</em> for each. Opening one while a trace is loaded replaces it, like <em>Open…</em>.</li>
+  </ol>
+</section>
+
+<section id="details">
+  <h2>Details</h2>
+  <div class="tablewrap"><table id="rows-tbl">
+    <thead><tr><th>Entry</th><th>Shows</th><th>Opens</th></tr></thead>
+    <tbody>
+      <tr><td>Trace</td><td>file name, folder, last opened</td><td>the trace; its sidecar workspace restores the session</td></tr>
+      <tr><td>Workspace</td><td>workspace name, the trace it names, folder, last opened</td><td>the workspace file and the trace it points to</td></tr>
+      <tr><td>Missing file</td><td>dimmed name, <em>Not found</em></td><td>the usual open error; the entry stays until removed</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose">The list is native-only. The web build cannot reopen files by path, and inside VS Code the editor's own <em>File ▸ Open Recent</em> already covers traces, so neither host shows the section.</p>
+  <p class="prose"><code>state.json</code> already keeps <code>recent_traces</code> and <code>recent_workspaces</code> as bare URIs. It becomes one <code>recent</code> list of <code>{uri, kind, opened}</code> entries so the two kinds interleave by time and each row can say when it was opened; the file's version increases and an older file starts with an empty list. <code>volna-core</code> owns the list, its ordering, the row text (short path, relative time, missing state), the page's key handling and the <code>OpenRecent</code>, <code>ForgetRecent</code> and <code>ClearRecent</code> commands, all under headless tests. The native host only reports whether each file exists and persists the list; GPUI paints the rows.</p>
+  <p class="prose">Left out on purpose: pinning, a search box, thumbnails and file sizes. With twenty entries, a readable folder and <em>Show all</em> are enough; the palette's fuzzy search already covers the rare long hunt.</p>
+</section>
+
+<section id="refs">
+  <h2>References</h2>
+  <ul class="prose">
+    <li><b>Surfer</b> lists <em>Recent files</em> as links on its empty page and in <em>File ▸ Recent files</em>, disambiguates equal names by adding parent folders, shows the full path on hover and skips server connections (<code>libsurfer/src/help.rs</code>, <code>file_history.rs</code>). Borrowed: the start-page list and hover path. Changed: a folder column instead of longer names, times, keyboard access.</li>
+    <li><b>VS Code</b> shows a short <em>Recent</em> list on its welcome page with <em>More…</em> leading to the <em>Open Recent</em> quick pick, where entries can be removed. Borrowed: a short list with an escape to the full one, and explicit removal.</li>
+    <li><b>Zed and JetBrains IDEs</b> open recent projects from a welcome screen that is fully keyboard-driven, and keep missing projects listed until the user removes them. Borrowed: <kbd>Enter</kbd> on a pre-selected first entry, and no automatic pruning.</li>
+  </ul>
+</section>
+<footer class="wrap">Volna design proposal · <a href="workspaces.html">Workspaces</a> · <a href="user-settings.html">User settings</a></footer>
+</main>
+<pre id="selftest"></pre>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const NOW = Date.UTC(2026, 8, 28, 10, 0) / 1000, MIN = 60, HOUR = 3600, DAY = 86400;
+const HOME = '/home/ada';
+const SHOWN = 8;
+const ICON = {
+  trace: '<svg class="k" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 11h3V5h3v6h3V5h3v6h2"/></svg>',
+  ws: '<svg class="k" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 6h13M6.5 6v7.5"/></svg>',
+  folder: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 4.5v8h13v-6.5H7.5L6 4.5z"/></svg>',
+  seal: '<svg class="seal" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="32" cy="32" r="29"/><path d="M10 36c5 0 5-12 11-12s5 16 11 16 5-16 11-16 5 12 11 12" stroke-linecap="round"/></svg>',
+};
+
+/* ---- the model: what volna-core would own ---- */
+function entry(path, kind, ago, extra = {}) { return {uri: 'file://' + path, kind, opened: NOW - ago, ...extra}; }
+const BASE = [
+  entry(HOME + '/work/vtr/bench/workloads/gen/c910/c910_coremark.vtr', 'trace', 12 * MIN),
+  entry(HOME + '/work/XiangShan/build/debug/chi_hang.volna.json', 'workspace', 2 * HOUR + 5 * MIN, {trace: 'xs_dualcore.vtr'}),
+  entry(HOME + '/work/scr1/sim/top.vtr', 'trace', 26 * HOUR),
+  entry(HOME + '/Downloads/picorv32.fst', 'trace', 3 * DAY, {missing: true}),
+  entry(HOME + '/work/pulp-c910/sim/top.vtr', 'trace', 4 * DAY),
+  entry(HOME + '/work/vtr/bench/workloads/gen/rsa/rsa_tb.vtr', 'trace', 6 * DAY),
+  entry(HOME + '/work/Konata/sample/konata_o3.vtr', 'trace', 9 * DAY),
+  entry(HOME + '/work/gem5/m5out/o3_pipeline.volna.json', 'workspace', 12 * DAY, {trace: 'o3_trace.vtr'}),
+];
+const EXTRA = ['riscv-isa-sim/build/spike_cmp.vtr', 'gpu-lab/runs/wave64.vtr', 'matmul/sim/systolic.fst', 'vtr/bench/workloads/gen/aes/aes_tb.vtr', 'fsdbwriter/test/axi_burst.vtr', 'gem5-riscv-jit-cpu/out/jit.vtr']
+  .map((p, i) => entry(HOME + '/work/' + p, 'trace', (15 + i * 4) * DAY));
+
+const R = {
+  path: e => decodeURIComponent(e.uri.replace(/^file:\/\//, '')),
+  name(e) { const n = R.path(e).split('/').pop(); return e.kind === 'workspace' ? n.replace(/\.volna\.json$/, '') : n; },
+  // Parent folder, home as ~, long paths cut in the middle keeping the root and the last two folders.
+  folder(e, max = 34) {
+    let parts = R.path(e).split('/').slice(0, -1).join('/');
+    if (parts === HOME || parts.startsWith(HOME + '/')) parts = '~' + parts.slice(HOME.length);
+    if (parts.length <= max) return parts;
+    const seg = parts.split('/');
+    return seg.length > 3 ? [seg[0], '…', ...seg.slice(-2)].join('/') : '…' + parts.slice(-max + 1);
+  },
+  when(e, now = NOW) {
+    if (e.missing) return 'Not found';
+    const d = now - e.opened;
+    if (d < MIN) return 'just now';
+    if (d < HOUR) return Math.floor(d / MIN) + ' min ago';
+    if (d < DAY) return Math.floor(d / HOUR) + ' h ago';
+    if (d < 2 * DAY) return 'yesterday';
+    if (d < 7 * DAY) return Math.floor(d / DAY) + ' days ago';
+    return new Date(e.opened * 1000).toLocaleDateString('en-US', {month: 'short', day: 'numeric', timeZone: 'UTC'});
+  },
+  remember(list, e, limit = 20) { const l = [e, ...list.filter(x => x.uri !== e.uri)]; return l.slice(0, limit); },
+  forget: (list, uri) => list.filter(x => x.uri !== uri),
+};
+
+/* ---- the page ---- */
+const S = {list: [], sel: 0, all: false, error: null, clock: NOW};
+function scenario(name) {
+  S.list = name === 'first' ? [] : name === 'long' ? [...BASE, ...EXTRA] : [...BASE];
+  S.sel = 0; S.all = false; S.error = null; S.clock = NOW;
+  document.querySelectorAll('[data-scn]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scn === name)));
+  $('#vstatus').textContent = 'Ready'; log('');
+  render();
+}
+function visible() { return S.all ? S.list : S.list.slice(0, SHOWN); }
+function log(t) { $('#log').textContent = t; }
+function render() {
+  const rows = visible();
+  S.sel = Math.max(0, Math.min(S.sel, rows.length - 1));
+  let h = ICON.seal + '<h3>No trace open</h3><div class="sub">Open a VTR or FST trace to browse its signals and transactions</div>';
+  if (S.error) h += `<div class="err" role="alert">⚠ ${S.error}</div>`;
+  h += `<button class="openbtn" type="button" data-act="open">${ICON.folder}Open File…</button>`;
+  if (rows.length) {
+    h += `<div class="recent"><div class="head"><span id="recent-label">Recent</span></div><ul role="listbox" aria-labelledby="recent-label">`;
+    rows.forEach((e, i) => {
+      const sub = e.kind === 'workspace' ? `${e.trace} · ${R.folder(e)}` : R.folder(e);
+      h += `<li role="option" aria-selected="${i === S.sel}" class="${i === S.sel ? 'sel' : ''} ${e.kind === 'workspace' ? 'ws' : ''} ${e.missing ? 'gone' : ''}" data-i="${i}" title="${R.path(e)}">`
+        + (i < 9 ? `<span class="num">${i + 1}</span>` : '')
+        + (e.kind === 'workspace' ? ICON.ws : ICON.trace)
+        + `<span class="nm"><b>${R.name(e)}</b><span class="dir">${sub}</span></span><span class="when">${R.when(e, S.clock)}</span>`
+        + `<button class="x" type="button" data-rm="${i}" aria-label="Remove ${R.name(e)} from recent">×</button></li>`;
+    });
+    h += '</ul>';
+    if (S.list.length > SHOWN) h += `<button class="more" type="button" data-act="more">${S.all ? 'Show fewer' : `Show all ${S.list.length}`}</button>`;
+    h += '</div><div class="foot"><kbd>⏎</kbd> open · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>1</kbd>–<kbd>9</kbd> open by number · <kbd>Del</kbd> remove · <kbd>⌘O</kbd> browse</div>';
+  } else {
+    h += '<div class="hints">' + [['Open a trace', '⌘O'], ['Add selected variables', '⏎'], ['Zoom in / out', '= / -'], ['Zoom to fit', 'F'], ['Add marker at cursor', 'M'], ['Cycle value format', 'T']]
+      .map(([l, k]) => `<div><span>${l}</span><span>${k}</span></div>`).join('') + '</div>';
+  }
+  $('#page').innerHTML = h;
+}
+function open(i) {
+  const e = visible()[i];
+  if (!e) return;
+  if (e.missing) {
+    S.error = `Cannot open trace: ${R.folder(e, 99)}/${R.name(e)}: no such file`;
+    S.sel = i; log(`open ${R.name(e)} → error, entry kept`); render(); return;
+  }
+  S.error = null; S.clock += 5 * MIN;
+  $('#vstatus').textContent = `Loading ${e.kind === 'workspace' ? e.trace + ' with workspace ' + R.name(e) : R.name(e)}… (simulated)`;
+  S.list = R.remember(S.list, {...e, opened: S.clock}); S.sel = 0;
+  log(`opened ${R.name(e)} → moved to the top`); render();
+}
+function remove(i) {
+  const e = visible()[i];
+  if (!e) return;
+  S.list = R.forget(S.list, e.uri); S.error = null;
+  log(`removed ${R.name(e)}`); render();
+}
+$('#page').addEventListener('click', ev => {
+  const t = ev.target.closest('[data-rm],[data-act],li');
+  if (!t) return;
+  if (t.dataset.rm !== undefined) { ev.stopPropagation(); remove(+t.dataset.rm); }
+  else if (t.dataset.act === 'more') { S.all = !S.all; render(); }
+  else if (t.dataset.act === 'open') log('Open File… shows the system file dialog');
+  else open(+t.dataset.i);
+  $('#win').focus({preventScroll: true});
+});
+$('#win').addEventListener('keydown', ev => {
+  const n = visible().length;
+  if (ev.target.closest('button') && (ev.key === 'Enter' || ev.key === ' ')) return;
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'o') log('Open File… shows the system file dialog');
+  else if (!n) return;
+  else if (ev.key === 'ArrowDown') S.sel = Math.min(n - 1, S.sel + 1);
+  else if (ev.key === 'ArrowUp') S.sel = Math.max(0, S.sel - 1);
+  else if (ev.key === 'Home') S.sel = 0;
+  else if (ev.key === 'End') S.sel = n - 1;
+  else if (ev.key === 'Enter') { ev.preventDefault(); open(S.sel); return; }
+  else if (ev.key === 'Delete' || ev.key === 'Backspace') { remove(S.sel); return; }
+  else if (/^[1-9]$/.test(ev.key) && !ev.metaKey && !ev.ctrlKey && !ev.altKey) { open(+ev.key - 1); return; }
+  else return;
+  ev.preventDefault(); render();
+});
+document.querySelectorAll('[data-scn]').forEach(b => b.addEventListener('click', () => scenario(b.dataset.scn)));
+$('#theme').addEventListener('click', () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('volna-doc-theme', r.dataset.theme); } catch {}
+});
+try { const t = localStorage.getItem('volna-doc-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+
+/* ---- self-test of the row text rules ---- */
+function selfTests() {
+  const out = []; let failed = 0;
+  const eq = (name, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) failed++; out.push(`${ok ? 'ok' : 'FAIL'} ${name}${ok ? '' : `: ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`}`); };
+  eq('home shortened', R.folder(BASE[2]), '~/work/scr1/sim');
+  eq('long path cut in the middle', R.folder(BASE[0]), '~/…/gen/c910');
+  eq('same names, different folders', [R.folder(BASE[2]), R.folder(BASE[4])], ['~/work/scr1/sim', '~/work/pulp-c910/sim']);
+  eq('workspace name drops .volna.json', R.name(BASE[1]), 'chi_hang');
+  eq('relative times', BASE.map(e => R.when(e)), ['12 min ago', '2 h ago', 'yesterday', 'Not found', '4 days ago', '6 days ago', 'Sep 19', 'Sep 16']);
+  const moved = R.remember(BASE, BASE[5]);
+  eq('reopening moves to the top without duplicates', [moved[0].uri, moved.length], [BASE[5].uri, BASE.length]);
+  eq('limit applies', R.remember([...BASE, ...EXTRA], entry('/x.vtr', 'trace', 0), 20).length, 14 + 1);
+  eq('limit truncates', R.remember([...BASE, ...EXTRA], entry('/x.vtr', 'trace', 0), 5).length, 5);
+  out.push(failed ? `selftest: ${failed} FAILED` : 'selftest: all passed');
+  return out.join('\n');
+}
+window.RS = {R, S, BASE, EXTRA, scenario, state: () => ({names: visible().map(R.name), sel: S.sel, error: S.error, total: S.list.length, all: S.all})};
+$('#selftest').textContent = selfTests();
+scenario('returning');
+document.fonts.ready.then(() => { window.ready = true; });
+</script>
+</body>
+</html>
