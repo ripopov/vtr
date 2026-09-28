@@ -5,6 +5,7 @@
 
 use super::Value;
 use super::registry::spec;
+use crate::workspace::recent::{Recent, RecentKind};
 use crate::workspace::state::State;
 use anyhow::{Result, ensure};
 use serde::Deserialize;
@@ -88,8 +89,19 @@ pub fn preferences_v1(bytes: &[u8], schema_uri: Option<&str>) -> Result<Migrated
     Ok(Migrated {
         settings,
         state: State {
-            recent_traces: prefs.recent_traces,
-            recent_workspaces: prefs.recent_workspaces,
+            // Version 1 kept no open times; traces were listed first.
+            recent: (prefs
+                .recent_traces
+                .into_iter()
+                .map(|uri| (uri, RecentKind::Trace)))
+            .chain((prefs.recent_workspaces.into_iter()).map(|uri| (uri, RecentKind::Workspace)))
+            .map(|(uri, kind)| Recent {
+                uri,
+                kind,
+                trace: None,
+                opened: 0,
+            })
+            .collect(),
             ..State::new()
         },
     })
@@ -110,7 +122,8 @@ mod tests {
             migrated.settings,
             "{\n  \"$schema\": \"./settings.schema.json\",\n  \"panels.linkByDefault\": false,\n  \"workspace.autosave\": \"off\"\n}\n"
         );
-        assert_eq!(migrated.state.recent_traces, vec!["file:///a.vtr"]);
+        let uris: Vec<_> = migrated.state.recent.iter().map(|e| &e.uri).collect();
+        assert_eq!(uris, ["file:///a.vtr"]);
         let mut store = super::super::Store::new(super::super::Host::Native);
         store.load(&migrated.settings);
         assert!(store.diagnostics().is_empty());

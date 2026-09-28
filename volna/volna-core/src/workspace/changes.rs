@@ -77,6 +77,7 @@ impl Stamp {
                 | Command::ChromeDragStart(_)
                 | Command::ChromeDragEnd
                 | Command::RequestOpenDialog
+                | Command::Recent(_)
                 | Command::Open(_)
                 | Command::CloseTrace
         ) {

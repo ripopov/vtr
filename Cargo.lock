@@ -8547,6 +8547,7 @@ dependencies = [
  "fst-reader",
  "log",
  "lz4_flex 0.11.6",
+ "percent-encoding",
  "serde",
  "serde_json",
  "sha2 0.10.9",

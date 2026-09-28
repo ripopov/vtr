@@ -24,8 +24,9 @@ pub(crate) struct PaletteModel {
 }
 
 /// Every palette command: label and the action it dispatches. The open
-/// trace's PIPELINE streams and the focused panel's clock choices follow
-/// the fixed commands; a number in the query offers to go to that cycle.
+/// trace's PIPELINE streams, the focused panel's clock choices and the
+/// recent traces and workspaces follow the fixed commands; a number in the
+/// query offers to go to that cycle.
 pub(crate) fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Action>)> {
     let mut all: Vec<(String, Box<dyn Action>)> = vec![
         (
@@ -73,6 +74,15 @@ pub(crate) fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Actio
         ));
         all.push(("Next Cycle".into(), Box::new(app::NextCycle)));
         all.push(("Previous Cycle".into(), Box::new(app::PrevCycle)));
+    }
+    for (ix, label) in app::recent_labels(app).into_iter().flatten().enumerate() {
+        all.push((
+            format!("Open Recent: {label}"),
+            Box::new(app::OpenRecent { ix }),
+        ));
+    }
+    if app::recent_labels(app).is_some_and(|labels| !labels.is_empty()) {
+        all.push(("Clear Recent".into(), Box::new(app::ClearRecent)));
     }
     for (path, track) in app::pipeline_streams(app) {
         all.push((

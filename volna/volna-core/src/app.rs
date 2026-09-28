@@ -294,6 +294,8 @@ pub enum Command {
     ChromeDragStart(ChromeDrag),
     ChromeDragEnd,
     Settings(SettingsCommand),
+    /// The recent traces and workspaces (`docs/recent_sessions.html`).
+    Recent(crate::workspace::recent::RecentCommand),
 }
 
 /// The focused timed panel's clock choices, for menus and the palette.
@@ -358,6 +360,15 @@ pub enum Event {
     LoadWorkspace {
         trace_uri: String,
     },
+    /// A trace with a durable identity finished opening; native hosts record
+    /// it (or the workspace that named it) in the recent list.
+    TraceOpened {
+        trace_uri: String,
+    },
+    /// Open this recent entry: a trace, or a workspace and its trace.
+    OpenRecent(crate::workspace::recent::Recent),
+    /// The recent list changed; save `state.json`.
+    RecentChanged,
     PersistWorkspace {
         ticket: crate::workspace::persistence::SaveTicket,
         bytes: Vec<u8>,
@@ -688,6 +699,7 @@ impl App {
     }
 
     fn on_session_changed(&mut self) {
+        self.reset_recent_view();
         self.history.clear();
         self.announcement = None;
         self.marker_edit = None;
@@ -1295,6 +1307,7 @@ impl App {
                 self.changed();
             }
             Command::Settings(command) => self.settings_command(command, now),
+            Command::Recent(command) => self.recent_command(command),
         }
         // Pointer input moves rows but never adds or removes them; a press
         // or release may fold a group.

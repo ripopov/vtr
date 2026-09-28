@@ -1648,3 +1648,169 @@ fn marker_name_field_opens_over_the_chip_and_keeps_its_keys(cx: &mut TestAppCont
         (Some("req 2.".into()), Some("end".into()), Some(far))
     );
 }
+
+/// The start page lists what was opened, newest first; the keys reopen it,
+/// a missing file stays listed, and a workspace is listed as itself
+/// (`docs/recent_sessions.html`).
+#[gpui_kit::test]
+fn start_page_reopens_recent_traces_and_workspaces(cx: &mut TestAppContext) {
+    use crate::native_workspace::{Store, file_uri};
+    use gpui_kit::VisualTestContext;
+    use volna_core::workspace::persistence::{Persistence, Target};
+    use volna_core::workspace::recent::RecentKind;
+    init(cx);
+    let temporary = tempfile::tempdir().unwrap();
+    let example = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr");
+    let (a, b) = (
+        temporary.path().join("a.vtr"),
+        temporary.path().join("b.vtr"),
+    );
+    std::fs::copy(example, &a).unwrap();
+    std::fs::copy(example, &b).unwrap();
+    let config = temporary.path().join("config");
+    let mut store = Store::new(Some(config.clone())).unwrap();
+    store.data_dir = temporary.path().join("fallback");
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    let draw = |vcx: &mut VisualTestContext| {
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+    };
+    let names = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                ws.app
+                    .recent_rows(0, None)
+                    .into_iter()
+                    .map(|r| (r.name, r.missing))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    };
+    window
+        .update(&mut vcx, |ws, _, cx| {
+            ws.enable_native_persistence(store, Persistence::Auto, false, cx);
+            ws.open_path(a.clone(), cx);
+        })
+        .unwrap();
+    draw(&mut vcx);
+    window
+        .update(&mut vcx, |ws, _, cx| ws.open_path(b.clone(), cx))
+        .unwrap();
+    draw(&mut vcx);
+    std::fs::remove_file(&a).unwrap();
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            assert!(ws.app.doc.is_loaded());
+            ws.dispatch(Command::CloseTrace, Some(window), cx)
+        })
+        .unwrap();
+    draw(&mut vcx);
+    assert_eq!(
+        names(&mut vcx),
+        [("b.vtr".to_owned(), false), ("a.vtr".to_owned(), true)]
+    );
+    let saved = std::fs::read_to_string(config.join("state.json")).unwrap();
+    assert!(saved.find("b.vtr").unwrap() < saved.find("a.vtr").unwrap());
+    assert!(vcx.debug_bounds("recent-0").is_some());
+    assert!(vcx.debug_bounds("recent-1").is_some());
+    assert!(vcx.debug_bounds("recent-2").is_none());
+    let labels = window
+        .update(&mut vcx, |ws, _, _| {
+            crate::palette::commands(&ws.app, "")
+                .into_iter()
+                .map(|(label, _)| label)
+                .filter(|label| label.contains("Recent"))
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+    assert_eq!(labels.len(), 3, "{labels:?}");
+    assert!(labels[0].starts_with("Open Recent: b.vtr — "), "{labels:?}");
+
+    // The missing file: the usual error, and the entry stays.
+    vcx.simulate_keystrokes("down enter");
+    draw(&mut vcx);
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert!(matches!(ws.app.trace_state(), TraceState::Error(_)));
+        })
+        .unwrap();
+    assert_eq!(names(&mut vcx).len(), 2);
+
+    // Enter on the newest entry reopens it.
+    vcx.simulate_keystrokes("home enter");
+    draw(&mut vcx);
+    let workspace_file = temporary.path().join("debug.volna.json");
+    window
+        .update(&mut vcx, |ws, _, cx| {
+            assert!(ws.app.doc.is_loaded());
+            assert!(
+                ws.app
+                    .workspace
+                    .trace_uri
+                    .as_deref()
+                    .unwrap()
+                    .ends_with("/b.vtr")
+            );
+            ws.app.save_workspace(Some(Target::File {
+                uri: file_uri(&workspace_file).unwrap(),
+            }));
+            ws.after(None, cx);
+        })
+        .unwrap();
+    draw(&mut vcx);
+    assert!(workspace_file.exists());
+
+    // A workspace opened by path is listed as itself, naming its trace.
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            ws.dispatch(Command::CloseTrace, Some(window), cx);
+            ws.open_workspace_path(workspace_file.clone(), cx);
+        })
+        .unwrap();
+    draw(&mut vcx);
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            assert!(ws.app.doc.is_loaded());
+            let first = &ws.app.workspace.state.recent[0];
+            assert_eq!(first.kind, RecentKind::Workspace);
+            assert!(first.trace.as_deref().unwrap().ends_with("/b.vtr"));
+            assert_eq!(ws.app.workspace.state.recent.len(), 3);
+            ws.dispatch(Command::CloseTrace, Some(window), cx);
+        })
+        .unwrap();
+    draw(&mut vcx);
+    assert_eq!(names(&mut vcx)[0].0, "debug");
+
+    // Digits open by position; Delete removes the selected entry.
+    vcx.simulate_keystrokes("3");
+    draw(&mut vcx);
+    assert!(
+        window
+            .update(&mut vcx, |ws, _, _| matches!(
+                ws.app.trace_state(),
+                TraceState::Error(_)
+            ))
+            .unwrap()
+    );
+    vcx.simulate_keystrokes("end delete");
+    draw(&mut vcx);
+    assert_eq!(
+        names(&mut vcx)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect::<Vec<_>>(),
+        ["debug", "b.vtr"]
+    );
+    let saved = std::fs::read_to_string(config.join("state.json")).unwrap();
+    assert!(!saved.contains("a.vtr"));
+}

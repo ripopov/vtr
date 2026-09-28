@@ -212,6 +212,9 @@ impl VolnaApp {
                 | Event::WriteSettings { .. }
                 | Event::SettingsChanged { .. }
                 | Event::FocusSettingsSearch
+                | Event::TraceOpened { .. }
+                | Event::OpenRecent(_)
+                | Event::RecentChanged
                 | Event::Quit => {}
                 Event::Changed | Event::LayoutChanged { .. } => ctx.request_repaint(),
                 Event::Notice(text) => log::warn!("{text}"),

@@ -22,6 +22,7 @@ use volna_core::document::TraceState;
 use volna_core::session::Session;
 use volna_core::settings::ZoomStep;
 use volna_core::wave::MenuEntry;
+use volna_core::workspace::recent::{RecentCommand, RecentKey, RecentKind};
 use volna_core::{App as CoreApp, FontRole, Instant, Scene};
 
 use crate::theme::{ThemePx, theme};
@@ -65,7 +66,8 @@ actions!(
         NoPipelines,
         CycleFrameOverlay,
         Undo,
-        Redo
+        Redo,
+        ClearRecent
     ]
 );
 
@@ -129,6 +131,44 @@ actions!(
 #[action(namespace = waves, no_json)]
 pub struct GoToMarker {
     pub n: u32,
+}
+
+/// Open entry `ix` of the recent list (File ▸ Open Recent, the palette).
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(namespace = workspace, no_json)]
+pub struct OpenRecent {
+    pub ix: usize,
+}
+
+/// The wall clock in Unix seconds, for recent-list times.
+pub(crate) fn unix_now() -> u64 {
+    #[cfg(not(target_family = "wasm"))]
+    return std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    #[cfg(target_family = "wasm")]
+    0
+}
+
+/// The home directory the recent list shows as `~`.
+pub(crate) fn home_dir() -> Option<String> {
+    #[cfg(not(target_family = "wasm"))]
+    return std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()
+        .map(|h| h.replace('\\', "/"));
+    #[cfg(target_family = "wasm")]
+    None
+}
+
+/// Menu and palette label of a recent entry: `top.vtr — ~/work/sim`.
+pub(crate) fn recent_labels(app: &CoreApp) -> Option<Vec<String>> {
+    app.workspace.recent.enabled.then(|| {
+        app.recent_rows(unix_now(), home_dir().as_deref())
+            .into_iter()
+            .map(|row| format!("{} — {}", row.name, row.folder))
+            .collect()
+    })
 }
 
 /// A clock choice of the focused panel (a ruler, the selected clock, go to
@@ -199,11 +239,19 @@ pub struct Workspace {
     pub embedded: bool,
     /// The command line chose the workspace policy; `workspace.autosave` is ignored.
     pub(crate) cli_policy: bool,
-    /// The document generation and undo history revision the application
-    /// menu was last built for.
-    menu_generation: Option<(u64, u64)>,
+    /// The document generation, undo history revision and recent-list
+    /// revision the application menu was last built for.
+    menu_generation: Option<(u64, u64, u64)>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) config_watcher: Option<notify::RecommendedWatcher>,
+    /// A workspace being opened by path: once its trace opens, the recent
+    /// list records the workspace instead of the trace.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) opening_workspace: Option<String>,
+    /// The document generation and recent-list revision the start page last
+    /// checked the recent files for.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) recent_checked: Option<(u64, u64)>,
 }
 
 pub(crate) struct HostedRename {
@@ -411,7 +459,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("alt-right", UnfoldGroupDeep, Some("Waves")),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.set_menus(menus(&[], None, None));
+    cx.set_menus(menus(&[], None, None, None));
 }
 
 /// "Undo Remove 2 rows". Labels keep sentence case: they name signals,
@@ -428,7 +476,33 @@ pub(crate) fn menus(
     pipelines: &[(String, u32)],
     undo: Option<&str>,
     redo: Option<&str>,
+    recent: Option<&[String]>,
 ) -> Vec<Menu> {
+    let mut file = vec![MenuItem::action("Open…", OpenFile)];
+    if let Some(recent) = recent {
+        let mut items: Vec<MenuItem> = recent
+            .iter()
+            .enumerate()
+            .map(|(ix, label)| MenuItem::action(label.clone(), OpenRecent { ix }))
+            .collect();
+        if items.is_empty() {
+            items.push(MenuItem::action("No Recent Files", ClearRecent).disabled(true));
+        }
+        items.push(MenuItem::separator());
+        items.push(MenuItem::action("Clear Recent", ClearRecent).disabled(recent.is_empty()));
+        file.push(MenuItem::submenu(Menu {
+            name: "Open Recent".into(),
+            items,
+            disabled: false,
+        }));
+    }
+    file.extend([
+        MenuItem::action("Close Trace", CloseTrace),
+        MenuItem::separator(),
+        MenuItem::action("Open Workspace…", OpenWorkspace),
+        MenuItem::action("Save Workspace", SaveWorkspace),
+        MenuItem::action("Save Workspace As…", SaveWorkspaceAs),
+    ]);
     let pipeline_items = if pipelines.is_empty() {
         vec![MenuItem::action(
             "No pipeline streams in the trace",
@@ -454,14 +528,7 @@ pub(crate) fn menus(
         },
         Menu {
             name: "File".into(),
-            items: vec![
-                MenuItem::action("Open…", OpenFile),
-                MenuItem::action("Close Trace", CloseTrace),
-                MenuItem::separator(),
-                MenuItem::action("Open Workspace…", OpenWorkspace),
-                MenuItem::action("Save Workspace", SaveWorkspace),
-                MenuItem::action("Save Workspace As…", SaveWorkspaceAs),
-            ],
+            items: file,
             disabled: false,
         },
         Menu {
@@ -661,6 +728,10 @@ impl Workspace {
             menu_generation: None,
             #[cfg(not(target_family = "wasm"))]
             config_watcher: None,
+            #[cfg(not(target_family = "wasm"))]
+            opening_workspace: None,
+            #[cfg(not(target_family = "wasm"))]
+            recent_checked: None,
         };
         workspace.start_frame_sampling(window, cx);
         workspace
@@ -694,6 +765,8 @@ impl Workspace {
     }
 
     pub(crate) fn after(&mut self, mut window: Option<&mut Window>, cx: &mut Context<Self>) {
+        #[cfg(not(target_family = "wasm"))]
+        self.check_recent();
         loop {
             let events = self.app.take_events();
             if events.is_empty() {
@@ -719,6 +792,22 @@ impl Workspace {
                         self.workspace_dialog(save, cx);
                         #[cfg(target_family = "wasm")]
                         crate::web::workspace_dialog(save);
+                    }
+                    Event::TraceOpened { trace_uri } => {
+                        #[cfg(not(target_family = "wasm"))]
+                        self.trace_opened(trace_uri);
+                        #[cfg(target_family = "wasm")]
+                        let _ = trace_uri;
+                    }
+                    Event::OpenRecent(entry) => {
+                        #[cfg(not(target_family = "wasm"))]
+                        self.open_recent(entry, cx);
+                        #[cfg(target_family = "wasm")]
+                        let _ = entry;
+                    }
+                    Event::RecentChanged => {
+                        #[cfg(not(target_family = "wasm"))]
+                        self.save_recent();
                     }
                     Event::TraceClosed { trace_uri } => {
                         #[cfg(target_family = "wasm")]
@@ -792,7 +881,11 @@ impl Workspace {
     /// changes, so View ▸ Pipeline lists the streams of the open trace and
     /// Edit names the steps undo and redo would take.
     fn sync_menus(&mut self, cx: &mut Context<Self>) {
-        let key = (self.app.doc.generation(), self.app.history.revision());
+        let key = (
+            self.app.doc.generation(),
+            self.app.history.revision(),
+            self.app.workspace.recent.revision,
+        );
         if self.embedded || self.menu_generation == Some(key) {
             return;
         }
@@ -801,6 +894,7 @@ impl Workspace {
             &pipeline_streams(&self.app),
             self.app.undo_label(),
             self.app.redo_label(),
+            recent_labels(&self.app).as_deref(),
         ));
     }
 
@@ -1013,21 +1107,31 @@ impl Workspace {
             self.open_workspace_path(path, cx);
             return;
         }
-        if self.app.workspace.scheduler.enabled() {
-            match path
-                .canonicalize()
-                .map_err(anyhow::Error::from)
-                .and_then(|path| Ok((crate::native_workspace::file_uri(&path)?, path)))
-            {
-                Ok((uri, path)) => self
-                    .app
-                    .open_resource(volna_core::session::OpenSpec::Path(path), uri),
-                Err(error) => self
-                    .app
-                    .report_workspace_error(format!("Cannot open trace: {error:#}")),
-            }
-        } else {
-            self.app.open_path(path);
+        self.opening_workspace = None;
+        // A workspace opened earlier chose its own file; a trace opened by
+        // itself goes back to the configured policy.
+        if !self.cli_policy
+            && !self.embedded
+            && matches!(
+                self.app.workspace.scheduler.policy,
+                volna_core::workspace::persistence::Persistence::Explicit(_)
+            )
+        {
+            let policy = self.autosave_policy();
+            self.app.configure_persistence(policy);
+        }
+        // A canonical identity lets the workspace and the recent list find
+        // the trace again; a path that cannot be resolved still goes to the
+        // loader, which reports the error on the start page.
+        match path
+            .canonicalize()
+            .map_err(anyhow::Error::from)
+            .and_then(|path| Ok((crate::native_workspace::file_uri(&path)?, path)))
+        {
+            Ok((uri, path)) => self
+                .app
+                .open_resource(volna_core::session::OpenSpec::Path(path), uri),
+            Err(_) => self.app.open_path(path),
         }
         self.after(None, cx);
     }
@@ -1123,15 +1227,20 @@ impl Workspace {
             crate::theme::set_zoom(zoom, cx);
         }
         if keys.contains(&"workspace.autosave") && !self.embedded && !self.cli_policy {
-            use volna_core::settings::Autosave;
-            use volna_core::workspace::persistence::Persistence;
-            let policy = match self.app.settings.resolved().workspace.autosave {
-                Autosave::Off => Persistence::Disabled,
-                _ => Persistence::Auto,
-            };
+            let policy = self.autosave_policy();
             self.app.configure_persistence(policy);
         }
         cx.notify();
+    }
+
+    /// The workspace policy `workspace.autosave` asks for on this host.
+    fn autosave_policy(&self) -> volna_core::workspace::persistence::Persistence {
+        use volna_core::settings::Autosave;
+        use volna_core::workspace::persistence::Persistence;
+        match self.app.settings.resolved().workspace.autosave {
+            Autosave::Off => Persistence::Disabled,
+            _ => Persistence::Auto,
+        }
     }
 
     /// Install the theme `appearance.theme` names. Embedded hosts supply
@@ -1585,12 +1694,26 @@ impl Workspace {
         el.child(area)
     }
 
+    /// The start page: open a file, or reopen a recent one
+    /// (`docs/recent_sessions.html`). It holds the center's focus so its keys
+    /// work as soon as it appears.
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.editor;
         let error: Option<SharedString> = match self.app.trace_state() {
             TraceState::Error(e) => Some(e.clone().into()),
             _ => None,
+        };
+        let badge = |keys: &'static str| {
+            div()
+                .px_1p5()
+                .py_0p5()
+                .rounded_sm()
+                .bg(t.badge_hover.bg)
+                .font_family(t.mono_font)
+                .text_size(px(t.ui_size_small))
+                .text_color(t.badge_hover.text)
+                .child(keys)
         };
         let hint = |keys: &'static str, label: &'static str| {
             div()
@@ -1600,25 +1723,162 @@ impl Workspace {
                 .gap_4()
                 .w(t.px(260.0))
                 .child(div().text_color(colors.text_muted).child(label))
+                .child(badge(keys))
+        };
+        let shown = self.app.recent_shown();
+        let rows = self.app.recent_rows(unix_now(), home_dir().as_deref());
+        let total = rows.len();
+        let selected = self.app.workspace.recent.selected;
+        let recent = rows.into_iter().take(shown).enumerate().map(|(ix, row)| {
+            let selected = ix == selected;
+            let detail = match &row.trace {
+                Some(trace) => format!("{trace} · {}", row.folder),
+                None => row.folder.clone(),
+            };
+            let (icon, icon_color) = match row.kind {
+                RecentKind::Trace => (IconName::AudioWaveform, colors.icon_muted),
+                RecentKind::Workspace => (IconName::Layers, colors.icon_accent),
+            };
+            let group: SharedString = format!("recent-{ix}").into();
+            let path: SharedString = row.path.into();
+            div()
+                .id(("recent", ix))
+                .debug_selector(move || format!("recent-{ix}"))
+                .group(group.clone())
+                .flex()
+                .items_center()
+                .gap_2()
+                .w_full()
+                .h(t.px(28.0))
+                .pl_1()
+                .pr_0p5()
+                .rounded_md()
+                .cursor_pointer()
+                .when(selected, |el| el.bg(t.selection.bg))
+                .when(!selected, |el| el.hover(|s| s.bg(t.hover.bg)))
+                .tooltip(move |w, cx| Tooltip::new(path.clone()).build(w, cx))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.dispatch(Command::Recent(RecentCommand::Open(ix)), Some(window), cx)
+                }))
                 .child(
                     div()
-                        .px_1p5()
-                        .py_0p5()
-                        .rounded_sm()
-                        .bg(t.badge_hover.bg)
+                        .w(t.px(10.0))
+                        .flex_none()
                         .font_family(t.mono_font)
                         .text_size(px(t.ui_size_small))
-                        .text_color(t.badge_hover.text)
-                        .child(keys),
+                        .text_color(colors.text_placeholder)
+                        .when(ix < 9, |el| {
+                            el.child(SharedString::from((ix + 1).to_string()))
+                        }),
                 )
-        };
+                .child(
+                    Icon::new(icon)
+                        .size(t.px(14.0))
+                        .color(icon_color)
+                        .when(row.missing, |i| i.color(colors.text_placeholder)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_color(if row.missing {
+                            colors.text_placeholder
+                        } else {
+                            colors.text
+                        })
+                        .child(SharedString::from(row.name))
+                        .child(
+                            div()
+                                .ml_2()
+                                .text_size(px(t.ui_size_small))
+                                .text_color(if row.missing {
+                                    colors.text_placeholder
+                                } else {
+                                    colors.text_muted
+                                })
+                                .child(SharedString::from(detail)),
+                        )
+                        .flex()
+                        .items_baseline(),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(t.ui_size_small))
+                        .text_color(if row.missing {
+                            colors.error
+                        } else {
+                            colors.text_muted
+                        })
+                        .child(SharedString::from(row.when)),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .when(!selected, |el| {
+                            el.opacity(0.0).group_hover(group, |s| s.opacity(1.0))
+                        })
+                        .child(
+                            icon_button(("recent-remove", ix), IconName::X, colors, t.hover, cx)
+                                .tooltip("Remove from Recent (Delete)")
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.dispatch(
+                                        Command::Recent(RecentCommand::Forget(ix)),
+                                        Some(window),
+                                        cx,
+                                    )
+                                })),
+                        ),
+                )
+        });
+        let recent: Vec<_> = recent.collect();
+        let has_recent = !recent.is_empty();
         div()
+            .id("start-page")
+            .key_context("StartPage")
+            .track_focus(&self.waves_focus)
+            .on_key_down(
+                cx.listener(|this, event: &gpui_kit::KeyDownEvent, window, cx| {
+                    let ks = &event.keystroke;
+                    let m = ks.modifiers;
+                    if m.control || m.alt || m.platform || m.function {
+                        return;
+                    }
+                    let key = match ks.key.as_str() {
+                        "up" => RecentKey::Up,
+                        "down" => RecentKey::Down,
+                        "home" => RecentKey::Home,
+                        "end" => RecentKey::End,
+                        "enter" => RecentKey::Enter,
+                        "delete" | "backspace" => RecentKey::Delete,
+                        k if k.len() == 1 && !m.shift => match k.as_bytes()[0] {
+                            d @ b'1'..=b'9' => RecentKey::Digit(d - b'0'),
+                            _ => return,
+                        },
+                        _ => return,
+                    };
+                    if this.app.recent_shown() == 0 {
+                        return;
+                    }
+                    cx.stop_propagation();
+                    this.dispatch(Command::Recent(RecentCommand::Key(key)), Some(window), cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| window.focus(&this.waves_focus, cx)),
+            )
             .size_full()
             .flex()
             .flex_col()
             .items_center()
             .justify_center()
             .gap_2()
+            .px_4()
             .bg(t.editor.bg)
             .font_family(t.ui_font)
             .text_size(px(t.ui_size))
@@ -1672,20 +1932,84 @@ impl Workspace {
                         })),
                 ),
             )
-            .child(
-                div()
-                    .mt_6()
-                    .flex()
-                    .flex_col()
-                    .gap_1p5()
-                    .text_size(px(t.ui_size_small))
-                    .child(hint("⌘O", "Open a trace"))
-                    .child(hint("⏎", "Add selected variables"))
-                    .child(hint("= / -", "Zoom in / out"))
-                    .child(hint("F", "Zoom to fit"))
-                    .child(hint("M", "Add marker at cursor"))
-                    .child(hint("T", "Cycle value format")),
-            )
+            .when(has_recent, |el| {
+                el.child(
+                    div()
+                        .id("recent-list")
+                        .mt_4()
+                        .w_full()
+                        .max_w(t.px(480.0))
+                        .max_h(t.px(320.0))
+                        .overflow_y_scroll()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .px_2()
+                                .pb_1()
+                                .text_size(px(t.ui_size_small))
+                                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                .text_color(colors.text_muted)
+                                .child("Recent"),
+                        )
+                        .children(recent),
+                )
+                .when(total > volna_core::workspace::recent::SHOWN, |el| {
+                    el.child(
+                        Button::new("recent-all")
+                            .label(if shown < total {
+                                format!("Show all {total}")
+                            } else {
+                                "Show fewer".into()
+                            })
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.dispatch(
+                                    Command::Recent(RecentCommand::ToggleAll),
+                                    Some(window),
+                                    cx,
+                                )
+                            })),
+                    )
+                })
+                .child(
+                    div()
+                        .mt_2()
+                        .flex()
+                        .flex_wrap()
+                        .justify_center()
+                        .items_center()
+                        .gap_1()
+                        .text_size(px(t.ui_size_small))
+                        .text_color(colors.text_placeholder)
+                        .child(badge("⏎"))
+                        .child("open ·")
+                        .child(badge("↑↓"))
+                        .child("select ·")
+                        .child(badge("1–9"))
+                        .child("open by number ·")
+                        .child(badge("Del"))
+                        .child("remove ·")
+                        .child(badge("⌘O"))
+                        .child("browse"),
+                )
+            })
+            .when(!has_recent, |el| {
+                el.child(
+                    div()
+                        .mt_6()
+                        .flex()
+                        .flex_col()
+                        .gap_1p5()
+                        .text_size(px(t.ui_size_small))
+                        .child(hint("⌘O", "Open a trace"))
+                        .child(hint("⏎", "Add selected variables"))
+                        .child(hint("= / -", "Zoom in / out"))
+                        .child(hint("F", "Zoom to fit"))
+                        .child(hint("M", "Add marker at cursor"))
+                        .child(hint("T", "Cycle value format")),
+                )
+            })
     }
 
     /// The status bar: context on the left, a message slot, and fixed meters
@@ -1980,6 +2304,16 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &Redo, window, cx| {
                 this.dispatch(Command::Redo, Some(window), cx)
+            }))
+            .on_action(cx.listener(|this, action: &OpenRecent, window, cx| {
+                this.dispatch(
+                    Command::Recent(RecentCommand::Open(action.ix)),
+                    Some(window),
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &ClearRecent, window, cx| {
+                this.dispatch(Command::Recent(RecentCommand::Clear), Some(window), cx)
             }))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::close_trace))

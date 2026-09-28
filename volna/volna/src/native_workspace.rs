@@ -8,6 +8,7 @@ use volna_core::settings::{self, Host};
 use volna_core::workspace::{
     MAX_BYTES,
     persistence::{Candidate, Content, Persistence, SaveTicket, Target, hash},
+    recent::{Recent, RecentKind},
     state::State,
 };
 
@@ -347,6 +348,7 @@ impl crate::Workspace {
             Err(error) => self.app.settings_unreadable(format!("{error:#}")),
         }
         self.app.workspace.state = store.state();
+        self.app.enable_recent();
         let policy = match policy {
             Persistence::Auto
                 if self.app.settings.resolved().workspace.autosave
@@ -437,20 +439,69 @@ impl crate::Workspace {
         );
     }
 
-    fn remember_recent(&mut self, workspace: bool, uri: String) {
-        let limit = self.app.settings.resolved().workspace.recent_limit;
-        let state = &mut self.app.workspace.state;
-        let list = if workspace {
-            &mut state.recent_workspaces
-        } else {
-            &mut state.recent_traces
+    /// A trace finished opening: record it, or the workspace that named it.
+    pub(crate) fn trace_opened(&mut self, trace_uri: String) {
+        if self.native_store.is_none() {
+            return;
+        }
+        let opened = crate::app::unix_now();
+        let entry = match self.opening_workspace.take() {
+            Some(uri) => Recent {
+                uri,
+                kind: RecentKind::Workspace,
+                trace: Some(trace_uri),
+                opened,
+            },
+            None => Recent {
+                uri: trace_uri,
+                kind: RecentKind::Trace,
+                trace: None,
+                opened,
+            },
         };
-        State::remember(list, uri, limit);
+        self.app.remember_recent(entry);
+    }
+
+    pub(crate) fn save_recent(&mut self) {
         if let Some(store) = &self.native_store
             && let Err(error) = store.save_state(&self.app.workspace.state)
         {
             log::warn!("state.json: {error:#}");
         }
+    }
+
+    /// Reopen a recent trace or workspace by its path.
+    pub(crate) fn open_recent(&mut self, entry: Recent, cx: &mut gpui_kit::Context<Self>) {
+        match path_from_uri(&entry.uri) {
+            Ok(path) => match entry.kind {
+                RecentKind::Trace => self.open_path(path, cx),
+                RecentKind::Workspace => self.open_workspace_path(path, cx),
+            },
+            Err(error) => self
+                .app
+                .report_workspace_error(format!("Cannot open: {error:#}")),
+        }
+    }
+
+    /// While the start page shows, mark the recent files that are gone; once
+    /// per page appearance and list change, never per frame.
+    pub(crate) fn check_recent(&mut self) {
+        if !self.app.workspace.recent.enabled || self.app.doc.is_loaded() {
+            return;
+        }
+        let key = (
+            self.app.doc.generation(),
+            self.app.workspace.recent.revision,
+        );
+        if self.recent_checked == Some(key) {
+            return;
+        }
+        self.recent_checked = Some(key);
+        let missing = (self.app.workspace.state.recent.iter())
+            .filter(|e| !path_from_uri(&e.uri).is_ok_and(|p| p.exists()))
+            .map(|e| e.uri.clone())
+            .collect();
+        self.app.set_recent_missing(missing);
     }
 
     pub(crate) fn load_workspace_candidates(&mut self, trace_uri: String) {
@@ -464,7 +515,6 @@ impl crate::Workspace {
                 self.app.report_workspace_error(error.to_string());
             }
         }
-        self.remember_recent(false, trace_uri);
     }
 
     pub(crate) fn write_workspace(&mut self, ticket: SaveTicket, bytes: Vec<u8>) {
@@ -541,22 +591,32 @@ impl crate::Workspace {
             let bytes = read_limited(&path, MAX_BYTES)?.context("workspace file does not exist")?;
             let uri = file_uri(&path)?;
             let target = Target::File { uri: uri.clone() };
-            if self.app.doc.is_loaded() {
+            let workspace = volna_core::workspace::Workspace::parse(&bytes)?;
+            let trace_uri = volna_core::workspace::resolve_trace(&workspace.trace.path, &uri)?;
+            let trace = path_from_uri(&trace_uri)?.canonicalize()?;
+            let trace_uri = file_uri(&trace)?;
+            if self.app.doc.is_loaded()
+                && self.app.workspace.trace_uri.as_deref() == Some(trace_uri.as_str())
+            {
+                // Its trace is already open: apply the workspace to it.
                 self.app.open_workspace(target, &bytes)?;
+                if self.native_store.is_some() {
+                    self.app.remember_recent(Recent {
+                        uri,
+                        kind: RecentKind::Workspace,
+                        trace: Some(trace_uri),
+                        opened: crate::app::unix_now(),
+                    });
+                }
             } else {
-                let workspace = volna_core::workspace::Workspace::parse(&bytes)?;
-                let trace_uri = volna_core::workspace::resolve_trace(&workspace.trace.path, &uri)?;
-                let trace = path_from_uri(&trace_uri)?.canonicalize()?;
                 self.app
                     .configure_persistence(Persistence::Explicit(target));
-                self.app.open_resource(
-                    volna_core::session::OpenSpec::Path(trace.clone()),
-                    file_uri(&trace)?,
-                );
+                self.opening_workspace = Some(uri);
+                self.app
+                    .open_resource(volna_core::session::OpenSpec::Path(trace), trace_uri);
             }
-            Ok::<_, anyhow::Error>(uri)
+            Ok::<_, anyhow::Error>(())
         })();
-        let result = result.map(|uri| self.remember_recent(true, uri));
         if let Err(error) = result {
             self.app
                 .report_workspace_error(format!("Cannot open workspace: {error:#}"));
@@ -700,7 +760,8 @@ mod tests {
                 .unwrap()
                 .contains("\"workspace.autosave\": \"off\"")
         );
-        assert_eq!(store.state().recent_traces, vec!["file:///t.vtr"]);
+        let uris: Vec<_> = store.state().recent.into_iter().map(|e| e.uri).collect();
+        assert_eq!(uris, ["file:///t.vtr"]);
         store.write_schema().unwrap();
         let schema: serde_json::Value =
             serde_json::from_slice(&std::fs::read(store.config_dir.join(SCHEMA_FILE)).unwrap())
@@ -744,9 +805,14 @@ mod tests {
         assert!(matches!(fallback.target, Target::FallbackFile { .. }));
         assert!(!store.data_dir.exists());
         let mut state = store.state();
-        State::remember(&mut state.recent_traces, uri.clone(), 20);
+        state.recent.push(Recent {
+            uri: uri.clone(),
+            kind: RecentKind::Trace,
+            trace: None,
+            opened: 1,
+        });
         store.save_state(&state).unwrap();
-        assert_eq!(store.state().recent_traces, vec![uri]);
+        assert_eq!(store.state(), state);
         assert!(!store.config_dir.join(SETTINGS_FILE).exists());
     }
 }

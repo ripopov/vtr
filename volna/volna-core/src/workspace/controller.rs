@@ -12,6 +12,7 @@ use anyhow::{Context, Result, ensure};
 pub struct State {
     pub scheduler: Scheduler,
     pub state: super::state::State,
+    pub recent: super::recent::View,
     pub trace_uri: Option<String>,
     pub notices: Vec<String>,
     pub(crate) loading: bool,
@@ -146,6 +147,11 @@ impl App {
 
     pub(crate) fn session_ready_for_workspace(&mut self) {
         self.workspace.trace_uri = self.workspace.opening_uri.take();
+        if let Some(uri) = &self.workspace.trace_uri {
+            self.events.push(Event::TraceOpened {
+                trace_uri: uri.clone(),
+            });
+        }
         if self.workspace.scheduler.enabled()
             && let Some(uri) = &self.workspace.trace_uri
         {
