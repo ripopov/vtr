@@ -574,22 +574,38 @@ impl PanelCanvas {
                     .waves(panel)
                     .and_then(|w| w.group_name_at(cpoint(ev.position)))
                     .is_some();
-                // A second click on a marker's chip names it.
-                let chip_marker = {
+                // A second click on a marker's chip names it; on a span it
+                // zooms to the span.
+                let (chip_marker, span) = {
                     let app = &ws.read(cx).app;
+                    let markers = app.doc.markers();
+                    let id = |ix: usize| markers.get(ix).map(|m| m.id);
                     match app
                         .panels
                         .get(panel)
                         .and_then(|p| p.kind.marker_lane())
                         .and_then(|lane| lane.hit(cpoint(ev.position)))
                     {
-                        Some(volna_core::marker::LaneHit::Chip(ix)) => {
-                            app.doc.markers().get(ix).map(|m| m.id)
+                        Some(volna_core::marker::LaneHit::Chip(ix)) => (id(ix), None),
+                        Some(volna_core::marker::LaneHit::Span(ix)) => {
+                            (None, id(ix).zip(id(ix + 1)))
                         }
-                        _ => None,
+                        _ => (None, None),
                     }
                 };
                 if ev.click_count >= 2
+                    && button == volna_core::geometry::MouseButton::Left
+                    && let Some((from, to)) = span
+                {
+                    ws.update(cx, |ws, cx| {
+                        ws.dispatch_if_current(
+                            generation,
+                            Command::ZoomToSpan(panel, from, to),
+                            Some(window),
+                            cx,
+                        )
+                    });
+                } else if ev.click_count >= 2
                     && button == volna_core::geometry::MouseButton::Left
                     && let Some(id) = chip_marker
                 {

@@ -156,14 +156,43 @@ pub enum LaneHit {
     Chip(usize),
     /// A cluster standing for markers too close together to draw apart.
     Cluster(Range<usize>),
+    /// The span from a marker to the next one.
+    Span(usize),
 }
 
-/// A zoomed-in cluster keeps this fraction of its time span as margin on
-/// each side, so its outer markers stay clear of the view's edges.
-const CLUSTER_MARGIN: f64 = 0.15;
+/// Zooming to markers keeps this fraction of their time span as margin on
+/// each side, so the outer ones stay clear of the view's edges.
+const ZOOM_MARGIN: f64 = 0.15;
+
+/// Zoom `nav`'s view to the markers `first..=last` (indices), animated.
+/// Returns whether both exist.
+pub fn zoom_to(
+    doc: &mut Document,
+    nav: &mut NavState,
+    first: usize,
+    last: usize,
+    now: Instant,
+) -> bool {
+    let (Some(a), Some(b)) = (doc.markers().get(first), doc.markers().get(last)) else {
+        return false;
+    };
+    let (start, end) = (a.time as f64, b.time as f64);
+    let margin = ((end - start) * ZOOM_MARGIN).max(1.0);
+    nav.animate_to(
+        doc,
+        Viewport {
+            start: start - margin,
+            end: end + margin,
+        },
+        now,
+    );
+    true
+}
 
 /// A left press on the lane: a chip moves the cursor to its marker, and a
-/// cluster zooms the view to its markers. Returns whether anything changed.
+/// cluster zooms the view to its markers. A span takes no press here: a
+/// click on it moves the cursor like one on the header, and a double-click
+/// zooms to it ([`zoom_to`]). Returns whether anything changed.
 /// No modifier removes a marker: Shift-click extends selections elsewhere,
 /// and `⇧M` removes the marker at the cursor.
 pub fn press(doc: &mut Document, nav: &mut NavState, hit: LaneHit, now: Instant) -> bool {
@@ -176,27 +205,9 @@ pub fn press(doc: &mut Document, nav: &mut NavState, hit: LaneHit, now: Instant)
             None => false,
         },
         LaneHit::Cluster(markers) => {
-            let (Some(first), Some(last)) = (
-                doc.markers().get(markers.start),
-                markers
-                    .end
-                    .checked_sub(1)
-                    .and_then(|i| doc.markers().get(i)),
-            ) else {
-                return false;
-            };
-            let (start, end) = (first.time as f64, last.time as f64);
-            let margin = ((end - start) * CLUSTER_MARGIN).max(1.0);
-            nav.animate_to(
-                doc,
-                Viewport {
-                    start: start - margin,
-                    end: end + margin,
-                },
-                now,
-            );
-            true
+            !markers.is_empty() && zoom_to(doc, nav, markers.start, markers.end - 1, now)
         }
+        LaneHit::Span(_) => false,
     }
 }
 

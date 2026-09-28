@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::geometry::{Point, Rect, point, size};
 use crate::marker::Marker;
 use crate::wave::model::RowHeight;
-use crate::wave::overlay::{LANE_H, MarkerLane, marker_lane};
+use crate::wave::overlay::{LANE_H, MarkerLane, SpanClocks, marker_lane};
 use crate::wave::viewport::Viewport;
 
 // Design-time sizes in logical pixels at zoom 1.0; the layout multiplies
@@ -85,6 +85,8 @@ pub struct LayoutInput<'a> {
     pub visible: Arc<[u32]>,
     pub scroll_y: f32,
     pub markers: &'a [Marker],
+    /// Labels the spans between markers.
+    pub spans: SpanClocks<'a>,
     pub viewport: Viewport,
 }
 
@@ -188,6 +190,7 @@ impl WaveLayout {
             wave_wf,
             input.viewport,
             input.markers,
+            input.spans,
             zoom,
         );
 
@@ -321,6 +324,7 @@ pub fn ruler_row(band: Rect, p: Point, count: usize) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::wave::overlay::CHIP_H;
+    use crate::wave::timeline::TimeBase;
 
     fn layout(zoom: f32, items: usize) -> WaveLayout {
         WaveLayout::compute(LayoutInput {
@@ -339,6 +343,7 @@ mod tests {
                 time: 50,
                 label: None,
             }],
+            spans: SpanClocks::time_only(TimeBase::si(-9)),
             viewport: Viewport {
                 start: 0.0,
                 end: 100.0,
@@ -392,6 +397,7 @@ mod tests {
             visible: (0..5).collect(),
             scroll_y,
             markers: &[],
+            spans: SpanClocks::time_only(TimeBase::si(-9)),
             viewport: Viewport {
                 start: 0.0,
                 end: 100.0,

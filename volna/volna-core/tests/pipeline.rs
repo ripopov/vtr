@@ -1029,7 +1029,16 @@ fn the_markers_lane_is_the_same_in_wave_and_pipeline_panels() {
             "markers a cycle apart share a chip"
         );
         assert_eq!(texts(&lane).last().unwrap(), "4");
+        // One labelled span from the cluster to marker 4.
+        assert_eq!(lane.spans.len(), 1);
+        assert_eq!(lane.spans[0].first, 2);
+        let label = lane.spans[0]
+            .labels
+            .first()
+            .expect("room for a label")
+            .clone();
         frame(&mut app, id, &theme);
+        assert!(app.scene().texts().any(|t| t == label), "{label}");
         assert!(
             app.scene().texts().any(|t| t == "Markers"),
             "the lane has its title"

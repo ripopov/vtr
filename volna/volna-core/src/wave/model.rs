@@ -11,6 +11,7 @@ use web_time::Instant;
 use super::analog::{self, Analog, AnalogDraw, AnalogRange};
 use super::lane::{self, LaneGeometry, TxLane};
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
+use super::overlay::SpanClocks;
 use super::tree::{self, Entry, Place, Splice};
 use super::viewport::Viewport;
 use crate::data::loaded_tracks::LoadedGenerator;
@@ -575,8 +576,8 @@ pub struct WaveModel {
     pub edge_hover: Option<usize>,
     /// Pointer is over a column divider (drives repaints).
     pub split_hover: bool,
-    /// The Markers lane chip under the pointer (drives repaints).
-    pub chip_hover: Option<usize>,
+    /// The Markers lane chip or span under the pointer (drives repaints).
+    pub lane_hover: Option<crate::marker::LaneHit>,
     pub drag: Option<Drag>,
     /// Width of the waves column at the last layout, for keyboard zoom.
     pub wave_width: f32,
@@ -653,7 +654,7 @@ impl WaveModel {
             badge_hover: None,
             edge_hover: None,
             split_hover: false,
-            chip_hover: None,
+            lane_hover: None,
             drag: None,
             wave_width: 800.0,
             frames_painted: 0,
@@ -2128,14 +2129,15 @@ impl WaveModel {
         if self.layout.row_h > 0.0 && self.layout.row_h != theme.row_height {
             self.scroll_y *= theme.row_height / self.layout.row_h;
         }
-        let rulers = self.nav.clocks().rulers(&doc.clocks).len();
+        let rulers = self.nav.clocks().rulers(&doc.clocks);
+        let spans = SpanClocks::of(&rulers, self.nav.clocks(), &doc.clocks, doc.time_base());
         let visible = self.visible();
         let items = &self.items;
         let layout = WaveLayout::compute(LayoutInput {
             bounds,
             row_h: theme.row_height,
             header_h: theme.timeline_height,
-            ruler_h: rulers as f32 * super::overlay::RULER_H * theme.zoom,
+            ruler_h: rulers.len() as f32 * super::overlay::RULER_H * theme.zoom,
             zoom: theme.zoom,
             names_width: self.names_width,
             values_width: self.values_width,
@@ -2143,6 +2145,7 @@ impl WaveModel {
             visible,
             scroll_y: self.scroll_y,
             markers: doc.markers(),
+            spans,
             viewport: self.viewport(doc),
         });
         self.scroll_y = layout.scroll_y;
@@ -2421,12 +2424,12 @@ impl WaveModel {
             || self.badge_hover.is_some()
             || self.edge_hover.is_some()
             || self.split_hover
-            || self.chip_hover.is_some();
+            || self.lane_hover.is_some();
         self.hover_row = None;
         self.badge_hover = None;
         self.edge_hover = None;
         self.split_hover = false;
-        self.chip_hover = None;
+        self.lane_hover = None;
         had
     }
 
@@ -2550,7 +2553,11 @@ impl WaveModel {
                     return;
                 }
             }
-            if let Some(hit) = layout.marker_lane.hit(p) {
+            if let Some(hit) = layout
+                .marker_lane
+                .hit(p)
+                .filter(|h| !matches!(h, crate::marker::LaneHit::Span(_)))
+            {
                 crate::marker::press(doc, &mut self.nav, hit, now);
                 return;
             }
@@ -2771,16 +2778,16 @@ impl WaveModel {
                 // Hover feedback only needs a repaint when the hovered row or
                 // badge changes, when we enter/leave splitter zones, or when
                 // the pointer leaves the table while something was hovered.
-                let (prev_row, prev_badge, prev_split, prev_chip, prev_edge) = (
+                let (prev_row, prev_badge, prev_split, prev_lane, prev_edge) = (
                     self.hover_row,
                     self.badge_hover,
                     self.split_hover,
-                    self.chip_hover,
+                    self.lane_hover.take(),
                     self.edge_hover,
                 );
                 if layout.bounds.contains(p) {
                     self.split_hover = layout.near_split(p);
-                    self.chip_hover = layout.marker_lane.chip_at(p);
+                    self.lane_hover = layout.marker_lane.hit(p);
                     self.update_hover();
                 } else {
                     self.clear_hover();
@@ -2793,7 +2800,7 @@ impl WaveModel {
                 self.hover_row != prev_row
                     || self.badge_hover != prev_badge
                     || self.split_hover != prev_split
-                    || self.chip_hover != prev_chip
+                    || self.lane_hover != prev_lane
                     || self.edge_hover != prev_edge
                     || reading
             }

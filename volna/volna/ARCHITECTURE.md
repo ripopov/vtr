@@ -529,6 +529,19 @@ it without renaming, since the open field holds the keys. `rename_marker`
 trims the name and cuts it to 48 characters; an empty name clears it. egui
 shows names but hosts no field.
 
+Last, the layout joins neighbouring chips with spans (`SpanMark`): one per
+gap between chips, and one from each edge chip to the nearest marker beyond
+that edge of the view, so an interval crossing the edge still shows. A span
+shorter than 6 px is left out. Each is measured with `measure::measure` in
+the panel's ruler clocks (`SpanClocks`: rulers, selected clock, time base)
+and carries the label forms whose estimated width fits the visible line,
+longest first: the time and every ruler clock, the selected clock and the
+time, the selected clock, the time. The painter shows the first form its
+monospace font fits. Hovering a span shows the full measurement with 1/Δt
+(`clock::frequency`). A click on a span moves the cursor as on the header
+(`marker::press` leaves `LaneHit::Span` alone), and a double-click zooms to
+it (`Command::ZoomToSpan`, `marker::zoom_to`, navigation only).
+
 `.` and `,` move the focused panel's cursor to the next or previous marker
 and `1`–`9` onto marker *n* (`Action::{NextMarker, PrevMarker, GoToMarker}`,
 also `nextMarker`, `prevMarker` and `goToMarker1`… through `Command::named`).

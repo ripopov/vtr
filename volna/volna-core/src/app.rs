@@ -284,6 +284,9 @@ pub enum Command {
     /// Open the name field of a marker over its chip in a panel (a
     /// double-click on the chip).
     RenameMarker(PanelId, crate::marker::MarkerId),
+    /// Zoom a panel to the span between two markers (a double-click on the
+    /// span).
+    ZoomToSpan(PanelId, crate::marker::MarkerId, crate::marker::MarkerId),
     /// Open the selected signal's row menu, or report a wave-row menu choice.
     OpenSignalMenu(PanelId),
     MenuSelect(PanelId, MenuAction),
@@ -1213,6 +1216,7 @@ impl App {
             Command::AddScopeAsGroup { scope, recursive } => self.add_scope_group(scope, recursive),
             Command::CommitText(target, text) => self.commit_text(target, text),
             Command::RenameMarker(panel, id) => self.open_marker_name(panel, id, now),
+            Command::ZoomToSpan(panel, from, to) => self.zoom_to_span(panel, from, to, now),
             Command::OpenSignalMenu(panel) => {
                 if let Some(waves) = self.panels.waves_mut(panel) {
                     waves.open_selected_signal_menu(&self.doc);
@@ -2481,6 +2485,27 @@ impl App {
         nav.reveal(doc, time, now);
         self.marker_edit = Some((panel, id));
         self.changed();
+    }
+
+    /// Zoom `panel` to the markers `from` and `to` and the time between.
+    fn zoom_to_span(
+        &mut self,
+        panel: PanelId,
+        from: crate::marker::MarkerId,
+        to: crate::marker::MarkerId,
+        now: Instant,
+    ) {
+        let ix = |id| self.doc.markers().iter().position(|m| m.id == id);
+        let (Some(a), Some(b)) = (ix(from), ix(to)) else {
+            return;
+        };
+        let doc = &mut self.doc;
+        let Some(nav) = self.panels.get_mut(panel).and_then(|p| p.kind.nav_mut()) else {
+            return;
+        };
+        if crate::marker::zoom_to(doc, nav, a.min(b), a.max(b), now) {
+            self.changed();
+        }
     }
 
     fn commit_text(&mut self, target: EditTarget, text: Option<String>) {

@@ -181,6 +181,16 @@ wide), and the painter, which measures, cuts a name that turns out wider.
 Passing a text measurer into every panel layout was rejected, because
 frontends and tests lay panels out before any font is at hand.
 
+Spans between neighbouring markers are measured in the layout, every frame,
+rather than cached: the lane has at most one span per chip plus two, each
+costs two `cycle_at` searches per ruler clock, and a release build lays out
+a lane of 10 000 markers with about 30 labelled spans in view in 7 µs with
+two ruler clocks (2 µs labelled in time only). Span labels are monospace,
+so their width estimate is a fixed 0.6 em per character, and the painter
+steps down to a shorter form when the font turns out wider. A single click
+on a span keeps the header's meaning (move the cursor), so only the
+double-click, which the frontend reports as `ZoomToSpan`, zooms.
+
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The
 workspace stores markers and the reference; VTR, VDB and the remote protocol

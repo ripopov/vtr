@@ -88,6 +88,7 @@ impl Stamp {
             | Command::PipelineActivity(id, _)
             | Command::MenuSelect(id, _)
             | Command::RenameMarker(id, _)
+            | Command::ZoomToSpan(id, ..)
             | Command::Panels(crate::panels::PanelsCommand::ToggleLink { panel: id, .. }) => *id,
             Command::CommitText(target, _) => target.panel(),
             _ => app.panels.focused_id(),

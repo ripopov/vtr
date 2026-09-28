@@ -1649,6 +1649,72 @@ fn marker_name_field_opens_over_the_chip_and_keeps_its_keys(cx: &mut TestAppCont
     );
 }
 
+/// A double-click on the span between two markers zooms the panel to them.
+#[gpui_kit::test]
+fn double_click_on_a_span_zooms_to_it(cx: &mut TestAppContext) {
+    use gpui_kit::{
+        Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, VisualTestContext, point,
+    };
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let (a, b) = window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            let (a, b) = (lo + (hi - lo) * 2 / 5, lo + (hi - lo) / 2);
+            for t in [a, b] {
+                ws.app.doc.shared.cursor = Some(t);
+                ws.dispatch(Command::Action(Action::AddOrRenameMarker), Some(window), cx);
+            }
+            (a, b)
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let (x, y) = window
+        .update(&mut vcx, |ws, _, _| {
+            let lane = ws.app.panels.focused().kind.marker_lane().unwrap().clone();
+            let span = lane.spans.iter().find(|s| s.first == 0).expect("a span");
+            let (x0, x1) = lane.shown(span);
+            ((x0 + x1) / 2.0, lane.band.top() + lane.band.height() / 2.0)
+        })
+        .unwrap();
+    let at = point(gpui_kit::px(x), gpui_kit::px(y));
+    for click_count in [1, 2] {
+        vcx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+            first_mouse: false,
+        });
+        vcx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count,
+        });
+    }
+    vcx.run_until_parked();
+    let v = window
+        .update(&mut vcx, |ws, _, _| ws.app.doc.shared.viewport.target())
+        .unwrap();
+    let (a, b) = (a as f64, b as f64);
+    assert!(v.start < a && v.end > b, "{v:?}");
+    assert!(v.width() < (b - a) * 1.5, "zoomed in to the span: {v:?}");
+}
+
 /// The start page lists what was opened, newest first; the keys reopen it,
 /// a missing file stays listed, and a workspace is listed as itself
 /// (`docs/recent_sessions.html`).

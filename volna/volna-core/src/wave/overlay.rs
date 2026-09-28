@@ -6,11 +6,12 @@
 
 use std::ops::Range;
 
-use crate::clock::{self, ClockView, Clocks};
+use crate::clock::{self, Clock, ClockView, Clocks};
 use crate::color::Color;
 use crate::document::Document;
 use crate::geometry::{CursorIcon, Point, Rect, point, size, snap};
 use crate::marker::{LaneHit, Marker};
+use crate::measure::{Measurement, measure};
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
 use crate::wave::layout::SCROLLBAR_W;
@@ -42,6 +43,17 @@ const NAME_FIELD_W: f32 = 180.0;
 const CHIP_GRAB: (f32, f32) = (3.0, 2.0);
 /// A cluster's tooltip lists at most this many markers.
 const CLUSTER_LIST: usize = 8;
+/// Advance of a span label's character at zoom 1.0: the small monospace
+/// face is 0.6 em wide.
+const SPAN_CHAR_W: f32 = 6.6;
+/// Clearance on each side of a span label at zoom 1.0.
+const SPAN_LABEL_PAD: f32 = 5.0;
+/// A span with less room than this at zoom 1.0 goes unlabelled.
+const SPAN_LABEL_MIN: f32 = 24.0;
+/// A span's line keeps this far from the chips it joins at zoom 1.0.
+const SPAN_INSET: f32 = 2.0;
+/// A span whose visible line is shorter than this at zoom 1.0 is not drawn.
+const SPAN_MIN: f32 = 6.0;
 /// Height of one clock ruler row at zoom 1.0.
 pub const RULER_H: f32 = 16.0;
 /// Cycle labels on a clock ruler stay at least this far apart at zoom 1.0.
@@ -327,6 +339,89 @@ impl MarkerChip {
     }
 }
 
+/// What labels the spans between markers: the panel's ruler clocks, the one
+/// it has selected, and how the trace writes time.
+#[derive(Clone, Copy, Debug)]
+pub struct SpanClocks<'a> {
+    pub rulers: &'a [&'a Clock],
+    /// Index into `rulers`; the short label forms count in this clock.
+    pub selected: Option<usize>,
+    pub base: TimeBase<'a>,
+}
+
+impl<'a> SpanClocks<'a> {
+    /// Spans labelled in time alone.
+    pub fn time_only(base: TimeBase<'a>) -> Self {
+        Self {
+            rulers: &[],
+            selected: None,
+            base,
+        }
+    }
+
+    /// The rulers of `view`, its selected clock among them (else the first).
+    pub fn of(
+        rulers: &'a [&'a Clock],
+        view: &ClockView,
+        clocks: &Clocks,
+        base: TimeBase<'a>,
+    ) -> Self {
+        let selected = view.selected(clocks).map(|c| c.path.as_str());
+        Self {
+            rulers,
+            selected: rulers
+                .iter()
+                .position(|c| Some(c.path.as_str()) == selected)
+                .or((!rulers.is_empty()).then_some(0)),
+            base,
+        }
+    }
+}
+
+/// The dimension line between two neighbouring markers on the Markers lane.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpanMark {
+    /// The earlier marker, an index into the document's markers; the span
+    /// ends at the next one.
+    pub first: usize,
+    /// The line's ends, clear of the chips. A marker off the view puts its
+    /// end at its time, past the lane's edge.
+    pub x0: f32,
+    pub x1: f32,
+    pub measurement: Measurement,
+    /// Label forms whose estimated width fits the visible line, longest
+    /// first: the time and every ruler clock, the selected clock and the
+    /// time, the selected clock, the time. Empty when none fits. The painter
+    /// shows the first its font fits.
+    pub labels: Vec<String>,
+}
+
+/// The label forms of a span, longest first.
+fn span_forms(m: &Measurement, selected: Option<usize>, base: TimeBase<'_>) -> Vec<String> {
+    let time = format_time(m.dt() as f64, base);
+    let count = |c: &crate::measure::ClockCount| format!("{} {}", c.cycles, c.name);
+    let mut forms = vec![
+        std::iter::once(time.clone())
+            .chain(m.clocks.iter().map(count))
+            .collect::<Vec<_>>()
+            .join(" · "),
+    ];
+    if let Some(c) = selected.and_then(|i| m.clocks.get(i)) {
+        if m.clocks.len() > 1 {
+            forms.push(format!("{} · {time}", count(c)));
+        }
+        forms.push(count(c));
+    }
+    forms.push(time);
+    forms.dedup();
+    forms
+}
+
+/// Estimated width of span label `text` at zoom 1.0, without padding.
+fn span_text_w(text: &str) -> f32 {
+    text.chars().count() as f32 * SPAN_CHAR_W
+}
+
 /// The laid-out Markers lane of one panel. Pure: computed from times and
 /// pixel geometry, then read by the painter and the input handlers alike.
 #[derive(Clone, Debug, Default)]
@@ -339,6 +434,9 @@ pub struct MarkerLane {
     pub visible: Range<usize>,
     /// Chips left to right; they never overlap.
     pub chips: Vec<MarkerChip>,
+    /// Spans between neighbouring chips left to right, and to the nearest
+    /// marker beyond each edge of the view.
+    pub spans: Vec<SpanMark>,
     pub zoom: f32,
 }
 
@@ -373,9 +471,28 @@ impl MarkerLane {
         })
     }
 
+    /// The part of `span`'s line inside the time column.
+    pub fn shown(&self, span: &SpanMark) -> (f32, f32) {
+        (span.x0.max(self.time_left), span.x1.min(self.band.right()))
+    }
+
+    /// Index of the span whose line is under `p`, away from any chip.
+    pub fn span_at(&self, p: Point) -> Option<usize> {
+        if !self.band.contains(p) || p.x < self.time_left || self.chip_at(p).is_some() {
+            return None;
+        }
+        self.spans.iter().position(|s| {
+            let (x0, x1) = self.shown(s);
+            p.x >= x0 && p.x <= x1
+        })
+    }
+
     /// What `p` is over on the lane.
     pub fn hit(&self, p: Point) -> Option<LaneHit> {
-        let chip = &self.chips[self.chip_at(p)?];
+        let Some(ix) = self.chip_at(p) else {
+            return self.span_at(p).map(|i| LaneHit::Span(self.spans[i].first));
+        };
+        let chip = &self.chips[ix];
         Some(if chip.is_cluster() {
             LaneHit::Cluster(chip.markers.clone())
         } else {
@@ -389,13 +506,17 @@ impl MarkerLane {
 /// found by binary search in the time-sorted list: each gets a chip with its
 /// number, and a chip that would touch the one before it joins it in a
 /// cluster. Then each named marker's chip grows to its name, or a shortened
-/// one, where the gap to the next chip or the lane's end allows.
+/// one, where the gap to the next chip or the lane's end allows. Last, each
+/// gap between chips, and the way to the nearest marker beyond each edge of
+/// the view, gets a span measured in `clocks` and labelled with the longest
+/// form that fits.
 pub fn marker_lane(
     band: Rect,
     time_left: f32,
     width_px: f64,
     viewport: Viewport,
     markers: &[Marker],
+    clocks: SpanClocks<'_>,
     zoom: f32,
 ) -> MarkerLane {
     let z = |v: f32| v * zoom;
@@ -442,13 +563,88 @@ pub fn marker_lane(
             chip.text = text;
         }
     }
+    let spans = lane_spans(
+        band,
+        time_left,
+        width_px,
+        viewport,
+        markers,
+        first..last,
+        &chips,
+        clocks,
+        zoom,
+    );
     MarkerLane {
         band,
         time_left,
         visible: first..last,
         chips,
+        spans,
         zoom,
     }
+}
+
+/// The spans of [`marker_lane`]: one per gap between chips, and one from
+/// the first chip back to the marker before the view and from the last on
+/// to the marker after it (or across the view when no chip is in it).
+#[allow(clippy::too_many_arguments)]
+fn lane_spans(
+    band: Rect,
+    time_left: f32,
+    width_px: f64,
+    viewport: Viewport,
+    markers: &[Marker],
+    visible: Range<usize>,
+    chips: &[MarkerChip],
+    clocks: SpanClocks<'_>,
+    zoom: f32,
+) -> Vec<SpanMark> {
+    let z = |v: f32| v * zoom;
+    let x_of = |ix: usize| time_left + viewport.x_of(markers[ix].time as f64, width_px) as f32;
+    // (markers, left, right) of each end a span can join, left to right.
+    let mut ends: Vec<(Range<usize>, f32, f32)> = Vec::with_capacity(chips.len() + 2);
+    if visible.start > 0 {
+        let ix = visible.start - 1;
+        ends.push((ix..ix + 1, x_of(ix), x_of(ix)));
+    }
+    ends.extend(
+        chips
+            .iter()
+            .map(|c| (c.markers.clone(), c.rect.left(), c.rect.right())),
+    );
+    if visible.end < markers.len() {
+        let ix = visible.end;
+        ends.push((ix..ix + 1, x_of(ix), x_of(ix)));
+    }
+    let right = band.right();
+    ends.windows(2)
+        .filter_map(|pair| {
+            let first = pair[0].0.end - 1;
+            let (from, to) = (markers[first].time, markers[first + 1].time);
+            let (x0, x1) = (pair[0].2 + z(SPAN_INSET), pair[1].1 - z(SPAN_INSET));
+            let shown = x1.min(right) - x0.max(time_left);
+            if from == to || shown < z(SPAN_MIN) {
+                return None;
+            }
+            let measurement = measure(clocks.rulers, from, to);
+            let room = shown / zoom - 2.0 * SPAN_LABEL_PAD;
+            let labels = if room >= SPAN_LABEL_MIN {
+                span_forms(&measurement, clocks.selected, clocks.base)
+                    .into_iter()
+                    .filter(|f| span_text_w(f) <= room)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            Some(SpanMark {
+                first,
+                x0,
+                x1,
+                measurement,
+                labels,
+            })
+        })
+        .collect()
 }
 
 /// One-pixel tick lines down the rows area.
@@ -551,9 +747,10 @@ pub fn header_ticks(p: &mut TextPainter<'_>, column: &TimeColumn, tick_list: &[T
 
 /// The Markers lane: its title in `title` (the band's cells left of the
 /// time column), the marker count or the marker under the cursor in
-/// `value` when the panel has a values column, the chips, and a line for
-/// every visible marker from its chip down through the rows. Hovering a
-/// cluster lists its markers.
+/// `value` when the panel has a values column, the spans between markers,
+/// the chips, and a line for every visible marker from its chip down
+/// through the rows. Hovering a chip or cluster lists its markers, and
+/// hovering a span gives its full measurement.
 #[allow(clippy::too_many_arguments)]
 pub fn marker_lane_paint(
     p: &mut TextPainter<'_>,
@@ -618,6 +815,7 @@ pub fn marker_lane_paint(
     }
 
     let hovered = pointer.and_then(|mp| lane.chip_at(mp));
+    let hovered_span = pointer.and_then(|mp| lane.span_at(mp));
     let time_band = Rect::new(
         point(column.lane.left(), band.top()),
         size(column.lane.width(), band.height()),
@@ -647,6 +845,7 @@ pub fn marker_lane_paint(
             );
         }
     });
+    spans_paint(p, lane, time_band, hovered_span);
     let mut chips = Vec::new();
     for (i, chip) in lane.chips.iter().enumerate() {
         let hover = hovered == Some(i);
@@ -688,7 +887,106 @@ pub fn marker_lane_paint(
             many => format!("{} markers · click to zoom in", many.len()),
         };
         marker_tooltip(p, column, header, under, doc, mp);
+    } else if let (Some(i), Some(mp)) = (hovered_span, pointer) {
+        span_tooltip(p, column, &lane.spans[i], markers, doc, mp);
     }
+}
+
+/// Each span as a dimension line with end stops where its markers are in
+/// view, and the longest of its labels the font fits centred on the
+/// visible part, over a gap in the line.
+fn spans_paint(p: &mut TextPainter<'_>, lane: &MarkerLane, clip: Rect, hovered: Option<usize>) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let cy = snap(lane.band.top() + (lane.band.height() - 1.0) / 2.0);
+    let stop = z(3.0).round();
+    let mut marks = Vec::new();
+    for (i, span) in lane.spans.iter().enumerate() {
+        let (x0, x1) = lane.shown(span);
+        let color = if hovered == Some(i) {
+            t.panel.text
+        } else {
+            t.panel.text_placeholder
+        };
+        let room = x1 - x0 - z(2.0 * SPAN_LABEL_PAD);
+        let label = span.labels.iter().find_map(|text| {
+            let w = p.width(text, FontRole::Mono, t.ui_size_small);
+            (w <= room).then(|| (text.clone(), w))
+        });
+        marks.push((span, x0, x1, color, label));
+    }
+    let bg = t.panel.bg;
+    let text_color = |c: Color| {
+        if c == t.panel.text {
+            c
+        } else {
+            t.panel.text_muted
+        }
+    };
+    let line_h = lane.band.height() - 1.0;
+    let band_top = lane.band.top();
+    p.scene.clipped(clip, |scene| {
+        for (span, x0, x1, color, label) in marks {
+            let (x0, x1) = (snap(x0), snap(x1));
+            scene.fill(Rect::new(point(x0, cy), size(x1 - x0, 1.0)), color);
+            for x in [span.x0, span.x1 - 1.0] {
+                let x = snap(x);
+                if x >= x0 - 1.0 && x <= x1 {
+                    scene.fill(
+                        Rect::new(point(x, cy - stop), size(1.0, 2.0 * stop + 1.0)),
+                        color,
+                    );
+                }
+            }
+            if let Some((text, w)) = label {
+                let left = snap((x0 + x1 - w) / 2.0);
+                scene.fill(
+                    Rect::new(point(left - z(4.0), cy - z(6.0)), size(w + z(8.0), z(13.0))),
+                    bg,
+                );
+                scene.text(
+                    point(left, band_top),
+                    line_h,
+                    text,
+                    FontRole::Mono,
+                    t.ui_size_small,
+                    text_color(color),
+                );
+            }
+        }
+    });
+}
+
+/// A hovered span's full measurement: the time, each ruler clock's cycles,
+/// and 1/Δt, the frequency of an event with that period.
+fn span_tooltip(
+    p: &mut TextPainter<'_>,
+    column: &TimeColumn,
+    span: &SpanMark,
+    markers: &[Marker],
+    doc: &Document,
+    pointer: Point,
+) {
+    let base = doc.time_base();
+    let m = &span.measurement;
+    let name = |m: &Marker| match &m.label {
+        Some(label) => format!("{} {label}", m.id),
+        None => m.id.to_string(),
+    };
+    let (Some(a), Some(b)) = (markers.get(span.first), markers.get(span.first + 1)) else {
+        return;
+    };
+    let header = format!("{} → {} · double-click to zoom", name(a), name(b));
+    let mut lines = vec![("Time".to_owned(), format_time(m.dt() as f64, base))];
+    lines.extend(
+        m.clocks
+            .iter()
+            .map(|c| (c.name.clone(), format!("{} cycles", c.cycles))),
+    );
+    if let Some(f) = clock::frequency(m.dt() as f64, base) {
+        lines.push(("1/Δt".into(), f));
+    }
+    tooltip(p, column, header, lines, pointer);
 }
 
 /// `text` as measured, or shortened with `…` until it fits `max` pixels:
@@ -720,8 +1018,6 @@ fn marker_tooltip(
     doc: &Document,
     pointer: Point,
 ) {
-    let t = p.theme;
-    let z = |v: f32| v * t.zoom;
     let base = doc.time_base();
     let name = |m: &Marker| match (&m.label, markers.len()) {
         (Some(label), 1) => label.clone(),
@@ -740,6 +1036,20 @@ fn marker_tooltip(
             String::new(),
         ));
     }
+    tooltip(p, column, header, lines, pointer);
+}
+
+/// A tooltip below the Markers lane near `pointer`: a muted header, then
+/// rows of a name and a monospace value.
+fn tooltip(
+    p: &mut TextPainter<'_>,
+    column: &TimeColumn,
+    header: String,
+    lines: Vec<(String, String)>,
+    pointer: Point,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
     let line_h = z(18.0);
     let mut name_w: f32 = 0.0;
     let mut time_w: f32 = 0.0;
@@ -862,8 +1172,42 @@ mod tests {
     use super::*;
 
     fn lane(markers: &[Marker], viewport: Viewport, zoom: f32) -> MarkerLane {
+        let (core, bus) = clocks();
+        lane_in(markers, viewport, zoom, &[&core, &bus], Some(0))
+    }
+
+    fn lane_in(
+        markers: &[Marker],
+        viewport: Viewport,
+        zoom: f32,
+        rulers: &[&Clock],
+        selected: Option<usize>,
+    ) -> MarkerLane {
         let band = Rect::from_xywh(0.0, 50.0, 900.0, LANE_H * zoom);
-        marker_lane(band, 200.0, 700.0, viewport, markers, zoom)
+        let clocks = SpanClocks {
+            rulers,
+            selected,
+            base: TimeBase::si(-9),
+        };
+        marker_lane(band, 200.0, 700.0, viewport, markers, clocks, zoom)
+    }
+
+    fn clock(name: &str, stretches: &[(u64, u64, u64)]) -> Clock {
+        let timeline = vtr::ClockTimeline::new(stretches.to_vec(), false).unwrap();
+        Clock {
+            track: crate::data::transactions::TrackRef(0),
+            path: format!("top.{name}"),
+            name: name.into(),
+            state: clock::ClockState::Ready(std::sync::Arc::new(timeline)),
+        }
+    }
+
+    /// A 100 MHz core clock and a 40 MHz bus clock, in nanoseconds.
+    fn clocks() -> (Clock, Clock) {
+        (
+            clock("core_clk", &[(0, 200_000, 10)]),
+            clock("bus_clk", &[(5, 200_005, 25)]),
+        )
     }
 
     fn at(times: &[u64]) -> Vec<Marker> {
@@ -952,7 +1296,129 @@ mod tests {
                     }
                 }
             }
+            // Spans join neighbours, stay clear of every chip, and carry
+            // label forms longest first whose estimate fits the line.
+            for s in &l.spans {
+                let (a, b) = (&markers[s.first], &markers[s.first + 1]);
+                assert!(a.time < b.time, "trial {trial}");
+                assert_eq!(s.measurement.dt(), i128::from(b.time - a.time));
+                let (x0, x1) = l.shown(s);
+                assert!(x1 - x0 >= SPAN_MIN * zoom - 0.01, "trial {trial}: {s:?}");
+                for c in &l.chips {
+                    assert!(
+                        c.rect.right() <= x0 + 0.01 || c.rect.left() >= x1 - 0.01,
+                        "trial {trial}: {c:?} {s:?}"
+                    );
+                }
+                let forms = span_forms(&s.measurement, Some(0), TimeBase::si(-9));
+                assert!(s.labels.iter().all(|f| forms.contains(f)), "trial {trial}");
+                for f in &s.labels {
+                    assert!(
+                        span_text_w(f) + 2.0 * SPAN_LABEL_PAD <= (x1 - x0) / zoom + 0.01,
+                        "trial {trial}: {f} in {}",
+                        x1 - x0
+                    );
+                }
+                assert!(s.labels.windows(2).all(|w| w[0].len() > w[1].len()));
+            }
+            assert!(l.spans.windows(2).all(|w| w[0].first < w[1].first));
+            // Every gap wide enough for a line has its span, including the
+            // way to a marker beyond either edge.
+            let mut ends: Vec<(usize, f32, f32)> = l
+                .chips
+                .iter()
+                .map(|c| (c.markers.end - 1, c.rect.left(), c.rect.right()))
+                .collect();
+            let x_of = |t: u64| 200.0 + viewport.x_of(t as f64, 700.0) as f32;
+            if let Some(ix) = l.visible.start.checked_sub(1) {
+                ends.insert(0, (ix, x_of(markers[ix].time), x_of(markers[ix].time)));
+            }
+            if let Some(m) = markers.get(l.visible.end) {
+                ends.push((l.visible.end, x_of(m.time), x_of(m.time)));
+            }
+            for w in ends.windows(2) {
+                let room = (w[1].1 - SPAN_INSET * zoom).min(900.0)
+                    - (w[0].2 + SPAN_INSET * zoom).max(200.0);
+                if room >= SPAN_MIN * zoom + 0.01 {
+                    assert!(
+                        l.spans.iter().any(|s| s.first == w[0].0),
+                        "trial {trial}: no span after marker {}",
+                        w[0].0
+                    );
+                }
+            }
         }
+    }
+
+    #[test]
+    fn spans_take_the_longest_label_that_fits_and_reach_markers_off_the_view() {
+        let (core, bus) = clocks();
+        // One marker left of the view, three in it, one right of it.
+        let markers = at(&[10, 100, 400, 2000, 9000]);
+        let view = Viewport {
+            start: 40.0,
+            end: 3000.0,
+        };
+        let l = lane_in(&markers, view, 1.0, &[&core, &bus], Some(0));
+        let firsts: Vec<usize> = l.spans.iter().map(|s| s.first).collect();
+        assert_eq!(firsts, [0, 1, 2, 3]);
+        // The outer spans run off the lane toward their markers.
+        assert!(l.spans[0].x0 < l.time_left);
+        assert!(l.spans[3].x1 > l.band.right());
+        let text = |s: &SpanMark| s.labels.first().cloned().unwrap_or_default();
+        // Too short to label; the time alone; everything.
+        assert_eq!(text(&l.spans[0]), "");
+        assert_eq!(text(&l.spans[1]), "300 ns");
+        assert_eq!(text(&l.spans[2]), "1.6 µs · 160 core_clk · 64.0 bus_clk");
+        // Only the visible part of a span running off the lane holds its label.
+        assert_eq!(text(&l.spans[3]), "700 core_clk · 7 µs");
+        // Narrower, the long span drops the other clock, then the time.
+        let narrow = |end: f64, selected| {
+            let l = lane_in(
+                &markers,
+                Viewport { start: 40.0, end },
+                1.0,
+                &[&core, &bus],
+                selected,
+            );
+            text(l.spans.iter().find(|s| s.first == 2).unwrap())
+        };
+        let forms: Vec<String> = [3000.0, 6000.0, 9000.0, 14_000.0]
+            .iter()
+            .map(|&end| narrow(end, Some(1)))
+            .collect();
+        assert_eq!(
+            forms,
+            [
+                "1.6 µs · 160 core_clk · 64.0 bus_clk",
+                "64.0 bus_clk · 1.6 µs",
+                "64.0 bus_clk",
+                "1.6 µs"
+            ]
+        );
+        // Without clocks the label is the time.
+        let l = lane_in(&markers, view, 1.0, &[], None);
+        assert_eq!(text(&l.spans[2]), "1.6 µs");
+    }
+
+    #[test]
+    fn a_span_is_hit_between_its_chips_and_a_chip_wins_over_it() {
+        let markers = at(&[100, 400, 2000]);
+        let l = lane(
+            &markers,
+            Viewport {
+                start: 0.0,
+                end: 3000.0,
+            },
+            1.0,
+        );
+        let y = l.band.top() + l.band.height() / 2.0;
+        let (x0, x1) = l.shown(&l.spans[1]);
+        assert_eq!(l.hit(point((x0 + x1) / 2.0, y)), Some(LaneHit::Span(1)));
+        assert_eq!(l.hit(point(x1 + 3.0, y)), Some(LaneHit::Chip(2)));
+        assert_eq!(l.hit(point((x0 + x1) / 2.0, l.band.bottom() + 1.0)), None);
+        // Past the last marker there is no span.
+        assert_eq!(l.hit(point(l.band.right() - 1.0, y)), None);
     }
 
     #[test]

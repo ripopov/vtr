@@ -376,15 +376,24 @@ pub fn position_at(view: &ClockView, clock: &Clock, time: u64) -> String {
 /// `→ 2.00 GHz` for a stretch of `period` file units; a trace with a named
 /// time unit (Kanata cycles) states the period instead.
 pub fn speed_label(period: u64, base: TimeBase<'_>) -> String {
-    if let Some(unit) = base.unit {
-        return format!("→ {period} {unit}");
+    match frequency(period as f64, base) {
+        Some(f) => format!("→ {f}"),
+        None => format!("→ {period} {}", base.unit.unwrap_or_default()),
     }
-    let hz = 1.0 / (period as f64 * 10f64.powi(base.timescale as i32));
+}
+
+/// `2.00 GHz`: the frequency of an event every `period` file units. `None`
+/// for a trace with a named time unit, whose units are not seconds.
+pub fn frequency(period: f64, base: TimeBase<'_>) -> Option<String> {
+    if base.unit.is_some() || period <= 0.0 {
+        return None;
+    }
+    let hz = 1.0 / (period * 10f64.powi(base.timescale as i32));
     let (value, suffix) = [(1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz"), (1.0, "Hz")]
         .into_iter()
         .find(|(scale, _)| hz * (1.0 + 1e-9) >= *scale)
         .map_or((hz, "Hz"), |(scale, s)| (hz / scale, s));
-    format!("→ {value:.2} {suffix}")
+    Some(format!("{value:.2} {suffix}"))
 }
 
 // -- ruler marks -------------------------------------------------------------------

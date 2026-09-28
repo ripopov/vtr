@@ -717,3 +717,85 @@ fn a_ruler_context_menu_hides_it() {
     assert_eq!(w.last_layout().rulers.height(), 16.0 * theme.zoom);
     assert!(w.menu.is_none());
 }
+
+#[test]
+fn spans_between_markers_count_cycles_and_zoom_on_a_double_click() {
+    use volna_core::marker::{LaneHit, MarkerId};
+    let (mut app, _, panel) = waves();
+    let theme = Theme::one_dark();
+    for path in ["top.core_clk", "top.bus_clk"] {
+        app.handle(Command::Clocks(ClockCommand::ToggleRuler(path.into())));
+    }
+    let edges = core_edges();
+    // Two markers in view, one far right of it.
+    for t in [edges[10], edges[50], edges[150]] {
+        app.doc.shared.cursor = Some(t);
+        app.handle(Command::Action(Action::AddOrRenameMarker));
+    }
+    let view = Viewport {
+        start: edges[5] as f64,
+        end: edges[60] as f64,
+    };
+    app.doc.shared.viewport.set(view);
+    frame(&mut app, panel, &theme);
+    let lane = app
+        .panels
+        .waves(panel)
+        .unwrap()
+        .last_layout()
+        .marker_lane
+        .clone();
+    let firsts: Vec<usize> = lane.spans.iter().map(|s| s.first).collect();
+    assert_eq!(
+        firsts,
+        [0, 1],
+        "a span between the two, and one off the view"
+    );
+    assert!(lane.spans[1].x1 > lane.band.right());
+    let span = &lane.spans[0];
+    assert_eq!(
+        span.labels[0], "13.36 ns · 40 core_clk · 6.7 bus_clk",
+        "counted in each ruler clock: 0.37 and 0.05 into bus cycles 1 and 8"
+    );
+    let texts = |app: &mut App| -> Vec<String> {
+        app.layout_panel(panel, BOUNDS, &theme).unwrap();
+        app.render_panel(panel, &theme, &mut MonoMeasure)
+            .texts()
+            .map(str::to_owned)
+            .collect()
+    };
+    assert!(texts(&mut app).contains(&span.labels[0]));
+
+    // Hovering gives the full measurement with 1/Δt.
+    let (x0, x1) = lane.shown(span);
+    let mid = point((x0 + x1) / 2.0, lane.band.top() + lane.band.height() / 2.0);
+    assert_eq!(lane.hit(mid), Some(LaneHit::Span(0)));
+    app.handle(Command::Pointer(
+        panel,
+        PointerEvent::Move { position: mid },
+    ));
+    let shown = texts(&mut app);
+    for want in [
+        "1 → 2 · double-click to zoom",
+        "40 cycles",
+        "1/Δt",
+        "74.85 MHz",
+    ] {
+        assert!(shown.iter().any(|t| t == want), "{want} in {shown:?}");
+    }
+
+    // A click on it moves the cursor as on the header.
+    click(&mut app, panel, mid);
+    let cursor = app.doc.shared.cursor.unwrap();
+    assert!(cursor > edges[10] && cursor < edges[50], "{cursor}");
+
+    // A double-click zooms to the span, which is navigation.
+    let undo = app.undo_label().map(str::to_owned);
+    let id = |n| MarkerId::new(n).unwrap();
+    app.handle(Command::ZoomToSpan(panel, id(1), id(2)));
+    let v = app.doc.shared.viewport.target();
+    let (a, b) = (edges[10] as f64, edges[50] as f64);
+    assert!(v.start < a && v.end > b, "{v:?}");
+    assert!((v.width() - (b - a) * 1.3).abs() < 1.0, "{v:?}");
+    assert_eq!(app.undo_label().map(str::to_owned), undo);
+}

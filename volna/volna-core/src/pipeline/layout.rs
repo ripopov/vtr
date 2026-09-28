@@ -9,7 +9,7 @@ use std::ops::Range;
 use super::rows::RowView;
 use crate::geometry::{Point, Rect, point, size};
 use crate::marker::Marker;
-use crate::wave::overlay::{LANE_H, MarkerLane, marker_lane};
+use crate::wave::overlay::{LANE_H, MarkerLane, SpanClocks, marker_lane};
 use crate::wave::viewport::Viewport;
 
 // Design-time sizes in logical pixels at zoom 1.0.
@@ -66,6 +66,8 @@ pub struct LayoutInput<'a> {
     pub rows: RowView,
     pub row_count: usize,
     pub markers: &'a [Marker],
+    /// Labels the spans between markers.
+    pub spans: SpanClocks<'a>,
     pub viewport: Viewport,
     pub failed: bool,
 }
@@ -120,6 +122,7 @@ impl PipelineLayout {
             f64::from(cells.width()).max(1.0),
             input.viewport,
             input.markers,
+            input.spans,
             zoom,
         );
         let retry = input.failed.then(|| {
@@ -186,6 +189,7 @@ impl PipelineLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wave::timeline::TimeBase;
 
     fn layout(zoom: f32, row_px: f32, rows: usize) -> PipelineLayout {
         PipelineLayout::compute(LayoutInput {
@@ -201,6 +205,7 @@ mod tests {
                 time: 50,
                 label: None,
             }],
+            spans: SpanClocks::time_only(TimeBase::si(-9)),
             viewport: Viewport {
                 start: 0.0,
                 end: 100.0,

@@ -21,6 +21,7 @@ use crate::nav::{Link, NavState, Tween};
 use crate::panels::PanelId;
 use crate::theme::Theme;
 use crate::wave::model::PointerEvent;
+use crate::wave::overlay::SpanClocks;
 use crate::wave::viewport::{FIT_MARGIN_PX, Viewport};
 
 /// The per-transaction caption attribute (`docs/SPEC.md`).
@@ -67,6 +68,8 @@ pub enum Hit {
     Header,
     /// A chip on the Markers lane, by its index in the lane layout.
     Marker(usize),
+    /// A span on the Markers lane, by its index in the lane layout.
+    Span(usize),
     Retry,
 }
 
@@ -485,16 +488,17 @@ impl PipelineModel {
             Rows::Failed(_) => (0, true),
             _ => (0, false),
         };
-        let rulers = self.nav.clocks().rulers(&doc.clocks).len();
+        let rulers = self.nav.clocks().rulers(&doc.clocks);
         let input = LayoutInput {
             bounds,
             header_h: theme.timeline_height,
-            ruler_h: rulers as f32 * crate::wave::overlay::RULER_H * theme.zoom,
+            ruler_h: rulers.len() as f32 * crate::wave::overlay::RULER_H * theme.zoom,
             zoom: theme.zoom,
             label_width: self.label_width,
             rows: self.rows.value,
             row_count,
             markers: doc.markers(),
+            spans: SpanClocks::of(&rulers, self.nav.clocks(), &doc.clocks, doc.time_base()),
             viewport: self.nav.viewport(doc),
             failed,
         };
@@ -567,6 +571,9 @@ impl PipelineModel {
         }
         if let Some(chip) = layout.marker_lane.chip_at(p) {
             return Some(Hit::Marker(chip));
+        }
+        if let Some(span) = layout.marker_lane.span_at(p) {
+            return Some(Hit::Span(span));
         }
         if layout.header.contains(p) || layout.marker_lane.band.contains(p) {
             return Some(Hit::Header);
@@ -1065,7 +1072,7 @@ impl PipelineModel {
                 self.retry(doc);
                 return;
             }
-            if let Some(hit) = lane_hit {
+            if let Some(hit) = lane_hit.filter(|h| !matches!(h, crate::marker::LaneHit::Span(_))) {
                 crate::marker::press(doc, &mut self.nav, hit, now);
                 return;
             }
