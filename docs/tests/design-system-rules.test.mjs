@@ -50,7 +50,8 @@ test('text and foundation tokens meet WCAG AA in both themes', {timeout: 120000}
   t.after(() => b.close());
   const failures = [];
   for (const page of pages) {
-    await b.open(page);
+    // Reduced motion: colours must not be read halfway through a theme transition.
+    await b.open(page, {reducedMotion: true});
     for (const theme of ['dark', 'light']) {
       await b.evaluate(`document.documentElement.dataset.theme = '${theme}'`);
       for (const f of await b.evaluate(CONTRAST)) failures.push(`${name(page)}: ${f}`);

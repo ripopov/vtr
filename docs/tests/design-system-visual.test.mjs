@@ -104,6 +104,11 @@ test('gallery sections match their screenshots', {timeout: 180000}, async t => {
   const b = await browser();
   t.after(() => b.close());
   await b.open(gallery, {width: WIDTH, reducedMotion: true});
+  // Start every section on a whole pixel, top to bottom, so text keeps its subpixel phase
+  // when a section above it grows; otherwise one new specimen would change every later baseline.
+  await b.evaluate(`for (const s of document.querySelectorAll('[data-gallery]')) {
+    const top = s.getBoundingClientRect().top + scrollY, d = Math.ceil(top - 0.001) - top;
+    if (d > 0.001) s.style.marginTop = d + 'px'; }`);
   const sections = await b.evaluate(`[...document.querySelectorAll('[data-gallery]')].map(s => { const r = s.getBoundingClientRect();
     return {id: s.id, x: 0, y: Math.round(r.top + scrollY), width: ${WIDTH}, height: Math.round(r.height)}; })`);
   // Product screenshots are content, not design: keep their boxes, drop their pixels.

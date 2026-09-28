@@ -90,6 +90,7 @@
 .v-hero__cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:32px 0 14px}
 .v-hero--left .v-hero__cta{justify-content:flex-start}
 .v-hero__fine{font-size:var(--text-xs);color:var(--text-3)}
+.v-hero__fine code{color:var(--text-2)}
 @media (max-width:760px){.v-hero{padding-top:56px}}
 
 /* ---------- section + feature ---------- */
@@ -186,6 +187,10 @@
 .v-table thead .is-ours{color:var(--accent-text)}
 .v-table .is-ratio{color:var(--accent-text)}
 .v-table .is-worse{color:var(--warning)}
+/* Prose tables (research, token sheets): left-aligned, wrapping, sans, top-aligned rows. */
+.v-table--text th,.v-table--text td{text-align:left;white-space:normal;vertical-align:top}
+.v-table--text tbody td{font-family:var(--font-sans)}
+.v-table--text tbody td:first-child{white-space:nowrap}
 
 /* ---------- comparison bars ---------- */
 .v-bars{display:grid;gap:20px}

@@ -16,7 +16,7 @@ This directory is the source of truth. It started as a Claude Design export; edi
 All headless, run by `.github/workflows/design-system.yml`:
 
 - `docs/tests/design-system.test.mjs`: every relative reference resolves; the fonts, icons and app icon load.
-- `docs/tests/design-system-rules.test.mjs`: pages that link `styles.css` (the adopting pages) contain no colour literals, font families, custom tokens, raw radii or shadows, `@font-face`, or other stylesheets; the maintained stylesheets take colours and fonts from tokens; the gallery covers every `v-` class; every rendered text run and the foundation token pairs meet WCAG AA (4.5:1 text, 3:1 large text and marks) in both themes.
+- `docs/tests/design-system-rules.test.mjs`: pages that link `styles.css` (the adopting pages) contain no colour literals, font families, custom tokens, raw radii or shadows, `@font-face`, or other stylesheets; the maintained stylesheets take colours and fonts from tokens; the gallery covers every `v-` class; every rendered text run and the foundation token pairs meet WCAG AA (4.5:1 text, 3:1 large text and marks) in both themes, and every viewer value stroke and marker reaches 4.5:1 on the viewer canvas.
 - `docs/tests/design-system-visual.test.mjs`: the gallery's computed styles and per-section screenshots match `baselines/`; adopting pages fit 360px without horizontal scrolling; every keyboard stop shows the focus ring; reduced motion stops all motion.
 
 After an intended visual change, run `UPDATE_BASELINES=1 node --test --test-concurrency=1 docs/tests/design-system-visual.test.mjs` and review the `baselines/` diff (PNG before/after and `styles.json`) before committing. A failing comparison writes baseline, current and diff images to `DESIGN_DIFF_DIR` (CI uploads them as the `design-diff` artifact). Screenshots hide product images, so only the design is compared.
@@ -92,7 +92,7 @@ Waveform, marker and pipeline-stage colours come straight from the viewer.
 ## Index
 
 - `styles.css` — entry point (imports only).
-- `tokens/` — fonts, palette (scales), theme (semantic roles), typography, spacing, elevation, motion.
+- `tokens/` — fonts, palette (scales), theme (semantic roles), viewer (the Volna viewer theme's canvas, value, marker and stage tokens, proposed in `docs/volna-theme.html`), typography, spacing, elevation, motion.
 - `components/base.css`, `components/components.css` — element defaults and `v-` classes (usable in static HTML without React).
 - `components/<group>/` — React components with `.d.ts` and `.prompt.md`, one card per group.
 - `guidelines/` — foundation specimen cards (Colors, Type, Spacing, Brand).

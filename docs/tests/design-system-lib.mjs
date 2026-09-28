@@ -180,6 +180,12 @@ export const CONTRAST = String.raw`(() => {
     'tx-in', 'tx-out', 'marker-1', 'marker-2', 'marker-3', 'marker-4', 'marker-5', 'marker-6'].map(f => [f, 'wave-bg']),
     ['focus-ring', 'bg'], ['focus-ring', 'surface-card'], ['accent', 'bg'],
     ...['success', 'warning', 'danger', 'info'].map(t => [t, t + '-soft'])];
+  // The viewer theme (tokens/viewer.css): text on its surfaces, and every value stroke at 4.5:1 on the canvas.
+  TEXT.push(...['viewer-text', 'viewer-text-muted', 'viewer-text-faint'].flatMap(f => ['viewer-canvas', 'viewer-panel', 'viewer-bar'].map(b => [f, b])),
+    ['viewer-text', 'viewer-selection'], ['viewer-text', 'viewer-hover'], ['viewer-text', 'viewer-elevated'], ['viewer-on-accent', 'viewer-accent'],
+    ...[1, 2, 3, 4, 5, 6].map(i => ['viewer-marker-text', 'viewer-marker-' + i]),
+    ...['viewer-signal', 'viewer-undef', 'viewer-highimp', 'viewer-dontcare', 'viewer-weak', 'viewer-event', 'viewer-accent', 'viewer-relation-out',
+      ...[1, 2, 3, 4, 5, 6].map(i => 'viewer-marker-' + i)].map(f => [f, 'viewer-canvas']));
   const probe = document.createElement('span');
   document.body.append(probe);
   const token = t => { probe.style.color = 'var(--' + t + ')'; return parse(getComputedStyle(probe).color); };
