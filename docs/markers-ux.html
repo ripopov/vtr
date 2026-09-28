@@ -237,6 +237,28 @@ table.mx td.n{color:var(--line-strong)}
 table.mx tr.us td{background:var(--soft);font-weight:600}
 
 .hero-fig{margin:6px 0 22px}
+/* ---- plan: one block per commit, each with a small picture painted by the demo's code */
+.stage-tbl td:first-child{font-family:"IBM Plex Mono",monospace;color:var(--muted)}
+.stages{max-width:1160px}
+.stage{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:10px 32px;padding:26px 0;border-top:1px solid var(--line);align-items:start}
+.stage:first-child{border-top:0}
+@media (max-width:900px){.stage{grid-template-columns:1fr}}
+.stage h3{margin:0 0 8px}
+.stage p{font-size:15px}
+.stage-n{font:600 11.5px/1 "IBM Plex Mono",monospace;letter-spacing:1.2px;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+.stage-dl{margin:8px 0 0;font-size:13.5px}
+.stage-dl div{display:grid;grid-template-columns:84px 1fr;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}
+.stage-dl div:last-child{border-bottom:0}
+.stage-dl dt{font-weight:600;color:var(--muted)}
+.stage-dl dd{margin:0;min-width:0}
+.shot{margin:0;--ln:var(--pv-ln);--mu:var(--pv-mu);--tx:var(--pv-tx);--ac:var(--pv-ac)}
+.shot figcaption{font-size:13px;color:var(--muted);margin-top:7px}
+.shot .pv-status:empty{display:none}
+.shot-edit{position:absolute;display:none;align-items:center;white-space:nowrap}
+.shot-edit.pv-edit{display:flex}
+.shot-edit span{background:color-mix(in srgb,var(--mk) 45%,transparent)}
+.shot-nav .pv-nav{position:static;transform:none;width:auto;box-shadow:var(--pv-frame)}
+.nav-q .q{flex:1;min-width:0;color:var(--tx);font:13px "IBM Plex Sans",sans-serif}
 .hero-fig figcaption{max-width:980px}
 .sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
@@ -260,7 +282,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   <p class="lede">Most hardware debugging revolves around a few instants: the request that stalled, the beat that carried bad data, the interrupt that fired too late. An engineer marks them, measures between them in time and in clock cycles, returns to them for hours, and tells colleagues where they are. This proposal gives each of those verbs one key or one gesture in Volna. It draws every measurement on the time axis, in time and in counted cycles of every declared clock, and it puts the whole model in <code>volna-core</code>.</p>
   <figure class="fig hero-fig"><div class="figcv"><canvas id="hero-cv" role="img" aria-label="A Volna wave panel with the Markers lane showing named markers and labelled spans, and the Measure lane showing the live span from the reference to the cursor: 126 ns, 80 core clock cycles, 26.4 AXI clock cycles"></canvas></div>
     <figcaption>Load B from the demo trace. Markers carry names, neighbouring markers are joined by labelled spans, and the Measure lane reads the reference to the cursor live, in time and in counted cycles of both clocks, across a frequency change and a gated clock.</figcaption></figure>
-  <p class="meta">Proposal with an interactive demo, 27 September 2026. The demo and its guided steps below run on a small load path that the page generates on load. A core clock slows from 1 GHz to 500 MHz, and an AXI clock is gated during a DDR self-refresh, so elapsed time and cycles disagree in both domains. The page builds on <a href="vtr_clocks.html">declared clocks</a> (timelines, rulers, cycle snapping), the shared time overlay of the <a href="pipeline-view.html">pipeline panel</a>, the <a href="user-settings.html">command palette</a> and <a href="workspaces.html">workspaces</a>. The mock follows the page theme, drawing with Volna's One Dark and GitHub Light palettes.</p>
+  <p class="meta">Proposal with an interactive demo, 27 September 2026, planned as <a href="#plan">nine commits</a>. The demo and its guided steps below run on a small load path that the page generates on load. A core clock slows from 1 GHz to 500 MHz, and an AXI clock is gated during a DDR self-refresh, so elapsed time and cycles disagree in both domains. The page builds on <a href="vtr_clocks.html">declared clocks</a> (timelines, rulers, cycle snapping), the shared time overlay of the <a href="pipeline-view.html">pipeline panel</a>, the <a href="user-settings.html">command palette</a> and <a href="workspaces.html">workspaces</a>. The mock follows the page theme, drawing with Volna's One Dark and GitHub Light palettes.</p>
   <dl class="paths">
     <div><dt>What users need</dt><dd>Place, name, find, move and remove markers without dialogs. See the time and the cycles between any two of them at a glance. Never lose a marker to a stray key.</dd></div>
     <div><dt>What changes</dt><dd>A Markers lane and a Measure lane on every timed panel, one explicit reference, a dozen key bindings, direct manipulation of chips, a navigator in the palette, and undo. It needs no new trace data.</dd></div>
@@ -308,7 +330,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
     <div class="new"><dt><kbd>R</kbd></dt><dd>measure from the cursor (set the reference)</dd></div>
     <div class="new"><dt><kbd>⇧R</kbd></dt><dd>clear the reference</dd></div>
     <div class="new"><dt><kbd>Z</kbd></dt><dd>zoom to the reference and the cursor</dd></div>
-    <div class="new"><dt><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></dt><dd>undo / redo marker edits (<kbd>Ctrl</kbd> elsewhere)</dd></div>
+    <div><dt><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></dt><dd>undo / redo marker edits (<kbd>Ctrl</kbd> elsewhere)</dd></div>
     <div><dt><kbd>⇧←</kbd> <kbd>⇧→</kbd></dt><dd>previous / next change of the selected row</dd></div>
     <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>previous / next edge of the selected clock</dd></div>
     <div><dt><kbd>F</kbd> <kbd>=</kbd> <kbd>-</kbd> <kbd>←</kbd> <kbd>→</kbd></dt><dd>fit, zoom, pan (unchanged)</dd></div>
@@ -326,7 +348,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
       <tr><td>Measure an interval</td><td>“How many core cycles from request to response?”</td><td>Cursor against the <i>nearest</i> marker, in the status bar</td><td><kbd>R</kbd> at one end, move the cursor to the other; the live span reads time and every clock's cycles</td></tr>
       <tr><td>Compare intervals</td><td>“Load B took twice as long as load A.”</td><td>Not possible without mental arithmetic</td><td>Adjacent spans stay labelled; the navigator lists every marker's distance from the reference</td></tr>
       <tr><td>Correct a marker</td><td>Dropped one edge too early.</td><td>Remove it and place it again (a new number)</td><td>Drag the chip; it snaps; one undoable move</td></tr>
-      <tr><td>Clean up</td><td>Forty markers after a long session.</td><td><kbd>⇧M</kbd> removes <i>all</i> markers, without undo</td><td><kbd>⇧M</kbd> removes one; <i>Remove All Markers</i> is a palette command; both undo</td></tr>
+      <tr><td>Clean up</td><td>Forty markers after a long session.</td><td><kbd>⇧M</kbd> removes <i>all</i> markers; <kbd>⌘Z</kbd> brings them back</td><td><kbd>⇧M</kbd> removes one; <i>Remove All Markers</i> is a palette command; both undo</td></tr>
     </tbody>
   </table></div>
   <p class="prose">Two needs cut across the jobs. The first is the <b>vocabulary a team shares</b>: “marker 4, <i>req B</i>, is 80 core cycles before marker 5” must mean the same thing to a colleague opening the workspace and to an agent reading it through MCP. The second is <b>trust</b>. A marker must never move, disappear or change its number unless the user asked for it.</p>
@@ -336,14 +358,14 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   <h2 id="today-h">Where Volna is today</h2>
   <div class="cols2">
     <div>
-      <p><code>Document</code> keeps <code>markers: Vec&lt;Marker { id, time, label }&gt;</code>, sorted by time, and rejects a second marker at the same time (<code>volna-core/src/document.rs</code>). The shared overlay draws a line and a chip labelled <code>M{id}</code> for every visible marker, in both wave and pipeline panels (<code>wave/overlay.rs</code>). Workspaces save the list.</p>
+      <p><code>Document</code> keeps <code>markers: Vec&lt;Marker { id, time, label }&gt;</code>, sorted by time, in a <code>history::Journaled</code> field, so every marker edit is already an undoable step. It rejects a second marker at the same time (<code>volna-core/src/document.rs</code>). The shared overlay draws a line and a chip labelled <code>M{id}</code> for every visible marker, in both wave and pipeline panels (<code>wave/overlay.rs</code>). Workspaces save the list.</p>
       <p>The GPUI frontend binds <kbd>M</kbd> to <i>Add Marker</i> and <kbd>⇧M</kbd> to <i>Clear Markers</i>. Clicking a chip moves the cursor there, and Shift-clicking a chip removes it. The status bar shows the cursor minus the <i>nearest</i> marker, in time and in whole cycles of each ruler clock.</p>
     </div>
     <div>
       <ul>
         <li><b>The label is never shown or edited.</b> The field exists, but no gesture sets it.</li>
         <li><b>The measurement origin moves on its own.</b> “Nearest marker” changes as the cursor moves, so the same readout means different intervals from one second to the next.</li>
-        <li><b>One keystroke destroys the session's work.</b> <kbd>⇧M</kbd> clears every marker, and there is no undo.</li>
+        <li><b>One keystroke clears the session's work.</b> <kbd>⇧M</kbd> removes every marker. Undo brings them back, but the key sits next to <kbd>M</kbd>.</li>
         <li><b>Numbers only grow.</b> After a day of adding and removing, markers are numbered in the 40s, which no key can reach.</li>
         <li><b>No marker navigation, no dragging, no list.</b></li>
         <li><b>The wave and pipeline models each handle chip clicks</b> (<code>wave/model.rs</code>, <code>pipeline/model.rs</code>), with the same code twice.</li>
@@ -370,7 +392,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
       <tr><td>Saleae Logic 2 <sup class="r"><a href="#r10">10</a></sup></td><td>●</td><td>●</td><td class="p">◐</td><td>●</td><td class="n">○</td><td class="n">○</td><td>●</td><td>?</td><td>●</td></tr>
       <tr><td>Perfetto <sup class="r"><a href="#r19">19</a></sup></td><td class="p">◐</td><td>●</td><td class="n">—</td><td>●</td><td class="n">○</td><td class="n">○</td><td>●</td><td>?</td><td>●</td></tr>
       <tr><td>REAPER <sup class="r"><a href="#r21">21</a></sup></td><td class="n">○</td><td class="p">◐</td><td class="n">—</td><td>●</td><td>●</td><td>●</td><td>●</td><td>?</td><td>●</td></tr>
-      <tr><td>Volna today</td><td class="n">○</td><td class="n">○</td><td>●</td><td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td></tr>
+      <tr><td>Volna today</td><td class="n">○</td><td class="n">○</td><td>●</td><td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td><td>●</td><td class="n">○</td></tr>
       <tr class="us"><td>Volna proposed</td><td>●</td><td>●</td><td>●</td><td>●</td><td>●</td><td>●</td><td>●</td><td>●</td><td>●</td></tr>
     </tbody>
   </table></div>
@@ -449,7 +471,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
       <tr><td><kbd>`</kbd></td><td>Back to the cursor and view before the last jump; again to return.</td><td>Vim's <code>``</code>. It holds one slot, so it never grows into a history to manage.</td></tr>
       <tr><td><kbd>R</kbd> <kbd>⇧R</kbd></td><td>Measure from the cursor / stop measuring.</td><td>“Reference”, with Shift to clear as for markers.</td></tr>
       <tr><td><kbd>Z</kbd></td><td>Zoom to the reference and the cursor, with a margin.</td><td>Verdi, SimVision, Questa and Visualizer all zoom to their cursor pair; <kbd>⇧Z</kbd> (zoom to cursor) keeps its meaning.</td></tr>
-      <tr><td><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></td><td>Undo / redo marker edits (<kbd>Ctrl</kbd> on Linux and Windows).</td><td>Platform convention. The journal is designed so later document edits (rows, groups) can join it.</td></tr>
+      <tr><td><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></td><td>Undo / redo marker edits (<kbd>Ctrl</kbd> on Linux and Windows).</td><td>Already bound: marker edits are steps in Volna's app-wide undo journal.</td></tr>
     </tbody>
   </table></div>
   <p class="prose">The bare keys work only while a timed panel has focus and no text field is open, so a digit typed into the palette or a name never jumps. <kbd>⌘</kbd>+digit is not used: browsers and VS Code switch tabs with it, and Surfer #168 reports the conflict <sup class="r"><a href="#r5">5</a></sup>. Every verb is also a palette command, and hosts whose shortcuts run outside the viewer can call it by name (<code>addMarker</code>, <code>nextMarker</code>, <code>setReference</code> and so on) through <code>Command::named</code>.</p>
@@ -547,27 +569,26 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   </figure>
 
   <h3>The marker module</h3>
-<pre class="code"><span class="c">// volna-core/src/marker/mod.rs — the only owner of markers and the reference</span>
+<pre class="code"><span class="c">// volna-core/src/marker/mod.rs — numbering, queries and the reference; the list itself stays in Document</span>
 <span class="k">pub struct</span> MarkerId(<span class="k">pub</span> NonZeroU32);            <span class="c">// the number people see and type</span>
-<span class="k">pub struct</span> Marker { <span class="k">pub</span> id: MarkerId, <span class="k">pub</span> time: u64, <span class="k">pub</span> label: String }
+<span class="k">pub struct</span> Marker { <span class="k">pub</span> id: MarkerId, <span class="k">pub</span> time: u64, <span class="k">pub</span> label: Option&lt;String&gt; }
 <span class="k">pub enum</span> Reference { Time(u64), Marker(MarkerId) }  <span class="c">// follows its marker when dragged</span>
+<span class="k">pub fn</span> free_id(markers: &amp;[Marker]) -&gt; MarkerId;           <span class="c">// the lowest free number</span>
+<span class="k">pub fn</span> at(markers: &amp;[Marker], t: u64) -&gt; Option&lt;&amp;Marker&gt;;
+<span class="k">pub fn</span> next(markers: &amp;[Marker], t: u64) -&gt; Option&lt;&amp;Marker&gt;;  <span class="c">// strictly after; prev: strictly before</span>
+<span class="k">pub fn</span> in_range(markers: &amp;[Marker], r: RangeInclusive&lt;u64&gt;) -&gt; &amp;[Marker];  <span class="c">// binary search, no copy</span>
 
-<span class="k">pub enum</span> Edit {                                    <span class="c">// applying one returns its inverse</span>
-    Add(Marker), Remove(MarkerId), Move(MarkerId, u64), Rename(MarkerId, String),
-    Replace(Vec&lt;Marker&gt;, Option&lt;Reference&gt;),       <span class="c">// Remove All, and its inverse</span>
-}
-<span class="k">pub struct</span> Markers { items: Vec&lt;Marker&gt;, reference: Option&lt;Reference&gt;, undo: Vec&lt;Edit&gt;, redo: Vec&lt;Edit&gt; }
-<span class="k">impl</span> Markers {
-    <span class="k">pub fn</span> get(&amp;self, id: MarkerId) -&gt; Option&lt;&amp;Marker&gt;;
-    <span class="k">pub fn</span> at(&amp;self, t: u64) -&gt; Option&lt;&amp;Marker&gt;;
-    <span class="k">pub fn</span> next(&amp;self, t: u64) -&gt; Option&lt;&amp;Marker&gt;;      <span class="c">// strictly after; prev: strictly before</span>
-    <span class="k">pub fn</span> in_range(&amp;self, r: RangeInclusive&lt;u64&gt;) -&gt; &amp;[Marker];  <span class="c">// binary search, no copy</span>
-    <span class="k">pub fn</span> reference_time(&amp;self) -&gt; Option&lt;u64&gt;;
-    <span class="k">pub fn</span> edit(&amp;<span class="k">mut</span> self, e: Edit) -&gt; Result&lt;bool, EditError&gt;;  <span class="c">// journals the inverse; clears redo</span>
-    <span class="k">pub fn</span> undo(&amp;<span class="k">mut</span> self) -&gt; Option&lt;Edit&gt;;  <span class="k">pub fn</span> redo(&amp;<span class="k">mut</span> self) -&gt; Option&lt;Edit&gt;;
+<span class="c">// volna-core/src/document.rs — the single writer</span>
+<span class="k">pub struct</span> Document { markers: history::Journaled&lt;Vec&lt;Marker&gt;&gt;, reference: Option&lt;Reference&gt;, <span class="c">/* … */</span> }
+<span class="k">impl</span> Document {
+    <span class="k">pub fn</span> add_marker(&amp;<span class="k">mut</span> self, t: u64) -&gt; Option&lt;MarkerId&gt;;
+    <span class="k">pub fn</span> remove_marker(&amp;<span class="k">mut</span> self, id: MarkerId) -&gt; bool;   <span class="c">// and remove_all_markers</span>
+    <span class="k">pub fn</span> rename_marker(&amp;<span class="k">mut</span> self, id: MarkerId, label: &amp;str) -&gt; bool;
+    <span class="k">pub fn</span> move_marker(&amp;<span class="k">mut</span> self, id: MarkerId, t: u64) -&gt; bool;
     <span class="k">pub fn</span> set_reference(&amp;<span class="k">mut</span> self, r: Option&lt;Reference&gt;);   <span class="c">// navigation state: not journaled</span>
+    <span class="k">pub fn</span> reference_time(&amp;self) -&gt; Option&lt;u64&gt;;
 }</pre>
-  <p class="prose">Edits and their inverses are plain data. The journal keeps inverses with a bounded depth, which makes undo exact, cheap and testable by replaying random edit sequences, as the self-test does. When other document edits need undo, <code>Edit</code> becomes one variant of a document-wide edit enum rather than a second mechanism.</p>
+  <p class="prose">Undo needs no marker-specific mechanism. Every edit goes through the journaled list, and <code>Document::take_edits</code> hands the list from before the edits to the app-wide journal with a label that names the edit: <i>Add marker 4</i>, <i>Rename marker 4</i>, <i>Move marker 4</i>, <i>Remove all markers</i>. The reference sits outside the journaled field, like the cursor.</p>
 
   <h3>Measurement, lanes and gestures</h3>
 <pre class="code"><span class="c">// volna-core/src/measure.rs</span>
@@ -588,11 +609,11 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   <div class="tablewrap"><table>
     <thead><tr><th>Piece</th><th>Status</th><th>Change</th></tr></thead>
     <tbody>
-      <tr><td><code>marker</code> module</td><td><span class="st new">new</span></td><td><code>Markers</code>, <code>Edit</code>, the journal, numbering and the reference. <code>Document::{add,remove,clear}_marker</code> and <code>restore_markers</code> are removed, and callers go through <code>Markers::edit</code>.</td></tr>
+      <tr><td><code>marker</code> module</td><td><span class="st new">new</span></td><td><code>MarkerId</code>, numbering, queries and <code>Reference</code>. <code>Document</code>'s marker methods take a <code>MarkerId</code> instead of a list index, and <code>next_marker</code> is removed.</td></tr>
       <tr><td><code>measure</code></td><td><span class="st new">new</span></td><td>Replaces <code>clock::cycles_between</code>. Used by the lanes, <code>Status</code>, the navigator and MCP. <code>Status.delta</code> becomes <code>Status.measure</code>, and the nearest-marker rule is removed.</td></tr>
       <tr><td><code>wave::overlay</code></td><td><span class="st changed">changed</span></td><td><code>marker_chips</code> and <code>markers</code> become <code>marker_lane</code>/<code>measure_lane</code> layout and paint. <code>TimeColumn</code> gains the two lane rectangles, so wave and pipeline layouts reserve them the same way.</td></tr>
       <tr><td>Chip handling in wave and pipeline models</td><td><span class="st changed">changed</span></td><td>Both call <code>marker::input</code>, which removes the duplicate code. A <code>Drag::Marker</code> variant goes next to <code>Drag::Cursor</code>.</td></tr>
-      <tr><td><code>Action</code>, <code>Command::named</code></td><td><span class="st changed">changed</span></td><td><code>AddMarker</code> becomes <code>AddOrRenameMarker</code>, and <code>ClearMarkers</code> becomes <code>RemoveMarkerAtCursor</code>. Added: <code>NextMarker</code>, <code>PrevMarker</code>, <code>GoToMarker(n)</code>, <code>MarkerNavigator</code>, <code>Back</code>, <code>SetReference</code>, <code>ClearReference</code>, <code>ZoomToMeasurement</code>, <code>Undo</code>, <code>Redo</code>, <code>RemoveAllMarkers</code> (palette only).</td></tr>
+      <tr><td><code>Action</code>, <code>Command::named</code></td><td><span class="st changed">changed</span></td><td><code>AddMarker</code> becomes <code>AddOrRenameMarker</code>, and <code>ClearMarkers</code> becomes <code>RemoveMarkerAtCursor</code>. Added: <code>NextMarker</code>, <code>PrevMarker</code>, <code>GoToMarker(n)</code>, <code>MarkerNavigator</code>, <code>Back</code>, <code>SetReference</code>, <code>ClearReference</code>, <code>ZoomToMeasurement</code>, <code>RemoveAllMarkers</code> (palette only).</td></tr>
       <tr><td>Hosted text field</td><td><span class="st changed">changed</span></td><td>The group-rename path is generalized to <code>TextEdit { target: Group(..) | Marker(id), rect, text, select_all }</code>, answered by one <code>Command::CommitText</code>.</td></tr>
       <tr><td><code>nav::NavState</code></td><td><span class="st changed">changed</span></td><td>Adds the <code>back</code> slot and a <code>reveal(t)</code> that pans only when <i>t</i> is outside the middle 90% of the view.</td></tr>
       <tr><td>Palette</td><td><span class="st changed">changed</span></td><td>A marker mode (<code>@</code>) whose rows come from <code>marker::palette_rows(query)</code>.</td></tr>
@@ -603,7 +624,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   </table></div>
   <h3>Rules that keep it maintainable</h3>
   <ul class="prose">
-    <li><b>One writer.</b> Only <code>Markers::edit</code> changes markers, so the journal, the workspace dirty flag and repaint requests cannot miss an edit.</li>
+    <li><b>One writer.</b> Only <code>Document</code>'s journaled marker list changes markers, so the journal, the workspace dirty flag and repaint requests cannot miss an edit.</li>
     <li><b>Layout is pure.</b> <code>marker_lane</code> takes times, a viewport, widths and a text-measure callback and returns rectangles. The same result drives painting and hit testing. Tests run it without a GPU, as this page's self-test runs its twin.</li>
     <li><b>No derived caches.</b> The sorted list is the index. A view reads <i>O</i>(log <i>n</i> + <i>k</i>) markers per frame. A separate index is added only if profiling of the <code>frame_times</code> test shows a need.</li>
     <li><b>Extension points are enums, not flags.</b> A new measurement endpoint, such as a transaction's begin and end or a log record's time, is a new way to set the reference or the cursor, not a new object. A new lane item is a new <code>Chip</code> or <code>SpanMark</code> variant.</li>
@@ -635,7 +656,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
       <h3>volna-core (headless)</h3>
       <ul>
         <li><b>Measure.</b> Cycle counts equal brute-force edge counting on random edge pairs of gated, DVFS and single-edge timelines; fractions stay within one cycle of the edge count; negative spans and the time before a clock's first edge are covered.</li>
-        <li><b>Journal.</b> Random edit sequences replayed to the start by undo and back by redo, compared with snapshots. A removal that detaches the reference restores it on undo.</li>
+        <li><b>Undo.</b> Every marker edit is driven in the model-based history test (<code>tests/history.rs</code>), which replays random edit sequences by undo and redo against snapshots.</li>
         <li><b>Numbering.</b> Lowest-free allocation, stability under moves and renames, and restore of numbers from workspaces.</li>
         <li><b>Lane layout.</b> Chips cover every visible marker exactly once and never overlap, labels fit their gaps, and clusters form and split at the expected zooms.</li>
         <li><b>Gestures.</b> Drag with snapping and <kbd>Esc</kbd> cancel, click versus drag threshold, Alt/middle reference, double-click rename, in both wave and pipeline panels.</li>
@@ -655,21 +676,174 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
 </section>
 
 <section class="wrap" id="plan" aria-labelledby="plan-h">
-  <h2 id="plan-h">Plan</h2>
-  <ol class="rules">
-    <li><b>Model.</b> Add the <code>marker</code> module with numbering, the journal and the reference; move <code>Document</code> onto it; update the workspace schema and its tests. The behaviour stays today's except numbering.</li>
-    <li><b>Measure.</b> Add <code>measure()</code>; switch the status bar to the reference; remove the nearest-marker rule and <code>cycles_between</code>.</li>
-    <li><b>Lanes.</b> Add the lane layout and painting to <code>wave::overlay</code>, the lane rectangles to wave and pipeline layouts, and display-list tests in both themes. Run the frame-time A/B.</li>
-    <li><b>Gestures and keys.</b> Add <code>marker::input</code>, the new actions and bindings, the generalized hosted text field, and <code>reveal</code> and <code>back</code> in <code>NavState</code>.</li>
-    <li><b>Navigator and palette.</b> Add the marker mode, <code>@</code> and <kbd>'</kbd>, and the palette commands, including Remove All Markers.</li>
-    <li><b>MCP.</b> Add <code>markers.*</code> and <code>measure</code> over the same commands, when the MCP adapter lands.</li>
-  </ol>
+  <h2 id="plan-h">Plan: nine commits</h2>
+  <p class="prose">The design lands in nine commits, one feature each. Every commit builds, passes <code>cargo test -p volna-core</code> and <code>volna/volna/check.sh</code>, gives the user something that is useful on its own, and updates the tests and documentation it touches. No commit adds a feature flag, or code that only a later commit calls. Undo is already in place: marker edits go through the document's journaled list (<code>history::Journaled</code>, <a href="undo-redo.html">undo and redo</a>), so each commit only names its new steps and drives them in <code>volna-core/tests/history.rs</code>. Each picture is painted by the demo's code with only the features of that commit and the ones before it.</p>
+  <div class="tablewrap"><table class="stage-tbl">
+    <thead><tr><th>#</th><th>Commit</th><th>What the user gets</th><th>Needs</th><th>Workspace</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><a href="#stage-1">Markers lane</a></td><td>Chips on their own lane under the rulers, clusters when crowded</td><td>—</td><td>unchanged</td></tr>
+      <tr><td>2</td><td><a href="#stage-2">Numbers that stay small</a></td><td>Lowest free number; <kbd>⇧M</kbd> removes one marker</td><td>1</td><td>unchanged</td></tr>
+      <tr><td>3</td><td><a href="#stage-3">Walk and jump</a></td><td><kbd>.</kbd> <kbd>,</kbd> <kbd>1</kbd>–<kbd>9</kbd> <kbd>`</kbd></td><td>2</td><td>unchanged</td></tr>
+      <tr><td>4</td><td><a href="#stage-4">Names</a></td><td><kbd>M</kbd> again or a double-click names a marker</td><td>1</td><td>unchanged</td></tr>
+      <tr><td>5</td><td><a href="#stage-5">Counted cycles</a></td><td>Cycle counts with fractions, across DVFS and gating</td><td>—</td><td>unchanged</td></tr>
+      <tr><td>6</td><td><a href="#stage-6">Adjacent spans</a></td><td>Labelled intervals between neighbouring markers</td><td>1, 5</td><td>unchanged</td></tr>
+      <tr><td>7</td><td><a href="#stage-7">Reference and live span</a></td><td><kbd>R</kbd>, <kbd>⇧R</kbd>, Alt-click, the Measure lane, <kbd>Z</kbd></td><td>5, 6</td><td>version 4</td></tr>
+      <tr><td>8</td><td><a href="#stage-8">Direct manipulation</a></td><td>Drag with snapping, menus, double-click to add, copy as text</td><td>4, 7</td><td>unchanged</td></tr>
+      <tr><td>9</td><td><a href="#stage-9">Navigator</a></td><td><kbd>'</kbd> finds any marker by name</td><td>4, 7</td><td>unchanged</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="stages">
+  <article class="stage" id="stage-1" aria-labelledby="stage-1-h">
+    <div>
+      <p class="stage-n">Commit 1</p>
+      <h3 id="stage-1-h">Markers lane</h3>
+      <p>Marker chips leave the time header for their own lane under the clock rulers, in wave and pipeline panels alike. A chip shows its number in its palette colour. Chips that would touch merge into a cluster (<code>⋯4</code>): hovering it lists its markers, and a click zooms to them. A click on a chip still moves the cursor there, and <kbd>M</kbd>, <kbd>⇧M</kbd> and Shift-click keep today's meaning.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>wave::overlay::marker_lane()</code>: a pure layout of number chips and clusters over the visible slice of the sorted list, whose rectangles drive both painting and hit testing. <code>TimeColumn</code> gains the lane rectangle, so wave and pipeline layouts reserve it the same way. <code>marker::input::press</code> with <code>LaneHit::{Chip, Cluster}</code> replaces the duplicate chip code in <code>wave/model.rs</code> and <code>pipeline/model.rs</code>. <code>marker_chip_bounds</code> and <code>marker_chips</code> are removed.</dd></div>
+        <div><dt>Frontends</dt><dd>The GPUI canvas takes its hit rectangles from the lane layout. egui paints the lane through the shared painter.</dd></div>
+        <div><dt>Undo</dt><dd>No new edits. Zooming to a cluster is navigation.</dd></div>
+        <div><dt>Tests</dt><dd>Lane layout: every visible marker is in exactly one chip, chips never overlap, and clusters form and split at the expected zooms. Chip and cluster clicks in both panel kinds. Display-list tests in both themes. A <code>frame_times</code> A/B run, since the painter changes.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="1"><div class="figcv"><canvas role="img" aria-label="Wave panel with a Markers lane under the clock rulers: numbered chips 1, 2 and 3, and a cluster chip for four markers"></canvas><div class="pv-status"></div></div>
+      <figcaption>Numbers only. The four markers on load C's read beats are one cluster at this zoom.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-2" aria-labelledby="stage-2-h">
+    <div>
+      <p class="stage-n">Commit 2</p>
+      <h3 id="stage-2-h">Numbers that stay small</h3>
+      <p>A new marker takes the lowest free number and keeps it while it exists. <kbd>⇧M</kbd> removes the marker at the cursor instead of every marker, and <i>Remove All Markers</i> becomes a palette command. Shift-click on a chip stops removing it, because Shift-click extends the selection everywhere else.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>MarkerId(NonZeroU32)</code> and <code>marker::free_id</code>. <code>Document::{add_marker, remove_marker, remove_all_markers}</code> take a marker number instead of a list index, and <code>next_marker</code> is removed. <code>Action::ClearMarkers</code> becomes <code>RemoveMarkerAtCursor</code>, plus a palette-only <code>RemoveAllMarkers</code>.</dd></div>
+        <div><dt>Workspace</dt><dd>No change: workspaces already store the numbers, and restore keeps them.</dd></div>
+        <div><dt>Undo</dt><dd><code>take_edits</code> labels the steps <i>Add marker 2</i>, <i>Remove marker 2</i> and <i>Remove all markers</i>. The model-based history test drives all three.</dd></div>
+        <div><dt>Tests</dt><dd>Lowest-free allocation, numbers that stay the same when other markers are removed, restore from a workspace, and <kbd>⇧M</kbd> with no marker at the cursor.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="2"><div class="figcv"><canvas role="img" aria-label="Markers lane with chips 1, 3, 4 and 2: marker 2 was removed and the next new marker took number 2 again"></canvas><div class="pv-status"></div></div>
+      <figcaption>Marker 2 was removed with <kbd>⇧M</kbd>. The next <kbd>M</kbd>, on load B's response, took 2 again, and markers 1, 3 and 4 kept their numbers.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-3" aria-labelledby="stage-3-h">
+    <div>
+      <p class="stage-n">Commit 3</p>
+      <h3 id="stage-3-h">Walk and jump</h3>
+      <p><kbd>.</kbd> and <kbd>,</kbd> move the cursor to the next or previous marker. <kbd>1</kbd>–<kbd>9</kbd> go to marker <i>n</i>. <kbd>`</kbd> returns to the cursor and view from before the last jump, and pressed again it goes forward. The view pans only when the marker is outside the middle 90% of it, so the zoom is kept.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>NavState::reveal(t)</code> and the one-slot <code>back</code>. The actions <code>NextMarker</code>, <code>PrevMarker</code>, <code>GoToMarker(n)</code> and <code>Back</code>, also exposed through <code>Command::named</code>.</dd></div>
+        <div><dt>Frontends</dt><dd>GPUI binds the bare keys in the Waves and Pipeline contexts, and only while no text field has focus.</dd></div>
+        <div><dt>Undo</dt><dd>None: these are navigation, which stays out of the journal.</dd></div>
+        <div><dt>Tests</dt><dd>Step order, including markers at equal times and no marker in that direction. A digit with no marker of that number. <code>reveal</code> pans only when the marker is off screen. <kbd>`</kbd> swaps twice back to the start.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="3"><div class="figcv"><canvas role="img" aria-label="The cursor on marker 4 after pressing 4; the status bar says the backtick key returns"></canvas><div class="pv-status"></div></div>
+      <figcaption><kbd>4</kbd> put the cursor on marker 4, so the value column reads the marked instant. <kbd>`</kbd> would go back.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-4" aria-labelledby="stage-4-h">
+    <div>
+      <p class="stage-n">Commit 4</p>
+      <h3 id="stage-4-h">Names</h3>
+      <p><kbd>M</kbd> on an existing marker, or a double-click on its chip, opens a name field over the chip. When the selected row changes exactly at the marker, the field offers that change (<code>req_valid ↑</code>) fully selected: <kbd>↵</kbd> keeps it, typing replaces it, <kbd>Esc</kbd> cancels, and an empty name returns the chip to its number. Chips grow to their name where there is room, shorten it to at least three letters, and otherwise show the number. The tooltip always has the full name.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd>The lane layout gains the label step. <code>AddMarker</code> becomes <code>AddOrRenameMarker</code>. The group-rename editor is generalized to <code>TextEdit { target: Group(..) | Marker(id), rect, text, select_all }</code>, answered by one <code>Command::CommitText</code>. <code>Document::rename_marker</code> trims names and limits them to 48 characters.</dd></div>
+        <div><dt>Frontends</dt><dd>GPUI hosts the field over the rectangle the core reports. egui shows names but offers no editing.</dd></div>
+        <div><dt>Undo</dt><dd><i>Rename marker 4</i> is one step. Workspaces already store <code>label</code>.</dd></div>
+        <div><dt>Tests</dt><dd>Label rules in the layout. Suggestions for bit and bus rows. Commit, cancel and an empty name. The rename step in the history test.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="4"><div class="figcv"><canvas role="img" aria-label="Named marker chips; the name field is open over marker 4 with the suggestion req_valid rising selected"></canvas><div class="shot-edit" aria-hidden="true"></div><div class="pv-status"></div></div>
+      <figcaption><kbd>M</kbd> on marker 4 with <code>lsu.req_valid</code> selected. The suggestion is selected, so typing replaces it.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-5" aria-labelledby="stage-5-h">
+    <div>
+      <p class="stage-n">Commit 5</p>
+      <h3 id="stage-5-h">Counted cycles</h3>
+      <p>Cycle counts are the clock's recorded rising edges between the two times, plus the fraction of a running cycle when an end lies mid-cycle. They also have an answer before a clock's first edge and while it is gated. The status bar's Δ uses them at once. It still measures from the nearest marker until commit 7 replaces that rule.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>measure::measure(clocks, from, to) -&gt; Measurement</code> with <code>Cycles::{Whole, Fraction, Loading}</code>, built on <code>ClockTimeline::cycle_at</code>. It replaces <code>clock::cycles_between</code>, which gives whole cycles only.</dd></div>
+        <div><dt>Undo</dt><dd>Not applicable.</dd></div>
+        <div><dt>Tests</dt><dd>Counts equal brute-force edge counting on random edge pairs of gated, DVFS and single-edge timelines. Fractions stay within one cycle of the edge count. Negative spans and times before the first edge are covered.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="5"><div class="figcv"><canvas role="img" aria-label="Load B from request to response across a frequency change and a gated AXI clock; the status bar reads the counted cycles"></canvas><div class="pv-status"></div></div>
+      <figcaption>Load B, across the frequency change and the gated AXI clock. <code>cycles_between</code> gives <span data-n="bOldAxi"></span> AXI cycles here. The counted value is <span data-n="bAxi"></span>.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-6" aria-labelledby="stage-6-h">
+    <div>
+      <p class="stage-n">Commit 6</p>
+      <h3 id="stage-6-h">Adjacent spans</h3>
+      <p>Neighbouring markers are joined on the lane by a labelled dimension line. Its label is the longest of four forms that fits: the time and every ruler clock, then the selected clock and the time, then the selected clock, then the time. Spans also reach the nearest marker beyond each edge of the view. Hover shows the full measurement with 1/Δt, and a double-click zooms to the span.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>MarkerLane.spans</code> (<code>SpanMark</code>) labelled through <code>measure()</code>, and <code>LaneHit::Span</code> for hover and zoom.</dd></div>
+        <div><dt>Undo</dt><dd>None: zooming is navigation.</dd></div>
+        <div><dt>Tests</dt><dd>Every label fits its gap. Spans to markers off the view. Double-click zoom. A <code>frame_times</code> A/B run.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="6"><div class="figcv"><canvas role="img" aria-label="A labelled span between markers 1 and 2 on load A, and a span running off the right edge toward marker 3"></canvas><div class="pv-status"></div></div>
+      <figcaption>The span on load A drops the AXI count to fit its gap, and hovering it gives the full <span data-n="aText"></span>. The second span runs to marker 3, which is off screen.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-7" aria-labelledby="stage-7-h">
+    <div>
+      <p class="stage-n">Commit 7</p>
+      <h3 id="stage-7-h">Reference and live span</h3>
+      <p><kbd>R</kbd> puts the reference at the cursor, and Alt-click or middle-click puts it at the pointer. Either way it attaches to a marker at that time, and <kbd>⇧R</kbd> clears it. A Measure lane appears with the <code>R</code> tag and a signed live span to the cursor, labelled like the adjacent spans. The interval is tinted across the rows, and <kbd>Z</kbd> zooms to it. The status bar reads the reference to the cursor, and the nearest-marker rule is removed.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>Reference::{Time, Marker}</code> in <code>Document</code>, next to the journaled list but outside it. <code>measure_lane()</code>. The actions <code>SetReference</code>, <code>ClearReference</code> and <code>ZoomToMeasurement</code>. <code>Status.delta</code> becomes <code>Status.measure</code>.</dd></div>
+        <div><dt>Workspace</dt><dd><code>shared.reference</code> is added and <code>workspace::VERSION</code> goes from 3 to 4. Restore rejects a reference to a missing marker.</dd></div>
+        <div><dt>Undo</dt><dd>The reference is navigation state and is not journaled. Removing its marker leaves it at that time.</dd></div>
+        <div><dt>Tests</dt><dd><kbd>R</kbd>, <kbd>⇧R</kbd>, Alt-click and middle-click. Detaching when the marker is removed. The workspace round trip and rejection of a dangling reference. The <kbd>Z</kbd> margin. Measure-lane display lists in both themes.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="7"><div class="figcv"><canvas role="img" aria-label="The Measure lane: reference tag on marker 4 and a live span to the cursor labelled 126 ns, 80 core clock and 26.4 AXI clock cycles"></canvas><div class="pv-status"></div></div>
+      <figcaption><kbd>R</kbd> on marker 4, then the cursor on the response: <span data-n="bText"></span>, updated as the cursor moves.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-8" aria-labelledby="stage-8-h">
+    <div>
+      <p class="stage-n">Commit 8</p>
+      <h3 id="stage-8-h">Direct manipulation</h3>
+      <p>Dragging a chip moves its marker, snapping to the selected clock's edges and to changes of the row under the pointer within six pixels. The old position shows dotted, and <kbd>Esc</kbd> cancels. Alt-click or middle-click on a chip measures from it. Right-click menus on chips, spans and the live span list the same verbs with their keys, including <i>Copy as text</i>. A double-click on the time header or an empty part of the lane adds a marker there.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>Drag::Marker</code> next to <code>Drag::Cursor</code>. <code>marker::input</code> gains drag, release, cancel and the menus as data. <code>Document::move_marker</code>, which a reference attached to the marker follows. <code>marker::text()</code> gives the readable reference, for example <code>lsu_ddr.vtr marker 4 “req B” at 186 ns (core_clk 185, axi_clk 73)</code>.</dd></div>
+        <div><dt>Undo</dt><dd>One <i>Move marker 4</i> step per drag, not one per pointer move. A cancelled drag records nothing.</dd></div>
+        <div><dt>Tests</dt><dd>The click-versus-drag threshold, snapping and <kbd>Esc</kbd> in both panel kinds. Every menu verb. The copied text.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="8"><div class="figcv"><canvas role="img" aria-label="Marker 4 being dragged onto the rising edge of axi.rvalid; a dotted line shows where it came from"></canvas><div class="pv-status"></div></div>
+      <figcaption>Marker 4 snaps onto the first read beat of <code>axi.rvalid</code>. The dotted line is where it started.</figcaption></figure>
+  </article>
+
+  <article class="stage" id="stage-9" aria-labelledby="stage-9-h">
+    <div>
+      <p class="stage-n">Commit 9</p>
+      <h3 id="stage-9-h">Navigator</h3>
+      <p><kbd>'</kbd>, or <code>@</code> in the command palette, opens the palette's marker mode. It lists markers in time order with number, name, time, the step from the previous marker and the distance from the reference. Typing filters by name words or number. <kbd>↵</kbd> goes to the marker, <kbd>⇧↵</kbd> measures from it, <kbd>F2</kbd> renames it and <kbd>Del</kbd> removes it.</p>
+      <dl class="stage-dl">
+        <div><dt>Core</dt><dd><code>marker::palette_rows(query)</code>, whose distances come from <code>measure()</code>, and a <code>MarkerNavigator</code> action.</dd></div>
+        <div><dt>Frontends</dt><dd>The GPUI palette gains the mode and a <i>Markers…</i> toolbar button.</dd></div>
+        <div><dt>Undo</dt><dd><kbd>Del</kbd> is a <i>Remove marker</i> step. Everything else is navigation.</dd></div>
+        <div><dt>Tests</dt><dd>Filtering and order, the columns, and each key. Palette display lists in both themes.</dd></div>
+      </dl>
+    </div>
+    <figure class="shot" data-stage="9"><div class="shot-nav"></div>
+      <figcaption>Typing <code>resp</code> leaves both responses. Their distances from the reference, marker 1, are in time and in core cycles.</figcaption></figure>
+  </article>
+  </div>
+
+  <p class="prose">After commit 9, MCP adds <code>markers.*</code> and <code>measure</code> over the same commands, once the MCP adapter lands.</p>
+
   <h3>Open questions</h3>
   <ul class="prose">
     <li><b>Count prefixes.</b> Should a digit followed by <kbd>.</kbd> step that many markers (Vim-style)? This would conflict with digits as jumps, so it is left out until someone asks.</li>
     <li><b>Edge counts of a selected signal.</b> The live span could count the rising edges of the selected row, which answers “how many beats” (Saleae, SimVision). It fits <code>Measurement</code> as one more optional field; is it wanted in the first version?</li>
     <li><b>Reloading a re-run.</b> <code>Document::reset_state</code> clears markers when a trace is closed or replaced. When the same path is reopened after a re-run, markers could be kept, since their times usually still mean the same events. Should that be automatic, or offered once as “Keep 5 markers from the previous run”?</li>
-    <li><b>Markers from logs and searches.</b> A “Mark all matches” command for searches and “Mark this record” for log rows would reuse <code>Markers::edit</code> in one batch. Which comes first?</li>
+    <li><b>Markers from logs and searches.</b> A “Mark all matches” command for searches and “Mark this record” for log rows would add markers through <code>Document</code> in one undoable step. Which comes first?</li>
   </ul>
 </section>
 
@@ -938,7 +1112,9 @@ class Markers {
 // the time, then all text. The tooltip and the status bar always have the full text.
 const LANE = {
   CHIP_H: 16, PAD: 5, GAP: 3, MIN_SPAN_LABEL: 24,
-  layout({markers, viewport, width, left = 0, measure, cursor, clocks, selectedClock}) {
+  // `features` switches off the parts later commits add, for the plan's per-stage figures.
+  layout({markers, viewport, width, left = 0, measure, cursor, clocks, selectedClock, features = {}}) {
+    const {names = true, spans: withSpans = true} = features;
     const x = t => left + (t - viewport.a) / (viewport.b - viewport.a) * width;
     const all = markers.items;
     const i0 = markers.lowerBound(Math.ceil(viewport.a)), i1 = markers.lowerBound(Math.floor(viewport.b) + 1);
@@ -957,7 +1133,7 @@ const LANE = {
       const ch = chips[k];
       if (ch.kind === 'cluster') { ch.text = `⋯${ch.ids.length}`; ch.key = 'c' + ch.ids.join(','); continue; }
       const m = ch.marker = all[ch.first]; ch.key = 'm' + m.id; ch.text = String(m.id);
-      if (!m.label) continue;
+      if (!m.label || !names) continue;
       const room = (chips[k + 1]?.x ?? left + width + 40) - ch.x - LANE.GAP;
       const full = `${m.id} ${m.label}`;
       if (measure(full, 'chip') + 2 * LANE.PAD <= room) { ch.text = full; ch.w = measure(full, 'chip') + 2 * LANE.PAD; continue; }
@@ -970,7 +1146,7 @@ const LANE = {
     if (i0 > 0) ends.unshift({x: x(all[i0 - 1].time), w: 0, first: i0 - 1, last: i0 - 1});
     if (i1 < all.length) ends.push({x: x(all[i1].time), w: 0, first: i1, last: i1});
     const spans = [];
-    for (let k = 0; k + 1 < ends.length; k++) {
+    if (withSpans) for (let k = 0; k + 1 < ends.length; k++) {
       const A = all[ends[k].last], B = all[ends[k + 1].first];
       if (A.time === B.time) continue;
       const s = {a: A.time, b: B.time, from: A.id, to: B.id, key: `s${A.id}-${B.id}`,
@@ -1117,13 +1293,13 @@ const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
 const G = {HEADER: 24, RULER: 16, LANE: 22, MEASURE: 20, ROW: 22, NAME: 138, VALUE: 108, RIGHT: 10};
 
 class WaveView {
-  constructor(canvas, app, {rows = TRACE.rows, fixedHeight = null} = {}) {
-    this.cv = canvas; this.app = app; this.rows = rows; this.fixedHeight = fixedHeight;
+  constructor(canvas, app, {rows = TRACE.rows, fixedHeight = null, features = {}, narrowBelow = 620} = {}) {
+    this.cv = canvas; this.app = app; this.rows = rows; this.fixedHeight = fixedHeight; this.features = features; this.narrowBelow = narrowBelow;
     this.ctx = canvas.getContext('2d'); this.chipCache = null; this.lane = null;
   }
   // ---- geometry
   geom() {
-    const W = this.cv.clientWidth || 800, narrow = W < 620;
+    const W = this.cv.clientWidth || 800, narrow = W < this.narrowBelow;
     const name = narrow ? 96 : G.NAME, value = narrow ? 0 : G.VALUE;
     const left = name + value, width = Math.max(40, W - left - G.RIGHT);
     const nClocks = TRACE.clocks.length;
@@ -1143,7 +1319,7 @@ class WaveView {
   layoutLane() {
     const a = this.app, g = this.g;
     return LANE.layout({markers: a.markers, viewport: a.view, width: g.width, left: g.left, measure: (s, r) => this.measureText(s, r),
-      reference: a.markers.reference, cursor: a.cursor, clocks: TRACE.clocks, selectedClock: a.selClock});
+      reference: a.markers.reference, cursor: a.cursor, clocks: TRACE.clocks, selectedClock: a.selClock, features: this.features});
   }
   // ---- paint
   paint() {
@@ -1486,6 +1662,20 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const MOD = isMac ? '⌘' : 'Ctrl+';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 
+// The navigator's rows: number, name, time, the step from the previous marker and the distance from the
+// reference, in time and in cycles of the selected clock.
+function navListHtml(markers, items, selId, selClock, P) {
+  const rt = markers.referenceTime();
+  const sel = TRACE.clocks.find(c => c.name === selClock);
+  const d = (a, b) => { const m = MEASURE.between(sel ? [sel] : [], Math.min(a, b), Math.max(a, b)); const s = b < a ? -1 : 1; const c = m.clocks[0]; return `${fmtTime(s * m.dt, {sign: true})}${c ? ` · ${s < 0 ? '−' : '+'}${Number.isInteger(c.cycles) ? c.cycles : c.cycles.toFixed(1)}` : ''}`; };
+  const all = markers.items;
+  return items.length ? `<div class="nav-h" aria-hidden="true"><span>#</span><span>name</span><span>time</span><span>after previous · ${esc(selClock)}</span><span>${rt !== null ? 'from R · ' + esc(selClock) : ''}</span></div>` + items.map(m => {
+    const prev = all[all.indexOf(m) - 1], col = markerColor(P, m.id);
+    return `<div class="nav-row${m.id === selId ? ' on' : ''}" role="option" aria-selected="${m.id === selId}" data-id="${m.id}">
+      <span><i style="background:${col};color:${onColor(col, P)}">${m.id}</i></span><span class="${m.label ? '' : 'dim'}">${esc(m.label || 'unnamed')}</span><span>${fmtTime(m.time)}</span><span class="dim">${prev ? d(prev.time, m.time) : '—'}</span><span class="dim">${rt !== null ? (markers.reference?.marker === m.id ? 'reference' : d(rt, m.time)) : ''}</span></div>`;
+  }).join('') : `<div class="nav-empty">${all.length ? 'No marker matches' : 'No markers yet · press M at the cursor'}</div>`;
+}
+
 class MarkerApp {
   constructor(root) {
     this.root = root;
@@ -1677,17 +1867,7 @@ class MarkerApp {
     if (!this.nav) return;
     const items = this.navItems(), P = PAL[appearance()], list = this.nav.el.querySelector('.nav-list');
     if (!items.some(m => m.id === this.nav.sel)) this.nav.sel = items[0]?.id ?? null;
-    const rt = this.markers.referenceTime();
-    const sel = TRACE.clocks.find(c => c.name === this.selClock);
-    const d = (a, b) => { const m = MEASURE.between(sel ? [sel] : [], Math.min(a, b), Math.max(a, b)); const s = b < a ? -1 : 1; const c = m.clocks[0]; return `${fmtTime(s * m.dt, {sign: true})}${c ? ` · ${s < 0 ? '−' : '+'}${Number.isInteger(c.cycles) ? c.cycles : c.cycles.toFixed(1)}` : ''}`; };
-    let prev = null;
-    const all = this.markers.items;
-    list.innerHTML = items.length ? `<div class="nav-h" aria-hidden="true"><span>#</span><span>name</span><span>time</span><span>after previous · ${esc(this.selClock)}</span><span>${rt !== null ? 'from R · ' + esc(this.selClock) : ''}</span></div>` + items.map(m => {
-      const i = all.indexOf(m); prev = all[i - 1];
-      const col = markerColor(P, m.id);
-      return `<div class="nav-row${m.id === this.nav.sel ? ' on' : ''}" role="option" aria-selected="${m.id === this.nav.sel}" data-id="${m.id}">
-        <span><i style="background:${col};color:${onColor(col, P)}">${m.id}</i></span><span class="${m.label ? '' : 'dim'}">${esc(m.label || 'unnamed')}</span><span>${fmtTime(m.time)}</span><span class="dim">${prev ? d(prev.time, m.time) : '—'}</span><span class="dim">${rt !== null ? (this.markers.reference?.marker === m.id ? 'reference' : d(rt, m.time)) : ''}</span></div>`;
-    }).join('') : `<div class="nav-empty">${this.markers.items.length ? 'No marker matches' : 'No markers yet · press M at the cursor'}</div>`;
+    list.innerHTML = navListHtml(this.markers, items, this.nav.sel, this.selClock, P);
     list.querySelector('.on')?.scrollIntoView({block: 'nearest'});
   }
   navKey(e) {
@@ -2112,6 +2292,79 @@ const HERO = (() => {
   return new WaveView($('#hero-cv'), st, {rows});
 })();
 
+// ---- the plan's pictures: one per commit, painted by the same WaveView with only that commit's features
+const SHOTS = (() => {
+  const E = EV, beatsC = [E.C.first]; for (let i = 0; i < 3; i++) beatsC.push(TRACE.clocks[1].tl.nextEdge(beatsC.at(-1)));
+  const mk = (id, time, label = '') => ({id, time, label});
+  const numbers = {names: false, spans: false}, noSpans = {spans: false};
+  const status = (cursor, extra = []) => [`<span class="st-cursor">cursor <b>${fmtTime(cursor)}</b></span>`,
+    `<span class="st-cycles">${TRACE.clocks.map(ck => { const at = ck.tl.cycleAt(cursor); return `${ck.name} <b>${at ? at.cycle : '—'}</b>`; }).join(' · ')}</span>`, ...extra].join('');
+  const notice = t => `<span class="st-notice">${esc(t)}</span>`;
+  const defs = {
+    1: {markers: [mk(1, E.A.req), mk(2, E.A.resp), mk(3, E.irq), ...beatsC.map((t, i) => mk(4 + i, t))], view: [0, TRACE.END], cursor: E.B.req,
+      rows: ['lsu.req_valid', 'axi.rvalid'], features: numbers},
+    2: {markers: [mk(1, E.A.req), mk(3, E.B.req), mk(4, E.irq), mk(2, E.B.resp)], view: [0, TRACE.END], cursor: E.B.resp,
+      rows: ['lsu.req_valid', 'lsu.resp_valid'], features: numbers, status: () => status(E.B.resp, [notice(`Added marker 2 at ${fmtTime(E.B.resp)}`)])},
+    3: {markers: [mk(1, E.A.req), mk(2, E.A.resp), mk(3, E.irq), mk(4, E.B.req)], view: [140000, 260000], cursor: E.B.req,
+      rows: ['lsu.req_valid', 'lsu.req_addr'], features: numbers, status: () => status(E.B.req, [notice('At marker 4 · ` returns')])},
+    4: {markers: [mk(1, E.A.req, 'req A'), mk(2, E.A.resp, 'resp A'), mk(3, E.irq, 'irq'), mk(4, E.B.req)], view: [140000, 260000], cursor: E.B.req,
+      rows: ['lsu.req_valid', 'lsu.req_addr'], selRow: 0, editor: 4, features: noSpans},
+    5: {markers: [mk(1, E.A.req, 'req A'), mk(2, E.A.resp, 'resp A'), mk(4, E.B.req, 'req B')], view: [150000, 340000], cursor: E.B.resp,
+      rows: ['ddr.state', 'lsu.resp_valid'], features: noSpans, status: () => {
+        const m = MEASURE.between(TRACE.clocks, E.B.req, E.B.resp);
+        return status(E.B.resp, [`<span class="st-measure">Δ <b>${esc([fmtTime(m.dt), ...m.clocks.map(c => MEASURE.cycleText(c).replace(/^\+/, ''))].join(' · '))}</b></span>`]);
+      }},
+    6: {markers: [mk(1, E.A.req, 'req A'), mk(2, E.A.resp, 'resp A'), mk(3, E.irq, 'irq'), mk(4, E.B.req, 'req B')], view: [8000, 80000], cursor: null,
+      rows: ['lsu.req_valid', 'lsu.resp_valid']},
+    7: {markers: [mk(1, E.A.req, 'req A'), mk(2, E.A.resp, 'resp A'), mk(4, E.B.req, 'req B'), mk(5, E.B.first, 'first beat')], reference: {marker: 4},
+      view: [170000, 330000], cursor: E.B.resp, rows: ['ddr.state', 'lsu.resp_valid']},
+    8: {markers: [mk(1, E.A.req, 'req A'), mk(4, E.B.first, 'first beat')], view: [284000, 320000], cursor: E.B.first - 6000,
+      rows: ['axi.rvalid', 'axi.rdata'], selRow: 0, drag: {kind: 'marker', id: 4, from: E.B.first - 1300, moved: true}},
+  };
+  const shots = [];
+  for (const fig of document.querySelectorAll('.shot[data-stage]')) {
+    const n = +fig.dataset.stage, d = defs[n];
+    if (!d) { shots.push({stage: n, fig}); continue; }
+    const st = {markers: Markers.fromJSON({markers: d.markers, reference: d.reference ?? null}), view: {a: d.view[0], b: d.view[1]}, cursor: d.cursor,
+      selRow: d.selRow ?? null, selClock: 'core_clk', hover: null, drag: d.drag ?? null, editor: d.editor ? {id: d.editor} : null, focused: true, demoPointer: null};
+    const wv = new WaveView(fig.querySelector('canvas'), st, {rows: d.rows.map(r => TRACE.rows[rowIx(r)]), features: d.features ?? {}, narrowBelow: 540});
+    shots.push({stage: n, fig, st, wv, d});
+  }
+  // The name editor of commit 4, as the frontend hosts it over the chip, with its suggestion selected.
+  const editor = (s, P) => {
+    const el = s.fig.querySelector('.shot-edit'), m = s.st.markers.get(s.d.editor), g = s.wv.g;
+    const r = TRACE.rows[rowIx(s.d.rows[s.d.selRow])], i = r.changes.findIndex(c => c[0] === m.time);
+    const sug = i > 0 ? (r.kind === 'bit' ? `${r.name.split('.').pop()} ${r.changes[i][1] ? '↑' : '↓'}` : `${r.name.split('.').pop()}=${r.changes[i][1]}`) : '';
+    const ch = s.wv.lane.chips.find(c => c.kind === 'one' && c.marker.id === m.id);
+    const x = (ch ? ch.x : s.wv.x(m.time)) + s.wv.measureText(String(m.id), 'chip') + 2 * LANE.PAD;
+    el.className = 'shot-edit pv-edit'; el.innerHTML = `<span>${esc(sug)}</span>`;
+    el.style.left = Math.min(x, g.W - 190) + 'px'; el.style.top = (g.lane.y + 1) + 'px';
+    el.style.setProperty('--mk', markerColor(P, m.id)); el.style.color = onColor(markerColor(P, m.id), P);
+  };
+  const navigator = (s, P) => {
+    const m = Markers.fromJSON({markers: [{id: 1, time: EV.A.req, label: 'req A'}, {id: 2, time: EV.A.resp, label: 'resp A'}, {id: 3, time: EV.irq, label: 'irq'},
+      {id: 4, time: EV.B.req, label: 'req B'}, {id: 5, time: EV.B.resp, label: 'resp B'}], reference: {marker: 1}});
+    const items = m.items.filter(x => x.label.includes('resp'));
+    s.fig.querySelector('.shot-nav').innerHTML = `<div class="pv-nav" role="img" aria-label="The marker navigator filtered by resp, listing markers 2 and 5"><div class="nav-q"><span aria-hidden="true">@</span><span class="q">resp</span></div><div class="nav-list">${navListHtml(m, items, 2, 'core_clk', P)}</div><div class="nav-foot"><kbd>↵</kbd> go <kbd>⇧↵</kbd> measure from <kbd>F2</kbd> rename <kbd>Del</kbd> remove <kbd>Esc</kbd> close</div></div>`;
+  };
+  const paint = () => {
+    const P = PAL[appearance()];
+    for (const s of shots) {
+      if (!s.wv) { navigator(s, P); continue; }
+      if (s.d.drag) {
+        // mid-drag: the marker sits on the snapped edge and the pointer holds its chip
+        s.st.markers.get(s.d.drag.id).time = EV.B.first; s.st.demoPointer = null; s.wv.paint();
+        const ch = s.wv.lane.chips.find(c => c.ids.includes(s.d.drag.id));
+        s.st.demoPointer = {x: ch.x + 8, y: s.wv.g.lane.y + G.LANE / 2 + 2};
+      }
+      s.wv.paint();
+      if (s.d.editor) editor(s, P);
+      const bar = s.fig.querySelector('.pv-status'); if (bar) bar.innerHTML = s.d.status ? s.d.status() : '';
+    }
+  };
+  return {paint, shots};
+})();
+
 // ---- figure: counting versus dividing, from the trace
 function countFigure() {
   const el = $('#count-fig'); if (!el) return;
@@ -2146,7 +2399,7 @@ for (const el of document.querySelectorAll('[data-n]')) {
   const k = el.dataset.n;
   const v = {aTime: ns(A.dt), aCore: cyc(A, 'core_clk'), aAxi: cyc(A, 'axi_clk'), bTime: ns(B.dt), bCore: cyc(B, 'core_clk'), bAxi: cyc(B, 'axi_clk'),
     bNaiveCore: MEASURE.naive(TRACE.clocks[0].tl, EV.B.req, EV.B.resp), bNaiveAxi: MEASURE.naive(TRACE.clocks[1].tl, EV.B.req, EV.B.resp),
-    dvfs: ns(EV.dvfs), gate: `${ns(EV.gateStart)}–${ns(EV.gateEnd)}`, bText: MEASURE.text(B), aText: MEASURE.text(A, {sign: false})}[k];
+    bOldAxi: TRACE.clocks[1].tl.cycleAt(EV.B.resp).cycle - TRACE.clocks[1].tl.cycleAt(EV.B.req).cycle, dvfs: ns(EV.dvfs), gate: `${ns(EV.gateStart)}–${ns(EV.gateEnd)}`, bText: MEASURE.text(B), aText: MEASURE.text(A, {sign: false})}[k];
   if (v !== undefined) el.textContent = v;
 }
 
@@ -2214,12 +2467,13 @@ const perfEl = $('#perf-ms'); if (perfEl) perfEl.textContent = ST.perLayout.toFi
 
 // ---- theme, repaint, hooks
 $('#theme').addEventListener('click', () => { document.documentElement.dataset.theme = appearance() === 'dark' ? 'light' : 'dark'; });
-const repaintAll = () => { APP.paint(); ANAT.place(); HERO.paint(); };
+const repaintAll = () => { APP.paint(); ANAT.place(); HERO.paint(); SHOTS.paint(); };
 new MutationObserver(repaintAll).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', repaintAll);
 new ResizeObserver(() => ANAT.place()).observe($('#anat-cv').parentElement);
 new ResizeObserver(() => HERO.paint()).observe($('#hero-cv').parentElement);
-window.MK = {app: APP, state: () => ({...APP.state(), theme: appearance()}), guides: GUIDES, base, trace: TRACE, ev: EV, selftest: ST,
+new ResizeObserver(() => SHOTS.paint()).observe($('#plan'));
+window.MK = {app: APP, shots: SHOTS, state: () => ({...APP.state(), theme: appearance()}), guides: GUIDES, base, trace: TRACE, ev: EV, selftest: ST,
   set speed(v) { speed = v; }, get speed() { return speed; },
   // canvas-relative points for tests, in client coordinates
   point(kind, arg) {

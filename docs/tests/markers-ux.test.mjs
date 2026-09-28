@@ -73,6 +73,40 @@ test('the trace and the measurements the prose quotes', {timeout: 30000}, async 
   assert.deepEqual(g, {name: 'axi_clk', cycles: 0, exact: true});
 });
 
+test('each commit of the plan has a picture with only its features', {timeout: 30000}, async t => {
+  const b = await open(); t.after(() => b.close());
+  const shots = await b.evaluate(`MK.shots.shots.map(s => {
+    const L = s.wv?.lane, cv = s.fig.querySelector('canvas');
+    let colours = 0;
+    if (cv) { const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, seen = new Set();
+      for (let i = 0; i < d.length; i += 4 * 97) seen.add(d[i] << 16 | d[i + 1] << 8 | d[i + 2]); colours = seen.size; }
+    return {stage: s.stage, colours, h: cv?.clientHeight ?? 0,
+      chips: L ? L.chips.map(c => ({kind: c.kind, text: c.text})) : null, spans: L ? L.spans.filter(x => x.label).length : 0, live: !!L?.live,
+      status: s.fig.querySelector('.pv-status')?.textContent ?? '', editor: s.fig.querySelector('.shot-edit')?.textContent ?? '',
+      nav: [...s.fig.querySelectorAll('.nav-row')].map(r => r.children[1].textContent)};
+  })`);
+  assert.deepEqual(shots.map(s => s.stage), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  for (const s of shots.slice(0, 8)) {
+    assert.ok(s.colours > 8 && s.h > 60 && s.h < 260, `commit ${s.stage} picture is painted and small`);
+    if (s.stage < 7) assert.equal(s.live, false, `commit ${s.stage} has no measure lane yet`);
+    if (s.stage < 6) assert.equal(s.spans, 0, `commit ${s.stage} has no spans yet`);
+    if (s.stage < 4) assert.ok(s.chips.every(c => /^(\d+|⋯\d+)$/.test(c.text)), `commit ${s.stage} chips show numbers only`);
+  }
+  const by = n => shots.find(s => s.stage === n);
+  assert.ok(by(1).chips.some(c => c.kind === 'cluster' && c.text === '⋯4'), 'commit 1 shows a cluster');
+  assert.deepEqual(by(2).chips.map(c => c.text), ['1', '3', '4', '2'], 'commit 2 reuses the free number');
+  assert.match(by(3).status, /At marker 4/);
+  assert.equal(by(4).editor, 'req_valid ↑', 'commit 4 offers the selected row change as the name');
+  assert.ok(by(4).chips.some(c => c.text === '1 req A' || c.text === '3 irq'), 'commit 4 chips carry names');
+  assert.match(by(5).status, /Δ 126 ns · 80 core_clk · 26\.4 axi_clk/);
+  assert.ok(by(6).spans >= 1, 'commit 6 labels adjacent spans');
+  assert.equal(by(7).live, true, 'commit 7 draws the live span');
+  assert.deepEqual(by(9).nav, ['resp A', 'resp B']);
+  const old = await b.evaluate(`document.querySelector('[data-n="bOldAxi"]').textContent`);
+  assert.equal(old, '27', 'whole-cycle difference that cycles_between gives');
+  assert.deepEqual(b.exceptions, []);
+});
+
 test('guided scenarios end in the states their text describes', {timeout: 60000}, async t => {
   const b = await open(); t.after(() => b.close());
   const ev = await b.evaluate('MK.ev');
@@ -115,7 +149,7 @@ test('guided scenarios end in the states their text describes', {timeout: 60000}
   await guide(b, 'find');
   s = await state(b);
   assert.equal(s.nav, true);
-  assert.deepEqual(await b.evaluate(`[...document.querySelectorAll('.nav-row')].map(r => r.children[1].textContent)`), ['resp A', 'resp B']);
+  assert.deepEqual(await b.evaluate(`[...document.querySelectorAll('#pv .nav-row')].map(r => r.children[1].textContent)`), ['resp A', 'resp B']);
   assert.deepEqual(b.exceptions, []);
 });
 
