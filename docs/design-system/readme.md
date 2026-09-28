@@ -1,6 +1,15 @@
 # Volna design system
 
-Design system for the **Volna** website: marketing pages, benchmarks, the VTR format overview, docs and downloads.
+Design system for every HTML page in this repository: the Volna website (marketing pages, benchmarks, the VTR format overview, docs and downloads) and, as they are revised, the proposal and demo pages under `docs/`.
+
+## Ownership
+
+This directory is the source of truth. It started as a Claude Design export; edit it here, not in Claude Design, and do not re-import over it.
+
+- **Maintained:** `styles.css`, `tokens/`, `components/base.css`, `components/components.css`, `guidelines/` and `fonts/build.sh`. Pages use this layer: link `styles.css`, set `data-theme`, and compose the `v-` classes in static HTML. New tokens and `v-` classes go here, with a guideline card when they add a foundation, instead of into a page's own `<style>`.
+- **Frozen reference:** `components/**/*.jsx`, `*.d.ts`, `*.prompt.md`, `_ds_bundle.js` (compiled from the JSX by Claude Design; nothing here rebuilds it), `ui_kits/website/`, and the export metadata `_ds_manifest.json`, `_adherence.oxlintrc.json`, `.thumbnail`, `thumbnail.html` and the `@dsCard` comments. They show the intended pages and component markup; copy their structure into static HTML rather than editing or extending them.
+- **Referenced, never copied:** fonts (`volna/volna-core/assets/fonts`), viewer icons (`volna/volna-core/assets/icons`) and the app icon (`volna/volna/assets/app-icon`).
+- `docs/tests/design-system.test.mjs` checks that every relative reference resolves and that the fonts, icons and app icon load headlessly.
 
 ## Product context
 
@@ -12,7 +21,7 @@ Design system for the **Volna** website: marketing pages, benchmarks, the VTR fo
 
 ## Sources
 
-- Local codebase `vtr/` (read-only mount). Key files used:
+- The direction was derived from these repository files:
   - `vtr/docs/volna-landing.html` — existing landing page: copy, structure, component shapes.
   - `vtr/volna/volna-core/src/theme/mod.rs` — One Dark theme (surfaces, text, wave colours, markers, fonts, 13px UI / 24px rows).
   - `vtr/volna/volna-core/src/pipeline/palette.rs` — pipeline stage ladder.

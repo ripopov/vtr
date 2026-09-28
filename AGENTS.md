@@ -110,6 +110,22 @@ volna-core` provides platform-independent headless coverage, while
   presentation or design-source semantics beyond the documented log-site
   provenance exception; see README.md's “VTR/VDB boundary.”
 
+## Web pages and design system
+
+`docs/design-system` is the design system for every HTML page in the
+repository and the source of truth; edit it here. Read its `readme.md` (also
+the `volna-design` project skill) before creating or restyling a page.
+
+- New pages, and existing pages under `docs/` when they are substantially
+  revised, link `docs/design-system/styles.css` and compose its tokens and
+  `v-` classes. Do not introduce page-local colours, fonts, spacing or
+  component styles; add missing tokens or classes to the design system.
+- Keep the maintained CSS layer and the frozen reference (React components,
+  `_ds_bundle.js`, `ui_kits/website`, export metadata) as its readme defines.
+- Reference fonts, icons and the app icon from `volna/`; never copy them.
+- Numbers come from the benchmark report; imagery is real product output.
+- Run `docs/tests/design-system.test.mjs` after changing the design system.
+
 ## Format and documentation changes
 
 A format change requires all of the following in the same change:
