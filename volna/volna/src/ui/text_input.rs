@@ -1,16 +1,42 @@
 //! A minimal single-line text field (filter box, group name editor). Handles
-//! printable input, backspace, word delete and escape. No IME or selection;
-//! enough for a filter or a name.
+//! printable input, backspace, word delete, escape and its own text undo:
+//! its key context binds ⌘Z / Ctrl+Z, so undo in a field edits the text and
+//! never the cockpit (`docs/undo-redo.html`). No IME or selection; enough
+//! for a filter or a name.
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
     App, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, ParentElement, Render, SharedString, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    IntoElement, KeyBinding, KeyDownEvent, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, Window, actions, div, px,
 };
 
 use super::icon::{Icon, IconName};
 use crate::theme::{ThemePx, theme};
+
+actions!(text_input, [UndoText, RedoText]);
+
+const CONTEXT: &str = "TextInput";
+
+/// Text undo and redo keys, on every platform: the innermost key context
+/// wins, so these shadow the workspace's cockpit undo while a field has focus.
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("cmd-z", UndoText, Some(CONTEXT)),
+        KeyBinding::new("ctrl-z", UndoText, Some(CONTEXT)),
+        KeyBinding::new("cmd-shift-z", RedoText, Some(CONTEXT)),
+        KeyBinding::new("ctrl-shift-z", RedoText, Some(CONTEXT)),
+        KeyBinding::new("ctrl-y", RedoText, Some(CONTEXT)),
+    ]);
+}
+
+/// What changed the text last: runs of typing or deleting undo together.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EditKind {
+    Type,
+    Delete,
+    Other,
+}
 
 pub enum TextInputEvent {
     Changed,
@@ -30,6 +56,10 @@ pub struct TextInput {
     /// The whole text is selected: typing replaces it, Backspace clears it,
     /// and any other key just drops the selection.
     all_selected: bool,
+    /// Text before each undoable edit, and text undone.
+    undo: Vec<String>,
+    redo: Vec<String>,
+    last_edit: Option<EditKind>,
 }
 
 impl EventEmitter<TextInputEvent> for TextInput {}
@@ -48,6 +78,9 @@ impl TextInput {
             focus_handle: cx.focus_handle(),
             plain: false,
             all_selected: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            last_edit: None,
         }
     }
 
@@ -71,16 +104,18 @@ impl TextInput {
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         if !self.text.is_empty() {
-            self.text.clear();
-            cx.emit(TextInputEvent::Changed);
-            cx.notify();
+            self.edit(EditKind::Other, String::clear, cx);
         }
     }
 
-    /// Replace the text without emitting `Changed` (the model already knows).
+    /// Replace the text without emitting `Changed` (the model already
+    /// knows); the text undo starts over from it.
     pub fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
         if self.text != text {
             self.text = text;
+            self.undo.clear();
+            self.redo.clear();
+            self.last_edit = None;
             cx.notify();
         }
     }
@@ -90,7 +125,43 @@ impl TextInput {
         if text.is_empty() || text.chars().any(|c| c.is_control()) {
             return;
         }
-        self.text.push_str(text);
+        self.edit(EditKind::Type, |t| t.push_str(text), cx);
+    }
+
+    /// Change the text as an undoable edit; a run of one kind of edit
+    /// undoes at once.
+    fn edit(&mut self, kind: EditKind, f: impl FnOnce(&mut String), cx: &mut Context<Self>) {
+        let before = self.text.clone();
+        f(&mut self.text);
+        if self.text == before {
+            return;
+        }
+        if kind == EditKind::Other || self.last_edit != Some(kind) {
+            self.undo.push(before);
+        }
+        self.last_edit = Some(kind);
+        self.redo.clear();
+        cx.emit(TextInputEvent::Changed);
+        cx.notify();
+    }
+
+    fn undo_text(&mut self, _: &UndoText, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = self.undo.pop() {
+            self.redo.push(std::mem::replace(&mut self.text, text));
+            self.restored(cx);
+        }
+    }
+
+    fn redo_text(&mut self, _: &RedoText, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = self.redo.pop() {
+            self.undo.push(std::mem::replace(&mut self.text, text));
+            self.restored(cx);
+        }
+    }
+
+    fn restored(&mut self, cx: &mut Context<Self>) {
+        self.last_edit = None;
+        self.all_selected = false;
         cx.emit(TextInputEvent::Changed);
         cx.notify();
     }
@@ -108,15 +179,25 @@ impl TextInput {
         match ks.key.as_str() {
             "backspace" if selected => self.clear(cx),
             "backspace" => {
-                if ks.modifiers.alt || ks.modifiers.platform {
-                    let trimmed = self.text.trim_end().len();
-                    let cut = self.text[..trimmed].rfind(' ').map(|i| i + 1).unwrap_or(0);
-                    self.text.truncate(cut);
+                let word = ks.modifiers.alt || ks.modifiers.platform;
+                let kind = if word {
+                    EditKind::Other
                 } else {
-                    self.text.pop();
-                }
-                cx.emit(TextInputEvent::Changed);
-                cx.notify();
+                    EditKind::Delete
+                };
+                self.edit(
+                    kind,
+                    |text| {
+                        if word {
+                            let trimmed = text.trim_end().len();
+                            let cut = text[..trimmed].rfind(' ').map(|i| i + 1).unwrap_or(0);
+                            text.truncate(cut);
+                        } else {
+                            text.pop();
+                        }
+                    },
+                    cx,
+                );
             }
             "escape" => {
                 if self.text.is_empty() || self.plain {
@@ -133,12 +214,21 @@ impl TextInput {
                 if let Some(c) = ks.key_char.as_deref()
                     && !c.chars().any(|ch| ch.is_control())
                 {
-                    if selected {
-                        self.text.clear();
-                    }
-                    self.text.push_str(c);
-                    cx.emit(TextInputEvent::Changed);
-                    cx.notify();
+                    let kind = if selected {
+                        EditKind::Other
+                    } else {
+                        EditKind::Type
+                    };
+                    self.edit(
+                        kind,
+                        |text| {
+                            if selected {
+                                text.clear();
+                            }
+                            text.push_str(c);
+                        },
+                        cx,
+                    );
                 }
             }
         }
@@ -159,7 +249,10 @@ impl Render for TextInput {
         let hover_border = t.border_focused;
         div()
             .id("text-input")
+            .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::undo_text))
+            .on_action(cx.listener(Self::redo_text))
             .flex()
             .items_center()
             .gap_2()

@@ -143,12 +143,12 @@ fn select(app: &mut App, id: PanelId, rows: &[usize]) {
 
 fn heights(app: &App, id: PanelId) -> Vec<u8> {
     let w = app.panels.waves(id).unwrap();
-    w.items.iter().map(|r| r.height().multiple()).collect()
+    w.items().iter().map(|r| r.height().multiple()).collect()
 }
 
 fn draws(app: &App, id: PanelId) -> Vec<Option<AnalogDraw>> {
     let w = app.panels.waves(id).unwrap();
-    w.items
+    w.items()
         .iter()
         .map(|r| r.signal().unwrap().analog.as_ref().map(|a| a.draw))
         .collect()
@@ -156,8 +156,16 @@ fn draws(app: &App, id: PanelId) -> Vec<Option<AnalogDraw>> {
 
 fn set_format(app: &mut App, id: PanelId, row: usize, format: &str) {
     let w = app.panels.waves_mut(id).unwrap();
-    let t = app.doc.translators.get(format).unwrap();
-    w.items[row].signal_mut().unwrap().translator = t;
+    w.open_format_menu(&app.doc, row, volna_core::geometry::Point::default());
+    w.menu.as_mut().unwrap().row = row;
+    let (selected, anchor) = (std::mem::take(&mut w.selected), w.anchor);
+    w.menu_select(
+        &app.doc,
+        &volna_core::wave::model::MenuAction::Format(format.into()),
+    );
+    w.selected = selected;
+    w.anchor = anchor;
+    assert_eq!(w.items()[row].signal().unwrap().translator.id(), format);
 }
 
 /// The waves-column rectangle of `row` at the last layout.
@@ -338,7 +346,7 @@ fn the_format_menu_draws_and_ranges_and_the_signal_menu_toggles() {
         MenuAction::Range(AnalogRange::Type),
     ));
     frame(&mut app, id);
-    let a = app.panels.waves(id).unwrap().items[BUS]
+    let a = app.panels.waves(id).unwrap().items()[BUS]
         .signal()
         .unwrap()
         .analog
@@ -393,7 +401,7 @@ fn ranges_fit_trace_window_and_type_and_the_window_range_eases() {
     view(&mut app, id, 0.0, END as f64);
     frame(&mut app, id);
     let target = |app: &App| {
-        app.panels.waves(id).unwrap().items[BUS]
+        app.panels.waves(id).unwrap().items()[BUS]
             .signal()
             .unwrap()
             .analog
@@ -403,7 +411,7 @@ fn ranges_fit_trace_window_and_type_and_the_window_range_eases() {
             .unwrap()
     };
     let shown = |app: &App| {
-        app.panels.waves(id).unwrap().items[BUS]
+        app.panels.waves(id).unwrap().items()[BUS]
             .signal()
             .unwrap()
             .analog
@@ -453,7 +461,7 @@ fn zoomed_out_columns_keep_the_glitch_and_x_breaks_the_line() {
     frame(&mut app, id);
     let area = row_rect(&app, id, BUS);
     let w = app.panels.waves(id).unwrap();
-    let h = w.items[BUS].signal().unwrap().history.clone().unwrap();
+    let h = w.items()[BUS].signal().unwrap().history.clone().unwrap();
     let vp = w.viewport(&app.doc);
     assert_eq!(
         analog::draw_mode(h.as_ref(), &vp, area.width()),
@@ -722,7 +730,7 @@ fn long_histories_summarize_on_the_worker_and_release_with_the_plot() {
     let requests = app.take_requests();
     assert_eq!(requests.len(), 1);
     assert!(matches!(requests[0], LoadRequest::Summary { .. }));
-    let signal = app.panels.waves(id).unwrap().items[BUS]
+    let signal = app.panels.waves(id).unwrap().items()[BUS]
         .signal_ref()
         .unwrap();
     let kind = volna_core::data::NumericKind::Unsigned;

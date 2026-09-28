@@ -4,13 +4,19 @@ on:
     paths:
       - 'docs/undo-redo.html'
       - 'docs/tests/undo-redo.test.mjs'
-      - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/**'
+      - 'core/vtr/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
       - '.github/workflows/undo-redo.yml'
   pull_request:
     paths:
       - 'docs/undo-redo.html'
       - 'docs/tests/undo-redo.test.mjs'
-      - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/**'
+      - 'core/vtr/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
       - '.github/workflows/undo-redo.yml'
   workflow_dispatch:
 permissions:
@@ -30,3 +36,73 @@ jobs:
         run: google-chrome --version
       - name: Test the design demo
         run: node --test --test-concurrency=1 docs/tests/undo-redo.test.mjs
+
+  # The journal, the model-based test and every headless viewer test.
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      # Cargo reads the elkrs manifest to resolve the workspace.
+      - name: Check out the elkrs submodule
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Test volna-core
+        run: cargo test --locked -p volna-core
+
+  # Keys, text-field precedence, the Edit menu and the palette in GPUI's
+  # headless test platform, and the VS Code extension's forwarding.
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the elkrs submodule
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libfontconfig1-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xinput-dev
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Test undo in the GPUI frontend
+        run: cargo test --locked -p volna --lib undo_
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test the VS Code extension's command forwarding
+        run: node --test volna/volna/vscode-ext/commands.test.cjs
+
+  # The real web bundle in headless Chrome: Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z
+  # reach the history, the browser's default is prevented, and host
+  # commands take the same path.
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VOLNA_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the elkrs submodule
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify the build and browser prerequisites
+        run: |
+          google-chrome --version
+          ls /usr/lib/llvm-18/bin/clang /usr/lib/llvm-18/bin/llvm-ar
+      - name: Install the wasm-bindgen CLI the lock file pins
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print $3; exit }' Cargo.lock)
+          cargo install --locked wasm-bindgen-cli --version "$version"
+      - name: Build the web bundle
+        run: volna/volna/web/build.sh
+      - name: Test undo keys in the web page
+        run: node --test --test-concurrency=1 volna/volna/tools/undo.test.mjs

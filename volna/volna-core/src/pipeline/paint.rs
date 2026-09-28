@@ -78,7 +78,7 @@ pub fn paint(
         area: cells,
         viewport,
     };
-    let clocks = &model.nav.clocks;
+    let clocks = model.nav.clocks();
 
     // -- backgrounds and the tick grid ----------------------------------------
     p.scene.fill(bounds, t.editor.bg);

@@ -27,6 +27,14 @@
         "title": "Volna: Open Settings"
       },
       {
+        "command": "volna.undo",
+        "title": "Volna: Undo"
+      },
+      {
+        "command": "volna.redo",
+        "title": "Volna: Redo"
+      },
+      {
         "command": "volna.splitRight",
         "title": "Volna: Split Right"
       },
@@ -135,6 +143,24 @@
       }
     ],
     "keybindings": [
+      {
+        "command": "volna.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.redo",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
+      {
+        "command": "volna.redo",
+        "key": "ctrl+y",
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == volna.waveform && !inputFocus"
+      },
       {
         "command": "volna.splitRight",
         "key": "ctrl+\\",

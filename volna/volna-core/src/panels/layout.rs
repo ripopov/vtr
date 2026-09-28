@@ -121,6 +121,27 @@ impl Layout {
         Ok(())
     }
 
+    /// Whether two trees hold the same panels in the same groups and
+    /// splits, whatever their sash sizes and active tabs (navigation).
+    pub fn same_shape(&self, other: &Layout) -> bool {
+        match (self, other) {
+            (Self::Tabs { tabs: a, .. }, Self::Tabs { tabs: b, .. }) => a == b,
+            (
+                Self::Split {
+                    split: a,
+                    children: x,
+                    ..
+                },
+                Self::Split {
+                    split: b,
+                    children: y,
+                    ..
+                },
+            ) => a == b && x.len() == y.len() && x.iter().zip(y).all(|(x, y)| x.same_shape(y)),
+            _ => false,
+        }
+    }
+
     /// The active tab in the group containing a particular panel.
     pub fn active_for(&self, id: PanelId) -> Option<PanelId> {
         match self {

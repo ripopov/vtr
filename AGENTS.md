@@ -36,6 +36,14 @@ For viewer work, follow the three Volna intents in README.md:
 MCP and other agent adapters must remain thin wrappers over toolkit-independent
 core commands and query APIs and must preserve the VTR/VDB boundary.
 
+Every new viewer feature decides whether each of its user actions is undoable
+([docs/undo-redo.html](docs/undo-redo.html)). Changes to what a workspace
+stores are cockpit edits: route them through the field's single journaled
+writer (`history::Journaled`, `WaveModel` row edits, `App::restructure`) so
+they become labelled steps, and drive them in the model-based test
+(`volna/volna-core/tests/history.rs`). Navigation, selection, chrome and
+settings stay out of the journal.
+
 ## Automated, headless testing only
 
 All testing and verification must be headless, fully automated, runnable

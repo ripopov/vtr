@@ -137,7 +137,7 @@ fn main() -> anyhow::Result<()> {
     app.panels.waves_mut(waves).unwrap().selected = [0].into();
     app.handle(Command::Action(Action::ResetRowHeight));
     assert_eq!(
-        app.panels.waves(waves).unwrap().items[0].height(),
+        app.panels.waves(waves).unwrap().items()[0].height(),
         RowHeight::DEFAULT
     );
     let folded_ms = frame(&mut app, mid, mid + 2000.0);

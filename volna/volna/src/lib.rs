@@ -408,6 +408,58 @@ pub mod web {
         post(serde_json::json!({"type":"notice", "text":text}));
     }
 
+    /// Say `text` politely to assistive technology: `document.ariaNotify`
+    /// where the browser has it, else a visually hidden live region. The
+    /// page, not the host, speaks, so VS Code shows no popup for an undo.
+    pub fn announce(text: &str) {
+        use js_sys::{Array, Function, Reflect};
+        let call = |target: &JsValue, name: &str, args: &Array| {
+            let f = Reflect::get(target, &JsValue::from_str(name)).ok()?;
+            f.dyn_ref::<Function>()?.apply(target, args).ok()
+        };
+        let Ok(document) = Reflect::get(&js_sys::global(), &JsValue::from_str("document")) else {
+            return;
+        };
+        let text = JsValue::from_str(text);
+        if call(&document, "ariaNotify", &Array::of1(&text)).is_some() {
+            return;
+        }
+        let id = JsValue::from_str("volna-announce");
+        let region = match call(&document, "getElementById", &Array::of1(&id)) {
+            Some(region) if !region.is_null() => region,
+            _ => {
+                let Some(region) = call(
+                    &document,
+                    "createElement",
+                    &Array::of1(&JsValue::from_str("div")),
+                ) else {
+                    return;
+                };
+                for (name, value) in [
+                    ("id", "volna-announce"),
+                    ("role", "status"),
+                    ("aria-live", "polite"),
+                    (
+                        "style",
+                        "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)",
+                    ),
+                ] {
+                    call(
+                        &region,
+                        "setAttribute",
+                        &Array::of2(&JsValue::from_str(name), &JsValue::from_str(value)),
+                    );
+                }
+                let Ok(body) = Reflect::get(&document, &JsValue::from_str("body")) else {
+                    return;
+                };
+                call(&body, "appendChild", &Array::of1(&region));
+                region
+            }
+        };
+        Reflect::set(&region, &JsValue::from_str("textContent"), &text).ok();
+    }
+
     /// Dispatch a named host command; unknown names are rejected before queuing.
     #[wasm_bindgen]
     pub fn dispatch_command(name: &str) -> Result<(), JsValue> {
@@ -509,8 +561,35 @@ pub mod web {
             HOST_TX.with(|slot| *slot.borrow_mut() = Some(tx));
             match super::open_main_window(cx, embedded) {
                 Ok(workspace) => {
+                    let window = cx.windows().first().copied();
                     cx.spawn(async move |cx| {
                         while let Some(event) = rx.next().await {
+                            // Host undo and redo take the path of the keys:
+                            // a focused text field undoes its text; anything
+                            // else undoes the cockpit.
+                            if let HostEvent::Command(
+                                command @ (volna_core::app::Command::Undo
+                                | volna_core::app::Command::Redo),
+                            ) = &event
+                                && let Some(window) = window
+                            {
+                                let keys = if *command == volna_core::app::Command::Undo {
+                                    "ctrl-z"
+                                } else {
+                                    "ctrl-shift-z"
+                                };
+                                let keystroke =
+                                    gpui_kit::Keystroke::parse(keys).expect("a valid keystroke");
+                                if gpui_kit::AppContext::update_window(
+                                    cx,
+                                    window,
+                                    |_, window, cx| window.dispatch_keystroke(keystroke, cx),
+                                )
+                                .unwrap_or(false)
+                                {
+                                    continue;
+                                }
+                            }
                             workspace.update(cx, |ws, cx| match event {
                                 HostEvent::Open(name, bytes) => ws.open_bytes(name, bytes, cx),
                                 HostEvent::RemoteFrame(connection, bytes) => {

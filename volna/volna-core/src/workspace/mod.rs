@@ -379,7 +379,7 @@ impl Workspace {
                                 id: panel.id,
                                 kind: "pipeline".into(),
                                 version: 1,
-                                title: panel.title.clone(),
+                                title: panel.title.get().clone(),
                                 track: p.track.path().to_vec(),
                                 link: p.nav.link,
                                 viewport: (!p.nav.link.viewport)
@@ -391,7 +391,7 @@ impl Workspace {
                                 row_cap: (p.row_cap != crate::pipeline::zoom::ROW_PX_CAP)
                                     .then_some(p.row_cap),
                                 label_width: p.label_width,
-                                clocks: p.nav.clocks.clone(),
+                                clocks: p.nav.clocks().clone(),
                             })?)
                         }
                         PanelKind::Table(table) => {
@@ -409,7 +409,7 @@ impl Workspace {
                                         .collect(),
                                 },
                             };
-                            let columns = match &table.columns {
+                            let columns = match table.columns.get() {
                                 ColumnSet::Transactions(visible) => visible
                                     .iter()
                                     .map(|column| column.key().to_owned())
@@ -433,7 +433,7 @@ impl Workspace {
                                 id: panel.id,
                                 kind: "table".into(),
                                 version: 2,
-                                title: panel.title.clone(),
+                                title: panel.title.get().clone(),
                                 source,
                                 columns,
                                 link: table.nav.link,
@@ -445,9 +445,9 @@ impl Workspace {
                                 id: panel.id,
                                 kind: "transaction".into(),
                                 version: 1,
-                                title: panel.title.clone(),
+                                title: panel.title.get().clone(),
                                 pinned: model
-                                    .pinned
+                                    .pinned()
                                     .then(|| {
                                         shown.map(|record| SavedRecord {
                                             track: record.track.path().to_vec(),
@@ -473,12 +473,12 @@ impl Workspace {
                             id: panel.id,
                             kind: "start".into(),
                             version: 1,
-                            title: panel.title.clone(),
+                            title: panel.title.get().clone(),
                         })?),
                         _ => unreachable!("settings panels are not saved"),
                     };
                 };
-                let rows = nest(&w.items, &|row| match row {
+                let rows = nest(w.items(), &|row| match row {
                     WaveRow::Signal(item) => {
                         let (signal, nth) = item.source.locator(h);
                         Row::Signal {
@@ -506,7 +506,7 @@ impl Workspace {
                     id: panel.id,
                     kind: "waves".into(),
                     version: WAVES_VERSION,
-                    title: panel.title.clone(),
+                    title: panel.title.get().clone(),
                     link: w.nav.link,
                     viewport: (!w.nav.link.viewport).then(|| w.nav.local_viewport.target()),
                     cursor: (!w.nav.link.cursor)
@@ -519,7 +519,7 @@ impl Workspace {
                     },
                     rows,
                     selected: w.selected.clone(),
-                    clocks: w.nav.clocks.clone(),
+                    clocks: w.nav.clocks().clone(),
                 })?)
             })
             .collect::<Result<_>>()?;
@@ -554,7 +554,7 @@ impl Workspace {
             shared: Shared {
                 viewport: app.doc.shared.viewport.target(),
                 cursor: app.doc.shared.cursor,
-                markers: app.doc.markers.clone(),
+                markers: app.doc.markers().to_vec(),
             },
             sidebar: Sidebar {
                 visible: app.sidebar_visible,
@@ -685,7 +685,7 @@ impl Workspace {
                 };
                 let mut p = PipelineModel::new(track, saved.link);
                 p.follow = saved.follow;
-                p.nav.clocks = saved.clocks;
+                p.nav.restore_clocks(saved.clocks);
                 if let Some(v) = saved.viewport {
                     valid_viewport(v)?;
                     p.nav.local_viewport.set(v);
@@ -699,7 +699,7 @@ impl Workspace {
                 p.label_width = saved.label_width;
                 panels.push(Panel {
                     id: saved.id,
-                    title: saved.title,
+                    title: crate::history::Journaled::new(saved.title),
                     kind: PanelKind::Pipeline(Box::new(p)),
                 });
                 continue;
@@ -751,7 +751,8 @@ impl Workspace {
                     }
                 };
                 let mut table = TableModel::new(source, saved.link, app.table_memory_budget());
-                match &mut table.columns {
+                let mut columns = table.columns.get().clone();
+                match &mut columns {
                     ColumnSet::Transactions(visible) => {
                         *visible = TransactionColumn::ALL
                             .into_iter()
@@ -774,9 +775,10 @@ impl Workspace {
                         }
                     }
                 }
+                table.columns.restore(columns);
                 panels.push(Panel {
                     id: saved.id,
-                    title: saved.title,
+                    title: crate::history::Journaled::new(saved.title),
                     kind: PanelKind::Table(Box::new(table)),
                 });
                 continue;
@@ -826,7 +828,7 @@ impl Workspace {
                 }
                 panels.push(Panel {
                     id: saved.id,
-                    title: saved.title,
+                    title: crate::history::Journaled::new(saved.title),
                     kind: PanelKind::Transaction(Box::new(model)),
                 });
                 continue;
@@ -834,7 +836,7 @@ impl Workspace {
             if header.kind == "start" && header.version == 1 {
                 panels.push(Panel {
                     id: header.id,
-                    title: header.title,
+                    title: crate::history::Journaled::new(header.title),
                     kind: PanelKind::Start,
                 });
                 continue;
@@ -846,7 +848,7 @@ impl Workspace {
                 ));
                 panels.push(Panel {
                     id: header.id,
-                    title: header.title,
+                    title: crate::history::Journaled::new(header.title),
                     kind: PanelKind::Unsupported(raw),
                 });
                 continue;
@@ -881,7 +883,7 @@ impl Workspace {
             );
             let mut w = WaveModel::new();
             w.nav.link = saved.link;
-            w.nav.clocks = saved.clocks;
+            w.nav.restore_clocks(saved.clocks);
             if let Some(v) = saved.viewport {
                 valid_viewport(v)?;
                 w.nav.local_viewport.set(v);
@@ -893,6 +895,7 @@ impl Workspace {
             w.scroll_y = saved.scroll_y;
             w.names_width = saved.columns.names;
             w.values_width = saved.columns.values;
+            let mut items = Vec::with_capacity(flat.len());
             for (depth, row) in flat {
                 let (signal, nth, format, height, analog) = match row {
                     Row::Signal {
@@ -919,7 +922,7 @@ impl Workspace {
                                 TxLane::unresolved(generator, height)
                             }
                         };
-                        w.items.push(Entry::new(depth, WaveRow::Lane(lane)));
+                        items.push(Entry::new(depth, WaveRow::Lane(lane)));
                         continue;
                     }
                     Row::Clock { clock, height } => {
@@ -927,7 +930,7 @@ impl Workspace {
                         if app.doc.clocks.find(&clock).is_none() {
                             report.push(format!("Missing clock: {clock}"));
                         }
-                        w.items.push(Entry::new(
+                        items.push(Entry::new(
                             depth,
                             WaveRow::Clock(crate::wave::model::ClockRow {
                                 height,
@@ -942,7 +945,7 @@ impl Workspace {
                         height,
                         ..
                     } => {
-                        w.items.push(Entry::new(
+                        items.push(Entry::new(
                             depth,
                             WaveRow::Group(GroupRow {
                                 name,
@@ -997,7 +1000,7 @@ impl Workspace {
                 if requested.is_none() {
                     report.push(format!("Unknown translator: {format}"));
                 }
-                w.items.push(Entry::new(
+                items.push(Entry::new(
                     depth,
                     WaveRow::Signal(DisplayedSignal {
                         source,
@@ -1013,13 +1016,14 @@ impl Workspace {
                     }),
                 ));
             }
+            w.restore_rows(items);
             // Selected rows inside folded groups select the group instead.
             w.selected = saved.selected;
             w.anchor = w.selected.first().copied();
             w.fix_hidden_selection();
             panels.push(Panel {
                 id: saved.id,
-                title: saved.title,
+                title: crate::history::Journaled::new(saved.title),
                 kind: PanelKind::Waves(Box::new(w)),
             });
         }
@@ -1102,7 +1106,7 @@ impl RestorePlan {
             .set_scope(app.doc.hierarchy(), app.scopes.selected);
         for panel in app.panels.iter() {
             if let Some(w) = panel.kind.waves() {
-                for row in &w.items {
+                for row in w.items() {
                     if let Some(signal) = row.signal_ref() {
                         app.doc.request_signal(signal);
                     }

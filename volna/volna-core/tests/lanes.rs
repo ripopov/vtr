@@ -111,7 +111,7 @@ fn show(app: &mut App, waves: PanelId, start: f64, end: f64) {
 /// Panel point in the middle of record `ordinal` of lane row `row`.
 fn bar_point(app: &App, waves: PanelId, row: usize, ordinal: usize) -> Point {
     let w = app.panels.waves(waves).unwrap();
-    let lane = w.items[row].lane().unwrap();
+    let lane = w.items()[row].lane().unwrap();
     let g = lane.generator(&app.doc).unwrap();
     let tx = &g.transactions()[ordinal];
     let layout = w.last_layout();
@@ -147,12 +147,12 @@ fn click(app: &mut App, waves: PanelId, p: Point) {
 fn add_to_waves_loads_shares_and_releases_generator_records() {
     let (mut app, session, waves, tracks) = with_lanes(&[CPU0, CPU1]);
     let w = app.panels.waves(waves).unwrap();
-    assert_eq!(w.items.len(), 2);
+    assert_eq!(w.items().len(), 2);
     assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [0, 1]);
     // Depths 5 and 16: the smallest preset that fits, capped at 4×.
-    let heights: Vec<_> = w.items.iter().map(|r| r.height().multiple()).collect();
+    let heights: Vec<_> = w.items().iter().map(|r| r.height().multiple()).collect();
     assert_eq!(heights, [4, 4]);
-    let cpu1 = w.items[1].lane().unwrap();
+    let cpu1 = w.items()[1].lane().unwrap();
     assert_eq!(cpu1.generator(&app.doc).unwrap().depth(), 16);
     assert_eq!(lane::folded(16, cpu1.height), 11);
 
@@ -165,7 +165,7 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
         _ => panic!("not resident"),
     };
     let object = shared(&app);
-    let lane_object = app.panels.waves(waves).unwrap().items[0]
+    let lane_object = app.panels.waves(waves).unwrap().items()[0]
         .lane()
         .unwrap()
         .generator(&app.doc)
@@ -179,7 +179,7 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
     )));
     app.panels.waves_mut(waves).unwrap().selected = [0, 1].into();
     app.handle(Command::Action(Action::RemoveSelected));
-    assert!(app.panels.waves(waves).unwrap().items.is_empty());
+    assert!(app.panels.waves(waves).unwrap().items().is_empty());
     assert!(matches!(
         app.doc.track(tracks[0]),
         Some(TrackLoadState::Ready(_))
@@ -206,14 +206,14 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
         Member::Var(0),
     ]));
     let w = app.panels.waves(waves).unwrap();
-    assert_eq!(w.items.len(), 1);
-    assert!(w.items[0].signal().is_some());
+    assert_eq!(w.items().len(), 1);
+    assert!(w.items()[0].signal().is_some());
 }
 
 #[test]
 fn clicking_a_bar_selects_the_record_everywhere_and_empty_space_clears_it() {
     let (mut app, _session, waves, tracks) = with_lanes(&[CPU0]);
-    let g = app.panels.waves(waves).unwrap().items[0]
+    let g = app.panels.waves(waves).unwrap().items()[0]
         .lane()
         .unwrap()
         .generator(&app.doc)
@@ -223,7 +223,7 @@ fn clicking_a_bar_selects_the_record_everywhere_and_empty_space_clears_it() {
     // A record on sub-row 1, so the click must find the right sub-row.
     let ordinal = (0..g.len())
         .find(|&i| {
-            app.panels.waves(waves).unwrap().items[0]
+            app.panels.waves(waves).unwrap().items()[0]
                 .lane()
                 .unwrap()
                 .generator(&app.doc)
@@ -296,7 +296,7 @@ fn clicking_a_bar_selects_the_record_everywhere_and_empty_space_clears_it() {
 fn edge_steps_walk_record_begins_and_ends_on_a_lane() {
     let (mut app, _session, waves, _tracks) = with_lanes(&[CPU0]);
     let mut bounds: Vec<u64> = {
-        let g = app.panels.waves(waves).unwrap().items[0]
+        let g = app.panels.waves(waves).unwrap().items()[0]
             .lane()
             .unwrap()
             .generator(&app.doc)
@@ -327,21 +327,21 @@ fn edge_steps_walk_record_begins_and_ends_on_a_lane() {
 fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
     let (mut app, session, waves, tracks) = with_lanes(&[CPU0]);
     app.handle(Command::AddVars(vec![0]));
-    assert_eq!(app.panels.waves(waves).unwrap().items.len(), 2);
+    assert_eq!(app.panels.waves(waves).unwrap().items().len(), 2);
 
     // Lanes cut and paste with signals, into another wave panel.
     app.panels.waves_mut(waves).unwrap().selected = [0, 1].into();
     app.handle(Command::Action(Action::CutSignals));
-    assert!(app.panels.waves(waves).unwrap().items.is_empty());
+    assert!(app.panels.waves(waves).unwrap().items().is_empty());
     assert!(app.doc.track(tracks[0]).is_none(), "no lane shows it");
     app.handle(Command::Action(Action::SplitRight));
     let other = app.panels.focused_id();
     app.handle(Command::Action(Action::PasteSignals));
     pump(&mut app);
     let w = app.panels.waves(other).unwrap();
-    assert!(matches!(w.items[0].row, WaveRow::Lane(_)));
-    assert_eq!(w.items[0].height().multiple(), 4);
-    assert!(w.items[0].lane().unwrap().generator(&app.doc).is_some());
+    assert!(matches!(w.items()[0].row, WaveRow::Lane(_)));
+    assert_eq!(w.items()[0].height().multiple(), 4);
+    assert!(w.items()[0].lane().unwrap().generator(&app.doc).is_some());
 
     // The Height menu applies to lanes; folded sub-rows then show a chip.
     frame(&mut app, other);
@@ -353,7 +353,7 @@ fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
         other,
         MenuAction::RowHeight(RowHeight::DEFAULT),
     ));
-    let lane = app.panels.waves(other).unwrap().items[0]
+    let lane = app.panels.waves(other).unwrap().items()[0]
         .lane()
         .unwrap()
         .clone();
@@ -389,7 +389,7 @@ fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
     restore(&mut app, &saved);
     pump(&mut app);
     let w = app.panels.waves(other).unwrap();
-    let lane = w.items[0].lane().unwrap();
+    let lane = w.items()[0].lane().unwrap();
     assert_eq!(lane.height, RowHeight::DEFAULT);
     assert!(lane.generator(&app.doc).is_some(), "restored lanes load");
     assert_eq!(
@@ -407,7 +407,7 @@ fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
     let report = restore(&mut app, &missing);
     assert!(report.notices.iter().any(|n| n.contains("Missing lane")));
     let w = app.panels.waves(other).unwrap();
-    assert!(w.items[0].lane().unwrap().track().is_none());
+    assert!(w.items()[0].lane().unwrap().track().is_none());
     let scene = frame(&mut app, other);
     assert!(scene.texts().any(|t| t == "not in trace"));
     drop(session);
@@ -418,7 +418,7 @@ fn bars_fold_into_hatching_and_zoom_out_to_a_density_strip() {
     let (mut app, _session, waves, _tracks) = with_lanes(&[CPU1]);
     let theme = Theme::one_dark();
     let (median, depth, first) = {
-        let g = app.panels.waves(waves).unwrap().items[0]
+        let g = app.panels.waves(waves).unwrap().items()[0]
             .lane()
             .unwrap()
             .generator(&app.doc)
@@ -458,7 +458,7 @@ fn bars_fold_into_hatching_and_zoom_out_to_a_density_strip() {
         .unwrap()
         .set_cursor(doc, Some(first.begin));
     let expected = {
-        let g = app.panels.waves(waves).unwrap().items[0]
+        let g = app.panels.waves(waves).unwrap().items()[0]
             .lane()
             .unwrap()
             .generator(&app.doc)
@@ -481,7 +481,7 @@ fn bars_fold_into_hatching_and_zoom_out_to_a_density_strip() {
     frame_w(&mut app, waves, 520.0);
     let (density, columns_w) = {
         let w = app.panels.waves(waves).unwrap();
-        let g = w.items[0].lane().unwrap().generator(&app.doc).unwrap();
+        let g = w.items()[0].lane().unwrap().generator(&app.doc).unwrap();
         let width = w.last_layout().wave_width_f64();
         (
             lane::is_density(g, w.viewport(&app.doc).px_per_unit(width)),
@@ -518,7 +518,7 @@ fn a_failed_record_is_red_in_bars_and_values() {
     let waves = app.panels.focused_id();
     pump(&mut app);
     let failed = {
-        let g = app.panels.waves(waves).unwrap().items[0]
+        let g = app.panels.waves(waves).unwrap().items()[0]
             .lane()
             .unwrap()
             .generator(&app.doc)

@@ -215,6 +215,7 @@ impl VolnaApp {
                 | Event::Quit => {}
                 Event::Changed | Event::LayoutChanged { .. } => ctx.request_repaint(),
                 Event::Notice(text) => log::warn!("{text}"),
+                Event::Announce(text) => log::info!("{text}"),
                 Event::OpenFileDialog => self.open_file_dialog(),
                 Event::RevealScopeRow(ix) => self.reveal_scope = Some(ix),
                 Event::RevealVarRow(ix) => self.reveal_var = Some(ix),

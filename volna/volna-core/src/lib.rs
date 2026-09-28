@@ -7,6 +7,7 @@
 //! Module map:
 //! - `app`: the [`app::App`] state machine, its [`app::Command`]s and [`app::Event`]s
 //! - `document`: the open trace and the state every view shares (cursor, markers)
+//! - `history`: undo and redo of cockpit edits (`docs/undo-redo.html`)
 //! - `session`: the [`session::Session`] boundary through which all trace data is read
 //! - `data`: values, histories, translators, hierarchy
 //! - `wave`: viewport math, timeline, the wave panel model, layout and painter
@@ -23,6 +24,7 @@ pub mod data;
 pub mod document;
 pub mod frames;
 pub mod geometry;
+pub mod history;
 pub mod icons;
 pub mod nav;
 pub mod panels;

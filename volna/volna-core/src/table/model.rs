@@ -118,7 +118,8 @@ pub enum TableCommand {
 pub struct TableModel {
     pub source: TableSource,
     pub state: TableState,
-    pub columns: ColumnSet,
+    /// The shown columns; journaled cockpit state (`docs/undo-redo.html`).
+    pub columns: crate::history::Journaled<ColumnSet>,
     pub viewport: RowViewport,
     pub selected: Option<RowIdentity>,
     pub nav: NavState,
@@ -153,7 +154,7 @@ impl TableModel {
         Self {
             source,
             state,
-            columns,
+            columns: crate::history::Journaled::new(columns),
             viewport: RowViewport::default(),
             selected: None,
             nav,
@@ -185,7 +186,26 @@ impl TableModel {
         doc: &mut Document,
         resident: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
     ) -> anyhow::Result<()> {
-        if self.attached || matches!(self.state, TableState::Refused(_)) {
+        if self.attached {
+            return Ok(());
+        }
+        // A panel reopened by undo reserves its memory again.
+        if self._panel_reservation.is_none() {
+            match self.budget.reserve(PANEL_BYTES) {
+                Ok(reservation) => {
+                    self._panel_reservation = Some(reservation);
+                    if matches!(self.state, TableState::Refused(_)) {
+                        self.state = TableState::Loading;
+                    }
+                }
+                Err(error) => {
+                    self.state = TableState::Refused(format!(
+                        "Table needs {PANEL_BYTES} bytes; admission failed: {error}"
+                    ));
+                }
+            }
+        }
+        if matches!(self.state, TableState::Refused(_)) {
             return Ok(());
         }
         self.attached = true;
@@ -236,6 +256,13 @@ impl TableModel {
         self.signal_results.clear();
         self.window = PreparedWindow::default();
         self.request = self.request.wrapping_add(1);
+    }
+
+    /// Detach and return the panel's memory: it is closed and kept by the
+    /// undo journal. [`TableModel::attach`] reserves it again.
+    pub(crate) fn park(&mut self, doc: &mut Document) {
+        self.detach(doc);
+        self._panel_reservation = None;
     }
 
     pub fn signal_demand(&self) -> Box<dyn Iterator<Item = SignalRef> + '_> {
@@ -684,40 +711,15 @@ impl TableModel {
                 self.select(doc, panel, target, now)
             }
             TableCommand::ToggleTransactionColumn(column) => {
-                let changed = self.columns.toggle_transaction(column);
-                if changed {
-                    self.invalidate_window();
-                }
-                changed
+                self.edit_columns(|columns| columns.toggle_transaction(column))
             }
             TableCommand::ToggleSignalColumn(index) => {
-                let ColumnSet::Signals { time, visible } = &mut self.columns else {
-                    return false;
-                };
-                if index == 0 {
-                    if visible.iter().any(|v| *v) {
-                        *time = !*time;
-                    } else {
-                        return false;
-                    }
-                } else if index - 1 < visible.len() {
-                    let only_data_column = !*time && visible.iter().filter(|v| **v).count() == 1;
-                    let value = &mut visible[index - 1];
-                    if *value && only_data_column {
-                        return false;
-                    }
-                    *value = !*value;
-                } else {
-                    return false;
-                }
-                self.invalidate_window();
-                true
+                self.edit_columns(|columns| columns.toggle_signal(index))
             }
-            TableCommand::ResetColumns => {
-                self.columns.reset();
-                self.invalidate_window();
+            TableCommand::ResetColumns => self.edit_columns(|columns| {
+                columns.reset();
                 true
-            }
+            }),
             TableCommand::ClearSelection => {
                 let changed = self.selected.take().is_some();
                 if changed && doc.selection().is_some_and(|s| s.origin == panel) {
@@ -732,6 +734,23 @@ impl TableModel {
             }
             TableCommand::Retry => self.retry(doc),
         }
+    }
+
+    /// Change the shown columns as an edit.
+    fn edit_columns(&mut self, f: impl FnOnce(&mut ColumnSet) -> bool) -> bool {
+        let mut columns = self.columns.get().clone();
+        if !f(&mut columns) || !self.columns.set(columns) {
+            return false;
+        }
+        self.invalidate_window();
+        true
+    }
+
+    /// Install columns while undoing or redoing; returns the replaced ones.
+    pub(crate) fn swap_columns(&mut self, columns: ColumnSet) -> ColumnSet {
+        let old = self.columns.swap(columns);
+        self.invalidate_window();
+        old
     }
 
     fn retry(&mut self, doc: &mut Document) -> bool {
@@ -857,6 +876,11 @@ impl TableModel {
 
     pub fn dragging(&self) -> bool {
         self.drag.is_some()
+    }
+
+    /// Drop pointer capture without finishing the drag.
+    pub(crate) fn cancel_drag(&mut self) {
+        self.drag = None;
     }
 
     fn drag_vertical(&mut self, pointer_y: f32, grab: f32) {
@@ -994,7 +1018,7 @@ impl TableModel {
     }
 
     fn visible_column_widths(&self) -> Vec<(usize, f32)> {
-        match &self.columns {
+        match self.columns.get() {
             ColumnSet::Transactions(visible) => TransactionColumn::ALL
                 .iter()
                 .enumerate()

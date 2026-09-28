@@ -174,7 +174,7 @@ impl Panel for TransactionPanelView {
         use gpui_kit::assets::IconName as KitIcon;
         let owner = self.ws.upgrade()?;
         let model = owner.read(cx).app.panels.transaction(self.id)?;
-        let (back, forward, pinned) = (model.can_go_back(), model.can_go_forward(), model.pinned);
+        let (back, forward, pinned) = (model.can_go_back(), model.can_go_forward(), model.pinned());
         Some(vec![
             Button::new("tx-back")
                 .icon(KitIcon::ChevronLeft)
@@ -223,7 +223,7 @@ impl Render for TransactionPanelView {
             let Some(model) = ws.app.panels.transaction(self.id) else {
                 return div().into_any_element();
             };
-            let follows = if model.pinned {
+            let follows = if model.pinned() {
                 Some("pinned".to_owned())
             } else {
                 ws.app

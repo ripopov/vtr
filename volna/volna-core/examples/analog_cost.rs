@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
     }
     app.panels.waves_mut(waves).unwrap().selected = [0].into();
     // Signed decimal, then analog: the summary is built for that reading.
-    while app.panels.waves(waves).unwrap().items[0]
+    while app.panels.waves(waves).unwrap().items()[0]
         .signal()
         .unwrap()
         .translator

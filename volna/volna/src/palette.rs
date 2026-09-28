@@ -26,11 +26,24 @@ pub(crate) struct PaletteModel {
 /// Every palette command: label and the action it dispatches. The open
 /// trace's PIPELINE streams and the focused panel's clock choices follow
 /// the fixed commands; a number in the query offers to go to that cycle.
-fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Action>)> {
-    let mut all: Vec<(String, Box<dyn Action>)> = fixed_commands()
-        .into_iter()
-        .map(|(label, action)| (label.to_owned(), action))
-        .collect();
+pub(crate) fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Action>)> {
+    let mut all: Vec<(String, Box<dyn Action>)> = vec![
+        (
+            app.undo_label()
+                .map_or_else(|| "Undo".into(), |label| format!("Undo: {label}")),
+            Box::new(app::Undo),
+        ),
+        (
+            app.redo_label()
+                .map_or_else(|| "Redo".into(), |label| format!("Redo: {label}")),
+            Box::new(app::Redo),
+        ),
+    ];
+    all.extend(
+        fixed_commands()
+            .into_iter()
+            .map(|(label, action)| (label.to_owned(), action)),
+    );
     if let Some(choices) = app.clock_choices() {
         let clock = |command| Box::new(app::ClockAction { command }) as Box<dyn Action>;
         if let Some(cycle) = query.split_whitespace().find_map(|w| w.parse::<i64>().ok()) {

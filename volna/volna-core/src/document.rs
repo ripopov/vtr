@@ -84,7 +84,9 @@ pub struct Document {
     generation: u64,
     pub shared: Shared,
     pub navigation: Navigation,
-    pub markers: Vec<Marker>,
+    /// Journaled cockpit state (`docs/undo-redo.html`); read through
+    /// [`Document::markers`].
+    markers: crate::history::Journaled<Vec<Marker>>,
     next_marker: u64,
     pub translators: Translators,
     pending: HashSet<SignalRef>,
@@ -153,7 +155,7 @@ impl Document {
             generation: 0,
             shared: Shared::default(),
             navigation: Navigation::default(),
-            markers: Vec::new(),
+            markers: Default::default(),
             next_marker: 1,
             translators: Translators::builtin(),
             pending: HashSet::new(),
@@ -279,7 +281,7 @@ impl Document {
         self.requests
             .retain(|r| matches!(r, LoadRequest::Open { .. }));
         self.shared = Shared::default();
-        self.markers.clear();
+        self.markers.restore(Vec::new());
         self.copied_rows.clear();
         self.summaries.clear();
         self.group_summaries.clear();
@@ -680,7 +682,12 @@ impl Document {
         self.next_marker = self
             .next_marker
             .max(markers.iter().map(|m| m.id).max().unwrap_or(0) + 1);
-        self.markers = markers;
+        self.markers.restore(markers);
+    }
+
+    /// The markers, in time order.
+    pub fn markers(&self) -> &[Marker] {
+        &self.markers
     }
 
     pub fn add_marker(&mut self, c: u64) -> bool {
@@ -690,26 +697,42 @@ impl Document {
         let Some(next) = self.next_marker.checked_add(1) else {
             return false;
         };
-        self.markers.push(Marker {
-            id: self.next_marker,
-            time: c,
-            label: None,
-        });
+        let id = self.next_marker;
         self.next_marker = next;
-        self.markers.sort_by_key(|m| m.time);
-        true
+        self.markers.update(|markers| {
+            markers.push(Marker {
+                id,
+                time: c,
+                label: None,
+            });
+            markers.sort_by_key(|m| m.time);
+        })
     }
 
-    pub fn clear_markers(&mut self) {
-        self.markers.clear();
+    pub fn clear_markers(&mut self) -> bool {
+        self.markers.set(Vec::new())
     }
 
     pub fn remove_marker(&mut self, ix: usize) -> bool {
-        if ix < self.markers.len() {
-            self.markers.remove(ix);
-            true
-        } else {
-            false
-        }
+        ix < self.markers.len() && self.markers.update(|markers| _ = markers.remove(ix))
+    }
+
+    /// Name marker `ix`, or clear its name with `None`.
+    pub fn set_marker_label(&mut self, ix: usize, label: Option<String>) -> bool {
+        let label = label.filter(|l| !l.trim().is_empty());
+        ix < self.markers.len() && self.markers.update(|markers| markers[ix].label = label)
+    }
+
+    /// The markers before the edits since the last call (the undo journal).
+    pub(crate) fn take_markers_edit(&mut self) -> Option<Vec<Marker>> {
+        self.markers.take_before()
+    }
+
+    /// Install markers while undoing or redoing; returns the replaced ones.
+    pub(crate) fn swap_markers(&mut self, markers: Vec<Marker>) -> Vec<Marker> {
+        self.next_marker = self
+            .next_marker
+            .max(markers.iter().map(|m| m.id).max().unwrap_or(0) + 1);
+        self.markers.swap(markers)
     }
 }

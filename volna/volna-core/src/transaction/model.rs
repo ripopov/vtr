@@ -73,9 +73,14 @@ pub struct TransactionModel {
     /// Records shown, oldest first; `cursor` is the one on screen.
     history: Vec<ShownRecord>,
     cursor: usize,
-    /// A pinned panel ignores the document selection, so two panels compare.
-    pub pinned: bool,
+    /// A pinned panel ignores the document selection, so two panels
+    /// compare. Journaled with the radixes (`docs/undo-redo.html`).
+    pinned: bool,
     pub prefs: ViewPrefs,
+    /// The pin (and the record it froze) and the radixes before their first
+    /// change since the app last collected edits.
+    pin_before: Option<(bool, Option<ShownRecord>)>,
+    radix_before: Option<std::collections::BTreeMap<String, Radix>>,
     /// The track retained for the shown record, released when it changes.
     retained: Option<TrackRef>,
     attached: bool,
@@ -94,6 +99,8 @@ impl TransactionModel {
             history: Vec::new(),
             cursor: 0,
             pinned: false,
+            pin_before: None,
+            radix_before: None,
             prefs: ViewPrefs {
                 detail_items: detail_items.clamp(1, 1000),
                 ..ViewPrefs::default()
@@ -120,6 +127,57 @@ impl TransactionModel {
 
     pub fn shown(&self) -> Option<&ShownRecord> {
         self.history.get(self.cursor)
+    }
+
+    /// Whether the panel ignores the document selection.
+    pub fn pinned(&self) -> bool {
+        self.pinned
+    }
+
+    /// Install a pin while undoing or redoing: frozen on `record`, or
+    /// following the selection again. Returns the replaced pin.
+    pub(crate) fn swap_pin(
+        &mut self,
+        doc: &mut Document,
+        (pinned, record): (bool, Option<ShownRecord>),
+    ) -> (bool, Option<ShownRecord>) {
+        debug_assert!(self.pin_before.is_none(), "edits were not collected");
+        let old = (self.pinned, self.shown().cloned());
+        self.pinned = pinned;
+        if !pinned {
+            self.follow_selection(doc);
+        } else if let Some(record) = record {
+            self.show(doc, record);
+        }
+        old
+    }
+
+    /// Install radixes while undoing or redoing; returns the replaced ones.
+    pub(crate) fn swap_radix(
+        &mut self,
+        radix: std::collections::BTreeMap<String, Radix>,
+    ) -> std::collections::BTreeMap<String, Radix> {
+        debug_assert!(self.radix_before.is_none(), "edits were not collected");
+        std::mem::replace(&mut self.prefs.radix, radix)
+    }
+
+    /// The pin before the edits since the last call, unless they cancelled out.
+    pub(crate) fn take_pin_edit(&mut self) -> Option<(bool, Option<ShownRecord>)> {
+        let pinned = self.pinned;
+        self.pin_before
+            .take()
+            .filter(|(before, _)| *before != pinned)
+    }
+
+    /// The radixes before the edits since the last call, unless they
+    /// cancelled out.
+    pub(crate) fn take_radix_edit(&mut self) -> Option<std::collections::BTreeMap<String, Radix>> {
+        let current = &self.prefs.radix;
+        self.radix_before.take().filter(|before| before != current)
+    }
+
+    pub(crate) fn has_edits(&self) -> bool {
+        self.pin_before.is_some() || self.radix_before.is_some()
     }
 
     pub fn can_go_back(&self) -> bool {
@@ -162,6 +220,20 @@ impl TransactionModel {
             return Ok(());
         }
         self.attached = true;
+        // A panel reopened by undo reserves its memory again.
+        if self._reservation.is_none() {
+            match self.budget.reserve(PANEL_BYTES) {
+                Ok(reservation) => {
+                    self._reservation = Some(reservation);
+                    self.refused = None;
+                }
+                Err(error) => {
+                    self.refused = Some(format!(
+                        "Transaction panel needs {PANEL_BYTES} bytes; admission failed: {error}"
+                    ));
+                }
+            }
+        }
         if self.refused.is_some() {
             return Ok(());
         }
@@ -180,6 +252,13 @@ impl TransactionModel {
             doc.release_track(track);
         }
         self.attached = false;
+    }
+
+    /// Detach and return the panel's memory: it is closed and kept by the
+    /// undo journal. [`TransactionModel::attach`] reserves it again.
+    pub(crate) fn park(&mut self, doc: &mut Document) {
+        self.detach(doc);
+        self._reservation = None;
     }
 
     /// Retain `track` in place of the one held, once attached. Returns false
@@ -337,6 +416,9 @@ impl TransactionModel {
             }
             TransactionCommand::Pin(pinned) => {
                 let changed = self.pinned != pinned;
+                if changed && self.pin_before.is_none() {
+                    self.pin_before = Some((self.pinned, self.shown().cloned()));
+                }
                 self.pinned = pinned;
                 if changed && !pinned {
                     self.follow_selection(doc);
@@ -363,6 +445,9 @@ impl TransactionModel {
                 true
             }
             TransactionCommand::Radix(key) => {
+                if self.radix_before.is_none() {
+                    self.radix_before = Some(self.prefs.radix.clone());
+                }
                 let next = self.prefs.radix_of(&key).next();
                 if next == Radix::default() {
                     self.prefs.radix.remove(&key);

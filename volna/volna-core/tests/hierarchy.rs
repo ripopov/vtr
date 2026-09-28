@@ -137,7 +137,7 @@ fn search_order_activation_keyboard_and_notices() {
     ));
     assert!(app.variables.show_scope());
     app.handle(Command::AddSelectedOrAllVars);
-    assert_eq!(app.panels.focused_waves().unwrap().items.len(), 1);
+    assert_eq!(app.panels.focused_waves().unwrap().items().len(), 1);
     app.take_requests();
     app.take_events();
     // A generator opens a pipeline panel (one track load); a log site only

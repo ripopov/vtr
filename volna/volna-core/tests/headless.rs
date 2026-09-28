@@ -136,7 +136,7 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
         app.panels
             .focused_waves()
             .unwrap()
-            .items
+            .items()
             .iter()
             .all(|row| row.signal().unwrap().history.is_none())
     );
@@ -146,7 +146,7 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
         app.panels
             .focused_waves()
             .unwrap()
-            .items
+            .items()
             .iter()
             .all(|row| row.signal().unwrap().history.is_some())
     );
@@ -174,7 +174,7 @@ fn removing_queued_signals_clears_demand_but_active_loads_survive_readd() {
     );
     app.deliver(active.perform());
     assert!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .history
@@ -191,9 +191,9 @@ fn removing_one_alias_keeps_the_other_alias_queued() {
     app.handle(Command::Action(Action::RemoveSelected));
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 1);
-    assert_eq!(app.panels.focused_waves().unwrap().items.len(), 1);
+    assert_eq!(app.panels.focused_waves().unwrap().items().len(), 1);
     assert!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .history
@@ -220,12 +220,15 @@ fn aliases_share_pending_and_loaded_histories() {
         app.take_requests().is_empty(),
         "loaded histories are reused"
     );
-    assert_eq!(app.panels.focused_waves().unwrap().items[1].name(), "alias");
+    assert_eq!(
+        app.panels.focused_waves().unwrap().items()[1].name(),
+        "alias"
+    );
     assert!(
         app.panels
             .focused_waves()
             .unwrap()
-            .items
+            .items()
             .iter()
             .all(|i| Arc::ptr_eq(&history, i.signal().unwrap().history.as_ref().unwrap()))
     );
@@ -259,14 +262,14 @@ fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
     });
     assert!(app.doc.is_pending(signal));
     assert!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .history
             .is_none()
     );
     assert!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .error
@@ -274,7 +277,7 @@ fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
     );
     pump(&mut app);
     assert!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .history
@@ -293,7 +296,7 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     app.handle(Command::AddVars(vec![1]));
     pump(&mut app);
     let panel = app.panels.focused_id();
-    let ready = app.panels.waves(panel).unwrap().items[2]
+    let ready = app.panels.waves(panel).unwrap().items()[2]
         .signal()
         .unwrap()
         .history
@@ -315,13 +318,14 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     );
     app.handle(Command::MenuSelect(panel, MenuAction::RetryLoad));
     assert!(
-        app.panels.waves(panel).unwrap().items.iter().all(|row| row
-            .signal()
+        app.panels
+            .waves(panel)
             .unwrap()
-            .error
-            .is_none())
+            .items()
+            .iter()
+            .all(|row| row.signal().unwrap().error.is_none())
     );
-    assert_eq!(app.panels.waves(panel).unwrap().items.len(), 3);
+    assert_eq!(app.panels.waves(panel).unwrap().items().len(), 3);
     let mut requests = app.take_requests();
     assert_eq!(requests.len(), 1);
     let request = requests.pop().unwrap();
@@ -330,7 +334,7 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     };
     assert_eq!(signals, &[source.hierarchy.vars[0].signal]);
     app.deliver(request.perform());
-    let rows = &app.panels.waves(panel).unwrap().items;
+    let rows = &app.panels.waves(panel).unwrap().items();
     assert!(Arc::ptr_eq(
         rows[0].signal().unwrap().history.as_ref().unwrap(),
         rows[1].signal().unwrap().history.as_ref().unwrap()
@@ -368,7 +372,7 @@ fn failed_loads_can_retry_for_all_alias_rows() {
     app.handle(Command::AddVars(vec![0, 0]));
     pump(&mut app);
     assert!(
-        app.panels.focused_waves().unwrap().items.iter().all(|i| i
+        app.panels.focused_waves().unwrap().items().iter().all(|i| i
             .signal()
             .unwrap()
             .error
@@ -379,7 +383,7 @@ fn failed_loads_can_retry_for_all_alias_rows() {
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 2);
     assert!(
-        app.panels.focused_waves().unwrap().items.iter().all(|i| i
+        app.panels.focused_waves().unwrap().items().iter().all(|i| i
             .signal()
             .unwrap()
             .error
@@ -527,8 +531,8 @@ fn cursor_markers_and_selection_follow_the_document() {
     // Markers are document state.
     app.handle(Command::Action(Action::AddMarker));
     app.handle(Command::Action(Action::AddMarker));
-    assert_eq!(app.doc.markers.len(), 1, "duplicate marker is ignored");
-    assert_eq!(app.doc.markers[0].time, cursor);
+    assert_eq!(app.doc.markers().len(), 1, "duplicate marker is ignored");
+    assert_eq!(app.doc.markers()[0].time, cursor);
     frame(&mut app, &theme);
     assert!(
         app.scene().texts().any(|t| t == "M1"),
@@ -554,7 +558,7 @@ fn cursor_markers_and_selection_follow_the_document() {
             },
         },
     ));
-    assert!(app.doc.markers.is_empty());
+    assert!(app.doc.markers().is_empty());
     // Escape: clear selection first, then cursor.
     app.handle(Command::Action(Action::ClearSelection));
     assert!(app.panels.focused_waves().unwrap().selected.is_empty());
@@ -593,7 +597,7 @@ fn cursor_markers_and_selection_follow_the_document() {
         vec![0, 1, 2]
     );
     app.handle(Command::Action(Action::RemoveSelected));
-    assert!(app.panels.focused_waves().unwrap().items.is_empty());
+    assert!(app.panels.focused_waves().unwrap().items().is_empty());
 }
 
 #[test]
@@ -999,7 +1003,7 @@ fn format_menu_and_translator_cycle() {
             | volna_core::wave::model::MenuAction::RetryLoad
     )));
     assert!(app.debug_state().contains("menu=true"));
-    let before = app.panels.focused_waves().unwrap().items[0]
+    let before = app.panels.focused_waves().unwrap().items()[0]
         .signal()
         .unwrap()
         .translator
@@ -1016,7 +1020,7 @@ fn format_menu_and_translator_cycle() {
     app.handle(Command::MenuSelect(app.panels.focused_id(), other.clone()));
     assert!(app.panels.focused_waves().unwrap().menu.is_none());
     assert_eq!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .translator
@@ -1024,7 +1028,7 @@ fn format_menu_and_translator_cycle() {
         format
     );
     assert_ne!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .translator
@@ -1033,7 +1037,7 @@ fn format_menu_and_translator_cycle() {
     );
     app.handle(Command::Action(Action::CycleFormat));
     assert_ne!(
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .translator
@@ -1139,7 +1143,7 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
     );
     app.handle(Command::MenuSelect(waves, MenuAction::RemoveSignals));
     let panel = app.panels.waves(waves).unwrap();
-    assert!(panel.items.is_empty());
+    assert!(panel.items().is_empty());
     assert!(panel.selected.is_empty());
     assert!(panel.menu.is_none());
 }
@@ -1164,7 +1168,7 @@ fn heights(app: &App) -> Vec<u8> {
     app.panels
         .focused_waves()
         .unwrap()
-        .items
+        .items()
         .iter()
         .map(|item| item.height().multiple())
         .collect()
@@ -1267,7 +1271,9 @@ fn height_submenu_resizes_the_selection_and_rows_lay_out_paint_and_hit_test_tall
 
     // The selected row's highlight and its waveform span all eight lines;
     // its name stays on the first line.
-    let name = app.panels.waves(waves).unwrap().items[2].name().to_owned();
+    let name = app.panels.waves(waves).unwrap().items()[2]
+        .name()
+        .to_owned();
     let scene = app.render_panel(waves, &theme, &mut MonoMeasure);
     let wave_row = Rect::new(
         point(layout.waves.left(), layout.row_y(2)),
@@ -1353,7 +1359,7 @@ fn row_names(app: &App, panel: volna_core::panels::PanelId) -> Vec<String> {
     app.panels
         .waves(panel)
         .unwrap()
-        .items
+        .items()
         .iter()
         .map(|item| item.name().to_owned())
         .collect()
@@ -1509,7 +1515,7 @@ fn dragging_rows_past_an_edge_scrolls_and_keeps_heights_with_their_rows() {
         app.handle(Command::Action(Action::IncreaseRowHeight));
     }
     frame(&mut app, &theme);
-    let first = app.panels.focused_waves().unwrap().items[0]
+    let first = app.panels.focused_waves().unwrap().items()[0]
         .name()
         .to_owned();
 
@@ -1544,8 +1550,8 @@ fn dragging_rows_past_an_edge_scrolls_and_keeps_heights_with_their_rows() {
     };
     release(&mut app);
     let w = app.panels.focused_waves().unwrap();
-    assert_eq!(w.items[gap - 1].name(), first);
-    assert_eq!(w.items[gap - 1].height().multiple(), 4);
+    assert_eq!(w.items()[gap - 1].name(), first);
+    assert_eq!(w.items()[gap - 1].height().multiple(), 4);
     assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [gap - 1]);
     assert_eq!(row_names(&app, waves).len(), 40);
 }
@@ -1585,7 +1591,7 @@ fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
     );
     assert_eq!(w.selected.iter().copied().collect::<Vec<_>>(), [3]);
     let clock = w.signal(0).unwrap();
-    for copy in w.items[1..4].iter().map(|row| row.signal().unwrap()) {
+    for copy in w.items()[1..4].iter().map(|row| row.signal().unwrap()) {
         assert_eq!(copy.source, clock.source);
         assert_eq!(copy.format_id(), clock.format_id());
         assert_eq!(copy.height, clock.height);
@@ -1643,11 +1649,12 @@ fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 6);
     assert!(
-        app.panels.waves(other).unwrap().items.iter().all(|row| row
-            .signal()
+        app.panels
+            .waves(other)
             .unwrap()
-            .history
-            .is_some())
+            .items()
+            .iter()
+            .all(|row| row.signal().unwrap().history.is_some())
     );
 
     // The signal menu offers Paste only with rows on the clipboard.
@@ -1760,7 +1767,7 @@ fn sidebar_models_follow_scope_selection_and_keys() {
     // Enter adds the selection (or all).
     app.handle(Command::VariablesKey(Key::Down, Modifiers::default()));
     app.handle(Command::VariablesKey(Key::Enter, Modifiers::default()));
-    assert_eq!(app.panels.focused_waves().unwrap().items.len(), 1);
+    assert_eq!(app.panels.focused_waves().unwrap().items().len(), 1);
     app.handle(Command::VariablesKey(
         Key::Char("x".into()),
         Modifiers::default(),

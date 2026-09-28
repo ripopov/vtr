@@ -447,7 +447,7 @@ impl CanvasPanelView {
         let Some(panel) = owner.read(cx).app.panels.get(self.id) else {
             return;
         };
-        let title = panel.title.clone().unwrap_or_default();
+        let title = panel.title.get().clone().unwrap_or_default();
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(title)

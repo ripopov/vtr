@@ -388,7 +388,7 @@ pub fn markers(
     let z = |v: f32| v * t.zoom;
     let area = column.area;
     for (ix, chip) in chips {
-        let m = &doc.markers[*ix];
+        let m = &doc.markers()[*ix];
         let x = column.x_of(m.time as f64);
         let marker = t.marker(m.id.saturating_sub(1) as usize);
         let color = marker.stroke;

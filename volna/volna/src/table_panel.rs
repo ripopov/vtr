@@ -53,7 +53,7 @@ impl CanvasPanelView {
         let has_selection = table.selected.is_some();
         let failed = matches!(table.state, TableState::Failed(_) | TableState::Refused(_));
         let loading = matches!(table.state, TableState::Loading);
-        let column_items: Vec<(String, bool, TableCommand)> = match &table.columns {
+        let column_items: Vec<(String, bool, TableCommand)> = match table.columns.get() {
             ColumnSet::Transactions(visible) => TransactionColumn::ALL
                 .iter()
                 .map(|&column| {

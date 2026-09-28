@@ -147,7 +147,7 @@ fn select(app: &mut App, id: PanelId, rows: &[usize]) {
 /// Each entry as indentation plus name, a `+`/`-` before folded/open groups.
 fn outline(app: &App, id: PanelId) -> Vec<String> {
     waves(app, id)
-        .items
+        .items()
         .iter()
         .map(|e| {
             let mark = match &e.row {
@@ -176,7 +176,7 @@ fn chevron(app: &App, id: PanelId, entry: usize) -> Point {
     let w = waves(app, id);
     let l = w.last_layout();
     let (y, _) = l.entry_span(entry).unwrap();
-    let x = indent_x(l.names.left(), w.items[entry].depth, l.zoom) + CHEVRON_W / 2.0;
+    let x = indent_x(l.names.left(), w.items()[entry].depth, l.zoom) + CHEVRON_W / 2.0;
     point(x, y + l.row_h / 2.0)
 }
 
@@ -288,11 +288,11 @@ fn g_groups_the_selection_in_place_and_starts_renaming_it() {
 
     // Enter commits, an empty name or Escape keeps the old one.
     app.handle(Command::RenameGroup(id, Some("  Write  ".into())));
-    assert_eq!(waves(&app, id).items[3].name(), "Write");
+    assert_eq!(waves(&app, id).items()[3].name(), "Write");
     assert_eq!(waves(&app, id).rename, None);
     app.handle(Command::Action(Action::RenameGroup));
     app.handle(Command::RenameGroup(id, Some("   ".into())));
-    assert_eq!(waves(&app, id).items[3].name(), "Write");
+    assert_eq!(waves(&app, id).items()[3].name(), "Write");
     app.handle(Command::Action(Action::RenameGroup));
     app.handle(Command::Action(Action::ClearSelection));
     assert_eq!(waves(&app, id).rename, None, "Escape cancels the rename");
@@ -301,10 +301,10 @@ fn g_groups_the_selection_in_place_and_starts_renaming_it() {
     // A second group gets the next free name.
     select(&mut app, id, &[0]);
     app.handle(Command::Action(Action::GroupSelection));
-    assert_eq!(waves(&app, id).items[0].name(), "Group 1");
+    assert_eq!(waves(&app, id).items()[0].name(), "Group 1");
     select(&mut app, id, &[1]);
     app.handle(Command::Action(Action::GroupSelection));
-    assert_eq!(waves(&app, id).items[1].name(), "Group 2");
+    assert_eq!(waves(&app, id).items()[1].name(), "Group 2");
     assert_eq!(
         outline(&app, id)[..3],
         ["-Group 1", "  -Group 2", "    clk"]
@@ -438,7 +438,7 @@ fn row_commands_take_the_subtree_and_value_commands_reach_its_signals() {
     // Format and analog apply to the signals in the group.
     let formats = |app: &App| -> Vec<String> {
         waves(app, id)
-            .items
+            .items()
             .iter()
             .filter_map(|e| e.signal())
             .map(|s| s.format_id())
@@ -453,13 +453,17 @@ fn row_commands_take_the_subtree_and_value_commands_reach_its_signals() {
     assert_eq!(changed, [5, 6], "rvalid and rdata");
     app.handle(Command::Action(Action::ToggleAnalog));
     assert!(
-        waves(&app, id).items[8].signal().unwrap().analog.is_some(),
+        waves(&app, id).items()[8]
+            .signal()
+            .unwrap()
+            .analog
+            .is_some(),
         "rdata plots"
     );
     // Height is the group row's own.
     app.handle(Command::Action(Action::IncreaseRowHeight));
     let heights: Vec<u8> = waves(&app, id)
-        .items
+        .items()
         .iter()
         .map(|e| e.height().multiple())
         .collect();
@@ -668,12 +672,12 @@ fn dragging_names_picks_the_level_from_x_and_drops_into_folded_groups() {
             "    rst_n"
         ]
     );
-    assert_eq!(selected(&app, id), [9]);
     // Nothing selected is hidden: the moved row is revealed by its group
     // only when the group opens, so the selection moves to the group.
+    assert_eq!(selected(&app, id), [5]);
     frame(&mut app, id);
     let _ = row_h;
-    assert!(tree::validate(&waves(&app, id).items).is_ok());
+    assert!(tree::validate(waves(&app, id).items()).is_ok());
 }
 
 #[test]
@@ -704,7 +708,7 @@ fn the_clipboard_keeps_structure_and_pastes_under_the_last_selected_row() {
     assert_eq!(outline(&app, id)[10..], ["-Read", "  rvalid", "  rdata"]);
     // Pasted rows share the histories already loaded.
     let w = waves(&app, id);
-    assert!(w.items[11].signal().unwrap().history.is_some());
+    assert!(w.items()[11].signal().unwrap().history.is_some());
 }
 
 #[test]
@@ -757,7 +761,7 @@ fn add_scope_as_group_nests_child_scopes_folded() {
     assert_eq!(selected(&app, id), [4]);
     assert!(
         waves(&app, id)
-            .items
+            .items()
             .iter()
             .filter_map(|e| e.signal())
             .all(|s| s.history.is_some())
@@ -774,15 +778,14 @@ fn restore(app: &mut App, value: &serde_json::Value) -> anyhow::Result<Vec<Strin
 fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
     let (_f, mut app, id) = app();
     grouped(&mut app, id);
+    select(&mut app, id, &[2]);
+    app.handle(Command::Action(Action::RenameGroup));
+    app.handle(Command::RenameGroup(id, Some("AXI master".into())));
+    app.handle(Command::Action(Action::IncreaseRowHeight));
     select(&mut app, id, &[7]);
     app.handle(Command::Action(Action::IncreaseRowHeight));
     let panel = app.panels.waves_mut(id).unwrap();
     panel.set_folded(6, true, false);
-    panel.items[2].row = WaveRow::Group(GroupRow {
-        name: "AXI master".into(),
-        collapsed: false,
-        height: volna_core::wave::RowHeight::try_from(2).unwrap(),
-    });
     let saved =
         serde_json::to_value(Workspace::capture(&app, TRACE.into(), None).unwrap()).unwrap();
     let panel = &saved["panels"][0];
@@ -804,7 +807,9 @@ fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
     assert_eq!(panel["selected"], serde_json::json!([6]));
 
     let before = outline(&app, id);
-    app.panels.waves_mut(id).unwrap().items.clear();
+    app.handle(Command::Action(Action::SelectAll));
+    app.handle(Command::Action(Action::RemoveSelected));
+    assert!(waves(&app, id).items().is_empty());
     let report = restore(&mut app, &saved).unwrap();
     assert!(report.is_empty(), "{report:?}");
     let id = app
@@ -814,11 +819,11 @@ fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
         .unwrap()
         .id;
     assert_eq!(outline(&app, id), before);
-    assert_eq!(waves(&app, id).items[2].height().multiple(), 2);
+    assert_eq!(waves(&app, id).items()[2].height().multiple(), 2);
     pump(&mut app);
     assert!(
         waves(&app, id)
-            .items
+            .items()
             .iter()
             .filter_map(|e| e.signal())
             .all(|s| s.history.is_some())
@@ -851,7 +856,7 @@ fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
         v
     };
     restore(&mut app, &nest(7)).unwrap();
-    assert_eq!(waves(&app, id).items.last().unwrap().depth, 7);
+    assert_eq!(waves(&app, id).items().last().unwrap().depth, 7);
     let err = restore(&mut app, &nest(8)).unwrap_err();
     assert!(format!("{err:#}").contains("nested deeper"), "{err:#}");
 
@@ -909,12 +914,15 @@ fn every_tree_edit_keeps_a_valid_tree_and_the_rows_it_had() {
             (0..items.len()).filter(|_| rnd(4) == 0).collect();
 
         // Group then ungroup restores the list.
-        let mut g = items.clone();
-        if let Some(at) = tree::group(&mut g, &sel, WaveRow::Group(GroupRow::new("new"))) {
+        if let Some((splices, at)) = tree::group(&items, &sel, WaveRow::Group(GroupRow::new("new")))
+        {
+            let mut g = items.clone();
+            apply_checked(&mut g, splices);
             tree::validate(&g).unwrap_or_else(|e| panic!("round {round}: {e}"));
             assert_eq!(names(&g), all);
             let mut u = g.clone();
-            tree::ungroup(&mut u, &std::collections::BTreeSet::from([at]));
+            let (splices, _) = tree::ungroup(&u, &std::collections::BTreeSet::from([at]));
+            apply_checked(&mut u, splices);
             tree::validate(&u).unwrap();
             assert_eq!(names(&u), all);
             // Grouping keeps leaves in order when the selection is one block.
@@ -944,7 +952,7 @@ fn every_tree_edit_keeps_a_valid_tree_and_the_rows_it_had() {
                     continue;
                 };
                 let mut m = items.clone();
-                moved.apply(&mut m);
+                apply_checked(&mut m, moved.splices);
                 tree::validate(&m)
                     .unwrap_or_else(|e| panic!("round {round} gap {gap} depth {depth}: {e}"));
                 assert_eq!(names(&m), all);
@@ -962,7 +970,7 @@ fn every_tree_edit_keeps_a_valid_tree_and_the_rows_it_had() {
                     };
                     let plan = tree::plan_move(&m, &std::collections::BTreeSet::from([root]), back)
                         .unwrap_or_else(|| panic!("round {round}: no way back"));
-                    plan.apply(&mut m);
+                    apply_checked(&mut m, plan.splices);
                     assert_eq!(
                         m.iter()
                             .map(|e| (e.depth, e.name().to_owned()))
@@ -980,7 +988,9 @@ fn every_tree_edit_keeps_a_valid_tree_and_the_rows_it_had() {
         // Remove takes whole subtrees; extract + insert round-trips them.
         let copied = tree::extract(&items, &sel);
         let mut r = items.clone();
-        if tree::remove(&mut r, &sel).is_some() {
+        let removal = tree::removal(&items, &sel);
+        if !removal.is_empty() {
+            apply_checked(&mut r, removal);
             tree::validate(&r).unwrap();
             let removed = names(&copied).len();
             assert_eq!(names(&r).len() + removed, all.len());
@@ -989,11 +999,33 @@ fn every_tree_edit_keeps_a_valid_tree_and_the_rows_it_had() {
                 at: back.len(),
                 depth: 0,
             };
-            tree::insert(&mut back, to, copied).unwrap();
+            let (splice, _) = tree::insertion(to, copied).unwrap();
+            apply_checked(&mut back, vec![splice]);
             tree::validate(&back).unwrap();
             assert_eq!(names(&back), all);
         }
     }
+}
+
+/// Perform `splices`, then check their inverse puts every row back exactly.
+fn apply_checked(items: &mut Vec<Entry>, splices: Vec<tree::Splice>) {
+    let key = |items: &[Entry]| -> Vec<(u8, String, bool)> {
+        items
+            .iter()
+            .map(|e| {
+                (
+                    e.depth,
+                    e.name().to_owned(),
+                    e.group().is_some_and(|g| g.collapsed),
+                )
+            })
+            .collect()
+    };
+    let before = key(items);
+    let inverse = tree::apply(items, splices).expect("planned splices apply");
+    let mut undone = items.clone();
+    tree::apply(&mut undone, inverse).expect("inverse applies");
+    assert_eq!(key(&undone), before);
 }
 
 fn moved_root(items: &[Entry], name: &str) -> usize {

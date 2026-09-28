@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use web_time::Instant;
 
 use crate::document::Document;
+use crate::history::{Journaled, Structure};
 use crate::nav::{LinkDim, NavState};
 use crate::pipeline::PipelineModel;
 use crate::table::TableModel;
@@ -130,6 +131,13 @@ impl PanelKind {
         matches!(self, Self::Waves(_) | Self::Pipeline(_) | Self::Table(_))
     }
 
+    /// Whether the panel draws clock rulers (and numbers cycles from an
+    /// origin): the choices [`crate::app::ClockCommand::ToggleRuler`] and
+    /// the cycle origin edit.
+    pub fn shows_rulers(&self) -> bool {
+        matches!(self, Self::Waves(_) | Self::Pipeline(_))
+    }
+
     /// The navigation of a timed panel.
     pub fn nav(&self) -> Option<&NavState> {
         match self {
@@ -167,7 +175,9 @@ impl PanelKind {
 
 pub struct Panel {
     pub id: PanelId,
-    pub title: Option<String>,
+    /// The name the user gave the panel; journaled, changed by
+    /// [`Panels::rename`].
+    pub title: Journaled<Option<String>>,
     pub kind: PanelKind,
 }
 
@@ -175,33 +185,36 @@ impl Panel {
     fn new(id: PanelId, kind: PanelKind) -> Self {
         Self {
             id,
-            title: None,
+            title: Journaled::default(),
             kind,
         }
     }
 
     pub fn title(&self) -> String {
-        self.title.clone().unwrap_or_else(|| match &self.kind {
-            PanelKind::Waves(_) => format!("Waves {}", self.id.0),
-            PanelKind::Pipeline(p) => {
-                format!("Pipeline {} · {}", self.id.0, p.track.path().join("."))
-            }
-            PanelKind::Table(t) => match &t.source {
-                crate::table::TableSource::Generator(source) => {
-                    format!("Table {} · {}", self.id.0, source.path().join("."))
+        self.title
+            .get()
+            .clone()
+            .unwrap_or_else(|| match &self.kind {
+                PanelKind::Waves(_) => format!("Waves {}", self.id.0),
+                PanelKind::Pipeline(p) => {
+                    format!("Pipeline {} · {}", self.id.0, p.track.path().join("."))
                 }
-                crate::table::TableSource::Signals(signals) => {
-                    format!("Table {} · {} signals", self.id.0, signals.len())
-                }
-            },
-            PanelKind::Transaction(model) => match model.shown() {
-                Some(shown) => format!("Transaction {} · #{}", self.id.0, shown.id.0),
-                None => format!("Transaction {}", self.id.0),
-            },
-            PanelKind::Start => "Start".into(),
-            PanelKind::Settings => "Settings".into(),
-            PanelKind::Unsupported(_) => format!("Unsupported panel {}", self.id.0),
-        })
+                PanelKind::Table(t) => match &t.source {
+                    crate::table::TableSource::Generator(source) => {
+                        format!("Table {} · {}", self.id.0, source.path().join("."))
+                    }
+                    crate::table::TableSource::Signals(signals) => {
+                        format!("Table {} · {} signals", self.id.0, signals.len())
+                    }
+                },
+                PanelKind::Transaction(model) => match model.shown() {
+                    Some(shown) => format!("Transaction {} · #{}", self.id.0, shown.id.0),
+                    None => format!("Transaction {}", self.id.0),
+                },
+                PanelKind::Start => "Start".into(),
+                PanelKind::Settings => "Settings".into(),
+                PanelKind::Unsupported(_) => format!("Unsupported panel {}", self.id.0),
+            })
     }
 
     /// Route pointer input to the panel's model. Returns true when something
@@ -223,6 +236,17 @@ impl Panel {
             PanelKind::Pipeline(p) => p.drag.is_some(),
             PanelKind::Table(t) => t.dragging(),
             _ => false,
+        }
+    }
+
+    /// Drop pointer capture without finishing the gesture (Esc or ⌘Z
+    /// during a drag): the undo journal rolls back what it changed.
+    pub(crate) fn cancel_drag(&mut self) {
+        match &mut self.kind {
+            PanelKind::Waves(w) => w.drag = None,
+            PanelKind::Pipeline(p) => p.drag = None,
+            PanelKind::Table(t) => t.cancel_drag(),
+            _ => {}
         }
     }
 
@@ -460,7 +484,7 @@ impl Panels {
             self.panels[id]
                 .kind
                 .transaction()
-                .is_some_and(|model| !model.pinned)
+                .is_some_and(|model| !model.pinned())
         })
     }
 
@@ -592,14 +616,34 @@ impl Panels {
     }
 
     pub fn rename(&mut self, id: PanelId, title: Option<String>) -> Result<bool> {
+        let title = title.filter(|s| !s.trim().is_empty());
+        if self.get(id).is_some_and(|panel| *panel.title == title) {
+            return Ok(false);
+        }
+        self.retitle(id, title, true).map(|_| true)
+    }
+
+    /// Install a title while undoing or redoing; returns the replaced one.
+    pub(crate) fn swap_title(
+        &mut self,
+        id: PanelId,
+        title: Option<String>,
+    ) -> Result<Option<String>> {
+        self.retitle(id, title, false)
+    }
+
+    /// Set a panel's title, as an edit or as a swap, keeping an unsupported
+    /// panel's saved payload in step.
+    fn retitle(
+        &mut self,
+        id: PanelId,
+        title: Option<String>,
+        edit: bool,
+    ) -> Result<Option<String>> {
         let panel = self
             .panels
             .get(&id)
             .ok_or_else(|| anyhow::anyhow!("unknown panel"))?;
-        let title = title.filter(|s| !s.trim().is_empty());
-        if panel.title == title {
-            return Ok(false);
-        }
         let opaque = if let PanelKind::Unsupported(raw) = &panel.kind {
             let mut fields: BTreeMap<String, Box<serde_json::value::RawValue>> =
                 serde_json::from_str(raw.get())?;
@@ -610,11 +654,16 @@ impl Panels {
         };
         self.advance()?;
         let panel = self.panels.get_mut(&id).unwrap();
-        panel.title = title;
+        let old = panel.title.get().clone();
+        if edit {
+            panel.title.set(title);
+        } else {
+            panel.title.swap(title);
+        }
         if let Some(raw) = opaque {
             panel.kind = PanelKind::Unsupported(raw);
         }
-        Ok(true)
+        Ok(old)
     }
 
     pub fn toggle_link(&mut self, id: PanelId, doc: &crate::Document, dim: LinkDim) -> Result<()> {
@@ -774,6 +823,59 @@ impl Panels {
         };
         let panels = self.iter().filter(|p| !p.kind.is_settings()).collect();
         (layout, focused, panels)
+    }
+
+    /// The layout, focus and content panels a layout edit records: the
+    /// settings tab is chrome.
+    pub(crate) fn structure(&self) -> (Layout, PanelId, BTreeSet<PanelId>) {
+        let (layout, focused, panels) = self.saved_view();
+        let ids = panels.iter().map(|p| p.id).collect();
+        (layout, focused, ids)
+    }
+
+    /// Install a structure (undoing or redoing a layout edit): close its
+    /// `close` panels, put its `reopen` panels back under their own IDs,
+    /// then its tree and focus. An open settings tab stays, beside the
+    /// focused panel. Returns the structure that undoes this one; its
+    /// `reopen` holds the panels closed here, which the owner detaches.
+    /// Fails without changing anything when the structure does not fit.
+    pub(crate) fn install(&mut self, structure: Structure) -> Result<Structure> {
+        let (layout, focused, mut ids) = self.structure();
+        for id in &structure.close {
+            ensure!(ids.remove(id), "no panel {} to close", id.0);
+        }
+        for panel in &structure.reopen {
+            ensure!(ids.insert(panel.id), "panel {} is open", panel.id.0);
+        }
+        structure.layout.validate(&ids)?;
+        ensure!(
+            structure.layout.visible().contains(&structure.focused),
+            "focused panel is not visible"
+        );
+        let settings = self.settings_id();
+        self.advance()?;
+        let closed = structure
+            .close
+            .iter()
+            .map(|id| self.panels.remove(id).expect("checked above"))
+            .collect();
+        let reopened = structure.reopen.iter().map(|p| p.id).collect();
+        for panel in structure.reopen {
+            self.next_id = self.next_id.max(panel.id.0 + 1);
+            self.panels.insert(panel.id, panel);
+        }
+        self.layout = structure.layout;
+        self.focused = structure.focused;
+        if let Some(id) = settings {
+            self.insert_settings(id, structure.focused, false);
+        }
+        self.validate()?;
+        Ok(Structure {
+            layout,
+            focused,
+            close: reopened,
+            reopen: closed,
+        })
     }
 
     /// A trace change discards content while keeping the ID allocator alive,

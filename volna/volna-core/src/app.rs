@@ -2,6 +2,8 @@
 //! [`Command`]s, drain [`Event`]s, perform the [`LoadRequest`]s it queues, and
 //! ask it to lay out and paint the wave panel into a [`Scene`].
 
+mod undo;
+
 use std::sync::Arc;
 
 use web_time::Instant;
@@ -93,6 +95,8 @@ impl Command {
     pub fn named(name: &str) -> Option<Self> {
         let action = match name {
             "openWorkspace" => return Some(Self::RequestOpenWorkspace),
+            "undo" => return Some(Self::Undo),
+            "redo" => return Some(Self::Redo),
             "saveWorkspace" => return Some(Self::SaveWorkspace),
             "saveWorkspaceAs" => return Some(Self::RequestSaveWorkspaceAs),
             "splitRight" => Action::SplitRight,
@@ -139,6 +143,11 @@ pub enum Command {
     RequestQuit,
     CloseTrace,
     ToggleSidebar,
+    /// Take back the last cockpit edit, or cancel the gesture in progress
+    /// (`docs/undo-redo.html`).
+    Undo,
+    /// Put back the last edit undone.
+    Redo,
     Action(Action),
     Pointer(PanelId, PointerEvent),
     Panels(PanelsCommand),
@@ -283,6 +292,9 @@ pub enum Event {
         revision: u64,
     },
     Notice(String),
+    /// Say what undo or redo did (“Undid Remove 2 rows”) to assistive
+    /// technology, politely; not a warning. The status bar shows it too.
+    Announce(String),
     LoadWorkspace {
         trace_uri: String,
     },
@@ -345,6 +357,8 @@ pub struct Status {
     /// ruler clock: `Δ 20 ns · 40 core_clk · 10 bus_clk`.
     pub delta: Option<String>,
     pub markers: Option<String>,
+    /// What the last undo or redo did, until the next edit.
+    pub history: Option<String>,
     /// Whole-window frame timing; absent until the frontend reports frames.
     pub frames: Option<crate::frames::FrameStatus>,
     /// Decoded trace data against the open trace's memory budget.
@@ -513,6 +527,10 @@ pub struct App {
     pub drag: Option<ChromeDrag>,
     pub settings: settings::Store,
     pub settings_view: SettingsView,
+    /// Undo and redo of cockpit edits, dropped with the trace.
+    pub history: crate::history::History,
+    /// What the last undo or redo did, shown until the next edit.
+    announcement: Option<String>,
     /// Whole-window frame timing the frontend samples from its toolkit.
     pub frames: crate::frames::FrameStats,
     pub(crate) events: Vec<Event>,
@@ -544,6 +562,8 @@ impl App {
             drag: None,
             settings: settings::Store::new(settings::Host::Native),
             settings_view: SettingsView::default(),
+            history: Default::default(),
+            announcement: None,
             frames: Default::default(),
             events: Vec::new(),
             text: TextCache::default(),
@@ -604,6 +624,8 @@ impl App {
     }
 
     fn on_session_changed(&mut self) {
+        self.history.clear();
+        self.announcement = None;
         if let Err(e) = self.panels.reset() {
             self.events.push(Event::Notice(e.to_string()));
         }
@@ -616,6 +638,8 @@ impl App {
     }
 
     pub(crate) fn workspace_restored(&mut self) {
+        self.history.clear();
+        self.announcement = None;
         self.sync_lane_tracks();
         self.sync_analog_summaries();
         self.drag = None;
@@ -654,7 +678,7 @@ impl App {
         self.panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
+            .flat_map(|waves| waves.items().iter().map(|e| &e.row))
             .filter_map(WaveRow::signal_ref)
             .chain(
                 self.panels
@@ -743,6 +767,12 @@ impl App {
     /// panel's content releases it.
     fn created(&mut self, id: PanelId) {
         let resident = self.resident_histories();
+        // A panel put back by undo loads its rows again.
+        if let Some(waves) = self.panels.waves_mut(id)
+            && waves.needs_attach()
+        {
+            waves.attach_rows(&mut self.doc, &resident);
+        }
         if let Some(table) = self.panels.get_mut(id).and_then(|p| p.kind.table_mut())
             && let Err(error) = table.attach(&mut self.doc, &resident)
         {
@@ -760,20 +790,6 @@ impl App {
         }
     }
 
-    fn removed(&mut self, panels: Vec<Panel>) {
-        for mut panel in panels {
-            if let Some(table) = panel.kind.table_mut() {
-                table.detach(&mut self.doc);
-            }
-            if let Some(pipeline) = panel.kind.pipeline_mut() {
-                pipeline.detach(&mut self.doc);
-            }
-            if let Some(model) = panel.kind.transaction_mut() {
-                model.detach(&mut self.doc);
-            }
-        }
-    }
-
     /// An empty waveform panel fitted to the trace, linked per the settings.
     fn fresh_waves(&self) -> PanelKind {
         let mut waves = crate::wave::model::WaveModel::new();
@@ -783,11 +799,16 @@ impl App {
     }
 
     /// Put `kind` where the panel `id` is (the start panel giving way to
-    /// content). Returns the new panel's ID.
-    fn replace_panel(&mut self, id: PanelId, kind: PanelKind) -> Result<PanelId, String> {
-        match self.panels.replace(id, kind) {
-            Ok((new, removed)) => {
-                self.removed(removed);
+    /// content), as a layout edit named `label` (none when the step is
+    /// named by what follows). Returns the new panel's ID.
+    fn replace_panel(
+        &mut self,
+        id: PanelId,
+        kind: PanelKind,
+        label: Option<String>,
+    ) -> Result<PanelId, String> {
+        match self.restructure(label, |panels| panels.replace(id, kind)) {
+            Ok(new) => {
                 self.created(new);
                 self.layout_changed();
                 Ok(new)
@@ -811,7 +832,7 @@ impl App {
         }
         if kind.is_start() {
             let waves = self.fresh_waves();
-            return self.replace_panel(focused, waves).ok();
+            return self.replace_panel(focused, waves, None).ok();
         }
         if let Some(id) = self.panels.first_waves() {
             self.panel_command(PanelsCommand::Focus(id));
@@ -819,12 +840,14 @@ impl App {
         }
         if let Some(start) = self.panels.first_start() {
             let waves = self.fresh_waves();
-            let id = self.replace_panel(start, waves).ok()?;
+            let id = self.replace_panel(start, waves, None).ok()?;
             self.panel_command(PanelsCommand::Focus(id));
             return Some(id);
         }
         let waves = self.fresh_waves();
-        match self.panels.open(waves, focused, None) {
+        match self.restructure(None, |panels| {
+            Ok((panels.open(waves, focused, None)?, Vec::new()))
+        }) {
             Ok(id) => {
                 self.layout_changed();
                 Some(id)
@@ -849,22 +872,37 @@ impl App {
                 if start(&self.panels, panel) =>
             {
                 let waves = self.fresh_waves();
-                _ = self.replace_panel(panel, waves);
+                _ = self.replace_panel(panel, waves, Some("New waves panel".into()));
                 return;
             }
-            PanelsCommand::Split { panel, axis } => self
-                .panels
-                .create(panel, Some(axis))
-                .map(|id| self.created(id)),
+            PanelsCommand::Split { panel, axis } => {
+                let label = self
+                    .panels
+                    .get(panel)
+                    .map(|p| format!("Split {}", p.title()));
+                self.restructure(label, |panels| {
+                    Ok((panels.create(panel, Some(axis))?, Vec::new()))
+                })
+                .map(|id| self.created(id))
+            }
             PanelsCommand::NewTab { group_of } => self
-                .panels
-                .create(group_of, None)
+                .restructure(Some("New panel".into()), |panels| {
+                    Ok((panels.create(group_of, None)?, Vec::new()))
+                })
                 .map(|id| self.created(id)),
-            PanelsCommand::Close(id) => self.panels.close(id).map(|removed| self.removed(removed)),
-            PanelsCommand::CloseOthers(id) => self
-                .panels
-                .close_others(id)
-                .map(|removed| self.removed(removed)),
+            PanelsCommand::Close(id) => {
+                let label = self.panels.get(id).map(|p| format!("Close {}", p.title()));
+                self.restructure(label, |panels| Ok(((), panels.close(id)?)))
+            }
+            PanelsCommand::CloseOthers(id) => {
+                let others = self
+                    .panels
+                    .iter()
+                    .filter(|p| p.id != id && p.kind.is_content())
+                    .count();
+                let label = format!("Close {}", crate::history::count(others, "panel", "panels"));
+                self.restructure(Some(label), |panels| Ok(((), panels.close_others(id)?)))
+            }
             PanelsCommand::Focus(id) => self.panels.focus(id).map(|_| ()),
             PanelsCommand::FocusNext => self.panels.focus_next(false).map(|_| ()),
             PanelsCommand::FocusPrev => self.panels.focus_next(true).map(|_| ()),
@@ -873,7 +911,11 @@ impl App {
             PanelsCommand::SetLayout {
                 layout,
                 from_revision,
-            } => self.panels.set_layout(layout, from_revision).map(|_| ()),
+            } => self
+                .restructure(Some("Rearrange panels".into()), |panels| {
+                    Ok((panels.set_layout(layout, from_revision)?, Vec::new()))
+                })
+                .map(|_| ()),
             PanelsCommand::ToggleLink { panel, dim } => {
                 self.panels.toggle_link(panel, &self.doc, dim)
             }
@@ -920,6 +962,7 @@ impl App {
             command,
             Command::Pointer(_, PointerEvent::Down { .. } | PointerEvent::Up)
         );
+        self.begin_step(now);
         match command {
             Command::Notice(message) => {
                 self.events.push(Event::Notice(message));
@@ -944,6 +987,8 @@ impl App {
             Command::SaveWorkspace => self.save_workspace(None),
             Command::RequestQuit => self.request_quit(),
             Command::CloseTrace => self.close_trace(),
+            Command::Undo => self.undo(now),
+            Command::Redo => self.redo(now),
             Command::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 self.changed();
@@ -1149,14 +1194,8 @@ impl App {
                 if let Some(signal) = retry
                     && self.doc.request_signal(signal)
                 {
-                    for panel in self.panels.iter_mut() {
-                        if let Some(waves) = panel.kind.waves_mut() {
-                            for row in waves.items.iter_mut().filter_map(|e| e.row.signal_mut()) {
-                                if row.source.signal() == Some(signal) {
-                                    row.error = None;
-                                }
-                            }
-                        }
+                    for waves in self.panels.iter_mut().filter_map(|p| p.kind.waves_mut()) {
+                        waves.clear_error(signal);
                     }
                 }
                 self.changed();
@@ -1196,6 +1235,7 @@ impl App {
         if self.doc.selection() != selection {
             self.sync_selection();
         }
+        self.end_step(now);
         if let Some(command) = tracked
             && before != crate::workspace::Stamp::capture(self, &command)
         {
@@ -1260,19 +1300,22 @@ impl App {
             self.settings.resolved().transaction.detail_items,
         );
         let kind = PanelKind::Transaction(Box::new(model));
+        let label = Some("Open transaction panel".to_owned());
         if self
             .panels
             .get(from)
             .is_some_and(|panel| panel.kind.is_start())
         {
-            _ = self.replace_panel(from, kind);
+            _ = self.replace_panel(from, kind, label);
             self.sync_selection();
             return;
         }
-        match self
-            .panels
-            .open(kind, from, Some(crate::panels::Axis::Horizontal))
-        {
+        match self.restructure(label, |panels| {
+            Ok((
+                panels.open(kind, from, Some(crate::panels::Axis::Horizontal))?,
+                Vec::new(),
+            ))
+        }) {
             Ok(id) => {
                 self.created(id);
                 self.layout_changed();
@@ -1358,7 +1401,7 @@ impl App {
         self.panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
+            .flat_map(|waves| waves.items().iter().map(|e| &e.row))
             .filter_map(WaveRow::signal)
             .filter_map(|row| Some((row.source.signal()?, row.history.clone()?)))
             .chain(
@@ -1462,7 +1505,7 @@ impl App {
                 _ => waves.selected.clone(),
             };
             // A group opens the rows it holds.
-            let rows = crate::wave::tree::selected_leaves(&waves.items, &rows);
+            let rows = crate::wave::tree::selected_leaves(waves.items(), &rows);
             let vars = rows
                 .iter()
                 .filter_map(|&index| match waves.signal(index)?.source {
@@ -1473,7 +1516,7 @@ impl App {
             // Lanes alone open their generator's table.
             let lane = rows
                 .iter()
-                .find_map(|&index| waves.items.get(index)?.lane_track());
+                .find_map(|&index| waves.items().get(index)?.lane_track());
             match lane {
                 Some(track) if vars.is_empty() => crate::table::TableSource::generator(
                     session.hierarchy(),
@@ -1509,18 +1552,21 @@ impl App {
         );
         table.nav.reset(Some(self.doc.limits()));
         let kind = PanelKind::Table(Box::new(table));
+        let label = Some("Open table".to_owned());
         if self
             .panels
             .get(beside)
             .is_some_and(|panel| panel.kind.is_start())
         {
-            _ = self.replace_panel(beside, kind);
+            _ = self.replace_panel(beside, kind, label);
             return;
         }
-        match self
-            .panels
-            .open(kind, beside, Some(crate::panels::Axis::Vertical))
-        {
+        match self.restructure(label, |panels| {
+            Ok((
+                panels.open(kind, beside, Some(crate::panels::Axis::Vertical))?,
+                Vec::new(),
+            ))
+        }) {
             Ok(id) => {
                 self.created(id);
                 self.layout_changed();
@@ -1560,15 +1606,21 @@ impl App {
             self.settings.resolved().link_by_default(),
         );
         let focused = self.panels.focused_id();
+        let label = Some(format!("Open pipeline {}", declaration.path.join(".")));
         if self.panels.focused().kind.is_start() {
-            _ = self.replace_panel(focused, PanelKind::Pipeline(Box::new(model)));
+            _ = self.replace_panel(focused, PanelKind::Pipeline(Box::new(model)), label);
             return;
         }
-        match self.panels.open(
-            PanelKind::Pipeline(Box::new(model)),
-            focused,
-            Some(crate::panels::Axis::Vertical),
-        ) {
+        match self.restructure(label, |panels| {
+            Ok((
+                panels.open(
+                    PanelKind::Pipeline(Box::new(model)),
+                    focused,
+                    Some(crate::panels::Axis::Vertical),
+                )?,
+                Vec::new(),
+            ))
+        }) {
             Ok(id) => {
                 self.created(id);
                 if let Some(w) = self.panels.waves_mut(focused) {
@@ -1678,7 +1730,7 @@ impl App {
         let Self { panels, doc, .. } = self;
         if let Some(w) = panels.waves_mut(target) {
             for path in &paths {
-                w.nav.clocks.show_ruler(&doc.clocks, path);
+                w.nav.show_ruler(&doc.clocks, path);
             }
         }
         self.changed();
@@ -1694,7 +1746,7 @@ impl App {
             .panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
+            .flat_map(|waves| waves.items().iter().map(|e| &e.row))
             .filter_map(WaveRow::signal)
             .filter(|s| s.analog.is_some())
             .filter_map(|s| {
@@ -1718,7 +1770,7 @@ impl App {
         for waves in self.panels.iter().filter_map(|panel| panel.kind.waves()) {
             for &i in waves.visible().iter() {
                 let i = i as usize;
-                if !waves.items[i].group().is_some_and(|g| g.collapsed) {
+                if !waves.items()[i].group().is_some_and(|g| g.collapsed) {
                     continue;
                 }
                 let members = waves.group_histories(i);
@@ -1740,7 +1792,7 @@ impl App {
             .panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
-            .flat_map(|waves| waves.items.iter().map(|e| &e.row))
+            .flat_map(|waves| waves.items().iter().map(|e| &e.row))
             .filter_map(WaveRow::lane_track)
             .collect();
         let held = &mut self.lane_tracks.1;
@@ -1784,11 +1836,15 @@ impl App {
     fn clock_command(&mut self, command: ClockCommand) {
         let now = Instant::now();
         let doc = &mut self.doc;
-        let Some(nav) = self.panels.focused_mut().kind.nav_mut() else {
+        let kind = &mut self.panels.focused_mut().kind;
+        let rulers = kind.shows_rulers();
+        let Some(nav) = kind.nav_mut() else {
             return;
         };
         match command {
-            ClockCommand::ToggleRuler(path) => nav.clocks.toggle_ruler(&doc.clocks, &path),
+            // Rulers are cockpit state of the panels that draw them.
+            ClockCommand::ToggleRuler(path) if rulers => nav.toggle_ruler(&doc.clocks, &path),
+            ClockCommand::ToggleRuler(_) => return,
             ClockCommand::Select(path) => nav.select_clock(&path),
             ClockCommand::GoToCycle(cycle) => {
                 if let Err(message) = nav.go_to_cycle(doc, cycle, now) {
@@ -1805,14 +1861,15 @@ impl App {
         if clocks.is_empty() {
             return None;
         }
-        let nav = self.panels.focused().kind.nav()?;
-        let rulers = nav.clocks.ruler_paths(clocks);
+        let kind = &self.panels.focused().kind;
+        let nav = kind.nav().filter(|_| kind.shows_rulers())?;
+        let rulers = nav.clocks().ruler_paths(clocks);
         Some(ClockChoices {
             clocks: clocks
                 .iter()
                 .map(|c| (c.path.clone(), rulers.contains(&c.path)))
                 .collect(),
-            origin: nav.clocks.origin.is_some(),
+            origin: nav.clocks().origin.is_some(),
         })
     }
 
@@ -1872,6 +1929,10 @@ impl App {
             self.panel_command(command);
             return;
         }
+        // Esc during a drag cancels the gesture and what it changed.
+        if action == Action::ClearSelection && self.cancel_gesture() {
+            return;
+        }
         if action == Action::PasteSignals {
             self.paste_signals(panel);
             return;
@@ -1881,11 +1942,14 @@ impl App {
             Action::NextCycle | Action::PrevCycle | Action::ToggleCycleOrigin
         ) {
             let doc = &mut self.doc;
-            if let Some(nav) = self.panels.focused_mut().kind.nav_mut() {
+            let kind = &mut self.panels.focused_mut().kind;
+            let rulers = kind.shows_rulers();
+            if let Some(nav) = kind.nav_mut() {
                 match action {
                     Action::NextCycle => _ = nav.step_cycle(doc, true, now),
                     Action::PrevCycle => _ = nav.step_cycle(doc, false, now),
-                    _ => nav.toggle_cycle_origin(doc),
+                    _ if rulers => nav.toggle_cycle_origin(doc),
+                    _ => return,
                 }
                 self.changed();
             }
@@ -1981,7 +2045,7 @@ impl App {
                         doc.add_marker(c);
                     }
                 }
-                Action::ClearMarkers => doc.clear_markers(),
+                Action::ClearMarkers => _ = doc.clear_markers(),
                 Action::RemoveSelected => w.remove_selected(),
                 Action::CopySignals => w.copy_selected(doc),
                 Action::CutSignals => w.cut_selected(doc),
@@ -2027,7 +2091,7 @@ impl App {
                         doc.add_marker(c);
                     }
                 }
-                Action::ClearMarkers => doc.clear_markers(),
+                Action::ClearMarkers => _ = doc.clear_markers(),
                 Action::ClearSelection => p.escape(doc),
                 Action::MoveSelectionUp => p.move_selection(doc, panel, -1, now),
                 Action::MoveSelectionDown => p.move_selection(doc, panel, 1, now),
@@ -2222,6 +2286,7 @@ impl App {
                 .or_else(|| self.workspace.notices.last().cloned()),
             file: self.doc.name(),
             frames: self.frames.status(),
+            history: self.announcement.clone(),
             ..Default::default()
         };
         if let Some(src) = self.doc.session() {
@@ -2256,13 +2321,13 @@ impl App {
             s.px_per = Some(format!("1 px = {}", format_time(px_per, base)));
             let cursor = nav.cursor(&self.doc);
             s.cursor = cursor.map(|c| format_time(c as f64, base));
-            let rulers = nav.clocks.rulers(&self.doc.clocks);
+            let rulers = nav.clocks().rulers(&self.doc.clocks);
             if let Some(c) = cursor {
                 s.clocks = rulers
                     .iter()
-                    .map(|clock| crate::clock::position_at(&nav.clocks, clock, c))
+                    .map(|clock| crate::clock::position_at(nav.clocks(), clock, c))
                     .collect();
-                if let Some(m) = self.doc.markers.iter().min_by_key(|m| m.time.abs_diff(c)) {
+                if let Some(m) = self.doc.markers().iter().min_by_key(|m| m.time.abs_diff(c)) {
                     let dt = c as i128 - m.time as i128;
                     let sign = if dt < 0 { "−" } else { "" };
                     let mut parts = vec![format!(
@@ -2280,8 +2345,8 @@ impl App {
                     s.delta = Some(parts.join(" · "));
                 }
             }
-            if !self.doc.markers.is_empty() {
-                s.markers = Some(format!("{} markers", self.doc.markers.len()));
+            if !self.doc.markers().is_empty() {
+                s.markers = Some(format!("{} markers", self.doc.markers().len()));
             }
         }
         s
@@ -2308,7 +2373,7 @@ impl App {
                 "panel={} pipeline track={} focused={} linked=({},{}) {state} rows={count} top={:.2} row_px={:.2} label_w={} cursor={:?} markers={} viewport=({:.0},{:.0}) hover={:?} drag={:?}",
                 id.0, p.track.path().join("."), id == self.panels.focused_id(), p.nav.link.viewport, p.nav.link.cursor,
                 rows.top, rows.row_px, p.label_width,
-                p.nav.cursor(&self.doc), self.doc.markers.len(),
+                p.nav.cursor(&self.doc), self.doc.markers().len(),
                 p.nav.viewport(&self.doc).start, p.nav.viewport(&self.doc).end,
                 p.hover, p.drag,
             );
@@ -2327,7 +2392,7 @@ impl App {
                 id.0,
                 id == self.panels.focused_id(),
                 model.shown().map(|shown| (shown.track.path().join("."), shown.id.0)),
-                model.pinned,
+                model.pinned(),
                 model.can_go_back(),
                 model.can_go_forward(),
                 self.doc.selection().map(|s| s.id.0),
@@ -2362,12 +2427,12 @@ impl App {
         format!(
             "panel={} focused={} linked=({},{}) items={} loaded={} selected={:?} anchor={:?} cursor={:?} markers={} viewport=({:.0},{:.0}) menu={} drag={:?} sidebar_w={}px scopes_frac={:.2}",
             id.0, id == self.panels.focused_id(), w.nav.link.viewport, w.nav.link.cursor,
-            w.items.len(),
+            w.items().len(),
             w.loaded_count(),
             w.selected,
             w.anchor,
             w.cursor(&self.doc),
-            self.doc.markers.len(),
+            self.doc.markers().len(),
             w.viewport(&self.doc).start,
             w.viewport(&self.doc).end,
             w.menu.is_some(),

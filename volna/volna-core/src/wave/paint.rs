@@ -94,7 +94,7 @@ pub fn paint(
         area: waves,
         viewport,
     };
-    let clocks = &model.nav.clocks;
+    let clocks = model.nav.clocks();
 
     // -- backgrounds and chrome ------------------------------------------
     p.scene.fill(bounds, t.editor.bg);
@@ -125,7 +125,7 @@ pub fn paint(
         let Some(ix) = layout.entry(pos) else {
             continue;
         };
-        let entry = &model.items[ix];
+        let entry = &model.items()[ix];
         let row = &entry.row;
         let y = layout.row_y(pos);
         let full_h = layout.row_height(pos);
@@ -174,14 +174,14 @@ pub fn paint(
                 continue;
             }
             WaveRow::Clock(clock) => {
-                paint_clock_row(clock, &model.nav.clocks, doc, &cells, &mut p);
+                paint_clock_row(clock, model.nav.clocks(), doc, &cells, &mut p);
                 continue;
             }
             WaveRow::Group(g) => {
                 let members = model.group_histories(ix);
                 let group = GroupCells {
                     row: g,
-                    count: tree::leaves(&model.items, ix).count(),
+                    count: tree::leaves(model.items(), ix).count(),
                     members: &members,
                     renaming: model.rename == Some(ix),
                     reading: (model.hover_row == Some(ix)
@@ -1570,12 +1570,12 @@ fn paint_group_row(
         return;
     };
     const SHOWN: usize = 8;
-    let leaves: Vec<usize> = tree::leaves(&model.items, ix).collect();
+    let leaves: Vec<usize> = tree::leaves(model.items(), ix).collect();
     let mut lines: Vec<(String, String, Color)> = leaves
         .iter()
         .take(SHOWN)
         .map(|&j| {
-            let row = &model.items[j];
+            let row = &model.items()[j];
             let (value, color) = match row.signal() {
                 Some(s) => match &s.history {
                     Some(h) => {

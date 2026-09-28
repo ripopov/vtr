@@ -38,9 +38,15 @@ pub struct NavState {
     pub link: Link,
     pub local_viewport: Tween<Viewport>,
     pub local_cursor: Option<u64>,
-    /// Clock rulers, snapping clock and cycle origin.
-    pub clocks: crate::clock::ClockView,
+    /// Clock rulers, snapping clock and cycle origin. The rulers and the
+    /// origin are journaled cockpit state: they change only through the
+    /// methods below, which keep their value before the first change.
+    clocks: crate::clock::ClockView,
+    clocks_before: Option<ClockChoice>,
 }
+
+/// A timed panel's ruler rows and cycle origin, as the undo journal swaps them.
+pub(crate) type ClockChoice = (Option<Vec<String>>, Option<u64>);
 
 impl Default for NavState {
     fn default() -> Self {
@@ -55,6 +61,7 @@ impl NavState {
             local_viewport: Tween::new(Viewport::fit((0, 1000))),
             local_cursor: None,
             clocks: crate::clock::ClockView::default(),
+            clocks_before: None,
         }
     }
 
@@ -65,6 +72,7 @@ impl NavState {
             local_viewport: Tween::new(self.local_viewport.value),
             local_cursor: self.local_cursor,
             clocks: self.clocks.clone(),
+            clocks_before: None,
         }
     }
 
@@ -308,6 +316,7 @@ impl NavState {
     /// when the origin is already there.
     pub fn toggle_cycle_origin(&mut self, doc: &Document) {
         let cursor = self.cursor(doc);
+        self.note_clocks();
         self.clocks.origin = if self.clocks.origin == cursor {
             None
         } else {
@@ -315,9 +324,74 @@ impl NavState {
         };
     }
 
-    /// Select the clock clicks snap to and cycle steps follow.
+    /// Select the clock clicks snap to and cycle steps follow (navigation).
     pub fn select_clock(&mut self, path: &str) {
         self.clocks.selected = Some(path.to_owned());
+    }
+
+    /// The panel's clock rulers, snapping clock and cycle origin.
+    pub fn clocks(&self) -> &crate::clock::ClockView {
+        &self.clocks
+    }
+
+    /// Show a ruler row (see [`crate::clock::ClockView::show_ruler`]).
+    pub fn show_ruler(&mut self, clocks: &crate::clock::Clocks, path: &str) {
+        self.note_clocks();
+        self.clocks.show_ruler(clocks, path);
+    }
+
+    /// Hide a ruler row if it is shown.
+    pub fn hide_ruler(&mut self, clocks: &crate::clock::Clocks, path: &str) {
+        self.note_clocks();
+        self.clocks.hide_ruler(clocks, path);
+    }
+
+    /// Show or hide a ruler row.
+    pub fn toggle_ruler(&mut self, clocks: &crate::clock::Clocks, path: &str) {
+        self.note_clocks();
+        self.clocks.toggle_ruler(clocks, path);
+    }
+
+    fn note_clocks(&mut self) {
+        if self.clocks_before.is_none() {
+            self.clocks_before = Some((self.clocks.rulers.clone(), self.clocks.origin));
+        }
+    }
+
+    /// Install clock choices that are not an edit (a restored workspace).
+    pub(crate) fn restore_clocks(&mut self, view: crate::clock::ClockView) {
+        self.clocks = view;
+        self.clocks_before = None;
+    }
+
+    /// Install rulers and origin while undoing or redoing; returns the
+    /// replaced ones.
+    pub(crate) fn swap_clocks(&mut self, (rulers, origin): ClockChoice) -> ClockChoice {
+        debug_assert!(self.clocks_before.is_none(), "edits were not collected");
+        let old = (
+            std::mem::replace(&mut self.clocks.rulers, rulers),
+            std::mem::replace(&mut self.clocks.origin, origin),
+        );
+        // A hidden ruler cannot stay the selected clock.
+        if let Some(selected) = &self.clocks.selected
+            && self
+                .clocks
+                .rulers
+                .as_ref()
+                .is_some_and(|r| !r.contains(selected))
+        {
+            self.clocks.selected = None;
+        }
+        old
+    }
+
+    /// The rulers and origin before the edits since the last call, unless
+    /// they cancelled out.
+    pub(crate) fn take_clocks_edit(&mut self) -> Option<ClockChoice> {
+        let current = (&self.clocks.rulers, &self.clocks.origin);
+        self.clocks_before
+            .take()
+            .filter(|(rulers, origin)| (rulers, origin) != current)
     }
 
     /// Scroll the window so the cursor is visible, if it is not.

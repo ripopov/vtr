@@ -424,7 +424,7 @@ mod tests {
         );
         app.deliver(completed);
         assert!(
-            app.panels.focused_waves().unwrap().items[0]
+            app.panels.focused_waves().unwrap().items()[0]
                 .signal()
                 .unwrap()
                 .history

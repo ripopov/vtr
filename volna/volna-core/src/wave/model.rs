@@ -11,13 +11,14 @@ use web_time::Instant;
 use super::analog::{self, Analog, AnalogDraw, AnalogRange};
 use super::lane::{self, LaneGeometry, TxLane};
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
-use super::tree::{self, Entry, Place};
+use super::tree::{self, Entry, Place, Splice};
 use super::viewport::Viewport;
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::TrackRef;
 use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
 use crate::document::{Document, TxSelection};
 use crate::geometry::{Modifiers, MouseButton, Point, point};
+use crate::history::{MergeKey, RowSelection, count};
 use crate::nav::NavState;
 pub use crate::nav::{Link, LinkDim};
 use crate::panels::PanelId;
@@ -290,6 +291,65 @@ impl WaveRow {
     pub fn lane_track(&self) -> Option<TrackRef> {
         self.lane()?.track()
     }
+
+    /// A copy that holds no trace data: a signal row drops its history and,
+    /// when resolved, its load error, so it loads again when attached. The
+    /// clipboard, the undo journal and closed panels keep rows like this.
+    pub fn detached(&self) -> Self {
+        let mut row = self.clone();
+        if let Self::Signal(item) = &mut row {
+            item.history = None;
+            if item.source.signal().is_some() {
+                item.error = None;
+            }
+        }
+        row
+    }
+
+    /// Whether two rows describe the same cockpit content: what a workspace
+    /// stores of them, without the fold state (undo's projection).
+    pub fn same(&self, other: &Self) -> bool {
+        let analog = |a: &Option<Analog>| a.as_ref().map(|a| (a.draw, a.range));
+        match (self, other) {
+            (Self::Signal(a), Self::Signal(b)) => {
+                fn format(s: &DisplayedSignal) -> &str {
+                    s.requested_format
+                        .as_deref()
+                        .unwrap_or_else(|| s.translator.id())
+                }
+                a.source == b.source
+                    && format(a) == format(b)
+                    && a.height == b.height
+                    && analog(&a.analog) == analog(&b.analog)
+            }
+            (Self::Lane(a), Self::Lane(b)) => a.source == b.source && a.height == b.height,
+            (Self::Clock(a), Self::Clock(b)) => a == b,
+            (Self::Group(a), Self::Group(b)) => a.name == b.name && a.height == b.height,
+            _ => false,
+        }
+    }
+}
+
+/// Give detached signal rows their data: a history another row already
+/// holds for the same signal, or one queued load. Lanes and plots follow
+/// through the app's reconciliation after each command.
+pub(crate) fn attach_rows<'a>(
+    rows: impl IntoIterator<Item = &'a mut Entry>,
+    doc: &mut Document,
+    resident: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
+) {
+    for row in rows.into_iter().filter_map(|e| e.row.signal_mut()) {
+        let Some(signal) = row.source.signal() else {
+            continue;
+        };
+        if row.history.is_some() || row.error.is_some() {
+            continue;
+        }
+        row.history = resident.get(&signal).cloned();
+        if row.history.is_none() {
+            doc.request_signal(signal);
+        }
+    }
 }
 
 /// What the cursor snaps to and steps through on a row.
@@ -473,9 +533,33 @@ pub struct AccessibleRow {
     pub bounds: crate::geometry::Rect,
 }
 
+/// Inverses of a wave panel's row edits since the app last collected them
+/// into the undo journal (`docs/undo-redo.html`).
+#[derive(Default)]
+pub(crate) struct RowJournal {
+    /// Each edit's label and inverse splices, in the order they were made.
+    pub edits: Vec<(String, Vec<Splice>)>,
+    /// The selection before the first of them.
+    pub selection: Option<RowSelection>,
+    /// The adjustment the edits repeat, and one they may be continued by.
+    pub merge: Option<MergeKey>,
+    pub continues: Option<MergeKey>,
+}
+
+impl RowJournal {
+    pub fn is_empty(&self) -> bool {
+        self.edits.is_empty()
+    }
+}
+
 pub struct WaveModel {
-    /// The rows as a tree in pre-order (see [`tree`]).
-    pub items: Vec<Entry>,
+    /// The rows as a tree in pre-order (see [`tree`]). Only
+    /// [`WaveModel::splice`] changes the vector; row edits go through
+    /// [`WaveModel::edit_rows`], which journals their inverse. Folds, loaded
+    /// histories and a new lane's height change rows in place: they are
+    /// navigation or trace data, not cockpit edits.
+    items: Vec<Entry>,
+    journal: RowJournal,
     /// Selected entries; always visible ones.
     pub selected: BTreeSet<usize>,
     pub anchor: Option<usize>,
@@ -556,6 +640,7 @@ impl WaveModel {
     pub fn new() -> Self {
         WaveModel {
             items: Vec::new(),
+            journal: RowJournal::default(),
             selected: BTreeSet::new(),
             anchor: None,
             nav: NavState::new(),
@@ -583,6 +668,7 @@ impl WaveModel {
     pub fn reset(&mut self, limits: Option<(u64, u64)>) {
         self.nav.reset(limits);
         self.items.clear();
+        self.journal = RowJournal::default();
         self.selected.clear();
         self.anchor = None;
         self.scroll_y = 0.0;
@@ -680,15 +766,205 @@ impl WaveModel {
         tree::visible(&self.items)
     }
 
-    /// Append `rows` at the top level and select them.
-    fn push_rows(&mut self, rows: impl IntoIterator<Item = WaveRow>) {
-        let first_new = self.items.len();
-        self.items
-            .extend(rows.into_iter().map(|row| Entry::new(0, row)));
-        if self.items.len() > first_new {
-            self.selected = (first_new..self.items.len()).collect();
-            self.anchor = Some(first_new);
+    /// The rows as a tree in pre-order (see [`tree`]).
+    pub fn items(&self) -> &[Entry] {
+        &self.items
+    }
+
+    // -- row edits -------------------------------------------------------------
+
+    /// Perform `splices` on the rows and return their inverse (see
+    /// [`tree::apply`]); the undo journal applies its edits through here.
+    /// Nothing is journaled, and nothing changes when the splices do not fit.
+    pub(crate) fn splice(&mut self, splices: Vec<Splice>) -> Result<Vec<Splice>, String> {
+        let inverse = tree::apply(&mut self.items, splices)?;
+        self.edited();
+        Ok(inverse)
+    }
+
+    /// Edit the rows: perform `splices` planned against the current rows,
+    /// journal their inverse under `label`, and select `selection`.
+    fn edit_rows(&mut self, label: String, splices: Vec<Splice>, selection: RowSelection) {
+        if splices.is_empty() {
+            return;
         }
+        if self.journal.selection.is_none() {
+            self.journal.selection = Some(self.row_selection());
+        }
+        let inverse = self
+            .splice(splices)
+            .expect("row edits are planned against the current rows");
+        self.journal.edits.push((label, inverse));
+        self.set_row_selection(selection);
+    }
+
+    /// Rewrite rows in place as one edit: `f` changes a copy of each of
+    /// `rows` and says whether it did. Returns whether any row changed.
+    fn rewrite_rows(
+        &mut self,
+        label: String,
+        merge: Option<MergeKey>,
+        rows: impl IntoIterator<Item = usize>,
+        mut f: impl FnMut(&mut Entry) -> bool,
+    ) -> bool {
+        let mut splices: Vec<Splice> = Vec::new();
+        let mut rows: Vec<usize> = rows.into_iter().filter(|&r| r < self.items.len()).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        for row in rows {
+            let mut entry = self.items[row].clone();
+            if !f(&mut entry) {
+                continue;
+            }
+            match splices.last_mut() {
+                Some(run) if run.at + run.remove == row => {
+                    run.remove += 1;
+                    run.insert.push(entry);
+                }
+                _ => splices.push(Splice {
+                    at: row,
+                    remove: 1,
+                    insert: vec![entry],
+                }),
+            }
+        }
+        if splices.is_empty() {
+            return false;
+        }
+        if merge.is_some() {
+            self.journal.merge = merge;
+        }
+        let selection = self.row_selection();
+        let (rename, menu) = (self.rename, self.menu.take());
+        self.edit_rows(label, splices, selection);
+        // In-place rewrites keep every index, so what names rows stays valid.
+        self.rename = rename;
+        self.menu = menu;
+        true
+    }
+
+    /// The selection, as steps store it.
+    pub(crate) fn row_selection(&self) -> RowSelection {
+        RowSelection {
+            selected: self.selected.clone(),
+            anchor: self.anchor,
+        }
+    }
+
+    /// Select rows (an edit's result, or a restored step's context); rows
+    /// that no longer exist are left out and hidden ones give way to the
+    /// group that shows them.
+    pub(crate) fn set_row_selection(&mut self, selection: RowSelection) {
+        let len = self.items.len();
+        self.selected = selection
+            .selected
+            .into_iter()
+            .filter(|&i| i < len)
+            .collect();
+        self.anchor = selection.anchor.filter(|&a| a < len);
+        self.fix_hidden_selection();
+    }
+
+    /// The row edits since the last call, for the undo journal.
+    pub(crate) fn take_journal(&mut self) -> RowJournal {
+        std::mem::take(&mut self.journal)
+    }
+
+    /// Whether row edits wait to be collected.
+    pub(crate) fn has_journal(&self) -> bool {
+        !self.journal.is_empty()
+    }
+
+    /// Install rows that are not an edit (a restored workspace).
+    pub(crate) fn restore_rows(&mut self, items: Vec<Entry>) {
+        debug_assert!(tree::validate(&items).is_ok());
+        self.items = items;
+        self.edited();
+    }
+
+    /// Drop every row's trace data: the panel is closed and kept by the
+    /// undo journal.
+    pub(crate) fn detach_rows(&mut self) {
+        for entry in &mut self.items {
+            entry.row = entry.row.detached();
+        }
+        self.drag = None;
+        self.menu = None;
+        self.rename = None;
+        self.clear_hover();
+    }
+
+    /// Give detached rows their data again (see [`attach_rows`]).
+    pub(crate) fn attach_rows(
+        &mut self,
+        doc: &mut Document,
+        resident: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
+    ) {
+        attach_rows(&mut self.items, doc, resident);
+    }
+
+    /// Whether some resolved signal row waits for a history.
+    pub(crate) fn needs_attach(&self) -> bool {
+        self.items.iter().any(|e| {
+            e.signal().is_some_and(|s| {
+                s.source.signal().is_some() && s.history.is_none() && s.error.is_none()
+            })
+        })
+    }
+
+    /// Retry loading `signal`: its rows show loading again.
+    pub(crate) fn clear_error(&mut self, signal: SignalRef) {
+        for row in self
+            .signals_mut()
+            .filter(|s| s.source.signal() == Some(signal))
+        {
+            row.error = None;
+        }
+    }
+
+    /// Scroll so entry `entry` (or the visible group holding it) is on
+    /// screen, as of the last layout.
+    pub(crate) fn reveal_entry(&mut self, entry: usize) {
+        let row_h = self.layout.row_h;
+        let height = self.layout.names.height();
+        if row_h <= 0.0 || height <= 0.0 || entry >= self.items.len() {
+            return;
+        }
+        let visible = self.visible();
+        let mut shown = entry;
+        while visible.binary_search(&(shown as u32)).is_err() {
+            match tree::parent(&self.items, shown) {
+                Some(p) => shown = p,
+                None => return,
+            }
+        }
+        let top = self.row_units_before(shown) as f32 * row_h;
+        let bottom = top + f32::from(self.items[shown].height().multiple()) * row_h;
+        if top < self.scroll_y {
+            self.scroll_y = top;
+        } else if bottom > self.scroll_y + height {
+            self.scroll_y = (bottom - height).max(0.0);
+        }
+    }
+
+    /// Append `rows` at the top level and select them.
+    fn push_rows(&mut self, label: String, rows: impl IntoIterator<Item = WaveRow>) {
+        let first = self.items.len();
+        let insert: Vec<Entry> = rows.into_iter().map(|row| Entry::new(0, row)).collect();
+        let n = insert.len();
+        if n == 0 {
+            return;
+        }
+        let selection = RowSelection {
+            selected: (first..first + n).collect(),
+            anchor: Some(first),
+        };
+        let splice = Splice {
+            at: first,
+            remove: 0,
+            insert,
+        };
+        self.edit_rows(label, vec![splice], selection);
     }
 
     /// Append rows for `vars`, sharing `loaded` histories for the same signal
@@ -700,7 +976,8 @@ impl WaveModel {
         loaded: HashMap<SignalRef, Arc<dyn SignalHistory>>,
     ) {
         let rows = var_rows(doc, vars, &loaded);
-        self.push_rows(rows);
+        let label = format!("Add {}", count(rows.len(), "signal", "signals"));
+        self.push_rows(label, rows);
     }
 
     /// Append a group named after `scope` holding its variables and, when
@@ -736,11 +1013,17 @@ impl WaveModel {
             return false;
         }
         let first = self.items.len();
-        self.items.extend(entries);
-        debug_assert!(tree::validate(&self.items).is_ok());
-        self.selected = BTreeSet::from([first]);
-        self.anchor = Some(first);
-        self.menu = None;
+        let label = format!("Add group {}", entries[0].name());
+        let selection = RowSelection {
+            selected: BTreeSet::from([first]),
+            anchor: Some(first),
+        };
+        let splice = Splice {
+            at: first,
+            remove: 0,
+            insert: entries,
+        };
+        self.edit_rows(label, vec![splice], selection);
         true
     }
 
@@ -753,12 +1036,17 @@ impl WaveModel {
             .filter_map(|&track| TxLane::new(doc, track))
             .map(WaveRow::Lane)
             .collect();
-        self.push_rows(lanes);
+        let label = format!("Add {}", count(lanes.len(), "lane", "lanes"));
+        self.push_rows(label, lanes);
     }
 
     /// Append a clock row for each clock path and select them.
     pub fn add_clocks(&mut self, paths: &[String]) {
-        self.push_rows(paths.iter().map(|p| WaveRow::Clock(ClockRow::new(p))));
+        let label = format!("Add {}", count(paths.len(), "clock row", "clock rows"));
+        self.push_rows(
+            label,
+            paths.iter().map(|p| WaveRow::Clock(ClockRow::new(p))),
+        );
     }
 
     /// Records arrived: new lanes take their default height.
@@ -794,38 +1082,38 @@ impl WaveModel {
 
     /// Remove the selected rows; a selected group goes with everything in it.
     pub fn remove_selected(&mut self) {
-        let selected = std::mem::take(&mut self.selected);
-        if tree::remove(&mut self.items, &selected).is_some() {
-            self.anchor = None;
-            self.edited();
-        }
+        self.remove_selected_as("Remove");
+    }
+
+    fn remove_selected_as(&mut self, verb: &str) {
+        let roots = tree::roots(&self.items, &self.selected);
+        let label = match roots.as_slice() {
+            [g] if self.items[*g].is_group() => {
+                format!("{verb} group {}", self.items[*g].name())
+            }
+            [r] => format!("{verb} {}", self.items[*r].name()),
+            _ => format!("{verb} {}", count(roots.len(), "row", "rows")),
+        };
+        let splices = tree::removal(&self.items, &self.selected);
+        self.edit_rows(label, splices, RowSelection::default());
     }
 
     /// Copy the selected rows, in display order and with the groups they
     /// head, to the document clipboard. Rows keep their format and height;
-    /// histories stay with the panels.
+    /// histories stay with the panels. The clipboard is not journaled.
     pub fn copy_selected(&self, doc: &mut Document) {
         if self.selected.is_empty() {
             return;
         }
         doc.copied_rows = tree::extract(&self.items, &self.selected)
-            .into_iter()
-            .map(|mut e| {
-                if let WaveRow::Signal(item) = &mut e.row {
-                    item.history = None;
-                    // A resolved row reloads on paste; an unresolved one keeps its reason.
-                    if item.source.signal().is_some() {
-                        item.error = None;
-                    }
-                }
-                e
-            })
+            .iter()
+            .map(Entry::detached)
             .collect();
     }
 
     pub fn cut_selected(&mut self, doc: &mut Document) {
         self.copy_selected(doc);
-        self.remove_selected();
+        self.remove_selected_as("Cut");
     }
 
     /// Move the selected rows, with the rows of selected groups and keeping
@@ -840,13 +1128,25 @@ impl WaveModel {
                 .iter()
                 .position(|r| *r == a)
         });
-        let roots = moved.roots.clone();
-        moved.apply(&mut self.items);
-        self.anchor = rank
+        let roots = moved.roots;
+        let anchor = rank
             .and_then(|k| roots.iter().nth(k).copied())
             .or_else(|| roots.first().copied());
-        self.selected = roots;
-        self.edited();
+        let label = match roots.len() {
+            1 => format!(
+                "Move {}",
+                self.items[tree::roots(&self.items, &self.selected)[0]].name()
+            ),
+            n => format!("Move {n} rows"),
+        };
+        self.edit_rows(
+            label,
+            moved.splices,
+            RowSelection {
+                selected: roots,
+                anchor,
+            },
+        );
         true
     }
 
@@ -889,12 +1189,19 @@ impl WaveModel {
         } else {
             to
         };
-        let Some(roots) = tree::insert(&mut self.items, to, rows) else {
+        let Some((splice, roots)) = tree::insertion(to, rows) else {
             return;
         };
-        self.anchor = roots.first().copied();
-        self.selected = roots;
-        self.edited();
+        let label = format!("Paste {}", count(roots.len(), "row", "rows"));
+        let anchor = roots.first().copied();
+        self.edit_rows(
+            label,
+            vec![splice],
+            RowSelection {
+                selected: roots,
+                anchor,
+            },
+        );
     }
 
     pub fn select_all(&mut self) {
@@ -972,12 +1279,21 @@ impl WaveModel {
     /// of the first one, select it and start renaming it.
     pub fn group_selected(&mut self) -> bool {
         let group = WaveRow::Group(GroupRow::new(self.fresh_group_name()));
-        let Some(g) = tree::group(&mut self.items, &self.selected, group) else {
+        let Some((splices, g)) = tree::group(&self.items, &self.selected, group) else {
             return false;
         };
-        self.edited();
-        self.selected = BTreeSet::from([g]);
-        self.anchor = Some(g);
+        let roots = tree::roots(&self.items, &self.selected).len();
+        let label = format!("Group {}", count(roots, "row", "rows"));
+        self.edit_rows(
+            label,
+            splices,
+            RowSelection {
+                selected: BTreeSet::from([g]),
+                anchor: Some(g),
+            },
+        );
+        // Naming the new group joins this step, however long it takes.
+        self.journal.continues = Some(MergeKey::of("rename", &g));
         self.rename = Some(g);
         true
     }
@@ -994,11 +1310,20 @@ impl WaveModel {
         if groups.is_empty() {
             return false;
         }
-        let children = tree::ungroup(&mut self.items, &groups);
-        self.edited();
-        self.anchor = children.first().copied();
-        self.selected = children;
-        self.fix_hidden_selection();
+        let label = match groups.len() {
+            1 => "Ungroup".to_owned(),
+            n => format!("Ungroup {n} groups"),
+        };
+        let (splices, children) = tree::ungroup(&self.items, &groups);
+        let anchor = children.first().copied();
+        self.edit_rows(
+            label,
+            splices,
+            RowSelection {
+                selected: children,
+                anchor,
+            },
+        );
         true
     }
 
@@ -1022,14 +1347,21 @@ impl WaveModel {
         let Some(g) = self.rename.take() else {
             return false;
         };
-        let name = name.map(str::trim).filter(|n| !n.is_empty());
-        match (name, self.items.get_mut(g).map(|e| &mut e.row)) {
-            (Some(name), Some(WaveRow::Group(group))) if group.name != name => {
-                group.name = name.to_owned();
-                true
-            }
-            _ => false,
-        }
+        let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+            return false;
+        };
+        self.rewrite_rows(
+            "Rename group".into(),
+            Some(MergeKey::of("rename", &g)),
+            [g],
+            |e| match &mut e.row {
+                WaveRow::Group(group) if group.name != name => {
+                    group.name = name.to_owned();
+                    true
+                }
+                _ => false,
+            },
+        )
     }
 
     /// Fold or unfold group `i`, and with `deep` every group inside it.
@@ -1112,32 +1444,52 @@ impl WaveModel {
         let Some(t) = doc.translators.get(id) else {
             return;
         };
-        for &row in rows {
-            if let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut())
-                && t.applies(item.shape)
-            {
-                item.translator = t.clone();
-                item.requested_format = None;
+        let label = format!("Format {}", t.name());
+        let merge = MergeKey::of("format", &rows);
+        self.rewrite_rows(label, Some(merge), rows.iter().copied(), |e| {
+            match e.row.signal_mut() {
+                Some(item) if t.applies(item.shape) && item.format_id() != t.id() => {
+                    item.translator = t.clone();
+                    item.requested_format = None;
+                    true
+                }
+                _ => false,
             }
-        }
+        });
     }
 
     pub fn cycle_format(&mut self, doc: &Document) {
         let rows = tree::selected_leaves(&self.items, &self.selected);
-        for row in rows {
-            let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut()) else {
-                continue;
+        let merge = MergeKey::of("format", &rows);
+        let mut names: Vec<String> = Vec::new();
+        let changed = self.rewrite_rows(String::new(), Some(merge), rows, |e| {
+            let Some(item) = e.row.signal_mut() else {
+                return false;
             };
             let options = doc.translators.applicable(item.shape);
             if options.is_empty() {
-                continue;
+                return false;
             }
             let pos = options
                 .iter()
                 .position(|t| t.id() == item.translator.id())
                 .unwrap_or(0);
-            item.translator = options[(pos + 1) % options.len()].clone();
+            let next = options[(pos + 1) % options.len()].clone();
+            if next.id() == item.format_id() {
+                return false;
+            }
+            if !names.iter().any(|n| n == next.name()) {
+                names.push(next.name().to_owned());
+            }
+            item.translator = next;
             item.requested_format = None;
+            true
+        });
+        if changed && let Some((label, _)) = self.journal.edits.last_mut() {
+            *label = match names.as_slice() {
+                [name] => format!("Format {name}"),
+                _ => "Next format".into(),
+            };
         }
     }
 
@@ -1154,15 +1506,37 @@ impl WaveModel {
     /// [`RowHeight::ANALOG`] and gets 1× back when analog is turned off,
     /// unless it was resized in between.
     pub fn set_analog(&mut self, rows: &[usize], draw: Option<AnalogDraw>) {
-        for &row in rows {
-            if draw.is_some() && !self.can_plot(row) {
-                continue;
-            }
-            let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut()) else {
-                continue;
+        self.draw_rows(rows, |_| draw);
+    }
+
+    /// Draw each of `rows` as `draw` says: as a plot, or digitally with
+    /// `None`; rows that cannot be plotted are skipped. One edit.
+    fn draw_rows(&mut self, rows: &[usize], draw: impl Fn(&DisplayedSignal) -> Option<AnalogDraw>) {
+        let label = match rows
+            .iter()
+            .filter_map(|&r| self.signal(r))
+            .map(&draw)
+            .next()
+        {
+            Some(Some(AnalogDraw::Step)) => "Show as step plot",
+            Some(Some(AnalogDraw::Linear)) => "Show as plot",
+            _ => "Show as digital",
+        };
+        let merge = MergeKey::of("analog", &rows);
+        self.rewrite_rows(label.into(), Some(merge), rows.iter().copied(), |e| {
+            let Some(item) = e.row.signal_mut() else {
+                return false;
             };
+            let draw = draw(item);
+            if draw.is_some() && !analog::supports(item.shape, item.translator.as_ref()) {
+                return false;
+            }
             match (draw, &mut item.analog) {
-                (Some(draw), Some(a)) => a.draw = draw,
+                (Some(draw), Some(a)) if a.draw == draw => false,
+                (Some(draw), Some(a)) => {
+                    a.draw = draw;
+                    true
+                }
                 (Some(draw), None) => {
                     let mut a = Analog::new(draw, AnalogRange::Trace);
                     if item.height == RowHeight::DEFAULT {
@@ -1170,6 +1544,7 @@ impl WaveModel {
                         item.height = RowHeight::ANALOG;
                     }
                     item.analog = Some(a);
+                    true
                 }
                 (None, Some(a)) => {
                     if let Some(h) = a
@@ -1179,10 +1554,11 @@ impl WaveModel {
                         item.height = h;
                     }
                     item.analog = None;
+                    true
                 }
-                (None, None) => {}
+                (None, None) => false,
             }
-        }
+        });
         self.scroll_y = self.scroll_y.min(self.layout.max_scroll.max(0.0));
     }
 
@@ -1198,29 +1574,39 @@ impl WaveModel {
         let on = rows
             .iter()
             .any(|&r| self.signal(r).is_some_and(|s| s.analog.is_none()));
-        for r in rows {
-            let draw = self.signal(r).and_then(|s| {
-                on.then(|| {
-                    s.analog
-                        .as_ref()
-                        .map_or(AnalogDraw::default_for(s.shape), |a| a.draw)
-                })
-            });
-            self.set_analog(&[r], draw);
-        }
+        self.draw_rows(&rows, |s| {
+            on.then(|| {
+                s.analog
+                    .as_ref()
+                    .map_or(AnalogDraw::default_for(s.shape), |a| a.draw)
+            })
+        });
     }
 
     /// Choose the vertical range of the plotted `rows`; type limits apply
     /// only to formats that have them.
     pub fn set_analog_range(&mut self, rows: &[usize], range: AnalogRange) {
-        for &row in rows {
-            if let Some(item) = self.items.get_mut(row).and_then(|e| e.row.signal_mut())
-                && (range != AnalogRange::Type || item.translator.limits(item.shape).is_some())
-                && let Some(a) = &mut item.analog
-            {
-                a.range = range;
-            }
-        }
+        let merge = MergeKey::of("analog", &rows);
+        self.rewrite_rows(
+            "Plot range".into(),
+            Some(merge),
+            rows.iter().copied(),
+            |e| match e.row.signal_mut() {
+                Some(item)
+                    if range != AnalogRange::Type
+                        || item.translator.limits(item.shape).is_some() =>
+                {
+                    match &mut item.analog {
+                        Some(a) if a.range != range => {
+                            a.range = range;
+                            true
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
+        );
     }
 
     /// Open the format menu for `row` at a panel position.
@@ -1454,7 +1840,7 @@ impl WaveModel {
     pub fn open_ruler_menu(&mut self, doc: &Document, ruler: usize, position: Point) {
         let Some(path) = self
             .nav
-            .clocks
+            .clocks()
             .rulers(&doc.clocks)
             .get(ruler)
             .map(|c| c.path.clone())
@@ -1476,7 +1862,7 @@ impl WaveModel {
         let menu = self.menu.take()?;
         match action {
             MenuAction::HideRuler(path) => {
-                self.nav.clocks.hide_ruler(&doc.clocks, path);
+                self.nav.hide_ruler(&doc.clocks, path);
                 return None;
             }
             _ if menu.kind == WaveMenuKind::Ruler => return None,
@@ -1544,11 +1930,27 @@ impl WaveModel {
         height: impl Fn(RowHeight) -> RowHeight,
     ) {
         let before = self.row_units_before(anchor);
-        for &row in rows {
-            if let Some(item) = self.items.get_mut(row) {
-                let h = height(item.height());
-                item.set_height(h);
+        let mut heights: Vec<RowHeight> = Vec::new();
+        let merge = MergeKey::of("height", &rows);
+        let changed = self.rewrite_rows(String::new(), Some(merge), rows.iter().copied(), |e| {
+            let h = height(e.height());
+            if h == e.height() {
+                return false;
             }
+            e.set_height(h);
+            if !heights.contains(&h) {
+                heights.push(h);
+            }
+            true
+        });
+        if !changed {
+            return;
+        }
+        if let Some((label, _)) = self.journal.edits.last_mut() {
+            *label = match heights.as_slice() {
+                [h] => format!("Row height {}×", h.multiple()),
+                _ => "Row height".into(),
+            };
         }
         let shift = self.row_units_before(anchor) as f32 - before as f32;
         self.scroll_y = (self.scroll_y + shift * self.layout.row_h).max(0.0);
@@ -1714,7 +2116,7 @@ impl WaveModel {
         if self.layout.row_h > 0.0 && self.layout.row_h != theme.row_height {
             self.scroll_y *= theme.row_height / self.layout.row_h;
         }
-        let rulers = self.nav.clocks.rulers(&doc.clocks).len();
+        let rulers = self.nav.clocks().rulers(&doc.clocks).len();
         let visible = self.visible();
         let items = &self.items;
         let layout = WaveLayout::compute(LayoutInput {
@@ -1728,7 +2130,7 @@ impl WaveModel {
             row_tops: super::layout::row_tops(visible.iter().map(|&i| items[i as usize].height())),
             visible,
             scroll_y: self.scroll_y,
-            markers: &doc.markers,
+            markers: doc.markers(),
             viewport: self.viewport(doc),
         });
         self.scroll_y = layout.scroll_y;
@@ -2139,7 +2541,7 @@ impl WaveModel {
                 if modifiers.shift {
                     doc.remove_marker(ix);
                 } else {
-                    let t = doc.markers[ix].time;
+                    let t = doc.markers()[ix].time;
                     self.set_cursor(doc, Some(t));
                 }
                 return;
@@ -2160,7 +2562,7 @@ impl WaveModel {
         // A press on a clock ruler selects its clock, then works like the header.
         let rulers: Vec<String> = self
             .nav
-            .clocks
+            .clocks()
             .rulers(&doc.clocks)
             .iter()
             .map(|c| c.path.clone())

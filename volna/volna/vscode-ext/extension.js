@@ -121,18 +121,23 @@ function wire(panel, context, uri) {
   webview.html = html(webview, context.extensionUri);
 }
 
+// Commands the extension forwards to the active viewer by name. Undo and
+// redo stay inside the viewer: its trace tab is read-only and never dirty, so
+// VS Code's own undo stack is not involved (docs/undo-redo.html).
+const FORWARDED_COMMANDS = [
+  "undo", "redo",
+  "splitRight", "splitDown", "newPanel", "closePanel",
+  "focusNextPanel", "focusPrevPanel", "toggleViewportLink", "toggleCursorLink",
+  "nextCycle", "prevCycle", "toggleCycleOrigin",
+  "openWorkspace", "saveWorkspace", "saveWorkspaceAs",
+  ...Array.from({ length: 9 }, (_, i) => `focusPanel${i + 1}`),
+];
+
 function activate(context) {
   let activePanel;
-  const commandNames = [
-    "splitRight", "splitDown", "newPanel", "closePanel",
-    "focusNextPanel", "focusPrevPanel", "toggleViewportLink", "toggleCursorLink",
-    "nextCycle", "prevCycle", "toggleCycleOrigin",
-    "openWorkspace", "saveWorkspace", "saveWorkspaceAs",
-    ...Array.from({ length: 9 }, (_, i) => `focusPanel${i + 1}`),
-  ];
   context.subscriptions.push(vscode.commands.registerCommand("volna.open", pickTrace));
   context.subscriptions.push(vscode.commands.registerCommand("volna.openSettings", openSettings));
-  for (const name of commandNames) {
+  for (const name of FORWARDED_COMMANDS) {
     context.subscriptions.push(vscode.commands.registerCommand(`volna.${name}`, () =>
       activePanel?.webview.postMessage({ type: "command", name })));
   }
@@ -162,4 +167,4 @@ function activate(context) {
 
 function deactivate() {}
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, FORWARDED_COMMANDS };

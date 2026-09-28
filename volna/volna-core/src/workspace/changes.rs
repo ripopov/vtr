@@ -121,7 +121,7 @@ impl Stamp {
             layout_revision: app.panels.revision(),
             shared_viewport: app.doc.shared.viewport.target(),
             shared_cursor: app.doc.shared.cursor,
-            markers: app.doc.markers.clone(),
+            markers: app.doc.markers().to_vec(),
             sidebar: (app.sidebar_visible, app.sidebar_width, app.scopes_fraction),
             scope: app.scopes.selected,
             expanded: scope.then(|| app.scopes.expanded().collect()),
@@ -129,7 +129,7 @@ impl Stamp {
             unresolved_expanded: scope.then(|| app.scopes.unresolved_expanded.clone()),
             filter: app.variables.filter.clone(),
             wave: app.panels.waves(panel).map(|w| WaveStamp {
-                clocks: w.nav.clocks.clone(),
+                clocks: w.nav.clocks().clone(),
                 link: w.nav.link,
                 viewport: (!w.nav.link.viewport).then(|| w.nav.local_viewport.target()),
                 cursor: if w.nav.link.cursor {
@@ -139,10 +139,10 @@ impl Stamp {
                 },
                 scroll: w.scroll_y,
                 columns: (w.names_width, w.values_width),
-                rows: w.items.len(),
+                rows: w.items().len(),
                 selected: selection.then(|| w.selected.clone()),
                 styles: styles.then(|| {
-                    w.items
+                    w.items()
                         .iter()
                         .map(|row| {
                             let style = match &row.row {
@@ -170,7 +170,7 @@ impl Stamp {
             }),
             pipeline: app.panels.pipeline(panel).map(|p| PipelineStamp {
                 follow: p.follow,
-                clocks: p.nav.clocks.clone(),
+                clocks: p.nav.clocks().clone(),
                 link: p.nav.link,
                 viewport: (!p.nav.link.viewport).then(|| p.nav.local_viewport.target()),
                 cursor: if p.nav.link.cursor {

@@ -480,7 +480,7 @@ impl PipelineModel {
             Rows::Failed(_) => (0, true),
             _ => (0, false),
         };
-        let rulers = self.nav.clocks.rulers(&doc.clocks).len();
+        let rulers = self.nav.clocks().rulers(&doc.clocks).len();
         let input = LayoutInput {
             bounds,
             header_h: theme.timeline_height,
@@ -489,7 +489,7 @@ impl PipelineModel {
             label_width: self.label_width,
             rows: self.rows.value,
             row_count,
-            markers: &doc.markers,
+            markers: doc.markers(),
             viewport: self.nav.viewport(doc),
             failed,
         };
@@ -948,7 +948,7 @@ impl PipelineModel {
         let Some(tl) = self.clock(doc).and_then(|c| c.timeline()) else {
             return format!("[{begin}, {end})");
         };
-        let view = &self.nav.clocks;
+        let view = self.nav.clocks();
         let cycle = |t: u64| tl.cycle_at(t).map(|c| view.display_cycle(tl, c.cycle));
         match (cycle(begin), cycle(end)) {
             (Some(b), Some(e)) => {
@@ -1062,7 +1062,7 @@ impl PipelineModel {
                 if modifiers.shift {
                     doc.remove_marker(ix);
                 } else {
-                    let t = doc.markers[ix].time;
+                    let t = doc.markers()[ix].time;
                     self.nav.set_cursor(doc, Some(t));
                 }
                 return;
@@ -1070,7 +1070,7 @@ impl PipelineModel {
             // A press on a clock ruler selects its clock, then works like the header.
             let rulers: Vec<String> = self
                 .nav
-                .clocks
+                .clocks()
                 .rulers(&doc.clocks)
                 .iter()
                 .map(|c| c.path.clone())

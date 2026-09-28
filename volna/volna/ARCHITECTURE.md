@@ -555,6 +555,51 @@ Machine state (the recent traces and workspaces) is `state.json` in the config
 directory, versioned and written only by the app. Tests and the egui frontend
 do not opt into workspace storage.
 
+## Undo and redo
+
+`history` holds one linear journal per open trace (`App::history`); the
+design is [docs/undo-redo.html](../../docs/undo-redo.html). Undoable state is
+what a workspace file stores minus navigation: rows and their styles, groups,
+markers, a timed panel's rulers and cycle origin, panel titles, table columns,
+transaction pins and radixes, and the panel structure. Viewports, cursors,
+scrolling, folds, focus, selection, links, column widths, the sidebar and
+settings never make a step.
+
+Every journaled field has one writer, and that writer remembers the value the
+field had before its first change since the app last collected edits:
+`history::Journaled<T>` for markers, titles and table columns, `NavState`'s
+ruler methods, the transaction panel's pin and radix, and `WaveModel`, whose
+row vector is private and changes only through `WaveModel::splice`. Row edits
+are planned by the pure functions of `wave::tree` as `Splice`s on the
+pre-order rows; `tree::apply` performs them and returns their inverse with the
+replaced rows detached (no history, no error). `App::handle_at` opens a step
+and, after the command, collects every field's inverse into it. A step stays
+open while a panel holds pointer capture, so a drag is one step; Esc or ⌘Z
+during it rolls it back. Panel structure changes go through
+`App::restructure`, which collects pending edits first, records a `Structure`
+inverse, and keeps closed panels detached in the journal: tables and
+transaction panels return their memory reservations (`park`) and reserve them
+again when undo puts them back under their own IDs through `App::created`.
+
+`Edit` has four variants (rows, markers, a panel property, layout); applying
+one returns its inverse, so undo and redo are the same `flip`. Steps merge by
+`MergeKey` within one second (format, height, analog and radix presses on the
+same targets), a new group joins with its name however late, and edits that
+cancel out are pruned at commit. The journal is capped at 64 MiB and always
+keeps the newest step. A flip restores focus and the selection of the panels
+the step touched and scrolls the first selected row into view; the time axis
+stays put. Notices announce `Undid …`/`Redid …`. Opening, closing or replacing
+the trace and restoring a workspace clear the history; workspace files never
+store it.
+
+Frontends only bind keys: GPUI binds ⌘Z/Ctrl+Z and ⇧⌘Z/Ctrl+Shift+Z/Ctrl+Y
+in the workspace context, and text fields (`ui::TextInput` and gpui-kit
+inputs) bind the same keys in their own contexts, which win while they have
+focus. The Edit menu and the palette show `App::undo_label`/`redo_label` and
+rebuild when `History::revision` moves. VS Code keeps the read-only custom
+editor: `volna.undo`/`volna.redo` post named commands, and the page replays
+them as keystrokes so a focused text field still gets text undo.
+
 ## User settings
 
 `settings::registry` declares every setting once: id (`waves.snapPixels`),

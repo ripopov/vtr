@@ -50,10 +50,10 @@ fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
     cx.run_until_parked();
     window
         .update(cx, |ws, _, _| {
-            assert!(!ws.app.panels.focused_waves().unwrap().items.is_empty());
+            assert!(!ws.app.panels.focused_waves().unwrap().items().is_empty());
             assert_eq!(
                 ws.app.panels.focused_waves().unwrap().loaded_count(),
-                ws.app.panels.focused_waves().unwrap().items.len()
+                ws.app.panels.focused_waves().unwrap().items().len()
             );
         })
         .unwrap();
@@ -129,11 +129,7 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
             ws.app.panels.focused_waves_mut().unwrap().names_width = 260.0;
             ws.app.panels.focused_waves_mut().unwrap().values_width = 140.0;
             ws.app.panels.focused_waves_mut().unwrap().scroll_y = 24.0;
-            ws.app.doc.markers.push(volna_core::document::Marker {
-                id: 1,
-                time: 30,
-                label: None,
-            });
+            ws.app.doc.add_marker(30);
         })
         .unwrap();
     cx.run_until_parked();
@@ -141,7 +137,7 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
         .update(cx, |ws, _, _| {
             (
                 ws.debug_state(),
-                ws.app.panels.focused_waves().unwrap().items[0]
+                ws.app.panels.focused_waves().unwrap().items()[0]
                     .signal()
                     .unwrap()
                     .history
@@ -174,13 +170,13 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
                 assert_eq!(ws.debug_state(), before);
                 let w = &ws.app.panels.focused_waves().unwrap();
                 assert!(Arc::ptr_eq(
-                    w.items[0].signal().unwrap().history.as_ref().unwrap(),
+                    w.items()[0].signal().unwrap().history.as_ref().unwrap(),
                     &history
                 ));
                 assert_eq!(w.names_width, 260.0);
                 assert_eq!(w.values_width, 140.0);
                 assert_eq!(w.scroll_y, 24.0);
-                assert_eq!(ws.app.doc.markers[0].time, 30);
+                assert_eq!(ws.app.doc.markers()[0].time, 30);
             })
             .unwrap();
     }
@@ -231,7 +227,7 @@ fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppCo
             assert_eq!(ws.app.panels.len(), 2);
             for panel in ws.app.panels.iter() {
                 let waves = panel.kind.waves().unwrap();
-                assert_eq!(waves.items.len(), 2);
+                assert_eq!(waves.items().len(), 2);
                 assert_eq!(waves.loaded_count(), 2);
             }
             assert!(!ws.app.workspace.scheduler.dirty());
@@ -385,11 +381,7 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
             ws.app.doc.shared.cursor = Some(42);
             ws.app.doc.shared.viewport.value.start = 20.0;
             ws.app.doc.shared.viewport.value.end = 80.0;
-            ws.app.doc.markers.push(volna_core::document::Marker {
-                id: 1,
-                time: 30,
-                label: None,
-            });
+            ws.app.doc.add_marker(30);
             let w = ws.app.panels.focused_waves_mut().unwrap();
             w.selected.insert(2);
             w.anchor = Some(2);
@@ -471,7 +463,7 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
                 assert_eq!(ws.debug_state(), before);
                 assert_eq!(w.names_width, 260.0);
                 assert!(w.selected.contains(&2));
-                assert_eq!(ws.app.doc.markers[0].time, 30);
+                assert_eq!(ws.app.doc.markers()[0].time, 30);
                 // The first visible row is the same at every zoom.
                 assert_eq!(w.scroll_y, 48.0 * zoom);
             })
@@ -626,7 +618,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
                     .panels
                     .focused_waves()
                     .unwrap()
-                    .items
+                    .items()
                     .iter()
                     .map(|item| item.height().multiple())
                     .collect::<Vec<_>>()
@@ -703,7 +695,7 @@ fn wave_copy_paste_keys_duplicate_rows(cx: &mut TestAppContext) {
                     .panels
                     .focused_waves()
                     .unwrap()
-                    .items
+                    .items()
                     .iter()
                     .map(|item| item.name().to_owned())
                     .collect::<Vec<_>>()
@@ -732,7 +724,7 @@ fn wave_copy_paste_keys_duplicate_rows(cx: &mut TestAppContext) {
     );
     window
         .update(&mut vcx, |ws, _, _| {
-            let rows = &ws.app.panels.focused_waves().unwrap().items;
+            let rows = &ws.app.panels.focused_waves().unwrap().items();
             assert!(rows[..3].iter().all(|row| Arc::ptr_eq(
                 row.signal().unwrap().history.as_ref().unwrap(),
                 rows[0].signal().unwrap().history.as_ref().unwrap()
@@ -980,7 +972,7 @@ fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
     let row = |vcx: &mut VisualTestContext| {
         window
             .update(vcx, |ws, _, _| {
-                let item = ws.app.panels.focused_waves().unwrap().items[0].clone();
+                let item = ws.app.panels.focused_waves().unwrap().items()[0].clone();
                 (
                     item.signal().unwrap().analog.as_ref().map(|a| a.draw),
                     item.height().multiple(),
@@ -1082,7 +1074,7 @@ fn group_keys_and_the_hosted_name_editor(cx: &mut TestAppContext) {
                     .panels
                     .focused_waves()
                     .unwrap()
-                    .items
+                    .items()
                     .iter()
                     .map(|e| {
                         let mark = match e.group() {
@@ -1199,4 +1191,201 @@ fn wave_rows_are_tree_items() {
         1.0,
     );
     assert_eq!(leaf.is_expanded(), None);
+}
+
+/// Undo keys reach the history from the panels; in the group name editor
+/// and the filter box they edit the text instead. The Edit menu and the
+/// palette name the steps (`docs/undo-redo.html`).
+#[gpui_kit::test]
+fn undo_keys_reach_the_history_and_text_fields_keep_their_own(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let rows = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                ws.app
+                    .panels
+                    .focused_waves()
+                    .unwrap()
+                    .items()
+                    .iter()
+                    .map(|e| e.name().to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    };
+    let (undo, redo) = if cfg!(target_os = "macos") {
+        ("cmd-z", "cmd-shift-z")
+    } else {
+        ("ctrl-z", "ctrl-shift-z")
+    };
+    let all = rows(&mut vcx);
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let w = ws.app.panels.focused_waves_mut().unwrap();
+            w.selected = [1].into();
+            w.anchor = Some(1);
+        })
+        .unwrap();
+    vcx.simulate_keystrokes("delete");
+    vcx.run_until_parked();
+    assert_eq!(rows(&mut vcx).len(), 3);
+
+    // The Edit menu and the palette name the step.
+    let edit_menu = |vcx: &mut VisualTestContext| {
+        vcx.update(|_, cx| {
+            let menus = cx.get_menus().expect("the application menu");
+            let edit = menus
+                .iter()
+                .find(|m| m.name == "Edit")
+                .expect("an Edit menu");
+            edit.items
+                .iter()
+                .filter_map(|item| match item {
+                    gpui_kit::OwnedMenuItem::Action { name, disabled, .. } => {
+                        Some((name.clone(), *disabled))
+                    }
+                    _ => None,
+                })
+                .take(2)
+                .collect::<Vec<_>>()
+        })
+    };
+    let removed = window
+        .update(&mut vcx, |ws, _, _| ws.app.undo_label().unwrap().to_owned())
+        .unwrap();
+    assert_eq!(
+        edit_menu(&mut vcx),
+        [(format!("Undo {removed}"), false), ("Redo".into(), true)]
+    );
+    let labels = window
+        .update(&mut vcx, |ws, _, _| {
+            crate::palette::commands(&ws.app, "")
+                .into_iter()
+                .map(|(label, _)| label)
+                .take(2)
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+    assert_eq!(labels, [format!("Undo: {removed}"), "Redo".to_owned()]);
+
+    vcx.simulate_keystrokes(undo);
+    vcx.run_until_parked();
+    assert_eq!(rows(&mut vcx), all);
+    assert_eq!(
+        edit_menu(&mut vcx),
+        [
+            ("Undo Add 4 signals".into(), false),
+            (format!("Redo {removed}"), false)
+        ]
+    );
+    vcx.simulate_keystrokes(redo);
+    vcx.run_until_parked();
+    assert_eq!(rows(&mut vcx).len(), 3);
+    vcx.simulate_keystrokes(undo);
+    vcx.run_until_parked();
+    if !cfg!(target_os = "macos") {
+        vcx.simulate_keystrokes("ctrl-y");
+        vcx.run_until_parked();
+        assert_eq!(rows(&mut vcx).len(), 3, "Ctrl+Y redoes");
+        vcx.simulate_keystrokes(undo);
+        vcx.run_until_parked();
+    }
+    assert_eq!(rows(&mut vcx), all);
+
+    // In the group name editor, undo edits the name.
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let w = ws.app.panels.focused_waves_mut().unwrap();
+            w.selected = [1, 2].into();
+            w.anchor = Some(1);
+        })
+        .unwrap();
+    vcx.simulate_keystrokes("g");
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let steps = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| ws.app.history.undo_steps().count())
+            .unwrap()
+    };
+    let grouped = steps(&mut vcx);
+    let name = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, cx| {
+                ws.rename
+                    .as_ref()
+                    .map(|r| r.input.read(cx).text().to_owned())
+            })
+            .unwrap()
+    };
+    vcx.simulate_keystrokes("a x");
+    vcx.run_until_parked();
+    assert_eq!(name(&mut vcx).as_deref(), Some("ax"));
+    vcx.simulate_keystrokes(undo);
+    vcx.run_until_parked();
+    assert_eq!(
+        name(&mut vcx).as_deref(),
+        Some("a"),
+        "typing undoes as a run"
+    );
+    vcx.simulate_keystrokes(undo);
+    vcx.run_until_parked();
+    assert_eq!(name(&mut vcx).as_deref(), Some("Group 1"));
+    vcx.simulate_keystrokes(redo);
+    vcx.run_until_parked();
+    assert_eq!(name(&mut vcx).as_deref(), Some("a"));
+    assert_eq!(steps(&mut vcx), grouped, "the cockpit history is untouched");
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    assert_eq!(steps(&mut vcx), grouped, "naming joins the group's step");
+    assert_eq!(rows(&mut vcx)[1], "a");
+
+    // In the filter box too; the panel's undo then takes the group back.
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            let handle = ws.filter.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        })
+        .unwrap();
+    vcx.simulate_keystrokes("c l k");
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("backspace");
+    vcx.run_until_parked();
+    let filter = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| ws.app.variables.filter.clone())
+            .unwrap()
+    };
+    assert_eq!(filter(&mut vcx), "cl");
+    vcx.simulate_keystrokes(undo);
+    vcx.run_until_parked();
+    assert_eq!(filter(&mut vcx), "clk");
+    assert_eq!(rows(&mut vcx)[1], "a");
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            window.focus(&ws.waves_focus, cx);
+        })
+        .unwrap();
+    vcx.simulate_keystrokes(undo);
+    vcx.run_until_parked();
+    assert_eq!(rows(&mut vcx), all);
 }

@@ -49,7 +49,7 @@ fn complete_round_trip_preserves_layout_rows_links_chrome_and_exact_times() {
     w.scroll_y = 2.5;
     app.doc.shared.cursor = Some(u64::MAX - 1);
     app.doc.add_marker(u64::MAX - 2);
-    app.doc.markers[0].label = Some("interrupt".into());
+    app.doc.set_marker_label(0, Some("interrupt".into()));
     app.handle(Command::SetFilter("clock".into()));
     app.handle(Command::Panels(PanelsCommand::Rename(
         app.panels.focused_id(),
@@ -62,7 +62,7 @@ fn complete_round_trip_preserves_layout_rows_links_chrome_and_exact_times() {
     assert_eq!(value(&app), before);
     assert_eq!(app.doc.shared.cursor, Some(u64::MAX - 1));
     app.doc.add_marker(10);
-    assert_ne!(app.doc.markers[0].id, app.doc.markers[1].id);
+    assert_ne!(app.doc.markers()[0].id, app.doc.markers()[1].id);
 }
 
 #[test]
@@ -539,7 +539,7 @@ fn row_heights(app: &App) -> Vec<u8> {
     app.panels
         .focused_waves()
         .unwrap()
-        .items
+        .items()
         .iter()
         .map(|item| item.height().multiple())
         .collect()

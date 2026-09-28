@@ -57,40 +57,64 @@ exists. Iterative flattening supports deep trees without recursion. The metadata
 extension uses remote protocol version 2; VTR encodings and C/Rust reader APIs
 are unchanged.
 
-## Volna cockpit undo and redo (proposal)
+## Volna cockpit undo and redo
 
-The [undo/redo proposal](undo-redo.html) keeps one linear history per open
-trace in `volna-core::App`. Undoable state is what a workspace file stores
-minus navigation: rows, formats, heights, groups, markers, rulers, panels and
-their layout. Viewport, cursor, scroll, folds, focus, selection, links and
-settings never make a step; each step restores the selection of the panels it
-touched. Surfer, Blender, REAPER and Saleae keep the view out of undo the same
-way.
+The [undo/redo design](undo-redo.html) keeps one linear history per open
+trace in `volna-core` (`history`, `App::history`). Undoable state is what a
+workspace file stores minus navigation: rows, formats, heights, groups,
+markers, rulers and cycle origins, titles, table columns, transaction pins and
+radixes, and the panel structure. Viewport, cursor, scroll, folds, focus,
+selection, links and settings never make a step; each step restores the
+selection of the panels it touched. Surfer, Blender, REAPER and Saleae keep
+the view out of undo the same way.
 
-Edits are data: a closed `Edit` enum (row splices on the pre-order `items`,
-marker, ruler and panel-property swaps, and layout with detached panels) whose
-application returns its inverse, so undo and redo are one `flip`. Removed rows
-are detached like the row clipboard, and closed panels go through the existing
-`App::removed`/`App::created` lifecycle, so the journal holds no trace data and
-is not charged to the memory ledger. It has one 64 MiB cap and always keeps
-the newest step. One command or gesture is one step; `Esc` rolls back an open
-gesture. Adjustments with the same merge key within one second merge, a new
-group and its name form one step, and a swap equal to the current value is
-dropped at commit. In VS Code, Volna stays a read-only custom editor and the
-extension forwards the keys.
+Edits are data: a closed `Edit` enum (row splices on the pre-order rows,
+marker and panel-property swaps, and layout with detached panels) whose
+application returns its inverse, so undo and redo are one `flip`. The
+proposal had models return planned edits for `App::apply` to perform. The
+implementation keeps the planners (`wave::tree` returns splices) but records
+at the owning layer instead: each journaled field has one writer that keeps
+its value before the first change, and the app collects those inverses after
+every command and before every layout change. Pointer handlers and commands
+therefore need no edit plumbing, and a field that is changed without being
+collected fails the model-based test. Rulers became a panel property
+(`Prop::Clocks`) rather than a fifth variant, and tables, which draw no
+rulers, no longer take ruler or origin edits.
+
+Removed rows are detached like the row clipboard (`Entry::detached`), and
+closed panels are released and parked (tables and transaction panels return
+their reservations), so the journal holds no trace data and is not charged to
+the memory ledger. It has one 64 MiB cap, applied after commits and undos,
+and always keeps the newest step. One command or gesture is one step; Esc or
+⌘Z rolls back an open gesture. Adjustments with the same merge key within one
+second merge, a new group and its name form one step, and edits equal to the
+current state are pruned at commit, compared by what a workspace stores
+(`Entry::same`). The model-based test found two cases now in the design: a
+drag back to its start left an empty step, and a move past an identical copy
+of a row changed nothing but was recorded. In VS Code, Volna stays a read-only
+custom editor; the extension forwards the keys and the page replays them as
+keystrokes, so text fields keep text undo. Menu labels stay in sentence case
+because they name signals and panels.
 
 We reject a workspace snapshot per step: at 100,000 rows the workspace codec
 takes 200 ms to capture and 281 ms to restore, for 8.3 MB, while detaching the
-rows takes 4.1 ms (`examples/undo_cost.rs`, Apple M5). We reject copy-on-write
-snapshots because they would keep removed histories resident, and command
-replay because focus and selection change between the action and the redo. We
-reject one stack per panel because closes, markers and cross-panel pastes have
-no owning panel. We reject selection as steps, an undo tree, a step limit and
-persisting the history. We reject reporting VS Code document edits, because
-that marks the read-only trace dirty. A model-based test replaces trust in
-per-call-site recording: every edit must leave a step, and undo must
-reproduce each earlier projection exactly. This journal subsumes the
-marker-only journal of the marker proposal.
+rows takes 4.1 ms (`examples/undo_cost.rs`, Apple M5). On an Intel Core Ultra
+7 265K the same run takes 167/236 ms to capture/restore and 11 ms to detach;
+with the journal, removing 100,000 rows takes 27 ms and journals 31.9 MB
+(319 B per row, so the cap holds about 210,000 rows), undoing it 18 ms and
+redoing it 20 ms; closing a 100,000-row panel takes 11 ms, undoing and redoing
+it 12 and 8 ms, and no flip queues a load while another panel holds the
+histories. Merging adjacent removed blocks into one splice halved the removal
+and its undo (53 to 27 ms, 26 to 18 ms). We reject copy-on-write snapshots
+because they would keep removed histories resident, and command replay
+because focus and selection change between the action and the redo. We
+reject one stack per panel because closes, markers and cross-panel pastes
+have no owning panel. We reject selection as steps, an undo tree, a step
+limit and persisting the history. We reject reporting VS Code document
+edits, because that marks the read-only trace dirty. A model-based test
+replaces trust in per-call-site recording: every edit must leave a step, and
+undo must reproduce each earlier projection exactly. This journal subsumes
+the marker-only journal of the marker proposal.
 
 ## Volna marker interactions (proposal)
 

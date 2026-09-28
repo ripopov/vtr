@@ -2,12 +2,16 @@
 //! time to detach N rows from their histories (what the journal keeps for a
 //! removed row or a closed panel), and the time and size of saving and
 //! restoring an N-row wave panel through the workspace codec (what a
-//! snapshot-per-step journal would pay). Best of five runs.
+//! snapshot-per-step journal would pay). Then the journal itself: removing
+//! all N rows of one panel and closing a second N-row panel, each undone and
+//! redone while the other panel keeps the histories resident, with the
+//! bytes the journal holds. Best of five runs.
 //!
 //! cargo run --release -p volna-core --example undo_cost -- 100000
 use std::time::Instant;
 
-use volna_core::app::{App, Command};
+use volna_core::app::{Action, App, Command};
+use volna_core::panels::PanelsCommand;
 use volna_core::session::OpenSpec;
 use volna_core::wave::{Entry, model::WaveRow};
 use volna_core::workspace::Workspace;
@@ -63,12 +67,35 @@ fn best_ms(mut f: impl FnMut()) -> f64 {
         .fold(f64::INFINITY, f64::min)
 }
 
-fn detach(e: &Entry) -> Entry {
-    let mut e = e.clone();
-    if let WaveRow::Signal(item) = &mut e.row {
-        item.history = None;
+fn pump(app: &mut App) {
+    loop {
+        let requests = app.take_requests();
+        if requests.is_empty() {
+            break;
+        }
+        for request in requests {
+            app.deliver(request.perform());
+        }
     }
-    e
+}
+
+fn time_ms(f: impl FnOnce()) -> f64 {
+    let t = Instant::now();
+    f();
+    t.elapsed().as_secs_f64() * 1000.0
+}
+
+/// Undo and redo the last step five times each; the best of each, and
+/// whether any of them queued a load.
+fn flip_ms(app: &mut App) -> (f64, f64, bool) {
+    let (mut undo, mut redo, mut loads) = (f64::INFINITY, f64::INFINITY, false);
+    for _ in 0..5 {
+        undo = undo.min(time_ms(|| app.handle(Command::Undo)));
+        loads |= !app.take_requests().is_empty();
+        redo = redo.min(time_ms(|| app.handle(Command::Redo)));
+        loads |= !app.take_requests().is_empty();
+    }
+    (undo, redo, loads)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -84,17 +111,9 @@ fn main() -> anyhow::Result<()> {
     app.settings_loaded(r#"{"memory.budgetMiB": 16384, "memory.objectMiB": 8192}"#);
     app.set_session(OpenSpec::Path(path).open()?);
     app.handle(Command::AddVars((0..vars).collect()));
-    loop {
-        let requests = app.take_requests();
-        if requests.is_empty() {
-            break;
-        }
-        for request in requests {
-            app.deliver(request.perform());
-        }
-    }
+    pump(&mut app);
     let id = app.panels.focused_id();
-    let items = app.panels.waves(id).unwrap().items.clone();
+    let items = app.panels.waves(id).unwrap().items().to_vec();
     let heap: usize = items
         .iter()
         .map(|e| match &e.row {
@@ -103,7 +122,7 @@ fn main() -> anyhow::Result<()> {
         })
         .sum();
     let mut detached = Vec::new();
-    let detach_ms = best_ms(|| detached = items.iter().map(detach).collect::<Vec<_>>());
+    let detach_ms = best_ms(|| detached = items.iter().map(Entry::detached).collect::<Vec<_>>());
     let mut bytes = Vec::new();
     let capture_ms = best_ms(|| {
         bytes = Workspace::capture(&app, "trace.vtr".into(), None)
@@ -117,6 +136,23 @@ fn main() -> anyhow::Result<()> {
             .unwrap();
         plan.commit(&mut app).unwrap();
     });
+    pump(&mut app);
+
+    // The journal: panel A loses its rows while panel B shares them, then
+    // panel B closes while panel A shares them.
+    let a = app.panels.focused_id();
+    app.handle(Command::Action(Action::SplitRight));
+    let b = app.panels.focused_id();
+    app.handle(Command::Panels(PanelsCommand::Focus(a)));
+    app.handle(Command::Action(Action::SelectAll));
+    let remove_ms = time_ms(|| app.handle(Command::Action(Action::RemoveSelected)));
+    let remove_journal_bytes = app.history.undo_steps().last().unwrap().bytes();
+    let (undo_remove_ms, redo_remove_ms, remove_loads) = flip_ms(&mut app);
+    app.handle(Command::Undo);
+    app.handle(Command::Panels(PanelsCommand::Focus(b)));
+    let close_ms = time_ms(|| app.handle(Command::Action(Action::ClosePanel)));
+    let close_journal_bytes = app.history.undo_steps().last().unwrap().bytes();
+    let (undo_close_ms, redo_close_ms, close_loads) = flip_ms(&mut app);
     println!(
         "{}",
         serde_json::json!({
@@ -129,6 +165,15 @@ fn main() -> anyhow::Result<()> {
             "workspace_bytes_per_row": bytes.len() as f64 / items.len() as f64,
             "capture_ms": capture_ms,
             "restore_ms": restore_ms,
+            "remove_all_ms": remove_ms,
+            "remove_journal_bytes": remove_journal_bytes,
+            "undo_remove_ms": undo_remove_ms,
+            "redo_remove_ms": redo_remove_ms,
+            "close_panel_ms": close_ms,
+            "close_journal_bytes": close_journal_bytes,
+            "undo_close_ms": undo_close_ms,
+            "redo_close_ms": redo_close_ms,
+            "flips_queued_loads": remove_loads || close_loads,
         })
     );
     Ok(())

@@ -1467,7 +1467,7 @@ fn a_stream_opened_first_replaces_the_start_panel_and_rows_find_a_waveform_tab()
     app.handle(Command::AddVars(vec![0]));
     assert_eq!(app.panels.len(), 2);
     let waves = app.panels.focused_id();
-    assert_eq!(app.panels.waves(waves).unwrap().items.len(), 1);
+    assert_eq!(app.panels.waves(waves).unwrap().items().len(), 1);
     assert_eq!(
         app.panels.layout(),
         &Layout::Tabs {
@@ -1480,7 +1480,7 @@ fn a_stream_opened_first_replaces_the_start_panel_and_rows_find_a_waveform_tab()
     app.handle(Command::AddVars(vec![0]));
     assert_eq!(app.panels.len(), 2);
     assert_eq!(app.panels.focused_id(), waves);
-    assert_eq!(app.panels.waves(waves).unwrap().items.len(), 2);
+    assert_eq!(app.panels.waves(waves).unwrap().items().len(), 2);
     // Closing both leaves a start panel and releases the track.
     app.handle(Command::Panels(PanelsCommand::Close(waves)));
     app.handle(Command::Panels(PanelsCommand::Close(pipeline)));

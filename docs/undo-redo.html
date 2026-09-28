@@ -281,10 +281,10 @@ ul.prose li{margin:8px 0}
 
 <main id="top">
 <section class="wrap hero">
-  <p class="kicker">Proposal · volna-core · GPUI · web · VS Code</p>
+  <p class="kicker">Design, implemented · volna-core · GPUI · web · VS Code</p>
   <h1>Undo and redo for the Volna cockpit</h1>
   <p class="lede">Volna never changes a trace, but people spend real effort on the cockpit they build around one: signals picked from a large hierarchy, formats, groups, markers and panels. <kbd data-mod="Mod+Z">⌘Z</kbd> should take back the last of those changes, wherever it happened, and <kbd>⇧⌘Z</kbd> or <kbd>Ctrl+Y</kbd> should put it back.</p>
-  <p class="meta">Proposal with an interactive demo, 27 September 2026. The demo runs the proposed journal in JavaScript and checks it with a model-based self-test on every load. The Rust sketch follows the current <code>volna-core</code>: <code>App::handle_at</code>, <code>WaveModel::items</code> as a pre-order row tree (<a href="wave_groups.html">signal groups</a>), <code>Panels</code> with <code>App::created</code>/<code>App::removed</code>, the document's markers and the <a href="workspaces.html">workspace</a> codec. Costs come from <code>volna-core/examples/undo_cost.rs</code>, run on an Apple M5 laptop in a release build.</p>
+  <p class="meta">Proposal with an interactive demo, 27 September 2026; implemented 28 September 2026. The demo runs the journal in JavaScript and checks it with a model-based self-test on every load. The Rust in this page is the implementation in <code>volna-core</code> (<code>history.rs</code>, <code>app/undo.rs</code>, <code>wave/tree.rs</code>): <code>App::handle_at</code>, the pre-order row tree of <a href="wave_groups.html">signal groups</a>, <code>Panels</code> with <code>App::created</code>, the document's markers and the <a href="workspaces.html">workspace</a> codec. Where the implementation departed from the proposal, the text says so. Costs come from <code>volna-core/examples/undo_cost.rs</code> in release builds, on an Apple M5 laptop for the proposal and an Intel Core Ultra 7 265K for the implementation.</p>
   <dl class="paths">
     <div><dt>What it covers</dt><dd>What the cockpit contains and how it draws it: rows, formats, heights, groups, markers, rulers, panels and their layout.</dd></div>
     <div><dt>What it leaves alone</dt><dd>Where you look: zoom, pan, cursor, scroll, folds, focus, selection, links and settings. Undo never moves the time axis.</dd></div>
@@ -293,15 +293,15 @@ ul.prose li{margin:8px 0}
 </section>
 
 <section class="wrap" id="summary" aria-labelledby="summary-h">
-  <h2 id="summary-h">The proposal in eight decisions</h2>
+  <h2 id="summary-h">The design in eight decisions</h2>
   <ol class="rules principles">
     <li><b>One linear history per open trace.</b> Every panel, the markers and the layout share it, so <kbd data-mod="Mod+Z">⌘Z</kbd> takes back the last cockpit change wherever it happened. A new edit discards the redo list. The history is dropped when the trace or a workspace file is opened or closed, and it is not saved in workspace files.</li>
     <li><b>Undo covers what the cockpit holds, not where you look.</b> Adding, removing, moving, grouping and formatting rows, markers, rulers and panels are undoable. Zoom, pan, cursor, scroll, folds, focus, selection and links are navigation and never make a step. Selection is restored with each step, so the restored rows come back selected.</li>
-    <li><b>Edits are data, and applying one returns its inverse.</b> A closed <code>Edit</code> enum has five variants: row splices, markers, rulers, panel properties and layout. <code>App::apply</code> is the only way journaled state changes. Undo and redo are one function, <code>flip</code>, which applies a step's edits newest first and keeps what they return.</li>
-    <li><b>Steps hold descriptions, never trace data.</b> Removed rows are kept <em>detached</em>, like the row clipboard: format, height and path, but no history. A closed panel is kept after <code>App::removed</code> has released its data. Undo attaches them again through the normal load path. The journal has one cap, 64 MiB, and always keeps the newest step.</li>
+    <li><b>Edits are data, and applying one returns its inverse.</b> A closed <code>Edit</code> enum has four variants: row splices, markers, panel properties (rulers among them) and layout. Every journaled field has exactly one writer, which keeps the value the field had before its first change; the app collects those inverses into the step after each command. Undo and redo are one function, <code>flip</code>, which applies a step's edits newest first and keeps what they return.</li>
+    <li><b>Steps hold descriptions, never trace data.</b> Removed rows are kept <em>detached</em>, like the row clipboard: format, height and path, but no history. A closed panel is kept after the app has released its data and its memory reservation. Undo attaches them again through the normal load path. The journal has one cap, 64 MiB, and always keeps the newest step.</li>
     <li><b>One command or one gesture is one step.</b> <code>App::handle_at</code> opens a step and commits it when the command returns. A drag commits on release, and <kbd>Esc</kbd> rolls it back. Repeated adjustments to the same target within one second merge, as do a new group and its name. A gesture that ends where it started records nothing.</li>
-    <li><b>Undo shows what it changed.</b> It focuses the panel, raises its tab, restores the selection and scrolls the rows into view. Menus read “Undo Remove 3 Rows”. The result is announced (“Undid Remove 3 rows”) through the accessible notice path. The time axis stays where you left it.</li>
-    <li><b>Standard keys, owned by the focused element.</b> On macOS, <kbd>⌘Z</kbd> undoes and <kbd>⇧⌘Z</kbd> redoes. On Windows and Linux, <kbd>Ctrl+Z</kbd> undoes and both <kbd>Ctrl+Y</kbd> and <kbd>Ctrl+Shift+Z</kbd> redo. Text fields keep their own text undo. In VS Code the extension forwards the keys, and Volna routes them through its own focus chain, so it stays a read-only editor and never gets a dirty tab.</li>
+    <li><b>Undo shows what it changed.</b> It focuses the panel, raises its tab, restores the selection and scrolls the rows into view. Menus read “Undo Remove 3 rows”. The result is announced politely to assistive technology (“Undid Remove 3 rows”) and shown in the status bar. The time axis stays where you left it.</li>
+    <li><b>Standard keys, owned by the focused element.</b> On macOS, <kbd>⌘Z</kbd> undoes and <kbd>⇧⌘Z</kbd> redoes. On Windows and Linux, <kbd>Ctrl+Z</kbd> undoes and both <kbd>Ctrl+Y</kbd> and <kbd>Ctrl+Shift+Z</kbd> redo. Text fields keep their own text undo. In VS Code the extension forwards the keys and the page replays them through Volna's own focus chain, so it stays a read-only editor and never gets a dirty tab.</li>
     <li><b>Coverage is tested, not trusted.</b> A model-based test drives random commands and checks two things after each one. Undo must reproduce every earlier state of the workspace projection exactly, and any change that leaves no step fails the test. Surfer shows why this matters: upstream forgot to save a snapshot for marker removal<sup class="r"><a href="#ref-surfer">[1]</a></sup>.</li>
   </ol>
 </section>
@@ -454,17 +454,17 @@ ul.prose li{margin:8px 0}
       <h3>One command or one gesture is one step</h3>
       <p><code>App::handle_at</code> is already the single entry point for input, and it already compares workspace stamps around each command for autosave. It becomes the step boundary: edits made while a command runs join one step, which commits when the command returns. A pointer gesture keeps its step open until the release, so dragging rows or a marker is one step. <kbd>Esc</kbd>, or <kbd data-mod="Mod+Z">⌘Z</kbd> during the drag, rolls the open step back and records nothing.</p>
       <p>Two explicit rules merge steps. A <b>merge key</b> is the same kind of adjustment to the same targets, such as a format, a height step or a marker nudge. Such a step joins the previous one if that one was the last thing committed and less than one second has passed, so <kbd>T</kbd><kbd>T</kbd><kbd>T</kbd> is one step. A <b>continuation</b> lets a follow-up command join its origin with no time limit. <kbd>G</kbd> creates “Group 1” and opens its name field, and committing the name joins the group step, so one undo removes the named group.</p>
-      <p>A gesture that ends where it started, such as a marker dragged away and back, records nothing. Commit drops a swap edit whose stored value equals the current one. The demo's self-test found this case.</p>
+      <p>A gesture that ends where it started, such as a marker dragged away and back, records nothing. Commit drops every edit whose stored value equals the current state, compared by what a workspace stores (<code>Entry::same</code>), so a row height dragged out and back or a format cycled round within the window leaves no step. The demo's self-test found the first case, and the Rust model-based test found a second: a row moved past an identical copy of itself changes nothing, so <code>tree::plan_move</code> refuses it.</p>
     </div>
     <div>
       <h3>What a step stores</h3>
-      <p>A step is a label, the <b>inverse</b> edits recorded while it ran, the context before and after (focus and the selections of touched panels), a merge key and a size. The inverse of a row splice holds the removed rows <b>detached</b>: source path, format, height, analog settings and group structure, with no <code>SignalHistory</code>. <code>WaveModel::copy_selected</code> already detaches rows this way for the clipboard, and both use one helper. A detached row costs about 320 bytes (<a href="#costs">measured</a>).</p>
-      <p>A closed panel is kept as a <code>Panel</code> value after <code>App::removed</code> has detached it. Pipeline, table and transaction panels then no longer retain their tracks or hold their memory reservation, and its wave rows are detached. Undo puts it back under its own <code>PanelId</code>, which is safe because the allocator is monotonic, and runs <code>App::created</code> again. Because the journal holds no trace data, it is not charged to the session memory ledger. It has its own cap: 64 MiB, about 200,000 detached rows. The oldest steps go first, and the newest step is always kept, even when it alone exceeds the cap.</p>
+      <p>A step is a label, the <b>inverse</b> edits recorded while it ran, the context before and after (focus and the selections of touched panels), a merge key and a size. The inverse of a row splice holds the removed rows <b>detached</b>: source path, format, height, analog settings and group structure, with no <code>SignalHistory</code>. <code>WaveModel::copy_selected</code> detaches rows this way for the clipboard, and both use one helper, <code>Entry::detached</code>. A detached row costs about 320 bytes (<a href="#costs">measured</a>).</p>
+      <p>A closed panel is kept as a <code>Panel</code> value after <code>App::release</code> has detached it. Pipeline, table and transaction panels then no longer retain their tracks, tables and transaction panels return their memory reservation (<code>park</code>), and its wave rows are detached. Undo puts it back under its own <code>PanelId</code>, which is safe because the allocator is monotonic, and runs <code>App::created</code> again, which reserves the memory again and reattaches the rows. Because the journal holds no trace data, it is not charged to the session memory ledger. It has its own cap: 64 MiB, about 210,000 detached rows. The oldest steps go first, after a commit and after an undo (whose inverse may be larger than the step it replaces), and the newest step is always kept, even when it alone exceeds the cap.</p>
     </div>
     <div>
       <h3>Showing the result</h3>
       <p>Apple's guidelines ask apps to show the result, for example by scrolling a restored paragraph into view<sup class="r"><a href="#ref-hig">[23]</a></sup>. After undo or redo, Volna focuses the panel the step changed, activates its tab, restores the selection the step saved, and scrolls the first restored row into view. It never moves the time axis. A marker brought back off screen is announced, and the view stays put, because the time axis is where the investigation is.</p>
-      <p>Every step has a label built by the core: “Add 3 signals”, “Remove 2 rows”, “Format hex”, “Move marker 2”, “Close Waves 2”. The Edit menu reads “Undo Remove 2 Rows”. The palette lists “Undo: Remove 2 rows”, and the notice says “Undid Remove 2 rows”. The notice uses the existing accessible notice path. The web page also calls <code>document.ariaNotify</code> where available, which is Baseline since September 2026<sup class="r"><a href="#ref-arianotify">[26]</a></sup>, and falls back to a polite live region otherwise. When there is nothing to undo, the notice says so, and the menu item is disabled.</p>
+      <p>Every step has a label built by the core: “Add 3 signals”, “Remove 2 rows”, “Format hex”, “Add marker”, “Close Waves 2”. The Edit menu reads “Undo Remove 2 rows”: labels keep sentence case because they name signals, groups and panels, which title case would change. The palette lists “Undo: Remove 2 rows”, and the announcement says “Undid Remove 2 rows”. The announcement is its own event, <code>Event::Announce</code>, not a warning notice: the status bar shows it until the next edit, the web page passes it to <code>document.ariaNotify</code> where available, which is Baseline since September 2026<sup class="r"><a href="#ref-arianotify">[26]</a></sup>, and falls back to a polite live region otherwise, and VS Code shows no popup for it. When there is nothing to undo, the announcement says so, and the menu item is disabled.</p>
     </div>
     <div>
       <h3>Loads, failures and autosave</h3>
@@ -489,23 +489,24 @@ ul.prose li{margin:8px 0}
 
 <section class="wrap" id="architecture" aria-labelledby="architecture-h">
   <h2 id="architecture-h">Architecture</h2>
-  <p class="prose">Everything lives in <code>volna-core</code>, in a new <code>history</code> module. Frontends only bind keys, host the Edit menu and show notices. The core changes in one principle: <b>models plan edits, <code>App</code> applies them</b>. Today <code>WaveModel::remove_selected</code>, <code>tree::group</code> and <code>Document::add_marker</code> mutate in place. They become planners that return an <code>Edit</code>, like <code>tree::plan_move</code> already does, and <code>App::apply</code> is the one place where journaled state changes.</p>
+  <p class="prose">Everything lives in <code>volna-core</code>, in a new <code>history</code> module and <code>app/undo.rs</code>. Frontends only bind keys, host the Edit menu and show announcements. The core changes in one principle: <b>every journaled field has one writer, and the writer keeps the inverse</b>. Row edits are planned by the pure functions of <code>wave::tree</code>, which return splices; <code>WaveModel</code> performs them through its only row mutator and keeps their inverse. Markers, titles and table columns are <code>Journaled&lt;T&gt;</code> fields; rulers, pins and radixes keep their previous value in their owner. After each command, and before each change of the panel structure, <code>App</code> collects every inverse into the open step. <code>App::apply</code> performs edits only when a step is flipped.</p>
+  <p class="prose">This departs from the proposal, which had every model return a planned <code>Edit</code> for <code>App::apply</code> to perform. Recording at the writer needs no edit plumbing through pointer handlers and command results, covers every caller of a field by construction, and a field that is changed without being collected fails the model-based test.</p>
   <figure class="fig">
     <div class="diawrap">
       <svg class="dia" viewBox="0 0 1100 300" role="img" aria-labelledby="flow-t flow-d">
         <title id="flow-t">How a command becomes a step, and how undo flips it</title>
-        <desc id="flow-d">A command enters App::handle_at, which opens a step. The handler asks a model to plan an Edit. App::apply performs the edit on the cockpit state and returns its inverse, which the open step keeps. When the command returns, or at pointer release for a gesture, the step is committed to the undo list. Undo pops the step and flips it: it applies the stored edits newest first, collecting their inverses, which form the redo step.</desc>
+        <desc id="flow-d">A command enters App::handle_at, which opens a step. The handler changes cockpit state through a journaled field's one writer, which keeps the field's inverse. When the command returns, App collects the inverses into the open step; at the command's end, or at pointer release for a gesture, the step is committed to the undo list. Undo pops the step and flips it: App::apply applies the stored edits newest first, collecting their inverses, which form the redo step.</desc>
         <defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="ahd" d="M0,0L8,4L0,8Z"/></marker>
           <marker id="ahm" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="ahd mu" d="M0,0L8,4L0,8Z"/></marker></defs>
         <rect class="box" x="10" y="40" width="150" height="58" rx="7"/><text x="85" y="64" text-anchor="middle" class="ttl">Command</text><text x="85" y="84" text-anchor="middle" class="m">key, pointer, menu</text>
         <rect class="box strong" x="200" y="40" width="190" height="58" rx="7"/><text x="295" y="64" text-anchor="middle" class="ttl">App::handle_at</text><text x="295" y="84" text-anchor="middle" class="m">opens a step</text>
-        <rect class="box" x="430" y="40" width="190" height="58" rx="7"/><text x="525" y="64" text-anchor="middle" class="ttl">model plans</text><text x="525" y="84" text-anchor="middle" class="m">tree::plan_* → Edit</text>
-        <rect class="hl" x="660" y="40" width="190" height="58" rx="7"/><text x="755" y="64" text-anchor="middle" class="ttl">App::apply(edit)</text><text x="755" y="84" text-anchor="middle" class="m">changes state → inverse</text>
+        <rect class="box" x="430" y="40" width="190" height="58" rx="7"/><text x="525" y="64" text-anchor="middle" class="ttl">one writer</text><text x="525" y="84" text-anchor="middle" class="m">tree plans splices</text>
+        <rect class="hl" x="660" y="40" width="190" height="58" rx="7"/><text x="755" y="64" text-anchor="middle" class="ttl">field keeps inverse</text><text x="755" y="84" text-anchor="middle" class="m">App collects it</text>
         <rect class="box strong" x="890" y="40" width="200" height="58" rx="7"/><text x="990" y="64" text-anchor="middle" class="ttl">open Step</text><text x="990" y="84" text-anchor="middle" class="m">keeps inverses, context</text>
         <path class="arrow" d="M160,69H196" marker-end="url(#ah)"/><path class="arrow" d="M390,69H426" marker-end="url(#ah)"/><path class="arrow" d="M620,69H656" marker-end="url(#ah)"/><path class="arrow" d="M850,69H886" marker-end="url(#ah)"/>
         <rect class="box" x="890" y="170" width="200" height="58" rx="7"/><text x="990" y="194" text-anchor="middle" class="ttl">undo list</text><text x="990" y="214" text-anchor="middle" class="m">commit: return or release</text>
         <path class="arrow" d="M990,98V166" marker-end="url(#ah)"/><text x="1000" y="138" class="m">commit, merge</text>
-        <rect class="hl" x="500" y="170" width="330" height="58" rx="7"/><text x="665" y="194" text-anchor="middle" class="ttl">flip(step)</text><text x="665" y="214" text-anchor="middle" class="m">apply edits newest first, keep inverses</text>
+        <rect class="hl" x="500" y="170" width="330" height="58" rx="7"/><text x="665" y="194" text-anchor="middle" class="ttl">flip(step)</text><text x="665" y="214" text-anchor="middle" class="m">App::apply newest first, keep inverses</text>
         <path class="arrow" d="M890,199H834" marker-end="url(#ah)"/><text x="845" y="190" class="m">⌘Z</text>
         <rect class="box" x="230" y="170" width="200" height="58" rx="7"/><text x="330" y="194" text-anchor="middle" class="ttl">redo list</text><text x="330" y="214" text-anchor="middle" class="m">cleared by a new step</text>
         <path class="arrow" d="M500,199H434" marker-end="url(#ah)"/>
@@ -513,50 +514,52 @@ ul.prose li{margin:8px 0}
         <text x="20" y="160" class="m sans">Esc during a gesture:</text><text x="20" y="178" class="m sans">the open step is flipped</text><text x="20" y="196" class="m sans">and dropped</text>
       </svg>
     </div>
-    <figcaption><b>One path for every edit.</b> Edits recorded during a command are inverses, so a committed step is ready to undo. Flipping it yields a step that is ready to redo.</figcaption>
+    <figcaption><b>One path for every edit.</b> What a command's writers keep are inverses, so a committed step is ready to undo. Flipping it yields a step that is ready to redo.</figcaption>
   </figure>
 
   <h3>Types</h3>
 <pre class="code"><span class="c">// volna-core/src/history.rs</span>
-<span class="c">/// One change to cockpit state. [`App::apply`] performs it and returns the edit
-/// that undoes it, so undo and redo are the same operation.</span>
+<span class="c">/// One change to cockpit state. Applying it returns the edit that undoes it,
+/// so undo and redo are the same operation.</span>
 <span class="k">pub</span>(<span class="k">crate</span>) <span class="k">enum</span> Edit {
-    <span class="c">/// Replace runs of a wave panel's pre-order rows, in order. Inserted rows
-    /// are detached: they carry no history and no load error.</span>
+    <span class="c">/// Replace runs of a wave panel's pre-order rows, applied in order. Rows
+    /// kept in the journal are detached: no history, no load error.</span>
     Rows { panel: PanelId, splices: Vec&lt;Splice&gt; },
     <span class="c">/// The document's markers, swapped whole (tens, not thousands).</span>
     Markers(Vec&lt;Marker&gt;),
-    <span class="c">/// A timed panel's rulers and cycle origin. The selected clock is navigation.</span>
-    Rulers { panel: PanelId, rulers: Option&lt;Vec&lt;String&gt;&gt;, origin: Option&lt;u64&gt; },
-    <span class="c">/// One property of one panel, swapped.</span>
-    Props { panel: PanelId, props: PanelProps },
-    <span class="c">/// The split/tab tree and focus, the panels to close, and detached panels
-    /// to put back under their own IDs.</span>
+    <span class="c">/// One property of one panel, swapped whole.</span>
+    Prop { panel: PanelId, prop: Prop },
+    <span class="c">/// The panel tree, the panels to close, and detached panels to put back.</span>
     Layout(Box&lt;Structure&gt;),
 }
 
-<span class="k">pub</span>(<span class="k">crate</span>) <span class="k">struct</span> Splice { <span class="k">pub</span> at: usize, <span class="k">pub</span> remove: usize, <span class="k">pub</span> insert: Vec&lt;Entry&gt; }
+<span class="k">pub struct</span> Splice { <span class="k">pub</span> at: usize, <span class="k">pub</span> remove: usize, <span class="k">pub</span> insert: Vec&lt;Entry&gt; }
 
-<span class="k">pub</span>(<span class="k">crate</span>) <span class="k">enum</span> PanelProps {
+<span class="k">pub</span>(<span class="k">crate</span>) <span class="k">enum</span> Prop {
     Title(Option&lt;String&gt;),
-    Columns(ColumnSet),                       <span class="c">// table</span>
-    Pin(Option&lt;ShownRecord&gt;),                  <span class="c">// transaction: the frozen record, or following</span>
-    Radix(BTreeMap&lt;String, Radix&gt;),           <span class="c">// transaction attributes</span>
+    Clocks { rulers: Option&lt;Vec&lt;String&gt;&gt;, origin: Option&lt;u64&gt; },  <span class="c">// waves, pipelines</span>
+    Columns(ColumnSet),                                         <span class="c">// table</span>
+    Pin(bool, Option&lt;ShownRecord&gt;),                             <span class="c">// transaction: pinned, on what</span>
+    Radix(BTreeMap&lt;String, Radix&gt;),                             <span class="c">// transaction attributes</span>
 }
 
 <span class="k">pub</span>(<span class="k">crate</span>) <span class="k">struct</span> Structure {
     <span class="k">pub</span> layout: Layout,          <span class="c">// as Panels::saved_view: the settings tab is chrome</span>
     <span class="k">pub</span> focused: PanelId,
     <span class="k">pub</span> close: Vec&lt;PanelId&gt;,
-    <span class="k">pub</span> reopen: Vec&lt;Panel&gt;,      <span class="c">// App::removed ran; wave rows detached</span>
+    <span class="k">pub</span> reopen: Vec&lt;Panel&gt;,      <span class="c">// released: no tracks, no reservation, rows detached</span>
 }
+
+<span class="c">/// A field that changes only through set/update, which remember the value
+/// before the first change since the app last collected edits.</span>
+<span class="k">pub struct</span> Journaled&lt;T&gt; { value: T, before: Option&lt;T&gt; }   <span class="c">// Deref, no DerefMut</span>
 
 <span class="c">/// A labelled group of inverse edits: one command or one gesture.</span>
 <span class="k">pub struct</span> Step {
-    <span class="k">pub</span> label: Label,
+    <span class="k">pub</span> label: String,
     edits: Vec&lt;Edit&gt;,             <span class="c">// recorded order; flip applies them newest first</span>
-    before: Context,              <span class="c">// focus, and the selection of each touched panel</span>
-    after: Context,
+    <span class="k">pub</span> before: Context,          <span class="c">// focus, and the selection of each touched panel</span>
+    <span class="k">pub</span> after: Context,
     merge: Option&lt;MergeKey&gt;,      <span class="c">// same adjustment, same targets, within MERGE_WINDOW</span>
     continues: Option&lt;MergeKey&gt;,  <span class="c">// a follow-up that may join with no time limit</span>
     at: Instant,
@@ -569,39 +572,41 @@ ul.prose li{margin:8px 0}
     open: Option&lt;Step&gt;,
     last: Last,                   <span class="c">// Commit | Undo | Redo: merges only follow a commit</span>
     bytes: usize,
+    revision: u64,                <span class="c">// menus rebuild when it moves</span>
 }
 
 <span class="k">pub const</span> MERGE_WINDOW: Duration = Duration::from_secs(<span class="n">1</span>);
 <span class="k">pub const</span> MAX_BYTES: usize = <span class="n">64</span> &lt;&lt; <span class="n">20</span>;   <span class="c">// the newest step is always kept</span></pre>
 
-  <h3>App: apply, record, flip</h3>
-<pre class="code"><span class="k">impl</span> App {
-    <span class="c">/// Apply an edit inside the command being handled and journal its inverse.</span>
-    <span class="k">pub</span>(<span class="k">crate</span>) <span class="k">fn</span> edit(&amp;<span class="k">mut self</span>, label: Label, edit: Edit) {
-        <span class="k">let</span> context = <span class="k">self</span>.context_for(&amp;edit);       <span class="c">// focus + selection, first touch only</span>
-        <span class="k">match self</span>.apply(edit) {
-            Ok(inverse) =&gt; <span class="k">self</span>.history.record(label, inverse, context, <span class="k">self</span>.now),
-            Err(error) =&gt; <span class="k">self</span>.history_broken(error),     <span class="c">// a bug: debug panics, release clears</span>
+  <h3>App: collect, apply, flip</h3>
+<pre class="code"><span class="c">// volna-core/src/app/undo.rs</span>
+<span class="k">impl</span> App {
+    <span class="c">/// Move the inverses the journaled fields keep into the open step. Called
+    /// after each command and before every layout edit.</span>
+    <span class="k">fn</span> collect_edits(&amp;<span class="k">mut self</span>) {
+        <span class="k">if let</span> Some(markers) = <span class="k">self</span>.doc.take_markers_edit() { <span class="c">/* record Edit::Markers */</span> }
+        <span class="k">for</span> panel <span class="k">in self</span>.panels.iter_mut() {
+            <span class="c">// title, rulers and origin, the wave rows' journal (with the selection
+            // before it and its merge keys), table columns, pin and radixes</span>
         }
     }
 
-    <span class="k">fn</span> apply(&amp;<span class="k">mut self</span>, edit: Edit) -&gt; Result&lt;Edit&gt; {
+    <span class="c">/// Perform one edit and return its inverse.</span>
+    <span class="k">pub</span>(<span class="k">crate</span>) <span class="k">fn</span> apply(&amp;<span class="k">mut self</span>, edit: Edit) -&gt; Result&lt;Edit&gt; {
         Ok(<span class="k">match</span> edit {
-            Edit::Rows { panel, splices } =&gt; {
+            Edit::Rows { panel, <span class="k">mut</span> splices } =&gt; {
+                <span class="c">// detached rows share a resident history or queue one load</span>
                 <span class="k">let</span> resident = <span class="k">self</span>.resident_histories();
-                <span class="k">let</span> Self { panels, doc, .. } = <span class="k">self</span>;
-                <span class="k">let</span> waves = panels.waves_mut(panel).context(<span class="s">"no such wave panel"</span>)?;
-                <span class="c">// the only mutator of WaveModel::items; detaches what it removes,
-                // attaches what it inserts (share a resident history or queue a load)</span>
-                Edit::Rows { panel, splices: waves.splice(doc, splices, &amp;resident)? }
+                attach_rows(splices.iter_mut().flat_map(|s| &amp;<span class="k">mut</span> s.insert), &amp;<span class="k">mut self</span>.doc, &amp;resident);
+                <span class="k">let</span> waves = <span class="k">self</span>.panels.waves_mut(panel).context(<span class="s">"no wave panel"</span>)?;
+                Edit::Rows { panel, splices: waves.splice(splices)? }    <span class="c">// the one row mutator</span>
             }
             Edit::Markers(markers) =&gt; Edit::Markers(<span class="k">self</span>.doc.swap_markers(markers)),
-            Edit::Rulers { panel, rulers, origin } =&gt; <span class="k">self</span>.swap_rulers(panel, rulers, origin)?,
-            Edit::Props { panel, props } =&gt; <span class="k">self</span>.swap_props(panel, props)?,
+            Edit::Prop { panel, prop } =&gt; Edit::Prop { panel, prop: <span class="k">self</span>.swap_prop(panel, prop)? },
             Edit::Layout(structure) =&gt; {
-                <span class="k">let</span> (inverse, removed, reopened) = <span class="k">self</span>.panels.install(*structure)?;
-                <span class="k">self</span>.removed_to_journal(removed);             <span class="c">// App::removed + detach rows</span>
-                reopened.into_iter().for_each(|id| <span class="k">self</span>.created(id));
+                <span class="k">let mut</span> inverse = <span class="k">self</span>.panels.install(*structure)?;
+                inverse.reopen.iter_mut().for_each(|p| <span class="k">self</span>.release(p));   <span class="c">// closed now</span>
+                inverse.close.iter().for_each(|&amp;id| <span class="k">self</span>.created(id));     <span class="c">// back now</span>
                 <span class="k">self</span>.layout_changed();
                 Edit::Layout(Box::new(inverse))
             }
@@ -619,7 +624,7 @@ ul.prose li{margin:8px 0}
         Ok(())
     }
 }</pre>
-  <p class="prose"><code>handle_at</code> gains two lines. Before dispatch, the history notes the command. After dispatch, it commits the open step unless a panel still has pointer capture (<code>Panel::dragging</code>). A pointer <code>Up</code> commits it, and <code>ClearSelection</code> during a drag flips the open step and drops it. <code>Command::Undo</code> and <code>Command::Redo</code> commit or roll back anything open, flip a step, restore its context, mark the panel for reveal, push a notice and tell the workspace scheduler that the workspace changed. <code>Command::named</code> gains <code>"undo"</code> and <code>"redo"</code> for hosts, and <code>App::undo_label</code> and <code>App::redo_label</code> feed the Edit menu and the palette.</p>
+  <p class="prose"><code>handle_at</code> gains two calls. Before dispatch, <code>begin_step</code> notes the focus and time a step would start with. After dispatch, <code>end_step</code> collects every journaled field's inverse and commits the open step unless a panel still has pointer capture (<code>Panel::dragging</code>): the release commits it. Commit merges the step into the previous one when it repeats or continues it, prunes edits that cancelled out, empties the redo list, applies the cap and tells the workspace scheduler that the workspace changed. Every change of the panel structure goes through <code>App::restructure</code>, which collects first, so a panel's own edits are journaled while it still exists, and records nothing when only navigation changed (focus, active tabs, sash sizes, the settings tab). <code>ClearSelection</code> or <code>Command::Undo</code> during a drag drops pointer capture and flips the open step back (<code>cancel_gesture</code>). <code>Command::Undo</code> and <code>Command::Redo</code> flip a step, restore its context, scroll to the restored rows, announce the result and mark the workspace changed. <code>Command::named</code> has <code>"undo"</code> and <code>"redo"</code> for hosts, and <code>App::undo_label</code>, <code>App::redo_label</code> and <code>History::revision</code> feed the Edit menu and the palette.</p>
 
   <h3>From commands to edits</h3>
   <div class="tablewrap"><table>
@@ -627,19 +632,19 @@ ul.prose li{margin:8px 0}
     <tbody>
       <tr><td><code>AddVars</code>, <code>AddToWaves</code>, <code>AddAllVars</code>, <code>AddSelectedOrAllVars</code>, <code>ActivateMembers</code> (variables)</td><td><code>Layout</code> when the start panel gives way, then <code>Rows</code> (insert)</td><td>Add 3 signals</td><td class="dim">—</td></tr>
       <tr><td><code>AddScopeAsGroup</code></td><td><code>Rows</code></td><td>Add group lsu</td><td class="dim">—</td></tr>
-      <tr><td><code>RemoveSelected</code>, menu <code>RemoveSignals</code>, <code>CutSignals</code></td><td><code>Rows</code> (one removal per selected subtree)</td><td>Remove 2 rows · Cut 2 rows</td><td class="dim">—</td></tr>
+      <tr><td><code>RemoveSelected</code>, menu <code>RemoveSignals</code>, <code>CutSignals</code></td><td><code>Rows</code> (one removal per run of adjacent selected subtrees)</td><td>Remove 2 rows · Cut 2 rows</td><td class="dim">—</td></tr>
       <tr><td><code>PasteSignals</code></td><td><code>Rows</code> (insert, detached copies attached)</td><td>Paste 2 rows</td><td class="dim">—</td></tr>
       <tr><td>row drag release (<code>Drag::Rows</code>)</td><td><code>Rows</code> from <code>tree::plan_move</code></td><td>Move 2 rows</td><td>gesture</td></tr>
       <tr><td><code>CycleFormat</code>, menu <code>Format</code>, <code>ToggleAnalog</code>, <code>Draw</code>, <code>Range</code></td><td><code>Rows</code> (replace each changed row)</td><td>Format hex · Show as plot</td><td>kind + panel + selection, 1 s</td></tr>
       <tr><td>row height keys, menu <code>RowHeight</code>, edge drag</td><td><code>Rows</code> (replace)</td><td>Row height 2×</td><td>kind + panel + selection, 1 s; gesture</td></tr>
       <tr><td><code>GroupSelection</code>, menu <code>Group</code> · <code>RenameGroup</code></td><td><code>Rows</code> · <code>Rows</code> (replace one)</td><td>Group 3 rows · Rename group</td><td>rename continues the group step</td></tr>
       <tr><td><code>Ungroup</code></td><td><code>Rows</code></td><td>Ungroup</td><td class="dim">—</td></tr>
-      <tr><td><code>AddMarker</code>, <code>ClearMarkers</code>, Shift-click, marker drag and rename (<a href="markers-ux.html">markers</a>)</td><td><code>Markers</code></td><td>Add marker 3 · Clear 4 markers</td><td>drag is a gesture; nudges merge per marker</td></tr>
-      <tr><td><code>Clocks(ToggleRuler)</code>, <code>AddClockRulers</code>, menu <code>HideRuler</code>, <code>ToggleCycleOrigin</code></td><td><code>Rulers</code></td><td>Show ruler core_clk · Cycle origin</td><td class="dim">—</td></tr>
+      <tr><td><code>AddMarker</code>, <code>ClearMarkers</code>, Shift-click on a chip, <code>Document::set_marker_label</code>; marker drag when the <a href="markers-ux.html">marker proposal</a> lands</td><td><code>Markers</code></td><td>Add marker · Remove marker · Clear 4 markers</td><td>a drag will be a gesture</td></tr>
+      <tr><td><code>Clocks(ToggleRuler)</code>, <code>AddClockRulers</code>, menu <code>HideRuler</code>, <code>ToggleCycleOrigin</code> (waves and pipelines: tables draw no rulers and ignore them)</td><td><code>Prop::Clocks</code></td><td>Show ruler core_clk · Set cycle origin</td><td class="dim">—</td></tr>
       <tr><td><code>SplitRight/Down</code>, <code>NewPanel</code>, <code>OpenPipeline</code>, <code>OpenTable</code>, <code>ShowTransaction</code> when they open a panel</td><td><code>Layout</code></td><td>Split Waves 2 · Open pipeline lsu</td><td class="dim">—</td></tr>
       <tr><td><code>ClosePanel</code>, <code>Close</code>, <code>CloseOthers</code></td><td><code>Layout</code> (detached panels kept)</td><td>Close Waves 2 · Close 3 panels</td><td class="dim">—</td></tr>
-      <tr><td><code>SetLayout</code> from the dock</td><td><code>Layout</code> when membership or order changes; nothing for proportions only</td><td>Move Pipeline 4</td><td class="dim">—</td></tr>
-      <tr><td><code>Panels::Rename</code>, table column commands, <code>Transaction(Pin, Radix)</code></td><td><code>Props</code></td><td>Rename panel · Show column Latency · Pin transaction</td><td>radix: per attribute, 1 s</td></tr>
+      <tr><td><code>SetLayout</code> from the dock</td><td><code>Layout</code> when membership or order changes; nothing for proportions or the active tab only</td><td>Rearrange panels</td><td class="dim">—</td></tr>
+      <tr><td><code>Panels::Rename</code>, table column commands, <code>Transaction(Pin, Radix)</code></td><td><code>Prop</code></td><td>Rename panel · Change columns · Pin transaction · Radix of addr</td><td>radix: per attribute, 1 s</td></tr>
       <tr><td>navigation, focus, selection, links, follow, sidebar, settings, loads</td><td class="dim">none</td><td class="dim">—</td><td class="dim">—</td></tr>
     </tbody>
   </table></div>
@@ -648,15 +653,15 @@ ul.prose li{margin:8px 0}
     <div>
       <h3>Why splices on the pre-order rows</h3>
       <p><code>WaveModel::items</code> is already a pre-order vector of <code>Entry { depth, row }</code>. Every row operation, from add to ungroup, is a sequence of splices on it: replace <code>remove</code> entries at <code>at</code> with <code>insert</code>. The inverse of a splice is a splice, and a list of them inverts in reverse order. A move of <i>k</i> rows across a 100,000-row panel stores <i>k</i> detached rows, not the range between the two places. One variant therefore covers the whole row tree. Its round trip is a few lines to test, and <code>tree.rs</code> keeps its pure planners, which now return splices instead of mutating.</p>
-      <p>Indices are valid addresses because the history is linear, and nothing else reorders <code>items</code>. When a step is flipped, the rows it names are exactly as the step left them. Folding changes a group's <code>collapsed</code> flag, not the vector. The one asynchronous write to a row style today, a new lane taking the height its records need, only fills in an <code>auto_height</code> placeholder, and a restored or explicit height clears that placeholder.</p>
+      <p>Indices are valid addresses because the history is linear, and nothing else reorders the rows. When a step is flipped, the rows it names are exactly as the step left them. Folding changes a group's <code>collapsed</code> flag, not the vector. The one asynchronous write to a row style today, a new lane taking the height its records need, only fills in an <code>auto_height</code> placeholder, and a restored or explicit height clears that placeholder.</p>
     </div>
     <div>
       <h3>Rules that keep it correct</h3>
       <ul>
-        <li><b>One mutator per journaled field.</b> <code>WaveModel::items</code>, <code>Document::markers</code>, <code>ClockView::rulers</code>/<code>origin</code>, panel titles, table columns, pins and radixes, and the <code>Panels</code> tree become private to their module. Their only writer is the <code>swap</code>/<code>splice</code>/<code>install</code> method that <code>App::apply</code> calls, and it returns the inverse, marked <code>#[must_use]</code>.</li>
-        <li><b>Pointer handlers return edits.</b> <code>WaveModel::pointer</code> cannot reach <code>App</code>. A release that moves rows returns the planned <code>Edit</code> in its outcome, just as <code>menu_select</code> returns a signal to retry today.</li>
-        <li><b>Swaps keep their earliest inverse.</b> Within a step, a second swap of the same target (markers, one panel's rulers or one property) is not recorded, because the first inverse already restores the step's start. At commit, a swap equal to the current value is dropped.</li>
-        <li><b>Detaching has one implementation.</b> The clipboard, removed rows and closed panels use one helper, so the journal never holds a <code>SignalHistory</code>, a generator or a memory reservation.</li>
+        <li><b>One writer per journaled field.</b> The wave rows are private to <code>WaveModel</code> and change only through <code>WaveModel::splice</code>; markers, titles and table columns are <code>Journaled&lt;T&gt;</code>, which has no <code>DerefMut</code>; a timed panel's clock choices are private to <code>NavState</code>; a transaction panel's pin is private to it. Folds, loaded histories and a new lane's height change rows in place, because they are navigation or trace data.</li>
+        <li><b>Recording happens at the writer.</b> <code>WaveModel::pointer</code> cannot reach <code>App</code>, and it need not: a release that moves rows keeps its inverse in the panel's journal, which the app collects when the command returns. Workspace restore and a new trace install values without recording (<code>restore</code>), and undo installs them with <code>swap</code>.</li>
+        <li><b>Swaps keep their earliest inverse.</b> Within a step, a second swap of the same target (markers, or one property of one panel) is not recorded, and neither is an in-place rewrite of the same rows right after another, because the first inverse already restores the step's start. At commit, an edit equal to the current state is dropped.</li>
+        <li><b>Detaching has one implementation.</b> The clipboard, removed rows and closed panels use <code>Entry::detached</code> and <code>App::release</code>, so the journal never holds a <code>SignalHistory</code>, a generator or a memory reservation.</li>
         <li><b>The projection is the contract.</b> The undoable state is <code>Workspace::capture</code> with the navigation fields cleared. The model-based test compares it byte for byte (<a href="#tests">tests</a>).</li>
       </ul>
     </div>
@@ -668,12 +673,12 @@ ul.prose li{margin:8px 0}
   <div class="cols2">
     <div>
       <h3>GPUI, native and web</h3>
-      <p>Two actions, <code>Undo</code> and <code>Redo</code>, dispatch <code>Command::Undo</code> and <code>Command::Redo</code>. Their bindings follow the existing pattern of binding both <code>cmd-</code> and <code>ctrl-</code>: <code>cmd-z</code>, <code>ctrl-z</code>, <code>cmd-shift-z</code>, <code>ctrl-shift-z</code> and <code>ctrl-y</code>, all in <code>Workspace &amp;&amp; !Embedded</code>. GPUI dispatches from the focused element outward, and the innermost context wins<sup class="r"><a href="#ref-zed-keys">[15]</a></sup>. The sidebar filter, the group name editor, the settings search and the settings JSON editor bind their own text undo, so <kbd>⌘Z</kbd> in them edits text. The macOS menu gets an Edit menu whose labels are rebuilt with <code>set_menus</code> when the labels change, as <code>menus()</code> already is for pipelines. The palette lists both commands. On the web, handled keys call <code>preventDefault</code>, so the browser's own Edit ▸ Undo does not act on the page.</p>
+      <p>Two actions, <code>Undo</code> and <code>Redo</code>, dispatch <code>Command::Undo</code> and <code>Command::Redo</code>. Their bindings follow the existing pattern of binding both <code>cmd-</code> and <code>ctrl-</code>: <code>cmd-z</code>, <code>ctrl-z</code>, <code>cmd-shift-z</code>, <code>ctrl-shift-z</code> and <code>ctrl-y</code>, all in <code>Workspace &amp;&amp; !Embedded</code>. GPUI matches bindings before key listeners, from the focused element outward, and the innermost context wins<sup class="r"><a href="#ref-zed-keys">[15]</a></sup>. The sidebar filter and the group name editor (<code>ui::TextInput</code>) bind the same five keys in their <code>TextInput</code> context to their own text undo, where a run of typing or deleting undoes at once. The settings search and JSON editor are gpui-kit inputs, which bind text undo for the platform only; Volna binds the other keys in their <code>Input</code> context, so no undo key falls through to the cockpit while one has focus. The Edit menu (Undo, Redo, then the row clipboard) is rebuilt with <code>set_menus</code> when <code>History::revision</code> moves, and disables an item with nothing to take. The palette lists both commands with their labels. On the web, handled keys call <code>preventDefault</code>, so the browser's own Edit ▸ Undo does not act on the page.</p>
     </div>
     <div>
       <h3>VS Code</h3>
       <p>Volna stays a <code>CustomReadonlyEditorProvider</code>. Reporting cockpit steps as <code>CustomDocumentEditEvent</code>s would give native undo, but VS Code would mark the trace tab dirty and ask to save a file that cannot change. VaporView accepts that, and Volna should not<sup class="r"><a href="#ref-vscode-api">[18]</a></sup><sup class="r"><a href="#ref-vaporview">[4]</a></sup>. The webview host already swallows <kbd>⌘Z</kbd>, posts it to the workbench and runs the custom editor's no-op undo<sup class="r"><a href="#ref-vscode-webview">[29]</a></sup>. The extension therefore contributes <code>volna.undo</code> and <code>volna.redo</code> keybindings with <code>activeCustomEditorId == volna.waveform &amp;&amp; !inputFocus</code>, next to <code>volna.saveWorkspace</code>, and forwards them as <code>{type: "command", name: "undo"}</code>.</p>
-      <p>The page dispatches the GPUI action through the focus chain rather than calling <code>Command::named</code> directly. A focused Volna text field therefore gets text undo, which VS Code's own webview inputs lack (issue #227849<sup class="r"><a href="#ref-vscode-227849">[30]</a></sup>). VS Code's Edit ▸ Undo menu item cannot reach a read-only editor; the palette entries “Volna: Undo” and “Volna: Redo” stand in for it.</p>
+      <p>The page does not run <code>Command::named</code> for these two directly. It replays the command as the key it stands for (<code>Window::dispatch_keystroke</code>): a focused Volna text field's binding takes it and undoes text, which VS Code's own webview inputs lack (issue #227849<sup class="r"><a href="#ref-vscode-227849">[30]</a></sup>); otherwise no binding of the embedded workspace matches, and the page runs <code>Command::Undo</code> or <code>Command::Redo</code>. VS Code's Edit ▸ Undo menu item cannot reach a read-only editor; the palette entries “Volna: Undo” and “Volna: Redo” stand in for it.</p>
     </div>
     <div>
       <h3>egui and agents</h3>
@@ -696,7 +701,16 @@ ul.prose li{margin:8px 0}
       <tr><td>100,000</td><td>296 B</td><td>23 B/row</td><td>4.1 ms</td><td>8.27 MB</td><td>200 ms</td><td>281 ms</td></tr>
     </tbody>
   </table></div>
-  <p class="prose">A detached row costs about 320 bytes, so the 64 MiB cap holds about 200,000 removed or closed rows. Removing or closing 100,000 rows costs about 4 ms to detach them, well inside a frame. Undoing that step re-inserts the rows and shares any resident histories without a load. Snapshots are ruled out: capturing the workspace takes 200 ms per step at 100,000 rows, before counting the memory of fifty such copies. The same capture is cheap enough for the tests' projection, which runs on small fixtures.</p>
+  <p class="prose">A detached row costs about 320 bytes, so the 64 MiB cap holds about 210,000 removed or closed rows. Snapshots are ruled out: capturing the workspace takes 200 ms per step at 100,000 rows, before counting the memory of fifty such copies. The same capture is cheap enough for the tests' projection, which runs on small fixtures.</p>
+  <p class="prose">With the journal implemented, the example also removes every row of one panel and closes a second panel of the same rows, and undoes and redoes each five times, while the other panel keeps the histories resident. Times include the whole command: the journal, the post-command reconciliation and restoring the selection. Intel Core Ultra 7 265K, release build, best of five; the proposal's figures above are from the Apple M5, and the same capture and restore take 167 ms and 236 ms here.</p>
+  <div class="tablewrap"><table class="nums">
+    <thead><tr><th>Rows</th><th>Remove all</th><th>Journal</th><th>Undo</th><th>Redo</th><th>Close panel</th><th>Journal</th><th>Undo</th><th>Redo</th><th>Loads queued</th></tr></thead>
+    <tbody>
+      <tr><td>10,000</td><td>1.1 ms</td><td>3.2 MB</td><td>0.8 ms</td><td>0.9 ms</td><td>0.6 ms</td><td>3.2 MB</td><td>0.5 ms</td><td>0.6 ms</td><td>none</td></tr>
+      <tr><td>100,000</td><td>27 ms</td><td>31.9 MB</td><td>18 ms</td><td>20 ms</td><td>11 ms</td><td>31.9 MB</td><td>12 ms</td><td>8 ms</td><td>none</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose">A step's journal is 319 bytes per detached row. Removal first recorded one splice per selected root, which cost 53 ms and 26 ms to undo at 100,000 rows; one splice per run of adjacent subtrees halved both. No flip waited for data or queued a load.</p>
 </section>
 
 <section class="wrap" id="alternatives" aria-labelledby="alternatives-h">
@@ -722,39 +736,42 @@ ul.prose li{margin:8px 0}
     <div>
       <h3>volna-core (headless)</h3>
       <ul>
-        <li><b>Model-based test</b> (<code>tests/history.rs</code>). It uses a seeded generator of commands over <code>ProceduralTrace</code>, with lanes and clocks from the existing fixtures. The commands add, remove, cut, paste, drag, format, resize, group, rename and ungroup rows; add, drag, clear and cancel markers; toggle rulers; and split, close and dock panels. Undo, redo and navigation are interleaved. The <code>projection</code> is <code>Workspace::capture</code> with navigation cleared, and the test keeps its value after every step count. After each input it checks five things: the projection equals the value for the current step count; an input that changes it without a step fails; navigation leaves the journal and the projection untouched; a cancelled gesture restores exactly; and the cap holds.</li>
-        <li><b>Round trips.</b> For every <code>Edit</code> variant, <code>apply(apply(e))</code> is the identity. Detached rows re-attach to resident histories without a request, and missing ones queue one load.</li>
-        <li><b>Memory.</b> Closing a table panel returns its 4 MiB reservation to the ledger, and the journal holds no ledger bytes. Undo reserves it again, or shows the refusal when it no longer fits.</li>
-        <li><b>Grouping.</b> <kbd>T</kbd><kbd>T</kbd> within the window is one step; a pause of 1.5 s makes two. <kbd>G</kbd> followed by a rename is one step. A drag is one step, <kbd>Esc</kbd> leaves none, and a drag that ends where it began leaves none.</li>
-        <li><b>Async.</b> An add undone before its load completes, with the late delivery then ignored. A redo during pending loads. The history is cleared on open, close and workspace restore, and a workspace file is byte-identical with or without history.</li>
-        <li><b>Cost.</b> <code>examples/undo_cost.rs</code> grows timings for undo and redo of a 100,000-row removal and panel close, run before merging.</li>
+        <li><b>Model-based test</b> (<code>tests/history.rs</code>). A seeded generator drives 400 inputs per seed over the landing trace, which has signals, generators, clocks, pipelines, tables and transaction records. The inputs add, remove, cut, paste, drag, format, plot, resize, group, name and ungroup rows; add and clear markers; toggle rulers and the cycle origin; split, close, close others, rearrange and rename panels; open pipelines, tables and transaction panels; toggle columns, pins and radixes; drag rows and row heights, some cancelled with <kbd>Esc</kbd> and some dragged back to the start. Undo, redo and navigation are interleaved, and quick repeats exercise merging. The <code>projection</code> is <code>Workspace::capture</code> with navigation cleared, kept for every undo depth. After each input the test checks that undo and redo reproduce the projection of their depth exactly; that an input that changes the projection made a step; that no step leaves the projection as it was; that navigation leaves the journal and the projection untouched; that a new step empties the redo list; and that the cap holds. At the end it unwinds everything and replays it. A second run uses a 12 KiB cap, which forces eviction; <code>VOLNA_UNDO_SEEDS=n</code> adds seeds.</li>
+        <li><b>Round trips.</b> Every planner in <code>wave::tree</code> (removal, insertion, move, group, ungroup) is applied, undone and redone in unit tests, and the random tree test checks that each inverse restores the rows exactly. Invalid splices change nothing. <code>history</code> unit tests cover <code>Journaled</code>, merge windows, continuations, the cap and clearing.</li>
+        <li><b>Loads.</b> Removed rows come back sharing a history another panel holds, without a request; with no copy left, undo queues one load and shows loading. An add undone before its load completes ignores the late delivery, and a redo during pending loads loads again.</li>
+        <li><b>Memory.</b> Closing a table returns its 4 MiB reservation to the ledger, and the journal holds no ledger bytes. Undo puts the table back under its ID and reserves the memory again.</li>
+        <li><b>Grouping and gestures.</b> <kbd>T</kbd><kbd>T</kbd> within the window is one step; a pause of 1.5 s makes two; another selection is another target. <kbd>G</kbd> followed by a name 30 s later is one step. A row drag is one step on release; a height drag cancelled with <kbd>Esc</kbd> or <kbd>⌘Z</kbd> restores the heights and keeps the redo list; a drag back to the start leaves none.</li>
+        <li><b>Context, labels and clearing.</b> Undo refocuses the panel and restores the selection; redo of a split focuses it again; labels, announcements and the status line; navigation makes no step and undo keeps the time axis; the history is cleared on close, open and workspace restore, and a workspace file is byte-identical with or without history.</li>
+        <li><b>Cost.</b> <code>examples/undo_cost.rs</code> times undo and redo of a 100,000-row removal and panel close (<a href="#costs">measured costs</a>).</li>
       </ul>
     </div>
     <div>
       <h3>Frontends and this page</h3>
       <ul>
-        <li><b>GPUI</b> (<code>app_tests.rs</code>, the headless test platform). <kbd>⌘Z</kbd>, <kbd>Ctrl+Y</kbd> and <kbd>Ctrl+Shift+Z</kbd> reach the history from panels. In the group name editor and the filter they edit text instead. The Edit menu and palette labels follow the history.</li>
-        <li><b>Web.</b> The existing browser harness (<code>tools/browser-test.mjs</code>) adds a signal in the wasm page, sends <kbd>Ctrl+Z</kbd> through CDP and asserts that the row is gone and that the event's default was prevented.</li>
-        <li><b>VS Code.</b> The extension's <code>node --test</code> suite checks the manifest's keybindings and when-clauses, and that <code>volna.undo</code> posts the command to the active panel.</li>
-        <li><b>This page.</b> <code>node --test docs/tests/undo-redo.test.mjs</code> launches headless Chrome. It checks the self-test, the layout at desktop and phone widths, and every guided scenario's end state. It also checks keyboard and pointer input: <kbd>⌘Z</kbd>, <kbd>Ctrl+Y</kbd>, <kbd>T</kbd> merging, a row drag, a marker drag cancelled with <kbd>Esc</kbd>, and a group named in its field, where the field keeps <kbd>⌘Z</kbd>. A workflow runs it when the page changes.</li>
+        <li><b>GPUI</b> (<code>app_tests.rs</code>, the headless test platform). The platform's undo keys, <kbd>Ctrl+Y</kbd> and <kbd>Ctrl+Shift+Z</kbd> reach the history from a wave panel. In the group name editor and the filter box they undo and redo text, in runs, and leave the cockpit history alone; naming the group still joins the group's step. The Edit menu items and their disabled state and the palette labels follow the history.</li>
+        <li><b>Web</b> (<code>tools/undo.test.mjs</code>, on the existing browser harness). The built page restores the landing workspace, removes every row of the wave panel with the keyboard, and checks through <code>debug_state()</code> that <kbd>Ctrl+Z</kbd>, <kbd>Ctrl+Y</kbd>, <kbd>Ctrl+Shift+Z</kbd> and the host's named <code>undo</code> and <code>redo</code> move the rows back and forth, that the page prevented the browser's default for <kbd>Ctrl+Z</kbd>, and that it announced “Undid Remove … rows” through <code>document.ariaNotify</code>.</li>
+        <li><b>VS Code</b> (<code>vscode-ext/commands.test.cjs</code>). The manifest's commands and keybindings, their when-clauses, the forwarded command list, and that <code>volna.undo</code> and <code>volna.redo</code> post to the active viewer only.</li>
+        <li><b>This page.</b> <code>node --test docs/tests/undo-redo.test.mjs</code> launches headless Chrome. It checks the self-test, the layout at desktop and phone widths, and every guided scenario's end state. It also checks keyboard and pointer input: <kbd>⌘Z</kbd>, <kbd>Ctrl+Y</kbd>, <kbd>T</kbd> merging, a row drag, a marker drag cancelled with <kbd>Esc</kbd>, and a group named in its field, where the field keeps <kbd>⌘Z</kbd>.</li>
+        <li><b>CI.</b> The <code>Undo and redo</code> workflow runs this page's test, all <code>volna-core</code> tests, the GPUI and extension tests, and the web test on a freshly built bundle.</li>
       </ul>
-      <p>The page's self-test runs the same model-based check against the JavaScript journal on every load, including a run with a 12 KB cap that forces eviction. While this page was written, it found two real cases, both now in the design. The first was a step limit silently dropping history. The second was a marker dragged back to its start leaving an empty step.</p>
+      <p>The page's self-test runs the same model-based check against the JavaScript journal on every load, including a run with a 12 KB cap that forces eviction. While this page was written, it found two real cases, both now in the design: a step limit silently dropping history, and a marker dragged back to its start leaving an empty step. The Rust model-based test then found five more, all fixed: a move past an identical copy of a row recorded a step that changed nothing; a height dragged out and back was kept because it compared a plot's remembered height, which no workspace stores; tables took ruler edits they never draw; a row moved into a folded group stayed selected while hidden; and an undo whose inverse is larger than its step could leave the journal over its cap.</p>
     </div>
   </div>
 </section>
 
 <section class="wrap" id="plan" aria-labelledby="plan-h">
   <h2 id="plan-h">Plan</h2>
+  <p class="prose">All nine steps are implemented, in this order. Where a step went differently, it says how.</p>
   <ol class="rules">
-    <li><b>History module.</b> <code>Edit</code>, <code>Splice</code>, <code>Structure</code>, <code>Step</code>, <code>History</code>, <code>flip</code>, byte accounting, merge and continuation rules, and unit tests for each edit's round trip.</li>
-    <li><b>Rows.</b> Make <code>WaveModel::items</code> private behind <code>splice</code>. Turn the mutators in <code>tree.rs</code> and <code>WaveModel</code> into planners, and have pointer outcomes carry edits. Share the detach helper with the clipboard.</li>
-    <li><b>Markers and rulers.</b> Make <code>Document::markers</code> private behind <code>swap_markers</code>, and split <code>ClockView</code>'s journaled rulers and origin from its selected clock. The <a href="markers-ux.html">marker proposal</a>'s own journal is replaced by this one.</li>
-    <li><b>Panels.</b> <code>Panels</code> operations return <code>Structure</code> inverses. Closed panels stay in the journal through <code>App::removed</code> and come back through <code>App::created</code>. Add <code>Props</code> for titles, table columns, pins and radixes.</li>
-    <li><b>App.</b> <code>Command::Undo</code> and <code>Command::Redo</code> and their named forms, step boundaries in <code>handle_at</code>, gesture commit and rollback, context restore and reveal, notices, autosave, and clearing on open, close and restore.</li>
-    <li><b>Model-based test</b> and the memory, async and grouping tests; extend <code>undo_cost</code>.</li>
-    <li><b>GPUI.</b> Actions and bindings, the Edit menu, palette entries, input precedence tests and web <code>preventDefault</code>.</li>
-    <li><b>VS Code.</b> Keybindings, forwarding through the focus chain, and extension tests.</li>
-    <li><b>Documents.</b> An Undo section in <code>ARCHITECTURE.md</code>, then the README row and the RATIONALE entry.</li>
+    <li><b>History module.</b> <code>Edit</code>, <code>Splice</code>, <code>Structure</code>, <code>Step</code>, <code>History</code>, <code>Journaled</code>, byte accounting, merge and continuation rules, and unit tests.</li>
+    <li><b>Rows.</b> <code>WaveModel</code>'s rows are private behind <code>splice</code>. The mutators in <code>tree.rs</code> became planners that return splices; <code>WaveModel</code> performs them and keeps the inverse, so pointer outcomes carry nothing new. The detach helper is shared with the clipboard.</li>
+    <li><b>Markers and rulers.</b> <code>Document</code>'s markers are a private <code>Journaled</code> field, and <code>NavState</code> owns the journaled rulers and origin apart from the selected clock. The <a href="markers-ux.html">marker proposal</a>'s own journal is replaced by this one.</li>
+    <li><b>Panels.</b> <code>App::restructure</code> records a <code>Structure</code> inverse for every open, split, close and rearrangement, and <code>Panels::install</code> applies one. Closed panels are released and parked in the journal and come back through <code>App::created</code>. Titles, table columns, pins and radixes are <code>Prop</code> edits; rulers joined them instead of having their own variant.</li>
+    <li><b>App.</b> <code>Command::Undo</code> and <code>Command::Redo</code> and their named forms, step boundaries in <code>handle_at</code>, gesture commit and rollback, context restore and reveal, announcements, autosave, and clearing on open, close and restore.</li>
+    <li><b>Model-based test</b> and the memory, async and grouping tests; <code>undo_cost</code> extended.</li>
+    <li><b>GPUI.</b> Actions and bindings, text undo in <code>TextInput</code>, the Edit menu, palette entries, input precedence tests; the web platform prevents the default of handled keys.</li>
+    <li><b>VS Code.</b> Keybindings, forwarding replayed as keys through the focus chain, and extension tests.</li>
+    <li><b>Documents.</b> An Undo section in <code>ARCHITECTURE.md</code>, the README row, the RATIONALE entry and the verification guide.</li>
   </ol>
   <h3>Open questions</h3>
   <ul class="prose">

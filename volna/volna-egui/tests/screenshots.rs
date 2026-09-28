@@ -62,13 +62,13 @@ fn fst_opens_and_loads_on_frontend_executor() {
     assert!(count > 0);
     app.app.handle(Command::AddVars((0..count).collect()));
     wait_loads(&mut h, &mut app);
-    assert_eq!(app.app.panels.focused_waves().unwrap().items.len(), count);
+    assert_eq!(app.app.panels.focused_waves().unwrap().items().len(), count);
     assert!(
         app.app
             .panels
             .focused_waves()
             .unwrap()
-            .items
+            .items()
             .iter()
             .all(|row| row.signal().unwrap().history.is_some())
     );

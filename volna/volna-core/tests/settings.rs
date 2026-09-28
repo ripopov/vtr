@@ -363,7 +363,7 @@ fn bus_trace(changes: u64) -> tempfile::NamedTempFile {
 }
 
 fn row_error(app: &App) -> Option<String> {
-    app.panels.focused_waves().unwrap().items[0]
+    app.panels.focused_waves().unwrap().items()[0]
         .signal()
         .unwrap()
         .error

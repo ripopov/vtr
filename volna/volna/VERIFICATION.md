@@ -24,9 +24,11 @@ cargo test --locked -p volna-core --test transactions
 cargo test --locked -p volna-core --test pipeline       # pipeline panel: open, load, paint, zoom, sync, save/restore
 cargo test --locked -p volna-core --test table_baseline # reduced table: sources, bounds, identity, copy, details, restore
 cargo test --locked -p volna-core --test settings      # settings.json store, edits, search, the Settings tab
+cargo test --locked -p volna-core --test history       # undo/redo: model-based test, merges, gestures, memory, loads
+VOLNA_UNDO_SEEDS=300 cargo test --release -p volna-core --test history random  # more random seeds
 cargo test --locked -p volna --all-features            # includes the manifest check and the settings render test
 cargo test --locked -p volna-egui --test screenshots
-node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs
+node --test volna/volna/vscode-ext/theme.test.mjs volna/volna/vscode-ext/workspace.test.cjs volna/volna/vscode-ext/commands.test.cjs
 cargo test --locked -p volna-server
 cargo clippy --locked -p volna-server --all-targets -- -D warnings
 node --test volna/volna/vscode-ext/trace-host.test.cjs
@@ -47,6 +49,7 @@ node --test volna/volna/tools/table-clipboard.test.mjs
 | Baseline table panel | Generator and fixed-signal sources; shared raw ownership and native/remote admission; distinct merged timestamps and one-signal zero-axis path; bounded 256-row preparation; exact `u64` navigation and scrollbar endpoints; fixed columns; stable selection/cursor linking; details limits and cancellation; 64 KiB complete TSV; visible-row accessibility; loading/cancel/retry/refusal; versioned workspace restore at row one; browser clipboard rejection with selectable TSV and Retry |
 | GPUI adapter | Production loading executor, input filtering/Escape, keyboard popup selection/dismissal, theme changes and nonblank Metal frames |
 | egui adapter | Production loading executor, VTR/FST opening, sidebar/divider dragging, filtering, selection, zoom/pan/fit and software-rendered screenshots |
+| Undo and redo | A seeded model-based test over the landing trace drives row, marker, ruler, panel, table and transaction commands, row and height drags (some cancelled), navigation, undo and redo, and checks after every input that undo and redo reproduce each earlier workspace projection exactly, that no change escapes a step, that no step changes nothing, that navigation leaves the journal alone, and that the byte cap holds (also with a 12 KiB cap); focused tests cover merge windows, group naming, gestures, shared and reloaded histories, late loads, table memory, closed panels, labels, context and clearing; GPUI keys, text-field precedence, the Edit menu and the palette; VS Code forwarding |
 | Workspace codec and lifecycle | Exact integer times, unknown panels/formats, unresolved locators, atomic prepare/commit, malformed and oversized inputs, idle revisions, ticket races, fallback precedence, Save As and transition flush failures |
 | Workspace hosts | Native copied-trace idle save/reopen, atomic I/O and preference errors; opaque VS Code candidates, remote URI schemes, ticket destinations, write errors, hide/dispose sequencing and disabled storage |
 | Host theme | Raw VS Code palettes, host-neutral CSS parsing, synchronous initial snapshot and subsequent theme updates |
@@ -66,6 +69,7 @@ volna/volna/web/build.sh
 cargo check --locked -p volna-core --target wasm32-unknown-unknown
 cargo clippy --locked -p volna --target wasm32-unknown-unknown --lib --all-features -- -D warnings
 node --test volna/volna/tools/frame-stats.test.mjs
+node --test volna/volna/tools/undo.test.mjs
 ```
 
 The build script selects a wasm-capable LLVM toolchain for zstd-sys, builds the
@@ -81,6 +85,13 @@ Chrome, moves the pointer over the window and reads `debug_state()`. It asserts
 that GPUI's frame profiler feeds `draw … · lat … ms` into the status bar on the
 web platform, and that an untouched window turns idle without drawing frames of
 its own. It fails when `web/dist` has not been built.
+
+`tools/undo.test.mjs` restores the landing workspace in the built page, removes
+every row of the wave panel with the keyboard, and asserts through
+`debug_state()` that Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z and the host's named `undo`
+and `redo` commands move the rows back and forth, and that the page prevented
+the browser's default for Ctrl+Z. The `Undo and redo` workflow runs it and the
+core, GPUI and extension checks in CI.
 
 ## Visual and interaction checks
 

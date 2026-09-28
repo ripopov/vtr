@@ -12,7 +12,7 @@ use std::time::Duration;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     Animation, AnimationExt, App, Context, CursorStyle, Entity, FocusHandle, Focusable,
-    IntoElement, KeyBinding, Menu, MenuItem, MouseButton, MouseMoveEvent, MouseUpEvent,
+    IntoElement, KeyBinding, Menu, MenuItem, MouseButton, MouseMoveEvent, MouseUpEvent, OsAction,
     ParentElement, Pixels, Render, ShapedLine, SharedString, Styled, Transformation,
     UniformListScrollHandle, Window, actions, anchored, deferred, div, percentage, point, px,
 };
@@ -63,7 +63,9 @@ actions!(
         FocusPanel8,
         FocusPanel9,
         NoPipelines,
-        CycleFrameOverlay
+        CycleFrameOverlay,
+        Undo,
+        Redo
     ]
 );
 
@@ -185,8 +187,9 @@ pub struct Workspace {
     pub embedded: bool,
     /// The command line chose the workspace policy; `workspace.autosave` is ignored.
     pub(crate) cli_policy: bool,
-    /// The document generation the application menu was last built for.
-    menu_generation: Option<u64>,
+    /// The document generation and undo history revision the application
+    /// menu was last built for.
+    menu_generation: Option<(u64, u64)>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) config_watcher: Option<notify::RecommendedWatcher>,
 }
@@ -214,6 +217,30 @@ impl Focusable for Workspace {
 
 /// Register key bindings and the application menu.
 pub fn init(cx: &mut App) {
+    // Cockpit undo (`docs/undo-redo.html`): ⌘Z / Ctrl+Z, and ⇧⌘Z, Ctrl+Y or
+    // Ctrl+Shift+Z to redo. Text fields bind the same keys in their own
+    // context, which wins while they have focus. VS Code forwards them.
+    cx.bind_keys([
+        KeyBinding::new("cmd-z", Undo, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-z", Undo, Some("Workspace && !Embedded")),
+        KeyBinding::new("cmd-shift-z", Redo, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-shift-z", Redo, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-y", Redo, Some("Workspace && !Embedded")),
+    ]);
+    crate::ui::text_input::bind_keys(cx);
+    // gpui-kit inputs (settings search and JSON) bind their text undo for
+    // the platform only; bind the rest so no undo key falls through to the
+    // cockpit while one has focus.
+    {
+        use gpui_kit::component::input::{Redo as InputRedo, Undo as InputUndo};
+        cx.bind_keys([
+            KeyBinding::new("cmd-z", InputUndo, Some("Input")),
+            KeyBinding::new("ctrl-z", InputUndo, Some("Input")),
+            KeyBinding::new("cmd-shift-z", InputRedo, Some("Input")),
+            KeyBinding::new("ctrl-shift-z", InputRedo, Some("Input")),
+            KeyBinding::new("ctrl-y", InputRedo, Some("Input")),
+        ]);
+    }
     cx.bind_keys([
         KeyBinding::new("cmd-1", FocusPanel1, Some("Workspace && !Embedded")),
         KeyBinding::new("ctrl-1", FocusPanel1, Some("Workspace && !Embedded")),
@@ -359,13 +386,24 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("alt-right", UnfoldGroupDeep, Some("Waves")),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.set_menus(menus(&[]));
+    cx.set_menus(menus(&[], None, None));
 }
 
-/// The application menu. View ▸ Pipeline lists the recognized PIPELINE
-/// streams of the open trace as shortcuts; any stream or generator can still
-/// be opened from the sidebar.
-pub(crate) fn menus(pipelines: &[(String, u32)]) -> Vec<Menu> {
+/// "Undo Remove 2 rows". Labels keep sentence case: they name signals,
+/// groups and panels, which title case would change.
+pub(crate) fn edit_menu_title(verb: &str, label: Option<&str>) -> String {
+    label.map_or_else(|| verb.to_owned(), |label| format!("{verb} {label}"))
+}
+
+/// The application menu. Edit names the steps undo and redo would take;
+/// View ▸ Pipeline lists the recognized PIPELINE streams of the open trace
+/// as shortcuts (any stream or generator can still be opened from the
+/// sidebar).
+pub(crate) fn menus(
+    pipelines: &[(String, u32)],
+    undo: Option<&str>,
+    redo: Option<&str>,
+) -> Vec<Menu> {
     let pipeline_items = if pipelines.is_empty() {
         vec![MenuItem::action(
             "No pipeline streams in the trace",
@@ -398,6 +436,20 @@ pub(crate) fn menus(pipelines: &[(String, u32)]) -> Vec<Menu> {
                 MenuItem::action("Open Workspace…", OpenWorkspace),
                 MenuItem::action("Save Workspace", SaveWorkspace),
                 MenuItem::action("Save Workspace As…", SaveWorkspaceAs),
+            ],
+            disabled: false,
+        },
+        Menu {
+            name: "Edit".into(),
+            items: vec![
+                MenuItem::os_action(edit_menu_title("Undo", undo), Undo, OsAction::Undo)
+                    .disabled(undo.is_none()),
+                MenuItem::os_action(edit_menu_title("Redo", redo), Redo, OsAction::Redo)
+                    .disabled(redo.is_none()),
+                MenuItem::separator(),
+                MenuItem::action("Cut Signals", CutSignals),
+                MenuItem::action("Copy Signals", CopySignals),
+                MenuItem::action("Paste Signals", PasteSignals),
             ],
             disabled: false,
         },
@@ -665,6 +717,11 @@ impl Workspace {
                         #[cfg(target_family = "wasm")]
                         crate::web::notice(&text);
                     }
+                    Event::Announce(text) => {
+                        log::info!("{text}");
+                        #[cfg(target_family = "wasm")]
+                        crate::web::announce(&text);
+                    }
                     Event::OpenFileDialog => self.open_file_dialog(cx),
                     Event::RevealScopeRow(ix) => self
                         .scopes_scroll
@@ -706,15 +763,20 @@ impl Workspace {
         self.run_requests(cx);
     }
 
-    /// Rebuild the application menu when the trace changes, so View ▸
-    /// Pipeline lists the streams of the open trace.
+    /// Rebuild the application menu when the trace or the undo history
+    /// changes, so View ▸ Pipeline lists the streams of the open trace and
+    /// Edit names the steps undo and redo would take.
     fn sync_menus(&mut self, cx: &mut Context<Self>) {
-        let generation = self.app.doc.generation();
-        if self.embedded || self.menu_generation == Some(generation) {
+        let key = (self.app.doc.generation(), self.app.history.revision());
+        if self.embedded || self.menu_generation == Some(key) {
             return;
         }
-        self.menu_generation = Some(generation);
-        cx.set_menus(menus(&pipeline_streams(&self.app)));
+        self.menu_generation = Some(key);
+        cx.set_menus(menus(
+            &pipeline_streams(&self.app),
+            self.app.undo_label(),
+            self.app.redo_label(),
+        ));
     }
 
     /// Perform queued loads on the background executor and deliver the results.
@@ -839,7 +901,7 @@ impl Workspace {
             .app
             .panels
             .focused_waves()
-            .and_then(|w| Some((w.rename?, w.items.get(w.rename?)?.name().to_owned())));
+            .and_then(|w| Some((w.rename?, w.items().get(w.rename?)?.name().to_owned())));
         if self.rename.as_ref().map(|h| (h.panel, h.entry))
             == want.as_ref().map(|(entry, _)| (panel, *entry))
         {
@@ -1673,7 +1735,8 @@ impl Workspace {
         };
         let has_message = status.hover.is_some()
             || status.sidebar_notice.is_some()
-            || status.workspace_notice.is_some();
+            || status.workspace_notice.is_some()
+            || status.history.is_some();
         let mut message = div()
             .debug_selector(|| "status-message".into())
             .flex()
@@ -1742,6 +1805,9 @@ impl Workspace {
         }
         if let Some(notice) = status.sidebar_notice {
             message = message.child(crop(notice, colors.text_muted, false));
+        }
+        if let Some(history) = status.history {
+            message = message.child(crop(history, colors.text_muted, false));
         }
 
         let has_nav = status.px_per.is_some();
@@ -1864,6 +1930,12 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &Quit, window, cx| {
                 this.dispatch(Command::RequestQuit, Some(window), cx)
+            }))
+            .on_action(cx.listener(|this, _: &Undo, window, cx| {
+                this.dispatch(Command::Undo, Some(window), cx)
+            }))
+            .on_action(cx.listener(|this, _: &Redo, window, cx| {
+                this.dispatch(Command::Redo, Some(window), cx)
             }))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::close_trace))

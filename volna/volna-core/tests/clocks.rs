@@ -292,7 +292,7 @@ fn clicks_snap_to_the_selected_clock_and_brackets_step_cycles() {
             .waves(panel)
             .unwrap()
             .nav
-            .clocks
+            .clocks()
             .selected
             .as_deref(),
         Some("top.bus_clk")
@@ -350,8 +350,8 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     let bus = scope(session.as_ref(), &["top", "bus_clk"]);
     app.handle(Command::AddToWaves(vec![Member::Stream(bus)]));
     let w = app.panels.waves(panel).unwrap();
-    assert_eq!(w.items.len(), 2);
-    assert_eq!(w.items[1].clock().unwrap().path, "top.bus_clk");
+    assert_eq!(w.items().len(), 2);
+    assert_eq!(w.items()[1].clock().unwrap().path, "top.bus_clk");
     app.doc.shared.viewport.set(Viewport {
         start: 0.0,
         end: 60_000.0,
@@ -402,8 +402,11 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     );
     plan.commit(&mut restored).unwrap();
     let w = restored.panels.waves(panel).unwrap();
-    assert!(matches!(&w.items[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
-    assert_eq!(w.nav.clocks, app.panels.waves(panel).unwrap().nav.clocks);
+    assert!(matches!(&w.items()[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
+    assert_eq!(
+        w.nav.clocks(),
+        app.panels.waves(panel).unwrap().nav.clocks()
+    );
 }
 
 #[test]
@@ -655,15 +658,15 @@ fn a_clock_generator_adds_as_a_ruler_or_as_a_waveform() {
     frame(&mut app, panel, &theme);
     let w = app.panels.waves(panel).unwrap();
     assert_eq!(
-        w.nav.clocks.rulers.as_deref(),
+        w.nav.clocks().rulers.as_deref(),
         Some(&["top.bus_clk".to_owned()][..])
     );
     assert_eq!(w.last_layout().rulers.height(), 16.0 * theme.zoom);
-    assert_eq!(w.items.len(), 1, "a ruler adds no row");
+    assert_eq!(w.items().len(), 1, "a ruler adds no row");
     // Add as Waveform: a clock row, not a transaction lane of its stretches.
     app.handle(Command::AddToWaves(vec![member]));
     let w = app.panels.waves(panel).unwrap();
-    assert!(matches!(&w.items[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
+    assert!(matches!(&w.items()[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
 }
 
 #[test]
@@ -700,7 +703,7 @@ fn a_ruler_context_menu_hides_it() {
     frame(&mut app, panel, &theme);
     let w = app.panels.waves(panel).unwrap();
     assert_eq!(
-        w.nav.clocks.rulers.as_deref(),
+        w.nav.clocks().rulers.as_deref(),
         Some(&["top.core_clk".to_owned()][..])
     );
     assert_eq!(w.last_layout().rulers.height(), 16.0 * theme.zoom);

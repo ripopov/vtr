@@ -110,7 +110,7 @@ fn cursor_links_are_independent_of_view_links_and_markers_use_the_focused_cursor
         .unwrap()
         .set_cursor(&mut app.doc, Some((1 << 54) + 1));
     app.handle(Command::Action(Action::AddMarker));
-    assert_eq!(app.doc.markers[0].time, (1 << 54) + 1);
+    assert_eq!(app.doc.markers()[0].time, (1 << 54) + 1);
     assert_eq!(app.panels.waves(a).unwrap().cursor(&app.doc), Some(1 << 54));
     panel(
         &mut app,
@@ -121,11 +121,11 @@ fn cursor_links_are_independent_of_view_links_and_markers_use_the_focused_cursor
     );
     assert_eq!(app.panels.waves(b).unwrap().cursor(&app.doc), Some(1 << 54));
     app.handle(Command::Action(Action::AddMarker));
-    let ids: BTreeSet<_> = app.doc.markers.iter().map(|m| m.id).collect();
+    let ids: BTreeSet<_> = app.doc.markers().iter().map(|m| m.id).collect();
     assert_eq!(ids.len(), 2);
     app.handle(Command::Action(Action::ClearMarkers));
     app.handle(Command::Action(Action::AddMarker));
-    assert!(!ids.contains(&app.doc.markers[0].id));
+    assert!(!ids.contains(&app.doc.markers()[0].id));
 }
 
 #[test]
@@ -141,13 +141,13 @@ fn pending_and_loaded_histories_are_shared_across_all_panels() {
     for r in requests {
         app.deliver(r.perform());
     }
-    let first = app.panels.waves(a).unwrap().items[0]
+    let first = app.panels.waves(a).unwrap().items()[0]
         .signal()
         .unwrap()
         .history
         .clone()
         .unwrap();
-    let second = app.panels.waves(b).unwrap().items[0]
+    let second = app.panels.waves(b).unwrap().items()[0]
         .signal()
         .unwrap()
         .history
@@ -162,7 +162,7 @@ fn pending_and_loaded_histories_are_shared_across_all_panels() {
     );
     assert!(Arc::ptr_eq(
         &first,
-        app.panels.focused_waves().unwrap().items[0]
+        app.panels.focused_waves().unwrap().items()[0]
             .signal()
             .unwrap()
             .history
@@ -376,22 +376,16 @@ fn split_copies_rows_but_shares_history_and_clears_transient_input() {
     let b = p.create(a, Some(Axis::Vertical)).unwrap();
     let wa = p.get(a).unwrap().kind.waves().unwrap();
     let wb = p.get(b).unwrap().kind.waves().unwrap();
-    assert_eq!(wa.items.len(), wb.items.len());
+    assert_eq!(wa.items().len(), wb.items().len());
     assert!(Arc::ptr_eq(
-        wa.items[0].signal().unwrap().history.as_ref().unwrap(),
-        wb.items[0].signal().unwrap().history.as_ref().unwrap()
+        wa.items()[0].signal().unwrap().history.as_ref().unwrap(),
+        wb.items()[0].signal().unwrap().history.as_ref().unwrap()
     ));
     assert_eq!(wb.drag, None);
     let c = p.create(b, None).unwrap();
-    assert!(p.get(c).unwrap().kind.waves().unwrap().items.is_empty());
-    p.get_mut(b)
-        .unwrap()
-        .kind
-        .waves_mut()
-        .unwrap()
-        .items
-        .clear();
-    assert_eq!(p.get(a).unwrap().kind.waves().unwrap().items.len(), 2);
+    assert!(p.get(c).unwrap().kind.waves().unwrap().items().is_empty());
+    p.get_mut(b).unwrap().kind.waves_mut().unwrap().reset(None);
+    assert_eq!(p.get(a).unwrap().kind.waves().unwrap().items().len(), 2);
 }
 
 #[test]
@@ -466,7 +460,7 @@ fn close_others_keeps_any_kind_and_a_lone_settings_tab_gets_a_start_panel() {
     app.handle(Command::AddVars(vec![0]));
     assert_eq!(app.panels.len(), 2);
     let waves = app.panels.focused_id();
-    assert_eq!(app.panels.waves(waves).unwrap().items.len(), 1);
+    assert_eq!(app.panels.waves(waves).unwrap().items().len(), 1);
     assert!(app.panels.iter().all(|p| !p.kind.is_start()));
 }
 

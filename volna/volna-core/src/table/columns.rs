@@ -104,6 +104,30 @@ impl ColumnSet {
         }
         true
     }
+    /// Show or hide the time column (`0`) or signal column `index - 1`,
+    /// keeping at least one data column. Returns whether anything changed.
+    pub fn toggle_signal(&mut self, index: usize) -> bool {
+        let Self::Signals { time, visible } = self else {
+            return false;
+        };
+        if index == 0 {
+            if !visible.iter().any(|v| *v) {
+                return false;
+            }
+            *time = !*time;
+        } else if index - 1 < visible.len() {
+            let only_data_column = !*time && visible.iter().filter(|v| **v).count() == 1;
+            let value = &mut visible[index - 1];
+            if *value && only_data_column {
+                return false;
+            }
+            *value = !*value;
+        } else {
+            return false;
+        }
+        true
+    }
+
     pub fn reset(&mut self) {
         match self {
             Self::Transactions(v) => *v = TransactionColumn::DEFAULT.to_vec(),

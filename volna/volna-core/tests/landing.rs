@@ -58,7 +58,11 @@ fn the_landing_workspace_restores_every_panel_and_saves_the_same_bytes() {
     app.tick(Instant::now());
 
     let waves = app.panels.waves(PanelId(1)).unwrap();
-    let signals = waves.items.iter().filter(|i| i.signal().is_some()).count();
+    let signals = waves
+        .items()
+        .iter()
+        .filter(|i| i.signal().is_some())
+        .count();
     assert_eq!(signals, 16);
     assert_eq!(waves.loaded_count(), signals, "every signal row loaded");
     app.layout_panel(PanelId(1), bounds, &theme).unwrap();
@@ -78,7 +82,7 @@ fn the_landing_workspace_restores_every_panel_and_saves_the_same_bytes() {
         _ => panic!("the pipeline rows are not ready"),
     }
     let tx = app.panels.transaction(PanelId(3)).unwrap();
-    assert!(tx.pinned);
+    assert!(tx.pinned());
     match tx.state(&app.doc) {
         TxPanelState::Ready(view) => {
             assert!(
@@ -105,7 +109,12 @@ fn the_landing_workspace_restores_every_panel_and_saves_the_same_bytes() {
             .len(),
         30
     );
-    let markers: Vec<_> = app.doc.markers.iter().map(|m| m.label.as_deref()).collect();
+    let markers: Vec<_> = app
+        .doc
+        .markers()
+        .iter()
+        .map(|m| m.label.as_deref())
+        .collect();
     assert_eq!(markers, [Some("irq"), Some("refill done")]);
 
     let again = Workspace::capture(&app, "landing.vtr".into(), None).unwrap();

@@ -670,14 +670,18 @@ fn run(measure: bool) -> anyhow::Result<()> {
         settle(&mut test, 2);
         expect(&mut test, "menu selection", &["menu=false"]);
         assert_eq!(
-            test.update(
-                |cx| workspace.read(cx).app.panels.focused_waves().unwrap().items[menu_row]
-                    .signal()
-                    .unwrap()
-                    .translator
-                    .id()
-                    .to_owned()
-            ),
+            test.update(|cx| workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .items()[menu_row]
+                .signal()
+                .unwrap()
+                .translator
+                .id()
+                .to_owned()),
             translator
         );
         click(
@@ -768,7 +772,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 .panels
                 .focused_waves()
                 .unwrap()
-                .items
+                .items()
                 .is_empty()
         }));
         shot(&mut test, "dock-new-tab")?;
@@ -980,7 +984,13 @@ fn run(measure: bool) -> anyhow::Result<()> {
         });
         settle(&mut test, 4);
         test.update(|cx| {
-            let rows = &workspace.read(cx).app.panels.focused_waves().unwrap().items;
+            let rows = &workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .items();
             assert_eq!(rows.len(), count);
             assert!(
                 rows.iter()
