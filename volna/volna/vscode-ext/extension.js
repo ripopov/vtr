@@ -129,6 +129,7 @@ const FORWARDED_COMMANDS = [
   "splitRight", "splitDown", "newPanel", "closePanel",
   "focusNextPanel", "focusPrevPanel", "toggleViewportLink", "toggleCursorLink",
   "nextCycle", "prevCycle", "toggleCycleOrigin",
+  "nextMarker", "prevMarker", "jumpBack",
   "openWorkspace", "saveWorkspace", "saveWorkspaceAs",
   ...Array.from({ length: 9 }, (_, i) => `focusPanel${i + 1}`),
 ];

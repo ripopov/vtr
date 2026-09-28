@@ -96,6 +96,9 @@ actions!(
         AddMarker,
         RemoveMarkerAtCursor,
         RemoveAllMarkers,
+        NextMarker,
+        PrevMarker,
+        JumpBack,
         RemoveSelected,
         CopySignals,
         CutSignals,
@@ -120,6 +123,13 @@ actions!(
         UnfoldGroupDeep,
     ]
 );
+
+/// `1`–`9`: move the focused panel's cursor onto marker `n`.
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(namespace = waves, no_json)]
+pub struct GoToMarker {
+    pub n: u32,
+}
 
 /// A clock choice of the focused panel (a ruler, the selected clock, go to
 /// cycle), from the command palette.
@@ -361,6 +371,20 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("shift-left", PrevEdge, Some("Waves")),
         KeyBinding::new("m", AddMarker, Some("Waves")),
         KeyBinding::new("shift-m", RemoveMarkerAtCursor, Some("Waves")),
+        // Bare keys: the table's row field lives in its panel, so not there.
+        // Other text fields are hosted outside the panels' key context.
+        KeyBinding::new(".", NextMarker, Some("Waves && !Table")),
+        KeyBinding::new(",", PrevMarker, Some("Waves && !Table")),
+        KeyBinding::new("`", JumpBack, Some("Waves && !Table")),
+        KeyBinding::new("1", GoToMarker { n: 1 }, Some("Waves && !Table")),
+        KeyBinding::new("2", GoToMarker { n: 2 }, Some("Waves && !Table")),
+        KeyBinding::new("3", GoToMarker { n: 3 }, Some("Waves && !Table")),
+        KeyBinding::new("4", GoToMarker { n: 4 }, Some("Waves && !Table")),
+        KeyBinding::new("5", GoToMarker { n: 5 }, Some("Waves && !Table")),
+        KeyBinding::new("6", GoToMarker { n: 6 }, Some("Waves && !Table")),
+        KeyBinding::new("7", GoToMarker { n: 7 }, Some("Waves && !Table")),
+        KeyBinding::new("8", GoToMarker { n: 8 }, Some("Waves && !Table")),
+        KeyBinding::new("9", GoToMarker { n: 9 }, Some("Waves && !Table")),
         KeyBinding::new("backspace", RemoveSelected, Some("Waves")),
         KeyBinding::new("delete", RemoveSelected, Some("Waves")),
         KeyBinding::new("shift-f10", OpenSignalMenu, Some("Waves")),
@@ -1508,6 +1532,9 @@ impl Workspace {
                 AddMarker,
                 RemoveMarkerAtCursor,
                 RemoveAllMarkers,
+                NextMarker,
+                PrevMarker,
+                JumpBack,
                 RemoveSelected,
                 CopySignals,
                 CutSignals,
@@ -1738,7 +1765,7 @@ impl Workspace {
         let has_message = status.hover.is_some()
             || status.sidebar_notice.is_some()
             || status.workspace_notice.is_some()
-            || status.history.is_some();
+            || status.announcement.is_some();
         let mut message = div()
             .debug_selector(|| "status-message".into())
             .flex()
@@ -1808,8 +1835,8 @@ impl Workspace {
         if let Some(notice) = status.sidebar_notice {
             message = message.child(crop(notice, colors.text_muted, false));
         }
-        if let Some(history) = status.history {
-            message = message.child(crop(history, colors.text_muted, false));
+        if let Some(announcement) = status.announcement {
+            message = message.child(crop(announcement, colors.text_muted, false));
         }
 
         let has_nav = status.px_per.is_some();
@@ -1943,6 +1970,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::close_trace))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::command_palette))
+            .on_action(cx.listener(|this, action: &GoToMarker, window, cx| {
+                if let Some(id) = volna_core::marker::MarkerId::new(action.n) {
+                    this.dispatch(Command::Action(Action::GoToMarker(id)), Some(window), cx)
+                }
+            }))
             .on_action(cx.listener(|this, action: &ClockAction, window, cx| {
                 this.dispatch(Command::Clocks(action.command.clone()), Some(window), cx)
             }))

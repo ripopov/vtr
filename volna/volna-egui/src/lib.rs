@@ -1097,6 +1097,21 @@ fn wave_action(key: Key, m: egui::Modifiers) -> Option<Action> {
         Key::ArrowRight => Action::PanRight,
         Key::M if m.shift => Action::RemoveMarkerAtCursor,
         Key::M => Action::AddMarker,
+        Key::Period => Action::NextMarker,
+        Key::Comma => Action::PrevMarker,
+        Key::Backtick => Action::JumpBack,
+        Key::Num1
+        | Key::Num2
+        | Key::Num3
+        | Key::Num4
+        | Key::Num5
+        | Key::Num6
+        | Key::Num7
+        | Key::Num8
+        | Key::Num9 => {
+            let n = key.symbol_or_name().parse().ok()?;
+            Action::GoToMarker(volna_core::marker::MarkerId::new(n)?)
+        }
         Key::Backspace | Key::Delete => Action::RemoveSelected,
         Key::A if m.command => Action::SelectAll,
         Key::Escape => Action::ClearSelection,

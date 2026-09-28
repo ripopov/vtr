@@ -272,8 +272,9 @@ impl App {
         self.workspace.scheduler.changed(now);
     }
 
-    /// Say what undo or redo did; the status bar keeps it until the next edit.
-    fn announce(&mut self, text: String) {
+    /// Say what undo, redo or a marker jump did; the status bar keeps it
+    /// until the next key, click or edit.
+    pub(super) fn announce(&mut self, text: String) {
         self.events.push(Event::Announce(text.clone()));
         self.announcement = Some(text);
         self.changed();

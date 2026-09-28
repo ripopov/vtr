@@ -1389,3 +1389,57 @@ fn undo_keys_reach_the_history_and_text_fields_keep_their_own(cx: &mut TestAppCo
     vcx.run_until_parked();
     assert_eq!(rows(&mut vcx), all);
 }
+
+/// `.` `,` `1`–`9` and `` ` `` walk the focused panel's cursor between
+/// markers, and the status bar says where it landed.
+#[gpui_kit::test]
+fn marker_walk_keys_move_the_cursor(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    let (near, far) = window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            let (near, far) = (lo + (hi - lo) / 4, lo + (hi - lo) * 3 / 4);
+            for t in [near, far] {
+                ws.app.doc.shared.cursor = Some(t);
+                ws.dispatch(Command::Action(Action::AddMarker), Some(window), cx);
+            }
+            ws.app.doc.shared.cursor = Some(lo);
+            (near, far)
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let state = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                (ws.app.doc.shared.cursor, ws.app.status().announcement)
+            })
+            .unwrap()
+    };
+    vcx.simulate_keystrokes(".");
+    assert_eq!(
+        state(&mut vcx),
+        (Some(near), Some("At marker 1 · ` returns".into()))
+    );
+    vcx.simulate_keystrokes("2");
+    assert_eq!(state(&mut vcx).0, Some(far));
+    vcx.simulate_keystrokes(",");
+    assert_eq!(state(&mut vcx).0, Some(near));
+    vcx.simulate_keystrokes("`");
+    assert_eq!(state(&mut vcx).0, Some(far));
+    vcx.simulate_keystrokes("9");
+    assert_eq!(state(&mut vcx), (Some(far), Some("No marker 9".into())));
+}

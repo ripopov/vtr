@@ -2031,3 +2031,38 @@ fn half_million_rows_load_lay_out_and_paint() {
     }
     println!("{report}");
 }
+
+#[test]
+fn marker_walks_move_a_pipeline_panel_cursor_like_a_wave_panel_cursor() {
+    let (mut app, _, waves, pipeline) = opened(60);
+    pump(&mut app);
+    let (lo, hi) = app.doc.limits();
+    let (near, far) = (lo + (hi - lo) / 4, lo + (hi - lo) * 3 / 4);
+    app.doc.add_marker(near);
+    app.doc.add_marker(far);
+    let cursor = |app: &App, id| {
+        app.panels
+            .get(id)
+            .unwrap()
+            .kind
+            .nav()
+            .unwrap()
+            .cursor(&app.doc)
+    };
+    assert_eq!(app.panels.focused_id(), pipeline);
+    app.doc.shared.cursor = Some(lo);
+    app.handle(Command::Action(Action::NextMarker));
+    assert_eq!(cursor(&app, pipeline), Some(near));
+    assert_eq!(cursor(&app, waves), Some(near), "the cursor is linked");
+    app.handle(Command::Panels(PanelsCommand::ToggleLink {
+        panel: pipeline,
+        dim: LinkDim::Cursor,
+    }));
+    app.handle(Command::Action(Action::GoToMarker(
+        volna_core::marker::MarkerId::new(2).unwrap(),
+    )));
+    assert_eq!(cursor(&app, pipeline), Some(far));
+    assert_eq!(cursor(&app, waves), Some(near));
+    app.handle(Command::Action(Action::JumpBack));
+    assert_eq!(cursor(&app, pipeline), Some(near));
+}

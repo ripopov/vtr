@@ -43,7 +43,22 @@ pub struct NavState {
     /// methods below, which keep their value before the first change.
     clocks: crate::clock::ClockView,
     clocks_before: crate::history::Before<ClockChoice>,
+    /// Where the last jump started, or where the last return left: the one
+    /// place [`NavState::back`] swaps with the present.
+    back: Option<Spot>,
 }
+
+/// A place on the time axis to come back to: the effective cursor and where
+/// the effective viewport is headed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spot {
+    pub cursor: Option<u64>,
+    pub viewport: Viewport,
+}
+
+/// [`NavState::reveal`] treats this fraction of the viewport at each edge as
+/// off screen, so a revealed time never lands flush against an edge.
+const REVEAL_EDGE: f64 = 0.05;
 
 /// A timed panel's ruler rows and cycle origin, as the undo journal swaps them.
 pub(crate) type ClockChoice = (Option<Vec<String>>, Option<u64>);
@@ -62,6 +77,7 @@ impl NavState {
             local_cursor: None,
             clocks: crate::clock::ClockView::default(),
             clocks_before: Default::default(),
+            back: None,
         }
     }
 
@@ -73,6 +89,7 @@ impl NavState {
             local_cursor: self.local_cursor,
             clocks: self.clocks.clone(),
             clocks_before: Default::default(),
+            back: None,
         }
     }
 
@@ -80,6 +97,7 @@ impl NavState {
     /// document's session changes.
     pub fn reset(&mut self, limits: Option<(u64, u64)>) {
         self.local_cursor = None;
+        self.back = None;
         let viewport = limits.map_or(self.local_viewport.value, Viewport::fit);
         self.local_viewport.set(viewport);
     }
@@ -407,6 +425,61 @@ impl NavState {
             },
             Some(label),
         );
+    }
+
+    /// The effective cursor and the viewport's destination.
+    pub fn spot(&self, doc: &Document) -> Spot {
+        Spot {
+            cursor: self.cursor(doc),
+            viewport: self.viewport_state(doc).target(),
+        }
+    }
+
+    /// The place [`NavState::back`] would return to.
+    pub fn back_spot(&self) -> Option<Spot> {
+        self.back
+    }
+
+    /// Move the cursor to `t` as a jump: the place before it becomes the one
+    /// [`NavState::back`] returns to, and the view pans only as far as
+    /// [`NavState::reveal`] needs. Returns whether the cursor moved; a jump
+    /// to where the cursor already is keeps the earlier return place.
+    pub fn jump_cursor(&mut self, doc: &mut Document, t: u64, now: Instant) -> bool {
+        if self.cursor(doc) == Some(t) {
+            self.reveal(doc, t, now);
+            return false;
+        }
+        self.back = Some(self.spot(doc));
+        self.set_cursor(doc, Some(t));
+        self.reveal(doc, t, now);
+        true
+    }
+
+    /// Return to the cursor and view from before the last jump; the place
+    /// left becomes the return place, so doing it twice goes forward again.
+    /// Returns false when no jump happened yet.
+    pub fn back(&mut self, doc: &mut Document, now: Instant) -> bool {
+        let Some(spot) = self.back.take() else {
+            return false;
+        };
+        self.back = Some(self.spot(doc));
+        self.set_cursor(doc, spot.cursor);
+        self.animate_to(doc, spot.viewport, now);
+        true
+    }
+
+    /// Centre the view on `t`, keeping its width, when `t` lies outside the
+    /// middle 90% of where the view is headed. Returns whether it panned.
+    pub fn reveal(&mut self, doc: &mut Document, t: u64, now: Instant) -> bool {
+        let mut target = self.viewport_state(doc).target();
+        let edge = target.width() * REVEAL_EDGE;
+        let t = t as f64;
+        if (target.start + edge..=target.end - edge).contains(&t) {
+            return false;
+        }
+        target.center_on(t, doc.limits());
+        self.animate_to(doc, target, now);
+        true
     }
 
     /// Scroll the window so the cursor is visible, if it is not.

@@ -390,7 +390,8 @@ zoom path about the visible cursor (else the centre) and the middle row, `F`
 fits the whole trace and every row (rows that already fit keep their height),
 `C Home End` and the arrows move time, `↑ ↓` move the selection by one
 row and keep it visible (without one they scroll three rows), `⏎` shows the
-selection in a Transaction panel, `M ⇧M` markers, `L ⇧L` links, Escape cancels
+selection in a Transaction panel, `M ⇧M` markers, `. , 1–9` and `` ` `` walk between
+markers, `L ⇧L` links, Escape cancels
 a drag, then clears the selection, then the cursor. Formats and edge actions
 are no-ops. The painter outlines the selected row and draws only its own
 relations as arrows (`tx_relation_in` into it, `tx_relation_out` out of it),
@@ -504,6 +505,24 @@ selections elsewhere. A cluster lists its
 markers on hover and zooms to them on click. A press on the lane between
 chips moves the cursor, as on the header. Each marker's line runs from its
 chip down through the rows.
+
+`.` and `,` move the focused panel's cursor to the next or previous marker
+and `1`–`9` onto marker *n* (`Action::{NextMarker, PrevMarker, GoToMarker}`,
+also `nextMarker`, `prevMarker` and `goToMarker1`… through `Command::named`).
+`marker::walk_target` counts from the cursor and skips markers at its time,
+so markers sharing an instant are one stop; without a cursor it starts from
+the view's edge. `marker::walk` hands the time to `NavState::jump_cursor`,
+which keeps the zoom: `NavState::reveal` centres the view only when the time
+lies outside its middle 90%. Each `NavState` holds one return slot, the
+cursor and viewport target before the last jump; `` ` `` (`Action::JumpBack`,
+`NavState::back`) swaps it with the present, so pressing it twice goes
+forward again. A jump to where the cursor already is keeps the slot, and a
+session change clears it. All of it is navigation and never reaches the
+journal. The status bar says where the cursor landed (*At marker 4 · \`
+returns*) or why it stayed (*No marker 7*, *No marker after the cursor*).
+GPUI binds the bare keys in the `Waves && !Table` context: text fields are
+hosted outside the panels' key context, and the table keeps digits for its
+row field.
 
 ## Transaction panel
 
@@ -620,7 +639,9 @@ same targets), a new group joins with its name however late, and edits that
 cancel out are pruned at commit. The journal is capped at 64 MiB and always
 keeps the newest step. A flip restores focus and the selection of the panels
 the step touched and scrolls the first selected row into view; the time axis
-stays put. Notices announce `Undid …`/`Redid …`. Opening, closing or replacing
+stays put. Notices announce `Undid …`/`Redid …`, and the status bar keeps
+the announcement (`Status::announcement`, shared with marker jumps) until
+the next key, click or edit. Opening, closing or replacing
 the trace and restoring a workspace clear the history; workspace files never
 store it.
 

@@ -75,6 +75,65 @@ pub fn at(markers: &[Marker], time: u64) -> Option<&Marker> {
     markers.get(ix).filter(|m| m.time == time)
 }
 
+/// Where `.`, `,` and the digit keys send the cursor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Walk {
+    Next,
+    Prev,
+    To(MarkerId),
+}
+
+/// The marker a walk lands on in a time-sorted list. Next and previous
+/// count from the cursor and skip markers at its time, so markers sharing
+/// an instant are one stop. Without a cursor they start from the view:
+/// the first marker at or after its start, the last at or before its end.
+pub fn walk_target(
+    markers: &[Marker],
+    walk: Walk,
+    cursor: Option<u64>,
+    view: Viewport,
+) -> Option<&Marker> {
+    match (walk, cursor) {
+        (Walk::To(id), _) => markers.iter().find(|m| m.id == id),
+        (Walk::Next, Some(c)) => markers.get(markers.partition_point(|m| m.time <= c)),
+        (Walk::Prev, Some(c)) => markers[..markers.partition_point(|m| m.time < c)].last(),
+        (Walk::Next, None) => {
+            markers.get(markers.partition_point(|m| (m.time as f64) < view.start))
+        }
+        (Walk::Prev, None) => {
+            markers[..markers.partition_point(|m| m.time as f64 <= view.end)].last()
+        }
+    }
+}
+
+/// Walk the cursor to a marker as a jump (see [`NavState::jump_cursor`]).
+/// Returns what the status bar says either way: where the cursor is, or why
+/// it stayed.
+pub fn walk(
+    doc: &mut Document,
+    nav: &mut NavState,
+    walk: Walk,
+    now: Instant,
+) -> Result<String, String> {
+    let view = nav.viewport_state(doc).target();
+    let cursor = nav.cursor(doc);
+    let Some(m) = walk_target(doc.markers(), walk, cursor, view) else {
+        return Err(match (walk, cursor) {
+            (Walk::Next, Some(_)) => "No marker after the cursor".into(),
+            (Walk::Prev, Some(_)) => "No marker before the cursor".into(),
+            (Walk::Next, None) => "No marker in or after the view".into(),
+            (Walk::Prev, None) => "No marker in or before the view".into(),
+            (Walk::To(id), _) => format!("No marker {id}"),
+        });
+    };
+    let (id, time) = (m.id, m.time);
+    Ok(if nav.jump_cursor(doc, time, now) {
+        format!("At marker {id} · ` returns")
+    } else {
+        format!("At marker {id}")
+    })
+}
+
 /// What a pointer is over on the Markers lane. Markers are indices into
 /// [`Document::markers`], which is sorted by time.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,6 +210,45 @@ mod tests {
         assert_eq!(free(&[2, 7]), Some(1));
         assert_eq!(free(&[u32::MAX]), Some(1));
         assert_eq!(free(&[1, u32::MAX]), Some(2));
+    }
+
+    #[test]
+    fn walks_step_in_time_order_and_treat_an_instant_as_one_stop() {
+        // Markers 2 and 3 share time 20, as a restored workspace may have.
+        let markers: Vec<Marker> = [(1, 10), (2, 20), (3, 20), (4, 30)]
+            .into_iter()
+            .map(|(n, time)| Marker {
+                id: MarkerId::new(n).unwrap(),
+                time,
+                label: None,
+            })
+            .collect();
+        let view = Viewport {
+            start: 15.0,
+            end: 25.0,
+        };
+        let go = |walk, cursor| walk_target(&markers, walk, cursor, view).map(|m| m.id.get());
+        assert_eq!(go(Walk::Next, Some(10)), Some(2));
+        assert_eq!(
+            go(Walk::Next, Some(20)),
+            Some(4),
+            "both markers at 20 are passed"
+        );
+        assert_eq!(go(Walk::Prev, Some(30)), Some(3));
+        assert_eq!(go(Walk::Prev, Some(20)), Some(1));
+        assert_eq!(go(Walk::Next, Some(15)), Some(2));
+        assert_eq!(go(Walk::Prev, Some(25)), Some(3));
+        assert_eq!(go(Walk::Next, Some(30)), None);
+        assert_eq!(go(Walk::Prev, Some(10)), None);
+        assert_eq!(go(Walk::Next, Some(0)), Some(1));
+        assert_eq!(go(Walk::Prev, Some(u64::MAX)), Some(4));
+        // Without a cursor: from the view's start, back from its end.
+        assert_eq!(go(Walk::Next, None), Some(2));
+        assert_eq!(go(Walk::Prev, None), Some(3));
+        let id = |n| Walk::To(MarkerId::new(n).unwrap());
+        assert_eq!(go(id(4), None), Some(4));
+        assert_eq!(go(id(5), Some(10)), None);
+        assert_eq!(walk_target(&[], Walk::Next, Some(0), view), None);
     }
 
     #[test]

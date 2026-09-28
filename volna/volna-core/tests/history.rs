@@ -553,7 +553,16 @@ impl Driver {
             93 => (Kind::Look, Command::Action(Action::PanLeft)),
             94 => (Kind::Look, Command::Action(Action::ToggleViewportLink)),
             95 => (Kind::Look, Command::ToggleSidebar),
-            96..=97 => (Kind::Look, Command::SetFilter("c".into())),
+            96 => (Kind::Look, Command::SetFilter("c".into())),
+            97 => {
+                let walk = match self.rng.below(4) {
+                    0 => Action::NextMarker,
+                    1 => Action::PrevMarker,
+                    2 => Action::JumpBack,
+                    n => Action::GoToMarker(volna_core::marker::MarkerId::new(n as u32).unwrap()),
+                };
+                (Kind::Look, Command::Action(walk))
+            }
             _ => (Kind::Look, Command::Action(Action::ZoomFit)),
         };
         (kind, self.run(command))
@@ -891,7 +900,10 @@ fn undo_restores_the_selection_focus_and_announces_the_label() {
     assert_eq!(app.redo_label(), Some("Remove 2 rows"));
     app.handle(Command::Redo);
     assert_eq!(notices(&mut app), ["Redid Remove 2 rows"]);
-    assert_eq!(app.status().history.as_deref(), Some("Redid Remove 2 rows"));
+    assert_eq!(
+        app.status().announcement.as_deref(),
+        Some("Redid Remove 2 rows")
+    );
     assert!(app.panels.waves(id).unwrap().selected.is_empty());
     app.handle(Command::Redo);
     assert_eq!(notices(&mut app), [format!("Redid Split {title}")]);
@@ -905,12 +917,16 @@ fn undo_restores_the_selection_focus_and_announces_the_label() {
     assert_eq!(notices(&mut app), ["Nothing to redo"]);
     // The next edit clears the status line.
     app.handle(Command::AddVars(vec![5]));
-    assert_eq!(app.status().history, None);
+    assert_eq!(app.status().announcement, None);
 }
 
 #[test]
 fn navigation_never_makes_a_step_and_undo_keeps_the_time_axis() {
     let (mut app, id, _) = four_rows();
+    // A marker to walk to, away from the cursor.
+    app.doc.shared.cursor = Some(5);
+    app.handle(Command::Action(Action::AddMarker));
+    app.doc.shared.cursor = Some(0);
     select(&mut app, id, &[0]);
     app.handle(Command::Action(Action::RemoveSelected));
     let revision = app.history.revision();
@@ -922,6 +938,10 @@ fn navigation_never_makes_a_step_and_undo_keeps_the_time_axis() {
         Action::SelectAll,
         Action::ClearSelection,
         Action::ToggleCursorLink,
+        Action::NextMarker,
+        Action::PrevMarker,
+        Action::GoToMarker(volna_core::marker::MarkerId::new(1).unwrap()),
+        Action::JumpBack,
     ] {
         app.handle(Command::Action(action));
     }

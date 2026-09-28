@@ -55,6 +55,14 @@ pub enum Action {
     RemoveMarkerAtCursor,
     /// Palette only: remove every marker, as one undoable step.
     RemoveAllMarkers,
+    /// `.` / `,`: move the cursor to the next / previous marker in time.
+    NextMarker,
+    PrevMarker,
+    /// `1`–`9`: move the cursor onto the marker with this number.
+    GoToMarker(crate::marker::MarkerId),
+    /// `` ` ``: return to the cursor and view from before the last marker
+    /// jump; again, go forward to where the return started.
+    JumpBack,
     RemoveSelected,
     /// Copy the selected wave rows to the document clipboard; cut also
     /// removes them. Paste inserts copies below the selection, sharing data.
@@ -114,6 +122,13 @@ impl Command {
             "nextCycle" => Action::NextCycle,
             "prevCycle" => Action::PrevCycle,
             "toggleCycleOrigin" => Action::ToggleCycleOrigin,
+            "nextMarker" => Action::NextMarker,
+            "prevMarker" => Action::PrevMarker,
+            "jumpBack" => Action::JumpBack,
+            _ if name.starts_with("goToMarker") => {
+                let n = name.strip_prefix("goToMarker")?.parse::<u32>().ok()?;
+                Action::GoToMarker(crate::marker::MarkerId::new(n)?)
+            }
             _ => {
                 let index = name.strip_prefix("focusPanel")?.parse::<usize>().ok()?;
                 return (1..=9)
@@ -361,8 +376,9 @@ pub struct Status {
     /// ruler clock: `Δ 20 ns · 40 core_clk · 10 bus_clk`.
     pub delta: Option<String>,
     pub markers: Option<String>,
-    /// What the last undo or redo did, until the next edit.
-    pub history: Option<String>,
+    /// What the last undo, redo or marker jump did, or why it did nothing,
+    /// until the next key, click or edit.
+    pub announcement: Option<String>,
     /// Whole-window frame timing; absent until the frontend reports frames.
     pub frames: Option<crate::frames::FrameStatus>,
     /// Decoded trace data against the open trace's memory budget.
@@ -967,6 +983,13 @@ impl App {
             Command::Pointer(_, PointerEvent::Down { .. } | PointerEvent::Up)
         );
         self.begin_step(now);
+        let key_or_click = matches!(
+            command,
+            Command::Action(_) | Command::Pointer(_, PointerEvent::Down { .. })
+        );
+        if key_or_click && self.announcement.take().is_some() {
+            self.changed();
+        }
         match command {
             Command::Notice(message) => {
                 self.events.push(Event::Notice(message));
@@ -1959,8 +1982,7 @@ impl App {
                     match crate::marker::at(self.doc.markers(), c).map(|m| m.id) {
                         Some(id) => self.doc.remove_marker(id),
                         None => {
-                            self.events
-                                .push(Event::Announce("No marker at the cursor".into()));
+                            self.announce("No marker at the cursor".into());
                             false
                         }
                     }
@@ -1970,6 +1992,31 @@ impl App {
             if changed {
                 self.changed();
             }
+            return;
+        }
+        if matches!(
+            action,
+            Action::NextMarker | Action::PrevMarker | Action::GoToMarker(_) | Action::JumpBack
+        ) {
+            let doc = &mut self.doc;
+            let Some(nav) = self.panels.focused_mut().kind.nav_mut() else {
+                return;
+            };
+            let walk = match action {
+                Action::NextMarker => crate::marker::Walk::Next,
+                Action::PrevMarker => crate::marker::Walk::Prev,
+                Action::GoToMarker(id) => crate::marker::Walk::To(id),
+                _ => {
+                    if !nav.back(doc, now) {
+                        self.announce("No jump to return from".into());
+                    } else {
+                        self.changed();
+                    }
+                    return;
+                }
+            };
+            let text = crate::marker::walk(doc, nav, walk, now).unwrap_or_else(|missing| missing);
+            self.announce(text);
             return;
         }
         if matches!(
@@ -2047,7 +2094,11 @@ impl App {
                 | Action::ToggleCycleOrigin
                 | Action::AddMarker
                 | Action::RemoveMarkerAtCursor
-                | Action::RemoveAllMarkers => unreachable!(),
+                | Action::RemoveAllMarkers
+                | Action::NextMarker
+                | Action::PrevMarker
+                | Action::GoToMarker(_)
+                | Action::JumpBack => unreachable!(),
             },
             PanelKind::Waves(w) => match action {
                 Action::ZoomIn => w.zoom_in(doc, now),
@@ -2103,7 +2154,11 @@ impl App {
                 | Action::ToggleCycleOrigin
                 | Action::AddMarker
                 | Action::RemoveMarkerAtCursor
-                | Action::RemoveAllMarkers => unreachable!(),
+                | Action::RemoveAllMarkers
+                | Action::NextMarker
+                | Action::PrevMarker
+                | Action::GoToMarker(_)
+                | Action::JumpBack => unreachable!(),
             },
             // The same keys, with rows in place of selection: ↑ ↓ scroll rows,
             // zoom scales both axes, Escape cancels a drag then the cursor.
@@ -2152,7 +2207,11 @@ impl App {
                 | Action::ToggleCycleOrigin
                 | Action::AddMarker
                 | Action::RemoveMarkerAtCursor
-                | Action::RemoveAllMarkers => unreachable!(),
+                | Action::RemoveAllMarkers
+                | Action::NextMarker
+                | Action::PrevMarker
+                | Action::GoToMarker(_)
+                | Action::JumpBack => unreachable!(),
             },
             _ => return,
         }
@@ -2316,7 +2375,7 @@ impl App {
                 .or_else(|| self.workspace.notices.last().cloned()),
             file: self.doc.name(),
             frames: self.frames.status(),
-            history: self.announcement.clone(),
+            announcement: self.announcement.clone(),
             ..Default::default()
         };
         if let Some(src) = self.doc.session() {

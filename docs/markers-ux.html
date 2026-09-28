@@ -359,13 +359,13 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
   <div class="cols2">
     <div>
       <p><code>Document</code> keeps <code>markers: Vec&lt;Marker { id, time, label }&gt;</code>, sorted by time, in a <code>history::Journaled</code> field, so every marker edit is already an undoable step. It rejects a second marker at the same time (<code>volna-core/src/document.rs</code>). Every wave and pipeline panel has a Markers lane under the clock rulers, where each visible marker has a chip with its number and a line down through the rows. Chips too close to draw apart merge into a cluster that zooms in on click (<code>wave/overlay.rs</code>, <code>marker.rs</code>). Workspaces save the list.</p>
-      <p>A new marker takes the lowest free number, which it keeps while it exists. The GPUI frontend binds <kbd>M</kbd> to <i>Add Marker</i> and <kbd>⇧M</kbd> to <i>Remove Marker at Cursor</i>; <i>Remove All Markers</i> is a palette command. Clicking a chip moves the cursor there. The status bar shows the cursor minus the <i>nearest</i> marker, in time and in whole cycles of each ruler clock.</p>
+      <p>A new marker takes the lowest free number, which it keeps while it exists. The GPUI frontend binds <kbd>M</kbd> to <i>Add Marker</i> and <kbd>⇧M</kbd> to <i>Remove Marker at Cursor</i>; <i>Remove All Markers</i> is a palette command. Clicking a chip moves the cursor there. <kbd>.</kbd> and <kbd>,</kbd> step the cursor between markers, <kbd>1</kbd>–<kbd>9</kbd> go to marker <i>n</i>, and <kbd>`</kbd> returns to where the last jump started; the view pans only when the marker is outside its middle 90%. The status bar shows the cursor minus the <i>nearest</i> marker, in time and in whole cycles of each ruler clock.</p>
     </div>
     <div>
       <ul>
         <li><b>The label is never shown or edited.</b> The field exists, but no gesture sets it.</li>
         <li><b>The measurement origin moves on its own.</b> “Nearest marker” changes as the cursor moves, so the same readout means different intervals from one second to the next.</li>
-        <li><b>No marker navigation, no dragging, no list.</b></li>
+        <li><b>No dragging and no list.</b></li>
         
       </ul>
     </div>
@@ -463,7 +463,7 @@ table.mx tr.us td{background:var(--soft);font-weight:600}
     <tbody>
       <tr><td><kbd>M</kbd></td><td>Mark the cursor. On an existing marker, open its name editor.</td><td>Today's binding, and Surfer's, REAPER's and Resolve's. Pressing it again to name the marker needs no second key to learn.</td></tr>
       <tr><td><kbd>⇧M</kbd></td><td>Remove the marker at the cursor.</td><td>Shift inverts the verb, as with <kbd>G</kbd>/<kbd>⇧G</kbd>. It replaces clear-all, which moves to the palette.</td></tr>
-      <tr><td><kbd>.</kbd> <kbd>,</kbd></td><td>Next / previous marker from the cursor. The view pans only when the marker is off screen.</td><td>The keys under <kbd>&gt;</kbd> and <kbd>&lt;</kbd>; Perfetto steps between slices with the same pair. <kbd>[</kbd> and <kbd>]</kbd> already step cycles, and <kbd>⇧←</kbd>/<kbd>⇧→</kbd> step edges.</td></tr>
+      <tr><td><kbd>.</kbd> <kbd>,</kbd></td><td>Next / previous marker from the cursor. The view pans only when the marker is outside its middle 90%.</td><td>The keys under <kbd>&gt;</kbd> and <kbd>&lt;</kbd>; Perfetto steps between slices with the same pair. <kbd>[</kbd> and <kbd>]</kbd> already step cycles, and <kbd>⇧←</kbd>/<kbd>⇧→</kbd> step edges.</td></tr>
       <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Go to marker <i>n</i>: the cursor moves onto it.</td><td>Surfer and REAPER. Moving the cursor, not just the view, puts the marked values in the value column. <kbd>`</kbd> undoes the jump.</td></tr>
       <tr><td><kbd>'</kbd></td><td>Open the navigator (the palette's marker mode).</td><td>Vim jumps to marks with <kbd>'</kbd>. The palette also offers it as <code>@</code>.</td></tr>
       <tr><td><kbd>`</kbd></td><td>Back to the cursor and view before the last jump; again to return.</td><td>Vim's <code>``</code>. It holds one slot, so it never grows into a history to manage.</td></tr>

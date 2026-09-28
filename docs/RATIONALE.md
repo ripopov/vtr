@@ -160,6 +160,16 @@ already compete for that strip. Chips hold only digits and `…`, so their
 widths use a fixed advance per character, and the layout stays a pure
 function of times and geometry that input handlers can call without a font.
 
+Walking to a marker moves the cursor, not only the view (Surfer, REAPER), so
+the value column reads the marked instant. The view keeps its zoom and pans
+only when the marker lies outside its middle 90%: centring on every step
+would shake a view that already shows the marker, and a marker in the outer
+5% would sit under the view's edge. `` ` `` holds one return slot per panel
+that swaps with the present, like Vim's ``` `` ```, so it never grows into a
+history to browse; the undo journal is not used for it, since jumps are
+navigation. Its text in the status bar lasts until the next key or click,
+because a lingering *At marker 4* would be wrong once the cursor moves.
+
 Markers, the reference, the measurement, the lane layout and the gestures
 belong in `volna-core`; frontends host a text field and the palette list. The
 workspace stores markers and the reference; VTR, VDB and the remote protocol

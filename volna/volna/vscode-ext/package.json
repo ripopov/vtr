@@ -79,6 +79,18 @@
         "title": "Volna: Set or Reset the Cycle Origin at the Cursor"
       },
       {
+        "command": "volna.nextMarker",
+        "title": "Volna: Next Marker"
+      },
+      {
+        "command": "volna.prevMarker",
+        "title": "Volna: Previous Marker"
+      },
+      {
+        "command": "volna.jumpBack",
+        "title": "Volna: Return to Before the Last Jump"
+      },
+      {
         "command": "volna.focusPanel1",
         "title": "Volna: Focus Panel 1"
       },
