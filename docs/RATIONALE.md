@@ -194,10 +194,13 @@ double-click, which the frontend reports as `ZoomToSpan`, zooms.
 The Measure lane, unlike the Markers lane, exists only while a reference
 does: it is set on purpose, a few times per session, and an always-present
 lane would stay empty for most of it, so the one shift of the rows by a lane
-at `R` was accepted. The reference is navigation state, so undo does not
-restore it; when an edit removes the reference's marker, the reference stays
-at that marker's time rather than vanishing, since the measurement it anchors
-is still meaningful. A press on the live span keeps the cursor instead of
+at `R` was accepted. Setting the reference is navigation, so it is never an undo
+step; when an edit removes the reference's marker, the reference stays at
+that marker's time rather than vanishing, since the measurement it anchors
+is still meaningful. That detachment is a consequence of the edit, so the
+edit's step records it and undo reattaches the reference to the restored
+marker, unless the user has moved the reference since; otherwise undo would
+bring the marker back with a reference that no longer follows it. A press on the live span keeps the cursor instead of
 moving it as on the header: the cursor is one end of the span, so the first
 click of a double-click would otherwise change what the double-click zooms
 to. A middle click measures on release and pans once it moves 3 px, so the

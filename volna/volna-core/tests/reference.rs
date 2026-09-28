@@ -1,8 +1,8 @@
 //! The reference and the Measure lane: `R` measures from the cursor, `⇧R`
 //! stops, Alt-click and a middle click measure from the pointer, `Z` zooms
 //! to the measurement. The reference follows its marker, stays where a
-//! removed marker was, is saved in workspaces, and never reaches the undo
-//! journal.
+//! removed marker was (undo of that edit reattaches it), is saved in
+//! workspaces, and setting it is never an undo step.
 
 use std::sync::Arc;
 
@@ -126,7 +126,7 @@ fn hosts_reach_the_reference_by_name() {
 }
 
 #[test]
-fn the_reference_follows_its_marker_and_stays_when_the_marker_goes() {
+fn the_reference_follows_its_marker_and_undo_restores_the_attachment() {
     let mut app = app();
     mark(&mut app, 1200);
     mark(&mut app, 1600);
@@ -134,16 +134,20 @@ fn the_reference_follows_its_marker_and_stays_when_the_marker_goes() {
     act(&mut app, Action::SetReference);
     assert_eq!(app.doc.reference(), Some(Reference::Marker(id(2))));
 
+    // Removing its marker leaves the reference at that time; undo and redo
+    // of the removal reattach and detach it again.
     act(&mut app, Action::RemoveMarkerAtCursor);
     assert_eq!(app.doc.reference(), Some(Reference::Time(1600)));
-    // Undo brings the marker back but not the attachment: the reference
-    // is navigation state, and it still reads the same time.
     act(&mut app, Action::ClearSelection);
     app.handle(Command::Undo);
     assert_eq!(app.doc.markers().len(), 2);
+    assert_eq!(app.doc.reference(), Some(Reference::Marker(id(2))));
+    app.handle(Command::Redo);
     assert_eq!(app.doc.reference(), Some(Reference::Time(1600)));
+    app.handle(Command::Undo);
+    assert_eq!(app.doc.reference(), Some(Reference::Marker(id(2))));
 
-    // Undoing the add of the reference's marker detaches it too.
+    // Undoing the add of the reference's marker detaches it; redo reattaches.
     app.doc.shared.cursor = Some(1800);
     act(&mut app, Action::AddOrRenameMarker);
     act(&mut app, Action::SetReference);
@@ -151,12 +155,25 @@ fn the_reference_follows_its_marker_and_stays_when_the_marker_goes() {
     app.handle(Command::Undo);
     assert_eq!(app.doc.markers().len(), 2);
     assert_eq!(app.doc.reference(), Some(Reference::Time(1800)));
+    app.handle(Command::Redo);
+    assert_eq!(app.doc.reference(), Some(Reference::Marker(id(3))));
 
-    // Removing all markers keeps it at its marker's time as well.
+    // Removing all markers keeps it at its marker's time, and undo
+    // reattaches it.
     app.doc.shared.cursor = Some(1200);
     act(&mut app, Action::SetReference);
     act(&mut app, Action::RemoveAllMarkers);
     assert_eq!(app.doc.reference(), Some(Reference::Time(1200)));
+    app.handle(Command::Undo);
+    assert_eq!(app.doc.reference(), Some(Reference::Marker(id(1))));
+
+    // A reference moved after the removal stays where the user put it.
+    act(&mut app, Action::RemoveAllMarkers);
+    app.doc.shared.cursor = Some(1500);
+    act(&mut app, Action::SetReference);
+    app.handle(Command::Undo);
+    assert_eq!(app.doc.markers().len(), 3);
+    assert_eq!(app.doc.reference(), Some(Reference::Time(1500)));
     // A marker reference must name a marker.
     assert!(!app.doc.set_reference(Some(Reference::Marker(id(9)))));
 }

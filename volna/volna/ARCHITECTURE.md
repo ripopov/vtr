@@ -553,8 +553,10 @@ selected clock and the row under the pointer in waves and to the cycle in a
 pipeline, and `marker::reference_near` attaches it to a marker within the
 snap distance unless a snapped edge is closer. A marker reference follows
 its marker; when an edit removes that marker (remove, remove all, an undo of
-its add), `Document` keeps the reference at the marker's last time. Undo
-never restores the attachment.
+its add), `Document` keeps the reference at the marker's last time and
+records the detachment with that edit (`Edit::Markers { attached }`), so
+undoing and redoing the edit reattach and detach it again, unless the
+reference was moved in between.
 
 While a reference exists, every timed panel adds a Measure lane under the
 Markers lane (`MarkerLane::measure`, `wave::overlay::measure_lane`; layouts

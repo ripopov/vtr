@@ -83,6 +83,9 @@ pub struct Document {
     markers: crate::history::Journaled<Vec<Marker>>,
     /// Where measurements start; navigation state, outside the journal.
     reference: Option<Reference>,
+    /// The marker the reference was attached to when a marker edit since
+    /// the last [`Document::take_edits`] removed it.
+    detached: Option<MarkerId>,
     pub translators: Translators,
     pending: HashSet<SignalRef>,
     requests: Vec<LoadRequest>,
@@ -152,6 +155,7 @@ impl Document {
             navigation: Navigation::default(),
             markers: Default::default(),
             reference: None,
+            detached: None,
             translators: Translators::builtin(),
             pending: HashSet::new(),
             requests: Vec::new(),
@@ -278,6 +282,7 @@ impl Document {
         self.shared = Shared::default();
         self.markers.restore(Vec::new());
         self.reference = None;
+        self.detached = None;
         self.copied_rows.clear();
         self.summaries.clear();
         self.group_summaries.clear();
@@ -708,15 +713,31 @@ impl Document {
     }
 
     /// Keep the reference where its marker was when an edit removed that
-    /// marker; `before` is the list before the edit.
-    fn detach_reference(&mut self, before: &[Marker]) {
-        if let Some(Reference::Marker(id)) = self.reference
-            && !self.markers.iter().any(|m| m.id == id)
+    /// marker; `before` is the list before the edit. Returns the marker it
+    /// was attached to, if it detached.
+    fn detach_reference(&mut self, before: &[Marker]) -> Option<MarkerId> {
+        let Some(Reference::Marker(id)) = self.reference else {
+            return None;
+        };
+        if self.markers.iter().any(|m| m.id == id) {
+            return None;
+        }
+        self.reference = before
+            .iter()
+            .find(|m| m.id == id)
+            .map(|m| Reference::Time(m.time));
+        Some(id)
+    }
+
+    /// Reattach the reference to marker `id` if it still sits at that
+    /// marker's time, as its detachment left it; a reference moved since
+    /// stays where the user put it.
+    fn reattach_reference(&mut self, id: MarkerId) {
+        if let (Some(Reference::Time(t)), Some(m)) =
+            (self.reference, self.markers.iter().find(|m| m.id == id))
+            && m.time == t
         {
-            self.reference = before
-                .iter()
-                .find(|m| m.id == id)
-                .map(|m| Reference::Time(m.time));
+            self.reference = Some(Reference::Marker(id));
         }
     }
 
@@ -754,14 +775,14 @@ impl Document {
         };
         let removed = [self.markers[ix].clone()];
         let changed = self.markers.update(|markers| _ = markers.remove(ix));
-        self.detach_reference(&removed);
+        self.detached = self.detach_reference(&removed).or(self.detached);
         changed
     }
 
     pub fn remove_all_markers(&mut self) -> bool {
         let before = self.markers.to_vec();
         let changed = self.markers.set(Vec::new());
-        self.detach_reference(&before);
+        self.detached = self.detach_reference(&before).or(self.detached);
         changed
     }
 
@@ -778,6 +799,7 @@ impl Document {
     /// Hand the markers before the edits since the last call to the undo
     /// journal, unless they cancelled out.
     pub(crate) fn take_edits(&mut self, history: &mut crate::history::History) {
+        let attached = self.detached.take();
         let Some(before) = self.markers.take_before() else {
             return;
         };
@@ -809,13 +831,29 @@ impl Document {
             ),
             _ => "Change markers".into(),
         };
-        history.record(crate::history::Edit::Markers(before), Some(label));
+        history.record(
+            crate::history::Edit::Markers {
+                markers: before,
+                attached,
+            },
+            Some(label),
+        );
     }
 
-    /// Install markers while undoing or redoing; returns the replaced ones.
-    pub(crate) fn swap_markers(&mut self, markers: Vec<Marker>) -> Vec<Marker> {
+    /// Install markers while undoing or redoing, reattaching the reference
+    /// to marker `attach` when it came back where the reference still is.
+    /// Returns the replaced markers and the marker this swap detached the
+    /// reference from, which the inverse reattaches.
+    pub(crate) fn swap_markers(
+        &mut self,
+        markers: Vec<Marker>,
+        attach: Option<MarkerId>,
+    ) -> (Vec<Marker>, Option<MarkerId>) {
         let before = self.markers.swap(markers);
-        self.detach_reference(&before);
-        before
+        if let Some(id) = attach {
+            self.reattach_reference(id);
+        }
+        let detached = self.detach_reference(&before);
+        (before, detached)
     }
 }

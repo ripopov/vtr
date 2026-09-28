@@ -165,7 +165,7 @@ impl App {
                             })
                         })
                 }
-                Edit::Markers(markers) => markers.as_slice() == self.doc.markers(),
+                Edit::Markers { markers, .. } => markers.as_slice() == self.doc.markers(),
                 Edit::Prop { panel, prop } => {
                     let Some(p) = self.panels.get(*panel) else {
                         return false;
@@ -319,7 +319,10 @@ impl App {
                 let splices = waves.splice(splices).map_err(anyhow::Error::msg)?;
                 Edit::Rows { panel, splices }
             }
-            Edit::Markers(markers) => Edit::Markers(self.doc.swap_markers(markers)),
+            Edit::Markers { markers, attached } => {
+                let (markers, attached) = self.doc.swap_markers(markers, attached);
+                Edit::Markers { markers, attached }
+            }
             Edit::Prop { panel, prop } => Edit::Prop {
                 panel,
                 prop: self.swap_prop(panel, prop)?,

@@ -216,8 +216,13 @@ pub(crate) enum Edit {
         panel: PanelId,
         splices: Vec<Splice>,
     },
-    /// The document's markers, swapped whole (tens, not thousands).
-    Markers(Vec<Marker>),
+    /// The document's markers, swapped whole (tens, not thousands), and the
+    /// marker the reference was attached to when the edit detached it:
+    /// applying the edit reattaches it if the reference has not moved since.
+    Markers {
+        markers: Vec<Marker>,
+        attached: Option<crate::marker::MarkerId>,
+    },
     /// One property of one panel, swapped whole.
     Prop { panel: PanelId, prop: Prop },
     /// The panel tree, the panels to close, and detached panels to put back.
@@ -282,7 +287,7 @@ impl Edit {
                     .iter()
                     .map(|s| std::mem::size_of::<Splice>() + rows(&s.insert))
                     .sum(),
-                Edit::Markers(markers) => markers
+                Edit::Markers { markers, .. } => markers
                     .iter()
                     .map(|m| {
                         std::mem::size_of::<Marker>() + m.label.as_ref().map_or(0, String::len)
@@ -310,7 +315,7 @@ impl Edit {
     /// step is not recorded, since the first inverse restores the start.
     fn swap_target(&self) -> Option<(u8, Option<PanelId>)> {
         match self {
-            Edit::Markers(_) => Some((0, None)),
+            Edit::Markers { .. } => Some((0, None)),
             Edit::Prop { panel, prop } => Some((1 + prop.kind(), Some(*panel))),
             _ => None,
         }
@@ -331,7 +336,7 @@ impl Edit {
     fn panel(&self) -> Option<PanelId> {
         match self {
             Edit::Rows { panel, .. } | Edit::Prop { panel, .. } => Some(*panel),
-            Edit::Markers(_) | Edit::Layout(_) => None,
+            Edit::Markers { .. } | Edit::Layout(_) => None,
         }
     }
 }
@@ -799,27 +804,46 @@ mod tests {
         let key = MergeKey::of("format", &[1usize]).in_panel(PanelId(1));
         let other = MergeKey::of("format", &[2usize]).in_panel(PanelId(1));
         let mut h = History::default();
-        step_with(&mut h, t, Edit::Markers(markers(&[1])), Some(key));
+        step_with(
+            &mut h,
+            t,
+            Edit::Markers {
+                markers: markers(&[1]),
+                attached: None,
+            },
+            Some(key),
+        );
         step_with(
             &mut h,
             t + Duration::from_millis(900),
-            Edit::Markers(markers(&[2])),
+            Edit::Markers {
+                markers: markers(&[2]),
+                attached: None,
+            },
             Some(key),
         );
         assert_eq!(h.undo_steps().count(), 1);
         // The earliest inverse wins.
-        assert!(matches!(&h.undo.back().unwrap().edits[..], [Edit::Markers(m)] if m[0].time == 1));
+        assert!(
+            matches!(&h.undo.back().unwrap().edits[..], [Edit::Markers { markers: m, .. }] if m[0].time == 1)
+        );
         step_with(
             &mut h,
             t + Duration::from_millis(2000),
-            Edit::Markers(markers(&[3])),
+            Edit::Markers {
+                markers: markers(&[3]),
+                attached: None,
+            },
             Some(key),
         );
         assert_eq!(h.undo_steps().count(), 2, "past the window");
         step_with(
             &mut h,
             t + Duration::from_millis(2100),
-            Edit::Markers(markers(&[4])),
+            Edit::Markers {
+                markers: markers(&[4]),
+                attached: None,
+            },
             Some(other),
         );
         assert_eq!(h.undo_steps().count(), 3, "another target");
@@ -828,7 +852,10 @@ mod tests {
         step_with(
             &mut h,
             t + Duration::from_millis(2200),
-            Edit::Markers(markers(&[5])),
+            Edit::Markers {
+                markers: markers(&[5]),
+                attached: None,
+            },
             Some(other),
         );
         assert_eq!(h.undo_steps().count(), 3, "no merge right after an undo");
@@ -841,14 +868,23 @@ mod tests {
         let key = MergeKey::of("rename", &4usize).in_panel(PanelId(1));
         let mut h = History::default();
         h.begin_command(PanelId(1), t);
-        h.record(Edit::Markers(markers(&[1])), Some("Group 2 rows".into()));
+        h.record(
+            Edit::Markers {
+                markers: markers(&[1]),
+                attached: None,
+            },
+            Some("Group 2 rows".into()),
+        );
         h.set_continues(key);
         let step = h.take_open().unwrap();
         h.push(step);
         step_with(
             &mut h,
             t + Duration::from_secs(60),
-            Edit::Markers(markers(&[2])),
+            Edit::Markers {
+                markers: markers(&[2]),
+                attached: None,
+            },
             Some(key),
         );
         assert_eq!(h.undo_steps().count(), 1);
@@ -859,14 +895,20 @@ mod tests {
     fn the_cap_drops_the_oldest_steps_and_keeps_the_newest() {
         let t = Instant::now();
         let mut h = History::default();
-        let big = Edit::Markers(markers(&(0..100).collect::<Vec<_>>()));
+        let big = Edit::Markers {
+            markers: markers(&(0..100).collect::<Vec<_>>()),
+            attached: None,
+        };
         let size = big.bytes();
         h.set_max_bytes(size * 2 + size / 2);
         for k in 0..4 {
             step_with(
                 &mut h,
                 t + Duration::from_secs(k * 5),
-                Edit::Markers(markers(&(0..100).collect::<Vec<_>>())),
+                Edit::Markers {
+                    markers: markers(&(0..100).collect::<Vec<_>>()),
+                    attached: None,
+                },
                 None,
             );
         }
