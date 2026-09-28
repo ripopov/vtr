@@ -1,0 +1,108 @@
+const { Hero, Button, Tabs, DemoFrame, ProofPoints, FeatureSection, FeatureRow, ComparisonBars, CodeBlock, Kbd, Chip, Callout, TextLink, Icon } = window.VolnaDesignSystem_3096af;
+
+// Set to the hosted WASM viewer to embed the live demo; null shows the real screenshot.
+const DEMO_URL = null;
+
+const TIPS = {
+  waves: <>Click or drag in the waves to set the cursor, <Kbd>Ctrl</Kbd>+wheel to zoom, <Kbd>F</Kbd> to fit. Unfold <b>l2 port</b> with its chevron; select a bus and press <Kbd>A</Kbd> to plot it.</>,
+  pipeline: <>One row per instruction: <b>F D X M W</b> stages with stall bands, flushed rows tinted. <Kbd>Ctrl</Kbd>+wheel zooms both axes; click a row to select it everywhere and <Kbd>⏎</Kbd> opens its details.</>,
+  transactions: <>The pinned panel holds the interrupt handler’s device read: its lifeline, attributes, stages and the L2 read and DRAM refill it caused.</>,
+  clocks: <>The rulers count <b>clk</b> and <b>dram_clk</b> cycles. <Kbd>M</Kbd> drops a marker at the cursor, <Kbd>[</Kbd> <Kbd>]</Kbd> step clock edges.</>,
+  workspace: <>Drag tabs to rearrange panels, <Kbd keys={['Ctrl', '\\']} /> splits the focused one, <Kbd keys={['Ctrl', 'K']} /> opens the command palette.</>,
+};
+
+function DemoSection() {
+  const [tab, setTab] = React.useState('waves');
+  return <section id="demo" aria-label="Live demo" style={{ padding: '8px 0 16px' }}>
+    <div className="v-wrap v-wrap--wide">
+      <Tabs center value={tab} onChange={setTab} label="What to try" tabs={[{ id: 'waves', label: 'Waves' }, { id: 'pipeline', label: 'Pipeline' }, { id: 'transactions', label: 'Transactions' }, { id: 'clocks', label: 'Clocks & markers' }, { id: 'workspace', label: 'Workspace' }]} />
+      <p aria-live="polite" style={{ minHeight: 48, textAlign: 'center', color: 'var(--text-2)', fontSize: 14, maxWidth: '62em', margin: '14px auto 18px' }}>{TIPS[tab]}</p>
+      <DemoFrame src={DEMO_URL || undefined} image={tab === 'pipeline' ? '../../assets/screens/pipeline-overview.png' : '../../assets/screens/volna-waves.png'} alt="Volna showing the rsa256 trace: scope tree, signal list and waveforms"
+        title="Volna" path={tab === 'pipeline' ? 'pipeline_showcase.vtr' : 'rsa256.vtr'} actions={[{ label: 'Open in a full window ↗', href: '#' }, { label: 'Download the trace', href: '#' }]}
+        caption={<><span><code>landing.vtr</code>: 1.7 µs of a dot-product loop, cache misses, DRAM refills and one interrupt, in 8.7 KB</span></>} />
+    </div>
+  </section>;
+}
+
+function Landing({ go }) {
+  return <main id="content">
+    <Hero pill={{ tag: 'VTR 1.1', label: 'Waveforms, transactions and logs in one file →', href: '#/vtr' }}
+      title={<>Level up <em>your traces.</em></>}
+      lede={<>See your hardware run at the level you designed it. <strong>Volna</strong> shows the waveforms, transactions and CPU pipelines of one recording on one time axis: as a native app, in VS Code, and right here in your browser.</>}
+      actions={<><Button variant="primary" size="lg" href="#demo">Try the live demo</Button><Button size="lg" icon="github" href="https://github.com/ripopov/vtr">View on GitHub</Button></>}
+      fine="Open source, in Rust · the demo below is the real viewer compiled to WebAssembly · nothing is uploaded" />
+    <DemoSection />
+    <section className="v-section" style={{ paddingTop: 72 }}>
+      <div className="v-wrap">
+        <p className="v-kicker">Measured, not claimed</p>
+        <ProofPoints items={PROOF} />
+        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--text-3)' }}>Eight signal workloads, three transaction workloads, reproducible with <code>bench/run.py</code>. <TextLink href="#/benchmarks" arrow>Full report</TextLink></p>
+      </div>
+    </section>
+    <section className="v-section" id="features">
+      <div className="v-wrap">
+        <p className="v-kicker">The viewer</p>
+        <h2 className="v-section__title">One recording. Every view of it.</h2>
+        <p className="v-section__sub">Every panel shares the time axis, the cursor and the markers.</p>
+        <FeatureRow kicker="Waveforms" title="A hundred million changes, at the speed of the window."
+          body="Bits, buses, X and Z, text, and events drawn as arrows. Painting walks pixel columns, not transitions, so its cost follows the window width."
+          bullets={['Signal groups fold into one summary row of merged changes and X stretches', 'Buses and reals as step or linear plots at 1×–8× height', 'Declared clocks become cycle rulers; clicks snap to edges']}
+          media={<DemoFrame image="../../assets/screens/volna-remote.png" alt="Volna waveforms for picorv32" title="Waves" path="picorv32.vtr" />} />
+        <FeatureRow flip kicker="Pipeline view" title="Every CoreMark instruction, stage by stage."
+          body="Konata-style stages per instruction with stalls, flushes and dependency arrows, zoomed in time and rows at once. The openC910 tracer records every CoreMark instruction with its stages, folds and flushes."
+          bullets={['Stage colours from a ladder in pipeline order', 'Flushed rows tinted; dependency arrows to producers', 'Rows follow the activity at the cursor']}
+          media={<DemoFrame image="../../assets/screens/pipeline-overview.png" alt="Pipeline Studio: waveforms above a pipeline trace" title="Pipeline" path="c910 CoreMark" />} />
+      </div>
+    </section>
+    <FeatureSection kicker="Also in the demo" title="Transactions, logs and the rest." features={[
+      { icon: 'chart-no-axes-gantt', title: 'Transaction lanes', body: 'Bus requests as bars beside the signals that carry them: address and data stages, overlaps stacked, failures in red.', look: 'Waves › read, write, burst' },
+      { icon: 'workflow', title: 'Transaction details', body: 'Identity, timing, a lifeline of stages, typed attributes and related records you can jump to. Pin one to compare.', look: 'Transaction 3 (pinned)' },
+      { icon: 'scroll-text', title: 'Simulator logs', body: 'The text log as typed, timestamped records in the same file, on the same time axis as the waves.', look: 'LOG section' },
+      { icon: 'table-columns', title: 'Tables', body: 'Any generator or set of signals as rows: exact scrolling to any row, selection shared with every panel, TSV copy.', look: 'Table 4' },
+      { icon: 'locate', title: 'Markers', body: 'Named markers shared by every timed panel; the status bar reads the span to the cursor in time and in cycles.', look: 'M1 irq · M2 refill done' },
+      { icon: 'server', title: 'Remote traces', body: 'In VS Code, a server beside a remote recording sends only the metadata and the signals you open.', look: 'VS Code + volna-server' },
+    ]} />
+    <section className="v-section">
+      <div className="v-wrap">
+        <p className="v-kicker">Runs where you work</p>
+        <h2 className="v-section__title">One Rust core. Three front doors.</h2>
+        <div className="v-feature-grid">
+          {[['laptop', 'Native', 'Desktop app on GPUI, Zed’s GPU UI toolkit. macOS today; Linux and Windows packaging in the tree.'], ['square-code', 'VS Code', 'The WASM build in a webview. Remote traces through volna-server.'], ['globe', 'Browser', 'Any browser with WebGPU or WebGL2. One link from a failing CI run; nothing to install.']].map(([i, t, b]) =>
+            <article className="v-feature" key={t}><div className="v-feature__icon"><Icon name={i} size={18} /></div><h3>{t}</h3><p>{b}</p></article>)}
+        </div>
+        <Callout title="Planned: agent control over MCP.">AI assistants will drive the viewer through one command and query catalogue: open signals, move the cursor, place markers, with undo.</Callout>
+      </div>
+    </section>
+    <section className="v-section" id="bench">
+      <div className="v-wrap" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,420px),1fr))', gap: 48, alignItems: 'start' }}>
+        <div>
+          <p className="v-kicker">The format</p>
+          <h2 className="v-section__title">Two formats. One smaller file.</h2>
+          <p className="v-section__sub">VTR packs FST-style waveforms and FTR-style transactions into one compressed, random-access file.</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '24px 0 8px' }}>{['META', 'STR', 'HIER', 'SIGNAL', 'TX', 'SIGNAL', 'TX', 'LOG', 'DIR'].map((s, i) => <Chip key={i} tone={s === 'SIGNAL' || s === 'TX' ? 'accent' : 'default'}>{s}</Chip>)}</div>
+          <p style={{ font: '12px var(--font-mono)', color: 'var(--text-3)' }}>blocks in time order · directory last · no seek-back</p>
+          <div style={{ marginTop: 24, display: 'flex', gap: 10, flexWrap: 'wrap' }}><Button href="#/vtr">VTR overview</Button><Button variant="ghost" href="#/benchmarks" iconRight="arrow-right">All benchmarks</Button></div>
+        </div>
+        <div style={{ display: 'grid', gap: 28 }}>
+          <ComparisonBars title="Waveforms vs FST · openC910 CoreMark" rows={BARS_WAVES} />
+          <ComparisonBars title="Transactions vs FTR · 1M TLM transactions" rows={BARS_TX} note="Against the best FST or FTR writer and reader for each metric." />
+        </div>
+      </div>
+    </section>
+    <section className="v-section" id="start">
+      <div className="v-wrap" style={{ maxWidth: 820 }}>
+        <p className="v-kicker">Get started</p>
+        <h2 className="v-section__title">Bring your traces up a level.</h2>
+        <p className="v-section__sub">Convert an FST or VCD you already have, or record VTR straight from Verilator.</p>
+        <div style={{ marginTop: 28 }}>
+          <Tabs variant="line" label="Get started" tabs={[
+            { id: 'convert', label: 'Convert a trace', content: <CodeBlock lang="sh" filename="shell" code={'# FST, VCD, FTR, Kanata and OpenTelemetry JSON\n$ vtr convert dump.fst dump.vtr\n$ volna dump.vtr'} /> },
+            { id: 'verilator', label: 'Verilator', content: <CodeBlock lang="sh" filename="shell" code={'# --trace-vtr sits beside --trace-fst\n$ verilator --binary --trace-vtr top.sv\n$ ./obj_dir/Vtop'} /> },
+            { id: 'source', label: 'Build from source', content: <CodeBlock lang="sh" filename="shell" code={'$ git clone https://github.com/ripopov/vtr && cd vtr\n$ cargo run -p volna --profile viewer -- volna/volna/examples/picorv32.vtr'} /> },
+          ]} />
+        </div>
+      </div>
+    </section>
+  </main>;
+}
+window.Landing = Landing;

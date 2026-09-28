@@ -1,0 +1,38 @@
+/* Semantic roles for Instrument, the Volna website's design. Default = dark (the viewer's native appearance); light is first-class.
+   Set <html data-theme="light|dark">. A 3-line inline script in <head> picks the theme from localStorage / prefers-color-scheme before paint. */
+:root,[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:var(--n-950);--bg-raised:var(--n-900);--bg-sunken:var(--n-1000);
+  --surface-card:var(--n-900);--surface-card-hover:var(--n-850);--surface-hover:var(--n-800);--surface-selected:var(--n-750);--surface-inverse:var(--n-100);
+  --border:var(--n-750);--border-subtle:var(--n-850);--border-strong:var(--n-700);
+  --text-1:var(--n-100);--text-2:var(--n-300);--text-3:var(--n-400);--text-inverse:var(--n-950);
+  --accent:var(--a-300);--accent-hover:var(--a-200);--accent-text:var(--a-200);--accent-soft:var(--a-900);--accent-line:var(--a-800);--on-accent:var(--n-950);
+  --focus-ring:var(--a-300);
+  --success:#98c379;--success-soft:#23321f;--warning:#e5c07b;--warning-soft:#3a2f1a;--danger:#e06c75;--danger-soft:#3b2226;--info:var(--a-300);--info-soft:var(--a-900);
+  --code-bg:var(--n-1000);--code-text:var(--n-100);--code-comment:var(--n-400);--code-keyword:#c678dd;--code-string:#98c379;--code-number:#d19a66;--code-fn:#61afef;--code-prompt:var(--a-300);
+  --wave-bg:#282c33;--wave-signal:#a1c181;--wave-high-fill:rgb(161 193 129 / .10);--wave-undef:#d07277;--wave-highimp:#dec184;--wave-dontcare:#74ade8;--wave-weak:#878a98;--wave-event:#e5c07b;--wave-bus-text:#dce0e5;--wave-cursor:#74ade8;--wave-tick:rgb(200 204 212 / .08);
+  --tx-in:#74ade8;--tx-out:#5ec9b0;
+  --marker-1:#bf956a;--marker-2:#b477cf;--marker-3:#6eb4bf;--marker-4:#d07277;--marker-5:#dec184;--marker-6:#a1c181;
+  --cmp-ours:var(--accent);--cmp-theirs:var(--n-700);--cmp-theirs-text:var(--n-200);--cmp-ghost:var(--a-800);
+  --fmt-fst:#e9b44c;--fmt-ftr:#ee8dbb;--fmt-vcd:#80a3ff;--fmt-konata:#b79bff;
+  --nav-bg:color-mix(in srgb,var(--bg) 80%,transparent);
+  --btn-primary-bg:var(--accent);--btn-primary-fg:var(--on-accent);--btn-primary-hover:var(--accent-hover);
+}
+[data-theme="light"]{
+  color-scheme:light;
+  --bg:var(--n-50);--bg-raised:var(--n-0);--bg-sunken:var(--n-100);
+  --surface-card:var(--n-0);--surface-card-hover:var(--n-25);--surface-hover:var(--n-100);--surface-selected:var(--n-150);--surface-inverse:var(--n-950);
+  --border:var(--n-200);--border-subtle:var(--n-150);--border-strong:var(--n-300);
+  --text-1:var(--n-950);--text-2:var(--n-600);--text-3:var(--n-500);--text-inverse:var(--n-50);
+  --accent:var(--a-600);--accent-hover:var(--a-700);--accent-text:var(--a-700);--accent-soft:var(--a-50);--accent-line:var(--a-200);--on-accent:#ffffff;
+  --focus-ring:var(--a-600);
+  --success:#1a7f37;--success-soft:#dcf2e1;--warning:#8a5a00;--warning-soft:#f8ecd2;--danger:#c0222d;--danger-soft:#fbe3e4;--info:var(--a-600);--info-soft:var(--a-50);
+  --code-bg:var(--n-25);--code-text:var(--n-950);--code-comment:var(--n-500);--code-keyword:#8a3fb0;--code-string:#1a7f37;--code-number:#a14f00;--code-fn:#0a5cc2;--code-prompt:var(--a-600);
+  --wave-bg:#ffffff;--wave-signal:#287b38;--wave-high-fill:rgb(40 123 56 / .10);--wave-undef:#a1260d;--wave-highimp:#895503;--wave-dontcare:#005fb8;--wave-weak:#6e7781;--wave-event:#b05b00;--wave-bus-text:#1f2328;--wave-cursor:#005fb8;--wave-tick:rgb(31 35 40 / .10);
+  --tx-in:#005fb8;--tx-out:#0f7a66;
+  --marker-1:#8f6232;--marker-2:#8040a0;--marker-3:#1f7a86;--marker-4:#a1260d;--marker-5:#895503;--marker-6:#287b38;
+  --cmp-ours:var(--accent);--cmp-theirs:var(--n-300);--cmp-theirs-text:var(--n-950);--cmp-ghost:var(--a-200);
+  --fmt-fst:#9a6700;--fmt-ftr:#b0306e;--fmt-vcd:#3b5fc4;--fmt-konata:#7045c2;
+  --nav-bg:color-mix(in srgb,var(--bg) 84%,transparent);
+  --btn-primary-bg:var(--accent);--btn-primary-fg:var(--on-accent);--btn-primary-hover:var(--accent-hover);
+}

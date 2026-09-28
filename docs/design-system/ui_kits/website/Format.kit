@@ -1,0 +1,37 @@
+const { Button, BenchTable, ComparisonBars, ProofPoints, Callout, Chip, CodeBlock, TextLink, Tabs, DocsLayout, DocsSidebar, Toc, Kbd, DownloadCard, Icon } = window.VolnaDesignSystem_3096af;
+
+const SECTIONS = [['1','META','time unit, producer, typed attributes'],['2','STRINGS','string table, compressed'],['3','HIERARCHY','scopes, vars, streams, generators, enums'],['4','SIGNAL_BLOCK','value changes for a time range'],['5','TX_BLOCK','transactions, stages, relations'],['6','BLACKOUT','dump-off regions'],['8','LOG_BLOCK','log records (optional)'],['7','DIRECTORY','written last; locates every block']];
+function Format() {
+  return <main id="content">
+    <PageHead kicker="VTR 1.1" title="One open file for the whole run." sub="VTR (Volna Trace Record) holds waveforms, transactions, hierarchy and simulator logs in one file. It replaces FST- and FSDB-class files, and it is smaller and faster than FST on every benchmark we run.">
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 28 }}><Button variant="primary" href="#/docs">Read the specification</Button><Button href="#/benchmarks">Benchmarks</Button></div>
+    </PageHead>
+    <Block id="model" title="What a file holds" sub="Nothing in the file describes presentation. Stable identity comes from names: full hierarchical paths, stream, generator, stage and lane names.">
+      <div className="v-feature-grid" style={{ marginTop: 8 }}>
+        {[['boxes','Metadata','Time unit, time-zero offset, producer, date and free-form typed attributes.'],['list-tree','Hierarchy','An ordered forest of scopes, vars, streams, generators and enum tables. Several vars may alias one signal.'],['audio-waveform','Signal changes','Every signal’s value at every time step it changed. 4- and 9-state bits, reals, strings, enums.'],['workflow','Transactions','Timed intervals with typed attributes, events, stages on lanes, a parent, and relations between them.'],['scroll-text','Log records','Messages of a log site stored as argument values only. A log record is a zero-duration transaction.']].map(([i,t,b]) =>
+          <article className="v-feature" key={t}><div className="v-feature__icon"><Icon name={i} size={18} /></div><h3>{t}</h3><p>{b}</p></article>)}
+      </div>
+    </Block>
+    <Block id="container" title="Container" sub="A 32-byte header, sections in time order, a directory written last and a 24-byte trailer. The writer never seeks back, so a crashed simulation leaves a recoverable file.">
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 20 }}>{['HEADER','META','STR','HIER','SIGNAL','TX','SIGNAL','TX','LOG','DIR','TRAILER'].map((s,i) => <Chip key={i} tone={s==='SIGNAL'||s==='TX'?'accent':'default'}>{s}</Chip>)}</div>
+      <BenchTable columns={[{key:'k',label:'kind'},{key:'n',label:'section'},{key:'p',label:'payload'}]} rows={SECTIONS.map(([k,n,p]) => ({ k, n: <code style={{background:'none',border:0,padding:0}}>{n}</code>, p }))} caption="Kinds below 0x1000 are reserved; private sections use kind ≥ 0x1000 with the optional flag." />
+      <CodeBlock filename="file header · 32 bytes" copy={false} code={'offset  size  field\n0       8     magic 89 56 54 52 0D 0A 1A 0A   ("\\x89VTR\\r\\n\\x1a\\n")\n8       2     u16 major version = 1\n10      2     u16 minor version = 1\n12      4     u32 flags, must be 0\n16      16    reserved, must be 0'} />
+    </Block>
+    <Block id="boundary" title="VTR records. VDB interprets." sub="Following Verdi’s split of waveform and design databases, presentation lives in a separate VDB: colours, pipeline-stage meaning, squashed-instruction rules, source locations. Many VDBs can read one unchanged VTR.">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))', gap: 14 }}>
+        <div className="v-feature"><h3>In VTR</h3><p>Trace data, runtime hierarchy, identity and runtime relations. The one provenance exception: log.file, log.line, log.func.</p></div>
+        <div className="v-feature"><h3>In a VDB</h3><p>Colours, stage meaning, lane assignment, source locations, specialised types, driver and load annotations.</p></div>
+      </div>
+    </Block>
+    <Block id="coverage" title="Lossless for the formats you have" sub="VTR represents every feature of these sources.">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,240px),1fr))', gap: 14 }}>
+        {[['FST (GTKWave)','--fmt-fst','every scope and var type, 4- and 9-state, reals, strings, aliases, blackouts'],['FTR (LWTR4SC)','--fmt-ftr','streams, generators, begin/end attributes, relations across streams'],['Konata / Kanata','--fmt-konata','instruction lifecycle, stages and lanes, retirement, flush, dependencies'],['OpenTelemetry','--fmt-vcd','spans, events, links, status, parent/child and cross-trace relations']].map(([t,c,b]) =>
+          <div className="v-feature" key={t}><h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(' + c + ')' }}></span>{t}</h3><p>{b}</p></div>)}
+      </div>
+    </Block>
+    <Block id="api" title="APIs" sub="A Rust reference library and a one-to-one C ABI: a small surface, explicit ownership, a streaming writer and a random-access, memory-mapped reader.">
+      <div style={{ maxWidth: 760 }}><CodeBlock lang="sh" filename="shell" code={'$ cargo build --release -p vtr-cli\n$ vtr info trace.vtr\n$ vtr convert dump.fst dump.vtr'} /></div>
+    </Block>
+  </main>;
+}
+window.Format = Format;

@@ -1,0 +1,42 @@
+const { Button, Callout, Chip, CodeBlock, TextLink, Tabs, DocsLayout, DocsSidebar, Toc, Kbd, DownloadCard, BenchTable } = window.VolnaDesignSystem_3096af;
+
+const DOC_GROUPS = [
+  { title: 'Get started', items: [{ label: 'Install Volna', href: '#/download' }, { label: 'Open a trace', href: '#/docs' }, { label: 'Record from Verilator', href: '#/docs', current: true }, { label: 'Keyboard reference', href: '#/docs' }] },
+  { title: 'Viewer', items: [{ label: 'Waveforms', href: '#/docs' }, { label: 'Transactions', href: '#/docs' }, { label: 'Pipeline view', href: '#/docs' }, { label: 'Workspaces', href: '#/docs' }, { label: 'VS Code and remote traces', href: '#/docs' }] },
+  { title: 'VTR format', items: [{ label: 'Overview', href: '#/vtr' }, { label: 'Specification 1.1', href: '#/docs' }, { label: 'C API', href: '#/docs' }, { label: 'Logging', href: '#/docs' }] },
+];
+const TOC = [{ id: 'build', label: 'Build the backend' }, { id: 'trace', label: 'Trace a model' }, { id: 'clocks', label: 'Declared clocks', level: 3 }, { id: 'pipeline', label: 'Pipeline tracers', level: 3 }, { id: 'open', label: 'Open the result' }, { id: 'keys', label: 'Keys you will use' }];
+function Docs() {
+  const [active, setActive] = React.useState('build');
+  React.useEffect(() => {
+    const els = TOC.map((t) => document.getElementById(t.id)).filter(Boolean);
+    const io = new IntersectionObserver((es) => { const v = es.filter((e) => e.isIntersecting); if (v.length) setActive(v[0].target.id); }, { rootMargin: '-72px 0px -70% 0px' });
+    els.forEach((e) => io.observe(e)); return () => io.disconnect();
+  }, []);
+  return <DocsLayout sidebar={<DocsSidebar groups={DOC_GROUPS} />} toc={<Toc items={TOC} active={active} />}
+    crumbs={[{ label: 'Docs', href: '#/docs' }, { label: 'Get started' }]}
+    pager={{ prev: { label: 'Open a trace', href: '#/docs' }, next: { label: 'Keyboard reference', href: '#/docs' } }}>
+    <h1>Record VTR from Verilator</h1>
+    <p className="v-lede">The pinned Verilator 5.050 in <code>ext/verilator</code> adds <code>--trace-vtr</code> beside <code>--trace-fst</code>. The model writes VTR directly, with no conversion step.</p>
+    <Callout title="Requires the pinned Verilator.">Upstream Verilator does not know <code>--trace-vtr</code> yet. Other simulators can write through the standalone <code>vtr_trace</code> sink.</Callout>
+    <h2 id="build">Build the backend</h2>
+    <p>From the repository root, build the pinned Verilator with the VTR integration from <code>integrations/verilator</code>.</p>
+    <CodeBlock lang="sh" filename="shell" code={'$ git submodule update --init ext/verilator\n$ make -C integrations/verilator'} />
+    <h2 id="trace">Trace a model</h2>
+    <p>Pass <code>--trace-vtr</code> where you would pass <code>--trace-fst</code>. The file is written by a background encoder thread, so tracing costs the simulation less: on openC910 CoreMark, 41.4 s instead of 50.1 s.</p>
+    <CodeBlock lang="sh" filename="shell" code={'$ verilator --binary --trace-vtr top.sv\n$ ./obj_dir/Vtop +trace'} />
+    <h3 id="clocks">Declared clocks</h3>
+    <p>Bind the <code>vtr_trace</code> SystemVerilog package to an unchanged design to declare clocks. Volna turns them into cycle rulers.</p>
+    <h3 id="pipeline">Pipeline tracers</h3>
+    <p>Pipeline tracers record instructions as transactions through a keyed tracker (<code>vtr_track.hpp</code>). The openC910 tracer records every CoreMark instruction with its stages, folds and flushes.</p>
+    <Callout tone="warning" title="Files with dump-off regions or a nonzero time-zero offset are rejected.">The current viewer cannot display recording gaps faithfully, so it refuses them rather than guess.</Callout>
+    <h2 id="open">Open the result</h2>
+    <CodeBlock lang="sh" filename="shell" code={'$ volna obj_dir/top.vtr\n# or inspect it without a window\n$ vtr info obj_dir/top.vtr'} />
+    <h2 id="keys">Keys you will use</h2>
+    <BenchTable label="Keyboard" columns={[{ key: 'a', label: 'action' }, { key: 'k', label: 'keys' }]} rows={[
+      { a: 'Fit the whole trace', k: <Kbd>F</Kbd> }, { a: 'Zoom', k: <Kbd keys={['Ctrl', 'wheel']} /> }, { a: 'Drop a marker at the cursor', k: <Kbd>M</Kbd> },
+      { a: 'Step to previous / next clock edge', k: <span className="v-keys"><Kbd>[</Kbd><Kbd>]</Kbd></span> }, { a: 'Split the focused panel', k: <Kbd keys={['Ctrl', '\\']} /> }, { a: 'Command palette', k: <Kbd keys={['Ctrl', 'K']} /> },
+    ]} />
+  </DocsLayout>;
+}
+window.Docs = Docs;

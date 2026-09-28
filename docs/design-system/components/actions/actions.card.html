@@ -1,0 +1,23 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Buttons & links" subtitle="Primary, secondary, ghost · sizes · icon · disabled · text links" -->
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>body{padding:20px;background:var(--bg)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.pane{padding:18px;border-radius:8px;background:var(--bg)}.lbl{font:11px var(--font-mono);color:var(--text-3);margin:0 0 8px}body{padding:0}.grid{display:grid;grid-template-columns:1fr 1fr}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.VolnaDesignSystem_3096af;
+
+const { Button, TextLink } = NS;
+const Set = ({t}) => <div className="pane" data-theme={t} style={{borderRadius:0,minHeight:300}}>
+  <p className="lbl">{t}</p>
+  <div className="row" style={{marginBottom:12}}><Button variant="primary">Try the live demo</Button><Button icon="github">GitHub</Button></div>
+  <div className="row" style={{marginBottom:12}}><Button variant="ghost">Docs</Button><Button size="sm" variant="primary">Try it</Button><Button size="sm">v0.9</Button><Button size="sm" icon="copy" aria-label="Copy"></Button></div>
+  <div className="row" style={{marginBottom:12}}><Button size="lg" variant="primary" icon="download" meta="18.2 MB">Download for macOS</Button></div>
+  <div className="row" style={{marginBottom:14}}><Button disabled>Disabled</Button></div>
+  <div className="row" style={{fontSize:14,gap:16}}><TextLink href="#">Benchmark report</TextLink><TextLink href="#" arrow>Read the spec</TextLink><TextLink href="#" variant="quiet" external>Source</TextLink></div>
+</div>;
+ReactDOM.createRoot(root).render(<div className="grid"><Set t="dark"/><Set t="light"/></div>);
+</script></body></html>

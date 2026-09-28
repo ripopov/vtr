@@ -1,0 +1,38 @@
+name: Design system
+on:
+  push:
+    paths:
+      - 'docs/design-system/**'
+      - 'docs/tests/design-system.test.mjs'
+      - 'volna/volna-core/assets/fonts/**'
+      - 'volna/volna-core/assets/icons/**'
+      - 'volna/volna/assets/app-icon/**'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/design-system.yml'
+  pull_request:
+    paths:
+      - 'docs/design-system/**'
+      - 'docs/tests/design-system.test.mjs'
+      - 'volna/volna-core/assets/fonts/**'
+      - 'volna/volna-core/assets/icons/**'
+      - 'volna/volna/assets/app-icon/**'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/design-system.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  references:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      VOLNA_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify headless browser prerequisite
+        run: google-chrome --version
+      - name: Test the design system references and fonts
+        run: node --test --test-concurrency=1 docs/tests/design-system.test.mjs

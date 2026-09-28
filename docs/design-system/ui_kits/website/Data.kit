@@ -1,0 +1,77 @@
+// Numbers from vtr/docs/BENCHMARK_RESULTS.md (run 2026-09-04). Do not round differently.
+const MACHINE = 'Intel Core Ultra 7 265K (20 threads), 96 GB, Linux 7.0.0; rustc 1.95.0; Verilator 5.050. Best-of-N wall clock. Run 2026-09-04.';
+
+const SIZE_ROWS = [
+  { w: 'scr1_axi', s: '1,445', sim: '3.48 MiB', fl: '3.21 MiB', fz: '2.36 MiB', lw: '3.06 MiB', v: '1.19 MiB', r: '50%' },
+  { w: 'rsa256', s: '113', sim: '32.25 MiB', fl: '32.25 MiB', fz: '31.66 MiB', lw: '32.23 MiB', v: '30.99 MiB', r: '98%' },
+  { w: 'rsa256_long', s: '113', sim: '322.72 MiB', fl: '322.72 MiB', fz: '316.88 MiB', lw: '322.58 MiB', v: '310.27 MiB', r: '98%' },
+  { w: 'c910_coremark', s: '67,144', sim: '501.00 MiB', fl: '559.96 MiB', fz: '388.93 MiB', lw: '500.98 MiB', v: '243.13 MiB', r: '63%' },
+  { w: 'scr1_x8', s: '11,560', sim: '-', fl: '39.68 MiB', fz: '25.31 MiB', lw: '34.93 MiB', v: '11.88 MiB', r: '47%' },
+  { w: 'long_sparse', s: '20,001', sim: '-', fl: '14.22 MiB', fz: '12.90 MiB', lw: '14.22 MiB', v: '7.85 MiB', r: '61%' },
+  { w: 'many_active', s: '200,001', sim: '-', fl: '105.30 MiB', fz: '102.33 MiB', lw: '101.60 MiB', v: '69.67 MiB', r: '69%' },
+  { w: 'wide_bus', s: '129', sim: '-', fl: '16.10 MiB', fz: '14.12 MiB', lw: '16.09 MiB', v: '13.67 MiB', r: '97%' },
+];
+const SIZE_COLS = [
+  { key: 'w', label: 'workload' }, { key: 's', label: 'signals' }, { key: 'sim', label: 'simulator FST' }, { key: 'fl', label: 'fstapi LZ4' },
+  { key: 'fz', label: 'fstapi zlib' }, { key: 'lw', label: 'libfstwriter LZ4' }, { key: 'v', label: 'VTR zstd-3', ours: true }, { key: 'r', label: 'vs best FST', ratio: true },
+];
+const WRITE_ROWS = [
+  { w: 'scr1_axi', fl: '2.116', fz: '2.267', lw: '0.391', c: '0.219', rs: '0.187', r: '2.09×' },
+  { w: 'rsa256', fl: '0.441', fz: '0.942', lw: '0.159', c: '0.094', rs: '0.094', r: '1.69×' },
+  { w: 'rsa256_long', fl: '3.994', fz: '9.179', lw: '1.234', c: '0.712', rs: '0.789', r: '1.56×' },
+  { w: 'c910_coremark', fl: '38.944', fz: '59.785', lw: '14.256', c: '9.727', rs: '9.037', r: '1.58×' },
+  { w: 'scr1_x8', fl: '18.538', fz: '20.438', lw: '2.755', c: '1.746', rs: '1.486', r: '1.85×' },
+  { w: 'long_sparse', fl: '0.634', fz: '1.076', lw: '0.201', c: '0.137', rs: '0.123', r: '1.63×' },
+  { w: 'many_active', fl: '1.418', fz: '5.863', lw: '1.833', c: '1.049', rs: '0.991', r: '1.43×' },
+  { w: 'wide_bus', fl: '0.262', fz: '0.519', lw: '0.100', c: '0.093', rs: '0.091', r: '1.09×' },
+];
+const WRITE_COLS = [
+  { key: 'w', label: 'workload' }, { key: 'fl', label: 'fstapi LZ4' }, { key: 'fz', label: 'fstapi zlib' }, { key: 'lw', label: 'libfstwriter LZ4' },
+  { key: 'c', label: 'VTR C API', ours: true }, { key: 'rs', label: 'VTR Rust', ours: true }, { key: 'r', label: 'vs fastest FST', ratio: true },
+];
+const READ_ROWS = [
+  { q: 'open', wl: '24.03', fa: '0.20', v: '8.41', r: '2.9×' },
+  { q: 'hierarchy walk (all vars)', wl: '20.95', fa: '15.72', v: '0.92', r: '22.8×' },
+  { q: 'load 1 signal', wl: '77.23', fa: '31.08', v: '6.61', r: '11.7×' },
+  { q: 'load 100 signals', wl: '169.28', fa: '72.14', v: '52.13', r: '3.2×' },
+  { q: 'load 1000 signals', wl: '674.39', fa: '284.84', v: '306.45', r: '2.2×' },
+  { q: 'value at time, 10 × 100', wl: '91.46', fa: '81.93', v: '13.96', r: '6.5×' },
+  { q: 'changes in a 1% window', wl: '78.28', fa: '-', v: '6.66', r: '11.8×' },
+  { q: 'condition search', wl: '112.60', fa: '-', v: '24.67', r: '4.6×' },
+  { q: 'stream every change', wl: '123,894.60', fa: '15,467.30', v: '6,563.95', r: '18.9×' },
+];
+const READ_COLS = [
+  { key: 'q', label: 'query (ms)' }, { key: 'wl', label: 'wellen (FST)' }, { key: 'fa', label: 'fstapi (FST)' }, { key: 'v', label: 'VTR', ours: true }, { key: 'r', label: 'vs wellen', ratio: true },
+];
+const TX_ROWS = [
+  { w: 'tlm_1m', k: 'SystemC TLM, 1M transactions', s: '34%', wr: '1.83×' },
+  { w: 'ooo_1m', k: 'out-of-order pipeline, 1M', s: '18%', wr: '1.58×' },
+  { w: 'kanata_sample2', k: 'Kanata pipeline log', s: '18%', wr: '1.04×' },
+];
+const TX_COLS = [
+  { key: 'w', label: 'workload' }, { key: 'k', label: 'kind' }, { key: 's', label: 'size vs FTR-LZ4', ours: true }, { key: 'wr', label: 'write vs FTR-LZ4', ratio: true },
+];
+const BARS_WAVES = [
+  { ratio: '1.6×', label: 'smaller file', theirs: { name: 'FST', value: 407820587, display: '389 MiB' }, ours: { name: 'VTR', value: 254937343, display: '243 MiB' } },
+  { ratio: '1.6×', label: 'faster write', theirs: { name: 'FST', value: 14.25611, display: '14.3 s' }, ours: { name: 'VTR', value: 9.036818917, display: '9.0 s' } },
+  { ratio: '4.7×', label: 'faster read', theirs: { name: 'FST', value: 0.030787, display: '30.8 ms' }, ours: { name: 'VTR', value: 0.006607179, display: '6.6 ms' } },
+];
+const BARS_TX = [
+  { ratio: '3.0×', label: 'smaller file', theirs: { name: 'FTR', value: 114045140, display: '109 MiB' }, ours: { name: 'VTR', value: 38225052, display: '36.5 MiB' } },
+  { ratio: '1.3×', label: 'faster write', theirs: { name: 'FTR', value: 0.529902, display: '0.53 s' }, ours: { name: 'VTR', value: 0.415165954, display: '0.42 s' } },
+];
+const PROOF = [
+  { value: '47–98', unit: '%', label: 'of the smallest FST file', detail: 'c910 CoreMark: 243 vs 389 MiB' },
+  { value: '1.1–2.1', unit: '×', label: 'faster writing than the fastest FST writer', detail: '8 of 8 signal workloads' },
+  { value: '871', unit: '×', label: 'faster open than wellen, at most', detail: 'every read query faster' },
+  { value: '18–34', unit: '%', label: 'of FTR size for transactions', detail: 'tlm_1m, ooo_1m, kanata' },
+];
+const NAV = [
+  { label: 'Demo', href: '#/' }, { label: 'Benchmarks', href: '#/benchmarks' }, { label: 'VTR format', href: '#/vtr' }, { label: 'Docs', href: '#/docs' }, { label: 'Download', href: '#/download' },
+];
+const FOOTER_COLS = [
+  { title: 'Volna', links: [{ label: 'Live demo', href: '#/' }, { label: 'Download', href: '#/download' }, { label: 'VS Code extension', href: '#/download' }] },
+  { title: 'VTR', links: [{ label: 'Format overview', href: '#/vtr' }, { label: 'Specification 1.1', href: '#/vtr' }, { label: 'Benchmarks', href: '#/benchmarks' }] },
+  { title: 'Project', links: [{ label: 'GitHub', href: 'https://github.com/ripopov/vtr' }, { label: 'Docs', href: '#/docs' }, { label: 'Architecture', href: '#/docs' }] },
+];
+Object.assign(window, { MACHINE, SIZE_ROWS, SIZE_COLS, WRITE_ROWS, WRITE_COLS, READ_ROWS, READ_COLS, TX_ROWS, TX_COLS, BARS_WAVES, BARS_TX, PROOF, NAV, FOOTER_COLS });

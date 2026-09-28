@@ -1,0 +1,27 @@
+const { TopNav, Footer, Button, ThemeSwitch } = window.VolnaDesignSystem_3096af;
+const PAGES = { '': 'Landing', benchmarks: 'Benchmarks', vtr: 'Format', docs: 'Docs', download: 'Download' };
+const route = () => { const m = location.hash.match(/^#\/(\w*)/); return m ? m[1] : null; };
+function App() {
+  const [page, setPage] = React.useState(() => route() ?? (localStorage.getItem('volna-kit-page') || ''));
+  const [mode, setMode] = React.useState(() => localStorage.getItem('volna-theme') || 'dark');
+  React.useEffect(() => { const f = () => { const r = route(); if (r !== null && r in PAGES) { setPage(r); window.scrollTo(0, 0); } }; addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
+  React.useEffect(() => { localStorage.setItem('volna-kit-page', page); }, [page]);
+  React.useEffect(() => {
+    const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light'; localStorage.setItem('volna-theme', mode);
+  }, [mode]);
+  const Page = window[PAGES[page] || 'Landing'];
+  const links = NAV.map((l) => ({ ...l, current: l.href === '#/' + page }));
+  return <>
+    <a className="v-skip" href="#content">Skip to content</a>
+    <TopNav logoSrc="../../../../volna/volna/assets/app-icon/volna.svg" brandHref="#/" links={links}
+      actions={<><span className="v-hide-md"><ThemeSwitch value={mode} onChange={setMode} /></span>
+        <Button size="sm" icon="github" href="https://github.com/ripopov/vtr" className="v-hide-sm">GitHub</Button>
+        <Button size="sm" variant="primary" href="#/download">Download</Button></>} />
+    <Page />
+    <Footer about={<div style={{ display: 'grid', gap: 10, maxWidth: 320 }}><span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-1)', fontWeight: 600, fontSize: 15 }}><img src="../../../../volna/volna/assets/app-icon/volna.svg" width="22" height="22" alt="" />Volna</span><span>VTR · VDB · Volna, an open hardware-debugging project in Rust.</span></div>}
+      columns={FOOTER_COLS} base={<><span>Volna 0.x · VTR 1.1</span><span className="v-mono">github.com/ripopov/vtr</span></>} />
+  </>;
+}
+const rootEl = document.getElementById('root');
+if (rootEl && document.documentElement.dataset.kit === 'website') ReactDOM.createRoot(rootEl).render(<App />);

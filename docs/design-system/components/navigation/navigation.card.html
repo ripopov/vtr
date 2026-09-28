@@ -1,0 +1,23 @@
+<!-- @dsCard group="Components" viewport="1000x400" name="Navigation" subtitle="TopNav · Tabs (segmented + line) · Footer" -->
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>body{padding:20px;background:var(--bg)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.pane{padding:18px;border-radius:8px;background:var(--bg)}.lbl{font:11px var(--font-mono);color:var(--text-3);margin:0 0 8px}body{padding:0}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.VolnaDesignSystem_3096af;
+
+const { TopNav, Tabs, Footer, Button, ThemeSwitch } = NS;
+const links = [{label:'Demo',href:'#a',current:true},{label:'Benchmarks',href:'#b'},{label:'VTR format',href:'#c'},{label:'Docs',href:'#d'},{label:'Download',href:'#e'}];
+ReactDOM.createRoot(root).render(<div>
+  <TopNav logoSrc="../../../../volna/volna/assets/app-icon/volna.svg" links={links} actions={<><span className="v-hide-sm"><ThemeSwitch value="dark" onChange={()=>{}}/></span><Button size="sm" icon="github" className="v-hide-sm">GitHub</Button><Button size="sm" variant="primary">Download</Button></>} />
+  <div className="v-wrap" style={{padding:'24px var(--gutter)',display:'grid',gap:20}}>
+    <Tabs center tabs={[{id:'w',label:'Waves'},{id:'p',label:'Pipeline'},{id:'t',label:'Transactions'},{id:'c',label:'Clocks & markers'},{id:'k',label:'Workspace'}]} />
+    <Tabs variant="line" tabs={[{id:'mac',label:'macOS'},{id:'lin',label:'Linux'},{id:'win',label:'Windows'},{id:'src',label:'From source'}]} />
+  </div>
+  <div style={{marginTop:-60}}><Footer about={<span>VTR · VDB · Volna, an open hardware-debugging project.</span>} columns={[{title:'Product',links:[{label:'Download',href:'#'},{label:'Live demo',href:'#'}]},{title:'Format',links:[{label:'VTR spec',href:'#'},{label:'Benchmarks',href:'#'}]},{title:'Project',links:[{label:'GitHub',href:'#'},{label:'Licence',href:'#'}]}]} /></div>
+</div>);
+</script></body></html>

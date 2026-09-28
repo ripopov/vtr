@@ -1,0 +1,12 @@
+/* Dark themes lean on borders; light themes add soft, short shadows. No glow halos. */
+:root,[data-theme="dark"]{
+  --shadow-1:0 1px 2px rgb(0 0 0 / .30);
+  --shadow-2:0 6px 18px rgb(0 0 0 / .40);
+  --shadow-frame:0 1px 2px rgb(0 0 0 / .25),0 24px 64px -24px rgb(0 0 0 / .7);
+}
+[data-theme="light"]{
+  --shadow-1:0 1px 2px rgb(31 35 40 / .06);
+  --shadow-2:0 8px 24px rgb(31 35 40 / .14);
+  --shadow-frame:0 1px 2px rgb(31 35 40 / .06),0 24px 60px -24px rgb(31 35 40 / .28);
+}
+:root{--z-nav:20;/* @kind other */--z-popover:40;/* @kind other */}

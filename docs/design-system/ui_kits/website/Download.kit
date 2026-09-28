@@ -1,0 +1,28 @@
+const { Button, Callout, Chip, CodeBlock, TextLink, Tabs, DocsLayout, DocsSidebar, Toc, Kbd, DownloadCard, BenchTable } = window.VolnaDesignSystem_3096af;
+
+function Download() {
+  return <main id="content">
+    <PageHead kicker="Download" title="Install Volna." sub="A native app on GPUI, an extension for VS Code, or the same viewer in your browser. The trace tools (vtr, vtr2vcd) ship alongside." />
+    <div className="v-wrap" style={{ marginTop: 32 }}>
+      <Callout tone="warning" title="Package names, sizes and checksums below are placeholders until the first tagged release.">Building from source works today on every platform.</Callout>
+      <div className="v-downloads" style={{ marginTop: 20 }}>
+        <DownloadCard current platform="macOS" icon="laptop" badge="detected" description="Volna.app with ICNS resources. macOS 13 or later, Apple silicon and Intel." files={[{ label: 'Volna-macos.dmg', href: '#', size: '— MB', meta: 'sha256 —' }]} note="Not yet signed or notarised." />
+        <DownloadCard platform="Linux" icon="terminal" badge="x86_64" description="Prefix tree with bin/, share/applications/ and hicolor icons." files={[{ label: 'volna-linux.tar.gz', href: '#', size: '— MB', meta: 'sha256 —' }]} />
+        <DownloadCard platform="Windows" icon="monitor" badge="x86_64" description="volna.exe with the icon embedded by the build script." files={[{ label: 'volna-windows.zip', href: '#', size: '— MB', meta: 'sha256 —' }]} />
+        <DownloadCard platform="VS Code" icon="square-code" badge="extension" description="The WASM viewer in a webview; opens .vtr and .fst from the explorer. Remote traces via volna-server." files={[{ label: 'Install extension', href: '#' }]} />
+        <DownloadCard platform="Browser" icon="globe" badge="WASM" description="Nothing to install. Needs WebGPU or WebGL2; traces stay on your machine." files={[{ label: 'Open the web viewer', href: '#/' }]} />
+      </div>
+    </div>
+    <Block id="source" title="Build from source" sub="Rust 1.96+ with the dated nightly from rust-toolchain.toml, plus the platform SDK (Metal tools on macOS).">
+      <div style={{ maxWidth: 820 }}>
+        <Tabs variant="line" label="Build target" tabs={[
+          { id: 'native', label: 'Native', content: <CodeBlock lang="sh" filename="shell" code={'$ git clone https://github.com/ripopov/vtr && cd vtr\n$ cargo build --locked -p volna --profile viewer\n$ ./target/viewer/volna volna/volna/examples/picorv32.vtr'} /> },
+          { id: 'web', label: 'Web (WASM)', content: <CodeBlock lang="sh" filename="shell" code={'# needs the wasm32-unknown-unknown target, wasm-bindgen-cli and a wasm32 clang\n$ volna/volna/web/build.sh\n$ python3 -m http.server 8080'} /> },
+          { id: 'tools', label: 'Trace tools', content: <CodeBlock lang="sh" filename="shell" code={'$ cargo build --release -p vtr-cli\n$ vtr info trace.vtr'} /> },
+          { id: 'pkg', label: 'Package', content: <CodeBlock lang="sh" filename="shell" code={'# macOS: creates target/desktop/Volna.app\n$ python3 volna/volna/tools/package-desktop.py --platform macos \\\n    --binary target/viewer/volna --output target/desktop'} /> },
+        ]} />
+      </div>
+    </Block>
+  </main>;
+}
+window.Download = Download;

@@ -1,0 +1,23 @@
+<!-- @dsCard group="Components" viewport="700x520" name="Code, keys, callouts, chips" subtitle="CodeBlock with copy · Kbd · Callout tones · Chip" -->
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>body{padding:20px;background:var(--bg)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.pane{padding:18px;border-radius:8px;background:var(--bg)}.lbl{font:11px var(--font-mono);color:var(--text-3);margin:0 0 8px}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.VolnaDesignSystem_3096af;
+
+const { CodeBlock, Kbd, Callout, Chip } = NS;
+ReactDOM.createRoot(root).render(<div>
+  <CodeBlock lang="sh" filename="shell" code={"# record VTR straight from Verilator\n$ verilator --binary --trace-vtr top.sv\n$ volna obj_dir/top.vtr"} />
+  <div className="row" style={{margin:'14px 0',fontSize:14,color:'var(--text-2)',gap:14}}>
+    <span>Fit <Kbd>F</Kbd></span><span>Palette <Kbd keys={['Ctrl','K']}/></span><span>Split <Kbd keys={['Ctrl','\\']}/></span><span>Step edge <Kbd>[</Kbd> <Kbd>]</Kbd></span><span>Marker <Kbd>M</Kbd></span>
+  </div>
+  <div className="row" style={{marginBottom:6}}><Chip>META</Chip><Chip>HIER</Chip><Chip swatch="var(--wave-signal)">SIGNAL</Chip><Chip swatch="var(--tx-out)">TX</Chip><Chip swatch="var(--wave-dontcare)">LOG</Chip><Chip tone="accent">--trace-vtr</Chip><Chip tone="warning">L2 miss</Chip><Chip tone="danger">flush</Chip></div>
+  <Callout title="VDB is separate from VTR.">Colours, stage meaning and source locations live in a VDB beside the trace, never in the trace file.</Callout>
+  <Callout tone="warning" title="The WASM build needs WebGPU or WebGL2." />
+</div>);
+</script></body></html>

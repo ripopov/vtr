@@ -1,0 +1,14 @@
+/* Raw scales: One Dark neutrals from volna-core theme (#282c33, #2f343e, #3b414d, #464b57 …) and the viewer accent #74ade8.
+   theme.css maps them to semantic roles. */
+:root{
+  --n-0:#ffffff;--n-25:#fbfbfc;--n-50:#f4f5f7;--n-100:#eceef1;--n-150:#e2e5ea;--n-200:#d4d8df;--n-300:#b9bfc9;--n-400:#8b90a0;--n-500:#646b78;--n-600:#555c69;--n-700:#464b57;--n-750:#3b414d;--n-800:#363c46;--n-850:#2f343e;--n-900:#282c33;--n-950:#1f2228;--n-1000:#16181c;
+  --a-50:#e3edf8;--a-100:#cfe0f5;--a-200:#a4c9f0;--a-300:#74ade8;--a-400:#5592d6;--a-500:#3d7cc4;--a-600:#2d6cb0;--a-700:#1f5189;--a-800:#173d68;--a-900:#1f2f45;--a-950:#182436;
+  --radius-xs:3px;--radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
+  --font-display:var(--font-sans);--display-weight:600;--display-tracking:-0.03em;--heading-tracking:-0.02em;
+}
+/* Pipeline stage ladder (volna-core pipeline/palette.rs): hue 250deg to 0deg in pipeline order, s52% l58%, cell text #101820 in both themes. */
+:root{
+  --stage-1:hsl(250 52% 58%);--stage-2:hsl(200 52% 58%);--stage-3:hsl(150 52% 58%);--stage-4:hsl(100 52% 58%);--stage-5:hsl(50 52% 58%);--stage-6:hsl(0 52% 58%);
+  --stage-edge-1:hsl(250 52% 38%);--stage-edge-2:hsl(200 52% 38%);--stage-edge-3:hsl(150 52% 38%);--stage-edge-4:hsl(100 52% 38%);--stage-edge-5:hsl(50 52% 38%);--stage-edge-6:hsl(0 52% 38%);
+  --stage-fallback:hsl(0 0% 58%);--stage-text:#101820;
+}
