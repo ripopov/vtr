@@ -232,6 +232,7 @@ requirement for embedded chat.
 | Open optimization ideas | [State-of-the-art review](docs/SOTA_REVIEW_2026.md) |
 | Volna architecture and verification | [Architecture](volna/volna/ARCHITECTURE.md), [guide](volna/volna/README.md), [verification](volna/volna/VERIFICATION.md), [egui](volna/volna-egui/README.md) |
 | Panels, docking, and persistent workspace sessions (proposal) | [Workspaces](docs/workspaces.html) |
+| Undo and redo of cockpit edits (rows, formats, groups, markers, rulers, panels) in one linear history per trace: edits whose application returns the inverse, one step per command or gesture, detached rows and panels instead of snapshots, standard keys in GPUI, web and VS Code; survey of viewers and undo systems, measured costs (proposal/demo) | [Undo and redo](docs/undo-redo.html), [headless test](docs/tests/undo-redo.test.mjs), `volna/volna-core/examples/undo_cost.rs` |
 | `settings.json`, fuzzy-search editor, and VS Code parity (implemented design) | [Settings](docs/user-settings.html), [Volna architecture](volna/volna/ARCHITECTURE.md) |
 | Mixed scope/stream hierarchy, member search, semantic icons, and log provenance (implemented; transaction panels deferred) | [Hierarchy](docs/hierarchy.html), [Volna architecture](volna/volna/ARCHITECTURE.md) |
 | Konata-style pipeline rows with a shared time axis and map-like zoom (implemented) | [Pipeline](docs/pipeline-view.html), [follow activity demo](docs/follow-activity.html), [examples](volna/volna/examples/README.md), [Konata plan](docs/VDB_KONATA_PLAN.html) |

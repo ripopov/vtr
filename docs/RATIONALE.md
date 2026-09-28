@@ -57,6 +57,41 @@ exists. Iterative flattening supports deep trees without recursion. The metadata
 extension uses remote protocol version 2; VTR encodings and C/Rust reader APIs
 are unchanged.
 
+## Volna cockpit undo and redo (proposal)
+
+The [undo/redo proposal](undo-redo.html) keeps one linear history per open
+trace in `volna-core::App`. Undoable state is what a workspace file stores
+minus navigation: rows, formats, heights, groups, markers, rulers, panels and
+their layout. Viewport, cursor, scroll, folds, focus, selection, links and
+settings never make a step; each step restores the selection of the panels it
+touched. Surfer, Blender, REAPER and Saleae keep the view out of undo the same
+way.
+
+Edits are data: a closed `Edit` enum (row splices on the pre-order `items`,
+marker, ruler and panel-property swaps, and layout with detached panels) whose
+application returns its inverse, so undo and redo are one `flip`. Removed rows
+are detached like the row clipboard, and closed panels go through the existing
+`App::removed`/`App::created` lifecycle, so the journal holds no trace data and
+is not charged to the memory ledger. It has one 64 MiB cap and always keeps
+the newest step. One command or gesture is one step; `Esc` rolls back an open
+gesture. Adjustments with the same merge key within one second merge, a new
+group and its name form one step, and a swap equal to the current value is
+dropped at commit. In VS Code, Volna stays a read-only custom editor and the
+extension forwards the keys.
+
+We reject a workspace snapshot per step: at 100,000 rows the workspace codec
+takes 200 ms to capture and 281 ms to restore, for 8.3 MB, while detaching the
+rows takes 4.1 ms (`examples/undo_cost.rs`, Apple M5). We reject copy-on-write
+snapshots because they would keep removed histories resident, and command
+replay because focus and selection change between the action and the redo. We
+reject one stack per panel because closes, markers and cross-panel pastes have
+no owning panel. We reject selection as steps, an undo tree, a step limit and
+persisting the history. We reject reporting VS Code document edits, because
+that marks the read-only trace dirty. A model-based test replaces trust in
+per-call-site recording: every edit must leave a step, and undo must
+reproduce each earlier projection exactly. This journal subsumes the
+marker-only journal of the marker proposal.
+
 ## Volna marker interactions (proposal)
 
 The [marker proposal](markers-ux.html) models three things on the time axis:
