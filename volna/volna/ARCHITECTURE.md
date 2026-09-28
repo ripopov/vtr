@@ -38,7 +38,10 @@ volna/volna           GPUI frontend: native macOS app, wasm page, VS Code extens
   src/native_workspace.rs atomic file I/O, paths, settings/state files, watcher, native options
   src/settings_panel.rs  the Settings tab: gpui-kit pages, search bar, results, item controls
   src/settings_json.rs   the JSON view: Editor with registry completion, hover and diagnostics
-  src/palette.rs         the ⌘K command palette over actions and ranked settings
+  src/palette.rs         the ⌘K command palette over actions and ranked settings;
+                         panel actions are handled on the workspace root, which
+                         holds the palette's dialog, so a chosen command reaches
+                         the focused panel
   src/canvas.rs          PanelCanvas element: hitboxes/accessibility from panel layout, paints the Scene
   src/table_panel.rs     GPUI table controls, Go to dialog and details inspector
   src/table_clipboard.*  browser clipboard rejection recovery without table semantics

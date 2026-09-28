@@ -2118,6 +2118,73 @@ fn the_marker_navigator_lists_filters_and_acts_on_markers(cx: &mut TestAppContex
     assert_eq!(cursor, Some(times[2]));
 }
 
+/// A command chosen in the palette with the keyboard runs in the panel
+/// that had focus before the palette opened.
+#[gpui_kit::test]
+fn palette_commands_chosen_by_keyboard_reach_the_panel(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            let (lo, hi) = ws.app.doc.limits();
+            for t in [lo + (hi - lo) / 4, lo + (hi - lo) / 2] {
+                ws.app.doc.shared.cursor = Some(t);
+                ws.dispatch(Command::Action(Action::AddOrRenameMarker), Some(window), cx);
+            }
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    let markers = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| ws.app.doc.markers().len())
+            .unwrap()
+    };
+    assert_eq!(markers(&mut vcx), 2);
+    window
+        .update(&mut vcx, |ws, window, cx| ws.open_palette(window, cx))
+        .unwrap();
+    vcx.run_until_parked();
+    vcx.simulate_input("remove all markers");
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    assert_eq!(markers(&mut vcx), 0, "Remove All Markers ran");
+
+    // A command that opens a name field leaves the keys in it once the
+    // palette has closed.
+    vcx.simulate_keystrokes("m");
+    vcx.run_until_parked();
+    assert_eq!(markers(&mut vcx), 1);
+    window
+        .update(&mut vcx, |ws, window, cx| ws.open_palette(window, cx))
+        .unwrap();
+    vcx.run_until_parked();
+    vcx.simulate_input("add or name marker");
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    vcx.simulate_input("irq");
+    vcx.simulate_keystrokes("enter");
+    vcx.run_until_parked();
+    let name = window
+        .update(&mut vcx, |ws, _, _| ws.app.doc.markers()[0].label.clone())
+        .unwrap();
+    assert_eq!(name.as_deref(), Some("irq"));
+}
+
 /// The start page lists what was opened, newest first; the keys reopen it,
 /// a missing file stays listed, and a workspace is listed as itself
 /// (`docs/recent_sessions.html`).

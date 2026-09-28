@@ -374,6 +374,9 @@ impl Workspace {
                                     }
                                 };
                                 window.close_dialog(cx);
+                                // Closing gave the keys back to the panel; a
+                                // name field the command opened takes them.
+                                _ = ws.update(cx, |ws, cx| ws.focus_rename(window, cx));
                                 let Some((spec, on)) = chosen else { return };
                                 _ = ws.update(cx, |ws, cx| {
                                     let command = if matches!(spec.kind, Kind::Bool) {

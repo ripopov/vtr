@@ -1098,6 +1098,13 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Give the keys to the hosted name field, if one is open.
+    pub(crate) fn focus_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(h) = &self.rename {
+            window.focus(&h.input.read(cx).focus_handle(cx), cx);
+        }
+    }
+
     /// A press elsewhere ends an edit by keeping the typed text.
     pub(crate) fn commit_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(h) = &self.rename {
@@ -1639,64 +1646,6 @@ impl Workspace {
             .key_context("Waves")
             .size_full()
             .relative();
-        let el = el.on_action(cx.listener(|this, _: &OpenSignalMenu, window, cx| {
-            let panel = this.app.panels.focused_id();
-            this.dispatch(Command::OpenSignalMenu(panel), Some(window), cx);
-        }));
-        let el = el.on_action(cx.listener(|this, _: &ShowTransaction, window, cx| {
-            let panel = this.app.panels.focused_id();
-            this.dispatch(Command::ShowTransaction { from: panel }, Some(window), cx);
-        }));
-        let el = wave_actions!(
-            el,
-            cx,
-            [
-                ZoomIn,
-                ZoomOut,
-                ZoomFit,
-                ZoomToCursor,
-                PanPageLeft,
-                PanPageRight,
-                GoToStart,
-                GoToEnd,
-                GoToCursor,
-                PanLeft,
-                PanRight,
-                NextEdge,
-                PrevEdge,
-                AddOrRenameMarker,
-                RemoveMarkerAtCursor,
-                RemoveAllMarkers,
-                NextMarker,
-                PrevMarker,
-                JumpBack,
-                SetReference,
-                ClearReference,
-                ZoomToMeasurement,
-                MarkerNavigator,
-                RemoveSelected,
-                CopySignals,
-                CutSignals,
-                PasteSignals,
-                SelectAll,
-                ClearSelection,
-                CycleFormat,
-                ToggleAnalog,
-                IncreaseRowHeight,
-                DecreaseRowHeight,
-                ResetRowHeight,
-                MoveSelectionUp,
-                MoveSelectionDown,
-                NextCycle,
-                PrevCycle,
-                ToggleCycleOrigin,
-                GroupSelection,
-                Ungroup,
-                RenameGroup,
-                FoldGroupDeep,
-                UnfoldGroupDeep,
-            ]
-        );
         let mut dock = self
             .dock
             .take()
@@ -2425,6 +2374,67 @@ impl Render for Workspace {
                 FocusPrevPanel,
                 ToggleViewportLink,
                 ToggleCursorLink
+            ]
+        );
+        // The panels' actions live here rather than on the dock, so the
+        // command palette, whose dialog is a child of this element and not of
+        // the dock, reaches them too. They act on the focused panel.
+        root = root.on_action(cx.listener(|this, _: &OpenSignalMenu, window, cx| {
+            let panel = this.app.panels.focused_id();
+            this.dispatch(Command::OpenSignalMenu(panel), Some(window), cx);
+        }));
+        root = root.on_action(cx.listener(|this, _: &ShowTransaction, window, cx| {
+            let panel = this.app.panels.focused_id();
+            this.dispatch(Command::ShowTransaction { from: panel }, Some(window), cx);
+        }));
+        root = wave_actions!(
+            root,
+            cx,
+            [
+                ZoomIn,
+                ZoomOut,
+                ZoomFit,
+                ZoomToCursor,
+                PanPageLeft,
+                PanPageRight,
+                GoToStart,
+                GoToEnd,
+                GoToCursor,
+                PanLeft,
+                PanRight,
+                NextEdge,
+                PrevEdge,
+                AddOrRenameMarker,
+                RemoveMarkerAtCursor,
+                RemoveAllMarkers,
+                NextMarker,
+                PrevMarker,
+                JumpBack,
+                SetReference,
+                ClearReference,
+                ZoomToMeasurement,
+                MarkerNavigator,
+                RemoveSelected,
+                CopySignals,
+                CutSignals,
+                PasteSignals,
+                SelectAll,
+                ClearSelection,
+                CycleFormat,
+                ToggleAnalog,
+                IncreaseRowHeight,
+                DecreaseRowHeight,
+                ResetRowHeight,
+                MoveSelectionUp,
+                MoveSelectionDown,
+                NextCycle,
+                PrevCycle,
+                ToggleCycleOrigin,
+                GroupSelection,
+                Ungroup,
+                RenameGroup,
+                FoldGroupDeep,
+                UnfoldGroupDeep,
             ]
         );
         #[cfg(not(target_family = "wasm"))]
