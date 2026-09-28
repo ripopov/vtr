@@ -27,6 +27,7 @@ pub mod geometry;
 pub mod history;
 pub mod icons;
 pub mod marker;
+pub mod measure;
 pub mod nav;
 pub mod panels;
 pub mod pipeline;

@@ -373,12 +373,6 @@ pub fn position_at(view: &ClockView, clock: &Clock, time: u64) -> String {
     }
 }
 
-/// Whole cycles of `clock` between two times (signed, `b - a`).
-pub fn cycles_between(timeline: &ClockTimeline, a: u64, b: u64) -> Option<i64> {
-    let at = |t: u64| timeline.cycle_at(t).map(|c| c.cycle as i64);
-    Some(at(b)? - at(a)?)
-}
-
 /// `→ 2.00 GHz` for a stretch of `period` file units; a trace with a named
 /// time unit (Kanata cycles) states the period instead.
 pub fn speed_label(period: u64, base: TimeBase<'_>) -> String {
@@ -623,6 +617,9 @@ mod tests {
         };
         assert_eq!(speed_label(2, cycles), "→ 2 cycle");
         // The first stretch holds 59 edges, so 20272 is cycle 59.
-        assert_eq!(cycles_between(&demo(), 400, 20272 + 500), Some(60));
+        assert_eq!(
+            crate::measure::cycles(&demo(), 400, 20272 + 500),
+            crate::measure::Cycles::Whole(60)
+        );
     }
 }

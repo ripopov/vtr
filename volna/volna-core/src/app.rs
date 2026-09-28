@@ -424,8 +424,9 @@ pub struct Status {
     /// The cursor's cycle in each clock ruler of the focused panel, e.g.
     /// `core_clk 150231 + 0.42`.
     pub clocks: Vec<String>,
-    /// Cursor minus the nearest marker, in time and in whole cycles of each
-    /// ruler clock: `Δ 20 ns · 40 core_clk · 10 bus_clk`.
+    /// Cursor minus the nearest marker, in time and in counted cycles of
+    /// each ruler clock (see [`crate::measure`]): `Δ 20 ns · 40 core_clk ·
+    /// 10.5 bus_clk`.
     pub delta: Option<String>,
     pub markers: Option<String>,
     /// What the last undo, redo or marker jump did, or why it did nothing,
@@ -2564,14 +2565,13 @@ impl App {
                         "Δ {sign}{}",
                         format_time(dt.unsigned_abs() as f64, base)
                     )];
-                    for clock in &rulers {
-                        if let Some(n) = clock
-                            .timeline()
-                            .and_then(|t| crate::clock::cycles_between(t, m.time, c))
-                        {
-                            parts.push(format!("{n} {}", clock.name));
-                        }
-                    }
+                    let measured = crate::measure::measure(&rulers, m.time, c);
+                    parts.extend(
+                        measured
+                            .clocks
+                            .iter()
+                            .map(|count| format!("{} {}", count.cycles, count.name)),
+                    );
                     s.delta = Some(parts.join(" · "));
                 }
             }

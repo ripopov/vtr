@@ -333,11 +333,18 @@ fn the_status_bar_reads_cycles_and_the_cursor_to_marker_delta() {
     app.doc.shared.cursor = Some(edges[50] + 167);
     let s = app.status();
     assert_eq!(s.clocks, ["core_clk 50 + 0.50", "bus_clk 8 + 0.13"]);
-    // 40 core cycles and 7 bus cycles lie between the marker and the cursor.
+    // Counted, not divided: the marker is on core edge 10 and the cursor
+    // half a cycle past edge 50; on bus_clk the marker is 0.33 into cycle 1
+    // and the cursor 0.13 into cycle 8, so 6.8 cycles, where subtracting
+    // cycle numbers said 7.
     assert_eq!(
         s.delta.as_deref(),
-        Some("Δ 13.53 ns · 40 core_clk · 7 bus_clk")
+        Some("Δ 13.53 ns · 40.5 core_clk · 6.8 bus_clk")
     );
+    // Both ends on core edges: a whole count.
+    app.doc.shared.cursor = Some(edges[50]);
+    let s = app.status();
+    assert!(s.delta.unwrap().contains(" · 40 core_clk · "));
     // Before the marker the delta is negative.
     app.doc.shared.cursor = Some(edges[4]);
     let s = app.status();

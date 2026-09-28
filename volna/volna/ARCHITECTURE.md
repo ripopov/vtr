@@ -476,7 +476,13 @@ offers *Add as Ruler* (`Command::AddClockRulers`) and *Add as Waveform*;
 right-clicking a ruler in a wave panel opens `WaveMenuKind::Ruler` (*Hide
 Ruler*). The
 status bar reads the cursor's cycle in each ruler clock and the cursor-to-nearest-marker delta in time and
-cycles. Workspaces save a panel's `clocks` and `clock` rows by path, never
+cycles. `measure::measure` counts those cycles rather than dividing by a
+period: a clock's position at `t` is its recorded edges at or before `t`
+plus the running cycle's fraction (0 before the first edge and while the
+clock is stopped, from `ClockTimeline::cycle_at`), and a count is the
+difference of two positions. `Cycles::Whole` when both fractions are 0,
+else `Cycles::Fraction`, printed with one decimal; `Cycles::Loading` while a
+clock's edges load. Workspaces save a panel's `clocks` and `clock` rows by path, never
 anything in the trace.
 
 ## Markers
