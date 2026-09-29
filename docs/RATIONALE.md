@@ -1202,6 +1202,54 @@ and committed Verilator examples. Typed optional block source locations keep
 navigation independent of human-readable labels. The default `layout` feature
 in vtr-vdb is optional so consumers can supply their own layout dependency.
 
+### VDB, rethought (vision)
+
+[VDB, rethought](VDB_rethinked.html) proposes one design knowledge base in four
+layers, by author: compiled facts from the simulator's front end, stored once
+per module specialization; derived facts from named, versioned extractors
+(registers, clocks and resets, state machines, interfaces), in the file when
+the build derives them and in a stacked cache otherwise; packs of protocol,
+pipeline, register and specification meaning that cascade like CSS; and notes
+from investigations. Facts computed from a run live in that trace's `.index`
+sidecar. Every fact carries provenance, recordings check derived claims, every
+answer cites facts, source spans and recorded samples and carries a
+fingerprint, and one Rust query catalogue serves Volna, the CLI and MCP agents.
+
+Measured on openC910 with `bench/workloads/c910/vdb_census.py`: the v2 export
+is 809 MB and `vtr-vdb check` needs 13.3 s and 5.9 GiB. Its 6,934 instances
+share 409 distinct bodies, which take 178.6 MiB as instance-relative JSON and
+5.0 MiB compressed one body at a time; with the token index, the instance tree
+and the sources, a self-contained store is estimated at 13.8 MiB. The tracer can
+evaluate 47% of combinational processes and 25% of register targets; partial
+and aggregate assignments (83,245 statements) and `case` (3,493) dominate the
+rest, and none of about 100 named state machines is represented.
+`bench/workloads/c910/fsm_replay.py` evaluates the guards of the
+physical-register lifecycle machine on the recorded inputs of all 95 entries:
+it predicts all 1,181,073 recorded transitions over 3,308,480 clock edges, and
+the 62 edges at which reset deasserts in a clock edge's time step are ambiguous.
+
+Borrowed: Verdi's separate design database built by the simulator's front end,
+its source, elaborated and inferred-netlist views, active drivers as static
+candidates filtered by recorded activity, and lazy loading by scope; Siloti's
+reconstruction from essential signals with an explicit "not computed"; Indago's
+investigation tree and notes; Verisium SemanticDiff's comparison of elaborated
+designs; CIRCT's two source views with an explicit lost status (HGLDD, UHDI);
+hgdb's statement guards and transaction-assembly rules; Yosys's state-register
+rules; slang-netlist's bit-range dependencies; Glean's derived predicates,
+ownership and stacked databases; SCIP's readable symbols; BTF's deduplication
+by content; FVDebug's causal event graph and VerilogCoder's windowed value
+tables as the shape of agent answers; wave-mcp's fingerprints.
+
+Rejected: JSON as the store (whole-file parse, no paging); SQLite (a row store
+without shared bodies, a second storage engine, a heavy WebAssembly build);
+Cap'n Proto object graphs as in UHDM (VPI-shaped, no deduplication); Parquet
+as the store (coarse random access; kept as an export); a fact server (not a
+file that travels with a build); embeddings in the file (they tie a design to
+one model); facts written by agents (agents write notes, and facts change only
+with the design or an extractor); and recording source execution (a simulator
+cost). Synopsys calls its coverage database VDB; the name is kept for the
+concept, and the file has its own magic.
+
 ## Verilator log capture and virtualized Surfer browsing
 
 The integration reuses log sites and LOG_BLOCK rather than encoding messages as

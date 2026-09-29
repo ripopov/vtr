@@ -1,5 +1,9 @@
 # RTL Volna Data Base, netlists, and temporal driver tracing
 
+This document describes the implemented JSON companion. [VDB, rethought](VDB_rethinked.html)
+proposes its successor: a paged store with one body per module specialization,
+a complete statement IR, and derived registers, clocks and state machines.
+
 The `vtr-vdb` companion reads source semantics exported by slang or the pinned
 Verilator integration into a separate JSON VDB, and queries immutable runtime waveforms
 through the existing Rust VTR reader. It does not add source data, sections,

@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VDB, rethought</title>
+<meta name="description" content="Vision: VDB as one design knowledge base for people and agents. Compiled facts stored once per module specialization, derived registers, clocks, state machines and interfaces, packs of protocol and pipeline meaning, and investigation notes, all with provenance and one query catalogue, rolled out in fifteen stages. Measured on openC910.">
+<link rel="icon" href="../volna/volna/assets/app-icon/volna.svg">
+<link rel="stylesheet" href="design-system/styles.css">
+<script>(function(){try{var m=localStorage.getItem('volna-theme')||'dark',d=m==='dark'||(m==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}})()</script>
+<style>
+/* Page layout only; every colour, font and component comes from the design system. */
+.a-body{margin-top:var(--space-6);max-width:var(--measure);color:var(--text-2)}
+.a-body p+p,.a-body p+ol,.a-body ol+p,.a-body p+ul,.a-body ul+p{margin-top:var(--space-3)}
+.a-body strong{color:var(--text-1)}
+.a-body ul,.a-body ol{margin:0;padding-left:1.2em;display:grid;gap:var(--space-2)}
+.a-body h3{margin:var(--space-10) 0 var(--space-3);color:var(--text-1);font:var(--display-weight) var(--text-h4)/var(--leading-snug) var(--font-display)}
+.a-wide{margin-top:var(--space-10)}
+.a-num td:not(:first-child),.a-num th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.a-rules{margin-top:var(--space-10);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:var(--space-8) var(--space-10);counter-reset:rule;padding:0;list-style:none}
+.a-rules li{counter-increment:rule;color:var(--text-2);max-width:var(--measure)}
+.a-rules li::before{content:counter(rule,decimal-leading-zero);display:block;font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);margin-bottom:var(--space-2)}
+.a-rules strong{display:block;color:var(--text-1);font:var(--display-weight) var(--text-h4)/var(--leading-snug) var(--font-display);margin-bottom:var(--space-2)}
+.a-rules small{display:block;margin-top:var(--space-2);font:var(--text-2xs) var(--font-mono);color:var(--text-3)}
+.a-end{padding-block:var(--space-20) var(--space-16)}
+.a-stages{margin-top:var(--space-12);display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-16)}
+.a-stage__n{display:flex;align-items:center;gap:var(--space-2);font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);text-transform:uppercase}
+.a-stagecard h3{margin:var(--space-2) 0 var(--space-3);color:var(--text-1);font:var(--display-weight) var(--text-h3)/var(--leading-snug) var(--font-display)}
+.a-stagecard>p{max-width:var(--measure);color:var(--text-2)}
+.a-dl{margin:var(--space-4) 0 0;display:grid;gap:var(--space-3);max-width:var(--measure)}
+.a-dl div{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:var(--space-4)}
+.a-dl dt{font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--text-3);text-transform:uppercase;padding-top:3px}
+.a-dl dd{margin:0;color:var(--text-2);font-size:var(--text-sm)}
+@media (max-width:560px){.a-dl div{grid-template-columns:minmax(0,1fr);gap:var(--space-1)}}
+.a-phase{margin:var(--space-16) 0 calc(-1 * var(--space-8));font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--text-3);text-transform:uppercase;border-top:1px solid var(--border);padding-top:var(--space-4)}
+.a-stack{margin-top:var(--space-10);display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:var(--space-6);align-items:center}
+@media (max-width:760px){.a-stack{grid-template-columns:minmax(0,1fr)}}
+.a-layers{display:grid;gap:var(--space-2)}
+.a-layer{display:grid;grid-template-columns:8.5rem minmax(0,1fr);gap:var(--space-4);align-items:start;padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-card)}
+@media (max-width:560px){.a-layer{grid-template-columns:minmax(0,1fr);gap:var(--space-1)}}
+.a-layer b{font:var(--weight-semibold) var(--text-sm)/1.3 var(--font-sans);color:var(--text-1)}
+.a-layer b small{display:block;margin-top:2px;font:var(--text-2xs) var(--font-mono);color:var(--text-3);font-weight:400}
+.a-layer p{margin:0;font-size:var(--text-sm);color:var(--text-2)}
+.a-layer--trace{border-style:dashed}
+.a-consumers{display:grid;gap:var(--space-2);align-content:center;padding:var(--space-4);border:1px solid var(--accent-line);border-radius:var(--radius-md);background:var(--accent-soft)}
+.a-consumers h3{margin:0 0 var(--space-2);font:var(--weight-semibold) var(--text-sm)/1.3 var(--font-sans);color:var(--text-1)}
+.a-consumers p{margin:0;font-size:var(--text-sm);color:var(--text-2)}
+.a-consumers ul{margin:0;padding-left:1.1em;display:grid;gap:var(--space-1);font-size:var(--text-sm);color:var(--text-2)}
+.a-refs{margin:var(--space-8) 0 0;padding-left:2.2em;display:grid;gap:var(--space-2);max-width:var(--measure);font-size:var(--text-sm);color:var(--text-2)}
+.a-refs li::marker{font:var(--text-2xs) var(--font-mono);color:var(--text-3)}
+.a-refs a{overflow-wrap:anywhere}
+.a-cite{font:var(--text-2xs) var(--font-mono);vertical-align:super;line-height:0}
+.a-cite a{text-decoration:none}
+/* ---------- demo ---------- */
+.d-controls{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-6);align-items:center;margin:var(--space-10) 0 var(--space-4)}
+.d-controls>label,.d-controls>span{display:inline-flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font:var(--text-2xs) var(--font-mono);color:var(--text-3)}
+.d-controls select{height:var(--control-sm);padding:0 var(--space-2);border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface-card);color:var(--text-1);font:var(--text-xs) var(--font-mono)}
+.d-stage{aspect-ratio:auto;background:var(--viewer-panel);color:var(--viewer-text)}
+.d-readout{margin:0;padding:var(--space-2) var(--space-3);min-height:48px;font:var(--text-2xs)/1.5 var(--font-mono);color:var(--viewer-text-muted);border-bottom:1px solid var(--viewer-border)}
+.d-readout b{font-weight:400;color:var(--viewer-text)}
+.d-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);border-bottom:1px solid var(--viewer-border)}
+.d-pane{min-width:0;padding:var(--space-3)}
+.d-pane+.d-pane{border-left:1px solid var(--viewer-border)}
+@media (max-width:900px){.d-grid{grid-template-columns:minmax(0,1fr)}.d-pane+.d-pane{border-left:0;border-top:1px solid var(--viewer-border)}}
+.d-head{margin:0 0 var(--space-2);font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-caps);color:var(--viewer-text-faint);text-transform:uppercase}
+#fsm{display:block;width:100%;height:auto}
+.f-edge{cursor:pointer}
+.f-edge:focus{outline:none}
+.f-hit{fill:none;stroke:var(--viewer-panel);stroke-opacity:0;stroke-width:14}
+.f-line{fill:none;stroke:var(--viewer-text-muted)}
+.f-head{fill:var(--viewer-text-muted)}
+.f-count{font:11px var(--font-mono);fill:var(--viewer-text-muted);paint-order:stroke;stroke:var(--viewer-panel);stroke-width:4px;stroke-linejoin:round}
+.f-edge:hover .f-line,.f-edge:focus-visible .f-line{stroke:var(--viewer-text)}
+.f-edge:hover .f-head,.f-edge:focus-visible .f-head{fill:var(--viewer-text)}
+.f-edge:focus-visible .f-count{fill:var(--viewer-text)}
+.f-edge.is-reset .f-line{stroke:var(--viewer-text-faint);stroke-dasharray:3 3}
+.f-edge.is-reset .f-head{fill:var(--viewer-text-faint)}
+.f-edge.is-never .f-line{stroke:var(--viewer-undef);stroke-dasharray:5 4}
+.f-edge.is-never .f-head,.f-edge.is-never .f-count{fill:var(--viewer-undef)}
+.f-edge.is-dim .f-line,.f-edge.is-dim .f-head{opacity:.35}
+.f-edge.is-sel .f-line{stroke:var(--viewer-accent)}
+.f-edge.is-sel .f-head,.f-edge.is-sel .f-count{fill:var(--viewer-accent)}
+.f-pseudo{fill:var(--viewer-text-faint)}
+.f-plabel{font:11px var(--font-mono);fill:var(--viewer-text-muted)}
+.f-name{font:var(--weight-semibold) 12px var(--font-mono)}
+.f-enc{font:10px var(--font-mono)}
+.d-occ__bar{display:flex;height:10px;margin-top:var(--space-2);border-radius:var(--radius-xs);overflow:hidden;background:var(--viewer-canvas)}
+.d-occ__legend{margin:var(--space-2) 0 0;display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-4);font:var(--text-2xs) var(--font-mono);color:var(--viewer-text-muted)}
+.d-occ__legend b{font-weight:400;color:var(--viewer-text)}
+.d-src{max-height:372px;overflow:auto;padding:var(--space-2) 0;background:var(--code-bg);border:1px solid var(--viewer-border);border-radius:var(--radius-sm);font:12px/1.55 var(--font-mono);color:var(--code-text)}
+.d-src__line{display:flex;gap:var(--space-3);padding:0 var(--space-3) 0 var(--space-2);white-space:pre}
+.d-src__line.is-hi{background:var(--viewer-selection)}
+.d-src__n{flex:none;width:3ch;text-align:right;color:var(--code-comment)}
+.d-src code{background:none;border:0;padding:0;font:inherit;color:inherit}
+.d-src__gap{padding-left:var(--space-3);color:var(--code-comment)}
+.t-k{color:var(--code-keyword)}.t-n{color:var(--code-number)}.t-c{color:var(--code-comment)}.t-s{color:var(--code-fn)}
+.d-facts{max-height:372px;overflow:auto;display:grid;gap:var(--space-4);align-content:start}
+.d-facts[hidden],.d-src[hidden]{display:none}
+.d-facts h4{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:0 0 var(--space-2);font:var(--text-2xs) var(--font-mono);color:var(--viewer-text-muted)}
+.d-facts dl{margin:0;display:grid;gap:var(--space-2)}
+.d-facts dl div{display:grid;grid-template-columns:8.5rem minmax(0,1fr);gap:var(--space-3)}
+@media (max-width:560px){.d-facts dl div{grid-template-columns:minmax(0,1fr);gap:0}}
+.d-facts dt{font:var(--text-2xs)/1.5 var(--font-mono);color:var(--viewer-text-muted)}
+.d-facts dt small{display:block;font-size:var(--text-2xs);color:var(--viewer-text-muted);overflow-wrap:anywhere}
+.d-facts dd{margin:0;font-size:var(--text-xs);color:var(--viewer-text)}
+.d-lanes{padding:var(--space-3);border-bottom:1px solid var(--viewer-border)}
+#lanes{display:block;width:100%;cursor:crosshair;touch-action:none}
+.d-ask{display:grid;grid-template-columns:minmax(0,17rem) minmax(0,1fr);gap:var(--space-5);padding:var(--space-3)}
+@media (max-width:900px){.d-ask{grid-template-columns:minmax(0,1fr)}}
+#questions{display:grid;gap:var(--space-2);align-content:start}
+#questions .v-btn{height:auto;min-height:var(--control-sm);padding:var(--space-2) var(--space-3);justify-content:flex-start;text-align:left;line-height:1.35;white-space:normal}
+#questions .v-btn[aria-pressed="true"]{border-color:var(--accent-line);color:var(--accent-text);background:var(--accent-soft)}
+.d-answer{min-width:0;font-size:var(--text-sm);color:var(--viewer-text)}
+.d-answer p{margin:0 0 var(--space-2);max-width:var(--measure)}
+.d-answer .d-answer__idle{color:var(--viewer-text-muted)}
+.d-calls{margin:0 0 var(--space-3);padding:0;list-style:none;display:grid;gap:var(--space-2);font:var(--text-2xs)/1.5 var(--font-mono);color:var(--viewer-text-muted)}
+.d-calls code{background:none;border:0;padding:0;font:inherit;color:var(--viewer-text);overflow-wrap:anywhere}
+.d-calls b{font-weight:400;color:var(--viewer-accent)}
+.d-calls li>span{display:block;padding-left:var(--space-4);overflow-wrap:anywhere}
+.d-cites{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.d-cite{font:var(--text-2xs)/1.6 var(--font-mono);padding:0 var(--space-2);border:1px solid var(--viewer-border);border-radius:var(--radius-xs);color:var(--viewer-text-muted);overflow-wrap:anywhere}
+.d-cite::before{content:attr(data-kind) ':';color:var(--viewer-accent)}
+</style>
+</head>
+<body>
+<a class="v-skip" href="#demo">Skip to the demo</a>
+
+<header class="v-nav">
+  <div class="v-wrap v-nav__bar">
+    <a class="v-brand" href="#top"><img src="../volna/volna/assets/app-icon/volna.svg" alt="">Volna</a>
+    <nav class="v-nav__links" aria-label="Sections"><a href="#demo">Demo</a><a href="#today">Today</a><a href="#research">Research</a><a href="#rules">Rules</a><a href="#design">Design</a><a href="#features">Features</a><a href="#agents">Agents</a><a href="#format">Format</a><a href="#plan">Plan</a><a href="#questions-open">Questions</a></nav>
+    <div class="v-nav__end">
+      <span class="v-seg" role="group" aria-label="Page theme" id="page-theme"><button type="button" data-mode="light" aria-pressed="false">Light</button><button type="button" data-mode="dark" aria-pressed="true">Dark</button><button type="button" data-mode="system" aria-pressed="false">Auto</button></span>
+      <details class="v-nav__menu">
+        <summary class="v-btn v-btn--ghost v-btn--sm v-btn--icon" aria-label="Sections"><span class="v-icon" aria-hidden="true" style="--icon:url(../volna/volna-core/assets/icons/panel-left.svg)"></span></summary>
+        <nav class="v-nav__sheet" aria-label="Sections"><a href="#demo">Demo</a><a href="#today">Today</a><a href="#research">Research</a><a href="#rules">Rules</a><a href="#design">Design</a><a href="#features">Features</a><a href="#agents">Agents</a><a href="#format">Format</a><a href="#plan">Plan</a><a href="#questions-open">Questions</a><a href="#references">References</a></nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<section class="v-hero v-hero--left">
+  <div class="v-wrap">
+    <p class="v-kicker">Vision · VDB</p>
+    <h1 class="v-hero__title">VDB, rethought. What the design <em>means</em>, for people and agents.</h1>
+    <p class="v-hero__lede">VTR records what happened in a simulation. VDB should record what the design is and what it means, well enough that a person or an agent can ask <em>why</em> and get an answer that cites its evidence. Today VDB is two unrelated things under one name: an RTL export that takes 5.9&nbsp;GiB of memory to open for openC910, and a few hand-written profiles that nothing loads. This page proposes one design knowledge base in four layers. <strong>Compiled facts</strong> come from the elaborated design and are stored once per module specialization. <strong>Derived facts</strong> name registers, clocks, state machines and interfaces. <strong>Packs</strong> add protocol, pipeline and register meaning. <strong>Notes</strong> hold what people and agents learn during an investigation. Every fact says where it came from, every answer cites its facts, and Volna, the CLI and MCP agents ask through one query catalogue.</p>
+    <p class="v-hero__fine">Measured on openC910 CoreMark: 6,934 instances of 409 specializations · 809&nbsp;MB of JSON today, about 14&nbsp;MiB estimated in the proposed container · 95 state machines replayed against 1,181,073 recorded transitions, all of them predicted · research on Verdi, Indago and Verisium, Questa, CIRCT, hgdb, Glean, SCIP, Pernosco and agent debugging from 2024 to 2026</p>
+  </div>
+</section>
+
+<section class="v-section" id="demo" style="padding-top:var(--space-10)">
+  <div class="v-wrap">
+    <p class="v-kicker">Demo</p>
+    <h2 class="v-section__title">One state machine, every view of it.</h2>
+    <p class="v-section__sub">Each of the 95 physical registers of C910's rename unit has a five-state lifecycle machine, written once in <code>ct_rtu_pst_preg_entry.v</code>. A VDB stores it once, with the module, and binds it to all 95 instances. Pick an entry or a transition, hover the lanes, or ask a question. Every number is computed by this page from the real source and the recorded CoreMark trace. The question panel plays an agent that uses the tools proposed below.</p>
+    <div class="d-controls">
+      <label for="inst">Entry <select id="inst"></select></label>
+      <span>Right pane <span class="v-seg" role="group" aria-label="Right pane" id="side"><button type="button" data-mode="source" aria-pressed="true">Source</button><button type="button" data-mode="facts" aria-pressed="false">Facts</button></span></span>
+      <button type="button" class="v-btn v-btn--sm v-btn--ghost" id="reset">Reset demo</button>
+    </div>
+    <figure class="v-frame" id="demo-frame">
+      <div class="v-frame__bar"><b>VDB explorer</b><span>c910_coremark.vtr · ct_rtu_pst_preg_entry · lifecycle</span></div>
+      <div class="v-frame__stage d-stage">
+        <p class="d-readout" id="readout" aria-live="polite"></p>
+        <div class="d-grid">
+          <div class="d-pane">
+            <p class="d-head">State machine · counts over the whole run</p>
+            <svg id="fsm" viewBox="0 0 600 388" role="group" aria-label="Lifecycle state machine with transition counts"></svg>
+            <div id="occ"></div>
+          </div>
+          <div class="d-pane">
+            <p class="d-head" id="side-head">Source · ct_rtu_pst_preg_entry.v</p>
+            <div class="d-src" id="src" tabindex="0" role="region" aria-label="Source excerpt"></div>
+            <div class="d-facts" id="facts" hidden></div>
+          </div>
+        </div>
+        <div class="d-lanes">
+          <p class="d-head">Every entry, t = 159,400 to 160,200 · the top lane is the chosen entry</p>
+          <canvas id="lanes" aria-label="State of all 95 entries over one window of the run; click a row to choose an entry"></canvas>
+        </div>
+        <div class="d-ask">
+          <div id="questions" role="group" aria-label="Questions"></div>
+          <div class="d-answer" id="answer" aria-live="polite"></div>
+        </div>
+      </div>
+    </figure>
+    <p class="v-frame__caption"><span>Source: <code>ct_rtu_pst_preg_entry.v</code> of pulp-c910 <code>0fdc0f2</code>. Trace: <code>bench/results/latest/c910_coremark.vtr</code>, times in its unit of 100&nbsp;ps, clock period 2. Counts come from replaying the guards on the recorded inputs; the lanes show every state change in one window with a flush.</span></p>
+  </div>
+</section>
+
+<section class="v-section" id="today">
+  <div class="v-wrap">
+    <p class="v-kicker">Today</p>
+    <h2 class="v-section__title">Two things share one name.</h2>
+    <div class="a-body">
+      <p><strong>The RTL export.</strong> Verilator and a pyslang script write <code>vtr-rtl-vdb</code> version 2: one JSON document with every instance, symbol, port connection and process of the elaborated design, a token index for rendering source, and a map from design paths to trace paths. The <code>vtr-vdb</code> CLI draws driver trees and module schematics from it, and Surfer uses it for source navigation and inline values. It works well on the test designs. On openC910 it does not:</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="The RTL export on openC910" tabindex="0">
+      <table class="v-table a-num">
+        <thead><tr><th>openC910, Vtop.vdb.json</th><th>Measured</th></tr></thead>
+        <tbody>
+          <tr><td>File size</td><td>809 MB</td></tr>
+          <tr><td>Open with <code>vtr-vdb check</code></td><td>13.3 s, 5.9 GiB peak</td></tr>
+          <tr><td>Instances, modules, distinct specializations</td><td>6,934 · 373 · 409</td></tr>
+          <tr><td>Processes, symbols, connections, source index</td><td>485 · 153 · 103 · 49 MiB</td></tr>
+          <tr><td>Combinational processes the tracer can evaluate</td><td>52,921 of 111,504 (47%)</td></tr>
+          <tr><td>Register targets in processes it can evaluate</td><td>5,385 of 21,508 (25%)</td></tr>
+          <tr><td>State machines represented</td><td>0 (about 100 <code>case</code>-driven ones by name)</td></tr>
+          <tr><td>Clock gates, recorded as plain instances</td><td>3,056 <code>gated_clk_cell</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <p><strong>The profiles.</strong> Separately, the <a class="v-link" href="VDB_APPNOTE.md">application note</a> describes hand-written documents that give trace names a meaning: stage roles and colours for a pipeline (<code>c910.pipeline.vdb.json</code>, 3.8&nbsp;KB), counter units and row styles for C910's performance counters, CHI and UCIe protocol packs, clock roles, key attributes for pairing traces and signal-group templates. Each proposal defined its own schema. Volna loads none of them.</p>
+    </div>
+    <ol class="a-rules">
+      <li><strong>Different data, one name.</strong> The export is compiled at build time, hundreds of megabytes and exact. A profile is written by a person, a few kilobytes and a judgement. They differ in producer, lifetime and trust, and should not share a schema. They should share identities and one way to ask.</li>
+      <li><strong>Stored per instance.</strong> 6,934 instances repeat 409 bodies. Stored once per specialization with names relative to the instance, the same content is 178.6&nbsp;MiB of JSON, and 5.0&nbsp;MiB when each specialization is compressed on its own. Nothing opens incrementally, and nothing can be paged to VS Code.</li>
+      <li><strong>Semantics stop at a subset.</strong> Partial and aggregate assignments (83,245 statements), <code>case</code> (3,493), complex port connections (4,115) and loops (138) are opaque. A quarter of the register targets can be explained, and no state machine can be recognized.</li>
+      <li><strong>Whole kinds of knowledge are missing.</strong> There are no registers with their clocks and resets, no clock domains, state machines, interfaces, memories, register maps, assertions or testbench objects, and no link from a transaction stream to the logic that produced it.</li>
+      <li><strong>No query layer.</strong> <code>Debugger</code>, <code>NetlistIndex</code> and Surfer each index the JSON their own way. An answer cannot cite a fact, because a fact has no identity beyond a path.</li>
+      <li><strong>No home for what is learned.</strong> An extracted machine, a transition count or an agent's finding has nowhere to live, and nothing records who asserted it or whether anyone checked.</li>
+    </ol>
+    <div class="a-body">
+      <p><strong>What carries over.</strong> Much of today's work is right and stays: export from the simulator's own elaborated model before optimization; exact attachment by design id and an explicit binding, never by guessing suffixes; slang as the independent front end; the token index that lets Surfer render source without a language server; and the tracer's temporal rules, which search clock events rather than value changes, so enable holds and pre-edge sampling come out right. The <a class="v-link" href="trace-driver/index.html">trace-driver interface proposals</a> remain the model for how a driver trace is shown.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="research">
+  <div class="v-wrap">
+    <p class="v-kicker">Research</p>
+    <h2 class="v-section__title">Every debugger keeps a design database. Few make it a knowledge base.</h2>
+    <div class="a-body">
+      <p>Commercial debuggers all keep a design database beside the waveform database, usually built by the simulator's own front end. Open tools and research show how to store facts compactly, how to name them stably and what an agent needs from them. The table lists what each keeps, what this design borrows and what it rejects. Superscript numbers point to the <a class="v-link" href="#references">references</a>.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="State of the art" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>System</th><th>What it keeps</th><th>Borrowed</th><th>Rejected</th></tr></thead>
+        <tbody>
+          <tr><td>Synopsys Verdi: KDB, NPI <span class="a-cite"><a href="#r1">1</a>–<a href="#r5">5</a></span></td><td>A design database compiled by the same front end as VCS, in parallel with the simulator. Verdi says it uses "internal synthesis technology" to extract structural, logical and functional information. The source browser, driver and load tracing, schematics, FSM bubble diagrams, active annotation and the Temporal Flow View run on it. NPI exposes five models: language (VPI-like), an inferred technology-independent netlist, text, design manipulation, and FSDB. Smart load reads only the scopes first touched, for ten times less load time and memory.</td><td>Three design views (source text, elaborated language, inferred netlist). An active driver as static candidates filtered by recorded activity. Lazy loading by scope.</td><td>A closed format; process-global API state.</td></tr>
+          <tr><td>Siloti visibility enhancement <span class="a-cite"><a href="#r6">6</a></span></td><td>Dumps only essential signals (inputs, register and memory outputs) and recomputes the rest from the design with a cycle-based evaluator, marking what it cannot compute. 15–20% of signals give 95–100% visibility, files shrink by more than 80%, and simulation slows by about 20% instead of 400–500%.</td><td>Reconstructed signals with an explicit "not computed".</td><td>—</td></tr>
+          <tr><td>Verdi Assistant, RDA, AgentEngineer <span class="a-cite"><a href="#r7">7</a>, <a href="#r8">8</a></span></td><td>Specialized agents over design, waveform, assertion, log and coverage data; since February 2026 "Verdi then becomes an MCP server". Regression debug compares passing and failing runs with a reference design database.</td><td>MCP as the agent boundary; pass/fail comparison.</td><td>Agents as the only way in.</td></tr>
+          <tr><td>Cadence Indago, Verisium <span class="a-cite"><a href="#r9">9</a>–<a href="#r12">12</a></span></td><td>Separate waveform, message, source-execution and design databases under one root-cause engine. Every step of an investigation is kept in a tree, and bookmarks and notes are handed between engineers. SemanticDiff compares the elaborated snapshots of two revisions; WaveMiner ranks signals and times from passing and failing runs; JedAI keeps design, workload and workflow data across projects.</td><td>An investigation record; a semantic diff of elaborated designs; ranking across runs.</td><td>Recording source execution, a simulator cost this project does not take.</td></tr>
+          <tr><td>Cadence ChipStack, Siemens Questa One <span class="a-cite"><a href="#r13">13</a>–<a href="#r15">15</a></span></td><td>ChipStack's agents build a "mental model", a knowledge graph from module hierarchy and I/O registers to protocol descriptions. Questa Visualizer keeps a design database from its optimizer and loads modules and time on demand; its Agentic Toolkit reaches Questa through MCP and a single gateway.</td><td>A knowledge graph over design entities; incremental loading.</td><td>A model built from the spec with no provenance.</td></tr>
+          <tr><td>CIRCT debug dialect, HGLDD, UHDI <span class="a-cite"><a href="#r16">16</a>–<a href="#r19">19</a></span></td><td>Debug information as first-class IR ops. HGLDD maps each generator variable to an expression over surviving Verilog signals, with both source and HDL locations. UHDI (2026) adds types, enums, statement guards and an explicit preserved-or-lost status, and its reviewers asked for a tree with ids only for shared definitions. Tywaves uses it for typed waveforms of Chisel designs.</td><td>Two source views; an explicit "lost" status; import for Chisel designs.</td><td>HGLDD's shape, tailored to one simulator.</td></tr>
+          <tr><td>hgdb <span class="a-cite"><a href="#r20">20</a></span></td><td>A symbol table (SQLite or JSON) of statements with enable conditions, variables and declarative transaction-assembly rules (start, end, match); under 5% simulation overhead on RocketChip.</td><td>A guard per statement; transaction rules.</td><td>SQLite as the store.</td></tr>
+          <tr><td>UHDM, Yosys, slang-netlist <span class="a-cite"><a href="#r21">21</a>–<a href="#r23">23</a></span></td><td>UHDM serializes the IEEE VPI object model with Cap'n Proto. Yosys recognizes a state register when a single flip-flop is fed by a mux tree of constants and its own value, and the value is only compared with constants. slang-netlist builds a bit-range dependency graph with fan-in, fan-out, path, driver and loop queries.</td><td>Yosys's recognition rules; bit-range dependency edges.</td><td>A VPI-shaped object graph as the stored schema.</td></tr>
+          <tr><td>Kythe, Glean, SCIP, CodeQL <span class="a-cite"><a href="#r24">24</a>–<a href="#r27">27</a></span></td><td>Typed, immutable facts with stable names. Glean's derived predicates are stored or computed on demand, and ownership units make updates incremental. SCIP's readable string symbols made its indexes 4× smaller than LSIF's. CodeQL extracts relational tables plus a source archive.</td><td>Facts with provenance; named, versioned derived facts; readable keys; bundled sources.</td><td>A general query language before a catalogue exists.</td></tr>
+          <tr><td>DWARF and BTF, Pernosco, OpenROAD <span class="a-cite"><a href="#r28">28</a>–<a href="#r30">30</a></span></td><td>BTF deduplicates kernel types from 124&nbsp;MB to 1.5&nbsp;MB. Pernosco answers "where did this value come from" and treats debugging as data analysis with a notebook. OpenROAD's database keeps ids stable across save and restore.</td><td>Deduplication by content; value-origin queries; notebooks; stable ids.</td><td>—</td></tr>
+          <tr><td>LLM debugging research <span class="a-cite"><a href="#r31">31</a>–<a href="#r35">35</a></span></td><td>VerilogCoder's tracing tool, a back-trace over the AST with a table of values around the first mismatch, lifts pass rates from 66.7% to 78.2%, and to 94.2% with its planner. FVDebug's causal graph of <code>signal@cycle=value</code> events scores 0.956 where a flat trace scores 0.474. Event-time JSON beats raw VCD by 37–53% in accuracy (WaveformQA). VeriPilot's data-flow graphs lift CVDP repair from 57% to 86%; CVDP's best pass@1 is about 34%.</td><td>Structure joined with values, served as causal graphs and event tables.</td><td>Raw dumps as agent input.</td></tr>
+          <tr><td>Agent tools <span class="a-cite"><a href="#r36">36</a>–<a href="#r38">38</a></span></td><td>wavepeek: one file, one bounded query. wave-mcp: 37 tools over pyslang driver maps, including active drivers, value and X tracing, first divergence between runs and FSM transitions; every answer echoes its query and a dataset fingerprint. Surfer's WCP sends <code>goto_declaration</code> and <code>add_drivers</code> out of the viewer, to whatever holds design knowledge.</td><td>Fingerprints; bounded output; design knowledge outside the viewer.</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <p><strong>Three lessons.</strong> First, each vendor builds its design database with its simulator's front end and keeps it apart from the trace; the leaders differ in how much meaning they add on top, and Verdi adds an inferred netlist, state machines and power intent. Second, the stores that scale (Glean, SCIP, DWARF and BTF, OpenROAD) hold typed facts under stable, readable names, deduplicate by content, and name and version what they derive. Third, every measured gain for agents comes from structure joined with recorded values and served as causal graphs and small event tables, not from raw dumps. No open tool does all three, and none we found lets an agent write back what it learned, with its provenance, for people to review.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="rules">
+  <div class="v-wrap">
+    <p class="v-kicker">Rules</p>
+    <h2 class="v-section__title">Ten rules.</h2>
+    <ol class="a-rules">
+      <li><strong>Facts, not documents.</strong> VDB is a set of typed facts about entities: a declaration, a process, a register, a state machine, a protocol binding, a note. Every fact has a kind, a readable key that stays the same across builds while its module does not change, and provenance: its layer, its producer and version, its inputs, and whether it is exact, recognized, asserted or a hypothesis.</li>
+      <li><strong>Four layers, by author.</strong> The simulator's front end writes compiled facts; named analyses write derived facts; people and generators write packs; an investigation writes notes. A layer adds facts about the entities below it and never changes them.</li>
+      <li><strong>Store once per specialization.</strong> A module body with its parameter values is stored once, under a hash of its content. Instances are a tree of references. Derived facts are computed per specialization and shared by every instance, and by every build in which the module did not change.</li>
+      <li><strong>Open in milliseconds, page the rest.</strong> A reader maps the file and reads the directory, the instance tree and the name index, and nothing more until asked. The same pages travel to VS Code.</li>
+      <li><strong>Complete, or explicitly partial.</strong> The IR covers synthesizable SystemVerilog: <code>case</code>, loops, functions, partial and aggregate assignments, memories, structs and any width. Anything else becomes an opaque fact with its reads, writes and reason. The exact share is measured on C910 at every stage.</li>
+      <li><strong>Time stays in VTR.</strong> VDB never copies values. Facts computed from a trace, such as coverage, derived transactions and reconstructed signals, are cached in that trace's <code>.index</code> sidecar under both identities, and can always be rebuilt.</li>
+      <li><strong>Answers carry evidence.</strong> A query result names the facts, source spans and recorded samples it used, as links that a person opens in Volna and an agent quotes. Ambiguity is a result, not an error.</li>
+      <li><strong>Recordings check claims.</strong> Whatever can be checked against a recording is: an extracted machine is replayed on its recorded inputs, a handshake binding is tested on the trace, a reconstructed net is compared with a full dump. A disagreement is a finding, never silently resolved. The demo's replay is this rule at work.</li>
+      <li><strong>One catalogue.</strong> The Rust query API is the catalogue and the C API projects it. The CLI, Volna's panels and the MCP tools are thin adapters, so anything an agent can ask, a person can see, and the other way round.</li>
+      <li><strong>Many producers, one schema.</strong> Verilator writes VDB natively and slang covers other simulators. Yosys brings gate-level netlists, CIRCT's debug information brings Chisel source, SystemRDL and IP-XACT bring register maps, and SystemC and gem5 bring their structure through runtime reflection.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="v-section" id="design">
+  <div class="v-wrap">
+    <p class="v-kicker">Design</p>
+    <h2 class="v-section__title">Four layers. Each lives beside what it describes.</h2>
+    <div class="a-body">
+      <p>The layers differ in who writes them and when, so they live in different places. The compiled and derived layers describe one build and travel with it. Facts derived from a run live beside that run. Packs are versioned with the design's sources, and notes with the investigation.</p>
+    </div>
+    <div class="a-stack" role="group" aria-label="Layers and consumers">
+      <div class="a-layers">
+        <div class="a-layer"><b>Notes<small>workspace</small></b><p>Findings, hypotheses, bookmarks and the steps of an investigation, written by people and agents, each with its evidence and a status: hypothesis until confirmed.</p></div>
+        <div class="a-layer"><b>Packs<small>text, in the design's repository</small></b><p>Protocol, pipeline, performance, register and specification meaning; key attributes; colours as hues and row styles; group templates. Written by people and generators, and proposed by agents for review. Packs resolve like CSS: an instance beats a module, which beats a pattern, and a personal pack beats a team pack, which beats the build's own.</p></div>
+        <div class="a-layer"><b>Derived<small>design.vdb, and a stacked cache</small></b><p>Registers with clock, reset and enable; clock and reset domains, gates and crossings; state machines, counters, FIFOs, memories and pipeline registers; handshakes and interfaces; fan-in and fan-out indexes; module cards. Each written by a named, versioned extractor, exact or recognized by a rule it names. What the build derives goes into the file; what is derived later goes into a cache file stacked over it, keyed by specialization, so it survives rebuilds that leave the module alone.</p></div>
+        <div class="a-layer"><b>Compiled<small>design.vdb, at build</small></b><p>Sources, tokens and a reverse index from source ranges to entities; specializations with declarations, types, ports, connectivity and statement IR; the instance tree; the binding to trace names. Written by Verilator, slang, Yosys for netlists, or a CIRCT import. Exact.</p></div>
+        <div class="a-layer a-layer--trace"><b>From a run<small>&lt;trace&gt;.index</small></b><p>The derived layer applied to one recording: state coverage and transition causes, derived transaction streams, reconstructed signals, value-origin caches. Keyed by the design id and the trace's identity, and rebuilt when either changes, in the sidecar the <a class="v-link" href="hierarchy-activity.html">activity index</a> introduces.</p></div>
+      </div>
+      <div class="a-consumers">
+        <h3>One query catalogue</h3>
+        <p>A Rust crate, projected to C, answers every question from these layers plus the VTR reader.</p>
+        <ul>
+          <li>Volna panels: source, state machine, schematic, why, notes</li>
+          <li><code>vdb</code> CLI and scripts</li>
+          <li>MCP tools for agents</li>
+          <li>Surfer and other viewers</li>
+        </ul>
+      </div>
+    </div>
+    <div class="a-body">
+      <h3>The entities</h3>
+      <p>A VDB knows about the following kinds of entity. The last column names the layer that writes each; later layers only add facts about entities that exist.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Entities" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>Entity</th><th>Key facts</th><th>What it enables</th><th>Layer</th></tr></thead>
+        <tbody>
+          <tr><td>Source file</td><td>Path, hash, text (optional, compressed), tokens, comments attached to the declarations they describe</td><td>Rendering, doc hovers, an agent reading code</td><td>Compiled</td></tr>
+          <tr><td>Specialization</td><td>Module, interface or package; parameter values; ports; declarations</td><td>Storing bodies once; identity across builds</td><td>Compiled</td></tr>
+          <tr><td>Instance</td><td>Name, parent, specialization, generate scope</td><td>Hierarchy, binding to the trace</td><td>Compiled</td></tr>
+          <tr><td>Type</td><td>Enums, packed structs and unions, arrays, typedef names, bit layouts</td><td>Named values in waves, transactions and source</td><td>Compiled</td></tr>
+          <tr><td>Net</td><td>Alias class across ports and connections, with bit ranges</td><td>Drivers and loads, schematics</td><td>Compiled</td></tr>
+          <tr><td>Process and statement</td><td>IR with guards in priority order and source spans</td><td>Evaluation, explanation, driver trees</td><td>Compiled</td></tr>
+          <tr><td>Binding</td><td>Instance variable to recorded VTR name, per recording</td><td>Every query that reads values</td><td>Compiled</td></tr>
+          <tr><td>Register</td><td>Clock and edge, asynchronous and synchronous reset with value, enable, next-state expression</td><td>State machines, cones, reconstruction, crossings</td><td>Derived</td></tr>
+          <tr><td>Clock and reset</td><td>Sources, gates, dividers, domain membership, crossings and their synchronizers</td><td>Cycle rulers, crossing review, sampling edges</td><td>Derived</td></tr>
+          <tr><td>State machine</td><td>State register, encoding, states named from enums or constants, transitions with guards in priority order, reset edges, the rule that matched</td><td>State diagrams, coverage, state names on wave rows</td><td>Derived</td></tr>
+          <tr><td>Interface</td><td>Handshakes, FIFOs, credit counters, bus channels and their roles</td><td>Derived transactions, protocol checks, block diagrams</td><td>Derived, packs</td></tr>
+          <tr><td>Memory and register map</td><td>Arrays and their ports; CSRs with address, fields, reset value and access</td><td>Memory views, software-visible state</td><td>Derived, packs</td></tr>
+          <tr><td>Assertion and cover</td><td>Property, clock, disable condition, referenced signals, log sites</td><td>From a failure to its logic; coverage</td><td>Compiled</td></tr>
+          <tr><td>Producer</td><td>The instance or tracer that writes a VTR stream; typed attribute schemas</td><td>From a transaction to its RTL and back</td><td>Compiled, packs</td></tr>
+          <tr><td>Testbench and ESL object</td><td>Classes, UVM components, SystemC modules, ports and sockets</td><td>Meaning for ESL hierarchies</td><td>Compiled</td></tr>
+          <tr><td>Requirement</td><td>A clause of a specification, its document and section, and the entities it constrains</td><td>Intent an agent can check behavior against; traceability</td><td>Packs</td></tr>
+          <tr><td>Note</td><td>Target, time range, text, evidence, author, status, parent step</td><td>Shared investigations between people and agents</td><td>Notes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <h3>Two views of behavior</h3>
+      <p>Verdi keeps an elaborated language view and an inferred netlist side by side, and this design does too. The compiled layer keeps statements as written, with guards in priority order and source spans, because an explanation must quote the line that fired. The derived layer adds a bit-level dependency graph and, per register, a register-transfer form: clock, reset, enable and a next-state expression. Cones, schematics, state-machine recognition and reconstruction read the derived view; explanations walk the statements and cite them. Both are computed once per specialization.</p>
+      <h3>Identity and citations</h3>
+      <p><strong>Design id.</strong> The SHA-256 of the elaboration record and the exported semantics, as <code>design.vdb_id</code> is today. A trace names the design it came from with that VTR attribute, so a trace finds its VDB and a stale VDB is refused.</p>
+      <p><strong>Specialization key.</strong> The definition name and a hash of its parameter values and resolved content, such as <code>ct_rtu_pst_preg_entry#9f2c1e</code>. It does not change between builds while the module does not change, so derived facts are reused and two revisions can be compared module by module.</p>
+      <p><strong>Entity key.</strong> A specialization key, a local path and a kind: <code>ct_rtu_pst_preg_entry#9f2c1e/fsm/lifecycle_cur_state</code>. Keys are readable, like SCIP symbols, and a file stores them once and refers to them by number.</p>
+      <p><strong>Links.</strong> <code>vdb:</code> names an entity in an instance, <code>src:</code> a source span and <code>vtr:</code> a recorded signal at a time, for example <code>vdb:…preg15/fsm/lifecycle</code>, <code>src:ct_rtu_pst_preg_entry.v:308-311</code> and <code>vtr:…preg15.x_release_vld@4576</code>. Volna opens all three, and agents quote them.</p>
+      <p><strong>Fingerprints.</strong> Every answer carries the design id, the trace identity, the pack versions and the normalized query, as wave-mcp's answers do. The same fingerprint gives the same answer, byte for byte.</p>
+      <h3>The boundary, restated</h3>
+      <p>VTR stays as it is: trace data, runtime hierarchy and relations, with no design semantics and no presentation. VDB never writes into a trace. One refinement: compiled and derived facts are raw data about the recorded design, not presentation, so <code>volna-server</code> may serve their pages beside a remote trace, as it serves hierarchy pages. Packs and notes stay on the client.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="features">
+  <div class="v-wrap">
+    <p class="v-kicker">Features</p>
+    <h2 class="v-section__title">What it enables.</h2>
+    <div class="a-body"><p>Twelve families of features, for designers, verification engineers, architects and agents alike. Each names the layers it needs and the stage of the <a class="v-link" href="#plan">plan</a> that brings it.</p></div>
+    <ol class="a-rules">
+      <li><strong>Source-level debugging</strong>Navigation, values inline in the source at the cursor, doc comments on hover, the active driver of a signal at the cursor, and the assignment that set a value.<small>Compiled · stages 4, 6</small></li>
+      <li><strong>Driver tracing: why is this value</strong>Temporal driver tracing over the complete IR: why a signal has a value at a time, the first cause of a condition, the origin of an X. The answer is a causal graph of <code>signal@time=value</code> events with guards and source lines, not a single tree, shown in the ways the <a class="v-link" href="trace-driver/index.html">trace-driver proposals</a> explore.<small>Compiled, trace · stage 9</small></li>
+      <li><strong>Schematics</strong>Module views as today, plus fan-in and fan-out cones to the nearest registers, the paths between two signals, clock and reset trees, block diagrams with interfaces drawn as bundles, and values at the cursor on every pin.<small>Compiled, derived · stage 10</small></li>
+      <li><strong>State machines</strong>Diagrams with state names and descriptions from the source, state names on wave rows, time in each state, transition counts and causes, transitions never taken, and search for state sequences. The demo above is this feature.<small>Derived, trace · stage 8</small></li>
+      <li><strong>Clocks, resets and crossings</strong>Every register's clock and reset, clock gates folded into the clocks they gate (C910 has 3,056), and every crossing between domains with its synchronizer, bound to the clocks VTR already <a class="v-link" href="vtr_clocks.html">declares</a>.<small>Derived · stage 7</small></li>
+      <li><strong>Protocols and transactions</strong>Valid/ready pairs and FIFOs recognized, protocol packs that bind channels to roles, transaction streams derived from signals and cached beside the trace, protocol rules checked as the <a class="v-link" href="amba-chi-debug.html">CHI design</a> proposes, and navigation from a recorded transaction to the RTL behind it and back.<small>Derived, packs, trace · stage 12</small></li>
+      <li><strong>Pipelines and performance</strong>Today's pipeline and counter profiles become packs: stage roles, flush meaning and colours as hues for the <a class="v-link" href="c910-verilator-tx-stream.html">C910 tracer</a>, metrics defined over design structures such as the reorder buffer, and the group templates the <a class="v-link" href="wave_groups.html">signal-groups design</a> postponed.<small>Packs · stage 11</small></li>
+      <li><strong>Visibility enhancement</strong>Record registers, inputs and memory outputs only, and compute any combinational net on demand from the IR, marked as computed, with "not computable" stated. Siloti reports files more than 80% smaller this way.<small>Compiled, derived, trace · stage 13</small></li>
+      <li><strong>Registers and software</strong>CSR maps from SystemRDL or IP-XACT on bus transactions and in the source; program counters symbolicated from the ELF file, so pipeline rows and performance phases name functions.<small>Packs · stage 14</small></li>
+      <li><strong>Assertions, coverage and intent</strong>From a failing assertion's log record to its property, its signals and their drivers; state-machine and toggle coverage from recorded runs, beside coverage databases (UCIS) linked by entity key rather than copied; and requirements that tie clauses of a specification to the entities they constrain, so an agent can judge behavior against intent rather than guess it.<small>Compiled, packs, trace · stages 8, 11, 14</small></li>
+      <li><strong>Revisions and runs</strong>A semantic diff of two builds, module by module; the first difference between two runs, mapped onto the logic that explains it, in the <a class="v-link" href="multiple-traces.html">multiple-traces</a> views; failures of a regression grouped by the module and cone where they part from a passing run.<small>All layers · stage 15</small></li>
+      <li><strong>Agents</strong>All of the above as tools with bounded, cited answers, and notes that people and agents share.<small>All layers · from stage 3</small></li>
+    </ol>
+  </div>
+</section>
+
+<section class="v-section" id="agents">
+  <div class="v-wrap">
+    <p class="v-kicker">Agents</p>
+    <h2 class="v-section__title">Built for agents, checked by people.</h2>
+    <div class="a-body">
+      <p>An agent cannot read 14&nbsp;MiB of design facts or 243&nbsp;MiB of trace, and should not try. The research agrees: agents do well when a tool joins structure with recorded values and returns a small causal answer (VerilogCoder, FVDebug, VeriPilot), and badly on raw dumps (WaveformQA). So VDB gives agents verbs, not files. Each verb is a query of the catalogue; Volna's agent-control tools from the <a class="v-link" href="volna-mcp.html">agent control proposal</a> show the answer on screen.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Agent tools" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>Tool</th><th>Answers</th><th>Layers</th><th>Stage</th></tr></thead>
+        <tbody>
+          <tr><td><code>design_search</code></td><td>Entities by name, kind or pattern, ranked</td><td>Compiled</td><td>3</td></tr>
+          <tr><td><code>design_describe</code></td><td>A module card: ports grouped into interfaces, clocks and resets, registers, state machines, children, doc comments. At the top, the card is a map of the whole design within the budget</td><td>Compiled, derived</td><td>3, grows</td></tr>
+          <tr><td><code>source_read</code></td><td>A span with line numbers and the entities declared in it</td><td>Compiled</td><td>3</td></tr>
+          <tr><td><code>structure</code></td><td>Drivers, loads, fan-in or fan-out cone, the path between two signals, per bit</td><td>Compiled, derived</td><td>3, 10</td></tr>
+          <tr><td><code>read_values</code></td><td>Values of named signals over a window, as an event-time table</td><td>Trace</td><td>3</td></tr>
+          <tr><td><code>explain_value</code></td><td>Why a signal has a value at a time: a causal graph with guards, source lines and ambiguity</td><td>Compiled, trace</td><td>3, 9</td></tr>
+          <tr><td><code>find_events</code></td><td>When a condition, a state sequence or a protocol event occurs; first occurrence; counts</td><td>Trace, derived</td><td>3, 8</td></tr>
+          <tr><td><code>fsm_inspect</code></td><td>States, transitions and guards; with a trace, the timeline, coverage and causes</td><td>Derived, trace</td><td>8</td></tr>
+          <tr><td><code>transactions</code></td><td>Recorded or derived transactions by stream, window and attribute</td><td>Trace, packs</td><td>12</td></tr>
+          <tr><td><code>compare</code></td><td>Two runs or two builds: first difference, changed specializations</td><td>All</td><td>15</td></tr>
+          <tr><td><code>notes</code></td><td>Read and add notes with evidence and status</td><td>Notes</td><td>5</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <h3>The answer contract</h3>
+      <ol>
+        <li><strong>Bounded.</strong> A default budget of rows and bytes, the most important first, with a continuation token for the rest.</li>
+        <li><strong>Cited.</strong> Every claim carries a <code>vdb:</code>, <code>src:</code> or <code>vtr:</code> link. Volna opens each one, and the MCP server offers the three forms as resource templates, so a host can fetch a cited span or signal directly.</li>
+        <li><strong>Fingerprinted.</strong> The design id, trace identity, pack versions and normalized query come with every answer.</li>
+        <li><strong>Honest.</strong> "Ambiguous", "not computed" and "unsupported" are values with reasons, never silently dropped.</li>
+        <li><strong>Deterministic.</strong> Same inputs, same bytes, so tests can pin every tool's output.</li>
+      </ol>
+      <p>An answer, as <code>fsm_inspect</code> would return it for the demo's machine. The numbers are the replay's; the budget kept four of the twelve transitions, the ones a person asks about first, and <code>more</code> continues.</p>
+    </div>
+    <figure class="v-code a-wide"><div class="v-code__head">fsm_inspect · MCP result</div><pre><span class="tok-c">// fsm_inspect {"fsm": "vdb:…x_ct_rtu_pst_preg/*/fsm/lifecycle", "trace": "c910_coremark.vtr", "budget": 4}</span>
+{
+  "fsm": <span class="tok-s">"ct_rtu_pst_preg_entry#9f2c1e/fsm/lifecycle"</span>,
+  "register": <span class="tok-s">"lifecycle_cur_state[4:0]"</span>, "encoding": <span class="tok-s">"one-hot"</span>, "instances": <span class="tok-n">95</span>,
+  "states": [<span class="tok-s">"DEALLOC"</span>, <span class="tok-s">"WF_ALLOC"</span>, <span class="tok-s">"ALLOC"</span>, <span class="tok-s">"RETIRE"</span>, <span class="tok-s">"RELEASE"</span>],
+  "transitions": [
+    {"from": <span class="tok-s">"ALLOC"</span>, "to": <span class="tok-s">"RELEASE"</span>, "guard": <span class="tok-s">"x_release_vld"</span>,
+     "effective": <span class="tok-s">"!rtu_yy_xx_flush &amp;&amp; x_release_vld &amp;&amp; !wb_cur_state_wb_masked"</span>,
+     "taken": <span class="tok-n">0</span>, "src": <span class="tok-s">"src:ct_rtu_pst_preg_entry.v:302-303"</span>},
+    {"from": <span class="tok-s">"ALLOC"</span>, "to": <span class="tok-s">"DEALLOC"</span>, "guard": <span class="tok-s">"rtu_yy_xx_flush"</span>, "taken": <span class="tok-n">29868</span>, "src": <span class="tok-s">"src:ct_rtu_pst_preg_entry.v:298-299"</span>},
+    {"from": <span class="tok-s">"ALLOC"</span>, "to": <span class="tok-s">"DEALLOC"</span>, "guard": <span class="tok-s">"x_release_vld &amp;&amp; wb_cur_state_wb_masked"</span>, "taken": <span class="tok-n">2520</span>, "src": <span class="tok-s">"src:ct_rtu_pst_preg_entry.v:300-301"</span>},
+    {"from": <span class="tok-s">"RETIRE"</span>, "to": <span class="tok-s">"RELEASE"</span>, "guard": <span class="tok-s">"x_release_vld"</span>, "taken": <span class="tok-n">593</span>, "src": <span class="tok-s">"src:ct_rtu_pst_preg_entry.v:310-311"</span>}
+  ],
+  "ambiguous": {"edges": <span class="tok-n">62</span>, "at": [<span class="tok-s">"vtr:…cpurst_b@14"</span>, <span class="tok-s">"vtr:…cpurst_b@54"</span>], "why": <span class="tok-s">"reset deasserts in the time step of a clock edge"</span>},
+  "more": <span class="tok-s">"cursor:4"</span>,
+  "fingerprint": {"design": <span class="tok-s">"81c2807a28ce47a6"</span>, "trace": <span class="tok-s">"c910_coremark.vtr"</span>, "packs": [], "query": <span class="tok-s">"fsm_inspect{fsm,trace,budget=4}"</span>}
+}</pre></figure>
+    <div class="a-body">
+      <h3>Search and caching</h3>
+      <p><code>design_search</code> ranks by names, comments, module cards and structure. VDB stores no embeddings, because they would tie a design file to one model and go stale with it; an agent or an adapter can embed cards itself. Deterministic answers also make caching simple: an answer is reusable wherever its fingerprint matches, across agents and sessions.</p>
+      <h3>Writing back</h3>
+      <p>Agents write notes, never facts. A note starts as a hypothesis and becomes confirmed when a person, or a check the note names, confirms it. A recurring confirmed note can become a pack proposal. For example, an agent that sees a valid/ready pair proposes a handshake binding; the binding is checked against the recorded trace (valid never drops without ready) before a person accepts it into the pack. Nobody edits compiled or derived facts; they change only when the design or an extractor changes.</p>
+      <h3>Measuring the benefit</h3>
+      <p>The evaluation starts with the first agent tools. A task suite injects bugs with known root causes into picorv32 and C910 units and grades the answers. The same models answer once with raw waveform tools, as wavepeek offers, and once with VDB's tools. The report records success, tokens and tool calls, and every later stage reruns it. Tool outputs are deterministic and tested in CI; model runs are a benchmark with a checked-in command, like the performance suite.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="format">
+  <div class="v-wrap">
+    <p class="v-kicker">Format</p>
+    <h2 class="v-section__title">One container, one body per specialization.</h2>
+    <div class="a-body">
+      <p>The file reuses VTR's container, as the <code>.index</code> sidecar does: header, sections, directory and trailer, string tables and compressed blobs, with its own magic and version. A reader maps the file and at open reads only the directory, the instance tree and the name index.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Sections" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>Section</th><th>Holds</th><th>Read</th></tr></thead>
+        <tbody>
+          <tr><td>META</td><td>Design id, producer and version, the elaboration record</td><td>At open</td></tr>
+          <tr><td>STRINGS</td><td>Interned names and keys</td><td>By page</td></tr>
+          <tr><td>INSTANCES</td><td>The instance tree in preorder: parent, name, specialization</td><td>At open</td></tr>
+          <tr><td>NAMES</td><td>Sorted entity keys and instance paths, for search and link resolution</td><td>At open, by page</td></tr>
+          <tr><td>SPEC</td><td>One per specialization: types, declarations, ports, connections, statement IR, attached comments</td><td>When the module is first touched</td></tr>
+          <tr><td>SOURCES, TOKENS</td><td>Paths and hashes, optional compressed text; one token page per file</td><td>When a file is shown</td></tr>
+          <tr><td>BINDING</td><td>Instance variables to recorded names, one per recording configuration</td><td>When a trace attaches</td></tr>
+          <tr><td>DERIVED</td><td>One per extractor and specialization, tagged with the extractor's version and its input hash; the same sections make up a stacked cache file</td><td>On demand</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <p><strong>An estimate for C910.</strong> Re-encoding today's export in this shape, still as JSON: the 409 specialization bodies take 178.6&nbsp;MiB and compress to 5.0&nbsp;MiB one specialization at a time; the token index compresses to 7.0&nbsp;MiB, the instance tree to 28&nbsp;KiB, and the 19.6&nbsp;MiB of sources to 1.8&nbsp;MiB. That is about 14&nbsp;MiB for a self-contained VDB, against 809&nbsp;MB now and 243&nbsp;MiB for the CoreMark trace. A binary encoding should do better. Stage 1 replaces the estimate with measured size, open time and memory.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Storage alternatives" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>Alternative</th><th>For</th><th>Against</th><th>Decision</th></tr></thead>
+        <tbody>
+          <tr><td>JSON, as today</td><td>Readable; any language parses it</td><td>Whole-file parse: 13.3&nbsp;s and 5.9&nbsp;GiB for C910; no paging; per-instance repetition</td><td>Kept only as a debug dump</td></tr>
+          <tr><td>SQLite, as in hgdb</td><td>Mature; SQL for ad hoc questions</td><td>Row store without shared bodies; a second storage engine next to VTR's; a heavy WebAssembly build for Volna in the browser</td><td>Rejected</td></tr>
+          <tr><td>Cap'n Proto object graph, as in UHDM</td><td>Zero-copy reads</td><td>A VPI-shaped graph object by object; schema tied to the object model; no content deduplication</td><td>Rejected</td></tr>
+          <tr><td>Parquet or Arrow</td><td>Columnar; DuckDB and pandas read it</td><td>Coarse random access by row group; heavy dependencies for WebAssembly</td><td>Offered as <code>vdb export --parquet</code> for analysis</td></tr>
+          <tr><td>A fact server, as in Glean</td><td>Incremental, queryable facts</td><td>A service, not a file that travels with a build</td><td>Ideas borrowed: derived facts, ownership</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="plan">
+  <div class="v-wrap">
+    <p class="v-kicker">Plan</p>
+    <h2 class="v-section__title">Fifteen stages, each useful on its own.</h2>
+    <div class="a-body">
+      <p>Every stage builds, passes <code>cargo test</code>, <code>cargo test -p volna-core</code> and <code>volna/volna/check.sh</code>, and updates the specification, rationale, tests and documentation it touches. No stage adds a flag or code that only a later stage calls. Backward compatibility is not kept: the JSON export is replaced, not wrapped. Stages that change what Volna stores decide what is undoable, as the viewer architecture requires.</p>
+      <p><strong>Why this order.</strong> The store comes first, because nothing scales without it, and the native producers retire the JSON right after. Agents come third, with the evaluation, so that every later stage is measured by what it adds for them. Volna and notes follow, so people see what agents cite. Then semantics in dependency order: the complete IR, then registers and clocks, then state machines. Explanations and schematics build on all three. Meaning (packs, interfaces, reconstruction, registers and software) comes after the structure it binds to, and comparing revisions comes last because it needs stable keys everywhere.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Stages" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>#</th><th>Stage</th><th>What people get</th><th>What agents get</th><th>Needs</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><a class="v-link" href="#stage-1">The fact store</a></td><td><code>vdb</code> opens C910's design in milliseconds; driver trees and schematics run on it</td><td>—</td><td>—</td></tr>
+          <tr><td>2</td><td><a class="v-link" href="#stage-2">Native producers</a></td><td>Verilator and slang write the store; the JSON is gone</td><td>—</td><td>1</td></tr>
+          <tr><td>3</td><td><a class="v-link" href="#stage-3">Agent tools and the evaluation</a></td><td>A measured baseline</td><td>Search, module cards, source, structure, values, driver trees over MCP</td><td>1</td></tr>
+          <tr><td>4</td><td><a class="v-link" href="#stage-4">Volna attaches VDB</a></td><td>A source panel with values at the cursor; agents' links open</td><td>Answers shown on screen</td><td>1, 2</td></tr>
+          <tr><td>5</td><td><a class="v-link" href="#stage-5">Notes</a></td><td>Findings with evidence and status, shared and undoable</td><td>Write back as notes</td><td>4</td></tr>
+          <tr><td>6</td><td><a class="v-link" href="#stage-6">The complete IR</a></td><td>Driver trees through <code>case</code>, loops, partial assignments and memories</td><td>Explanations that no longer stop at opaque logic</td><td>2</td></tr>
+          <tr><td>7</td><td><a class="v-link" href="#stage-7">Registers, clocks and resets</a></td><td>Every register's clock and reset; domains and crossings</td><td>Clocks in module cards</td><td>6</td></tr>
+          <tr><td>8</td><td><a class="v-link" href="#stage-8">State machines</a></td><td>The demo on this page, in Volna</td><td><code>fsm_inspect</code>, state-sequence search</td><td>4, 7</td></tr>
+          <tr><td>9</td><td><a class="v-link" href="#stage-9">Explanations</a></td><td>A Why panel: causal graphs, first causes, X origins</td><td><code>explain_value</code> as causal graphs</td><td>4, 6</td></tr>
+          <tr><td>10</td><td><a class="v-link" href="#stage-10">Schematics</a></td><td>Cones, paths and clock trees with values, in Volna</td><td>Cones and paths</td><td>4, 7</td></tr>
+          <tr><td>11</td><td><a class="v-link" href="#stage-11">Packs</a></td><td>One format for pipeline, counter, protocol, clock and group meaning</td><td>Meaning in answers</td><td>4</td></tr>
+          <tr><td>12</td><td><a class="v-link" href="#stage-12">Interfaces and derived transactions</a></td><td>Bus transactions from signal-level recordings</td><td><code>transactions</code></td><td>7, 11</td></tr>
+          <tr><td>13</td><td><a class="v-link" href="#stage-13">Reconstructed signals</a></td><td>Smaller traces that still show every net</td><td>Values of unrecorded nets</td><td>6</td></tr>
+          <tr><td>14</td><td><a class="v-link" href="#stage-14">Registers, software and assertions</a></td><td>CSR names, function names, assertions linked to logs</td><td>Software-level answers</td><td>11</td></tr>
+          <tr><td>15</td><td><a class="v-link" href="#stage-15">Revisions and runs</a></td><td>What changed between builds, and where two runs part</td><td><code>compare</code></td><td>9</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="a-stages">
+      <p class="a-phase">Foundation</p>
+      <article class="a-stagecard" id="stage-1" aria-labelledby="stage-1-h">
+        <p class="a-stage__n">Stage 1</p>
+        <h3 id="stage-1-h">The fact store</h3>
+        <p>The container and a crate that writes and reads it, with a converter from today's JSON so that consumers move before producers do. The driver-tree and schematic commands keep their output and run on the new store.</p>
+        <dl class="a-dl">
+          <div><dt>Format</dt><dd>A new <code>docs/VDB_SPEC.md</code>: the container with its own magic and version 1; META, STRINGS, INSTANCES, NAMES, SPEC, SOURCES, TOKENS and BINDING; specialization and entity keys. A RATIONALE entry with the measured format decision.</dd></div>
+          <div><dt>Core</dt><dd><code>core/vtr-vdb</code> becomes <code>core/vdb</code>: a writer and a memory-mapped reader over VTR's container code, specialization hashing, <code>Vdb::open</code>, <code>instances</code>, <code>spec</code>, <code>find</code> and <code>resolve</code>. <code>Debugger</code> and <code>NetlistIndex</code> read through it. <code>vdb.h</code> projects it to C one to one.</dd></div>
+          <div><dt>CLI</dt><dd><code>vdb info</code>, <code>find</code>, <code>check</code>, <code>convert</code> (JSON to store), <code>trace</code> and <code>netlist</code>.</dd></div>
+          <div><dt>Tests</dt><dd>Round trip; every C910 entity equal between the JSON and the converted store; the driver-tree and SVG goldens unchanged.</dd></div>
+          <div><dt>Measure</dt><dd>C910 size, open time, peak memory and one driver tree, against the JSON's 13.3&nbsp;s and 5.9&nbsp;GiB, with <code>vdb_census.py</code> kept as the reference for the estimate.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-2" aria-labelledby="stage-2-h">
+        <p class="a-stage__n">Stage 2</p>
+        <h3 id="stage-2-h">Native producers</h3>
+        <p>Verilator writes the store directly at <code>--trace-vtr</code>, and its source indexer adds the token pages. The pyslang exporter feeds <code>vdb import</code>, so standalone slang designs keep working. The v2 JSON and its reader are deleted.</p>
+        <dl class="a-dl">
+          <div><dt>Producers</dt><dd><code>V3EmitVdb</code> writes through a small C++ writer in the fork, with no Rust in Verilator's build; <code>verilator_vdb_index</code> writes TOKENS; the runtime writes BINDING for each recording, as <code>trace_binding</code> does today.</dd></div>
+          <div><dt>Consumers</dt><dd>Surfer's source tile and schematic canvas read the store.</dd></div>
+          <div><dt>Tests</dt><dd><code>integrations/verilator/vdb/run.py</code> on the store; Surfer's source snapshots unchanged; the slang fixtures through <code>vdb import</code>.</dd></div>
+          <div><dt>Measure</dt><dd>C910 verilation time with and without the export, and the store's size against stage 1's conversion.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-3" aria-labelledby="stage-3-h">
+        <p class="a-stage__n">Stage 3</p>
+        <h3 id="stage-3-h">Agent tools and the evaluation</h3>
+        <p>An MCP server over the catalogue as it stands, and the task suite that tells whether it helps. Every later stage adds tools and reruns the suite.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>The answer contract as a library every tool uses: budgets, continuation tokens, links and fingerprints. Module cards built from compiled facts.</dd></div>
+          <div><dt>Agents</dt><dd><code>vdb mcp</code>, a stdio server with <code>design_search</code>, <code>design_describe</code>, <code>source_read</code>, <code>structure</code>, <code>read_values</code>, <code>explain_value</code> (today's tracer) and <code>find_events</code> (conditions over recorded signals); <code>vdb skill</code> writes a skill file for agent harnesses.</dd></div>
+          <div><dt>Bench</dt><dd>Bugs injected into picorv32 and C910 units with known causes and graded answers; runs with raw waveform tools as the baseline; success, tokens and tool calls in the benchmark report.</dd></div>
+          <div><dt>Tests</dt><dd>Golden outputs of every tool on the fixtures and a C910 subset; budgets, continuation and fingerprints.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-4" aria-labelledby="stage-4-h">
+        <p class="a-stage__n">Stage 4</p>
+        <h3 id="stage-4-h">Volna attaches VDB</h3>
+        <p>Volna finds a trace's VDB by its design id, locally and over the remote session, and gains a source panel: go to the declaration, values at the cursor inline, go to the driver. Links in agents' answers open the right place.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>A design attachment in the <code>volna-core</code> session, with load requests for SPEC, SOURCES and TOKENS pages; resolution of <code>vdb:</code>, <code>src:</code> and <code>vtr:</code> links; hierarchy rows that know their specialization.</dd></div>
+          <div><dt>Protocol</dt><dd><code>volna-server</code> serves VDB pages beside the trace; a new protocol version.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: the source panel. egui keeps its behavior.</dd></div>
+          <div><dt>Undo</dt><dd>None: opening sources is navigation. The workspace remembers open source tabs.</dd></div>
+          <div><dt>Tests</dt><dd>Attachment by id, and refusal of a stale VDB; remote pages equal local ones; inline values on the fixtures in both themes.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-5" aria-labelledby="stage-5-h">
+        <p class="a-stage__n">Stage 5</p>
+        <h3 id="stage-5-h">Notes</h3>
+        <p>People and agents record what they find: a note on any entity, time range or selection, with evidence links and a status. An investigation keeps its steps as a tree, as Indago does, so a colleague can follow it.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>Note records in the workspace, written by one journaled writer: target, time range, text, evidence, author (person or agent), status (hypothesis, confirmed, rejected) and parent step.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: a notes panel and note marks on rows and on the time axis.</dd></div>
+          <div><dt>Undo</dt><dd>Adding, editing, deleting and changing status are labelled steps; an agent's steps are labelled as the agent's and never merge with the user's.</dd></div>
+          <div><dt>Agents</dt><dd>The <code>notes</code> tool.</dd></div>
+          <div><dt>Tests</dt><dd>Note edits in the model-based history test; save and restore; export and import.</dd></div>
+        </dl>
+      </article>
+
+      <p class="a-phase">Semantics</p>
+      <article class="a-stagecard" id="stage-6" aria-labelledby="stage-6-h">
+        <p class="a-stage__n">Stage 6</p>
+        <h3 id="stage-6-h">The complete IR</h3>
+        <p>The IR stops at nothing synthesizable: <code>case</code>, <code>casez</code>, <code>unique</code> and <code>priority</code>; loops unrolled at elaboration; functions and tasks inlined with their call sites; partial and aggregate assignments; memories; structs and unions; and a four-state evaluator of any width.</p>
+        <dl class="a-dl">
+          <div><dt>Producers</dt><dd>Verilator's export, still before width commitment, and slang's import, both extended to the new statements and bit-range targets.</dd></div>
+          <div><dt>Core</dt><dd>Opaque statements keep their reads, writes and reason; the evaluator works on arbitrary-width four-state values.</dd></div>
+          <div><dt>Tests</dt><dd>A corpus of statements and operators evaluated against values Verilator recorded; X and Z propagation.</dd></div>
+          <div><dt>Measure</dt><dd>The exact share of C910's register targets and combinational processes, and the rest by reason, against today's 25% and 47%. The target is above 99% of register bits.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-7" aria-labelledby="stage-7-h">
+        <p class="a-stage__n">Stage 7</p>
+        <h3 id="stage-7-h">Registers, clocks and resets</h3>
+        <p>Every register gets its clock, edge, resets and enable from its process. Clock gates fold into the clocks they gate, and clock domains and the crossings between them are listed.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>The <code>registers@1</code> and <code>clocks@1</code> extractors, per specialization, in DERIVED sections at build and in the stacked cache otherwise; gates recognized by structure (a latch and an AND), not by cell name.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: clock and reset in a signal's tooltip; cycle rulers from a register's clock, bound to VTR's declared clocks when the trace has them.</dd></div>
+          <div><dt>Agents</dt><dd>Module cards list clocks, resets and crossings.</dd></div>
+          <div><dt>Tests</dt><dd>Gated clocks, dividers, asynchronous and synchronous resets, and two domains with and without synchronizers.</dd></div>
+          <div><dt>Measure</dt><dd>C910's registers, gates (3,056 expected) and domains, and the extraction time.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-8" aria-labelledby="stage-8-h">
+        <p class="a-stage__n">Stage 8</p>
+        <h3 id="stage-8-h">State machines</h3>
+        <p>The demo on this page, in Volna. State machines are recognized, named from their constants and comments, and drawn with counts; their state names replace raw values on wave rows.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>The <code>fsm@1</code> extractor: Yosys's rules, extended to one-hot comparisons and part-selects; states named from enums and constants and described by adjacent comments; reset edges from the register. <code>fsm_replay</code> writes counts per source line, time in each state and ambiguous edges to the trace's sidecar.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: a state-machine panel with the diagram, counts, never-taken transitions and time in each state, linked to the source panel and to wave rows; state names as a value format.</dd></div>
+          <div><dt>Undo</dt><dd>None; choosing an instance or a transition is navigation.</dd></div>
+          <div><dt>Agents</dt><dd><code>fsm_inspect</code>; <code>find_events</code> gains state sequences.</dd></div>
+          <div><dt>Tests</dt><dd>The preg lifecycle on C910: 1,181,073 changes predicted and 62 ambiguous edges, as <code>fsm_replay.py</code> finds today; binary, one-hot and Gray machines; candidates correctly rejected.</dd></div>
+          <div><dt>Measure</dt><dd>Machines found in C910 against the 103 named candidates, with every difference reviewed; extraction and replay time.</dd></div>
+        </dl>
+      </article>
+
+      <p class="a-phase">Causality and views</p>
+      <article class="a-stagecard" id="stage-9" aria-labelledby="stage-9-h">
+        <p class="a-stage__n">Stage 9</p>
+        <h3 id="stage-9-h">Explanations</h3>
+        <p>Why a signal has its value, as a causal graph over the complete IR: the first cause of a condition and the origin of an X, in a Volna panel that links the graph with source and waves.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>explain</code> returns a graph of <code>signal@time=value</code> events with guards, source spans and the kind of each dependency; repeated events merge; depth and node budgets; same-time events reported as ambiguous.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: a Why panel, opened with Alt-click on a value.</dd></div>
+          <div><dt>Agents</dt><dd><code>explain_value</code> returns the graph level by level within its budget, the shape FVDebug found best.</dd></div>
+          <div><dt>Tests</dt><dd>Today's temporal tests on the new engine; X-origin fixtures; C910 explanations checked against recorded values.</dd></div>
+          <div><dt>Measure</dt><dd>Graph size and time on C910; the evaluation's gain over stage 3.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-10" aria-labelledby="stage-10-h">
+        <p class="a-stage__n">Stage 10</p>
+        <h3 id="stage-10-h">Schematics</h3>
+        <p>Today's module views move into Volna, and gain cones to the nearest registers, paths between two signals, clock and reset trees, interfaces drawn as bundles, and values at the cursor on every pin.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>Cone and path queries over a bit-range dependency index; layout by elkrs off the UI thread.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: a schematic panel linked to source and waves.</dd></div>
+          <div><dt>Agents</dt><dd><code>structure</code> gains cones and paths; Volna's agent-control tools open a schematic.</dd></div>
+          <div><dt>Tests</dt><dd>Today's geometry invariants; cones equal to brute-force reachability.</dd></div>
+          <div><dt>Measure</dt><dd>Cone and layout time on C910.</dd></div>
+        </dl>
+      </article>
+
+      <p class="a-phase">Meaning</p>
+      <article class="a-stagecard" id="stage-11" aria-labelledby="stage-11-h">
+        <p class="a-stage__n">Stage 11</p>
+        <h3 id="stage-11-h">Packs</h3>
+        <p>One format for meaning and presentation, loaded by Volna and checked against the VDB and the trace. Today's profiles and proposals move into it.</p>
+        <dl class="a-dl">
+          <div><dt>Format</dt><dd>Pack schema version 1, in JSON: selectors over entities and trace names, assertions (roles, bindings, keys, units, enum names, requirements), and presentation (hues, row styles, group templates). Packs cascade like CSS, by selector specificity and then by origin: personal, team, build.</dd></div>
+          <div><dt>Core</dt><dd>A loader and a validator that reports unresolved selectors and contradictions, applied to the stage palette, row styles, groups, clock roles and key links.</dd></div>
+          <div><dt>Undo</dt><dd>Attaching and detaching a pack are workspace edits and labelled steps.</dd></div>
+          <div><dt>Migration</dt><dd><code>c910.pipeline</code>, the C910 counters, and the CHI and UCIe packs.</dd></div>
+          <div><dt>Tests</dt><dd>The CHI page's rename test: renaming every name in both the trace and the pack leaves every result unchanged.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-12" aria-labelledby="stage-12-h">
+        <p class="a-stage__n">Stage 12</p>
+        <h3 id="stage-12-h">Interfaces and derived transactions</h3>
+        <p>Handshakes, FIFOs and bus channels are recognized, protocol packs bind them to roles, and transaction streams are derived from signal-level recordings, beside the recorded ones.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>The <code>interfaces@1</code> extractor for valid/ready, request/acknowledge, FIFOs and credits; derivation by start, end and match rules, as hgdb declares them, into the sidecar.</dd></div>
+          <div><dt>Frontends</dt><dd>Derived streams appear as transaction lanes and tables, marked as derived.</dd></div>
+          <div><dt>Agents</dt><dd><code>transactions</code>.</dd></div>
+          <div><dt>Tests</dt><dd>An AXI fixture; C910's SoC bus, where derived bursts are compared with a reference monitor.</dd></div>
+          <div><dt>Measure</dt><dd>Derivation time and sidecar size.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-13" aria-labelledby="stage-13-h">
+        <p class="a-stage__n">Stage 13</p>
+        <h3 id="stage-13-h">Reconstructed signals</h3>
+        <p>Siloti's idea, open: record registers, inputs and memory outputs only, and compute any other net on demand from the IR.</p>
+        <dl class="a-dl">
+          <div><dt>Producers</dt><dd>A <code>--trace-vtr</code> mode that records only essential signals.</dd></div>
+          <div><dt>Core</dt><dd>Reconstruction per window, cycle by cycle, with "not computable" marked; results cached in the sidecar.</dd></div>
+          <div><dt>Frontends</dt><dd>Computed signals are ordinary rows with a computed mark.</dd></div>
+          <div><dt>Tests</dt><dd>Every net of a full C910 recording equals its reconstruction from the essential one, or is marked not computable.</dd></div>
+          <div><dt>Measure</dt><dd>Trace size, simulation time and reconstruction time against a full recording, in the benchmark report.</dd></div>
+        </dl>
+      </article>
+      <article class="a-stagecard" id="stage-14" aria-labelledby="stage-14-h">
+        <p class="a-stage__n">Stage 14</p>
+        <h3 id="stage-14-h">Registers, software and assertions</h3>
+        <p>Register maps and program symbols give values their software names, and assertions connect failures in the log to the logic they check.</p>
+        <dl class="a-dl">
+          <div><dt>Producers</dt><dd>SystemRDL and IP-XACT importers that write register packs; an ELF symbolication pack; SVA properties as compiled entities, linked to their log sites.</dd></div>
+          <div><dt>Frontends</dt><dd>CSR names on bus transactions and in values; function names on pipeline rows and performance phases; from a failure in the log to its property and signals.</dd></div>
+          <div><dt>Tests</dt><dd>A SystemRDL fixture; CoreMark's functions on C910's pipeline; an assertion fixture from Verilator.</dd></div>
+        </dl>
+      </article>
+
+      <p class="a-phase">Evolution</p>
+      <article class="a-stagecard" id="stage-15" aria-labelledby="stage-15-h">
+        <p class="a-stage__n">Stage 15</p>
+        <h3 id="stage-15-h">Revisions and runs</h3>
+        <p>What changed between two builds, module by module, and where two runs part, mapped onto the logic that explains the difference.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>A diff of two stores by specialization key: changed bodies and ports, with moved code and comments ignored; with two traces, the first difference and its explaining cone.</dd></div>
+          <div><dt>Frontends</dt><dd>The comparison views of the multiple-traces design gain the explaining logic.</dd></div>
+          <div><dt>Agents</dt><dd><code>compare</code>.</dd></div>
+          <div><dt>Tests</dt><dd>Revisions with known edits; two C910 runs with an injected bug.</dd></div>
+        </dl>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="questions-open">
+  <div class="v-wrap">
+    <p class="v-kicker">Questions</p>
+    <h2 class="v-section__title">Open questions and limits.</h2>
+    <div class="a-body">
+      <ol>
+        <li><strong>The name.</strong> Synopsys calls its coverage database VDB (<code>simv.vdb</code>). The proposal keeps the name for the concept; the file is a single file with its own magic, not a directory.</li>
+        <li><strong>When to derive.</strong> Registers, clocks and state machines are cheap and useful at once, so the proposal derives them at build time; cones are derived on first use and cached. Verilation time on C910 decides.</li>
+        <li><strong>How expressive packs are.</strong> JSON with selectors and templates first. A rule language waits until two packs need more than templates, as the CHI design concluded.</li>
+        <li><strong>Generated RTL.</strong> C910's sources are themselves generated. Where a generator emits debug information, as CIRCT does with UHDI, VDB imports it as a second source view; otherwise the HDL is the source.</li>
+        <li><strong>Sources in the file.</strong> Embedding sources makes a VDB self-contained for remote and archived debugging, and also makes it carry the IP. It is a per-build choice.</li>
+        <li><strong>Gate-level designs.</strong> Standard cells repeat, so bodies are shared, and the instance tree is the paged scope index of the <a class="v-link" href="hierarchy-scope-sizes.html">scope sizes design</a>. Whether an inferred netlist of millions of cells stays within budget is measured, not assumed.</li>
+        <li><strong>Several designs in one session.</strong> A testbench model and a DUT from different front ends, or SystemC around RTL, need one binding per subtree of the trace.</li>
+        <li><strong>What leaves the machine.</strong> A remote model sees what the tools return. Budgets bound it, and a per-session policy can withhold source text and return structure only.</li>
+        <li><strong>Live simulation.</strong> The IR's statement guards are what source-level breakpoints need, as hgdb shows. Driving a live simulator is outside this plan; the store would serve it unchanged.</li>
+        <li><strong>A standard.</strong> No open debug-database format exists; a vendor-neutral debug data API presented at DVCon reached a 0.95 draft with no ratified standard we could find, and CIRCT's UHDI covers only generator debug information. Once stages 1 to 8 have landed, the store's specification could be offered as one.</li>
+        <li><strong>Model runs in CI.</strong> The evaluation needs model access. Tool outputs are gated in CI; model runs are a benchmark with a checked-in command.</li>
+      </ol>
+      <p><strong>Limits.</strong> VDB does not simulate. It cannot recover the order of events inside one time step, electrical resolution, or anything the trace did not record, and says so. Its inferred structure explains logic; it is not a synthesis result.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="references">
+  <div class="v-wrap">
+    <p class="v-kicker">References</p>
+    <h2 class="v-section__title">Sources, checked in September 2026.</h2>
+    <ol class="a-refs">
+      <li id="r1"><a class="v-link" href="https://idoc.pub/documents/verdi-3-user-guide-and-tutorial-on2378g0d3l0">Verdi 3 user guide and tutorial</a>: KDB, nTrace, nSchema, nState, active annotation, Temporal Flow View.</li>
+      <li id="r2"><a class="v-link" href="https://www.synopsys.com/content/dam/synopsys/verification/datasheets/verdi-ds.pdf">Verdi datasheet</a>: the unified databases (KDB, FSDB, VDB, RegDB, MsgDB, DbgDB, FDB).</li>
+      <li id="r3"><a class="v-link" href="https://www.synopsys.com/blogs/chip-design/faster-waveform-dumping-verdi-vcs.html">Synopsys, faster waveform dumping with Verdi and VCS</a>: a common parser and elaborator; design and simulation databases built in parallel.</li>
+      <li id="r4"><a class="v-link" href="https://manualzz.com/doc/o/rgvb7/synopsys-via-verdi-interoperability-apps-manual-npi-usage">Verdi interoperability apps manual, NPI usage</a>: the language, netlist, text, design-manipulation and FSDB models.</li>
+      <li id="r5"><a class="v-link" href="https://semiwiki.com/eda/synopsys/287414-whats-new-in-verdi/">SemiWiki, what's new in Verdi</a>: smart load and dynamic aliasing.</li>
+      <li id="r6"><a class="v-link" href="https://www.techdesignforums.com/practice/technique/visibility-enhancement-for-full-chip-simulation/">Visibility enhancement for full-chip simulation</a> and <a class="v-link" href="https://www.edn.com/maximizing-signal-visibility/">EDN, maximizing signal visibility</a>: Siloti's essential signals and data expansion.</li>
+      <li id="r7"><a class="v-link" href="https://www.synopsys.com/blogs/chip-design/using-ai-to-debug-more-quickly-and-accurately.html">Synopsys, using AI to debug more quickly and accurately</a> (February 2026): Verdi Assistant and MCP.</li>
+      <li id="r8"><a class="v-link" href="https://www.synopsys.com/content/dam/synopsys/verification/white-papers/verdi-rda-wp.pdf">Verdi Regression Debug Automation white paper</a>.</li>
+      <li id="r9"><a class="v-link" href="https://assets.markallengroup.com/article-images/83937/indago_debug_platform_wp.pdf">Cadence Indago debug platform white paper</a> (2015).</li>
+      <li id="r10"><a class="v-link" href="https://dvcon-proceedings.org/wp-content/uploads/Indago%E2%84%A2-Debug-Platform-Overview.pdf">Indago debug platform overview</a>, DVCon 2015.</li>
+      <li id="r11"><a class="v-link" href="https://www.design-reuse.com/news/52654/cadence-verisium-ai-driven-verification-platform.html">Cadence Verisium announcement</a> and <a class="v-link" href="http://registration.dvconchina.com/Assets/userfiles/sys_eb538c1c-65ff-4e82-8e6a-a1ef01127fed/files/2023ppt/Tutorial1-Cadence%E2%80%99%20AI%20Driven%20Verification%20%20Platform%20%E2%80%93%20Verisium%20Platform.pdf">Verisium tutorial</a>, DVCon China 2023: SemanticDiff, WaveMiner, PinDown, AutoTriage.</li>
+      <li id="r12"><a class="v-link" href="https://us.design-reuse.com/news/52657/cadence-joint-enterprise-data-and-ai-jedai-platform.html">Cadence JedAI platform announcement</a>.</li>
+      <li id="r13"><a class="v-link" href="https://www.embedded.com/cadence-unveils-ai-agent-to-accelerate-chip-design/">Embedded.com, Cadence unveils ChipStack</a> (February 2026): the knowledge-graph "mental model".</li>
+      <li id="r14"><a class="v-link" href="https://static.sw.cdn.siemens.com/siemens-disw-assets/public/6JT7GNFVXyQxaWu7nvqcuH/en-US/78700_Siemens%20SW%20Questa%20Visualizer%20FS%2078700%20C3.pdf">Siemens Questa Visualizer fact sheet</a>.</li>
+      <li id="r15"><a class="v-link" href="https://news.siemens.com/en-us/questa-one-agentic-ai-toolkit/">Siemens Questa One Agentic Toolkit</a> (February 2026).</li>
+      <li id="r16"><a class="v-link" href="https://circt.llvm.org/docs/Dialects/Debug/">CIRCT Debug dialect</a>.</li>
+      <li id="r17"><a class="v-link" href="https://github.com/llvm/circt/blob/main/lib/Target/DebugInfo/EmitHGLDD.cpp">CIRCT's HGLDD emitter</a>.</li>
+      <li id="r18"><a class="v-link" href="https://discourse.llvm.org/t/rfc-uhdi-a-json-debug-info-document-emitted-from-the-debug-dialect/91690">RFC: UHDI, a JSON debug-info document emitted from the Debug dialect</a> (August 2026).</li>
+      <li id="r19"><a class="v-link" href="https://arxiv.org/html/2408.10082">Tywaves: typed waveforms for Chisel</a>.</li>
+      <li id="r20"><a class="v-link" href="https://arxiv.org/html/2203.05742v1">hgdb: a hardware generator debugger</a> and its <a class="v-link" href="https://github.com/Kuree/hgdb/blob/master/include/schema.hh">symbol-table schema</a>.</li>
+      <li id="r21"><a class="v-link" href="https://github.com/chipsalliance/UHDM">UHDM, the Universal Hardware Data Model</a>.</li>
+      <li id="r22"><a class="v-link" href="https://yosyshq.readthedocs.io/projects/yosys/en/v0.48/using_yosys/synthesis/fsm.html">Yosys FSM handling</a>.</li>
+      <li id="r23"><a class="v-link" href="https://www.jameswhanlon.com/slang-netlist/user-guide.html">slang-netlist user guide</a>.</li>
+      <li id="r24"><a class="v-link" href="https://kythe.io/docs/schema/">Kythe schema</a>.</li>
+      <li id="r25"><a class="v-link" href="https://glean.software/docs/derived/">Glean derived predicates</a> and <a class="v-link" href="https://glean.software/docs/implementation/incrementality/">incrementality</a>.</li>
+      <li id="r26"><a class="v-link" href="https://sourcegraph.com/blog/announcing-scip">Sourcegraph, announcing SCIP</a>.</li>
+      <li id="r27"><a class="v-link" href="https://codeql.github.com/docs/codeql-overview/about-codeql/">About CodeQL</a>.</li>
+      <li id="r28"><a class="v-link" href="https://nakryiko.com/posts/btf-dedup/">BTF type deduplication</a>.</li>
+      <li id="r29"><a class="v-link" href="https://pernos.co/about/dataflow/">Pernosco dataflow</a>.</li>
+      <li id="r30"><a class="v-link" href="https://openroad.readthedocs.io/en/latest/main/src/odb/README.html">OpenROAD database (odb)</a>.</li>
+      <li id="r31"><a class="v-link" href="https://arxiv.org/abs/2408.08927">VerilogCoder</a> (NVIDIA, AAAI 2025).</li>
+      <li id="r32"><a class="v-link" href="https://arxiv.org/html/2510.15906">FVDebug</a> (NVIDIA, 2025).</li>
+      <li id="r33"><a class="v-link" href="https://arxiv.org/html/2607.20638">WaveformQA</a> (Tenstorrent, July 2026).</li>
+      <li id="r34"><a class="v-link" href="https://arxiv.org/html/2606.23759">VeriPilot</a> (June 2026).</li>
+      <li id="r35"><a class="v-link" href="https://arxiv.org/html/2506.14074v1">CVDP benchmark</a> (NVIDIA, 2025).</li>
+      <li id="r36"><a class="v-link" href="https://github.com/kleverhq/wavepeek">wavepeek</a>, pinned in <code>ext/wavepeek</code>.</li>
+      <li id="r37"><a class="v-link" href="https://github.com/extraordinary6/wave-mcp">wave-mcp</a>.</li>
+      <li id="r38"><a class="v-link" href="https://gitlab.com/surfer-project/surfer/-/blob/main/surfer-wcp/src/proto.rs">Surfer WCP protocol</a>.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="a-end">
+  <div class="v-wrap">
+    <p class="v-hero__fine">Measured with <code>python3 bench/workloads/c910/vdb_census.py bench/workloads/gen/c910_build/obj_vtr/Vtop.vdb.json</code>, <code>/usr/bin/time -v target/release/vtr-vdb check &lt;export&gt; bench/results/latest/c910_coremark_sim.vtr --prefix TOP</code> and <code>python3 bench/workloads/c910/fsm_replay.py bench/results/latest/c910_coremark.vtr --demo-json demo.json</code>, which also wrote the demo's data, on a Core Ultra 7 265K · the container size is an estimate from a JSON re-encoding · this page is a vision; no stage has landed</p>
+  </div>
+</section>
+</main>
+<script>
+
+function press(group, button) { for (const b of group.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button)); }
+function setPageTheme(mode) {
+  const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  try { localStorage.setItem('volna-theme', mode); } catch (e) {}
+  press(document.getElementById('page-theme'), document.querySelector(`#page-theme [data-mode="${mode}"]`));
+}
+document.getElementById('page-theme').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPageTheme(b.dataset.mode); });
+{ let mode = 'dark'; try { mode = localStorage.getItem('volna-theme') || 'dark'; } catch (e) {}
+  press(document.getElementById('page-theme'), document.querySelector(`#page-theme [data-mode="${mode}"]`)); }
+/* The demo: one C910 state machine as a VDB would hold it, animated by the recorded CoreMark run.
+   D holds real data: the source excerpt of ct_rtu_pst_preg_entry.v, per-instance transition counts by source line
+   (from replaying the guards on the recorded inputs), time in each state, and every state change of the 95 entries
+   in one window. Everything the panels print is computed from D here. */
+const D = {"window":[159400,160200],"end":504139,"keys":["None>DEALLOC@270","RETIRE>DEALLOC@270","DEALLOC>RETIRE@272","DEALLOC>WF_ALLOC@288","WF_ALLOC>DEALLOC@292","WF_ALLOC>ALLOC@294","ALLOC>DEALLOC@298","ALLOC>DEALLOC@300","ALLOC>RELEASE@302","ALLOC>RETIRE@304","RETIRE>DEALLOC@308","RETIRE>RELEASE@310","RELEASE>DEALLOC@314"],"counts":{"1":[1,1,2,5966,176,5790,741,25,0,5024,5004,20,20],"2":[1,1,2,4889,220,4669,681,47,0,3941,3918,23,23],"3":[1,1,2,6295,459,5836,682,78,0,5076,5060,16,16],"4":[1,1,2,5309,593,4716,552,69,0,4094,4088,7,7],"5":[1,1,2,4600,333,4267,369,30,0,3868,3862,6,6],"6":[1,1,2,5107,598,4509,535,55,0,3919,3913,6,6],"7":[1,1,2,6804,652,6152,624,58,0,5470,5459,11,11],"8":[1,1,2,5177,435,4742,554,57,0,4130,4122,9,9],"9":[1,1,2,5537,481,5056,600,72,0,4383,4368,16,16],"10":[1,1,2,5816,506,5310,650,64,0,4595,4561,35,35],"11":[1,1,2,4873,391,4482,614,106,0,3761,3726,36,36],"12":[1,1,2,5211,461,4750,757,96,0,3897,3853,44,44],"13":[1,1,2,6135,301,5834,524,93,0,5217,5176,41,41],"14":[1,1,2,3524,435,3089,584,61,0,2444,2420,24,24],"15":[1,1,2,2,1,1,0,0,0,1,1,0,0],"16":[1,1,2,6225,385,5840,590,59,0,5190,5156,35,35],"17":[1,1,2,6167,360,5806,598,55,0,5153,5127,27,27],"18":[1,1,2,6076,425,5651,725,54,0,4872,4838,34,34],"19":[1,1,2,4063,302,3761,481,33,0,3247,3244,3,3],"20":[1,1,2,6288,396,5892,833,42,0,5017,5007,10,10],"21":[1,1,2,5477,337,5140,732,50,0,4358,4345,13,13],"22":[1,1,2,5563,344,5219,692,47,0,4480,4470,10,10],"23":[1,1,2,5650,357,5293,693,42,0,4558,4551,7,7],"24":[1,1,2,5100,266,4834,562,38,0,4234,4227,7,7],"25":[1,1,2,5337,367,4970,483,38,0,4449,4440,9,9],"26":[1,1,2,4846,276,4570,486,35,0,4048,4045,4,4],"27":[1,1,2,3489,243,3246,349,33,0,2864,2863,1,1],"28":[1,1,2,4759,218,4541,335,28,0,4178,4175,3,3],"29":[1,1,2,4730,228,4501,404,25,0,4072,4073,0,0],"30":[1,1,2,4983,197,4785,344,12,0,4429,4428,2,2],"31":[1,1,2,5020,172,4848,359,16,0,4473,4467,7,7],"32":[1,0,0,4897,147,4750,357,19,0,4374,4372,2,2],"33":[1,0,0,4939,158,4781,336,25,0,4420,4415,5,5],"34":[1,0,0,4115,123,3992,223,18,0,3751,3747,3,3],"35":[1,0,0,3910,110,3800,189,8,0,3603,3602,1,1],"36":[1,0,0,3664,112,3552,263,9,0,3280,3280,0,0],"37":[1,0,0,3916,92,3824,313,6,0,3505,3504,0,0],"38":[1,0,0,3702,100,3602,325,15,0,3262,3262,0,0],"39":[1,0,0,3491,128,3363,247,4,0,3112,3112,0,0],"40":[1,0,0,3052,91,2961,209,7,0,2745,2745,0,0],"41":[1,0,0,2782,85,2697,156,5,0,2536,2528,8,8],"42":[1,0,0,2309,47,2262,140,10,0,2112,2112,0,0],"43":[1,0,0,2053,46,2007,114,5,0,1888,1886,2,2],"44":[1,0,0,1749,53,1696,81,18,0,1597,1597,0,0],"45":[1,0,0,1607,37,1570,60,1,0,1509,1509,0,0],"46":[1,0,0,1469,50,1419,25,0,0,1394,1394,0,0],"47":[1,0,0,1374,18,1356,11,0,0,1345,1345,0,0],"48":[1,0,0,1313,2,1311,8,1,0,1302,1302,0,0],"49":[1,0,0,1211,2,1209,8,5,0,1196,1196,0,0],"50":[1,0,0,949,2,947,5,0,0,942,942,0,0],"51":[1,0,0,577,2,575,4,0,0,571,571,0,0],"52":[1,0,0,266,1,265,4,0,0,261,261,0,0],"53":[1,0,0,36,0,36,1,0,0,35,35,0,0],"54":[1,0,0,2,0,2,0,0,0,2,2,0,0],"55":[1,0,0,0,0,0,0,0,0,0,0,0,0],"56":[1,0,0,0,0,0,0,0,0,0,0,0,0],"57":[1,0,0,0,0,0,0,0,0,0,0,0,0],"58":[1,0,0,0,0,0,0,0,0,0,0,0,0],"59":[1,0,0,0,0,0,0,0,0,0,0,0,0],"60":[1,0,0,0,0,0,0,0,0,0,0,0,0],"61":[1,0,0,0,0,0,0,0,0,0,0,0,0],"62":[1,0,0,1,0,1,0,0,0,1,1,0,0],"63":[1,0,0,1,0,1,0,0,0,1,1,0,0],"64":[1,0,0,3,0,3,0,0,0,3,3,0,0],"65":[1,0,0,6,0,6,0,0,0,6,6,0,0],"66":[1,0,0,13,0,13,0,0,0,13,13,0,0],"67":[1,0,0,39,0,39,2,0,0,37,37,0,0],"68":[1,0,0,213,2,211,6,0,0,205,205,0,0],"69":[1,0,0,570,2,568,7,0,0,561,561,0,0],"70":[1,0,0,1057,13,1044,8,1,0,1035,1035,0,0],"71":[1,0,0,1519,18,1501,32,6,0,1463,1463,0,0],"72":[1,0,0,2055,83,1972,43,6,0,1923,1923,0,0],"73":[1,0,0,2562,94,2468,123,9,0,2336,2336,0,0],"74":[1,0,0,3169,136,3033,206,94,0,2733,2730,3,3],"75":[1,0,0,3550,103,3447,330,51,0,3066,3062,4,4],"76":[1,0,0,3955,130,3825,423,58,0,3344,3338,6,6],"77":[1,0,0,3826,126,3700,312,27,0,3361,3357,4,4],"78":[1,0,0,4370,132,4238,388,108,0,3742,3734,8,8],"79":[1,0,0,4479,158,4321,390,18,0,3913,3903,10,10],"80":[1,0,0,4023,216,3807,487,26,0,3294,3287,7,7],"81":[1,0,0,3601,263,3338,420,40,0,2877,2868,9,9],"82":[1,0,0,2547,177,2370,451,4,0,1915,1913,1,1],"83":[1,0,0,3926,195,3731,390,42,0,3299,3296,2,2],"84":[1,0,0,4821,316,4505,494,15,0,3996,3991,4,4],"85":[1,0,0,5130,230,4900,471,14,0,4414,4407,7,7],"86":[1,0,0,4547,291,4256,546,42,0,3668,3664,3,3],"87":[1,0,0,4098,214,3884,400,13,0,3471,3459,11,11],"88":[1,0,0,5825,282,5543,550,121,0,4872,4868,3,3],"89":[1,0,0,6018,397,5621,562,27,0,5031,5025,6,6],"90":[1,0,0,4181,348,3833,524,27,0,3281,3272,9,9],"91":[1,0,0,6262,299,5963,693,26,0,5243,5238,5,5],"92":[1,0,0,5126,324,4802,523,30,0,4249,4245,3,3],"93":[1,0,0,3915,196,3719,385,35,0,3299,3297,1,1],"94":[1,0,0,3966,144,3822,490,6,0,3326,3325,0,0],"95":[1,0,0,13,8,4,0,0,0,4,4,0,0]},"occ":{"1":[27284,44474,106458,325880,42],"2":[21750,39278,84956,358106,48],"3":[29732,78988,122768,272614,36],"4":[24906,63288,101550,314380,14],"5":[21032,52746,99818,330530,12],"6":[26378,65394,99296,313058,12],"7":[35404,74938,143436,250338,22],"8":[30476,54874,108544,310226,18],"9":[36692,60604,113678,293132,32],"10":[39988,55610,114338,294132,70],"11":[38738,55974,91866,317488,72],"12":[45854,70158,99064,288974,88],"13":[45490,63010,137242,258314,82],"14":[34626,36768,64462,368234,48],"15":[60,72,6,504000,0],"16":[56002,53804,138658,255604,70],"17":[60860,51222,142024,249978,54],"18":[70086,49688,131174,253122,68],"19":[52642,35884,91646,323960,6],"20":[82360,50554,140976,230228,20],"21":[78262,45286,120898,259666,26],"22":[83492,45350,130142,245134,20],"23":[103086,46084,131996,222952,20],"24":[94188,39288,123580,247066,16],"25":[103230,43086,131554,226248,20],"26":[118566,38452,119308,227802,10],"27":[102342,26834,82224,292736,2],"28":[112118,38934,125880,227200,6],"29":[146402,39268,124272,194196,0],"30":[124554,39926,132974,206680,4],"31":[142234,40300,135096,186486,22],"32":[149512,43570,132010,179042,4],"33":[163494,40792,134780,165056,16],"34":[142678,33196,111338,216920,6],"35":[176738,31106,108266,188024,4],"36":[234766,34162,105092,130118,0],"37":[246776,33364,112700,111298,0],"38":[275758,32636,107954,87790,0],"39":[304882,28604,102602,68050,0],"40":[319974,24278,90756,69130,0],"41":[359248,22944,82012,39918,16],"42":[384554,19402,67164,33018,0],"43":[395956,16340,61134,30704,4],"44":[414318,11982,53876,23962,0],"45":[420876,10980,50638,21644,0],"46":[427294,10558,46834,19452,0],"47":[430846,9394,46548,17350,0],"48":[437700,9078,45992,11368,0],"49":[443268,9024,42414,9432,0],"50":[454746,7748,32820,8824,0],"51":[473462,4674,19500,6502,0],"52":[489664,1958,8978,3538,0],"53":[502154,222,1258,504,0],"54":[504040,14,66,18,0],"55":[504138,0,0,0,0],"56":[504138,0,0,0,0],"57":[504138,0,0,0,0],"58":[504138,0,0,0,0],"59":[504138,0,0,0,0],"60":[504138,0,0,0,0],"61":[504138,0,0,0,0],"62":[504098,8,26,6,0],"63":[504098,8,22,10,0],"64":[503996,24,88,30,0],"65":[503794,36,192,116,0],"66":[503392,80,394,272,0],"67":[501394,348,1790,606,0],"68":[492094,1950,7330,2764,0],"69":[474124,4852,18270,6892,0],"70":[449152,8296,32430,14260,0],"71":[424630,10428,46142,22938,0],"72":[394788,21208,59890,28252,0],"73":[377816,19482,72518,34322,0],"74":[341764,25298,87590,49480,6],"75":[258480,28422,95352,121876,8],"76":[253308,34450,105046,111322,12],"77":[179550,32066,100528,191986,8],"78":[232104,38998,115376,117644,16],"79":[205750,36398,116432,145532,26],"80":[178970,38744,96034,190376,14],"81":[152090,31670,84874,235478,26],"82":[96518,33274,60762,313582,2],"83":[93072,34880,91674,284508,4],"84":[90726,45710,113990,253700,12],"85":[88880,43308,125880,246054,16],"86":[79818,37838,97242,289234,6],"87":[64002,35118,95164,309820,34],"88":[72546,47572,132110,251900,10],"89":[59078,51528,132284,261230,18],"90":[45562,71696,81354,305508,18],"91":[54494,52582,135938,261114,10],"92":[38182,66776,105056,294118,6],"93":[24502,52226,81094,346314,2],"94":[42856,31968,83200,346114,0],"95":[4248,550,34,499306,0]},"rows":{"1":[[159400,3],[159460,0],[159470,1],[159474,2],[159480,3],[159512,0],[159516,1],[159520,2],[159548,3],[159564,0],[159566,1],[159570,2],[159594,3],[159606,0],[159610,1],[159614,2],[159640,3],[159658,0],[159660,1],[159670,2],[159690,3],[159698,0],[159700,1],[159706,2],[159734,3],[159750,0],[159752,1],[159760,2],[159790,3],[159808,0],[159816,1],[159820,2],[159846,3],[159864,0],[159866,1],[159876,2],[159896,3],[159904,0],[159906,1],[159912,2],[159940,3],[159956,0],[159958,1],[159966,2],[159996,3],[160014,0],[160022,1],[160026,2],[160052,3],[160070,0],[160072,1],[160082,2],[160102,3],[160110,0],[160112,1],[160118,2],[160146,3],[160162,0],[160164,1],[160172,2]],"2":[[159400,3]],"3":[[159400,3],[159462,0],[159470,1],[159476,2],[159486,3],[159512,0],[159516,1],[159520,2],[159548,3],[159566,0],[159568,1],[159574,2],[159602,3],[159606,0],[159610,1],[159614,2],[159648,3],[159652,0],[159654,1],[159660,2],[159684,3],[159690,0],[159694,1],[159698,2],[159720,3],[159738,0],[159740,1],[159746,2],[159772,3],[159790,0],[159794,1],[159798,2],[159824,3],[159844,0],[159846,1],[159852,2],[159876,3],[159890,0],[159892,1],[159900,2],[159918,3],[159926,0],[159928,1],[159934,2],[159960,3],[159976,0],[159978,1],[159982,2],[160006,3],[160018,0],[160022,1],[160026,2],[160060,3],[160064,0],[160066,1],[160072,2],[160096,3],[160102,0],[160106,1],[160110,2],[160132,3],[160150,0],[160152,1],[160158,2],[160184,3]],"4":[[159400,3]],"5":[[159400,3],[159406,0],[159408,1],[159414,2],[159440,3],[159458,0],[159472,1],[159476,2],[159486,3],[159498,0],[159500,1],[159504,2],[159528,3],[159544,0],[159546,1],[159554,2],[159584,3],[159602,0],[159612,1],[159622,2],[159648,3],[159652,0],[159654,1],[159666,2],[159686,3],[159792,0],[159796,1],[159802,2],[159834,3],[159854,0],[159858,1],[159864,2],[159890,3],[159912,0],[159914,1],[159920,2],[159946,3],[159960,0],[159962,1],[159968,2],[159996,3],[160002,0],[160006,1],[160010,2],[160046,3],[160064,0],[160066,1],[160078,2],[160098,3]],"6":[[159400,2],[159402,3],[159418,0],[159420,1],[159428,2],[159458,3],[159496,0],[159500,1],[159506,2],[159532,3],[159548,0],[159550,1],[159556,2],[159584,3],[159590,0],[159594,1],[159598,2],[159634,3],[159652,0],[159658,1],[159666,2],[159686,3],[159694,0],[159696,1],[159704,2],[159730,3],[159748,0],[159752,1],[159760,2],[159790,3],[159808,0],[159816,1],[159820,2],[159854,3],[159858,0],[159860,1],[159866,2],[159890,3],[159896,0],[159900,1],[159904,2],[159926,3],[159944,0],[159946,1],[159952,2],[159978,3],[159996,0],[160000,1],[160004,2],[160030,3],[160050,0],[160052,1],[160058,2],[160082,3],[160096,0],[160098,1],[160106,2],[160124,3],[160132,0],[160134,1],[160140,2],[160166,3],[160182,0],[160184,1],[160188,2]],"7":[[159400,2],[159422,3],[159438,0],[159442,1],[159448,2],[159468,0],[159474,1],[159478,2],[159488,3],[159512,0],[159518,1],[159524,2],[159548,3],[159564,0],[159566,1],[159570,2],[159602,3],[159606,0],[159612,1],[159622,2],[159648,3],[159658,0],[159660,1],[159670,2],[159690,3],[159706,0],[159708,1],[159714,2],[159740,3],[159754,0],[159756,1],[159762,2],[159790,3],[159796,0],[159800,1],[159804,2],[159840,3],[159858,0],[159860,1],[159872,2],[159892,3],[159998,0],[160002,1],[160008,2],[160040,3],[160060,0],[160064,1],[160070,2],[160096,3],[160118,0],[160120,1],[160126,2],[160152,3],[160166,0],[160168,1],[160174,2]],"8":[[159400,3],[159402,0],[159404,1],[159408,2],[159438,3],[159446,4],[159448,0],[159450,1],[159454,2],[159468,0],[159474,1],[159478,2],[159496,3],[159504,0],[159506,1],[159512,2],[159542,3],[159544,0],[159546,1],[159554,2],[159584,3],[159602,0],[159614,1],[159626,2],[159652,3],[159664,0],[159668,1],[159674,2],[159696,3],[159708,0],[159710,1],[159720,2],[159748,3],[159750,0],[159756,1],[159766,2],[159792,3],[159892,0],[159896,1],[159902,2],[159924,3],[159940,0],[159942,1],[159946,2],[159976,3],[159984,4],[159986,0],[159988,1],[159994,2],[160018,3],[160040,0],[160042,1],[160046,2],[160072,3],[160090,0],[160092,1],[160098,2],[160122,3],[160142,0],[160148,1],[160152,2],[160182,3],[160190,4],[160192,0],[160194,1]],"9":[[159400,2],[159422,3],[159440,0],[159442,1],[159448,2],[159468,0],[159476,1],[159480,2],[159496,3],[159504,0],[159506,1],[159512,2],[159542,3],[159548,0],[159550,1],[159560,2],[159586,3],[159686,0],[159690,1],[159696,2],[159718,3],[159734,0],[159736,1],[159740,2],[159770,3],[159778,4],[159780,0],[159782,1],[159788,2],[159812,3],[159834,0],[159836,1],[159840,2],[159866,3],[159884,0],[159886,1],[159892,2],[159916,3],[159936,0],[159942,1],[159950,2],[159978,3],[159996,0],[160002,1],[160006,2],[160040,3],[160060,0],[160062,1],[160066,2],[160096,3],[160102,0],[160108,1],[160116,2],[160142,3],[160160,0],[160164,1],[160172,2]],"10":[[159400,3]],"11":[[159400,1],[159468,0],[159476,1],[159480,2],[159496,3],[159512,0],[159518,1],[159524,2],[159550,3],[159570,0],[159576,1],[159582,2],[159606,3],[159628,0],[159630,1],[159634,2],[159660,3],[159678,0],[159680,1],[159686,2],[159710,3],[159730,0],[159736,1],[159744,2],[159772,3],[159790,0],[159796,1],[159800,2],[159834,3],[159854,0],[159856,1],[159860,2],[159890,3],[159896,0],[159902,1],[159910,2],[159936,3],[159954,0],[159958,1],[159966,2],[159996,3],[160014,0],[160024,1],[160034,2],[160060,3],[160064,0],[160070,1],[160078,2],[160098,3],[160106,0],[160108,1],[160112,2],[160142,3],[160160,0],[160162,1],[160168,2]],"12":[[159400,2],[159406,3],[159422,0],[159424,1],[159430,2],[159458,3],[159464,0],[159478,1],[159484,2],[159504,3],[159514,0],[159520,1],[159530,2],[159556,3],[159570,0],[159574,1],[159580,2],[159606,3],[159626,0],[159630,1],[159634,2],[159660,3],[159678,0],[159680,1],[159686,2],[159710,3],[159730,0],[159738,1],[159744,2],[159772,3],[159790,0],[159798,1],[159802,2],[159834,3],[159854,0],[159858,1],[159864,2],[159890,3],[159912,0],[159914,1],[159920,2],[159954,3],[159956,0],[159962,1],[159972,2],[159998,3],[160098,0],[160102,1],[160108,2],[160130,3],[160146,0],[160148,1],[160156,2],[160184,3]],"13":[[159400,2],[159422,3],[159438,0],[159444,1],[159450,2],[159468,0],[159478,1],[159482,2],[159498,3],[159514,0],[159520,1],[159530,2],[159556,3],[159570,0],[159576,1],[159582,2],[159606,3],[159628,0],[159632,1],[159638,2],[159664,3],[159680,0],[159684,1],[159690,2],[159712,3],[159738,0],[159740,1],[159746,2],[159776,3],[159782,0],[159786,1],[159790,2],[159814,3],[159844,0],[159846,1],[159852,2],[159884,3],[159886,0],[159890,1],[159896,2],[159918,3],[159944,0],[159946,1],[159952,2],[159982,3],[159988,0],[159992,1],[159996,2],[160020,3],[160050,0],[160052,1],[160058,2],[160090,3],[160092,0],[160096,1],[160102,2],[160124,3],[160150,0],[160152,1],[160158,2],[160188,3],[160194,0],[160198,1]],"14":[[159400,3]],"15":[[159400,3]],"16":[[159400,2],[159416,3],[159418,0],[159420,1],[159428,2],[159458,3],[159496,0],[159502,1],[159506,2],[159532,3],[159548,0],[159554,1],[159560,2],[159586,3],[159590,0],[159592,1],[159596,2],[159628,3],[159648,0],[159652,1],[159658,2],[159684,3],[159706,0],[159708,1],[159714,2],[159748,3],[159750,0],[159760,1],[159766,2],[159792,3],[159796,0],[159800,1],[159804,2],[159840,3],[159846,0],[159850,1],[159856,2],[159884,3],[159886,0],[159890,1],[159896,2],[159918,3],[159940,0],[159944,1],[159950,2],[159978,3],[159996,0],[160004,1],[160008,2],[160040,3],[160060,0],[160064,1],[160070,2],[160096,3],[160118,0],[160120,1],[160126,2],[160160,3],[160162,0],[160168,1],[160178,2]],"17":[[159400,2],[159416,3],[159422,0],[159424,1],[159434,2],[159460,3],[159586,0],[159588,1],[159592,2],[159618,3],[159638,0],[159640,1],[159646,2],[159670,3],[159684,0],[159686,1],[159694,2],[159712,3],[159720,0],[159722,1],[159728,2],[159754,3],[159770,0],[159772,1],[159776,2],[159800,3],[159812,0],[159818,1],[159828,2],[159854,3],[159858,0],[159864,1],[159872,2],[159892,3],[159900,0],[159902,1],[159906,2],[159936,3],[159954,0],[159956,1],[159962,2],[159996,3],[160002,0],[160006,1],[160010,2],[160046,3],[160052,0],[160056,1],[160062,2],[160090,3],[160092,0],[160096,1],[160102,2],[160124,3],[160146,0],[160150,1],[160156,2],[160184,3]],"18":[[159400,3]],"19":[[159400,3]],"20":[[159400,2],[159424,3],[159444,0],[159448,1],[159452,2],[159468,0],[159482,1],[159486,2],[159512,3],[159522,0],[159524,1],[159532,2],[159564,3],[159572,0],[159580,1],[159584,2],[159608,3],[159638,0],[159640,1],[159646,2],[159678,3],[159680,0],[159684,1],[159690,2],[159712,3],[159734,0],[159744,1],[159750,2],[159776,3],[159782,0],[159786,1],[159794,2],[159818,3],[159840,0],[159844,1],[159850,2],[159874,3],[159890,0],[159892,1],[159900,2],[159918,3],[159936,0],[159950,1],[159956,2],[159982,3],[159988,0],[159992,1],[160000,2],[160024,3],[160046,0],[160050,1],[160056,2],[160080,3],[160096,0],[160098,1],[160106,2],[160124,3],[160142,0],[160156,1],[160162,2],[160188,3],[160194,0],[160198,1]],"21":[[159400,1],[159404,2],[159430,3],[159444,0],[159448,1],[159452,2],[159468,0],[159480,1],[159484,2],[159504,3],[159520,0],[159524,1],[159532,2],[159564,3],[159566,0],[159568,1],[159574,2],[159602,3],[159606,0],[159614,1],[159624,2],[159652,3],[159660,0],[159668,1],[159674,2],[159696,3],[159712,0],[159714,1],[159724,2],[159750,3],[159770,0],[159772,1],[159776,2],[159808,3],[159812,0],[159818,1],[159828,2],[159854,3],[159864,0],[159866,1],[159876,2],[159896,3],[159912,0],[159916,1],[159926,2],[159954,3],[159956,0],[159966,1],[159972,2],[159998,3],[160002,0],[160008,1],[160022,2],[160046,3],[160064,0],[160072,1],[160082,2],[160102,3],[160118,0],[160122,1],[160132,2],[160160,3],[160162,0],[160172,1],[160178,2]],"22":[[159400,1],[159404,2],[159430,3],[159444,0],[159450,1],[159454,2],[159468,0],[159482,1],[159486,2],[159512,3],[159522,0],[159530,1],[159534,2],[159564,3],[159572,4],[159574,0],[159580,1],[159588,2],[159612,3],[159634,0],[159638,1],[159644,2],[159668,3],[159684,0],[159686,1],[159694,2],[159712,3],[159730,0],[159744,1],[159750,2],[159776,3],[159790,0],[159802,1],[159816,2],[159840,3],[159858,0],[159874,1],[159880,2],[159902,3],[159914,0],[159916,1],[159926,2],[159954,3],[159960,0],[159968,1],[159976,2],[160002,3],[160006,0],[160008,1],[160024,2],[160050,3],[160070,0],[160080,1],[160086,2],[160108,3],[160120,0],[160122,1],[160132,2],[160160,3],[160166,0],[160174,1],[160182,2]],"23":[[159400,3],[159402,4],[159404,0],[159406,1],[159412,2],[159440,3],[159458,0],[159484,1],[159488,2],[159512,3],[159532,0],[159534,1],[159540,2],[159566,3],[159584,0],[159590,1],[159596,2],[159628,3],[159648,0],[159650,1],[159654,2],[159684,3],[159690,0],[159696,1],[159700,2],[159730,3],[159748,0],[159750,1],[159756,2],[159790,3],[159796,0],[159802,1],[159818,2],[159844,3],[159864,0],[159874,1],[159880,2],[159902,3],[159918,0],[159920,1],[159930,2],[159956,3],[159976,0],[159978,1],[159982,2],[160014,3],[160018,0],[160024,1],[160034,2],[160060,3],[160070,0],[160080,1],[160086,2],[160108,3],[160124,0],[160126,1],[160136,2],[160162,3],[160182,0],[160184,1],[160188,2]],"24":[[159400,3]],"25":[[159400,1],[159406,2],[159438,3],[159446,0],[159452,1],[159456,2],[159468,0],[159484,1],[159488,2],[159512,3],[159528,0],[159530,1],[159538,2],[159566,3],[159584,0],[159590,1],[159594,2],[159628,3],[159648,0],[159652,1],[159658,2],[159684,3],[159706,0],[159710,1],[159720,2],[159748,3],[159754,0],[159762,1],[159770,2],[159796,3],[159800,0],[159804,1],[159818,2],[159844,3],[159864,0],[159878,1],[159882,2],[159904,3],[159916,0],[159920,1],[159928,2],[159956,3],[159968,0],[159974,1],[159980,2],[160004,3],[160016,0],[160026,1],[160038,2],[160064,3],[160076,0],[160084,1],[160088,2],[160110,3],[160122,0],[160126,1],[160134,2],[160162,3],[160174,0],[160180,1],[160186,2]],"26":[[159400,1],[159406,2],[159438,3],[159440,0],[159444,1],[159450,2],[159468,0],[159486,1],[159490,2],[159514,3],[159516,0],[159532,1],[159538,2],[159566,3],[159584,0],[159594,1],[159598,2],[159634,3],[159640,0],[159644,1],[159650,2],[159678,3],[159680,0],[159690,1],[159698,2],[159728,3],[159734,4],[159738,0],[159746,1],[159756,2],[159782,3],[159798,0],[159820,1],[159832,2],[159858,3],[159870,0],[159878,1],[159882,2],[159912,3],[159916,0],[159928,1],[159934,2],[159960,3],[159978,0],[159980,1],[159986,2],[160014,3],[160018,0],[160026,1],[160036,2],[160064,3],[160072,0],[160084,1],[160088,2],[160118,3],[160122,0],[160134,1],[160140,2],[160166,3],[160184,0],[160186,1],[160192,2]],"27":[[159400,0],[159404,1],[159412,2],[159440,3],[159458,0],[159486,1],[159490,2],[159514,3],[159522,0],[159534,1],[159540,2],[159570,3],[159576,0],[159582,1],[159588,2],[159612,3],[159618,0],[159624,1],[159630,2],[159658,3],[159664,0],[159672,1],[159676,2],[159698,3],[159710,0],[159714,1],[159722,2],[159750,3],[159762,0],[159768,1],[159774,2],[159798,3],[159810,0],[159820,1],[159830,2],[159858,3],[159866,0],[159880,1],[159884,2],[159912,3],[159916,0],[159926,1],[159930,2],[159960,3],[159978,0],[159980,1],[159986,2],[160014,3],[160018,0],[160036,1],[160042,2],[160070,3],[160076,0],[160086,1],[160090,2],[160118,3],[160122,0],[160132,1],[160136,2],[160166,3],[160184,0],[160186,1],[160192,2]],"28":[[159400,3],[159406,0],[159408,1],[159414,2],[159444,3],[159450,0],[159452,1],[159458,2],[159468,0],[159488,1],[159492,2],[159514,3],[159528,0],[159538,1],[159544,2],[159570,3],[159576,0],[159582,1],[159588,2],[159614,3],[159628,0],[159632,1],[159638,2],[159664,3],[159670,0],[159672,1],[159676,2],[159706,3],[159710,0],[159722,1],[159728,2],[159754,3],[159772,0],[159774,1],[159780,2],[159808,3],[159812,0],[159830,1],[159836,2],[159864,3],[159870,0],[159880,1],[159884,2],[159912,3],[159916,0],[159930,1],[159936,2],[159960,3],[159976,0],[159982,1],[159992,2],[160018,3],[160028,0],[160034,1],[160038,2],[160070,3],[160080,0],[160086,1],[160090,2],[160118,3],[160122,0],[160136,1],[160142,2],[160166,3],[160182,0],[160188,1],[160198,2]],"29":[[159400,3]],"30":[[159400,3],[159402,0],[159412,1],[159418,2],[159444,3],[159450,0],[159454,1],[159468,0],[159488,1],[159494,2],[159520,3],[159528,4],[159530,0],[159538,1],[159544,2],[159570,3],[159584,0],[159596,1],[159610,2],[159634,3],[159652,0],[159674,1],[159678,2],[159706,3],[159710,0],[159720,1],[159724,2],[159754,3],[159772,0],[159774,1],[159780,2],[159808,3],[159812,0],[159828,1],[159832,2],[159864,3],[159874,0],[159882,1],[159890,2],[159916,3],[159924,0],[159930,1],[159936,2],[159962,3],[159982,0],[159988,1],[159994,2],[160018,3],[160040,0],[160042,1],[160046,2],[160072,3],[160090,0],[160092,1],[160098,2],[160122,3],[160142,0],[160156,1],[160162,2],[160188,3]],"31":[[159400,0],[159412,1],[159418,2],[159444,3],[159458,0],[159490,1],[159494,2],[159516,3],[159532,0],[159540,1],[159550,2],[159576,3],[159592,0],[159596,1],[159612,2],[159638,3],[159658,0],[159674,1],[159678,2],[159706,3],[159710,0],[159724,1],[159730,2],[159754,3],[159770,0],[159776,1],[159786,2],[159812,3],[159822,0],[159830,1],[159836,2],[159864,3],[159874,0],[159882,1],[159886,2],[159914,3],[159918,0],[159934,1],[159942,2],[159968,3],[159982,0],[159986,1],[159992,2],[160018,3],[160038,0],[160044,1],[160050,2],[160076,3],[160092,0],[160102,1],[160110,2],[160140,3],[160146,4],[160150,0],[160158,1],[160168,2],[160194,3]],"32":[[159400,0],[159414,1],[159424,2],[159450,3],[159486,0],[159492,1],[159500,2],[159522,3],[159542,0],[159556,1],[159564,2],[159590,3],[159594,0],[159598,1],[159612,2],[159638,3],[159658,0],[159676,1],[159684,2],[159710,3],[159718,0],[159724,1],[159730,2],[159756,3],[159776,0],[159782,1],[159788,2],[159812,3],[159834,0],[159836,1],[159840,2],[159866,3],[159884,0],[159886,1],[159892,2],[159916,3],[159936,0],[159950,1],[159956,2],[159982,3],[159996,0],[160010,1],[160024,2],[160050,3],[160070,0],[160088,1],[160096,2],[160122,3],[160130,0],[160136,1],[160142,2],[160168,3],[160188,0],[160194,1]],"33":[[159400,3],[159416,0],[159428,1],[159434,2],[159460,3],[159480,0],[159492,1],[159496,2],[159522,3],[159542,0],[159544,1],[159550,2],[159584,3],[159590,0],[159622,1],[159626,2],[159658,3],[159668,0],[159676,1],[159680,2],[159708,3],[159712,0],[159728,1],[159736,2],[159762,3],[159776,0],[159780,1],[159786,2],[159812,3],[159832,0],[159838,1],[159844,2],[159870,3],[159886,0],[159896,1],[159904,2],[159934,3],[159940,4],[159944,0],[159952,1],[159962,2],[159988,3],[160004,0],[160036,1],[160042,2],[160070,3],[160080,0],[160088,1],[160092,2],[160120,3],[160124,0],[160140,1],[160148,2],[160174,3],[160188,0],[160192,1],[160198,2]],"34":[[159400,3],[159416,0],[159418,1],[159424,2],[159458,3],[159464,0],[159496,1],[159502,2],[159528,3],[159544,0],[159556,1],[159564,2],[159590,3],[159602,0],[159624,1],[159630,2],[159658,3],[159668,0],[159700,1],[159706,2],[159734,3],[159740,0],[159746,1],[159752,2],[159778,3],[159798,0],[159832,1],[159838,2],[159864,3],[159870,0],[159906,1],[159912,2],[159940,3],[159946,0],[159952,1],[159958,2],[159984,3],[160004,0],[160038,1],[160044,2],[160070,3],[160076,0],[160112,1],[160118,2],[160146,3],[160152,0],[160158,1],[160164,2],[160190,3]],"35":[[159400,2],[159402,3],[159418,0],[159430,1],[159438,2],[159464,3],[159488,0],[159494,1],[159500,2],[159522,3],[159542,0],[159562,1],[159568,2],[159592,3],[159604,0],[159626,1],[159632,2],[159658,3],[159664,0],[159678,1],[159684,2],[159710,3],[159728,0],[159730,1],[159738,2],[159770,3],[159778,0],[159788,1],[159794,2],[159818,3],[159824,0],[159832,1],[159838,2],[159866,3],[159884,0],[159904,1],[159910,2],[159936,3],[159954,0],[159968,1],[159976,2],[160002,3],[160014,0],[160038,1],[160044,2],[160072,3],[160090,0],[160110,1],[160116,2],[160142,3],[160160,0],[160174,1],[160182,2]],"36":[[159400,3],[159416,0],[159430,1],[159438,2],[159464,3],[159496,0],[159504,1],[159510,2],[159534,3],[159548,0],[159562,1],[159568,2],[159592,3],[159608,0],[159626,1],[159632,2],[159660,3],[159678,0],[159698,1],[159704,2],[159730,3],[159748,0],[159762,1],[159770,2],[159796,3],[159808,0],[159838,1],[159844,2],[159870,3],[159876,0],[159884,1],[159890,2],[159916,3],[159934,0],[159936,1],[159944,2],[159976,3],[159984,0],[159994,1],[160000,2],[160024,3],[160030,0],[160044,1],[160050,2],[160076,3],[160082,0],[160090,1],[160096,2],[160122,3],[160140,0],[160142,1],[160150,2],[160182,3],[160190,0]],"37":[[159400,2],[159402,3],[159408,0],[159414,1],[159420,2],[159446,3],[159486,0],[159496,1],[159502,2],[159528,3],[159534,0],[159540,1],[159546,2],[159572,3],[159592,0],[159634,1],[159640,2],[159664,3],[159680,0],[159704,1],[159708,2],[159734,3],[159750,0],[159768,1],[159774,2],[159798,3],[159814,0],[159840,1],[159846,2],[159870,3],[159886,0],[159910,1],[159914,2],[159940,3],[159956,0],[159974,1],[159980,2],[160004,3],[160020,0],[160046,1],[160052,2],[160076,3],[160092,0],[160116,1],[160120,2],[160146,3],[160162,0],[160180,1],[160186,2]],"38":[[159400,2],[159406,3],[159422,0],[159436,1],[159444,2],[159468,0],[159504,1],[159510,2],[159542,3],[159544,0],[159570,1],[159580,2],[159606,3],[159616,0],[159634,1],[159644,2],[159668,3],[159684,0],[159704,1],[159710,2],[159738,3],[159754,0],[159776,1],[159782,2],[159810,3],[159820,0],[159840,1],[159850,2],[159874,3],[159890,0],[159910,1],[159916,2],[159944,3],[159960,0],[159982,1],[159988,2],[160016,3],[160026,0],[160046,1],[160056,2],[160080,3],[160096,0],[160116,1],[160122,2],[160150,3],[160166,0],[160188,1],[160194,2]],"39":[[159400,2],[159408,3],[159422,0],[159436,1],[159442,2],[159468,0],[159510,1],[159518,2],[159544,3],[159564,0],[159570,1],[159576,2],[159604,3],[159614,0],[159644,1],[159650,2],[159678,3],[159684,0],[159706,1],[159710,2],[159738,3],[159754,0],[159788,1],[159794,2],[159820,3],[159834,0],[159850,1],[159856,2],[159884,3],[159890,0],[159912,1],[159916,2],[159944,3],[159960,0],[159994,1],[160000,2],[160026,3],[160040,0],[160056,1],[160062,2],[160090,3],[160096,0],[160118,1],[160122,2],[160150,3],[160166,0]],"40":[[159400,2],[159416,3],[159418,0],[159510,1],[159516,2],[159544,3],[159556,0],[159584,1],[159590,2],[159616,3],[159634,0],[159646,1],[159654,2],[159680,3],[159696,0],[159728,1],[159736,2],[159762,3],[159776,0],[159790,1],[159796,2],[159822,3],[159840,0],[159852,1],[159860,2],[159886,3],[159902,0],[159934,1],[159942,2],[159968,3],[159982,0],[159996,1],[160002,2],[160028,3],[160046,0],[160058,1],[160066,2],[160092,3],[160108,0],[160140,1],[160148,2],[160174,3],[160188,0]],"41":[[159400,2],[159418,3],[159438,0],[159456,1],[159468,0],[159584,1],[159592,2],[159626,3],[159634,4],[159636,0],[159646,1],[159652,2],[159680,3],[159696,0],[159730,1],[159738,2],[159770,3],[159772,0],[159790,1],[159798,2],[159832,3],[159840,4],[159842,0],[159852,1],[159858,2],[159886,3],[159902,0],[159936,1],[159944,2],[159976,3],[159978,0],[159996,1],[160004,2],[160038,3],[160046,4],[160048,0],[160058,1],[160064,2],[160092,3],[160108,0],[160142,1],[160150,2],[160182,3],[160184,0]],"42":[[159400,2],[159418,3],[159430,0],[159438,1],[159444,2],[159468,0],[159512,1],[159518,2],[159548,3],[159566,0]],"43":[[159400,0]],"44":[[159400,3]],"45":[[159400,2],[159422,3],[159440,0]],"46":[[159400,0]],"47":[[159400,0]],"48":[[159400,0]],"49":[[159400,0]],"50":[[159400,0]],"51":[[159400,0]],"52":[[159400,0]],"53":[[159400,0]],"54":[[159400,0]],"55":[[159400,0]],"56":[[159400,0]],"57":[[159400,0]],"58":[[159400,0]],"59":[[159400,0]],"60":[[159400,0]],"61":[[159400,0]],"62":[[159400,0]],"63":[[159400,0]],"64":[[159400,0]],"65":[[159400,0]],"66":[[159400,0]],"67":[[159400,0]],"68":[[159400,0],[159584,1],[159590,2],[159616,3],[159634,0],[159790,1],[159796,2],[159822,3],[159840,0],[159996,1],[160002,2],[160028,3],[160046,0]],"69":[[159400,0],[159512,1],[159518,2],[159544,3],[159564,0],[159582,1],[159588,2],[159612,3],[159628,0],[159706,1],[159710,2],[159738,3],[159754,0],[159788,1],[159794,2],[159818,3],[159834,0],[159912,1],[159916,2],[159944,3],[159960,0],[159994,1],[160000,2],[160024,3],[160040,0],[160118,1],[160122,2],[160150,3],[160166,0]],"70":[[159400,0],[159510,1],[159516,2],[159544,3],[159564,0],[159570,1],[159580,2],[159606,3],[159626,0],[159654,1],[159666,2],[159686,3],[159792,0],[159860,1],[159872,2],[159892,3],[159998,0],[160066,1],[160078,2],[160098,3]],"71":[[159400,2],[159418,3],[159438,0],[159456,1],[159468,0],[159504,1],[159510,2],[159542,3],[159550,0],[159566,1],[159570,2],[159602,3],[159606,0],[159646,1],[159652,2],[159680,3],[159696,0],[159704,1],[159708,2],[159734,3],[159748,0],[159770,1],[159774,2],[159798,3],[159812,0],[159852,1],[159858,2],[159886,3],[159902,0],[159910,1],[159914,2],[159940,3],[159954,0],[159976,1],[159980,2],[160004,3],[160018,0],[160058,1],[160064,2],[160092,3],[160108,0],[160116,1],[160120,2],[160146,3],[160160,0],[160182,1],[160186,2]],"72":[[159400,2],[159418,3],[159438,0],[159454,1],[159458,2],[159468,0],[159496,1],[159502,2],[159528,3],[159532,0],[159564,1],[159568,2],[159592,3],[159606,0],[159644,1],[159650,2],[159678,3],[159712,0],[159756,1],[159766,2],[159792,3],[159892,0],[159906,1],[159912,2],[159940,3],[159944,0],[159962,1],[159972,2],[159998,3],[160098,0],[160112,1],[160118,2],[160146,3],[160150,0],[160168,1],[160178,2]],"73":[[159400,2],[159416,3],[159424,0],[159444,1],[159450,2],[159468,0],[159492,1],[159500,2],[159522,3],[159542,0],[159556,1],[159562,2],[159588,3],[159688,0],[159700,1],[159706,2],[159734,3],[159738,0],[159752,1],[159760,2],[159790,3],[159808,0],[159850,1],[159856,2],[159884,3],[159918,0],[159958,1],[159966,2],[159996,3],[160014,0],[160056,1],[160062,2],[160090,3],[160124,0],[160164,1],[160172,2]],"74":[[159400,2],[159406,3],[159422,0],[159438,1],[159444,2],[159468,0],[159490,1],[159494,2],[159520,3],[159528,0],[159546,1],[159554,2],[159584,3],[159602,0],[159634,1],[159640,2],[159664,3],[159678,0],[159684,1],[159690,2],[159712,0],[159746,1],[159752,2],[159778,3],[159798,0],[159804,1],[159818,2],[159844,3],[159864,0],[159866,1],[159874,2],[159894,3],[160000,0],[160010,1],[160024,2],[160050,3],[160070,0],[160072,1],[160080,2],[160100,3]],"75":[[159400,2],[159402,3],[159406,0],[159430,1],[159436,2],[159462,3],[159588,0],[159612,1],[159622,2],[159648,3],[159660,0],[159676,1],[159684,2],[159710,3],[159728,0],[159744,1],[159750,2],[159776,3],[159818,0],[159840,1],[159846,2],[159870,3],[159884,0],[159890,1],[159896,2],[159918,0],[159952,1],[159958,2],[159984,3],[160004,0],[160008,1],[160022,2],[160046,3],[160060,0],[160064,1],[160070,2],[160096,3],[160118,0],[160122,1],[160132,2],[160160,3],[160174,0],[160180,1],[160184,2]],"76":[[159400,3],[159416,0],[159424,1],[159434,2],[159460,3],[159586,0],[159598,1],[159612,2],[159638,3],[159658,0],[159660,1],[159668,2],[159688,3],[159794,0],[159802,1],[159816,2],[159840,3],[159854,0],[159858,1],[159864,2],[159890,3],[159912,0],[159916,1],[159926,2],[159954,3],[159968,0],[159974,1],[159978,2],[160002,3],[160024,0],[160046,1],[160052,2],[160076,3],[160090,0],[160096,1],[160102,2],[160124,0],[160158,1],[160164,2],[160190,3]],"77":[[159400,0],[159420,1],[159428,2],[159458,3],[159496,0],[159502,1],[159506,2],[159532,3],[159548,0],[159550,1],[159560,2],[159586,3],[159686,0],[159696,1],[159704,2],[159730,3],[159748,0],[159750,1],[159756,2],[159782,3],[159796,0],[159800,1],[159804,2],[159840,3],[159844,0],[159846,1],[159852,2],[159884,3],[159892,0],[159902,1],[159910,2],[159936,3],[159954,0],[159956,1],[159962,2],[159988,3],[160002,0],[160006,1],[160010,2],[160046,3],[160050,0],[160052,1],[160058,2],[160090,3],[160098,0],[160108,1],[160116,2],[160142,3],[160160,0],[160162,1],[160168,2],[160194,3]],"78":[[159400,3],[159402,0],[159414,1],[159420,2],[159446,3],[159486,0],[159488,1],[159492,2],[159514,3],[159528,0],[159540,1],[159546,2],[159572,3],[159592,0],[159596,1],[159610,2],[159634,3],[159648,0],[159652,1],[159658,2],[159684,3],[159706,0],[159710,1],[159720,2],[159748,3],[159762,0],[159768,1],[159772,2],[159796,3],[159818,0],[159832,1],[159840,2],[159866,3],[159884,0],[159886,1],[159892,2],[159916,3],[159924,0],[159950,1],[159956,2],[159982,3],[160024,0],[160038,1],[160046,2],[160072,3],[160090,0],[160092,1],[160098,2],[160122,3],[160130,0],[160156,1],[160162,2],[160188,3]],"79":[[159400,0],[159412,1],[159418,2],[159444,3],[159514,0],[159538,1],[159544,2],[159570,3],[159612,0],[159632,1],[159638,2],[159664,3],[159668,0],[159674,1],[159678,2],[159706,3],[159712,4],[159716,0],[159730,1],[159738,2],[159770,3],[159772,0],[159776,1],[159786,2],[159812,3],[159832,0],[159838,1],[159844,2],[159870,3],[159874,0],[159882,1],[159890,2],[159916,3],[159934,0],[159936,1],[159944,2],[159976,3],[159978,0],[159982,1],[159992,2],[160018,3],[160038,0],[160044,1],[160050,2],[160076,3],[160080,0],[160088,1],[160096,2],[160122,3],[160140,0],[160142,1],[160150,2],[160182,3],[160184,0],[160188,1],[160198,2]],"80":[[159400,3]],"81":[[159400,3]],"82":[[159400,3]],"83":[[159400,0],[159408,1],[159414,2],[159444,3],[159460,0],[159486,1],[159490,2],[159514,3],[159522,0],[159534,1],[159540,2],[159570,3],[159586,0],[159590,1],[159596,2],[159628,3],[159648,0],[159650,1],[159654,2],[159680,3],[159690,0],[159694,1],[159698,2],[159728,3],[159734,0],[159740,1],[159746,2],[159776,3],[159792,0],[159796,1],[159802,2],[159834,3],[159854,0],[159856,1],[159860,2],[159886,3],[159896,0],[159900,1],[159904,2],[159934,3],[159940,0],[159946,1],[159952,2],[159982,3],[159998,0],[160002,1],[160008,2],[160040,3],[160060,0],[160062,1],[160066,2],[160092,3],[160102,0],[160106,1],[160110,2],[160140,3],[160146,0],[160152,1],[160158,2],[160188,3]],"84":[[159400,3]],"85":[[159400,0],[159406,1],[159412,2],[159440,3],[159458,0],[159484,1],[159488,2],[159512,3],[159514,0],[159532,1],[159538,2],[159566,3],[159584,0],[159588,1],[159592,2],[159626,3],[159634,0],[159638,1],[159644,2],[159668,3],[159684,0],[159686,1],[159694,2],[159712,3],[159730,0],[159738,1],[159744,2],[159772,3],[159790,0],[159794,1],[159798,2],[159832,3],[159840,0],[159844,1],[159850,2],[159874,3],[159890,0],[159892,1],[159900,2],[159918,3],[159936,0],[159944,1],[159950,2],[159978,3],[159996,0],[160000,1],[160004,2],[160038,3],[160046,0],[160050,1],[160056,2],[160080,3],[160096,0],[160098,1],[160106,2],[160124,3],[160142,0],[160150,1],[160156,2],[160184,3]],"86":[[159400,3]],"87":[[159400,1],[159406,2],[159438,3],[159440,0],[159442,1],[159448,2],[159468,0],[159482,1],[159486,2],[159512,3],[159514,0],[159530,1],[159534,2],[159564,3],[159570,0],[159580,1],[159584,2],[159608,3],[159612,0],[159626,1],[159634,2],[159660,3],[159678,0],[159680,1],[159686,2],[159710,3],[159718,0],[159724,1],[159736,2],[159762,3],[159776,0],[159786,1],[159790,2],[159814,3],[159818,0],[159830,1],[159836,2],[159864,3],[159866,0],[159880,1],[159884,2],[159912,3],[159918,4],[159922,0],[159930,1],[159942,2],[159968,3],[159982,0],[159992,1],[159996,2],[160020,3],[160024,0],[160036,1],[160042,2],[160070,3],[160072,0],[160086,1],[160090,2],[160118,3],[160124,4],[160128,0],[160136,1],[160148,2],[160174,3],[160188,0],[160198,1]],"88":[[159400,1],[159404,2],[159430,3],[159444,0],[159450,1],[159456,2],[159468,0],[159478,1],[159484,2],[159504,3],[159520,0],[159524,1],[159532,2],[159564,3],[159566,0],[159568,1],[159574,2],[159602,3],[159608,4],[159612,0],[159624,1],[159630,2],[159658,3],[159660,0],[159672,1],[159676,2],[159706,3],[159710,0],[159722,1],[159728,2],[159754,3],[159762,0],[159766,1],[159770,2],[159796,3],[159808,0],[159818,1],[159828,2],[159854,3],[159866,0],[159878,1],[159882,2],[159912,3],[159916,0],[159928,1],[159934,2],[159960,3],[159968,0],[159972,1],[159976,2],[160002,3],[160014,0],[160024,1],[160034,2],[160060,3],[160072,0],[160084,1],[160088,2],[160118,3],[160122,0],[160134,1],[160140,2],[160166,3],[160174,0],[160178,1],[160182,2]],"89":[[159400,2],[159416,3],[159430,0],[159436,1],[159442,2],[159468,0],[159476,1],[159480,2],[159496,3],[159512,0],[159518,1],[159530,2],[159556,3],[159570,0],[159576,1],[159582,2],[159606,3],[159616,0],[159622,1],[159626,2],[159652,3],[159664,0],[159670,1],[159674,2],[159696,3],[159710,0],[159720,1],[159724,2],[159750,3],[159770,0],[159774,1],[159780,2],[159808,3],[159814,4],[159818,0],[159820,1],[159830,2],[159858,3],[159870,0],[159876,1],[159880,2],[159902,3],[159916,0],[159926,1],[159930,2],[159956,3],[159976,0],[159980,1],[159986,2],[160014,3],[160020,4],[160024,0],[160026,1],[160036,2],[160064,3],[160076,0],[160082,1],[160086,2],[160108,3],[160122,0],[160132,1],[160136,2],[160162,3],[160182,0],[160186,1],[160192,2]],"90":[[159400,2],[159422,3],[159430,0],[159434,1],[159438,2],[159464,3],[159496,0],[159500,1],[159504,2],[159528,3],[159542,0],[159544,1],[159550,2],[159576,3],[159590,0],[159594,1],[159598,2],[159634,3],[159638,0],[159640,1],[159646,2],[159678,3],[159686,0],[159690,1],[159696,2],[159718,3],[159734,0],[159736,1],[159740,2],[159770,3],[159776,0],[159782,1],[159788,2],[159812,3],[159822,0],[159828,1],[159832,2],[159858,3],[159870,0],[159874,1],[159878,2],[159900,3],[159918,0],[159920,1],[159928,2],[159956,3],[159976,0],[159978,1],[159982,2],[160014,3],[160018,0],[160022,1],[160026,2],[160060,3],[160072,0],[160080,1],[160084,2],[160106,3],[160124,0],[160126,1],[160134,2],[160162,3],[160182,0],[160184,1],[160188,2]],"91":[[159400,2],[159402,3],[159416,0],[159418,1],[159424,2],[159450,3],[159464,0],[159474,1],[159478,2],[159496,3],[159504,0],[159506,1],[159512,2],[159542,3],[159556,0],[159562,1],[159566,2],[159590,3],[159612,0],[159614,1],[159624,2],[159652,3],[159664,0],[159668,1],[159672,2],[159694,3],[159712,0],[159714,1],[159722,2],[159750,3],[159770,0],[159772,1],[159776,2],[159808,3],[159812,0],[159816,1],[159820,2],[159854,3],[159866,0],[159872,1],[159876,2],[159896,3],[159912,0],[159914,1],[159920,2],[159954,3],[159962,0],[159968,1],[159974,2],[160000,3],[160100,0],[160102,1],[160108,2],[160130,3],[160146,0],[160148,1],[160152,2],[160182,3],[160188,0],[160194,1]],"92":[[159400,3],[159460,0],[159472,1]],"93":[[159400,3]],"94":[[159400,3],[159402,0],[159404,1],[159408,2],[159438,3],[159444,0],[159448,1],[159452,2],[159468,0],[159470,1],[159476,2],[159486,3],[159512,0],[159516,1],[159520,2],[159548,3],[159556,0],[159560,1],[159564,2],[159590,3],[159602,0],[159610,1],[159614,2],[159648,3],[159660,0],[159666,1],[159670,2],[159690,3],[159706,0],[159708,1],[159714,2],[159748,3],[159756,0],[159762,1],[159768,2],[159794,3],[159894,0],[159896,1],[159902,2],[159924,3],[159940,0],[159942,1],[159946,2],[159976,3],[159982,0],[159988,1],[159994,2],[160018,3],[160028,0],[160034,1],[160038,2],[160064,3],[160076,0],[160078,1],[160082,2],[160102,3],[160118,0],[160120,1],[160126,2],[160160,3],[160168,0],[160174,1],[160180,2]],"95":[[159400,3]]},"flush":[[159466,159468]],"source":[[185,"parameter DEALLOC    = 5'b00001;"],[186,"parameter WF_ALLOC   = 5'b00010;"],[187,"parameter ALLOC      = 5'b00100;"],[188,"parameter RETIRE     = 5'b01000;"],[189,"parameter RELEASE    = 5'b10000;"],[255,"assign reset_lifecycle_state[4:0] = (x_reset_mapped) ? RETIRE : DEALLOC;"],[256,""],[257,"//----------------------------------------------------------"],[258,"//                  FSM of Preg liftcycle"],[259,"//----------------------------------------------------------"],[260,"// State Description:"],[261,"// DEALLOC    : preg is released and written back, could"],[262,"//              allocate to new producer"],[263,"// WF_ALLOC   : preg is in allocate preg register"],[264,"// ALLOC      : preg is allocated to producer"],[265,"// RETIRE     : producer is retired but preg is not released"],[266,"// RELEASE    : preg is released"],[267,""],[268,"always @(posedge sm_clk or negedge cpurst_b)"],[269,"begin"],[270,"  if(!cpurst_b)"],[271,"    lifecycle_cur_state[4:0] <= DEALLOC;"],[272,"  else if(ifu_xx_sync_reset)"],[273,"    lifecycle_cur_state[4:0] <= reset_lifecycle_state[4:0];"],[274,"  else"],[275,"    lifecycle_cur_state[4:0] <= lifecycle_next_state[4:0];"],[276,"end"],[277,""],[278,"// &CombBeg; @105"],[279,"always @( retire_vld"],[280,"       or wb_cur_state_wb_masked"],[281,"       or x_dealloc_vld"],[282,"       or rtu_yy_xx_flush"],[283,"       or x_release_vld"],[284,"       or lifecycle_cur_state[4:0]"],[285,"       or create_vld)"],[286,"begin"],[287,"  case(lifecycle_cur_state[4:0])"],[288,"    DEALLOC    : if(x_dealloc_vld && !rtu_yy_xx_flush)"],[289,"                   lifecycle_next_state[4:0] = WF_ALLOC;"],[290,"                 else"],[291,"                   lifecycle_next_state[4:0] = DEALLOC;"],[292,"    WF_ALLOC   : if(rtu_yy_xx_flush)"],[293,"                   lifecycle_next_state[4:0] = DEALLOC;"],[294,"                 else if(create_vld)"],[295,"                   lifecycle_next_state[4:0] = ALLOC;"],[296,"                 else"],[297,"                   lifecycle_next_state[4:0] = WF_ALLOC;"],[298,"    ALLOC      : if(rtu_yy_xx_flush)"],[299,"                   lifecycle_next_state[4:0] = DEALLOC;"],[300,"                 else if(x_release_vld && wb_cur_state_wb_masked)"],[301,"                   lifecycle_next_state[4:0] = DEALLOC;"],[302,"                 else if(x_release_vld)"],[303,"                   lifecycle_next_state[4:0] = RELEASE;"],[304,"                 else if(retire_vld)"],[305,"                   lifecycle_next_state[4:0] = RETIRE;"],[306,"                 else"],[307,"                   lifecycle_next_state[4:0] = ALLOC;"],[308,"    RETIRE     : if(x_release_vld && wb_cur_state_wb_masked)"],[309,"                   lifecycle_next_state[4:0] = DEALLOC;"],[310,"                 else if(x_release_vld)"],[311,"                   lifecycle_next_state[4:0] = RELEASE;"],[312,"                 else"],[313,"                   lifecycle_next_state[4:0] = RETIRE;"],[314,"    RELEASE    : if(wb_cur_state_wb_masked)"],[315,"                   lifecycle_next_state[4:0] = DEALLOC;"],[316,"                 else"],[317,"                   lifecycle_next_state[4:0] = RELEASE;"],[318,"    default    :   lifecycle_next_state[4:0] = DEALLOC;"],[319,"  endcase"]],"preg15":{"enter":4668,"via":304,"releaseLast":[4576,4578],"state":"RETIRE"},"replay":{"edges":3308480,"recorded":1181073,"ambiguous":62,"ambiguousAt":[14,54]}};
+const KEY = Object.fromEntries(D.keys.map((k, i) => [k, i]));
+const INST = Array.from({length: 95}, (_, i) => i + 1);
+const STATES = [
+  {name: 'DEALLOC', enc: "5'b00001", line: 261, doc: 'preg is released and written back, could allocate to new producer'},
+  {name: 'WF_ALLOC', enc: "5'b00010", line: 263, doc: 'preg is in allocate preg register'},
+  {name: 'ALLOC', enc: "5'b00100", line: 264, doc: 'preg is allocated to producer'},
+  {name: 'RETIRE', enc: "5'b01000", line: 265, doc: 'producer is retired but preg is not released'},
+  {name: 'RELEASE', enc: "5'b10000", line: 266, doc: 'preg is released'},
+];
+/* Transitions in priority order within each arm, as the FSM extractor would record them. `keys` name the replay's
+   (from > to @ line) counters that belong to the edge. */
+const EDGES = [
+  {id: 'r270', from: 'reset', to: 0, keys: ['None>DEALLOC@270', 'RETIRE>DEALLOC@270'], lines: [270, 271], guard: '!cpurst_b', note: 'asynchronous reset, from any state', kind: 'reset', lab: [86, 118]},
+  {id: 'r272', from: 'sync', to: 3, keys: ['DEALLOC>RETIRE@272'], lines: [255, 272, 273], guard: 'ifu_xx_sync_reset && x_reset_mapped', note: 'synchronous reset to reset_lifecycle_state; unmapped entries go to DEALLOC', kind: 'reset', lab: [524, 322]},
+  {id: 'e288', from: 0, to: 1, keys: ['DEALLOC>WF_ALLOC@288'], lines: [288, 289], guard: 'x_dealloc_vld && !rtu_yy_xx_flush', c: [160, 70], lab: [164, 84]},
+  {id: 'e292', from: 1, to: 0, keys: ['WF_ALLOC>DEALLOC@292'], lines: [292, 293], guard: 'rtu_yy_xx_flush', note: 'flush', c: [245, 140], lab: [246, 138]},
+  {id: 'e294', from: 1, to: 2, keys: ['WF_ALLOC>ALLOC@294'], lines: [294, 295], guard: 'create_vld', c: [440, 70], lab: [436, 84]},
+  {id: 'e298', from: 2, to: 0, keys: ['ALLOC>DEALLOC@298'], lines: [298, 299], guard: 'rtu_yy_xx_flush', note: 'flush', c: [300, 128], lab: [300, 143]},
+  {id: 'e300', from: 2, to: 0, keys: ['ALLOC>DEALLOC@300'], lines: [300, 301], guard: 'x_release_vld && wb_cur_state_wb_masked', note: 'released after write-back', c: [300, 212], lab: [300, 210]},
+  {id: 'e302', from: 2, to: 4, keys: ['ALLOC>RELEASE@302'], lines: [302, 303], guard: 'x_release_vld', note: 'released before write-back', c: [335, 232], lab: [438, 216]},
+  {id: 'e304', from: 2, to: 3, keys: ['ALLOC>RETIRE@304'], lines: [304, 305], guard: 'retire_vld', c: [468, 255], lab: [506, 250]},
+  {id: 'e308', from: 3, to: 0, keys: ['RETIRE>DEALLOC@308'], lines: [308, 309], guard: 'x_release_vld && wb_cur_state_wb_masked', c: [250, 245], lab: [300, 292]},
+  {id: 'e310', from: 3, to: 4, keys: ['RETIRE>RELEASE@310'], lines: [310, 311], guard: 'x_release_vld', note: 'released before write-back', c: [300, 336], lab: [300, 340]},
+  {id: 'e314', from: 4, to: 0, keys: ['RELEASE>DEALLOC@314'], lines: [314, 315], guard: 'wb_cur_state_wb_masked', c: [130, 258], lab: [112, 252]},
+];
+const EDGE = Object.fromEntries(EDGES.map(e => [e.id, e]));
+/* Read from the same recording by fsm_replay.py: preg15's last entry into RETIRE and its last release request, and
+   the replay's totals. */
+const PREG15 = D.preg15, REPLAY = D.replay;
+
+const fmt = n => n.toLocaleString('en-US');
+const pct = (a, b, d = 1) => (100 * a / b).toFixed(d) + '%';
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElementNS(tag.startsWith('svg:') ? 'http://www.w3.org/2000/svg' : 'http://www.w3.org/1999/xhtml', tag.replace('svg:', ''));
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) e.setAttribute(k, v);
+  for (const k of kids) e.append(k);
+  return e;
+};
+
+/* ---------- colour: the viewer's stage ladder, from the design-system tokens ---------- */
+const gam = c => c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+function oklch(L, C, H) {
+  const a = C * Math.cos(H * Math.PI / 180), b = C * Math.sin(H * Math.PI / 180);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const rgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+  return `rgb(${rgb.map(v => Math.round(gam(Math.max(0, Math.min(1, v))) * 255)).join(' ')})`;
+}
+function skin() {
+  const s = getComputedStyle(document.getElementById('demo-frame'));
+  const v = t => s.getPropertyValue('--' + t).trim();
+  const n = t => parseFloat(v('viewer-stage-' + t));
+  const st = {from: n('hue-from'), to: n('hue-to'), l: n('l'), lAlt: n('l-alt'), c: n('c'), edge: n('edge-dl')};
+  const stages = STATES.map((_, i) => {
+    const h = ((st.from - (st.from - st.to) * i / (STATES.length - 1)) % 360 + 360) % 360, L = i % 2 ? st.lAlt : st.l;
+    return {fill: oklch(L, st.c, h), edge: oklch(L + st.edge, st.c, h)};
+  });
+  return {stages, text: v('viewer-text'), muted: v('viewer-text-muted'), faint: v('viewer-text-faint'), accent: v('viewer-accent'),
+    canvas: v('viewer-canvas'), border: v('viewer-border'), flush: v('viewer-flush'), undef: v('viewer-undef'), stageText: v('viewer-stage-text'),
+    mono: s.getPropertyValue('--font-mono')};
+}
+
+/* ---------- state ---------- */
+const S = {inst: 'all', edge: null, side: 'source', question: null, hover: null, notes: []};
+const insts = () => S.inst === 'all' ? INST : [S.inst];
+const count = (e, list = insts()) => list.reduce((a, i) => a + e.keys.reduce((b, k) => b + D.counts[i][KEY[k]], 0), 0);
+const occupancy = (list = insts()) => STATES.map((_, k) => list.reduce((a, i) => a + D.occ[i][k], 0));
+const takenIn = e => INST.filter(i => count(e, [i]) > 0).length;
+
+/* ---------- the state machine ---------- */
+const POS = [[120, 175], [300, 60], [480, 175], [410, 300], [190, 300]];
+const RX = 60, RY = 23;
+const PSEUDO = {reset: [34, 92], sync: [572, 362]};
+function onEllipse([cx, cy], [tx, ty]) {
+  const dx = tx - cx, dy = ty - cy, k = 1 / Math.sqrt((dx * dx) / (RX * RX) + (dy * dy) / (RY * RY));
+  return [cx + dx * k, cy + dy * k];
+}
+function geometry(e) {
+  const b = POS[e.to];
+  if (e.kind === 'reset') {
+    const a = PSEUDO[e.from], end = onEllipse(b, a);
+    return {a, c: [(a[0] + end[0]) / 2, (a[1] + end[1]) / 2], b: end, mid: e.lab};
+  }
+  const a = onEllipse(POS[e.from], e.c), z = onEllipse(b, e.c);
+  return {a, c: e.c, b: z, mid: e.lab};
+}
+function arrow(g) {
+  const [x, y] = g.b, dx = x - g.c[0], dy = y - g.c[1], l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l;
+  const p = (s, w) => `${(x - ux * s + -uy * w).toFixed(1)},${(y - uy * s + ux * w).toFixed(1)}`;
+  return `M${x.toFixed(1)},${y.toFixed(1)} L${p(9, 4.5)} L${p(9, -4.5)} Z`;
+}
+function drawFsm(k) {
+  const svg = document.getElementById('fsm');
+  svg.replaceChildren();
+  const max = Math.max(...EDGES.map(e => count(e, INST)));
+  for (const [name, [x, y]] of Object.entries(PSEUDO)) {
+    svg.append(el('svg:circle', {cx: x, cy: y, r: 4, class: 'f-pseudo'}));
+    svg.append(el('svg:text', name === 'reset' ? {x, y: y - 10, 'text-anchor': 'middle', class: 'f-plabel'} : {x: x + 18, y: y + 18, 'text-anchor': 'end', class: 'f-plabel'}, name === 'reset' ? 'reset' : 'sync reset'));
+  }
+  for (const e of EDGES) {
+    const g = geometry(e), n = count(e), total = count(e, INST);
+    const cls = ['f-edge', e.kind === 'reset' ? 'is-reset' : '', total === 0 ? 'is-never' : '', S.edge === e.id ? 'is-sel' : '',
+      S.edge && S.edge !== e.id ? 'is-dim' : ''].filter(Boolean).join(' ');
+    const w = total === 0 ? 1.5 : 1 + 3 * Math.log10(total + 1) / Math.log10(max + 1);
+    const grp = el('svg:g', {class: cls, 'data-edge': e.id, tabindex: 0, role: 'button',
+      'aria-label': `${e.from === 'reset' || e.from === 'sync' ? e.from : STATES[e.from].name} to ${STATES[e.to].name}, line ${e.lines.at(-2) ?? e.lines[0]}: ${fmt(n)}`});
+    grp.append(el('svg:path', {d: `M${g.a[0].toFixed(1)},${g.a[1].toFixed(1)} Q${g.c[0].toFixed(1)},${g.c[1].toFixed(1)} ${g.b[0].toFixed(1)},${g.b[1].toFixed(1)}`, class: 'f-hit'}));
+    grp.append(el('svg:path', {d: `M${g.a[0].toFixed(1)},${g.a[1].toFixed(1)} Q${g.c[0].toFixed(1)},${g.c[1].toFixed(1)} ${g.b[0].toFixed(1)},${g.b[1].toFixed(1)}`, class: 'f-line', 'stroke-width': w.toFixed(2)}));
+    grp.append(el('svg:path', {d: arrow(g), class: 'f-head'}));
+    const label = total === 0 ? 'never' : fmt(n);
+    grp.append(el('svg:text', {x: g.mid[0].toFixed(1), y: g.mid[1].toFixed(1), 'text-anchor': 'middle', class: 'f-count'}, label));
+    svg.append(grp);
+  }
+  STATES.forEach((s, i) => {
+    const [x, y] = POS[i];
+    const g = el('svg:g', {class: 'f-node', 'data-state': s.name});
+    g.append(el('svg:ellipse', {cx: x, cy: y, rx: RX, ry: RY, fill: k.stages[i].fill, stroke: k.stages[i].edge}));
+    g.append(el('svg:text', {x, y: y - 2, 'text-anchor': 'middle', class: 'f-name', fill: k.stageText}, s.name));
+    g.append(el('svg:text', {x, y: y + 12, 'text-anchor': 'middle', class: 'f-enc', fill: k.stageText}, s.enc));
+    g.append(el('svg:title', {}, `${s.name} (${s.enc}), line ${s.line}: ${s.doc}`));
+    svg.append(g);
+  });
+}
+
+/* ---------- time in each state ---------- */
+function drawOccupancy(k) {
+  const host = document.getElementById('occ');
+  const occ = occupancy(), total = occ.reduce((a, b) => a + b, 0);
+  host.replaceChildren();
+  const bar = el('div', {class: 'd-occ__bar', role: 'img', 'aria-label': 'Time in each state: ' + STATES.map((s, i) => `${s.name} ${pct(occ[i], total)}`).join(', ')});
+  STATES.forEach((s, i) => {
+    if (!occ[i]) return;
+    const seg = el('span', {title: `${s.name}: ${pct(occ[i], total, 2)} of the run`});
+    seg.style.width = (100 * occ[i] / total) + '%';
+    seg.style.background = k.stages[i].fill;
+    bar.append(seg);
+  });
+  const legend = el('p', {class: 'd-occ__legend'});
+  const share = v => v === 0 ? '0%' : v / total < 0.0001 ? '<0.01%' : pct(v, total, v / total < 0.001 ? 2 : 1);
+  STATES.forEach((s, i) => legend.append(el('span', {}, `${s.name} `, el('b', {}, share(occ[i])))));
+  host.append(bar, legend);
+}
+
+/* ---------- source ---------- */
+const KW = /\b(always|begin|end|if|else|case|endcase|default|assign|parameter|posedge|negedge|or)\b/g;
+function tokens(text) {
+  const out = [], ci = text.indexOf('//');
+  const code = ci >= 0 ? text.slice(0, ci) : text, comment = ci >= 0 ? text.slice(ci) : '';
+  let last = 0;
+  for (const m of code.matchAll(/(\b(?:always|begin|end|if|else|case|endcase|default|assign|parameter|posedge|negedge|or)\b)|(\d+'b[01]+)|(\b(?:DEALLOC|WF_ALLOC|ALLOC|RETIRE|RELEASE)\b)/g)) {
+    if (m.index > last) out.push(document.createTextNode(code.slice(last, m.index)));
+    out.push(el('span', {class: m[1] ? 't-k' : m[2] ? 't-n' : 't-s'}, m[0]));
+    last = m.index + m[0].length;
+  }
+  if (last < code.length) out.push(document.createTextNode(code.slice(last)));
+  if (comment) out.push(el('span', {class: 't-c'}, comment));
+  return out;
+}
+function drawSource() {
+  const host = document.getElementById('src');
+  const hi = new Set(S.edge ? EDGE[S.edge].lines : []);
+  host.replaceChildren();
+  let prev = null;
+  for (const [n, text] of D.source) {
+    if (prev !== null && n !== prev + 1) host.append(el('div', {class: 'd-src__gap'}, '⋮'));
+    const row = el('div', {class: 'd-src__line' + (hi.has(n) ? ' is-hi' : ''), 'data-line': n}, el('span', {class: 'd-src__n'}, String(n)), el('code', {}, ...tokens(text)));
+    host.append(row);
+    prev = n;
+  }
+  if (S.edge) host.querySelector('.is-hi')?.scrollIntoView({block: 'nearest'});
+}
+
+/* ---------- facts, by layer ---------- */
+function drawFacts() {
+  const host = document.getElementById('facts');
+  const all = S.inst === 'all', who = all ? 'all 95 entries' : `x_ct_rtu_pst_entry_preg${S.inst}`;
+  const taken = EDGES.filter(e => count(e, INST) > 0).length;
+  const rows = [
+    ['Compiled', 'design.vdb', [
+      ['process', 'line 268', 'clocked on posedge sm_clk, asynchronous reset on negedge cpurst_b; writes lifecycle_cur_state[4:0]'],
+      ['process', 'line 279', 'combinational; case on lifecycle_cur_state[4:0], five arms and a default'],
+      ['parameters', 'lines 185–189', 'DEALLOC … RELEASE, one bit each'],
+      ['comment', 'lines 260–266', 'one line of description per state'],
+      ['instances', 'x_ct_rtu_pst_preg', '95 instances of one specialization; the facts above are stored once'],
+    ]],
+    ['Derived', 'design.vdb · fsm@1', [
+      ['state machine', 'lifecycle', 'register lifecycle_cur_state[4:0], one-hot, 5 states named by the parameters, 12 transitions with guards in priority order (2 from resets); exact'],
+      ['register', 'lifecycle_cur_state', 'reset to DEALLOC by !cpurst_b; ifu_xx_sync_reset loads reset_lifecycle_state'],
+      ['clock', 'sm_clk', 'forever_cpuclk gated by gated_clk_cell x_sm_gated_clk, enable sm_clk_en'],
+    ]],
+    ['Bound', 'binding to c910_coremark.vtr', [
+      ['variable', all ? '95 variables' : who, all ? '…x_ct_rtu_pst_entry_preg{1…95}.lifecycle_cur_state [4:0]' : `…${who}.lifecycle_cur_state [4:0]`],
+    ]],
+    ['Trace-derived', 'c910_coremark.vtr.index', [
+      ['coverage', who, `${taken} of ${EDGES.length} transitions taken by the recording; counts per source line`],
+      ['replay', 'all 95 entries', `${fmt(REPLAY.recorded)} recorded transitions predicted; ${REPLAY.ambiguous} edges ambiguous at t = ${REPLAY.ambiguousAt.join(' and ')}`],
+    ]],
+    ['Pack', 'c910-rtu (illustrative)', [
+      ['meaning', 'lifecycle', 'DEALLOC is "free", the other four "held"; noun "physical register"'],
+    ]],
+    ['Note', 'workspace', S.notes.length ? S.notes.map(n => ['note', n.target, n.text]) : [['note', '—', 'none yet; the preg15 question adds one']]],
+  ];
+  host.replaceChildren();
+  for (const [layer, where, facts] of rows) {
+    const sec = el('section', {class: 'd-facts__layer', 'data-layer': layer});
+    sec.append(el('h4', {}, el('span', {class: 'v-chip' + (layer === 'Note' ? ' v-chip--accent' : '')}, layer), el('span', {class: 'd-facts__where'}, where)));
+    const dl = el('dl', {});
+    for (const [kind, target, text] of facts) dl.append(el('div', {}, el('dt', {}, kind, el('small', {}, target)), el('dd', {}, text)));
+    sec.append(dl);
+    host.append(sec);
+  }
+}
+
+/* ---------- state lanes: every entry over one window ---------- */
+const [W0, W1] = D.window;
+const LANE = {top: 22, big: 26, gap: 8, row: 3, axis: 20, label: 64};
+function laneLayout(c) {
+  const w = c.clientWidth;
+  return {w, x0: LANE.label, x1: w - 8, yBig: LANE.top, yRows: LANE.top + LANE.big + LANE.gap, h: LANE.top + LANE.big + LANE.gap + 95 * LANE.row + LANE.axis};
+}
+const tx = (L, t) => L.x0 + (t - W0) / (W1 - W0) * (L.x1 - L.x0);
+function segments(i) {
+  const r = D.rows[i], out = [];
+  for (let j = 0; j < r.length; j++) out.push([r[j][0], j + 1 < r.length ? r[j + 1][0] : W1, r[j][1]]);
+  return out;
+}
+function drawLanes(k) {
+  const c = document.getElementById('lanes'), L = laneLayout(c), dpr = window.devicePixelRatio || 1;
+  c.height = L.h * dpr; c.width = L.w * dpr; c.style.height = L.h + 'px';
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, L.w, L.h);
+  g.font = `11px ${k.mono}`;
+  g.textBaseline = 'middle';
+  // flush band
+  for (const [a, b] of D.flush) {
+    g.fillStyle = k.flush; g.fillRect(tx(L, a), LANE.top - 4, Math.max(2, tx(L, b) - tx(L, a)), L.h - LANE.top - LANE.axis + 4);
+    g.fillStyle = k.undef; g.fillText('flush', tx(L, a) + 4, 10);
+  }
+  const focus = S.inst === 'all' ? 15 : S.inst;
+  // the focused entry, large, with state names
+  g.fillStyle = k.muted; g.fillText(`preg${focus}`, 4, L.yBig + LANE.big / 2);
+  for (const [a, b, s] of segments(focus)) {
+    const x = tx(L, a), w = tx(L, b) - x;
+    g.fillStyle = k.stages[s].fill; g.fillRect(x, L.yBig, w, LANE.big);
+    g.strokeStyle = k.stages[s].edge; g.lineWidth = 1; g.strokeRect(x + 0.5, L.yBig + 0.5, Math.max(0, w - 1), LANE.big - 1);
+    const name = STATES[s].name;
+    if (w > g.measureText(name).width + 8) { g.fillStyle = k.stageText; g.fillText(name, x + 4, L.yBig + LANE.big / 2); }
+  }
+  // all entries, one 3px row each
+  g.fillStyle = k.faint; g.fillText('preg1', 4, L.yRows + 2); g.fillText('preg95', 4, L.yRows + 94 * LANE.row + 1);
+  for (const i of INST) {
+    const y = L.yRows + (i - 1) * LANE.row;
+    for (const [a, b, s] of segments(i)) { g.fillStyle = k.stages[s].fill; g.fillRect(tx(L, a), y, Math.max(0.6, tx(L, b) - tx(L, a)), LANE.row - 0.6); }
+  }
+  // selected row marker
+  g.fillStyle = k.accent;
+  g.fillRect(L.x0 - 6, L.yRows + (focus - 1) * LANE.row - 1, 4, LANE.row + 1);
+  // axis
+  const yA = L.h - LANE.axis + 12;
+  g.fillStyle = k.faint; g.strokeStyle = k.border;
+  const step = L.w < 560 ? 400 : 200;
+  for (let t = W0; t <= W1; t += step) {
+    const x = tx(L, t);
+    g.fillRect(x, L.h - LANE.axis, 1, 4);
+    g.textAlign = t === W1 ? 'right' : t === W0 ? 'left' : 'center';
+    g.fillText(fmt(t), x, yA);
+  }
+  g.textAlign = 'left';
+  if (S.hover) {
+    const x = tx(L, S.hover.t);
+    g.fillStyle = k.accent; g.fillRect(x, LANE.top - 2, 1, L.h - LANE.top - LANE.axis + 2);
+  }
+  c.dataset.focus = focus;
+}
+function laneHit(ev) {
+  const c = document.getElementById('lanes'), L = laneLayout(c), r = c.getBoundingClientRect();
+  const x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (x < L.x0 || x > L.x1) return null;
+  const t = Math.round(W0 + (x - L.x0) / (L.x1 - L.x0) * (W1 - W0));
+  let i = null;
+  if (y >= L.yRows && y < L.yRows + 95 * LANE.row) i = 1 + Math.floor((y - L.yRows) / LANE.row);
+  else if (y >= L.yBig && y < L.yBig + LANE.big) i = S.inst === 'all' ? 15 : S.inst;
+  if (!i) return null;
+  const seg = segments(i).find(([a, b]) => t >= a && t < b) ?? segments(i).at(-1);
+  return {t, i, s: seg[2], since: seg[0]};
+}
+
+/* ---------- questions: a simulated agent over the proposed tool catalogue ---------- */
+const cite = (kind, text) => el('span', {class: 'd-cite', 'data-kind': kind}, text);
+function flushWindow() {
+  const [a] = D.flush[0];
+  let alloc = 0, wf = 0;
+  for (const i of INST) {
+    const r = D.rows[i];
+    for (let j = 1; j < r.length; j++) if (r[j][0] > a && r[j][0] <= a + 4 && r[j][1] === 0) { if (r[j - 1][1] === 2) alloc++; if (r[j - 1][1] === 1) wf++; }
+  }
+  return {t: a, alloc, wf};
+}
+const QUESTIONS = {
+  never: {q: 'Which transitions in the source has CoreMark never taken?', run() {
+    const never = EDGES.filter(e => count(e, INST) === 0), e310 = EDGE.e310, e272 = EDGE.r272;
+    return {calls: [
+      ['fsm_find', 'module: "ct_rtu_pst_preg_entry"', 'lifecycle: lifecycle_cur_state[4:0], one-hot, 5 states, 12 transitions, 95 instances'],
+      ['fsm_coverage', 'fsm: "ct_rtu_pst_preg_entry/lifecycle", trace: "c910_coremark.vtr"', `${EDGES.length - never.length} of ${EDGES.length} transitions taken; ${fmt(REPLAY.recorded)} changes attributed to source lines`],
+    ], answer: [
+      `One transition is never taken in any of the 95 entries: ${never.map(e => `${STATES[e.from].name} → ${STATES[e.to].name} (lines ${e.lines[0]}–${e.lines[1]})`).join(', ')}. It needs x_release_vld while the register is still ALLOC and not yet written back. Its sibling from RETIRE (line 310) is taken ${fmt(count(e310, INST))} times, in ${takenIn(e310)} of the 95 entries.`,
+      `The synchronous-reset edge to RETIRE is taken ${fmt(count(e272, INST))} times, by the ${takenIn(e272)} entries that map architectural registers at reset. The default arm (line 318) cannot be reached while the encoding stays one-hot.`,
+    ], cites: [cite('src', 'ct_rtu_pst_preg_entry.v:302-303'), cite('vdb', 'ct_rtu_pst_preg_entry#9f2c1e/fsm/lifecycle'), cite('vtr', 'c910_coremark.vtr@1-504139')], edge: never[0]?.id};
+  }},
+  preg15: {q: 'Why does preg15 stay in RETIRE?', run() {
+    const total = D.end, held = D.end - PREG15.enter;
+    S.notes = [{target: 'preg15 · lifecycle', text: `Held in RETIRE from t = ${fmt(PREG15.enter)} to the end; x_release_vld never rises again. Hypothesis: its architectural register is never rewritten. Author: agent. Status: hypothesis.`}];
+    return {calls: [
+      ['fsm_timeline', 'instance: "…x_ct_rtu_pst_entry_preg15", fsm: "lifecycle"', `RETIRE from ${fmt(PREG15.enter)} to the end of the trace (${pct(held, total)})`],
+      ['explain_transition', `instance: "…preg15", at: ${PREG15.enter}`, `ALLOC → RETIRE by line ${PREG15.via}: retire_vld; lines 298–302 false`],
+      ['fsm_exits', 'fsm: "lifecycle", state: "RETIRE"', 'line 308 needs x_release_vld && wb_cur_state_wb_masked; line 310 needs x_release_vld'],
+      ['find_events', `signal: "…preg15.x_release_vld", value: 1, after: ${PREG15.enter}`, `none; last high ${fmt(PREG15.releaseLast[0])}–${fmt(PREG15.releaseLast[1])}`],
+      ['note_add', 'target: "…preg15/fsm/lifecycle", status: "hypothesis"', 'saved to the workspace'],
+    ], answer: [
+      `preg15 enters RETIRE at t = ${fmt(PREG15.enter)} through line ${PREG15.via} (retire_vld) and stays there to the end of the run: ${fmt(held)} of ${fmt(total)} time units, ${pct(held, total)}. RETIRE is left only on x_release_vld (lines 308 and 310), and preg15's x_release_vld is last high from ${fmt(PREG15.releaseLast[0])} to ${fmt(PREG15.releaseLast[1])}, before the entry got there.`,
+      'A hypothesis, not checked here: the architectural register that preg15 holds is never written again, so no later producer releases it. The next query would read the rename table. The finding is saved as a note with status "hypothesis"; see Facts.',
+    ], cites: [cite('src', 'ct_rtu_pst_preg_entry.v:304'), cite('src', 'ct_rtu_pst_preg_entry.v:308-311'), cite('vtr', `…preg15.x_release_vld@${PREG15.releaseLast[0]}`)], inst: 15, edge: 'e304'};
+  }},
+  flush: {q: 'How many allocations do flushes undo?', run() {
+    const alloc = count(EDGE.e288, INST), f1 = count(EDGE.e292, INST), f2 = count(EDGE.e298, INST), rel = count(EDGE.e300, INST), w = flushWindow();
+    return {calls: [
+      ['fsm_coverage', 'fsm: "lifecycle", by: "source_line"', `292: ${fmt(f1)}, 298: ${fmt(f2)}, 300: ${fmt(rel)}`],
+      ['find_events', `signal: "rtu_yy_xx_flush", from: ${W0}, to: ${W1}`, `one pulse at t = ${fmt(w.t)}`],
+    ], answer: [
+      `Of ${fmt(alloc)} allocations (DEALLOC → WF_ALLOC, line 288), flushes undo ${fmt(f1 + f2)}, ${pct(f1 + f2, alloc)}: ${fmt(f1)} while waiting (WF_ALLOC → DEALLOC, line 292) and ${fmt(f2)} after allocation (ALLOC → DEALLOC, line 298). The other ${fmt(rel)} ALLOC → DEALLOC changes are releases after write-back (line 300), not flushes. A diagram that merged the two arms would hide the difference.`,
+      `In the window below, the flush at t = ${fmt(w.t)} frees ${w.alloc + w.wf} entries at once: ${w.alloc} from ALLOC and ${w.wf} from WF_ALLOC.`,
+    ], cites: [cite('src', 'ct_rtu_pst_preg_entry.v:292'), cite('src', 'ct_rtu_pst_preg_entry.v:298'), cite('src', 'ct_rtu_pst_preg_entry.v:300'), cite('vtr', `…preg1.rtu_yy_xx_flush@${w.t}`)], edge: 'e298'};
+  }},
+  agree: {q: 'Does the extracted machine match the recording?', run() {
+    return {calls: [
+      ['fsm_replay', 'fsm: "lifecycle", instances: 95, trace: "c910_coremark.vtr"', `${fmt(REPLAY.edges)} clock edges; ${fmt(REPLAY.recorded)} changes predicted; ${REPLAY.ambiguous} ambiguous`],
+    ], answer: [
+      `Yes. Evaluating the guards on the recorded inputs before every clock edge predicts all ${fmt(REPLAY.recorded)} recorded changes of the 95 entries, and no change that did not happen, over ${fmt(REPLAY.edges)} edges.`,
+      `${REPLAY.ambiguous} edges, at t = ${REPLAY.ambiguousAt.join(' and ')}, are reported as ambiguous rather than guessed: reset deasserts in the same time step as the clock edge, and a trace does not record which came first.`,
+    ], cites: [cite('vdb', 'ct_rtu_pst_preg_entry#9f2c1e/fsm/lifecycle'), ...REPLAY.ambiguousAt.map(t => cite('vtr', `…preg1.cpurst_b@${t}`))], edge: null};
+  }},
+};
+function drawAnswer() {
+  const host = document.getElementById('answer');
+  host.replaceChildren();
+  if (!S.question) { host.append(el('p', {class: 'd-answer__idle'}, 'Pick a question. The tool calls are the proposed catalogue; the numbers are computed by this page from the recording.')); return; }
+  const r = QUESTIONS[S.question].result;
+  const calls = el('ol', {class: 'd-calls'});
+  for (const [tool, args, out] of r.calls) calls.append(el('li', {}, el('code', {}, el('b', {}, tool), `(${args})`), el('span', {}, '→ ' + out)));
+  host.append(calls);
+  for (const p of r.answer) host.append(el('p', {}, p));
+  host.append(el('p', {class: 'd-cites'}, ...r.cites));
+}
+function ask(id) {
+  S.question = id;
+  const r = QUESTIONS[id].run();
+  QUESTIONS[id].result = r;
+  if (r.inst) S.inst = r.inst;
+  S.edge = r.edge ?? null;
+  document.querySelectorAll('#questions [data-q]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === id)));
+  render();
+}
+
+/* ---------- readout ---------- */
+function readout() {
+  const out = document.getElementById('readout');
+  const who = S.inst === 'all' ? 'All 95 entries' : `preg${S.inst}`;
+  if (S.hover) {
+    const h = S.hover;
+    out.innerHTML = '';
+    out.append(`preg${h.i} at t = ${fmt(h.t)}: `, el('b', {}, STATES[h.s].name), ` since ${fmt(h.since)} · ${STATES[h.s].doc}`);
+    return;
+  }
+  if (S.edge) {
+    const e = EDGE[S.edge], n = count(e);
+    out.innerHTML = '';
+    const from = e.from === 'reset' ? 'reset' : e.from === 'sync' ? 'sync reset' : STATES[e.from].name;
+    out.append(`${who}: `, el('b', {}, `${from} → ${STATES[e.to].name}`), ` ${fmt(n)} times · lines ${e.lines.join(', ')} · guard `, el('b', {}, e.guard), e.note ? ` · ${e.note}` : '');
+    return;
+  }
+  const occ = occupancy(), total = occ.reduce((a, b) => a + b, 0), changes = EDGES.reduce((a, e) => a + count(e), 0);
+  out.innerHTML = '';
+  out.append(`${who}: `, el('b', {}, fmt(changes)), ' state changes in the run · most time in ', el('b', {}, STATES[occ.indexOf(Math.max(...occ))].name), ` (${pct(Math.max(...occ), total)}) · click a transition or a lane`);
+}
+
+/* ---------- render ---------- */
+let K = null;
+function render() {
+  K = skin();
+  document.getElementById('inst').value = String(S.inst);
+  drawFsm(K); drawOccupancy(K); drawSource(); drawFacts(); drawLanes(K); drawAnswer(); readout();
+  document.querySelectorAll('#side [data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.side)));
+  document.getElementById('side-head').textContent = S.side === 'source' ? 'Source · ct_rtu_pst_preg_entry.v' : 'Facts · by layer';
+  document.getElementById('src').hidden = S.side !== 'source';
+  document.getElementById('facts').hidden = S.side !== 'facts';
+}
+
+function init() {
+  const sel = document.getElementById('inst');
+  sel.append(el('option', {value: 'all'}, 'All 95 entries'));
+  for (const i of INST) sel.append(el('option', {value: String(i)}, `preg${i}`));
+  sel.addEventListener('change', () => { S.inst = sel.value === 'all' ? 'all' : Number(sel.value); render(); });
+  const qs = document.getElementById('questions');
+  for (const [id, q] of Object.entries(QUESTIONS)) {
+    const b = el('button', {type: 'button', class: 'v-btn v-btn--sm', 'data-q': id, 'aria-pressed': 'false'}, q.q);
+    b.addEventListener('click', () => ask(id));
+    qs.append(b);
+  }
+  document.getElementById('fsm').addEventListener('click', ev => {
+    const g = ev.target.closest('[data-edge]');
+    S.edge = g && S.edge !== g.dataset.edge ? g.dataset.edge : null;
+    render();
+  });
+  document.getElementById('fsm').addEventListener('keydown', ev => {
+    const g = ev.target.closest?.('[data-edge]');
+    if (g && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); S.edge = S.edge === g.dataset.edge ? null : g.dataset.edge; render(); document.querySelector(`[data-edge="${g.dataset.edge}"]`)?.focus(); }
+  });
+  document.querySelectorAll('#side [data-mode]').forEach(b => b.addEventListener('click', () => { S.side = b.dataset.mode; render(); }));
+  const c = document.getElementById('lanes');
+  c.addEventListener('pointermove', ev => { S.hover = laneHit(ev); drawLanes(K); readout(); });
+  c.addEventListener('pointerleave', () => { S.hover = null; drawLanes(K); readout(); });
+  c.addEventListener('click', ev => { const h = laneHit(ev); if (h) { S.inst = h.i; S.hover = null; render(); } });
+  document.getElementById('reset').addEventListener('click', () => { Object.assign(S, {inst: 'all', edge: null, question: null, hover: null, notes: []}); document.querySelectorAll('#questions [data-q]').forEach(b => b.setAttribute('aria-pressed', 'false')); render(); });
+  new ResizeObserver(() => K && drawLanes(K)).observe(c);
+  new MutationObserver(render).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
+  render();
+  window.VDB = {
+    state: () => ({inst: S.inst, edge: S.edge, side: S.side, question: S.question, notes: S.notes.length,
+      counts: Object.fromEntries(EDGES.map(e => [e.id, count(e)])), occupancy: occupancy(), readout: document.getElementById('readout').textContent,
+      answer: document.getElementById('answer').textContent, labels: [...document.querySelectorAll('#fsm .f-count')].map(t => t.textContent)}),
+    ask, select: i => { S.inst = i; render(); }, edge: id => { S.edge = id; render(); },
+    hover: (i, t) => { const seg = segments(i).find(([a, b]) => t >= a && t < b); S.hover = {i, t, s: seg[2], since: seg[0]}; readout(); return S.hover; },
+    totals: () => Object.fromEntries(EDGES.map(e => [e.id, count(e, INST)])), lanes: () => INST.map(i => segments(i).length),
+  };
+  window.ready = true;
+}
+init();
+</script>
+</body>
+</html>

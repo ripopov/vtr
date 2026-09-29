@@ -1,5 +1,10 @@
 # Application note: building a VDB on top of VTR
 
+This note describes the current attachment contract and the profile schema of
+the pipeline examples. [VDB, rethought](VDB_rethinked.html) proposes a
+long-term design that keeps the contract and replaces the per-application
+profile schemas with one pack format over a layered design knowledge base.
+
 VTR stores what happened in a simulation. It deliberately stores nothing
 about how to *show* it. A VDB (Volna Data Base) is the separate,
 application-specific layer that adds meaning and presentation to an
