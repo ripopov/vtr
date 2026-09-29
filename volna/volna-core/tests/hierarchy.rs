@@ -214,6 +214,58 @@ fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
 }
 
 #[test]
+fn expand_all_keeps_gate_leaves_out_of_state_and_saved_paths() {
+    use volna_core::workspace::Workspace;
+
+    let mut h = Hierarchy::default();
+    let root = h.push_scope("top".into(), "module".into(), None);
+    let module = h.push_scope("module".into(), "module".into(), Some(root));
+    for id in 0..100_000 {
+        h.push_scope(format!("gate{id}"), "module".into(), Some(module));
+    }
+    let leaf = h.scopes.len() - 1;
+    let doc = hierarchy_document(h);
+    let session = doc.traces().first_loaded().unwrap().1.clone();
+    let mut app = App::new();
+    app.set_session(session);
+    assert_eq!(app.scopes.expanded().count(), 2);
+
+    app.handle(Command::ExpandAllScopes(true));
+    assert_eq!(app.scopes.visible.len(), 100_002);
+    assert_eq!(app.scopes.expanded().count(), 2);
+    assert!(!app.scopes.is_expanded(TreeNode::scope(a(leaf))));
+    let save =
+        |app: &App| Workspace::capture(app, volna_core::testing::paths("trace.vtr"), None).unwrap();
+    let mut saved = save(&app);
+    assert_eq!(saved.sidebar.expanded.len(), 2);
+    assert!(saved.to_bytes().unwrap().len() < 10_000);
+
+    // Clicking a leaf cannot create an expansion entry either.
+    app.handle(Command::ToggleScope(TreeNode::scope(a(leaf))));
+    assert_eq!(app.scopes.expanded().count(), 2);
+    app.handle(Command::ExpandAllScopes(false));
+    assert_eq!(app.scopes.visible, [(TreeNode::scope(a(root)), 0)]);
+    // A saved path to a leaf (from an older or hand-written workspace)
+    // resolves normally but has no expansion state to restore.
+    saved
+        .sidebar
+        .expanded
+        .push(a(vec!["top".into(), "module".into(), "gate99999".into()]));
+    saved
+        .prepare(
+            &app,
+            "file:///tmp/trace.vtr",
+            "file:///tmp/trace.vtr.volna.json",
+        )
+        .unwrap()
+        .commit(&mut app)
+        .unwrap();
+    assert_eq!(app.scopes.visible.len(), 100_002);
+    assert_eq!(app.scopes.expanded().count(), 2);
+    assert_eq!(save(&app).sidebar.expanded.len(), 2);
+}
+
+#[test]
 fn stream_workspace_paths_roundtrip_and_unresolved_paths_survive() {
     use volna_core::workspace::Workspace;
     let session = fixture();

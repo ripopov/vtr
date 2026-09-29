@@ -66,6 +66,33 @@ exists. Iterative flattening supports deep trees without recursion. The metadata
 extension uses remote protocol version 2; VTR encodings and C/Rust reader APIs
 are unchanged.
 
+Expansion state contains branches only. A leaf has nothing to open, so neither
+Expand all, initial expansion, a toggle nor workspace restore stores it as
+expanded. This keeps the existing virtualized list, the same separation of
+tree model and visible-row rendering described in
+[VS Code's list/tree design](https://github.com/microsoft/vscode/wiki/Lists-And-Trees).
+Rejecting Expand all by total scope count would penalize gate-level hierarchies
+whose millions of cells have no children; rendering virtualization alone does
+not bound the cost of recording and saving expansion state.
+
+`hierarchy_cost` measures the core command with persistence tracking enabled,
+workspace capture and JSON serialization headlessly. On `gates4.vtr` (2,305,524
+scopes, 24,824 branches), release binaries before/after the branch-only rule,
+best of three fresh processes in the same session on an Intel Core Ultra 7
+265K pinned with `taskset -c 0-7`:
+
+| Operation | All scopes in expansion state | Branches only |
+|---|---:|---:|
+| Expand all, including workspace change detection | 363 ms | 60 ms |
+| Capture workspace paths | 6,901 ms | 30 ms |
+| Serialize workspace | 1,334 ms | 8 ms |
+| Workspace JSON size | 826,354,791 bytes | 9,522,003 bytes |
+
+Both expose every scope row. These are model and serialization measurements,
+not rendered frame times or disk-write timings. Visible-row flattening remains
+linear in exposed scopes; expansion state and its saved paths scale with open
+branches. Expansion remains navigation outside undo history.
+
 ## Volna cockpit undo and redo
 
 The [undo/redo design](undo-redo.html) keeps one linear history per open

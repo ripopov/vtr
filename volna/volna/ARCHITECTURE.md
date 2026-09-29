@@ -383,7 +383,15 @@ tokens serve streams and directions, with host palette contrast correction for
 normal, selected and hovered rows. egui retains its minimal waveform feature set,
 rendering shared members and glyphs without transaction activation UI.
 Tree flattening uses an explicit stack. Saved selected/expanded paths cover
-streams and retain unresolved names. Search-everywhere is transient.
+streams and retain unresolved names. Only scopes with children have expansion
+state or saved expansion paths; Expand all exposes every row without storing
+leaf cells as open branches. Resolved leaf paths in a workspace are ignored.
+Expansion is navigation and does not enter undo history. Search-everywhere is
+transient. Measure expansion and workspace capture without opening a window:
+
+```sh
+taskset -c 0-7 cargo run --release -p volna-core --example hierarchy_cost -- TRACE
+```
 
 Raw metadata includes container roles, component names, enum references,
 generator declarations/attributes and the producer's time unit. Remote framing

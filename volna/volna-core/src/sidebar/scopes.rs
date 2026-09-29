@@ -36,6 +36,8 @@ impl TreeNode {
 
 #[derive(Default)]
 pub struct ScopeTreeModel {
+    /// Only scopes with children can be expanded. Leaves never need state or
+    /// saved paths, even when the entire hierarchy is open.
     expanded: HashSet<Traced<ScopeId>>,
     /// Trace rows whose scopes are hidden.
     folded_traces: HashSet<TraceId>,
@@ -104,9 +106,13 @@ impl ScopeTreeModel {
 
     fn expand_top(&mut self, trace: TraceId, h: &Hierarchy) {
         for &r in &h.roots {
-            self.expanded.insert(Traced::new(trace, r));
+            if !h.scopes[r].children.is_empty() {
+                self.expanded.insert(Traced::new(trace, r));
+            }
             for &c in &h.scopes[r].children {
-                self.expanded.insert(Traced::new(trace, c));
+                if !h.scopes[c].children.is_empty() {
+                    self.expanded.insert(Traced::new(trace, c));
+                }
             }
         }
     }
@@ -120,6 +126,8 @@ impl ScopeTreeModel {
         })
     }
 
+    /// Expanded branches, including those currently hidden by a folded ancestor.
+    /// Leaves never have expansion state.
     pub fn expanded(&self) -> impl Iterator<Item = Traced<ScopeId>> + '_ {
         self.expanded.iter().copied()
     }
@@ -128,8 +136,9 @@ impl ScopeTreeModel {
         &mut self,
         traces: &TraceSet,
         selected: Option<TreeNode>,
-        expanded: HashSet<Traced<ScopeId>>,
+        mut expanded: HashSet<Traced<ScopeId>>,
     ) {
+        expanded.retain(|&scope| Self::has_children(traces, TreeNode::scope(scope)));
         self.selected = selected;
         self.expanded = expanded;
         self.rebuild(traces);
@@ -175,7 +184,9 @@ impl ScopeTreeModel {
             while let Some((id, depth)) = pending.pop() {
                 self.visible
                     .push((TreeNode::scope(Traced::new(trace, id)), depth));
-                if self.expanded.contains(&Traced::new(trace, id)) {
+                if !h.scopes[id].children.is_empty()
+                    && self.expanded.contains(&Traced::new(trace, id))
+                {
                     pending.extend(
                         h.scopes[id]
                             .children
@@ -189,6 +200,9 @@ impl ScopeTreeModel {
     }
 
     pub fn toggle(&mut self, traces: &TraceSet, node: TreeNode) {
+        if !Self::has_children(traces, node) {
+            return;
+        }
         match node.traced_scope() {
             Some(scope) => {
                 if !self.expanded.remove(&scope) {
@@ -220,15 +234,23 @@ impl ScopeTreeModel {
         self.selected?.traced_scope()
     }
 
+    /// Open or close every branch. Leaves remain stateless, so expanding a
+    /// gate-level hierarchy does not save a path for every cell.
     pub fn set_all(&mut self, traces: &TraceSet, expand: bool) {
         self.unresolved_expanded.clear();
         self.expanded.clear();
         self.folded_traces.clear();
         if expand {
             for (trace, session) in traces.loaded() {
-                let scopes = session.hierarchy().scopes.len();
-                self.expanded
-                    .extend((0..scopes).map(|id| Traced::new(trace, id)));
+                self.expanded.extend(
+                    session
+                        .hierarchy()
+                        .scopes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, scope)| !scope.children.is_empty())
+                        .map(|(id, _)| Traced::new(trace, id)),
+                );
             }
         }
         self.rebuild(traces);

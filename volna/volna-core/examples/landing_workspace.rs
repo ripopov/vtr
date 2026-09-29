@@ -85,7 +85,7 @@ fn main() -> anyhow::Result<()> {
         |path: &str| json!({"type": "lane", "generator": path.split('.').collect::<Vec<_>>()});
     let link = json!({"viewport": true, "cursor": true});
     let waves = json!({
-        "id": 1, "kind": "waves", "version": 4, "title": null, "link": link,
+        "id": 1, "kind": "waves", "version": 5, "title": null, "link": link,
         "scroll_y": 0.0, "columns": {"names": 150.0, "values": 110.0},
         "rows": [
             {"type": "group", "name": "cpu0", "rows": [
@@ -159,8 +159,7 @@ fn main() -> anyhow::Result<()> {
         },
         "sidebar": {"visible": true, "width": 190.0, "scopes_fraction": 0.42,
                     "selected_scope": ["A", ["soc", "cpu0"]],
-                    "expanded": [["A", ["soc"]], ["A", ["soc", "cpu0"]], ["A", ["soc", "l2"]],
-                                 ["A", ["soc", "perf"]]],
+                    "expanded": [["A", ["soc"]], ["A", ["soc", "cpu0"]], ["A", ["soc", "l2"]]],
                     "filter": ""},
     });
 
