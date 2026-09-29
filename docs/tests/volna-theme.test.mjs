@@ -71,6 +71,10 @@ test('the demo draws each theme and colour-vision mode', {timeout: 60000}, async
   await b.click('#demo-skin [data-skin="volna-light"]');
   assert.equal(await b.evaluate('THEME.state().skin'), 'volna-light');
   assert.deepEqual(await pixel(b, 'demo-canvas', 1000, 60), await canvas('light'));
+  // Volna Mixed: light chrome around the frame, the canvas drawn with the dark sheet.
+  await b.click('#demo-skin [data-skin="volna-mixed"]');
+  assert.equal(await b.evaluate(`document.getElementById('demo-frame').dataset.theme`), 'light');
+  assert.deepEqual(await pixel(b, 'demo-canvas', 1000, 60), await canvas('dark'));
   await b.click('#demo-skin [data-skin="one-dark"]');
   assert.deepEqual(await pixel(b, 'demo-canvas', 1000, 60), await b.evaluate(`THEME.parse(getComputedStyle(document.getElementById('probe-dark')).getPropertyValue('--wave-bg')).map(v => Math.round(v * 255)).slice(0, 3)`));
   for (const vision of ['deutan', 'protan', 'tritan', 'grey', '']) {
@@ -83,6 +87,29 @@ test('the demo draws each theme and colour-vision mode', {timeout: 60000}, async
   assert.equal(await b.evaluate('THEME.state().skin'), 'one-dark');
   await b.click('#values-vision [data-vision="grey"]');
   assert.equal(await b.evaluate(`document.getElementById('values-volna').style.filter`), 'url("#cvd-grey")');
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('Volna Mixed puts the dark data panels in a light window', {timeout: 60000}, async t => {
+  const b = await browser();
+  t.after(() => b.close());
+  await b.open(page);
+  await b.wait('window.ready === true');
+  const rgb = async (theme, name) => (await token(b, theme, name)).slice(0, 3);
+  // Title bar 34px, sidebar 200px, then the wave panel: header 28px, marker lane 20px.
+  const probe = () => Promise.all([pixel(b, 'mix-canvas', 100, 3), pixel(b, 'mix-canvas', 100, 300), pixel(b, 'mix-canvas', 1000, 34 + 60)]);
+  assert.equal(await b.evaluate('THEME.mix.state().window'), 'mixed');
+  assert.deepEqual(await probe(), [await rgb('light', 'viewer-bar'), await rgb('light', 'viewer-panel'), await rgb('dark', 'viewer-canvas')]);
+  await b.click('#mix-skin [data-window="light"]');
+  assert.deepEqual(await probe(), [await rgb('light', 'viewer-bar'), await rgb('light', 'viewer-panel'), await rgb('light', 'viewer-canvas')]);
+  await b.click('#mix-skin [data-window="dark"]');
+  assert.deepEqual(await probe(), [await rgb('dark', 'viewer-bar'), await rgb('dark', 'viewer-panel'), await rgb('dark', 'viewer-canvas')]);
+  // The rules quote the measured seam, accents and the unchanged dark floor.
+  const f = await b.evaluate('THEME.mix.facts()');
+  assert.ok(f.seam >= 3 && f.cursor >= 4.5 && f.focus >= 4.5 && f.stroke >= 4.5, JSON.stringify(f));
+  const floor1 = x => (Math.floor(x * 10) / 10).toFixed(1) + ':1';
+  assert.deepEqual(await b.evaluate(`['stroke', 'seam', 'cursor', 'focus'].map(k => document.getElementById('mix-' + k).textContent)`),
+    [f.stroke, f.seam, f.cursor, f.focus].map(floor1));
   assert.deepEqual(b.exceptions, []);
 });
 

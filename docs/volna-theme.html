@@ -45,12 +45,12 @@
 <header class="v-nav">
   <div class="v-wrap v-nav__bar">
     <a class="v-brand" href="#top"><img src="../volna/volna/assets/app-icon/volna.svg" alt="">Volna</a>
-    <nav class="v-nav__links" aria-label="Sections"><a href="#demo">Demo</a><a href="#rules">Rules</a><a href="#values">Values</a><a href="#rendering">Rendering</a><a href="#pipeline">Pipeline</a><a href="#hierarchy">Hierarchy</a><a href="#research">Research</a><a href="#sheet">Sheet</a></nav>
+    <nav class="v-nav__links" aria-label="Sections"><a href="#demo">Demo</a><a href="#rules">Rules</a><a href="#values">Values</a><a href="#rendering">Rendering</a><a href="#pipeline">Pipeline</a><a href="#hierarchy">Hierarchy</a><a href="#mixed">Mixed</a><a href="#research">Research</a><a href="#sheet">Sheet</a></nav>
     <div class="v-nav__end">
       <span class="v-seg" role="group" aria-label="Page theme" id="page-theme"><button type="button" data-mode="light" aria-pressed="false">Light</button><button type="button" data-mode="dark" aria-pressed="true">Dark</button><button type="button" data-mode="system" aria-pressed="false">Auto</button></span>
       <details class="v-nav__menu">
         <summary class="v-btn v-btn--ghost v-btn--sm v-btn--icon" aria-label="Sections"><span class="v-icon" aria-hidden="true" style="--icon:url(../volna/volna-core/assets/icons/panel-left.svg)"></span></summary>
-        <nav class="v-nav__sheet" aria-label="Sections"><a href="#demo">Demo</a><a href="#rules">Rules</a><a href="#values">Values</a><a href="#rendering">Rendering</a><a href="#pipeline">Pipeline</a><a href="#hierarchy">Hierarchy</a><a href="#research">Research</a><a href="#sheet">Sheet</a></nav>
+        <nav class="v-nav__sheet" aria-label="Sections"><a href="#demo">Demo</a><a href="#rules">Rules</a><a href="#values">Values</a><a href="#rendering">Rendering</a><a href="#pipeline">Pipeline</a><a href="#hierarchy">Hierarchy</a><a href="#mixed">Mixed</a><a href="#research">Research</a><a href="#sheet">Sheet</a></nav>
       </details>
     </div>
   </div>
@@ -62,7 +62,7 @@
     <p class="v-kicker">Proposal · Viewer theme</p>
     <h1 class="v-hero__title">A theme for reading <em>hardware</em>.</h1>
     <p class="v-hero__lede">Volna, the proposed default look of the viewer, is built on the Instrument design system. The chrome is grey and colour is kept for data. Every value stroke reaches <strong>4.5:1</strong> on the canvas, and every signal state keeps its meaning in greyscale.</p>
-    <p class="v-hero__fine">Volna Dark and Volna Light · replaces One Dark as the default · every existing theme stays</p>
+    <p class="v-hero__fine">Volna Dark, Volna Light and Volna Mixed · replaces One Dark as the default · every existing theme stays</p>
   </div>
 </section>
 
@@ -72,7 +72,7 @@
     <h2 class="v-section__title">The interrupt at 757 ns.</h2>
     <p class="v-section__sub">The page draws <code>landing.vtr</code> from the repository with the proposed tokens, over the saved workspace's window, cursor and markers. In that window a load misses L1, a mispredicted branch flushes two instructions, and the interrupt enters its handler, whose uncached read goes to DRAM.</p>
     <div class="t-controls">
-      <span>Theme <span class="v-seg" role="group" aria-label="Demo theme" id="demo-skin"><button type="button" data-skin="volna-dark" aria-pressed="true">Volna Dark</button><button type="button" data-skin="volna-light" aria-pressed="false">Volna Light</button><button type="button" data-skin="one-dark" aria-pressed="false">One Dark today</button></span></span>
+      <span>Theme <span class="v-seg" role="group" aria-label="Demo theme" id="demo-skin"><button type="button" data-skin="volna-dark" aria-pressed="true">Volna Dark</button><button type="button" data-skin="volna-light" aria-pressed="false">Volna Light</button><button type="button" data-skin="volna-mixed" aria-pressed="false">Volna Mixed</button><button type="button" data-skin="one-dark" aria-pressed="false">One Dark today</button></span></span>
       <span>Vision <span class="v-seg" role="group" aria-label="Colour vision" id="demo-vision"><button type="button" data-vision="" aria-pressed="true">Typical</button><button type="button" data-vision="deutan" aria-pressed="false">Deutan</button><button type="button" data-vision="protan" aria-pressed="false">Protan</button><button type="button" data-vision="tritan" aria-pressed="false">Tritan</button><button type="button" data-vision="grey" aria-pressed="false">Grey</button></span></span>
     </div>
     <figure class="v-frame" id="demo-frame" data-theme="dark">
@@ -239,6 +239,28 @@
   </div>
 </section>
 
+<section class="v-section" id="mixed">
+  <div class="v-wrap">
+    <p class="v-kicker">Third variant</p>
+    <h2 class="v-section__title">Light window, dark waves.</h2>
+    <p class="v-section__sub">Many engineers want a light window and a black wave window. GTKWave on a light desktop, ModelSim and Questa, SimVision, Verdi and the Vivado simulator all ship that split by default. Volna Mixed provides it without a third palette: the wave and pipeline panels use the Volna Dark sheet, and the rest of the window uses Volna Light.</p>
+    <div class="t-controls">
+      <span>Window <span class="v-seg" role="group" aria-label="Window theme" id="mix-skin"><button type="button" data-window="light" aria-pressed="false">Volna Light</button><button type="button" data-window="mixed" aria-pressed="true">Volna Mixed</button><button type="button" data-window="dark" aria-pressed="false">Volna Dark</button></span></span>
+    </div>
+    <figure class="v-frame" id="mix-frame" data-theme="light">
+      <div class="v-frame__stage t-stage"><canvas class="t-canvas" id="mix-canvas" role="img" aria-label="The whole viewer window in Volna Mixed: light title bar, hierarchy sidebar and status bar around the dark wave and pipeline panels"></canvas></div>
+    </figure>
+    <p class="v-frame__caption"><span>The same landing window as the demo, with the hierarchy sidebar and the status bar around it.</span><code>appearance.theme = "volna-mixed"</code></p>
+    <ol class="t-rules">
+      <li><strong>Split by what a panel shows.</strong>Panels that draw against time use the dark sheet. These are the wave panel with its names, values, ruler and marker lane, the pipeline, analog rows and transaction lanes. Panels that are read as lists, forms or commands use the light sheet: the title and tab bars, the hierarchy browser, the table, the transaction panel, settings, menus and the status bar.</li>
+      <li><strong>The data panel is Volna Dark, unchanged.</strong>Mixed adds no tokens, so every floor measured below still holds. The weakest value stroke is <span id="mix-stroke">–</span>. A screenshot of the wave panel looks the same in Mixed and in Dark, and switching between them never changes the waves.</li>
+      <li><strong>The seam is the edge.</strong>The dark name column against the light sidebar measures <span id="mix-seam">–</span>, so the seam has no border and no shadow. Popovers take the surface they belong to. A context menu is chrome and stays light, even over the canvas. The cursor chip, marker chips and value tooltips are data and stay dark.</li>
+      <li><strong>One accent, two steps.</strong>The accent keeps its hue and uses the lightness each surface needs. The cursor is <code>viewer-accent</code> dark on the canvas (<span id="mix-cursor">–</span>). Focus and selection use the light accent on the chrome (<span id="mix-focus">–</span>). When you select <code>pc</code> in the sidebar, its wave row takes a tint of the same blue, which links the two panels across the seam.</li>
+      <li><strong>The chrome follows the system, the canvas never does.</strong>When the system turns dark, <code>volna-mixed</code> becomes Volna Dark. Only the window around the waves changes; the waves stay the same through the switch.</li>
+    </ol>
+  </div>
+</section>
+
 <section class="v-section" id="measured">
   <div class="v-wrap">
     <p class="v-kicker">Measured</p>
@@ -280,7 +302,7 @@
     <p class="v-kicker">Theme sheet</p>
     <h2 class="v-section__title">Thirty tokens, two appearances.</h2>
     <div class="t-body">
-      <p>The tokens live in <code>docs/design-system/tokens/viewer.css</code>, so the website and the viewer share one source. Once this proposal is approved, <code>volna-core</code> gains a Volna theme built from these values. <code>appearance.theme</code> then defaults to <code>volna</code>, which follows the system's light or dark setting, and <code>volna-dark</code> and <code>volna-light</code> pin one of them. One Dark and the bundled palettes stay selectable.</p>
+      <p>The tokens live in <code>docs/design-system/tokens/viewer.css</code>, so the website and the viewer share one source. Once this proposal is approved, <code>volna-core</code> gains a Volna theme built from these values. <code>appearance.theme</code> then defaults to <code>volna</code>, which follows the system's light or dark setting, and <code>volna-dark</code> and <code>volna-light</code> pin one of them. <code>volna-mixed</code> keeps the wave and pipeline panels dark and lets the chrome follow the system; it adds no tokens, only a rule for which sheet each panel uses. One Dark and the bundled palettes stay selectable.</p>
       <p>The colour changes need four small painter changes: the X hatch, the dotted and dashed lines, hollow flushed cells, and an OKLCH stage ladder with alternating lightness. The rendering rules above are the larger piece of work; the only data they add is a few bits per summary block recording which value kinds occur. A core test will check that the theme matches this sheet and meets the same contrast floors.</p>
     </div>
     <div class="v-table-wrap t-wide" role="region" aria-label="Theme sheet" tabindex="0">
@@ -356,7 +378,7 @@ const VOLNA = {
   canvas: 'viewer-canvas', panel: 'viewer-panel', bar: 'viewer-bar', border: 'viewer-border', text: 'viewer-text', muted: 'viewer-text-muted', faint: 'viewer-text-faint',
   accent: 'viewer-accent', onAccent: 'viewer-on-accent', signal: 'viewer-signal', highFill: 'viewer-high-fill', undef: 'viewer-undef', undefFill: 'viewer-undef-fill',
   highimp: 'viewer-highimp', dontcare: 'viewer-dontcare', weak: 'viewer-weak', event: 'viewer-event', dense: 'viewer-dense', grid: 'viewer-grid',
-  rowSelected: 'viewer-row-selected', rowHover: 'viewer-row-hover', flush: 'viewer-flush', markerText: 'viewer-marker-text', stageText: 'viewer-stage-text',
+  selection: 'viewer-selection', elevated: 'viewer-elevated', rowSelected: 'viewer-row-selected', rowHover: 'viewer-row-hover', flush: 'viewer-flush', markerText: 'viewer-marker-text', stageText: 'viewer-stage-text',
   markers: [1, 2, 3, 4, 5, 6].map(i => 'viewer-marker-' + i),
 };
 // Today's One Dark, from the design system's copies of the volna-core values (text-muted is the nearest neutral step).
@@ -506,13 +528,19 @@ const PIPE = DATA.pipeline.filter(tx => tx.b >= 705 && tx.b <= 803);
 const STAGES = ['F', 'D', 'X', 'M', 'W'];
 const DEMO = {skin: null, vision: ''};
 
+const WAVE = {ROW: 24, HEAD: 28, LANE: 20, PROW: 16, PHEAD: 28};
+const waveHeight = () => WAVE.HEAD + WAVE.LANE + ROWS.reduce((n, r) => n + (r.rows || 1), 0) * WAVE.ROW + WAVE.PHEAD + PIPE.length * WAVE.PROW + 8;
 function drawDemo() {
   const frame = document.getElementById('demo-frame'), canvas = document.getElementById('demo-canvas');
-  const k = skin(frame, DEMO.skin !== 'one-dark');
-  const ROW = 24, HEAD = 28, LANE = 20, PROW = 16, PHEAD = 28;
-  const waveRows = ROWS.reduce((n, r) => n + (r.rows || 1), 0);
-  const H = HEAD + LANE + waveRows * ROW + PHEAD + PIPE.length * PROW + 8;
-  const {g, w} = surface(canvas, H);
+  // Volna Mixed draws its data panels with the Volna Dark sheet; only the chrome around them is light.
+  const k = skin(DEMO.skin === 'volna-mixed' ? document.getElementById('probe-dark') : frame, DEMO.skin !== 'one-dark');
+  const H = waveHeight(), {g, w} = surface(canvas, H);
+  paintWaves(g, k, w, H);
+  canvas.style.filter = DEMO.vision ? `url(#cvd-${DEMO.vision})` : '';
+}
+/** The wave panel and the pipeline below it, `w` wide from the origin: names, values, ruler, marker lane and canvas. */
+function paintWaves(g, k, w, H) {
+  const {ROW, HEAD, LANE, PROW, PHEAD} = WAVE;
   const narrow = w < 560, namesW = narrow ? 92 : 132, valuesW = narrow ? 0 : 104, left = namesW + valuesW, x0 = left, x1 = w - 8;
   const xt = t => x0 + (t - VIEW.start) / (VIEW.end - VIEW.start) * (x1 - x0);
   fill(g, k.canvas, 0, 0, w, H);
@@ -602,7 +630,6 @@ function drawDemo() {
   line(g, k.accent, cx, HEAD - 22, cx, H);
   g.font = `400 11px ${k.fonts.mono}`; const cw = g.measureText(VIEW.cursor + ' ns').width + 10;
   fill(g, k.accent, cx - cw / 2, 4, cw, 18); text(g, k, VIEW.cursor + ' ns', cx - cw / 2 + 5, 13.5, k.onAccent, true, 11);
-  canvas.style.filter = DEMO.vision ? `url(#cvd-${DEMO.vision})` : '';
 }
 
 /* ---------- value specimen ---------- */
@@ -1433,6 +1460,61 @@ function hbFillFacts() {
   document.getElementById('hb-ifu-depth').textContent = n(f.ifuDepth);
 }
 
+/* ---------- Volna Mixed: the whole window, light chrome around dark data panels ---------- */
+const MIX = {window: 'mixed'};
+const SIDEBAR = [
+  [0, '▾ soc'], [1, '▾ cpu0'], [2, 'phase'], [2, 'pc', true], [2, 'stall'], [2, 'flush'], [2, 'irq'], [2, 'retired'],
+  [1, '▸ l2'], [1, '▸ perf'], [0, '▾ streams'], [1, 'cpu0.pipeline'],
+];
+/** Skins for the chrome and for the data panels of a window theme. */
+function windowSkins(id) {
+  const probe = t => skin(document.getElementById('probe-' + t), true);
+  return {chrome: probe(id === 'dark' ? 'dark' : 'light'), data: probe(id === 'light' ? 'light' : 'dark')};
+}
+function drawWindow() {
+  const frame = document.getElementById('mix-frame'), canvas = document.getElementById('mix-canvas');
+  frame.dataset.theme = MIX.window === 'dark' ? 'dark' : 'light';
+  const {chrome: c, data: d} = windowSkins(MIX.window);
+  const TITLE = 34, STATUS = 24, WH = waveHeight(), H = TITLE + WH + STATUS;
+  const {g, w} = surface(canvas, H), side = w < 640 ? 0 : 200;
+  // title and tab bar
+  fill(g, c.bar, 0, 0, w, TITLE);
+  text(g, c, 'Volna', 14, TITLE / 2, c.text, false, 13, 60, 600);
+  g.font = `400 12px ${c.fonts.sans}`; const tabW = g.measureText('landing.vtr').width + 24;
+  fill(g, c.panel === c.bar ? c.canvas : c.panel, 72, 6, tabW, TITLE - 6);
+  line(g, c.accent, 72, 6.5, 72 + tabW, 6.5);
+  text(g, c, 'landing.vtr', 84, TITLE / 2 + 3, c.text, false, 12);
+  line(g, c.border, 0, TITLE - 0.5, w, TITLE - 0.5);
+  // hierarchy sidebar
+  if (side) {
+    fill(g, c.panel, 0, TITLE, side, WH);
+    text(g, c, 'Hierarchy', 12, TITLE + 16, c.muted, false, 12, side - 24, 600);
+    fill(g, c.elevated, 10, TITLE + 30, side - 20, 24);
+    g.strokeStyle = css(c.border); g.lineWidth = 1; g.strokeRect(10.5, TITLE + 30.5, side - 21, 23);
+    text(g, c, 'Search signals', 20, TITLE + 42, c.faint, false, 12, side - 40);
+    SIDEBAR.forEach(([depth, name, selected], i) => {
+      const y = TITLE + 62 + i * 22, leaf = !/^[▾▸]/.test(name);
+      if (selected) { fill(g, c.selection, 0, y, side, 22); fill(g, c.accent, 0, y + 3, 2, 16); }
+      text(g, c, name, 14 + depth * 14 + (leaf ? 12 : 0), y + 11, leaf ? c.text : c.muted, leaf, leaf ? 12 : 13, side - 24 - depth * 14);
+    });
+  }
+  // the data panels, painted exactly as in the demo
+  g.save(); g.translate(side, TITLE); g.beginPath(); g.rect(0, 0, w - side, WH); g.clip();
+  paintWaves(g, d, w - side, WH);
+  g.restore();
+  if (MIX.window !== 'mixed' && side) line(g, c.border, side - 0.5, TITLE, side - 0.5, TITLE + WH);
+  // status bar
+  fill(g, c.bar, 0, TITLE + WH, w, STATUS);
+  line(g, c.border, 0, TITLE + WH + 0.5, w, TITLE + WH + 0.5);
+  const [m0, m1] = VIEW.markers;
+  text(g, c, `cursor ${VIEW.cursor} ns · ${m0.label} → ${m1.label} ${m1.time - m0.time} ns · ${VIEW.start}–${VIEW.end} ns`, 12, TITLE + WH + STATUS / 2, c.muted, true, 11, w - 24);
+}
+/** The Volna Mixed figures quoted in its rules. */
+function mixFacts() {
+  const {chrome: c, data: d} = windowSkins('mixed'), a = audit();
+  return {stroke: a.volna.dark.stroke, seam: contrast(d.panel, c.panel), cursor: contrast(d.accent, d.canvas), focus: contrast(c.accent, c.panel)};
+}
+
 /* ---------- controls ---------- */
 function press(group, button) { for (const b of group.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button)); }
 function setPageTheme(mode) {
@@ -1445,8 +1527,8 @@ function setPageTheme(mode) {
 }
 function setSkin(id, chosen = true) {
   DEMO.skin = id; DEMO.chosen = DEMO.chosen || chosen;
-  document.getElementById('demo-frame').dataset.theme = id === 'volna-light' ? 'light' : 'dark';
-  document.getElementById('demo-name').textContent = {'volna-dark': 'Volna Dark', 'volna-light': 'Volna Light', 'one-dark': 'One Dark today'}[id];
+  document.getElementById('demo-frame').dataset.theme = id === 'volna-light' || id === 'volna-mixed' ? 'light' : 'dark';
+  document.getElementById('demo-name').textContent = {'volna-dark': 'Volna Dark', 'volna-light': 'Volna Light', 'volna-mixed': 'Volna Mixed', 'one-dark': 'One Dark today'}[id];
   press(document.getElementById('demo-skin'), document.querySelector(`#demo-skin [data-skin="${id}"]`));
 }
 const VALUES = {vision: ''};
@@ -1458,6 +1540,7 @@ function render() {
   drawLab();
   drawAnatomy();
   drawHier();
+  drawWindow();
 }
 function measure() {
   const a = audit(), v = a.volna;
@@ -1468,9 +1551,11 @@ function measure() {
   document.getElementById('stat-text-today').textContent = 'One Dark today: ' + ratio(a.today.text);
   document.getElementById('stat-cvd').textContent = (Math.floor(Math.min(v.dark.cvd, v.light.cvd) * 10) / 10).toFixed(1);
   document.getElementById('stat-cvd-today').textContent = 'One Dark today: ' + (Math.floor(a.today.cvd * 10) / 10).toFixed(1);
+  const m = mixFacts();
+  for (const key of ['stroke', 'seam', 'cursor', 'focus']) document.getElementById('mix-' + key).textContent = ratio(m[key]);
   return a;
 }
-window.THEME = {audit, skin, ladder, contrast, parse, render, state: () => ({skin: DEMO.skin, vision: DEMO.vision, values: VALUES.vision}), lab: {state: () => ({rules: LAB.rules, view: LAB.view.slice(), labels: LAB.labels.slice(), hover: LAB.hover && {row: LAB.hover.row.name, edge: LAB.hover.edge, value: LAB.hover.value}, zeros: LAB.zeros}), geometry: () => labGeometry(document.getElementById('lab-canvas').clientWidth), sample, fitLabel: (s, w, p) => fitLabel(document.createElement('canvas').getContext('2d'), skin(document.getElementById('lab-frame'), true), s, w, p)}, hier: {facts: hbFacts, state: () => ({rules: HBS.rules, query: HBS.query, selected: HB.scopes[HBS.selected].path, focus: HBS.focus, member: HBS.member, mscroll: HBS.mscroll, scroll: HBS.scroll, sticky: (HBS.sticky || []).map(i => HBS.rows[i].kind === 'scope' ? HB.scopes[HBS.rows[i].id].path : HBS.rows[i].run.stem),
+window.THEME = {audit, skin, mix: {facts: mixFacts, state: () => ({...MIX})}, ladder, contrast, parse, render, state: () => ({skin: DEMO.skin, vision: DEMO.vision, values: VALUES.vision}), lab: {state: () => ({rules: LAB.rules, view: LAB.view.slice(), labels: LAB.labels.slice(), hover: LAB.hover && {row: LAB.hover.row.name, edge: LAB.hover.edge, value: LAB.hover.value}, zeros: LAB.zeros}), geometry: () => labGeometry(document.getElementById('lab-canvas').clientWidth), sample, fitLabel: (s, w, p) => fitLabel(document.createElement('canvas').getContext('2d'), skin(document.getElementById('lab-frame'), true), s, w, p)}, hier: {facts: hbFacts, state: () => ({rules: HBS.rules, query: HBS.query, selected: HB.scopes[HBS.selected].path, focus: HBS.focus, member: HBS.member, mscroll: HBS.mscroll, scroll: HBS.scroll, sticky: (HBS.sticky || []).map(i => HBS.rows[i].kind === 'scope' ? HB.scopes[HBS.rows[i].id].path : HBS.rows[i].run.stem),
   rows: HBS.rows.map(r => r.kind === 'scope' ? {kind: 'scope', path: HB.scopes[r.id].path, depth: r.depth} : {kind: 'run', stem: r.run.stem, lo: r.run.lo, hi: r.run.hi, n: r.run.ids.length, depth: r.depth}),
   members: HBS.members.map(m => ({path: m.v.path, value: hbValue(m.v), width: m.v.width, more: m.more || 0, pos: m.pos || null})),
   waves: HBS.waves.map(v => v.path), counts: HBS.matches && Object.fromEntries([...HBS.matches.counts].map(([id, n]) => [HB.scopes[id].path, n]))}),
@@ -1483,6 +1568,7 @@ for (const [id, theme] of [['probe-dark', 'dark'], ['probe-light', 'light'], ['d
 document.getElementById('page-theme').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPageTheme(b.dataset.mode); });
 document.getElementById('demo-skin').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { setSkin(b.dataset.skin); render(); } });
 document.getElementById('demo-vision').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { DEMO.vision = b.dataset.vision; press(e.currentTarget, b); drawDemo(); } });
+document.getElementById('mix-skin').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { MIX.window = b.dataset.window; press(e.currentTarget, b); drawWindow(); } });
 document.getElementById('values-vision').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { VALUES.vision = b.dataset.vision; press(e.currentTarget, b); render(); } });
 document.getElementById('lab-rules').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { LAB.rules = b.dataset.rules; LAB.hover = null; press(e.currentTarget, b); drawLab(); } });
 document.getElementById('lab-view').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { press(e.currentTarget, b); setLabView(...LAB_PRESETS[b.dataset.view]); } });
