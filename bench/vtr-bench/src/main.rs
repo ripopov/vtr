@@ -1,5 +1,7 @@
+#![recursion_limit = "256"]
 //! `vtr-bench`: workload preparation and benchmark drivers.
 
+mod activity;
 mod load;
 mod logw;
 mod read;
@@ -24,6 +26,9 @@ vtr-bench commands:
   tx-read <in.vtr> [--seed S]
   log-write <n> <out.vtr> [--no-background] [--codec ..] [--level L]   synthetic simulator log through Writer::log (JSON)
   log-encode <n>                                      log block encoder micro-benchmark per codec (JSON)
+  activity <in.vtr> [--eps E] [--mem M] [--windows N] [--threads T]   range-activity index measurements (JSON)
+  activity-export <in.vtr> <t0> <t1> <out.bin> [--eps E] [--mem M]   demo data for docs/hierarchy-activity.html
+  gen-bursty <out.vtr> [--scale S]                    synthetic ps trace with sleep phases and gated units
   stream <in.vtr>                                     count all changes via for_each_change
   replay-info <in.rpl>";
 
@@ -169,6 +174,22 @@ fn main() {
             let p = read::plan(&r, seed);
             println!("{}", p.0.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(" "));
             println!("{}", p.1.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" "));
+        }
+        "activity" => {
+            let eps = flag(&args, "--eps").map(|s| s.parse().unwrap()).unwrap_or(0.01);
+            let mem = flag(&args, "--mem").map(|s| s.parse().unwrap()).unwrap_or(0.04);
+            let windows = flag(&args, "--windows").map(|s| s.parse().unwrap()).unwrap_or(400);
+            let threads = flag(&args, "--threads").map(|s| s.parse().unwrap()).unwrap_or(16);
+            println!("{}", serde_json::to_string_pretty(&activity::run(&pos[1], eps, mem, windows, threads, seed)).unwrap());
+        }
+        "activity-export" => {
+            let eps = flag(&args, "--eps").map(|s| s.parse().unwrap()).unwrap_or(0.01);
+            let mem = flag(&args, "--mem").map(|s| s.parse().unwrap()).unwrap_or(0.04);
+            activity::export(&pos[1], pos[2].parse().unwrap(), pos[3].parse().unwrap(), eps, mem, &pos[4]);
+        }
+        "gen-bursty" => {
+            let scale = flag(&args, "--scale").map(|s| s.parse().unwrap()).unwrap_or(4);
+            activity::gen_bursty(&pos[1], scale, seed);
         }
         "stream" => {
             let r = vtr::Reader::open(&pos[1]).unwrap();

@@ -8675,10 +8675,12 @@ dependencies = [
  "flate2",
  "fst-reader",
  "libc",
+ "rand 0.8.8",
  "serde_json",
  "vtr",
  "vtr-cli",
  "wellen",
+ "zstd",
 ]
 
 [[package]]

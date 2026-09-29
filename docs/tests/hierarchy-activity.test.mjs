@@ -1,10 +1,12 @@
 // node --test --test-concurrency=1 docs/tests/hierarchy-activity.test.mjs
 // The hierarchy activity design: the page's stretch index answers exactly,
 // with the ground truth computed from every change of every C910 signal, for
-// every window at least Δ wide, and brackets the truth for narrower ones. The
+// every window at least as wide as the smallest threshold Δ of the blocks it
+// touches, and brackets the truth for narrower ones. The
 // demo's strip moves the window by drag, keyboard and presets, and the tree
 // paints meters, ranges and quiet scopes. The design-system guardrails cover
-// the page's lint, contrast and 360px layout.
+// the page's lint, contrast and 360px layout. The staged plan's pictures are
+// built from the same index, with one numbered ring per numbered addition.
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {test} from 'node:test';
@@ -36,15 +38,18 @@ async function open(t) {
   return b;
 }
 
-test('the index is exact from Δ up and brackets the truth below it', {timeout: 90000}, async t => {
+test('the index is exact from each block\'s Δ up and brackets the truth below it', {timeout: 90000}, async t => {
   const b = await open(t);
   const f = await b.evaluate('ACT.facts()');
-  assert.deepEqual([f.scopes, f.signals, f.vars, f.delta, f.from, f.to], [6958, 67144, 204905, 1024, 220000, 270000]);
+  assert.deepEqual([f.scopes, f.signals, f.vars, f.from, f.to], [6958, 67144, 204905, 220000, 270000]);
+  // The slice spans several writer blocks, each with its own power-of-two threshold.
+  assert.ok(f.starts.length >= 2 && f.starts[0] === 220000, `blocks ${f.starts}`);
+  assert.ok(f.deltas.every(d => d > 0 && (d & (d - 1)) === 0), `thresholds ${f.deltas}`);
   for (const w of TRUTH) {
     const r = await b.evaluate(`ACT.query(${w.t0}, ${w.t1})`);
     const label = `[${w.t0}, ${w.t1}]`;
-    if (w.t1 - w.t0 >= f.delta - 1) {
-      assert.equal(r.undecided, 0, `${label} is at least Δ wide, so nothing is undecided`);
+    if (w.t1 - w.t0 + 1 >= r.dwin) {
+      assert.equal(r.undecided, 0, `${label} is at least Δ = ${r.dwin} wide, so nothing is undecided`);
       assert.deepEqual([r.active, r.hash, r.quietScopes, r.ifu[0], r.vfpu[0]], [w.active, w.hash, w.quietScopes, w.ifu, w.vfpu], `${label} exact`);
     } else {
       assert.ok(r.active <= w.active && w.active <= r.active + r.undecided, `${label}: ${r.active} + ${r.undecided} brackets ${w.active}`);
@@ -106,5 +111,35 @@ test('the demo moves the window and paints meters, ranges and quiet scopes', {ti
   const rows = (await b.evaluate('ACT.state()')).rows;
   await b.click(`button.a-row[aria-expanded="true"]:last-of-type`);
   await b.wait(`ACT.state().rows < ${rows}`);
+  assert.deepEqual(b.exceptions, []);
+});
+
+test('the plan pictures ring every numbered addition, from the same index', {timeout: 90000}, async t => {
+  const b = await open(t);
+  for (const width of [1280, 360]) {
+    await b.open(page, {width});
+    await b.wait('window.ready === true', 30000);
+    const plan = await b.evaluate('ACT.plan()');
+    // Each pictured stage has one ring per item of its numbered list, all inside the picture.
+    for (const shot of plan.shots) {
+      const stage = shot.id.replace('shot-', 'stage-');
+      const items = await b.evaluate(`document.querySelectorAll('#${stage} .a-adds > li').length`);
+      assert.deepEqual(shot.marks, Array.from({length: items}, (_, k) => String(k + 1)), `${stage} marks`);
+      assert.deepEqual(shot.rings.map(r => r.n).sort(), shot.marks, `${stage} rings`);
+      assert.ok(shot.rings.every(r => r.inside), `${stage} rings stay inside at ${width}px`);
+    }
+    assert.deepEqual(plan.shots.map(s => s.id), ['shot-4', 'shot-5', 'shot-6']);
+    // The command's answer needs no read, the wide meter view is exact, and the narrow one shows a range.
+    assert.ok(plan.exact3 && plan.exact5 && plan.hatched5 && plan.quiet >= 0, JSON.stringify(plan));
+    assert.equal(await b.evaluate('document.documentElement.scrollWidth'), width, 'no horizontal page scroll');
+  }
+  // The terminal answer is the exact one: 25,000-25,500 ns is wider than every Δ it touches.
+  const term = await b.evaluate(`document.getElementById('term-3').textContent`);
+  assert.match(term, /25,000\.0–25,500\.0 ns · 17,977 of 67,144 signals change · exact/);
+  assert.match(term, /x_ct_vfpu_top +16 \/  5,596/);
+  // Seven stages, each linked from the summary table; scope sizes live in their own design.
+  assert.equal(await b.evaluate(`document.querySelectorAll('#plan .a-stage').length`), 7);
+  assert.equal(await b.evaluate(`[...document.querySelectorAll('#plan tbody a')].filter(a => document.querySelector(a.getAttribute('href'))).length`), 7);
+  assert.ok(await b.evaluate(`!!document.querySelector('#plan a[href="hierarchy-scope-sizes.html"]')`));
   assert.deepEqual(b.exceptions, []);
 });

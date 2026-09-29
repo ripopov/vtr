@@ -19,3 +19,5 @@ fst-reader = "0.17"
 serde_json = "1"
 libc = "0.2"
 flate2 = "1"
+zstd = { version = "0.13", default-features = false }
+rand = "0.8"
