@@ -518,7 +518,13 @@ impl Driver {
             40 => action(Action::CutSignals),
             41 => (Kind::Look, Command::Action(Action::CopySignals)),
             42 => action(Action::PasteSignals),
-            43..=45 => action(Action::CycleFormat),
+            43..=44 => action(Action::CycleFormat),
+            45 => {
+                let pick = self.rng.below(volna_core::wave::Tint::ALL.len() + 1);
+                action(Action::SetTint(
+                    volna_core::wave::Tint::ALL.get(pick).copied(),
+                ))
+            }
             46 => action(Action::ToggleAnalog),
             47 => action(Action::IncreaseRowHeight),
             48 => action(Action::DecreaseRowHeight),
@@ -802,6 +808,10 @@ fn random_commands_undo_and_redo_to_every_earlier_cockpit() {
     for step in ["Add trace B", "Rename trace B", "Close trace B"] {
         assert!(labels.contains(step), "no {step:?} step in {labels:?}");
     }
+    assert!(
+        labels.iter().any(|l| l.starts_with("Color ")),
+        "no colour step in {labels:?}"
+    );
 }
 
 #[test]

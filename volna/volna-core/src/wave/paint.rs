@@ -159,12 +159,29 @@ pub fn paint(
     // Text sits on a row's first line (`row_h`); tall rows give the waveform
     // their full height.
     let row_h = layout.row_h;
+    let mut inks = crate::wave::tint::InkWalk::default();
     for pos in layout.rows.clone() {
         let Some(ix) = layout.entry(pos) else {
             continue;
         };
         let entry = &model.items()[ix];
         let row = &entry.row;
+        // A coloured row paints with a theme whose signal ink is its colour.
+        let ink = inks.ink(model.items(), ix);
+        let inked;
+        let t: &Theme = match ink {
+            Some(_) => {
+                inked = theme.inked(ink);
+                &inked
+            }
+            None => theme,
+        };
+        let mut p = TextPainter {
+            theme: t,
+            text: &mut *p.text,
+            measure: &mut *p.measure,
+            scene: &mut *p.scene,
+        };
         let y = layout.row_y(pos);
         let full_h = layout.row_height(pos);
         let name_x = indent_x(layout.name_left, entry.depth, t.zoom);
@@ -203,6 +220,12 @@ pub fn paint(
                 size(layout.name_left - layout.names.left(), row_h),
             );
             trace_letter(&mut p, t, trace, gutter, layout.names);
+        }
+        // A stripe on the name marks a coloured row at a glance.
+        if ink.is_some() {
+            let stripe = Rect::from_xywh(layout.names.left(), y, z(3.0).max(2.0), full_h);
+            p.scene
+                .clipped(layout.names, |scene| scene.fill(stripe, t.wave_signal));
         }
         let colors = t.row(is_selected, is_hover);
         let cells = LaneCells {

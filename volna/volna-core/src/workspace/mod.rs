@@ -10,6 +10,7 @@ use crate::table::columns::{ColumnSet, TransactionColumn};
 use crate::table::{SignalSource, TableModel, TableSource};
 use crate::transaction::{ShownRecord, TransactionModel, ViewPrefs, view::SectionKey};
 use crate::wave::{
+    Tint,
     analog::{Analog, AnalogDraw, AnalogRange},
     lane::TxLane,
     model::{DisplayedSignal, GroupRow, Link, RowHeight, RowSource, WaveModel, WaveRow},
@@ -113,6 +114,12 @@ enum Row {
         height: RowHeight,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         analog: Option<SavedAnalog>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "crate::wave::tint::serde_name"
+        )]
+        tint: Option<Tint>,
     },
     Lane {
         #[serde(default, skip_serializing_if = "TraceId::is_a")]
@@ -120,6 +127,12 @@ enum Row {
         generator: Vec<String>,
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "crate::wave::tint::serde_name"
+        )]
+        tint: Option<Tint>,
     },
     /// A declared clock by its path, drawn from its stretches.
     Clock {
@@ -128,6 +141,12 @@ enum Row {
         clock: String,
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "crate::wave::tint::serde_name"
+        )]
+        tint: Option<Tint>,
     },
     /// A named group; its rows follow it on screen, indented.
     Group {
@@ -136,6 +155,12 @@ enum Row {
         collapsed: bool,
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "crate::wave::tint::serde_name"
+        )]
+        tint: Option<Tint>,
         rows: Vec<Row>,
     },
 }
@@ -151,6 +176,7 @@ fn nest(items: &[Entry], row: &dyn Fn(&WaveRow) -> Row) -> Vec<Row> {
                 name: g.name.clone(),
                 collapsed: g.collapsed,
                 height: g.height,
+                tint: g.tint,
                 rows: nest(&items[i + 1..end], row),
             },
             other => row(other),
@@ -174,6 +200,7 @@ fn flatten(rows: Vec<Row>, depth: u8, out: &mut Vec<(u8, Row)>) -> Result<()> {
                 name,
                 collapsed,
                 height,
+                tint,
                 rows,
             } => {
                 ensure!(!name.trim().is_empty(), "empty group name");
@@ -183,6 +210,7 @@ fn flatten(rows: Vec<Row>, depth: u8, out: &mut Vec<(u8, Row)>) -> Result<()> {
                         name,
                         collapsed,
                         height,
+                        tint,
                         rows: Vec::new(),
                     },
                 ));
@@ -203,8 +231,9 @@ struct SavedAnalog {
 
 /// The wave panel format: version 2 added transaction lanes as typed rows,
 /// version 3 analog rows, version 4 groups (rows as a tree; `selected`
-/// counts rows in pre-order, groups included).
-const WAVES_VERSION: u32 = 4;
+/// counts rows in pre-order, groups included), version 5 row colours
+/// (`tint`, a name; an unknown one reads as Default).
+const WAVES_VERSION: u32 = 5;
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
 #[derive(Serialize, Deserialize)]
@@ -592,17 +621,20 @@ impl Workspace {
                                 draw: a.draw,
                                 range: a.range,
                             }),
+                            tint: item.tint,
                         }
                     }
                     WaveRow::Lane(lane) => Row::Lane {
                         trace: lane.source.trace(),
                         generator: lane.source.path().to_vec(),
                         height: lane.height,
+                        tint: lane.tint,
                     },
                     WaveRow::Clock(clock) => Row::Clock {
                         trace: clock.key.trace,
                         clock: clock.key.item.clone(),
                         height: clock.height,
+                        tint: clock.tint,
                     },
                     WaveRow::Group(_) => unreachable!("nest writes groups"),
                 });
@@ -1080,7 +1112,7 @@ impl Workspace {
             w.values_width = saved.columns.values;
             let mut items = Vec::with_capacity(flat.len());
             for (depth, row) in flat {
-                let (trace, signal, nth, format, height, analog) = match row {
+                let (trace, signal, nth, format, height, analog, tint) = match row {
                     Row::Signal {
                         trace,
                         signal,
@@ -1088,11 +1120,13 @@ impl Workspace {
                         format,
                         height,
                         analog,
-                    } => (trace, signal, nth, format, height, analog),
+                        tint,
+                    } => (trace, signal, nth, format, height, analog, tint),
                     Row::Lane {
                         trace,
                         generator,
                         height,
+                        tint,
                     } => {
                         ensure!(!generator.is_empty(), "empty lane generator path");
                         let track = open.tracks(trace).iter().find(|t| {
@@ -1110,6 +1144,7 @@ impl Workspace {
                                 TxLane::unresolved(trace, generator, height)
                             }
                         };
+                        let lane = TxLane { tint, ..lane };
                         items.push(Entry::new(depth, WaveRow::Lane(lane)));
                         continue;
                     }
@@ -1117,6 +1152,7 @@ impl Workspace {
                         trace,
                         clock,
                         height,
+                        tint,
                     } => {
                         ensure!(!clock.is_empty(), "empty clock path");
                         let key = Traced::new(trace, clock);
@@ -1127,6 +1163,7 @@ impl Workspace {
                             depth,
                             WaveRow::Clock(crate::wave::model::ClockRow {
                                 height,
+                                tint,
                                 ..crate::wave::model::ClockRow::new(key)
                             }),
                         ));
@@ -1136,6 +1173,7 @@ impl Workspace {
                         name,
                         collapsed,
                         height,
+                        tint,
                         ..
                     } => {
                         items.push(Entry::new(
@@ -1144,6 +1182,7 @@ impl Workspace {
                                 name,
                                 collapsed,
                                 height,
+                                tint,
                             }),
                         ));
                         continue;
@@ -1209,6 +1248,7 @@ impl Workspace {
                         error: None,
                         height,
                         analog: analog.map(|a| Analog::new(a.draw, a.range)),
+                        tint,
                     }),
                 ));
             }

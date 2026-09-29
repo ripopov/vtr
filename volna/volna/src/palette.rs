@@ -16,6 +16,7 @@ use gpui_kit::{Action, Context, Focusable, SharedString, WeakEntity, Window, div
 use volna_core::app::{ClockCommand, SettingsCommand};
 use volna_core::marker::{LaneVerb, NavigatorRow};
 use volna_core::settings::{self, Kind, Value};
+use volna_core::wave::Tint;
 use volna_core::{App as CoreApp, Command};
 
 use crate::app::{self, Workspace};
@@ -212,6 +213,37 @@ fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         ("Decrease Row Height", Box::new(app::DecreaseRowHeight)),
         ("Reset Row Height", Box::new(app::ResetRowHeight)),
         ("Toggle Analog Drawing", Box::new(app::ToggleAnalog)),
+        ("Color: Default", Box::new(app::SetTint { tint: None })),
+        (
+            "Color: Blue",
+            Box::new(app::SetTint {
+                tint: Some(Tint::Blue),
+            }),
+        ),
+        (
+            "Color: Cyan",
+            Box::new(app::SetTint {
+                tint: Some(Tint::Cyan),
+            }),
+        ),
+        (
+            "Color: Violet",
+            Box::new(app::SetTint {
+                tint: Some(Tint::Violet),
+            }),
+        ),
+        (
+            "Color: Pink",
+            Box::new(app::SetTint {
+                tint: Some(Tint::Pink),
+            }),
+        ),
+        (
+            "Color: Grey",
+            Box::new(app::SetTint {
+                tint: Some(Tint::Grey),
+            }),
+        ),
         (
             "Add or Name Marker at Cursor",
             Box::new(app::AddOrRenameMarker),

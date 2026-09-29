@@ -306,6 +306,19 @@ arrives a zoomed-out plot shows "Summarizing…". Dragging the bottom edge of
 any row's name cell resizes it through the height presets. The design is
 [docs/analog-waves.html](../../docs/analog-waves.html).
 
+Any row or group can take one of five named colours (`wave::Tint`: Blue, Cyan,
+Violet, Pink, Grey; none is Default). A row stores the name, never RGB, and
+`tint::ink` resolves what it is drawn in: its own colour, else the nearest
+enclosing group's. `Theme::wave_tints` resolves the names per theme through
+the `stroke()` contrast floor. The painter draws a coloured row with
+`Theme::inked`, which swaps only the signal ink, high fill and dense band, so
+X, Z, weak values, the cursor and markers keep their colours; a 3 px stripe
+on the name marks the row. One command, `Action::SetTint` (the signal menu's
+Color submenu, the palette's `Color: …`, the named commands `colorBlue` and
+the rest), colours the selection as one undo step through
+`WaveModel::set_tint`. Ungrouping and copying write the inherited colour into
+the rows. The design is [docs/wave-colors.html](../../docs/wave-colors.html).
+
 Rows form a tree of groups (`WaveRow::Group`, `wave::tree`): `WaveModel::items`
 holds `Entry { depth, row }` in pre-order, so a group's rows are the deeper
 entries that follow it, and every nesting rule is a pure function in

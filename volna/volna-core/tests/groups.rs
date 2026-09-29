@@ -799,7 +799,7 @@ fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
     )
     .unwrap();
     let panel = &saved["panels"][0];
-    assert_eq!(panel["version"], 4);
+    assert_eq!(panel["version"], 5);
     let rows = &panel["rows"];
     assert_eq!(rows.as_array().unwrap().len(), 4);
     assert_eq!(rows[2]["type"], "group");

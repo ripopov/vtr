@@ -10,6 +10,8 @@ on:
       - 'docs/tests/hierarchy-activity.test.mjs'
       - 'docs/multiple-traces.html'
       - 'docs/tests/multiple-traces.test.mjs'
+      - 'docs/wave-colors.html'
+      - 'docs/tests/wave-colors.test.mjs'
       - 'volna/volna-core/assets/fonts/**'
       - 'volna/volna-core/assets/icons/**'
       - 'volna/volna/assets/app-icon/**'
@@ -25,6 +27,8 @@ on:
       - 'docs/tests/hierarchy-activity.test.mjs'
       - 'docs/multiple-traces.html'
       - 'docs/tests/multiple-traces.test.mjs'
+      - 'docs/wave-colors.html'
+      - 'docs/tests/wave-colors.test.mjs'
       - 'volna/volna-core/assets/fonts/**'
       - 'volna/volna-core/assets/icons/**'
       - 'volna/volna/assets/app-icon/**'
@@ -53,7 +57,7 @@ jobs:
           node --test --test-concurrency=1 docs/tests/design-system.test.mjs
           docs/tests/design-system-rules.test.mjs docs/tests/design-system-visual.test.mjs
           docs/tests/volna-theme.test.mjs docs/tests/hierarchy-activity.test.mjs
-          docs/tests/multiple-traces.test.mjs
+          docs/tests/multiple-traces.test.mjs docs/tests/wave-colors.test.mjs
       - name: Upload screenshot diffs
         if: failure()
         uses: actions/upload-artifact@v4

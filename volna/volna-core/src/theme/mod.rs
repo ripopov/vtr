@@ -15,6 +15,7 @@ pub mod vscode;
 use crate::color::Color;
 use crate::data::ValueKind;
 use crate::scene::FontRole;
+use crate::wave::Tint;
 
 /// A resolved surface or interaction state. Cheap to copy into closures.
 #[derive(Clone, Copy, Debug)]
@@ -120,6 +121,10 @@ pub struct Theme<C = Color> {
     pub wave_cursor: C,
     pub wave_cursor_inactive: C,
     pub wave_cursor_text: C,
+    /// Row colours by [`Tint::index`], at the contrast floor of
+    /// `wave_signal` on the canvas and of the name stripe on the panel
+    /// surfaces (`docs/wave-colors.html`). Default is `wave_signal`.
+    pub wave_tints: [C; 5],
     /// Relation arrows drawn for the selected pipeline row: edges that end
     /// at it, and edges that start from it.
     pub tx_relation_in: C,
@@ -181,6 +186,11 @@ impl<C: Copy> Theme<C> {
         ][value_index(kind)]
     }
 
+    /// The stroke of a row drawn in `tint`; `None` is the default signal colour.
+    pub fn ink(&self, tint: Option<Tint>) -> C {
+        tint.map_or(self.wave_signal, |t| self.wave_tints[t.index()])
+    }
+
     pub fn marker(&self, index: usize) -> MarkerColors<C> {
         self.markers[index % self.markers.len()]
     }
@@ -236,6 +246,7 @@ impl<C: Copy> Theme<C> {
             wave_cursor: f(self.wave_cursor),
             wave_cursor_inactive: f(self.wave_cursor_inactive),
             wave_cursor_text: f(self.wave_cursor_text),
+            wave_tints: self.wave_tints.map(f),
             tx_relation_in: f(self.tx_relation_in),
             tx_relation_out: f(self.tx_relation_out),
             markers: self.markers.map(|m| m.map(f)),
@@ -289,6 +300,38 @@ impl<C: Copy> Theme<C> {
 }
 
 impl Theme<Color> {
+    /// This theme for a row drawn in `tint`: the signal stroke, its high
+    /// fill and its dense band take the tint; X, Z, weak values, the cursor
+    /// and markers keep theirs. `None` is the theme itself.
+    pub fn inked(&self, tint: Option<Tint>) -> Self {
+        let mut t = *self;
+        let ink = self.ink(tint);
+        t.wave_signal = ink;
+        t.wave_high_fill = ink.with_alpha(self.wave_high_fill.a);
+        t.wave_dense = ink.with_alpha(self.wave_dense.a);
+        t
+    }
+
+    /// The surfaces a tint stroke is read on: the canvas plain, selected
+    /// and hovered, and the name column's panel, selection and hover.
+    pub fn tint_backgrounds(&self) -> [Color; 6] {
+        [
+            self.editor.bg,
+            over(self.wave_row_selected, self.editor.bg),
+            over(self.wave_row_hover, self.editor.bg),
+            self.panel.bg,
+            self.selection.bg,
+            self.hover.bg,
+        ]
+    }
+
+    /// Resolve the row colours from blue, cyan, violet, pink and grey
+    /// sources through the stroke contrast floor.
+    fn resolve_tints(&mut self, sources: [Color; 5]) {
+        let backgrounds = self.tint_backgrounds();
+        self.wave_tints = sources.map(|c| stroke(c, &backgrounds));
+    }
+
     /// Native and standalone-web defaults, unchanged by host theming.
     pub fn one_dark() -> Self {
         let surface = |bg| Surface {
@@ -309,7 +352,7 @@ impl Theme<Color> {
                 c(0x878a98),
             ],
         };
-        Self {
+        let mut t = Self {
             appearance: Appearance::Dark,
             editor: surface(0x282c33),
             panel: surface(0x2f343e),
@@ -355,6 +398,7 @@ impl Theme<Color> {
             wave_cursor: c(0x74ade8),
             wave_cursor_inactive: c(0x74ade8).with_alpha(0.45),
             wave_cursor_text: c(0x282c33),
+            wave_tints: [c(0); 5],
             tx_relation_in: c(0x74ade8),
             tx_relation_out: c(0x5ec9b0),
             markers: [0xbf956a, 0xb477cf, 0x6eb4bf, 0xd07277, 0xdec184, 0xa1c181].map(|hex| {
@@ -380,7 +424,10 @@ impl Theme<Color> {
             icon_size: 16.0,
             splitter_grab: 8.0,
             zoom: 1.0,
-        }
+        };
+        // One Dark's blue, cyan and purple; a pink and the muted grey.
+        t.resolve_tints([0x74ade8, 0x6eb4bf, 0xb477cf, 0xf07fbf, 0xa9afbc].map(c));
+        t
     }
 
     pub fn from_host(p: &HostPalette) -> Self {
@@ -518,6 +565,27 @@ impl Theme<Color> {
         t.wave_cursor_text = fallback_text(t.editor.text, t.wave_cursor);
         t.tx_relation_in = stroke(charts[3], &backgrounds);
         t.tx_relation_out = stroke(charts[0], &backgrounds);
+        // Blue and purple are the host's; cyan sits between its green and
+        // blue, pink between its purple and red. Red and yellow are X and Z.
+        let hue_between = |a: Color, b: Color, toward: f32| {
+            let mut d = b.h - a.h;
+            if d > 0.5 {
+                d -= 1.0;
+            } else if d < -0.5 {
+                d += 1.0;
+            }
+            Color {
+                h: (a.h + d * toward).rem_euclid(1.0),
+                ..a
+            }
+        };
+        t.resolve_tints([
+            charts[3],
+            hue_between(charts[3], charts[0], 0.45),
+            charts[5],
+            hue_between(charts[5], charts[1], 0.5),
+            opaque(p.muted, t.editor.text_muted),
+        ]);
         t.markers = [4, 5, 3, 1, 2, 0].map(|i| MarkerColors {
             stroke: stroke(charts[i], &backgrounds),
             background: charts[i],

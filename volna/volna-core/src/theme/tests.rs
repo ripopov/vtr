@@ -352,3 +352,113 @@ fn zoomed_scales_every_metric_from_the_design_size_and_map_keeps_it() {
     assert_eq!(mapped.zoom, 2.0);
     assert_eq!(mapped.row_height, big.row_height);
 }
+
+/// Perceptual distance (OKLab ΔE × 100) between two opaque colours, with
+/// Ottosson's published matrices.
+#[allow(clippy::excessive_precision)]
+fn delta_e(a: Color, b: Color) -> f32 {
+    let lab = |c: Color| {
+        let [r, g, b, _] = c.to_rgba();
+        let lin = |v: f32| {
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (lin(r), lin(g), lin(b));
+        let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+        let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+        let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+        [
+            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+        ]
+    };
+    let (a, b) = (lab(a), lab(b));
+    100.0 * ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+/// Every theme a user can get: One Dark, the bundled palettes, the real host
+/// palettes and the fallbacks of an empty palette in each appearance.
+fn every_theme() -> Vec<(String, Theme)> {
+    let mut out = vec![("one-dark".to_owned(), Theme::one_dark())];
+    for b in BUILTIN {
+        out.push((b.id.to_owned(), Theme::builtin(b.id).unwrap()));
+    }
+    for (i, p) in real_palettes().into_iter().enumerate() {
+        out.push((format!("host {i} {:?}", p.appearance), Theme::from_host(&p)));
+    }
+    for appearance in [
+        Appearance::Dark,
+        Appearance::Light,
+        Appearance::HighContrastDark,
+        Appearance::HighContrastLight,
+    ] {
+        let p = HostPalette {
+            appearance,
+            ..Default::default()
+        };
+        out.push((format!("fallback {appearance:?}"), Theme::from_host(&p)));
+    }
+    out
+}
+
+#[test]
+fn row_colours_are_legible_everywhere_and_never_pass_for_x_or_z() {
+    use crate::wave::Tint;
+    let mut weakest = f32::MAX;
+    let mut nearest = f32::MAX;
+    for (name, t) in every_theme() {
+        assert_eq!(t.ink(None), t.wave_signal);
+        for tint in Tint::ALL {
+            let ink = t.ink(Some(tint));
+            assert_eq!(ink.a, 1.0, "{name} {tint:?}");
+            for bg in t.tint_backgrounds() {
+                let ratio = contrast(ink, bg);
+                weakest = weakest.min(ratio);
+                assert!(ratio >= 2.99, "{name} {tint:?}: {ratio:.2}:1");
+            }
+            for unknown in [t.wave_undef, t.wave_highimp] {
+                let d = delta_e(ink, unknown);
+                nearest = nearest.min(d);
+                assert!(d >= 10.0, "{name} {tint:?} is {d:.1} from X/Z");
+            }
+        }
+        // The six choices are told apart from each other too.
+        let inks: Vec<Color> = std::iter::once(None)
+            .chain(Tint::ALL.map(Some))
+            .map(|tint| t.ink(tint))
+            .collect();
+        for (i, a) in inks.iter().enumerate() {
+            for b in &inks[i + 1..] {
+                assert!(delta_e(*a, *b) >= 5.0, "{name}: two colours alike");
+            }
+        }
+    }
+    eprintln!("weakest tint contrast {weakest:.2}:1, nearest to X/Z ΔE {nearest:.1}");
+}
+
+#[test]
+fn an_inked_theme_changes_only_the_signal_ink() {
+    use crate::wave::Tint;
+    let t = Theme::one_dark();
+    let pink = t.inked(Some(Tint::Pink));
+    assert_eq!(pink.wave_signal, t.wave_tints[Tint::Pink.index()]);
+    assert_eq!(pink.wave_high_fill.a, t.wave_high_fill.a);
+    assert_eq!(pink.wave_dense.a, t.wave_dense.a);
+    assert_eq!(pink.wave_high_fill.with_alpha(1.0), pink.wave_signal);
+    for (a, b) in [
+        (pink.wave_undef, t.wave_undef),
+        (pink.wave_highimp, t.wave_highimp),
+        (pink.wave_weak, t.wave_weak),
+        (pink.wave_dontcare, t.wave_dontcare),
+        (pink.wave_cursor, t.wave_cursor),
+        (pink.wave_bus_text, t.wave_bus_text),
+        (pink.markers[0].stroke, t.markers[0].stroke),
+    ] {
+        assert_eq!(a, b);
+    }
+    assert_eq!(t.inked(None).wave_signal, t.wave_signal);
+}

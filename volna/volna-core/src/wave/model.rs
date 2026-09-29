@@ -12,6 +12,7 @@ use super::analog::{self, Analog, AnalogDraw, AnalogRange};
 use super::lane::{self, LaneGeometry, TxLane};
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
 use super::overlay::SpanClocks;
+use super::tint::{self, Tint};
 use super::tree::{self, Entry, Place, Splice};
 use super::viewport::Viewport;
 use crate::clock::ClockKey;
@@ -167,6 +168,8 @@ pub struct DisplayedSignal {
     pub height: RowHeight,
     /// Drawn as a plot instead of digital values.
     pub analog: Option<Analog>,
+    /// Its own colour; `None` inherits (see [`tint::ink`]).
+    pub tint: Option<Tint>,
 }
 
 impl DisplayedSignal {
@@ -185,6 +188,7 @@ pub struct ClockRow {
     pub key: ClockKey,
     pub name: String,
     pub height: RowHeight,
+    pub tint: Option<Tint>,
 }
 
 impl ClockRow {
@@ -194,6 +198,7 @@ impl ClockRow {
             name: path.rsplit('.').next().unwrap_or(path).to_owned(),
             key,
             height: RowHeight::DEFAULT,
+            tint: None,
         }
     }
 
@@ -211,6 +216,8 @@ pub struct GroupRow {
     pub collapsed: bool,
     /// The group's own row; its members keep their heights.
     pub height: RowHeight,
+    /// The colour its rows without their own are drawn in.
+    pub tint: Option<Tint>,
 }
 
 impl GroupRow {
@@ -219,6 +226,7 @@ impl GroupRow {
             name: name.into(),
             collapsed: false,
             height: RowHeight::DEFAULT,
+            tint: None,
         }
     }
 }
@@ -269,6 +277,25 @@ impl WaveRow {
             }
             Self::Clock(c) => c.height = height,
             Self::Group(g) => g.height = height,
+        }
+    }
+
+    /// The row's own colour, without what it inherits.
+    pub fn tint(&self) -> Option<Tint> {
+        match self {
+            Self::Signal(s) => s.tint,
+            Self::Lane(l) => l.tint,
+            Self::Clock(c) => c.tint,
+            Self::Group(g) => g.tint,
+        }
+    }
+
+    pub fn set_tint(&mut self, tint: Option<Tint>) {
+        match self {
+            Self::Signal(s) => s.tint = tint,
+            Self::Lane(l) => l.tint = tint,
+            Self::Clock(c) => c.tint = tint,
+            Self::Group(g) => g.tint = tint,
         }
     }
 
@@ -345,6 +372,9 @@ impl WaveRow {
     /// stores of them, without the fold state (undo's projection).
     pub fn same(&self, other: &Self) -> bool {
         let analog = |a: &Option<Analog>| a.as_ref().map(|a| (a.draw, a.range));
+        if self.tint() != other.tint() {
+            return false;
+        }
         match (self, other) {
             (Self::Signal(a), Self::Signal(b)) => {
                 fn format(s: &DisplayedSignal) -> &str {
@@ -472,6 +502,8 @@ pub enum MenuAction {
     FoldAll(bool),
     /// A choice of a Markers or Measure lane menu (`WaveMenuKind::Lane`).
     Lane(crate::marker::LaneVerb),
+    /// Colour the menu's rows; `None` is Default.
+    Tint(Option<Tint>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1200,16 +1232,22 @@ impl WaveModel {
     }
 
     /// Copy the selected rows, in display order and with the groups they
-    /// head, to the document clipboard. Rows keep their format and height;
-    /// histories stay with the panels. The clipboard is not journaled.
+    /// head, to the document clipboard. Rows keep their format, height and
+    /// the colour they are drawn in; histories stay with the panels. The
+    /// clipboard is not journaled.
     pub fn copy_selected(&self, doc: &mut Document) {
         if self.selected.is_empty() {
             return;
         }
-        doc.copied_rows = tree::extract(&self.items, &self.selected)
+        let roots = tree::roots(&self.items, &self.selected);
+        let mut rows: Vec<Entry> = tree::extract(&self.items, &self.selected)
             .iter()
             .map(Entry::detached)
             .collect();
+        for (row, root) in rows.iter_mut().filter(|e| e.depth == 0).zip(roots) {
+            row.row.set_tint(self.ink(root));
+        }
+        doc.copied_rows = rows;
     }
 
     pub fn cut_selected(&mut self, doc: &mut Document) {
@@ -1533,6 +1571,42 @@ impl WaveModel {
     fn leaves_of(&self, rows: &[usize]) -> Vec<usize> {
         let set: BTreeSet<usize> = rows.iter().copied().collect();
         tree::selected_leaves(&self.items, &set)
+    }
+
+    // -- colours ----------------------------------------------------------------
+
+    /// The colour entry `ix` is drawn in (see [`tint::ink`]).
+    pub fn ink(&self, ix: usize) -> Option<Tint> {
+        tint::ink(&self.items, ix)
+    }
+
+    /// Colour the selected rows and groups, or clear their own colour with
+    /// `None`: one step, and nothing when every row already has it.
+    pub fn tint_selected(&mut self, tint: Option<Tint>) -> bool {
+        let rows: Vec<usize> = self.selected.iter().copied().collect();
+        self.set_tint(&rows, tint)
+    }
+
+    /// Give `rows` their own colour `tint` (see [`WaveModel::tint_selected`]).
+    pub fn set_tint(&mut self, rows: &[usize], tint: Option<Tint>) -> bool {
+        let what = match rows {
+            [row] => match self.items.get(*row) {
+                Some(e) => e.name().to_owned(),
+                None => return false,
+            },
+            _ if rows.iter().all(|&r| self.signal(r).is_some()) => {
+                count(rows.len(), "signal", "signals")
+            }
+            _ => count(rows.len(), "row", "rows"),
+        };
+        let label = format!("Color {what} {}", Tint::label(tint));
+        self.rewrite_rows(label, None, rows.iter().copied(), |e| {
+            if e.row.tint() == tint {
+                return false;
+            }
+            e.row.set_tint(tint);
+            true
+        })
     }
 
     // -- translators -----------------------------------------------------------
@@ -1889,8 +1963,25 @@ impl WaveModel {
                 MenuEntry::Item(MenuItem::plain(MenuAction::FoldAll(false), "Unfold all")),
             ]);
         }
+        // A colour is checked only when every target row has it as its own.
+        let mut own = targets.iter().map(|&r| self.items[r].tint());
+        let first = own.next();
+        let shared = first.filter(|t| own.all(|other| other == *t));
+        let colors = std::iter::once(None)
+            .chain(Tint::ALL.map(Some))
+            .map(|tint| MenuItem {
+                action: MenuAction::Tint(tint),
+                label: Tint::label(tint).into(),
+                badge: None,
+                checked: shared == Some(tint),
+            })
+            .collect();
         menu.entries.extend([
             MenuEntry::Separator,
+            MenuEntry::Submenu {
+                label: "Color".into(),
+                items: colors,
+            },
             MenuEntry::Submenu {
                 label: "Height".into(),
                 items: heights,
@@ -1984,6 +2075,7 @@ impl WaveModel {
         match action {
             MenuAction::Format(id) => self.set_translator(doc, &leaves, id),
             MenuAction::RowHeight(height) => self.resize_rows(&rows, menu.row, |_| *height),
+            MenuAction::Tint(tint) => _ = self.set_tint(&rows, *tint),
             MenuAction::Draw(draw) => self.set_analog(&leaves, *draw),
             MenuAction::Range(range) => self.set_analog_range(&leaves, *range),
             MenuAction::ToggleAnalog => self.toggle_analog_rows(&leaves),
@@ -3071,6 +3163,7 @@ fn var_rows(doc: &mut Document, vars: &[Traced<VarId>], loaded: &Resident) -> Ve
                 RowHeight::DEFAULT
             },
             analog,
+            tint: None,
         }));
         if needs_load {
             doc.request_signal(signal);

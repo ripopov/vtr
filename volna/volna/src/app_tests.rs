@@ -662,7 +662,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
             .unwrap()
     };
     // All three new rows are selected: Shift+F10, then (past Group
-    // selection) Height ▸ 2×.
+    // selection and Color) Height ▸ 2×.
     vcx.simulate_keystrokes("shift-f10");
     vcx.run_until_parked();
     assert!(
@@ -671,7 +671,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
             .unwrap(),
         "the popup is hosted"
     );
-    vcx.simulate_keystrokes("down down down down down right down enter");
+    vcx.simulate_keystrokes("down down down down down down right down enter");
     vcx.run_until_parked();
     assert_eq!(heights(&mut vcx), [2, 2, 2]);
     window
@@ -1076,6 +1076,96 @@ fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
     vcx.simulate_keystrokes("a");
     vcx.run_until_parked();
     assert_eq!(row(&mut vcx), (None, 1));
+}
+
+/// Row colours (`docs/wave-colors.html`): the signal menu hosts a Color
+/// submenu, and the palette's `Color: …` commands colour the selection as
+/// one undo step.
+#[gpui_kit::test]
+fn color_submenu_and_palette_commands_colour_the_selection(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use volna_core::wave::{MenuEntry, Tint};
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2])), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            ws.app.panels.focused_waves_mut().unwrap().selected = [0, 1].into();
+            let panel = ws.app.panels.focused_id();
+            ws.dispatch(Command::OpenSignalMenu(panel), Some(window), cx);
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    // The hosted popup renders with its Color submenu.
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert!(ws.wave_menu.is_some(), "the popup is hosted");
+            let menu = ws.app.panels.focused_waves().unwrap().menu.as_ref().unwrap();
+            assert!(menu.entries.iter().any(
+                |e| matches!(e, MenuEntry::Submenu { label, items } if label == "Color" && items.len() == 6)
+            ));
+        })
+        .unwrap();
+    vcx.simulate_keystrokes("escape");
+    vcx.run_until_parked();
+    let labels = window
+        .update(&mut vcx, |ws, _, _| {
+            crate::palette::commands(&ws.app, "color")
+                .into_iter()
+                .map(|(label, _)| label)
+                .filter(|l| l.starts_with("Color: "))
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+    assert_eq!(
+        labels,
+        [
+            "Color: Default",
+            "Color: Blue",
+            "Color: Cyan",
+            "Color: Violet",
+            "Color: Pink",
+            "Color: Grey"
+        ]
+    );
+    vcx.update(|window, cx| {
+        window.dispatch_action(
+            Box::new(SetTint {
+                tint: Some(Tint::Pink),
+            }),
+            cx,
+        )
+    });
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let w = ws.app.panels.focused_waves().unwrap();
+            assert_eq!(
+                (0..3).map(|i| w.ink(i)).collect::<Vec<_>>(),
+                [Some(Tint::Pink), Some(Tint::Pink), None]
+            );
+            assert_eq!(ws.app.undo_label(), Some("Color 2 signals Pink"));
+        })
+        .unwrap();
 }
 
 /// Groups from the keyboard: `G` groups the selection and opens the name

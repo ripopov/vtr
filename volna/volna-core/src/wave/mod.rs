@@ -9,6 +9,7 @@ pub mod model;
 pub mod overlay;
 pub mod paint;
 pub mod timeline;
+pub mod tint;
 pub mod tree;
 pub mod viewport;
 
@@ -17,5 +18,6 @@ pub use model::{
     DisplayedSignal, Drag, GroupRow, MenuEntry, MenuItem, PointerEvent, RowHeight, WaveMenu,
     WaveMenuKind, WaveModel, WaveRow,
 };
+pub use tint::Tint;
 pub use tree::Entry;
 pub use viewport::Viewport;

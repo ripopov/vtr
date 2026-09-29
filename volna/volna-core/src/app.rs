@@ -92,6 +92,9 @@ pub enum Action {
     CycleFormat,
     /// Draw the selected rows as plots, or back to digital.
     ToggleAnalog,
+    /// Colour the selected rows and groups, or clear their own colour with
+    /// `None` (`docs/wave-colors.html`); the menu, palette and agents use it.
+    SetTint(Option<crate::wave::Tint>),
     /// Step the selected rows to the next larger / smaller height preset,
     /// or back to the default height.
     IncreaseRowHeight,
@@ -147,6 +150,13 @@ impl Command {
             "clearReference" => Action::ClearReference,
             "zoomToMeasurement" => Action::ZoomToMeasurement,
             "markerNavigator" => Action::MarkerNavigator,
+            _ if name.starts_with("color") => {
+                let tint = match name.strip_prefix("color")? {
+                    "Default" => None,
+                    rest => Some(crate::wave::Tint::from_id(&rest.to_lowercase())?),
+                };
+                Action::SetTint(tint)
+            }
             _ if name.starts_with("goToMarker") => {
                 let n = name.strip_prefix("goToMarker")?.parse::<u32>().ok()?;
                 Action::GoToMarker(crate::marker::MarkerId::new(n)?)
@@ -2278,6 +2288,7 @@ impl App {
                 | Action::SelectAll
                 | Action::CycleFormat
                 | Action::ToggleAnalog
+                | Action::SetTint(_)
                 | Action::IncreaseRowHeight
                 | Action::DecreaseRowHeight
                 | Action::ResetRowHeight
@@ -2343,6 +2354,7 @@ impl App {
                 Action::ClearSelection => w.clear_selection(doc),
                 Action::CycleFormat => w.cycle_format(doc),
                 Action::ToggleAnalog => w.toggle_analog(),
+                Action::SetTint(tint) => _ = w.tint_selected(tint),
                 Action::IncreaseRowHeight => w.step_row_height(1),
                 Action::DecreaseRowHeight => w.step_row_height(-1),
                 Action::ResetRowHeight => w.step_row_height(0),
@@ -2402,6 +2414,7 @@ impl App {
                 | Action::SelectAll
                 | Action::CycleFormat
                 | Action::ToggleAnalog
+                | Action::SetTint(_)
                 | Action::GroupSelection
                 | Action::Ungroup
                 | Action::RenameGroup

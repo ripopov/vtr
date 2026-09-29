@@ -391,8 +391,9 @@ pub fn group(
 }
 
 /// Plan dissolving the groups among `groups`: their children take their
-/// place one level up. Returns the splices and the dissolved groups' former
-/// children, indexed as after them.
+/// place one level up, and a child without a colour of its own takes the
+/// one it inherited from them, so nothing changes colour. Returns the
+/// splices and the dissolved groups' former children, indexed as after them.
 pub fn ungroup(items: &[Entry], groups: &BTreeSet<usize>) -> (Vec<Splice>, BTreeSet<usize>) {
     let groups: BTreeSet<usize> = groups
         .iter()
@@ -421,9 +422,24 @@ pub fn ungroup(items: &[Entry], groups: &BTreeSet<usize>) -> (Vec<Splice>, BTree
                     children.insert(at + insert.len());
                 }
             }
+            let mut row = items[i].row.clone();
+            // A former child of a dissolved group keeps its colour: the
+            // nearest dissolved ancestor above it that had one.
+            if row.tint().is_none()
+                && let Some(p) = parent(items, i).filter(|p| groups.contains(p))
+            {
+                let mut at = Some(p);
+                while let Some(g) = at.filter(|g| groups.contains(g)) {
+                    if let Some(t) = items[g].row.tint() {
+                        row.set_tint(Some(t));
+                        break;
+                    }
+                    at = parent(items, g);
+                }
+            }
             insert.push(Entry {
                 depth: items[i].depth - lift,
-                row: items[i].row.clone(),
+                row,
             });
         }
         shift += span.len() - insert.len();

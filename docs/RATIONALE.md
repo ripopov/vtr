@@ -1973,6 +1973,58 @@ Not implemented: group row styles (stacked area, heat lanes, horizon; the
 proposal's step 9, deferred until plain groups exist) and VDB profile group
 templates (postponed).
 
+## Volna row colours
+
+Rows and groups of the wave panel can take a colour, designed in
+[docs/wave-colors.html](wave-colors.html) after GTKWave (a fixed list of named
+colours applied to the selected traces) and Surfer (names resolved by the
+active theme). Borrowed: named colours, the selection as the target, and the
+theme as the owner of the actual colour. Rejected: Questa's per-signal
+properties dialog (slower than a submenu for a single setting) and a free RGB
+picker (unreadable on the other appearance, and able to imitate X or Z).
+
+A row stores `Option<Tint>`, one of Blue, Cyan, Violet, Pink and Grey, where
+`None` is Default (the theme's signal green). Red and yellow are not offered
+because they are X and Z. The theme builds the five strokes once
+(`Theme::wave_tints`): from One Dark's own blue, cyan and purple, a pink and
+the muted grey; and from a host palette's blue and purple chart colours, a cyan
+halfway in hue between its green and blue, a pink between its purple and red,
+and its muted text. All five go through the `stroke()` contrast floor against the
+canvas (plain, selected, hovered) and the name column's panel, selection and
+hover, which the name stripe sits on. `theme::tests` checks every theme a user
+can get (One Dark, the bundled palettes, the real host fixtures and the
+fallbacks in all four appearances): the weakest stroke is 3.00:1, and the
+nearest tint is at OKLab ΔE×100 of 10.3 from X or Z. The first One Dark pink
+(#d97fb0) was only 8.1 from X red and was replaced by #f07fbf, which is 11.6
+from X red and 11.2 from violet.
+
+Painting swaps the ink rather than threading a colour through every painter.
+`Theme::inked` returns a copy with `wave_signal`, `wave_high_fill` and
+`wave_dense` in the tint, keeping their alphas, and the row painters read it
+as before. Value kinds therefore keep their colours by construction, and
+lanes, clocks and folded groups follow as well. Untinted rows use the theme
+itself, with no copy. Inheritance is resolved per frame by `tint::InkWalk`:
+the first painted row walks up to its ancestors once, and later rows reuse a
+stack of open groups, so a deep group does not cost a backward parent scan
+per row.
+
+Deviation from the proposal: it put the colour on signals and groups only.
+Lanes and declared clocks take it too (`TxLane::tint`, `ClockRow::tint`),
+because the command colours whatever is selected and those rows are drawn in
+the same signal ink. A colour is a row edit through `WaveModel::rewrite_rows`,
+so undo, the model-based history test and the workspace projection cover it
+with no new journal type. Ungrouping writes the colour the dissolved groups
+passed down into their former children (`tree::ungroup`), and copying writes
+each copied root's drawn colour, so neither changes what the rows look like.
+Moving rows into another group does not: there they take the new group's
+colour, which is what inheritance is for.
+
+Storage: the waves workspace panel moved to version 5 with an optional
+`tint` name on every row type. An unknown name reads as Default, so a
+workspace written with a later palette still opens. The checked-in example
+workspace moved to version 5. Colours never reach VTR or the protocol. A later
+VDB profile may suggest colours by path, and the workspace wins.
+
 ## Volna FST signal histories
 
 The FST loader stored every change as a `WaveValue::Bits(String)` in a

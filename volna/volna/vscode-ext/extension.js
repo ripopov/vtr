@@ -131,6 +131,7 @@ const FORWARDED_COMMANDS = [
   "nextCycle", "prevCycle", "toggleCycleOrigin",
   "nextMarker", "prevMarker", "jumpBack",
   "setReference", "clearReference", "zoomToMeasurement", "markerNavigator",
+  "colorDefault", "colorBlue", "colorCyan", "colorViolet", "colorPink", "colorGrey",
   "openWorkspace", "saveWorkspace", "saveWorkspaceAs",
   ...Array.from({ length: 9 }, (_, i) => `focusPanel${i + 1}`),
 ];

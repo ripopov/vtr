@@ -19,7 +19,7 @@ use volna_core::scene::{MonoMeasure, Prim};
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use volna_core::sidebar::Key;
 use volna_core::testing::ProceduralTrace;
-use volna_core::wave::{MenuEntry, PointerEvent, RowHeight, WaveMenuKind};
+use volna_core::wave::{MenuEntry, PointerEvent, RowHeight, Tint, WaveMenuKind};
 use volna_core::{Instant, Theme};
 
 /// A procedural source that counts loads, can fail on demand, and has an
@@ -1130,6 +1130,12 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
             (&MenuAction::CutSignals, "Cut"),
             (&MenuAction::CopySignals, "Copy"),
             (&MenuAction::Group, "Group selection"),
+            (&MenuAction::Tint(None), "Default"),
+            (&MenuAction::Tint(Some(Tint::Blue)), "Blue"),
+            (&MenuAction::Tint(Some(Tint::Cyan)), "Cyan"),
+            (&MenuAction::Tint(Some(Tint::Violet)), "Violet"),
+            (&MenuAction::Tint(Some(Tint::Pink)), "Pink"),
+            (&MenuAction::Tint(Some(Tint::Grey)), "Grey"),
             (
                 &MenuAction::RowHeight(RowHeight::PRESETS[0]),
                 "1× (Default)"
@@ -1151,10 +1157,11 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
             MenuEntry::Separator,
             MenuEntry::Item(_),
             MenuEntry::Separator,
+            MenuEntry::Submenu { label: color, .. },
             MenuEntry::Submenu { label, .. },
             MenuEntry::Separator,
             MenuEntry::Item(_),
-        ] if label == "Height"
+        ] if color == "Color" && label == "Height"
     ));
 
     app.handle(Command::MenuSelect(waves, MenuAction::OpenTable));
@@ -1187,9 +1194,10 @@ fn height_checks(app: &App) -> Vec<u8> {
         .unwrap()
         .items()
         .filter(|item| item.checked)
-        .map(|item| match item.action {
-            volna_core::wave::model::MenuAction::RowHeight(h) => h.multiple(),
-            _ => panic!("only heights are checkable here"),
+        .filter_map(|item| match item.action {
+            volna_core::wave::model::MenuAction::RowHeight(h) => Some(h.multiple()),
+            volna_core::wave::model::MenuAction::Tint(_) => None,
+            _ => panic!("only heights and colours are checkable here"),
         })
         .collect()
 }

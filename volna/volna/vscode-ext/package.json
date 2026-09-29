@@ -107,6 +107,30 @@
         "title": "Volna: Find Marker…"
       },
       {
+        "command": "volna.colorDefault",
+        "title": "Volna: Color: Default"
+      },
+      {
+        "command": "volna.colorBlue",
+        "title": "Volna: Color: Blue"
+      },
+      {
+        "command": "volna.colorCyan",
+        "title": "Volna: Color: Cyan"
+      },
+      {
+        "command": "volna.colorViolet",
+        "title": "Volna: Color: Violet"
+      },
+      {
+        "command": "volna.colorPink",
+        "title": "Volna: Color: Pink"
+      },
+      {
+        "command": "volna.colorGrey",
+        "title": "Volna: Color: Grey"
+      },
+      {
         "command": "volna.focusPanel1",
         "title": "Volna: Focus Panel 1"
       },

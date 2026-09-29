@@ -33,6 +33,8 @@ pub struct TxLane {
     /// A new lane takes the default height for its depth once its records
     /// arrive; an explicit or restored height clears this.
     pub auto_height: bool,
+    /// Its own colour for the bars; `None` inherits.
+    pub tint: Option<super::Tint>,
 }
 
 /// What a lane can show now.
@@ -64,6 +66,7 @@ impl TxLane {
             },
             height: RowHeight::DEFAULT,
             auto_height: true,
+            tint: None,
         };
         lane.fit_height(doc);
         Some(lane)
@@ -79,6 +82,7 @@ impl TxLane {
             scope,
             height,
             auto_height: false,
+            tint: None,
         }
     }
 

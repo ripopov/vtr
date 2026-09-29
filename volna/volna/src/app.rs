@@ -139,6 +139,13 @@ pub struct GoToMarker {
     pub n: u32,
 }
 
+/// Colour the focused panel's selected rows (the palette's `Color: …`).
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(namespace = waves, no_json)]
+pub struct SetTint {
+    pub tint: Option<volna_core::wave::Tint>,
+}
+
 /// Open entry `ix` of the recent list (File ▸ Open Recent, the palette).
 #[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
 #[action(namespace = workspace, no_json)]
@@ -1010,16 +1017,31 @@ impl Workspace {
                 Some(badge) => format!("{} ({badge})", item.label),
                 None => item.label.clone(),
             };
-            PopupMenuItem::new(label)
-                .checked(item.checked)
-                .on_click(move |_, window, cx| {
-                    let command = Command::MenuSelect(panel, id.clone());
-                    workspace
-                        .update(cx, |this, cx| {
-                            this.dispatch_if_current(generation, command, Some(window), cx)
-                        })
-                        .ok();
-                })
+            let entry = match &item.action {
+                // A colour choice leads with a swatch of the colour itself.
+                volna_core::wave::model::MenuAction::Tint(tint) => {
+                    let tint = *tint;
+                    PopupMenuItem::element(move |_, cx| {
+                        let t = theme(cx);
+                        let swatch = t.px(10.0);
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(t.px(8.0))
+                            .child(div().size(swatch).rounded(t.px(2.0)).bg(t.ink(tint)))
+                            .child(label.clone())
+                    })
+                }
+                _ => PopupMenuItem::new(label),
+            };
+            entry.checked(item.checked).on_click(move |_, window, cx| {
+                let command = Command::MenuSelect(panel, id.clone());
+                workspace
+                    .update(cx, |this, cx| {
+                        this.dispatch_if_current(generation, command, Some(window), cx)
+                    })
+                    .ok();
+            })
         };
         let entries = m.entries.clone();
         let focus = self.waves_focus.clone();
@@ -2348,6 +2370,13 @@ impl Render for Workspace {
                 if let Some(id) = volna_core::marker::MarkerId::new(action.n) {
                     this.dispatch(Command::Action(Action::GoToMarker(id)), Some(window), cx)
                 }
+            }))
+            .on_action(cx.listener(|this, action: &SetTint, window, cx| {
+                this.dispatch(
+                    Command::Action(Action::SetTint(action.tint)),
+                    Some(window),
+                    cx,
+                )
             }))
             .on_action(cx.listener(|this, action: &ClockAction, window, cx| {
                 this.dispatch(Command::Clocks(action.command.clone()), Some(window), cx)

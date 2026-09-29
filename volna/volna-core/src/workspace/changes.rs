@@ -49,10 +49,13 @@ struct WaveStamp {
     columns: (f32, f32),
     rows: usize,
     selected: Option<BTreeSet<usize>>,
-    /// Per-row format, depth and height, compared only for commands that
+    /// Per-row format, depth, height and colour, compared only for commands that
     /// set them.
-    styles: Option<Vec<(String, u8, RowHeight)>>,
+    styles: Option<Vec<RowStyle>>,
 }
+/// A row's format (or identity), depth, height and colour.
+type RowStyle = (String, u8, RowHeight, Option<crate::wave::Tint>);
+
 impl Stamp {
     pub(crate) fn capture(app: &App, command: &Command) -> Option<Self> {
         if !app.workspace.scheduler.enabled() || app.workspace.loading || !app.doc.is_loaded() {
@@ -104,6 +107,7 @@ impl Stamp {
                     | Command::Action(
                         Action::CycleFormat
                             | Action::ToggleAnalog
+                            | Action::SetTint(_)
                             | Action::IncreaseRowHeight
                             | Action::DecreaseRowHeight
                             | Action::ResetRowHeight
@@ -173,7 +177,7 @@ impl Stamp {
                                     format!("group:{}:{}", g.collapsed, g.name)
                                 }
                             };
-                            (style, row.depth, row.height())
+                            (style, row.depth, row.height(), row.tint())
                         })
                         .collect()
                 }),
