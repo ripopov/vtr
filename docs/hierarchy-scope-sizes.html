@@ -133,7 +133,7 @@
     <p class="v-kicker">Measured</p>
     <h2 class="v-section__title">Counting is cheap; holding the hierarchy is not.</h2>
     <div class="a-body">
-      <p>Four traces: C910's RTL recording, and gate-level expansions of it with one, four and sixteen cores (<code>vtr-bench gen-gates</code>). <code>vtr-bench scopes</code> opens each with the VTR reader and counts every scope three ways; Volna's open is its <code>load_cost</code> example. Times are single-threaded, one run each, on a Core Ultra 7 265K.</p>
+      <p>Four traces: C910's RTL recording, and gate-level expansions of it with one, four and sixteen cores (<code>vtr-bench gen-gates</code>). <code>vtr-bench scopes</code> opens each with the VTR reader and counts every scope three ways; Volna's open is its <code>load_cost</code> example. The remote rows are the VS Code path: <code>remote_cost</code> runs the real <code>volna-server</code> child and the production client, natively, and opens the hierarchy without loading any signal. Times are single-threaded, one run each, on a Core Ultra 7 265K.</p>
     </div>
     <div class="v-table-wrap a-wide" role="region" aria-label="Measurements" tabindex="0">
       <table class="v-table a-num">
@@ -150,6 +150,10 @@
           <tr><td>Volna peak memory, VTR</td><td>45 MiB</td><td>824 MiB</td><td>3.16 GiB</td><td>12.6 GiB</td></tr>
           <tr><td>Volna open, FST</td><td>–</td><td>0.60 s</td><td>2.36 s</td><td>–</td></tr>
           <tr><td>Volna peak memory, FST</td><td>–</td><td>817 MiB</td><td>3.18 GiB</td><td>–</td></tr>
+          <tr><td>Remote open, VTR</td><td>0.23 s</td><td>4.4 s</td><td>18.8 s</td><td>–</td></tr>
+          <tr><td>Remote metadata on the wire</td><td>3.3 MiB</td><td>52 MiB</td><td>207 MiB</td><td>–</td></tr>
+          <tr><td>Client budget charged</td><td>50 MiB</td><td>987 MiB</td><td>3.85 GiB</td><td>–</td></tr>
+          <tr><td>Server peak memory</td><td>82 MiB</td><td>1.50 GiB</td><td>5.92 GiB</td><td>–</td></tr>
           <tr><td>Variable sums (not distinct)</td><td>7 µs</td><td>2.1 ms</td><td>9.7 ms</td><td>39 ms</td></tr>
           <tr><td>Stamp walk</td><td>2.0 ms</td><td>24 ms</td><td>96 ms</td><td>513 ms</td></tr>
           <tr><td>Streaming count</td><td>0.48 ms</td><td>13 ms</td><td>54 ms</td><td>220 ms</td></tr>
@@ -161,7 +165,7 @@
       </table>
     </div>
     <div class="a-body">
-      <p>The stamp walk sends every variable up the tree until it meets a scope already stamped with its signal. The streaming count is the colour-set-size method in one preorder pass with Tarjan's offline lowest common ancestors. The per-signal lists keep that method's +1 and −1 entries, so a frame of activity meters adds only the entries of its active signals, here a random 30% of them. All three agree with each other on every scope. The FST files are the same hierarchies written by <code>vcd2fst</code>; the sixteen-core VCD was not converted.</p>
+      <p>The stamp walk sends every variable up the tree until it meets a scope already stamped with its signal. The streaming count is the colour-set-size method in one preorder pass with Tarjan's offline lowest common ancestors. The per-signal lists keep that method's +1 and −1 entries, so a frame of activity meters adds only the entries of its active signals, here a random 30% of them. All three agree with each other on every scope. The FST files are the same hierarchies written by <code>vcd2fst</code>; the sixteen-core VCD was not converted. The remote rows ran with limits raised to 16&nbsp;GiB. With VS Code's defaults, a 512&nbsp;MiB budget and a 256&nbsp;MiB object cap, one gate-level core is refused for its budget and four cores also for the cap. The sixteen-core remote open was not run: its server alone would hold the 12.6&nbsp;GiB model and a copy of it.</p>
     </div>
   </div>
 </section>
@@ -169,11 +173,12 @@
 <section class="v-section" id="findings">
   <div class="v-wrap">
     <p class="v-kicker">Findings</p>
-    <h2 class="v-section__title">Four things the numbers decide.</h2>
+    <h2 class="v-section__title">Five things the numbers decide.</h2>
     <ol class="a-rules">
       <li><strong>Count in one streaming pass.</strong>The streaming count takes 0.22&nbsp;s for 53 million variables, about 4&nbsp;ns per variable, and is 2.2 times faster than the stamp walk. It keeps 12 bytes per scope and 4 per signal and nothing per variable, and it needs only scopes and variables in preorder. That is the order of an FST or VCD hierarchy stream, so it runs while the stream is read. Its cost stays linear however deep the tree gets.</li>
       <li><strong>Hold the hierarchy compactly.</strong>Volna copies every scope and variable into owned strings and vectors: about 217 bytes per node, 12.6&nbsp;GiB and 9.6&nbsp;s for sixteen cores. The VTR reader's own columns hold the same hierarchy in about 34 bytes per node, names included. The count is a rounding error next to this; the model is the problem.</li>
       <li><strong>The largest traces need an index made ahead of time.</strong>Even the compact form is linear in the whole hierarchy: 2.6&nbsp;s and 2&nbsp;GiB to open sixteen cores. A full chip ten times larger would need about half a minute and 20&nbsp;GiB before a row appears. Opening without reading every scope needs a random-access copy of the hierarchy, and sizes must be in it, because a browser that reads only the visible scopes cannot count what it has not read.</li>
+      <li><strong>VS Code copies the hierarchy twice more.</strong>There the trace is read by a native <code>volna-server</code> child, and Volna runs as single-threaded wasm in the webview, with at most 4&nbsp;GiB of address space. The server builds Volna's model, clones it into one metadata object and sends it whole; the webview decodes it back into the same model. One gate-level core costs 1.5&nbsp;GiB on the server, 987&nbsp;MiB of client budget and 4.4&nbsp;s before a row. A compact model helps only if the protocol carries it too.</li>
       <li><strong>Flat scopes need their own rows.</strong>A synthesized module lists thousands of cells as direct children: 18,637 in the largest here. A tree that renders every child, or a filter that scans them on every frame, stalls; Surfer's issue tracker records both. Children must be virtualized, and leaf cells group by cell type, so a module reads as its submodules plus "4,881 NAND2_X1".</li>
     </ol>
   </div>
@@ -207,7 +212,7 @@
     <ol class="a-rules">
       <li><strong>A format-neutral counter.</strong><code>vtr::census</code> takes scopes and variables in preorder: <code>scope(parent)</code>, then <code>var(signal)</code> for each of its variables, then <code>finish()</code>, which returns a distinct count per scope. It keeps a union-find, an ancestor and a weight per scope, the scope stack, and the last scope of each signal. Nothing else. The VTR front end walks the reader's columns in preorder; FST and VCD front ends feed their hierarchy streams as they are read; Volna feeds its model.</li>
       <li><strong>Lists only for meters.</strong><code>vtr::census::Lists</code> keeps each signal's scopes in preorder with the ancestor of each consecutive pair. A frame of activity meters adds the entries of its active signals and takes one prefix pass over the scopes. The lists cost 8 bytes per entry, so they are built only when a trace has meters.</li>
-      <li><strong>A compact model in Volna.</strong><code>Hierarchy</code> in <code>volna-core</code> becomes columns of ids with an interned name table, like the reader's. The VTR session shares the reader's columns and strings instead of copying them. The FST session builds the same columns while it streams. Callers read names through the table and never own a <code>String</code> per node.</li>
+      <li><strong>A compact model in Volna, local and remote.</strong><code>Hierarchy</code> in <code>volna-core</code> becomes columns of ids with an interned name table, like the reader's. The VTR session shares the reader's columns and strings instead of copying them. The FST session builds the same columns while it streams. Callers read names through the table and never own a <code>String</code> per node. The remote protocol carries these columns as they are, in preorder pages, so the VS Code webview holds exactly what a local session holds, and the server sends pages from its own columns without a copy.</li>
       <li><strong>A paged scope index for the largest traces.</strong>VTR stores its hierarchy in declaration order and FST in one compressed stream, so neither can be read one scope at a time. The <code>&lt;trace&gt;.index</code> sidecar of the <a class="v-link" href="hierarchy-activity.html">activity design</a> gains a scope index: every scope in preorder with its parent, the end of its subtree, its first variable, its variable and distinct-signal counts, its cell type and its name, and every variable in the same order, in pages of 65,536 entries with front-coded names. It is built with the same streaming pass, bound to the trace by the same identity, and needs no change to the trace formats or their writers.</li>
       <li><strong>The session hides the difference.</strong>The <code>Session</code> hierarchy becomes a small trait: roots, children of a scope as a range, variables of a scope as a range, size of a scope, name of a node. A loaded model answers from memory; a paged one answers from pages it loads through a <code>LoadRequest</code>, and a child range not yet loaded comes back as pending. The sidebar models draw what the trait returns and never ask which kind they have.</li>
       <li><strong>Flat scopes in rows.</strong>The scope tree renders only visible rows. When a scope has more than a few hundred leaf children of one cell type, they fold into a group row, "NAND2_X1 · 4,881 cells", which opens into a virtualized list. Submodules stay as rows.</li>
@@ -224,18 +229,18 @@
     <h2 class="v-section__title">Six commits, each useful on its own.</h2>
     <div class="a-body">
       <p>Every commit builds, passes <code>cargo test</code> for the crates it touches, <code>cargo test -p volna-core</code> and <code>volna/volna/check.sh</code>, and updates the tests and documentation it touches. No commit adds a feature flag or code that only a later commit calls. Where a stage adds something to the screen, its picture shows that stage and the ones before, and red rings number the new elements as its list does. The pictures use rows measured with <code>vtr-bench scopes --children</code>.</p>
-      <p><strong>Why this order.</strong> Sizes help every trace, so they come first. The compact model and cell groups then make gate-level traces usable in memory. The paged index comes last, for traces that do not fit even then, and it reuses the counter and the session trait already in place. The activity meters of the <a class="v-link" href="hierarchy-activity.html#plan">activity plan</a> need stage 1 here.</p>
+      <p><strong>Why this order.</strong> Sizes help every trace, so they come first. The compact model and cell groups then make gate-level traces usable in memory, natively and in VS Code, where the webview is tighter than any desktop. The paged index comes last, for traces that do not fit even then, and it reuses the counter, the session trait and the remote pages already in place. The activity meters of the <a class="v-link" href="hierarchy-activity.html#plan">activity plan</a> need stage 1 here.</p>
     </div>
     <div class="v-table-wrap a-wide" role="region" aria-label="Stages" tabindex="0">
       <table class="v-table v-table--text">
         <thead><tr><th>#</th><th>Commit</th><th>What the user gets</th><th>Needs</th><th>Files</th></tr></thead>
         <tbody>
           <tr><td>1</td><td><a class="v-link" href="#stage-1">Scope sizes</a></td><td>Every scope row says how many distinct signals it holds; <code>vtr hier --sizes</code></td><td>—</td><td>unchanged</td></tr>
-          <tr><td>2</td><td><a class="v-link" href="#stage-2">A compact hierarchy</a></td><td>Gate-level traces open in a fraction of the memory</td><td>—</td><td>unchanged</td></tr>
+          <tr><td>2</td><td><a class="v-link" href="#stage-2">A compact hierarchy</a></td><td>Gate-level traces open in a fraction of the memory, natively and in VS Code</td><td>1</td><td>remote protocol version 5</td></tr>
           <tr><td>3</td><td><a class="v-link" href="#stage-3">Cell groups</a></td><td>Thousands of cells fold into one row per cell type</td><td>1</td><td>unchanged</td></tr>
           <tr><td>4</td><td><a class="v-link" href="#stage-4">The scope index</a></td><td><code>vtr index</code> writes a paged scope index for VTR and FST</td><td>1; the sidecar container</td><td>sidecar gains scope sections</td></tr>
           <tr><td>5</td><td><a class="v-link" href="#stage-5">Paged hierarchy</a></td><td>A trace with a scope index opens without reading every scope</td><td>2, 4</td><td>unchanged</td></tr>
-          <tr><td>6</td><td><a class="v-link" href="#stage-6">Remote pages</a></td><td>A remote session fetches scope pages on demand</td><td>5</td><td>one protocol message</td></tr>
+          <tr><td>6</td><td><a class="v-link" href="#stage-6">Remote pages</a></td><td>VS Code fetches only the hierarchy pages on screen</td><td>2, 5</td><td>one protocol request</td></tr>
         </tbody>
       </table>
     </div>
@@ -252,7 +257,7 @@
         <p class="a-not">Not in the picture: until the count finishes, the column is empty rather than wrong.</p>
         <h4 class="a-committed">Committed</h4>
         <dl class="a-dl">
-          <div><dt>Core</dt><dd><code>vtr::Census</code>, the streaming counter fed in declaration order (<code>enter</code>, <code>var</code>, <code>leave</code>), and <code>Hierarchy::scope_sizes</code>, its VTR front end, projected to C as <code>vtr_census_*</code> and <code>vtr_reader_scope_sizes</code>. <code>volna-core</code> feeds it the session's hierarchy, so VTR, FST and remote traces are counted alike. The count runs off the UI thread after open as <code>LoadRequest::Sizes</code>, and the counts are kept in the trace's slot, so they survive an undone close. <code>ScopeTreeModel::size</code> reports them per row.</dd></div>
+          <div><dt>Core</dt><dd><code>vtr::Census</code>, the streaming counter fed in declaration order (<code>enter</code>, <code>var</code>, <code>leave</code>), and <code>Hierarchy::scope_sizes</code>, its VTR front end, projected to C as <code>vtr_census_*</code> and <code>vtr_reader_scope_sizes</code>. <code>volna-core</code> feeds it the session's hierarchy, so VTR, FST and remote traces are counted alike. The count runs after open as <code>LoadRequest::Sizes</code>, off the UI thread natively; the VS Code webview is single-threaded, so there it runs between frames until stage 2 moves it to the server. The counts are kept in the trace's slot, so they survive an undone close. <code>ScopeTreeModel::size</code> reports them per row.</dd></div>
           <div><dt>CLI</dt><dd><code>vtr hier --sizes</code> prints each scope with its scopes, variables and signals.</dd></div>
           <div><dt>Frontends</dt><dd>GPUI: the count column and the tooltip. egui keeps its rows.</dd></div>
           <div><dt>Undo</dt><dd>None: sizes are derived view state.</dd></div>
@@ -265,14 +270,16 @@
 
       <article class="a-stagecard" id="stage-2" aria-labelledby="stage-2-h">
         <p class="a-stage__n">Stage 2</p>
-        <h3 id="stage-2-h">A compact hierarchy</h3>
-        <p>The hierarchy model stops copying. Nothing changes on screen, but a sixteen-core gate-level trace no longer needs 12.6&nbsp;GiB before its first row: the target is the reader's own 2&nbsp;GiB.</p>
+        <h3 id="stage-2-h">A compact hierarchy, local and remote</h3>
+        <p>The hierarchy stops being copied, on both sides of the VS Code extension. Natively, a sixteen-core gate-level trace no longer needs 12.6&nbsp;GiB before its first row; the target is the reader's own 2&nbsp;GiB. In VS Code, the server stops cloning its model into one metadata object, and the webview stops rebuilding a <code>String</code> per node. At the reader's 34 bytes per node, one gate-level core would take about 130&nbsp;MB of client budget instead of 987&nbsp;MiB and fit the 512&nbsp;MiB default, and four cores about 530&nbsp;MB. Those are estimates until this stage measures them. Sixteen cores, about 2&nbsp;GB, stay out of a webview's reach until stage 6. Nothing changes on screen.</p>
         <h4 class="a-committed">Committed</h4>
         <dl class="a-dl">
-          <div><dt>Core</dt><dd><code>Hierarchy</code> becomes columns of ids with an interned name table behind the session's hierarchy trait. The VTR session shares the reader's columns; the FST session builds the same columns while it streams. Every caller of <code>scopes[i].name</code> and <code>vars[i].name</code> moves to the trait.</dd></div>
-          <div><dt>Frontends</dt><dd>Both frontends read names through the trait; nothing visible changes.</dd></div>
-          <div><dt>Bench</dt><dd><code>load_cost</code> on the generated gate-level traces joins the benchmark report, with open time and peak memory for VTR and FST, compared with the commit before.</dd></div>
-          <div><dt>Tests</dt><dd>Every existing hierarchy, sidebar and workspace test, unchanged. A walk that compares the new model with the reader's hierarchy node by node on the fixtures.</dd></div>
+          <div><dt>Core</dt><dd><code>Hierarchy</code> becomes columns behind the session's hierarchy trait: parents, child and variable ranges, signal references and kind codes as 32-bit ids, and one name table of bytes and offsets, with scope kinds, variable types and cell types interned. The VTR session shares the reader's columns; the FST session builds the same columns while it streams. Every caller of <code>scopes[i].name</code> and <code>vars[i].name</code> moves to the trait.</dd></div>
+          <div><dt>Protocol</dt><dd>Version 5. The hierarchy leaves the metadata object and travels as its own objects: pages of 65,536 scopes or variables in preorder, the unit of stage 4's index. Each page is a few flat little-endian arrays and a slice of the name table, well under the object cap, so no single object grows with the design. The client charges a page to the memory budget, copies its arrays into the columns and checks their ids, with no allocation per node, in steps short enough for the single-threaded webview. The server sends every page at open, reading them from its shared columns, not from a clone. Stage 6 sends only the pages asked for.</dd></div>
+          <div><dt>Sizes</dt><dd>The server runs stage 1's counter over its columns, 0.9&nbsp;ms for C910 on the reader's, and sends the sizes column with the pages. The webview then never runs the count on its UI thread. <code>LoadRequest::Sizes</code> stays for local sessions.</dd></div>
+          <div><dt>Frontends</dt><dd>Both frontends and the webview read names through the trait; nothing visible changes. An open that does not fit the budget still names the setting to raise.</dd></div>
+          <div><dt>Bench</dt><dd><code>load_cost</code> and <code>remote_cost</code> on the generated gate-level traces join the benchmark report: open time, wire bytes, client budget, client and server peak memory and the longest decode step, for VTR and FST, compared with the commit before.</dd></div>
+          <div><dt>Tests</dt><dd>Every existing hierarchy, sidebar, workspace and remote test, unchanged. A walk that compares the new model with the reader's hierarchy node by node on the fixtures. Over the in-process transport, a remote session equals a local one column for column, sizes included. A page larger than the remaining budget is refused before it is allocated, and a page with out-of-range ids is rejected.</dd></div>
         </dl>
       </article>
 
@@ -340,10 +347,10 @@ core2       576,381    3,321,789    569,422</pre></figure>
       <article class="a-stagecard" id="stage-6" aria-labelledby="stage-6-h">
         <p class="a-stage__n">Stage 6</p>
         <h3 id="stage-6-h">Remote pages</h3>
-        <p>A remote session asks the server for scope pages instead of the whole hierarchy. The server builds the index next to its trace if needed and sends pages as the client expands scopes. Opening a large remote trace then costs the pages on screen, not gigabytes over the network.</p>
+        <p>Stage 2 sends every hierarchy page at open. This stage sends only the pages the client asks for. The server builds the index next to its trace if needed, and the VS Code webview loads pages as scopes expand. Opening a sixteen-core trace in VS Code then costs the pages on screen, not 2&nbsp;GB that a webview cannot hold.</p>
         <h4 class="a-committed">Committed</h4>
         <dl class="a-dl">
-          <div><dt>Core</dt><dd>One protocol request and response carrying raw page bytes, since the index is trace data. The remote session implements the paged trait over it.</dd></div>
+          <div><dt>Core</dt><dd>One protocol request for a page, answered with the page objects stage 2 already sends. They are raw trace data, so presentation stays client-side. The remote session implements stage 5's paged trait over it, and its LRU keeps the webview inside its budget.</dd></div>
           <div><dt>Undo</dt><dd>None.</dd></div>
           <div><dt>Tests</dt><dd>Through the in-process transport, a remote paged session equals a local one; two clients share one build.</dd></div>
         </dl>
@@ -360,6 +367,7 @@ core2       576,381    3,321,789    569,422</pre></figure>
       <p><strong>The gate-level traces are generated.</strong> They keep C910's real module tree and aliases, but give every net one three-pin cell. Real netlists have several cells per net, cells with more pins, and sometimes nets inside cells. Everything measured here is linear in scopes and variables, so real netlists should scale the same way; they were not measured.</p>
       <p><strong>The paged index is not measured.</strong> Its size, build time and page latency are estimates until stage 4. The design's claim rests on the linear costs above and on the reader being the floor for any design that loads the whole hierarchy.</p>
       <p><strong>Meters on a paged hierarchy need every variable.</strong> A frame of activity meters counts active signals in every scope, which needs each signal's scopes: the per-signal lists, 448&nbsp;MiB at 53 million variables. On a paged trace they would be read from the index or built in one pass over it. Meters stay practical up to what those lists cost.</p>
+      <p><strong>The webview is measured natively.</strong> <code>remote_cost</code> runs the production client as a native process. In the webview the same decoding runs as single-threaded wasm, which is slower by an unmeasured factor; its longest step was 25&nbsp;ms for one core and 96&nbsp;ms for four natively. Stage 2's pages bound each step by page size rather than by the design.</p>
       <p><strong>Search reads every name.</strong> Without a name index, a filter on a paged trace streams all name pages. It is progressive, not instant.</p>
       <p><strong>Signals, not bits.</strong> A size counts distinct signals, so a 64-bit bus is one. Gate-level traces have one-bit nets, so their counts are bits.</p>
     </div>
@@ -381,7 +389,7 @@ core2       576,381    3,321,789    569,422</pre></figure>
 
 <section class="a-end">
   <div class="v-wrap">
-    <p class="v-hero__fine">Measured with <code>vtr-bench gen-gates c910_coremark.vtr gates.vtr --copies N</code> and <code>vtr-bench scopes &lt;trace&gt; [--children NAME]</code> (bench/vtr-bench/src/scopes.rs), and <code>cargo run --release -p volna-core --example load_cost &lt;trace&gt; 0</code>, one run each, single-threaded, on a Core Ultra 7 265K · FST twins from <code>vtr to-vcd</code> and <code>vcd2fst</code></p>
+    <p class="v-hero__fine">Measured with <code>vtr-bench gen-gates c910_coremark.vtr gates.vtr --copies N</code> and <code>vtr-bench scopes &lt;trace&gt; [--children NAME]</code> (bench/vtr-bench/src/scopes.rs), <code>cargo run --release -p volna-core --example load_cost &lt;trace&gt; 0</code> and <code>target/release/examples/remote_cost target/release/volna-server &lt;trace&gt; signals:0 16384 16384</code>, one run each, single-threaded, on a Core Ultra 7 265K · FST twins from <code>vtr to-vcd</code> and <code>vcd2fst</code></p>
   </div>
 </section>
 </main>
