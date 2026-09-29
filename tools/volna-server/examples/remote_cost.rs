@@ -11,6 +11,7 @@ use volna_core::remote::limits::Limits;
 use volna_core::remote::memory::MemoryBudget;
 use volna_core::remote::transport::{self, MAX_FRAME_BYTES, Packet};
 use volna_core::session::LoadResult;
+use volna_core::trace::TraceId;
 
 struct Measurement {
     child: Child,
@@ -104,7 +105,7 @@ impl Measurement {
                                 results.iter().any(|(_, r)| r.is_ok())
                             }
                             LoadResult::Track { result, .. } => result.is_ok(),
-                            LoadResult::Opened { .. } => false,
+                            _ => false,
                         };
                         if ready && self.first_ready_ms.is_none() {
                             self.first_ready_ms = Some(self.start.elapsed().as_secs_f64() * 1000.0);
@@ -144,7 +145,7 @@ fn main() -> anyhow::Result<()> {
         input: child.stdin.take().unwrap(),
         output: child.stdout.take().unwrap(),
         child,
-        client: RemoteClient::new(1, object, budget.clone())?,
+        client: RemoteClient::new(TraceId::A, 1, object, budget.clone())?,
         budget,
         start,
         received: 0,
@@ -193,6 +194,7 @@ fn main() -> anyhow::Result<()> {
                 anyhow::ensure!(
                     run.client
                         .submit(volna_core::session::LoadRequest::Signals {
+                            trace: TraceId::A,
                             session: session.clone(),
                             generation: 1,
                             signals: ids,
@@ -217,6 +219,7 @@ fn main() -> anyhow::Result<()> {
                     anyhow::ensure!(
                         run.client
                             .submit(volna_core::session::LoadRequest::Track {
+                                trace: TraceId::A,
                                 session: session.clone(),
                                 generation: 1,
                                 request_id: index as u64 + 1,
