@@ -70,6 +70,7 @@ cargo check --locked -p volna-core --target wasm32-unknown-unknown
 cargo clippy --locked -p volna --target wasm32-unknown-unknown --lib --all-features -- -D warnings
 node --test volna/volna/tools/frame-stats.test.mjs
 node --test volna/volna/tools/undo.test.mjs
+python3 -m unittest discover -s volna/volna/vscode-ext -p 'test_package_vsix.py'
 ```
 
 The build script selects a wasm-capable LLVM toolchain for zstd-sys, builds the

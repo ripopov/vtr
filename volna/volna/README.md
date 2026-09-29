@@ -200,13 +200,26 @@ code --extensionDevelopmentPath="$PWD/vscode-ext" "$PWD/examples"
 ```
 
 Opening any `*.vtr` or `*.fst` file uses the viewer as a custom editor; the command
-"Volna: Open Waveform Viewer" picks a trace and opens its custom editor. Package with `npx @vscode/vsce package`
-inside `vscode-ext/`.
+"Volna: Open Waveform Viewer" picks a trace and opens its custom editor. To
+make a VSIX for the build host, run from the repository root:
+
+```sh
+volna/volna/web/build.sh
+python3 volna/volna/vscode-ext/package_vsix.py
+```
+
+On Windows, use `python` in place of `python3`. The packager builds the native
+server, chooses the host's `linux`, `darwin`, or `win32` x64/arm64 target, and
+writes `volna-<version>-<target>.vsix` in `vscode-ext/`. It rejects a
+mismatched `--target`, checks the server's native binary architecture, and
+verifies the VSIX target and contents. The CI matrix
+builds packages for all six targets. Install the VSIX that matches the VS Code
+workspace host, including the SSH/container host.
 
 The build also places a native `volna-server` in `vscode-ext/bin`. The extension
 runs on the workspace host, including SSH/container workspaces, and starts that
-child beside the recording. Set `volna.serverPath` to a server executable built
-for the workspace host when the bundled binary targets a different platform.
+child beside the recording. Set `volna.remote.serverPath` to a server executable
+built for the workspace host when using a development extension directory.
 Only complete metadata and selected histories/tracks cross the relay; the
 extension does not read and send the whole trace file. Navigation over loaded
 data is local to the viewer.

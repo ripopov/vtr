@@ -2253,3 +2253,15 @@ shaped the API:
   among 7,000 scopes. Hierarchy nodes need no instance behind them (SPEC 5),
   so this is placement only; the clock loses its pairing with the dumped net
   by path, which Volna does not use.
+
+## Volna VS Code platform packages
+
+VS Code's [platform-specific extension mechanism](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#platform-specific-extensions)
+selects a VSIX by `targetPlatform`; an untagged VSIX is a fallback on other
+platforms. Volna runs in the workspace extension host and launches a native
+`volna-server` there, so its WASM media can be shared across packages but its
+server must be built for each host OS and architecture. Package on matching
+native runners for Linux, macOS, and Windows x64/arm64, then check both the
+binary header and the VSIX manifest. An untagged package, a single package
+with several servers, and cross-labelling one host's server were rejected:
+each can advertise support for a host on which the server will not start.

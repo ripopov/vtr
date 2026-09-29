@@ -1,1 +1,5 @@
 **/*.map
+**/*.test.*
+package_vsix.py
+test_package_vsix.py
+__pycache__/

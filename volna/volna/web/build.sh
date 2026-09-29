@@ -40,6 +40,11 @@ trap 'rm -f "$server_tmp"' 0
 cp "$target_dir/viewer/$server_name" "$server_tmp"
 chmod 755 "$server_tmp"
 mv -f "$server_tmp" "vscode-ext/bin/$server_name"
+if [ "$server_name" = volna-server.exe ]; then
+  rm -f vscode-ext/bin/volna-server
+else
+  rm -f vscode-ext/bin/volna-server.exe
+fi
 cp vscode-ext/theme.mjs vscode-ext/media/
 cp web/dist/volna.js web/dist/volna_bg.wasm vscode-ext/media/
 mkdir -p vscode-ext/media/licenses

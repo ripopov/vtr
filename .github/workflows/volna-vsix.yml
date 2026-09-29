@@ -1,0 +1,95 @@
+name: Volna VS Code packages
+on:
+  push:
+    paths:
+      - 'volna/**'
+      - 'core/**'
+      - 'tools/volna-server/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/volna-vsix.yml'
+  pull_request:
+    paths:
+      - 'volna/**'
+      - 'core/**'
+      - 'tools/volna-server/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/volna-vsix.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace path dependency
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check wasm compiler prerequisite
+        run: ls /usr/lib/llvm-18/bin/clang /usr/lib/llvm-18/bin/llvm-ar
+      - name: Install the locked wasm-bindgen CLI
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print $3; exit }' Cargo.lock)
+          cargo install --locked wasm-bindgen-cli --version "$version"
+      - name: Build WASM media
+        run: volna/volna/web/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: volna-media
+          path: volna/volna/vscode-ext/media/
+          if-no-files-found: error
+
+  vsix:
+    needs: media
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: macos-15
+            target: darwin-arm64
+          - os: windows-2022
+            target: win32-x64
+          - os: windows-11-arm
+            target: win32-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace path dependency
+        run: git submodule update --init --depth 1 ext/elkrs
+      - uses: actions/download-artifact@v4
+        with:
+          name: volna-media
+          path: volna/volna/vscode-ext/media/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Check packager
+        run: python -m unittest discover -s volna/volna/vscode-ext -p test_package_vsix.py
+      - name: Build and verify target VSIX
+        run: python volna/volna/vscode-ext/package_vsix.py --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: volna-${{ matrix.target }}
+          path: volna/volna/vscode-ext/volna-*-${{ matrix.target }}.vsix
+          if-no-files-found: error
