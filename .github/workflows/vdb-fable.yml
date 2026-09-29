@@ -1,0 +1,38 @@
+name: VDB Fable design
+on:
+  push:
+    paths:
+      - 'docs/VDB_Fable.html'
+      - 'docs/vdb-fable/**'
+      - 'docs/tests/VDB_Fable.test.mjs'
+      - 'docs/tests/design-system-lib.mjs'
+      - 'docs/design-system/**'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/vdb-fable.yml'
+  pull_request:
+    paths:
+      - 'docs/VDB_Fable.html'
+      - 'docs/vdb-fable/**'
+      - 'docs/tests/VDB_Fable.test.mjs'
+      - 'docs/tests/design-system-lib.mjs'
+      - 'docs/design-system/**'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/vdb-fable.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  page:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      VOLNA_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify headless browser prerequisite
+        run: google-chrome --version
+      - name: Test the VDB Fable design page and its explorer
+        run: node --test --test-concurrency=1 docs/tests/VDB_Fable.test.mjs

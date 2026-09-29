@@ -2428,3 +2428,46 @@ decode step. Raw best-of-three samples and the checked-in runner are under
 `bench/results/hierarchy-stage2/` and `bench/hierarchy-cost.py`. The native client
 uses the production cooperative decoder; browser execution time is not inferred
 from native timings.
+
+## VDB Fable: the design database beside a trace (design)
+
+[VDB Fable](VDB_Fable.html) replaces the per-view VDB documents (the RTL JSON
+of `VDB_RTL.md`, the pipeline profile of `VDB_APPNOTE.md`, the CHI protocol
+pack, the postponed group templates) with one design: nine layers of typed
+tables in a binary container that shares VTR's section, directory, string
+and zstd code, stored per module definition and addressed by content, read by
+Volna, a stateless CLI and MCP through one query catalogue.
+
+The measurements that drove it, from `bench/vdb_size.py` on the openC910
+CoreMark model's `Vtop.vdb.json` and `vtr-vdb check` under `/usr/bin/time`:
+809.3 MB of JSON for a 243 MiB trace; 6,934 instances of 373 definitions with
+one definition stored 3,056 times; processes 485 MB of the file; 17.5 MB at
+zstd -3; distinct-per-definition text of 108 of 316 MB for processes, 20 of 62
+for symbols and 40 of 66 for connections; 13.2 s and 5.9 GiB to attach. The
+page's explorer also shows what the schema loses on a small design: an enum
+typed as its base and compared to `2'h1`, a struct nobody decodes, a state
+machine and a register map that have no place to live.
+
+Alternatives considered and rejected: SQLite as the store (no shared mapping,
+schema migrations as versioning, the engine in the WASM build; kept as an
+export and as the shape of the query surface, after Perfetto and UCIS); a
+section of VTR (the boundary in README stands); UHDM-style pointer object
+models and JSON as the file (JSON stays a projection); a language server at
+debug time (rejected before, for the source tile); embedding the layouts of
+schematics (viewer state). Borrowed: the two-model shape of Verdi's KDB and its
+scope-on-first-touch loading; Questa's FSM recognition conditions and record;
+Cadence's static design file with no time-dependent data and its investigation
+tree; DWARF's type units by signature, name index and build-id lookup; UHDI's
+interned pools and two locations per object; hgdb's guarded statements; Yosys's
+`$fsm` cells; Perfetto's warm session with MCP as a wrapper and its bounded
+results; wavepeek's CLI and skill; Siloti's essential-signal expansion. The
+agentic-debug papers of 2025–2026 (VerilogCoder, VeriTrace, BluesFL, FVDebug)
+measure that driver back-trace with a chosen depth, trace inspection over
+chosen signals and windows, blocks with reads and targets, and causal graphs of
+a few hundred nodes are what helps, which are the catalogue's composite queries.
+
+The explorer runs on a real Verilator recording of `docs/vdb-fable/soc.sv`
+(`--trace-vtr`, embedded by `docs/vdb-fable/build.py`), and the headless test
+checks its engine against a brute-force reading of the data. Nothing of the
+design is implemented in Rust yet; stage 1 of the plan is the container and
+the folded structure, measured on C910 against the JSON.

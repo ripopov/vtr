@@ -173,7 +173,9 @@ design browsing and other simulation backends.
 VDB should grow beyond RTL to represent Konata-like pipelines,
 Gantt-chart-style transaction views, and future trace domains. Keep it
 versioned and extensible rather than forcing new semantics into an RTL-only
-model or into VTR.
+model or into VTR. [VDB Fable](docs/VDB_Fable.html) is the long-term design:
+nine layers in one binary container stored per definition, one query catalogue
+for the viewer, the CLI and agents, rolled out in twelve stages.
 
 ### Volna
 
@@ -250,6 +252,7 @@ requirement for embedded chat.
 | Distinct signal counts on every scope row, from RTL to gate-level hierarchies: a one-pass colour-set-size count (0.22 s for 53 million variables), a compact hierarchy model in place of the former 12.6 GiB copy of a 9.2-million-scope trace, cell groups for flat modules, and a paged scope index in the `<trace>.index` sidecar for traces too large to hold, measured on C910 and gate-level expansions of it, with a six-stage plan. Stages 1 and 2 have landed: scope counts, shared local hierarchy storage and protocol-v5 pages (2.54 GiB peak for the sixteen-core VTR trace; 196 MiB retained remote client budget for one core) | [Hierarchy scope sizes](docs/hierarchy-scope-sizes.html), [headless test](docs/tests/hierarchy-scope-sizes.test.mjs) |
 | Multiple traces in one Volna session, for three jobs: combining complementary recordings of one system (a VTR CPU trace and an FST DRAM-controller trace, ns and ps, on one timeline with value and key links), comparing runs for performance (Konata-style instruction pairing, alignment by instruction, slip curve, stage sums, latency Δ) and comparing runs to find a regression (rules, difference bands, first-difference ranking); six layers (trace set, placement as one piecewise-linear warp, views and links, pairing, differences, tasks), layered volna-core modules, an eight-stage plan with a picture per stage, research on Questa/Verdi/GTKWave/Surfer/Konata/Perfetto/Nsight/Trace Compass, a C910 whole-design compare measured at 8.1 s (proposal/demo on four generated recordings). Stage 1 has landed: Volna opens several traces side by side (`volna landing.vtr landing_dram.fst`), with trace chips, a hierarchy root per trace, lettered rows on one exact timeline, undoable add/close/rename and version-5 workspaces | [Multiple traces](docs/multiple-traces.html), [headless test](docs/tests/multiple-traces.test.mjs), [core tests](volna/volna-core/tests/traces.rs) |
 | Adding hierarchy during a run (UVM objects, initial blocks): how VTR hierarchy works, the reader fix for late signals, an ID-based tree API replacing the scope stack, caller migration and core tests (implemented) | [Dynamic hierarchy](docs/dyn_hierarchy.html) |
+| VDB Fable, the long-term design of the design database beside a trace: why the RTL VDB v2 JSON does not scale (809 MB and 5.9 GiB to attach for the C910 model, 3.2× its trace, measured by `bench/vdb_size.py`), ten decisions, nine layers from identity and folded structure through source, behaviour, idioms, interfaces, verification and presentation to human and agent knowledge, a binary container stored per definition and addressed by content, one query catalogue for Volna, the CLI and MCP, research on Verdi KDB, Questa, Verisium, UHDI, hgdb, Perfetto and the 2026 agentic-debug literature, and a twelve-stage plan with a picture per stage; with an explorer over a real Verilator recording of `docs/vdb-fable/soc.sv` that extracts a state machine, a register map, a domain and an assertion from the export (design/demo) | [VDB Fable](docs/VDB_Fable.html), [headless test](docs/tests/VDB_Fable.test.mjs), [data builder](docs/vdb-fable/build.py) |
 
 ## Building and testing
 
