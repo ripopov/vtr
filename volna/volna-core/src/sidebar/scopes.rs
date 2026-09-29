@@ -105,12 +105,12 @@ impl ScopeTreeModel {
     }
 
     fn expand_top(&mut self, trace: TraceId, h: &Hierarchy) {
-        for &r in &h.roots {
-            if !h.scopes[r].children.is_empty() {
+        for r in h.roots() {
+            if !h.scope(r).children.is_empty() {
                 self.expanded.insert(Traced::new(trace, r));
             }
-            for &c in &h.scopes[r].children {
-                if !h.scopes[c].children.is_empty() {
+            for c in h.scope(r).children {
+                if !h.scope(c).children.is_empty() {
                     self.expanded.insert(Traced::new(trace, c));
                 }
             }
@@ -119,7 +119,7 @@ impl ScopeTreeModel {
 
     fn first_root(&self, traces: &TraceSet) -> Option<TreeNode> {
         let (trace, session) = traces.first_loaded()?;
-        let root = session.hierarchy().roots.first().copied();
+        let root = session.hierarchy().roots().first();
         Some(match root {
             Some(root) if !traces.is_combined() => TreeNode::scope(Traced::new(trace, root)),
             _ => TreeNode::trace(trace),
@@ -157,8 +157,8 @@ impl ScopeTreeModel {
             return false;
         };
         match node.scope {
-            Some(scope) => !h.scopes[scope].children.is_empty(),
-            None => !h.roots.is_empty(),
+            Some(scope) => !h.scope(scope).children.is_empty(),
+            None => !h.roots().is_empty(),
         }
     }
 
@@ -180,20 +180,14 @@ impl ScopeTreeModel {
                     continue;
                 }
             }
-            let mut pending: Vec<_> = h.roots.iter().rev().map(|&id| (id, base)).collect();
+            let mut pending: Vec<_> = h.roots().iter().rev().map(|id| (id, base)).collect();
             while let Some((id, depth)) = pending.pop() {
                 self.visible
                     .push((TreeNode::scope(Traced::new(trace, id)), depth));
-                if !h.scopes[id].children.is_empty()
+                if !h.scope(id).children.is_empty()
                     && self.expanded.contains(&Traced::new(trace, id))
                 {
-                    pending.extend(
-                        h.scopes[id]
-                            .children
-                            .iter()
-                            .rev()
-                            .map(|&id| (id, depth + 1)),
-                    );
+                    pending.extend(h.scope(id).children.iter().rev().map(|id| (id, depth + 1)));
                 }
             }
         }
@@ -245,8 +239,7 @@ impl ScopeTreeModel {
                 self.expanded.extend(
                     session
                         .hierarchy()
-                        .scopes
-                        .iter()
+                        .scopes()
                         .enumerate()
                         .filter(|(_, scope)| !scope.children.is_empty())
                         .map(|(id, _)| Traced::new(trace, id)),
@@ -260,7 +253,7 @@ impl ScopeTreeModel {
     fn parent(traces: &TraceSet, node: TreeNode) -> Option<TreeNode> {
         let scope = node.scope?;
         let h = traces.session(node.trace)?.hierarchy();
-        match h.scopes[scope].parent {
+        match h.scope(scope).parent {
             Some(p) => Some(TreeNode::scope(Traced::new(node.trace, p))),
             None => traces.is_combined().then(|| TreeNode::trace(node.trace)),
         }
@@ -280,7 +273,7 @@ impl ScopeTreeModel {
         let expanded = self.is_expanded(sel);
         let stream = sel.traced_scope().and_then(|scope| {
             let h = traces.session(scope.trace)?.hierarchy();
-            matches!(h.scopes[scope.item].role, ScopeRole::Stream { .. })
+            matches!(h.scope(scope.item).role, ScopeRole::Stream { .. })
                 .then(|| scope.with(Member::Stream(scope.item)))
         });
         let mut out = ScopeKeyOutcome::default();

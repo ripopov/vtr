@@ -1097,17 +1097,17 @@ impl WaveModel {
         let mut entries = Vec::new();
         let mut stack = vec![(scope.item, 0u8)];
         while let Some((id, depth)) = stack.pop() {
-            let Some(s) = h.scopes.get(id) else { continue };
-            let mut group = GroupRow::new(s.name.clone());
+            let Some(s) = h.get_scope(id) else { continue };
+            let mut group = GroupRow::new(s.name);
             group.collapsed = depth > 0;
             entries.push(Entry::new(depth, WaveRow::Group(group)));
-            let vars: Vec<_> = s.vars.iter().map(|&v| scope.with(v)).collect();
+            let vars: Vec<_> = s.vars.iter().map(|v| scope.with(v)).collect();
             let rows = var_rows(doc, &vars, &loaded);
             entries.extend(rows.into_iter().map(|row| Entry::new(depth + 1, row)));
             // Child scopes with variables below them, while groups can nest.
             if recursive && depth + 2 < tree::MAX_DEPTH {
-                let children = s.children.iter().rev().filter(|&&c| h.has_vars(c));
-                stack.extend(children.map(|&c| (c, depth + 1)));
+                let children = s.children.iter().rev().filter(|&c| h.has_vars(c));
+                stack.extend(children.map(|c| (c, depth + 1)));
             }
         }
         if entries.is_empty() {
@@ -3128,7 +3128,7 @@ fn var_rows(doc: &mut Document, vars: &[Traced<VarId>], loaded: &Resident) -> Ve
             continue;
         };
         let h = session.hierarchy();
-        let Some(v) = h.vars.get(var.item) else {
+        let Some(v) = h.get_var(var.item) else {
             continue;
         };
         let signal = var.with(v.signal);
@@ -3151,7 +3151,7 @@ fn var_rows(doc: &mut Document, vars: &[Traced<VarId>], loaded: &Resident) -> Ve
                 signal: v.signal,
             },
             requested_format: None,
-            name: v.name.clone(),
+            name: v.name.to_owned(),
             scope: h.scope_path(v.scope).join("."),
             shape: v.shape,
             translator,

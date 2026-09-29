@@ -750,12 +750,12 @@ impl Hierarchy {
         self.indexed = true;
     }
 
-    /// The node as a value (enum tables and attributes are copied; prefer the
-    /// field accessors in loops). Panics when out of range.
-    pub fn node(&self, id: NodeId) -> Node {
+    /// Kind-specific declaration fields without copying attributes. Enum
+    /// tables are copied; use `enum_entries` to borrow them. Panics out of range.
+    pub fn node_data(&self, id: NodeId) -> NodeData {
         let i = id.0 as usize;
         let (w0, w1) = (self.w0[i], self.w1[i]);
-        let data = match self.kind(id) {
+        match self.kind(id) {
             NodeKind::Scope => NodeData::Scope { scope_type: ScopeType::from_code(w0 as u16), component: StrId(w1) },
             NodeKind::Var => NodeData::Var {
                 var_type: VarType::from_code(w0 as u16),
@@ -766,8 +766,13 @@ impl Hierarchy {
             NodeKind::Stream => NodeData::Stream { kind: StrId(w0) },
             NodeKind::Generator => NodeData::Generator,
             NodeKind::EnumTable => NodeData::EnumTable { entries: self.enum_tables[w0 as usize].clone() },
-        };
-        Node { parent: self.parent(id), name: self.name(id), data, attrs: self.attrs(id).to_vec() }
+        }
+    }
+
+    /// The node as a value (enum tables and attributes are copied; prefer
+    /// field accessors in loops). Panics when out of range.
+    pub fn node(&self, id: NodeId) -> Node {
+        Node { parent: self.parent(id), name: self.name(id), data: self.node_data(id), attrs: self.attrs(id).to_vec() }
     }
 
     pub fn kind(&self, id: NodeId) -> NodeKind {
@@ -785,6 +790,11 @@ impl Hierarchy {
         StrId(self.name[id.0 as usize])
     }
 
+    pub(crate) fn child_ids(&self,id:NodeId) -> &[u32] {
+        let i=id.0 as usize;
+        &self.children[self.child_start[i] as usize..self.child_start[i+1] as usize]
+    }
+
     /// Signal of a var node (declaration or alias), `None` for other kinds.
     pub fn signal_of(&self, id: NodeId) -> Option<SignalId> {
         (self.kind(id) == NodeKind::Var).then(|| SignalId(self.w1[id.0 as usize]))
@@ -800,6 +810,19 @@ impl Hierarchy {
         let a = self.attr_node.partition_point(|&n| n < id.0);
         let b = self.attr_node.partition_point(|&n| n <= id.0);
         &self.attr_kv[a..b]
+    }
+
+    /// Bytes retained by the declaration columns and their indexes. Excludes
+    /// nested attribute payloads; this is the raw hierarchy's allocation floor.
+    pub fn resident_bytes(&self) -> u64 {
+        use std::mem::size_of;
+        (self.kind.capacity()
+            + [self.parent.capacity(), self.name.capacity(), self.w0.capacity(), self.w1.capacity(),
+                self.attr_node.capacity(), self.child_start.capacity(), self.children.capacity(), self.roots.capacity()].iter().sum::<usize>() * 4
+            + self.signals.capacity()*size_of::<SignalKind>() + self.signal_var.capacity()*size_of::<NodeId>()
+            + self.attr_kv.capacity()*size_of::<(StrId,Value)>()
+            + self.enum_tables.capacity()*size_of::<Vec<(StrId,StrId)>>()
+            + self.enum_tables.iter().map(|table| table.capacity()*size_of::<(StrId,StrId)>()).sum::<usize>()) as u64
     }
 
     /// Number of attributes on all nodes.

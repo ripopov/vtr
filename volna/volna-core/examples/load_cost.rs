@@ -33,8 +33,7 @@ fn main() -> anyhow::Result<()> {
         let mut seen = HashSet::new();
         let ids: Vec<_> = session
             .hierarchy()
-            .vars
-            .iter()
+            .vars()
             .map(|v| v.signal)
             .filter(|id| seen.insert(*id))
             .take(count)
@@ -62,7 +61,8 @@ fn main() -> anyhow::Result<()> {
         "{}",
         serde_json::json!({
             "path": path, "selection": selection, "open_ms": open_ms, "sizes_ms": sizes_ms,
-            "load_ms": load_ms, "total_ms": total_ms, "peak_rss_kib": rss,
+            "scopes": session.hierarchy().scope_count(), "vars": session.hierarchy().var_count(),
+            "resident_bytes": session.resident_bytes(), "hierarchy_bytes": session.hierarchy().resident_bytes(), "load_ms": load_ms, "total_ms": total_ms, "peak_rss_kib": rss,
             "signals": histories.len(), "changes": changes, "transactions": tracks.iter().flat_map(|track| &track.generators).map(|g| g.transactions().len()).sum::<usize>()
         })
     );

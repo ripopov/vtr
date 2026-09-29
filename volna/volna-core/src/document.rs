@@ -467,6 +467,9 @@ impl Document {
         slot.placement = placement;
         slot.state = SlotState::Loaded(Arc::clone(&session));
         if slot.sizes.is_none() {
+            slot.sizes = session.scope_sizes();
+        }
+        if slot.sizes.is_none() {
             self.requests.push(LoadRequest::Sizes {
                 trace: id,
                 generation: slot.generation,

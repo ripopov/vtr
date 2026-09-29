@@ -20,9 +20,9 @@ fn brute(h: &Hierarchy, scope: ScopeId) -> ScopeSize {
     let mut stack = vec![scope];
     while let Some(s) = stack.pop() {
         scopes += 1;
-        variables += h.scopes[s].vars.len() as u32;
-        signals.extend(h.scopes[s].vars.iter().map(|&v| h.vars[v].signal));
-        stack.extend(&h.scopes[s].children);
+        variables += h.scope(s).vars.len() as u32;
+        signals.extend(h.scope(s).vars.iter().map(|v| h.var(v).signal));
+        stack.extend(h.scope(s).children);
     }
     ScopeSize {
         signals: signals.len() as u32,
@@ -46,9 +46,9 @@ fn counts_equal_brute_force_on_the_fixtures() {
         let session = OpenSpec::Path(root().join(rel)).open().unwrap();
         let h = session.hierarchy();
         let sizes = ScopeSizes::count(h);
-        for s in 0..h.scopes.len() {
+        for s in 0..h.scope_count() {
             let want = brute(h, s);
-            assert_eq!(sizes.get(s), Some(want), "{rel}: {}", h.scopes[s].name);
+            assert_eq!(sizes.get(s), Some(want), "{rel}: {}", h.scope(s).name);
             aliased += usize::from(want.variables > want.signals);
         }
     }
@@ -63,7 +63,7 @@ fn the_scope_tree_reports_sizes_once_counted() {
     let mut app = App::new();
     app.set_session(session.clone());
     let h = session.hierarchy();
-    let top = TreeNode::scope(Traced::new(TraceId::A, h.roots[0]));
+    let top = TreeNode::scope(Traced::new(TraceId::A, h.roots().first().unwrap()));
     // Until the count finishes the column is empty rather than wrong.
     assert_eq!(ScopeTreeModel::size(app.doc.traces(), top), None);
     let requests = app.take_requests();
@@ -77,7 +77,7 @@ fn the_scope_tree_reports_sizes_once_counted() {
     }
     assert_eq!(
         ScopeTreeModel::size(app.doc.traces(), top),
-        Some(brute(h, h.roots[0]))
+        Some(brute(h, h.roots().first().unwrap()))
     );
     assert_eq!(
         ScopeTreeModel::size(app.doc.traces(), TreeNode::trace(TraceId::A)),

@@ -5,7 +5,7 @@
 use super::source::{Hierarchy, ScopeId};
 
 /// Totals of one scope, subscopes included.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScopeSize {
     /// Distinct signals: an aliased signal counts once.
     pub signals: u32,
@@ -55,7 +55,8 @@ fn grouped(n: u32) -> String {
 /// Every scope's [`ScopeSize`], indexed by [`ScopeId`].
 #[derive(Debug, Default)]
 pub struct ScopeSizes {
-    sizes: Vec<ScopeSize>,
+    pub(crate) sizes: Vec<ScopeSize>,
+    pub(crate) _ownership: Option<std::sync::Arc<Vec<crate::remote::memory::Reservation>>>,
 }
 
 impl ScopeSizes {
@@ -63,8 +64,8 @@ impl ScopeSizes {
     pub fn count(h: &Hierarchy) -> Self {
         let mut census = vtr::Census::new();
         // Census index → scope, and explicit leave markers (`None`).
-        let mut order = Vec::with_capacity(h.scopes.len());
-        let mut stack: Vec<Option<ScopeId>> = h.roots.iter().rev().map(|&s| Some(s)).collect();
+        let mut order = Vec::with_capacity(h.scope_count());
+        let mut stack: Vec<Option<ScopeId>> = h.roots().iter().rev().map(Some).collect();
         while let Some(entry) = stack.pop() {
             let Some(id) = entry else {
                 census.leave();
@@ -72,15 +73,15 @@ impl ScopeSizes {
             };
             census.enter();
             order.push(id);
-            let scope = &h.scopes[id];
-            for &v in &scope.vars {
-                census.var(h.vars[v].signal.0);
+            let scope = h.scope(id);
+            for v in scope.vars {
+                census.var(h.signal(v).0);
             }
             stack.push(None);
-            stack.extend(scope.children.iter().rev().map(|&c| Some(c)));
+            stack.extend(scope.children.iter().rev().map(Some));
         }
         let counted = census.finish();
-        let mut sizes = vec![ScopeSize::default(); h.scopes.len()];
+        let mut sizes = vec![ScopeSize::default(); h.scope_count()];
         for (i, &id) in order.iter().enumerate() {
             let i = i as u32;
             sizes[id] = ScopeSize {
@@ -89,7 +90,10 @@ impl ScopeSizes {
                 scopes: counted.scopes(i),
             };
         }
-        Self { sizes }
+        Self {
+            sizes,
+            _ownership: None,
+        }
     }
 
     pub fn get(&self, scope: ScopeId) -> Option<ScopeSize> {

@@ -2318,3 +2318,65 @@ native runners for Linux, macOS, and Windows x64/arm64, then check both the
 binary header and the VSIX manifest. An untagged package, a single package
 with several servers, and cross-labelling one host's server were rejected:
 each can advertise support for a host on which the server will not start.
+
+## Compact hierarchy, local and remote
+
+Stage 2 of [scope sizes](hierarchy-scope-sizes.html#stage-2) uses immutable
+borrowed views over flat declaration columns, byte/offset dictionaries and CSR
+membership. The existing VTR reader already owns these fields and its child
+index. Its `NodeIndex` query keeps selected raw IDs plus bitmap prefix ranks,
+rather than duplicating memberships or allocating a reverse mapping per raw
+node. FST constructs columns while streaming and drops its dictionary hash
+index after construction. The resident hierarchy has no owned string or vector
+per scope or variable. An owned builder remains useful for fixtures and explicit
+transformations; readers return shared immutable handles.
+
+[Arrow's columnar layout](https://arrow.apache.org/docs/format/Columnar.html)
+informs the fixed-width columns and dictionary byte/offset buffers. Its complete
+IPC/type system is unnecessary for this small fixed raw schema. A global
+transport name dictionary was rejected because it would require a second
+whole-hierarchy projection and leave pages dependent on another large object.
+Per-page dictionaries bound construction and permit direct retention. Shared
+VTR fields avoid re-interning reader strings. The FST builder stores hashes and
+dictionary IDs, verifies text on collisions, and resolves collisions by probing;
+it does not retain a second owned copy of dictionary text.
+
+Protocol 5 moves declarations out of the catalog into 65,536-entry preorder
+pages. The server borrows its catalog and projects one page at a time. The client
+pays the complete declared page and column headers at Begin, then admits
+construction indexes and validation scratch before their allocation. It validates and installs in
+cooperative steps and publishes only after all matching End markers. Scope sizes
+are computed server-side and accompany scope pages, avoiding the webview census.
+Dictionary UTF-8 is checked once in byte-bounded batches; immutable string
+queries borrow validated slices without repeating that scan. Column lengths and
+dictionary-entry bounds are rejected before reserving collection storage.
+Reservations survive clones of both hierarchy and sizes, and failed assemblies
+release their private storage. Limits remain explicit; paging at open does not
+make the complete hierarchy lazy. Stage 6 owns requested-page loading.
+
+Renumbering declarations into preorder was rejected: it changes row, workspace
+and palette identities even when names and signals agree. A page ID column and
+two flat ID-to-position indexes preserve declaration IDs while carrying preorder
+pages. Root variables retain the owned model's synthetic scope at the first root
+variable's declaration position; a literal `(top)` declared later remains a
+different scope. Borrowed membership cursors apply this identity gap without
+copying reader child lists. Alias validation uses one shape slot per signal
+rather than a hash entry per variable. The final CSR pass reuses its cursor as
+a preorder ancestor stack.
+Generator queries also borrow from the hierarchy, so callers cannot detach an
+unaccounted catalog handle from its admitted owner. The direction column uses
+two direction bits and one enum-presence bit,
+preserving all raw `u32` enum identities without another per-variable word.
+No workspace storage or undo behavior changes, and no VTR encoding changes.
+The WASM bridge follows document
+generation while its client tracks trace-slot generation; mixing those identities
+dropped a pending connection before its first ACK. The headless browser regression
+checks the complete local/remote path across multiple pages.
+
+The [benchmark report](BENCHMARK_RESULTS.md#compact-hierarchy-local-and-remote)
+compares every local and remote VTR/FST workload with the previous commit,
+including open time, retained budget, peak RSS, wire bytes and maximum native
+decode step. Raw best-of-three samples and the checked-in runner are under
+`bench/results/hierarchy-stage2/` and `bench/hierarchy-cost.py`. The native client
+uses the production cooperative decoder; browser execution time is not inferred
+from native timings.

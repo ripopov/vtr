@@ -109,6 +109,7 @@ pub mod codec;
 pub mod container;
 pub mod error;
 pub mod hierarchy;
+pub mod hierarchy_index;
 pub mod logblock;
 pub mod logfmt;
 pub mod reader;

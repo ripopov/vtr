@@ -56,7 +56,7 @@ pub fn log_site(h: &Hierarchy, member: Member) -> Option<LogSite<'_>> {
 pub fn member_detail(h: &Hierarchy, member: Member) -> String {
     match member {
         Member::Var(id) => {
-            let v = &h.vars[id];
+            let v = h.var(id);
             format!(
                 "{}{}",
                 if v.var_type == "parameter" {
@@ -78,14 +78,14 @@ pub fn member_detail(h: &Hierarchy, member: Member) -> String {
                 "generator".into()
             }
         }
-        Member::Stream(id) => format!("stream · {}", h.scopes[id].kind),
+        Member::Stream(id) => format!("stream · {}", h.scope(id).kind),
     }
 }
 
 pub fn describe(h: &Hierarchy, member: Member) -> String {
     let detail = match member {
         Member::Var(id) => {
-            let v = &h.vars[id];
+            let v = h.var(id);
             format!(
                 "{} {} · {}{}",
                 v.var_type,
@@ -174,18 +174,16 @@ impl MemberListModel {
                 let Some(h) = traces.session(scope.trace).map(|s| s.hierarchy()) else {
                     return;
                 };
-                let s = &h.scopes[scope.item];
+                let s = h.scope(scope.item);
                 self.rows.extend(
                     s.vars
                         .iter()
-                        .copied()
-                        .filter(|&v| matches(&h.vars[v].name))
+                        .filter(|&v| matches(h.var(v).name))
                         .map(|v| scope.with(Member::Var(v))),
                 );
                 self.rows.extend(
                     s.generators
                         .iter()
-                        .copied()
                         .filter(|&g| matches(&h.generators[g].name))
                         .map(|g| scope.with(Member::Generator(g))),
                 );
@@ -194,12 +192,11 @@ impl MemberListModel {
             None if !filter.is_empty() => {
                 for (trace, session) in traces.loaded() {
                     let h = session.hierarchy();
-                    let members = (0..h.vars.len())
+                    let members = (0..h.var_count())
                         .map(Member::Var)
                         .chain((0..h.generators.len()).map(Member::Generator))
                         .chain(
-                            h.scopes
-                                .iter()
+                            h.scopes()
                                 .enumerate()
                                 .filter(|(_, s)| matches!(s.role, ScopeRole::Stream { .. }))
                                 .map(|(id, _)| Member::Stream(id)),
@@ -250,7 +247,7 @@ impl MemberListModel {
             m.item.var().is_some_and(|v| {
                 traces
                     .session(m.trace)
-                    .is_some_and(|s| s.hierarchy().vars[v].direction != Direction::None)
+                    .is_some_and(|s| s.hierarchy().var(v).direction != Direction::None)
             })
         })
     }
@@ -285,7 +282,7 @@ impl MemberListModel {
         if self.search_everywhere || self.show_scope() {
             return "Results";
         }
-        match self.scope_of(traces).map(|(h, s)| &h.scopes[s]) {
+        match self.scope_of(traces).map(|(h, s)| h.scope(s)) {
             Some(s) if matches!(s.role, ScopeRole::Stream { .. }) => {
                 if s.kind == "LOG" {
                     "Log sites"
@@ -312,7 +309,7 @@ impl MemberListModel {
         let Some((h, id)) = self.scope_of(traces) else {
             return String::new();
         };
-        let s = &h.scopes[id];
+        let s = h.scope(id);
         let letter = match self.scope {
             Some(scope) if traces.is_combined() => format!("{} · ", scope.trace),
             _ => String::new(),
@@ -345,7 +342,7 @@ impl MemberListModel {
             if self.is_searching() {
                 Some("No members match")
             } else if let Some((h, id)) = self.scope_of(traces) {
-                let scope = &h.scopes[id];
+                let scope = h.scope(id);
                 Some(if matches!(scope.role, ScopeRole::Stream { .. }) {
                     "This stream declares no generators"
                 } else if scope.children.is_empty() {

@@ -189,13 +189,13 @@ impl Workspace {
                             return Some(this.trace_row(ix, node, cx));
                         };
                         let h = this.app.doc.hierarchy(node.trace)?;
-                        let scope = &h.scopes[id];
+                        let scope = h.scope(id);
                         let has_children = !scope.children.is_empty();
                         let expanded = this.app.scopes.is_expanded(node);
                         let selected = this.app.scopes.selected == Some(node);
                         let colors = t.row(selected, false);
                         let hover = t.hover;
-                        let name: SharedString = scope.name.clone().into();
+                        let name: SharedString = scope.name.to_owned().into();
                         let mut row = div()
                             .id(("scope", ix))
                             .debug_selector(move || format!("scope-row-{}-{id}", node.trace))
@@ -261,9 +261,9 @@ impl Workspace {
                         // with variables become folded subgroups unless only
                         // this scope is asked for.
                         let addable = h.has_vars(id);
-                        let nested = scope.children.iter().any(|&c| h.has_vars(c));
+                        let nested = scope.children.iter().any(|c| h.has_vars(c));
                         let owner = cx.weak_entity();
-                        let (icon, tint) = scope_icon(scope);
+                        let (icon, tint) = scope_icon(&scope);
                         // Empty until the count after open finishes.
                         let size = ScopeTreeModel::size(this.app.doc.traces(), node);
                         let mut tooltip = format!(
@@ -321,7 +321,7 @@ impl Workspace {
                                     .text_ellipsis()
                                     .child(name),
                             )
-                            .when_some(stream_tag(scope), |row, tag| {
+                            .when_some(stream_tag(&scope), |row, tag| {
                                 row.child(
                                     div()
                                         .flex_none()

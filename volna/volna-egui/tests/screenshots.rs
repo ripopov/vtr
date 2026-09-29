@@ -59,7 +59,7 @@ fn fst_opens_and_loads_on_frontend_executor() {
     app.app.open_path(fixture);
     wait_loads(&mut h, &mut app);
     let a = volna_core::trace::TraceId::A;
-    let count = app.app.doc.hierarchy(a).unwrap().vars.len();
+    let count = app.app.doc.hierarchy(a).unwrap().var_count();
     assert!(count > 0);
     let vars = (0..count).map(|v| volna_core::trace::Traced::new(a, v));
     app.app.handle(Command::AddVars(vars.collect()));

@@ -356,13 +356,13 @@ mod tests {
         }
     }
 
-    fn object(
+    fn send_object(
         client: &mut RemoteClient,
         request: u64,
         sequence: &mut u64,
         object: ObjectId,
         bytes: Vec<u8>,
-    ) -> LoadResult {
+    ) -> Option<LoadResult> {
         let mut send = |body| {
             let result = response(
                 client,
@@ -392,7 +392,61 @@ mod tests {
                 .is_none()
             );
         }
-        send(Body::End).unwrap()
+        send(Body::End)
+    }
+
+    fn object(
+        client: &mut RemoteClient,
+        request: u64,
+        sequence: &mut u64,
+        object: ObjectId,
+        bytes: Vec<u8>,
+    ) -> LoadResult {
+        send_object(client, request, sequence, object, bytes).expect("completed object")
+    }
+    fn opened(
+        client: &mut RemoteClient,
+        request: u64,
+        source: &dyn crate::session::Session,
+    ) -> LoadResult {
+        let mut sequence = 0;
+        let header = crate::remote::hierarchy::Header::from_session(source).unwrap();
+        let sizes = crate::data::ScopeSizes::count(source.hierarchy());
+        let mut completed = send_object(
+            client,
+            request,
+            &mut sequence,
+            ObjectId::Metadata,
+            bincode::serialize(&header).unwrap(),
+        );
+        for page in 0..header.scope_pages() {
+            completed = send_object(
+                client,
+                request,
+                &mut sequence,
+                ObjectId::Scopes(page),
+                bincode::serialize(&crate::remote::hierarchy::Page::scopes(
+                    source.hierarchy(),
+                    &sizes,
+                    page,
+                ))
+                .unwrap(),
+            );
+        }
+        for page in 0..header.var_pages() {
+            completed = send_object(
+                client,
+                request,
+                &mut sequence,
+                ObjectId::Variables(page),
+                bincode::serialize(&crate::remote::hierarchy::Page::vars(
+                    source.hierarchy(),
+                    page,
+                ))
+                .unwrap(),
+            );
+        }
+        completed.expect("completed Open")
     }
 
     #[test]
@@ -407,13 +461,7 @@ mod tests {
         .unwrap();
         let open = client.take_command().unwrap().unwrap();
         let local = crate::testing::ProceduralTrace::session(100);
-        let opened = object(
-            &mut client,
-            open.request,
-            &mut 0,
-            ObjectId::Metadata,
-            bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap(),
-        );
+        let opened = opened(&mut client, open.request, local.as_ref());
         let LoadResult::Opened { result, .. } = opened else {
             panic!("opened")
         };
@@ -494,13 +542,7 @@ mod tests {
         )
         .unwrap();
         let open = client.take_command().unwrap().unwrap();
-        let opened = object(
-            &mut client,
-            open.request,
-            &mut 0,
-            ObjectId::Metadata,
-            bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap(),
-        );
+        let opened = opened(&mut client, open.request, local.as_ref());
         let LoadResult::Opened { result, .. } = opened else {
             panic!("opened")
         };
@@ -542,13 +584,8 @@ mod tests {
         .unwrap();
         let open = client.take_command().unwrap().unwrap();
         let local = crate::testing::ProceduralTrace::session(100);
-        let LoadResult::Opened { result, .. } = object(
-            &mut client,
-            open.request,
-            &mut 0,
-            ObjectId::Metadata,
-            bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap(),
-        ) else {
+        let LoadResult::Opened { result, .. } = opened(&mut client, open.request, local.as_ref())
+        else {
             panic!("opened")
         };
         let session = result.unwrap();
@@ -588,13 +625,7 @@ mod tests {
         assert_eq!(open.session, 0);
         assert!(client.take_command().unwrap().is_none());
         let local = crate::testing::ProceduralTrace::session(100);
-        let opened = object(
-            &mut client,
-            open.request,
-            &mut 0,
-            ObjectId::Metadata,
-            bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap(),
-        );
+        let opened = opened(&mut client, open.request, local.as_ref());
         let LoadResult::Opened {
             trace: _,
             generation: 70,

@@ -124,6 +124,7 @@ impl Server {
         self.request += 1;
         let mut transfer = OpenTransfer::new(
             self.request,
+            volna_core::trace::TraceId::A,
             19,
             limit,
             MemoryBudget::new(256 * 1024 * 1024),
@@ -148,7 +149,9 @@ impl Server {
                     ClientStep::Complete { ack, result } => {
                         write_packet(&mut self.input, &ack).unwrap();
                         transfer.finish().unwrap();
-                        let volna_core::session::LoadResult::Opened { generation, result } = result
+                        let volna_core::session::LoadResult::Opened {
+                            generation, result, ..
+                        } = result
                         else {
                             panic!("Open completion");
                         };
@@ -173,6 +176,7 @@ impl Server {
         let mut receiver = SignalTransfer::new(
             self.session,
             self.request,
+            volna_core::trace::TraceId::A,
             73,
             signals,
             limit,
@@ -192,6 +196,7 @@ impl Server {
                         let volna_core::session::LoadResult::Signals {
                             generation,
                             results: loaded,
+                            ..
                         } = result
                         else {
                             panic!("expected signal completion");
@@ -236,10 +241,13 @@ fn vtr_and_fst_process_histories_match_local_values_and_aliases() {
         let mut server = Server::start(&path);
         let metadata = server.open(64 * 1024 * 1024).unwrap();
         metadata.validate().unwrap();
-        assert_eq!(metadata.hierarchy.vars.len(), local.hierarchy().vars.len());
+        assert_eq!(
+            metadata.hierarchy.var_count(),
+            local.hierarchy().var_count()
+        );
         assert_eq!(metadata.info.time_range, local.info().time_range);
         let mut ids = vec![];
-        for variable in local.hierarchy().vars.iter().take(32) {
+        for variable in local.hierarchy().vars().take(32) {
             if !ids.contains(&variable.signal.0) {
                 ids.push(variable.signal.0);
             }
@@ -287,12 +295,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     let y = w.begin_tx(b, 2).unwrap();
     w.set_tx_parent(y, x).unwrap();
     let key = w.intern("bytes");
-    w.tx_attr(
-        y,
-        key,
-        &vtr::Value::Bytes(vec![0, 255]),
-    )
-    .unwrap();
+    w.tx_attr(y, key, &vtr::Value::Bytes(vec![0, 255])).unwrap();
     w.end_tx(y, 2, vtr::TxStatus::Aborted).unwrap();
     let kind = w.intern("cause");
     for _ in 0..2 {
@@ -302,8 +305,15 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     w.close().unwrap();
     let mut server = Server::start(file.path());
     let budget = MemoryBudget::new(64 * 1024 * 1024);
-    let mut client = RemoteClient::new(10, 32 * 1024 * 1024, budget.clone()).unwrap();
+    let mut client = RemoteClient::new(
+        volna_core::trace::TraceId::A,
+        10,
+        32 * 1024 * 1024,
+        budget.clone(),
+    )
+    .unwrap();
     let LoadResult::Opened {
+        trace: _,
         generation: 10,
         result,
     } = server.drive(&mut client)
@@ -314,6 +324,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     assert!(
         client
             .submit(volna_core::session::LoadRequest::Track {
+                trace: volna_core::trace::TraceId::A,
                 session: session.clone(),
                 generation: 11,
                 request_id: 71,
@@ -322,6 +333,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
             .is_ok()
     );
     let LoadResult::Track {
+        trace: _,
         generation: 11,
         request_id: 71,
         track,
@@ -351,6 +363,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     assert!(
         client
             .submit(volna_core::session::LoadRequest::Track {
+                trace: volna_core::trace::TraceId::A,
                 session: session.clone(),
                 generation: 11,
                 request_id: 72,
@@ -361,6 +374,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     assert!(
         client
             .submit(volna_core::session::LoadRequest::Track {
+                trace: volna_core::trace::TraceId::A,
                 session: session.clone(),
                 generation: 11,
                 request_id: 73,
@@ -369,6 +383,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
             .is_ok()
     );
     let LoadResult::Track {
+        trace: _,
         request_id: 72,
         result,
         ..
@@ -378,6 +393,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     };
     assert!(result.is_err());
     let LoadResult::Track {
+        trace: _,
         request_id: 73,
         result,
         ..
@@ -389,6 +405,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     assert!(
         client
             .submit(volna_core::session::LoadRequest::Track {
+                trace: volna_core::trace::TraceId::A,
                 session: session.clone(),
                 generation: 11,
                 request_id: 74,
@@ -399,6 +416,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     assert!(
         client
             .submit(volna_core::session::LoadRequest::Track {
+                trace: volna_core::trace::TraceId::A,
                 session: session.clone(),
                 generation: 11,
                 request_id: 75,
@@ -411,6 +429,7 @@ fn process_preserves_full_tracks_and_parallel_relations() {
     assert_eq!(failed.len(), 2);
     for (result, expected) in failed.into_iter().zip([74, 75]) {
         let LoadResult::Track {
+            trace: _,
             generation: 11,
             request_id,
             result,
@@ -440,7 +459,7 @@ fn metadata_limit_and_per_signal_failure_are_explicit() {
     server.close();
     let mut server = Server::start(&path);
     let meta = server.open(64 * 1024 * 1024).unwrap();
-    let id = meta.hierarchy.vars[0].signal.0;
+    let id = meta.hierarchy.var(0).signal.0;
     server.command(Command::Signals(vec![id, u32::MAX]));
     let replies =
         server.receive::<PackedHistory>(vec![ObjectId::Signal(id), ObjectId::Signal(u32::MAX)]);

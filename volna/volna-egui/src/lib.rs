@@ -547,7 +547,7 @@ impl VolnaApp {
                     let Some(id) = node.scope.filter(|_| node.trace == TraceId::A) else {
                         continue;
                     };
-                    let scope = &h.scopes[id];
+                    let scope = h.scope(id);
                     let has_children = !scope.children.is_empty();
                     let expanded = self.app.scopes.is_expanded(node);
                     let selected = self.app.scopes.selected == Some(node);
@@ -580,7 +580,7 @@ impl VolnaApp {
                     }
                     paint::icon(
                         ui.painter(),
-                        scope_icon(scope).0,
+                        scope_icon(&scope).0,
                         Rect::from_center_size(
                             Pos2::new(x + 27.0, rect.center().y),
                             Vec2::splat(14.0),
@@ -590,7 +590,7 @@ impl VolnaApp {
                     ui.painter().text(
                         Pos2::new(x + 38.0, rect.center().y),
                         Align2::LEFT_CENTER,
-                        &scope.name,
+                        scope.name,
                         font_id(volna_core::FontRole::Ui, self.core_theme.ui_size),
                         colors.text,
                     );
@@ -734,7 +734,7 @@ impl VolnaApp {
                         ui.painter().text(
                             Pos2::new(x, rect.center().y),
                             Align2::LEFT_CENTER,
-                            var.map(|id| direction_label(h.vars[id.item].direction))
+                            var.map(|id| direction_label(h.var(id.item).direction))
                                 .unwrap_or(""),
                             small.clone(),
                             colors.text_muted,

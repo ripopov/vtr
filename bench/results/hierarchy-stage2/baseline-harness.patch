@@ -1,0 +1,38 @@
+diff --git a/tools/volna-server/examples/remote_cost.rs b/tools/volna-server/examples/remote_cost.rs
+index 57a4681..34a89e0 100644
+--- a/tools/volna-server/examples/remote_cost.rs
++++ b/tools/volna-server/examples/remote_cost.rs
+@@ -104,7 +104,7 @@ impl Measurement {
+                                 results.iter().any(|(_, r)| r.is_ok())
+                             }
+                             LoadResult::Track { result, .. } => result.is_ok(),
+-                            LoadResult::Opened { .. } => false,
++                            _ => false,
+                         };
+                         if ready && self.first_ready_ms.is_none() {
+                             self.first_ready_ms = Some(self.start.elapsed().as_secs_f64() * 1000.0);
+@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
+         input: child.stdin.take().unwrap(),
+         output: child.stdout.take().unwrap(),
+         child,
+-        client: RemoteClient::new(1, object, budget.clone())?,
++        client: RemoteClient::new(volna_core::trace::TraceId::A, 1, object, budget.clone())?,
+         budget,
+         start,
+         received: 0,
+@@ -193,6 +193,7 @@ fn main() -> anyhow::Result<()> {
+                 anyhow::ensure!(
+                     run.client
+                         .submit(volna_core::session::LoadRequest::Signals {
++                            trace: volna_core::trace::TraceId::A,
+                             session: session.clone(),
+                             generation: 1,
+                             signals: ids,
+@@ -217,6 +218,7 @@ fn main() -> anyhow::Result<()> {
+                     anyhow::ensure!(
+                         run.client
+                             .submit(volna_core::session::LoadRequest::Track {
++                                trace: volna_core::trace::TraceId::A,
+                                 session: session.clone(),
+                                 generation: 1,
+                                 request_id: index as u64 + 1,

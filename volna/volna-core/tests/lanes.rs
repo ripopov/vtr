@@ -70,7 +70,7 @@ fn generator(session: &dyn Session, track: TrackRef) -> Member {
     Member::Generator(
         session
             .hierarchy()
-            .generators
+            .generators()
             .iter()
             .position(|g| g.track == track)
             .unwrap(),
@@ -194,8 +194,7 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
     // no row form.
     let h = session.hierarchy();
     let stream = h
-        .scopes
-        .iter()
+        .scopes()
         .position(|s| matches!(s.role, volna_core::data::ScopeRole::Stream { .. }))
         .unwrap();
     app.handle(Command::Panels(volna_core::panels::PanelsCommand::Focus(

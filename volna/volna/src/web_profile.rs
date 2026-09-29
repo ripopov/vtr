@@ -53,10 +53,23 @@ impl Workspace {
                 None => {}
             }
         }
+        // Thin diagnostic projection of the same immutable session queries.
+        let hierarchies: Vec<_> = self.app.doc.traces().loaded().map(|(trace, session)| {
+            let h = session.hierarchy();
+            let roots: Vec<_> = h.roots().iter().map(|id| {
+                let scope = h.scope(id);
+                serde_json::json!({"id": id, "name": scope.name, "component": scope.component,
+                    "children": scope.children.len(), "vars": scope.vars.len(),
+                    "size": self.app.doc.traces().get(trace).and_then(|s| s.sizes()).and_then(|s| s.get(id))})
+            }).collect();
+            serde_json::json!({"scopes": h.scope_count(), "vars": h.var_count(), "roots": roots,
+                "lastScope": h.get_scope(h.scope_count().saturating_sub(1)).map(|s| (s.name, s.kind, s.component, s.parent)),
+                "lastVar": h.get_var(h.var_count().saturating_sub(1)).map(|v| (v.name, v.scope, v.signal.0, v.enum_table))})
+        }).collect();
         let result = serde_json::json!({
             "action": action, "streams": tracks.len(), "ready": ready,
             "loading": loading, "transactions": transactions,
-            "incidentRelations": relations, "errors": errors,
+            "incidentRelations": relations, "errors": errors, "hierarchies": hierarchies,
         })
         .to_string();
         if let Ok(callback) =

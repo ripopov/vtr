@@ -234,14 +234,15 @@ fn pointer_targets_do_not_drift_when_focus_changes_or_a_trace_is_replaced() {
 #[test]
 fn hierarchy_locators_round_trip_declarations_and_literal_dots() {
     let source = ProceduralTrace::new(10);
-    let mut h = source.hierarchy().clone();
+    let mut h = source.hierarchy().to_builder();
     h.scopes[0].name = "test.bench".into();
     h.vars[0].name = "\\escaped.name".into();
-    for id in 0..h.vars.len() {
+    let h = h.finish();
+    for id in 0..h.var_count() {
         let (path, nth) = h.var_path(id);
         assert_eq!(h.find_var(&path, nth), Lookup::Found(id));
     }
-    for id in 0..h.scopes.len() {
+    for id in 0..h.scope_count() {
         assert_eq!(h.find_scope(&h.scope_path(id)), Lookup::Found(id));
     }
     assert_eq!(h.find_scope(&["test", "bench"]), Lookup::Missing);
@@ -252,20 +253,23 @@ fn hierarchy_locators_round_trip_declarations_and_literal_dots() {
 #[test]
 fn duplicate_variables_require_occurrence_but_duplicate_scopes_cannot_be_guessed() {
     let source = ProceduralTrace::new(10);
-    let mut h = source.hierarchy().clone();
+    let mut h = source.hierarchy().to_builder();
     let duplicate = h.vars.len();
     h.vars.push(h.vars[0].clone());
     let scope = h.vars[0].scope;
     h.scopes[scope].vars.push(duplicate);
+    let h = h.finish();
     let (path, nth) = h.var_path(duplicate);
     assert_eq!(nth, Some(1));
     assert_eq!(h.find_var(&path, None), Lookup::Ambiguous);
     assert_eq!(h.find_var(&path, Some(0)), Lookup::Found(0));
     assert_eq!(h.find_var(&path, Some(1)), Lookup::Found(duplicate));
     assert_eq!(h.find_var(&path, Some(2)), Lookup::Missing);
-    let root = h.roots[0];
-    h.roots.push(h.scopes.len());
-    h.scopes.push(h.scopes[root].clone());
+    let mut builder = h.to_builder();
+    let root = builder.roots[0];
+    builder.roots.push(builder.scopes.len());
+    builder.scopes.push(builder.scopes[root].clone());
+    let h = builder.finish();
     assert_eq!(h.find_var(&path, Some(0)), Lookup::Ambiguous);
     assert_eq!(h.find_scope(&h.scope_path(scope)), Lookup::Ambiguous);
 }
@@ -382,8 +386,8 @@ fn split_copies_rows_but_shares_history_and_clears_transient_input() {
         Default::default(),
     );
     w.finish_signal(
-        volna_core::testing::a(source.hierarchy().vars[0].signal),
-        source.load_signal(source.hierarchy().vars[0].signal),
+        volna_core::testing::a(source.hierarchy().var(0).signal),
+        source.load_signal(source.hierarchy().var(0).signal),
     );
     w.drag = Some(volna_core::wave::model::Drag::Cursor);
     let b = p.create(a, Some(Axis::Vertical)).unwrap();

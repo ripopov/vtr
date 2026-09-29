@@ -25,7 +25,7 @@ use lz4_flex::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 use serde::{Deserialize, Serialize};
 
 /// Protocol version carried in every frame header.
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 /// Largest encoded frame body.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// Largest `Data` chunk payload.
@@ -40,6 +40,8 @@ pub enum ObjectId {
     Metadata,
     Signal(u32),
     Track(u32),
+    Scopes(u32),
+    Variables(u32),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,7 +287,10 @@ impl<R: Read, W: Write> ResponseWriter<R, W> {
         limit: u64,
     ) -> anyhow::Result<()> {
         let size = options().with_no_limit().serialized_size(value)?;
-        anyhow::ensure!(size <= limit, "object exceeds transfer limit");
+        anyhow::ensure!(
+            size <= limit,
+            "object exceeds transfer limit; raise memory.objectMiB and reopen the trace"
+        );
         self.send(Body::Begin {
             object,
             decoded_bytes: size,
@@ -417,6 +422,19 @@ impl Receiver {
             active: None,
             failed: false,
         })
+    }
+
+    /// Extend an Open response after its bounded header announces page counts.
+    pub(super) fn expect_pages(&mut self, scopes: u32, vars: u32) -> anyhow::Result<()> {
+        self.expected
+            .try_reserve_exact(scopes as usize + vars as usize)?;
+        self.expected.extend((0..scopes).map(ObjectId::Scopes));
+        self.expected.extend((0..vars).map(ObjectId::Variables));
+        Ok(())
+    }
+
+    pub(super) fn finish_open_error(&mut self) {
+        self.expected.clear();
     }
 
     pub fn accept(&mut self, packet: Packet) -> anyhow::Result<Receive> {

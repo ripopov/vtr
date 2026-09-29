@@ -6,13 +6,13 @@ use crate::data::loaded_tracks::{
 use crate::data::transactions::{Track, TrackKind, TrackRef, Transaction, TransactionRef};
 use crate::data::{Hierarchy, ScopeRole, TraceInfo};
 use crate::session::{Capabilities, Session};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Resident raw metadata of one recording, validated (tree membership and
 /// track references) before installation.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Metadata {
     pub info: TraceInfo,
     pub hierarchy: Hierarchy,
@@ -52,42 +52,20 @@ impl Metadata {
             "reversed trace time range"
         );
         let h = &self.hierarchy;
-        let mut seen = HashSet::new();
-        let mut vars = HashSet::new();
-        let mut pending = Vec::new();
-        for &id in &h.roots {
+        // Parents precede children. This proves acyclicity without a traversal
+        // hash table proportional to the entire hierarchy.
+        for (id, scope) in h.scopes().enumerate() {
             checkpoint().await;
-            pending.push((id, None));
+            anyhow::ensure!(scope.parent.is_none_or(|p| p < id), "invalid scope parent");
         }
-        while let Some((id, parent)) = pending.pop() {
-            checkpoint().await;
-            anyhow::ensure!(seen.insert(id), "repeated or cyclic scope");
-            let scope = h
-                .scopes
-                .get(id)
-                .ok_or_else(|| anyhow::anyhow!("invalid scope reference"))?;
-            anyhow::ensure!(scope.parent == parent, "inconsistent scope parent");
-            for &var in &scope.vars {
-                checkpoint().await;
-                anyhow::ensure!(vars.insert(var), "duplicate variable declaration");
-                let declaration = h
-                    .vars
-                    .get(var)
-                    .ok_or_else(|| anyhow::anyhow!("invalid variable reference"))?;
-                anyhow::ensure!(declaration.scope == id, "inconsistent variable scope");
-            }
-            for &child in &scope.children {
-                checkpoint().await;
-                pending.push((child, Some(id)));
-            }
-        }
-        anyhow::ensure!(
-            seen.len() == h.scopes.len() && vars.len() == h.vars.len(),
-            "unreachable declarations"
-        );
         let mut signals = HashMap::new();
-        for var in &h.vars {
+        for var in h.vars() {
             checkpoint().await;
+            anyhow::ensure!(var.scope < h.scope_count(), "invalid variable scope");
+            anyhow::ensure!(
+                (var.signal.0 as usize) < self.info.signal_count,
+                "invalid signal reference"
+            );
             anyhow::ensure!(
                 !matches!(var.shape, crate::data::SignalShape::Vector { width: 0 | 1 }),
                 "invalid vector width"
@@ -115,7 +93,7 @@ impl Metadata {
         }
         let mut generators = HashSet::new();
         let mut hierarchy_tracks = HashSet::new();
-        for (id, scope) in h.scopes.iter().enumerate() {
+        for (id, scope) in h.scopes().enumerate() {
             checkpoint().await;
             match scope.role {
                 ScopeRole::Scope => {
@@ -124,12 +102,12 @@ impl Metadata {
                 ScopeRole::Stream { track } => {
                     anyhow::ensure!(hierarchy_tracks.insert(track), "duplicate hierarchy track");
                     anyhow::ensure!(
-                        matches!(tracks.get(&track), Some(TrackKind::Stream { kind }) if kind == &scope.kind),
+                        matches!(tracks.get(&track), Some(TrackKind::Stream { kind }) if kind == scope.kind),
                         "invalid hierarchy stream"
                     );
                 }
             }
-            for &g in &scope.generators {
+            for g in scope.generators {
                 checkpoint().await;
                 anyhow::ensure!(generators.insert(g), "duplicate generator declaration");
                 let g = h

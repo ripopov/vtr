@@ -1,5 +1,5 @@
 //! Semantic glyphs and tints. No toolkit or backend handles are involved.
-use crate::data::{Direction, Hierarchy, Member, Scope, ScopeRole};
+use crate::data::{Direction, Hierarchy, Member, ScopeRole, ScopeView};
 use crate::icons::IconName;
 use crate::theme::Theme;
 
@@ -33,11 +33,11 @@ pub fn stream_icon(kind: &str) -> (IconName, Tint) {
     }
 }
 
-pub fn scope_icon(scope: &Scope) -> (IconName, Tint) {
+pub fn scope_icon(scope: &ScopeView<'_>) -> (IconName, Tint) {
     if matches!(scope.role, ScopeRole::Stream { .. }) {
-        return stream_icon(&scope.kind);
+        return stream_icon(scope.kind);
     }
-    (scope_kind_icon(&scope.kind), Tint::None)
+    (scope_kind_icon(scope.kind), Tint::None)
 }
 
 pub fn scope_kind_icon(kind: &str) -> IconName {
@@ -65,8 +65,8 @@ pub fn scope_kind_icon(kind: &str) -> IconName {
 pub fn member_icon(h: &Hierarchy, member: Member) -> IconName {
     match member {
         Member::Var(id) => {
-            let v = &h.vars[id];
-            match v.var_type.as_str() {
+            let v = h.var(id);
+            match v.var_type {
                 "parameter" => IconName::Pi,
                 _ if v.enum_table.is_some() => IconName::Tags,
                 "integer" => IconName::Hash,
@@ -75,7 +75,7 @@ pub fn member_icon(h: &Hierarchy, member: Member) -> IconName {
         }
         Member::Generator(_) if h.is_log(member) => IconName::MessageSquare,
         Member::Generator(_) => IconName::CircleDot,
-        Member::Stream(id) => scope_icon(&h.scopes[id]).0,
+        Member::Stream(id) => scope_icon(&h.scope(id)).0,
     }
 }
 
@@ -88,8 +88,7 @@ pub fn direction_icon(direction: Direction) -> Option<(IconName, Tint)> {
     }
 }
 
-pub fn stream_tag(scope: &Scope) -> Option<&str> {
-    (matches!(scope.role, ScopeRole::Stream { .. })
-        && !matches!(scope.kind.as_str(), "PIPELINE" | "LOG"))
-    .then_some(scope.kind.as_str())
+pub fn stream_tag<'a>(scope: &ScopeView<'a>) -> Option<&'a str> {
+    (matches!(scope.role, ScopeRole::Stream { .. }) && !matches!(scope.kind, "PIPELINE" | "LOG"))
+        .then_some(scope.kind)
 }

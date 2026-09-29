@@ -347,6 +347,36 @@ The pipeline tracer of docs/c910-verilator-tx-stream.html bound to the C910 mode
 Gates: pipeline only / untraced = **1.084x** (limit 1.10x); full dump + pipeline / full dump = **1.002x** (limit 1.03x). The pipeline adds 2.23 MiB to the full dump; `vtr tx` reads the whole stream in 0.16 s from the pipeline-only file and 0.16 s from the full dump.
 
 
+## Compact hierarchy: local and remote
+
+Stage 2 of [scope sizes](hierarchy-scope-sizes.html#stage-2). Baseline: `0de8b057273e99fed55419513539e1c58f6a46d3`; same trace files and release profiles. Fresh processes, interleaved baseline/changed samples, best of three complete open measurements pinned to P-cores 0–7. Raw samples: `bench/results/hierarchy-stage2/{before,after}.json`. Run `python3 bench/hierarchy-cost.py --bin-dir target/release --baseline-bin-dir BASELINE_TARGET/release --fixtures DIR --output bench/results/hierarchy-stage2/after.json --baseline-output bench/results/hierarchy-stage2/before.json`, then `python3 bench/run.py report`. Build `load_cost`, `remote_cost` and `volna-server` first. The baseline remote harness receives only the build fixes needed for its existing multi-trace API.
+
+VTR fixtures are generated from C910 with `vtr-bench gen-gates`, with 1/4/16 copies; FST twins use `vtr to-vcd` then `vcd2fst`. This measures hierarchy open with zero histories selected; trace size and writer performance are unchanged. RSS is the process high-water mark. Retained hierarchy bytes exclude reader-owned storage for VTR. Every before → after cell uses one fastest-open run's complete metrics, rather than separate minima.
+
+Other builds were using the measurement host. Interleaving and best-of-three sampling reduce timing variation; absolute wall times and longest-step times still include scheduling delays. Raw files retain every sample and the machine information.
+
+### Local open
+
+| trace | scopes / variables | open ms | peak RSS MiB | retained hierarchy MiB | scope census ms |
+|---|---:|---:|---:|---:|---:|
+| gates1.vtr | 576,380 / 3,321,789 | 608.6 → **239.4** | 836.9 → **190.9** | 16.3 | 52.4 |
+| gates4.vtr | 2,305,524 / 13,287,156 | 2493.9 → **882.4** | 3308.6 → **697.2** | 65.1 | 206.1 |
+| gates16.vtr | 9,222,096 / 53,148,624 | 10278.7 → **3491.5** | 12975.2 → **2603.0** | 260.2 | 801.9 |
+| gates1.fst | 576,380 / 3,321,789 | 585.1 → **675.1** | 817.3 → **274.3** | 151.4 | 46.0 |
+| gates4.fst | 2,305,524 / 13,287,156 | 2328.5 → **2877.4** | 3261.0 → **863.5** | 559.5 | 189.1 |
+
+### Remote open
+
+| trace | open ms | server wire MiB | client retained budget MiB | client peak budget MiB | client peak RSS MiB | server peak RSS MiB | longest decode step ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| gates1.vtr | 4677.7 → **2677.5** | 51.8 → **40.0** | 986.6 → **196.0** | 986.6 → **207.2** | 726.6 → **207.3** | 1531.4 → **190.5** | 25.6 → **0.7** |
+| gates4.vtr | 20032.5 → **10841.7** | 206.8 → **159.8** | 3945.5 → **784.3** | 3945.5 → **828.6** | 2896.3 → **820.6** | 6064.7 → **696.6** | 101.8 → **6.5** |
+| gates1.fst | 4705.6 → **3085.9** | 51.7 → **39.5** | 982.4 → **196.0** | 982.4 → **207.2** | 709.3 → **207.0** | 1455.9 → **265.1** | 26.2 → **0.8** |
+| gates4.fst | 19729.0 → **12647.9** | 206.4 → **157.9** | 3929.0 → **784.3** | 3929.0 → **828.6** | 2826.6 → **820.4** | 5812.2 → **863.7** | 94.9 → **4.0** |
+
+The client measurements use the native production decoder; they do not measure WASM execution time. The page and index loops yield between bounded batches, independently of trace size. The client still retains every hierarchy page at open. One-core traces fit the default 512 MiB client budget; four-core traces require a higher budget until requested-page loading (Stage 6). FST dictionary construction trades open time for reduced memory; its cost is included above. The unchanged on-disk files incur no write-time or size tradeoff.
+
+
 ## Workload descriptions
 
 - **scr1_axi**: SCR1 RISC-V core with AXI testbench, Verilator FST fixture from the wavepeek repository (real RTL, small design)

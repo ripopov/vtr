@@ -1,6 +1,7 @@
 //! Sequential complete-object service, independent of process and GUI hosting.
+use super::hierarchy::Header;
 use super::history::PackedHistory;
-use super::objects::{Metadata, TrackPayload};
+use super::objects::TrackPayload;
 use super::transport::{Body, Command, ObjectId, ResponseWriter, read_packet};
 use crate::data::SignalRef;
 use crate::data::transactions::TrackRef;
@@ -26,6 +27,25 @@ fn reply<R: Read, W: Write, T: Serialize>(
         })?;
     }
     Ok(())
+}
+
+fn open_object<R: Read, W: Write, T: Serialize>(
+    writer: &mut ResponseWriter<R, W>,
+    object: ObjectId,
+    value: &T,
+    limit: u64,
+) -> anyhow::Result<bool> {
+    match writer.object(object, value, limit) {
+        Ok(()) => Ok(true),
+        Err(error) if writer.is_failed() => Err(error),
+        Err(error) => {
+            writer.send(Body::Error {
+                object,
+                message: format!("{error:#}").chars().take(1024).collect(),
+            })?;
+            Ok(false)
+        }
+    }
 }
 
 /// Serve one recording. The host assigns a fresh nonzero session identity and
@@ -55,7 +75,7 @@ pub fn serve(
         }) {
             Ok(session) => session,
             Err(error) => {
-                return reply::<_, _, Metadata>(
+                return reply::<_, _, Header>(
                     &mut writer,
                     ObjectId::Metadata,
                     Err(error),
@@ -63,14 +83,34 @@ pub fn serve(
                 );
             }
         };
-        let metadata = Metadata::from_session(session.as_ref());
-        metadata.validate()?;
-        reply(
-            &mut writer,
-            ObjectId::Metadata,
-            Ok(metadata),
-            max_object_bytes,
-        )?;
+        let header = Header::borrowed(session.as_ref())?;
+        let sizes = session
+            .scope_sizes()
+            .unwrap_or_else(|| Arc::new(crate::data::ScopeSizes::count(session.hierarchy())));
+        if !open_object(&mut writer, ObjectId::Metadata, &header, max_object_bytes)? {
+            return Ok(());
+        }
+        for (page, buffer) in super::hierarchy::scope_pages(session.hierarchy(), &sizes).enumerate()
+        {
+            if !open_object(
+                &mut writer,
+                ObjectId::Scopes(page as u32),
+                &buffer,
+                max_object_bytes,
+            )? {
+                return Ok(());
+            }
+        }
+        for (page, buffer) in super::hierarchy::var_pages(session.hierarchy()).enumerate() {
+            if !open_object(
+                &mut writer,
+                ObjectId::Variables(page as u32),
+                &buffer,
+                max_object_bytes,
+            )? {
+                return Ok(());
+            }
+        }
         session
     };
     let mut last_request = first.request;

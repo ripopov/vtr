@@ -144,6 +144,9 @@ impl StringTable {
         }
     }
 
+    /// Allocated bytes of the immutable UTF-8 dictionary and offsets.
+    pub fn resident_bytes(&self) -> u64 { (self.data.capacity()+4*self.offsets.capacity()) as u64 }
+
     /// Linear search (used only by tests and tools).
     pub fn find(&self, s: &str) -> Option<StrId> {
         (0..self.len()).map(|i| StrId(i as u32)).find(|&id| self.get(id) == s)

@@ -11,11 +11,10 @@ fn main() -> anyhow::Result<()> {
     let start = Instant::now();
     let session = OpenSpec::Path(path.clone().into()).open()?;
     let open_ms = start.elapsed().as_secs_f64() * 1000.0;
-    let scopes = session.hierarchy().scopes.len();
+    let scopes = session.hierarchy().scope_count();
     let branches = session
         .hierarchy()
-        .scopes
-        .iter()
+        .scopes()
         .filter(|s| !s.children.is_empty())
         .count();
     let mut app = App::new();

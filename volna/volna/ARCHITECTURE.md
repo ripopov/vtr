@@ -368,6 +368,16 @@ generators, including log sites. `TrackRef` is the same identity used by the raw
 transaction catalog. Enum references and scope component names survive VTR and
 FST loading; enum tables are not sidebar rows.
 
+`Hierarchy` is an immutable shared handle. `scope`, `var`, `roots` and membership
+iterators return borrowed views; cloning the handle retains storage. VTR borrows
+the reader's declaration columns, UTF-8 dictionary and child index. The reader layer's
+`NodeIndex` query maps raw nodes to dense scope/variable/generator identities
+using selected IDs, a bitmap and prefix popcounts. FST builds fixed-width columns,
+a UTF-8 byte dictionary and CSR membership while streaming its declarations.
+`HierarchyBuilder` is the explicit owned construction path for fixtures or
+transformations. Source declaration IDs remain stable; preorder is a traversal,
+not an identity. This representation change adds no cockpit edits.
+
 The core owns filtering, multi-selection, keyboard navigation, tooltips, icon
 mapping and activation. Whole-trace search returns variables, generators, then
 streams, with a combined 5,000-result cap and an explicit truncation indicator.
@@ -395,7 +405,7 @@ taskset -c 0-7 cargo run --release -p volna-core --example hierarchy_cost -- TRA
 
 Raw metadata includes container roles, component names, enum references,
 generator declarations/attributes and the producer's time unit. Remote framing
-version **3** rejects older peers before decoding the changed metadata schema.
+version **5** rejects older peers before decoding the catalog and hierarchy-page schema.
 Icon, tint, badge, selection and activation decisions stay on the client.
 
 ## Pipeline panel
@@ -975,7 +985,7 @@ The client-server design uses the same
 resident objects for local and remote viewing. Native `OpenSpec::Path` loads
 in process. In VS Code, the workspace extension launches `volna-server` beside
 the file and relays opaque framed binary messages to `OpenSpec::Remote`.
-Opening transfers full raw metadata; selecting signals or transaction tracks
+Opening transfers a raw catalog and every bounded hierarchy page; selecting signals or transaction tracks
 loads their complete recordings. Pan, zoom, cursor and resident-data queries
 have no network dependency. VDB and presentation stay on the client.
 
@@ -983,7 +993,13 @@ The server opens recordings through the same `OpenSpec::open` and calls the
 same `Session::load_signals` and `load_track` methods as local execution. Its
 additional responsibilities are wire conversion, framing and snapshot checks.
 Track serialization borrows immutable records and relations, without a second
-owned copy of their typed attributes.
+owned copy of their typed attributes. Hierarchy serialization borrows the catalog
+and projects at most 65,536 scopes or variables at a time into flat page buffers,
+with page-local names. The client retains those buffers and constructs only
+membership and identity indexes. Scope sizes accompany the scope pages from the
+server, so remote installation does not schedule a UI-thread census. Local
+sessions retain `LoadRequest::Sizes`. See [SPEC](../../docs/SPEC.md#raw-hierarchy-transport-version-5)
+and the [hierarchy measurements](../../docs/BENCHMARK_RESULTS.md#compact-hierarchy-local-and-remote).
 
 Both executors consume `LoadRequest` and return `LoadResult`. The remote client
 accepts requests through `submit`; submission failures return ordinary results
@@ -1012,7 +1028,7 @@ Shared consumers keep the same storage alive; the last consumer releases it.
 Admission and per-object limits are configurable in VS Code and apply on reopen.
 Oversized objects fail explicitly, without truncation or automatic eviction.
 These limits cover admitted data and conservative construction allowances,
-not total browser RSS or backend reader caches. Full metadata and all selected
+not total browser RSS or backend reader caches. The catalog, every hierarchy page and all selected
 histories/tracks must fit; selecting a large stream can still be expensive.
 
 ## Frontends

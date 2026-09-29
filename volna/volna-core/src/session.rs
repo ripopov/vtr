@@ -83,6 +83,10 @@ pub trait Session: Send + Sync {
     }
     fn info(&self) -> &TraceInfo;
     fn hierarchy(&self) -> &Hierarchy;
+    /// Precomputed scope sizes, when supplied with resident remote metadata.
+    fn scope_sizes(&self) -> Option<Arc<crate::data::ScopeSizes>> {
+        None
+    }
     /// Load all records and incident relations of a stream or generator,
     /// including empty member generators. Invalid identities and unsupported
     /// backends return errors. This is blocking work for a loader executor,
@@ -172,6 +176,9 @@ impl Session for AccountedSession {
     }
     fn hierarchy(&self) -> &Hierarchy {
         self.inner.hierarchy()
+    }
+    fn scope_sizes(&self) -> Option<Arc<crate::data::ScopeSizes>> {
+        self.inner.scope_sizes()
     }
     fn load_track(
         &self,

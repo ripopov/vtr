@@ -34,13 +34,13 @@ struct Source {
 impl Source {
     fn new(n: usize) -> Arc<Self> {
         let inner = ProceduralTrace::new(n);
-        let mut hierarchy = inner.hierarchy().clone();
+        let mut hierarchy = inner.hierarchy().to_builder();
         let mut alias = hierarchy.vars[0].clone();
         alias.name = "alias".into();
         hierarchy.vars.push(alias);
         Arc::new(Self {
             inner,
-            hierarchy,
+            hierarchy: hierarchy.finish(),
             loads: AtomicUsize::new(0),
             fail: AtomicBool::new(false),
         })
@@ -167,7 +167,7 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
 #[test]
 fn removing_queued_signals_clears_demand_but_active_loads_survive_readd() {
     let (mut app, source) = loaded_app(10);
-    let signal = source.hierarchy.vars[0].signal;
+    let signal = source.hierarchy.var(0).signal;
     app.handle(Command::AddVars(a_all(vec![0])));
     app.handle(Command::Action(Action::RemoveSelected));
     assert!(app.take_requests().is_empty());
@@ -200,7 +200,7 @@ fn removing_one_alias_keeps_the_other_alias_queued() {
     let (mut app, source) = loaded_app(10);
     app.handle(Command::AddVars(a_all(vec![0])));
     app.handle(Command::AddVars(a_all(vec![
-        source.hierarchy.vars.len() - 1,
+        source.hierarchy.var_count() - 1,
     ])));
     app.handle(Command::Action(Action::RemoveSelected));
     pump(&mut app);
@@ -218,12 +218,12 @@ fn removing_one_alias_keeps_the_other_alias_queued() {
 #[test]
 fn aliases_share_pending_and_loaded_histories() {
     let (mut app, source) = loaded_app(10);
-    let alias = source.hierarchy.vars.len() - 1;
+    let alias = source.hierarchy.var_count() - 1;
     app.handle(Command::AddVars(a_all(vec![0, alias, 0])));
     assert_eq!(app.doc.pending_count(), 1);
     assert_eq!(app.take_requests().len(), 1);
     // Rows share one history once it arrives.
-    let signal = source.hierarchy.vars[0].signal;
+    let signal = source.hierarchy.var(0).signal;
     let history = source.inner.load_signal(signal).unwrap();
     app.deliver(LoadResult::Signals {
         trace: TraceId::A,
@@ -266,7 +266,7 @@ fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
     // Reopening even the same session creates a new generation.
     app.set_session(source.clone());
     app.handle(Command::AddVars(a_all(vec![0])));
-    let signal = source.hierarchy.vars[0].signal;
+    let signal = source.hierarchy.var(0).signal;
     app.deliver(LoadResult::Signals {
         trace: TraceId::A,
         generation: old,
@@ -349,7 +349,7 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     let LoadRequest::Signals { signals, .. } = &request else {
         panic!("signal request")
     };
-    assert_eq!(signals, &[source.hierarchy.vars[0].signal]);
+    assert_eq!(signals, &[source.hierarchy.var(0).signal]);
     app.deliver(request.perform());
     let rows = &app.panels.waves(panel).unwrap().items();
     assert!(Arc::ptr_eq(
@@ -929,7 +929,7 @@ struct BurstSource {
 impl BurstSource {
     fn new() -> Arc<Self> {
         let synth = ProceduralTrace::new(10);
-        let mut hierarchy = synth.hierarchy().clone();
+        let mut hierarchy = synth.hierarchy().to_builder();
         hierarchy.vars.truncate(1);
         hierarchy.vars[0].shape = SignalShape::Bit;
         hierarchy
@@ -946,7 +946,7 @@ impl BurstSource {
                 change_count: Some(1002),
                 time_unit: None,
             },
-            hierarchy,
+            hierarchy: hierarchy.finish(),
         })
     }
 }
@@ -1007,8 +1007,7 @@ fn format_menu_and_translator_cycle() {
         .doc
         .hierarchy(TraceId::A)
         .unwrap()
-        .vars
-        .iter()
+        .vars()
         .position(|v| matches!(v.shape, SignalShape::Vector { .. }))
         .expect("a vector variable");
     app.handle(Command::AddVars(a_all(vec![vector])));
@@ -1791,7 +1790,7 @@ fn status_reports_memory_budget_use_as_signals_load_and_unload() {
 fn sidebar_models_follow_scope_selection_and_keys() {
     let (mut app, _) = loaded_app(20);
     let h = app.doc.hierarchy(TraceId::A).unwrap().clone();
-    let root = h.roots.first().map(|&r| TreeNode::scope(a(r)));
+    let root = h.roots().first().map(|r| TreeNode::scope(a(r)));
     assert_eq!(app.scopes.selected, root);
     assert_eq!(app.variables.scope, app.scopes.selected_scope());
     let first_rows = app.variables.rows.clone();
@@ -1803,7 +1802,7 @@ fn sidebar_models_follow_scope_selection_and_keys() {
     assert_eq!(app.variables.scope, app.scopes.selected_scope());
     // Filtering across the whole trace when no scope is selected.
     app.variables.set_scope(app.doc.traces(), None);
-    app.handle(Command::SetFilter(h.vars[0].name.clone()));
+    app.handle(Command::SetFilter(h.var(0).name.to_owned()));
     assert!(
         app.variables
             .rows
@@ -1820,7 +1819,7 @@ fn sidebar_models_follow_scope_selection_and_keys() {
     ));
     assert!(app.take_events().contains(&Event::FocusFilter));
     app.handle(Command::ExpandAllScopes(false));
-    assert_eq!(app.scopes.visible.len(), h.roots.len());
+    assert_eq!(app.scopes.visible.len(), h.roots().len());
 }
 
 #[test]

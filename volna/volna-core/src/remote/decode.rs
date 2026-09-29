@@ -18,6 +18,7 @@ struct Input {
     consumed: u64,
     declared: u64,
     credits: usize,
+    prepaid: u64,
     reservation: Option<Reservation>,
 }
 
@@ -50,10 +51,22 @@ impl<T> Decoder<T> {
             consumed: 0,
             declared,
             credits: 0,
+            prepaid: 0,
             reservation: Some(budget.reserve((DATA_BYTES + 8192) as u64)?),
         })));
         let parser = Some(parse(reader.clone()));
         Ok(Self { reader, parser })
+    }
+
+    pub fn prepay(&mut self, bytes: u64) -> anyhow::Result<()> {
+        let mut input = self.reader.input();
+        input
+            .reservation
+            .as_mut()
+            .expect("decoder owner")
+            .grow(bytes)?;
+        input.prepaid = bytes;
+        Ok(())
     }
 
     pub fn feed(&mut self, bytes: Vec<u8>) -> anyhow::Result<()> {
@@ -142,12 +155,30 @@ impl Reader {
         .await
     }
 
+    /// End the current cooperative step, including bulk buffer initialization.
+    pub async fn yield_now(&self) {
+        let mut yielded = false;
+        poll_fn(|_| {
+            if yielded {
+                Poll::Ready(())
+            } else {
+                yielded = true;
+                self.input().credits = 0;
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
     pub fn charge(&self, bytes: usize) -> anyhow::Result<()> {
-        self.input()
+        let mut input = self.input();
+        let covered = input.prepaid.min(bytes as u64);
+        input.prepaid -= covered;
+        input
             .reservation
             .as_mut()
-            .unwrap()
-            .grow(bytes as u64)
+            .expect("decoder owner")
+            .grow(bytes as u64 - covered)
     }
 
     async fn read(&self, output: &mut [u8]) -> anyhow::Result<()> {
@@ -210,12 +241,35 @@ impl Reader {
         Ok(count)
     }
 
-    pub async fn vector<T, F, Fut>(&self, minimum: usize, mut parse: F) -> anyhow::Result<Vec<T>>
+    pub async fn vector<T, F, Fut>(&self, minimum: usize, parse: F) -> anyhow::Result<Vec<T>>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = anyhow::Result<T>>,
     {
         let count = self.length(minimum).await?;
+        self.elements(count, parse).await
+    }
+
+    /// Check schema bounds before reserving or allocating collection storage.
+    pub async fn bounded_vector<T, F, Fut>(
+        &self,
+        minimum: usize,
+        range: std::ops::RangeInclusive<usize>,
+        parse: F,
+    ) -> anyhow::Result<Vec<T>>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = anyhow::Result<T>>,
+    {
+        let count = self.length(minimum).await?;
+        anyhow::ensure!(range.contains(&count), "invalid hierarchy column length");
+        self.elements(count, parse).await
+    }
+    async fn elements<T, F, Fut>(&self, count: usize, mut parse: F) -> anyhow::Result<Vec<T>>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = anyhow::Result<T>>,
+    {
         self.charge(
             count
                 .checked_mul(std::mem::size_of::<T>())

@@ -121,7 +121,7 @@ fn app() -> (tempfile::NamedTempFile, App, PanelId) {
     let (file, session) = trace();
     let mut app = App::new();
     app.set_session(session);
-    let vars = 0..app.doc.hierarchy(TraceId::A).unwrap().vars.len();
+    let vars = 0..app.doc.hierarchy(TraceId::A).unwrap().var_count();
     app.handle(Command::AddVars(a_all(vars)));
     pump(&mut app);
     let id = app.panels.focused_id();

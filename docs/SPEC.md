@@ -900,3 +900,66 @@ end items with status *aborted*; items still in flight at close keep status
 sets it as an attribute. Misuse (a key that names no item, a key reused before
 its item ended) is reported as warnings in the `simulation_log` stream at
 close. The package adds no section, value tag or format version.
+
+## Raw hierarchy transport, version 5
+
+The query transport has its own version, independent of VTR 1.1. The `VLNA`
+frame header carries version **5** and rejects other versions before decoding
+objects. Existing framing, checksums, request/session identities, acknowledgement
+backpressure and complete-object semantics are specified in
+[`remote::transport`](../volna/volna-core/src/remote/transport.rs).
+No VTR section or encoding changes.
+
+An Open response sends a `Metadata` catalog followed by `Scopes(page)` objects
+and then `Variables(page)` objects, with zero-based page numbers. The catalog
+contains, in order, `TraceInfo`, capabilities, tracks, generator declarations,
+`u32 scope_count`, and `u32 variable_count`. These are raw recording fields;
+VDB profiles, annotations, formats, colors and workspace state remain client-side.
+Each declaration section has `ceil(count / 65536)` pages. All pages except the
+last contain exactly 65,536 declarations. An empty section sends no pages.
+
+Each page uses the fixed little-endian bincode representation: `u32 start`,
+`Vec<u32> ids`, `Vec<Vec<u32>> columns`, `Vec<u8> names`, `Vec<u32> offsets`,
+and `Vec<ScopeSize> sizes`. A vector has a `u64` length followed by its elements;
+bytes are serialized in bulk. `start` is the section's preorder position,
+`page * 65536`. `ids` contains the original source-local declaration identities,
+so traversal order does not renumber workspace or row identities. Every column
+has the page's declaration count. The column order is:
+
+| Section | Columns (`u32` each) |
+|---|---|
+| Scopes | name, kind, component, parent, role, track |
+| Variables | name, scope, shape kind, width, variable type, direction/enum flags, signal, enum table |
+
+Name, kind, component and variable-type columns reference the page-local UTF-8
+dictionary. `offsets` starts at zero, ends at `names.len()`, and is monotonic;
+each adjacent pair delimits one complete UTF-8 string. Repeated text shares one
+entry. Scope dictionaries have at most three entries per row, variable
+dictionaries at most two. Column and dictionary-offset counts are checked
+before allocating their buffers; long strings are validated in bounded UTF-8
+batches. Parent absence uses `0xffffffff`. Scope role is 0 for a
+scope (track must be zero), 1 for a raw stream. Shape/width pairs are event `(0,0)`,
+bit `(1,1)`, vector `(2,width >= 2)`, real `(3,0)`, text `(4,0)`.
+Direction occupies bits 0–1: none/input/output/inout = 0/1/2/3. Bit 2 marks
+an enum-table identity as present, preserving the complete `u32` identity range;
+all higher bits must be zero. An absent enum identity has value zero. Signal,
+stream-track, generator and enum identities retain the source's raw semantics.
+
+Scope pages are in depth-first preorder, preserving child and root declaration
+order. Parents precede children in both declaration identity and preorder.
+Variables are grouped by preorder scope, with original declaration order within
+each scope. Scope pages carry one `ScopeSize` per row: distinct signals,
+variables and subtree scopes, each `u32`, computed on the server. Variable pages
+have an empty sizes vector.
+
+The receiver checks page order/counts, column lengths, unique declaration IDs,
+name ranges and UTF-8, parent/scope/signal bounds, shape and direction codes,
+alias shape consistency, sizes and raw track/generator references. It admits
+pages to the memory budget at Begin, before allocating column or name buffers;
+construction indexes and validation scratch are admitted separately. Decode
+and final index construction yield between bounded steps. The catalog and pages
+remain private until every declared object has its matching End and all
+validation succeeds. Failure drops the partial assembly and its reservations.
+Completed hierarchies and sizes share the admitted owner through immutable
+handles. An object-cap or budget failure names the setting and requires reopening
+with the changed limit. Histories and tracks retain their complete-object schema.

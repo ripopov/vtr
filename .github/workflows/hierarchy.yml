@@ -1,0 +1,69 @@
+name: Compact hierarchy
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace dependencies and Verilator fixtures
+        run: git submodule update --init --depth 1 ext/elkrs ext/surfer
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Test hierarchy views, page admission and server processes
+        run: cargo test --locked -p volna-core -p volna-server --all-targets
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VOLNA_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace dependency
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install the repository Rust toolchain and WASM target
+        run: rustup show && rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Check the same session and cooperative decoder on WASM
+        run: cargo check --locked -p volna-core -p volna --target wasm32-unknown-unknown --all-features
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify WASM compiler and headless browser prerequisites
+        run: google-chrome --version && ls /usr/lib/llvm-18/bin/clang /usr/lib/llvm-18/bin/llvm-ar
+      - name: Install the wasm-bindgen CLI pinned by the lockfile
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print $3; exit }' Cargo.lock)
+          cargo install --locked wasm-bindgen-cli --version "$version"
+      - name: Build the production web bundle and fixture generator
+        run: |
+          VOLNA_WEB_FEATURES=remote-profile volna/volna/web/build.sh
+          cargo build --locked -p volna-server --profile viewer --example hierarchy_fixture
+      - name: Test local and protocol-v5 hierarchy pages in single-threaded WASM
+        run: node --test --test-concurrency=1 volna/volna/tools/hierarchy.test.mjs
+  metal:
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      VOLNA_WORKSPACE: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace dependency
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Verify the Metal compiler prerequisite
+        run: xcrun -sdk macosx metal --version
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Test GPUI behavior and Metal offscreen rendering without a display
+        run: cargo test --locked -p volna --all-features

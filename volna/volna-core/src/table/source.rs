@@ -20,8 +20,7 @@ pub struct SignalSource {
 impl SignalSource {
     pub fn resolved(hierarchy: &Hierarchy, var: Traced<VarId>) -> anyhow::Result<Self> {
         let declaration = hierarchy
-            .vars
-            .get(var.item)
+            .get_var(var.item)
             .ok_or_else(|| anyhow::anyhow!("selected signal is missing"))?;
         let (path, nth) = hierarchy.var_path(var.item);
         Ok(Self {
@@ -39,7 +38,7 @@ impl SignalSource {
         match hierarchy.find_var(&self.path, self.nth) {
             Lookup::Found(var) => {
                 self.var = Some(var);
-                self.signal = Some(Traced::new(self.trace, hierarchy.vars[var].signal));
+                self.signal = Some(Traced::new(self.trace, hierarchy.var(var).signal));
                 self.name = hierarchy.full_name(var);
                 true
             }

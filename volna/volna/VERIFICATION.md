@@ -641,3 +641,38 @@ store owned values and can use substantially more memory than the compressed
 file. Batched queries and viewport-sized drawing do not establish bounded
 loading memory or remote-file support. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the query and rendering boundaries.
+
+## Compact hierarchy pages
+
+The Stage 2 hierarchy suite checks borrowed reader metadata and memberships,
+local/remote VTR and FST parity, source identities that differ from preorder,
+empty and deep trees, page boundaries, budget admission before allocation,
+malformed pages and catalog references, atomic publication and shared-owner
+lifetimes. The normal `check.sh` includes the headless server and its process
+integration tests. `.github/workflows/hierarchy.yml` runs core/server coverage
+on Linux, macOS and Windows, provisions the actual WASM viewer on Linux, and
+runs GPUI Metal offscreen assertions on macOS. The normal check runs GPUI unit
+tests on every platform and invokes the offscreen harness only on macOS; an
+explicit offscreen invocation on another platform fails instead of passing as
+a skipped check.
+
+```sh
+cargo test --locked -p vtr -p vtr-capi
+volna/volna/check.sh
+VOLNA_WEB_FEATURES=remote-profile volna/volna/web/build.sh
+cargo build --locked -p volna-server --profile viewer --example hierarchy_fixture
+node --test --test-concurrency=1 volna/volna/tools/hierarchy.test.mjs
+```
+
+The browser runner owns a temporary 65,538-scope/variable VTR fixture, uses the
+checked-in FST fixture, launches its own production server and headless browser,
+and asserts matching hierarchy queries and installed scope sizes. It enforces
+timeouts and cleans up processes and temporary state. Missing binaries, browser,
+bundle or diagnostic feature fail the check. It needs no interactive editor,
+login or display. Its opt-in `remote-profile` projection queries the same core
+session objects and adds no alternate load or decode path.
+
+[Fresh-process A/B results](../../docs/BENCHMARK_RESULTS.md#compact-hierarchy-local-and-remote)
+include the unchanged trace sizes, local/remote open time, retained client budget,
+client/server peak RSS, compressed wire bytes and longest native decoder steps.
+No manual screenshot gate or browser speed claim is used.

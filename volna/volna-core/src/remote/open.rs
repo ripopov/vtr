@@ -1,18 +1,31 @@
-//! One asynchronous Open response. Metadata stays private through decoding and
-//! validation; only the matching End produces a document load completion.
-
+//! One asynchronous protocol-v5 Open. The catalog, pages and indexes stay
+//! private until every page's End and cooperative validation have completed.
 use super::ClientStep;
-use super::memory::MemoryBudget;
+use super::decode::{Decoder, Step};
+use super::hierarchy::{Assembly, Finished, PAGE_ENTRIES, Page, PageDecoder, PageSpec};
+use super::memory::{MemoryBudget, Reservation};
 use super::metadata::{MetadataDecoder, MetadataStep, ValidatedMetadata};
 use super::session::RemoteSession;
 use super::transport::{Body, Command, ObjectId, Packet, Receive, Receiver, acknowledgement};
-use crate::session::LoadResult;
-use crate::session::Session;
+use crate::session::{LoadResult, Session};
 use crate::trace::TraceId;
 use std::sync::Arc;
 
-/// Drives one Open response: acknowledges consumed chunks and yields
-/// [`LoadResult::Opened`] only after the matching End.
+enum Decoding {
+    Header(MetadataDecoder),
+    Page { scopes: bool, decoder: PageDecoder },
+    Finish(Decoder<Finished>),
+}
+enum Decoded {
+    Header(Box<ValidatedMetadata>),
+    Page {
+        scopes: bool,
+        page: Page,
+        reservation: Reservation,
+    },
+}
+
+/// Drives a bounded Open response and acknowledges only consumed chunks.
 pub struct OpenTransfer {
     request: u64,
     trace: TraceId,
@@ -21,13 +34,15 @@ pub struct OpenTransfer {
     budget: MemoryBudget,
     session: u64,
     receiver: Option<Receiver>,
-    decoder: Option<MetadataDecoder>,
-    decoded: Option<Box<ValidatedMetadata>>,
+    decoder: Option<Decoding>,
+    decoded: Option<Decoded>,
+    assembly: Option<Box<Assembly>>,
     pending_ack: Option<Packet>,
     finished: bool,
     failed: bool,
+    next_scope: u32,
+    next_var: u32,
 }
-
 impl OpenTransfer {
     pub fn new(
         request: u64,
@@ -47,12 +62,14 @@ impl OpenTransfer {
             receiver: None,
             decoder: None,
             decoded: None,
+            assembly: None,
             pending_ack: None,
             finished: false,
             failed: false,
+            next_scope: 0,
+            next_var: 0,
         })
     }
-
     pub fn command(&self) -> Packet {
         Packet {
             session: 0,
@@ -63,17 +80,15 @@ impl OpenTransfer {
             }),
         }
     }
-
     pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
         let result = self.accept_inner(packet);
         self.poison_on_error(result)
     }
-
     fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
         anyhow::ensure!(!self.failed && !self.finished, "Open transfer finished");
         anyhow::ensure!(
             self.pending_ack.is_none(),
-            "response before metadata decode finished"
+            "response before decode finished"
         );
         if self.receiver.is_none() {
             self.receiver = Some(Receiver::new(
@@ -90,200 +105,197 @@ impl OpenTransfer {
                 object: ObjectId::Metadata,
                 decoded_bytes,
             } => {
-                self.decoder = Some(MetadataDecoder::new(
+                anyhow::ensure!(self.assembly.is_none(), "duplicate Open catalog");
+                self.decoder = Some(Decoding::Header(MetadataDecoder::new(
                     decoded_bytes,
                     self.limit,
                     &self.budget,
-                )?);
+                )?));
+            }
+            Receive::Begin {
+                object,
+                decoded_bytes,
+            } => {
+                let assembly = self
+                    .assembly
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("page before catalog"))?;
+                let (scopes, page, total) = match object {
+                    ObjectId::Scopes(page) if self.next_var == 0 && page == self.next_scope => {
+                        (true, page, assembly.header.scopes)
+                    }
+                    ObjectId::Variables(page)
+                        if self.next_scope == assembly.header.scope_pages()
+                            && page == self.next_var =>
+                    {
+                        (false, page, assembly.header.vars)
+                    }
+                    _ => anyhow::bail!("unexpected hierarchy page"),
+                };
+                let start = page
+                    .checked_mul(PAGE_ENTRIES as u32)
+                    .ok_or_else(|| anyhow::anyhow!("page range overflow"))?;
+                let count = (total - start).min(PAGE_ENTRIES as u32) as usize;
+                self.decoder = Some(Decoding::Page {
+                    scopes,
+                    decoder: PageDecoder::new(
+                        decoded_bytes,
+                        self.limit,
+                        &self.budget,
+                        PageSpec {
+                            scopes,
+                            start,
+                            count,
+                            total_scopes: assembly.header.scopes,
+                            total_vars: assembly.header.vars,
+                            total_signals: assembly.header.info.signal_count,
+                        },
+                    )?,
+                });
             }
             Receive::Data(bytes) => {
-                self.decoder
+                match self
+                    .decoder
                     .as_mut()
-                    .ok_or_else(|| anyhow::anyhow!("missing metadata decoder"))?
-                    .feed(bytes)?;
+                    .ok_or_else(|| anyhow::anyhow!("missing Open decoder"))?
+                {
+                    Decoding::Header(d) => d.feed(bytes)?,
+                    Decoding::Page { decoder, .. } => decoder.feed(bytes)?,
+                    Decoding::Finish(_) => anyhow::bail!("data after final page"),
+                }
                 self.pending_ack = Some(ack);
                 return self.step_inner();
             }
-            Receive::Complete(ObjectId::Metadata) => {
-                let decoded = self
+            Receive::Complete(_) => {
+                match self
                     .decoded
                     .take()
-                    .ok_or_else(|| anyhow::anyhow!("metadata validation incomplete"))?;
-                let session = RemoteSession::from_decoded(self.session, *decoded)?;
-                return Ok(self.complete(ack, Ok(Arc::new(session))));
+                    .ok_or_else(|| anyhow::anyhow!("Open object validation incomplete"))?
+                {
+                    Decoded::Header(decoded) => {
+                        let assembly = Assembly::new(decoded.header, decoded.reservation)?;
+                        self.receiver.as_mut().unwrap().expect_pages(
+                            assembly.header.scope_pages(),
+                            assembly.header.var_pages(),
+                        )?;
+                        self.assembly = Some(Box::new(assembly));
+                    }
+                    Decoded::Page {
+                        scopes,
+                        page,
+                        reservation,
+                    } => {
+                        self.assembly
+                            .as_mut()
+                            .unwrap()
+                            .push(scopes, page, reservation)?;
+                        if scopes {
+                            self.next_scope += 1
+                        } else {
+                            self.next_var += 1
+                        }
+                    }
+                }
+                if self.receiver.as_ref().unwrap().is_complete() {
+                    self.decoder = Some(Decoding::Finish(
+                        self.assembly
+                            .take()
+                            .unwrap()
+                            .finish(self.limit, &self.budget)?,
+                    ));
+                    self.pending_ack = Some(ack);
+                    return self.step_inner();
+                }
             }
-            Receive::Failed {
-                object: ObjectId::Metadata,
-                message,
-            } => {
+            Receive::Failed { message, .. } => {
                 self.decoder = None;
                 self.decoded = None;
-                return Ok(self.complete(ack, Err(anyhow::anyhow!(message))));
+                self.assembly = None;
+                self.finished = true;
+                self.receiver.as_mut().unwrap().finish_open_error();
+                return Ok(ClientStep::Complete {
+                    ack,
+                    result: LoadResult::Opened {
+                        trace: self.trace,
+                        generation: self.generation,
+                        result: Err(anyhow::anyhow!(message)),
+                    },
+                });
             }
-            _ => anyhow::bail!("unexpected Open object"),
         }
         Ok(ClientStep::Ack(ack))
     }
-
     pub fn step(&mut self) -> anyhow::Result<ClientStep> {
         let result = self.step_inner();
         self.poison_on_error(result)
     }
-
     fn step_inner(&mut self) -> anyhow::Result<ClientStep> {
         anyhow::ensure!(
             !self.failed && self.pending_ack.is_some(),
-            "no pending metadata decode"
+            "no pending Open decode"
         );
         match self
             .decoder
             .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("missing metadata decoder"))?
-            .step()?
+            .ok_or_else(|| anyhow::anyhow!("missing Open decoder"))?
         {
-            MetadataStep::Yield => return Ok(ClientStep::Yield),
-            MetadataStep::NeedInput => {}
-            MetadataStep::Decoded(decoded) => {
-                self.decoded = Some(decoded);
-                self.decoder = None;
-            }
+            Decoding::Header(d) => match d.step()? {
+                MetadataStep::NeedInput => {}
+                MetadataStep::Yield => return Ok(ClientStep::Yield),
+                MetadataStep::Decoded(decoded) => {
+                    self.decoded = Some(Decoded::Header(decoded));
+                    self.decoder = None;
+                }
+            },
+            Decoding::Page { scopes, decoder } => match decoder.step()? {
+                Step::NeedInput => {}
+                Step::Yield => return Ok(ClientStep::Yield),
+                Step::Ready(page, reservation) => {
+                    self.decoded = Some(Decoded::Page {
+                        scopes: *scopes,
+                        page,
+                        reservation,
+                    });
+                    self.decoder = None;
+                }
+            },
+            Decoding::Finish(d) => match d.step()? {
+                Step::NeedInput => anyhow::bail!("incomplete hierarchy indexes"),
+                Step::Yield => return Ok(ClientStep::Yield),
+                Step::Ready((metadata, sizes, ownership), scratch) => {
+                    drop(scratch);
+                    self.decoder = None;
+                    self.finished = true;
+                    let session =
+                        RemoteSession::from_parts(self.session, metadata, sizes, ownership)?;
+                    return Ok(ClientStep::Complete {
+                        ack: self.pending_ack.take().unwrap(),
+                        result: LoadResult::Opened {
+                            trace: self.trace,
+                            generation: self.generation,
+                            result: Ok(Arc::new(session) as Arc<dyn Session>),
+                        },
+                    });
+                }
+            },
         }
         Ok(ClientStep::Ack(self.pending_ack.take().unwrap()))
     }
-
-    fn complete(&mut self, ack: Packet, result: anyhow::Result<Arc<dyn Session>>) -> ClientStep {
-        self.finished = true;
-        ClientStep::Complete {
-            ack,
-            result: LoadResult::Opened {
-                trace: self.trace,
-                generation: self.generation,
-                result,
-            },
-        }
-    }
-
     fn poison_on_error<T>(&mut self, result: anyhow::Result<T>) -> anyhow::Result<T> {
         if result.is_err() {
             self.failed = true;
             self.decoder = None;
             self.decoded = None;
+            self.assembly = None;
             self.pending_ack = None;
         }
         result
     }
-
     pub fn is_complete(&self) -> bool {
         self.finished && !self.failed
     }
-
     pub fn finish(self) -> anyhow::Result<()> {
         anyhow::ensure!(self.is_complete(), "incomplete Open transfer");
         self.receiver.unwrap().finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::remote::objects::Metadata;
-    use crate::remote::transport::DATA_BYTES;
-
-    fn packet(sequence: u64, body: Body) -> Packet {
-        Packet {
-            session: 31,
-            request: 7,
-            sequence,
-            body,
-        }
-    }
-
-    fn decode_without_end(transfer: &mut OpenTransfer) -> u64 {
-        let local = crate::testing::ProceduralTrace::session(100);
-        let bytes = bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap();
-        assert!(matches!(
-            transfer
-                .accept(packet(
-                    0,
-                    Body::Begin {
-                        object: ObjectId::Metadata,
-                        decoded_bytes: bytes.len() as u64
-                    }
-                ))
-                .unwrap(),
-            ClientStep::Ack(_)
-        ));
-        let mut sequence = 1;
-        for (i, chunk) in bytes.chunks(DATA_BYTES).enumerate() {
-            let response = packet(
-                sequence,
-                Body::Data {
-                    offset: (i * DATA_BYTES) as u64,
-                    bytes: chunk.to_vec(),
-                },
-            );
-            let expected = acknowledgement(&response);
-            let mut step = transfer.accept(response).unwrap();
-            loop {
-                match step {
-                    ClientStep::Ack(ack) => {
-                        assert_eq!(ack, expected);
-                        break;
-                    }
-                    ClientStep::Yield => step = transfer.step().unwrap(),
-                    ClientStep::Complete { .. } => panic!("published before End"),
-                }
-            }
-            sequence += 1;
-        }
-        assert!(!transfer.is_complete());
-        sequence
-    }
-
-    #[test]
-    fn metadata_is_private_until_end_and_reservation_follows_shared_session() {
-        let budget = MemoryBudget::new(4 * 1024 * 1024);
-        let mut transfer =
-            OpenTransfer::new(7, TraceId::A, 99, 1024 * 1024, budget.clone()).unwrap();
-        decode_without_end(&mut transfer);
-        assert!(budget.used() > 0);
-        assert!(transfer.finish().is_err());
-        assert_eq!(budget.used(), 0);
-
-        let mut transfer =
-            OpenTransfer::new(7, TraceId::A, 99, 1024 * 1024, budget.clone()).unwrap();
-        let sequence = decode_without_end(&mut transfer);
-        let ClientStep::Complete {
-            result: LoadResult::Opened {
-                generation, result, ..
-            },
-            ..
-        } = transfer.accept(packet(sequence, Body::End)).unwrap()
-        else {
-            panic!("Open completion");
-        };
-        assert_eq!(generation, 99);
-        let session = result.unwrap();
-        let shared = Arc::clone(&session);
-        assert_eq!(session.remote_id(), Some(31));
-        transfer.finish().unwrap();
-        drop(session);
-        assert!(budget.used() > 0);
-        drop(shared);
-        assert_eq!(budget.used(), 0);
-    }
-
-    #[test]
-    fn wrong_identity_discards_private_metadata_and_prevents_reuse() {
-        let budget = MemoryBudget::new(4 * 1024 * 1024);
-        let mut transfer =
-            OpenTransfer::new(7, TraceId::A, 99, 1024 * 1024, budget.clone()).unwrap();
-        let sequence = decode_without_end(&mut transfer);
-        let mut wrong = packet(sequence, Body::End);
-        wrong.request += 1;
-        assert!(transfer.accept(wrong).is_err());
-        assert_eq!(budget.used(), 0);
-        assert!(transfer.accept(packet(sequence, Body::End)).is_err());
-        assert!(transfer.finish().is_err());
     }
 }

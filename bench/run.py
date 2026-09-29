@@ -721,11 +721,38 @@ def render(results, path):
     pipe = os.path.join(ROOT, "bench", "results", "latest", "c910_pipeline.json")
     if os.path.exists(pipe):
         L.extend(render_c910_pipeline(json.load(open(pipe))))
+    hierarchy = os.path.join(ROOT, "bench", "results", "hierarchy-stage2")
+    before, after = [os.path.join(hierarchy, name + ".json") for name in ("before", "after")]
+    if os.path.exists(before) and os.path.exists(after):
+        L.extend(render_hierarchy(json.load(open(before)), json.load(open(after))))
     L.append("\n## Workload descriptions\n")
     for r in rtl + tx + logs:
         L.append(f"- **{r['workload']}**: {r['info'].get('description', '')}")
     with open(path, "w") as f:
         f.write("\n".join(L) + "\n")
+
+
+def render_hierarchy(before, after):
+    L = ["\n## Compact hierarchy: local and remote\n"]
+    L.append("Stage 2 of [scope sizes](hierarchy-scope-sizes.html#stage-2). Baseline: `0de8b057273e99fed55419513539e1c58f6a46d3`; same trace files and release profiles. Fresh processes, interleaved baseline/changed samples, best of three complete open measurements pinned to P-cores 0–7. Raw samples: `bench/results/hierarchy-stage2/{before,after}.json`. Run `python3 bench/hierarchy-cost.py --bin-dir target/release --baseline-bin-dir BASELINE_TARGET/release --fixtures DIR --output bench/results/hierarchy-stage2/after.json --baseline-output bench/results/hierarchy-stage2/before.json`, then `python3 bench/run.py report`. Build `load_cost`, `remote_cost` and `volna-server` first. The baseline remote harness receives only the build fixes needed for its existing multi-trace API.\n")
+    L.append("VTR fixtures are generated from C910 with `vtr-bench gen-gates`, with 1/4/16 copies; FST twins use `vtr to-vcd` then `vcd2fst`. This measures hierarchy open with zero histories selected; trace size and writer performance are unchanged. RSS is the process high-water mark. Retained hierarchy bytes exclude reader-owned storage for VTR. Every before → after cell uses one fastest-open run's complete metrics, rather than separate minima.\n")
+    L.append("Other builds were using the measurement host. Interleaving and best-of-three sampling reduce timing variation; absolute wall times and longest-step times still include scheduling delays. Raw files retain every sample and the machine information.\n")
+    base = {(r["trace"], r["mode"]): r["best"] for r in before["runs"]}
+    mib = lambda n: n / 2**20
+    pair = lambda a, b: f"{a:.1f} → **{b:.1f}**"
+    L.extend(["### Local open\n", "| trace | scopes / variables | open ms | peak RSS MiB | retained hierarchy MiB | scope census ms |", "|---|---:|---:|---:|---:|---:|"])
+    for row in after["runs"]:
+        if row["mode"] != "local": continue
+        a, b = base[(row["trace"], "local")], row["best"]
+        L.append(f"| {row['trace']} | {b['scopes']:,} / {b['vars']:,} | {pair(a['open_ms'], b['open_ms'])} | {pair(a['peak_rss_kib']/1024, b['peak_rss_kib']/1024)} | {mib(b['hierarchy_bytes']):.1f} | {b['sizes_ms']:.1f} |")
+    L.extend(["\n### Remote open\n", "| trace | open ms | server wire MiB | client retained budget MiB | client peak budget MiB | client peak RSS MiB | server peak RSS MiB | longest decode step ms |", "|---|---:|---:|---:|---:|---:|---:|---:|"])
+    for row in after["runs"]:
+        if row["mode"] != "remote": continue
+        a, b = base[(row["trace"], "remote")], row["best"]
+        fields = [('open_ms', 1), ('server_wire_bytes', 2**20), ('budget_resident_bytes', 2**20), ('budget_peak_bytes', 2**20), ('client_peak_rss_kib', 1024), ('server_peak_rss_kib', 1024), ('max_decode_step_ms', 1)]
+        L.append(f"| {row['trace']} | " + " | ".join(pair(a[k]/scale, b[k]/scale) for k, scale in fields) + " |")
+    L.append("\nThe client measurements use the native production decoder; they do not measure WASM execution time. The page and index loops yield between bounded batches, independently of trace size. The client still retains every hierarchy page at open. One-core traces fit the default 512 MiB client budget; four-core traces require a higher budget until requested-page loading (Stage 6). FST dictionary construction trades open time for reduced memory; its cost is included above. The unchanged on-disk files incur no write-time or size tradeoff.\n")
+    return L
 
 
 def render_logs(logs):

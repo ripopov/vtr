@@ -124,7 +124,7 @@ fn fixed_signal_set_builds_shared_change_axis_and_workspace_reopens_at_first_row
     let session = fixture();
     let mut app = App::new();
     app.set_session(session.clone());
-    assert!(session.hierarchy().vars.len() >= 2);
+    assert!(session.hierarchy().var_count() >= 2);
     app.handle(Command::OpenTable {
         selected: a_all(vec![Member::Var(0), Member::Var(1)]),
         clicked: None,

@@ -14,7 +14,8 @@ use std::sync::Arc;
 pub struct RemoteSession {
     id: u64,
     metadata: Metadata,
-    _reservation: Option<super::memory::Reservation>,
+    sizes: Arc<crate::data::ScopeSizes>,
+    reservations: Arc<Vec<super::memory::Reservation>>,
 }
 
 impl RemoteSession {
@@ -25,28 +26,38 @@ impl RemoteSession {
         metadata.validate()?;
         Ok(Self {
             id,
+            sizes: Arc::new(crate::data::ScopeSizes::count(&metadata.hierarchy)),
             metadata,
-            _reservation: None,
+            reservations: Arc::new(vec![]),
         })
     }
 
-    pub(super) fn from_decoded(
+    pub(super) fn from_parts(
         id: u64,
-        decoded: super::metadata::ValidatedMetadata,
+        metadata: Metadata,
+        sizes: Arc<crate::data::ScopeSizes>,
+        reservations: Arc<Vec<super::memory::Reservation>>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(id != 0, "invalid remote session identity");
         Ok(Self {
             id,
-            metadata: decoded.metadata,
-            _reservation: Some(decoded.reservation),
+            metadata,
+            sizes,
+            reservations,
         })
     }
 }
 
 impl Session for RemoteSession {
+    fn resident_bytes(&self) -> u64 {
+        self.reservations
+            .iter()
+            .map(super::memory::Reservation::bytes)
+            .sum()
+    }
     fn memory_budget(&self) -> Option<super::memory::MemoryBudget> {
-        self._reservation
-            .as_ref()
+        self.reservations
+            .first()
             .map(|reservation| reservation.budget())
     }
 
@@ -61,6 +72,9 @@ impl Session for RemoteSession {
     }
     fn hierarchy(&self) -> &Hierarchy {
         &self.metadata.hierarchy
+    }
+    fn scope_sizes(&self) -> Option<Arc<crate::data::ScopeSizes>> {
+        Some(self.sizes.clone())
     }
     fn tracks(&self) -> &[Track] {
         &self.metadata.tracks

@@ -184,8 +184,7 @@ fn main() -> anyhow::Result<()> {
                 let mut seen = HashSet::new();
                 let ids: Vec<_> = session
                     .hierarchy()
-                    .vars
-                    .iter()
+                    .vars()
                     .map(|v| v.signal)
                     .filter(|id| seen.insert(*id))
                     .take(count.parse()?)

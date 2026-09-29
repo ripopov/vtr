@@ -8,7 +8,7 @@ use fst_reader::{FstFilter, FstHierarchyEntry, FstReader, FstSignalHandle, FstSi
 
 use super::compact::CompactBuilder;
 use super::history::VecHistory;
-use super::{Hierarchy, SignalHistory, SignalRef, SignalShape, TraceInfo, Variable, WaveValue};
+use super::{Hierarchy, SignalHistory, SignalRef, SignalShape, TraceInfo, WaveValue};
 use crate::session::{Session, SignalLoads};
 
 pub(crate) trait Input: BufRead + Seek + Send {}
@@ -56,7 +56,7 @@ impl FstSession {
         }
         let mut reader = FstReader::open(input).context("parse FST")?;
         let header = reader.get_header();
-        let mut hierarchy = Hierarchy::default();
+        let mut hierarchy = super::hierarchy_columns::ColumnBuilder::default();
         let mut scopes = Vec::new();
         let mut shapes = BTreeMap::new();
         let mut error = None;
@@ -71,12 +71,13 @@ impl FstSession {
                     component,
                 } => {
                     let id = hierarchy.push_scope(
-                        name,
-                        vtr::ScopeType::from_code(tpe as u16).name().into(),
+                        &name,
+                        vtr::ScopeType::from_code(tpe as u16).name(),
+                        &component,
                         scopes.last().copied(),
+                        super::source::ScopeRole::Scope,
                     );
                     scopes.push(id);
-                    hierarchy.scopes[id].component = component;
                     pending_enum = None;
                 }
                 FstHierarchyEntry::UpScope if scopes.pop().is_none() => {
@@ -114,20 +115,24 @@ impl FstSession {
                     }
                     let scope = scopes.last().copied().unwrap_or_else(|| {
                         *top.get_or_insert_with(|| {
-                            hierarchy.push_scope("(top)".into(), "module".into(), None)
+                            hierarchy.push_scope(
+                                "(top)",
+                                "module",
+                                "",
+                                None,
+                                super::source::ScopeRole::Scope,
+                            )
                         })
                     });
-                    let id = hierarchy.vars.len();
-                    hierarchy.vars.push(Variable {
-                        name,
+                    hierarchy.push_var(super::source::VariableView {
+                        name: &name,
                         scope,
                         shape,
                         signal,
                         enum_table: pending_enum.take(),
-                        var_type: vtr::VarType::from_code(tpe as u16).name().into(),
+                        var_type: vtr::VarType::from_code(tpe as u16).name(),
                         direction: vtr::Direction::from_u8(direction as u8).into(),
                     });
-                    hierarchy.scopes[scope].vars.push(id);
                 }
                 FstHierarchyEntry::EnumTable { handle, .. } => {
                     let id = enum_tables.len() as u32;
@@ -155,7 +160,7 @@ impl FstSession {
         Ok(Self {
             reader: Mutex::new(reader),
             info,
-            hierarchy,
+            hierarchy: hierarchy.finish(),
             shapes,
             source_bytes,
         })
@@ -308,6 +313,8 @@ fn validate_sections(input: &mut dyn Input) -> anyhow::Result<()> {
 impl Session for FstSession {
     fn resident_bytes(&self) -> u64 {
         self.source_bytes
+            + self.hierarchy.resident_bytes()
+            + (self.shapes.len() * std::mem::size_of::<(SignalRef, SignalShape)>()) as u64
     }
     fn format(&self) -> Option<&'static str> {
         Some("FST")

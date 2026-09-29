@@ -251,10 +251,10 @@ impl Catalog {
         let session = app.doc.session(TraceId::A).unwrap();
         let h = session.hierarchy();
         Self {
-            vars: h.vars.len(),
-            scopes: h.scopes.len(),
-            generators: (0..h.generators.len()).map(Member::Generator).collect(),
-            tracks: h.generators.iter().map(|g| g.track).collect(),
+            vars: h.var_count(),
+            scopes: h.scope_count(),
+            generators: (0..h.generators().len()).map(Member::Generator).collect(),
+            tracks: h.generators().iter().map(|g| g.track).collect(),
             clocks: app.doc.clocks.iter().map(|c| c.path.clone()).collect(),
         }
     }

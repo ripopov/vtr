@@ -1568,7 +1568,7 @@ impl App {
                 continue;
             };
             if let Member::Var(id) = member.item {
-                if id < h.vars.len() {
+                if id < h.var_count() {
                     vars.push(member.with(id));
                 }
             } else if let Some(track) = h.member_track(member.item) {
@@ -2603,7 +2603,7 @@ impl App {
         Some(StartSummary {
             name: self.doc.name()?,
             time_range: self.time_range_text(),
-            variables: sessions().map(|s| s.hierarchy().vars.len()).sum(),
+            variables: sessions().map(|s| s.hierarchy().var_count()).sum(),
             tracks: sessions().map(|s| s.tracks().len()).sum(),
             pipelines: self.pipeline_streams(),
         })

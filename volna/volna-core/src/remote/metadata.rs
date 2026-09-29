@@ -3,10 +3,9 @@
 
 use super::decode::{Decoder, Reader, Step};
 use super::memory::{MemoryBudget, Reservation};
-use super::objects::Metadata;
-use crate::data::source::{Direction, Generator, Scope, ScopeRole, Variable};
+use crate::data::TraceInfo;
+use crate::data::source::Generator;
 use crate::data::transactions::{AttributeValue, Attributes, Track, TrackKind, TrackRef};
-use crate::data::{Hierarchy, SignalRef, SignalShape, TraceInfo};
 use crate::session::Capabilities;
 use std::future::Future;
 use std::pin::Pin;
@@ -14,10 +13,10 @@ use std::pin::Pin;
 /// Decodes one metadata object from bounded chunks, reserving decoded storage
 /// (and validation workspace) from the budget before allocation. Nested
 /// attributes are limited to 128 levels. Dropping it releases everything.
-pub struct MetadataDecoder(Decoder<Metadata>);
+pub struct MetadataDecoder(Decoder<super::hierarchy::Header>);
 
 pub struct ValidatedMetadata {
-    pub(super) metadata: Metadata,
+    pub(super) header: super::hierarchy::Header,
     pub(super) reservation: Reservation,
 }
 
@@ -45,7 +44,7 @@ impl MetadataDecoder {
             Step::Yield => MetadataStep::Yield,
             Step::Ready(metadata, reservation) => {
                 MetadataStep::Decoded(Box::new(ValidatedMetadata {
-                    metadata,
+                    header: metadata,
                     reservation,
                 }))
             }
@@ -53,7 +52,7 @@ impl MetadataDecoder {
     }
 }
 
-async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
+async fn metadata(r: &Reader) -> anyhow::Result<super::hierarchy::Header> {
     let info = TraceInfo {
         name: r.string().await?,
         design_id: if r.boolean().await? {
@@ -75,54 +74,12 @@ async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
             None
         },
     };
-    let scopes = r
-        .vector(33, || async {
-            Ok(Scope {
-                name: r.string().await?,
-                kind: r.string().await?,
-                parent: if r.boolean().await? {
-                    Some(r.usize().await?)
-                } else {
-                    None
-                },
-                children: r.vector(8, || r.usize()).await?,
-                vars: r.vector(8, || r.usize()).await?,
-                role: match r.u32().await? {
-                    0 => ScopeRole::Scope,
-                    1 => ScopeRole::Stream {
-                        track: TrackRef(r.u32().await?),
-                    },
-                    _ => anyhow::bail!("invalid scope role"),
-                },
-                component: r.string().await?,
-                generators: r.vector(8, || r.usize()).await?,
-            })
-        })
-        .await?;
-    let roots = r.vector(8, || r.usize()).await?;
-    let vars = r
-        .vector(36, || async {
-            Ok(Variable {
-                name: r.string().await?,
-                scope: r.usize().await?,
-                shape: shape(r).await?,
-                var_type: r.string().await?,
-                direction: match r.u32().await? {
-                    0 => Direction::None,
-                    1 => Direction::Input,
-                    2 => Direction::Output,
-                    3 => Direction::InOut,
-                    _ => anyhow::bail!("invalid signal direction"),
-                },
-                signal: SignalRef(r.u32().await?),
-                enum_table: if r.boolean().await? {
-                    Some(r.u32().await?)
-                } else {
-                    None
-                },
-            })
-        })
-        .await?;
+    let capabilities = Capabilities {
+        waveforms: r.boolean().await?,
+        transactions: r.boolean().await?,
+        relations: r.boolean().await?,
+    };
+    let tracks = r.vector(24, || track(r)).await?;
     let generators = r
         .vector(28, || async {
             Ok(Generator {
@@ -133,59 +90,15 @@ async fn metadata(r: &Reader) -> anyhow::Result<Metadata> {
             })
         })
         .await?;
-    let capabilities = Capabilities {
-        waveforms: r.boolean().await?,
-        transactions: r.boolean().await?,
-        relations: r.boolean().await?,
-    };
-    let tracks = r.vector(24, || track(r)).await?;
-    let metadata = Metadata {
+    let scopes = r.u32().await?;
+    let vars = r.u32().await?;
+    Ok(super::hierarchy::Header {
         info,
-        hierarchy: Hierarchy {
-            scopes,
-            roots,
-            vars,
-            generators,
-        },
         capabilities,
         tracks,
-    };
-    // Reserve conservative validation workspace before constructing hash tables
-    // or traversal stacks. Include explicit child lists, even in malformed trees.
-    let mut items = metadata
-        .hierarchy
-        .scopes
-        .len()
-        .checked_add(metadata.hierarchy.vars.len())
-        .and_then(|n| n.checked_add(metadata.hierarchy.generators.len()))
-        .and_then(|n| n.checked_add(metadata.hierarchy.roots.len()))
-        .and_then(|n| n.checked_add(metadata.tracks.len()))
-        .ok_or_else(|| anyhow::anyhow!("metadata workspace size overflow"))?;
-    for scope in &metadata.hierarchy.scopes {
-        r.checkpoint().await;
-        items = items
-            .checked_add(scope.children.len())
-            .ok_or_else(|| anyhow::anyhow!("metadata workspace size overflow"))?;
-    }
-    r.charge(
-        items
-            .checked_mul(128)
-            .ok_or_else(|| anyhow::anyhow!("metadata workspace size overflow"))?,
-    )?;
-    metadata.validate_with(|| r.checkpoint()).await?;
-    Ok(metadata)
-}
-
-async fn shape(r: &Reader) -> anyhow::Result<SignalShape> {
-    Ok(match r.u32().await? {
-        0 => SignalShape::Event,
-        1 => SignalShape::Bit,
-        2 => SignalShape::Vector {
-            width: r.u32().await?,
-        },
-        3 => SignalShape::Real,
-        4 => SignalShape::Text,
-        _ => anyhow::bail!("invalid signal shape"),
+        generators,
+        scopes,
+        vars,
     })
 }
 
@@ -257,6 +170,8 @@ pub(super) fn attribute(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::remote::hierarchy::Header;
+    use crate::remote::objects::Metadata;
     use crate::remote::transport::DATA_BYTES;
 
     fn sample() -> Metadata {
@@ -304,46 +219,20 @@ mod tests {
     #[test]
     fn metadata_roundtrip_matches_bincode_across_fragmented_utf8_and_all_attributes() {
         let expected = sample();
-        roundtrip(expected);
+        roundtrip(
+            Header::from_session(crate::testing::ProceduralTrace::session(100).as_ref())
+                .map(|mut header| {
+                    header.info = expected.info;
+                    header.tracks = expected.tracks;
+                    header.capabilities = expected.capabilities;
+                    header.generators = expected.hierarchy.generators.as_ref().clone();
+                    header
+                })
+                .unwrap(),
+        );
     }
 
-    #[test]
-    fn mixed_hierarchy_roundtrips_through_cooperative_decoder() {
-        let mut expected = sample();
-        let stream = expected
-            .hierarchy
-            .push_scope("log".into(), "LOG".into(), Some(0));
-        expected.hierarchy.scopes[stream].role = ScopeRole::Stream { track: TrackRef(1) };
-        expected.hierarchy.scopes[stream].generators.push(0);
-        expected.hierarchy.generators.push(Generator {
-            name: "site".into(),
-            stream,
-            track: TrackRef(2),
-            attributes: vec![("log.severity".into(), AttributeValue::U64(3))],
-        });
-        expected.hierarchy.vars[0].enum_table = Some(42);
-        expected.hierarchy.scopes[0].component = "top_type".into();
-        expected.tracks.extend([
-            Track {
-                id: TrackRef(1),
-                path: vec!["top".into(), "log".into()],
-                kind: TrackKind::Stream { kind: "LOG".into() },
-                attributes: vec![],
-            },
-            Track {
-                id: TrackRef(2),
-                path: vec!["top".into(), "log".into(), "site".into()],
-                kind: TrackKind::Generator {
-                    stream: TrackRef(1),
-                },
-                attributes: vec![],
-            },
-        ]);
-        roundtrip(expected);
-    }
-
-    fn roundtrip(expected: Metadata) {
-        expected.validate().unwrap();
+    fn roundtrip(expected: Header) {
         let bytes = bincode::serialize(&expected).unwrap();
         for size in [1, 7, DATA_BYTES] {
             let budget = MemoryBudget::new(16 * 1024 * 1024);
@@ -357,13 +246,13 @@ mod tests {
                         .unwrap(),
                     MetadataStep::Yield => {}
                     MetadataStep::Decoded(decoded) => {
-                        break (decoded.metadata, decoded.reservation);
+                        break (decoded.header, decoded.reservation);
                     }
                 }
             };
             assert!(chunks.next().is_none());
             assert_eq!(bincode::serialize(&metadata).unwrap(), bytes);
-            metadata.validate().unwrap();
+
             assert!(budget.used() > 0);
             drop(metadata);
             drop(reservation);
@@ -398,7 +287,15 @@ mod tests {
                 ..template.clone()
             })
             .collect();
-        let bytes = bincode::serialize(&metadata).unwrap();
+        let bytes = bincode::serialize(&Header {
+            info: metadata.info.clone(),
+            capabilities: metadata.capabilities,
+            tracks: metadata.tracks.clone(),
+            generators: metadata.hierarchy.generators.as_ref().clone(),
+            scopes: metadata.hierarchy.scope_count() as u32,
+            vars: metadata.hierarchy.var_count() as u32,
+        })
+        .unwrap();
         assert!(bytes.len() < DATA_BYTES);
         let budget = MemoryBudget::new(16 * 1024 * 1024);
         let mut decoder =
@@ -411,7 +308,7 @@ mod tests {
                 MetadataStep::Yield => yields += 1,
                 MetadataStep::NeedInput => panic!("all input supplied"),
                 MetadataStep::Decoded(decoded) => {
-                    let metadata = decoded.metadata;
+                    let metadata = decoded.header;
                     assert_eq!(metadata.tracks.len(), 4000);
                     break;
                 }
@@ -421,20 +318,15 @@ mod tests {
     }
 
     #[test]
-    fn malformed_metadata_never_becomes_a_validated_session() {
-        let mut metadata =
-            Metadata::from_session(crate::testing::ProceduralTrace::session(10).as_ref());
-        let valid = bincode::serialize(&metadata).unwrap();
-        let mut cases = vec![valid[..valid.len() - 1].to_vec()];
+    fn malformed_header_never_decodes() {
+        let header =
+            Header::from_session(crate::testing::ProceduralTrace::session(10).as_ref()).unwrap();
+        let valid = bincode::serialize(&header).unwrap();
         let mut trailing = valid.clone();
         trailing.push(0);
-        cases.push(trailing);
-        let mut bad_utf8 = valid;
-        bad_utf8[8] = 0xff;
-        cases.push(bad_utf8);
-        metadata.hierarchy.roots.push(usize::MAX);
-        cases.push(bincode::serialize(&metadata).unwrap());
-        for bytes in cases {
+        let mut utf8 = valid.clone();
+        utf8[8] = 255;
+        for bytes in [valid[..valid.len() - 1].to_vec(), trailing, utf8] {
             let budget = MemoryBudget::new(4 * 1024 * 1024);
             let mut decoder =
                 MetadataDecoder::new(bytes.len() as u64, bytes.len() as u64, &budget).unwrap();
@@ -443,7 +335,7 @@ mod tests {
                 match decoder.step() {
                     Err(_) => break,
                     Ok(MetadataStep::Yield) => {}
-                    _ => panic!("malformed complete input accepted or waiting for more input"),
+                    _ => panic!("malformed header accepted"),
                 }
             }
             drop(decoder);

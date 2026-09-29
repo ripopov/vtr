@@ -134,9 +134,8 @@ fn main() -> anyhow::Result<()> {
     let signals = names
         .iter()
         .map(|n| {
-            h.vars
-                .iter()
-                .find(|v| &v.name == n)
+            h.vars()
+                .find(|v| v.name == n)
                 .map(|v| v.signal)
                 .ok_or_else(|| anyhow::anyhow!("no signal named {n}"))
         })

@@ -3,6 +3,7 @@
 pub mod client;
 mod decode;
 mod equality;
+pub mod hierarchy;
 pub mod history;
 pub mod limits;
 pub mod memory;

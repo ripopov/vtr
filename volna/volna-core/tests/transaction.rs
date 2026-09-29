@@ -572,7 +572,7 @@ fn a_table_row_is_the_document_selection() {
     let read = track(session.as_ref(), "soc.l2.bus.read");
     let generator = session
         .hierarchy()
-        .generators
+        .generators()
         .iter()
         .position(|g| g.track == read)
         .unwrap();

@@ -75,10 +75,10 @@ fn mixed_vtr_metadata_icons_and_log_provenance() {
     let h = session.hierarchy();
     let pipeline = scope(h, &["soc", "cpu", "thread0"]);
     assert_eq!(
-        scope_icon(&h.scopes[pipeline]),
+        scope_icon(&h.scope(pipeline)),
         (IconName::Workflow, Tint::Pipeline)
     );
-    assert_eq!(h.scopes[0].component, "soc_top");
+    assert_eq!(h.scope(0).component, "soc_top");
     let mut doc = volna_core::Document::new();
     doc.set_session(session.clone());
     let traces = doc.traces();
@@ -93,7 +93,7 @@ fn mixed_vtr_metadata_icons_and_log_provenance() {
         Lookup::Found(0)
     );
     for member in h
-        .generators
+        .generators()
         .iter()
         .enumerate()
         .map(|(id, _)| Member::Generator(id))
@@ -106,7 +106,7 @@ fn mixed_vtr_metadata_icons_and_log_provenance() {
         assert_eq!(track.path.join("."), h.member_path(member));
     }
     let bus = scope(h, &["soc", "read_bus"]);
-    assert_eq!(stream_tag(&h.scopes[bus]), Some("TRANSACTOR"));
+    assert_eq!(stream_tag(&h.scope(bus)), Some("TRANSACTOR"));
     let log = scope(h, &["soc", "log"]);
     list.set_scope(traces, Some(a(log)));
     assert_eq!(list.title(traces), "Log sites");
@@ -189,7 +189,7 @@ fn search_order_activation_keyboard_and_notices() {
 #[test]
 fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
     let session = fixture();
-    let mut h = session.hierarchy().clone();
+    let mut h = session.hierarchy().to_builder();
     let template = h.vars[0].clone();
     h.vars = vec![template; 5000];
     let mut list = MemberListModel::default();
@@ -200,7 +200,7 @@ fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
     list.rebuild(hierarchy_document(h).traces());
     assert_eq!(list.rows.len(), 4999);
     assert!(!list.truncated);
-    let mut h = Hierarchy::default();
+    let mut h = volna_core::data::HierarchyBuilder::default();
     let mut parent = None;
     for _ in 0..20000 {
         parent = Some(h.push_scope("nested".into(), "module".into(), parent));
@@ -217,7 +217,7 @@ fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
 fn expand_all_keeps_gate_leaves_out_of_state_and_saved_paths() {
     use volna_core::workspace::Workspace;
 
-    let mut h = Hierarchy::default();
+    let mut h = volna_core::data::HierarchyBuilder::default();
     let root = h.push_scope("top".into(), "module".into(), None);
     let module = h.push_scope("module".into(), "module".into(), Some(root));
     for id in 0..100_000 {
@@ -320,11 +320,15 @@ fn icons_have_assets_and_malformed_track_references_are_rejected() {
     }
     let session = fixture();
     let mut metadata = Metadata::from_session(session.as_ref());
-    metadata.hierarchy.generators[0].stream = usize::MAX;
+    let mut builder = metadata.hierarchy.to_builder();
+    builder.generators[0].stream = 0; // a scope, rather than its stream
+    metadata.hierarchy = builder.finish();
     assert!(metadata.validate().is_err());
     let mut metadata = Metadata::from_session(session.as_ref());
-    metadata.hierarchy.scopes[2].role = ScopeRole::Stream {
+    let mut builder = metadata.hierarchy.to_builder();
+    builder.scopes[2].role = ScopeRole::Stream {
         track: TrackRef(u32::MAX),
     };
+    metadata.hierarchy = builder.finish();
     assert!(metadata.validate().is_err());
 }

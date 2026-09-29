@@ -13,15 +13,14 @@ fn fixture(name: &str) -> PathBuf {
 #[test]
 fn surfer_fst_types_loads() {
     let session = OpenSpec::Path(fixture("../fst_types.fst")).open().unwrap();
-    let signals: Vec<_> = session.hierarchy().vars.iter().map(|v| v.signal).collect();
+    let signals: Vec<_> = session.hierarchy().vars().map(|v| v.signal).collect();
     assert_eq!(signals.len(), 76);
     for (signal, result) in session.load_signals(&signals) {
         let history = result.unwrap_or_else(|error| panic!("{signal:?}: {error:#}"));
         assert!(!history.is_empty(), "{signal:?}");
         let variable = session
             .hierarchy()
-            .vars
-            .iter()
+            .vars()
             .find(|v| v.signal == signal)
             .unwrap();
         if variable.var_type == "port" {
@@ -40,14 +39,13 @@ fn equivalent_verilator_traces_agree_at_every_change() {
             .open()
             .unwrap();
         assert_eq!(fst.info().timescale, vtr.info().timescale);
-        let signals: Vec<_> = fst.hierarchy().vars.iter().map(|v| v.signal).collect();
+        let signals: Vec<_> = fst.hierarchy().vars().map(|v| v.signal).collect();
         let histories = fst.load_signals(&signals);
-        for (id, variable) in fst.hierarchy().vars.iter().enumerate() {
+        for (id, variable) in fst.hierarchy().vars().enumerate() {
             let name = fst.hierarchy().full_name(id);
             let other = vtr
                 .hierarchy()
-                .vars
-                .iter()
+                .vars()
                 .enumerate()
                 .find(|(i, _)| vtr.hierarchy().full_name(*i) == name)
                 .unwrap_or_else(|| panic!("missing {name}"));
@@ -129,8 +127,8 @@ fn gzip_wrapper_preserves_values_and_rejects_truncation() {
     let b = open(include_bytes!("fixtures/values.fst").to_vec()).unwrap();
     assert_eq!(a.info().time_range, b.info().time_range);
     for id in 0..4 {
-        let a = a.load_signal(a.hierarchy().vars[id].signal).unwrap();
-        let b = b.load_signal(b.hierarchy().vars[id].signal).unwrap();
+        let a = a.load_signal(a.hierarchy().var(id).signal).unwrap();
+        let b = b.load_signal(b.hierarchy().var(id).signal).unwrap();
         assert_eq!(a.len(), b.len());
         for i in 0..a.len() {
             assert_eq!(a.time(i), b.time(i));
@@ -181,7 +179,7 @@ fn raw_bytes_reals_nine_states_and_time_boundaries() {
     .unwrap();
     assert_eq!(fst.info().timescale, -12);
     assert_eq!(fst.info().time_range, (5, 20));
-    let vars = &fst.hierarchy().vars;
+    let vars: Vec<_> = fst.hierarchy().vars().collect();
     let signals: Vec<_> = vars.iter().map(|v| v.signal).collect();
     let loaded = fst.load_signals(&signals);
     let bytes = loaded[0].1.as_ref().unwrap();
@@ -288,8 +286,8 @@ fn raw_bytes_reals_nine_states_and_time_boundaries() {
     writer.emit_varlen(signal, &[]).unwrap();
     writer.close().unwrap();
     let vtr = OpenSpec::Path(file.path().into()).open().unwrap();
-    let twin = vtr.load_signal(vtr.hierarchy().vars[0].signal).unwrap();
-    let signal = vtr.hierarchy().vars[0].signal;
+    let twin = vtr.load_signal(vtr.hierarchy().var(0).signal).unwrap();
+    let signal = vtr.hierarchy().var(0).signal;
     let repeated = vtr.load_signals(&[signal, SignalRef(u32::MAX), signal]);
     assert!(repeated[1].1.is_err());
     assert!(Arc::ptr_eq(
@@ -342,9 +340,9 @@ fn vtr_events_preserve_repeated_occurrences_and_render_arrows() {
     }
     writer.close().unwrap();
     let session = OpenSpec::Path(file.path().into()).open().unwrap();
-    let var = &session.hierarchy().vars[0];
+    let var = session.hierarchy().var(0);
     assert_eq!(var.shape, SignalShape::Event);
-    let alias = &session.hierarchy().vars[1];
+    let alias = session.hierarchy().var(1);
     assert_eq!(alias.shape, SignalShape::Event);
     assert_eq!(alias.signal, var.signal);
     let histories = session.load_signals(&[var.signal, alias.signal]);

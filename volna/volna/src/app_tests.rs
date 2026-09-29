@@ -78,7 +78,7 @@ fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
     window
         .update(cx, |ws, window, cx| {
             assert!(ws.app.doc.is_loaded());
-            let count = ws.app.doc.hierarchy(TraceId::A).unwrap().vars.len();
+            let count = ws.app.doc.hierarchy(TraceId::A).unwrap().var_count();
             ws.dispatch(Command::AddVars(a_all(0..count)), Some(window), cx);
         })
         .unwrap();
@@ -111,7 +111,14 @@ fn scope_rows_show_their_signal_count_in_both_themes(cx: &mut TestAppContext) {
     vcx.run_until_parked();
     let root = window
         .update(&mut vcx, |ws, _, _| {
-            let root = ws.app.doc.hierarchy(TraceId::A).unwrap().roots[0];
+            let root = ws
+                .app
+                .doc
+                .hierarchy(TraceId::A)
+                .unwrap()
+                .roots()
+                .first()
+                .unwrap();
             let size = ScopeTreeModel::size(
                 ws.app.doc.traces(),
                 TreeNode::scope(Traced::new(TraceId::A, root)),
@@ -1053,8 +1060,7 @@ fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
             ws.set_session(session.clone(), cx);
             let vector = session
                 .hierarchy()
-                .vars
-                .iter()
+                .vars()
                 .position(|v| matches!(v.shape, SignalShape::Vector { .. }))
                 .unwrap();
             ws.dispatch(Command::AddVars(a_all(vec![vector])), Some(window), cx);

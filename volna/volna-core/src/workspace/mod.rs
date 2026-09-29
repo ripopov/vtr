@@ -939,7 +939,7 @@ impl Workspace {
                             let (var, reference, name) = match (found, h) {
                                 (Lookup::Found(var), Some(h)) => (
                                     Some(var),
-                                    Some(Traced::new(trace, h.vars[var].signal)),
+                                    Some(Traced::new(trace, h.var(var).signal)),
                                     h.full_name(var),
                                 ),
                                 (other, _) => {
@@ -1194,14 +1194,14 @@ impl Workspace {
                 let found = h.map_or(Lookup::Missing, |h| h.find_var(&row_signal, nth));
                 let (source, name, scope, shape) = match (found, h) {
                     (Lookup::Found(var), Some(h)) => {
-                        let v = &h.vars[var];
+                        let v = h.var(var);
                         (
                             RowSource::Resolved {
                                 trace,
                                 var,
                                 signal: v.signal,
                             },
-                            v.name.clone(),
+                            v.name.to_owned(),
                             h.scope_path(v.scope).join("."),
                             v.shape,
                         )

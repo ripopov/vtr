@@ -169,7 +169,7 @@ impl Workspace {
                         };
                         let dir = member
                             .var()
-                            .and_then(|id| direction_icon(h.vars[id].direction));
+                            .and_then(|id| direction_icon(h.var(id).direction));
                         let shown = on_waves.contains(&traced);
                         let tooltip = if shown {
                             format!("{} · on the waves", describe(h, member))

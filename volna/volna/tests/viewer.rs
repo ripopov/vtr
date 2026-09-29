@@ -956,8 +956,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                 .doc
                 .hierarchy(TraceId::A)
                 .unwrap()
-                .vars
-                .len()
+                .var_count()
         });
         assert!(count > 0);
         // A newly loaded trace owns keyboard focus without requiring a click
@@ -1026,7 +1025,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update(|cx| {
             workspace.update(cx, |ws, cx| {
                 ws.set_session(volna_core::testing::ProceduralTrace::session(n), cx);
-                let count = ws.app.doc.hierarchy(TraceId::A).unwrap().vars.len();
+                let count = ws.app.doc.hierarchy(TraceId::A).unwrap().var_count();
                 ws.dispatch(volna_core::Command::AddVars(a_all(0..count)), None, cx);
             })
         });
@@ -1135,5 +1134,6 @@ fn run(measure: bool) -> anyhow::Result<()> {
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
-    println!("viewer integration tests skipped: offscreen renderer requires macOS");
+    eprintln!("viewer offscreen tests require macOS with Metal; use the macOS CI job");
+    std::process::exit(1);
 }

@@ -152,7 +152,7 @@ impl ProceduralTrace {
     pub fn new(transitions: usize) -> Self {
         let transitions = transitions.max(2);
         let period = 10u64; // time units per clock half-period
-        let mut hierarchy = Hierarchy::default();
+        let mut hierarchy = crate::data::HierarchyBuilder::default();
         let top = hierarchy.push_scope("synth".into(), "module".into(), None);
         hierarchy.push_scope("core".into(), "module".into(), Some(top));
 
@@ -162,7 +162,7 @@ impl ProceduralTrace {
                        shape: SignalShape,
                        hist: ProceduralHistory,
                        dir: Direction,
-                       h: &mut Hierarchy| {
+                       h: &mut crate::data::HierarchyBuilder| {
             let id = signals.len();
             signals.push(Arc::new(hist));
             let vid = h.vars.len();
@@ -346,7 +346,7 @@ impl ProceduralTrace {
         };
         ProceduralTrace {
             info,
-            hierarchy,
+            hierarchy: hierarchy.finish(),
             signals,
         }
     }
@@ -361,7 +361,8 @@ impl ProceduralTrace {
 
 /// A session that holds only `hierarchy`: its histories do not load. For
 /// tests of the hierarchy browser over a hand-built tree.
-pub fn hierarchy_session(hierarchy: crate::data::Hierarchy) -> Arc<dyn Session> {
+pub fn hierarchy_session(hierarchy: impl Into<crate::data::Hierarchy>) -> Arc<dyn Session> {
+    let hierarchy = hierarchy.into();
     struct Bare {
         info: TraceInfo,
         hierarchy: crate::data::Hierarchy,
@@ -383,7 +384,7 @@ pub fn hierarchy_session(hierarchy: crate::data::Hierarchy) -> Arc<dyn Session> 
             design_id: None,
             timescale: -9,
             time_range: (0, 1),
-            signal_count: hierarchy.vars.len(),
+            signal_count: hierarchy.var_count(),
             change_count: None,
             time_unit: None,
         },
@@ -392,7 +393,7 @@ pub fn hierarchy_session(hierarchy: crate::data::Hierarchy) -> Arc<dyn Session> 
 }
 
 /// A document showing `hierarchy` as trace A.
-pub fn hierarchy_document(hierarchy: crate::data::Hierarchy) -> crate::Document {
+pub fn hierarchy_document(hierarchy: impl Into<crate::data::Hierarchy>) -> crate::Document {
     let mut doc = crate::Document::new();
     doc.set_session(hierarchy_session(hierarchy));
     doc
@@ -477,7 +478,7 @@ mod tests {
     #[test]
     fn procedural_times_are_monotonic_and_searchable() {
         let src = ProceduralTrace::new(10_000);
-        for var in &src.hierarchy().vars {
+        for var in src.hierarchy().vars() {
             let h = src.load_signal(var.signal).unwrap();
             for i in 1..h.len().min(2000) {
                 assert!(h.time(i) >= h.time(i - 1), "{}: {i}", var.name);

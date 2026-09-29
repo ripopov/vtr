@@ -689,7 +689,7 @@ fn a_clock_generator_adds_as_a_ruler_or_as_a_waveform() {
     let h = session.hierarchy();
     let bus_stream = scope(session.as_ref(), &["top", "bus_clk"]);
     let edges = h
-        .generators
+        .generators()
         .iter()
         .position(|g| g.stream == bus_stream)
         .unwrap();
