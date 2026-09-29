@@ -377,6 +377,13 @@ pub enum LoadRequest {
         session: Arc<dyn Session>,
         signals: Vec<SignalRef>,
     },
+    /// Count the distinct signals below every scope of an opened trace
+    /// (client-side work over its hierarchy).
+    Sizes {
+        trace: TraceId,
+        generation: u64,
+        session: Arc<dyn Session>,
+    },
     /// Summarize a resident history for analog drawing (client-side work).
     Summary {
         generation: u64,
@@ -400,7 +407,10 @@ impl LoadRequest {
     pub fn remote_id(&self) -> Option<u64> {
         match self {
             Self::Signals { session, .. } | Self::Track { session, .. } => session.remote_id(),
-            Self::Open { .. } | Self::Summary { .. } | Self::GroupSummary { .. } => None,
+            Self::Open { .. }
+            | Self::Sizes { .. }
+            | Self::Summary { .. }
+            | Self::GroupSummary { .. } => None,
         }
     }
 
@@ -438,6 +448,13 @@ impl LoadRequest {
                 generation,
                 request_id,
                 track,
+                result: Err(error),
+            },
+            Self::Sizes {
+                trace, generation, ..
+            } => LoadResult::Sizes {
+                trace,
+                generation,
                 result: Err(error),
             },
             Self::Summary {
@@ -500,6 +517,17 @@ impl LoadRequest {
                 generation,
                 results: session.load_signals(&signals),
             },
+            LoadRequest::Sizes {
+                trace,
+                generation,
+                session,
+            } => LoadResult::Sizes {
+                trace,
+                generation,
+                result: Ok(Arc::new(crate::data::ScopeSizes::count(
+                    session.hierarchy(),
+                ))),
+            },
             LoadRequest::Summary {
                 generation,
                 signal,
@@ -550,6 +578,11 @@ pub enum LoadResult {
         trace: TraceId,
         generation: u64,
         result: anyhow::Result<Arc<dyn Session>>,
+    },
+    Sizes {
+        trace: TraceId,
+        generation: u64,
+        result: anyhow::Result<Arc<crate::data::ScopeSizes>>,
     },
     Summary {
         generation: u64,

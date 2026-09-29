@@ -187,6 +187,27 @@ int main(int argc, char **argv) {
     ASSERT(sig == clk);
     CHECK(vtr_reader_node(rd, late_v_n, &ni));
     ASSERT(ni.parent == late);
+    /* Scope sizes: late's clk aliases top's, so top holds 7 signals named by 8 variables. */
+    vtr_scope_sizes *sz = vtr_reader_scope_sizes(rd);
+    ASSERT(sz != NULL && vtr_scope_sizes_len(sz) == 2);
+    vtr_scope_size one;
+    CHECK(vtr_scope_sizes_get(sz, 0, &one));
+    ASSERT(one.node == top && one.parent == VTR_NONE && one.signals == 7 && one.variables == 8 && one.scopes == 2);
+    CHECK(vtr_scope_sizes_get(sz, 1, &one));
+    ASSERT(one.node == late && one.parent == 0 && one.signals == 2 && one.variables == 2 && one.scopes == 1);
+    ASSERT(vtr_scope_sizes_get(sz, 2, &one) == VTR_ERR_NOT_FOUND);
+    vtr_scope_sizes_free(sz);
+    vtr_census *cen = vtr_census_new();
+    ASSERT(vtr_census_var(cen, 0) == VTR_ERR_INVALID);
+    ASSERT(vtr_census_enter(cen) == 0);
+    CHECK(vtr_census_var(cen, 5));
+    ASSERT(vtr_census_enter(cen) == 1);
+    CHECK(vtr_census_var(cen, 5));
+    CHECK(vtr_census_leave(cen));
+    sz = vtr_census_finish(cen);
+    CHECK(vtr_scope_sizes_get(sz, 0, &one));
+    ASSERT(one.node == VTR_NONE && one.signals == 1 && one.variables == 2 && one.scopes == 2);
+    vtr_scope_sizes_free(sz);
     CHECK(vtr_reader_transaction_generator(rd, 7, &owner_late));
     ASSERT(owner_late == late_gen);
     vtr_value_buf *b = vtr_value_buf_new();

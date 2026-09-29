@@ -46,6 +46,10 @@ fn generator_table_loads_selects_follows_copies_and_keeps_bounded_rows() {
     let session = fixture();
     let mut app = App::new();
     app.set_session(session.clone());
+    // The open's own work: count scope sizes.
+    for request in app.take_requests() {
+        app.deliver(request.perform());
+    }
     let budget = app
         .doc
         .session(TraceId::A)

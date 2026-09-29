@@ -189,6 +189,9 @@ pub struct TraceSlot {
     /// a fresh one when it is added and when its placement changes.
     pub(crate) generation: u64,
     pub(crate) placement: Placement,
+    /// Its scope sizes, once counted; they belong to the session and
+    /// survive a close that is undone.
+    pub(crate) sizes: Option<Arc<crate::data::ScopeSizes>>,
 }
 
 impl TraceSlot {
@@ -201,7 +204,13 @@ impl TraceSlot {
             state: SlotState::Loading,
             generation,
             placement: Placement::IDENTITY,
+            sizes: None,
         }
+    }
+
+    /// Its scope sizes; `None` until the count after open finishes.
+    pub fn sizes(&self) -> Option<&crate::data::ScopeSizes> {
+        self.sizes.as_deref()
     }
 
     pub fn state(&self) -> &SlotState {

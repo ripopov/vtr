@@ -30,6 +30,10 @@ fn remote_metadata_queues_complete_tracks() {
     );
     let mut document = Document::new();
     document.set_session(remote);
+    // The open's own work: count scope sizes, client-side.
+    for request in document.take_requests() {
+        document.deliver(request.perform());
+    }
     let track = TrackRef(stream.0);
     document.retain_track(in_a(track)).unwrap();
     document.retain_track(in_a(track)).unwrap();
@@ -323,6 +327,10 @@ fn document_track_loads_coalesce_share_release_retry_and_reject_stale_results() 
     let stream = TrackRef(stream.0);
     let mut doc = Document::new();
     doc.set_session(session.clone());
+    // The open's own work: count scope sizes.
+    for request in doc.take_requests() {
+        doc.deliver(request.perform());
+    }
     doc.retain_track(in_a(stream)).unwrap();
     doc.retain_track(in_a(stream)).unwrap();
     let requests = doc.take_requests();

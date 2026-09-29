@@ -2,6 +2,7 @@
 //! `vtr-bench`: workload preparation and benchmark drivers.
 
 mod activity;
+mod scopes;
 mod load;
 mod logw;
 mod read;
@@ -29,6 +30,8 @@ vtr-bench commands:
   activity <in.vtr> [--eps E] [--mem M] [--windows N] [--threads T]   range-activity index measurements (JSON)
   activity-export <in.vtr> <t0> <t1> <out.bin> [--eps E] [--mem M]   demo data for docs/hierarchy-activity.html
   gen-bursty <out.vtr> [--scale S]                    synthetic ps trace with sleep phases and gated units
+  scopes <in.vtr> [--children NAME]                   distinct signals per scope, three ways (JSON)
+  gen-gates <in.vtr> <out.vtr> [--copies N]           gate-level hierarchy expanded from an RTL one
   stream <in.vtr>                                     count all changes via for_each_change
   replay-info <in.rpl>";
 
@@ -186,6 +189,11 @@ fn main() {
             let eps = flag(&args, "--eps").map(|s| s.parse().unwrap()).unwrap_or(0.01);
             let mem = flag(&args, "--mem").map(|s| s.parse().unwrap()).unwrap_or(0.04);
             activity::export(&pos[1], pos[2].parse().unwrap(), pos[3].parse().unwrap(), eps, mem, &pos[4]);
+        }
+        "scopes" => scopes::run(&pos[1], flag(&args, "--children").as_deref()),
+        "gen-gates" => {
+            let copies = flag(&args, "--copies").map(|s| s.parse().unwrap()).unwrap_or(1);
+            scopes::gen_gates(&pos[1], &pos[2], copies, seed);
         }
         "gen-bursty" => {
             let scale = flag(&args, "--scale").map(|s| s.parse().unwrap()).unwrap_or(4);

@@ -850,7 +850,7 @@ impl App {
             *opened = self.account_local_session(session);
         }
         match self.doc.deliver(result) {
-            Some(Delivered::Summary) => self.changed(),
+            Some(Delivered::Summary | Delivered::Sizes) => self.changed(),
             Some(Delivered::Track) => {
                 for pipeline in self.panels.pipelines_mut() {
                     pipeline.refresh(&self.doc);

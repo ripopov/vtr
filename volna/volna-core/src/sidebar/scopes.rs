@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use super::Key;
-use crate::data::{Hierarchy, Member, ScopeId, ScopeRole};
+use crate::data::{Hierarchy, Member, ScopeId, ScopeRole, ScopeSize};
 use crate::trace::{TraceId, TraceSet, Traced};
 
 /// A row of the tree: a trace's own row (`scope` is `None`, shown only
@@ -151,6 +151,12 @@ impl ScopeTreeModel {
             Some(scope) => !h.scopes[scope].children.is_empty(),
             None => !h.roots.is_empty(),
         }
+    }
+
+    /// A scope row's size, once its trace's count has finished; trace rows
+    /// have none.
+    pub fn size(traces: &TraceSet, node: TreeNode) -> Option<ScopeSize> {
+        traces.get(node.trace)?.sizes()?.get(node.scope?)
     }
 
     pub(crate) fn rebuild(&mut self, traces: &TraceSet) {

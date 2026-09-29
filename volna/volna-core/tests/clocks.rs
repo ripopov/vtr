@@ -609,9 +609,14 @@ fn clocks_load_through_the_remote_protocol_like_any_track() {
                         let opened = matches!(&result, volna_core::LoadResult::Opened { .. });
                         app.deliver(result);
                         if opened {
-                            // The open delivered: submit the clock loads it queued.
+                            // The open delivered: submit the clock loads it queued;
+                            // client-side work (scope sizes) stays local.
                             for request in app.take_requests() {
-                                client.submit(request).map_err(|_| "rejected").unwrap();
+                                if request.remote_id().is_some() {
+                                    client.submit(request).map_err(|_| "rejected").unwrap();
+                                } else {
+                                    app.deliver(request.perform());
+                                }
                             }
                         }
                         break true;

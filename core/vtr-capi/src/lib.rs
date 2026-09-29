@@ -1957,6 +1957,125 @@ pub unsafe extern "C" fn vtr_reader_stream_clock(r: *const vtr_reader, stream: u
     }
 }
 
+/// Streaming scope-size counter (`vtr::Census`).
+pub struct vtr_census(vtr::Census);
+
+/// Scope sizes and, when counted from a reader, each index's scope node.
+pub struct vtr_scope_sizes {
+    nodes: Vec<u32>,
+    sizes: vtr::ScopeSizes,
+}
+
+/// One scope's totals, subscopes included.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct vtr_scope_size {
+    /// Scope node, or `VTR_NONE` when counted by a `vtr_census`.
+    pub node: u32,
+    /// Index of the enclosing scope, `VTR_NONE` for a root.
+    pub parent: u32,
+    pub signals: u32,
+    pub variables: u32,
+    pub scopes: u32,
+}
+
+#[no_mangle]
+pub extern "C" fn vtr_census_new() -> *mut vtr_census {
+    Box::into_raw(Box::new(vtr_census(vtr::Census::new())))
+}
+
+/// Opens a scope and returns its index, `VTR_NONE` for a null handle.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_census_enter(c: *mut vtr_census) -> u32 {
+    match c.as_mut() {
+        Some(c) => c.0.enter(),
+        None => {
+            set_error("null handle");
+            VTR_NONE
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_census_var(c: *mut vtr_census, signal: u32) -> c_int {
+    let c = need!(c);
+    if c.0.depth() == 0 {
+        set_error("variable outside a scope");
+        return VTR_ERR_INVALID;
+    }
+    c.0.var(signal);
+    VTR_OK
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_census_leave(c: *mut vtr_census) -> c_int {
+    let c = need!(c);
+    if c.0.depth() == 0 {
+        set_error("no scope is open");
+        return VTR_ERR_INVALID;
+    }
+    c.0.leave();
+    VTR_OK
+}
+
+/// Consumes the counter (open scopes are closed). NULL in, NULL out.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_census_finish(c: *mut vtr_census) -> *mut vtr_scope_sizes {
+    if c.is_null() {
+        return ptr::null_mut();
+    }
+    let sizes = Box::from_raw(c).0.finish();
+    Box::into_raw(Box::new(vtr_scope_sizes { nodes: Vec::new(), sizes }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_census_free(c: *mut vtr_census) {
+    if !c.is_null() {
+        drop(Box::from_raw(c));
+    }
+}
+
+/// Scope sizes of the reader's hierarchy, scopes in preorder.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_scope_sizes(r: *const vtr_reader) -> *mut vtr_scope_sizes {
+    let Some(r) = r.as_ref() else {
+        set_error("null handle");
+        return ptr::null_mut();
+    };
+    let (nodes, sizes) = r.0.hierarchy().scope_sizes();
+    Box::into_raw(Box::new(vtr_scope_sizes { nodes: nodes.into_iter().map(|n| n.0).collect(), sizes }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_scope_sizes_len(s: *const vtr_scope_sizes) -> usize {
+    s.as_ref().map_or(0, |s| s.sizes.len())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_scope_sizes_get(s: *const vtr_scope_sizes, i: usize, out: *mut vtr_scope_size) -> c_int {
+    let s = need_ref!(s);
+    let out = need!(out);
+    if i >= s.sizes.len() {
+        return VTR_ERR_NOT_FOUND;
+    }
+    let k = i as u32;
+    *out = vtr_scope_size {
+        node: s.nodes.get(i).copied().unwrap_or(VTR_NONE),
+        parent: s.sizes.parent(k).unwrap_or(VTR_NONE),
+        signals: s.sizes.signals(k),
+        variables: s.sizes.variables(k),
+        scopes: s.sizes.scopes(k),
+    };
+    VTR_OK
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_scope_sizes_free(s: *mut vtr_scope_sizes) {
+    if !s.is_null() {
+        drop(Box::from_raw(s));
+    }
+}
+
 pub struct vtr_clock_timeline(std::sync::Arc<ClockTimeline>);
 
 #[no_mangle]

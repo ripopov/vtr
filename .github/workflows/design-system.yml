@@ -8,6 +8,8 @@ on:
       - 'docs/tests/volna-theme.test.mjs'
       - 'docs/hierarchy-activity.html'
       - 'docs/tests/hierarchy-activity.test.mjs'
+      - 'docs/hierarchy-scope-sizes.html'
+      - 'docs/tests/hierarchy-scope-sizes.test.mjs'
       - 'docs/multiple-traces.html'
       - 'docs/tests/multiple-traces.test.mjs'
       - 'docs/wave-colors.html'
@@ -25,6 +27,8 @@ on:
       - 'docs/tests/volna-theme.test.mjs'
       - 'docs/hierarchy-activity.html'
       - 'docs/tests/hierarchy-activity.test.mjs'
+      - 'docs/hierarchy-scope-sizes.html'
+      - 'docs/tests/hierarchy-scope-sizes.test.mjs'
       - 'docs/multiple-traces.html'
       - 'docs/tests/multiple-traces.test.mjs'
       - 'docs/wave-colors.html'
@@ -56,7 +60,7 @@ jobs:
         run: >-
           node --test --test-concurrency=1 docs/tests/design-system.test.mjs
           docs/tests/design-system-rules.test.mjs docs/tests/design-system-visual.test.mjs
-          docs/tests/volna-theme.test.mjs docs/tests/hierarchy-activity.test.mjs
+          docs/tests/volna-theme.test.mjs docs/tests/hierarchy-activity.test.mjs docs/tests/hierarchy-scope-sizes.test.mjs
           docs/tests/multiple-traces.test.mjs docs/tests/wave-colors.test.mjs
       - name: Upload screenshot diffs
         if: failure()

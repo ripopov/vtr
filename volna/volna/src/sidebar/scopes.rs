@@ -9,7 +9,7 @@ use gpui_kit::{
 };
 use volna_core::app::Command;
 use volna_core::sidebar::icons::{scope_icon, stream_tag};
-use volna_core::sidebar::{Key, TreeNode};
+use volna_core::sidebar::{Key, ScopeTreeModel, TreeNode};
 use volna_core::trace::Traced;
 
 use crate::app::Workspace;
@@ -198,6 +198,7 @@ impl Workspace {
                         let name: SharedString = scope.name.clone().into();
                         let mut row = div()
                             .id(("scope", ix))
+                            .debug_selector(move || format!("scope-row-{}-{id}", node.trace))
                             .w_full()
                             .min_w_0()
                             .flex()
@@ -263,12 +264,18 @@ impl Workspace {
                         let nested = scope.children.iter().any(|&c| h.has_vars(c));
                         let owner = cx.weak_entity();
                         let (icon, tint) = scope_icon(scope);
-                        let tooltip = format!(
+                        // Empty until the count after open finishes.
+                        let size = ScopeTreeModel::size(this.app.doc.traces(), node);
+                        let mut tooltip = format!(
                             "{} — {} {}",
                             h.scope_path(id).join("."),
                             scope.kind,
                             scope.component
                         );
+                        if let Some(size) = size {
+                            tooltip = format!("{tooltip}\n{}", size.detail());
+                        }
+                        let trace = node.trace;
                         let scope_menu = move |menu: gpui_kit::component::menu::PopupMenu,
                                                _: &mut Window,
                                                _: &mut gpui_kit::Context<
@@ -328,6 +335,17 @@ impl Workspace {
                                         .text_color(t.badge.text)
                                         .text_size(px(t.ui_size_small))
                                         .child(SharedString::from(tag.to_owned())),
+                                )
+                            })
+                            .when_some(size, |row, size| {
+                                row.child(
+                                    div()
+                                        .debug_selector(move || format!("scope-size-{trace}-{id}"))
+                                        .flex_none()
+                                        .pl_1()
+                                        .text_size(px(t.ui_size_small))
+                                        .text_color(colors.text_muted)
+                                        .child(SharedString::from(size.label())),
                                 )
                             })
                             .context_menu(scope_menu);

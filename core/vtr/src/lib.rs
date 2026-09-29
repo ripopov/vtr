@@ -12,7 +12,8 @@
 //! The data model:
 //! * **Hierarchy** ([`hierarchy`]): a forest of scopes, variables, streams,
 //!   generators and enum tables with typed [`Value`] attributes. A variable
-//!   names a signal ([`SignalId`]); aliases share one.
+//!   names a signal ([`SignalId`]); aliases share one. [`census`] counts
+//!   the distinct signals below each scope.
 //! * **Waveforms** ([`signal`]): value changes of 2/4/9-state bit vectors,
 //!   reals and variable-length byte strings.
 //! * **Transactions** ([`txblock`]): intervals of a generator with
@@ -102,6 +103,7 @@
 //! ```
 
 pub mod block;
+pub mod census;
 pub mod clock;
 pub mod codec;
 pub mod container;
@@ -119,6 +121,7 @@ pub mod varint;
 pub mod writer;
 pub mod xform;
 
+pub use census::{Census, ScopeSizes};
 pub use clock::{ClockId, ClockInfo, ClockTimeline, CycleAt, Stretch};
 pub use clock::STREAM_KIND as CLOCK_STREAM_KIND;
 pub use codec::{Codec, Compression};

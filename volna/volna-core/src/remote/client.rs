@@ -105,6 +105,7 @@ impl RemoteClient {
             }
             request @ LoadRequest::Track { .. } => self.queued.push_back(request),
             LoadRequest::Open { .. }
+            | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. } => {
                 unreachable!("open requests have no remote identity")
@@ -180,6 +181,7 @@ impl RemoteClient {
                 command
             }
             LoadRequest::Open { .. }
+            | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. } => {
                 unreachable!("only object loads are queued")
@@ -220,6 +222,7 @@ impl RemoteClient {
                 .doc
                 .wants_track_request(*trace, *generation, *request_id, *track),
             LoadRequest::Open { .. }
+            | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. } => {
                 unreachable!("only object loads are queued")
@@ -272,6 +275,7 @@ impl RemoteClient {
                     }
                 }
                 LoadResult::Track { .. }
+                | LoadResult::Sizes { .. }
                 | LoadResult::Summary { .. }
                 | LoadResult::GroupSummary { .. } => {}
             }
@@ -415,9 +419,14 @@ mod tests {
         };
         let mut app = App::new();
         app.set_session(result.unwrap());
+        // Routed as frontends do: client-side work (scope sizes) stays local.
         let enqueue = |app: &mut App, client: &mut RemoteClient| {
             for request in app.take_requests() {
-                assert!(client.submit(request).is_ok());
+                if request.remote_id().is_some() {
+                    assert!(client.submit(request).is_ok());
+                } else {
+                    app.deliver(request.perform());
+                }
             }
         };
         app.handle(ViewerCommand::AddVars(vec![Traced::new(TraceId::A, 0)]));

@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hierarchy scope sizes</title>
+<meta name="description" content="Design: distinct signal counts on every scope row of the Volna hierarchy browser, from RTL to gate-level hierarchies of millions of scopes, with a streaming count, a compact hierarchy model and a paged scope index.">
+<link rel="icon" href="../volna/volna/assets/app-icon/volna.svg">
+<link rel="stylesheet" href="design-system/styles.css">
+<script>(function(){try{var m=localStorage.getItem('volna-theme')||'dark',d=m==='dark'||(m==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}})()</script>
+<style>
+/* Page layout only; every colour, font and component comes from the design system. */
+.a-controls{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-6);align-items:center;margin:var(--space-10) 0 var(--space-4)}
+.a-controls>span{display:inline-flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font:var(--text-2xs) var(--font-mono);color:var(--text-3)}
+.a-controls .v-seg{flex-wrap:wrap}
+.a-stage{aspect-ratio:auto;background:var(--viewer-panel);color:var(--viewer-text)}
+.a-readout{margin:0;padding:var(--space-2) var(--space-3);min-height:48px;font:var(--text-2xs)/1.5 var(--font-mono);color:var(--viewer-text-muted);border-bottom:1px solid var(--viewer-border)}
+.a-readout b{font-weight:400;color:var(--viewer-text)}
+.a-head,.a-row{display:flex;align-items:center;gap:var(--space-2);height:24px;padding-right:var(--space-3)}
+.a-head{padding-left:var(--space-3);font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-caps);color:var(--viewer-text-faint);border-bottom:1px solid var(--viewer-border-subtle)}
+.a-head span:first-child{flex:1}
+.a-tree{margin:0;padding:0 0 var(--space-2);list-style:none}
+.a-row{width:100%;color:var(--viewer-text);font:var(--text-xs) var(--font-mono)}
+.a-chev{flex:none;width:14px;height:14px;fill:none;stroke:var(--viewer-text-faint);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.a-row .a-leaf{flex:none;width:14px}
+.a-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-name small{font-size:var(--text-2xs);color:var(--viewer-text-faint);margin-left:var(--space-2)}
+.a-row.is-hit .a-name{color:var(--viewer-accent)}
+.a-row.is-quiet .a-name{color:var(--viewer-text-faint)}
+.a-count{flex:none;min-width:8ch;text-align:right;font-size:var(--text-2xs);color:var(--viewer-text-faint);font-variant-numeric:tabular-nums}
+.a-count b{font-weight:400;color:var(--viewer-text)}
+.a-weight{flex:none;min-width:6ch;text-align:right;font-size:var(--text-2xs);color:var(--viewer-accent);font-variant-numeric:tabular-nums}
+.a-chips{display:flex;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-3);border-bottom:1px solid var(--viewer-border)}
+.a-rules{margin-top:var(--space-10);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:var(--space-8) var(--space-10);counter-reset:rule;padding:0;list-style:none}
+.a-rules li{counter-increment:rule;color:var(--text-2);max-width:var(--measure)}
+.a-rules li::before{content:counter(rule,decimal-leading-zero);display:block;font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);margin-bottom:var(--space-2)}
+.a-rules strong{display:block;color:var(--text-1);font:var(--display-weight) var(--text-h4)/var(--leading-snug) var(--font-display);margin-bottom:var(--space-2)}
+.a-body{margin-top:var(--space-6);max-width:var(--measure);color:var(--text-2)}
+.a-body p+p{margin-top:var(--space-3)}
+.a-body strong{color:var(--text-1)}
+.a-body ul{margin:var(--space-3) 0 0;padding-left:1.2em;display:grid;gap:var(--space-2)}
+.a-wide{margin-top:var(--space-10)}
+.a-end{padding-block:var(--space-20) var(--space-16)}
+.a-num td:not(:first-child),.a-num th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.a-stages{margin-top:var(--space-12);display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-20)}
+.a-stage__n{display:flex;align-items:center;gap:var(--space-2);font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);text-transform:uppercase}
+.a-stagecard h3{margin:var(--space-2) 0 var(--space-3);color:var(--text-1);font:var(--display-weight) var(--text-h3)/var(--leading-snug) var(--font-display)}
+.a-stagecard>p{max-width:var(--measure);color:var(--text-2)}
+.a-adds{margin:var(--space-6) 0 0;padding:0;list-style:none;counter-reset:add;display:grid;gap:var(--space-3);max-width:var(--measure)}
+.a-adds li{counter-increment:add;position:relative;padding-left:40px;color:var(--text-2)}
+.a-adds li::before{content:counter(add);position:absolute;left:0;top:2px;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--danger);color:var(--bg);font:var(--weight-semibold) var(--text-2xs) var(--font-mono)}
+.a-adds strong{color:var(--text-1)}
+.a-not{margin-top:var(--space-4);max-width:var(--measure);color:var(--text-3);font-size:var(--text-sm)}
+.a-committed{margin:var(--space-8) 0 0;font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);text-transform:uppercase}
+.a-dl{margin:var(--space-4) 0 0;display:grid;gap:var(--space-3);max-width:var(--measure)}
+.a-dl div{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:var(--space-4)}
+.a-dl dt{font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--text-3);text-transform:uppercase;padding-top:3px}
+.a-dl dd{margin:0;color:var(--text-2);font-size:var(--text-sm)}
+@media (max-width:560px){.a-dl div{grid-template-columns:minmax(0,1fr);gap:var(--space-1)}}
+.a-shotfig{margin:var(--space-8) 0 0}
+.a-shotfig pre{white-space:pre}
+.a-shots{position:relative;aspect-ratio:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));align-items:start;gap:var(--space-6);padding:var(--space-6);background:var(--viewer-canvas)}
+.a-shot{min-width:0;background:var(--viewer-panel);color:var(--viewer-text);border:1px solid var(--viewer-border);border-radius:var(--radius-sm)}
+.a-shot__head{display:flex;align-items:center;gap:var(--space-2);height:28px;padding:0 var(--space-3);font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-caps);color:var(--viewer-text-muted);border-bottom:1px solid var(--viewer-border)}
+.a-shot__head span{margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:0;color:var(--viewer-text-faint)}
+.a-tip{margin:var(--space-1) var(--space-3) var(--space-2) auto;width:max-content;max-width:calc(100% - 2 * var(--space-3));padding:var(--space-1) var(--space-2);border:1px solid var(--viewer-border);border-radius:var(--radius-xs);background:var(--viewer-elevated);font:var(--text-2xs)/1.5 var(--font-mono);color:var(--viewer-text)}
+.a-pending{color:var(--viewer-text-faint);font-style:italic}
+.a-ring{position:absolute;pointer-events:none;border:2px solid var(--danger);border-radius:50%}
+.a-ring b{position:absolute;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--danger);color:var(--bg);font:var(--weight-semibold) var(--text-2xs) var(--font-mono)}
+</style>
+</head>
+<body>
+<a class="v-skip" href="#demo">Skip to the demo</a>
+
+<header class="v-nav">
+  <div class="v-wrap v-nav__bar">
+    <a class="v-brand" href="#top"><img src="../volna/volna/assets/app-icon/volna.svg" alt="">Volna</a>
+    <nav class="v-nav__links" aria-label="Sections"><a href="#demo">Demo</a><a href="#problem">Problem</a><a href="#measured">Measured</a><a href="#findings">Findings</a><a href="#options">Options</a><a href="#design">Design</a><a href="#plan">Plan</a><a href="#limits">Limits</a><a href="#research">Research</a></nav>
+    <div class="v-nav__end">
+      <span class="v-seg" role="group" aria-label="Page theme" id="page-theme"><button type="button" data-mode="light" aria-pressed="false">Light</button><button type="button" data-mode="dark" aria-pressed="true">Dark</button><button type="button" data-mode="system" aria-pressed="false">Auto</button></span>
+      <details class="v-nav__menu">
+        <summary class="v-btn v-btn--ghost v-btn--sm v-btn--icon" aria-label="Sections"><span class="v-icon" aria-hidden="true" style="--icon:url(../volna/volna-core/assets/icons/panel-left.svg)"></span></summary>
+        <nav class="v-nav__sheet" aria-label="Sections"><a href="#demo">Demo</a><a href="#problem">Problem</a><a href="#measured">Measured</a><a href="#findings">Findings</a><a href="#options">Options</a><a href="#design">Design</a><a href="#plan">Plan</a><a href="#limits">Limits</a><a href="#research">Research</a></nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<section class="v-hero v-hero--left">
+  <div class="v-wrap">
+    <p class="v-kicker">Design · Hierarchy browser</p>
+    <h1 class="v-hero__title">Every scope's size, on hierarchies of <em>any</em> size.</h1>
+    <p class="v-hero__lede">A scope row should say how many distinct signals live below it. Ports alias the nets they connect, so the size is a distinct count, not a sum. A gate-level trace makes every cell a scope and every pin an alias, which means millions of scopes and tens of millions of variables. The count itself turns out to be cheap: one streaming pass, 0.22&nbsp;s for 53 million variables. The expensive part is holding the hierarchy at all. So this design counts in one pass, holds the hierarchy compactly, and for the largest traces keeps a <strong>paged scope index</strong> next to the trace, so the browser can open without reading every scope.</p>
+    <p class="v-hero__fine">Measured on C910 and on gate-level expansions of it up to 9,222,096 scopes and 53,148,624 variables · the streaming count agrees with a brute-force walk on every scope of every trace</p>
+  </div>
+</section>
+
+<section class="v-section" id="demo" style="padding-top:var(--space-10)">
+  <div class="v-wrap">
+    <p class="v-kicker">Demo</p>
+    <h2 class="v-section__title">Seven signals, twenty-eight variables.</h2>
+    <p class="v-section__sub">A small gate-level fragment: an adder and two flops. Every port of every cell aliases a net of its module. Click a signal to leave it out or bring it back; the counts follow, as activity meters would. <em>Method</em> shows the one-pass count: each signal adds +1 at every scope that holds it, in preorder, and −1 at the lowest common ancestor of each consecutive pair, so a subtree sum counts it once.</p>
+    <div class="a-controls">
+      <span>Show <span class="v-seg" role="group" aria-label="Show" id="mode"><button type="button" data-mode="sizes" aria-pressed="true">Sizes</button><button type="button" data-mode="method" aria-pressed="false">Method</button></span></span>
+    </div>
+    <figure class="v-frame" id="demo-frame">
+      <div class="v-frame__bar"><b>Hierarchy browser</b><span>fragment.vtr</span></div>
+      <div class="v-frame__stage a-stage">
+        <div class="a-chips" id="chips" role="group" aria-label="Signals counted"></div>
+        <p class="a-readout" id="readout" aria-live="polite"></p>
+        <div class="a-head" aria-hidden="true"><span>SCOPE</span><span class="a-count">VARIABLES</span><span class="a-count">SIGNALS</span><span class="a-weight" id="weight-head" hidden>WEIGHT</span></div>
+        <ul class="a-tree" id="tree" aria-label="Scopes with their variables and distinct signals"></ul>
+      </div>
+    </figure>
+    <p class="v-frame__caption"><span>Counted by this page with the streaming method of the design, and checked against a brute-force walk for all 128 subsets of signals.</span><code>28 variables · 7 signals · 7 scopes</code></p>
+  </div>
+</section>
+
+<section class="v-section" id="problem">
+  <div class="v-wrap">
+    <p class="v-kicker">Problem</p>
+    <h2 class="v-section__title">A size is a distinct count, and gate-level traces are huge.</h2>
+    <div class="a-body">
+      <p><strong>Sums are wrong.</strong> A net that enters a unit through a port is one signal with two names. Summing variables counts it twice. In C910's RTL trace, <code>x_ct_ifu_top</code> has 16,261 variables but 6,779 distinct signals, and the whole design has 204,905 variables for 67,144 signals. The number a designer wants is the second.</p>
+      <p><strong>Gate-level traces multiply everything.</strong> After synthesis every bit is a net, every standard cell is a scope, and every pin of every cell aliases a net. We expanded C910's real hierarchy this way: one-bit nets, and one driving two-input gate or flop per net, whose three pins alias nets of its module. One core becomes 576,380 scopes and 3.3 million variables; sixteen cores become 9.2 million scopes and 53 million variables. A single module then holds up to 18,637 cells as direct children. Real netlists have more cells per net, so these are lower bounds.</p>
+      <p><strong>The browser needs sizes before anything else.</strong> They appear on the first rows the user sees, the roots, whose subtrees are the whole design. Activity meters then divide by them on every frame. Any scheme must therefore count the whole hierarchy up front, or read counts made ahead of time.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="measured">
+  <div class="v-wrap">
+    <p class="v-kicker">Measured</p>
+    <h2 class="v-section__title">Counting is cheap; holding the hierarchy is not.</h2>
+    <div class="a-body">
+      <p>Four traces: C910's RTL recording, and gate-level expansions of it with one, four and sixteen cores (<code>vtr-bench gen-gates</code>). <code>vtr-bench scopes</code> opens each with the VTR reader and counts every scope three ways; Volna's open is its <code>load_cost</code> example. Times are single-threaded, one run each, on a Core Ultra 7 265K.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Measurements" tabindex="0">
+      <table class="v-table a-num">
+        <thead><tr><th>Trace</th><th>C910 RTL</th><th>Gates ×1</th><th>Gates ×4</th><th>Gates ×16</th></tr></thead>
+        <tbody>
+          <tr><td>Scopes</td><td>6,958</td><td>576,380</td><td>2,305,524</td><td>9,222,096</td></tr>
+          <tr><td>Variables</td><td>204,905</td><td>3,321,789</td><td>13,287,156</td><td>53,148,624</td></tr>
+          <tr><td>Distinct signals</td><td>67,144</td><td>569,422</td><td>2,277,688</td><td>9,110,752</td></tr>
+          <tr><td>Most children of one scope</td><td>135</td><td>18,637</td><td>18,637</td><td>18,637</td></tr>
+          <tr><td>Depth</td><td>13</td><td>14</td><td>15</td><td>15</td></tr>
+          <tr><td>VTR reader open</td><td>0.01 s</td><td>0.19 s</td><td>0.67 s</td><td>2.61 s</td></tr>
+          <tr><td>VTR reader memory</td><td>9.1 MiB</td><td>142 MiB</td><td>518 MiB</td><td>1.98 GiB</td></tr>
+          <tr><td>Volna open, VTR</td><td>0.03 s</td><td>0.58 s</td><td>2.28 s</td><td>9.57 s</td></tr>
+          <tr><td>Volna peak memory, VTR</td><td>45 MiB</td><td>824 MiB</td><td>3.16 GiB</td><td>12.6 GiB</td></tr>
+          <tr><td>Volna open, FST</td><td>–</td><td>0.60 s</td><td>2.36 s</td><td>–</td></tr>
+          <tr><td>Volna peak memory, FST</td><td>–</td><td>817 MiB</td><td>3.18 GiB</td><td>–</td></tr>
+          <tr><td>Variable sums (not distinct)</td><td>7 µs</td><td>2.1 ms</td><td>9.7 ms</td><td>39 ms</td></tr>
+          <tr><td>Stamp walk</td><td>2.0 ms</td><td>24 ms</td><td>96 ms</td><td>513 ms</td></tr>
+          <tr><td>Streaming count</td><td>0.48 ms</td><td>13 ms</td><td>54 ms</td><td>220 ms</td></tr>
+          <tr><td>Per-signal lists, build</td><td>2.2 ms</td><td>41 ms</td><td>161 ms</td><td>684 ms</td></tr>
+          <tr><td>Per-signal lists, memory</td><td>1.6 MiB</td><td>28 MiB</td><td>112 MiB</td><td>448 MiB</td></tr>
+          <tr><td>A frame of meters, lists</td><td>0.09 ms</td><td>3.9 ms</td><td>18 ms</td><td>72 ms</td></tr>
+          <tr><td>A frame of meters, stamp walk</td><td>0.39 ms</td><td>5.7 ms</td><td>25 ms</td><td>124 ms</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <p>The stamp walk sends every variable up the tree until it meets a scope already stamped with its signal. The streaming count is the colour-set-size method in one preorder pass with Tarjan's offline lowest common ancestors. The per-signal lists keep that method's +1 and −1 entries, so a frame of activity meters adds only the entries of its active signals, here a random 30% of them. All three agree with each other on every scope. The FST files are the same hierarchies written by <code>vcd2fst</code>; the sixteen-core VCD was not converted.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="findings">
+  <div class="v-wrap">
+    <p class="v-kicker">Findings</p>
+    <h2 class="v-section__title">Four things the numbers decide.</h2>
+    <ol class="a-rules">
+      <li><strong>Count in one streaming pass.</strong>The streaming count takes 0.22&nbsp;s for 53 million variables, about 4&nbsp;ns per variable, and is 2.2 times faster than the stamp walk. It keeps 12 bytes per scope and 4 per signal and nothing per variable, and it needs only scopes and variables in preorder. That is the order of an FST or VCD hierarchy stream, so it runs while the stream is read. Its cost stays linear however deep the tree gets.</li>
+      <li><strong>Hold the hierarchy compactly.</strong>Volna copies every scope and variable into owned strings and vectors: about 217 bytes per node, 12.6&nbsp;GiB and 9.6&nbsp;s for sixteen cores. The VTR reader's own columns hold the same hierarchy in about 34 bytes per node, names included. The count is a rounding error next to this; the model is the problem.</li>
+      <li><strong>The largest traces need an index made ahead of time.</strong>Even the compact form is linear in the whole hierarchy: 2.6&nbsp;s and 2&nbsp;GiB to open sixteen cores. A full chip ten times larger would need about half a minute and 20&nbsp;GiB before a row appears. Opening without reading every scope needs a random-access copy of the hierarchy, and sizes must be in it, because a browser that reads only the visible scopes cannot count what it has not read.</li>
+      <li><strong>Flat scopes need their own rows.</strong>A synthesized module lists thousands of cells as direct children: 18,637 in the largest here. A tree that renders every child, or a filter that scans them on every frame, stalls; Surfer's issue tracker records both. Children must be virtualized, and leaf cells group by cell type, so a module reads as its submodules plus "4,881 NAND2_X1".</li>
+    </ol>
+  </div>
+</section>
+
+<section class="v-section" id="options">
+  <div class="v-wrap">
+    <p class="v-kicker">Options</p>
+    <h2 class="v-section__title">Seven ways to get a size, and which ones we keep.</h2>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Options" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>Option</th><th>Cost</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>Sum variables up the tree</td><td>O(scopes + variables), 39 ms at 53 M</td><td>Rejected: counts every alias again, 2.4 times too many signals on C910's fetch unit</td></tr>
+          <tr><td>Stamp walk</td><td>O(variables × depth) worst case; 0.51 s at 53 M; needs a table of 4 bytes per variable</td><td>Rejected: slower, needs random access to every variable</td></tr>
+          <tr><td>A set of signals per scope, merged small into large</td><td>O(n log n) time; a set entry per signal per level</td><td>Rejected: memory grows with depth × signals</td></tr>
+          <tr><td>Streaming colour-set-size count</td><td>O(scopes + variables); 0.22 s at 53 M; 12 B per scope + 4 B per signal</td><td>Kept, for sizes</td></tr>
+          <tr><td>Per-signal +1/−1 lists</td><td>0.68 s to build and 448 MiB at 53 M; a frame costs the active signals' entries</td><td>Kept, built only when activity meters are on</td></tr>
+          <tr><td>Range-distinct counts over preorder with a Fenwick tree</td><td>O((n + q) log n) per query batch</td><td>Kept in reserve: updates a few rows when a few signals change, if meters ever need it</td></tr>
+          <tr><td>Sizes stored in a paged scope index</td><td>Built once with the same pass; read per page</td><td>Kept, for traces too large to hold</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="design">
+  <div class="v-wrap">
+    <p class="v-kicker">Architecture</p>
+    <h2 class="v-section__title">One count, three ways to hold the tree.</h2>
+    <ol class="a-rules">
+      <li><strong>A format-neutral counter.</strong><code>vtr::census</code> takes scopes and variables in preorder: <code>scope(parent)</code>, then <code>var(signal)</code> for each of its variables, then <code>finish()</code>, which returns a distinct count per scope. It keeps a union-find, an ancestor and a weight per scope, the scope stack, and the last scope of each signal. Nothing else. The VTR front end walks the reader's columns in preorder; FST and VCD front ends feed their hierarchy streams as they are read; Volna feeds its model.</li>
+      <li><strong>Lists only for meters.</strong><code>vtr::census::Lists</code> keeps each signal's scopes in preorder with the ancestor of each consecutive pair. A frame of activity meters adds the entries of its active signals and takes one prefix pass over the scopes. The lists cost 8 bytes per entry, so they are built only when a trace has meters.</li>
+      <li><strong>A compact model in Volna.</strong><code>Hierarchy</code> in <code>volna-core</code> becomes columns of ids with an interned name table, like the reader's. The VTR session shares the reader's columns and strings instead of copying them. The FST session builds the same columns while it streams. Callers read names through the table and never own a <code>String</code> per node.</li>
+      <li><strong>A paged scope index for the largest traces.</strong>VTR stores its hierarchy in declaration order and FST in one compressed stream, so neither can be read one scope at a time. The <code>&lt;trace&gt;.index</code> sidecar of the <a class="v-link" href="hierarchy-activity.html">activity design</a> gains a scope index: every scope in preorder with its parent, the end of its subtree, its first variable, its variable and distinct-signal counts, its cell type and its name, and every variable in the same order, in pages of 65,536 entries with front-coded names. It is built with the same streaming pass, bound to the trace by the same identity, and needs no change to the trace formats or their writers.</li>
+      <li><strong>The session hides the difference.</strong>The <code>Session</code> hierarchy becomes a small trait: roots, children of a scope as a range, variables of a scope as a range, size of a scope, name of a node. A loaded model answers from memory; a paged one answers from pages it loads through a <code>LoadRequest</code>, and a child range not yet loaded comes back as pending. The sidebar models draw what the trait returns and never ask which kind they have.</li>
+      <li><strong>Flat scopes in rows.</strong>The scope tree renders only visible rows. When a scope has more than a few hundred leaf children of one cell type, they fold into a group row, "NAND2_X1 · 4,881 cells", which opens into a virtualized list. Submodules stay as rows.</li>
+      <li><strong>Search is the one full scan.</strong>Filtering by name must look at every name. On a loaded model it runs off the UI thread, once per edit. On a paged one it streams the name pages and shows results as they arrive. A name index would make it instant; it is left until measured.</li>
+      <li><strong>Not undoable.</strong>Sizes, pages and group rows are derived view state and stay out of the journal. Expanding a group is navigation, like expanding a scope.</li>
+      <li><strong>Tested headlessly.</strong><code>core/vtr/tests</code> checks the counter against a brute-force walk on random trees with aliases, including aliases in unrelated subtrees and roots. <code>vtr-bench scopes</code> asserts the three methods agree on real and generated traces, and the benchmark report tracks open time and peak memory for the generated gate-level traces. <code>volna-core</code> tests check sizes, pending pages, group rows and a paged model against a loaded one.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="v-section" id="plan">
+  <div class="v-wrap">
+    <p class="v-kicker">Plan</p>
+    <h2 class="v-section__title">Six commits, each useful on its own.</h2>
+    <div class="a-body">
+      <p>Every commit builds, passes <code>cargo test</code> for the crates it touches, <code>cargo test -p volna-core</code> and <code>volna/volna/check.sh</code>, and updates the tests and documentation it touches. No commit adds a feature flag or code that only a later commit calls. Where a stage adds something to the screen, its picture shows that stage and the ones before, and red rings number the new elements as its list does. The pictures use rows measured with <code>vtr-bench scopes --children</code>.</p>
+      <p><strong>Why this order.</strong> Sizes help every trace, so they come first. The compact model and cell groups then make gate-level traces usable in memory. The paged index comes last, for traces that do not fit even then, and it reuses the counter and the session trait already in place. The activity meters of the <a class="v-link" href="hierarchy-activity.html#plan">activity plan</a> need stage 1 here.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Stages" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>#</th><th>Commit</th><th>What the user gets</th><th>Needs</th><th>Files</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><a class="v-link" href="#stage-1">Scope sizes</a></td><td>Every scope row says how many distinct signals it holds; <code>vtr hier --sizes</code></td><td>—</td><td>unchanged</td></tr>
+          <tr><td>2</td><td><a class="v-link" href="#stage-2">A compact hierarchy</a></td><td>Gate-level traces open in a fraction of the memory</td><td>—</td><td>unchanged</td></tr>
+          <tr><td>3</td><td><a class="v-link" href="#stage-3">Cell groups</a></td><td>Thousands of cells fold into one row per cell type</td><td>1</td><td>unchanged</td></tr>
+          <tr><td>4</td><td><a class="v-link" href="#stage-4">The scope index</a></td><td><code>vtr index</code> writes a paged scope index for VTR and FST</td><td>1; the sidecar container</td><td>sidecar gains scope sections</td></tr>
+          <tr><td>5</td><td><a class="v-link" href="#stage-5">Paged hierarchy</a></td><td>A trace with a scope index opens without reading every scope</td><td>2, 4</td><td>unchanged</td></tr>
+          <tr><td>6</td><td><a class="v-link" href="#stage-6">Remote pages</a></td><td>A remote session fetches scope pages on demand</td><td>5</td><td>one protocol message</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="a-stages">
+      <article class="a-stagecard" id="stage-1" aria-labelledby="stage-1-h">
+        <p class="a-stage__n">Stage 1 <span class="v-chip v-chip--accent">Landed</span></p>
+        <h3 id="stage-1-h">Scope sizes</h3>
+        <p>Before this stage a scope row showed only its name, so nothing told a two-signal wrapper from a unit of thousands. Now every row says how many distinct signals it holds, subscopes included, as soon as the count finishes after open. Over Volna's hierarchy model the count takes 2.7&nbsp;ms for C910, 69&nbsp;ms for one gate-level core and 0.28&nbsp;s for four. Over the reader's columns it takes 0.9&nbsp;ms for C910, and stage 2 brings those columns to Volna.</p>
+        <ol class="a-adds">
+          <li><strong>A signal count on every scope row</strong>, right-aligned in a muted column. An aliased signal counts once in each scope that holds it.</li>
+          <li><strong>The tooltip adds variables and scopes</strong>, which differ from the signal count when ports and aliases name one signal several times.</li>
+        </ol>
+        <p class="a-not">Not in the picture: until the count finishes, the column is empty rather than wrong.</p>
+        <h4 class="a-committed">Committed</h4>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>vtr::Census</code>, the streaming counter fed in declaration order (<code>enter</code>, <code>var</code>, <code>leave</code>), and <code>Hierarchy::scope_sizes</code>, its VTR front end, projected to C as <code>vtr_census_*</code> and <code>vtr_reader_scope_sizes</code>. <code>volna-core</code> feeds it the session's hierarchy, so VTR, FST and remote traces are counted alike. The count runs off the UI thread after open as <code>LoadRequest::Sizes</code>, and the counts are kept in the trace's slot, so they survive an undone close. <code>ScopeTreeModel::size</code> reports them per row.</dd></div>
+          <div><dt>CLI</dt><dd><code>vtr hier --sizes</code> prints each scope with its scopes, variables and signals.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: the count column and the tooltip. egui keeps its rows.</dd></div>
+          <div><dt>Undo</dt><dd>None: sizes are derived view state.</dd></div>
+          <div><dt>Bench</dt><dd><code>load_cost</code> reports <code>sizes_ms</code>. <code>vtr-bench scopes</code> times the library counter and keeps its three-way agreement check.</dd></div>
+          <div><dt>Tests</dt><dd>The counter against brute force on random trees with aliases and several roots, streamed with variables before and after subscopes and read back from written traces. Counts on the VTR and FST fixtures, a stale count dropped, the C smoke test, <code>vtr hier --sizes</code> output, and a GPUI test that the count sits at the row's right in light and dark themes.</dd></div>
+        </dl>
+        <figure class="v-frame a-shotfig"><div class="v-frame__bar"><b>Stage 1</b><span>c910_coremark.vtr</span></div><div class="v-frame__stage a-shots" id="shot-1"></div></figure>
+        <p class="v-frame__caption">C910's core as measured: x_ct_ifu_top holds 6,779 distinct signals, named by 16,261 variables in 490 scopes.</p>
+      </article>
+
+      <article class="a-stagecard" id="stage-2" aria-labelledby="stage-2-h">
+        <p class="a-stage__n">Stage 2</p>
+        <h3 id="stage-2-h">A compact hierarchy</h3>
+        <p>The hierarchy model stops copying. Nothing changes on screen, but a sixteen-core gate-level trace no longer needs 12.6&nbsp;GiB before its first row: the target is the reader's own 2&nbsp;GiB.</p>
+        <h4 class="a-committed">Committed</h4>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>Hierarchy</code> becomes columns of ids with an interned name table behind the session's hierarchy trait. The VTR session shares the reader's columns; the FST session builds the same columns while it streams. Every caller of <code>scopes[i].name</code> and <code>vars[i].name</code> moves to the trait.</dd></div>
+          <div><dt>Frontends</dt><dd>Both frontends read names through the trait; nothing visible changes.</dd></div>
+          <div><dt>Bench</dt><dd><code>load_cost</code> on the generated gate-level traces joins the benchmark report, with open time and peak memory for VTR and FST, compared with the commit before.</dd></div>
+          <div><dt>Tests</dt><dd>Every existing hierarchy, sidebar and workspace test, unchanged. A walk that compares the new model with the reader's hierarchy node by node on the fixtures.</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-3" aria-labelledby="stage-3-h">
+        <p class="a-stage__n">Stage 3</p>
+        <h3 id="stage-3-h">Cell groups</h3>
+        <p>A synthesized module lists its submodules and then thousands of cells. After this stage the cells fold into one row per cell type, and only the rows on screen are built.</p>
+        <ol class="a-adds">
+          <li><strong>A group row per cell type</strong>, with its cell count, below the submodules.</li>
+          <li><strong>An opened group</strong> lists its cells in a virtualized list, with their sizes.</li>
+        </ol>
+        <p class="a-not">Not in the picture: groups form only for leaf scopes of one cell type past a threshold, so RTL trees look as before.</p>
+        <h4 class="a-committed">Committed</h4>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>ScopeTreeModel</code> gains group nodes keyed by parent and cell type, computed per scope when it is first expanded, and a visible-row window instead of a full row list. Keyboard navigation and reveal step into groups.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: the group row and the virtualized list. egui keeps its rows.</dd></div>
+          <div><dt>Workspace</dt><dd>Unchanged; expanded groups are navigation.</dd></div>
+          <div><dt>Undo</dt><dd>None.</dd></div>
+          <div><dt>Tests</dt><dd>Grouping rules on a generated flat module; reveal of a cell inside a group; the row window over 18,637 children.</dd></div>
+        </dl>
+        <figure class="v-frame a-shotfig"><div class="v-frame__bar"><b>Stage 3</b><span>gates16.vtr, core0</span></div><div class="v-frame__stage a-shots" id="shot-3"></div></figure>
+        <p class="v-frame__caption">x_ct_ifu_top of the gate-level expansion as measured: 22 submodules, 4,881 NAND2_X1 and 1,236 DFF_X1 cells, 42,601 distinct signals below it. Submodules scrolled out of view are elided.</p>
+      </article>
+
+      <article class="a-stagecard" id="stage-4" aria-labelledby="stage-4-h">
+        <p class="a-stage__n">Stage 4</p>
+        <h3 id="stage-4-h">The scope index</h3>
+        <p><code>vtr index</code> writes a paged scope index into the <code>&lt;trace&gt;.index</code> sidecar, for VTR and FST. A flow that indexes its traces after simulation makes them ready for stage 5, and <code>vtr hier --sizes</code> answers from the index without reading the trace's hierarchy.</p>
+        <h4 class="a-committed">Committed</h4>
+        <dl class="a-dl">
+          <div><dt>Format</dt><dd>Scope and variable sections in the sidecar: the preorder tables and front-coded names described above, in pages of 65,536 entries with a directory of preorder ranges. A SPEC entry, a RATIONALE entry with this page's measurements, and a round-trip test. If this stage lands before the activity index, it introduces the sidecar container and its identity.</dd></div>
+          <div><dt>Core</dt><dd>The index builder, fed by the counter's front ends: the VTR reader's columns, and the FST hierarchy stream read once, in bounded memory.</dd></div>
+          <div><dt>CLI</dt><dd><code>vtr index</code> writes scope sections; <code>vtr hier</code> reads them when valid.</dd></div>
+          <div><dt>Bench</dt><dd>Index size and build time for every generated trace.</dd></div>
+          <div><dt>Tests</dt><dd>The round trip; a paged walk equal to the reader's hierarchy; sizes equal to the counter's; a stale sidecar rejected.</dd></div>
+        </dl>
+        <figure class="v-code a-shotfig"><div class="v-code__head">Terminal</div><pre><span class="tok-p">$ </span>vtr index gates16.vtr
+<span class="tok-p">$ </span>vtr hier gates16.vtr --sizes --depth 1 | head -4
+<span class="tok-c">scope        scopes    variables    signals</span>
+core0       576,381    3,321,789    569,422
+core1       576,381    3,321,789    569,422
+core2       576,381    3,321,789    569,422</pre></figure>
+        <p class="v-frame__caption">Sizes as measured on the sixteen-core expansion. Index size and build time are not shown because they have not been measured.</p>
+      </article>
+
+      <article class="a-stagecard" id="stage-5" aria-labelledby="stage-5-h">
+        <p class="a-stage__n">Stage 5</p>
+        <h3 id="stage-5-h">Paged hierarchy</h3>
+        <p>A trace with a valid scope index opens by reading the index directory and the pages of its roots. Sizes are there at once, because the index holds them. Expanding a scope loads its pages, and the member list loads its variables.</p>
+        <ol class="a-adds">
+          <li><strong>The panel says it is paged</strong>, with the total scope count from the index.</li>
+          <li><strong>A pending row</strong> while an expanded scope's page loads.</li>
+        </ol>
+        <p class="a-not">Not in the picture: filtering by name streams every name page and fills results as they come. Reveal, from a wave row or the navigator, loads the pages on the path to the scope.</p>
+        <h4 class="a-committed">Committed</h4>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>A paged implementation of the session's hierarchy trait over the index, with an LRU of pages and a <code>LoadRequest</code> per page. <code>ScopeTreeModel</code> and the member list handle pending ranges. The session prefers the paged form when the index is valid and the hierarchy is larger than a threshold.</dd></div>
+          <div><dt>Frontends</dt><dd>GPUI: the paged badge and the pending row.</dd></div>
+          <div><dt>Undo</dt><dd>None.</dd></div>
+          <div><dt>Tests</dt><dd>A paged model against a loaded one on generated traces: the same rows, sizes and members after the same expansions; reveal across unloaded pages; a page budget of a few pages.</dd></div>
+        </dl>
+        <figure class="v-frame a-shotfig"><div class="v-frame__bar"><b>Stage 5</b><span>gates16.vtr with its scope index</span></div><div class="v-frame__stage a-shots" id="shot-5"></div></figure>
+      </article>
+
+      <article class="a-stagecard" id="stage-6" aria-labelledby="stage-6-h">
+        <p class="a-stage__n">Stage 6</p>
+        <h3 id="stage-6-h">Remote pages</h3>
+        <p>A remote session asks the server for scope pages instead of the whole hierarchy. The server builds the index next to its trace if needed and sends pages as the client expands scopes. Opening a large remote trace then costs the pages on screen, not gigabytes over the network.</p>
+        <h4 class="a-committed">Committed</h4>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>One protocol request and response carrying raw page bytes, since the index is trace data. The remote session implements the paged trait over it.</dd></div>
+          <div><dt>Undo</dt><dd>None.</dd></div>
+          <div><dt>Tests</dt><dd>Through the in-process transport, a remote paged session equals a local one; two clients share one build.</dd></div>
+        </dl>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="limits">
+  <div class="v-wrap">
+    <p class="v-kicker">Limits</p>
+    <h2 class="v-section__title">What is estimated, and what it costs.</h2>
+    <div class="a-body">
+      <p><strong>The gate-level traces are generated.</strong> They keep C910's real module tree and aliases, but give every net one three-pin cell. Real netlists have several cells per net, cells with more pins, and sometimes nets inside cells. Everything measured here is linear in scopes and variables, so real netlists should scale the same way; they were not measured.</p>
+      <p><strong>The paged index is not measured.</strong> Its size, build time and page latency are estimates until stage 4. The design's claim rests on the linear costs above and on the reader being the floor for any design that loads the whole hierarchy.</p>
+      <p><strong>Meters on a paged hierarchy need every variable.</strong> A frame of activity meters counts active signals in every scope, which needs each signal's scopes: the per-signal lists, 448&nbsp;MiB at 53 million variables. On a paged trace they would be read from the index or built in one pass over it. Meters stay practical up to what those lists cost.</p>
+      <p><strong>Search reads every name.</strong> Without a name index, a filter on a paged trace streams all name pages. It is progressive, not instant.</p>
+      <p><strong>Signals, not bits.</strong> A size counts distinct signals, so a 64-bit bus is one. Gate-level traces have one-bit nets, so their counts are bits.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="research">
+  <div class="v-wrap">
+    <p class="v-kicker">Research</p>
+    <h2 class="v-section__title">No viewer shows sizes; the algorithm is old.</h2>
+    <div class="a-body">
+      <p><strong>Viewers.</strong> <a class="v-link" href="https://github.com/ekiwi/wellen">wellen</a>, which Surfer uses, loads the whole hierarchy eagerly into arenas: 40 bytes per scope and per variable, a first-child and next-sibling tree, and interned names, one <code>String</code> each. Aliases share a signal reference, and no per-scope sizes are stored. Surfer's scope rows show only names, and its tracker records slow UI with 80,000 variables in one scope (<a class="v-link" href="https://gitlab.com/surfer-project/surfer/-/work_items/550">#550</a>), scope and variable lists rebuilt every frame in post-synthesis traces (<a class="v-link" href="https://gitlab.com/surfer-project/surfer/-/work_items/376">#376</a>), and a regex filter taking 700&nbsp;ms per frame (<a class="v-link" href="https://gitlab.com/surfer-project/surfer/-/work_items/205">#205</a>). <a class="v-link" href="https://github.com/gtkwave/gtkwave">GTKWave</a> allocates a symbol and a node for every variable, aliases included, each with its full hierarchical name, and builds its tree from scope push and pop; its manual recommends the search filter for very large levels such as synthesized netlists. Neither shows sizes.</p>
+      <p><strong>Formats.</strong> An <a class="v-link" href="https://blog.timhutt.co.uk/fst_spec/">FST</a> hierarchy is one compressed stream of scope, upscope and variable records, where a variable either declares a handle or aliases one. The header stores totals only: scopes, variables and distinct handles. The stream is in preorder and can only be read in order. VCD is the same shape in text, with identifier codes as aliases. VTR stores its hierarchy in declaration order, in columns, as SPEC §5 describes.</p>
+      <p><strong>Commercial tools.</strong> Verdi's <a class="v-link" href="https://semiwiki.com/eda/synopsys/287414-whats-new-in-verdi/">smart load</a> reads only the scopes first touched, reported as ten times less load time and memory, with the caveat that gate-level simulations with little hierarchy see no advantage. That is the flat-scope problem this design answers with groups and paging. We found no public documentation of per-scope signal counts in a commercial viewer. Synthesis tools report instance counts per hierarchy, for example Yosys <a class="v-link" href="https://yosyshq.readthedocs.io/projects/yosys/en/latest/cmd/index_passes_status.html"><code>stat -hierarchy</code></a>.</p>
+      <p><strong>Algorithms.</strong> Distinct colours per subtree is Hui's colour set size problem (<a class="v-link" href="https://link.springer.com/chapter/10.1007/3-540-56024-6_19">CPM 1992</a>), solved in linear time with one DFS and lowest common ancestors of consecutive same-colour leaves. Tarjan's offline LCA answers those in near-linear time with union-find, and <a class="v-link" href="https://www.sciencedirect.com/science/article/pii/0022000085900145">Gabow and Tarjan</a> made that special case linear. <a class="v-link" href="https://link.springer.com/chapter/10.1007/10719839_9">Bender and Farach-Colton</a> give constant-time online LCA after linear preprocessing, which this design does not need, because preorder makes every query offline. Merging sets small into large solves the same problem in O(n log n) with more memory; a Fenwick tree over preorder answers distinct counts for arbitrary ranges. <a class="v-link" href="https://users.dcc.uchile.cl/~gnavarro/algoritmos/ps/alenex10.pdf">Succinct trees</a> store a tree in about 2.4 bits per node; this design keeps 32-bit ids instead, since names and variables dominate, and leaves compressed <a class="v-link" href="https://www.sciencedirect.com/science/article/abs/pii/S0306437915001672">string dictionaries</a> for the name pages.</p>
+    </div>
+  </div>
+</section>
+
+<section class="a-end">
+  <div class="v-wrap">
+    <p class="v-hero__fine">Measured with <code>vtr-bench gen-gates c910_coremark.vtr gates.vtr --copies N</code> and <code>vtr-bench scopes &lt;trace&gt; [--children NAME]</code> (bench/vtr-bench/src/scopes.rs), and <code>cargo run --release -p volna-core --example load_cost &lt;trace&gt; 0</code>, one run each, single-threaded, on a Core Ultra 7 265K · FST twins from <code>vtr to-vcd</code> and <code>vcd2fst</code></p>
+  </div>
+</section>
+</main>
+
+<script>
+const n = x => x.toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
+const chev = open => `<svg class="a-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="${open ? 'm6 9 6 6 6-6' : 'm9 18 6-6-6-6'}"/></svg>`;
+
+/* ---------- the fragment: scopes in preorder, and each scope's variables as signal indexes ---------- */
+const SIGNALS = ['clk', 'a', 'b', 's', 'c', 'q0', 'q1'];
+const SCOPES = [
+  {name: 'top', parent: -1, cell: '', vars: [['clk', 0], ['a', 1], ['b', 2], ['s', 3], ['c', 4], ['q0', 5], ['q1', 6]]},
+  {name: 'u_add', parent: 0, cell: 'adder', vars: [['A', 1], ['B', 2], ['S', 3], ['CO', 4]]},
+  {name: 'U1', parent: 1, cell: 'XOR2_X1', vars: [['A', 1], ['B', 2], ['Z', 3]]},
+  {name: 'U2', parent: 1, cell: 'AND2_X1', vars: [['A', 1], ['B', 2], ['Z', 4]]},
+  {name: 'u_reg', parent: 0, cell: 'regs', vars: [['CK', 0], ['D0', 3], ['D1', 4], ['Q0', 5], ['Q1', 6]]},
+  {name: 'F0', parent: 4, cell: 'DFF_X1', vars: [['D', 3], ['CK', 0], ['Q', 5]]},
+  {name: 'F1', parent: 4, cell: 'DFF_X1', vars: [['D', 4], ['CK', 0], ['Q', 6]]},
+];
+
+/** The design's streaming count: preorder, Tarjan's offline LCA, +1 per scope and −1 at the LCA of consecutive scopes of a signal. */
+function census(active) {
+  const S = SCOPES.length, uf = [...Array(S).keys()], anc = [...Array(S).keys()], last = SIGNALS.map(() => -1), w = new Array(S).fill(0), stack = [], pairs = SIGNALS.map(() => []);
+  const find = x => { while (uf[x] !== x) x = uf[x] = uf[uf[x]]; return x; };
+  for (let i = 0; i < S; i++) {
+    const p = SCOPES[i].parent;
+    while (stack.length && stack[stack.length - 1] !== p) { const top = stack.pop(), tp = SCOPES[top].parent; if (tp >= 0) { const a = find(tp); uf[find(top)] = a; anc[a] = tp; } }
+    stack.push(i);
+    for (const [, g] of SCOPES[i].vars) {
+      if (!active[g] || last[g] === i) continue;
+      w[i]++;
+      const lca = last[g] < 0 ? -1 : anc[find(last[g])];
+      if (lca >= 0) w[lca]--;
+      pairs[g].push([i, lca]);
+      last[g] = i;
+    }
+  }
+  const sizes = w.slice();
+  for (let i = S - 1; i > 0; i--) sizes[SCOPES[i].parent] += sizes[i];
+  return {w, sizes, pairs};
+}
+/** Brute force: the set of active signals below each scope. */
+function brute(active) {
+  return SCOPES.map((_, i) => {
+    const set = new Set();
+    for (let j = 0; j < SCOPES.length; j++) { let k = j; while (k >= 0 && k !== i) k = SCOPES[k].parent; if (k === i) for (const [, g] of SCOPES[j].vars) if (active[g]) set.add(g); }
+    return set.size;
+  });
+}
+const varsBelow = SCOPES.map(s => s.vars.length); for (let i = SCOPES.length - 1; i > 0; i--) varsBelow[SCOPES[i].parent] += varsBelow[i];
+const depth = SCOPES.map(function d(s) { return s.parent < 0 ? 0 : 1 + d(SCOPES[s.parent]); });
+
+const D = {active: SIGNALS.map(() => true), mode: 'sizes', focus: 3};
+function render() {
+  const r = census(D.active), all = census(SIGNALS.map(() => true)).sizes, method = D.mode === 'method';
+  document.getElementById('weight-head').hidden = !method;
+  const hits = new Set(r.pairs[D.focus].map(([i]) => i));
+  document.getElementById('tree').innerHTML = SCOPES.map((s, i) => {
+    const kids = SCOPES.some(t => t.parent === i);
+    const size = D.active.every(Boolean) ? `<b>${r.sizes[i]}</b>` : `<b>${r.sizes[i]}</b> of ${all[i]}`;
+    return `<li><div class="a-row${method && hits.has(i) ? ' is-hit' : ''}" style="padding-left:${8 + depth[i] * 14}px" data-i="${i}">${kids ? chev(true) : '<span class="a-leaf"></span>'}<span class="a-name">${esc(s.name)}${s.cell ? `<small>${esc(s.cell)}</small>` : ''}</span><span class="a-count">${varsBelow[i]}</span><span class="a-count">${size}</span>${method ? `<span class="a-weight">${r.w[i] > 0 ? '+' : ''}${r.w[i]}</span>` : ''}</div></li>`;
+  }).join('');
+  const g = D.focus, name = SIGNALS[g];
+  if (!D.active[g]) { document.getElementById('readout').innerHTML = `<b>${name}</b> is left out, so it adds nothing anywhere.`; return; }
+  const occ = r.pairs[g];
+  document.getElementById('readout').innerHTML = method
+    ? `<b>${name}</b> is held by ${occ.map(([i]) => `<b>${SCOPES[i].name}</b>`).join(', ')}, in preorder: +1 at each, −1 at ` +
+      occ.slice(1).map(([i, l], k) => `LCA(${SCOPES[occ[k][0]].name}, ${SCOPES[i].name}) = <b>${SCOPES[l].name}</b>`).join(', ') +
+      `. Every scope's sum over its subtree then counts ${name} once where it is held.`
+    : `<b>${name}</b> is one signal with ${SCOPES.reduce((a, s) => a + s.vars.filter(v => v[1] === g).length, 0)} variables in ${occ.length} scopes; it counts once in each scope that holds it. Summing variables would give top ${varsBelow[0]} signals; there are ${all[0]}.`;
+}
+document.getElementById('chips').innerHTML = `<span class="v-seg">${SIGNALS.map((s, g) => `<button type="button" data-g="${g}" aria-pressed="true">${s}</button>`).join('')}</span>`;
+document.getElementById('chips').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const g = +b.dataset.g; D.active[g] = !D.active[g]; D.focus = g;
+  b.setAttribute('aria-pressed', String(D.active[g]));
+  render();
+});
+document.getElementById('mode').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  D.mode = b.dataset.mode;
+  for (const x of document.querySelectorAll('#mode button')) x.setAttribute('aria-pressed', String(x === b));
+  render();
+});
+
+/* ---------- plan pictures: rows measured with vtr-bench scopes --children ---------- */
+// [name, depth, count, open]
+const C910_CORE = [['x_ct_core', 0, 62292, true], ['x_ct_cp0_top', 1, 798], ['x_ct_idu_top', 1, 23720], ['x_ct_ifu_top', 1, 6779], ['x_ct_iu_top', 1, 2485], ['x_ct_lsu_top', 1, 12687], ['x_ct_rtu_top', 1, 11682], ['x_ct_vfpu_top', 1, 5596]];
+const IFU_GATES = [['x_ct_ifu_top', 0, 42601, true], ['x_ct_ifu_addrgen', 1, 430], ['x_ct_ifu_bht', 1, 2577], ['x_ct_ifu_btb', 1, 2080], ['x_ct_ifu_debug', 1, 254], ['x_ct_ifu_ibctrl', 1, 524], ['x_ct_ifu_ibdp', 1, 3591]];
+function row(name, d, count, {open = false, leaf = false, mark = {}, cls = ''} = {}) {
+  const m = k => mark[k] ? ` data-mark="${mark[k]}"` : '';
+  return `<li><div class="a-row${cls}"${m('row')} style="padding-left:${8 + d * 12}px">${leaf ? '<span class="a-leaf"></span>' : chev(open)}<span class="a-name">${name}</span><span class="a-count"${m('count')}>${count}</span></div></li>`;
+}
+const shot = (file, body, head = 'HIERARCHY') => `<div class="a-shot"><div class="a-shot__head">${head}<span>${file}</span></div><div class="a-head" aria-hidden="true"><span>SCOPE</span><span class="a-count">SIGNALS</span></div><ul class="a-tree">${body}</ul></div>`;
+function buildPlan() {
+  document.getElementById('shot-1').innerHTML = shot('c910_coremark.vtr', C910_CORE.map(([name, d, c, open]) =>
+    row(esc(name), d, n(c), {open, mark: name === 'x_ct_ifu_top' ? {count: 1} : {}}) +
+    (name === 'x_ct_ifu_top' ? '<li><div class="a-tip" data-mark="2">x_ct_ifu_top · 6,779 signals · 16,261 variables · 490 scopes</div></li>' : '')).join(''));
+  document.getElementById('shot-3').innerHTML = shot('gates16.vtr', IFU_GATES.map(([name, d, c, open]) => row(esc(name), d, n(c), {open})).join('') +
+    row('<small>16 more submodules</small>', 1, '', {leaf: true, cls: ' is-quiet'}) +
+    row('NAND2_X1 <small>4,881 cells</small>', 1, '', {open: true}) +
+    ['U0', 'U1', 'U4', 'U5'].map(u => row(u, 2, '3', {leaf: true, mark: {row: 2}})).join('') +
+    row('DFF_X1 <small>1,236 cells</small>', 1, '', {mark: {row: 1}}));
+  document.getElementById('shot-5').innerHTML = shot('gates16.vtr · <b data-mark="1">paged · 9,222,096 scopes</b>',
+    [0, 1, 2, 3].map(k => row(`core${k}`, 0, n(569422), {open: k === 3})).join('') +
+    row('<span class="a-pending">loading scopes…</span>', 1, '', {leaf: true, mark: {row: 2}}) +
+    [4, 5, 6, 7].map(k => row(`core${k}`, 0, n(569422))).join(''));
+  ringShots();
+}
+/** A red ring, an ellipse or a stadium for long ones, around the elements of each mark, with its number. */
+function ringShots() {
+  for (const box of document.querySelectorAll('.a-shots')) {
+    for (const r of box.querySelectorAll('.a-ring')) r.remove();
+    const at = box.getBoundingClientRect(), marks = new Map();
+    for (const el of box.querySelectorAll('[data-mark]')) {
+      const r = el.getBoundingClientRect(), u = marks.get(el.dataset.mark);
+      marks.set(el.dataset.mark, u ? {l: Math.min(u.l, r.left), t: Math.min(u.t, r.top), r: Math.max(u.r, r.right), b: Math.max(u.b, r.bottom)} : {l: r.left, t: r.top, r: r.right, b: r.bottom});
+    }
+    for (const [k, u] of marks) {
+      // Large blocks get a rounded rectangle, long thin ones a stadium, and small ones an ellipse.
+      const bw = u.r - u.l, bh = u.b - u.t, shape = bh > 40 ? 'box' : bw > 3 * bh ? 'long' : 'oval';
+      const px = shape === 'oval' ? Math.max(8, bw * 0.2) : 7, py = shape === 'oval' ? Math.max(6, bh * 0.3) : 5;
+      const x = Math.max(2, u.l - at.left - px), y = Math.max(2, u.t - at.top - py);
+      const w = Math.min(at.width - 2, u.r - at.left + px) - x, h = Math.min(at.height - 2, u.b - at.top + py) - y;
+      const radius = shape === 'box' ? '14px' : shape === 'long' ? `${h / 2}px` : '50%';
+      // The number sits on the ring's upper left, or left of a stadium, where it covers nothing.
+      const [bx, by] = shape === 'long' ? [-24, h / 2 - 10] : shape === 'box' ? [-6, -6] : [w * 0.146 - 10, h * 0.146 - 10];
+      const ring = document.createElement('span');
+      ring.className = 'a-ring'; ring.dataset.n = k; ring.setAttribute('aria-hidden', 'true');
+      ring.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:${radius}`;
+      ring.innerHTML = `<b style="left:${Math.max(bx, 2 - x)}px;top:${Math.max(by, 2 - y)}px">${k}</b>`;
+      box.append(ring);
+    }
+  }
+}
+addEventListener('resize', ringShots);
+
+function press(group, button) { for (const b of group.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button)); }
+function setPageTheme(mode) {
+  const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  try { localStorage.setItem('volna-theme', mode); } catch (e) {}
+  press(document.getElementById('page-theme'), document.querySelector(`#page-theme [data-mode="${mode}"]`));
+}
+document.getElementById('page-theme').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPageTheme(b.dataset.mode); });
+{ let mode = 'dark'; try { mode = localStorage.getItem('volna-theme') || 'dark'; } catch (e) {}
+  press(document.getElementById('page-theme'), document.querySelector(`#page-theme [data-mode="${mode}"]`)); }
+
+/** Test hooks. */
+window.SIZES = {
+  census: mask => census(SIGNALS.map((_, g) => !!(mask >> g & 1))).sizes,
+  brute: mask => brute(SIGNALS.map((_, g) => !!(mask >> g & 1))),
+  state: () => ({active: D.active.slice(), mode: D.mode, rows: [...document.querySelectorAll('#tree .a-row')].map(r => [...r.querySelectorAll('.a-count, .a-weight')].map(c => c.textContent))}),
+  plan: () => [...document.querySelectorAll('.a-shots')].map(box => { const a = box.getBoundingClientRect();
+    return {id: box.id, marks: [...new Set([...box.querySelectorAll('[data-mark]')].map(e => e.dataset.mark))].sort(), rings: [...box.querySelectorAll('.a-ring')].map(r => { const b = r.getBoundingClientRect(); return {n: r.dataset.n, inside: b.left >= a.left && b.top >= a.top && b.right <= a.right && b.bottom <= a.bottom}; })}; }),
+};
+render();
+buildPlan();
+document.fonts.ready.then(ringShots).then(() => requestAnimationFrame(() => requestAnimationFrame(() => { window.ready = true; })));
+</script>
+</body>
+</html>

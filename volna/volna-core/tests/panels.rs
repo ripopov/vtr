@@ -15,6 +15,10 @@ use volna_core::{Action, App, Command, Instant};
 fn linked_app() -> App {
     let mut app = App::new();
     app.set_session(Arc::new(ProceduralTrace::new(100)));
+    // The open's own work: count scope sizes.
+    for request in app.take_requests() {
+        app.deliver(request.perform());
+    }
     app.handle(Command::AddVars(a_all(vec![0, 1])));
     app
 }

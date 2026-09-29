@@ -89,6 +89,10 @@ fn loaded_app(n: usize) -> (App, Arc<Source>) {
     let source = Source::new(n);
     let mut app = App::new();
     app.set_session(source.clone());
+    // The open's own work: count scope sizes.
+    for request in app.take_requests() {
+        app.deliver(request.perform());
+    }
     app.handle(Command::Action(Action::NewPanel));
     assert!(app.panels.focused_waves().is_some());
     (app, source)
@@ -928,7 +932,10 @@ impl BurstSource {
         let mut hierarchy = synth.hierarchy().clone();
         hierarchy.vars.truncate(1);
         hierarchy.vars[0].shape = SignalShape::Bit;
-        hierarchy.scopes.iter_mut().for_each(|s| s.vars.truncate(1));
+        hierarchy
+            .scopes
+            .iter_mut()
+            .for_each(|s| s.vars.retain(|&v| v == 0));
         Arc::new(Self {
             info: TraceInfo {
                 design_id: None,

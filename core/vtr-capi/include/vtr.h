@@ -459,6 +459,31 @@ uint32_t vtr_reader_signal_var(const vtr_reader *r, uint32_t sig);
 int      vtr_reader_find_signal(const vtr_reader *r, const char *path, char sep, uint32_t *sig_out);
 int      vtr_reader_find_node(const vtr_reader *r, const char *path, char sep, uint32_t *node_out);
 
+/* Scope sizes: distinct signals, variables and scopes at or below each scope;
+ * an aliased signal counts once (Rust vtr::census). A vtr_census counts a
+ * hierarchy streamed in declaration order: enter() opens a scope inside the
+ * innermost open one and returns its index, var() adds a variable of a signal
+ * to it, leave() closes it (both INVALID when no scope is open). finish()
+ * consumes the counter. reader_scope_sizes() counts the reader's scopes in
+ * preorder and names each index's node. Free results with scope_sizes_free. */
+typedef struct vtr_census vtr_census;
+typedef struct vtr_scope_sizes vtr_scope_sizes;
+typedef struct vtr_scope_size {
+    uint32_t node;      /* scope node; VTR_NONE when counted by a vtr_census */
+    uint32_t parent;    /* index of the enclosing scope, VTR_NONE for roots */
+    uint32_t signals, variables, scopes;
+} vtr_scope_size;
+vtr_census      *vtr_census_new(void);
+uint32_t         vtr_census_enter(vtr_census *c);
+int              vtr_census_var(vtr_census *c, uint32_t signal);
+int              vtr_census_leave(vtr_census *c);
+vtr_scope_sizes *vtr_census_finish(vtr_census *c);
+void             vtr_census_free(vtr_census *c);
+vtr_scope_sizes *vtr_reader_scope_sizes(const vtr_reader *r);   /* NULL on error */
+size_t           vtr_scope_sizes_len(const vtr_scope_sizes *s);
+int              vtr_scope_sizes_get(const vtr_scope_sizes *s, size_t i, vtr_scope_size *out);
+void             vtr_scope_sizes_free(vtr_scope_sizes *s);
+
 typedef struct vtr_signal_value {
     uint8_t  kind;    /* VTR_SIGNAL_* */
     uint8_t  states;  /* data packing: 2, 4 or 9 states */

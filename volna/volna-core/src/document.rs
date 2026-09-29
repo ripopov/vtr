@@ -53,6 +53,8 @@ impl Default for Shared {
 pub enum Delivered {
     Track,
     Summary,
+    /// A trace's scope sizes were counted.
+    Sizes,
     Signals(TraceId, crate::session::SignalLoads),
     /// A trace finished opening, or failed to. `refined` is the factor by
     /// which the session unit became finer to admit it: every time held
@@ -464,6 +466,13 @@ impl Document {
             .expect("installed traces have slots");
         slot.placement = placement;
         slot.state = SlotState::Loaded(Arc::clone(&session));
+        if slot.sizes.is_none() {
+            self.requests.push(LoadRequest::Sizes {
+                trace: id,
+                generation: slot.generation,
+                session: Arc::clone(&session),
+            });
+        }
         if first {
             self.shared.viewport.set(Viewport::fit(self.limits()));
         }
@@ -572,6 +581,7 @@ impl Document {
         self.pending.retain(|s| s.trace != trace);
         self.requests.retain(|r| match r {
             LoadRequest::Open { trace: t, .. }
+            | LoadRequest::Sizes { trace: t, .. }
             | LoadRequest::Signals { trace: t, .. }
             | LoadRequest::Track { trace: t, .. } => *t != trace,
             LoadRequest::Summary { signal, .. } => signal.trace != trace,
@@ -1054,6 +1064,18 @@ impl Document {
                         .collect()
                 };
                 Some(Delivered::Signals(trace, results))
+            }
+            LoadResult::Sizes {
+                trace,
+                generation,
+                result,
+            } => {
+                if !self.current(trace, generation) {
+                    return None;
+                }
+                // The count cannot fail locally; a lost one leaves the column empty.
+                self.traces.get_mut(trace)?.sizes = Some(result.ok()?);
+                Some(Delivered::Sizes)
             }
             LoadResult::Summary {
                 generation,

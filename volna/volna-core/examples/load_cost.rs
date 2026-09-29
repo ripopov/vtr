@@ -12,6 +12,10 @@ fn main() -> anyhow::Result<()> {
     let start = Instant::now();
     let session = OpenSpec::Path(path.clone().into()).open()?;
     let open_ms = start.elapsed().as_secs_f64() * 1000.0;
+    // The count every open runs off the UI thread (docs/hierarchy-scope-sizes.html).
+    let sizes_start = Instant::now();
+    std::hint::black_box(volna_core::data::ScopeSizes::count(session.hierarchy()));
+    let sizes_ms = sizes_start.elapsed().as_secs_f64() * 1000.0;
     let mut histories = Vec::new();
     let mut tracks = Vec::new();
     let mut changes = 0;
@@ -57,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     println!(
         "{}",
         serde_json::json!({
-            "path": path, "selection": selection, "open_ms": open_ms,
+            "path": path, "selection": selection, "open_ms": open_ms, "sizes_ms": sizes_ms,
             "load_ms": load_ms, "total_ms": total_ms, "peak_rss_kib": rss,
             "signals": histories.len(), "changes": changes, "transactions": tracks.iter().flat_map(|track| &track.generators).map(|g| g.transactions().len()).sum::<usize>()
         })

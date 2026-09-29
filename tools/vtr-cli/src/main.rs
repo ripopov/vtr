@@ -10,6 +10,7 @@ vtr - Volna Trace Record tools
 USAGE:
   vtr info <file.vtr>                         file summary (meta, counts, sections)
   vtr hier <file.vtr> [--depth N] [--vars]    print the hierarchy
+  vtr hier <file.vtr> --sizes [--depth N]     scopes with the scopes, variables and distinct signals below them
   vtr value <file.vtr> <path> <time>          value of a signal at a time
   vtr changes <file.vtr> <path> [--from T] [--to T] [--max N]
   vtr dump <file.vtr> [--from T] [--to T]     all value changes in time order (VCD-like)
@@ -47,7 +48,7 @@ fn positional(args: &[String]) -> Vec<String> {
             continue;
         }
         if a.starts_with("--") {
-            skip = !matches!(a.as_str(), "--vars" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums" | "--sites");
+            skip = !matches!(a.as_str(), "--vars" | "--sizes" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums" | "--sites");
             continue;
         }
         out.push(a.clone());
@@ -185,8 +186,51 @@ fn cmd_hier(args: &[String]) {
     let r = open(path);
     let depth: usize = flag(args, "--depth").map(|d| d.parse().unwrap_or_else(|_| die("bad --depth"))).unwrap_or(usize::MAX);
     let vars = has(args, "--vars");
+    if has(args, "--sizes") {
+        print_sizes(&r, depth);
+        return;
+    }
     for root in r.hierarchy().roots() {
         print_node(&r, root, 0, depth, vars);
+    }
+}
+
+/// Groups digits in threes: 16261 -> "16,261".
+fn thousands(n: u32) -> String {
+    let d = n.to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Scopes to `max_depth` with their totals: an aliased signal counts once per scope.
+fn print_sizes(r: &Reader, max_depth: usize) {
+    let (nodes, sizes) = r.hierarchy().scope_sizes();
+    let mut depth = vec![0usize; nodes.len()];
+    let mut rows = Vec::new();
+    for i in 0..nodes.len() as u32 {
+        if let Some(p) = sizes.parent(i) {
+            depth[i as usize] = depth[p as usize] + 1;
+        }
+        if depth[i as usize] < max_depth {
+            let name = format!("{}{}", "  ".repeat(depth[i as usize]), r.name(nodes[i as usize]));
+            rows.push([name, thousands(sizes.scopes(i)), thousands(sizes.variables(i)), thousands(sizes.signals(i))]);
+        }
+    }
+    let head = ["scope", "scopes", "variables", "signals"].map(String::from);
+    let mut w = [0; 4];
+    for row in std::iter::once(&head).chain(&rows) {
+        for (k, c) in row.iter().enumerate() {
+            w[k] = w[k].max(c.chars().count());
+        }
+    }
+    for row in std::iter::once(&head).chain(&rows) {
+        println!("{:<a$}  {:>b$}  {:>c$}  {:>d$}", row[0], row[1], row[2], row[3], a = w[0], b = w[1], c = w[2], d = w[3]);
     }
 }
 

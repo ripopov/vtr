@@ -312,3 +312,23 @@ fn vcd_export_matches_fst_source() {
     assert!(c.identical(), "mismatches: {:?}", c.mismatches);
     assert!(sa.changes > 0);
 }
+
+#[test]
+fn hier_sizes_count_aliases_once() {
+    use vtr::{Direction, ScopeType, SignalKind, VarType};
+    let path = tmp("sizes.vtr");
+    let mut w = writer(&path);
+    let one = SignalKind::Bits { width: 1, states: 2 };
+    let top = w.add_scope(None, "top", ScopeType::Module, "").unwrap();
+    let (_, s) = w.add_var(Some(top), "s", VarType::Wire, Direction::Implicit, one).unwrap();
+    w.add_var(Some(top), "clk", VarType::Wire, Direction::Implicit, one).unwrap();
+    let u = w.add_scope(Some(top), "u_add", ScopeType::Module, "").unwrap();
+    w.add_alias(Some(u), "S", VarType::Wire, Direction::Output, s).unwrap();
+    w.add_stream(Some(u), "tx", "TRANSACTOR").unwrap();
+    w.set_time(0).unwrap();
+    w.close().unwrap();
+    let o = std::process::Command::new(env!("CARGO_BIN_EXE_vtr")).args(["hier", path.to_str().unwrap(), "--sizes"]).output().unwrap();
+    assert!(o.status.success());
+    let rows: Vec<Vec<String>> = String::from_utf8(o.stdout).unwrap().lines().map(|l| l.split_whitespace().map(String::from).collect()).collect();
+    assert_eq!(rows, [["scope", "scopes", "variables", "signals"], ["top", "2", "3", "2"], ["u_add", "1", "1", "1"]]);
+}
