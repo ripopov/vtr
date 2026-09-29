@@ -1766,6 +1766,51 @@ fn the_feature_showcase_cpu_paints_stage_cells_and_stall_bands() {
 }
 
 #[test]
+fn the_theme_showcase_runs_the_c910_stage_ladder_with_flushed_and_open_rows() {
+    // core/vtr/examples/volna_theme.rs: the stage ladders of docs/volna-theme.html.
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../volna/examples/volna-theme.vtr");
+    let session = OpenSpec::Path(path).open().unwrap();
+    let mut app = App::new();
+    app.set_session(session.clone());
+    pump(&mut app);
+    let theme = Theme::one_dark();
+    for (core, stages) in [
+        ("cpu0", &["F", "D", "X", "M", "W"][..]),
+        (
+            "cpu1",
+            &[
+                "ID", "IR", "IS", "IQ", "RF", "EX", "AG", "BJ", "DC", "CM", "DA", "RT", "WB",
+            ][..],
+        ),
+    ] {
+        let stream = scope(session.as_ref(), &["soc", core, "pipeline"]);
+        app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(
+            stream,
+        )])));
+        pump(&mut app);
+        let id = app.panels.focused_id();
+        frame(&mut app, id, &theme);
+        let p = app.panels.pipeline(id).expect("a pipeline panel");
+        assert_eq!(p.palette().names(), stages, "{core}");
+        let Rows::Ready(set) = p.rows(&app.doc) else {
+            panic!("{core} loaded")
+        };
+        let count = |status| {
+            (0..set.len())
+                .filter(|r| set.get(*r).unwrap().1.status == status)
+                .count()
+        };
+        let (flushed, open) = (count(vtr::TxStatus::Aborted), count(vtr::TxStatus::Open));
+        assert!(
+            set.len() > 1500 && flushed > 50 && open > 0,
+            "{core}: {} rows, {flushed} flushed, {open} open",
+            set.len()
+        );
+    }
+}
+
+#[test]
 fn the_verilator_demo_counts_in_its_clock_and_feeds_the_transaction_panel() {
     use volna_core::data::transactions::TransactionRef;
     use volna_core::transaction::TxPanelState;

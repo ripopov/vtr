@@ -67,6 +67,66 @@ vcd2fst /tmp/landing_dram.vcd volna/volna/examples/landing_dram.fst
 `volna-core/tests/traces.rs` opens the pair and checks every burst against the
 controller's `ACT`.
 
+## Theme showcase
+
+`volna-theme.vtr` (74,130 bytes) holds every case that the
+[Volna theme proposal](../../../docs/volna-theme.html) gives a colour, shape
+or rendering rule, in one 4,096-cycle recording of a small SoC (picoseconds,
+`soc.clk` 1 ns):
+
+- **Value kinds.** `soc.io` has nine-state pads. `i2c0.scl` and `sda` are open
+  drain: a released line is a weak `h`, and a wired-or glitch at 1,618 ns is
+  `w`. `gpio` goes from `u` to `z` to weak and driven bits, and reads `----`
+  while cpu0 waits. `addr_match` is a don't-care mask, `strap` is weak, and
+  `scan_en` is `-`, then `0`, then `l`.
+- **X and Z.** `soc.sram.rdata` is all unknown during self test (8–240 ns:
+  `x` and `u` every cycle, the hatched band), then random reads, with an
+  uninitialised byte in about one in nine. `soc.l2.req_addr` is X and
+  `resp_data` Z between requests, so dense columns mix values with both.
+  During the fault window (2,600–2,700 ns) the responses carry one X byte.
+- **Activity and buses.** `soc.dma.beat` runs quiet, busy, then a trickle.
+  `dma.src_addr` (64 bits) counts in its last digits. `dma.queue_depth`,
+  `l2.mshr_used` and `cpu0.irq_pending` idle at zero. `l2.hit_way` and
+  `aon.tick` make one-digit segments.
+- **Recurring states.** `cpu0.phase`, `dma.state`, `i2c0.state` and
+  `ddr.state` are text states that recur.
+- **Events.** `cpu0.irq` fires three times within 300 ps at 2,048 ns, and
+  `aon.dbg_trigger` fires in bursts of up to five.
+- **Clocks.** `soc.clk` is declared and dumped. `soc.ddr.ck` has no net: it
+  runs at 600 ps, 400 ps from the interrupt, and is gated at 3,000–3,400 ns.
+  `aon.slow_clk` has a 64 ns period. `io.spi0.sck` is an undeclared clock
+  that only runs during transfers.
+- **Analog.** `soc.perf` has `ipc`, `l2_bandwidth_gbps`, `temperature_c` and
+  `vdd_core_mv`, which droops for a single sample at the interrupt.
+- **Pipelines.**
+  - `cpu0.pipeline` is a five-stage core. `cpu1.pipeline` runs C910's
+    thirteen stage names in order (`ID` … `WB`), the page's ladder.
+  - Both cores record stalls on lane `stall`, flushed instructions
+    (`Aborted`) and `wakeup` relations. Instructions still in flight at
+    the end are `Open`.
+  - L2 reads and writes are children of their instructions, linked by
+    `causes`. The fault-window reads end in `Error`.
+  - `dma.chan0` holds descriptors with `desc`/`read`/`write` stages, linked
+    by `next`. Descriptor 9 ends in `Error`.
+  - `soc.log` has one record at each severity from debug to fatal.
+- **Hierarchy.**
+  - `cpu1` uses C910's module names, 14 levels deep, down to
+    `x_ibuf_ecc_bit`.
+  - `ifu_idu_ib_inst0_data` appears on five port paths.
+  - `x_ct_rtu_rob_entry0`–`63` is a numbered run.
+  - `x_ct_vfpu_top` has 64 signals that never change, and `soc.cfg` holds
+    static configuration.
+
+Regenerate from the repository root; the generator checks the counts and
+the size (below 500,000 bytes):
+
+```sh
+cargo run --locked -p vtr --example volna_theme -- volna/volna/examples/volna-theme.vtr
+```
+
+`volna-core/tests/pipeline.rs` opens both pipelines and checks the stage
+names, flushed rows and open rows.
+
 ## Pipeline showcase
 
 `pipeline_showcase.vtr` exercises the pipeline panel: two synthetic cores run
