@@ -203,9 +203,7 @@ impl EncoderScratch {
         for t in &mut self.last {
             *t = ColState::default();
         }
-        for c in &mut self.entry_counts {
-            *c = 0;
-        }
+        self.entry_counts.fill(0);
     }
 }
 

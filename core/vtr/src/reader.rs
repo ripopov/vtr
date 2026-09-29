@@ -717,10 +717,7 @@ impl Reader {
         let mut found = None;
         for comp in path {
             found = level.iter().copied().find(|&n| self.name(n) == *comp);
-            match found {
-                Some(n) => level = self.hier.children(n).collect(),
-                None => return None,
-            }
+            level = self.hier.children(found?).collect();
         }
         found
     }

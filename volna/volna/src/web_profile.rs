@@ -4,28 +4,29 @@ use crate::Workspace;
 use gpui_kit::Context;
 use volna_core::data::transactions::TrackKind;
 use volna_core::document::TrackLoadState;
+use volna_core::trace::Traced;
 use wasm_bindgen::{JsCast, JsValue};
 
 impl Workspace {
     pub(crate) fn profile_tracks(&mut self, action: &str, cx: &mut Context<Self>) {
-        let tracks: Vec<_> = self
-            .app
-            .doc
-            .session()
-            .map(|s| {
-                s.tracks()
-                    .iter()
-                    .filter(|t| matches!(t.kind, TrackKind::Stream { .. }))
-                    .map(|t| t.id)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut tracks = Vec::new();
+        for trace in self.app.doc.traces().ids() {
+            if let Some(session) = self.app.doc.session(trace) {
+                tracks.extend(
+                    session
+                        .tracks()
+                        .iter()
+                        .filter(|t| matches!(t.kind, TrackKind::Stream { .. }))
+                        .map(|t| Traced::new(trace, t.id)),
+                );
+            }
+        }
         let mut errors = Vec::new();
         for &track in &tracks {
             match action {
                 "load" if self.app.doc.track(track).is_none() => {
                     if let Err(error) = self.app.doc.retain_track(track) {
-                        errors.push(format!("{}: {error:#}", track.0));
+                        errors.push(format!("{}:{}: {error:#}", track.trace, track.item.0));
                     }
                 }
                 "release" => self.app.doc.release_track(track),
@@ -47,7 +48,7 @@ impl Workspace {
                 }
                 Some(TrackLoadState::Loading) => loading += 1,
                 Some(TrackLoadState::Failed(message)) => {
-                    errors.push(format!("{}: {message}", track.0));
+                    errors.push(format!("{}:{}: {message}", track.trace, track.item.0));
                 }
                 None => {}
             }

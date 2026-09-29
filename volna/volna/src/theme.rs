@@ -107,7 +107,6 @@ fn set_zoomed(base: CoreTheme, zoom: f32, cx: &mut App) {
     kit.link_active = t.panel.icon_accent;
     kit.popover = t.elevated.bg;
     kit.popover_foreground = t.elevated.text;
-    kit.tiles = t.editor.bg;
     kit.window_border = t.border;
     kit.drag_border = t.border_focused;
     kit.drop_target = t.selection.bg;

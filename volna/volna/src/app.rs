@@ -2519,7 +2519,6 @@ impl Render for Workspace {
         }
         let sidebar = sidebar_visible.then(|| self.render_sidebar(window, cx).into_any_element());
         let center = self.render_center(window, cx);
-        let dialogs = gpui_kit::component::Root::render_dialog_layer(window, cx);
         root.child(
             div()
                 .flex()
@@ -2562,6 +2561,5 @@ impl Render for Workspace {
         .children(self.render_frame_details(cx))
         .children(self.render_rename())
         .children(drag.map(|d| self.render_drag_surface(d, cx)))
-        .children(dialogs)
     }
 }

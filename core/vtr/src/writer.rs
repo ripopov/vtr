@@ -1430,9 +1430,7 @@ impl Writer {
         std::mem::swap(&mut chunk.heap, &mut self.heap);
         chunk.sig_counts.clear();
         chunk.sig_counts.extend_from_slice(&self.sig_counts);
-        for c in &mut self.sig_counts {
-            *c = 0;
-        }
+        self.sig_counts.fill(0);
         chunk.kinds = self.kinds_arc.clone().unwrap();
         for (_, _, mut h, mut v) in chunk.wide.drain(..) {
             h.clear();
@@ -1636,9 +1634,7 @@ impl Writer {
         self.sink.send(Msg::Signal(Box::new(input)))?;
         // Reset block state.
         self.frame_heap.clear();
-        for w in &mut self.dirty_bits {
-            *w = 0;
-        }
+        self.dirty_bits.fill(0);
         self.epoch = self.epoch.wrapping_add(1);
         if self.epoch == 0 {
             self.epoch = 1;

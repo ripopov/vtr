@@ -31,7 +31,7 @@ visual-test = ["dep:libtest-mimic"]
 
 [dependencies]
 # `profiler` records whole-window frame histograms for the status bar.
-gpui-kit = { version = "=0.6.1", features = ["profiler"] }
+gpui-kit = { version = "=0.7.0", features = ["profiler"] }
 volna-core = { path = "../volna-core" }
 anyhow = "1"
 futures = "0.3"
@@ -49,7 +49,7 @@ url = "2"
 notify = "7"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # JSON highlighting in the settings editor; the web build keeps the stub.
-gpui-kit = { version = "=0.6.1", features = ["tree-sitter"] }
+gpui-kit = { version = "=0.7.0", features = ["tree-sitter"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libtest-mimic = { version = "0.8", optional = true }
@@ -64,7 +64,7 @@ embed-resource = "3"
 volna-core = { path = "../volna-core", features = ["testing"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-gpui-kit = { version = "=0.6.1", features = ["test-support"] }
+gpui-kit = { version = "=0.7.0", features = ["test-support"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 console_error_panic_hook = "0.1.7"

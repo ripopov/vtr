@@ -9,6 +9,7 @@
 use gpui_kit::component::{
     WindowExt,
     command::{Command as Palette, CommandGroup, CommandItem, CommandState},
+    kbd::Kbd,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{Action, Context, Focusable, SharedString, WeakEntity, Window, div, px};
@@ -369,6 +370,8 @@ impl Workspace {
         let query_model = model.clone();
         let confirm_ws = ws.clone();
         let confirm_model = model.clone();
+        let command_target = self.focus_handle.clone();
+        let binding_target = window.focused(cx).unwrap_or_else(|| command_target.clone());
         let focus_state = state.clone();
         window.open_dialog(cx, move |dialog, _, _| {
             let state = state.clone();
@@ -377,6 +380,8 @@ impl Workspace {
             let query_model = query_model.clone();
             let confirm_ws = confirm_ws.clone();
             let confirm_model = confirm_model.clone();
+            let command_target = command_target.clone();
+            let binding_target = binding_target.clone();
             dialog
                 .title("Command palette")
                 .overlay_closable(true)
@@ -407,6 +412,7 @@ impl Workspace {
                             let ws = confirm_ws.clone();
                             let model = confirm_model.clone();
                             let state = state.clone();
+                            let command_target = command_target.clone();
                             move |path, window, cx| {
                                 // Sections: commands, markers, settings; or
                                 // only markers in `@` mode.
@@ -445,16 +451,28 @@ impl Workspace {
                                     });
                                     return;
                                 }
-                                let chosen = {
+                                let (action, chosen) = {
                                     let read = model.read(cx);
                                     if path.section == 2 {
                                         // Settings come last either way.
-                                        read.settings.get(path.row).copied()
+                                        (None, read.settings.get(path.row).copied())
+                                    } else if path.section != read.markers_section() {
+                                        (
+                                            read.commands
+                                                .get(path.row)
+                                                .map(|(_, action)| action.boxed_clone()),
+                                            None,
+                                        )
                                     } else {
-                                        None
+                                        (None, None)
                                     }
                                 };
                                 window.close_dialog(cx);
+                                if let Some(action) = action {
+                                    // Root hosts the dialog beside the workspace, so
+                                    // dispatch explicitly on the workspace's element.
+                                    command_target.dispatch_action(action.as_ref(), window, cx);
+                                }
                                 // Closing gave the keys back to the panel; a
                                 // name field the command opened takes them.
                                 _ = ws.update(cx, |ws, cx| ws.focus_rename(window, cx));
@@ -512,11 +530,27 @@ impl Workspace {
                     }
                     let mut commands = CommandGroup::new().label("Commands");
                     for (label, action) in &read.commands {
-                        commands = commands.item(
-                            CommandItem::new()
-                                .label(label.clone())
-                                .action(action.boxed_clone()),
-                        );
+                        let label = label.clone();
+                        let action = action.boxed_clone();
+                        let binding_target = binding_target.clone();
+                        commands = commands.item(CommandItem::new().label(label.clone()).child(
+                            move |window, _| {
+                                let binding = Kbd::binding_for_action_in(
+                                    action.as_ref(),
+                                    &binding_target,
+                                    window,
+                                )
+                                .or_else(|| Kbd::binding_for_action(action.as_ref(), None, window));
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_2()
+                                    .w_full()
+                                    .child(label.clone())
+                                    .children(binding)
+                            },
+                        ));
                     }
                     let mut markers = CommandGroup::new().label("Markers");
                     if read.find_marker {

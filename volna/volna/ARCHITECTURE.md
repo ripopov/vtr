@@ -1004,8 +1004,10 @@ The GPUI crate keeps the native app, the wasm page and the VS Code extension.
 It renders the chrome with GPUI elements and GPUI Kit's `gpui-component`
 controls, registers GPUI actions that dispatch core `Action`s, keeps the popup
 menu and filter input in step with the core's menu and filter, and spawns each
-`LoadRequest` on the background executor. The window hosts `Workspace` inside
-the component `Root` for overlays and focus routing. Buttons, tooltips and menus
+`LoadRequest` on the background executor. `gpui_kit::open_window` hosts `Workspace`
+inside the Base-owned `Root` for overlays and focus routing. Component
+initialization registers its window presentation plugin, which hosts dialogs
+and other overlays automatically. Buttons, tooltips and menus
 use library interactions; `src/ui` adds Volna styling/placement and retains the
 custom filter input, splitter, icons and headers. The window chrome follows
 Zed: the title bar is Volna's own on every desktop, drawn over a transparent
@@ -1015,10 +1017,11 @@ opts back in to the window manager's frame) and `src/ui/window_controls.rs`
 draws the minimize, maximize/restore and close buttons on the sides GNOME's
 `button-layout` configures, limited to what the compositor supports, with the
 compositor's window menu on right-click; on Windows the same buttons mark the
-platform's caption hit regions. The component `Root` supplies the Linux
-client-side frame, shadow and resize edges. The filter stays custom on
-both targets because the component input's focus-loss path in `gpui-pre-web`
-0.3.4 blurs the browser's keyboard receiver; see the [rationale](../../docs/RATIONALE.md#volna-viewer).
+platform's caption hit regions. The Component window presentation plugin supplies
+the Linux client-side frame, shadow and resize edges. The filter stays custom
+on both targets and forwards edits to the core; GPUI 0.3.7 keeps the browser's
+keyboard receiver focused when input focus changes. See the
+[rationale](../../docs/RATIONALE.md#volna-viewer).
 `WaveTable` is a custom element: `prepaint` asks the core for the layout and
 inserts hitboxes for the dividers, badges and Markers lane chips; `paint` builds the
 `Scene` with GPUI's text system as the measurer, walks it into `paint_quad`,
@@ -1096,7 +1099,7 @@ refresh windows, preserving the trace, rows and interaction state.
 
 - Fonts: IBM Plex Sans (UI) and Lilex (mono) are embedded in `volna-core` and
   used by every frontend, so text widths and looks agree across them.
-- Components: pin the `gpui-kit` umbrella to 0.6.1 and use its runtime,
+- Components: pin the `gpui-kit` umbrella to 0.7.0 and use its runtime,
   component and asset modules. Its web dependencies compile threading support,
   so the workspace pins a nightly Rust toolchain.
   Required component icons are embedded with `icon_assets!` on both native and

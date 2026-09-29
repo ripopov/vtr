@@ -7,10 +7,7 @@ use std::process::Command;
 
 use vtr::{Reader, TxQuery, Value};
 
-fn target_dir() -> PathBuf {
-    let exe = std::env::current_exe().unwrap();
-    exe.parent().unwrap().parent().unwrap().to_path_buf()
-}
+mod support;
 
 /// Every transaction of a file, ordered by id, as `id stream/generator [b..e] status`
 /// lines followed by attributes, events, stages (`name@lane b..e`) and relations.
@@ -52,20 +49,11 @@ fn dump(path: &Path) -> String {
 #[test]
 fn tracker_and_package() {
     let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".into());
-    if Command::new(&cxx).arg("--version").output().is_err() {
-        eprintln!("no C++ compiler ({cxx}); skipping");
-        return;
-    }
+    assert!(Command::new(&cxx).arg("--version").output().expect("C++ compiler is required").status.success());
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let tdir = target_dir();
-    let mut build = Command::new(env!("CARGO"));
-    build.args(["build", "-p", "vtr-capi", "--lib"]);
-    if tdir.file_name().map(|n| n == "release").unwrap_or(false) {
-        build.arg("--release");
-    }
-    assert!(build.status().unwrap().success(), "cargo build of libvtr failed");
-    let out_dir = tdir.join("track_test");
-    std::fs::create_dir_all(&out_dir).unwrap();
+    let lib = support::static_library();
+    let temporary = tempfile::tempdir().unwrap();
+    let out_dir = temporary.path();
     let exe = out_dir.join("track_test");
     let st = Command::new(&cxx)
         .args(["-std=c++17", "-Wall", "-Wextra", "-Werror", "-O1"])
@@ -74,7 +62,7 @@ fn tracker_and_package() {
         .arg("-I")
         .arg(root.join("tests/dpi_stub"))
         .arg(root.join("tests/track_test.cpp"))
-        .arg(tdir.join("libvtr.a"))
+        .arg(lib)
         .args(["-lpthread", "-ldl", "-lm"])
         .arg("-o")
         .arg(&exe)

@@ -15,6 +15,39 @@ fn init(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn desktop_startup_hosts_workspace_and_dialogs(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use gpui_kit::component::WindowExt as _;
+
+    init(cx);
+    for embedded in [false, true] {
+        let (workspace, handle) = cx.update(|cx| {
+            let workspace = crate::open_main_window(cx, embedded).unwrap();
+            let handle = *cx.windows().last().unwrap();
+            assert_eq!(workspace.read(cx).embedded, embedded);
+            (workspace, handle)
+        });
+        let mut vcx = VisualTestContext::from_window(handle, cx);
+        vcx.update(|window, cx| {
+            let root = gpui_kit::base::Root::read(window, cx);
+            assert_eq!(root.view().entity_id(), workspace.entity_id());
+            window.open_dialog(cx, |dialog, _, _| {
+                dialog.child(
+                    div()
+                        .debug_selector(|| "startup-dialog".into())
+                        .child("Startup dialog"),
+                )
+            });
+        });
+        vcx.run_until_parked();
+        assert!(vcx.debug_bounds("startup-dialog").is_some());
+        vcx.update(|window, cx| window.close_dialog(cx));
+        vcx.run_until_parked();
+        assert!(vcx.debug_bounds("startup-dialog").is_none());
+    }
+}
+
+#[gpui_kit::test]
 fn desktop_window_matches_shell_identity(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let options = crate::window_options(cx);

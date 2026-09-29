@@ -125,8 +125,7 @@ pub fn open_main_window(
     } else {
         window_options(cx)
     };
-    let mut workspace = None;
-    cx.open_window(options, |window, cx| {
+    let (_, workspace) = gpui_kit::open_window(options, cx, |window, cx| {
         let ws = cx.new(|cx| {
             let mut w = Workspace::new(window, cx);
             w.embedded = embedded;
@@ -157,10 +156,9 @@ pub fn open_main_window(
                 .unwrap_or(true)
             });
         }
-        workspace = Some(ws.clone());
-        cx.new(|cx| gpui_kit::component::Root::new(ws, window, cx))
+        ws
     })?;
-    workspace.ok_or_else(|| anyhow::anyhow!("window did not build a workspace"))
+    Ok(workspace)
 }
 
 #[cfg(target_family = "wasm")]

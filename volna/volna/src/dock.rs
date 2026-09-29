@@ -414,7 +414,6 @@ fn from_dock(state: &base::PanelState) -> Result<Layout> {
             Ok(Layout::Tabs { tabs, active })
         }
         base::PanelInfo::Panel(_) => Ok(Layout::single(panel_id(state)?)),
-        _ => bail!("floating tiles are not supported"),
     }
 }
 
@@ -948,9 +947,6 @@ impl base::DockAreaRenderer for DockRenderer {
             skin: self.skin.tab_group_renderer(),
             single: self.single.clone(),
         })
-    }
-    fn tiles_renderer(&self) -> Rc<dyn base::TilesRenderer> {
-        self.skin.tiles_renderer()
     }
 }
 struct TabRenderer {

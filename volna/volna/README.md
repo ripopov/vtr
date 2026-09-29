@@ -3,7 +3,7 @@
 Volna is the official viewer for VTR and its separate VDB design/presentation
 companion. The viewer itself is `volna-core`, a crate with no GUI toolkit; this
 crate is its [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui)
-frontend (GPUI Kit 0.6.1, with the `gpui-pre` 0.3.4 snapshot in the lockfile), which runs as a
+frontend (GPUI Kit 0.7.0, with the `gpui-pre` 0.3.7 snapshot in the lockfile), which runs as a
 native macOS app and, compiled to WebAssembly, inside a VS Code webview. A
 second frontend, `volna-egui`, runs natively on eframe. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the split.
@@ -49,7 +49,7 @@ shows the selection in a Transaction panel (identity, timing, lifeline,
 typed attributes, stages, events and related records that jump on click; pin
 a panel to compare two records). See [ARCHITECTURE.md](ARCHITECTURE.md).
 
-The `gpui-kit` 0.6.1 umbrella supplies the runtime, assets and components.
+The `gpui-kit` 0.7.0 umbrella supplies the runtime, assets and components.
 Standard buttons, tooltips and popup menus use its component module.
 Menus support arrow-key navigation, Enter to choose and Escape to dismiss.
 The filter retains the existing custom widget on native and web. Viewer state

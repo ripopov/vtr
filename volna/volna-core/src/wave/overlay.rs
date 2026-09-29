@@ -1098,7 +1098,7 @@ pub fn marker_lane_paint(
     let over_measure = pointer.and_then(|mp| {
         let hit = lane.hit(mp)?;
         let on_measure = matches!(hit, LaneHit::Live | LaneHit::Tag | LaneHit::ClearReference);
-        Some((hit, lane.measure.as_ref()?, mp)).filter(|_| on_measure)
+        on_measure.then_some((hit, lane.measure.as_ref()?, mp))
     });
     if let Some((hit, measure, mp)) = over_measure {
         measure_tooltip(p, column, hit, measure, doc, mp);

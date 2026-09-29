@@ -3,32 +3,16 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-fn target_dir() -> PathBuf {
-    // .../target/<profile>/deps/<test-binary> -> .../target/<profile>
-    let exe = std::env::current_exe().unwrap();
-    exe.parent().unwrap().parent().unwrap().to_path_buf()
-}
+mod support;
 
 #[test]
 fn c_smoke() {
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
-    if Command::new(&cc).arg("--version").output().is_err() {
-        eprintln!("no C compiler ({cc}); skipping");
-        return;
-    }
+    assert!(Command::new(&cc).arg("--version").output().expect("C compiler is required").status.success());
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let tdir = target_dir();
-    let lib = tdir.join("libvtr.a");
-    // `cargo test` does not build staticlib artifacts; build it explicitly for this profile.
-    let mut build = Command::new(env!("CARGO"));
-    build.args(["build", "-p", "vtr-capi", "--lib"]);
-    if tdir.file_name().map(|n| n == "release").unwrap_or(false) {
-        build.arg("--release");
-    }
-    assert!(build.status().unwrap().success(), "cargo build of libvtr failed");
-    assert!(lib.exists(), "static library not built: {}", lib.display());
-    let out_dir = tdir.join("c_smoke_test");
-    std::fs::create_dir_all(&out_dir).unwrap();
+    let lib = support::static_library();
+    let temporary = tempfile::tempdir().unwrap();
+    let out_dir = temporary.path();
     let exe = out_dir.join("c_smoke");
     let st = Command::new(&cc)
         .args(["-std=c99", "-Wall", "-Wextra", "-Werror", "-O1"])
