@@ -146,6 +146,14 @@ behavior, requirements, and reproducible workflows. Use Git for history; do
 not append dated progress reports, migration diaries, or per-change
 verification records.
 
+When a change implements a stage or feature that a design page under `docs/`
+plans, update that page in the same commit. Mark the stage with
+`<span class="v-chip v-chip--accent">Landed</span>` after its stage number, as
+in `docs/hierarchy-scope-sizes.html` and `docs/multiple-traces.html`. Rewrite its
+text from future to present tense, and correct its details, such as names,
+tests and numbers, to match what was actually built and measured. When every
+stage has landed, say so in the plan's introduction.
+
 Keep all code, documentation, and benchmarks in this repository and make sure
 they work from a clean checkout. Commit messages describe what changed and its
 measured effect and contain no attribution trailers.
