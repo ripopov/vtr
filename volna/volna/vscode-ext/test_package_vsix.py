@@ -70,6 +70,29 @@ class PackageTests(unittest.TestCase):
             write_vsix("linux-x64", server.read_bytes())
             packager.verify_vsix(vsix, "linux-x64", server)
 
+    def test_vsix_rejects_missing_snippet_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            server = root / "volna-server"
+            server.write_bytes(binary("linux-x64"))
+            vsix = root / "volna.vsix"
+            with zipfile.ZipFile(vsix, "w") as archive:
+                archive.writestr("extension.vsixmanifest", '<PackageManifest xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"><Metadata><Identity Version="0.1.1" TargetPlatform="linux-x64"/></Metadata></PackageManifest>')
+                archive.writestr("extension/package.json", json.dumps({"version": "0.1.1"}))
+                archive.writestr("extension/bin/volna-server", server.read_bytes())
+                archive.writestr("extension/media/theme.mjs", b"export const theme = {};")
+                archive.writestr("extension/media/volna_bg.wasm", b"wasm")
+                archive.writestr("extension/media/volna.js", "import { copyTableText } from './snippets/generated/src/table_clipboard.mjs';")
+            with self.assertRaisesRegex(ValueError, "missing media/snippets/generated/src/table_clipboard.mjs"):
+                packager.verify_vsix(vsix, "linux-x64", server)
+            with zipfile.ZipFile(vsix, "a") as archive:
+                archive.writestr("extension/media/snippets/generated/src/table_clipboard.mjs", "export { copyTableText } from '../copy.mjs';")
+            with self.assertRaisesRegex(ValueError, "missing media/snippets/generated/copy.mjs"):
+                packager.verify_vsix(vsix, "linux-x64", server)
+            with zipfile.ZipFile(vsix, "a") as archive:
+                archive.writestr("extension/media/snippets/generated/copy.mjs", "export function copyTableText() {}")
+            packager.verify_vsix(vsix, "linux-x64", server)
+
 
 if __name__ == "__main__":
     unittest.main()

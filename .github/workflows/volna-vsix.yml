@@ -88,6 +88,21 @@ jobs:
         run: python -m unittest discover -s volna/volna/vscode-ext -p test_package_vsix.py
       - name: Build and verify target VSIX
         run: python volna/volna/vscode-ext/package_vsix.py --target ${{ matrix.target }}
+      - name: Provision isolated headless VS Code host
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libasound2t64 libgbm1 libnss3 libgtk-3-0t64 libxss1 libvulkan1
+          mkdir -p "$RUNNER_TEMP/volna-code"
+          curl --fail --location --output "$RUNNER_TEMP/volna-code.tar.gz" https://update.code.visualstudio.com/latest/linux-x64/stable
+          tar -xzf "$RUNNER_TEMP/volna-code.tar.gz" --strip-components=1 -C "$RUNNER_TEMP/volna-code"
+          sudo chown root:root "$RUNNER_TEMP/volna-code/chrome-sandbox"
+          sudo chmod 4755 "$RUNNER_TEMP/volna-code/chrome-sandbox"
+          echo "VOLNA_CODE=$RUNNER_TEMP/volna-code/bin/code" >> "$GITHUB_ENV"
+      - name: Test installed VSIX with VTR and FST
+        if: matrix.target == 'linux-x64'
+        run: node --test volna/volna/vscode-ext/vsix.test.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: volna-${{ matrix.target }}

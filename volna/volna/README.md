@@ -216,6 +216,21 @@ verifies the VSIX target and contents. The CI matrix
 builds packages for all six targets. Install the VSIX that matches the VS Code
 workspace host, including the SSH/container host.
 
+The media bundle includes the complete wasm-bindgen output, including its
+`snippets/` modules. The packager rejects missing relative JavaScript imports.
+On Linux, test the installed package with Node.js 22+, VS Code and `xvfb-run`:
+
+```sh
+node --test volna/volna/vscode-ext/vsix.test.mjs  # from the repository root
+```
+
+Set `VOLNA_CODE` to a VS Code CLI executable or `VOLNA_VSIX` to a specific
+package when needed. The test installs into temporary extension/profile
+directories, opens copied VTR/FST fixtures through their default association,
+and asserts viewer frames and trace metadata from the bundled server. The CI
+Linux x64 package runs this test; the other five targets receive package and
+native server checks.
+
 The build also places a native `volna-server` in `vscode-ext/bin`. The extension
 runs on the workspace host, including SSH/container workspaces, and starts that
 child beside the recording. Set `volna.remote.serverPath` to a server executable

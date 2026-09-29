@@ -10,7 +10,9 @@ thread_local! { static NEXT: Cell<u64> = const { Cell::new(0) }; }
 
 pub(crate) struct Bridge {
     connection: String,
-    generation: u64,
+    /// Document epoch for connection lifetime, independent of the trace slot's
+    /// generation carried by RemoteClient's load requests and results.
+    epoch: u64,
     client: RemoteClient,
 }
 
@@ -53,7 +55,7 @@ impl Workspace {
     /// session, so the connection is kept and its restored loads run.
     pub(crate) fn sync_remote(&mut self) {
         if let Some(bridge) = &mut self.remote
-            && bridge.generation != self.app.doc.generation()
+            && bridge.epoch != self.app.doc.generation()
         {
             let same_recording = self
                 .app
@@ -63,7 +65,7 @@ impl Workspace {
                 .filter_map(|(_, session)| session.remote_id())
                 .any(|id| Some(id) == bridge.client.session());
             if same_recording {
-                bridge.generation = self.app.doc.generation();
+                bridge.epoch = self.app.doc.generation();
             } else {
                 self.remote = None;
             }
@@ -103,7 +105,7 @@ impl Workspace {
                     )?;
                     self.remote = Some(Bridge {
                         connection: connection.clone(),
-                        generation,
+                        epoch: self.app.doc.generation(),
                         client,
                     });
                     call("volnaTraceStart", &connection.into(), &JsValue::UNDEFINED)?;
@@ -205,7 +207,7 @@ impl Workspace {
                 ClientStep::Ack(ack) => bridge.send(&ack),
                 ClientStep::Complete { ack, result } => {
                     self.app.deliver(result);
-                    bridge.generation = self.app.doc.generation();
+                    bridge.epoch = self.app.doc.generation();
                     // End already validated the complete object. Preserve it
                     // for offline use even if sending the final ACK fails.
                     bridge.send(&ack)?;

@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import platform
+import posixpath
+import re
 import shutil
 import struct
 import subprocess
@@ -18,6 +20,33 @@ EXT = Path(__file__).resolve().parent
 ROOT = EXT.parents[2]
 VSCE_VERSION = "4.0.0"
 MEDIA = ("theme.mjs", "volna.js", "volna_bg.wasm")
+# The generated wasm-bindgen ES modules use literal relative imports. Follow
+# those imports, including snippets, rather than hard-coding a generated hash.
+IMPORT = re.compile(r'''(?:\bfrom\s+|\bimport\s*(?:\(\s*)?)["'](\.[^"']+)["']''')
+
+
+def check_media(read):
+    """Check required assets and relative ES module dependencies via read(path)."""
+    pending = list(MEDIA)
+    checked = set()
+    while pending:
+        item = pending.pop()
+        if item in checked:
+            continue
+        checked.add(item)
+        try:
+            data = read(item)
+        except (KeyError, FileNotFoundError) as error:
+            raise ValueError(f"missing media/{item}; run web/build.sh first") from error
+        if not data:
+            raise ValueError(f"empty media/{item}")
+        if not item.endswith((".js", ".mjs")):
+            continue
+        for dependency in IMPORT.findall(data.decode("utf-8")):
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(item), dependency))
+            if target.startswith("../"):
+                raise ValueError(f"media/{item} imports outside media: {dependency}")
+            pending.append(target)
 
 
 def host_target():
@@ -75,15 +104,11 @@ def verify_vsix(vsix, target, server):
         check_binary(binary, target)
         if binary != server.read_bytes():
             raise ValueError("VSIX server differs from the native build")
-        for item in MEDIA:
-            if f"extension/media/{item}" not in files or not archive.getinfo(f"extension/media/{item}").file_size:
-                raise ValueError(f"VSIX is missing media/{item}")
+        check_media(lambda item: archive.read(f"extension/media/{item}"))
 
 
 def package(target):
-    for item in MEDIA:
-        if not (EXT / "media" / item).is_file():
-            raise ValueError(f"missing media/{item}; run web/build.sh first")
+    check_media(lambda item: (EXT / "media" / item).read_bytes())
     subprocess.run(["cargo", "build", "--locked", "-p", "volna-server", "--profile", "viewer"], cwd=ROOT, check=True)
     metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--no-deps", "--format-version", "1"], cwd=ROOT))
     name = "volna-server.exe" if target.startswith("win32-") else "volna-server"

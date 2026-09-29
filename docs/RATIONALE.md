@@ -2283,6 +2283,32 @@ shaped the API:
 
 ## Volna VS Code platform packages
 
+The wasm-bindgen [JS snippet mechanism](https://wasm-bindgen.github.io/wasm-bindgen/reference/js-snippets.html)
+emits imported local modules under `snippets/` beside its generated entry
+module. Copying only `volna.js` and `volna_bg.wasm` omitted the table clipboard
+module: the installed 0.1.1 webview received a 404 during module loading and
+never created its canvas. Preserve the complete generated output tree and
+recreate it on each build to remove obsolete snippet hashes. Follow relative
+module imports when checking both source media and VSIX contents; checking
+only the entry module and WASM accepted this broken package.
+
+The runtime package gate follows VS Code's [extension test host](https://code.visualstudio.com/api/working-with-extensions/testing-extension)
+with an installed VSIX, isolated profile and fixture copies under Xvfb. It
+asserts default VTR/FST editor selection, real canvas frames and metadata
+loaded through the packaged server. Testing the standalone page or a source
+extension directory alone cannot establish that the installed artifact has
+all its runtime resources. Native architecture/startup checks cover all six
+package targets; the installed webview gate runs on Linux x64 in CI.
+
+The same gate also checks remote connection lifetime. A document epoch
+identifies the current collection of recordings; each trace slot has a separate
+generation for accepting load results. Initialize the web relay's lifetime
+epoch from the document, while `RemoteClient` retains the slot generation
+from its open request. Using the slot generation as the lifetime epoch made
+`sync_remote` close a still-opening connection after its first metadata frame,
+because the document epoch and slot generation already differed. Matching
+server architecture and module resources alone cannot detect that failure.
+
 VS Code's [platform-specific extension mechanism](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#platform-specific-extensions)
 selects a VSIX by `targetPlatform`; an untagged VSIX is a fallback on other
 platforms. Volna runs in the workspace extension host and launches a native

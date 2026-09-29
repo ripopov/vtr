@@ -71,6 +71,8 @@ cargo clippy --locked -p volna --target wasm32-unknown-unknown --lib --all-featu
 node --test volna/volna/tools/frame-stats.test.mjs
 node --test volna/volna/tools/undo.test.mjs
 python3 -m unittest discover -s volna/volna/vscode-ext -p 'test_package_vsix.py'
+python3 volna/volna/vscode-ext/package_vsix.py
+node --test volna/volna/vscode-ext/vsix.test.mjs # Linux; requires VS Code and xvfb-run
 ```
 
 The build script selects a wasm-capable LLVM toolchain for zstd-sys, builds the
@@ -80,6 +82,16 @@ same `CC_wasm32_unknown_unknown` and `AR_wasm32_unknown_unknown` settings; on
 macOS, use a wasm-capable Homebrew LLVM toolchain rather than Apple's clang.
 Generated web and extension media are ignored by Git. Compilation does not
 replace browser runtime checks.
+
+`vscode-ext/vsix.test.mjs` installs the generated platform package into isolated
+VS Code under Xvfb. Its extension test driver opens copies of `picorv32.vtr`
+and `values.fst` through the default custom-editor association. The controller
+asserts that the real webview creates its canvas, paints frames, and loads
+trace metadata through the packaged server. It provisions its own fixtures,
+profile, extension directory and processes, uses bounded waits, and cleans up
+on success or failure. `VOLNA_CODE` selects the CLI and `VOLNA_VSIX` selects
+the package. CI runs this on Linux x64; other platform packages are checked
+for target tagging, native server startup and complete module dependencies.
 
 `tools/frame-stats.test.mjs` serves the built `web/dist` bundle to headless
 Chrome, moves the pointer over the window and reads `debug_state()`. It asserts
