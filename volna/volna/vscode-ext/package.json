@@ -2,7 +2,7 @@
   "name": "volna",
   "displayName": "Volna Waveform Viewer",
   "description": "Volna, the official VTR/VDB viewer. Displays VTR and FST waveforms using GPUI and WebAssembly.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "vtr",
   "license": "MIT OR Apache-2.0",
   "engines": {
