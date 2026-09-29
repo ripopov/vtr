@@ -1,4 +1,4 @@
-//! Headless tests of undo and redo (`docs/undo-redo.html`).
+//! Headless tests of undo and redo (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
 //!
 //! The model-based test drives seeded random commands, gestures, navigation,
 //! undo and redo over the landing trace (signals, groups, lanes, clocks,

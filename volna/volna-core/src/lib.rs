@@ -8,7 +8,7 @@
 //! - `app`: the [`app::App`] state machine, its [`app::Command`]s and [`app::Event`]s
 //! - `document`: the open traces and the state every view shares (cursor, markers)
 //! - `trace`: the trace set, trace letters and names, and placement on one timeline
-//! - `history`: undo and redo of cockpit edits (`docs/undo-redo.html`)
+//! - `history`: undo and redo of cockpit edits (`volna/volna/ARCHITECTURE.md`, "Undo and redo")
 //! - `session`: the [`session::Session`] boundary through which all trace data is read
 //! - `data`: values, histories, translators, hierarchy
 //! - `wave`: viewport math, timeline, the wave panel model, layout and painter

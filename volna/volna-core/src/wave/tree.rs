@@ -7,7 +7,7 @@
 //!
 //! Every change of the vector is a list of [`Splice`]s: the planners here
 //! return them, and [`apply`] performs them and returns their inverse, which
-//! is what the undo journal keeps (`docs/undo-redo.html`).
+//! is what the undo journal keeps (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
 
 use std::collections::BTreeSet;
 use std::ops::{Deref, DerefMut, Range, RangeInclusive};

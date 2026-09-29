@@ -119,7 +119,7 @@ pub enum TableCommand {
 pub struct TableModel {
     pub source: TableSource,
     pub state: TableState,
-    /// The shown columns; journaled cockpit state (`docs/undo-redo.html`).
+    /// The shown columns; journaled cockpit state (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
     pub columns: crate::history::Journaled<ColumnSet>,
     pub viewport: RowViewport,
     pub selected: Option<RowIdentity>,

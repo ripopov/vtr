@@ -1135,7 +1135,7 @@ fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
     assert_eq!(row(&mut vcx), (None, 1));
 }
 
-/// Row colours (`docs/wave-colors.html`): the signal menu hosts a Color
+/// Row colours (`docs/RATIONALE.md`, "Volna row colours"): the signal menu hosts a Color
 /// submenu, and the palette's `Color: …` commands colour the selection as
 /// one undo step.
 #[gpui_kit::test]
@@ -1427,7 +1427,7 @@ fn wave_rows_are_tree_items() {
 
 /// Undo keys reach the history from the panels; in the group name editor
 /// and the filter box they edit the text instead. The Edit menu and the
-/// palette name the steps (`docs/undo-redo.html`).
+/// palette name the steps (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
 #[gpui_kit::test]
 fn undo_keys_reach_the_history_and_text_fields_keep_their_own(cx: &mut TestAppContext) {
     use gpui_kit::VisualTestContext;
@@ -2458,7 +2458,7 @@ fn palette_commands_chosen_by_keyboard_reach_the_panel(cx: &mut TestAppContext) 
 
 /// The start page lists what was opened, newest first; the keys reopen it,
 /// a missing file stays listed, and a workspace is listed as itself
-/// (`docs/recent_sessions.html`).
+/// (`volna/volna/ARCHITECTURE.md`, "Workspace persistence").
 #[gpui_kit::test]
 fn start_page_reopens_recent_traces_and_workspaces(cx: &mut TestAppContext) {
     use crate::native_workspace::{Store, file_uri};

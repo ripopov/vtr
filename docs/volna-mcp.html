@@ -359,7 +359,7 @@ ul.prose li{margin:8px 0}
       <tr><td>Trace-only tools</td><td><code>vtr</code> CLI (<code>value</code>, <code>changes</code>, <code>tx</code>, <code>log</code>, <code>clocks</code>, <code>hier</code>). <code>ext/wavepeek</code> is a stateless query CLI with an agent skill package and no MCP server.</td><td>Stateless and unaware of the view: they cannot tell what the user is looking at or change it.</td></tr>
     </tbody>
   </table></div>
-  <p class="prose">The repository already states the direction. README.md asks for MCP adapters that stay “thin over toolkit-independent core commands and query APIs”, and for a feedback path carrying “a stable selection snapshot and readable trace, signal, and time references”. The <a href="undo-redo.html">undo design</a> expects agent edits to become labelled steps. The <a href="markers-ux.html">marker</a> and <a href="tx-detail.html">transaction panel</a> proposals sketch marker and transaction tools.</p>
+  <p class="prose">The repository already states the direction. README.md asks for MCP adapters that stay “thin over toolkit-independent core commands and query APIs”, and for a feedback path carrying “a stable selection snapshot and readable trace, signal, and time references”. The <a href="../volna/volna/ARCHITECTURE.md#undo-and-redo">undo design</a> expects agent edits to become labelled steps. The <a href="../volna/volna/ARCHITECTURE.md#markers">marker</a> and <a href="tx-detail.html">transaction panel</a> proposals sketch marker and transaction tools.</p>
 </section>
 
 <section class="wrap" id="research" aria-labelledby="research-h">
@@ -546,7 +546,7 @@ ul.prose li{margin:8px 0}
     <div>
       <h3>How it feels to the user</h3>
       <p>The user turns on <b>Allow agents</b> in the status bar or with <code>volna --agent</code>; it is off by default. On the first connection Volna asks “Codex wants to use this window” with Allow and Deny, as Unity and Chrome do. While connected, a chip in the status bar shows the agent's latest action (“Agent: Add 3 signals”). Rows the agent adds flash in the agent colour, markers it places carry a small agent badge in their tooltip, and its steps show in the Undo menu with the “Agent:” prefix. A click on the chip pauses the agent: reads keep working, edits return <code>paused</code>.</p>
-      <p>When the agent moves the view to show something, the previous view is pushed onto the go-back list from the <a href="markers-ux.html">marker proposal</a>, so one key returns the user to where they were. The agent never changes focus, theme, zoom, sidebar or settings.</p>
+      <p>When the agent moves the view to show something, the previous view is pushed onto the go-back list from the <a href="../volna/volna/ARCHITECTURE.md#markers">marker proposal</a>, so one key returns the user to where they were. The agent never changes focus, theme, zoom, sidebar or settings.</p>
       <p>The README's first feedback path is a command, <b>Copy reference for agent</b>. It puts a stable, readable reference on the clipboard, for example <code>volna://fifo_stall.vtr?panel=1&amp;rows=top.dut.fifo.count&amp;t=1420ns</code>, for pasting into any chat, even one with no MCP connection.</p>
     </div>
     <div>
@@ -610,7 +610,7 @@ ul.prose li{margin:8px 0}
 
 <section class="wrap" id="coverage" aria-labelledby="coverage-h">
   <h2 id="coverage-h">Coverage of the viewer</h2>
-  <p class="prose">Each row is a feature area of the current viewer, from the command, action and menu enums at <code>12d303b</code>. “Change” is what must be added to <code>volna-core</code>; everything else already exists. The undo column follows <a href="undo-redo.html">the undo design</a>.</p>
+  <p class="prose">Each row is a feature area of the current viewer, from the command, action and menu enums at <code>12d303b</code>. “Change” is what must be added to <code>volna-core</code>; everything else already exists. The undo column follows <a href="../volna/volna/ARCHITECTURE.md#undo-and-redo">the undo design</a>.</p>
   <div class="tablewrap"><table class="cov">
     <thead><tr><th>Area</th><th>Today</th><th>Agent access</th><th>Change</th><th>Undo</th></tr></thead>
     <tbody>
@@ -799,7 +799,7 @@ wait {<span class="k">"task"</span>: <span class="s">"task-3"</span>, <span clas
         <li>Can the undo design's merge rules stay unchanged when two agents are attached, or does each client need its own origin in the merge key? The proposal gives each client its own origin.</li>
         <li>Where does the VS Code extension host run in remote workspaces, and does the discovery record reach a Codex process on the other side?</li>
         <li>Will Codex consume progress notifications or the tasks extension? Until it does, <code>wait</code> polling is the portable path.</li>
-        <li>Which of the <a href="markers-ux.html">marker proposal</a>'s verbs (reference, measure) should be tools in the first stage?</li>
+        <li>Which of the <a href="../volna/volna/ARCHITECTURE.md#markers">marker proposal</a>'s verbs (reference, measure) should be tools in the first stage?</li>
       </ul>
     </div>
   </div>

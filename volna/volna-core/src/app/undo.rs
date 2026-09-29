@@ -1,4 +1,4 @@
-//! The app's side of undo and redo (`docs/undo-redo.html`): step boundaries,
+//! The app's side of undo and redo (`volna/volna/ARCHITECTURE.md`, "Undo and redo"): step boundaries,
 //! collecting the journaled fields' inverses, applying edits, and showing
 //! what a flip changed. The journal itself is [`crate::history`].
 

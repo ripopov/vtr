@@ -9,7 +9,7 @@ The reference implementation lives in [`core/vtr`](../core/vtr/); the separate
 design companion lives in [`core/vtr-vdb/`](../core/vtr-vdb/).
 Design and presentation metadata belong to the separate VDB. Viewer layouts,
 selected signals, cursors and markers live in the separate client-owned
-[workspace JSON format](workspaces.html#model), never in VTR.
+[workspace JSON format](../volna/volna/ARCHITECTURE.md#workspace-persistence), never in VTR.
 Volna's [hierarchy browser](../volna/volna/ARCHITECTURE.md#hierarchy-browser)
 projects existing scope, stream, generator and enum-reference declarations;
 its icons, tints and activation rules add no file fields or encodings. The

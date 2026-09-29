@@ -93,7 +93,7 @@ pub enum Action {
     /// Draw the selected rows as plots, or back to digital.
     ToggleAnalog,
     /// Colour the selected rows and groups, or clear their own colour with
-    /// `None` (`docs/wave-colors.html`); the menu, palette and agents use it.
+    /// `None` (`docs/RATIONALE.md`, "Volna row colours"); the menu, palette and agents use it.
     SetTint(Option<crate::wave::Tint>),
     /// Step the selected rows to the next larger / smaller height preset,
     /// or back to the default height.
@@ -245,7 +245,7 @@ pub enum Command {
     CloseTrace,
     ToggleSidebar,
     /// Take back the last cockpit edit, or cancel the gesture in progress
-    /// (`docs/undo-redo.html`).
+    /// (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
     Undo,
     /// Put back the last edit undone.
     Redo,
@@ -344,7 +344,7 @@ pub enum Command {
     ChromeDragStart(ChromeDrag),
     ChromeDragEnd,
     Settings(SettingsCommand),
-    /// The recent traces and workspaces (`docs/recent_sessions.html`).
+    /// The recent traces and workspaces (`volna/volna/ARCHITECTURE.md`, "Workspace persistence").
     Recent(crate::workspace::recent::RecentCommand),
 }
 

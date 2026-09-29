@@ -2,8 +2,6 @@ name: Undo and redo
 on:
   push:
     paths:
-      - 'docs/undo-redo.html'
-      - 'docs/tests/undo-redo.test.mjs'
       - 'volna/**'
       - 'core/vtr/**'
       - 'Cargo.lock'
@@ -11,8 +9,6 @@ on:
       - '.github/workflows/undo-redo.yml'
   pull_request:
     paths:
-      - 'docs/undo-redo.html'
-      - 'docs/tests/undo-redo.test.mjs'
       - 'volna/**'
       - 'core/vtr/**'
       - 'Cargo.lock'
@@ -22,21 +18,6 @@ on:
 permissions:
   contents: read
 jobs:
-  demo:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      VOLNA_CHROME: /usr/bin/google-chrome
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Verify headless browser prerequisite
-        run: google-chrome --version
-      - name: Test the design demo
-        run: node --test --test-concurrency=1 docs/tests/undo-redo.test.mjs
-
   # The journal, the model-based test and every headless viewer test.
   core:
     runs-on: ubuntu-24.04

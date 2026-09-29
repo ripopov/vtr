@@ -108,7 +108,7 @@ pub struct Document {
     generations: u64,
     pub shared: Shared,
     pub navigation: Navigation,
-    /// Journaled cockpit state (`docs/undo-redo.html`); read through
+    /// Journaled cockpit state (`volna/volna/ARCHITECTURE.md`, "Undo and redo"); read through
     /// [`Document::markers`].
     markers: crate::history::Journaled<Vec<Marker>>,
     /// Where measurements start; navigation state, outside the journal.

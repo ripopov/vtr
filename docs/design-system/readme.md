@@ -36,7 +36,7 @@ After an intended visual change, run `UPDATE_BASELINES=1 node --test --test-conc
   - `vtr/volna/volna-core/src/theme/mod.rs` — One Dark theme (surfaces, text, wave colours, markers, fonts, 13px UI / 24px rows).
   - `vtr/volna/volna-core/src/pipeline/palette.rs` — pipeline stage ladder.
   - `vtr/volna/volna/src/theme.rs` — component radius 4px.
-  - `vtr/docs/pipeline-view.html`, `vtr/docs/volna-mcp.html` — light/dark doc-page palettes (light semantic colours).
+  - `vtr/docs/volna-mcp.html` — light/dark doc-page palettes (light semantic colours).
   - `vtr/docs/BENCHMARK_RESULTS.md` — every number used.
   - `vtr/docs/SPEC.md`, `vtr/README.md`, `vtr/volna/volna/README.md`, `vtr/tools/README.md` — format and install facts.
   - Assets: `vtr/volna/volna/assets/app-icon/`, `vtr/volna/volna-core/assets/{fonts,icons}`, screenshots from `vtr/volna/volna/benchmarks/` and `vtr/demos/pipeline-viewer/screenshots/`.

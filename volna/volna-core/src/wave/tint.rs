@@ -1,4 +1,4 @@
-//! Row colours (`docs/wave-colors.html`): a row or group stores one of a few
+//! Row colours (`docs/RATIONALE.md`, "Volna row colours"): a row or group stores one of a few
 //! named theme colours, never RGB, and the theme resolves the name per
 //! appearance at the contrast floor of every wave stroke.
 //!

@@ -616,7 +616,7 @@ pub struct AccessibleRow {
 }
 
 /// Inverses of a wave panel's row edits since the app last collected them
-/// into the undo journal (`docs/undo-redo.html`).
+/// into the undo journal (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
 #[derive(Default)]
 pub(crate) struct RowJournal {
     /// Each edit's label and inverse splices, in the order they were made.

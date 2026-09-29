@@ -1,4 +1,4 @@
-//! Undo and redo of the cockpit (`docs/undo-redo.html`).
+//! Undo and redo of the cockpit (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
 //!
 //! One linear history per open trace. Changes to cockpit state are
 //! [`Edit`]s: data whose application returns the edit that undoes it, so

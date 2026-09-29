@@ -313,7 +313,7 @@ impl Focusable for Workspace {
 
 /// Register key bindings and the application menu.
 pub fn init(cx: &mut App) {
-    // Cockpit undo (`docs/undo-redo.html`): ⌘Z / Ctrl+Z, and ⇧⌘Z, Ctrl+Y or
+    // Cockpit undo (`volna/volna/ARCHITECTURE.md`, "Undo and redo"): ⌘Z / Ctrl+Z, and ⇧⌘Z, Ctrl+Y or
     // Ctrl+Shift+Z to redo. Text fields bind the same keys in their own
     // context, which wins while they have focus. VS Code forwards them.
     cx.bind_keys([
@@ -1741,7 +1741,7 @@ impl Workspace {
     }
 
     /// The start page: open a file, or reopen a recent one
-    /// (`docs/recent_sessions.html`). It holds the center's focus so its keys
+    /// (`volna/volna/ARCHITECTURE.md`, "Workspace persistence"). It holds the center's focus so its keys
     /// work as soon as it appears.
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);

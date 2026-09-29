@@ -274,7 +274,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
     <div class="card"><h3>Hosts move bytes, never parse</h3><p><span class="badge exist">existing</span> The workspace persistence pattern (byte store, save tickets, atomic rename, read-error write protection) is reused unchanged. Native watches the file; standalone web keeps the text in browser storage; VS Code supplies its own <code>volna.*</code> configuration and gets live updates through <code>onDidChangeConfiguration</code>.</p></div>
     <div class="card"><h3>State is not a setting</h3><p><span class="badge prop">proposed</span> Recent traces and recent workspaces leave the preferences file and move to <code>state.json</code>. Settings are what a user would sync to another machine; state is what the app remembers about this one. The two never share a file, as in VS Code.</p></div>
   </div>
-  <div class="callout"><p><strong>Scope.</strong> Global user settings only: appearance, waveform behaviour, sidebar, workspace persistence, remote limits, logging. Per-trace state stays in the workspace file described in <a href="workspaces.html">Panels and Workspaces</a>. Key bindings are a natural second file (<code>keymap.json</code>) built on the same store and editor, but they are not designed here.</p></div>
+  <div class="callout"><p><strong>Scope.</strong> Global user settings only: appearance, waveform behaviour, sidebar, workspace persistence, remote limits, logging. Per-trace state stays in the workspace file described in <a href="../volna/volna/ARCHITECTURE.md#workspace-persistence">Panels and Workspaces</a>. Key bindings are a natural second file (<code>keymap.json</code>) built on the same store and editor, but they are not designed here.</p></div>
 </div></section>
 
 <section id="today"><div class="wrap">
@@ -627,14 +627,14 @@ pub struct Spec {
   <h2>References</h2>
   <ul>
     <li>gpui-kit repository, commit <code>d604a2a</code> (2026-09-16): <code>crates/component/src/setting/</code>, <code>crates/component/src/command/</code>, <code>crates/base/src/input/editor/lsp/</code>, <code>crates/base/src/input/editor/diagnostics.rs</code>, <code>crates/component/src/highlighter/wasm_stub.rs</code>, <code>crates/component/src/theme/registry.rs</code>, <code>crates/component/src/label.rs</code>, <code>crates/story/src/stories/settings_story.rs</code>, <code>crates/story/src/themes.rs</code>, <code>crates/shell/src/storage.rs</code>, <code>website/component/{settings,command,editor,theme}.md</code>. <a href="https://github.com/longbridge/gpui-kit">github.com/longbridge/gpui-kit</a>, <a href="https://gpui-kit.com">gpui-kit.com</a>.</li>
-    <li>Volna: <code>volna/volna-core/src/workspace/prefs.rs</code>, <code>volna/volna/src/native_workspace.rs</code>, <code>volna/volna/src/theme.rs</code>, <code>volna/volna/src/app.rs</code>, <code>volna/volna/src/lib.rs</code>, <code>volna/volna/vscode-ext/{package.json,workspace.js,extension.js}</code>, <code>volna/volna/ARCHITECTURE.md</code>, <code>docs/workspaces.html</code>, <code>docs/RATIONALE.md</code> (Volna viewer).</li>
+    <li>Volna: <code>volna/volna-core/src/workspace/prefs.rs</code>, <code>volna/volna/src/native_workspace.rs</code>, <code>volna/volna/src/theme.rs</code>, <code>volna/volna/src/app.rs</code>, <code>volna/volna/src/lib.rs</code>, <code>volna/volna/vscode-ext/{package.json,workspace.js,extension.js}</code>, <code>volna/volna/ARCHITECTURE.md</code>, <code>docs/RATIONALE.md</code> (Volna viewer).</li>
     <li>VS Code: <a href="https://code.visualstudio.com/docs/configure/settings">User and workspace settings</a> (settings editor, <code>settings.json</code>, <code>@modified</code> and other filters, default settings), <a href="https://code.visualstudio.com/api/references/contribution-points#contributes.configuration">contributes.configuration</a>.</li>
     <li>Zed: <a href="https://zed.dev/docs/configuring-zed">Configuring Zed</a> (<code>settings.json</code>, default settings, project settings) and the settings editor introduced in 2025, which writes back into <code>settings.json</code> with comment-preserving edits.</li>
-    <li>Surfer configuration (TOML, <code>ProjectDirs</code>) as the previous behaviour bar, see <a href="workspaces.html#refs">Panels and Workspaces</a>.</li>
+    <li>Surfer configuration (TOML, <code>ProjectDirs</code>) as the previous behaviour bar, see <a href="../volna/volna/ARCHITECTURE.md#workspace-persistence">Panels and Workspaces</a>.</li>
   </ul>
 </div></section>
 </main>
-<footer><div class="wrap"><p class="small">Volna user settings proposal · 2026-09-17 · companion to <a href="workspaces.html">Panels and Workspaces</a> and <a href="client-server-simple.html">Load once</a>.</p></div></footer>
+<footer><div class="wrap"><p class="small">Volna user settings proposal · 2026-09-17 · companion to <a href="../volna/volna/ARCHITECTURE.md#workspace-persistence">Panels and Workspaces</a> and <a href="../volna/volna/ARCHITECTURE.md#complete-object-remote-loading">Load once</a>.</p></div></footer>
 
 <script>
 (function(){

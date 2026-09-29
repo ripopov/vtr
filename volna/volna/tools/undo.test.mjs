@@ -3,7 +3,7 @@
 // assertions are the gate. Checks that the platform undo keys reach the
 // cockpit history in the wasm page, that the page keeps the browser's own
 // Edit ▸ Undo off it (the key's default is prevented), and that the host's
-// named commands take the same path (docs/undo-redo.html).
+// named commands take the same path (volna/volna/ARCHITECTURE.md, "Undo and redo").
 import assert from 'node:assert/strict';
 import {readdir, readFile, stat} from 'node:fs/promises';
 import {join, relative} from 'node:path';

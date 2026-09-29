@@ -317,7 +317,7 @@ on the name marks the row. One command, `Action::SetTint` (the signal menu's
 Color submenu, the palette's `Color: …`, the named commands `colorBlue` and
 the rest), colours the selection as one undo step through
 `WaveModel::set_tint`. Ungrouping and copying write the inherited colour into
-the rows. The design is [docs/wave-colors.html](../../docs/wave-colors.html).
+the rows.
 
 Rows form a tree of groups (`WaveRow::Group`, `wave::tree`): `WaveModel::items`
 holds `Entry { depth, row }` in pre-order, so a group's rows are the deeper
@@ -409,8 +409,7 @@ over the lifetime of a transaction without stages. `TxStatus::Aborted` rows are
 tinted and marked in the label column; `Open` rows end with a dashed edge. The
 label column shows the row index and the joined `vtr.label` text. Any stream
 or generator opens; the `PIPELINE` kind is only a recognition hint for the
-sidebar icon, the View ▸ Pipeline submenu and the command palette. The design
-is [docs/pipeline-view.html](../../docs/pipeline-view.html).
+sidebar icon, the View ▸ Pipeline submenu and the command palette.
 
 The X axis is the document's time: the panel embeds a `NavState`, so the link
 flags, the shared viewport and cursor, markers and the `waves.animation` setting
@@ -476,8 +475,7 @@ Top/bottom indicators count off-screen intersecting rows and reveal the nearest
 one without enabling follow; toolbar equivalents support native accessibility.
 Idle time windows retain the row position and display earlier/later activity
 directions. Follow state persists in the pipeline workspace payload and splits.
-All policy and commands live in `pipeline::activity` in `volna-core`; see the
-[interaction design](../../docs/follow-activity.html).
+All policy and commands live in `pipeline::activity` in `volna-core`.
 
 `Command::OpenPipeline { track }` (from `ActivateMembers`, the menu, the
 palette) focuses the panel already showing the track or opens one split below
@@ -565,8 +563,8 @@ focused panel's cursor, or opens the name field of the marker already there;
 `⇧M` removes the marker there, and *Remove All Markers* is a palette command. Workspaces store the
 numbers, and restore rejects zero and duplicates.
 
-Every timed panel has a Markers lane below the ruler band
-([docs/markers-ux.html](../../docs/markers-ux.html)). `wave::overlay::marker_lane`
+Every timed panel has a Markers lane below the ruler band.
+`wave::overlay::marker_lane`
 lays it out from `Document::markers`, which is sorted by time, in one pass
 over the viewport's slice found by binary search. Each marker gets a chip
 with its number, and a chip that would touch the one before it joins it in a
@@ -801,8 +799,7 @@ do not opt into workspace storage.
 
 ## Undo and redo
 
-`history` holds one linear journal per open trace (`App::history`); the
-design is [docs/undo-redo.html](../../docs/undo-redo.html). Undoable state is
+`history` holds one linear journal per open trace (`App::history`). Undoable state is
 what a workspace file stores minus navigation: rows and their styles, groups,
 markers, a timed panel's rulers and cycle origin, panel titles, table columns,
 transaction pins and radixes, and the panel structure. Viewports, cursors,
@@ -974,7 +971,7 @@ The main frontend still has no transaction panel.
 
 ### Complete-object remote loading
 
-The [client-server design](../../docs/client-server-simple.html) uses the same
+The client-server design uses the same
 resident objects for local and remote viewing. Native `OpenSpec::Path` loads
 in process. In VS Code, the workspace extension launches `volna-server` beside
 the file and relays opaque framed binary messages to `OpenSpec::Remote`.

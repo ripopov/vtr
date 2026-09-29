@@ -1,4 +1,4 @@
-//! Recent traces and workspaces (`docs/recent_sessions.html`): the list the
+//! Recent traces and workspaces (`volna/volna/ARCHITECTURE.md`, "Workspace persistence"): the list the
 //! start page, File ▸ Open Recent and the palette offer. The core owns the
 //! list, its order and limit, the start page's selection and keys, and the
 //! row text; hosts stamp opens with the wall clock, report which files are

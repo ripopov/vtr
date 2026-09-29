@@ -1,4 +1,4 @@
-//! Headless tests of row colours (`docs/wave-colors.html`): the Color menu
+//! Headless tests of row colours (`docs/RATIONALE.md`, "Volna row colours"): the Color menu
 //! and command, inheritance through groups, Default, ungrouping, the
 //! clipboard, undo, workspaces and the painter.
 

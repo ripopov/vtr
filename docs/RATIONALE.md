@@ -95,7 +95,7 @@ branches. Expansion remains navigation outside undo history.
 
 ## Volna cockpit undo and redo
 
-The [undo/redo design](undo-redo.html) keeps one linear history per open
+The undo/redo design keeps one linear history per open
 trace in `volna-core` (`history`, `App::history`). Undoable state is what a
 workspace file stores minus navigation: rows, formats, heights, groups,
 markers, rulers and cycle origins, titles, table columns, transaction pins and
@@ -154,7 +154,7 @@ the marker-only journal of the marker proposal.
 
 ## Volna marker interactions (proposal)
 
-The [marker proposal](markers-ux.html) models three things on the time axis:
+The marker design models three things on the time axis:
 the cursor (where values are read), markers (kept instants with a number and
 an optional name, shared by all panels) and at most one reference (a time, or
 a marker it follows). Commercial viewers pair a cursor with a baseline or
@@ -387,7 +387,7 @@ would put viewer logic outside the toolkit-free core and would not run in the
 native window.
 
 Follow activity borrows the separate time link and local row policy from
-[`follow-activity.html`](follow-activity.html). The visible effective cursor
+its interaction design. The visible effective cursor
 anchors the query, falling back to the viewport center; intersecting lifetimes
 nearest that anchor win, with ties resolved toward the current row center.
 The middle 60% is a safe band: a candidate already there causes no movement.
@@ -490,7 +490,7 @@ The browser's incremental decoder still owns its private construction buffers
 and performs wire validation before publication.
 
 The remote direction uses complete selected signals and transaction tracks,
-as described in the [simple client-server design](client-server-simple.html).
+as described in the [Volna architecture](../volna/volna/ARCHITECTURE.md#complete-object-remote-loading).
 This adopts Surver's whole-signal loading boundary and accepts client memory
 proportional to selected data. Reader caches are not bounded by the viewport.
 Complete track objects retain immutable per-generator stores, parent-owner
@@ -2002,8 +2002,8 @@ templates (postponed).
 
 ## Volna row colours
 
-Rows and groups of the wave panel can take a colour, designed in
-[docs/wave-colors.html](wave-colors.html) after GTKWave (a fixed list of named
+Rows and groups of the wave panel can take a colour, designed
+after GTKWave (a fixed list of named
 colours applied to the selected traces) and Surfer (names resolved by the
 active theme). Borrowed: named colours, the selection as the target, and the
 theme as the owner of the actual colour. Rejected: Questa's per-signal

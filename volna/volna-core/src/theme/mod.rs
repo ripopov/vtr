@@ -123,7 +123,7 @@ pub struct Theme<C = Color> {
     pub wave_cursor_text: C,
     /// Row colours by [`Tint::index`], at the contrast floor of
     /// `wave_signal` on the canvas and of the name stripe on the panel
-    /// surfaces (`docs/wave-colors.html`). Default is `wave_signal`.
+    /// surfaces (`docs/RATIONALE.md`, "Volna row colours"). Default is `wave_signal`.
     pub wave_tints: [C; 5],
     /// Relation arrows drawn for the selected pipeline row: edges that end
     /// at it, and edges that start from it.

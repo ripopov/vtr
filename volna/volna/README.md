@@ -252,7 +252,7 @@ the new session reloads complete objects using their durable paths.
 These limits do not bound
 total browser memory or guarantee that a large allocation will fit its address
 space. Metadata is subject to admission too. See the
-[complete-object design](../../docs/client-server-simple.html).
+[complete-object design](ARCHITECTURE.md#complete-object-remote-loading).
 
 VS Code colours follow the current theme, including custom themes, colour
 customizations, light/dark and both high-contrast modes. Changes repaint the

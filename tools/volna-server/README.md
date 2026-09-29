@@ -36,4 +36,4 @@ Process tests compare VTR/FST signal results with local sessions, including
 aliases, and verify full transaction records, cross-generator relations,
 empty generators, explicit errors, size limits and file-change invalidation.
 The VS Code deployment is described in
-[the design](../../docs/client-server-simple.html).
+[the Volna architecture](../../volna/volna/ARCHITECTURE.md#complete-object-remote-loading).

@@ -5,7 +5,7 @@
 //! adapter wraps fst-reader. Both produce the same immutable history contract.
 //! Remote loading uses these same complete objects; the client performs
 //! navigation and queries after loading. Selected histories and tracks must
-//! fit in client memory. See `docs/client-server-simple.html`.
+//! fit in client memory. See `volna/volna/ARCHITECTURE.md`, "The session seam".
 //!
 //! Loading is pull based so it fits any executor: the document queues
 //! [`LoadRequest`]s, the frontend performs them wherever it likes (a thread, a

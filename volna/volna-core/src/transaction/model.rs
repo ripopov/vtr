@@ -78,7 +78,7 @@ pub struct TransactionModel {
     history: Vec<ShownRecord>,
     cursor: usize,
     /// A pinned panel ignores the document selection, so two panels
-    /// compare. Journaled with the radixes (`docs/undo-redo.html`).
+    /// compare. Journaled with the radixes (`volna/volna/ARCHITECTURE.md`, "Undo and redo").
     pinned: bool,
     /// The reader's choices; the radixes are journaled and change only
     /// through [`TransactionCommand::Radix`]. Read with [`TransactionModel::prefs`].

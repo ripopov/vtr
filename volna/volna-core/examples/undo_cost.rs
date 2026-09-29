@@ -1,4 +1,4 @@
-//! Undo journal cost (`docs/undo-redo.html`): the size of a wave row, the
+//! Undo journal cost (`volna/volna/ARCHITECTURE.md`, "Undo and redo"): the size of a wave row, the
 //! time to detach N rows from their histories (what the journal keeps for a
 //! removed row or a closed panel), and the time and size of saving and
 //! restoring an N-row wave panel through the workspace codec (what a

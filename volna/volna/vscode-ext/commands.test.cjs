@@ -1,5 +1,5 @@
 // The manifest's commands and keys match what the extension forwards, and
-// the forwarded commands reach the active viewer (docs/undo-redo.html).
+// the forwarded commands reach the active viewer (volna/volna/ARCHITECTURE.md, "Undo and redo").
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");

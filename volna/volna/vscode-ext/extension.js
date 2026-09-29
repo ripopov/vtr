@@ -123,7 +123,7 @@ function wire(panel, context, uri) {
 
 // Commands the extension forwards to the active viewer by name. Undo and
 // redo stay inside the viewer: its trace tab is read-only and never dirty, so
-// VS Code's own undo stack is not involved (docs/undo-redo.html).
+// VS Code's own undo stack is not involved (volna/volna/ARCHITECTURE.md, "Undo and redo").
 const FORWARDED_COMMANDS = [
   "undo", "redo",
   "splitRight", "splitDown", "newPanel", "closePanel",

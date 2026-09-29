@@ -1,4 +1,4 @@
-//! The start page's recent list (`docs/recent_sessions.html`): order, limit,
+//! The start page's recent list (`volna/volna/ARCHITECTURE.md`, "Workspace persistence"): order, limit,
 //! keys, removal, missing files and the events hosts act on.
 use std::collections::BTreeSet;
 use volna_core::testing::ProceduralTrace;

@@ -1,7 +1,7 @@
 //! A minimal single-line text field (filter box, group name editor). Handles
 //! printable input, backspace, word delete, escape and its own text undo:
 //! its key context binds ⌘Z / Ctrl+Z, so undo in a field edits the text and
-//! never the cockpit (`docs/undo-redo.html`). No IME or selection; enough
+//! never the cockpit (`volna/volna/ARCHITECTURE.md`, "Undo and redo"). No IME or selection; enough
 //! for a filter or a name.
 
 use gpui_kit::prelude::*;

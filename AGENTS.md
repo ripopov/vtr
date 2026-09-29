@@ -37,7 +37,7 @@ MCP and other agent adapters must remain thin wrappers over toolkit-independent
 core commands and query APIs and must preserve the VTR/VDB boundary.
 
 Every new viewer feature decides whether each of its user actions is undoable
-([docs/undo-redo.html](docs/undo-redo.html)). Changes to what a workspace
+([Volna architecture](volna/volna/ARCHITECTURE.md#undo-and-redo)). Changes to what a workspace
 stores are cockpit edits: route them through the field's single journaled
 writer (`history::Journaled` or `history::Before`, `WaveModel` row edits,
 `App::restructure`), hand them over in the owner's `take_edits` so they
