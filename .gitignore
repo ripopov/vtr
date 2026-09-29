@@ -33,9 +33,6 @@ __pycache__/
 /volna/volna/examples/*.volna.json
 !/volna/volna/examples/landing.vtr.volna.json
 
-# Large local C910 CoreMark example artifacts.
-/volna/volna/examples/c910_coremark.*
-
 # Local large examples and their workspaces.
 /volna/volna/examples/large_*
 

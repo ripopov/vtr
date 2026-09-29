@@ -243,7 +243,7 @@ Large pipelines are measured, not gated:
 ```sh
 cargo test --release -p volna-core --test pipeline half_million -- --ignored --nocapture
 VOLNA_OBJECT_MIB=2048 cargo test --release -p volna-core --test pipeline half_million -- --ignored --nocapture
-VOLNA_OBJECT_MIB=2048 VOLNA_PIPELINE_TRACE=$PWD/volna/volna/examples/c910_coremark.vtr \
+VOLNA_OBJECT_MIB=2048 VOLNA_PIPELINE_TRACE=$PWD/volna/volna/examples/large_c910_coremark.vtr \
   VOLNA_PIPELINE_STREAM=TX.core0.pipeline \
   cargo test --release -p volna-core --test pipeline half_million -- --ignored --nocapture
 ```

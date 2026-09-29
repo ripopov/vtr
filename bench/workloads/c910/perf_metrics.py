@@ -23,7 +23,7 @@ first script): window sums of every metric over the whole run (N cycles per
 window), and every cycle of each --detail range (times in the file's units).
 The page's literal was made from the `capture.sh --pipeline` recording with
 
-    perf_metrics.py volna/volna/examples/c910_coremark.vtr \\
+    perf_metrics.py volna/volna/examples/large_c910_coremark.vtr \\
         bench/workloads/gen/c910_build/sw/coremark/coremark.dis --demo-js demo.js \\
         --detail list:33282:35330 --detail matrix:190466:192514 --detail state:211458:213506
 """

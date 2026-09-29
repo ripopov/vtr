@@ -5,7 +5,7 @@ The capture must hold one stretch of the clock TX.core0.clk, period 2 (200 ps
 in 100 ps units), starting on the first rising edge of the recorded top.clk
 waveform, with as many edges as that waveform has rising edges.
 
-  check_clock.py <vtr-cli> <c910_coremark.vtr>
+  check_clock.py <vtr-cli> <large_c910_coremark.vtr>
 """
 import re
 import subprocess

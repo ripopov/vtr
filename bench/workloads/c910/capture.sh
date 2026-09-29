@@ -3,8 +3,8 @@
 #
 # Builds whatever is missing (the VTR C library, the CoreMark image, the
 # Verilated model with --trace-vtr or --trace-fst), runs one CoreMark
-# iteration with the whole design dumped, and writes c910_coremark.<ext>
-# (plus c910_coremark.vdb.json for VTR) into --out (default
+# iteration with the whole design dumped, and writes large_c910_coremark.<ext>
+# (plus large_c910_coremark.vdb.json for VTR) into --out (default
 # volna/volna/examples, where the viewer examples live). The VTR model
 # embeds the VDB document and writes the companion beside the recording,
 # so no explicit export step is needed.
@@ -89,7 +89,7 @@ make -C "$HERE" model MODE="$FORMAT" PIPELINE="$PIPELINE" BUILD="$BUILD" JOBS="$
   VERILATOR="$VERILATOR" VTR_INCLUDE="$VTR_INCLUDE" VTR_LIBDIR="$VTR_LIBDIR"
 
 # The testbench $readmemh's inst.pat/data.pat relative to the working dir.
-TRACE="$OUT/c910_coremark.$FORMAT"
+TRACE="$OUT/large_c910_coremark.$FORMAT"
 MAX_ARG=
 if [ -n "$MAX_CYCLES" ]; then MAX_ARG="--max-cycles=$MAX_CYCLES"; fi
 set +e
@@ -103,7 +103,7 @@ fi
 echo "== written: $TRACE ($(ls -lh "$TRACE" | awk "{print \$5}"))"
 
 if [ "$FORMAT" = vtr ]; then
-  companion="$OUT/c910_coremark.vdb.json"
+  companion="$OUT/large_c910_coremark.vdb.json"
   if [ ! -s "$companion" ]; then
     echo "VDB companion not written next to $TRACE; something went wrong" >&2
     exit 1

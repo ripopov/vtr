@@ -224,6 +224,66 @@ cargo run -p vtr-cli --bin vtr -- clocks volna/volna/examples/feature_showcase.v
 cargo run -p volna --profile viewer -- volna/volna/examples/feature_showcase.vtr
 ```
 
+## Large VTR profiling traces
+
+These ignored local files exercise different VTR costs; each generator prints
+the final file size, record count and write time and checks its hierarchy,
+signals and time range with the reader. Their output names begin with
+`large_`, so the root `.gitignore` excludes the traces and any Volna workspaces
+beside them.
+
+`large_many_scopes.vtr` has 32 child module scopes and 128 real sine-wave
+variables, each with exactly 10 million samples at a distinct frequency and
+amplitude. Its 1.28 billion records stress hierarchy declarations and loading
+many long signal histories together. `large_analog_signals.vtr` has exactly
+two top-level scopes and 15 channels with 130 million samples each. It mixes
+sine and cosine waves, tanh, deterministic white noise, sawtooth, triangle,
+chirp, damped and rectified waves, harmonics, pulses, modulation and clipping
+across real, 32-bit, 16-bit and 8-bit values. It stresses long-history block
+decoding and numeric value access. Both defaults target about 4 GB; final
+sizes are reported by each run. These workload dimensions complement the
+hierarchy chunk measurements in [the format rationale](../../../docs/RATIONALE.md).
+
+Generate them from the repository root (about 1½ minutes combined on the
+reference machine after the first compilation):
+
+```sh
+cargo -Zscript volna/volna/examples/generate_large_many_scopes.rs
+cargo -Zscript volna/volna/examples/generate_large_analog.rs
+```
+
+For reproducible history-load, point-query, frame-sweep, scan and numeric
+decode measurements, pin the run as described in the repository benchmark
+guidance. These examples select one long signal from each workload:
+
+```sh
+taskset -c 0-7 cargo run --release -p volna-core --example history_cost -- \
+  volna/volna/examples/large_many_scopes.vtr sine_000_amp_0.250
+taskset -c 0-7 cargo run --release -p volna-core --example history_cost -- \
+  volna/volna/examples/large_analog_signals.vtr white_noise_real
+```
+
+On an Intel Core Ultra 7 265K, repeated generator runs pinned to CPUs 0–7
+produced these files. The write time includes the reader metadata check at the
+end of each generator; the best time came from three runs for the first trace
+and two runs for the second:
+
+| Trace | File size | Waveform records | Generation time |
+|---|---:|---:|---:|
+| `large_many_scopes.vtr` | 4,177,123,346 bytes (3.89 GiB) | 1.28B | 36.2 s |
+| `large_analog_signals.vtr` | 4,211,598,871 bytes (3.92 GiB) | 1.95B | 48.3 s |
+
+After building `history_cost`, its best-of-three independent process runs
+were pinned to CPUs 0–7 with the generated files in the OS page cache:
+
+| Trace / selected history | Changes | Load | RSS growth | Random point | Full frame / 1% frame | Time scan | Numeric decode random / scan |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `large_many_scopes.vtr` / `sine_000_amp_0.250` | 10M | 210 ms | 338 MiB | 191 ns | 46 / 12 µs | 1.09 ns/change | 31 / 2.8 ns |
+| `large_analog_signals.vtr` / `white_noise_real` | 130M | 2,080 ms | 5,286 MiB | 516 ns | 112 / 21 µs | 1.14 ns/change | 34 / 2.8 ns |
+
+The load and memory figures describe one selected history per run; they do not
+include loading every signal in either trace.
+
 ## Large FST stress trace
 
 `large_fst.fst` (about 550 MB, not committed) is for manual performance
