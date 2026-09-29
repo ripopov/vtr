@@ -102,6 +102,9 @@ impl SignalHistory for Placed {
     fn value_view(&self, i: Option<usize>) -> ValueView<'_> {
         self.inner.value_view(i)
     }
+    fn always_normal(&self) -> bool {
+        self.inner.always_normal()
+    }
     fn bit(&self, i: Option<usize>) -> Bit {
         self.inner.bit(i)
     }

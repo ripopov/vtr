@@ -380,10 +380,14 @@ fn delta_e(a: Color, b: Color) -> f32 {
     100.0 * ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
 
-/// Every theme a user can get: One Dark, the bundled palettes, the real host
-/// palettes and the fallbacks of an empty palette in each appearance.
+/// Every theme a user can get: Volna, One Dark, the bundled palettes, the real
+/// host palettes and the fallbacks of an empty palette in each appearance.
 fn every_theme() -> Vec<(String, Theme)> {
-    let mut out = vec![("one-dark".to_owned(), Theme::one_dark())];
+    let mut out = vec![
+        ("volna-dark".to_owned(), Theme::volna(true)),
+        ("volna-light".to_owned(), Theme::volna(false)),
+        ("one-dark".to_owned(), Theme::one_dark()),
+    ];
     for b in BUILTIN {
         out.push((b.id.to_owned(), Theme::builtin(b.id).unwrap()));
     }

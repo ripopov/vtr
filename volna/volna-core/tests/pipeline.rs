@@ -449,15 +449,19 @@ fn enter_on_a_stream_opens_a_panel_loads_the_track_once_and_paints_cells() {
     assert_eq!(PipelineModel::label(set.get(0).unwrap().1), "00001000: op0");
     assert_eq!(PipelineModel::label(set.get(1).unwrap().1), "00001004: op1");
     assert_eq!(p.palette().names(), STAGES);
-    let fills: Vec<_> = STAGES.iter().map(|s| p.palette().style(s).fill).collect();
+    let fills: Vec<_> = STAGES
+        .iter()
+        .map(|s| p.palette().style(s, &theme).fill)
+        .collect();
     let layout = p.last_layout().clone();
     let viewport = p.nav.viewport(&app.doc);
     // One quad per visible lane-0 stage of the visible rows (each stage is one
     // cycle wide; the fit viewport shows the whole trace).
-    let mut expected = 0;
+    // Flushed instructions keep their cells but draw them hollow.
+    let (mut expected, mut hollow) = (0, 0);
     for r in layout.row_range.clone() {
         let (_, tx) = set.get(r).unwrap();
-        expected += tx
+        let visible = tx
             .stages
             .iter()
             .filter(|s| s.lane == "0")
@@ -466,6 +470,11 @@ fn enter_on_a_stream_opens_a_panel_loads_the_track_once_and_paints_cells() {
                 (end as f64) > viewport.start && (s.begin as f64) < viewport.end
             })
             .count();
+        if tx.status == vtr::TxStatus::Aborted {
+            hollow += visible;
+        } else {
+            expected += visible;
+        }
     }
     let painted = app
         .scene()
@@ -473,6 +482,16 @@ fn enter_on_a_stream_opens_a_panel_loads_the_track_once_and_paints_cells() {
         .filter(|(rect, color)| fills.contains(color) && layout.cells.contains(rect.origin))
         .count();
     assert_eq!(painted, expected);
+    let outlined = app
+        .scene()
+        .prims
+        .iter()
+        .filter(|p| {
+            matches!(p, volna_core::scene::Prim::Quad { rect, fill, border_width, .. }
+                if fill.a == 0.0 && *border_width == 1.0 && layout.cells.contains(rect.origin))
+        })
+        .count();
+    assert_eq!(outlined, hollow);
     let bands = app
         .scene()
         .quads()
@@ -516,7 +535,7 @@ fn enter_on_a_stream_opens_a_panel_loads_the_track_once_and_paints_cells() {
     let bus_panel = app.panels.focused_id();
     assert_eq!(app.panels.len(), 4);
     frame(&mut app, bus_panel, &theme);
-    let grey = volna_core::pipeline::StagePalette::fallback().fill;
+    let grey = theme.stage_fallback().fill;
     assert_eq!(app.scene().quads().filter(|(_, c)| *c == grey).count(), 1);
     assert!(app.panels.waves(waves).is_some());
     let state = app.debug_state();
@@ -1750,7 +1769,10 @@ fn the_feature_showcase_cpu_paints_stage_cells_and_stall_bands() {
         .filter(|r| set.get(*r).unwrap().1.status == vtr::TxStatus::Aborted)
         .count();
     assert_eq!((set.len(), aborted), (160, 14));
-    let fills: Vec<_> = stages.iter().map(|s| p.palette().style(s).fill).collect();
+    let fills: Vec<_> = stages
+        .iter()
+        .map(|s| p.palette().style(s, &theme).fill)
+        .collect();
     let band = theme.editor.text.with_alpha(0.28);
     let cells = p.last_layout().cells;
     let inside: Vec<_> = app

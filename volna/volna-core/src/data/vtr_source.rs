@@ -395,6 +395,7 @@ fn first_bit(v: SignalValue<'_>) -> Bit {
                 1 => Bit::One,
                 2 | 4 | 5 => Bit::X,
                 3 => Bit::Z,
+                8 => Bit::DontCare,
                 _ => Bit::Other,
             }
         }
@@ -430,6 +431,9 @@ impl SignalHistory for VtrHistory {
 
     fn shape(&self) -> SignalShape {
         self.shape
+    }
+    fn always_normal(&self) -> bool {
+        !matches!(self.data.kind(), vtr::SignalKind::Bits { states, .. } if states > 2)
     }
     fn len(&self) -> usize {
         self.data.len()

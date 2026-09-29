@@ -20,7 +20,7 @@ L3 what you get in Volna (pipeline, sequence and bandwidth). Four equal
 steps carry equally sized, abstract diagrams. The
 slide is a fixed 1280x720 canvas, so the diagram is drawn at 1:1 pixel scale.
 
-The page embeds subsets of Volna's own fonts (IBM Plex Sans, Lilex) so it
+The page embeds subsets of Volna's own fonts (Inter, JetBrains Mono) so it
 renders identically offline and in CI. Subsetting needs fontTools and brotli:
 
     python3 -m pip install fonttools brotli
@@ -560,9 +560,9 @@ def font_face(name, file, weight):
 def main():
     here = Path(__file__).parent
     css, js = (here / 'vtr-pitch.css').read_text(), (here / 'vtr-pitch.js').read_text()
-    faces = ''.join((font_face('Plex', 'IBMPlexSans-Regular.ttf', 400),
-                     font_face('Plex', 'IBMPlexSans-SemiBold.ttf', 600),
-                     font_face('Lilex', 'Lilex-Regular.ttf', 400)))
+    faces = ''.join((font_face('Inter', 'Inter-Regular.ttf', 400),
+                     font_face('Inter', 'Inter-SemiBold.ttf', 600),
+                     font_face('JetBrains Mono', 'JetBrainsMono-Regular.ttf', 400)))
     copy = ''.join(f'<li class="{k}"><span class="tag">{esc(tag)}</span><p class="{k}">{esc(t)}</p></li>'
                    for tag, k, t in CAPTIONS)
     page = f'''<!doctype html>

@@ -41,7 +41,7 @@ test('four slides; the staircase: headline, one described diagram, captions per 
   assert.deepEqual(r.tags, ['L0 · Input', 'L1 · AI skill', 'L2 · VTR + VDB', 'L3 · Volna']);
   assert.deepEqual(r.sentences, SENTENCES);
   const fonts = await b.evaluate(`[...document.fonts].map(f => f.family.replace(/"/g, '') + ' ' + f.weight + ' ' + f.status)`);
-  assert.deepEqual(fonts.sort(), ['Lilex 400 loaded', 'Plex 400 loaded', 'Plex 600 loaded']);
+  assert.deepEqual(fonts.sort(), ['Inter 400 loaded', 'Inter 600 loaded', 'JetBrains Mono 400 loaded']);
   assert.ok(!/(src|href)="https?:/.test(html), 'no network resources');
   assert.deepEqual(b.exceptions, []);
 });

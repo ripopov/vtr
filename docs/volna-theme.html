@@ -59,9 +59,9 @@
 <main id="top">
 <section class="v-hero v-hero--left">
   <div class="v-wrap">
-    <p class="v-kicker">Proposal · Viewer theme</p>
+    <p class="v-kicker">Viewer theme · <span class="v-chip v-chip--accent">Landed</span></p>
     <h1 class="v-hero__title">A theme for reading <em>hardware</em>.</h1>
-    <p class="v-hero__lede">Volna, the proposed default look of the viewer, is built on the Instrument design system. The chrome is grey and colour is kept for data. Every value stroke reaches <strong>4.5:1</strong> on the canvas, and every signal state keeps its meaning in greyscale.</p>
+    <p class="v-hero__lede">Volna, the default look of the viewer, is built on the Instrument design system. The chrome is grey and colour is kept for data. Every value stroke reaches <strong>4.5:1</strong> on the canvas, and every signal state keeps its meaning in greyscale.</p>
     <p class="v-hero__fine">Volna Dark, Volna Light and Volna Mixed · replaces One Dark as the default · every existing theme stays</p>
   </div>
 </section>
@@ -79,7 +79,7 @@
       <div class="v-frame__bar"><b>Volna</b><span>landing.vtr</span><span class="v-frame__actions"><span id="demo-name">Volna Dark</span></span></div>
       <div class="v-frame__stage t-stage"><canvas class="t-canvas" id="demo-canvas" role="img" aria-label="Wave panel with the cpu0, l2 and perf groups over 717 to 849 ns, and the cpu0 pipeline below it, cursor at 783 ns, markers irq and refill done"></canvas></div>
     </figure>
-    <p class="v-frame__caption"><span>Drawn by this page, not a screenshot: the viewer is not themed yet.</span><code>volna/volna/examples/landing.vtr · 717–849 ns</code></p>
+    <p class="v-frame__caption"><span>Drawn by this page from the same tokens the viewer compiles in, not a screenshot.</span><code>volna/volna/examples/landing.vtr · 717–849 ns</code></p>
   </div>
 </section>
 
@@ -104,7 +104,7 @@
     <p class="v-kicker">Values</p>
     <h2 class="v-section__title">Every value has a colour and a shape.</h2>
     <div class="t-body">
-      <p>A 1-bit signal is a line at the top or the bottom of its row, and a high value is filled at 10% so a long high reads as a block. A bus is a hexagon outline with its value inside in Lilex. Unknown values are the one thing an engineer must never miss, so X gets the strongest cue: a red line at mid level over a hatched, tinted band. Z stays a bare line at mid level, don't-care is dotted and weak drive is dashed.</p>
+      <p>A 1-bit signal is a line at the top or the bottom of its row, and a high value is filled at 10% so a long high reads as a block. A bus is a hexagon outline with its value inside in JetBrains Mono. Unknown values are the one thing an engineer must never miss, so X gets the strongest cue: a red line at mid level over a hatched, tinted band. Z stays a bare line at mid level, don't-care is dotted and weak drive is dashed.</p>
       <p>Where a single pixel column holds two or more changes, the row becomes a dense band at 55% of the signal colour, so a busy clock never looks like a constant. Coalesced event arrows keep the signal hue but move far from it in lightness, brighter in Volna Dark and deeper in Volna Light, so they differ in brightness rather than hue.</p>
     </div>
     <div class="t-controls" style="margin-top:var(--space-8)">
@@ -145,16 +145,16 @@
     <ol class="t-rules">
       <li><strong>Geometry is time.</strong>Every edge sits on its change's pixel column, and on a bus the crossing point, not the slant, marks the change. Level lines and edges are 1px, snapped to the device pixel grid and drawn without anti-aliasing; only slants and analog lines are smoothed.</li>
       <li><strong>The pixel column is the unit.</strong>The painter already asks each history for the last change at every column's right edge, so a frame costs columns × log(changes) whether the trace holds ten changes or ten million. Every rule below is a rule about one column, and none adds work per transition.</li>
-      <li><strong>Nothing hides under aliasing.</strong>A column with two or more changes shows everything it holds. If every value in it is unknown, it is the hatched X band. If X or Z is mixed with real values, it keeps its activity fill and gets 1px rails in the X or Z colour, so neither the unknowns nor the traffic around them disappear. Today such a column is one green band. The per-block summary gains a few bits recording which value kinds occur, so the rule stays within the column budget.</li>
-      <li><strong>Activity has a strength.</strong>An aliased column's opacity follows its change count on a log scale, from 34% for two changes to 75% for sixty-four or more. A burst, a slow toggle and a quiet stretch then look different in the whole-run view, where today every aliased column is the same 55%.</li>
-      <li><strong>Clocks show periods, not noise.</strong>Once a declared clock's half period drops under 3px, it becomes a band labelled with its frequency and period. A gated stretch is a dashed low line marked “gated”, and a frequency change starts a new label. At closer zoom it is a square wave without the high fill, whose stripes would only add noise. Today a fast clock aliases into the same band as a busy bus.</li>
-      <li><strong>Buses keep an honest outline.</strong>Hexagons get 4px slants (3px today) on each side of the crossing, and the label starts 4px after the slant. Labels already stick to the left edge of the panel when a segment starts off screen, and segments narrower than 5px already join the aliased band; that band now follows rules 3 and 4.</li>
+      <li><strong>Nothing hides under aliasing.</strong>A column with two or more changes shows everything it holds. If every value in it is unknown, it is the hatched X band. If X or Z is mixed with real values, it keeps its activity fill and gets 1px rails in the X or Z colour, so neither the unknowns nor the traffic around them disappear. Before, such a column was one green band. A column learns which kinds it holds by reading at most eight of its values, evenly spaced and always including both ends, and a two-state signal needs no reads at all, so the rule stays within the column budget.</li>
+      <li><strong>Activity has a strength.</strong>An aliased column's opacity follows its change count on a log scale, from 34% for two changes to 75% for sixty-four or more. A burst, a slow toggle and a quiet stretch then look different in the whole-run view, where every aliased column used to be the same 55%.</li>
+      <li><strong>Clocks show periods, not noise.</strong>Once a declared clock's half period drops under 3px, it becomes a band labelled with its frequency and period. A gated stretch is a dashed low line marked “gated”, and a frequency change starts a new label. At closer zoom it is a square wave without the high fill, whose stripes would only add noise. Before, a fast clock aliased into the same band as a busy bus.</li>
+      <li><strong>Buses keep an honest outline.</strong>Hexagons have 4px slants (3px before) on each side of the crossing, and the label starts 4px after the slant. Labels already stick to the left edge of the panel when a segment starts off screen, and segments narrower than 5px already join the aliased band; that band now follows rules 3 and 4.</li>
       <li><strong>Numbers keep their last digits.</strong>When a hex or decimal value does not fit, it keeps its least significant digits behind a leading ellipsis, …0210 rather than 8000…, because neighbouring addresses and counters differ at the end. Text and enum values keep their beginning. A label shorter than two characters is dropped rather than shown as a lone ellipsis.</li>
       <li><strong>States get a tint.</strong>Enum and text rows, such as FSM states and phases, fill each segment with a stable tint derived from its value, so a recurring state is recognisable before its label is readable. Numbers stay outlines. The tint takes one of six hues that stay clear of the X red and the Z amber, at 22%, too faint to compete with a state colour.</li>
-      <li><strong>Z and partial X keep their shape on buses.</strong>A high-impedance bus is a line at mid level, as a single bit is; today it is an amber hexagon. A bus with only some bits unknown keeps its signal outline and shows the unknown digits in the X colour; only a fully unknown value gets the hatched band.</li>
+      <li><strong>Z and partial X keep their shape on buses.</strong>A high-impedance bus is a line at mid level, as a single bit is; it used to be an amber hexagon. A bus with only some bits unknown keeps its signal outline and shows the unknown digits in the X colour; only a fully unknown value gets the hatched band.</li>
       <li><strong>Zero reads as idle.</strong>A bus holding all zeros is drawn as a low line that the neighbouring slants run into, without a label, as Dinotrace, GTKWave and Surfer do. An idle counter, an empty queue or a cleared data bus then looks like a low signal, and every nonzero value stands out as a hexagon. The value is still one hover away.</li>
-      <li><strong>Analog rows show their scale.</strong>The row prints its maximum and minimum in its corner in faint Lilex. Aliased columns keep today's min–max envelope over the 10% area fill, so a one-sample spike survives any zoom.</li>
-      <li><strong>The pointer finds edges.</strong>Hovering a row marks its nearest change within 6px with a 2px accent line and its time in the header,, and a click puts the cursor on that edge. On a bus row, every segment holding the hovered value lights up, so repeats and a state's return are found without a search.</li>
+      <li><strong>Analog rows show their scale.</strong>The row prints its maximum and minimum in its corner in faint JetBrains Mono. Aliased columns keep the min–max envelope over the 10% area fill, so a one-sample spike survives any zoom.</li>
+      <li><strong>The pointer finds edges.</strong>Not built yet: this rule is an interaction, and the theme work covers appearance only. Hovering a row marks its nearest change within 6px with a 2px accent line and its time in the header,, and a click puts the cursor on that edge. On a bus row, every segment holding the hovered value lights up, so repeats and a state's return are found without a search.</li>
       <li><strong>Events count themselves; scaffolding recedes.</strong>A coalesced event arrow carries a ×n count when there is room. Rows stay 24px without zebra stripes; groups are divided by a 1px border; the time grid is drawn only at labelled ticks, and a clock ruler adds a cycle grid once a cycle is 8px wide.</li>
     </ol>
 
@@ -170,7 +170,7 @@
       <li>X: a mid-level line over a 12% tint, hatched at 45° every 5px.</li>
       <li>Change time: the crossing point of a bus.</li>
       <li>Slant: 4px on each side of the crossing.</li>
-      <li>Label: Lilex 12px, 4px after the slant, kept at the panel's left edge.</li>
+      <li>Label: JetBrains Mono 12px, 4px after the slant, kept at the panel's left edge.</li>
     </ol>
   </div>
 </section>
@@ -195,7 +195,7 @@
   <div class="v-wrap">
     <p class="v-kicker">Hierarchy browser</p>
     <h2 class="v-section__title">Find any signal in a 200,000-signal design.</h2>
-    <p class="v-section__sub">Every session starts in the sidebar. It should show where a design's signals are, which parts are moving right now, and get any signal onto the waves in a few keystrokes. The demo is the openC910 core running CoreMark: 6,958 scopes and 204,905 variables, straight from the benchmark trace.</p>
+    <p class="v-section__sub">The sidebar has taken the quiet chrome below: JetBrains Mono names, faint counts and widths, one neutral icon colour, indent guides, the accent bar for variables on the waves and a selection at full strength only in the focused pane. The search, runs, sticky ancestors, activity meters and cursor values are not built yet. Every session starts in the sidebar. It should show where a design's signals are, which parts are moving right now, and get any signal onto the waves in a few keystrokes. The demo is the openC910 core running CoreMark: 6,958 scopes and 204,905 variables, straight from the benchmark trace.</p>
     <div class="t-controls">
       <span>Rules <span class="v-seg" role="group" aria-label="Hierarchy rules" id="hb-rules"><button type="button" data-rules="today" aria-pressed="false">Today</button><button type="button" data-rules="proposed" aria-pressed="true">Proposed</button></span></span>
       <span>Try <span class="v-seg" role="group" aria-label="Example searches" id="hb-try"><button type="button" data-q="ib inst0 data">ib inst0 data</button><button type="button" data-q="btb vld">btb vld</button><button type="button" data-q="rob entry">rob entry</button><button type="button" data-q="">Clear</button></span></span>
@@ -220,10 +220,10 @@
       <li><strong>Scopes show size and activity.</strong>Each scope row counts its variables and has a 26px meter for the share of its signals that change in the visible time range; a scope where nothing moves is drawn faint. In this window <span id="hb-vfpu">16 of 5,596</span> vector FPU signals change, as CoreMark does no floating point, while a third of the fetch unit's signals do. The counts come with the hierarchy. The meters need "did this signal change in the window?" for every signal in the design, not only those on the canvas. The <a class="v-link" href="hierarchy-activity.html">hierarchy activity design</a> answers it on any trace from a per-signal index of long silences, whose threshold each writer block picks from its own budget: exact for every window at least that wide, with narrower windows finished from at most two blocks of the trace.</li>
       <li><strong>Numbered siblings fold into runs.</strong><span id="hb-runs">2,754 of 6,958</span> scopes sit in runs of four or more numbered siblings, such as the 64 reorder buffer entries. A run is one row, <code>x_ct_rtu_rob_entry 0–63</code>, with the counts and meter of all its members; opened, it lists them in numeric order, entry2 before entry10, and so does every list. Folding single-child chains, as VS Code does for folders, was measured and dropped: only <span id="hb-chains">8</span> C910 scopes have one child and no variables.</li>
       <li><strong>Depth stays readable.</strong>C910 is <span id="hb-depth">14</span> levels deep, and the fetch unit sits <span id="hb-ifu-depth">9</span> levels down. Rows indent 12px with 1px guides. When the tree scrolls, the ancestors of the top row stay pinned at the top of the pane, nearest last, taking at most 40% of its height, as in VS Code and Zed.</li>
-      <li><strong>Variables show shape, width and value.</strong>A variable's icon is its own wave shape, a step for a bit and a hexagon for a bus. Its width and its value at the cursor sit in right-aligned Lilex columns, and the value keeps its last digits like a bus label. A value that does not change in the visible range is faint, so static configuration and live state separate at a glance. Variables already in the wave panel carry a 2px accent bar.</li>
+      <li><strong>Variables show shape, width and value.</strong>A variable's icon is its own wave shape, a step for a bit and a hexagon for a bus. Its width and its value at the cursor sit in right-aligned JetBrains Mono columns, and the value keeps its last digits like a bus label. A value that does not change in the visible range is faint, so static configuration and live state separate at a glance. Variables already in the wave panel carry a 2px accent bar.</li>
       <li><strong>Adding works both ways.</strong>Double-click, Enter or drag a variable into the wave panel, which shows an insertion line while you drag. A wave row reveals its variable: the path opens, the scope is selected and scrolled to the middle of the tree, and the variable is selected. Today the sidebar has neither drag nor reveal.</li>
       <li><strong>Keyboard first.</strong>Arrows walk the tree, and Left goes to the parent; Tab moves between the panes and Enter adds. Typing anywhere in the sidebar goes to the search field, and Escape clears it and gives the tree back as it was.</li>
-      <li><strong>Quiet chrome.</strong>Rows are 24px, like the wave rows beside them. Names are Lilex 12px; counts and widths are faint Lilex 11px. Scope and variable icons use one neutral colour; the three tints stay for streams, generators and log sites, whose icons the <a class="v-link" href="../volna/volna/ARCHITECTURE.md#hierarchy-browser">hierarchy proposal</a> set. Selection uses the viewer's selection colour, and only the focused pane shows it at full strength.</li>
+      <li><strong>Quiet chrome.</strong>Rows are 24px, like the wave rows beside them. Names are JetBrains Mono 12px; counts and widths are faint JetBrains Mono 11px. Scope and variable icons use one neutral colour; the three tints stay for streams, generators and log sites, whose icons the <a class="v-link" href="../volna/volna/ARCHITECTURE.md#hierarchy-browser">hierarchy proposal</a> set. Selection uses the viewer's selection colour, and only the focused pane shows it at full strength.</li>
     </ol>
   </div>
 </section>
@@ -234,7 +234,7 @@
     <h2 class="v-section__title">The canvas is the deepest surface.</h2>
     <div class="t-body">
       <p>In Volna Dark the wave and pipeline canvas is the darkest surface; the name and value columns sit one Instrument step above it, and menus one more. In Volna Light the canvas is white and the panels are the page grey. Surfaces are separated by 1px borders; only menus and popovers have a shadow. Selection is a blue tint of the accent and hover a 4% lift of the text colour, so both stay transparent over the waveform.</p>
-      <p>Type is the website's pair. IBM Plex Sans at 13px sets names and chrome; Lilex at 12px sets values, times, stage names and instruction labels, with tabular figures so columns of numbers align. Rows stay 24px on the 4px grid. The cursor is a 1px accent line with a filled time chip; markers are labelled chips in the marker lane with their line in the marker colour.</p>
+      <p>Type is the website's pair. Inter at 13px sets names and chrome; JetBrains Mono at 12px sets values, times, stage names and instruction labels, with tabular figures so columns of numbers align. Rows stay 24px on the 4px grid. The cursor is a 1px accent line with a filled time chip; markers are labelled chips in the marker lane with their line in the marker colour.</p>
     </div>
   </div>
 </section>
@@ -256,7 +256,7 @@
       <li><strong>The data panel is Volna Dark, unchanged.</strong>Mixed adds no tokens, so every floor measured below still holds. The weakest value stroke is <span id="mix-stroke">–</span>. A screenshot of the wave panel looks the same in Mixed and in Dark, and switching between them never changes the waves.</li>
       <li><strong>The seam is the edge.</strong>The dark name column against the light sidebar measures <span id="mix-seam">–</span>, so the seam has no border and no shadow. Popovers take the surface they belong to. A context menu is chrome and stays light, even over the canvas. The cursor chip, marker chips and value tooltips are data and stay dark.</li>
       <li><strong>One accent, two steps.</strong>The accent keeps its hue and uses the lightness each surface needs. The cursor is <code>viewer-accent</code> dark on the canvas (<span id="mix-cursor">–</span>). Focus and selection use the light accent on the chrome (<span id="mix-focus">–</span>). When you select <code>pc</code> in the sidebar, its wave row takes a tint of the same blue, which links the two panels across the seam.</li>
-      <li><strong>The chrome follows the system, the canvas never does.</strong>When the system turns dark, <code>volna-mixed</code> becomes Volna Dark. Only the window around the waves changes; the waves stay the same through the switch.</li>
+      <li><strong>Neither half follows the system.</strong>Volna Mixed is always a light window around dark waves; turning the system dark changes nothing. Whoever wants the whole window to follow the system picks <code>volna</code>.</li>
     </ol>
   </div>
 </section>
@@ -302,8 +302,8 @@
     <p class="v-kicker">Theme sheet</p>
     <h2 class="v-section__title">Thirty tokens, two appearances.</h2>
     <div class="t-body">
-      <p>The tokens live in <code>docs/design-system/tokens/viewer.css</code>, so the website and the viewer share one source. Once this proposal is approved, <code>volna-core</code> gains a Volna theme built from these values. <code>appearance.theme</code> then defaults to <code>volna</code>, which follows the system's light or dark setting, and <code>volna-dark</code> and <code>volna-light</code> pin one of them. <code>volna-mixed</code> keeps the wave and pipeline panels dark and lets the chrome follow the system; it adds no tokens, only a rule for which sheet each panel uses. One Dark and the bundled palettes stay selectable.</p>
-      <p>The colour changes need four small painter changes: the X hatch, the dotted and dashed lines, hollow flushed cells, and an OKLCH stage ladder with alternating lightness. The rendering rules above are the larger piece of work; the only data they add is a few bits per summary block recording which value kinds occur. A core test will check that the theme matches this sheet and meets the same contrast floors.</p>
+      <p>The tokens live in <code>docs/design-system/tokens/viewer.css</code>, so the website and the viewer share one source. <code>volna-core</code> compiles this file in and builds Volna Dark and Volna Light from it. <code>appearance.theme</code> defaults to <code>volna</code>, which follows the system's light or dark setting, and <code>volna-dark</code> and <code>volna-light</code> pin one of them. <code>volna-mixed</code> keeps the wave and pipeline panels dark and the rest of the window light, whatever the system; it adds no tokens, only a rule for which sheet each panel uses. One Dark and the bundled palettes stay selectable.</p>
+      <p>The painters draw the X hatch, the dotted and dashed lines, hollow flushed cells and the OKLCH stage ladder with alternating lightness, and follow the rendering rules above except the pointer rule; they add no data. A core test checks that the theme matches this sheet and meets the same contrast floors, and a GPUI test checks that Volna Mixed paints the waves with the dark sheet in a light window that ignores the system appearance.</p>
     </div>
     <div class="v-table-wrap t-wide" role="region" aria-label="Theme sheet" tabindex="0">
       <table class="v-table v-table--text t-sheet" id="sheet-table">

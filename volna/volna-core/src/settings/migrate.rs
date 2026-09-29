@@ -66,7 +66,10 @@ pub fn preferences_v1(bytes: &[u8], schema_uri: Option<&str>) -> Result<Migrated
             entries.push((id, value));
         }
     };
-    keep("appearance.theme", Value::Text(prefs.theme));
+    // One Dark was version 1's default, not a choice; the current default replaces it.
+    if prefs.theme != crate::theme::builtin::ONE_DARK {
+        keep("appearance.theme", Value::Text(prefs.theme));
+    }
     keep(
         "panels.linkByDefault",
         Value::Bool(prefs.link_by_default.viewport && prefs.link_by_default.cursor),

@@ -7,11 +7,11 @@
 <meta name="description" content="Volna shows waveforms, transactions and CPU pipelines of one VTR recording on one time axis: natively, in VS Code and in your browser.">
 <link rel="icon" type="image/svg+xml" href="../volna/volna/assets/app-icon/volna.svg">
 <style>
-@font-face{font-family:Plex;src:url(../volna/volna-core/assets/fonts/IBMPlexSans-Regular.ttf) format('truetype');font-weight:400;font-display:swap}
-@font-face{font-family:Plex;src:url(../volna/volna-core/assets/fonts/IBMPlexSans-SemiBold.ttf) format('truetype');font-weight:600;font-display:swap}
-@font-face{font-family:Lilex;src:url(../volna/volna-core/assets/fonts/Lilex-Regular.ttf) format('truetype');font-weight:400;font-display:swap}
+@font-face{font-family:Inter;src:url(../volna/volna-core/assets/fonts/Inter-Regular.ttf) format('truetype');font-weight:400;font-display:swap}
+@font-face{font-family:Inter;src:url(../volna/volna-core/assets/fonts/Inter-SemiBold.ttf) format('truetype');font-weight:600;font-display:swap}
+@font-face{font-family:'JetBrains Mono';src:url(../volna/volna-core/assets/fonts/JetBrainsMono-Regular.ttf) format('truetype');font-weight:400;font-display:swap}
 :root{
-  --sans:Plex,'IBM Plex Sans',system-ui,sans-serif;--mono:Lilex,ui-monospace,'SF Mono',Menlo,monospace;
+  --sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
   --bg:#0a0d13;--bg2:#0f141d;--card:#121925;--card2:#172030;--line:#243044;--line2:#31405a;
   --ink:#edf1f7;--mut:#a1acbd;--dim:#7c889b;
   --acc:#2fe0c0;--acc-ink:#6af0d6;--acc-soft:#0f2e2b;--blue:#80a3ff;--blue-soft:#16213a;
@@ -293,7 +293,7 @@ footer a:hover{color:var(--ink)}
         <span class="tag">L0 · Input</span>
         <div class="art" aria-hidden="true">
           <div><span class="k">module</span> top;<br>&nbsp;&nbsp;cpu u_cpu (.*);<br><span class="k">endmodule</span></div>
-          <svg viewBox="0 0 200 54"><g fill="none" stroke="#5ed6a0" stroke-width="1.5"><path d="M30 12h12v-8h12v8h12v-8h12v8h12v-8h12v8h12v-8h12v8h12v-8h12v8h12"/><path d="M30 32h36v-8h60v8h60"/><path d="M30 52h60v-8h60v8h36"/></g><g fill="#7c889b" font-family="Lilex,monospace" font-size="9"><text x="0" y="11">clk</text><text x="0" y="31">req</text><text x="0" y="51">ack</text></g></svg>
+          <svg viewBox="0 0 200 54"><g fill="none" stroke="#5ed6a0" stroke-width="1.5"><path d="M30 12h12v-8h12v8h12v-8h12v8h12v-8h12v8h12v-8h12v8h12v-8h12v8h12"/><path d="M30 32h36v-8h60v8h60"/><path d="M30 52h60v-8h60v8h36"/></g><g fill="#7c889b" font-family="JetBrains Mono,monospace" font-size="9"><text x="0" y="11">clk</text><text x="0" y="31">req</text><text x="0" y="51">ack</text></g></svg>
         </div>
         <p>Your RTL source and its simulation.</p>
       </article>

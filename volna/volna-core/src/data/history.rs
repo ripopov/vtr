@@ -35,6 +35,13 @@ pub trait SignalHistory: Send + Sync {
         super::value_view::ValueView::owned(self.value(i))
     }
 
+    /// True when no value can be unknown, floating, don't-care or weak
+    /// (two-state logic, reals, byte strings), so a painter need not read
+    /// values to learn their kinds. `false` when unknown.
+    fn always_normal(&self) -> bool {
+        false
+    }
+
     /// Fast path for 1-bit signals: the bit after change `i`.
     /// Vectors and reals return [`Bit::Other`].
     fn bit(&self, i: Option<usize>) -> Bit;

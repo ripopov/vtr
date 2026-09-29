@@ -11,7 +11,9 @@ pub enum Bit {
     X,
     /// High impedance (`z`).
     Z,
-    /// Any other VHDL-style code (`l`, `h`, `-`).
+    /// Don't-care (`-`).
+    DontCare,
+    /// Any other VHDL-style code (`l`, `h`): weak drive.
     Other,
 }
 
@@ -23,6 +25,7 @@ impl Bit {
             b'1' => Bit::One,
             b'x' | b'X' | b'u' | b'U' | b'w' | b'W' => Bit::X,
             b'z' | b'Z' => Bit::Z,
+            b'-' => Bit::DontCare,
             _ => Bit::Other,
         }
     }
@@ -32,6 +35,7 @@ impl Bit {
             Bit::Zero | Bit::One => ValueKind::Normal,
             Bit::X | Bit::Unavailable => ValueKind::Undef,
             Bit::Z => ValueKind::HighImp,
+            Bit::DontCare => ValueKind::DontCare,
             Bit::Other => ValueKind::Weak,
         }
     }
@@ -118,8 +122,13 @@ impl WaveValue {
 
 /// Kind of a bit string, with the priority `x > z > - > weak`, like Surfer.
 pub fn kind_of_bits(bits: &[u8]) -> ValueKind {
+    kind_of_codes(bits.iter().copied())
+}
+
+/// [`kind_of_bits`] over ASCII logic codes from any source; stops at the first X.
+pub fn kind_of_codes(bits: impl IntoIterator<Item = u8>) -> ValueKind {
     let mut kind = ValueKind::Normal;
-    for &c in bits {
+    for c in bits {
         let k = match c {
             b'0' | b'1' => continue,
             b'x' | b'X' | b'u' | b'U' | b'w' | b'W' => return ValueKind::Undef,
@@ -146,7 +155,8 @@ mod tests {
         assert_eq!(Bit::from_ascii(b'1'), Bit::One);
         assert_eq!(Bit::from_ascii(b'u'), Bit::X);
         assert_eq!(Bit::from_ascii(b'z').kind(), ValueKind::HighImp);
-        assert_eq!(Bit::from_ascii(b'-'), Bit::Other);
+        assert_eq!(Bit::from_ascii(b'-').kind(), ValueKind::DontCare);
+        assert_eq!(Bit::from_ascii(b'l').kind(), ValueKind::Weak);
     }
 
     #[test]

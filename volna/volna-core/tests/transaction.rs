@@ -249,7 +249,7 @@ fn the_view_reads_identity_timing_lifeline_stages_and_relations() {
     let names: Vec<_> = lane.cells.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["F", "D", "X", "M", "W"]);
     let palette = app.panels.pipeline(pipeline).unwrap().palette();
-    assert_eq!(lane.cells[3].style, palette.style("M"));
+    assert_eq!(lane.cells[3].swatch, palette.swatch("M"));
     assert!((lane.cells[3].width - 10.0 / 14.0).abs() < 1e-4);
 
     // The label is the title, never a row; the pc cycles its radix per key.

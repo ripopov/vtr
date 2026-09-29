@@ -1,11 +1,18 @@
 //! GPUI's view of the core theme: the resolved palette mapped to `Hsla` once
-//! when a theme is installed. All resolution (One Dark, host palettes, VS Code
-//! snapshots) lives in `volna_core::theme`; this module only converts.
+//! when a theme is installed. All resolution (Volna, One Dark, host palettes,
+//! VS Code snapshots) lives in `volna_core::theme`; this module only converts.
+//!
+//! A window paints with two themes ([`Themes`]): the chrome, which every
+//! GPUI element and gpui-kit component reads, and the canvas theme the core
+//! paints the wave and pipeline panels with. Only Volna Mixed tells them apart.
 
 use gpui_kit::component::{Theme as ComponentTheme, ThemeMode};
 use gpui_kit::{App, Global, Hsla, Pixels, px};
 
 pub use volna_core::theme::{Appearance, HostPalette, vscode};
+
+/// The chrome and canvas themes of one window, in core colours.
+pub type Themes = volna_core::theme::Themes;
 
 /// A resolved surface with GPUI colours.
 pub type Surface = volna_core::theme::Surface<Hsla>;
@@ -16,12 +23,15 @@ pub type Theme = volna_core::theme::Theme<Hsla>;
 pub type CoreTheme = volna_core::theme::Theme;
 
 struct ThemeGlobal {
-    /// The installed palette at its design sizes (zoom 1.0).
-    base: CoreTheme,
-    /// `appearance.zoom`; `core` and `gpui` are `base` at this zoom.
+    /// The installed themes at their design sizes (zoom 1.0).
+    base: Themes,
+    /// `appearance.zoom`; `core`, `gpui` and `canvas` are `base` at this zoom.
     zoom: f32,
+    /// The chrome.
     core: CoreTheme,
     gpui: Theme,
+    /// The wave and pipeline panels.
+    canvas: CoreTheme,
 }
 
 impl Global for ThemeGlobal {}
@@ -48,11 +58,16 @@ pub fn hsla(c: volna_core::Color) -> Hsla {
     }
 }
 
-/// Make `core` the current theme without repainting (start-up). The
+/// Make `core` the whole window's theme without repainting (start-up). The
 /// interface zoom already installed is kept.
 pub fn set(core: CoreTheme, cx: &mut App) {
+    set_themes(Themes::uniform(core), cx);
+}
+
+/// Make `themes` current without repainting, keeping the interface zoom.
+pub fn set_themes(themes: Themes, cx: &mut App) {
     let zoom = cx.try_global::<ThemeGlobal>().map_or(1.0, |g| g.zoom);
-    set_zoomed(core, zoom, cx);
+    set_zoomed(themes, zoom, cx);
 }
 
 /// Install `base` scaled by `zoom`. gpui-kit's defaults are a light palette;
@@ -64,8 +79,9 @@ pub fn set(core: CoreTheme, cx: &mut App) {
 /// (the settings editor, inputs, menus, dialogs, the palette) follows the
 /// zoomed UI font size; Volna's own chrome reads the zoomed metrics and
 /// [`ThemePx`].
-fn set_zoomed(base: CoreTheme, zoom: f32, cx: &mut App) {
-    let core = base.zoomed(zoom);
+fn set_zoomed(base: Themes, zoom: f32, cx: &mut App) {
+    let core = base.chrome.zoomed(zoom);
+    let canvas = base.canvas.zoomed(zoom);
     let zoom = core.zoom;
     let t = core.map(hsla);
     let mode = if t.appearance.is_dark() {
@@ -181,12 +197,18 @@ fn set_zoomed(base: CoreTheme, zoom: f32, cx: &mut App) {
         zoom,
         gpui: t,
         core,
+        canvas,
     });
 }
 
 /// Presentation only; invalidate cached children without rebuilding viewer state.
 pub fn install(core: CoreTheme, cx: &mut App) {
-    set(core, cx);
+    install_themes(Themes::uniform(core), cx);
+}
+
+/// Like [`install`] with separate chrome and canvas themes.
+pub fn install_themes(themes: Themes, cx: &mut App) {
+    set_themes(themes, cx);
     cx.refresh_windows();
 }
 
@@ -202,6 +224,18 @@ pub fn theme(cx: &App) -> &Theme {
     &cx.global::<ThemeGlobal>().gpui
 }
 
+/// The chrome theme in core colours.
 pub fn core_theme(cx: &App) -> &CoreTheme {
     &cx.global::<ThemeGlobal>().core
+}
+
+/// The theme the wave and pipeline panels paint with.
+pub fn canvas_theme(cx: &App) -> &CoreTheme {
+    &cx.global::<ThemeGlobal>().canvas
+}
+
+/// Whether a window appearance is dark; `volna` follows it.
+pub fn is_dark(appearance: gpui_kit::WindowAppearance) -> bool {
+    use gpui_kit::WindowAppearance::*;
+    matches!(appearance, Dark | VibrantDark)
 }

@@ -22,9 +22,9 @@ pub fn rect(r: CRect) -> Rect {
 }
 
 /// The bundled families, as installed by [`crate::font_definitions`].
-pub const UI_FAMILY: &str = "IBM Plex Sans";
-pub const UI_SEMIBOLD_FAMILY: &str = "IBM Plex Sans SemiBold";
-pub const MONO_FAMILY: &str = "Lilex";
+pub const UI_FAMILY: &str = "Inter";
+pub const UI_SEMIBOLD_FAMILY: &str = "Inter SemiBold";
+pub const MONO_FAMILY: &str = "JetBrains Mono";
 
 pub fn font_id(role: FontRole, size: f32) -> FontId {
     let family = match role {

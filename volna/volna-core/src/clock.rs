@@ -367,6 +367,10 @@ impl crate::data::SignalHistory for ClockHistory {
         crate::data::SignalShape::Bit
     }
 
+    fn always_normal(&self) -> bool {
+        true
+    }
+
     fn len(&self) -> usize {
         (self.timeline.edge_count() * 2) as usize
     }

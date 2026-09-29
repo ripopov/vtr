@@ -5,7 +5,7 @@
 <title>Volna User Settings</title>
 <meta name="description" content="Proposal for Volna user settings: a settings.json source of truth, a settings editor with fuzzy navigation built on gpui-kit, and the same keys in VS Code.">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 :root{
   --bg:#f2f4f3;--paper:#fbfcfb;--ink:#1a252c;--muted:#5b6a70;--line:#d2dad7;--line-strong:#b6c2be;
@@ -30,9 +30,9 @@
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:70px}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;padding-inline:0}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;padding-inline:0}
 a{color:var(--accent-ink);text-underline-offset:3px}
-code,pre,kbd,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code,pre,kbd,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 code{font-size:.88em;background:color-mix(in srgb,var(--line) 45%,transparent);padding:1px 5px;border-radius:4px}
 pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;font-size:12.5px;line-height:1.6;overflow-x:auto;margin:14px 0}
 pre code{background:none;padding:0;font-size:inherit;color:inherit}
@@ -91,7 +91,7 @@ details[open] summary::before{transform:rotate(45deg)}
 details > :not(summary){margin-bottom:14px}
 .steps{counter-reset:s;list-style:none;padding:0;max-width:none}
 .steps li{counter-increment:s;position:relative;padding-left:38px;margin:10px 0}
-.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:"JetBrains Mono",monospace}
 .cite{font-size:12px;color:var(--muted)}
 .cite code,td .cite code{font-size:11.5px;white-space:normal;overflow-wrap:anywhere}
 td:last-child.cite{min-width:180px}
@@ -111,7 +111,7 @@ td:last-child.cite{min-width:180px}
 .keys kbd{white-space:nowrap}
 .flow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media (max-width:820px){.flow{grid-template-columns:1fr}}
-.msg{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:11.5px;background:color-mix(in srgb,var(--line) 45%,transparent);border-radius:4px;padding:0 5px}
+.msg{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:11.5px;background:color-mix(in srgb,var(--line) 45%,transparent);border-radius:4px;padding:0 5px}
 footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto}}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -122,12 +122,12 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 .se-guide button:hover{border-color:var(--accent)}
 .se-guide button code{background:none;padding:0}
 .se{--se-bg:#1e2227;--se-panel:#23272e;--se-side:#21252b;--se-ink:#d7dde3;--se-muted:#8b95a1;--se-line:#333a44;--se-accent:#4fa3ff;--se-hover:#2a3038;--se-active:#2f3846;--se-mark:#f2c94c;--se-err:#f07a76;--se-warn:#e0a94a;--se-mod:#4fa3ff;
-  background:var(--se-bg);color:var(--se-ink);border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;font:13px/1.45 "IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;position:relative;height:640px;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+  background:var(--se-bg);color:var(--se-ink);border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;font:13px/1.45 "Inter",ui-sans-serif,system-ui,sans-serif;position:relative;height:640px;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.25)}
 .se *{box-sizing:border-box}
 .se [hidden]{display:none!important}
 .se code{background:rgba(255,255,255,.09);color:var(--se-ink);padding:0 4px;border-radius:3px;font-size:.92em}
 .se button{font:inherit;color:inherit}
-.se kbd{font-family:"IBM Plex Mono",monospace;font-size:10.5px;border:1px solid var(--se-line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--se-panel);color:var(--se-muted)}
+.se kbd{font-family:"JetBrains Mono",monospace;font-size:10.5px;border:1px solid var(--se-line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--se-panel);color:var(--se-muted)}
 .se-titlebar{display:flex;align-items:center;justify-content:space-between;background:var(--se-side);border-bottom:1px solid var(--se-line);height:34px;padding-right:8px}
 .se-tabs{display:flex;height:100%}
 .se-tab{padding:0 16px;display:flex;align-items:center;color:var(--se-muted);border-right:1px solid var(--se-line);font-size:12.5px}
@@ -143,7 +143,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 .se-search{display:flex;align-items:center;gap:8px;flex:0 1 420px;background:var(--se-bg);border:1px solid var(--se-line);border-radius:6px;padding:5px 9px;color:var(--se-muted)}
 .se-search:focus-within{border-color:var(--se-accent)}
 .se-search input{flex:1;background:none;border:0;outline:0;color:var(--se-ink);font:inherit;min-width:60px}
-.se-chip{background:transparent;border:1px solid var(--se-line);border-radius:12px;padding:2px 10px;font-size:12px;cursor:pointer;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-chip{background:transparent;border:1px solid var(--se-line);border-radius:12px;padding:2px 10px;font-size:12px;cursor:pointer;color:var(--se-muted);font-family:"JetBrains Mono",monospace}
 .se-chip[aria-pressed="true"]{border-color:var(--se-accent);color:var(--se-ink);background:var(--se-active)}
 .se-count{color:var(--se-muted);font-size:12px;white-space:nowrap}
 .se-spacer{flex:1}
@@ -156,7 +156,7 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 .se-toc button:hover{background:var(--se-hover)}
 .se-toc button.active{background:var(--se-active);border-left-color:var(--se-accent)}
 .se-toc button.empty{color:var(--se-muted);opacity:.55}
-.se-toc button .n{font-size:11px;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-toc button .n{font-size:11px;color:var(--se-muted);font-family:"JetBrains Mono",monospace}
 .se-toc .se-toc-group{padding:4px 14px 4px 28px;font-size:12px;color:var(--se-muted);cursor:pointer}
 .se-toc .se-toc-group:hover{color:var(--se-ink)}
 .se-main{flex:1;min-width:0;overflow:auto;padding:14px 22px 30px}
@@ -174,10 +174,10 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 .se-item.modified::before{content:"";position:absolute;left:4px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--se-mod)}
 .se-item-text{min-width:0}
 .se-item-title{font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.se-item-title .se-page-tag{font-weight:400;font-size:11px;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-item-title .se-page-tag{font-weight:400;font-size:11px;color:var(--se-muted);font-family:"JetBrains Mono",monospace}
 .se-item-title .se-apply{font-weight:500;font-size:10.5px;color:var(--se-warn);border:1px solid var(--se-warn);border-radius:3px;padding:0 5px;text-transform:uppercase;letter-spacing:.4px}
 .se-item-desc{color:var(--se-muted);font-size:12.5px;margin-top:2px}
-.se-item-why{color:var(--se-muted);font-size:11.5px;margin-top:2px;font-family:"IBM Plex Mono",monospace}
+.se-item-why{color:var(--se-muted);font-size:11.5px;margin-top:2px;font-family:"JetBrains Mono",monospace}
 .se-item mark{background:transparent;color:var(--se-mark);text-decoration:underline;text-decoration-color:var(--se-mark);text-underline-offset:2px;font-weight:700}
 .se-item-ctl{display:flex;align-items:center;gap:8px}
 .se-item-ctl select,.se-item-ctl input[type=text],.se-item-ctl input[type=number]{background:var(--se-bg);border:1px solid var(--se-line);border-radius:5px;color:var(--se-ink);font:inherit;padding:4px 8px;min-width:120px}
@@ -197,14 +197,14 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 .se-empty{color:var(--se-muted);padding:30px;text-align:center}
 .se-json{flex:1;min-width:0;display:flex;flex-direction:column}
 .se-json-head{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid var(--se-line);background:var(--se-panel);font-size:12.5px}
-.se-json-path{font-family:"IBM Plex Mono",monospace;color:var(--se-muted)}
+.se-json-path{font-family:"JetBrains Mono",monospace;color:var(--se-muted)}
 .se-json-defaults{margin-left:auto;color:var(--se-muted);display:flex;gap:6px;align-items:center}
 .se-json-panes{display:flex;flex:1;min-height:0}
-.se-editor{flex:1;display:flex;min-width:0;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5}
+.se-editor{flex:1;display:flex;min-width:0;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5}
 .se-gutter{margin:0;padding:10px 8px 10px 12px;color:var(--se-muted);text-align:right;background:var(--se-side);border-right:1px solid var(--se-line);user-select:none;overflow:hidden;font:inherit;min-width:44px}
 .se-gutter .err{color:var(--se-err);font-weight:700}
 .se-editor textarea{flex:1;background:var(--se-bg);color:var(--se-ink);border:0;outline:0;resize:none;padding:10px 12px;font:inherit;white-space:pre;overflow:auto;tab-size:2}
-.se-defaults{flex:1;margin:0;padding:10px 12px;background:var(--se-side);border-left:1px solid var(--se-line);color:var(--se-muted);font-family:"IBM Plex Mono",monospace;font-size:12px;line-height:1.5;overflow:auto;white-space:pre}
+.se-defaults{flex:1;margin:0;padding:10px 12px;background:var(--se-side);border-left:1px solid var(--se-line);color:var(--se-muted);font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.5;overflow:auto;white-space:pre}
 .se-defaults .k{color:var(--se-ink)}
 .se-diags{border-top:1px solid var(--se-line);background:var(--se-panel);max-height:110px;overflow:auto;font-size:12px}
 .se-diags:empty{display:none}
@@ -212,8 +212,8 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 .se-diag:hover{background:var(--se-hover)}
 .se-diag .sev{font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.5px;min-width:52px}
 .se-diag.error .sev{color:var(--se-err)}.se-diag.warning .sev{color:var(--se-warn)}
-.se-diag .loc{color:var(--se-muted);font-family:"IBM Plex Mono",monospace;min-width:60px}
-.se-status{display:flex;justify-content:space-between;align-items:center;height:24px;padding:0 12px;background:var(--se-side);border-top:1px solid var(--se-line);font-size:11.5px;color:var(--se-muted);font-family:"IBM Plex Mono",monospace}
+.se-diag .loc{color:var(--se-muted);font-family:"JetBrains Mono",monospace;min-width:60px}
+.se-status{display:flex;justify-content:space-between;align-items:center;height:24px;padding:0 12px;background:var(--se-side);border-top:1px solid var(--se-line);font-size:11.5px;color:var(--se-muted);font-family:"JetBrains Mono",monospace}
 .se-status-right{color:var(--se-muted)}
 .se-status-right.busy{color:var(--se-accent)}
 .se-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;justify-content:center;align-items:flex-start;padding-top:60px;z-index:10}
@@ -225,8 +225,8 @@ footer{padding-block:28px 48px;font-size:12.5px;color:var(--muted)}
 .se-pal-item.sel{background:var(--se-active)}
 .se-pal-item .ic{width:16px;color:var(--se-muted);text-align:center;flex:none}
 .se-pal-item .lab{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.se-pal-item .lab small{color:var(--se-muted);margin-left:8px;font-family:"IBM Plex Mono",monospace;font-size:11px}
-.se-pal-item .val{color:var(--se-muted);font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.se-pal-item .lab small{color:var(--se-muted);margin-left:8px;font-family:"JetBrains Mono",monospace;font-size:11px}
+.se-pal-item .val{color:var(--se-muted);font-family:"JetBrains Mono",monospace;font-size:11.5px}
 .se-pal-item mark{background:transparent;color:var(--se-mark);font-weight:700}
 .se-palette-foot{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--se-line);font-size:11px;color:var(--se-muted)}
 .se-toast{position:absolute;left:50%;bottom:40px;transform:translateX(-50%);background:var(--se-panel);border:1px solid var(--se-line);color:var(--se-ink);padding:8px 14px;border-radius:8px;font-size:12.5px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:20}
@@ -557,7 +557,7 @@ pub struct Spec {
     <tr><td><code>appearance.theme</code></td><td>Appearance · Theme</td><td>enum from One Dark plus palette files, <code>"one-dark"</code></td><td>live</td><td>native, web</td><td><span class="badge exist">existing</span> value; the picker and palette files are proposed</td><td>first</td></tr>
     <tr><td><code>appearance.zoom</code></td><td>Appearance · Zoom</td><td>number 0.5–3.0 step 0.1, <code>1</code></td><td>live</td><td>all</td><td><span class="badge exist">existing</span> since 2026-09-17: one multiplier over every chrome and wave-table size, stepped by <kbd>⌘=</kbd> / <kbd>⌘-</kbd> / <kbd>⌘0</kbd>, the View ▸ Appearance menu and the palette, like VS Code's View: Zoom</td><td>first</td></tr>
     <tr><td><code>appearance.uiFontSize</code></td><td>Appearance · Fonts</td><td>integer 10–24, <code>13</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
-    <tr><td><code>appearance.monoFont</code></td><td>Appearance · Fonts</td><td>text, <code>"Lilex"</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
+    <tr><td><code>appearance.monoFont</code></td><td>Appearance · Fonts</td><td>text, <code>"JetBrains Mono"</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
     <tr><td><code>panels.linkByDefault</code></td><td>Waves · Panels</td><td>boolean, <code>true</code></td><td>live (new panels)</td><td>all</td><td><span class="badge exist">existing</span> native and VS Code</td><td>first</td></tr>
     <tr><td><code>waves.defaultFormat</code></td><td>Waves · Values</td><td>enum hex | binary | decimal | signed | float, <code>"hex"</code></td><td>live (new rows)</td><td>all</td><td><span class="badge prop">proposed</span></td><td>with its feature</td></tr>
     <tr><td><code>waves.animation</code></td><td>Waves · Navigation</td><td>enum on | reduced | off, <code>"on"</code></td><td>live</td><td>all</td><td><span class="badge prop">proposed</span>; the viewport animation exists, the switch does not</td><td>first</td></tr>
@@ -663,7 +663,7 @@ const REG = [
   { id:'appearance.theme', page:'appearance', group:'Theme', title:'Theme', desc:'One Dark, or any palette JSON dropped into `~/.config/volna/themes/`. Palettes reload when the file changes.', kw:['dark','light','palette','colors','colours'], kind:'enum', values:['one-dark','gruvbox-dark','solarized-light'], labels:['One Dark','Gruvbox Dark (palette)','Solarized Light (palette)'], def:'one-dark', apply:'live' },
   { id:'appearance.zoom', page:'appearance', group:'Zoom', title:'Zoom', desc:'Scale the whole interface: chrome, sidebars, the settings editor and the wave table with its rows and text. 1 is the design size. `⌘=` / `⌘-` step it, `⌘0` resets it.', kw:['scale','font','size','bigger','smaller','magnify','hidpi'], kind:'num', min:0.5, max:3, step:0.1, def:1, apply:'live' },
   { id:'appearance.uiFontSize', page:'appearance', group:'Fonts', title:'UI font size', desc:'Size of the chrome text in logical pixels. The waveform value text follows it.', kw:['text','zoom','scale'], kind:'int', min:10, max:24, step:1, def:13, apply:'live' },
-  { id:'appearance.monoFont', page:'appearance', group:'Fonts', title:'Monospace font', desc:'Family used for values, times and the JSON view. Lilex is bundled.', kw:['typeface','family','code'], kind:'text', def:'Lilex', apply:'live' },
+  { id:'appearance.monoFont', page:'appearance', group:'Fonts', title:'Monospace font', desc:'Family used for values, times and the JSON view. JetBrains Mono is bundled.', kw:['typeface','family','code'], kind:'text', def:'JetBrains Mono', apply:'live' },
   { id:'panels.linkByDefault', page:'waves', group:'Panels', title:'Link new panels', desc:'New waveform panels follow the shared viewport and cursor. Each panel can still unlink from its header.', kw:['follow','cursor','viewport','sync','split'], kind:'bool', def:true, apply:'live' },
   { id:'waves.defaultFormat', page:'waves', group:'Values', title:'Default value format', desc:'Radix used for newly added bus signals. `T` cycles the format of a selected row.', kw:['radix','hex','binary','decimal','signed','float'], kind:'enum', values:['hex','binary','decimal','signed','float'], labels:['Hexadecimal','Binary','Decimal','Signed','Float'], def:'hex', apply:'live' },
   { id:'waves.animation', page:'waves', group:'Navigation', title:'Animation', desc:'Animate pan and zoom. `reduced` keeps the motion but shortens it; `off` jumps.', kw:['smooth','motion','reduce','transition'], kind:'enum', values:['on','reduced','off'], labels:['On','Reduced','Off'], def:'on', apply:'live' },

@@ -245,6 +245,8 @@ pub(crate) type OnWaves = std::collections::HashSet<Traced<volna_core::data::Mem
 
 pub struct Workspace {
     pub app: CoreApp,
+    /// The window's light or dark appearance, which `volna` follows.
+    system_dark: bool,
     #[cfg(target_family = "wasm")]
     pub(crate) remote: Option<crate::web_remote::Bridge>,
     #[cfg(not(target_family = "wasm"))]
@@ -748,6 +750,11 @@ impl Workspace {
             TextInputEvent::Cancel => {}
         })
         .detach();
+        // `volna` follows the system's light or dark setting.
+        cx.observe_window_appearance(window, |this, window, cx| {
+            this.set_system_dark(crate::theme::is_dark(window.appearance()), cx)
+        })
+        .detach();
         let waves_focus = cx.focus_handle();
         window.focus(&waves_focus, cx);
         let workspace = Workspace {
@@ -758,6 +765,7 @@ impl Workspace {
             native_store: None,
             dock: None,
             panel_focus_pending: false,
+            system_dark: crate::theme::is_dark(window.appearance()),
             focus_handle: cx.focus_handle(),
             waves_focus,
             scopes_focus: cx.focus_handle(),
@@ -1107,7 +1115,7 @@ impl Workspace {
         // A marker's field is outlined in the marker's chip colour.
         let accent = match edit.target {
             volna_core::app::EditTarget::Marker { id, .. } => Some(crate::theme::hsla(
-                crate::theme::core_theme(cx)
+                crate::theme::canvas_theme(cx)
                     .marker(id.palette_index())
                     .background
                     .with_alpha(1.0),
@@ -1327,29 +1335,41 @@ impl Workspace {
         }
     }
 
-    /// Install the theme `appearance.theme` names. Embedded hosts supply
-    /// their own palette snapshot instead.
+    /// The system turned light or dark: re-resolve the theme that follows it.
+    pub(crate) fn set_system_dark(&mut self, dark: bool, cx: &mut Context<Self>) {
+        if self.system_dark != dark {
+            self.system_dark = dark;
+            self.apply_theme_setting(cx);
+        }
+    }
+
+    /// Install the theme `appearance.theme` names, in the system's current
+    /// appearance. Embedded hosts supply their own palette snapshot instead.
     pub(crate) fn apply_theme_setting(&mut self, cx: &mut Context<Self>) {
         if self.embedded {
             return;
         }
         let name = self.app.settings.resolved().appearance.theme.clone();
-        log::debug!("applying theme setting {name:?}");
+        let dark = self.system_dark;
+        log::debug!("applying theme setting {name:?} (system dark: {dark})");
         #[cfg(not(target_family = "wasm"))]
-        let theme = match &self.native_store {
-            Some(store) => store.theme(&name),
-            None => crate::theme::CoreTheme::builtin(&name)
+        let themes = match &self.native_store {
+            Some(store) => store.theme(&name, dark),
+            None => volna_core::theme::builtin::resolve(&name, dark)
                 .ok_or_else(|| anyhow::anyhow!("no theme directory")),
         };
         #[cfg(target_family = "wasm")]
-        let theme = crate::theme::CoreTheme::builtin(&name)
+        let themes = volna_core::theme::builtin::resolve(&name, dark)
             .ok_or_else(|| anyhow::anyhow!("palette files are not available in the browser"));
-        match theme {
-            Ok(theme) => crate::theme::install(theme, cx),
+        match themes {
+            Ok(themes) => crate::theme::install_themes(themes, cx),
             Err(error) => {
                 self.app
-                    .report_workspace_error(format!("Theme '{name}': {error:#}; using One Dark"));
-                crate::theme::install(crate::theme::CoreTheme::one_dark(), cx);
+                    .report_workspace_error(format!("Theme '{name}': {error:#}; using Volna"));
+                let fallback =
+                    volna_core::theme::builtin::resolve(volna_core::theme::builtin::VOLNA, dark)
+                        .expect("volna is built in");
+                crate::theme::install_themes(fallback, cx);
             }
         }
     }

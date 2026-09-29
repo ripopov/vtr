@@ -170,10 +170,11 @@ impl Store {
         names
     }
 
-    /// Resolve `appearance.theme` to a core theme; bundled themes need no file.
-    pub(crate) fn theme(&self, name: &str) -> Result<volna_core::Theme> {
-        if let Some(theme) = volna_core::Theme::builtin(name) {
-            return Ok(theme);
+    /// Resolve `appearance.theme` to core themes while the system is dark
+    /// (`system_dark`) or light; built-in themes need no file.
+    pub(crate) fn theme(&self, name: &str, system_dark: bool) -> Result<volna_core::theme::Themes> {
+        if let Some(themes) = volna_core::theme::builtin::resolve(name, system_dark) {
+            return Ok(themes);
         }
         let path = self.themes_dir().join(format!("{name}.json"));
         let bytes = read_limited(&path, settings::store::MAX_BYTES)?
@@ -181,7 +182,9 @@ impl Store {
         let json = String::from_utf8(bytes).context("theme file is not UTF-8")?;
         let palette = volna_core::theme::HostPalette::from_json(&json)
             .with_context(|| format!("invalid palette {}", path.display()))?;
-        Ok(volna_core::Theme::from_host(&palette))
+        Ok(volna_core::theme::Themes::uniform(
+            volna_core::Theme::from_host(&palette),
+        ))
     }
 
     /// Watch the config directory (settings and themes). The callback runs on
@@ -793,8 +796,11 @@ mod tests {
         .unwrap();
         std::fs::write(store.themes_dir().join("notes.txt"), b"").unwrap();
         assert_eq!(store.theme_names(), vec!["paper"]);
-        assert!(store.theme("paper").unwrap().appearance == volna_core::theme::Appearance::Light);
-        assert!(store.theme("missing").is_err());
+        assert!(
+            store.theme("paper", true).unwrap().chrome.appearance
+                == volna_core::theme::Appearance::Light
+        );
+        assert!(store.theme("missing", true).is_err());
         store.write_settings(b"{}").unwrap();
         assert_eq!(store.read_settings().unwrap().as_deref(), Some("{}"));
         // A broken state file is never overwritten.

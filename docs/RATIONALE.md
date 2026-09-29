@@ -2100,6 +2100,92 @@ workspace written with a later palette still opens. The checked-in example
 workspace moved to version 5. Colours never reach VTR or the protocol. A later
 VDB profile may suggest colours by path, and the workspace wins.
 
+## Volna themes
+
+Volna Dark, Volna Light and Volna Mixed implement the viewer theme of
+[docs/volna-theme.html](volna-theme.html) and replace One Dark as the default
+(`appearance.theme` = `volna`, which follows the system; `volna-dark` and
+`volna-light` pin one; One Dark and the bundled palettes stay).
+
+The colours are not copied into Rust. `theme::volna` compiles in
+`docs/design-system/tokens/viewer.css` and reads its `--viewer-*` tokens when a
+theme is built, so the website and the viewer have one source; a core test
+checks that every role maps to its token and that the floors the page measures
+still hold: every value stroke, the cursor and bus text at least 4.5:1 on the
+canvas, the grid between 1.25 and 1.5:1, stage names at least 5.9:1 on every
+fill for 2 to 16 stages, and neighbouring stages at least ΔE_OK×100 11 apart
+under simulated deuteranopia, protanopia and tritanopia (Machado 2009).
+
+Volna Mixed adds no tokens and ignores the system appearance: it is always a
+Volna Light window with Volna Dark wave and pipeline panels, the split
+GTKWave, Questa, SimVision, Verdi and Vivado ship (the page first proposed a
+chrome that follows the system; a light window is the point of Mixed, and
+`volna` already follows the system). The window resolves to a `Themes` pair,
+chrome and canvas, identical for every other theme; the GPUI canvas element paints
+wave and pipeline panels with the canvas theme and the table with the chrome.
+Stage colours therefore cannot be resolved when a view is built: the pipeline
+palette keeps only pipeline order, and a `StageSwatch` (rank of n, or grey)
+turns into colours with whichever theme paints it, so the transaction panel
+(chrome) and the pipeline (canvas) share one palette. The stage ladder itself
+is a theme parameter (`StageLadder`): OKLCH with alternating lightness for
+Volna, today's HSL ladder for One Dark and host palettes.
+
+The system appearance comes from the window (`observe_window_appearance`),
+not from the platform: GPUI's test platform fixes the platform appearance, and
+a window is what changes when the system does. Version 1 preferences that name
+`one-dark` migrate to the new default, because One Dark was the only default
+then, not a choice.
+
+The rendering rules of the page are painter rules and apply to every theme;
+the colours they use are theme roles (`wave_undef_fill`, `wave_flush`,
+`stage_text`, `Theme::value_tint`). Deviations from the page:
+
+- Aliased columns learn which value kinds they hold by reading at most eight
+  of their values, evenly spaced and always including both ends
+  (`wave::marks::KindReader`), instead of the proposed per-block summary
+  bits. That keeps the cost per column bounded without a format or loader
+  change; a column of more than eight changes can miss an X that neither end
+  nor a sample shows. Histories that cannot hold such values say so
+  (`SignalHistory::always_normal`: VTR signals declared two-state, reals and
+  byte strings, compact FST histories that never widened past two states,
+  clocks) and skip the reads, and a packed four- or nine-state value is
+  recognised as normal from its bytes without decoding a bit. Measured with
+  `analog_cost 10000000 [states]` (a 16-bit bus changing every tick, one
+  1400px frame, best of five, pinned to P-cores, against a worktree of the
+  previous commit): the whole-trace frame is 0.059 ms for a two-state bus
+  (0.055 ms before) and 0.26 ms for a four-state one (0.055 ms before; 0.88 ms
+  with sixteen samples and no fast paths). Zoomed to a hundredth: 0.025 and
+  0.10 ms (0.018 before).
+- 1-bit don't-care has its own `Bit::DontCare`; it was folded into `Other`
+  (weak) before, so it could not be dotted.
+- Names in the wave panel are in the UI face (Inter) at 13px, as the page's
+  type rule says; bus labels, values, times and the sidebar's names stay in
+  the mono face (JetBrains Mono).
+- Numbers keep their last digits in the values column too, not only in bus
+  labels.
+- Not implemented, because they are interaction features rather than
+  appearance: edge hover and snapping with the hovered-value highlight
+  (rendering rule 12), and the hierarchy browser's search, ranking, alias
+  merging, sibling runs, sticky ancestors, activity meters and cursor values.
+  The sidebar takes the page's quiet chrome: mono names, faint mono counts
+  and widths, one neutral icon colour (port directions included), 1px indent
+  guides, a 2px accent bar for variables already on the waves, and a selection
+  at full strength only in the focused pane.
+
+## Volna and site fonts
+
+Volna and every page use Inter (UI and prose; 400, 500 and 600 in the viewer,
+400 and 600 on the site) and JetBrains Mono (code, values, times, numbers),
+the pair JetBrains' IDEs such as CLion and PyCharm ship, replacing IBM Plex
+Sans and Lilex. Both are OFL without a reserved font name, so the site subsets
+them (Latin, Latin Extended-A, Cyrillic and the symbols it uses) to about 50 KB
+of WOFF2 each; the viewer embeds the complete TTFs (Inter covers Latin,
+Cyrillic and Greek), about 1.5 MB instead of 0.6 MB. JetBrains Mono advances
+0.6 em like Lilex, so monospace column widths are unchanged. Inter Medium is
+bundled because GPUI draws `FontRole::UiMedium` at weight 500, which Plex
+synthesized from the regular face. Pages that took Plex from Google Fonts now
+take Inter and JetBrains Mono from Google Fonts.
+
 ## Volna FST signal histories
 
 The FST loader stored every change as a `WaveValue::Bits(String)` in a

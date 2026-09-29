@@ -30,6 +30,77 @@ fn pump(app: &mut App) {
     }
 }
 
+/// The landing trace with its checked-in workspace restored.
+fn landing() -> App {
+    let trace = examples().join("landing.vtr").canonicalize().unwrap();
+    let saved = std::fs::read(examples().join("landing.vtr.volna.json")).unwrap();
+    let trace_uri = url::Url::from_file_path(&trace).unwrap().to_string();
+    let location = format!("{trace_uri}.volna.json");
+    let session = OpenSpec::Path(trace.clone()).open().unwrap();
+    let mut app = App::new();
+    app.open_resource(OpenSpec::Path(trace), trace_uri.clone());
+    volna_core::testing::complete_open(&mut app, session);
+    Workspace::parse(&saved)
+        .unwrap()
+        .prepare(&app, &trace_uri, &location)
+        .unwrap()
+        .commit(&mut app)
+        .unwrap();
+    pump(&mut app);
+    app
+}
+
+/// docs/volna-theme.html, "Waveform panel rendering", over the whole landing
+/// run in Volna Dark: clocks show periods, states get a tint, numbers keep
+/// their last digits, and labels never shrink to a lone ellipsis. X bands
+/// and gated clocks are covered by the painter's unit tests.
+#[test]
+fn the_whole_landing_run_follows_the_rendering_rules() {
+    let mut app = landing();
+    let theme = Theme::volna(true);
+    let bounds = Rect::from_xywh(0.0, 0.0, 1200.0, 640.0);
+    let (first, last) = app.doc.limits();
+    let render = |app: &mut App| {
+        app.layout_panel(PanelId(1), bounds, &theme).unwrap();
+        app.render_panel(PanelId(1), &theme, &mut MonoMeasure);
+        pump(app);
+        app.layout_panel(PanelId(1), bounds, &theme).unwrap();
+        let scene = app.render_panel(PanelId(1), &theme, &mut MonoMeasure);
+        let texts: Vec<String> = scene.texts().map(str::to_owned).collect();
+        let quads: Vec<_> = scene.quads().collect();
+        (texts, quads)
+    };
+    app.doc.shared.viewport.value.start = first as f64;
+    app.doc.shared.viewport.value.end = last as f64;
+    let (texts, quads) = render(&mut app);
+    assert!(
+        texts.iter().any(|t| t.contains("Hz · ")),
+        "a fast clock is a band labelled with its frequency and period: {texts:?}"
+    );
+    assert!(
+        quads.iter().any(|(_, c)| (c.a - 0.22).abs() < 1e-3),
+        "state rows are tinted"
+    );
+    assert!(
+        texts.iter().any(|t| t.starts_with('…') && t.len() > 3),
+        "a number keeps its last digits: {texts:?}"
+    );
+    for text in &texts {
+        let shown = text.trim_matches('…').chars().count();
+        assert!(!text.contains('…') || shown >= 2, "lone ellipsis {text:?}");
+    }
+    // The interrupt window: the fast clock is a square wave again.
+    app.doc.shared.viewport.value.start = 717.0;
+    app.doc.shared.viewport.value.end = 849.0;
+    let (texts, _) = render(&mut app);
+    assert!(
+        texts
+            .iter()
+            .all(|t| !t.contains("Hz · ") || !t.starts_with("500")),
+        "{texts:?}"
+    );
+}
+
 #[test]
 fn the_landing_workspace_restores_every_panel_and_saves_the_same_bytes() {
     let trace = examples().join("landing.vtr").canonicalize().unwrap();

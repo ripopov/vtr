@@ -1,6 +1,6 @@
 :root{
-  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --font-mono:"Lilex",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --font-sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --text-display:clamp(40px,6.4vw,76px);--text-h1:clamp(32px,4.6vw,52px);--text-h2:clamp(26px,3.2vw,36px);--text-h3:22px;--text-h4:18px;
   --text-lg:18px;--text-md:16px;--text-sm:14px;--text-xs:13px;--text-2xs:12px;
   --leading-tight:1.04;--leading-snug:1.2;--leading-normal:1.55;--leading-code:1.6;

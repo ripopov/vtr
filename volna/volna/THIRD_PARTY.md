@@ -1,9 +1,9 @@
 # Third-party assets
 
-- IBM Plex Sans: [upstream](https://github.com/IBM/plex),
-  [SIL OFL license](../volna-core/assets/fonts/IBMPlexSans-LICENSE.txt).
-- Lilex: [upstream](https://github.com/mishamyrt/Lilex),
-  [SIL OFL license](../volna-core/assets/fonts/Lilex-OFL.txt).
+- Inter 4.1: [upstream](https://github.com/rsms/inter),
+  [SIL OFL license](../volna-core/assets/fonts/Inter-OFL.txt).
+- JetBrains Mono 2.304: [upstream](https://github.com/JetBrains/JetBrainsMono),
+  [SIL OFL license](../volna-core/assets/fonts/JetBrainsMono-OFL.txt).
 - Lucide icons: [upstream](https://github.com/lucide-icons/lucide),
   [ISC/MIT notices](../volna-core/assets/icons/LICENSE).
 

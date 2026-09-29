@@ -1,20 +1,20 @@
-//! Stage colours. Each stage name on the primary lane gets a hue from a
-//! ladder in pipeline order: names are ranked by their mean position within
-//! a transaction's primary-lane stages (ties by first appearance), so hues
-//! run from fetch to retire whatever order the trace first shows them in.
-//! Lightness is fixed so the dark cell text reads in both appearances; with
-//! more than eight names, neighbouring hues alternate between two
-//! lightnesses so a dozen stages stay apart. The counts come from each
-//! generator's `StageCensus`, taken once at load, so building a palette
-//! costs lanes × names rather than a scan of every record. A VDB stage table
-//! later fills the same struct with authored colours; the painter only ever
-//! asks for `style(name)`.
+//! Stage colours. Each stage name on the primary lane gets a step of the
+//! theme's stage ladder in pipeline order: names are ranked by their mean
+//! position within a transaction's primary-lane stages (ties by first
+//! appearance), so hues run from fetch to retire whatever order the trace
+//! first shows them in. The theme turns a rank into colours
+//! ([`Theme::stage_style`]), so one palette serves a dark pipeline and a light
+//! transaction panel. The counts come from each generator's `StageCensus`,
+//! taken once at load, so building a palette costs lanes × names rather than
+//! a scan of every record. A VDB stage table later fills the same struct with
+//! authored colours; the painter only ever asks for `style(name, theme)`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::color::Color;
 use crate::data::loaded_tracks::LoadedGenerator;
+use crate::theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StageStyle {
@@ -23,12 +23,23 @@ pub struct StageStyle {
     pub text: Color,
 }
 
+/// Where a stage sits on the theme's ladder, resolved to colours by
+/// [`Theme::swatch`] with whichever theme paints it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StageSwatch {
+    /// Step `rank` of a ladder of `of` stages.
+    Step { rank: usize, of: usize },
+    /// Grey: a name outside the ladder, or a transaction without stages.
+    Fallback,
+}
+
 /// Konata's default lane, used as the primary lane whenever it occurs.
 pub const DEFAULT_LANE: &str = "0";
 
 #[derive(Clone, Debug)]
 pub struct StagePalette {
-    by_name: HashMap<String, StageStyle>,
+    /// Rank in pipeline order.
+    by_name: HashMap<String, usize>,
     names: Vec<String>,
     primary_lane: String,
 }
@@ -88,16 +99,10 @@ impl StagePalette {
             mean(a).total_cmp(&mean(b))
         });
         let names: Vec<String> = order.into_iter().map(|i| seen[i].0.clone()).collect();
-        let steps = names.len().saturating_sub(1).max(1) as f32;
-        let alternate = names.len() > 8;
         let by_name = names
             .iter()
             .enumerate()
-            .map(|(k, name)| {
-                let hue = (250.0 - k as f32 * (250.0 / steps)).rem_euclid(360.0) / 360.0;
-                let lightness = if alternate && k % 2 == 1 { 0.70 } else { 0.58 };
-                (name.clone(), ladder_style(hue, lightness))
-            })
+            .map(|(k, name)| (name.clone(), k))
             .collect();
         Self {
             by_name,
@@ -106,11 +111,20 @@ impl StagePalette {
         }
     }
 
-    pub fn style(&self, name: &str) -> StageStyle {
-        self.by_name
-            .get(name)
-            .copied()
-            .unwrap_or_else(Self::fallback)
+    /// Where stage `name` sits on the ladder.
+    pub fn swatch(&self, name: &str) -> StageSwatch {
+        match self.by_name.get(name) {
+            Some(&rank) => StageSwatch::Step {
+                rank,
+                of: self.names.len(),
+            },
+            None => StageSwatch::Fallback,
+        }
+    }
+
+    /// The colours of stage `name` in `theme`; names outside the ladder are grey.
+    pub fn style(&self, name: &str, theme: &Theme) -> StageStyle {
+        theme.swatch(self.swatch(name))
     }
 
     /// Stage names in ladder order.
@@ -124,43 +138,6 @@ impl StagePalette {
     pub fn primary_lane(&self) -> &str {
         &self.primary_lane
     }
-
-    /// Grey for stage names outside the ladder and for transactions without stages.
-    pub fn fallback() -> StageStyle {
-        StageStyle {
-            fill: Color {
-                h: 0.0,
-                s: 0.0,
-                l: 0.58,
-                a: 1.0,
-            },
-            edge: Color {
-                h: 0.0,
-                s: 0.0,
-                l: 0.38,
-                a: 1.0,
-            },
-            text: Color::rgb(0x101820),
-        }
-    }
-}
-
-fn ladder_style(hue: f32, lightness: f32) -> StageStyle {
-    StageStyle {
-        fill: Color {
-            h: hue,
-            s: 0.52,
-            l: lightness,
-            a: 1.0,
-        },
-        edge: Color {
-            h: hue,
-            s: 0.52,
-            l: lightness - 0.20,
-            a: 1.0,
-        },
-        text: Color::rgb(0x101820),
-    }
 }
 
 #[cfg(test)]
@@ -168,6 +145,10 @@ mod tests {
     use super::*;
     use crate::data::transactions::*;
     use std::collections::HashMap;
+
+    fn one_dark() -> Theme {
+        Theme::one_dark()
+    }
 
     fn generator(stages: &[&[(&str, &str)]]) -> Arc<LoadedGenerator> {
         let transactions = stages
@@ -209,9 +190,12 @@ mod tests {
         let p = StagePalette::build(&[g]);
         assert_eq!(p.names(), ["F", "D", "X"]);
         assert_eq!(p.primary_lane(), "0");
-        assert_ne!(p.style("F"), p.style("X"));
-        assert_eq!(p.style("stl"), StagePalette::fallback());
-        assert!(p.style("F").fill.l > 0.5 && p.style("F").edge.l < p.style("F").fill.l);
+        assert_ne!(p.style("F", &one_dark()), p.style("X", &one_dark()));
+        assert_eq!(p.style("stl", &one_dark()), one_dark().stage_fallback());
+        assert!(
+            p.style("F", &one_dark()).fill.l > 0.5
+                && p.style("F", &one_dark()).edge.l < p.style("F", &one_dark()).fill.l
+        );
         let named = generator(&[&[("F", "main"), ("M", "memory")], &[("W", "main")]]);
         let p = StagePalette::build(&[named]);
         assert_eq!(p.primary_lane(), "main");
@@ -270,13 +254,20 @@ mod tests {
             ]
         );
         for pair in p.names().windows(2) {
-            let (a, b) = (p.style(&pair[0]).fill, p.style(&pair[1]).fill);
+            let (a, b) = (
+                p.style(&pair[0], &one_dark()).fill,
+                p.style(&pair[1], &one_dark()).fill,
+            );
             assert!((a.l - b.l).abs() > 0.1, "{pair:?} differ in lightness");
             assert!(a.h != b.h);
         }
         // Few stages keep one lightness.
         let few = StagePalette::build(&[generator(&[alu])]);
-        assert!(few.names().iter().all(|n| few.style(n).fill.l == 0.58));
+        assert!(
+            few.names()
+                .iter()
+                .all(|n| few.style(n, &one_dark()).fill.l == 0.58)
+        );
     }
 
     #[test]
@@ -294,6 +285,9 @@ mod tests {
         assert_eq!(merged.primary_lane(), "p");
         assert_eq!(merged.names(), ["F", "D", "X"]);
         assert_eq!(merged.names(), single.names());
-        assert_eq!(merged.style("D"), single.style("D"));
+        assert_eq!(
+            merged.style("D", &one_dark()),
+            single.style("D", &one_dark())
+        );
     }
 }

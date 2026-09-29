@@ -62,7 +62,7 @@ test('the page opens with the slogan, then the live demo, then the pitch ideas a
   assert.deepEqual(v.h2, ['Level up your traces', 'Optimized down. Lifted back up.', 'Two formats. One modern file.',
     'Five viewers. One modern framework.', 'One recording. Every view of it.']);
   assert.equal(v.features.length, 12);
-  assert.deepEqual(v.fonts, ['Lilex 400 loaded', 'Plex 400 loaded', 'Plex 600 loaded']);
+  assert.deepEqual(v.fonts, ['Inter 400 loaded', 'Inter 600 loaded', 'JetBrains Mono 400 loaded']);
   assert.ok(!/(src|href)="https?:(?!\/\/github\.com\/ripopov\/vtr")/.test(html), 'no network resources besides the repository link');
   assert.deepEqual(b.exceptions, []);
 });

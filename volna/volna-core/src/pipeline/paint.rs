@@ -12,11 +12,11 @@ use crate::document::Document;
 use crate::geometry::{CursorIcon, Point, Rect, point, size, snap};
 use crate::icons::IconName;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
-use crate::theme::Theme;
+use crate::theme::{Theme, contrast};
+use crate::wave::marks;
 use crate::wave::overlay::{self, TextPainter, TimeColumn};
 
 use super::model::{Drag, Hit, PipelineModel, Rows};
-use super::palette::StagePalette;
 
 /// Rows at least this tall get a stroked cell edge and a gap between cells.
 const EDGE_MIN_PX: f32 = 6.0;
@@ -26,6 +26,8 @@ const TEXT_MIN_PX: f32 = 10.0;
 const LABEL_MIN_PX: f32 = 7.0;
 /// Dash length of an open transaction's trailing edge.
 const DASH_PX: f32 = 3.0;
+/// Hatch spacing inside a flushed instruction's hollow cells.
+const HOLLOW_HATCH_PX: f32 = 3.0;
 
 /// The two short segments of an arrow head at the `to` end of a segment.
 fn arrow_head(from: Point, to: Point, size: f32) -> [[Point; 2]; 2] {
@@ -90,6 +92,7 @@ pub fn paint(
     p.scene.fill(header, t.panel.bg);
     let (tick_list, unit) = column.ticks(base, t.zoom);
     overlay::grid(&mut p, &column, &tick_list);
+    overlay::cycle_grid(&mut p, &column, clocks, &doc.clocks);
 
     // -- outside the trace: before and after its time, above and below its rows
     let rows = model.rows(doc);
@@ -136,7 +139,7 @@ pub fn paint(
             let cell_font = (row_px * 0.62).clamp(z(6.0), t.mono_size);
             let palette = model.palette();
             let primary = palette.primary_lane();
-            let flush_tint = t.editor.error.with_alpha(0.16);
+            let flush_tint = t.wave_flush;
             let band = t.editor.text.with_alpha(0.28);
             let band_edge = t.editor.text.with_alpha(0.5);
             let wave_wf = column.width_f64();
@@ -198,16 +201,39 @@ pub fn paint(
                         });
                         continue;
                     }
-                    let style = palette.style(&stage.name);
+                    let style = palette.style(&stage.name, t);
                     let rect = Rect::from_xywh(xa, y + pad, xb - xa, (rh - 2.0 * pad).max(1.0));
-                    let (border_w, border_c) = if border && xb - xa >= 3.0 {
-                        (1.0, style.edge)
+                    let flushed = tx.status == TxStatus::Aborted && step == 1;
+                    if flushed {
+                        // Hollow: "fetched, never retired" in any colour vision. The
+                        // outline takes whichever of fill and edge stands out more.
+                        let ink = if contrast(style.fill, t.editor.bg)
+                            >= contrast(style.edge, t.editor.bg)
+                        {
+                            style.fill
+                        } else {
+                            style.edge
+                        };
+                        p.scene.clipped(cells, |scene| {
+                            scene.quad(rect, Color::TRANSPARENT, 0.0, 1.0, ink);
+                            marks::hatch_with(
+                                scene,
+                                rect,
+                                cells.left(),
+                                z(HOLLOW_HATCH_PX).max(2.0),
+                                ink.with_alpha(0.55),
+                            );
+                        });
                     } else {
-                        (0.0, Color::TRANSPARENT)
-                    };
-                    p.scene.clipped(cells, |scene| {
-                        scene.quad(rect, style.fill, 0.0, border_w, border_c)
-                    });
+                        let (border_w, border_c) = if border && xb - xa >= 3.0 {
+                            (1.0, style.edge)
+                        } else {
+                            (0.0, Color::TRANSPARENT)
+                        };
+                        p.scene.clipped(cells, |scene| {
+                            scene.quad(rect, style.fill, 0.0, border_w, border_c)
+                        });
+                    }
                     last_right = Some(last_right.map_or(xb, |r: f32| r.max(xb)));
                     if show_text && xb - xa >= z(14.0) {
                         let w = p.width(&stage.name, FontRole::Mono, cell_font);
@@ -216,14 +242,14 @@ pub fn paint(
                                 point(snap((xa + xb - w) / 2.0), y),
                                 rh,
                                 stage.name.clone(),
-                                style.text,
+                                if flushed { t.editor.text } else { style.text },
                             ));
                         }
                     }
                 }
                 if !painted_any && tx.stages.is_empty() {
                     // A transaction without stages is one cell over its lifetime.
-                    let style = StagePalette::fallback();
+                    let style = t.stage_fallback();
                     let mut xa = x_of(tx.begin) + gap / 2.0;
                     let mut xb = x_of(tx.end) - gap / 2.0;
                     if xb - xa < 1.0 {

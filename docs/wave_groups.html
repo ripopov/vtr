@@ -5,7 +5,7 @@
 <title>Volna Signal Groups</title>
 <meta name="description" content="Design of named, nested, collapsible groups of rows in Volna's waveform panel, now implemented. Research on seven viewers, the volna-core data model, storage in workspaces, an interactive mock and the implementation plan with what was built.">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
   --bg:#f4f5f7;--paper:#fcfcfd;--ink:#1a1f27;--muted:#5b6472;--line:#d8dce3;--line-strong:#bcc3ce;
@@ -21,9 +21,9 @@
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:64px}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
 a{color:var(--accent-ink);text-underline-offset:3px}
-code,kbd,pre{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code,kbd,pre{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
 kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
 pre.code{font-size:12.5px;line-height:1.55;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:14px 0 18px;max-width:900px}
@@ -50,7 +50,7 @@ p{margin:0 0 14px}
 ul,ol{padding-left:22px}li{margin:6px 0}
 .rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
 .rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
-.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "JetBrains Mono",monospace;text-align:center}
 .rules b{display:block;font-size:17px;margin-bottom:2px}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
 table{width:100%;border-collapse:collapse;font-size:14px}
@@ -93,9 +93,9 @@ footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px 
 .pv-main{padding:6px;display:flex;gap:6px}
 .side{flex:0 0 172px;border:1px solid var(--ln);border-radius:6px;background:var(--p);padding:4px 0;font-size:11.5px;overflow:hidden}
 .side .sh{padding:6px 8px 3px;color:var(--mu);font-size:10.5px;letter-spacing:.3px;text-transform:uppercase}
-.side .sh .d{text-transform:none;letter-spacing:0;color:#7d8491;font-family:"IBM Plex Mono",monospace}
+.side .sh .d{text-transform:none;letter-spacing:0;color:#7d8491;font-family:"JetBrains Mono",monospace}
 .side .srow{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:2px 6px;min-height:24px}
-.side .srow span{font-family:"IBM Plex Mono",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side .srow span{font-family:"JetBrains Mono",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .side .srow:hover{background:#2f343e}
 .side .srow button{font-size:10.5px;padding:0 6px;flex:none}
 .panel{display:flex;flex-direction:column;min-width:0;flex:1;border:1px solid var(--ln);border-radius:6px;background:var(--p)}
@@ -106,8 +106,8 @@ footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px 
 .tabs .tools button{padding:1px 7px}
 .body{height:470px;position:relative;overflow:hidden;border-radius:0 0 6px 6px;touch-action:none}
 .body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-#rename{position:absolute;z-index:5;font:600 12px "IBM Plex Sans",sans-serif;background:#1b1e23;color:var(--tx);border:1px solid var(--ac);border-radius:3px;padding:0 4px;outline:none}
-.tip{position:absolute;pointer-events:none;background:#1b1e23;border:1px solid #4b5260;border-radius:5px;padding:5px 8px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.45;color:var(--tx);box-shadow:0 6px 18px rgba(0,0,0,.35);white-space:nowrap;z-index:3}
+#rename{position:absolute;z-index:5;font:600 12px "Inter",sans-serif;background:#1b1e23;color:var(--tx);border:1px solid var(--ac);border-radius:3px;padding:0 4px;outline:none}
+.tip{position:absolute;pointer-events:none;background:#1b1e23;border:1px solid #4b5260;border-radius:5px;padding:5px 8px;font-family:"JetBrains Mono",monospace;font-size:11px;line-height:1.45;color:var(--tx);box-shadow:0 6px 18px rgba(0,0,0,.35);white-space:nowrap;z-index:3}
 .tip b{font-weight:600;color:#a1c181}.tip b.x{color:#d07277}.tip .d{color:var(--mu)}
 .menu{position:absolute;z-index:4;min-width:210px;background:#2f343e;border:1px solid #464b57;border-radius:6px;padding:4px;box-shadow:0 10px 24px rgba(0,0,0,.4);font-size:12px}
 .menu button{display:flex;width:100%;border:0;background:none;padding:3px 8px 3px 10px;border-radius:4px;text-align:left;justify-content:space-between;gap:16px}
@@ -115,7 +115,7 @@ footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px 
 .menu button:disabled{color:#6b7280;background:none;cursor:default}
 .menu button kbd{background:none;border:0;color:var(--mu);font-size:10.5px;padding:0}
 .menu hr{border:0;border-top:1px solid var(--ln);margin:4px 2px}
-.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--ln);background:#1b1e23;color:var(--mu);font-family:"IBM Plex Mono",monospace;font-size:11px;min-height:27px}
+.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--ln);background:#1b1e23;color:var(--mu);font-family:"JetBrains Mono",monospace;font-size:11px;min-height:27px}
 .pv-status b{color:var(--tx);font-weight:400}
 .pv-status .sel{margin-left:auto;color:#a1c181}
 .wsbox{margin-top:14px;max-width:900px}
@@ -131,13 +131,13 @@ footer{padding-block:28px 48px;font-size:13px;color:var(--muted);border-top:1px 
 .figs figcaption b{color:var(--ink);font-weight:600}
 @media (max-width:860px){.figs{grid-template-columns:1fr}}
 svg.dia{width:100%;max-width:900px;height:auto;display:block;margin:12px 0 6px}
-svg.dia text{font-family:"IBM Plex Mono",monospace;font-size:12px;fill:var(--ink)}
+svg.dia text{font-family:"JetBrains Mono",monospace;font-size:12px;fill:var(--ink)}
 svg.dia .m{fill:var(--muted)}
 svg.dia .box{fill:var(--paper);stroke:var(--line-strong)}
 svg.dia .grp{fill:var(--soft);stroke:var(--accent)}
 svg.dia .hid{opacity:.45}
 svg.dia .arrow{stroke:var(--accent);fill:none;stroke-width:1.2}
-svg.dia .ttl{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:13px}
+svg.dia .ttl{font-family:"Inter",sans-serif;font-weight:600;font-size:13px}
 #selftest{display:none}
 </style>
 </head>
@@ -894,10 +894,10 @@ function paint() {
 }
 function paintHeader(c) {
   ctx.fillStyle = C.head; ctx.fillRect(0, 0, c.w, HEAD); ctx.fillStyle = C.ln; ctx.fillRect(0, HEAD - 1, c.w, 1);
-  ctx.font = '600 11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.mu; ctx.textBaseline = 'middle';
+  ctx.font = '600 11px "Inter",sans-serif'; ctx.fillStyle = C.mu; ctx.textBaseline = 'middle';
   ctx.fillText('Name', PAD, HEAD / 2); ctx.fillText('Value', c.nw + PAD, HEAD / 2);
   const span = S.view[1] - S.view[0], step = [10, 20, 50, 100, 200, 500].find(s => s / span * c.ww >= 64) || 1000;
-  ctx.font = '10.5px "IBM Plex Mono",monospace';
+  ctx.font = '10.5px "JetBrains Mono",monospace';
   for (let t = Math.ceil(S.view[0] / step) * step; t <= S.view[1]; t += step) {
     const x = Math.round(tx(t, c)) + .5; if (x < c.wx + 2) continue;
     ctx.fillStyle = 'rgba(200,204,212,.08)'; ctx.fillRect(x, HEAD, 1, c.h);
@@ -905,7 +905,7 @@ function paintHeader(c) {
   }
   const cx = tx(S.cursor, c);
   if (cx >= c.wx && cx <= c.w) {
-    const label = S.cursor + ' ns'; ctx.font = '600 10.5px "IBM Plex Mono",monospace';
+    const label = S.cursor + ' ns'; ctx.font = '600 10.5px "JetBrains Mono",monospace';
     const w = ctx.measureText(label).width + 10, x = Math.min(c.w - w, Math.max(c.wx, cx - w / 2));
     ctx.fillStyle = C.cur; roundRect(x, 4, w, HEAD - 8, 3); ctx.fill(); ctx.fillStyle = '#282c33'; ctx.fillText(label, x + 5, HEAD / 2);
   }
@@ -927,34 +927,34 @@ function paintRow(e, i, y, c) {
     if (e.collapsed) { ctx.moveTo(x0 + 4, mid - 4); ctx.lineTo(x0 + 8, mid); ctx.lineTo(x0 + 4, mid + 4); }
     else { ctx.moveTo(x0 + 2, mid - 2); ctx.lineTo(x0 + 6, mid + 2); ctx.lineTo(x0 + 10, mid - 2); }
     ctx.stroke();
-    ctx.font = '600 12px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.tx;
+    ctx.font = '600 12px "Inter",sans-serif'; ctx.fillStyle = C.tx;
     const name = S.rename && S.rename.row === i ? '' : e.name;
     ctx.fillText(name, textX(e), mid);
     const w = ctx.measureText(name).width;
-    ctx.font = '11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.dim;
+    ctx.font = '11px "Inter",sans-serif'; ctx.fillStyle = C.dim;
     if (name) ctx.fillText(String(WG.leaves(S.rows, i).length), textX(e) + w + 6, mid);
   } else {
-    ctx.font = (e.unresolved ? 'italic ' : '') + '12px "IBM Plex Mono",monospace'; ctx.fillStyle = e.unresolved ? C.dim : C.tx;
+    ctx.font = (e.unresolved ? 'italic ' : '') + '12px "JetBrains Mono",monospace'; ctx.fillStyle = e.unresolved ? C.dim : C.tx;
     ctx.fillText(e.name, textX(e), mid);
   }
   ctx.restore();
   // Value column.
   ctx.save(); ctx.beginPath(); ctx.rect(c.nw + 1, y, c.vw - 2, ROW); ctx.clip();
-  ctx.font = '12px "IBM Plex Mono",monospace'; ctx.textBaseline = 'middle';
+  ctx.font = '12px "JetBrains Mono",monospace'; ctx.textBaseline = 'middle';
   if (group) {
     if (e.collapsed) {
       const gv = WG.groupValue(S.rows, i, S.cursor);
-      ctx.font = '11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = gv.changed ? C.tx : C.dim;
+      ctx.font = '11px "Inter",sans-serif'; ctx.fillStyle = gv.changed ? C.tx : C.dim;
       ctx.fillText(gv.text, c.nw + PAD, mid);
       if (gv.undef) { const w = ctx.measureText(gv.text).width; ctx.fillStyle = C.undef; ctx.fillText(' · ' + gv.undef + ' X', c.nw + PAD + w, mid); }
     }
-  } else if (e.unresolved) { ctx.font = '11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.dim; ctx.fillText('—', c.nw + PAD, mid); }
+  } else if (e.unresolved) { ctx.font = '11px "Inter",sans-serif'; ctx.fillStyle = C.dim; ctx.fillText('—', c.nw + PAD, mid); }
   else { const s = WG.SIGNALS[e.path], v = s.ch.value(S.cursor); ctx.fillStyle = v === null ? C.undef : C.tx; ctx.fillText(WG.fmt(s, v), c.nw + PAD, mid); }
   ctx.restore();
   // Wave column.
   ctx.save(); ctx.beginPath(); ctx.rect(c.wx + 1, y, c.ww, ROW); ctx.clip();
   if (group) { if (e.collapsed) paintSummary(i, y, c); }
-  else if (e.unresolved) { ctx.font = 'italic 11px "IBM Plex Sans",sans-serif'; ctx.fillStyle = C.dim; ctx.textBaseline = 'middle'; ctx.fillText('not in this trace', c.wx + 10, mid); }
+  else if (e.unresolved) { ctx.font = 'italic 11px "Inter",sans-serif'; ctx.fillStyle = C.dim; ctx.textBaseline = 'middle'; ctx.fillText('not in this trace', c.wx + 10, mid); }
   else { const s = WG.SIGNALS[e.path]; if (s.kind === 'bit') paintBit(s, y, c); else paintBus(s, y, c); }
   ctx.restore();
 }
@@ -988,7 +988,7 @@ function paintBit(s, y, c) {
 }
 function paintBoxes(spans, y, c, color, labels) {
   const top = y + 4, bot = y + ROW - 4, mid = y + ROW / 2;
-  ctx.font = '11px "IBM Plex Mono",monospace'; ctx.textBaseline = 'middle';
+  ctx.font = '11px "JetBrains Mono",monospace'; ctx.textBaseline = 'middle';
   for (const [t0, t1, text, undef] of spans) {
     const x0 = Math.max(c.wx - 4, tx(t0, c)), x1 = Math.min(c.w + 4, tx(t1, c)), w = x1 - x0;
     if (w < 0.5) continue;
@@ -1358,7 +1358,7 @@ window.ready = true;
 const R = WG.initialRows(), w = R.findIndex(e => e.name === 'Write');
 const members = WG.leaves(R, w);
 function setup(id) { const c = document.getElementById(id), g = c.getContext('2d'); g.fillStyle = '#282c33'; g.fillRect(0, 0, c.width, c.height); return [c, g]; }
-function label(g, text, y) { g.font = '600 12px "IBM Plex Sans",sans-serif'; g.fillStyle = '#dce0e5'; g.textBaseline = 'middle'; g.fillText('▸ ' + text, 10, y); }
+function label(g, text, y) { g.font = '600 12px "Inter",sans-serif'; g.fillStyle = '#dce0e5'; g.textBaseline = 'middle'; g.fillText('▸ ' + text, 10, y); }
 const X0 = 96, x = (t, c) => X0 + t / WG.T_END * (c.width - X0 - 8);
 function rowFrame(g, c, y, h) { g.fillStyle = 'rgba(200,204,212,.035)'; g.fillRect(0, y, c.width, h); g.fillStyle = '#3a3f4a'; g.fillRect(X0 - 6, 0, 1, c.height); }
 { const [c, g] = setup('fig-blank'); rowFrame(g, c, 44, 26); label(g, 'Write 7', 57); }

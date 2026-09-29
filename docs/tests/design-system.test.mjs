@@ -45,7 +45,7 @@ test('every relative asset reference in the design system resolves to a file', a
 test('fonts, icons and the app icon are referenced, not copied', async () => {
   const all = (await files(ds)).map(f => relative(ds, f));
   assert.deepEqual(all.filter(f => /\.ttf$|^assets[/\\](icons|logo)[/\\]/.test(f)), []);
-  for (const face of ['IBMPlexSans-Regular', 'IBMPlexSans-SemiBold', 'Lilex-Regular']) {
+  for (const face of ['Inter-Regular', 'Inter-SemiBold', 'JetBrainsMono-Regular']) {
     const bytes = await readFile(join(ds, 'fonts', face + '.woff2'));
     assert.equal(bytes.subarray(0, 4).toString('latin1'), 'wOF2', face);
   }
@@ -74,8 +74,8 @@ test('cards load the WOFF2 faces and the viewer\'s own icons and app icon', {tim
   const fonts = await b.evaluate(`Promise.all([...document.fonts].map(f => f.load())).then(faces => ({
     faces: faces.map(f => f.family.replace(/"/g, '') + ' ' + f.weight + ' ' + f.status).sort(),
     requested: performance.getEntriesByType('resource').map(e => e.name.split('/').pop()).filter(n => /\\.(woff2|ttf)$/.test(n)).sort()}))`);
-  assert.deepEqual(fonts.faces, ['IBM Plex Sans 400 loaded', 'IBM Plex Sans 600 loaded', 'Lilex 400 loaded']);
-  assert.deepEqual(fonts.requested, ['IBMPlexSans-Regular.woff2', 'IBMPlexSans-SemiBold.woff2', 'Lilex-Regular.woff2']);
+  assert.deepEqual(fonts.faces, ['Inter 400 loaded', 'Inter 600 loaded', 'JetBrains Mono 400 loaded']);
+  assert.deepEqual(fonts.requested, ['Inter-Regular.woff2', 'Inter-SemiBold.woff2', 'JetBrainsMono-Regular.woff2']);
 
   for (const page of ['guidelines/brand-logo.html', 'guidelines/brand-icons.html']) {
     await visit(page);

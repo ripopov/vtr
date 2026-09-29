@@ -18,7 +18,7 @@ use volna_core::scene::{Prim, TextMeasure};
 use volna_core::wave::PointerEvent;
 
 use crate::app::{TextKey, Workspace, to_modifiers};
-use crate::theme::{Theme, core_theme, hsla, theme};
+use crate::theme::{Theme, canvas_theme, core_theme, hsla, theme};
 
 pub struct PanelCanvas {
     ws: Entity<Workspace>,
@@ -37,6 +37,29 @@ impl PanelCanvas {
             generation,
             table_focus: None,
             waves: false,
+        }
+    }
+
+    /// The theme this panel paints with: the canvas theme for the panels
+    /// drawn against time (waves, pipeline), the chrome for the table.
+    pub(crate) fn core_theme(&self, cx: &App) -> crate::theme::CoreTheme {
+        let data = self
+            .ws
+            .read(cx)
+            .app
+            .panels
+            .get(self.panel)
+            .is_some_and(|panel| {
+                matches!(
+                    panel.kind,
+                    volna_core::panels::PanelKind::Waves(_)
+                        | volna_core::panels::PanelKind::Pipeline(_)
+                )
+            });
+        if data {
+            *canvas_theme(cx)
+        } else {
+            *core_theme(cx)
         }
     }
 
@@ -375,7 +398,7 @@ impl Element for PanelCanvas {
         window: &mut Window,
         cx: &mut App,
     ) -> CanvasPrepaint {
-        let t = *core_theme(cx);
+        let t = self.core_theme(cx);
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let rects = self.ws.update(cx, |ws, _| {
             match ws.app.layout_panel(self.panel, cbounds(bounds), &t) {
@@ -474,7 +497,7 @@ impl Element for PanelCanvas {
             }
         }
         let t = *theme(cx);
-        let core = *core_theme(cx);
+        let core = self.core_theme(cx);
         // Build the display list, then paint it. The scene buffer and the
         // shaped-text cache live on the workspace so they persist across frames.
         let (mut scene, mut shaped) = self.ws.update(cx, |ws, _| {

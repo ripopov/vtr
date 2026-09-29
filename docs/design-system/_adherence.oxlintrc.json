@@ -40,8 +40,8 @@
         "message": "Raw px value — use a design-system spacing token via var()."
       },
       {
-        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:IBM Plex Sans|Lilex))/i]",
-        "message": "Font not provided by the design system. Available: IBM Plex Sans, Lilex."
+        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:Inter|JetBrains Mono))/i]",
+        "message": "Font not provided by the design system. Available: Inter, JetBrains Mono."
       },
       {
         "selector": "JSXOpeningElement[name.name='BenchColumn'] > JSXAttribute > JSXIdentifier[name!=/^(?:key|label|ours|ratio|key|ref|className|style|children)$/]",
@@ -601,8 +601,8 @@
       "--ease-in-out": "other"
     },
     "fontFamilies": [
-      "IBM Plex Sans",
-      "Lilex"
+      "Inter",
+      "JetBrains Mono"
     ]
   }
 }

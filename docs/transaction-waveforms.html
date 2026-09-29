@@ -5,7 +5,7 @@
 <title>Volna Transaction Lanes</title>
 <meta name="description" content="Design proposal: show a transaction generator as a row in Volna's waveform panel, next to the signals it correlates with. Interactive demo, behaviour, and what it builds on.">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
   --bg:#f4f6f5;--paper:#fcfdfc;--ink:#18232a;--muted:#5a686e;--line:#d5ddda;--line-strong:#b9c4c0;
@@ -21,9 +21,9 @@
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:64px}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.65}
 a{color:var(--accent-ink);text-underline-offset:3px}
-code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code,kbd{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 code{font-size:.86em;background:color-mix(in srgb,var(--line) 50%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
 kbd{font-size:.78em;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--paper);white-space:nowrap}
 header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
@@ -48,7 +48,7 @@ p{margin:0 0 14px}
 ul,ol{padding-left:22px}li{margin:6px 0}
 .rules{list-style:none;padding:0;counter-reset:r;max-width:760px}
 .rules li{counter-increment:r;position:relative;padding-left:44px;margin:0 0 20px}
-.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "IBM Plex Mono",monospace;text-align:center}
+.rules li::before{content:counter(r);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent-ink);font:600 13px/28px "JetBrains Mono",monospace;text-align:center}
 .rules b{display:block;font-size:17px;margin-bottom:2px}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin:18px 0;background:var(--paper)}
 table{width:100%;border-collapse:collapse;font-size:14px}
@@ -92,11 +92,11 @@ footer ul{margin:6px 0 0}
 .pv-side{width:190px;flex:none;border-right:1px solid var(--ln);background:#161e23;padding:8px;overflow:auto;font-size:11.5px}
 .pv-side h4{margin:2px 0 6px;font-size:11px;font-weight:600;color:#9fb1ab}
 .pv-side h4 small{font-weight:400;color:#6f817a;margin-left:4px}
-.node{display:flex;align-items:center;gap:6px;padding:2px 5px;border-radius:3px;cursor:pointer;white-space:nowrap;font-family:"IBM Plex Mono",monospace;font-size:11px;color:#c9d5d0}
+.node{display:flex;align-items:center;gap:6px;padding:2px 5px;border-radius:3px;cursor:pointer;white-space:nowrap;font-family:"JetBrains Mono",monospace;font-size:11px;color:#c9d5d0}
 .node:hover{background:#233039}.node.sel{background:#2a3b46;color:var(--tx)}
 .node svg{width:13px;height:13px;flex:none;stroke:#9fb1ab;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.node .k{margin-left:auto;font-size:9.5px;color:#6f817a;font-family:"IBM Plex Sans",sans-serif}
-.member{padding:1px 6px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:#b7c4bf}
+.node .k{margin-left:auto;font-size:9.5px;color:#6f817a;font-family:"Inter",sans-serif}
+.member{padding:1px 6px;font-family:"JetBrains Mono",monospace;font-size:11px;color:#b7c4bf}
 .gen{margin-top:4px;padding:6px;border:1px solid var(--ln);border-radius:5px;background:#1b252c}
 .gen .node{cursor:default;padding:0 0 6px}.gen .node:hover{background:none}
 .gen .acts{display:flex;flex-direction:column;gap:5px}
@@ -114,7 +114,7 @@ footer ul{margin:6px 0 0}
 .tabs .tools button{padding:1px 7px}
 .body{flex:1;min-height:0;position:relative;overflow:hidden;cursor:text}
 .body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-.tip{position:absolute;pointer-events:none;background:#0f161a;border:1px solid #3a4a54;border-radius:5px;padding:6px 8px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.45;color:var(--tx);box-shadow:0 6px 18px rgba(0,0,0,.35);white-space:nowrap;z-index:3}
+.tip{position:absolute;pointer-events:none;background:#0f161a;border:1px solid #3a4a54;border-radius:5px;padding:6px 8px;font-family:"JetBrains Mono",monospace;font-size:11px;line-height:1.45;color:var(--tx);box-shadow:0 6px 18px rgba(0,0,0,.35);white-space:nowrap;z-index:3}
 .tip b{font-weight:600}.tip .e{color:#f07a76}.tip .d{color:var(--mu)}
 .menu{position:absolute;z-index:4;min-width:168px;background:#172026;border:1px solid #3a4a54;border-radius:6px;padding:4px;box-shadow:0 10px 24px rgba(0,0,0,.4);font-size:12px}
 .menu button{display:flex;width:100%;border:0;background:none;padding:4px 8px;border-radius:4px;text-align:left;justify-content:space-between;gap:16px}
@@ -129,7 +129,7 @@ footer ul{margin:6px 0 0}
 .txbody{flex:1;overflow:auto;padding:10px 12px;font-size:12px}
 .txbody .empty{color:var(--mu);line-height:1.5;margin-top:24px;text-align:center}
 .txh{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.txh b{font-size:15px;font-family:"IBM Plex Mono",monospace}
+.txh b{font-size:15px;font-family:"JetBrains Mono",monospace}
 .pill{font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;border-radius:3px;padding:1px 6px;background:#243a52;color:#9cc4f2}
 .pill.err{background:#4a2624;color:#f5a19d}
 .txsub{color:var(--mu);font-size:11px;margin:2px 0 10px}
@@ -137,16 +137,16 @@ footer ul{margin:6px 0 0}
 .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
 .tiles div{background:#1a242a;border:1px solid var(--ln);border-radius:5px;padding:4px 6px}
 .tiles small{display:block;color:var(--mu);font-size:10px}
-.tiles span{font-family:"IBM Plex Mono",monospace;font-size:12px}
+.tiles span{font-family:"JetBrains Mono",monospace;font-size:12px}
 .life{position:relative;height:22px;display:flex;border-radius:4px;overflow:hidden;margin-bottom:4px;background:#1a242a}
-.life i{display:block;height:100%;font-style:normal;font-size:9.5px;font-family:"IBM Plex Mono",monospace;color:#f3f7fb;line-height:22px;text-align:center;overflow:hidden;white-space:nowrap}
+.life i{display:block;height:100%;font-style:normal;font-size:9.5px;font-family:"JetBrains Mono",monospace;color:#f3f7fb;line-height:22px;text-align:center;overflow:hidden;white-space:nowrap}
 .life .cur{position:absolute;top:0;bottom:0;width:2px;background:#f07a76}
 .txbody h5{font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--mu);margin:12px 0 4px;font-weight:600}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-family:"JetBrains Mono",monospace;font-size:11.5px}
 .kv span:nth-child(odd){color:var(--mu)}
 .kv .e{color:#f5a19d}
 .txnote{color:#6f817a;font-size:10.5px;line-height:1.45;margin-top:12px}
-.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--ln);background:var(--bar);color:var(--mu);font-family:"IBM Plex Mono",monospace;font-size:11px;min-height:27px}
+.pv-status{display:flex;gap:16px;flex-wrap:wrap;padding:5px 10px;border-top:1px solid var(--ln);background:var(--bar);color:var(--mu);font-family:"JetBrains Mono",monospace;font-size:11px;min-height:27px}
 .pv-status b{color:var(--tx);font-weight:400}
 .pv-status .sel{margin-left:auto;color:#e0a94a}
 .panel.flash{animation:flash .6s ease-out}
@@ -543,7 +543,7 @@ return { LIMITS, ROW_H, SUB_H, LANE_PAD, HEIGHTS, SIGNALS, TXS, LANE, MEDIAN, BO
 const D = TXD, TXS = D.TXS, LANE = D.LANE, LIM = D.LIMITS, ROW_H = D.ROW_H, SUB_H = D.SUB_H;
 const HDR = 22, SNAP_PX = 6, EDGE_SPACE = 0.2, MIN_W = 2, ANIM = 160;
 let NAME_W = 132, VAL_W = 96;          // narrower on phones, see resize()
-const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace', SANS = '"IBM Plex Sans", system-ui, sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, Menlo, monospace', SANS = '"Inter", system-ui, sans-serif';
 const C = {
   panel: '#1f2a31', bar: '#172026', line: '#2c3a42', grid: 'rgba(255,255,255,.04)', tick: '#5d6f77', tickText: '#8d9f99',
   text: '#e2eae6', muted: '#8d9f99', dim: '#5d6f77', idle: '#4e5f66', cursor: '#f07a76', marker: '#e0a94a',

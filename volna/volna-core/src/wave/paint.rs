@@ -21,6 +21,7 @@ use crate::wave::analog::{self, Analog, AnalogDraw, Plot, Readout, Series};
 use crate::wave::group;
 use crate::wave::lane::{self, LaneData, LaneGeometry, TxLane};
 use crate::wave::layout::{CHEVRON_W, SCROLLBAR_W, WaveLayout, indent_x};
+use crate::wave::marks;
 use crate::wave::model::{
     DisplayedSignal, Drag, GroupRow, RowSource, WaveModel, WaveRow, ZOOM_RANGE_MIN_PX,
 };
@@ -81,6 +82,38 @@ fn truncate_chars(text: &str, max_chars: usize) -> Option<String> {
     let mut s: String = text.chars().take(max_chars - 1).collect();
     s.push('…');
     Some(s)
+}
+
+/// `text` cut to fit `max_w` in `font`, ending in an ellipsis when cut;
+/// `None` when not even one character and the ellipsis fit.
+fn fit_width(
+    p: &mut TextPainter<'_>,
+    text: &str,
+    font: FontRole,
+    size: f32,
+    max_w: f32,
+) -> Option<String> {
+    if p.width(text, font, size) <= max_w {
+        return (!text.is_empty()).then(|| text.to_owned());
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let cut = |n: usize| {
+        chars[..n]
+            .iter()
+            .chain(std::iter::once(&'…'))
+            .collect::<String>()
+    };
+    // The longest prefix that fits, by bisection over its length.
+    let (mut lo, mut hi) = (0usize, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if p.width(&cut(mid), font, size) <= max_w {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    (lo > 0).then(|| cut(lo))
 }
 
 fn changes_between(a: Option<usize>, b: Option<usize>) -> usize {
@@ -151,6 +184,7 @@ pub fn paint(
     // -- tick grid in the waves area ---------------------------------------
     let (tick_list, unit) = column.ticks(base, t.zoom);
     overlay::grid(&mut p, &column, &tick_list);
+    overlay::cycle_grid(&mut p, &column, clocks, &doc.clocks);
     if doc.is_loaded() {
         overlay::outside_time(&mut p, &column, doc.limits());
     }
@@ -248,6 +282,11 @@ pub fn paint(
                 continue;
             }
             WaveRow::Group(g) => {
+                // Groups are divided by a 1px border rather than zebra stripes.
+                p.scene.fill(
+                    Rect::from_xywh(bounds.left(), snap(y), bounds.width(), 1.0),
+                    t.border_variant,
+                );
                 let members = model.group_histories(ix);
                 let group = GroupCells {
                     row: g,
@@ -264,52 +303,48 @@ pub fn paint(
             }
         };
 
-        // Name column: leaf name, then a muted range badge for vectors.
+        // Name column: the leaf name in the interface face, then a muted
+        // range badge in the mono face for vectors when both fit.
         {
             let pad = z(12.0);
             let avail = layout.names.right() - name_x - pad;
             let dims = item.shape.dims();
-            let max_chars = (avail / char_w).floor().max(0.0) as usize;
-            let dims_chars = if dims.is_empty() {
-                0
+            let dims_w = if dims.is_empty() {
+                0.0
             } else {
-                dims.chars().count() + 1
+                p.width(&dims, FontRole::Mono, t.mono_size) + char_w
             };
-            let name_budget = max_chars.saturating_sub(dims_chars.min(max_chars / 2));
-            if let Some(name) = truncate_chars(&item.name, name_budget) {
-                let name_w = p.width(&name, FontRole::Mono, t.mono_size);
-                let origin = point(name_x, y);
-                let names_rect = layout.names;
-                let name_len = name.chars().count();
+            let name_color = if item.source.signal().is_some() {
+                colors.text
+            } else {
+                colors.text_placeholder
+            };
+            let full_w = p.width(&item.name, FontRole::Ui, t.ui_size);
+            let names_rect = layout.names;
+            // The badge shows only beside the whole name.
+            let show_dims = !dims.is_empty() && full_w + dims_w <= avail;
+            if let Some(name) = fit_width(&mut p, &item.name, FontRole::Ui, t.ui_size, avail) {
+                let name_w = p.width(&name, FontRole::Ui, t.ui_size);
                 p.scene.clipped(names_rect, |scene| {
                     scene.text(
-                        origin,
+                        point(name_x, y),
                         row_h,
                         name,
-                        FontRole::Mono,
-                        t.mono_size,
-                        if item.source.signal().is_some() {
-                            colors.text
-                        } else {
-                            colors.text_placeholder
-                        },
+                        FontRole::Ui,
+                        t.ui_size,
+                        name_color,
                     );
-                });
-                if !dims.is_empty() && max_chars > name_len + 1 {
-                    let rest = max_chars - name_len - 1;
-                    if let Some(d) = truncate_chars(&dims, rest) {
-                        p.scene.clipped(names_rect, |scene| {
-                            scene.text(
-                                point(origin.x + name_w + char_w, y),
-                                row_h,
-                                d,
-                                FontRole::Mono,
-                                t.mono_size,
-                                colors.text_placeholder,
-                            );
-                        });
+                    if show_dims {
+                        scene.text(
+                            point(name_x + name_w + char_w, y),
+                            row_h,
+                            dims,
+                            FontRole::Mono,
+                            t.mono_size,
+                            colors.text_placeholder,
+                        );
                     }
-                }
+                });
             }
         }
 
@@ -375,7 +410,9 @@ pub fn paint(
             };
             let max_chars = (avail / char_w).floor().max(0.0) as usize;
             let values_rect = layout.values;
-            if let Some(text) = truncate_chars(&value_text, max_chars) {
+            // A number keeps its last digits here too, as a bus label does.
+            let number = item.history.is_some() && item.translator.numeric_kind().is_some();
+            if let Some(text) = fit_label(&value_text, max_chars, number) {
                 p.scene.clipped(values_rect, |scene| {
                     scene.text(
                         point(values_rect.left() + pad, y),
@@ -430,9 +467,13 @@ pub fn paint(
                 paint_analog_row(item, a, &series, &viewport, wave_row, waves, row_h, &mut p)
             }
             (Some(h), _) => match item.shape {
-                SignalShape::Event => p.scene.clipped(waves, |scene| {
-                    paint_event_row(h.as_ref(), &viewport, wave_row, t, scene)
-                }),
+                SignalShape::Event => {
+                    let mut counts = Vec::new();
+                    p.scene.clipped(waves, |scene| {
+                        counts = paint_event_row(h.as_ref(), &viewport, wave_row, t, scene)
+                    });
+                    paint_event_counts(&counts, wave_row, waves, &mut p);
+                }
                 SignalShape::Bit => p.scene.clipped(waves, |scene| {
                     paint_bit_row(h.as_ref(), &viewport, wave_row, t, scene)
                 }),
@@ -940,11 +981,11 @@ fn paint_analog_row(
     }
     let size = t.ui_size_small;
     let label_h = z(14.0);
-    for (v, y) in [
-        (hi, plot.top + z(1.0)),
-        (lo, plot.bottom - label_h - z(1.0)),
+    for (v, y, bound) in [
+        (hi, plot.top + z(1.0), "max"),
+        (lo, plot.bottom - label_h - z(1.0), "min"),
     ] {
-        let text = analog_label(item, v);
+        let text = format!("{bound} {}", analog_label(item, v));
         let w = p.width(&text, FontRole::Mono, size) + z(8.0);
         let chip = Rect::from_xywh(plot.left + z(4.0), y, w, label_h);
         p.scene.clipped(clip, |scene| {
@@ -961,7 +1002,7 @@ fn paint_analog_row(
                 text,
                 FontRole::Mono,
                 size,
-                t.wave_tick_text,
+                t.editor.text_placeholder,
             );
         });
     }
@@ -1098,15 +1139,18 @@ fn paint_analog_overlays(
 }
 
 /// Paint occurrences, coalescing timestamps that occupy the same pixel.
+/// Returns each coalesced arrow's x, its count and the room to its right
+/// before the next arrow, for the caller to label with its count.
 pub fn paint_event_row(
     h: &dyn SignalHistory,
     vp: &Viewport,
     area: Rect,
     t: &Theme,
     scene: &mut Scene,
-) {
+) -> Vec<(f32, usize, f32)> {
+    let mut counts: Vec<(f32, usize, f32)> = Vec::new();
     if area.width() <= 0.0 || vp.width() <= 0.0 {
-        return;
+        return counts;
     }
     // Search strictly before the viewport so duplicate timestamps at its
     // left edge are all included in the first marker's count.
@@ -1149,7 +1193,48 @@ pub fn paint_event_row(
             t.wave_signal
         };
         scene.lines(segments, color, 1.0);
+        if let Some(last) = counts.last_mut()
+            && last.2.is_infinite()
+        {
+            last.2 = screen_x - last.0;
+        }
+        if end - i > 1 {
+            counts.push((screen_x, end - i, f32::INFINITY));
+        }
         i = end;
+    }
+    if let Some(last) = counts.last_mut()
+        && last.2.is_infinite()
+    {
+        last.2 = area.right() - last.0;
+    }
+    counts
+}
+
+/// "×n" beside each coalesced event arrow that has room for it.
+fn paint_event_counts(
+    counts: &[(f32, usize, f32)],
+    area: Rect,
+    clip: Rect,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let gap = 3.0 * t.zoom;
+    for &(x, n, room) in counts {
+        let label = format!("×{n}");
+        let w = p.width(&label, FontRole::Mono, t.ui_size_small);
+        if w + 2.0 * gap <= room {
+            p.scene.clipped(clip, |scene| {
+                scene.text(
+                    point(snap(x + gap), area.top()),
+                    area.height(),
+                    label,
+                    FontRole::Mono,
+                    t.ui_size_small,
+                    t.wave_event_coalesced,
+                )
+            });
+        }
     }
 }
 
@@ -1161,8 +1246,27 @@ pub fn paint_bit_row(
     t: &Theme,
     scene: &mut Scene,
 ) {
+    let columns = 0..area.width().floor().max(0.0) as usize;
+    paint_bits(h, vp, area, t, scene, true, columns);
+}
+
+/// A 1-bit trace: a level line per stretch, a 1px edge per change, and
+/// aliased columns where a pixel holds two or more changes. X is a
+/// mid-level line over its hatched tint, Z a bare line at mid level,
+/// don't-care dotted and weak dashed; `high_fill` fills high stretches.
+/// Only pixel `columns` of the area are drawn.
+fn paint_bits(
+    h: &dyn SignalHistory,
+    vp: &Viewport,
+    area: Rect,
+    t: &Theme,
+    scene: &mut Scene,
+    high_fill: bool,
+    columns: std::ops::Range<usize>,
+) {
     let w_px = area.width().floor().max(0.0) as usize;
-    if w_px == 0 {
+    let columns = columns.start.min(w_px)..columns.end.min(w_px);
+    if columns.is_empty() {
         return;
     }
     let wf = w_px as f64;
@@ -1177,21 +1281,42 @@ pub fn paint_bit_row(
             _ => mid,
         }
     };
-    let mut idx = index_at_x(h, vp, wf, 0.0, None);
+    let mut idx = index_at_x(h, vp, wf, columns.start as f64, None);
     let mut bit = h.bit(idx);
     let mut hint = idx.unwrap_or(0);
-    let mut run_start = 0usize;
-    let mut dense_start: Option<usize> = None;
+    let mut run_start = columns.start;
+    let mut dense: Vec<marks::Aliased> = Vec::new();
+    let mut kinds = marks::KindReader::new(h, true);
+    // Dotted and dashed levels are collected per kind and stroked once.
+    let mut dotted: Vec<[Point; 2]> = Vec::new();
+    let mut dashed: Vec<[Point; 2]> = Vec::new();
 
-    let emit_run = |scene: &mut Scene, xs: usize, xe: usize, b: Bit| {
+    let mut emit_run = |scene: &mut Scene, xs: usize, xe: usize, b: Bit| {
         if xe <= xs || b == Bit::Unavailable {
             return;
         }
         let x = x0 + xs as f32;
         let w = (xe - xs) as f32;
-        let color = t.value_color(b.kind());
+        let kind = b.kind();
+        let color = t.value_color(kind);
+        match kind {
+            ValueKind::Undef => {
+                let band = Rect::new(point(x, top), size(w, bottom - top));
+                scene.fill(band, t.wave_undef_fill);
+                marks::hatch(scene, t, band, x0);
+            }
+            ValueKind::DontCare => {
+                marks::dashes(&mut dotted, x, x + w, y_of(b), x0, marks::DOTTED);
+                return;
+            }
+            ValueKind::Weak => {
+                marks::dashes(&mut dashed, x, x + w, y_of(b), x0, scaled(marks::DASHED, t));
+                return;
+            }
+            _ => {}
+        }
         scene.fill(Rect::new(point(x, y_of(b)), size(w, 1.0)), color);
-        if b == Bit::One {
+        if b == Bit::One && high_fill {
             scene.fill(
                 Rect::new(point(x, top + 1.0), size(w, bottom - top - 1.0)),
                 t.wave_high_fill,
@@ -1199,24 +1324,13 @@ pub fn paint_bit_row(
         }
     };
 
-    let dense_band = |scene: &mut Scene, xs: usize, xe: usize| {
-        scene.fill(
-            Rect::new(
-                point(x0 + xs as f32, top),
-                size((xe - xs) as f32, bottom - top),
-            ),
-            t.wave_dense,
-        );
-    };
-
-    for x in 0..w_px {
+    for x in columns.clone() {
         let idx1 = index_at_x(h, vp, wf, (x + 1) as f64, Some(hint));
         let n = changes_between(idx, idx1);
-        if n < 2 {
-            // A dense region ends at the first column with fewer than two changes.
-            if let Some(ds) = dense_start.take() {
-                dense_band(scene, ds, x);
-            }
+        if n < 2 && !dense.is_empty() {
+            // An aliased stretch ends at the first column with fewer than two changes.
+            marks::paint_aliased(scene, t, &dense, x0, top, bottom);
+            dense.clear();
         }
         if n == 0 {
             continue;
@@ -1235,18 +1349,30 @@ pub fn paint_bit_row(
                 Rect::new(point(x0 + x as f32, lo), size(1.0, hi - lo + 1.0)),
                 color,
             );
-        } else if n >= 2 && dense_start.is_none() {
-            dense_start = Some(x);
+        } else if n >= 2 {
+            let last = idx1.expect("a column with changes ends on one");
+            dense.push(marks::Aliased {
+                x,
+                changes: n,
+                kinds: kinds.column(idx, last),
+            });
         }
         run_start = x + 1;
         bit = new_bit;
         idx = idx1;
         hint = idx1.unwrap_or(0);
     }
-    if let Some(ds) = dense_start.take() {
-        dense_band(scene, ds, w_px.max(ds + 1));
+    if !dense.is_empty() {
+        marks::paint_aliased(scene, t, &dense, x0, top, bottom);
     }
-    emit_run(scene, run_start, w_px, bit);
+    emit_run(scene, run_start, columns.end, bit);
+    scene.lines(dotted, t.wave_dontcare, 1.0);
+    scene.lines(dashed, t.wave_weak, 1.0);
+}
+
+/// A dash pattern at the theme's zoom.
+fn scaled((on, off): (f32, f32), t: &Theme) -> (f32, f32) {
+    (on * t.zoom, off * t.zoom)
 }
 
 /// Index of the last change at or before the time under pixel `x`.
@@ -1274,6 +1400,122 @@ struct Segment {
     dense: bool,
 }
 
+/// Half-width of a bus hexagon's slant on each side of a change, design px.
+const SLANT_PX: f32 = 4.0;
+/// Gap between a slant and its label, design px.
+const LABEL_GAP_PX: f32 = 4.0;
+
+/// How a bus value is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BusLook {
+    /// Every bit 0 on a numeric row: a low line, no label.
+    Zero,
+    /// Every bit Z: a bare line at mid level.
+    Floating,
+    /// Every bit unknown: the hatched X hexagon.
+    Unknown,
+    /// Any other value: an outlined hexagon with its label.
+    Value,
+}
+
+fn bus_look(value: &WaveValue, numeric: bool) -> BusLook {
+    let WaveValue::Bits(bits) = value else {
+        return BusLook::Value;
+    };
+    let all = |f: fn(u8) -> bool| !bits.is_empty() && bits.bytes().all(f);
+    if all(|c| matches!(c, b'x' | b'X' | b'u' | b'U' | b'w' | b'W')) {
+        BusLook::Unknown
+    } else if all(|c| matches!(c, b'z' | b'Z')) {
+        BusLook::Floating
+    } else if numeric && all(|c| c == b'0') {
+        BusLook::Zero
+    } else {
+        BusLook::Value
+    }
+}
+
+/// Fit a label into `max_chars` monospace cells. A number keeps its last
+/// digits behind a leading ellipsis, where neighbouring values differ; text
+/// keeps its beginning. A label that would show fewer than two characters
+/// is dropped rather than shown as a lone ellipsis.
+pub(crate) fn fit_label(text: &str, max_chars: usize, number: bool) -> Option<String> {
+    let n = text.chars().count();
+    if n <= max_chars {
+        return (n > 0).then(|| text.to_owned());
+    }
+    if max_chars < 3 {
+        return None;
+    }
+    let keep = max_chars - 1;
+    Some(if number {
+        std::iter::once('…')
+            .chain(text.chars().skip(n - keep))
+            .collect()
+    } else {
+        text.chars()
+            .take(keep)
+            .chain(std::iter::once('…'))
+            .collect()
+    })
+}
+
+/// The label of a partly unknown value in runs: unknown digits in the X
+/// colour, floating ones in the Z colour, the rest in `text`.
+fn label_runs(label: &str, t: &Theme, text: Color) -> Vec<(usize, String, Color)> {
+    let mut runs: Vec<(usize, String, Color)> = Vec::new();
+    for (i, c) in label.chars().enumerate() {
+        let color = match c {
+            'x' | 'X' | 'u' | 'U' => t.wave_undef,
+            'z' | 'Z' => t.wave_highimp,
+            _ => text,
+        };
+        match runs.last_mut() {
+            Some((_, run, last)) if *last == color => run.push(c),
+            _ => runs.push((i, c.to_string(), color)),
+        }
+    }
+    runs
+}
+
+/// Fill a hexagon from `xa` to `xb` with slants `tw` wide (open ends have
+/// none), column by column through the slants so the fill stays crisp.
+#[allow(clippy::too_many_arguments)]
+fn fill_hexagon(
+    scene: &mut Scene,
+    xa: f32,
+    xb: f32,
+    tw: f32,
+    open: (bool, bool),
+    top: f32,
+    bottom: f32,
+    color: Color,
+) {
+    let (la, rb) = (
+        if open.0 { xa } else { xa + tw },
+        if open.1 { xb } else { xb - tw },
+    );
+    if rb > la {
+        scene.fill(Rect::from_xywh(la, top, rb - la, bottom - top), color);
+    }
+    let half = (bottom - top) / 2.0;
+    let mid = top + half;
+    let steps = tw.ceil().max(0.0) as usize;
+    for k in 0..steps {
+        let reach = ((k as f32 + 0.5) / tw).min(1.0) * half;
+        for (edge, open, dir) in [(xa, open.0, 1.0), (xb, open.1, -1.0)] {
+            if open {
+                continue;
+            }
+            let x = if dir > 0.0 {
+                edge + k as f32
+            } else {
+                edge - k as f32 - 1.0
+            };
+            scene.fill(Rect::from_xywh(x, mid - reach, 1.0, 2.0 * reach), color);
+        }
+    }
+}
+
 /// Paint a multi-bit trace as slanted "hexagon" segments with value text.
 fn paint_bus_row(
     h: &dyn SignalHistory,
@@ -1294,18 +1536,23 @@ fn paint_bus_row(
     let top = area.top() + TRACE_PAD * t.zoom;
     let bottom = area.bottom() - TRACE_PAD * t.zoom;
     let midf = top + (bottom - top) / 2.0;
+    let numeric = translator.numeric_kind().is_some();
 
-    // Column sampling → segments.
+    // Column sampling → segments, with each changing column's count and kinds.
     let mut segments: Vec<Segment> = Vec::new();
+    let mut columns: Vec<(usize, marks::Kinds)> = vec![(0, marks::Kinds::NONE); w_px];
+    let mut kinds = marks::KindReader::new(h, false);
     let mut idx = index_at_x(h, vp, wf, 0.0, None);
     let mut hint = idx.unwrap_or(0);
     let mut cur_start = 0usize;
-    for x in 0..w_px {
+    for (x, column) in columns.iter_mut().enumerate() {
         let idx1 = index_at_x(h, vp, wf, (x + 1) as f64, Some(hint));
         let n = changes_between(idx, idx1);
         if n == 0 {
             continue;
         }
+        let last = idx1.expect("a column with changes ends on one");
+        *column = (n, kinds.column(idx, last));
         if x > cur_start {
             segments.push(Segment {
                 x_start: cur_start,
@@ -1361,18 +1608,24 @@ fn paint_bus_row(
     let segments = merged;
 
     // Paint. Horizontal edges are crisp quads; slants are stroked lines.
-    let mut slants: Vec<(ValueKind, Vec<[crate::geometry::Point; 2]>)> = Vec::new();
-    let slant_w = 3.0 * t.zoom;
-    let mut texts = Vec::new();
+    let mut slants: Vec<(Color, Vec<[Point; 2]>)> = Vec::new();
+    let slant_w = SLANT_PX * t.zoom;
+    let mut texts: Vec<(f32, String, Color)> = Vec::new();
     p.scene.clipped(clip, |scene| {
         for seg in &segments {
             let xa = x0 + seg.x_start as f32;
             let xb = x0 + seg.x_end as f32;
             if seg.dense {
-                scene.fill(
-                    Rect::new(point(xa, top), size(xb - xa, bottom - top)),
-                    t.wave_dense,
-                );
+                // Every column of an aliased stretch counts as at least two changes.
+                let entering = marks::Kinds::of(h.value_view(seg.idx).kind());
+                let aliased: Vec<marks::Aliased> = (seg.x_start..seg.x_end)
+                    .map(|x| marks::Aliased {
+                        x,
+                        changes: columns[x].0.max(2),
+                        kinds: columns[x].1.union(entering),
+                    })
+                    .collect();
+                marks::paint_aliased(scene, t, &aliased, x0, top, bottom);
                 continue;
             }
             let value = h.value(seg.idx);
@@ -1380,14 +1633,82 @@ fn paint_bus_row(
                 continue;
             }
             let kind = value.kind();
-            let color = t.value_color(kind);
+            let look = bus_look(&value, numeric);
             let seg_w = xb - xa;
             let tw = slant_w.min(seg_w / 2.0);
             let open_left = seg.x_start == 0;
             let open_right = seg.x_end == w_px;
             let la = if open_left { xa } else { xa + tw };
             let rb = if open_right { xb } else { xb - tw };
-            // Top and bottom lines.
+            let (topf, botf) = (top + 0.5, bottom - 0.5);
+            let color = match look {
+                BusLook::Unknown => t.wave_undef,
+                BusLook::Floating => t.wave_highimp,
+                // A partly unknown or floating value keeps the signal outline.
+                _ if matches!(kind, ValueKind::Undef | ValueKind::HighImp) => t.wave_signal,
+                _ => t.value_color(kind),
+            };
+            let lines = match slants.iter_mut().find(|(c, _)| *c == color) {
+                Some((_, b)) => b,
+                None => {
+                    slants.push((color, Vec::new()));
+                    &mut slants.last_mut().unwrap().1
+                }
+            };
+            match look {
+                BusLook::Floating => {
+                    scene.fill(Rect::from_xywh(xa, snap(midf), seg_w, 1.0), color);
+                    continue;
+                }
+                BusLook::Zero => {
+                    // Zero reads as idle: the slants run into a low line; hover still reads it.
+                    if rb > la {
+                        scene.fill(Rect::from_xywh(la, bottom - 1.0, rb - la, 1.0), color);
+                    }
+                    if !open_left {
+                        lines.push([point(xa, midf), point(la, botf)]);
+                    }
+                    if !open_right {
+                        lines.push([point(xb, midf), point(rb, botf)]);
+                    }
+                    continue;
+                }
+                BusLook::Unknown => {
+                    fill_hexagon(
+                        scene,
+                        xa,
+                        xb,
+                        tw,
+                        (open_left, open_right),
+                        top,
+                        bottom,
+                        t.wave_undef_fill,
+                    );
+                    if rb > la {
+                        marks::hatch(
+                            scene,
+                            t,
+                            Rect::from_xywh(la, top, rb - la, bottom - top),
+                            x0,
+                        );
+                    }
+                }
+                BusLook::Value if !numeric && kind == ValueKind::Normal => {
+                    // States get a tint, so a recurring state is known before its label is read.
+                    let tint = t.value_tint(&translator.translate(&value).text);
+                    fill_hexagon(
+                        scene,
+                        xa,
+                        xb,
+                        tw,
+                        (open_left, open_right),
+                        top,
+                        bottom,
+                        tint,
+                    );
+                }
+                BusLook::Value => {}
+            }
             if rb > la {
                 scene.fill(Rect::new(point(la, top), size(rb - la, 1.0)), color);
                 scene.fill(
@@ -1395,15 +1716,6 @@ fn paint_bus_row(
                     color,
                 );
             }
-            let lines = match slants.iter_mut().find(|(k, _)| *k == kind) {
-                Some((_, b)) => b,
-                None => {
-                    slants.push((kind, Vec::new()));
-                    &mut slants.last_mut().unwrap().1
-                }
-            };
-            let topf = top + 0.5;
-            let botf = bottom - 0.5;
             if !open_left {
                 lines.push([point(xa, midf), point(xa + tw, topf)]);
                 lines.push([point(xa, midf), point(xa + tw, botf)]);
@@ -1412,23 +1724,35 @@ fn paint_bus_row(
                 lines.push([point(xb, midf), point(xb - tw, topf)]);
                 lines.push([point(xb, midf), point(xb - tw, botf)]);
             }
-            // Text.
-            let avail = seg_w - 2.0 * tw - 8.0 * t.zoom;
+            // Text, one slant and a gap in from each end.
+            let avail = seg_w - 2.0 * (tw + LABEL_GAP_PX * t.zoom);
             if avail >= char_w {
                 let max_chars = (avail / char_w).floor() as usize;
                 let tr = translator.translate(&value);
-                if let Some(text) = truncate_chars(&tr.text, max_chars) {
-                    let color = if tr.kind == ValueKind::Normal {
-                        t.wave_bus_text
-                    } else {
-                        t.value_color(tr.kind)
+                if let Some(text) = fit_label(&tr.text, max_chars, numeric) {
+                    let x = snap(xa + tw + LABEL_GAP_PX * t.zoom);
+                    let plain = match look {
+                        BusLook::Unknown => t.wave_undef,
+                        _ if tr.kind == ValueKind::Normal => t.wave_bus_text,
+                        _ if matches!(tr.kind, ValueKind::Undef | ValueKind::HighImp) => {
+                            t.wave_bus_text
+                        }
+                        _ => t.value_color(tr.kind),
                     };
-                    texts.push((snap(xa + tw + 4.0 * t.zoom), text, color));
+                    if look == BusLook::Value
+                        && matches!(tr.kind, ValueKind::Undef | ValueKind::HighImp)
+                    {
+                        for (at, run, color) in label_runs(&text, t, plain) {
+                            texts.push((x + at as f32 * char_w, run, color));
+                        }
+                    } else {
+                        texts.push((x, text, plain));
+                    }
                 }
             }
         }
-        for (kind, segments) in slants {
-            scene.lines(segments, t.value_color(kind), 1.0);
+        for (color, segments) in slants {
+            scene.lines(segments, color, 1.0);
         }
         for (tx, text, color) in texts {
             scene.text(
@@ -1485,8 +1809,8 @@ fn paint_clock_row(
             point(cells.name_x, y),
             row_h,
             name,
-            FontRole::Mono,
-            t.mono_size,
+            FontRole::Ui,
+            t.ui_size,
             name_color,
         );
     });
@@ -1515,11 +1839,129 @@ fn paint_clock_row(
     }
     if let Some(tl) = timeline {
         let wave_row = Rect::new(point(waves.left(), y), size(waves.width(), full_h));
-        let history = crate::clock::ClockHistory::new(tl.clone());
-        let viewport = cells.viewport;
-        p.scene.clipped(waves, |scene| {
-            paint_bit_row(&history, &viewport, wave_row, t, scene)
-        });
+        paint_clock_wave(
+            tl,
+            &cells.viewport,
+            wave_row,
+            waves,
+            doc.limits(),
+            doc.time_base(),
+            p,
+        );
+    }
+}
+
+/// A clock under 3px per half period is a band labelled with its frequency
+/// and period; a gap between its stretches is a dashed low line marked
+/// "gated".
+const CLOCK_BAND_HALF_PX: f64 = 3.0;
+/// Gaps at least this wide (design px) say "gated".
+const GATED_LABEL_PX: f32 = 52.0;
+
+/// A declared clock: where its edges are 3px apart or more, a square wave
+/// without the high fill, whose stripes would only add noise; closer, a
+/// band labelled "500.00 MHz · 2 ns"; between stretches, a dashed low line.
+#[allow(clippy::too_many_arguments)]
+fn paint_clock_wave(
+    timeline: &std::sync::Arc<vtr::clock::ClockTimeline>,
+    vp: &Viewport,
+    area: Rect,
+    clip: Rect,
+    (first, last): (u64, u64),
+    base: crate::wave::timeline::TimeBase<'_>,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let w_px = area.width().floor().max(0.0) as usize;
+    if w_px == 0 {
+        return;
+    }
+    let wf = w_px as f64;
+    let ppu = vp.px_per_unit(wf);
+    let top = area.top() + TRACE_PAD * t.zoom;
+    let bottom = area.bottom() - TRACE_PAD * t.zoom;
+    let col = |time: u64| vp.x_of(time as f64, wf).clamp(0.0, wf);
+    let history = crate::clock::ClockHistory::new(timeline.clone());
+    let stretches = timeline.stretches();
+    // Stretches and the gaps between them, in time order.
+    let mut gaps: Vec<(u64, u64)> = Vec::new();
+    let mut from = first;
+    for s in stretches {
+        if s.begin > from {
+            gaps.push((from, s.begin));
+        }
+        from = from.max(s.end);
+    }
+    if !timeline.is_open() && last > from {
+        gaps.push((from, last));
+    }
+    let mut dashed: Vec<[Point; 2]> = Vec::new();
+    // Each label with the span it must fit in: a band's inside it, "gated" in its gap.
+    let mut labels: Vec<(f32, f32, String, Color)> = Vec::new();
+    p.scene.clipped(clip, |scene| {
+        for s in stretches {
+            let (a, b) = (col(s.begin), col(s.end));
+            if b <= 0.0 || a >= wf || (b - a) < 0.5 {
+                continue;
+            }
+            if s.period as f64 / 2.0 * ppu >= CLOCK_BAND_HALF_PX {
+                let columns = a.floor() as usize..(b.ceil() as usize).min(w_px);
+                paint_bits(&history, vp, area, t, scene, false, columns);
+                continue;
+            }
+            let (xa, xb) = (area.left() + a as f32, area.left() + b as f32);
+            scene.fill(
+                Rect::from_xywh(xa, top, xb - xa, bottom - top),
+                t.wave_signal.with_alpha(0.16),
+            );
+            scene.fill(Rect::from_xywh(xa, top, xb - xa, 1.0), t.wave_signal);
+            scene.fill(
+                Rect::from_xywh(xa, bottom - 1.0, xb - xa, 1.0),
+                t.wave_signal,
+            );
+            let period = format_time(s.period as f64, base);
+            let label = match crate::clock::frequency(s.period as f64, base) {
+                Some(f) => format!("{f} · {period}"),
+                None => period,
+            };
+            labels.push((xa, xb, label, t.wave_bus_text));
+        }
+        for &(ga, gb) in &gaps {
+            let (a, b) = (col(ga), col(gb));
+            if b - a < 1.0 {
+                continue;
+            }
+            let (xa, xb) = (area.left() + a as f32, area.left() + b as f32);
+            marks::dashes(
+                &mut dashed,
+                xa,
+                xb,
+                bottom - 1.0,
+                area.left(),
+                scaled(marks::DASHED, t),
+            );
+            if xb - xa > z(GATED_LABEL_PX) {
+                labels.push((xa, xb, "gated".to_owned(), t.editor.text_placeholder));
+            }
+        }
+        scene.lines(std::mem::take(&mut dashed), t.wave_weak, 1.0);
+    });
+    for (xa, xb, label, color) in labels {
+        let w = p.width(&label, FontRole::Mono, t.ui_size_small);
+        let left = xa.max(clip.left()) + z(6.0);
+        if left + w + z(6.0) <= xb.min(clip.right()) {
+            p.scene.clipped(clip, |scene| {
+                scene.text(
+                    point(snap(left), area.top()),
+                    area.height(),
+                    label,
+                    FontRole::Mono,
+                    t.ui_size_small,
+                    color,
+                )
+            });
+        }
     }
 }
 
@@ -1911,7 +2353,7 @@ fn paint_lane_row(lane: &TxLane, doc: &Document, cells: &LaneCells<'_>, p: &mut 
     // Name column: the generator, a "+N" chip while sub-rows are folded,
     // and on taller rows the record count and the stacking.
     let pad = cells.name_x - names.left();
-    let name_w = p.width(&lane.name, FontRole::Mono, t.mono_size);
+    let name_w = p.width(&lane.name, FontRole::Ui, t.ui_size);
     let name_color = if lane.track().is_some() {
         cells.text
     } else {
@@ -1923,8 +2365,8 @@ fn paint_lane_row(lane: &TxLane, doc: &Document, cells: &LaneCells<'_>, p: &mut 
             point(names.left() + pad, y),
             row_h,
             name,
-            FontRole::Mono,
-            t.mono_size,
+            FontRole::Ui,
+            t.ui_size,
             name_color,
         );
     });
@@ -2224,4 +2666,384 @@ fn paint_lane_density(
             x += run;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::history::VecHistory;
+    use crate::scene::{MonoMeasure, Prim};
+
+    #[test]
+    fn labels_keep_a_numbers_last_digits_and_texts_beginning() {
+        assert_eq!(fit_label("80000210", 8, true).as_deref(), Some("80000210"));
+        assert_eq!(fit_label("80000210", 5, true).as_deref(), Some("…0210"));
+        assert_eq!(
+            fit_label("dot product loop", 6, false).as_deref(),
+            Some("dot p…")
+        );
+        // Fewer than two characters would show: dropped, never a lone ellipsis.
+        assert_eq!(fit_label("80000210", 2, true), None);
+        assert_eq!(fit_label("5", 1, true).as_deref(), Some("5"));
+        assert_eq!(fit_label("", 4, false), None);
+    }
+
+    #[test]
+    fn a_bus_value_picks_its_shape() {
+        let bits = |s: &str| WaveValue::Bits(s.into());
+        assert_eq!(bus_look(&bits("0000"), true), BusLook::Zero);
+        assert_eq!(bus_look(&bits("0000"), false), BusLook::Value);
+        assert_eq!(bus_look(&bits("zzzz"), true), BusLook::Floating);
+        assert_eq!(bus_look(&bits("xxXX"), true), BusLook::Unknown);
+        assert_eq!(bus_look(&bits("x0z1"), true), BusLook::Value);
+        assert_eq!(
+            bus_look(&WaveValue::Text("idle".into()), false),
+            BusLook::Value
+        );
+        let t = Theme::volna(true);
+        let runs = label_runs("3x0z", &t, t.wave_bus_text);
+        let colors: Vec<_> = runs.iter().map(|(at, _, c)| (*at, *c)).collect();
+        assert_eq!(
+            colors,
+            [
+                (0, t.wave_bus_text),
+                (1, t.wave_undef),
+                (2, t.wave_bus_text),
+                (3, t.wave_highimp)
+            ]
+        );
+    }
+
+    fn bus(values: &[(u64, &str)]) -> VecHistory {
+        VecHistory {
+            shape: SignalShape::Vector { width: 8 },
+            times: values.iter().map(|(t, _)| *t).collect(),
+            values: values
+                .iter()
+                .map(|(_, v)| WaveValue::Bits((*v).into()))
+                .collect(),
+            initial: WaveValue::Bits("00000000".into()),
+        }
+    }
+
+    fn paint_bus(h: &VecHistory, translator: &str, t: &Theme) -> Scene {
+        let translators = crate::data::Translators::builtin();
+        let translator = translators.get(translator).unwrap();
+        let mut scene = Scene::default();
+        let mut text = TextCache::default();
+        let mut measure = MonoMeasure;
+        let mut p = TextPainter {
+            theme: t,
+            text: &mut text,
+            measure: &mut measure,
+            scene: &mut scene,
+        };
+        let area = Rect::from_xywh(0.0, 0.0, 400.0, 24.0);
+        let vp = Viewport {
+            start: 0.0,
+            end: 400.0,
+        };
+        let char_w = MonoMeasure.text_width("0", FontRole::Mono, t.mono_size);
+        paint_bus_row(h, translator.as_ref(), &vp, area, area, char_w, &mut p);
+        scene
+    }
+
+    #[test]
+    fn buses_draw_zero_low_z_mid_and_unknowns_hatched() {
+        let t = Theme::volna(true);
+        // 0: zero, 100: a value, 200: all X, 300: all Z.
+        let h = bus(&[(100, "10000000"), (200, "xxxxxxxx"), (300, "zzzzzzzz")]);
+        let scene = paint_bus(&h, "hex", &t);
+        let texts: Vec<_> = scene.texts().collect();
+        // Zero is idle: no label. The value and the unknown are labelled.
+        assert_eq!(texts, ["80", "xx"]);
+        let quads: Vec<_> = scene.quads().collect();
+        // The zero stretch is a low line from its left edge to its slant.
+        assert!(quads.iter().any(|(r, c)| *c == t.wave_signal
+            && r.left() == 0.0
+            && r.top() == 18.0
+            && r.height() == 1.0));
+        // All X: tinted and hatched inside its hexagon.
+        assert!(
+            quads
+                .iter()
+                .any(|(r, c)| *c == t.wave_undef_fill && r.left() >= 200.0 && r.right() <= 300.0)
+        );
+        assert!(scene.prims.iter().any(|p| matches!(p, Prim::Lines { color, .. } if *color == t.wave_undef.with_alpha(marks::HATCH_ALPHA))));
+        // All Z: one bare line at mid level, no hexagon.
+        let z: Vec<_> = quads.iter().filter(|(_, c)| *c == t.wave_highimp).collect();
+        assert_eq!(z.len(), 1);
+        assert_eq!((z[0].0.left(), z[0].0.height()), (299.0, 1.0));
+        // Slants run 4px either side of a change.
+        let slants = scene.prims.iter().find_map(|p| match p {
+            Prim::Lines {
+                segments, color, ..
+            } if *color == t.wave_signal => Some(segments.clone()),
+            _ => None,
+        });
+        assert!(
+            slants
+                .unwrap()
+                .iter()
+                .any(|[a, b]| a.x == 99.0 && b.x == 103.0)
+        );
+    }
+
+    #[test]
+    fn partial_unknowns_keep_the_outline_and_colour_their_digits() {
+        let t = Theme::volna(false);
+        let h = bus(&[(100, "0011xxxx")]);
+        let scene = paint_bus(&h, "hex", &t);
+        let runs: Vec<_> = scene
+            .prims
+            .iter()
+            .filter_map(|p| match p {
+                Prim::Text { text, color, .. } => Some((text.as_str(), *color)),
+                _ => None,
+            })
+            .collect();
+        assert!(runs.contains(&("3", t.wave_bus_text)), "{runs:?}");
+        assert!(
+            runs.iter()
+                .any(|(s, c)| s.contains('x') && *c == t.wave_undef),
+            "{runs:?}"
+        );
+        assert!(
+            scene.quads().all(|(_, c)| c != t.wave_undef_fill),
+            "not the X band"
+        );
+    }
+
+    #[test]
+    fn text_values_get_a_stable_tint_and_numbers_stay_outlines() {
+        let t = Theme::volna(true);
+        let states = VecHistory {
+            shape: SignalShape::Vector { width: 8 },
+            times: vec![100, 200, 300],
+            values: ["idle", "busy", "idle"]
+                .map(|s| WaveValue::Text(s.into()))
+                .to_vec(),
+            initial: WaveValue::Text("busy".into()),
+        };
+        let scene = paint_bus(&states, "text", &t);
+        let idle = t.value_tint("idle");
+        let tinted = scene.quads().filter(|(_, c)| *c == idle).count();
+        assert!(tinted >= 2, "both idle stretches are tinted");
+        let numbers = paint_bus(&bus(&[(100, "00000011")]), "hex", &t);
+        assert!(numbers.quads().all(|(_, c)| (c.a - 0.22).abs() > 1e-3));
+    }
+
+    #[test]
+    fn x_and_dont_care_and_weak_bits_have_their_own_shapes() {
+        let t = Theme::volna(true);
+        let h = VecHistory {
+            shape: SignalShape::Bit,
+            times: vec![100, 200, 300],
+            values: ["x", "-", "l"].map(|s| WaveValue::Bits(s.into())).to_vec(),
+            initial: WaveValue::Bits("0".into()),
+        };
+        let mut scene = Scene::default();
+        let area = Rect::from_xywh(0.0, 0.0, 400.0, 24.0);
+        paint_bit_row(
+            &h,
+            &Viewport {
+                start: 0.0,
+                end: 400.0,
+            },
+            area,
+            &t,
+            &mut scene,
+        );
+        let lines = |color: Color| {
+            scene.prims.iter().filter_map(move |p| match p {
+                Prim::Lines {
+                    segments, color: c, ..
+                } if *c == color => Some(segments.len()),
+                _ => None,
+            })
+        };
+        // A change is drawn in the pixel column whose right edge reaches it.
+        assert!(
+            scene
+                .quads()
+                .any(|(r, c)| c == t.wave_undef_fill && r.left() == 100.0 && r.width() == 99.0)
+        );
+        assert!(
+            lines(t.wave_undef.with_alpha(marks::HATCH_ALPHA)).sum::<usize>() >= 20,
+            "hatched every 5px"
+        );
+        assert!(
+            scene
+                .quads()
+                .any(|(r, c)| c == t.wave_undef && r.left() == 100.0 && r.height() == 1.0),
+            "a mid-level line"
+        );
+        // Dotted: a dash every 3px; dashed: every 7px.
+        let dotted: usize = lines(t.wave_dontcare).sum();
+        let dashed: usize = lines(t.wave_weak).sum();
+        assert!((32..=35).contains(&dotted), "{dotted}");
+        assert!((14..=16).contains(&dashed), "{dashed}");
+    }
+
+    #[test]
+    fn aliased_columns_show_their_strength_and_their_unknowns() {
+        let t = Theme::volna(true);
+        let bits = |s: &str| WaveValue::Bits(s.into());
+        // Columns of 400 units at 1px per 100: 0..100 toggles 0/1 twice per
+        // column, 100..200 toggles thirty times, 200..300 mixes in X, and
+        // 300..400 changes only between unknowns.
+        let mut times = Vec::new();
+        let mut values = Vec::new();
+        for c in 0..4u64 {
+            let (n, pick): (u64, fn(u64) -> &'static str) = match c {
+                0 => (2, |i| if i % 2 == 0 { "1" } else { "0" }),
+                1 => (30, |i| if i % 2 == 0 { "1" } else { "0" }),
+                2 => (4, |i| {
+                    if i == 1 {
+                        "x"
+                    } else if i % 2 == 0 {
+                        "1"
+                    } else {
+                        "0"
+                    }
+                }),
+                _ => (4, |i| if i % 2 == 0 { "x" } else { "u" }),
+            };
+            for column in 0..100u64 {
+                for i in 0..n {
+                    times.push(c * 10_000 + column * 100 + 1 + i * (98 / n));
+                    values.push(bits(pick(i)));
+                }
+            }
+        }
+        let h = VecHistory {
+            shape: SignalShape::Bit,
+            times,
+            values,
+            initial: bits("x"),
+        };
+        let mut scene = Scene::default();
+        let area = Rect::from_xywh(0.0, 0.0, 400.0, 24.0);
+        paint_bit_row(
+            &h,
+            &Viewport {
+                start: 0.0,
+                end: 40_000.0,
+            },
+            area,
+            &t,
+            &mut scene,
+        );
+        let fill_at = |x: f32| {
+            scene
+                .quads()
+                .filter(|(r, c)| r.left() <= x && r.right() > x && r.height() > 2.0 && c.a > 0.1)
+                .map(|(_, c)| c)
+                .last()
+                .unwrap()
+        };
+        assert!(
+            fill_at(150.0).a > fill_at(50.0).a,
+            "thirty changes read stronger than two"
+        );
+        assert_eq!(
+            fill_at(350.0),
+            t.wave_undef_fill,
+            "only unknowns: the X band"
+        );
+        let rails = scene
+            .quads()
+            .filter(|(r, c)| {
+                *c == t.wave_undef && r.height() == 1.0 && (200.0..300.0).contains(&r.left())
+            })
+            .count();
+        assert_eq!(rails, 2, "X mixed into traffic: rails above and below");
+    }
+
+    #[test]
+    fn clocks_show_periods_bands_and_gated_gaps() {
+        let t = Theme::volna(true);
+        // 2 ns from 0 to 400, gated until 600, then 4 ns to 1000.
+        let timeline = std::sync::Arc::new(
+            vtr::clock::ClockTimeline::new(vec![(0, 400, 2), (600, 1000, 4)], false).unwrap(),
+        );
+        let base = crate::wave::timeline::TimeBase {
+            timescale: -9,
+            unit: None,
+        };
+        let draw = |vp: Viewport| {
+            let mut scene = Scene::default();
+            let mut text = TextCache::default();
+            let mut measure = MonoMeasure;
+            let mut p = TextPainter {
+                theme: &t,
+                text: &mut text,
+                measure: &mut measure,
+                scene: &mut scene,
+            };
+            let area = Rect::from_xywh(0.0, 0.0, 500.0, 24.0);
+            paint_clock_wave(&timeline, &vp, area, area, (0, 1000), base, &mut p);
+            scene
+        };
+        let whole = draw(Viewport {
+            start: 0.0,
+            end: 1000.0,
+        });
+        let texts: Vec<_> = whole.texts().collect();
+        assert_eq!(texts, ["500.00 MHz · 2 ns", "250.00 MHz · 4 ns", "gated"]);
+        // No high fill on a clock: its band is the only wide translucent quad.
+        assert!(whole.quads().all(|(_, c)| c != t.wave_high_fill));
+        assert!(
+            whole
+                .prims
+                .iter()
+                .any(|p| matches!(p, Prim::Lines { color, .. } if *color == t.wave_weak))
+        );
+        // Closer, edges 3px apart or more are a square wave again, without labels.
+        let close = draw(Viewport {
+            start: 100.0,
+            end: 200.0,
+        });
+        assert_eq!(close.texts().count(), 0);
+        assert!(
+            close
+                .quads()
+                .any(|(r, c)| c == t.wave_signal && r.width() == 1.0 && r.height() > 2.0)
+        );
+        assert!(close.quads().all(|(_, c)| c != t.wave_high_fill));
+    }
+
+    #[test]
+    fn coalesced_events_count_themselves_where_there_is_room() {
+        let t = Theme::volna(true);
+        let h = VecHistory {
+            shape: SignalShape::Event,
+            // Three in one pixel, one alone, then two squeezed next to a neighbour.
+            times: vec![100, 100, 100, 200, 390, 390, 392],
+            values: vec![WaveValue::Bits("1".into()); 7],
+            initial: WaveValue::Unavailable,
+        };
+        let mut scene = Scene::default();
+        let mut text = TextCache::default();
+        let mut measure = MonoMeasure;
+        let area = Rect::from_xywh(0.0, 0.0, 400.0, 24.0);
+        let vp = Viewport {
+            start: 0.0,
+            end: 400.0,
+        };
+        let counts = paint_event_row(&h, &vp, area, &t, &mut scene);
+        assert_eq!(counts.iter().map(|c| c.1).collect::<Vec<_>>(), [3, 2]);
+        let mut p = TextPainter {
+            theme: &t,
+            text: &mut text,
+            measure: &mut measure,
+            scene: &mut scene,
+        };
+        paint_event_counts(&counts, area, area, &mut p);
+        assert_eq!(
+            scene.texts().collect::<Vec<_>>(),
+            ["×3"],
+            "no room beside the second"
+        );
+    }
 }

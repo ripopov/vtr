@@ -261,7 +261,7 @@ state. The page background follows VS Code while loading; GPUI reads the initial
 palette synchronously before creating its window. Missing metadata uses available
 colours and inferred appearance without delaying startup; late metadata still
 applies. Fonts and dimensions remain Volna's bundled ones.
-Native and standalone web continue to use One Dark.
+Native and standalone web use the `appearance.theme` setting, Volna by default.
 
 ## Saved workspaces
 
@@ -309,7 +309,7 @@ time axis has its own zoom (`=` / `-` in the waves) and is unaffected.
 
 | Key | Values | Applies |
 |---|---|---|
-| `appearance.theme` | `one-dark`, `dracula`, `catppuccin-mocha`, `catppuccin-latte`, `github-dark`, `github-light`, `vscode-dark`, `vscode-light`, or the stem of a palette JSON in `<config dir>/themes/` | live (native, web) |
+| `appearance.theme` | `volna` (default: Volna Dark or Light, following the system), `volna-dark`, `volna-light`, `volna-mixed` (a light window with dark waves and pipeline, whatever the system), `one-dark`, `dracula`, `catppuccin-mocha`, `catppuccin-latte`, `github-dark`, `github-light`, `vscode-dark`, `vscode-light`, or the stem of a palette JSON in `<config dir>/themes/` | live (native, web) |
 | `appearance.zoom` | 0.5–3.0 in steps of 0.1, default 1.0 | live |
 | `panels.linkByDefault` | boolean | new panels |
 | `waves.animation` | `on`, `reduced`, `off` | live |

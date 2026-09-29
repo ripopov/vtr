@@ -529,6 +529,7 @@ impl TransactionPanelView {
                 .rounded_sm();
             for (cell_ix, cell) in lane.cells.iter().enumerate() {
                 let begin = cell.begin;
+                let style = crate::theme::core_theme(cx).swatch(cell.swatch);
                 row = row.child(
                     div()
                         .id(SharedString::from(format!("tx-cell-{index}-{cell_ix}")))
@@ -537,16 +538,16 @@ impl TransactionPanelView {
                         .bottom_0()
                         .left(relative(cell.start))
                         .w(relative(cell.width.max(0.004)))
-                        .bg(hsla(cell.style.fill))
+                        .bg(hsla(style.fill))
                         .border_1()
-                        .border_color(hsla(cell.style.edge))
+                        .border_color(hsla(style.edge))
                         .cursor_pointer()
                         .overflow_hidden()
                         .flex()
                         .items_center()
                         .justify_center()
                         .text_size(px(t.ui_size_small))
-                        .text_color(hsla(cell.style.text))
+                        .text_color(hsla(style.text))
                         .font_family(t.mono_font)
                         .child(SharedString::from(cell.name.clone()))
                         .on_click(cx.listener(move |view, _, window, cx| {
@@ -944,6 +945,7 @@ fn stage_row(
     cx: &mut Context<TransactionPanelView>,
 ) -> AnyElement {
     let begin = row.begin;
+    let style = crate::theme::core_theme(cx).swatch(row.swatch);
     div()
         .id(("tx-stage", index))
         .flex()
@@ -963,7 +965,7 @@ fn stage_row(
                 .h(t.px(10.0))
                 .flex_none()
                 .rounded_sm()
-                .bg(hsla(row.style.fill)),
+                .bg(hsla(style.fill)),
         )
         .child(
             div()
@@ -994,7 +996,7 @@ fn stage_row(
                                 .h_full()
                                 .w(relative(row.share.max(0.01)))
                                 .rounded_sm()
-                                .bg(hsla(row.style.fill)),
+                                .bg(hsla(style.fill)),
                         ),
                 )
                 .child(chips(t, &row.attributes, row.attributes_total)),

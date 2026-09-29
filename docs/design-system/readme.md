@@ -47,7 +47,7 @@ After an intended visual change, run `UPDATE_BASELINES=1 node --test --test-conc
 
 The website wears the viewer's own chrome, so the site and the app read as one product.
 
-- Neutrals are One Dark greys from `volna-core` (#1f2228 → #eceef1). The accent is the viewer blue #74ade8, or #2d6cb0 in light. Radii are 3/4/6/8/10 (the viewer's components use 4). Display type is Plex Sans 600. The primary button uses the accent.
+- Neutrals are One Dark greys from `volna-core` (#1f2228 → #eceef1). The accent is the viewer blue #74ade8, or #2d6cb0 in light. Radii are 3/4/6/8/10 (the viewer's components use 4). Display type is Inter 600. The primary button uses the accent.
 - `data-theme` = `dark` | `light`. Both are first-class; dark is the default (the viewer's native appearance). A 3-line inline head script reads `localStorage['volna-theme']` / `prefers-color-scheme` before paint.
 - Two other directions were explored and retired: Phosphor (the teal landing page) and Datasheet (paper, indigo, mono display).
 
@@ -68,7 +68,7 @@ Waveform, marker and pipeline-stage colours come straight from the viewer.
 ## VISUAL FOUNDATIONS
 
 - **Colour**: neutral-dominant. One accent (viewer blue), used for the primary action, links, the kicker, the VTR series in charts and selection. Semantic states from One Dark (dark) and GitHub-light (light). A categorical palette for waveform value kinds (signal, X, Z, don't-care, weak, events, cursor, relations) comes straight from `volna-core`.
-- **Type**: IBM Plex Sans 400/600 for UI and prose; Lilex 400 for code, signal names, kickers, table numbers and all figures (tabular). Display 40–76px fluid, −0.03em; body 16/1.55; captions 13.
+- **Type**: the pair of JetBrains' IDEs (CLion, PyCharm): Inter 400/600 for UI and prose; JetBrains Mono 400 for code, signal names, kickers, table numbers and all figures (tabular). Display 40–76px fluid, −0.03em; body 16/1.55; captions 13.
 - **Imagery**: real product only — screenshots from the repo and the live WASM viewer in an iframe. No stock photos, no illustrations, no abstract blobs. Screens keep the viewer's own One Dark or light theme; cool, neutral, no grain.
 - **Backgrounds**: flat. No gradients except the hatch that marks a saving in comparison bars. (The old landing page's radial glows and gradient headline are retired.)
 - **Layout**: 1180px wrap, 1440px for the demo, 24px gutter (16px on phones), 112px section rhythm. Sticky 60px nav. Responsive to 360px; tables scroll inside their frame, never the page.
@@ -87,7 +87,7 @@ Waveform, marker and pipeline-stage colours come straight from the viewer.
 - On the site, the `Icon` component loads Lucide from CDN (`lucide-static@0.469.0`) as a CSS mask so it takes `currentColor`. Icons the viewer set lacks (copy, check, download, github, sun, moon, monitor, laptop, globe, square-code, menu) come from the same Lucide set — no substitution of style.
 - Icons are functional: nav, buttons, feature cards, callouts. Never decorative clusters.
 - No emoji. Unicode arrows (→ ↗ ↓) and × are used as typographic glyphs in links, ratios and captions.
-- Logo: `volna/volna/assets/app-icon/volna.svg` (seal on a wave, canonical app icon) and `volna-mark.svg` (single-colour mark). Pair the icon with the word "Volna" in Plex Sans 600. Never recolour the app icon.
+- Logo: `volna/volna/assets/app-icon/volna.svg` (seal on a wave, canonical app icon) and `volna-mark.svg` (single-colour mark). Pair the icon with the word "Volna" in Inter 600. Never recolour the app icon.
 
 ## Index
 
@@ -98,7 +98,7 @@ Waveform, marker and pipeline-stage colours come straight from the viewer.
 - `guidelines/` — foundation specimen cards (Colors, Type, Spacing, Brand).
 - `ui_kits/website/` — click-through site: Landing, Benchmarks, VTR format, Docs, Download.
 - `assets/screens/` — product screenshots. Logo and icons are not copied: they are referenced from `volna/volna/assets/app-icon/` and `volna/volna-core/assets/icons/`.
-- `fonts/` — WOFF2 built by `fonts/build.sh` from the viewer's TTFs in `volna/volna-core/assets/fonts/` (originals and licences). Plex Sans is converted whole (its OFL reserves the name "Plex"); Lilex is subset to Latin-1 plus the symbols the site uses. `tokens/fonts.css` falls back to the original TTFs.
+- `fonts/` — WOFF2 built by `fonts/build.sh` from the viewer's TTFs in `volna/volna-core/assets/fonts/` (originals and licences). Neither Inter nor JetBrains Mono reserves a font name, so both are subset to Latin, Cyrillic and the symbols the site uses. `tokens/fonts.css` falls back to the original TTFs.
 - `SKILL.md` — agent skill entry.
 
 ## Components

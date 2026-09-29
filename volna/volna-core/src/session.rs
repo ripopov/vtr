@@ -257,6 +257,9 @@ impl SignalHistory for AccountedHistory {
     fn value_view(&self, index: Option<usize>) -> crate::data::value_view::ValueView<'_> {
         self.inner.value_view(index)
     }
+    fn always_normal(&self) -> bool {
+        self.inner.always_normal()
+    }
     fn bit(&self, index: Option<usize>) -> crate::data::Bit {
         self.inner.bit(index)
     }

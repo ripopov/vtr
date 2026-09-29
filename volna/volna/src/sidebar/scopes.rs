@@ -156,6 +156,12 @@ impl Workspace {
         let t = *theme(cx);
         let colors = t.panel;
         let focused = self.scopes_focus.is_focused(window);
+        // Only the focused pane shows its selection at full strength.
+        let selection_bg = if focused {
+            t.selection.bg
+        } else {
+            t.selection.bg.opacity(0.5)
+        };
         let count = self.app.scopes.visible.len();
         let header = panel_header("Scopes", cx).child(
             div()
@@ -208,8 +214,8 @@ impl Workspace {
                             .pr_2()
                             .gap_1()
                             .cursor(CursorStyle::PointingHand)
-                            .font_family(t.ui_font)
-                            .text_size(px(t.ui_size))
+                            .font_family(t.mono_font)
+                            .text_size(px(t.mono_size))
                             .text_color(colors.text)
                             .on_click(cx.listener(
                                 move |this, ev: &gpui_kit::ClickEvent, window, cx| {
@@ -226,7 +232,7 @@ impl Workspace {
                             ));
                         if selected {
                             row = row
-                                .bg(t.selection.bg)
+                                .bg(selection_bg)
                                 .when(t.appearance.is_high_contrast(), |row| {
                                     row.border_1().border_color(t.border_focused)
                                 });
@@ -308,7 +314,19 @@ impl Workspace {
                                 menu
                             }
                         };
+                        // 1px guides, one per enclosing level, through each chevron's centre.
+                        let guides = (0..depth).map(|d| {
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(t.px(8.0 + 12.0 * d as f32 + 8.0))
+                                .w(px(1.0))
+                                .bg(t.border_variant)
+                        });
                         let row = row
+                            .relative()
+                            .children(guides)
                             .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
                             .child(chevron)
                             .child(Icon::new(icon).size(t.px(14.0)).color(tint.color(&t)))
@@ -344,7 +362,7 @@ impl Workspace {
                                         .flex_none()
                                         .pl_1()
                                         .text_size(px(t.ui_size_small))
-                                        .text_color(colors.text_muted)
+                                        .text_color(colors.text_placeholder)
                                         .child(SharedString::from(size.label())),
                                 )
                             })

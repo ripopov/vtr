@@ -156,21 +156,27 @@ pub struct FontFace {
     pub bytes: &'static [u8],
 }
 
-/// IBM Plex Sans (UI) and Lilex (mono), the same faces on every platform.
+/// Inter (UI) and JetBrains Mono (mono), the pair of JetBrains' IDEs, the
+/// same faces on every platform.
 pub const FONTS: &[FontFace] = &[
     FontFace {
-        family: "IBM Plex Sans",
+        family: "Inter",
         weight: 400,
-        bytes: include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf"),
+        bytes: include_bytes!("../assets/fonts/Inter-Regular.ttf"),
     },
     FontFace {
-        family: "IBM Plex Sans",
+        family: "Inter",
+        weight: 500,
+        bytes: include_bytes!("../assets/fonts/Inter-Medium.ttf"),
+    },
+    FontFace {
+        family: "Inter",
         weight: 600,
-        bytes: include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf"),
+        bytes: include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
     },
     FontFace {
-        family: "Lilex",
+        family: "JetBrains Mono",
         weight: 400,
-        bytes: include_bytes!("../assets/fonts/Lilex-Regular.ttf"),
+        bytes: include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf"),
     },
 ];

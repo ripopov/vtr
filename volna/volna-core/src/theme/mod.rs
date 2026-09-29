@@ -6,8 +6,10 @@
 //! [`Color`] type; metrics are logical pixels.
 pub mod builtin;
 mod palette;
+mod volna;
 pub use builtin::{BUILTIN, Builtin};
 pub use palette::{Appearance, ColorPair, HostPalette};
+pub use volna::{SHEET_CSS, StageLadder};
 mod color;
 pub use color::parse_css_color;
 pub mod vscode;
@@ -104,6 +106,8 @@ pub struct Theme<C = Color> {
     pub wave_signal: C,
     pub wave_high_fill: C,
     pub wave_undef: C,
+    /// The tint under an unknown stretch, beneath its hatch.
+    pub wave_undef_fill: C,
     pub wave_highimp: C,
     pub wave_dontcare: C,
     pub wave_weak: C,
@@ -129,6 +133,12 @@ pub struct Theme<C = Color> {
     /// at it, and edges that start from it.
     pub tx_relation_in: C,
     pub tx_relation_out: C,
+    /// The tint over a flushed (aborted) pipeline row.
+    pub wave_flush: C,
+    /// Stage names inside stage cells.
+    pub stage_text: C,
+    /// How stage fills are computed from pipeline order.
+    pub stages: StageLadder,
     pub markers: [MarkerColors<C>; 6],
 
     // Typography (font families are the bundled faces, see `icons::FONTS`)
@@ -149,6 +159,25 @@ pub struct Theme<C = Color> {
     /// The interface zoom the metrics above already include (1.0 = the
     /// design sizes). Painters multiply their own pixel constants by it.
     pub zoom: f32,
+}
+
+/// The themes one window paints with: the chrome (bars, sidebar, table,
+/// transaction panel, menus) and the panels drawn against time (waves and
+/// pipeline). They differ only for Volna Mixed.
+#[derive(Clone, Copy, Debug)]
+pub struct Themes<C = Color> {
+    pub chrome: Theme<C>,
+    pub canvas: Theme<C>,
+}
+
+impl<C: Copy> Themes<C> {
+    /// One theme for the whole window.
+    pub fn uniform(theme: Theme<C>) -> Self {
+        Self {
+            chrome: theme,
+            canvas: theme,
+        }
+    }
 }
 
 fn c(hex: u32) -> Color {
@@ -232,6 +261,7 @@ impl<C: Copy> Theme<C> {
             wave_signal: f(self.wave_signal),
             wave_high_fill: f(self.wave_high_fill),
             wave_undef: f(self.wave_undef),
+            wave_undef_fill: f(self.wave_undef_fill),
             wave_highimp: f(self.wave_highimp),
             wave_dontcare: f(self.wave_dontcare),
             wave_weak: f(self.wave_weak),
@@ -249,6 +279,9 @@ impl<C: Copy> Theme<C> {
             wave_tints: self.wave_tints.map(f),
             tx_relation_in: f(self.tx_relation_in),
             tx_relation_out: f(self.tx_relation_out),
+            wave_flush: f(self.wave_flush),
+            stage_text: f(self.stage_text),
+            stages: self.stages,
             markers: self.markers.map(|m| m.map(f)),
             ui_font: self.ui_font,
             mono_font: self.mono_font,
@@ -384,6 +417,7 @@ impl Theme<Color> {
             wave_signal: c(0xa1c181),
             wave_high_fill: ca(0xa1c181, 0.10),
             wave_undef: c(0xd07277),
+            wave_undef_fill: ca(0xd07277, 0.14),
             wave_highimp: c(0xdec184),
             wave_dontcare: c(0x74ade8),
             wave_weak: c(0x878a98),
@@ -401,6 +435,9 @@ impl Theme<Color> {
             wave_tints: [c(0); 5],
             tx_relation_in: c(0x74ade8),
             tx_relation_out: c(0x5ec9b0),
+            wave_flush: ca(0xd07277, 0.16),
+            stage_text: c(0x101820),
+            stages: StageLadder::Hsl,
             markers: [0xbf956a, 0xb477cf, 0x6eb4bf, 0xd07277, 0xdec184, 0xa1c181].map(|hex| {
                 MarkerColors {
                     stroke: c(hex),
@@ -410,8 +447,8 @@ impl Theme<Color> {
                     hover_text: c(0x282c33),
                 }
             }),
-            ui_font: "IBM Plex Sans",
-            mono_font: "Lilex",
+            ui_font: "Inter",
+            mono_font: "JetBrains Mono",
             ui_size: 13.0,
             ui_size_small: 11.0,
             mono_size: 12.0,
@@ -538,6 +575,8 @@ impl Theme<Color> {
         t.wave_highimp = stroke(charts[2], &backgrounds);
         t.wave_dontcare = stroke(charts[3], &backgrounds);
         t.wave_weak = stroke(opaque(p.muted, t.editor.text), &backgrounds);
+        t.wave_undef_fill = t.wave_undef.with_alpha(0.12);
+        t.wave_flush = t.editor.error.with_alpha(0.16);
         t.wave_high_fill = t.wave_signal.with_alpha(0.10);
         t.wave_dense = t.wave_signal.with_alpha(if hc { 0.8 } else { 0.55 });
         t.wave_event_coalesced = stroke(charts[3], &backgrounds);

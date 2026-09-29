@@ -52,6 +52,6 @@ else
 fi
 cp vscode-ext/theme.mjs vscode-ext/media/
 mkdir -p vscode-ext/media/licenses
-cp ../volna-core/assets/fonts/IBMPlexSans-LICENSE.txt ../volna-core/assets/fonts/Lilex-OFL.txt vscode-ext/media/licenses/
+cp ../volna-core/assets/fonts/Inter-OFL.txt ../volna-core/assets/fonts/JetBrainsMono-OFL.txt vscode-ext/media/licenses/
 cp ../volna-core/assets/icons/LICENSE vscode-ext/media/licenses/Lucide-LICENSE.txt
 ls -la web/dist

@@ -156,6 +156,9 @@ impl SignalHistory for CompactHistory {
             Some(i) => self.view(i),
         }
     }
+    fn always_normal(&self) -> bool {
+        !matches!(self.layout, Layout::Logic { states, .. } if states > 2)
+    }
     fn bit(&self, i: Option<usize>) -> Bit {
         let Some(i) = i else {
             return Bit::Unavailable;
@@ -170,6 +173,7 @@ impl SignalHistory for CompactHistory {
                 1 => Bit::One,
                 2 | 4 | 5 => Bit::X,
                 3 => Bit::Z,
+                8 => Bit::DontCare,
                 _ => Bit::Other,
             },
             _ => Bit::Other,

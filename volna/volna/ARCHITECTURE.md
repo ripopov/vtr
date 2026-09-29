@@ -28,7 +28,7 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/wave/              viewport math, timeline, WaveModel, row tree, WaveLayout, painter → Scene, shared overlay
   src/sidebar/           ScopeTreeModel, MemberListModel, semantic icons and row descriptions
   src/scene.rs           Scene display list, FontRole, TextMeasure, TextCache
-  src/theme/             Theme<C> tokens, One Dark, host palettes, VS Code snapshot parser
+  src/theme/             Theme<C> tokens, Volna (from docs/design-system/tokens/viewer.css), One Dark, host palettes, VS Code snapshot parser
   src/geometry.rs        Point/Rect/Modifiers/CursorIcon in logical pixels
   src/icons.rs, assets/  Lucide SVGs and the bundled fonts, shared by every frontend
   tests/headless.rs      command → state → Scene assertions, no GPU
@@ -899,7 +899,12 @@ a boolean setting toggles in place, any other reveals the tab filtered to
 `@id:`. Native watches the config directory (`notify`) for `settings.json`
 and `themes/*.json` palette files, which `appearance.theme` selects by file
 stem; the bundled palettes under `volna-core/assets/themes` (Dracula,
-Catppuccin, GitHub, VS Code Modern) resolve through the same path. Standalone web keeps the document in `localStorage`. Inside VS Code the
+Catppuccin, GitHub, VS Code Modern) resolve through the same path. The Volna
+themes are defined in code from the design system's viewer sheet
+(`theme::builtin::resolve`), and resolve to a `Themes` pair: the chrome and
+the canvas the wave and pipeline panels paint with. `volna` follows the window's
+light or dark appearance, which the GPUI workspace observes; `volna-mixed` is
+always a Volna Light window with Volna Dark wave and pipeline panels. Standalone web keeps the document in `localStorage`. Inside VS Code the
 extension owns the settings UI: ⌘, forwards to VS Code's editor filtered to
 `@ext:vtr.volna`, and `onDidChangeConfiguration` pushes the `volna.*` keys to
 `set_settings`, so a change applies without reopening the trace. The
@@ -1131,8 +1136,9 @@ refresh windows, preserving the trace, rows and interaction state.
 
 ## Platform notes
 
-- Fonts: IBM Plex Sans (UI) and Lilex (mono) are embedded in `volna-core` and
-  used by every frontend, so text widths and looks agree across them.
+- Fonts: Inter (UI; 400, 500, 600) and JetBrains Mono (mono), the pair of
+  JetBrains' IDEs, are embedded in `volna-core` and used by every frontend, so
+  text widths and looks agree across them.
 - Components: pin the `gpui-kit` umbrella to 0.7.0 and use its runtime,
   component and asset modules. Its web dependencies compile threading support,
   so the workspace pins a nightly Rust toolchain.

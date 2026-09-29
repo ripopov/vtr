@@ -113,6 +113,12 @@ impl Workspace {
         let t = *theme(cx);
         let colors = t.panel;
         let focused = self.variables_focus.is_focused(window);
+        // Only the focused pane shows its selection at full strength.
+        let selection_bg = if focused {
+            t.selection.bg
+        } else {
+            t.selection.bg.opacity(0.5)
+        };
         let vars = &self.app.variables;
         let count = vars.rows.len();
         let show_scope = vars.show_scope();
@@ -212,7 +218,7 @@ impl Workspace {
                             ));
                         if selected {
                             row = row
-                                .bg(t.selection.bg)
+                                .bg(selection_bg)
                                 .when(t.appearance.is_high_contrast(), |row| {
                                     row.border_1().border_color(t.border_focused)
                                 });
@@ -227,7 +233,7 @@ impl Workspace {
                             .child(
                                 Icon::new(member_icon(h, member))
                                     .size(t.px(14.0))
-                                    .inherit_color(),
+                                    .color(t.panel.icon_muted),
                             )
                             .when(show_direction, |row| {
                                 row.child(
@@ -253,14 +259,16 @@ impl Workspace {
                                     .text_ellipsis()
                                     .child(name),
                             )
-                            // Already a row on the waves.
+                            // Already a row on the waves: a 2px accent bar.
                             .when(shown, |row| {
-                                row.child(
+                                row.relative().child(
                                     div()
                                         .id(("on-waves", ix))
-                                        .flex_none()
-                                        .size(t.px(6.0))
-                                        .rounded_full()
+                                        .absolute()
+                                        .left_0()
+                                        .top_0()
+                                        .bottom_0()
+                                        .w(px(2.0))
                                         .bg(t.panel.icon_accent),
                                 )
                             })
@@ -283,7 +291,8 @@ impl Workspace {
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
-                                    .text_color(colors.text_muted)
+                                    .text_size(px(t.ui_size_small))
+                                    .text_color(colors.text_placeholder)
                                     .child(dims),
                             )
                             .context_menu(move |menu, _, _cx| {

@@ -848,6 +848,53 @@ pub fn grid(p: &mut TextPainter<'_>, column: &TimeColumn, tick_list: &[Tick]) {
     });
 }
 
+/// Cycles at least this wide (design px) get grid lines from a clock ruler.
+const CYCLE_GRID_PX: f64 = 8.0;
+/// Most cycle grid lines one frame draws.
+const CYCLE_GRID_MAX: usize = 2000;
+
+/// Faint lines down the rows area at every cycle of the first clock ruler,
+/// once a cycle is [`CYCLE_GRID_PX`] wide.
+pub fn cycle_grid(p: &mut TextPainter<'_>, column: &TimeColumn, view: &ClockView, clocks: &Clocks) {
+    let Some(timeline) = view.rulers(clocks).first().and_then(|c| c.timeline()) else {
+        return;
+    };
+    let area = column.area;
+    let width = column.width_f64();
+    let ppu = column.viewport.px_per_unit(width);
+    let (lo, hi) = (column.viewport.start.max(0.0), column.viewport.end.max(0.0));
+    let mut xs: Vec<f32> = Vec::new();
+    for s in timeline.stretches() {
+        if s.period == 0
+            || (s.end as f64) < lo
+            || (s.begin as f64) > hi
+            || (s.period as f64) * ppu < CYCLE_GRID_PX * f64::from(p.theme.zoom)
+        {
+            continue;
+        }
+        let period = s.period as f64;
+        let k0 = ((lo - s.begin as f64) / period).floor().max(0.0) as u64;
+        let k1 = (((hi.min(s.end as f64)) - s.begin as f64) / period)
+            .floor()
+            .max(0.0) as u64;
+        for k in k0..=k1 {
+            if xs.len() >= CYCLE_GRID_MAX {
+                break;
+            }
+            xs.push(column.x_of((s.begin + k * s.period) as f64));
+        }
+    }
+    let color = p.theme.wave_tick.with_alpha(p.theme.wave_tick.a * 0.5);
+    p.scene.clipped(area, |scene| {
+        for x in xs {
+            scene.fill(
+                Rect::new(point(x, area.top()), size(1.0, area.height())),
+                color,
+            );
+        }
+    });
+}
+
 /// Shade the time column's area before the trace starts and after it ends,
 /// where panning and zooming reach but no data exists. Returns the area's
 /// x range inside the trace (empty when none of it is).

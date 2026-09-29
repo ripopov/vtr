@@ -10,7 +10,7 @@
    Differences between traces (proposal: docs/multiple-traces.html): dark oklch(.70 .16 285), light oklch(.48 .18 280); the
    fill tints a differing stretch of a row, and the shape (tint plus a bar on the row's lower edge) carries the meaning.
    Volna Mixed has no tokens of its own: panels that draw against time (waves, pipeline, analog, transaction lanes) use the
-   dark block, and the chrome (bars, sidebar, table, menus, status bar) uses the light one or follows the system. */
+   dark block, and the chrome (bars, sidebar, table, menus, status bar) always uses the light one. */
 :root,[data-theme="dark"]{
   --viewer-canvas:#1f2228;--viewer-panel:#282c33;--viewer-bar:#1f2228;--viewer-elevated:#2f343e;--viewer-border:#3b414d;--viewer-border-subtle:#2f343e;--viewer-text:#eceef1;--viewer-text-muted:#b9bfc9;--viewer-text-faint:#8f94a4;--viewer-selection:#1f2f45;--viewer-hover:#363c46;--viewer-accent:#74ade8;--viewer-on-accent:#1f2228;
   --viewer-signal:#7ad59c;--viewer-undef:#f66d67;--viewer-highimp:#eec469;--viewer-dontcare:#d285cb;--viewer-weak:#8c929f;--viewer-event:#d2f6dd;--viewer-relation-out:#f7a062;--viewer-diff:#968dfd;--viewer-diff-fill:rgb(150 141 253 / 0.16);

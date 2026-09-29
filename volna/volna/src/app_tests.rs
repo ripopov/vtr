@@ -2729,3 +2729,68 @@ fn trace_chips_and_rows_show_every_open_trace(cx: &mut TestAppContext) {
     assert!(vcx.debug_bounds("trace-chip-A").is_none());
     assert!(vcx.debug_bounds("trace-row-A").is_none());
 }
+
+/// Volna Mixed is a light window around a Volna Dark wave panel whatever the
+/// system says; `volna` follows the system everywhere, waves included.
+#[gpui_kit::test]
+fn volna_mixed_is_a_light_window_with_dark_waves_whatever_the_system(cx: &mut TestAppContext) {
+    init(cx);
+    let window = cx.add_window(Workspace::new);
+    let trace = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr");
+    window
+        .update(cx, |ws, _, cx| ws.open_path(trace.into(), cx))
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(cx, |ws, window, cx| {
+            ws.dispatch(Command::AddVars(a_all(0..1)), Some(window), cx)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let dark = volna_core::Theme::volna(true);
+    let light = volna_core::Theme::volna(false);
+    let workspace = window.root(cx).unwrap();
+    let (waves, generation) = workspace.read_with(cx, |ws, _| {
+        let waves = ws.app.panels.focused_id();
+        assert!(ws.app.panels.waves(waves).is_some());
+        (waves, ws.app.doc.generation())
+    });
+    // The theme the wave panel's canvas paints with.
+    let panel_theme = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            crate::canvas::PanelCanvas::new(workspace.clone(), waves, generation).core_theme(cx)
+        })
+    };
+    let set = |cx: &mut TestAppContext, theme: Option<&str>, dark: bool| {
+        workspace.update(cx, |ws, cx| {
+            if let Some(theme) = theme {
+                ws.app
+                    .settings_loaded(&format!("{{\"appearance.theme\": \"{theme}\"}}"));
+                ws.apply_theme_setting(cx);
+            }
+            ws.set_system_dark(dark, cx);
+        })
+    };
+    let chrome = |cx: &mut TestAppContext| cx.update(|cx| *crate::theme::core_theme(cx));
+    // A light system: light chrome, dark waves.
+    set(cx, Some("volna-mixed"), false);
+    assert_eq!(chrome(cx).editor.bg, light.editor.bg);
+    cx.update(|cx| {
+        assert_eq!(
+            crate::theme::theme(cx).panel.bg,
+            crate::theme::hsla(light.panel.bg)
+        );
+        assert_eq!(crate::theme::canvas_theme(cx).editor.bg, dark.editor.bg);
+    });
+    assert_eq!(panel_theme(cx).wave_signal, dark.wave_signal);
+    // The system turns dark: nothing changes.
+    set(cx, None, true);
+    assert_eq!(chrome(cx).editor.bg, light.editor.bg);
+    assert_eq!(panel_theme(cx).editor.bg, dark.editor.bg);
+    // `volna` follows the system, in the waves too.
+    set(cx, Some("volna"), true);
+    assert_eq!(chrome(cx).editor.bg, dark.editor.bg);
+    set(cx, None, false);
+    assert_eq!(panel_theme(cx).editor.bg, light.editor.bg);
+    assert_eq!(chrome(cx).editor.bg, light.editor.bg);
+}

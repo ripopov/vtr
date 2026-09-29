@@ -15,7 +15,7 @@ use crate::data::transactions::{
 };
 use crate::document::Document;
 use crate::pipeline::model::LABEL_ATTRIBUTE;
-use crate::pipeline::palette::{StagePalette, StageStyle};
+use crate::pipeline::palette::{StagePalette, StageSwatch};
 use crate::trace::Traced;
 use crate::wave::timeline::format_time;
 
@@ -160,7 +160,7 @@ pub struct LaneCell {
     /// Offset and width as fractions of the lifetime, for any pixel width.
     pub start: f32,
     pub width: f32,
-    pub style: StageStyle,
+    pub swatch: StageSwatch,
     /// Index of the stage in the record, or `None` for a stageless lifetime.
     pub stage: Option<usize>,
 }
@@ -202,7 +202,7 @@ pub struct StageRow {
     pub duration: u64,
     /// Share of the lifetime, in `[0, 1]`.
     pub share: f32,
-    pub style: StageStyle,
+    pub swatch: StageSwatch,
     pub begin_text: String,
     pub end_text: String,
     pub duration_text: String,
@@ -488,10 +488,10 @@ fn lifeline(
             end,
             start,
             width: (fraction(end) - start).max(0.0),
-            style: if stage.lane == primary {
-                palette.style(&stage.name)
+            swatch: if stage.lane == primary {
+                palette.swatch(&stage.name)
             } else {
-                StagePalette::fallback()
+                StageSwatch::Fallback
             },
             stage: Some(index),
         };
@@ -513,7 +513,7 @@ fn lifeline(
             end: tx.end,
             start: 0.0,
             width: 1.0,
-            style: StagePalette::fallback(),
+            swatch: StageSwatch::Fallback,
             stage: None,
         });
     }
@@ -634,10 +634,10 @@ fn stages(
             } else {
                 (duration as f64 / lifetime as f64).clamp(0.0, 1.0) as f32
             },
-            style: if stage.lane == primary {
-                palette.style(&stage.name)
+            swatch: if stage.lane == primary {
+                palette.swatch(&stage.name)
             } else {
-                StagePalette::fallback()
+                StageSwatch::Fallback
             },
             begin_text: time(stage.begin),
             end_text: match stage.end {

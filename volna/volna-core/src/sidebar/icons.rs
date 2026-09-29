@@ -15,12 +15,14 @@ pub enum Tint {
 }
 
 impl Tint {
+    /// Streams, generators and log sites keep their tints; scope, variable
+    /// and port-direction icons share one neutral colour.
     pub fn color<C: Copy>(self, theme: &Theme<C>) -> C {
         match self {
-            Self::None => theme.panel.icon_muted,
-            Self::Pipeline | Self::In => theme.sidebar_tints[0],
-            Self::Log | Self::Out => theme.sidebar_tints[1],
-            Self::Stream | Self::InOut => theme.sidebar_tints[2],
+            Self::None | Self::In | Self::Out | Self::InOut => theme.panel.icon_muted,
+            Self::Pipeline => theme.sidebar_tints[0],
+            Self::Log => theme.sidebar_tints[1],
+            Self::Stream => theme.sidebar_tints[2],
         }
     }
 }

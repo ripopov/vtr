@@ -81,6 +81,32 @@ impl<'a> LogicView<'a> {
         }
     }
 
+    /// The value's kind, with the priority of [`super::value::kind_of_bits`].
+    /// Two-state storage is always normal.
+    pub fn kind(&self) -> super::ValueKind {
+        match &self.storage {
+            LogicStorage::Ascii(data) => super::value::kind_of_bits(data),
+            LogicStorage::PackedLsb { states: 2, .. } => super::ValueKind::Normal,
+            // Codes 0 and 1 are the only normal ones: a packed value whose
+            // slots never exceed 1 is normal without decoding a bit.
+            LogicStorage::PackedLsb { states, data } => {
+                let (per_byte, mask) = if *states == 4 { (4, 0xaa) } else { (2, 0xee) };
+                let (full, rest) = (self.width / per_byte, self.width % per_byte);
+                let tail = if rest == 0 {
+                    0
+                } else {
+                    data[full] & mask & ((1u16 << (rest * 8 / per_byte)) - 1) as u8
+                };
+                if tail == 0 && data[..full].iter().all(|b| b & mask == 0) {
+                    super::ValueKind::Normal
+                } else {
+                    super::value::kind_of_codes((0..self.width).map(|i| self.bit(i)))
+                }
+            }
+            _ => super::value::kind_of_codes((0..self.width).map(|i| self.bit(i))),
+        }
+    }
+
     /// MSB-first ASCII logic code. Storage was validated by its owner.
     pub fn bit(&self, index: usize) -> u8 {
         assert!(index < self.width);
@@ -121,6 +147,15 @@ impl<'a> ValueView<'a> {
             WaveValue::Bytes(value) => Self::Bytes(Cow::Borrowed(value)),
         }
     }
+    /// The kind of the value, as [`WaveValue::kind`] classifies it.
+    pub fn kind(&self) -> super::ValueKind {
+        match self {
+            Self::Unavailable => super::ValueKind::Undef,
+            Self::Logic(logic) => logic.kind(),
+            Self::Real(_) | Self::Text(_) | Self::Bytes(_) => super::ValueKind::Normal,
+        }
+    }
+
     pub fn owned(value: WaveValue) -> Self {
         match value {
             WaveValue::Unavailable => Self::Unavailable,
@@ -129,5 +164,32 @@ impl<'a> ValueView<'a> {
             WaveValue::Text(value) => Self::Text(Cow::Owned(value)),
             WaveValue::Bytes(value) => Self::Bytes(Cow::Owned(value)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::ValueKind;
+
+    #[test]
+    fn packed_kinds_match_their_ascii_spelling() {
+        for text in [
+            "0101", "01x1", "z000", "10-1", "0l01", "x", "1", "01010", "0101x",
+        ] {
+            for states in [4u8, 9] {
+                let mut data = vec![0u8; text.len()];
+                for (i, c) in text.bytes().rev().enumerate() {
+                    vtr::signal::set_code(&mut data, states, i, vtr::signal::code_from_ascii(c));
+                }
+                let packed = LogicView::packed_lsb(text.len() as u32, states, &data);
+                let expected = crate::data::value::kind_of_bits(text.as_bytes());
+                if states == 4 && !text.bytes().all(|c| b"01xz".contains(&c)) {
+                    continue;
+                }
+                assert_eq!(packed.kind(), expected, "{text} in {states} states");
+            }
+        }
+        assert_eq!(LogicView::ascii(b"0x".as_slice()).kind(), ValueKind::Undef);
     }
 }

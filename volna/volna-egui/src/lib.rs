@@ -53,8 +53,10 @@ pub(crate) fn font_definitions() -> FontDefinitions {
             .font_data
             .insert(name.clone(), Arc::new(FontData::from_static(face.bytes)));
         match (face.family, face.weight) {
-            ("IBM Plex Sans", 600) => semibold.push(name),
-            ("IBM Plex Sans", _) => regular.push(name),
+            ("Inter", 600) => semibold.push(name),
+            ("Inter", 400) => regular.push(name),
+            // egui has no weights: medium text uses the semibold family.
+            ("Inter", _) => {}
             _ => mono.push(name),
         }
     }

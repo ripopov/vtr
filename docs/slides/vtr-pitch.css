@@ -1,4 +1,4 @@
-:root{--sans:'Plex','IBM Plex Sans',system-ui,sans-serif;--mono:'Lilex',ui-monospace,'SF Mono',Menlo,monospace;--s:1;
+:root{--sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;--s:1;
   --page:#15181e;--page-ink:#e9edf3;--page-mut:#a3adbb;--page-line:#343b47;color-scheme:dark}
 *{box-sizing:border-box}
 html,body{height:100%}

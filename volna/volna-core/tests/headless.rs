@@ -971,12 +971,17 @@ fn dense_columns_collapse_into_one_band_and_zooming_in_resolves_edges() {
     app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     frame(&mut app, &theme);
-    let dense: Vec<_> = app
-        .scene()
-        .quads()
-        .filter(|(_, c)| *c == theme.wave_dense)
-        .collect();
+    // An aliased column is the signal colour at a strength that follows its
+    // change count; the burst puts a hundred changes in every column.
+    let aliased =
+        |c: &volna_core::Color| c.with_alpha(1.0) == theme.wave_signal && (0.3..1.0).contains(&c.a);
+    let dense: Vec<_> = app.scene().quads().filter(|(_, c)| aliased(c)).collect();
     assert_eq!(dense.len(), 1, "one dense band for the burst: {dense:?}");
+    assert!(
+        (dense[0].1.a - 0.75).abs() < 0.02,
+        "saturated: {:?}",
+        dense[0].1
+    );
     let layout = app.panels.focused_waves().unwrap().last_layout().clone();
     let expected_w = 1000.0 / 100_000.0 * f64::from(layout.waves.width());
     let (band, _) = dense[0];
@@ -990,7 +995,7 @@ fn dense_columns_collapse_into_one_band_and_zooming_in_resolves_edges() {
     app.doc.shared.viewport.value.end = 50_120.0;
     let _ = t0;
     frame(&mut app, &theme);
-    assert!(app.scene().quads().all(|(_, c)| c != theme.wave_dense));
+    assert!(app.scene().quads().all(|(_, c)| !aliased(&c)));
     let edges = app
         .scene()
         .quads()

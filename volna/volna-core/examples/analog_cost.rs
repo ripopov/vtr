@@ -4,8 +4,10 @@
 //! digitally and as a plot, zoomed out (min/max columns), at 1/100 of the
 //! trace and zoomed in (every sample), for each vertical range, after the
 //! block min/max summary is built (timed separately). Best of five runs.
+//! An optional second argument declares the bus with 4 or 9 states, whose
+//! aliased columns read value kinds (two-state columns need not).
 //!
-//! cargo run --release -p volna-core --example analog_cost -- 10000000
+//! cargo run --release -p volna-core --example analog_cost -- 10000000 [states]
 use std::time::Instant;
 
 use volna_core::app::{App, Command};
@@ -16,7 +18,7 @@ use volna_core::wave::analog::{AnalogDraw, AnalogRange};
 use volna_core::wave::viewport::Viewport;
 use volna_core::{Action, Theme};
 
-fn write_trace(path: &std::path::Path, n: u64) -> anyhow::Result<()> {
+fn write_trace(path: &std::path::Path, n: u64, states: u8) -> anyhow::Result<()> {
     let mut w = vtr::Writer::create(path)?;
     w.set_timescale(-9)?;
     let (_, bus) = w.add_var(
@@ -24,10 +26,7 @@ fn write_trace(path: &std::path::Path, n: u64) -> anyhow::Result<()> {
         "bus",
         vtr::VarType::Wire,
         vtr::Direction::Output,
-        vtr::SignalKind::Bits {
-            width: 16,
-            states: 2,
-        },
+        vtr::SignalKind::Bits { width: 16, states },
     )?;
     let (_, real) = w.add_var(
         None,
@@ -70,9 +69,14 @@ fn main() -> anyhow::Result<()> {
         .map(|a| a.parse())
         .transpose()?
         .unwrap_or(1_000_000);
+    let states: u8 = std::env::args()
+        .nth(2)
+        .map(|a| a.parse())
+        .transpose()?
+        .unwrap_or(2);
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("analog.vtr");
-    write_trace(&path, n)?;
+    write_trace(&path, n, states)?;
     let mut app = App::new();
     app.settings_loaded(r#"{"memory.budgetMiB": 16384, "memory.objectMiB": 8192}"#);
     app.set_session(OpenSpec::Path(path).open()?);
