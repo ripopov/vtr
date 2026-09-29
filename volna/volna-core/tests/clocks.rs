@@ -4,6 +4,8 @@
 //! loading. Headless: commands in, state and scenes out.
 
 use std::sync::Arc;
+use volna_core::testing::{a, a_all};
+use volna_core::trace::TraceId;
 
 use volna_core::app::{Action, App, ClockCommand, Command};
 use volna_core::data::Member;
@@ -123,7 +125,7 @@ fn waves() -> (App, Arc<dyn Session>, PanelId) {
     let session = fixture();
     let mut app = App::new();
     app.set_session(session.clone());
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     let panel = app.panels.focused_id();
     assert!(
@@ -153,13 +155,13 @@ fn click(app: &mut App, panel: PanelId, at: Point) {
 fn clocks_load_with_the_trace_and_rulers_tick_edges_labels_and_speed_flags() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
-    let core = app.doc.clocks.find("top.core_clk").unwrap();
+    let core = app.doc.clocks.find(&a("top.core_clk".to_owned())).unwrap();
     let edges = core_edges();
     assert_eq!(core.timeline().unwrap().edge_count(), edges.len() as u64);
     let bus = app
         .doc
         .clocks
-        .find("top.bus_clk")
+        .find(&a("top.bus_clk".to_owned()))
         .unwrap()
         .timeline()
         .unwrap()
@@ -176,12 +178,12 @@ fn clocks_load_with_the_trace_and_rulers_tick_edges_labels_and_speed_flags() {
             .height(),
         0.0
     );
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
         "top.core_clk".into(),
-    )));
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
-        "top.bus_clk".into(),
-    )));
+    ))));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
+        "top.bus_clk".into()
+    ))));
     app.doc.shared.viewport.set(Viewport {
         start: 0.0,
         end: 60_000.0,
@@ -212,12 +214,12 @@ fn clocks_load_with_the_trace_and_rulers_tick_edges_labels_and_speed_flags() {
 fn each_ruler_has_a_cursor_chip_with_its_cycle_and_go_to_counts_the_selected_clock() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
         "top.core_clk".into(),
-    )));
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
-        "top.bus_clk".into(),
-    )));
+    ))));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
+        "top.bus_clk".into()
+    ))));
     app.doc.shared.viewport.set(Viewport {
         start: 0.0,
         end: 10_000.0,
@@ -242,11 +244,15 @@ fn each_ruler_has_a_cursor_chip_with_its_cycle_and_go_to_counts_the_selected_clo
         Some(edges[100]),
         "a missing cycle leaves the cursor"
     );
-    app.handle(Command::Clocks(ClockCommand::Select("top.bus_clk".into())));
+    app.handle(Command::Clocks(ClockCommand::Select(a(
+        "top.bus_clk".into()
+    ))));
     app.handle(Command::Clocks(ClockCommand::GoToCycle(10)));
     assert_eq!(app.doc.shared.cursor, Some(1000 + 10 * 2000));
     // A custom origin renumbers every clock of the panel.
-    app.handle(Command::Clocks(ClockCommand::Select("top.core_clk".into())));
+    app.handle(Command::Clocks(ClockCommand::Select(a(
+        "top.core_clk".into()
+    ))));
     app.doc.shared.cursor = Some(edges[100]);
     app.handle(Command::Action(Action::ToggleCycleOrigin));
     app.doc.shared.cursor = Some(edges[103]);
@@ -268,12 +274,12 @@ fn each_ruler_has_a_cursor_chip_with_its_cycle_and_go_to_counts_the_selected_clo
 fn clicks_snap_to_the_selected_clock_and_brackets_step_cycles() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
         "top.core_clk".into(),
-    )));
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
-        "top.bus_clk".into(),
-    )));
+    ))));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
+        "top.bus_clk".into()
+    ))));
     app.doc.shared.viewport.set(Viewport {
         start: 0.0,
         end: 20_000.0,
@@ -295,11 +301,14 @@ fn clicks_snap_to_the_selected_clock_and_brackets_step_cycles() {
             .nav
             .clocks()
             .selected
-            .as_deref(),
+            .as_ref()
+            .map(|k| k.item.as_str()),
         Some("top.bus_clk")
     );
     // Select the core clock: header clicks snap to its edges.
-    app.handle(Command::Clocks(ClockCommand::Select("top.core_clk".into())));
+    app.handle(Command::Clocks(ClockCommand::Select(a(
+        "top.core_clk".into()
+    ))));
     frame(&mut app, panel, &theme);
     let header = app.panels.waves(panel).unwrap().last_layout().header;
     let x = waves_x(&app, panel, edges[7] as f64 + 30.0);
@@ -320,12 +329,12 @@ fn clicks_snap_to_the_selected_clock_and_brackets_step_cycles() {
 fn the_status_bar_reads_cycles_and_the_reference_to_cursor_measure() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
         "top.core_clk".into(),
-    )));
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
-        "top.bus_clk".into(),
-    )));
+    ))));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
+        "top.bus_clk".into()
+    ))));
     frame(&mut app, panel, &theme);
     let edges = core_edges();
     app.doc.shared.cursor = Some(edges[10]);
@@ -364,10 +373,10 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     let (mut app, session, panel) = waves();
     let theme = Theme::one_dark();
     let bus = scope(session.as_ref(), &["top", "bus_clk"]);
-    app.handle(Command::AddToWaves(vec![Member::Stream(bus)]));
+    app.handle(Command::AddToWaves(a_all(vec![Member::Stream(bus)])));
     let w = app.panels.waves(panel).unwrap();
     assert_eq!(w.items().len(), 2);
-    assert_eq!(w.items()[1].clock().unwrap().path, "top.bus_clk");
+    assert_eq!(w.items()[1].clock().unwrap().key.item, "top.bus_clk");
     app.doc.shared.viewport.set(Viewport {
         start: 0.0,
         end: 60_000.0,
@@ -384,12 +393,14 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     app.handle(Command::Action(Action::NextEdge));
     assert_eq!(app.doc.shared.cursor, Some(5000));
     // Save and restore: the row and the panel's clock choices come back.
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
-        "top.bus_clk".into(),
-    )));
-    app.handle(Command::Clocks(ClockCommand::Select("top.bus_clk".into())));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
+        "top.bus_clk".into()
+    ))));
+    app.handle(Command::Clocks(ClockCommand::Select(a(
+        "top.bus_clk".into()
+    ))));
     app.handle(Command::Action(Action::ToggleCycleOrigin));
-    let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
+    let saved = Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap();
     let json = serde_json::to_value(&saved).unwrap();
     let panel_json = &json["panels"][0];
     assert_eq!(
@@ -398,7 +409,11 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     );
     assert_eq!(
         panel_json["clocks"],
-        serde_json::json!({"rulers": ["top.bus_clk"], "selected": "top.bus_clk", "origin": 5000})
+        serde_json::json!({
+            "rulers": [["A", "top.bus_clk"]],
+            "selected": ["A", "top.bus_clk"],
+            "origin": 5000
+        })
     );
     let mut restored = App::new();
     restored.set_session(session.clone());
@@ -418,7 +433,7 @@ fn a_clock_row_draws_from_stretches_and_survives_a_workspace() {
     );
     plan.commit(&mut restored).unwrap();
     let w = restored.panels.waves(panel).unwrap();
-    assert!(matches!(&w.items()[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
+    assert!(matches!(&w.items()[1].row, WaveRow::Clock(c) if c.key.item == "top.bus_clk"));
     assert_eq!(
         w.nav.clocks(),
         app.panels.waves(panel).unwrap().nav.clocks()
@@ -430,7 +445,7 @@ fn a_pipeline_counts_in_its_stream_clock_and_its_clock_becomes_the_default_ruler
     let (mut app, session, waves) = waves();
     let theme = Theme::one_dark();
     let pipe = scope(session.as_ref(), &["top", "pipe"]);
-    app.handle(Command::ActivateMembers(vec![Member::Stream(pipe)]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(pipe)])));
     pump(&mut app);
     let pipeline = app.panels.focused_id();
     assert_ne!(pipeline, waves);
@@ -509,7 +524,7 @@ fn a_kanata_import_counts_its_pipeline_in_the_cycle_clock() {
     let clock = app
         .doc
         .clocks
-        .find("cpu.cycle")
+        .find(&a("cpu.cycle".to_owned()))
         .unwrap()
         .timeline()
         .unwrap()
@@ -519,7 +534,9 @@ fn a_kanata_import_counts_its_pipeline_in_the_cycle_clock() {
         (100, 1)
     );
     let thread = scope(session.as_ref(), &["cpu", "thread0"]);
-    app.handle(Command::ActivateMembers(vec![Member::Stream(thread)]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(
+        thread,
+    )])));
     pump(&mut app);
     let pipeline = app.panels.focused_id();
     app.handle(Command::PipelineActivity(
@@ -570,7 +587,6 @@ fn clocks_load_through_the_remote_protocol_like_any_track() {
     });
     let mut app = App::new();
     let budget = MemoryBudget::new(256 << 20);
-    let mut client = RemoteClient::new(1, 64 << 20, budget).unwrap();
     let mut stream = client_end;
     // Drive the connection until no command is left and every result is delivered.
     let mut drive = |app: &mut App, client: &mut RemoteClient| loop {
@@ -611,13 +627,24 @@ fn clocks_load_through_the_remote_protocol_like_any_track() {
         name: "remote.vtr".into(),
         limits: Default::default(),
     }));
-    let _open_request = app.take_requests();
+    // The host connects for the open request, under its trace and generation.
+    let Some(volna_core::LoadRequest::Open {
+        trace, generation, ..
+    }) = app.take_requests().pop()
+    else {
+        panic!("open request");
+    };
+    let mut client = RemoteClient::new(trace, generation, 64 << 20, budget).unwrap();
     drive(&mut app, &mut client);
-    assert!(app.doc.session().is_some_and(|s| s.remote_id() == Some(7)));
+    assert!(
+        app.doc
+            .session(TraceId::A)
+            .is_some_and(|s| s.remote_id() == Some(7))
+    );
     let remote = app
         .doc
         .clocks
-        .find("top.core_clk")
+        .find(&a("top.core_clk".to_owned()))
         .unwrap()
         .timeline()
         .unwrap()
@@ -628,7 +655,7 @@ fn clocks_load_through_the_remote_protocol_like_any_track() {
     let expected = local_app
         .doc
         .clocks
-        .find("top.core_clk")
+        .find(&a("top.core_clk".to_owned()))
         .unwrap()
         .timeline()
         .unwrap()
@@ -662,27 +689,30 @@ fn a_clock_generator_adds_as_a_ruler_or_as_a_waveform() {
         .position(|g| g.stream == bus_stream)
         .unwrap();
     let member = Member::Generator(edges);
-    assert_eq!(app.member_clock(member).as_deref(), Some("top.bus_clk"));
     assert_eq!(
-        app.member_clock(Member::Var(0)),
+        app.member_clock(a(member)),
+        Some(a("top.bus_clk".to_owned()))
+    );
+    assert_eq!(
+        app.member_clock(a(Member::Var(0))),
         None,
         "a variable declares no clock"
     );
     // Add as Ruler: the wave panel shows the clock's ruler, and adding it again changes nothing.
-    app.handle(Command::AddClockRulers(vec![member, Member::Var(0)]));
-    app.handle(Command::AddClockRulers(vec![member]));
+    app.handle(Command::AddClockRulers(a_all(vec![member, Member::Var(0)])));
+    app.handle(Command::AddClockRulers(a_all(vec![member])));
     frame(&mut app, panel, &theme);
     let w = app.panels.waves(panel).unwrap();
     assert_eq!(
         w.nav.clocks().rulers.as_deref(),
-        Some(&["top.bus_clk".to_owned()][..])
+        Some(&[a("top.bus_clk".to_owned())][..])
     );
     assert_eq!(w.last_layout().rulers.height(), 16.0 * theme.zoom);
     assert_eq!(w.items().len(), 1, "a ruler adds no row");
     // Add as Waveform: a clock row, not a transaction lane of its stretches.
-    app.handle(Command::AddToWaves(vec![member]));
+    app.handle(Command::AddToWaves(a_all(vec![member])));
     let w = app.panels.waves(panel).unwrap();
-    assert!(matches!(&w.items()[1].row, WaveRow::Clock(c) if c.path == "top.bus_clk"));
+    assert!(matches!(&w.items()[1].row, WaveRow::Clock(c) if c.key.item == "top.bus_clk"));
 }
 
 #[test]
@@ -690,12 +720,12 @@ fn a_ruler_context_menu_hides_it() {
     use volna_core::wave::model::{MenuAction, MenuEntry, WaveMenuKind};
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
         "top.core_clk".into(),
-    )));
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(
-        "top.bus_clk".into(),
-    )));
+    ))));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(
+        "top.bus_clk".into()
+    ))));
     frame(&mut app, panel, &theme);
     let layout = app.panels.waves(panel).unwrap().last_layout().clone();
     // A right click on the second ruler opens its menu.
@@ -711,7 +741,7 @@ fn a_ruler_context_menu_hides_it() {
     app.handle(Command::Pointer(panel, right));
     let menu = app.panels.waves(panel).unwrap().menu.clone().unwrap();
     assert_eq!((menu.kind, menu.row), (WaveMenuKind::Ruler, 1));
-    let hide = MenuAction::HideRuler("top.bus_clk".into());
+    let hide = MenuAction::HideRuler(a("top.bus_clk".into()));
     assert!(
         matches!(&menu.entries[..], [MenuEntry::Item(i)] if i.label == "Hide Ruler" && i.action == hide)
     );
@@ -720,7 +750,7 @@ fn a_ruler_context_menu_hides_it() {
     let w = app.panels.waves(panel).unwrap();
     assert_eq!(
         w.nav.clocks().rulers.as_deref(),
-        Some(&["top.core_clk".to_owned()][..])
+        Some(&[a("top.core_clk".to_owned())][..])
     );
     assert_eq!(w.last_layout().rulers.height(), 16.0 * theme.zoom);
     assert!(w.menu.is_none());
@@ -732,7 +762,7 @@ fn spans_between_markers_count_cycles_and_zoom_on_a_double_click() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
     for path in ["top.core_clk", "top.bus_clk"] {
-        app.handle(Command::Clocks(ClockCommand::ToggleRuler(path.into())));
+        app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(path.into()))));
     }
     let edges = core_edges();
     // Two markers in view, one far right of it.
@@ -813,9 +843,11 @@ fn a_dragged_marker_snaps_to_the_selected_clock_and_copies_its_cycles() {
     let (mut app, _, panel) = waves();
     let theme = Theme::one_dark();
     for path in ["top.core_clk", "top.bus_clk"] {
-        app.handle(Command::Clocks(ClockCommand::ToggleRuler(path.into())));
+        app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(path.into()))));
     }
-    app.handle(Command::Clocks(ClockCommand::Select("top.core_clk".into())));
+    app.handle(Command::Clocks(ClockCommand::Select(a(
+        "top.core_clk".into()
+    ))));
     let edges = core_edges();
     app.doc.shared.viewport.set(Viewport {
         start: edges[5] as f64,
@@ -897,9 +929,11 @@ fn a_dragged_marker_snaps_to_the_selected_clock_and_copies_its_cycles() {
 fn the_navigator_counts_distances_in_the_selected_clock() {
     let (mut app, _, _) = waves();
     for path in ["top.core_clk", "top.bus_clk"] {
-        app.handle(Command::Clocks(ClockCommand::ToggleRuler(path.into())));
+        app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(path.into()))));
     }
-    app.handle(Command::Clocks(ClockCommand::Select("top.core_clk".into())));
+    app.handle(Command::Clocks(ClockCommand::Select(a(
+        "top.core_clk".into()
+    ))));
     let edges = core_edges();
     for k in [10, 30] {
         app.doc.shared.cursor = Some(edges[k]);

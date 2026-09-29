@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use volna_core::testing::a;
 
 use volna_core::app::{Action, App, Command};
 use volna_core::data::text::Radix;
@@ -79,7 +80,7 @@ fn with_pipeline(name: &str, stream: &str) -> (App, Arc<dyn Session>, PanelId) {
     let mut app = App::new();
     app.set_session(session.clone());
     app.handle(Command::OpenPipeline {
-        track: track(session.as_ref(), stream),
+        track: a(track(session.as_ref(), stream)),
     });
     let pipeline = app.panels.focused_id();
     pump(&mut app);
@@ -110,7 +111,7 @@ fn view(app: &App, panel: PanelId) -> TxView {
 fn select(app: &mut App, panel: PanelId, track: TrackRef, id: u64) {
     app.handle(Command::SelectTransaction {
         panel,
-        track,
+        track: a(track),
         id: TransactionRef(id),
         cursor: None,
     });
@@ -156,7 +157,10 @@ fn a_click_selects_the_row_enter_shows_it_and_every_reader_follows() {
     ));
     app.handle(Command::Pointer(pipeline, PointerEvent::Up));
     let selection = app.doc.selection().unwrap();
-    assert_eq!((selection.track, selection.id), (insn, TransactionRef(4)));
+    assert_eq!(
+        (selection.track, selection.id),
+        (a(insn), TransactionRef(4))
+    );
     assert_eq!(selection.origin, pipeline);
     assert_eq!(app.doc.shared.cursor, Some(cycle));
     let p = app.panels.pipeline(pipeline).unwrap();
@@ -334,7 +338,7 @@ fn a_jump_loads_the_target_track_back_returns_and_reveal_finds_the_row() {
     app.handle(Command::Transaction(
         panel,
         TransactionCommand::Jump {
-            track: read,
+            track: a(read),
             id: TransactionRef(34),
         },
     ));
@@ -370,7 +374,7 @@ fn a_jump_loads_the_target_track_back_returns_and_reveal_finds_the_row() {
     // Any panel holding that generator makes the child reachable again.
     let focused = app.panels.focused_id();
     app.handle(Command::OpenPipeline {
-        track: track(session.as_ref(), "soc.l2.bus"),
+        track: a(track(session.as_ref(), "soc.l2.bus")),
     });
     pump(&mut app);
     app.handle(Command::Panels(volna_core::panels::PanelsCommand::Focus(
@@ -517,7 +521,7 @@ fn the_workspace_restores_a_pinned_record_and_the_reader_choices() {
         app.handle(Command::Transaction(pinned, command));
     }
     let free = show(&mut app, pipeline, insn, 4);
-    let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
+    let saved = Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap();
     let json = serde_json::to_value(&saved).unwrap();
     let entry = json["panels"]
         .as_array()
@@ -573,7 +577,7 @@ fn a_table_row_is_the_document_selection() {
         .position(|g| g.track == read)
         .unwrap();
     app.handle(Command::OpenTable {
-        selected: vec![volna_core::data::Member::Generator(generator)],
+        selected: vec![a(volna_core::data::Member::Generator(generator))],
         clicked: None,
     });
     let table = app.panels.focused_id();
@@ -584,7 +588,7 @@ fn a_table_row_is_the_document_selection() {
         volna_core::table::TableCommand::GoTo(3),
     ));
     let selection = app.doc.selection().unwrap();
-    assert_eq!((selection.track, selection.origin), (read, table));
+    assert_eq!((selection.track, selection.origin), (a(read), table));
     app.handle(Command::ShowTransaction { from: table });
     let panel = app.panels.focused_id();
     assert_eq!(view(&app, panel).identity.id, selection.id);
@@ -593,7 +597,7 @@ fn a_table_row_is_the_document_selection() {
     app.handle(Command::Transaction(
         panel,
         TransactionCommand::Jump {
-            track: read,
+            track: a(read),
             id: other,
         },
     ));
@@ -611,7 +615,7 @@ fn a_table_row_is_the_document_selection() {
 
 fn session_first_other(app: &App, track: TrackRef, not: TransactionRef) -> TransactionRef {
     app.doc
-        .resident_generator(track)
+        .resident_generator(a(track))
         .unwrap()
         .transactions()
         .iter()

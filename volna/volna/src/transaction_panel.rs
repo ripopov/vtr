@@ -788,7 +788,7 @@ impl TransactionPanelView {
         row: &RefRow,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let (track, id) = (row.target.generator, row.target.transaction);
+        let (track, id) = (row.target_track(), row.target.transaction);
         let color = match row.role {
             RefRole::Relation { outgoing: false } => t.tx_relation_in,
             RefRole::Relation { outgoing: true } => t.tx_relation_out,

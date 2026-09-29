@@ -5,6 +5,7 @@ use super::{
     persistence::{self, Candidate, Persistence, SaveTicket, Scheduler, Target},
 };
 use crate::session::OpenSpec;
+use crate::trace::TraceId;
 use crate::{App, Event, Instant};
 use anyhow::{Context, Result, ensure};
 
@@ -13,11 +14,28 @@ pub struct State {
     pub scheduler: Scheduler,
     pub state: super::state::State,
     pub recent: super::recent::View,
+    /// Trace A's durable identity: it owns the workspace.
     pub trace_uri: Option<String>,
     pub notices: Vec<String>,
     pub(crate) loading: bool,
     opening_uri: Option<String>,
     pending: Option<Transition>,
+    /// A workspace waiting for the other traces it names to open.
+    waiting: Option<Waiting>,
+}
+
+/// A workspace to restore once the traces it names are open.
+struct Waiting {
+    workspace: Box<Workspace>,
+    /// Where it was read from: its trace paths are relative to this.
+    origin: Target,
+    /// Where it saves to from now on.
+    target: Target,
+    supersedes: Option<String>,
+    notices: Vec<String>,
+    /// Chosen with Open Workspace, rather than found beside trace A.
+    explicit: bool,
+    traces: std::collections::BTreeSet<TraceId>,
 }
 
 enum Transition {
@@ -32,6 +50,19 @@ enum Transition {
         supersedes: Option<String>,
     },
     Quit,
+}
+
+/// How the core opens a trace a workspace names: a local file by its path.
+/// Other locations are the host's to open.
+fn spec_for(uri: &str) -> Result<OpenSpec> {
+    #[cfg(not(target_family = "wasm"))]
+    if let Ok(url) = url::Url::parse(uri)
+        && url.scheme() == "file"
+        && let Ok(path) = url.to_file_path()
+    {
+        return Ok(OpenSpec::Path(path));
+    }
+    anyhow::bail!("{uri} is not a local file")
 }
 
 impl App {
@@ -147,6 +178,9 @@ impl App {
 
     pub(crate) fn session_ready_for_workspace(&mut self) {
         self.workspace.trace_uri = self.workspace.opening_uri.take();
+        self.workspace.waiting = None;
+        let uri = self.workspace.trace_uri.clone();
+        self.doc.set_uri(TraceId::A, uri);
         if let Some(uri) = &self.workspace.trace_uri {
             self.events.push(Event::TraceOpened {
                 trace_uri: uri.clone(),
@@ -190,28 +224,172 @@ impl App {
                 persistence::select(sidecar.clone(), fallback, *policy == Persistence::Storage)
             }
         };
-        let result = selection.and_then(|selected| {
-            let plan = selected
-                .workspace
-                .map(|w| w.prepare(self, trace_uri, selected.origin.location()))
-                .transpose()?;
-            if let Some(plan) = plan {
-                let report = plan.commit(self)?;
-                self.notice_all(report.notices);
+        let result = selection.map(|selected| match selected.workspace {
+            Some(workspace) => self.restore_when_open(Waiting {
+                workspace: Box::new(workspace),
+                origin: selected.origin,
+                target: selected.target,
+                supersedes: selected.supersedes,
+                notices: selected.notices,
+                explicit: false,
+                traces: Default::default(),
+            }),
+            None => {
+                let begun = self
+                    .workspace
+                    .scheduler
+                    .begin(Some(selected.target), selected.supersedes);
+                self.notice_all(selected.notices);
+                self.workspace.loading = false;
+                begun
             }
-            self.workspace
-                .scheduler
-                .begin(Some(selected.target), selected.supersedes)?;
-            self.notice_all(selected.notices);
-            Ok(())
         });
+        if let Err(error) = result.and_then(|r| r) {
+            self.restore_failed(sidecar.target, error);
+        }
+        self.changed();
+    }
+
+    /// An automatic restore failed: keep the destination for an explicit
+    /// Save, and pause autosave so the file is not overwritten.
+    fn restore_failed(&mut self, target: Target, error: anyhow::Error) {
         self.workspace.loading = false;
-        if let Err(error) = result {
-            // Retain the intended destination for an explicit Save/Save As.
-            let _ = self.workspace.scheduler.begin(Some(sidecar.target), None);
-            let text = format!("Workspace restore failed; autosave paused: {error:#}");
-            self.workspace.scheduler.suspend(text.clone());
-            self.notice(text);
+        let _ = self.workspace.scheduler.begin(Some(target), None);
+        let text = format!("Workspace restore failed; autosave paused: {error:#}");
+        self.workspace.scheduler.suspend(text.clone());
+        self.notice(text);
+    }
+
+    /// Restore `waiting` once every trace it names is open. A workspace
+    /// chosen with Open Workspace makes the trace set its own: it opens the
+    /// traces it names and closes the others. One restored beside trace A
+    /// only opens what it names under free letters: traces the user opened
+    /// with A (`volna A B`) stay, and its rows resolve against them.
+    fn restore_when_open(&mut self, mut waiting: Waiting) -> Result<()> {
+        let location = waiting.origin.location().to_owned();
+        let mut named = std::collections::BTreeSet::new();
+        for saved in &waiting.workspace.traces {
+            named.insert(saved.letter);
+            if saved.letter == TraceId::A {
+                continue;
+            }
+            let uri = super::resolve_trace(&saved.path, &location)?;
+            let slot = self.doc.traces().get(saved.letter);
+            if slot.is_some_and(|slot| slot.uri.as_deref() == Some(uri.as_str())) {
+                continue;
+            }
+            if slot.is_some() {
+                if !waiting.explicit {
+                    continue;
+                }
+                self.drop_trace(saved.letter);
+            }
+            match spec_for(&uri).and_then(|spec| self.doc.add_trace_as(spec, saved.letter)) {
+                Ok(trace) => {
+                    self.doc.set_uri(trace, Some(uri));
+                    waiting.traces.insert(trace);
+                }
+                Err(error) => waiting
+                    .notices
+                    .push(format!("Trace {} not opened: {error:#}", saved.letter)),
+            }
+        }
+        let extra: Vec<TraceId> = self
+            .doc
+            .traces()
+            .ids()
+            .filter(|id| waiting.explicit && !named.contains(id))
+            .collect();
+        for trace in extra {
+            self.drop_trace(trace);
+        }
+        // Autosave waits with the restore; an automatic one already waits.
+        if !waiting.traces.is_empty() {
+            self.workspace.loading = true;
+        }
+        self.workspace.waiting = Some(waiting);
+        self.changed();
+        self.restore_if_ready()
+    }
+
+    /// Take a trace out without journaling it: a workspace about to be
+    /// restored replaces the whole session, history included.
+    fn drop_trace(&mut self, trace: TraceId) {
+        for panel in self.panels.iter_mut() {
+            if let Some(model) = panel.kind.transaction_mut() {
+                model.forget_trace(&mut self.doc, trace);
+            }
+        }
+        self.doc.remove_trace(trace);
+        self.scopes.remove_trace(self.doc.traces(), trace);
+        self.variables.remove_trace(self.doc.traces(), trace);
+    }
+
+    fn restore_if_ready(&mut self) -> Result<()> {
+        if self
+            .workspace
+            .waiting
+            .as_ref()
+            .is_none_or(|w| !w.traces.is_empty())
+        {
+            return Ok(());
+        }
+        let waiting = self.workspace.waiting.take().expect("checked above");
+        let uri = self
+            .workspace
+            .trace_uri
+            .clone()
+            .context("open the referenced trace first")?;
+        let plan = waiting
+            .workspace
+            .prepare(self, &uri, waiting.origin.location())?;
+        if waiting.explicit {
+            // The open workspace is flushed before the restore replaces it.
+            self.workspace.loading = false;
+            self.notice_all(waiting.notices);
+            self.transition(Transition::Restore {
+                plan: Box::new(plan),
+                target: waiting.target,
+                supersedes: waiting.supersedes,
+            });
+            return Ok(());
+        }
+        let report = plan.commit(self)?;
+        self.notice_all(report.notices);
+        self.workspace
+            .scheduler
+            .begin(Some(waiting.target), waiting.supersedes)?;
+        self.notice_all(waiting.notices);
+        self.workspace.loading = false;
+        Ok(())
+    }
+
+    /// A trace a waiting workspace named finished opening.
+    pub(crate) fn workspace_trace_joined(&mut self, trace: TraceId) {
+        self.workspace_trace_settled(trace, None);
+    }
+
+    /// A trace a waiting workspace named failed to open; its rows restore
+    /// unresolved.
+    pub(crate) fn workspace_trace_failed(&mut self, trace: TraceId, error: String) {
+        self.workspace_trace_settled(trace, Some(error));
+    }
+
+    fn workspace_trace_settled(&mut self, trace: TraceId, error: Option<String>) {
+        let Some(waiting) = self.workspace.waiting.as_mut() else {
+            return;
+        };
+        if !waiting.traces.remove(&trace) {
+            return;
+        }
+        if let Some(error) = error {
+            waiting
+                .notices
+                .push(format!("Trace {trace} not opened: {error}"));
+        }
+        let target = waiting.target.clone();
+        if let Err(error) = self.restore_if_ready() {
+            self.restore_failed(target, error);
         }
         self.changed();
     }
@@ -222,18 +400,20 @@ impl App {
             self.workspace.scheduler.enabled(),
             "workspace persistence is disabled"
         );
-        let uri = self
-            .workspace
-            .trace_uri
-            .as_deref()
-            .context("open the referenced trace first")?;
-        let plan = Workspace::parse(bytes)?.prepare(self, uri, target.location())?;
-        self.transition(Transition::Restore {
-            plan: Box::new(plan),
+        ensure!(
+            self.workspace.trace_uri.is_some(),
+            "open the referenced trace first"
+        );
+        let workspace = Workspace::parse(bytes)?;
+        self.restore_when_open(Waiting {
+            workspace: Box::new(workspace),
+            origin: target.clone(),
             target,
             supersedes: None,
-        });
-        Ok(())
+            notices: Vec::new(),
+            explicit: true,
+            traces: Default::default(),
+        })
     }
 
     pub fn save_workspace(&mut self, destination: Option<Target>) {
@@ -249,9 +429,9 @@ impl App {
         if self.workspace.loading || !self.doc.is_loaded() {
             return;
         }
-        let Some(uri) = self.workspace.trace_uri.clone() else {
+        if self.workspace.trace_uri.is_none() {
             return;
-        };
+        }
         let animating = self.is_animating();
         let Some(ticket) = self.workspace.scheduler.next(now, animating, force) else {
             return;
@@ -261,10 +441,14 @@ impl App {
         } else {
             None
         };
-        let bytes = ticket
-            .target
-            .trace_reference(&uri)
-            .and_then(|reference| Workspace::capture(self, reference, base)?.to_bytes());
+        let target = &ticket.target;
+        let path_of = |slot: &crate::trace::TraceSlot| {
+            slot.uri
+                .as_deref()
+                .map(|uri| target.trace_reference(uri))
+                .transpose()
+        };
+        let bytes = Workspace::capture(self, path_of, base).and_then(|w| w.to_bytes());
         match bytes {
             Ok(bytes) => self.events.push(Event::PersistWorkspace { ticket, bytes }),
             Err(error) => {

@@ -284,7 +284,7 @@ pub fn paint(
                     let mut outgoing = Vec::new();
                     for edge in generator.relations_of(selection.id) {
                         let forward = edge.relation.from == selection.id
-                            && edge.from_generator == selection.track;
+                            && edge.from_generator == selection.track.item;
                         let (other, other_generator) = if forward {
                             (edge.relation.to, edge.to_generator)
                         } else {

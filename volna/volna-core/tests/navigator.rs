@@ -4,6 +4,7 @@
 //! `↵` goes, `⇧↵` measures from, `F2` renames and `Del` removes.
 
 use std::sync::Arc;
+use volna_core::testing::a_all;
 
 use volna_core::marker::{LaneVerb, MarkerId, Reference, navigator_query};
 use volna_core::testing::ProceduralTrace;
@@ -17,7 +18,7 @@ fn id(n: u32) -> MarkerId {
 fn app() -> App {
     let mut app = App::new();
     app.set_session(Arc::new(ProceduralTrace::new(1000)));
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     for (t, name) in [
         (1200, "req A"),
         (1600, "resp A"),

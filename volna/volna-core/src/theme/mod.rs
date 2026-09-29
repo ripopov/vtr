@@ -154,6 +154,13 @@ fn ca(hex: u32, a: f32) -> Color {
 }
 
 impl<C: Copy> Theme<C> {
+    /// The colours of a trace's letter badge. Traces take the categorical
+    /// marker palette in letter order, so each has the contrast measured
+    /// for marker chips.
+    pub fn trace(&self, trace: crate::trace::TraceId) -> MarkerColors<C> {
+        self.markers[trace.index() % self.markers.len()]
+    }
+
     pub fn row(&self, selected: bool, hovered: bool) -> Surface<C> {
         if selected {
             self.selection

@@ -77,7 +77,10 @@ fn main() -> anyhow::Result<()> {
     app.settings_loaded(r#"{"memory.budgetMiB": 16384, "memory.objectMiB": 8192}"#);
     app.set_session(OpenSpec::Path(path).open()?);
     let load = Instant::now();
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(vec![volna_core::trace::Traced::new(
+        volna_core::trace::TraceId::A,
+        0,
+    )]));
     loop {
         let requests = app.take_requests();
         if requests.is_empty() {

@@ -16,7 +16,7 @@ pub enum ScopeRole {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Member {
     Var(VarId),
     Generator(GeneratorId),

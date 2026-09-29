@@ -58,9 +58,10 @@ impl Workspace {
             let same_recording = self
                 .app
                 .doc
-                .session()
-                .and_then(|session| session.remote_id())
-                .is_some_and(|id| Some(id) == bridge.client.session());
+                .traces()
+                .loaded()
+                .filter_map(|(_, session)| session.remote_id())
+                .any(|id| Some(id) == bridge.client.session());
             if same_recording {
                 bridge.generation = self.app.doc.generation();
             } else {
@@ -79,6 +80,7 @@ impl Workspace {
     ) -> Option<LoadRequest> {
         match request {
             LoadRequest::Open {
+                trace,
                 generation,
                 spec: OpenSpec::Remote { limits, .. },
             } => {
@@ -94,6 +96,7 @@ impl Workspace {
                         id.to_string()
                     });
                     let client = RemoteClient::new(
+                        trace,
                         generation,
                         object_bytes,
                         MemoryBudget::new(memory_bytes),
@@ -109,6 +112,7 @@ impl Workspace {
                 if let Err(error) = result {
                     if self.remote.is_none() {
                         self.app.deliver(LoadResult::Opened {
+                            trace,
                             generation,
                             result: Err(error),
                         });

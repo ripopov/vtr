@@ -16,6 +16,7 @@ use crate::icons::IconName;
 use crate::pipeline::PipelineModel;
 use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::Theme;
+use crate::trace::TraceId;
 use crate::wave::analog::{self, Analog, AnalogDraw, Plot, Readout, Series};
 use crate::wave::group;
 use crate::wave::lane::{self, LaneData, LaneGeometry, TxLane};
@@ -34,6 +35,39 @@ use crate::wave::viewport::Viewport;
 const TRACE_PAD: f32 = 5.0;
 /// Segments narrower than this are drawn as a dense band instead of a hexagon.
 const MIN_SEGMENT_PX: usize = 5;
+
+/// A trace's letter, centred in `cell` on its badge colour, clipped to `clip`.
+pub(crate) fn trace_letter(
+    p: &mut TextPainter<'_>,
+    t: &Theme,
+    trace: TraceId,
+    cell: Rect,
+    clip: Rect,
+) {
+    let z = |v: f32| v * t.zoom;
+    let w = z(14.0);
+    let h = (cell.height() - z(6.0)).clamp(z(10.0), z(16.0));
+    let badge = Rect::from_xywh(
+        snap(cell.left() + (cell.width() - w) / 2.0),
+        snap(cell.top() + (cell.height() - h) / 2.0),
+        w,
+        h,
+    );
+    let colors = t.trace(trace);
+    let letter = trace.letter().to_string();
+    let letter_w = p.width(&letter, FontRole::UiMedium, t.ui_size_small);
+    p.scene.clipped(clip, |scene| {
+        scene.quad(badge, colors.background, z(3.0), 0.0, Color::TRANSPARENT);
+        scene.text(
+            point(snap(badge.left() + (w - letter_w) / 2.0), badge.top()),
+            badge.height(),
+            letter,
+            FontRole::UiMedium,
+            t.ui_size_small,
+            colors.text,
+        );
+    });
+}
 
 /// Truncate `text` to at most `max_chars` characters, appending an ellipsis.
 fn truncate_chars(text: &str, max_chars: usize) -> Option<String> {
@@ -133,7 +167,7 @@ pub fn paint(
         let row = &entry.row;
         let y = layout.row_y(pos);
         let full_h = layout.row_height(pos);
-        let name_x = indent_x(layout.names.left(), entry.depth, t.zoom);
+        let name_x = indent_x(layout.name_left, entry.depth, t.zoom);
         let is_selected = model.selected.contains(&ix);
         let is_hover = model.hover_row == Some(ix);
         let left_row = Rect::new(
@@ -156,10 +190,19 @@ pub fn paint(
         }
         // One guide per enclosing group, down the rows it holds.
         for d in 0..entry.depth {
-            let x = snap(indent_x(layout.names.left(), d, t.zoom) + z(CHEVRON_W / 2.0));
+            let x = snap(indent_x(layout.name_left, d, t.zoom) + z(CHEVRON_W / 2.0));
             p.scene.clipped(layout.names, |scene| {
                 scene.fill(Rect::from_xywh(x, y, 1.0, full_h), t.border_variant);
             });
+        }
+        if layout.name_left > layout.names.left()
+            && let Some(trace) = model.row_trace(ix)
+        {
+            let gutter = Rect::new(
+                point(layout.names.left(), y),
+                size(layout.name_left - layout.names.left(), row_h),
+            );
+            trace_letter(&mut p, t, trace, gutter, layout.names);
         }
         let colors = t.row(is_selected, is_hover);
         let cells = LaneCells {
@@ -484,7 +527,7 @@ pub fn paint(
             });
         } else {
             let y = snap(layout.row_y(gap)).clamp(rows_area.top() + 1.0, rows_area.bottom() - 1.0);
-            let x = indent_x(bounds.left(), depth, t.zoom) - z(8.0);
+            let x = indent_x(layout.name_left, depth, t.zoom) - z(8.0);
             p.scene.clipped(rows_area, |scene| {
                 scene.fill(
                     Rect::from_xywh(x, y - w / 2.0, bounds.right() - x, w),
@@ -1424,7 +1467,7 @@ fn paint_clock_row(
             name_color,
         );
     });
-    let value = match (timeline, doc.clocks.find(&row.path)) {
+    let value = match (timeline, doc.clocks.find(&row.key)) {
         (Some(tl), _) => cells
             .cursor
             .and_then(|c| tl.cycle_at(c))

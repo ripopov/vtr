@@ -7,6 +7,8 @@ use gpui_kit::TestAppContext;
 use std::sync::Arc;
 use volna_core::session::{LoadRequest, LoadResult, OpenSpec};
 use volna_core::testing::ProceduralTrace;
+use volna_core::testing::a_all;
+use volna_core::trace::TraceId;
 
 fn init(cx: &mut TestAppContext) {
     cx.update(crate::init_app);
@@ -43,8 +45,8 @@ fn loads_run_on_the_executor_and_fill_rows(cx: &mut TestAppContext) {
     window
         .update(cx, |ws, window, cx| {
             assert!(ws.app.doc.is_loaded());
-            let count = ws.app.doc.hierarchy().unwrap().vars.len();
-            ws.dispatch(Command::AddVars((0..count).collect()), Some(window), cx);
+            let count = ws.app.doc.hierarchy(TraceId::A).unwrap().vars.len();
+            ws.dispatch(Command::AddVars(a_all(0..count)), Some(window), cx);
         })
         .unwrap();
     cx.run_until_parked();
@@ -81,6 +83,7 @@ fn latest_open_wins_and_a_stale_open_cannot_replace_the_trace(cx: &mut TestAppCo
                 panic!("expected an open request");
             };
             ws.app.deliver(LoadResult::Opened {
+                trace: TraceId::A,
                 generation,
                 result: Ok(current.clone()),
             });
@@ -94,7 +97,7 @@ fn latest_open_wins_and_a_stale_open_cannot_replace_the_trace(cx: &mut TestAppCo
     window
         .update(cx, |ws, _, _| {
             assert!(
-                matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current))
+                matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(&s, &current))
             );
             assert!(matches!(
                 ws.app.panels.focused().kind,
@@ -114,7 +117,7 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
             ws.set_session(source.clone(), cx);
             ws.app.handle(Command::SetSidebarWidth(355.0));
             ws.app.handle(Command::SetScopesFraction(0.61));
-            ws.app.handle(Command::AddVars(vec![0; 100]));
+            ws.app.handle(Command::AddVars(a_all(vec![0; 100])));
             ws.after(None, cx);
             ws.app.doc.shared.cursor = Some(42);
             ws.app
@@ -165,7 +168,7 @@ fn theme_changes_preserve_trace_and_interaction_state(cx: &mut TestAppContext) {
         window
             .update(cx, |ws, _, _| {
                 assert!(
-                    matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &source))
+                    matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(&s, &source))
                 );
                 assert_eq!(ws.debug_state(), before);
                 let w = &ws.app.panels.focused_waves().unwrap();
@@ -212,7 +215,7 @@ fn native_idle_save_reopens_a_copied_trace_with_its_workspace(cx: &mut TestAppCo
                 "{:?}",
                 ws.app.workspace.notices
             );
-            ws.dispatch(Command::AddVars(vec![0, 1]), None, cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1])), None, cx);
             ws.dispatch(Command::Action(Action::SplitRight), None, cx);
             ws.app.tick(Instant::now() + Duration::from_secs(2));
             ws.after(None, cx);
@@ -376,7 +379,7 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(source.clone(), cx);
-            ws.app.handle(Command::AddVars(vec![0; 400]));
+            ws.app.handle(Command::AddVars(a_all(vec![0; 400])));
             ws.after(None, cx);
             ws.app.doc.shared.cursor = Some(42);
             ws.app.doc.shared.viewport.value.start = 20.0;
@@ -458,7 +461,7 @@ fn interface_zoom_scales_settings_tab_and_wave_rows_and_keeps_viewer_state(
                 assert!(layout.bounds.width() > 0.0 && w.frames_painted > 0);
                 // Viewer state is untouched, as for a theme change.
                 assert!(
-                    matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &source))
+                    matches!(ws.app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(&s, &source))
                 );
                 assert_eq!(ws.debug_state(), before);
                 assert_eq!(w.names_width, 260.0);
@@ -532,7 +535,7 @@ fn tab_close_buttons_and_middle_click_close_their_own_tab(cx: &mut TestAppContex
     let (first, second, settings) = window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.app.handle(Command::AddVars(vec![0; 4]));
+            ws.app.handle(Command::AddVars(a_all(vec![0; 4])));
             let first = ws.app.panels.focused_id();
             ws.dispatch(
                 Command::Panels(PanelsCommand::NewTab { group_of: first }),
@@ -606,7 +609,7 @@ fn signal_menu_height_submenu_and_row_height_actions(cx: &mut TestAppContext) {
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0, 1, 2]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2])), Some(window), cx);
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(root.into(), cx);
@@ -683,7 +686,7 @@ fn wave_copy_paste_keys_duplicate_rows(cx: &mut TestAppContext) {
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0, 1, 2]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2])), Some(window), cx);
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(root.into(), cx);
@@ -766,7 +769,7 @@ fn status_bar_memory_meter_tracks_the_budget(cx: &mut TestAppContext) {
         .update(&mut vcx, |ws, window, cx| {
             let session = OpenSpec::Path(trace.into()).open().unwrap();
             ws.set_session(session, cx);
-            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2, 3])), Some(window), cx);
         })
         .unwrap();
     vcx.run_until_parked();
@@ -866,7 +869,7 @@ fn status_bar_groups_stay_put_under_long_messages(cx: &mut TestAppContext) {
         .update(&mut vcx, |ws, window, cx| {
             let session = OpenSpec::Path(trace.into()).open().unwrap();
             ws.set_session(session, cx);
-            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2, 3])), Some(window), cx);
         })
         .unwrap();
     let set_message = |vcx: &mut VisualTestContext, text: Option<String>| {
@@ -964,7 +967,7 @@ fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
                 .iter()
                 .position(|v| matches!(v.shape, SignalShape::Vector { .. }))
                 .unwrap();
-            ws.dispatch(Command::AddVars(vec![vector]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![vector])), Some(window), cx);
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(root.into(), cx);
@@ -1062,7 +1065,7 @@ fn group_keys_and_the_hosted_name_editor(cx: &mut TestAppContext) {
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2, 3])), Some(window), cx);
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(root.into(), cx);
@@ -1262,7 +1265,7 @@ fn undo_keys_reach_the_history_and_text_fields_keep_their_own(cx: &mut TestAppCo
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0, 1, 2, 3]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2, 3])), Some(window), cx);
         })
         .unwrap();
     let mut vcx = VisualTestContext::from_window(root.into(), cx);
@@ -1458,7 +1461,7 @@ fn marker_walk_keys_move_the_cursor(cx: &mut TestAppContext) {
     let (near, far) = window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             let (near, far) = (lo + (hi - lo) / 4, lo + (hi - lo) * 3 / 4);
             for t in [near, far] {
@@ -1514,7 +1517,7 @@ fn marker_name_field_opens_over_the_chip_and_keeps_its_keys(cx: &mut TestAppCont
     let (near, far) = window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             let (near, far) = (lo + (hi - lo) / 4, lo + (hi - lo) * 3 / 4);
             for t in [near, far] {
@@ -1669,7 +1672,7 @@ fn double_click_on_a_span_zooms_to_it(cx: &mut TestAppContext) {
     let (a, b) = window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             let (a, b) = (lo + (hi - lo) * 2 / 5, lo + (hi - lo) / 2);
             for t in [a, b] {
@@ -1738,7 +1741,7 @@ fn reference_keys_and_a_double_click_on_the_live_span(cx: &mut TestAppContext) {
     let (a, b) = window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             let (a, b) = (lo + (hi - lo) * 2 / 5, lo + (hi - lo) / 2);
             ws.app.doc.shared.cursor = Some(a);
@@ -1866,7 +1869,7 @@ fn marker_chips_drag_open_menus_copy_and_double_click_adds(cx: &mut TestAppConte
     let a = window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             let a = lo + (hi - lo) / 4;
             ws.app.doc.shared.cursor = Some(a);
@@ -2014,7 +2017,7 @@ fn the_marker_navigator_lists_filters_and_acts_on_markers(cx: &mut TestAppContex
     let (start, times) = window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             let times = [
                 lo + (hi - lo) / 5,
@@ -2138,7 +2141,7 @@ fn the_palette_offers_markers_when_the_query_asks_for_them(cx: &mut TestAppConte
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             for (k, name) in [(1, "req A"), (2, "resp A"), (3, "req B")] {
                 let t = lo + (hi - lo) * k / 5;
@@ -2225,7 +2228,7 @@ fn palette_commands_chosen_by_keyboard_reach_the_panel(cx: &mut TestAppContext) 
     window
         .update(cx, |ws, window, cx| {
             ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
-            ws.dispatch(Command::AddVars(vec![0]), Some(window), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0])), Some(window), cx);
             let (lo, hi) = ws.app.doc.limits();
             for t in [lo + (hi - lo) / 4, lo + (hi - lo) / 2] {
                 ws.app.doc.shared.cursor = Some(t);
@@ -2437,4 +2440,106 @@ fn start_page_reopens_recent_traces_and_workspaces(cx: &mut TestAppContext) {
     );
     let saved = std::fs::read_to_string(config.join("state.json")).unwrap();
     assert!(!saved.contains("a.vtr"));
+}
+
+/// Two traces side by side (`docs/multiple-traces.html`, stage 1): the
+/// title bar shows a chip per trace, the scope tree heads each trace's
+/// scopes with its own row, a chip click selects that row, the command
+/// line's second file joins the first, and a pipeline tab names its trace.
+#[gpui_kit::test]
+fn trace_chips_and_rows_show_every_open_trace(cx: &mut TestAppContext) {
+    use gpui_kit::Modifiers;
+    use gpui_kit::VisualTestContext;
+    use volna_core::sidebar::TreeNode;
+    init(cx);
+    let temporary = tempfile::tempdir().unwrap();
+    let example = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/landing.vtr");
+    let (a, b) = (
+        temporary.path().join("cpu.vtr"),
+        temporary.path().join("dram.vtr"),
+    );
+    std::fs::copy(example, &a).unwrap();
+    std::fs::copy(example, &b).unwrap();
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, _, cx| {
+            ws.open_paths(vec![a.clone(), b.clone()], cx)
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    let draw = |vcx: &mut VisualTestContext| {
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+    };
+    draw(&mut vcx);
+    let b_id = TraceId::from_letter('B').unwrap();
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let chips = ws.app.trace_chips();
+            assert_eq!(
+                chips.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                ["cpu.vtr", "dram.vtr"]
+            );
+            assert!(chips.iter().all(|c| !c.loading));
+        })
+        .unwrap();
+    assert!(vcx.debug_bounds("trace-chip-A").is_some());
+    let chip = vcx.debug_bounds("trace-chip-B").expect("B's chip");
+    assert!(vcx.debug_bounds("trace-row-A").is_some());
+    assert!(vcx.debug_bounds("trace-row-B").is_some());
+    vcx.simulate_click(chip.center(), Modifiers::default());
+    draw(&mut vcx);
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            assert_eq!(ws.app.scopes.selected, Some(TreeNode::trace(b_id)));
+            let track = ws
+                .app
+                .pipeline_streams()
+                .into_iter()
+                .find(|(_, t)| t.trace == b_id)
+                .expect("B records a pipeline")
+                .1;
+            ws.dispatch(Command::OpenPipeline { track }, Some(window), cx);
+            assert_eq!(ws.app.panels.focused().kind.trace(), Some(b_id));
+        })
+        .unwrap();
+    draw(&mut vcx);
+    // The palette names each trace's verbs; A closes only with everything.
+    window
+        .update(&mut vcx, |ws, _, _| {
+            let labels: Vec<String> = crate::palette::commands(&ws.app, "")
+                .into_iter()
+                .map(|(label, _)| label)
+                .filter(|label| label.contains("Trace"))
+                .collect();
+            for label in [
+                "Add Trace…",
+                "Reveal Trace A cpu.vtr",
+                "Rename Trace B dram.vtr…",
+                "Close Trace B dram.vtr",
+            ] {
+                assert!(labels.iter().any(|l| l == label), "{label}: {labels:?}");
+            }
+            assert!(!labels.iter().any(|l| l == "Close Trace A cpu.vtr"));
+        })
+        .unwrap();
+    // Closing B leaves A alone, named plainly again.
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            ws.dispatch(Command::RemoveTrace(b_id), Some(window), cx);
+            assert_eq!(ws.app.trace_chips().len(), 1);
+        })
+        .unwrap();
+    draw(&mut vcx);
+    assert!(vcx.debug_bounds("trace-chip-A").is_none());
+    assert!(vcx.debug_bounds("trace-row-A").is_none());
 }

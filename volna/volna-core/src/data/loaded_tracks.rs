@@ -390,6 +390,41 @@ impl LoadedGenerator {
         })
     }
 
+    /// Multiply every time by `scale` (a trace placed on a finer session
+    /// timeline, [`crate::trace::Placement`]). Order and overlap are kept,
+    /// so every index and the sub-rows stay valid.
+    pub(crate) fn scale_times(&mut self, scale: u64) {
+        let time = |t: &mut u64| *t = t.saturating_mul(scale);
+        let attributes = |attrs: &mut crate::data::transactions::Attributes| {
+            for (key, value) in attrs {
+                scale_attribute(key, value, scale);
+            }
+        };
+        for tx in &mut self.transactions {
+            time(&mut tx.begin);
+            time(&mut tx.end);
+            for a in &mut tx.attributes {
+                scale_attribute(&a.key, &mut a.value, scale);
+            }
+            for event in &mut tx.events {
+                time(&mut event.time);
+                attributes(&mut event.attributes);
+            }
+            for stage in &mut tx.stages {
+                time(&mut stage.begin);
+                if let Some(end) = &mut stage.end {
+                    time(end);
+                }
+                attributes(&mut stage.attributes);
+            }
+        }
+        for relation in &mut self.relations {
+            attributes(&mut relation.relation.attributes);
+        }
+        self.max_end.iter_mut().for_each(time);
+        time(&mut self.median_lifetime);
+    }
+
     pub fn generator(&self) -> TrackRef {
         self.generator
     }
@@ -583,6 +618,19 @@ fn attribute_value_bytes(value: &super::transactions::AttributeValue) -> u64 {
         | AttributeValue::Pointer(_)
         | AttributeValue::Fixed { .. }
         | AttributeValue::UFixed { .. } => 0,
+    }
+}
+
+/// Scale a time attribute. A clock's period may be written as a plain
+/// integer ([`crate::clock::PERIOD_ATTRIBUTE`]); it is a time all the same.
+fn scale_attribute(key: &str, value: &mut super::transactions::AttributeValue, scale: u64) {
+    use super::transactions::AttributeValue;
+    match value {
+        AttributeValue::Time(t) => *t = t.saturating_mul(scale),
+        AttributeValue::U64(t) if key == crate::clock::PERIOD_ATTRIBUTE => {
+            *t = t.saturating_mul(scale)
+        }
+        _ => {}
     }
 }
 

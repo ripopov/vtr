@@ -1,6 +1,8 @@
 //! Headless vertical-slice checks for the reduced table panel.
 
 use std::path::PathBuf;
+use volna_core::testing::a_all;
+use volna_core::trace::TraceId;
 
 use volna_core::app::{App, Command, PanelLayout};
 use volna_core::data::Member;
@@ -44,11 +46,16 @@ fn generator_table_loads_selects_follows_copies_and_keeps_bounded_rows() {
     let session = fixture();
     let mut app = App::new();
     app.set_session(session.clone());
-    let budget = app.doc.session().unwrap().memory_budget().unwrap();
+    let budget = app
+        .doc
+        .session(TraceId::A)
+        .unwrap()
+        .memory_budget()
+        .unwrap();
     let session_bytes = budget.used();
     assert!(session_bytes > 0, "the native VTR owner must be admitted");
     app.handle(Command::OpenTable {
-        selected: vec![Member::Generator(0)],
+        selected: a_all(vec![Member::Generator(0)]),
         clicked: None,
     });
     let panel = app.panels.focused_id();
@@ -115,7 +122,7 @@ fn fixed_signal_set_builds_shared_change_axis_and_workspace_reopens_at_first_row
     app.set_session(session.clone());
     assert!(session.hierarchy().vars.len() >= 2);
     app.handle(Command::OpenTable {
-        selected: vec![Member::Var(0), Member::Var(1)],
+        selected: a_all(vec![Member::Var(0), Member::Var(1)]),
         clicked: None,
     });
     let panel = app.panels.focused_id();
@@ -138,7 +145,12 @@ fn fixed_signal_set_builds_shared_change_axis_and_workspace_reopens_at_first_row
         .unwrap();
     assert!(tsv.starts_with("Time\t"));
 
-    let saved = Workspace::capture(&app, "file:///tmp/trace.vtr".into(), None).unwrap();
+    let saved = Workspace::capture(
+        &app,
+        volna_core::testing::paths("file:///tmp/trace.vtr"),
+        None,
+    )
+    .unwrap();
     let bytes = saved.to_bytes().unwrap();
     fn contains_table_v2(value: &serde_json::Value) -> bool {
         match value {

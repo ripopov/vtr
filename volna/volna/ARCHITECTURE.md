@@ -11,7 +11,8 @@ VDB layer. VDB attachment is not yet implemented.
 ```
 volna/volna-core      the viewer, no GUI toolkit (builds and tests on every platform)
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
-  src/document.rs        Document: open trace, shared navigation, markers, selection, translators, loads
+  src/document.rs        Document: the trace set, shared navigation, markers, selection, translators, loads
+  src/trace/             TraceSet and TraceSlot, TraceId letters, Traced<T> identities, names, Placement
   src/panels/            stable IDs, split/tab layout, focus, per-panel wave, pipeline, table and transaction models
   src/nav/               Tween<T> animation, NavState (links, local viewport/cursor, clocks) of every timed panel
   src/clock.rs           declared clocks: catalog, timelines, a panel's ClockView, ruler/readout math
@@ -79,8 +80,9 @@ until drained. Dock proposals carry the layout revision they were based on.
 `LoadRequest`; `take_requests()` hands them to the frontend, which performs them
 on whatever executor it has (GPUI's background executor, a thread in egui, the
 browser's main loop on wasm) and returns the `LoadResult` through `deliver()`.
-Requests carry the document generation they were made under; a newer open,
-close or session replacement makes late results no-ops. Tests exercise this
+Requests carry their trace and the generation of its slot; a newer open, a
+close, a closed trace or a change of the trace's placement makes late results
+no-ops. Tests exercise this
 ownership model with a plain loop that performs requests in any order.
 
 **Layout and paint.** Each frame the frontend calls `layout_panel(panel, bounds,
@@ -151,6 +153,46 @@ Text runs and 1 px lines are snapped to whole logical pixels, so they are crisp
 at 1× and 2× DPI. The display list uses a reused buffer, and the shaped-text
 cache avoids reshaping repeated labels across frames.
 
+## Several traces
+
+A document shows a set of traces side by side
+([docs/multiple-traces.html](../../docs/multiple-traces.html), stage 1). Each
+open file is a `TraceSlot` of the `Document`'s `TraceSet`, named by a letter
+handed out lowest free first: A is the first opened. Session identities
+(`SignalRef`, `VarId`, `ScopeId`, `Member`, `TrackRef`, a clock's path) are
+local to one trace, so everything above the session pairs them with their
+`TraceId` as `Traced<T>`: wave rows (`RowSource`, `TrackSource`,
+`ClockRow::key`), table columns, pipelines, the transaction panel and
+`TxSelection`, the document's loads and summaries, sidebar rows and every
+command that names trace data. There is no primary trace in these APIs.
+
+Each trace keeps its own time unit on disk; `TraceSet` places all of them on
+one session timeline in the finest SI unit among them (`Placement`, a whole
+scale factor), so a VTR in nanoseconds and an FST in picoseconds share one
+ruler exactly. The document applies the placement where data arrives
+(`Document::deliver`): histories are wrapped, loaded tracks are rescaled in
+place, so panels, readouts and snapping only see session times. A trace in a
+producer-named unit (`cycle`) joins only traces in the same unit. When a
+finer trace joins, the unit refines and never coarsens again while the
+document lives: shared and panel times, the undo journal's marker and origin
+times and closed panels are multiplied (`trace::Refine`), and the other
+traces' rows, tables and tracks load again under new generations.
+
+Adding a trace (`Command::AddTrace`, `App::add_resource`) and closing one
+(`Command::RemoveTrace`) are undoable steps; closing removes the trace's rows,
+rulers and the panels that show it (`PanelKind::shows_trace`) in the same
+step, and its open session stays in the journal so undo puts it back without
+reading the file. `Command::RenameTrace` is a step too. A holds the workspace:
+while other traces are open it closes only with everything. `App::trace_chips`
+says what a frontend's chips and the scope tree's trace rows show; rows show
+their letter in a gutter of the names column while several traces are open.
+The workspace (version 5) lists its traces by letter and path and records the
+unit its times are in, which a restore converts to the unit of the traces it
+opens (`trace::Rescale`); rows and panels of traces other than A name their
+letter. Restoring a sidecar beside A
+opens the traces it names under free letters; Open Workspace makes the set
+the workspace's. The egui frontend keeps one trace.
+
 ## Document versus view
 
 `App::panels` owns a toolkit-neutral tree of splits and tab groups, stable
@@ -168,7 +210,7 @@ validated atomically for membership, duplicates, active tabs, finite positive
 shares, depth and panel count. `debug_state()` reports one line per panel in
 layout order, with its ID, focus and link flags before the waveform state.
 
-`Document` owns the session, shared viewport and cursor, markers with stable IDs
+`Document` owns the trace set, shared viewport and cursor, markers with stable IDs
 and optional labels, translators, and load generations. Every timed panel embeds
 a `nav::NavState`: two link flags choosing between document navigation and local
 navigation through effective accessors, the local viewport tween and the local

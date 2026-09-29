@@ -2,12 +2,16 @@
 //! [`Command`]s, drain [`Event`]s, perform the [`LoadRequest`]s it queues, and
 //! ask it to lay out and paint the wave panel into a [`Scene`].
 
+mod traces;
 mod undo;
+
+pub use traces::TraceChip;
 
 use std::sync::Arc;
 
 use web_time::Instant;
 
+use crate::clock::ClockKey;
 use crate::data::Member;
 use crate::data::transactions::{TrackRef, TransactionRef};
 use crate::data::{ScopeId, VarId};
@@ -20,12 +24,13 @@ use crate::pipeline::{PipelineLayout, PipelineModel, TrackSource};
 use crate::scene::{Scene, TextCache, TextMeasure};
 use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
 use crate::settings::{self, Value};
-use crate::sidebar::{Key, MemberListModel, ScopeTreeModel};
+use crate::sidebar::{Key, MemberListModel, ScopeTreeModel, TreeNode};
 use crate::theme::Theme;
+use crate::trace::{TraceId, Traced};
 use crate::transaction::{TransactionCommand, TransactionModel};
 use crate::wave::layout::WaveLayout;
 use crate::wave::model::{MenuAction, PointerEvent, WaveMenu, WaveMenuKind, WaveRow};
-use crate::wave::timeline::{TimeBase, format_time};
+use crate::wave::timeline::format_time;
 
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -206,10 +211,23 @@ pub enum Command {
     /// Frontend-owned operations (clipboard, dialogs) report a concise error
     /// through the same accessible notice path as core failures.
     Notice(String),
-    /// Start opening a trace.
+    /// Start opening a trace in place of the open ones.
     Open(OpenSpec),
+    /// Start opening another trace beside the open ones
+    /// (`docs/multiple-traces.html`).
+    AddTrace(OpenSpec),
     /// Ask the frontend for a file (it answers with [`Command::Open`]).
     RequestOpenDialog,
+    /// Ask the frontend for a file to add (it answers with
+    /// [`Command::AddTrace`]).
+    RequestAddTraceDialog,
+    /// Close one trace of several, with its rows and the panels that show
+    /// it, as one undoable step. Closing the only trace closes everything.
+    RemoveTrace(TraceId),
+    /// Name a trace; `None` or an empty name goes back to the derived one.
+    RenameTrace(TraceId, Option<String>),
+    /// Select a trace's row in the scope tree (a click on its chip).
+    RevealTrace(TraceId),
     RequestOpenWorkspace,
     RequestSaveWorkspaceAs,
     SaveWorkspace,
@@ -225,25 +243,25 @@ pub enum Command {
     Pointer(PanelId, PointerEvent),
     Panels(PanelsCommand),
     /// Add rows for these variables to the wave view.
-    AddVars(Vec<VarId>),
+    AddVars(Vec<Traced<VarId>>),
     /// Add members to the wave view: variables as signal rows, generators as
     /// transaction lanes, clock streams and generators as clock rows. Other
     /// streams and log sites have no row form.
-    AddToWaves(Vec<Member>),
+    AddToWaves(Vec<Traced<Member>>),
     /// Show the clocks of these members (clock streams or their generators;
     /// other members are ignored) as rulers of the panel `AddToWaves` targets.
-    AddClockRulers(Vec<Member>),
-    ActivateMembers(Vec<Member>),
+    AddClockRulers(Vec<Traced<Member>>),
+    ActivateMembers(Vec<Traced<Member>>),
     /// Show a stream or generator as a pipeline panel: focus the panel that
     /// already shows it, or open one below the focused panel.
     OpenPipeline {
-        track: TrackRef,
+        track: Traced<TrackRef>,
     },
     /// Capture one generator or an all-signal selection and open the reduced
     /// immutable table view below the invoking content panel.
     OpenTable {
-        selected: Vec<Member>,
-        clicked: Option<Member>,
+        selected: Vec<Traced<Member>>,
+        clicked: Option<Traced<Member>>,
     },
     /// Open from a Waves selection or a single-generator Pipeline panel.
     OpenTableFromPanel {
@@ -255,7 +273,7 @@ pub enum Command {
     /// originating panel's cursor to the time under the pointer.
     SelectTransaction {
         panel: PanelId,
-        track: TrackRef,
+        track: Traced<TrackRef>,
         id: TransactionRef,
         cursor: Option<u64>,
     },
@@ -274,8 +292,8 @@ pub enum Command {
     },
     PipelineActivity(PanelId, crate::pipeline::ActivityCommand),
     SetSearchEverywhere(bool),
-    SelectScope(ScopeId),
-    ToggleScope(ScopeId),
+    SelectScope(TreeNode),
+    ToggleScope(TreeNode),
     ExpandAllScopes(bool),
     ScopesKey(Key),
     SetFilter(String),
@@ -291,7 +309,7 @@ pub enum Command {
     /// Add a scope's variables to the wave view as a group named after it;
     /// with `recursive`, child scopes with variables become folded subgroups.
     AddScopeAsGroup {
-        scope: ScopeId,
+        scope: Traced<ScopeId>,
         recursive: bool,
     },
     /// The frontend's text field over [`App::text_edit`] finished: `Some`
@@ -323,8 +341,9 @@ pub enum Command {
 /// The focused timed panel's clock choices, for menus and the palette.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ClockChoices {
-    /// Every clock of the trace: its path and whether it is shown as a ruler.
-    pub clocks: Vec<(String, bool)>,
+    /// Every clock of the open traces: its key and whether it is shown as
+    /// a ruler.
+    pub clocks: Vec<(ClockKey, bool)>,
     /// Cycles are numbered from a chosen origin.
     pub origin: bool,
 }
@@ -332,10 +351,10 @@ pub struct ClockChoices {
 /// What a timed panel shows of the trace's clocks (`docs/vtr_clocks.html`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClockCommand {
-    /// Show or hide the ruler of the clock with this path.
-    ToggleRuler(String),
+    /// Show or hide the ruler of this clock.
+    ToggleRuler(ClockKey),
     /// The clock clicks snap to and `[` / `]` step through.
-    Select(String),
+    Select(ClockKey),
     /// Put the cursor on this cycle of the panel's selected clock, as the
     /// panel numbers its cycles.
     GoToCycle(i64),
@@ -403,6 +422,8 @@ pub enum Event {
     Quit,
     /// Show the platform file dialog, then send [`Command::Open`].
     OpenFileDialog,
+    /// Show the platform file dialog, then send [`Command::AddTrace`].
+    AddTraceDialog,
     /// Scroll the scope tree so this row is visible.
     RevealScopeRow(usize),
     /// Scroll the variable list so this row is visible.
@@ -603,8 +624,8 @@ pub struct StartSummary {
     pub variables: usize,
     /// Streams and generators of the transaction catalog.
     pub tracks: usize,
-    /// The recognized PIPELINE streams: (dotted path, track).
-    pub pipelines: Vec<(String, TrackRef)>,
+    /// The recognized PIPELINE streams of every trace: (dotted path, track).
+    pub pipelines: Vec<(String, Traced<TrackRef>)>,
 }
 
 /// The rectangles a frontend needs for hit regions, by panel kind.
@@ -645,7 +666,7 @@ pub struct App {
     table_budget: crate::remote::memory::MemoryBudget,
     /// Generators retained for wave lanes, one document retain each, for
     /// the document generation that granted them.
-    lane_tracks: (u64, std::collections::HashSet<TrackRef>),
+    lane_tracks: (u64, std::collections::HashSet<Traced<TrackRef>>),
 }
 
 impl Default for App {
@@ -732,6 +753,8 @@ impl App {
         self.on_session_changed();
     }
 
+    /// The document now shows other traces from scratch (an open, a close,
+    /// or the first trace of a document arriving).
     fn on_session_changed(&mut self) {
         self.reset_recent_view();
         self.history.clear();
@@ -742,10 +765,11 @@ impl App {
             self.events.push(Event::Notice(e.to_string()));
         }
         self.layout_changed();
-        self.scopes.reset(self.doc.hierarchy());
-        self.variables.reset(self.doc.hierarchy());
-        let scope = self.scopes.selected;
-        self.variables.set_scope(self.doc.hierarchy(), scope);
+        let traces = self.doc.traces();
+        self.scopes.reset(traces);
+        self.variables.reset(traces);
+        let scope = self.scopes.selected_scope();
+        self.variables.set_scope(self.doc.traces(), scope);
         self.changed();
     }
 
@@ -773,13 +797,14 @@ impl App {
             let wanted = self.signal_demand();
             requests.retain_mut(|request| {
                 if let LoadRequest::Signals {
+                    trace,
                     generation,
                     signals,
                     ..
                 } = request
                 {
                     self.doc
-                        .retain_queued_signals(*generation, signals, &wanted)
+                        .retain_queued_signals(*trace, *generation, signals, &wanted)
                 } else {
                     true
                 }
@@ -788,7 +813,9 @@ impl App {
         requests
     }
 
-    pub(crate) fn signal_demand(&self) -> std::collections::HashSet<crate::data::SignalRef> {
+    pub(crate) fn signal_demand(
+        &self,
+    ) -> std::collections::HashSet<Traced<crate::data::SignalRef>> {
         self.panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
@@ -827,8 +854,9 @@ impl App {
                 }
                 self.changed();
             }
-            Some(Delivered::Signals(results)) => {
+            Some(Delivered::Signals(trace, results)) => {
                 for (signal, result) in results {
+                    let signal = Traced::new(trace, signal);
                     let result = result.map_err(|e| e.to_string());
                     for panel in self.panels.iter_mut() {
                         if let Some(w) = panel.kind.waves_mut() {
@@ -843,12 +871,32 @@ impl App {
                 self.sync_analog_summaries();
                 self.changed();
             }
-            Some(Delivered::Opened(Ok(_))) => {
-                self.on_session_changed();
-                self.session_ready_for_workspace();
+            Some(Delivered::Opened {
+                trace,
+                result: Ok(_),
+                refined,
+            }) => {
+                if self.doc.traces().loaded().count() == 1 {
+                    self.on_session_changed();
+                    self.session_ready_for_workspace();
+                } else {
+                    self.trace_joined(trace, refined, Instant::now());
+                    self.workspace_trace_joined(trace);
+                }
             }
-            Some(Delivered::Opened(Err(_))) => {
-                self.workspace.loading = false;
+            Some(Delivered::Opened {
+                trace,
+                result: Err(error),
+                ..
+            }) => {
+                if self.doc.is_loaded() {
+                    self.events.push(Event::Notice(format!(
+                        "Trace {trace} was not added: {error}"
+                    )));
+                    self.workspace_trace_failed(trace, error);
+                } else {
+                    self.workspace.loading = false;
+                }
                 self.changed();
             }
             None => {}
@@ -907,7 +955,7 @@ impl App {
     /// An empty waveform panel fitted to the trace, linked per the settings.
     fn fresh_waves(&self) -> PanelKind {
         let mut waves = crate::wave::model::WaveModel::new();
-        waves.reset(self.doc.session().map(|s| s.info().time_range));
+        waves.reset(self.doc.is_loaded().then(|| self.doc.limits()));
         waves.nav.link = self.settings.resolved().link_by_default();
         PanelKind::Waves(Box::new(waves))
     }
@@ -1095,7 +1143,12 @@ impl App {
                 self.changed();
             }
             Command::Open(spec) => self.open(spec),
+            Command::AddTrace(spec) => self.add_trace(spec, None),
             Command::RequestOpenDialog => self.events.push(Event::OpenFileDialog),
+            Command::RequestAddTraceDialog => self.events.push(Event::AddTraceDialog),
+            Command::RemoveTrace(trace) => self.remove_trace(trace),
+            Command::RenameTrace(trace, name) => self.rename_trace(trace, name.as_deref()),
+            Command::RevealTrace(trace) => self.reveal_trace(trace),
             Command::RequestOpenWorkspace | Command::RequestSaveWorkspaceAs => {
                 if self.workspace.scheduler.enabled() {
                     self.events
@@ -1178,36 +1231,33 @@ impl App {
             Command::RevealTransaction { panel } => self.reveal_transaction(panel, now),
             Command::SetSearchEverywhere(search) => {
                 self.variables.search_everywhere = search;
-                self.variables.rebuild(self.doc.hierarchy());
+                self.variables.rebuild(self.doc.traces());
                 self.events.push(Event::FocusFilter);
                 self.changed();
             }
-            Command::SelectScope(id) => {
-                if self.scopes.select(id) || self.variables.search_everywhere {
-                    self.variables.set_scope(self.doc.hierarchy(), Some(id));
+            Command::SelectScope(node) => {
+                if self.scopes.select(node) || self.variables.search_everywhere {
+                    self.variables
+                        .set_scope(self.doc.traces(), node.traced_scope());
                 }
                 self.changed();
             }
-            Command::ToggleScope(id) => {
-                if let Some(h) = self.doc.hierarchy() {
-                    self.scopes.toggle(h, id);
-                }
+            Command::ToggleScope(node) => {
+                self.scopes.toggle(self.doc.traces(), node);
                 self.changed();
             }
             Command::ExpandAllScopes(expand) => {
-                if let Some(h) = self.doc.hierarchy() {
-                    self.scopes.set_all(h, expand);
-                }
+                self.scopes.set_all(self.doc.traces(), expand);
                 self.changed();
             }
             Command::ScopesKey(key) => {
-                let Some(h) = self.doc.hierarchy() else {
+                if !self.doc.is_loaded() {
                     return;
-                };
-                let out = self.scopes.key(h, &key);
+                }
+                let out = self.scopes.key(self.doc.traces(), &key);
                 if out.changed {
-                    let scope = self.scopes.selected;
-                    self.variables.set_scope(self.doc.hierarchy(), scope);
+                    let scope = self.scopes.selected_scope();
+                    self.variables.set_scope(self.doc.traces(), scope);
                 }
                 if let Some(row) = out.reveal {
                     self.events.push(Event::RevealScopeRow(row));
@@ -1218,7 +1268,7 @@ impl App {
                 self.changed();
             }
             Command::SetFilter(text) => {
-                self.variables.set_filter(self.doc.hierarchy(), &text);
+                self.variables.set_filter(self.doc.traces(), &text);
                 self.changed();
             }
             Command::SelectVar { ix, modifiers } => {
@@ -1235,7 +1285,7 @@ impl App {
             }
             Command::VariablesKey(key, modifiers) => {
                 if key == Key::Escape && self.variables.selected.is_empty() {
-                    self.variables.set_filter(self.doc.hierarchy(), "");
+                    self.variables.set_filter(self.doc.traces(), "");
                     self.changed();
                 }
                 let out = self.variables.key(&key, modifiers);
@@ -1406,7 +1456,7 @@ impl App {
     fn select_transaction(
         &mut self,
         panel: PanelId,
-        track: TrackRef,
+        track: Traced<TrackRef>,
         id: TransactionRef,
         cursor: Option<u64>,
     ) {
@@ -1492,27 +1542,28 @@ impl App {
         self.panel_command(PanelsCommand::Focus(target));
         let Self { panels, doc, .. } = self;
         if let Some(pipeline) = panels.pipeline_mut(target) {
-            pipeline.reveal_record(doc, track, shown.id, now);
+            pipeline.reveal_record(doc, track.item, shown.id, now);
         }
         self.changed();
     }
 
     /// Variables become wave rows, streams and generators become pipeline
     /// panels (one per distinct track), log sites only report a notice.
-    fn activate_members(&mut self, members: &[Member]) {
-        let Some(h) = self.doc.hierarchy() else {
-            return;
-        };
+    fn activate_members(&mut self, members: &[Traced<Member>]) {
         let mut vars = Vec::new();
         let mut tracks = Vec::new();
         let mut log = false;
         for &member in members {
-            if let Member::Var(id) = member {
+            let Some(h) = self.doc.hierarchy(member.trace) else {
+                continue;
+            };
+            if let Member::Var(id) = member.item {
                 if id < h.vars.len() {
-                    vars.push(id);
+                    vars.push(member.with(id));
                 }
-            } else if let Some(track) = h.member_track(member) {
-                if h.is_log(member) {
+            } else if let Some(track) = h.member_track(member.item) {
+                let track = member.with(track);
+                if h.is_log(member.item) {
                     log = true;
                 } else if !tracks.contains(&track) {
                     tracks.push(track);
@@ -1534,13 +1585,9 @@ impl App {
         self.changed();
     }
 
-    /// Focus the pipeline panel showing `track`, or open one split below
-    /// the focused panel. Any stream or generator of the catalog qualifies;
-    /// the stream kind is never inspected.
-    fn resident_histories(
-        &self,
-    ) -> std::collections::HashMap<crate::data::SignalRef, Arc<dyn crate::data::SignalHistory>>
-    {
+    /// Histories some panel already holds, by signal: new rows and tables
+    /// share them instead of loading again.
+    fn resident_histories(&self) -> crate::wave::model::Resident {
         self.panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
@@ -1574,9 +1621,10 @@ impl App {
             // Only a remote trace fixes the object limit when it connects.
             object_note: self
                 .doc
-                .session()
-                .is_some_and(|s| s.remote_id().is_some())
-                .then_some("This remote trace applies it when reopened"),
+                .traces()
+                .loaded()
+                .any(|(_, s)| s.remote_id().is_some())
+                .then_some("A remote trace applies it when reopened"),
             locked: locked.then_some("Set in VS Code settings (volna.memory.*)"),
         }
     }
@@ -1594,17 +1642,17 @@ impl App {
         }
     }
 
+    /// The budget panels charge their own memory to: the first open
+    /// trace's, or the process budget local traces share.
     pub(crate) fn table_memory_budget(&self) -> crate::remote::memory::MemoryBudget {
         self.doc
-            .session()
-            .and_then(|session| session.memory_budget())
+            .traces()
+            .first_loaded()
+            .and_then(|(_, session)| session.memory_budget())
             .unwrap_or_else(|| self.table_budget.clone())
     }
 
-    fn open_table(&mut self, selected: &[Member], clicked: Option<Member>) {
-        let Some(session) = self.doc.session() else {
-            return;
-        };
+    fn open_table(&mut self, selected: &[Traced<Member>], clicked: Option<Traced<Member>>) {
         let clicked_only;
         let members = match clicked {
             Some(member) if !selected.contains(&member) => {
@@ -1613,17 +1661,14 @@ impl App {
             }
             _ => selected,
         };
-        let source = if !members.is_empty() && members.iter().all(|m| matches!(m, Member::Var(_))) {
-            let vars = members.iter().filter_map(|m| m.var()).collect::<Vec<_>>();
-            crate::table::TableSource::signals(session.hierarchy(), &vars)
-        } else if members.len() == 1 {
-            let track = session
-                .hierarchy()
-                .member_track(members[0])
-                .ok_or_else(|| anyhow::anyhow!("Choose one generator, or only signals."));
-            track.and_then(|track| {
-                crate::table::TableSource::generator(session.hierarchy(), session.tracks(), track)
-            })
+        let vars: Vec<Traced<VarId>> = members
+            .iter()
+            .filter_map(|m| Some(m.with(m.item.var()?)))
+            .collect();
+        let source = if !members.is_empty() && vars.len() == members.len() {
+            crate::table::TableSource::signals(&self.doc, &vars)
+        } else if let [member] = members {
+            self.generator_table(*member)
         } else {
             Err(anyhow::anyhow!("Choose one generator, or only signals."))
         };
@@ -1636,10 +1681,31 @@ impl App {
         }
     }
 
+    /// The table of one generator member.
+    fn generator_table(&self, member: Traced<Member>) -> anyhow::Result<crate::table::TableSource> {
+        let session = self
+            .doc
+            .session(member.trace)
+            .ok_or_else(|| anyhow::anyhow!("trace {} is not open", member.trace))?;
+        let track = session
+            .hierarchy()
+            .member_track(member.item)
+            .ok_or_else(|| anyhow::anyhow!("Choose one generator, or only signals."))?;
+        self.track_table(member.with(track))
+    }
+
+    fn track_table(&self, track: Traced<TrackRef>) -> anyhow::Result<crate::table::TableSource> {
+        let session = self
+            .doc
+            .session(track.trace)
+            .ok_or_else(|| anyhow::anyhow!("trace {} is not open", track.trace))?;
+        crate::table::TableSource::generator(session.hierarchy(), session.tracks(), track)
+    }
+
     fn open_table_from_panel(&mut self, panel: PanelId, row: Option<usize>) {
-        let Some(session) = self.doc.session() else {
+        if !self.doc.is_loaded() {
             return;
-        };
+        }
         let source = if let Some(waves) = self.panels.get(panel).and_then(|p| p.kind.waves()) {
             let rows = match row {
                 Some(row) if !waves.selected.contains(&row) => {
@@ -1651,22 +1717,15 @@ impl App {
             let rows = crate::wave::tree::selected_leaves(waves.items(), &rows);
             let vars = rows
                 .iter()
-                .filter_map(|&index| match waves.signal(index)?.source {
-                    crate::wave::model::RowSource::Resolved { var, .. } => Some(var),
-                    _ => None,
-                })
+                .filter_map(|&index| waves.signal(index)?.source.var())
                 .collect::<Vec<_>>();
             // Lanes alone open their generator's table.
             let lane = rows
                 .iter()
                 .find_map(|&index| waves.items().get(index)?.lane_track());
             match lane {
-                Some(track) if vars.is_empty() => crate::table::TableSource::generator(
-                    session.hierarchy(),
-                    session.tracks(),
-                    track,
-                ),
-                _ => crate::table::TableSource::signals(session.hierarchy(), &vars),
+                Some(track) if vars.is_empty() => self.track_table(track),
+                _ => crate::table::TableSource::signals(&self.doc, &vars),
             }
         } else if let Some(track) = self
             .panels
@@ -1674,7 +1733,7 @@ impl App {
             .and_then(|p| p.kind.pipeline())
             .and_then(|pipeline| pipeline.track.track())
         {
-            crate::table::TableSource::generator(session.hierarchy(), session.tracks(), track)
+            self.track_table(track)
         } else {
             return;
         };
@@ -1721,8 +1780,8 @@ impl App {
         }
     }
 
-    fn open_pipeline(&mut self, track: TrackRef) {
-        let Some(session) = self.doc.session().cloned() else {
+    fn open_pipeline(&mut self, track: Traced<TrackRef>) {
+        let Some(session) = self.doc.session(track.trace).cloned() else {
             return;
         };
         if !session.capabilities().transactions {
@@ -1730,10 +1789,10 @@ impl App {
                 .push(Event::Notice("This trace records no transactions.".into()));
             return;
         }
-        let Some(declaration) = session.tracks().iter().find(|t| t.id == track) else {
+        let Some(declaration) = session.tracks().iter().find(|t| t.id == track.item) else {
             self.events.push(Event::Notice(format!(
                 "Unknown transaction track {}",
-                track.0
+                track.item.0
             )));
             return;
         };
@@ -1778,7 +1837,7 @@ impl App {
         }
     }
 
-    fn add_scope_group(&mut self, scope: ScopeId, recursive: bool) {
+    fn add_scope_group(&mut self, scope: Traced<ScopeId>, recursive: bool) {
         let Some(target) = self.waves_target() else {
             return;
         };
@@ -1790,7 +1849,7 @@ impl App {
         }
     }
 
-    fn add_vars(&mut self, vars: &[VarId]) {
+    fn add_vars(&mut self, vars: &[Traced<VarId>]) {
         if vars.is_empty() {
             return;
         }
@@ -1807,24 +1866,28 @@ impl App {
 
     /// Signal rows for variables and lanes for generators, in the wave panel
     /// that receives new signals.
-    fn add_to_waves(&mut self, members: &[Member]) {
-        let Some(h) = self.doc.hierarchy() else {
-            return;
-        };
-        let vars: Vec<VarId> = members.iter().filter_map(|m| m.var()).collect();
+    fn add_to_waves(&mut self, members: &[Traced<Member>]) {
+        let vars: Vec<Traced<VarId>> = members
+            .iter()
+            .filter_map(|m| Some(m.with(m.item.var()?)))
+            .collect();
         let mut tracks = Vec::new();
-        let mut clocks: Vec<String> = Vec::new();
+        let mut clocks: Vec<ClockKey> = Vec::new();
         for &member in members {
-            let Some(track) = h.member_track(member) else {
+            let Some(h) = self.doc.hierarchy(member.trace) else {
                 continue;
             };
+            let Some(track) = h.member_track(member.item) else {
+                continue;
+            };
+            let track = member.with(track);
             // A clock stream or its generator is drawn from its stretches.
-            if let Some(path) = self.member_clock(member) {
-                if !clocks.contains(&path) {
-                    clocks.push(path);
+            if let Some(key) = self.member_clock(member) {
+                if !clocks.contains(&key) {
+                    clocks.push(key);
                 }
-            } else if matches!(member, Member::Generator(_))
-                && !h.is_log(member)
+            } else if matches!(member.item, Member::Generator(_))
+                && !h.is_log(member.item)
                 && !tracks.contains(&track)
             {
                 tracks.push(track);
@@ -1846,25 +1909,28 @@ impl App {
         self.changed();
     }
 
-    /// The path of the clock a sidebar member declares: a clock stream or its
+    /// The clock a sidebar member declares: a clock stream or its
     /// generator. Frontends offer it as a ruler or a clock row.
-    pub fn member_clock(&self, member: Member) -> Option<String> {
-        let session = self.doc.session()?;
-        let track = session.hierarchy().member_track(member)?;
-        let clock = self.doc.clocks.of_track(track, session.tracks())?;
-        Some(clock.path.clone())
+    pub fn member_clock(&self, member: Traced<Member>) -> Option<ClockKey> {
+        let session = self.doc.session(member.trace)?;
+        let track = session.hierarchy().member_track(member.item)?;
+        let clock = self
+            .doc
+            .clocks
+            .of_track(member.with(track), session.tracks())?;
+        Some(clock.key())
     }
 
-    fn add_clock_rulers(&mut self, members: &[Member]) {
-        let mut paths: Vec<String> = Vec::new();
+    fn add_clock_rulers(&mut self, members: &[Traced<Member>]) {
+        let mut keys: Vec<ClockKey> = Vec::new();
         for &member in members {
-            if let Some(path) = self.member_clock(member)
-                && !paths.contains(&path)
+            if let Some(key) = self.member_clock(member)
+                && !keys.contains(&key)
             {
-                paths.push(path);
+                keys.push(key);
             }
         }
-        if paths.is_empty() {
+        if keys.is_empty() {
             return;
         }
         let Some(target) = self.waves_target() else {
@@ -1872,8 +1938,8 @@ impl App {
         };
         let Self { panels, doc, .. } = self;
         if let Some(w) = panels.waves_mut(target) {
-            for path in &paths {
-                w.nav.show_ruler(&doc.clocks, path);
+            for key in &keys {
+                w.nav.show_ruler(&doc.clocks, key);
             }
         }
         self.changed();
@@ -1931,7 +1997,7 @@ impl App {
         if self.lane_tracks.0 != generation {
             self.lane_tracks = (generation, Default::default());
         }
-        let wanted: std::collections::HashSet<TrackRef> = self
+        let wanted: std::collections::HashSet<Traced<TrackRef>> = self
             .panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
@@ -1986,9 +2052,9 @@ impl App {
         };
         match command {
             // Rulers are cockpit state of the panels that draw them.
-            ClockCommand::ToggleRuler(path) if rulers => nav.toggle_ruler(&doc.clocks, &path),
+            ClockCommand::ToggleRuler(key) if rulers => nav.toggle_ruler(&doc.clocks, &key),
             ClockCommand::ToggleRuler(_) => return,
-            ClockCommand::Select(path) => nav.select_clock(&path),
+            ClockCommand::Select(key) => nav.select_clock(key),
             ClockCommand::GoToCycle(cycle) => {
                 if let Err(message) = nav.go_to_cycle(doc, cycle, now) {
                     self.events.push(Event::Notice(message));
@@ -2006,11 +2072,15 @@ impl App {
         }
         let kind = &self.panels.focused().kind;
         let nav = kind.nav().filter(|_| kind.shows_rulers())?;
-        let rulers = nav.clocks().ruler_paths(clocks);
+        let rulers = nav.clocks().ruler_keys(clocks);
         Some(ClockChoices {
             clocks: clocks
                 .iter()
-                .map(|c| (c.path.clone(), rulers.contains(&c.path)))
+                .map(|c| {
+                    let key = c.key();
+                    let shown = rulers.contains(&key);
+                    (key, shown)
+                })
                 .collect(),
             origin: nav.clocks().origin.is_some(),
         })
@@ -2018,16 +2088,16 @@ impl App {
 
     /// The clocks the workspace's pipelines count in, in panel order: the
     /// rulers a panel shows until it chooses its own.
-    fn pipeline_clocks(&self) -> Vec<String> {
-        let mut paths: Vec<String> = Vec::new();
+    fn pipeline_clocks(&self) -> Vec<ClockKey> {
+        let mut keys: Vec<ClockKey> = Vec::new();
         for p in self.panels.iter().filter_map(|p| p.kind.pipeline()) {
             if let Some(c) = p.clock(&self.doc)
-                && !paths.contains(&c.path)
+                && !keys.iter().any(|k| c.is(k))
             {
-                paths.push(c.path.clone());
+                keys.push(c.key());
             }
         }
-        paths
+        keys
     }
 
     fn action(&mut self, action: Action, now: Instant) {
@@ -2476,37 +2546,52 @@ impl App {
 
     // -- chrome text ------------------------------------------------------------------
 
-    /// The recognized PIPELINE streams of the open trace: (dotted path, track).
-    pub fn pipeline_streams(&self) -> Vec<(String, TrackRef)> {
+    /// The recognized PIPELINE streams of the open traces: (dotted path,
+    /// track), the path after its trace's letter while several are open.
+    pub fn pipeline_streams(&self) -> Vec<(String, Traced<TrackRef>)> {
         use crate::data::transactions::TrackKind;
-        self.doc
-            .session()
-            .map(|session| {
+        let traces = self.doc.traces();
+        traces
+            .loaded()
+            .flat_map(|(trace, session)| {
                 session
                     .tracks()
                     .iter()
                     .filter(|t| matches!(&t.kind, TrackKind::Stream { kind } if kind == "PIPELINE"))
-                    .map(|t| (t.path.join("."), t.id))
-                    .collect()
+                    .map(move |t| {
+                        let path = t.path.join(".");
+                        let label = if traces.is_combined() {
+                            format!("{trace} · {path}")
+                        } else {
+                            path
+                        };
+                        (label, Traced::new(trace, t.id))
+                    })
             })
-            .unwrap_or_default()
+            .collect()
+    }
+
+    /// The session's span as the status bar and start panel print it.
+    fn time_range_text(&self) -> String {
+        let base = self.doc.time_base();
+        let (a, b) = self.doc.limits();
+        format!(
+            "{} – {}",
+            format_time(a as f64, base),
+            format_time(b as f64, base)
+        )
     }
 
     /// What a start panel shows, once a trace is open.
     pub fn start_summary(&self) -> Option<StartSummary> {
-        let session = self.doc.session()?;
-        let info = session.info();
-        let base = TimeBase::of(info);
-        let (a, b) = info.time_range;
+        let traces = self.doc.traces();
+        traces.first_loaded()?;
+        let sessions = || traces.loaded().map(|(_, s)| s);
         Some(StartSummary {
-            name: info.name.clone(),
-            time_range: format!(
-                "{} – {}",
-                format_time(a as f64, base),
-                format_time(b as f64, base)
-            ),
-            variables: session.hierarchy().vars.len(),
-            tracks: session.tracks().len(),
+            name: self.doc.name()?,
+            time_range: self.time_range_text(),
+            variables: sessions().map(|s| s.hierarchy().vars.len()).sum(),
+            tracks: sessions().map(|s| s.tracks().len()).sum(),
             pipelines: self.pipeline_streams(),
         })
     }
@@ -2824,22 +2909,22 @@ impl App {
             announcement: self.announcement.clone(),
             ..Default::default()
         };
-        if let Some(src) = self.doc.session() {
+        if self.doc.is_loaded() {
             let budget = self.table_memory_budget();
             s.memory = Some(MemoryStatus {
                 used: budget.used(),
                 limit: budget.limit(),
             });
-            let info = src.info();
-            let base = TimeBase::of(info);
-            let (a, b) = info.time_range;
-            s.time_range = Some(format!(
-                "{} – {}",
-                format_time(a as f64, base),
-                format_time(b as f64, base)
-            ));
-            s.signals = Some(format!("{} signals", info.signal_count));
-            s.changes = info.change_count.map(|n| format!("{n} changes"));
+            let base = self.doc.time_base();
+            s.time_range = Some(self.time_range_text());
+            let infos: Vec<_> = self.doc.traces().loaded().map(|(_, s)| s.info()).collect();
+            let signals: usize = infos.iter().map(|i| i.signal_count).sum();
+            s.signals = Some(format!("{signals} signals"));
+            s.changes = infos
+                .iter()
+                .map(|i| i.change_count)
+                .sum::<Option<u64>>()
+                .map(|n| format!("{n} changes"));
             s.panel = (self.panels.len() > 1).then(|| self.panels.focused().title());
             let focused = self.panels.focused();
             let (nav, width) = match &focused.kind {
@@ -2883,7 +2968,7 @@ impl App {
         s
     }
 
-    pub fn trace_state(&self) -> &TraceState {
+    pub fn trace_state(&self) -> TraceState {
         self.doc.state()
     }
 

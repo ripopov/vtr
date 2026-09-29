@@ -5,6 +5,7 @@
 //! double-click on the header or an empty part of the lane adds a marker.
 
 use std::sync::Arc;
+use volna_core::testing::a_all;
 
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::marker::{LaneHit, LaneVerb, MarkerId, Reference};
@@ -18,7 +19,7 @@ use volna_core::{Action, App, Command, Event, Theme};
 fn app() -> App {
     let mut app = App::new();
     app.set_session(Arc::new(ProceduralTrace::new(1000)));
-    app.handle(Command::AddVars(vec![0, 1]));
+    app.handle(Command::AddVars(a_all(vec![0, 1])));
     app.doc.shared.viewport.set(Viewport {
         start: 1000.0,
         end: 2000.0,

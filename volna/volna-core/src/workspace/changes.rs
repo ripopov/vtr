@@ -3,6 +3,7 @@
 use crate::marker::Marker;
 use crate::panels::PanelId;
 use crate::pipeline::RowView;
+use crate::trace::Traced;
 use crate::wave::{
     model::{Link, PointerEvent, RowHeight, WaveRow},
     viewport::Viewport,
@@ -19,10 +20,10 @@ pub(crate) struct Stamp {
     markers: Vec<Marker>,
     reference: Option<crate::marker::Reference>,
     sidebar: (bool, f32, f32),
-    scope: Option<usize>,
-    expanded: Option<BTreeSet<usize>>,
-    unresolved_selected: Option<Vec<String>>,
-    unresolved_expanded: Option<Vec<Vec<String>>>,
+    scope: Option<crate::sidebar::TreeNode>,
+    expanded: Option<BTreeSet<Traced<usize>>>,
+    unresolved_selected: Option<Traced<Vec<String>>>,
+    unresolved_expanded: Option<Vec<Traced<Vec<String>>>>,
     filter: String,
     wave: Option<WaveStamp>,
     pipeline: Option<PipelineStamp>,
@@ -160,10 +161,14 @@ impl Stamp {
                                     ),
                                     None => item.format_id(),
                                 },
-                                WaveRow::Lane(lane) => {
-                                    format!("lane:{}", lane.source.path().join("."))
+                                WaveRow::Lane(lane) => format!(
+                                    "lane:{}:{}",
+                                    lane.source.trace(),
+                                    lane.source.path().join(".")
+                                ),
+                                WaveRow::Clock(clock) => {
+                                    format!("clock:{}:{}", clock.key.trace, clock.key.item)
                                 }
-                                WaveRow::Clock(clock) => format!("clock:{}", clock.path),
                                 WaveRow::Group(g) => {
                                     format!("group:{}:{}", g.collapsed, g.name)
                                 }

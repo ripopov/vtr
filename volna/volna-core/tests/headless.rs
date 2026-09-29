@@ -4,6 +4,9 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::time::Duration;
+use volna_core::sidebar::TreeNode;
+use volna_core::testing::{a, a_all};
+use volna_core::trace::TraceId;
 
 use volna_core::app::{Action, App, Command, Event};
 use volna_core::data::{
@@ -91,6 +94,11 @@ fn loaded_app(n: usize) -> (App, Arc<Source>) {
     (app, source)
 }
 
+/// The generation trace A's loads are requested under.
+fn loads(app: &App) -> u64 {
+    app.doc.traces().get(TraceId::A).unwrap().generation()
+}
+
 #[test]
 fn missing_initial_sample_is_not_painted_as_a_logic_level() {
     use volna_core::data::history::VecHistory;
@@ -119,7 +127,7 @@ fn missing_initial_sample_is_not_painted_as_a_logic_level() {
 #[test]
 fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
     let (mut app, source) = loaded_app(10);
-    app.handle(Command::AddVars(vec![0, 1, 0]));
+    app.handle(Command::AddVars(a_all(vec![0, 1, 0])));
     let mut requests = app.take_requests();
     assert_eq!(requests.len(), 1);
     let request = requests.pop().unwrap();
@@ -129,7 +137,7 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
     assert_eq!(signals.len(), 2);
     let stale = request.perform();
     app.set_session(source);
-    app.handle(Command::AddVars(vec![0, 1]));
+    app.handle(Command::AddVars(a_all(vec![0, 1])));
     app.deliver(stale);
     assert_eq!(app.doc.pending_count(), 2);
     assert!(
@@ -156,18 +164,18 @@ fn batch_loads_coalesce_and_stale_batches_preserve_new_pending() {
 fn removing_queued_signals_clears_demand_but_active_loads_survive_readd() {
     let (mut app, source) = loaded_app(10);
     let signal = source.hierarchy.vars[0].signal;
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     app.handle(Command::Action(Action::RemoveSelected));
     assert!(app.take_requests().is_empty());
-    assert!(!app.doc.is_pending(signal));
+    assert!(!app.doc.is_pending(a(signal)));
     assert_eq!(source.loads.load(SeqCst), 0);
 
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     let active = app.take_requests().pop().unwrap();
     app.handle(Command::Action(Action::RemoveSelected));
     assert!(app.take_requests().is_empty());
-    assert!(app.doc.is_pending(signal));
-    app.handle(Command::AddVars(vec![0]));
+    assert!(app.doc.is_pending(a(signal)));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert!(
         app.take_requests().is_empty(),
         "reuse the active immutable load"
@@ -186,8 +194,10 @@ fn removing_queued_signals_clears_demand_but_active_loads_survive_readd() {
 #[test]
 fn removing_one_alias_keeps_the_other_alias_queued() {
     let (mut app, source) = loaded_app(10);
-    app.handle(Command::AddVars(vec![0]));
-    app.handle(Command::AddVars(vec![source.hierarchy.vars.len() - 1]));
+    app.handle(Command::AddVars(a_all(vec![0])));
+    app.handle(Command::AddVars(a_all(vec![
+        source.hierarchy.vars.len() - 1,
+    ])));
     app.handle(Command::Action(Action::RemoveSelected));
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 1);
@@ -205,17 +215,18 @@ fn removing_one_alias_keeps_the_other_alias_queued() {
 fn aliases_share_pending_and_loaded_histories() {
     let (mut app, source) = loaded_app(10);
     let alias = source.hierarchy.vars.len() - 1;
-    app.handle(Command::AddVars(vec![0, alias, 0]));
+    app.handle(Command::AddVars(a_all(vec![0, alias, 0])));
     assert_eq!(app.doc.pending_count(), 1);
     assert_eq!(app.take_requests().len(), 1);
     // Rows share one history once it arrives.
     let signal = source.hierarchy.vars[0].signal;
     let history = source.inner.load_signal(signal).unwrap();
     app.deliver(LoadResult::Signals {
-        generation: app.doc.generation(),
+        trace: TraceId::A,
+        generation: loads(&app),
         results: vec![(signal, Ok(history.clone()))],
     });
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert!(
         app.take_requests().is_empty(),
         "loaded histories are reused"
@@ -245,22 +256,24 @@ fn aliases_share_pending_and_loaded_histories() {
 #[test]
 fn stale_results_cannot_fill_rows_or_clear_new_pending_loads() {
     let (mut app, source) = loaded_app(10);
-    app.handle(Command::AddVars(vec![0]));
-    let old = app.doc.generation();
+    app.handle(Command::AddVars(a_all(vec![0])));
+    let old = loads(&app);
     let _stale = app.take_requests();
     // Reopening even the same session creates a new generation.
     app.set_session(source.clone());
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     let signal = source.hierarchy.vars[0].signal;
     app.deliver(LoadResult::Signals {
+        trace: TraceId::A,
         generation: old,
         results: vec![(signal, source.inner.load_signal(signal))],
     });
     app.deliver(LoadResult::Signals {
+        trace: TraceId::A,
         generation: old,
         results: vec![(signal, Err(anyhow::anyhow!("old failure")))],
     });
-    assert!(app.doc.is_pending(signal));
+    assert!(app.doc.is_pending(a(signal)));
     assert!(
         app.panels.focused_waves().unwrap().items()[0]
             .signal()
@@ -290,10 +303,10 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
     use volna_core::wave::model::MenuAction;
     let (mut app, source) = loaded_app(10);
     source.fail.store(true, SeqCst);
-    app.handle(Command::AddVars(vec![0, 0]));
+    app.handle(Command::AddVars(a_all(vec![0, 0])));
     pump(&mut app);
     source.fail.store(false, SeqCst);
-    app.handle(Command::AddVars(vec![1]));
+    app.handle(Command::AddVars(a_all(vec![1])));
     pump(&mut app);
     let panel = app.panels.focused_id();
     let ready = app.panels.waves(panel).unwrap().items()[2]
@@ -369,7 +382,7 @@ fn retry_menu_reloads_aliases_without_adding_rows_or_changing_ready_data() {
 fn failed_loads_can_retry_for_all_alias_rows() {
     let (mut app, source) = loaded_app(10);
     source.fail.store(true, SeqCst);
-    app.handle(Command::AddVars(vec![0, 0]));
+    app.handle(Command::AddVars(a_all(vec![0, 0])));
     pump(&mut app);
     assert!(
         app.panels.focused_waves().unwrap().items().iter().all(|i| i
@@ -379,7 +392,7 @@ fn failed_loads_can_retry_for_all_alias_rows() {
             .is_some())
     );
     source.fail.store(false, SeqCst);
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 2);
     assert!(
@@ -416,15 +429,17 @@ fn latest_open_wins_and_a_stale_open_cannot_replace_the_trace() {
         panic!("expected an open request");
     };
     app.deliver(LoadResult::Opened {
+        trace: TraceId::A,
         generation: new_gen,
         result: Ok(current.clone()),
     });
     // The slow open completes later and must not apply.
     app.deliver(LoadResult::Opened {
+        trace: TraceId::A,
         generation: slow_gen,
         result: Ok(ProceduralTrace::session(100)),
     });
-    assert!(matches!(app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(s, &current)));
+    assert!(matches!(app.trace_state(), TraceState::Loaded(s) if Arc::ptr_eq(&s, &current)));
     assert!(app.panels.focused().kind.is_start(), "no rows were added");
 }
 
@@ -442,7 +457,11 @@ fn closing_invalidates_pending_success_and_error() {
         } else {
             Ok(ProceduralTrace::session(10))
         };
-        app.deliver(LoadResult::Opened { generation, result });
+        app.deliver(LoadResult::Opened {
+            trace: TraceId::A,
+            generation,
+            result,
+        });
         assert!(matches!(app.trace_state(), TraceState::Empty));
     }
 }
@@ -480,7 +499,7 @@ fn open_events_coalesce() {
 fn cursor_markers_and_selection_follow_the_document() {
     let (mut app, _) = loaded_app(100);
     let theme = Theme::one_dark();
-    app.handle(Command::AddVars(vec![0, 1, 2]));
+    app.handle(Command::AddVars(a_all(vec![0, 1, 2])));
     pump(&mut app);
     frame(&mut app, &theme);
     let layout = app.panels.focused_waves().unwrap().last_layout().clone();
@@ -614,7 +633,7 @@ fn cursor_markers_and_selection_follow_the_document() {
 #[test]
 fn shift_wheel_scrolls_rows_without_panning_time() {
     let (mut app, _) = loaded_app(1000);
-    app.handle(Command::AddVars(vec![0; 80]));
+    app.handle(Command::AddVars(a_all(vec![0; 80])));
     pump(&mut app);
     frame(&mut app, &Theme::one_dark());
     let panel = app.panels.focused_id();
@@ -777,7 +796,7 @@ fn area_gesture_previews_then_zooms_in_either_direction_and_escape_cancels() {
 fn zoom_pan_and_fit_are_deterministic_with_an_explicit_clock() {
     let (mut app, _) = loaded_app(1000);
     let theme = Theme::one_dark();
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     frame(&mut app, &theme);
     let full = app.panels.focused_waves().unwrap().viewport(&app.doc);
@@ -942,7 +961,7 @@ fn dense_columns_collapse_into_one_band_and_zooming_in_resolves_edges() {
     let theme = Theme::one_dark();
     let mut app = App::new();
     app.set_session(BurstSource::new());
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     frame(&mut app, &theme);
     let dense: Vec<_> = app
@@ -979,13 +998,13 @@ fn format_menu_and_translator_cycle() {
     let theme = Theme::one_dark();
     let vector = app
         .doc
-        .hierarchy()
+        .hierarchy(TraceId::A)
         .unwrap()
         .vars
         .iter()
         .position(|v| matches!(v.shape, SignalShape::Vector { .. }))
         .expect("a vector variable");
-    app.handle(Command::AddVars(vec![vector]));
+    app.handle(Command::AddVars(a_all(vec![vector])));
     pump(&mut app);
     frame(&mut app, &theme);
     let badge = app.panels.focused_waves().unwrap().last_layout().badges[0].1;
@@ -1076,7 +1095,7 @@ fn signal_name_menu_opens_and_removes_the_selected_signal_group() {
     use volna_core::wave::model::MenuAction;
 
     let (mut app, _) = loaded_app(100);
-    app.handle(Command::AddVars(vec![0, 1, 2]));
+    app.handle(Command::AddVars(a_all(vec![0, 1, 2])));
     pump(&mut app);
     frame(&mut app, &Theme::one_dark());
     let waves = app.panels.focused_id();
@@ -1190,7 +1209,7 @@ fn height_submenu_resizes_the_selection_and_rows_lay_out_paint_and_hit_test_tall
     use volna_core::wave::model::MenuAction;
     let theme = Theme::one_dark();
     let (mut app, _) = loaded_app(100);
-    app.handle(Command::AddVars(vec![0, 1, 2, 3]));
+    app.handle(Command::AddVars(a_all(vec![0, 1, 2, 3])));
     pump(&mut app);
     frame(&mut app, &theme);
     let waves = app.panels.focused_id();
@@ -1329,7 +1348,7 @@ fn row_height_actions_step_presets_and_keep_the_anchor_row_on_screen() {
     let theme = Theme::one_dark();
     let (mut app, _) = loaded_app(100);
     // Aliased rows of one variable are independent rows.
-    app.handle(Command::AddVars(vec![0; 60]));
+    app.handle(Command::AddVars(a_all(vec![0; 60])));
     pump(&mut app);
     frame(&mut app, &theme);
     let waves = app.panels.focused_id();
@@ -1432,7 +1451,7 @@ fn dragging_signal_names_reorders_rows_and_keeps_them_selected() {
     let theme = Theme::one_dark();
     let (mut app, _) = loaded_app(10);
     let waves = app.panels.focused_id();
-    app.handle(Command::AddVars(vec![0, 1, 2, 3, 4, 5]));
+    app.handle(Command::AddVars(a_all(vec![0, 1, 2, 3, 4, 5])));
     pump(&mut app);
     frame(&mut app, &theme);
     let names = row_names(&app, waves);
@@ -1516,7 +1535,7 @@ fn dragging_rows_past_an_edge_scrolls_and_keeps_heights_with_their_rows() {
     let theme = Theme::one_dark();
     let (mut app, _) = loaded_app(10);
     let waves = app.panels.focused_id();
-    app.handle(Command::AddVars((0..40).map(|i| i % 8).collect()));
+    app.handle(Command::AddVars(a_all((0..40).map(|i| i % 8))));
     pump(&mut app);
     // Row 0 is 4× tall; it keeps its height wherever it goes.
     frame(&mut app, &theme);
@@ -1572,7 +1591,7 @@ fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
     use volna_core::wave::model::MenuAction;
     let (mut app, source) = loaded_app(10);
     let waves = app.panels.focused_id();
-    app.handle(Command::AddVars(vec![0, 1, 2]));
+    app.handle(Command::AddVars(a_all(vec![0, 1, 2])));
     pump(&mut app);
     assert_eq!(source.loads.load(SeqCst), 3);
     let names = row_names(&app, waves);
@@ -1629,7 +1648,7 @@ fn copied_rows_paste_as_duplicates_sharing_data_in_any_wave_panel() {
     app.handle(Command::Action(Action::NewPanel));
     let other = app.panels.focused_id();
     assert_ne!(other, waves);
-    app.handle(Command::AddVars(vec![2]));
+    app.handle(Command::AddVars(a_all(vec![2])));
     app.handle(Command::Action(Action::PasteSignals));
     assert_eq!(
         row_names(&app, other),
@@ -1722,7 +1741,7 @@ fn status_reports_memory_budget_use_as_signals_load_and_unload() {
     let opened = app.status().memory.expect("an open trace has a budget");
     assert_eq!(opened.limit, 512 * 1024 * 1024);
     assert!(opened.used > 0, "the resident trace is accounted");
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     let loaded = app.status().memory.unwrap();
     assert!(loaded.used > opened.used, "{loaded:?} after {opened:?}");
@@ -1756,23 +1775,24 @@ fn status_reports_memory_budget_use_as_signals_load_and_unload() {
 #[test]
 fn sidebar_models_follow_scope_selection_and_keys() {
     let (mut app, _) = loaded_app(20);
-    let h = app.doc.hierarchy().unwrap().clone();
-    assert_eq!(app.scopes.selected, h.roots.first().copied());
-    assert_eq!(app.variables.scope, app.scopes.selected);
+    let h = app.doc.hierarchy(TraceId::A).unwrap().clone();
+    let root = h.roots.first().map(|&r| TreeNode::scope(a(r)));
+    assert_eq!(app.scopes.selected, root);
+    assert_eq!(app.variables.scope, app.scopes.selected_scope());
     let first_rows = app.variables.rows.clone();
     assert!(!first_rows.is_empty());
     app.handle(Command::ScopesKey(Key::Down));
     let events = app.take_events();
     assert!(events.contains(&Event::RevealScopeRow(1)));
-    assert_ne!(app.scopes.selected, h.roots.first().copied());
-    assert_eq!(app.variables.scope, app.scopes.selected);
+    assert_ne!(app.scopes.selected, root);
+    assert_eq!(app.variables.scope, app.scopes.selected_scope());
     // Filtering across the whole trace when no scope is selected.
-    app.variables.set_scope(Some(&h), None);
+    app.variables.set_scope(app.doc.traces(), None);
     app.handle(Command::SetFilter(h.vars[0].name.clone()));
     assert!(
         app.variables
             .rows
-            .contains(&volna_core::data::Member::Var(0))
+            .contains(&a(volna_core::data::Member::Var(0)))
     );
     assert!(app.variables.show_scope());
     // Enter adds the selection (or all).
@@ -1792,7 +1812,7 @@ fn sidebar_models_follow_scope_selection_and_keys() {
 fn layout_hit_regions_and_scene_cursors_agree() {
     let (mut app, _) = loaded_app(10);
     let theme = Theme::one_dark();
-    app.handle(Command::AddVars((0..40).map(|i| i % 4).collect()));
+    app.handle(Command::AddVars(a_all((0..40).map(|i| i % 4))));
     pump(&mut app);
     frame(&mut app, &theme);
     let layout = app.panels.focused_waves().unwrap().last_layout().clone();
@@ -1875,7 +1895,7 @@ fn layout_hit_regions_and_scene_cursors_agree() {
 fn hover_is_derived_from_the_pointer_and_only_changes_request_repaints() {
     let (mut app, _) = loaded_app(10);
     let theme = Theme::one_dark();
-    app.handle(Command::AddVars(vec![0, 1]));
+    app.handle(Command::AddVars(a_all(vec![0, 1])));
     pump(&mut app);
     frame(&mut app, &theme);
     app.take_events();

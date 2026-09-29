@@ -14,6 +14,7 @@ use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
 use super::overlay::SpanClocks;
 use super::tree::{self, Entry, Place, Splice};
 use super::viewport::Viewport;
+use crate::clock::ClockKey;
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::TrackRef;
 use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
@@ -25,6 +26,7 @@ pub use crate::nav::{Link, LinkDim};
 use crate::panels::PanelId;
 use crate::selection;
 use crate::theme::Theme;
+use crate::trace::{TraceId, Traced};
 
 /// A ⌘-drag narrower than this (at zoom 1.0) is a click, not a zoom range.
 pub const ZOOM_RANGE_MIN_PX: f32 = 4.0;
@@ -42,14 +44,17 @@ const ROW_DRAG_EDGE_ROWS: f32 = 1.0;
 /// Auto-scroll speed in rows per second per row of depth into the edge zone.
 const ROW_DRAG_SCROLL_RATE: f32 = 12.0;
 
-/// A row is either bound to this session or retains an unresolved durable locator.
+/// A row is either bound to a variable of an open trace or retains an
+/// unresolved durable locator in its trace.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowSource {
     Resolved {
+        trace: TraceId,
         var: VarId,
         signal: SignalRef,
     },
     Unresolved {
+        trace: TraceId,
         path: Vec<String>,
         nth: Option<usize>,
         ambiguous: bool,
@@ -57,16 +62,32 @@ pub enum RowSource {
 }
 
 impl RowSource {
-    pub fn signal(&self) -> Option<SignalRef> {
+    pub fn trace(&self) -> TraceId {
         match self {
-            Self::Resolved { signal, .. } => Some(*signal),
+            Self::Resolved { trace, .. } | Self::Unresolved { trace, .. } => *trace,
+        }
+    }
+
+    pub fn signal(&self) -> Option<Traced<SignalRef>> {
+        match self {
+            Self::Resolved { trace, signal, .. } => Some(Traced::new(*trace, *signal)),
             _ => None,
         }
     }
 
-    pub fn locator(&self, hierarchy: &crate::data::Hierarchy) -> (Vec<String>, Option<usize>) {
+    pub fn var(&self) -> Option<Traced<VarId>> {
         match self {
-            Self::Resolved { var, .. } => hierarchy.var_path(*var),
+            Self::Resolved { trace, var, .. } => Some(Traced::new(*trace, *var)),
+            _ => None,
+        }
+    }
+
+    /// The row's path in its trace and which of equal paths it is.
+    pub fn locator(&self, doc: &Document) -> (Vec<String>, Option<usize>) {
+        match self {
+            Self::Resolved { trace, var, .. } => doc
+                .hierarchy(*trace)
+                .map_or_else(|| (Vec::new(), None), |h| h.var_path(*var)),
             Self::Unresolved { path, nth, .. } => (path.clone(), *nth),
         }
     }
@@ -160,24 +181,25 @@ impl DisplayedSignal {
 /// A declared clock drawn from its stretches: no dumped waveform is needed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClockRow {
-    /// The clock's path (its stream's path joined with '.').
-    pub path: String,
+    /// The clock's trace and path (its stream's path joined with '.').
+    pub key: ClockKey,
     pub name: String,
     pub height: RowHeight,
 }
 
 impl ClockRow {
-    pub fn new(path: &str) -> Self {
+    pub fn new(key: ClockKey) -> Self {
+        let path = &key.item;
         Self {
-            path: path.to_owned(),
             name: path.rsplit('.').next().unwrap_or(path).to_owned(),
+            key,
             height: RowHeight::DEFAULT,
         }
     }
 
-    /// The clock's timeline, once this trace's clock is loaded.
+    /// The clock's timeline, once its trace's clock is loaded.
     pub fn timeline<'a>(&self, doc: &'a Document) -> Option<&'a Arc<crate::clock::ClockTimeline>> {
-        doc.clocks.find(&self.path)?.timeline()
+        doc.clocks.find(&self.key)?.timeline()
     }
 }
 
@@ -286,13 +308,23 @@ impl WaveRow {
     }
 
     /// The loaded signal of a signal row.
-    pub fn signal_ref(&self) -> Option<SignalRef> {
+    pub fn signal_ref(&self) -> Option<Traced<SignalRef>> {
         self.signal()?.source.signal()
     }
 
     /// The generator of a resolved lane.
-    pub fn lane_track(&self) -> Option<TrackRef> {
+    pub fn lane_track(&self) -> Option<Traced<TrackRef>> {
         self.lane()?.track()
+    }
+
+    /// The trace a signal, lane or clock row shows; groups belong to none.
+    pub fn trace(&self) -> Option<TraceId> {
+        match self {
+            Self::Signal(s) => Some(s.source.trace()),
+            Self::Lane(l) => Some(l.source.trace()),
+            Self::Clock(c) => Some(c.key.trace),
+            Self::Group(_) => None,
+        }
     }
 
     /// A copy that holds no trace data: a signal row drops its history and,
@@ -339,7 +371,7 @@ impl WaveRow {
 pub(crate) fn attach_rows<'a>(
     rows: impl IntoIterator<Item = &'a mut Entry>,
     doc: &mut Document,
-    resident: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
+    resident: &Resident,
 ) {
     for row in rows.into_iter().filter_map(|e| e.row.signal_mut()) {
         let Some(signal) = row.source.signal() else {
@@ -354,6 +386,9 @@ pub(crate) fn attach_rows<'a>(
         }
     }
 }
+
+/// Histories already held by some row, by signal: new rows share them.
+pub type Resident = HashMap<Traced<SignalRef>, Arc<dyn SignalHistory>>;
 
 /// What the cursor snaps to and steps through on a row.
 enum EdgeSource<'a> {
@@ -425,7 +460,7 @@ pub enum MenuAction {
     Range(AnalogRange),
     ToggleAnalog,
     /// Hide the ruler of the clock with this path.
-    HideRuler(String),
+    HideRuler(ClockKey),
     /// Put the selected rows under a new group and rename it.
     Group,
     /// Dissolve the selected groups, keeping their rows.
@@ -610,6 +645,8 @@ pub struct WaveModel {
     /// When analog ranges last eased, while one is moving.
     analog_eased_at: Option<Instant>,
     layout: WaveLayout,
+    /// Counts changes of the rows' shape (see [`WaveModel::revision`]).
+    revision: u64,
 }
 
 impl Default for WaveModel {
@@ -678,6 +715,7 @@ impl WaveModel {
             rename: None,
             analog_eased_at: None,
             layout: WaveLayout::default(),
+            revision: 0,
         }
     }
 
@@ -768,6 +806,18 @@ impl WaveModel {
             .iter()
             .filter(|i| i.signal().is_some_and(|s| s.history.is_some()))
             .count()
+    }
+
+    /// The trace entry `ix` shows: a leaf's own, or the one trace every
+    /// row of a group comes from.
+    pub fn row_trace(&self, ix: usize) -> Option<TraceId> {
+        let entry = self.items.get(ix)?;
+        if !entry.is_group() {
+            return entry.row.trace();
+        }
+        let mut traces = tree::leaves(&self.items, ix).filter_map(|j| self.items[j].row.trace());
+        let first = traces.next()?;
+        traces.all(|t| t == first).then_some(first)
     }
 
     /// The signal of row `row`, if it is a signal row.
@@ -922,11 +972,7 @@ impl WaveModel {
     }
 
     /// Give detached rows their data again (see [`attach_rows`]).
-    pub(crate) fn attach_rows(
-        &mut self,
-        doc: &mut Document,
-        resident: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
-    ) {
+    pub(crate) fn attach_rows(&mut self, doc: &mut Document, resident: &Resident) {
         attach_rows(&mut self.items, doc, resident);
     }
 
@@ -940,7 +986,7 @@ impl WaveModel {
     }
 
     /// Retry loading `signal`: its rows show loading again.
-    pub(crate) fn clear_error(&mut self, signal: SignalRef) {
+    pub(crate) fn clear_error(&mut self, signal: Traced<SignalRef>) {
         for row in self
             .signals_mut()
             .filter(|s| s.source.signal() == Some(signal))
@@ -996,12 +1042,7 @@ impl WaveModel {
 
     /// Append rows for `vars`, sharing `loaded` histories for the same signal
     /// and queuing a load for the rest.
-    pub fn add_vars(
-        &mut self,
-        doc: &mut Document,
-        vars: &[VarId],
-        loaded: HashMap<SignalRef, Arc<dyn SignalHistory>>,
-    ) {
+    pub fn add_vars(&mut self, doc: &mut Document, vars: &[Traced<VarId>], loaded: Resident) {
         let rows = var_rows(doc, vars, &loaded);
         let label = format!("Add {}", count(rows.len(), "signal", "signals"));
         self.push_rows(label, rows);
@@ -1013,22 +1054,23 @@ impl WaveModel {
     pub fn add_scope_group(
         &mut self,
         doc: &mut Document,
-        scope: crate::data::ScopeId,
+        scope: Traced<crate::data::ScopeId>,
         recursive: bool,
-        loaded: HashMap<SignalRef, Arc<dyn SignalHistory>>,
+        loaded: Resident,
     ) -> bool {
-        let Some(session) = doc.session().cloned() else {
+        let Some(session) = doc.session(scope.trace).cloned() else {
             return false;
         };
         let h = session.hierarchy();
         let mut entries = Vec::new();
-        let mut stack = vec![(scope, 0u8)];
+        let mut stack = vec![(scope.item, 0u8)];
         while let Some((id, depth)) = stack.pop() {
             let Some(s) = h.scopes.get(id) else { continue };
             let mut group = GroupRow::new(s.name.clone());
             group.collapsed = depth > 0;
             entries.push(Entry::new(depth, WaveRow::Group(group)));
-            let rows = var_rows(doc, &s.vars, &loaded);
+            let vars: Vec<_> = s.vars.iter().map(|&v| scope.with(v)).collect();
+            let rows = var_rows(doc, &vars, &loaded);
             entries.extend(rows.into_iter().map(|row| Entry::new(depth + 1, row)));
             // Child scopes with variables below them, while groups can nest.
             if recursive && depth + 2 < tree::MAX_DEPTH {
@@ -1057,7 +1099,7 @@ impl WaveModel {
     /// Append a lane for each generator in `tracks` and select them. A lane
     /// takes the default height for its depth as soon as its records are
     /// resident; the app retains them for as long as a lane shows them.
-    pub fn add_lanes(&mut self, doc: &Document, tracks: &[TrackRef]) {
+    pub fn add_lanes(&mut self, doc: &Document, tracks: &[Traced<TrackRef>]) {
         let lanes: Vec<WaveRow> = tracks
             .iter()
             .filter_map(|&track| TxLane::new(doc, track))
@@ -1067,12 +1109,13 @@ impl WaveModel {
         self.push_rows(label, lanes);
     }
 
-    /// Append a clock row for each clock path and select them.
-    pub fn add_clocks(&mut self, paths: &[String]) {
-        let label = format!("Add {}", count(paths.len(), "clock row", "clock rows"));
+    /// Append a clock row for each clock and select them.
+    pub fn add_clocks(&mut self, keys: &[ClockKey]) {
+        let label = format!("Add {}", count(keys.len(), "clock row", "clock rows"));
         self.push_rows(
             label,
-            paths.iter().map(|p| WaveRow::Clock(ClockRow::new(p))),
+            keys.iter()
+                .map(|k| WaveRow::Clock(ClockRow::new(k.clone()))),
         );
     }
 
@@ -1088,7 +1131,7 @@ impl WaveModel {
     /// A history load finished (the document already checked its generation).
     pub fn finish_signal(
         &mut self,
-        signal: SignalRef,
+        signal: Traced<SignalRef>,
         result: anyhow::Result<Arc<dyn SignalHistory>>,
     ) {
         let result = result.map_err(|e| e.to_string());
@@ -1105,6 +1148,13 @@ impl WaveModel {
     fn edited(&mut self) {
         self.rename = None;
         self.menu = None;
+        self.revision += 1;
+    }
+
+    /// Changes whenever rows are added, removed, moved or rewritten, so
+    /// what is derived from them can be kept until then.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// Remove the selected rows; a selected group goes with everything in it.
@@ -1123,6 +1173,30 @@ impl WaveModel {
         };
         let splices = tree::removal(&self.items, &self.selected);
         self.edit_rows(label, splices, RowSelection::default());
+    }
+
+    /// Remove the rows of a trace that is closing, and the groups only it
+    /// filled, as one edit named `label`. Returns whether any went.
+    pub(crate) fn remove_trace_rows(&mut self, trace: TraceId, label: String) -> bool {
+        let rows = tree::of_trace(&self.items, trace);
+        if rows.is_empty() {
+            return false;
+        }
+        let splices = tree::removal(&self.items, &rows);
+        self.edit_rows(label, splices, RowSelection::default());
+        true
+    }
+
+    /// Load every resolved signal row again: its trace was placed anew.
+    /// Rows keep their place, format and selection.
+    pub(crate) fn reload_rows(&mut self, doc: &mut Document) {
+        for row in self.signals_mut() {
+            if row.source.signal().is_some() {
+                row.history = None;
+                row.error = None;
+            }
+        }
+        attach_rows(&mut self.items, doc, &Resident::new());
     }
 
     /// Copy the selected rows, in display order and with the groups they
@@ -1181,11 +1255,7 @@ impl WaveModel {
     /// level (or at the end), and select the new rows. Duplicates share
     /// `loaded` histories for the same signal; the rest load once, like newly
     /// added variables.
-    pub fn paste(
-        &mut self,
-        doc: &mut Document,
-        loaded: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
-    ) {
+    pub fn paste(&mut self, doc: &mut Document, loaded: &Resident) {
         if doc.copied_rows.is_empty() {
             return;
         }
@@ -1870,7 +1940,7 @@ impl WaveModel {
             .clocks()
             .rulers(&doc.clocks)
             .get(ruler)
-            .map(|c| c.path.clone())
+            .map(|c| c.key())
         else {
             return;
         };
@@ -1885,7 +1955,11 @@ impl WaveModel {
         });
     }
 
-    pub fn menu_select(&mut self, doc: &Document, action: &MenuAction) -> Option<SignalRef> {
+    pub fn menu_select(
+        &mut self,
+        doc: &Document,
+        action: &MenuAction,
+    ) -> Option<Traced<SignalRef>> {
         let menu = self.menu.take()?;
         match action {
             MenuAction::HideRuler(path) => {
@@ -2155,6 +2229,7 @@ impl WaveModel {
             zoom: theme.zoom,
             names_width: self.names_width,
             values_width: self.values_width,
+            trace_gutter: doc.traces().is_combined(),
             row_tops: super::layout::row_tops(visible.iter().map(|&i| items[i as usize].height())),
             visible,
             scroll_y: self.scroll_y,
@@ -2239,7 +2314,7 @@ impl WaveModel {
         let gap = self.gap_at(y);
         let depths = tree::gap_depths(&self.items, visible, gap);
         let indent = super::layout::INDENT * layout.zoom;
-        let want = ((p.x - super::layout::indent_x(layout.names.left(), 0, layout.zoom)) / indent)
+        let want = ((p.x - super::layout::indent_x(layout.name_left, 0, layout.zoom)) / indent)
             .floor()
             .max(0.0)
             .min(f32::from(tree::MAX_DEPTH)) as u8;
@@ -2274,7 +2349,7 @@ impl WaveModel {
         let g = self.rename?;
         let (y, _) = self.layout.entry_span(g)?;
         let layout = &self.layout;
-        let x = super::layout::indent_x(layout.names.left(), self.items.get(g)?.depth, layout.zoom)
+        let x = super::layout::indent_x(layout.name_left, self.items.get(g)?.depth, layout.zoom)
             + super::layout::CHEVRON_W * layout.zoom;
         let right = layout.names.right() - 4.0 * layout.zoom;
         (right > x && y + layout.row_h > layout.names.top() && y < layout.names.bottom())
@@ -2308,6 +2383,12 @@ impl WaveModel {
                 }
                 row => (row.name().to_owned(), None),
             };
+            // With a trace gutter, a row says which trace it shows.
+            let gutter = layout.name_left > layout.names.left();
+            let label = match gutter.then(|| self.row_trace(entry)).flatten() {
+                Some(trace) => format!("{label}, trace {trace}"),
+                None => label,
+            };
             Some(AccessibleRow {
                 entry,
                 label,
@@ -2333,7 +2414,7 @@ impl WaveModel {
         let i = layout.entry_at(p.y)?;
         let e = self.items.get(i).filter(|e| e.is_group())?;
         let (y, _) = layout.entry_span(i)?;
-        let x = super::layout::indent_x(layout.names.left(), e.depth, layout.zoom);
+        let x = super::layout::indent_x(layout.name_left, e.depth, layout.zoom);
         let w = super::layout::CHEVRON_W * layout.zoom;
         (p.x >= x - 4.0 * layout.zoom && p.x < x + w && p.y < y + layout.row_h).then_some(i)
     }
@@ -2385,7 +2466,7 @@ impl WaveModel {
         doc: &Document,
         row: usize,
         p: Point,
-    ) -> Option<(TrackRef, crate::data::transactions::TransactionRef)> {
+    ) -> Option<(Traced<TrackRef>, crate::data::transactions::TransactionRef)> {
         let lane = self.items.get(row)?.lane()?;
         let generator = lane.generator(doc)?;
         let layout = &self.layout;
@@ -2402,7 +2483,7 @@ impl WaveModel {
         let tolerance = 3.0 * f64::from(layout.zoom) / ppu;
         let ordinal = lane::hit(generator, lane.height, sub, time, tolerance)?;
         let tx = &generator.transactions()[ordinal];
-        Some((tx.generator, tx.id))
+        Some((Traced::new(lane.source.trace(), tx.generator), tx.id))
     }
 
     /// The entry whose name-cell bottom edge is under `p`.
@@ -2653,12 +2734,12 @@ impl WaveModel {
             return;
         }
         // A press on a clock ruler selects its clock, then works like the header.
-        let rulers: Vec<String> = self
+        let rulers: Vec<ClockKey> = self
             .nav
             .clocks()
             .rulers(&doc.clocks)
             .iter()
-            .map(|c| c.path.clone())
+            .map(|c| c.key())
             .collect();
         let ruler = layout.ruler_at(p, rulers.len());
         if let Some(ix) = ruler {
@@ -2666,7 +2747,7 @@ impl WaveModel {
                 self.open_ruler_menu(doc, ix, p);
                 return;
             }
-            self.nav.select_clock(&rulers[ix]);
+            self.nav.select_clock(rulers[ix].clone());
         }
         // The time strip above the rows: header, rulers and the lane between chips.
         if layout.header.contains(p) || ruler.is_some() || layout.marker_lane.strip().contains(p) {
@@ -2948,21 +3029,20 @@ impl WaveModel {
 }
 
 /// Rows for `vars`, as [`WaveModel::add_vars`] adds them.
-fn var_rows(
-    doc: &mut Document,
-    vars: &[VarId],
-    loaded: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
-) -> Vec<WaveRow> {
-    let Some(session) = doc.session().cloned() else {
-        return Vec::new();
-    };
-    let h = session.hierarchy();
+fn var_rows(doc: &mut Document, vars: &[Traced<VarId>], loaded: &Resident) -> Vec<WaveRow> {
     let mut rows = Vec::with_capacity(vars.len());
     for &var in vars {
-        let Some(v) = h.vars.get(var) else { continue };
+        let Some(session) = doc.session(var.trace).cloned() else {
+            continue;
+        };
+        let h = session.hierarchy();
+        let Some(v) = h.vars.get(var.item) else {
+            continue;
+        };
+        let signal = var.with(v.signal);
         let translator = doc.translators.default_for(v.shape);
         // Variable identity/format stay per row; aliases share immutable data.
-        let history = loaded.get(&v.signal).cloned();
+        let history = loaded.get(&signal).cloned();
         let needs_load = history.is_none();
         // Reals open as plots: their text is rarely readable at a glance.
         let analog = (v.shape == SignalShape::Real
@@ -2974,7 +3054,8 @@ fn var_rows(
         });
         rows.push(WaveRow::Signal(DisplayedSignal {
             source: RowSource::Resolved {
-                var,
+                trace: var.trace,
+                var: var.item,
                 signal: v.signal,
             },
             requested_format: None,
@@ -2992,7 +3073,7 @@ fn var_rows(
             analog,
         }));
         if needs_load {
-            doc.request_signal(v.signal);
+            doc.request_signal(signal);
         }
     }
     rows

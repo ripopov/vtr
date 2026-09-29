@@ -7,9 +7,11 @@ use volna_core::geometry::Modifiers;
 use volna_core::icons::IconName;
 use volna_core::remote::objects::Metadata;
 use volna_core::session::{OpenSpec, Session};
+use volna_core::sidebar::TreeNode;
 use volna_core::sidebar::icons::{Tint, member_icon, scope_icon, scope_kind_icon, stream_tag};
 use volna_core::sidebar::members::log_site;
 use volna_core::sidebar::{Key, MemberListModel, ScopeTreeModel};
+use volna_core::testing::{a, hierarchy_document};
 
 fn fixture() -> Arc<dyn Session> {
     let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
@@ -77,11 +79,14 @@ fn mixed_vtr_metadata_icons_and_log_provenance() {
         (IconName::Workflow, Tint::Pipeline)
     );
     assert_eq!(h.scopes[0].component, "soc_top");
+    let mut doc = volna_core::Document::new();
+    doc.set_session(session.clone());
+    let traces = doc.traces();
     let mut list = MemberListModel::default();
-    list.set_scope(Some(h), Some(pipeline));
-    assert_eq!(list.title(Some(h)), "Generators");
-    assert_eq!(list.rows, [Member::Generator(0)]);
-    assert_eq!(member_icon(h, list.rows[0]), IconName::CircleDot);
+    list.set_scope(traces, Some(a(pipeline)));
+    assert_eq!(list.title(traces), "Generators");
+    assert_eq!(list.rows, [a(Member::Generator(0))]);
+    assert_eq!(member_icon(h, list.rows[0].item), IconName::CircleDot);
     assert_eq!(member_icon(h, Member::Var(0)), IconName::Tags);
     assert_eq!(
         h.find_generator(&["soc", "cpu", "thread0", "instructions"]),
@@ -103,16 +108,16 @@ fn mixed_vtr_metadata_icons_and_log_provenance() {
     let bus = scope(h, &["soc", "read_bus"]);
     assert_eq!(stream_tag(&h.scopes[bus]), Some("TRANSACTOR"));
     let log = scope(h, &["soc", "log"]);
-    list.set_scope(Some(h), Some(log));
-    assert_eq!(list.title(Some(h)), "Log sites");
-    let site = log_site(h, list.rows[0]).unwrap();
+    list.set_scope(traces, Some(a(log)));
+    assert_eq!(list.title(traces), "Log sites");
+    let site = log_site(h, list.rows[0].item).unwrap();
     assert_eq!(
         (site.severity.as_str(), site.file, site.line),
         ("error", Some("soc.sv"), Some(42))
     );
-    list.set_scope(Some(h), Some(scope(h, &["soc", "empty"])));
+    list.set_scope(traces, Some(a(scope(h, &["soc", "empty"]))));
     assert_eq!(
-        list.placeholder(Some(h)),
+        list.placeholder(traces),
         Some("This stream declares no generators")
     );
     Metadata::from_session(session.as_ref()).validate().unwrap();
@@ -126,8 +131,9 @@ fn search_order_activation_keyboard_and_notices() {
     app.handle(Command::SetSearchEverywhere(true));
     app.handle(Command::SetFilter("read_".into()));
     let rows = app.variables.rows.clone();
+    let members: Vec<Member> = rows.iter().map(|m| m.item).collect();
     assert!(matches!(
-        rows.as_slice(),
+        members.as_slice(),
         [
             Member::Var(_),
             Member::Generator(_),
@@ -157,7 +163,7 @@ fn search_order_activation_keyboard_and_notices() {
             .any(|e| matches!(e, Event::Notice(_)))
     );
     let pipeline = scope(session.hierarchy(), &["soc", "cpu", "thread0"]);
-    app.handle(Command::SelectScope(pipeline));
+    app.handle(Command::SelectScope(TreeNode::scope(a(pipeline))));
     assert!(!app.variables.search_everywhere);
     app.handle(Command::SetFilter(String::new()));
     app.handle(Command::ScopesKey(Key::Enter));
@@ -170,7 +176,10 @@ fn search_order_activation_keyboard_and_notices() {
     app.handle(Command::ScopesKey(Key::Left));
     assert_eq!(
         app.scopes.selected,
-        Some(scope(session.hierarchy(), &["soc", "cpu"]))
+        Some(TreeNode::scope(a(scope(
+            session.hierarchy(),
+            &["soc", "cpu"]
+        ))))
     );
     app.handle(Command::SetFilter("read_".into()));
     app.handle(Command::VariablesKey(Key::Escape, Modifiers::default()));
@@ -184,11 +193,11 @@ fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
     let template = h.vars[0].clone();
     h.vars = vec![template; 5000];
     let mut list = MemberListModel::default();
-    list.set_filter(Some(&h), "read_");
+    list.set_filter(hierarchy_document(h.clone()).traces(), "read_");
     assert_eq!(list.rows.len(), 5000);
     assert!(list.truncated);
     h.vars.truncate(4996);
-    list.rebuild(Some(&h));
+    list.rebuild(hierarchy_document(h).traces());
     assert_eq!(list.rows.len(), 4999);
     assert!(!list.truncated);
     let mut h = Hierarchy::default();
@@ -197,8 +206,11 @@ fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
         parent = Some(h.push_scope("nested".into(), "module".into(), parent));
     }
     let mut tree = ScopeTreeModel::default();
-    tree.set_all(&h, true);
-    assert_eq!(tree.visible.last(), Some(&(19999, 19999)));
+    tree.set_all(hierarchy_document(h).traces(), true);
+    assert_eq!(
+        tree.visible.last(),
+        Some(&(TreeNode::scope(a(19999)), 19999))
+    );
 }
 
 #[test]
@@ -207,12 +219,13 @@ fn stream_workspace_paths_roundtrip_and_unresolved_paths_survive() {
     let session = fixture();
     let mut app = App::new();
     app.set_session(session.clone());
-    app.handle(Command::SelectScope(scope(
+    app.handle(Command::SelectScope(TreeNode::scope(a(scope(
         session.hierarchy(),
         &["soc", "cpu", "thread0"],
-    )));
+    )))));
     app.handle(Command::ExpandAllScopes(true));
-    let capture = |app: &App| Workspace::capture(app, "trace.vtr".into(), None).unwrap();
+    let capture =
+        |app: &App| Workspace::capture(app, volna_core::testing::paths("trace.vtr"), None).unwrap();
     let saved = capture(&app);
     let before = serde_json::to_value(&saved).unwrap();
     app.handle(Command::SetSearchEverywhere(true));
@@ -228,8 +241,8 @@ fn stream_workspace_paths_roundtrip_and_unresolved_paths_survive() {
     assert_eq!(serde_json::to_value(capture(&app)).unwrap(), before);
     assert!(!app.variables.search_everywhere);
     let mut saved = before;
-    saved["sidebar"]["selected_scope"] = serde_json::json!(["missing", "stream"]);
-    saved["sidebar"]["expanded"] = serde_json::json!([["missing", "stream"]]);
+    saved["sidebar"]["selected_scope"] = serde_json::json!(["A", ["missing", "stream"]]);
+    saved["sidebar"]["expanded"] = serde_json::json!([["A", ["missing", "stream"]]]);
     Workspace::parse(&serde_json::to_vec(&saved).unwrap())
         .unwrap()
         .prepare(

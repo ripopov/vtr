@@ -436,6 +436,21 @@ pub fn ungroup(items: &[Entry], groups: &BTreeSet<usize>) -> (Vec<Splice>, BTree
     (splices, children)
 }
 
+/// What closing `trace` removes: its rows, and every group whose rows all
+/// come from it. Groups that were empty already stay.
+pub fn of_trace(items: &[Entry], trace: crate::trace::TraceId) -> BTreeSet<usize> {
+    let of = |j: usize| items[j].row.trace() == Some(trace);
+    (0..items.len())
+        .filter(|&i| {
+            if !items[i].is_group() {
+                return of(i);
+            }
+            let mut leaves = leaves(items, i).peekable();
+            leaves.peek().is_some() && leaves.all(of)
+        })
+        .collect()
+}
+
 /// Plan removing the selected subtrees.
 pub fn removal(items: &[Entry], sel: &BTreeSet<usize>) -> Vec<Splice> {
     removal_of(&blocks(items, sel))
@@ -507,7 +522,13 @@ mod tests {
     use crate::wave::model::{ClockRow, GroupRow};
 
     fn leaf(depth: u8, name: &str) -> Entry {
-        Entry::new(depth, WaveRow::Clock(ClockRow::new(name)))
+        Entry::new(
+            depth,
+            WaveRow::Clock(ClockRow::new(crate::trace::Traced::new(
+                crate::trace::TraceId::A,
+                name.to_owned(),
+            ))),
+        )
     }
 
     fn group(depth: u8, name: &str, collapsed: bool) -> Entry {

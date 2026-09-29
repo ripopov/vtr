@@ -8,6 +8,7 @@ use crate::data::{Direction, Hierarchy, Member, ScopeId, ScopeRole, SignalShape,
 use crate::geometry::Modifiers;
 use crate::icons::IconName;
 use crate::selection;
+use crate::trace::{TraceId, TraceSet, Traced};
 
 const MAX_SEARCH_ROWS: usize = 5000;
 
@@ -121,9 +122,9 @@ pub fn describe(h: &Hierarchy, member: Member) -> String {
 
 #[derive(Default)]
 pub struct MemberListModel {
-    pub scope: Option<ScopeId>,
+    pub scope: Option<Traced<ScopeId>>,
     pub filter: String,
-    pub rows: Vec<Member>,
+    pub rows: Vec<Traced<Member>>,
     pub search_everywhere: bool,
     pub truncated: bool,
     pub notice: Option<String>,
@@ -136,7 +137,7 @@ pub struct MemberListModel {
 pub struct MemberKeyOutcome {
     pub changed: bool,
     /// Members to activate through the application's shared command path.
-    pub activate: Option<Vec<Member>>,
+    pub activate: Option<Vec<Traced<Member>>>,
     /// Row to scroll into view.
     pub reveal: Option<usize>,
     /// Typing started filtering: the frontend should focus its filter box.
@@ -144,43 +145,55 @@ pub struct MemberKeyOutcome {
 }
 
 impl MemberListModel {
-    /// Start over for a new hierarchy.
-    pub fn reset(&mut self, h: Option<&Hierarchy>) {
+    /// Start over for a new set of traces.
+    pub fn reset(&mut self, traces: &TraceSet) {
         self.scope = None;
         self.search_everywhere = false;
         self.filter.clear();
-        self.rebuild(h);
+        self.rebuild(traces);
     }
 
-    pub fn rebuild(&mut self, h: Option<&Hierarchy>) {
+    /// A trace left: stop listing its members.
+    pub fn remove_trace(&mut self, traces: &TraceSet, trace: TraceId) {
+        if self.scope.is_some_and(|s| s.trace == trace) {
+            self.scope = None;
+        }
+        self.rebuild(traces);
+    }
+
+    pub fn rebuild(&mut self, traces: &TraceSet) {
         self.rows.clear();
         self.notice = None;
         self.selected.clear();
         self.anchor = None;
         self.truncated = false;
         let filter = self.filter.to_lowercase();
-        if let Some(h) = h {
-            let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
-            match self.scope.filter(|_| !self.search_everywhere) {
-                Some(s) => {
-                    self.rows.extend(
-                        h.scopes[s]
-                            .vars
-                            .iter()
-                            .copied()
-                            .filter(|&v| matches(&h.vars[v].name))
-                            .map(Member::Var),
-                    );
-                    self.rows.extend(
-                        h.scopes[s]
-                            .generators
-                            .iter()
-                            .copied()
-                            .filter(|&g| matches(&h.generators[g].name))
-                            .map(Member::Generator),
-                    );
-                }
-                None if !filter.is_empty() => {
+        let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
+        match self.scope.filter(|_| !self.search_everywhere) {
+            Some(scope) => {
+                let Some(h) = traces.session(scope.trace).map(|s| s.hierarchy()) else {
+                    return;
+                };
+                let s = &h.scopes[scope.item];
+                self.rows.extend(
+                    s.vars
+                        .iter()
+                        .copied()
+                        .filter(|&v| matches(&h.vars[v].name))
+                        .map(|v| scope.with(Member::Var(v))),
+                );
+                self.rows.extend(
+                    s.generators
+                        .iter()
+                        .copied()
+                        .filter(|&g| matches(&h.generators[g].name))
+                        .map(|g| scope.with(Member::Generator(g))),
+                );
+            }
+            // Searching looks through every open trace.
+            None if !filter.is_empty() => {
+                for (trace, session) in traces.loaded() {
+                    let h = session.hierarchy();
                     let members = (0..h.vars.len())
                         .map(Member::Var)
                         .chain((0..h.generators.len()).map(Member::Generator))
@@ -191,29 +204,34 @@ impl MemberListModel {
                                 .filter(|(_, s)| matches!(s.role, ScopeRole::Stream { .. }))
                                 .map(|(id, _)| Member::Stream(id)),
                         );
+                    let room = MAX_SEARCH_ROWS + 1 - self.rows.len();
                     self.rows.extend(
                         members
                             .filter(|&m| matches(h.member_name(m)))
-                            .take(MAX_SEARCH_ROWS + 1),
+                            .take(room)
+                            .map(|m| Traced::new(trace, m)),
                     );
-                    self.truncated = self.rows.len() > MAX_SEARCH_ROWS;
-                    self.rows.truncate(MAX_SEARCH_ROWS);
+                    if self.rows.len() > MAX_SEARCH_ROWS {
+                        break;
+                    }
                 }
-                None => {}
+                self.truncated = self.rows.len() > MAX_SEARCH_ROWS;
+                self.rows.truncate(MAX_SEARCH_ROWS);
             }
+            None => {}
         }
     }
 
-    pub fn set_scope(&mut self, h: Option<&Hierarchy>, scope: Option<ScopeId>) {
+    pub fn set_scope(&mut self, traces: &TraceSet, scope: Option<Traced<ScopeId>>) {
         self.scope = scope;
         self.search_everywhere = false;
-        self.rebuild(h);
+        self.rebuild(traces);
     }
 
-    pub fn set_filter(&mut self, h: Option<&Hierarchy>, text: &str) {
+    pub fn set_filter(&mut self, traces: &TraceSet, text: &str) {
         if self.filter != text {
             self.filter = text.to_owned();
-            self.rebuild(h);
+            self.rebuild(traces);
         }
     }
 
@@ -221,41 +239,53 @@ impl MemberListModel {
         !self.filter.is_empty()
     }
 
-    /// Rows show full paths while searching across the whole trace.
+    /// Rows show full paths while searching across the whole trace set.
     pub fn show_scope(&self) -> bool {
         (self.scope.is_none() || self.search_everywhere) && self.is_searching()
     }
 
     /// Whether any listed variable has a port direction worth a column.
-    pub fn show_direction(&self, h: &Hierarchy) -> bool {
-        self.rows
-            .iter()
-            .filter_map(|m| m.var())
-            .any(|v| h.vars[v].direction != Direction::None)
+    pub fn show_direction(&self, traces: &TraceSet) -> bool {
+        self.rows.iter().any(|m| {
+            m.item.var().is_some_and(|v| {
+                traces
+                    .session(m.trace)
+                    .is_some_and(|s| s.hierarchy().vars[v].direction != Direction::None)
+            })
+        })
     }
 
-    /// The selected variables, or every listed one when nothing is selected.
-    pub fn selected_or_all(&self) -> Vec<Member> {
+    /// The selected members, or every listed variable when nothing is
+    /// selected.
+    pub fn selected_or_all(&self) -> Vec<Traced<Member>> {
         if self.selected.is_empty() {
             self.rows
                 .iter()
                 .copied()
-                .filter(|m| matches!(m, Member::Var(_)))
+                .filter(|m| matches!(m.item, Member::Var(_)))
                 .collect()
         } else {
             self.selected.iter().map(|&i| self.rows[i]).collect()
         }
     }
 
-    pub fn listed_vars(&self) -> Vec<VarId> {
-        self.rows.iter().filter_map(|m| m.var()).collect()
+    pub fn listed_vars(&self) -> Vec<Traced<VarId>> {
+        self.rows
+            .iter()
+            .filter_map(|m| Some(m.with(m.item.var()?)))
+            .collect()
     }
 
-    pub fn title(&self, h: Option<&Hierarchy>) -> &'static str {
+    fn scope_of<'a>(&self, traces: &'a TraceSet) -> Option<(&'a Hierarchy, ScopeId)> {
+        let scope = self.scope?;
+        Some((traces.session(scope.trace)?.hierarchy(), scope.item))
+    }
+
+    pub fn title(&self, traces: &TraceSet) -> &'static str {
         if self.search_everywhere || self.show_scope() {
             return "Results";
         }
-        match h.and_then(|h| self.scope.map(|s| &h.scopes[s])) {
+        match self.scope_of(traces).map(|(h, s)| &h.scopes[s]) {
             Some(s) if matches!(s.role, ScopeRole::Stream { .. }) => {
                 if s.kind == "LOG" {
                     "Log sites"
@@ -268,25 +298,35 @@ impl MemberListModel {
         }
     }
 
-    pub fn breadcrumb(&self, h: &Hierarchy) -> String {
+    /// Where the listed members live: the scope's path, kind and component,
+    /// after its trace's letter while several traces are open.
+    pub fn breadcrumb(&self, traces: &TraceSet) -> String {
         if self.search_everywhere || self.show_scope() {
-            return format!("Whole trace · {}", self.filter);
+            let whole = if traces.is_combined() {
+                "All traces"
+            } else {
+                "Whole trace"
+            };
+            return format!("{whole} · {}", self.filter);
         }
-        self.scope
-            .map(|id| {
-                let s = &h.scopes[id];
-                format!(
-                    "{} · {}{}",
-                    h.scope_path(id).join("."),
-                    s.kind,
-                    if s.component.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" · {}", s.component)
-                    }
-                )
-            })
-            .unwrap_or_default()
+        let Some((h, id)) = self.scope_of(traces) else {
+            return String::new();
+        };
+        let s = &h.scopes[id];
+        let letter = match self.scope {
+            Some(scope) if traces.is_combined() => format!("{} · ", scope.trace),
+            _ => String::new(),
+        };
+        format!(
+            "{letter}{} · {}{}",
+            h.scope_path(id).join("."),
+            s.kind,
+            if s.component.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", s.component)
+            }
+        )
     }
 
     pub fn select(&mut self, ix: usize, modifiers: Modifiers) {
@@ -296,15 +336,16 @@ impl MemberListModel {
     }
 
     /// Placeholder text when there is nothing to list.
-    pub fn placeholder(&self, h: Option<&Hierarchy>) -> Option<&'static str> {
-        if h.is_none() {
+    pub fn placeholder(&self, traces: &TraceSet) -> Option<&'static str> {
+        if traces.first_loaded().is_none() {
             Some("Open a trace to browse variables")
         } else if (self.scope.is_none() || self.search_everywhere) && !self.is_searching() {
             Some("Select a scope or stream, or type to search all members")
         } else if self.rows.is_empty() {
             if self.is_searching() {
                 Some("No members match")
-            } else if let Some(scope) = self.scope.map(|id| &h.unwrap().scopes[id]) {
+            } else if let Some((h, id)) = self.scope_of(traces) {
+                let scope = &h.scopes[id];
                 Some(if matches!(scope.role, ScopeRole::Stream { .. }) {
                     "This stream declares no generators"
                 } else if scope.children.is_empty() {

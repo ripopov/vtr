@@ -7,6 +7,7 @@ use super::memory::MemoryBudget;
 use super::transport::{ObjectId, Packet, Receive, Receiver, acknowledgement};
 use crate::data::SignalRef;
 use crate::session::LoadResult;
+use crate::trace::TraceId;
 use std::sync::Arc;
 
 /// Receives one signal batch into [`LoadResult::Signals`]. Each history is
@@ -17,6 +18,7 @@ use std::sync::Arc;
 /// withheld until validation succeeds.
 pub struct SignalTransfer {
     receiver: Receiver,
+    trace: TraceId,
     generation: u64,
     limit: u64,
     budget: MemoryBudget,
@@ -30,6 +32,7 @@ impl SignalTransfer {
     pub fn new(
         session: u64,
         request: u64,
+        trace: TraceId,
         generation: u64,
         signals: &[SignalRef],
         max_object_bytes: u64,
@@ -42,6 +45,7 @@ impl SignalTransfer {
                 signals.iter().map(|id| ObjectId::Signal(id.0)).collect(),
                 max_object_bytes,
             )?,
+            trace,
             generation,
             limit: max_object_bytes,
             budget,
@@ -126,6 +130,7 @@ impl SignalTransfer {
         Ok(ClientStep::Complete {
             ack: self.end_ack.take().unwrap(),
             result: LoadResult::Signals {
+                trace: self.trace,
                 generation: self.generation,
                 results: vec![(id, Ok(Arc::new(history)))],
             },
@@ -136,6 +141,7 @@ impl SignalTransfer {
         ClientStep::Complete {
             ack,
             result: LoadResult::Signals {
+                trace: self.trace,
                 generation: self.generation,
                 results: vec![(id, Err(anyhow::anyhow!(message)))],
             },
@@ -194,6 +200,7 @@ mod tests {
         let mut transfer = SignalTransfer::new(
             5,
             8,
+            TraceId::A,
             99,
             &[SignalRef(3)],
             bytes.len() as u64,
@@ -247,6 +254,7 @@ mod tests {
         let LoadResult::Signals {
             generation,
             mut results,
+            ..
         } = completed
         else {
             panic!("signal result");
@@ -269,8 +277,16 @@ mod tests {
 
     #[test]
     fn per_item_failure_completes_but_wrong_identity_poisons_transfer() {
-        let mut transfer =
-            SignalTransfer::new(5, 8, 99, &[SignalRef(3)], 1024, MemoryBudget::new(4096)).unwrap();
+        let mut transfer = SignalTransfer::new(
+            5,
+            8,
+            TraceId::A,
+            99,
+            &[SignalRef(3)],
+            1024,
+            MemoryBudget::new(4096),
+        )
+        .unwrap();
         let error = packet(
             0,
             Body::Error {
@@ -288,8 +304,16 @@ mod tests {
         assert!(results[0].1.is_err());
         transfer.finish().unwrap();
 
-        let mut transfer =
-            SignalTransfer::new(5, 8, 99, &[SignalRef(3)], 1024, MemoryBudget::new(4096)).unwrap();
+        let mut transfer = SignalTransfer::new(
+            5,
+            8,
+            TraceId::A,
+            99,
+            &[SignalRef(3)],
+            1024,
+            MemoryBudget::new(4096),
+        )
+        .unwrap();
         let mut wrong = error.clone();
         wrong.request += 1;
         assert!(transfer.accept(wrong).is_err());
@@ -308,14 +332,16 @@ mod tests {
             },
         );
         let mut transfer =
-            SignalTransfer::new(5, 8, 99, &[SignalRef(3)], 1024, budget.clone()).unwrap();
+            SignalTransfer::new(5, 8, TraceId::A, 99, &[SignalRef(3)], 1024, budget.clone())
+                .unwrap();
         transfer.accept(begin.clone()).unwrap();
         assert!(budget.used() >= 30);
         drop(transfer);
         assert_eq!(budget.used(), 0);
 
         let mut transfer =
-            SignalTransfer::new(5, 8, 99, &[SignalRef(3)], 1024, budget.clone()).unwrap();
+            SignalTransfer::new(5, 8, TraceId::A, 99, &[SignalRef(3)], 1024, budget.clone())
+                .unwrap();
         transfer.accept(begin).unwrap();
         assert!(transfer.accept(packet(1, Body::End)).is_err());
         assert_eq!(budget.used(), 0);
@@ -323,6 +349,7 @@ mod tests {
         let mut transfer = SignalTransfer::new(
             5,
             8,
+            TraceId::A,
             99,
             &[SignalRef(3), SignalRef(4)],
             8192,

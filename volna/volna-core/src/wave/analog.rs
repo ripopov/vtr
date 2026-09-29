@@ -442,7 +442,7 @@ impl<'a> Series<'a> {
     /// document's summary of `signal` when it matches.
     pub fn of(
         doc: &'a crate::document::Document,
-        signal: Option<crate::data::SignalRef>,
+        signal: Option<crate::trace::Traced<crate::data::SignalRef>>,
         history: &'a Arc<dyn SignalHistory>,
         kind: NumericKind,
     ) -> Self {

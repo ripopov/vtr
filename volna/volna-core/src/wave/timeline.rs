@@ -75,6 +75,16 @@ fn choose_unit(units: f64, timescale: i8) -> (i32, &'static str) {
     best
 }
 
+/// One time unit of `timescale`: `ns`, or `100 ps` between SI prefixes.
+pub fn unit_label(timescale: i8) -> String {
+    let exp = i32::from(timescale);
+    match UNITS.iter().rev().find(|(e, _)| *e <= exp) {
+        Some(&(e, suffix)) if e == exp => suffix.to_owned(),
+        Some(&(e, suffix)) => format!("{} {suffix}", 10u64.pow((exp - e) as u32)),
+        None => format!("1e{exp} s"),
+    }
+}
+
 fn trim_float(v: f64, max_decimals: usize) -> String {
     let s = format!("{v:.*}", max_decimals);
     if s.contains('.') {

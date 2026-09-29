@@ -40,6 +40,33 @@ cargo run --locked -p volna-core --example landing_workspace -- volna/volna/exam
 panel. `docs/tests/volna-landing.test.mjs` checks the page and its live demo
 after `web/build.sh`.
 
+### The DRAM controller's own dump
+
+`landing_dram.fst` (1,146 bytes) is the same run seen by the LPDDR controller
+model, as a separate simulator would dump it: an FST in picoseconds with
+`lpddr_tb.ctrl.ck` (3 ns, 2 ns from the interrupt, gated for self-refresh),
+`cke`, the command `state` as text (`IDLE`, `ACT`, `RD`, `BURST`, `SREF`),
+`addr`, `bank`, `row`, `dq_valid` and `ecc_err`. Every `ACT` starts at the time
+and address of a burst in `landing.vtr`. Open both side by side
+([multiple traces](../../../docs/multiple-traces.html)):
+
+```sh
+volna volna/volna/examples/landing.vtr volna/volna/examples/landing_dram.fst
+```
+
+The VTR counts nanoseconds and the FST picoseconds; they share one ruler in
+picoseconds. Regenerate it with the trace, then convert the VCD with
+GTKWave's `vcd2fst`:
+
+```sh
+cargo run --locked -p vtr --example landing -- volna/volna/examples/landing.vtr \
+  --dram-vcd /tmp/landing_dram.vcd
+vcd2fst /tmp/landing_dram.vcd volna/volna/examples/landing_dram.fst
+```
+
+`volna-core/tests/traces.rs` opens the pair and checks every burst against the
+controller's `ACT`.
+
 ## Pipeline showcase
 
 `pipeline_showcase.vtr` exercises the pipeline panel: two synthetic cores run

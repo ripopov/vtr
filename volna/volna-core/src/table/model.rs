@@ -18,6 +18,7 @@ use crate::geometry::{MouseButton, Rect};
 use crate::nav::{Link, NavState};
 use crate::remote::memory::{MemoryBudget, Reservation};
 use crate::theme::Theme;
+use crate::trace::Traced;
 use crate::wave::model::PointerEvent;
 
 pub use crate::data::text::{COPY_BYTES, PREVIEW_BYTES};
@@ -130,7 +131,7 @@ pub struct TableModel {
     drag: Option<TableDrag>,
     rows: Rows,
     axis_build: Option<SignalAxisBuild>,
-    signal_results: HashMap<SignalRef, Result<Arc<dyn SignalHistory>, String>>,
+    signal_results: HashMap<Traced<SignalRef>, Result<Arc<dyn SignalHistory>, String>>,
     attached: bool,
     budget: MemoryBudget,
     _panel_reservation: Option<Reservation>,
@@ -184,7 +185,7 @@ impl TableModel {
     pub fn attach(
         &mut self,
         doc: &mut Document,
-        resident: &HashMap<SignalRef, Arc<dyn SignalHistory>>,
+        resident: &crate::wave::model::Resident,
     ) -> anyhow::Result<()> {
         if self.attached {
             return Ok(());
@@ -220,11 +221,11 @@ impl TableModel {
                 self.refresh(doc);
             }
             TableSource::Signals(sources) => {
-                let Some(hierarchy) = doc.hierarchy() else {
-                    self.state = TableState::Unavailable;
-                    return Ok(());
-                };
-                if sources.iter_mut().any(|source| !source.resolve(hierarchy)) {
+                let unresolved = sources.iter_mut().any(|source| {
+                    !doc.hierarchy(source.trace)
+                        .is_some_and(|hierarchy| source.resolve(hierarchy))
+                });
+                if unresolved {
                     self.state = TableState::Unavailable;
                     return Ok(());
                 }
@@ -265,7 +266,7 @@ impl TableModel {
         self._panel_reservation = None;
     }
 
-    pub fn signal_demand(&self) -> Box<dyn Iterator<Item = SignalRef> + '_> {
+    pub fn signal_demand(&self) -> Box<dyn Iterator<Item = Traced<SignalRef>> + '_> {
         if !self.attached {
             return Box::new(std::iter::empty());
         }
@@ -275,7 +276,7 @@ impl TableModel {
         }
     }
 
-    pub fn histories(&self) -> Vec<(SignalRef, Arc<dyn SignalHistory>)> {
+    pub fn histories(&self) -> Vec<(Traced<SignalRef>, Arc<dyn SignalHistory>)> {
         self.signal_results
             .iter()
             .filter_map(|(&signal, result)| result.as_ref().ok().map(|h| (signal, h.clone())))
@@ -284,7 +285,7 @@ impl TableModel {
 
     pub fn finish_signal(
         &mut self,
-        signal: SignalRef,
+        signal: Traced<SignalRef>,
         result: Result<Arc<dyn SignalHistory>, String>,
     ) {
         if self.attached && self.signal_demand().any(|wanted| wanted == signal) {
@@ -311,7 +312,7 @@ impl TableModel {
                         let Some(generator) = loaded
                             .generators
                             .iter()
-                            .find(|g| g.generator() == track)
+                            .find(|g| g.generator() == track.item)
                             .cloned()
                         else {
                             self.state = TableState::Unavailable;
@@ -564,6 +565,13 @@ impl TableModel {
         }
     }
 
+    /// The session unit changed: a row selected by its time keeps it.
+    pub(crate) fn retime(&mut self, by: crate::trace::Rescale) {
+        if let Some(RowIdentity::SignalTime(time)) = &mut self.selected {
+            crate::trace::Retime::retime(time, by);
+        }
+    }
+
     fn ordinal_of(&self, identity: &RowIdentity) -> Option<u64> {
         match (&self.rows, identity) {
             (Rows::Generator(generator), RowIdentity::Transaction(id)) => {
@@ -605,10 +613,11 @@ impl TableModel {
         };
         // A selected record is the document's, so every panel over the same
         // generator highlights it and the transaction panel shows it.
-        if let (RowIdentity::Transaction(id), Rows::Generator(generator)) = (&identity, &self.rows)
+        if let (RowIdentity::Transaction(id), Some(track)) =
+            (&identity, self.source.generator_track())
         {
             doc.select(Some(crate::document::TxSelection {
-                track: generator.generator(),
+                track,
                 id: *id,
                 origin: panel,
             }));
@@ -628,11 +637,11 @@ impl TableModel {
     /// Adopt the document selection when it names a record of this table.
     /// Returns whether the highlighted row changed.
     pub fn follow_selection(&mut self, doc: &Document) -> bool {
-        let Rows::Generator(generator) = &self.rows else {
+        let (Rows::Generator(_), Some(track)) = (&self.rows, self.source.generator_track()) else {
             return false;
         };
         let wanted = match doc.selection() {
-            Some(selection) if selection.track == generator.generator() => {
+            Some(selection) if selection.track == track => {
                 Some(RowIdentity::Transaction(selection.id))
             }
             Some(_) => return false,
@@ -1416,10 +1425,11 @@ mod tests {
 
     fn signal_source(name: &str, id: u32) -> SignalSource {
         SignalSource {
+            trace: crate::trace::TraceId::A,
             path: vec![name.into()],
             nth: None,
             var: Some(id as usize),
-            signal: Some(SignalRef(id)),
+            signal: Some(Traced::new(crate::trace::TraceId::A, SignalRef(id))),
             name: name.into(),
         }
     }
@@ -1641,7 +1651,10 @@ mod tests {
         );
         let mut model = TableModel::new(
             TableSource::Generator(TrackSource::Resolved {
-                track: crate::data::transactions::TrackRef(7),
+                track: Traced::new(
+                    crate::trace::TraceId::A,
+                    crate::data::transactions::TrackRef(7),
+                ),
                 path: vec!["soc".into(), "request".into()],
             }),
             Link::default(),

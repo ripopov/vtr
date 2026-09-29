@@ -209,6 +209,9 @@ impl Session for LocalSession {
             relations: true,
         }
     }
+    fn format(&self) -> Option<&'static str> {
+        Some("VTR")
+    }
     fn info(&self) -> &TraceInfo {
         &self.info
     }

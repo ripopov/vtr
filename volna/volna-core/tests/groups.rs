@@ -5,6 +5,8 @@
 //! adding a scope as a group; and workspaces.
 
 use std::sync::Arc;
+use volna_core::testing::{a, a_all};
+use volna_core::trace::TraceId;
 
 use web_time::Instant;
 
@@ -119,8 +121,8 @@ fn app() -> (tempfile::NamedTempFile, App, PanelId) {
     let (file, session) = trace();
     let mut app = App::new();
     app.set_session(session);
-    let vars = (0..app.doc.hierarchy().unwrap().vars.len()).collect();
-    app.handle(Command::AddVars(vars));
+    let vars = 0..app.doc.hierarchy(TraceId::A).unwrap().vars.len();
+    app.handle(Command::AddVars(a_all(vars)));
     pump(&mut app);
     let id = app.panels.focused_id();
     frame(&mut app, id);
@@ -725,7 +727,7 @@ fn add_scope_as_group_nests_child_scopes_folded() {
     app.set_session(session);
     app.handle(Command::Action(Action::NewPanel));
     let id = app.panels.focused_id();
-    let h = app.doc.hierarchy().unwrap();
+    let h = app.doc.hierarchy(TraceId::A).unwrap();
     let axi = match h.find_scope(&["top", "axi"]) {
         volna_core::data::source::Lookup::Found(s) => s,
         other => panic!("{other:?}"),
@@ -735,7 +737,7 @@ fn add_scope_as_group_nests_child_scopes_folded() {
         other => panic!("{other:?}"),
     };
     app.handle(Command::AddScopeAsGroup {
-        scope: axi,
+        scope: a(axi),
         recursive: false,
     });
     assert_eq!(
@@ -743,7 +745,7 @@ fn add_scope_as_group_nests_child_scopes_folded() {
         ["-axi", "  awvalid", "  wdata", "  bvalid"]
     );
     app.handle(Command::AddScopeAsGroup {
-        scope: top,
+        scope: a(top),
         recursive: true,
     });
     pump(&mut app);
@@ -792,8 +794,10 @@ fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
     app.handle(Command::Action(Action::IncreaseRowHeight));
     let panel = app.panels.waves_mut(id).unwrap();
     panel.set_folded(6, true, false);
-    let saved =
-        serde_json::to_value(Workspace::capture(&app, TRACE.into(), None).unwrap()).unwrap();
+    let saved = serde_json::to_value(
+        Workspace::capture(&app, volna_core::testing::paths(TRACE), None).unwrap(),
+    )
+    .unwrap();
     let panel = &saved["panels"][0];
     assert_eq!(panel["version"], 4);
     let rows = &panel["rows"];
@@ -888,7 +892,8 @@ fn every_tree_edit_keeps_a_valid_tree_and_the_rows_it_had() {
         seed ^= seed << 17;
         (seed % n.max(1) as u64) as usize
     };
-    let leaf = |k: usize| WaveRow::Clock(volna_core::wave::model::ClockRow::new(&format!("c{k}")));
+    let leaf =
+        |k: usize| WaveRow::Clock(volna_core::wave::model::ClockRow::new(a(format!("c{k}"))));
     let names = |items: &[Entry]| -> Vec<String> {
         let mut v: Vec<String> = items
             .iter()

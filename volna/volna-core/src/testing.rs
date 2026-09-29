@@ -359,6 +359,69 @@ impl ProceduralTrace {
     }
 }
 
+/// A session that holds only `hierarchy`: its histories do not load. For
+/// tests of the hierarchy browser over a hand-built tree.
+pub fn hierarchy_session(hierarchy: crate::data::Hierarchy) -> Arc<dyn Session> {
+    struct Bare {
+        info: TraceInfo,
+        hierarchy: crate::data::Hierarchy,
+    }
+    impl Session for Bare {
+        fn info(&self) -> &TraceInfo {
+            &self.info
+        }
+        fn hierarchy(&self) -> &crate::data::Hierarchy {
+            &self.hierarchy
+        }
+        fn load_signal(&self, _: SignalRef) -> anyhow::Result<Arc<dyn SignalHistory>> {
+            anyhow::bail!("a bare hierarchy has no histories")
+        }
+    }
+    Arc::new(Bare {
+        info: TraceInfo {
+            name: "hierarchy".into(),
+            design_id: None,
+            timescale: -9,
+            time_range: (0, 1),
+            signal_count: hierarchy.vars.len(),
+            change_count: None,
+            time_unit: None,
+        },
+        hierarchy,
+    })
+}
+
+/// A document showing `hierarchy` as trace A.
+pub fn hierarchy_document(hierarchy: crate::data::Hierarchy) -> crate::Document {
+    let mut doc = crate::Document::new();
+    doc.set_session(hierarchy_session(hierarchy));
+    doc
+}
+
+/// `item` in trace A, the one trace most tests open.
+pub fn a<T>(item: T) -> crate::trace::Traced<T> {
+    crate::trace::Traced::new(crate::trace::TraceId::A, item)
+}
+
+/// How test workspaces reference their traces: A at `path`, the others
+/// by their sources.
+pub fn paths(
+    path: &str,
+) -> impl Fn(&crate::trace::TraceSlot) -> anyhow::Result<Option<String>> + '_ {
+    move |slot| {
+        Ok(Some(if slot.id.is_a() {
+            path.to_owned()
+        } else {
+            slot.source.clone()
+        }))
+    }
+}
+
+/// Each of `items` in trace A.
+pub fn a_all<T>(items: impl IntoIterator<Item = T>) -> Vec<crate::trace::Traced<T>> {
+    items.into_iter().map(a).collect()
+}
+
 /// Perform `app`'s requests until none remain, completing every trace open
 /// with `session` instead of opening its spec.
 pub fn complete_open(app: &mut App, session: Arc<dyn Session>) {
@@ -369,7 +432,10 @@ pub fn complete_open(app: &mut App, session: Arc<dyn Session>) {
         }
         for request in requests {
             app.deliver(match request {
-                LoadRequest::Open { generation, .. } => LoadResult::Opened {
+                LoadRequest::Open {
+                    trace, generation, ..
+                } => LoadResult::Opened {
+                    trace,
                     generation,
                     result: Ok(session.clone()),
                 },

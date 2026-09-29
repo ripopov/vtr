@@ -157,6 +157,36 @@ impl PanelKind {
         }
     }
 
+    /// The one trace a pipeline, table or transaction panel shows (tabs
+    /// name it while several traces are open). Wave panels mix traces row
+    /// by row, and a table of signals may too.
+    pub fn trace(&self) -> Option<crate::trace::TraceId> {
+        match self {
+            Self::Pipeline(p) => Some(p.track.trace()),
+            Self::Table(t) => {
+                let mut traces = t.source.traces();
+                let first = traces.next()?;
+                traces.all(|t| t == first).then_some(first)
+            }
+            Self::Transaction(m) => m.shown().map(|r| r.track.trace()),
+            Self::Waves(_) | Self::Start | Self::Settings | Self::Unsupported(_) => None,
+        }
+    }
+
+    /// Whether the panel's content is trace `trace`'s, so it closes with
+    /// it: a pipeline or a table over its data, or a transaction panel
+    /// pinned to one of its records.
+    pub fn shows_trace(&self, trace: crate::trace::TraceId) -> bool {
+        match self {
+            Self::Pipeline(p) => p.track.trace() == trace,
+            Self::Table(t) => t.source.traces().any(|t| t == trace),
+            Self::Transaction(m) => {
+                m.pinned() && m.shown().is_some_and(|r| r.track.trace() == trace)
+            }
+            Self::Waves(_) | Self::Start | Self::Settings | Self::Unsupported(_) => false,
+        }
+    }
+
     /// The Markers lane of the last layout, in panels that have one.
     pub fn marker_lane(&self) -> Option<&crate::wave::overlay::MarkerLane> {
         match self {
@@ -179,6 +209,18 @@ impl PanelKind {
             (_, false) => Self::Waves(Box::default()),
             _ => bail!("cannot split this panel"),
         })
+    }
+}
+
+/// A panel's times follow the unit they are counted in.
+impl crate::trace::Retime for PanelKind {
+    fn retime(&mut self, by: crate::trace::Rescale) {
+        if let Some(nav) = self.nav_mut() {
+            nav.retime(by);
+        }
+        if let Self::Table(t) = self {
+            t.retime(by);
+        }
     }
 }
 
@@ -532,7 +574,7 @@ impl Panels {
     /// The panel already showing this stream or generator, in layout order.
     pub fn pipeline_for_track(
         &self,
-        track: crate::data::transactions::TrackRef,
+        track: crate::trace::Traced<crate::data::transactions::TrackRef>,
     ) -> Option<PanelId> {
         self.layout.panels().into_iter().find(|id| {
             self.panels[id]
@@ -545,13 +587,14 @@ impl Panels {
     pub fn pipeline_showing(
         &self,
         doc: &Document,
-        track: crate::data::transactions::TrackRef,
+        track: crate::trace::Traced<crate::data::transactions::TrackRef>,
         id: crate::data::transactions::TransactionRef,
     ) -> Option<PanelId> {
         self.layout.panels().into_iter().find(|panel| {
             self.panels[panel].kind.pipeline().is_some_and(|p| {
-                matches!(p.rows(doc), crate::pipeline::Rows::Ready(set)
-                    if set.row_of(track, id).is_some())
+                p.track.trace() == track.trace
+                    && matches!(p.rows(doc), crate::pipeline::Rows::Ready(set)
+                        if set.row_of(track.item, id).is_some())
             })
         })
     }

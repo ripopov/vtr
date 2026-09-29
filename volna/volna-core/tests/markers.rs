@@ -5,6 +5,7 @@
 //! the undo journal.
 
 use std::sync::Arc;
+use volna_core::testing::a_all;
 
 use volna_core::marker::MarkerId;
 use volna_core::nav::NavState;
@@ -17,7 +18,7 @@ use volna_core::{Action, App, Command, Instant};
 fn app() -> App {
     let mut app = App::new();
     app.set_session(Arc::new(ProceduralTrace::new(100)));
-    app.handle(Command::AddVars(vec![0, 1]));
+    app.handle(Command::AddVars(a_all(vec![0, 1])));
     app
 }
 

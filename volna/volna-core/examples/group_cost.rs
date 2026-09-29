@@ -95,7 +95,7 @@ fn main() -> anyhow::Result<()> {
     app.set_session(OpenSpec::Path(path).open()?);
     let load = Instant::now();
     app.handle(Command::AddScopeAsGroup {
-        scope: 0,
+        scope: volna_core::trace::Traced::new(volna_core::trace::TraceId::A, 0),
         recursive: false,
     });
     loop {

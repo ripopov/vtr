@@ -50,6 +50,16 @@ impl<T: Lerp> Tween<T> {
             .map_or_else(|| self.value.clone(), |a| a.to.clone())
     }
 
+    /// Apply `f` to the value and to both ends of a running animation, as
+    /// a change of time unit does.
+    pub(crate) fn map(&mut self, f: impl Fn(&T) -> T) {
+        self.value = f(&self.value);
+        if let Some(a) = &mut self.animation {
+            a.from = f(&a.from);
+            a.to = f(&a.to);
+        }
+    }
+
     /// Jump, discarding any animation.
     pub fn set(&mut self, value: T) {
         self.value = value;

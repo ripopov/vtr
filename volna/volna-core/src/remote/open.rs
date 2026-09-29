@@ -8,12 +8,14 @@ use super::session::RemoteSession;
 use super::transport::{Body, Command, ObjectId, Packet, Receive, Receiver, acknowledgement};
 use crate::session::LoadResult;
 use crate::session::Session;
+use crate::trace::TraceId;
 use std::sync::Arc;
 
 /// Drives one Open response: acknowledges consumed chunks and yields
 /// [`LoadResult::Opened`] only after the matching End.
 pub struct OpenTransfer {
     request: u64,
+    trace: TraceId,
     generation: u64,
     limit: u64,
     budget: MemoryBudget,
@@ -29,6 +31,7 @@ pub struct OpenTransfer {
 impl OpenTransfer {
     pub fn new(
         request: u64,
+        trace: TraceId,
         generation: u64,
         limit: u64,
         budget: MemoryBudget,
@@ -36,6 +39,7 @@ impl OpenTransfer {
         anyhow::ensure!(request != 0, "invalid Open request identity");
         Ok(Self {
             request,
+            trace,
             generation,
             limit,
             budget,
@@ -152,6 +156,7 @@ impl OpenTransfer {
         ClientStep::Complete {
             ack,
             result: LoadResult::Opened {
+                trace: self.trace,
                 generation: self.generation,
                 result,
             },
@@ -238,16 +243,20 @@ mod tests {
     #[test]
     fn metadata_is_private_until_end_and_reservation_follows_shared_session() {
         let budget = MemoryBudget::new(4 * 1024 * 1024);
-        let mut transfer = OpenTransfer::new(7, 99, 1024 * 1024, budget.clone()).unwrap();
+        let mut transfer =
+            OpenTransfer::new(7, TraceId::A, 99, 1024 * 1024, budget.clone()).unwrap();
         decode_without_end(&mut transfer);
         assert!(budget.used() > 0);
         assert!(transfer.finish().is_err());
         assert_eq!(budget.used(), 0);
 
-        let mut transfer = OpenTransfer::new(7, 99, 1024 * 1024, budget.clone()).unwrap();
+        let mut transfer =
+            OpenTransfer::new(7, TraceId::A, 99, 1024 * 1024, budget.clone()).unwrap();
         let sequence = decode_without_end(&mut transfer);
         let ClientStep::Complete {
-            result: LoadResult::Opened { generation, result },
+            result: LoadResult::Opened {
+                generation, result, ..
+            },
             ..
         } = transfer.accept(packet(sequence, Body::End)).unwrap()
         else {
@@ -267,7 +276,8 @@ mod tests {
     #[test]
     fn wrong_identity_discards_private_metadata_and_prevents_reuse() {
         let budget = MemoryBudget::new(4 * 1024 * 1024);
-        let mut transfer = OpenTransfer::new(7, 99, 1024 * 1024, budget.clone()).unwrap();
+        let mut transfer =
+            OpenTransfer::new(7, TraceId::A, 99, 1024 * 1024, budget.clone()).unwrap();
         let sequence = decode_without_end(&mut transfer);
         let mut wrong = packet(sequence, Body::End);
         wrong.request += 1;

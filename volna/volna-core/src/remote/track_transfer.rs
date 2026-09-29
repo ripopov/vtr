@@ -6,6 +6,7 @@ use super::transport::{ObjectId, Packet, Receive, Receiver, acknowledgement};
 use crate::data::loaded_tracks::LoadedTrack;
 use crate::data::transactions::TrackRef;
 use crate::session::{LoadResult, Session};
+use crate::trace::TraceId;
 use std::sync::Arc;
 
 /// Receives one track and publishes [`LoadResult::Track`] with the original
@@ -13,6 +14,7 @@ use std::sync::Arc;
 /// Admission or record failures drain the object into a track error; protocol
 /// errors poison the transfer and are returned by `accept`.
 pub struct TrackTransfer {
+    trace: TraceId,
     generation: u64,
     request_id: u64,
     session: Arc<dyn Session>,
@@ -29,8 +31,10 @@ pub struct TrackTransfer {
 }
 
 impl TrackTransfer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         request: u64,
+        trace: TraceId,
         generation: u64,
         request_id: u64,
         session: Arc<dyn Session>,
@@ -42,6 +46,7 @@ impl TrackTransfer {
             .remote_id()
             .ok_or_else(|| anyhow::anyhow!("track session is not remote"))?;
         Ok(Self {
+            trace,
             generation,
             request_id,
             session,
@@ -158,6 +163,7 @@ impl TrackTransfer {
         ClientStep::Complete {
             ack,
             result: LoadResult::Track {
+                trace: self.trace,
                 generation: self.generation,
                 request_id: self.request_id,
                 track: self.track,
@@ -267,6 +273,7 @@ mod tests {
         let budget = MemoryBudget::new(4 * 1024 * 1024);
         let mut transfer = TrackTransfer::new(
             7,
+            TraceId::A,
             99,
             55,
             session.clone(),
@@ -284,14 +291,24 @@ mod tests {
         assert!(transfer.accept(packet(end, Body::End)).is_err());
         assert!(transfer.finish().is_err());
 
-        let mut transfer =
-            TrackTransfer::new(7, 99, 56, session, track, 1024 * 1024, budget.clone()).unwrap();
+        let mut transfer = TrackTransfer::new(
+            7,
+            TraceId::A,
+            99,
+            56,
+            session,
+            track,
+            1024 * 1024,
+            budget.clone(),
+        )
+        .unwrap();
         let end = before_end(&mut transfer, track, &bytes);
         let ClientStep::Complete {
             result:
                 LoadResult::Track {
                     generation: 99,
                     request_id: 56,
+                    trace: TraceId::A,
                     track: returned,
                     result,
                 },
@@ -312,8 +329,17 @@ mod tests {
     fn admission_failure_drains_and_completes_as_a_track_error() {
         let (session, track, bytes) = fixture();
         let budget = MemoryBudget::new(0);
-        let mut transfer =
-            TrackTransfer::new(7, 99, 55, session, track, 1024 * 1024, budget.clone()).unwrap();
+        let mut transfer = TrackTransfer::new(
+            7,
+            TraceId::A,
+            99,
+            55,
+            session,
+            track,
+            1024 * 1024,
+            budget.clone(),
+        )
+        .unwrap();
         let end = before_end(&mut transfer, track, &bytes);
         let ClientStep::Complete {
             result:

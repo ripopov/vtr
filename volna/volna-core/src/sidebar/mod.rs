@@ -6,7 +6,7 @@ pub mod members;
 pub mod scopes;
 
 pub use members::MemberListModel;
-pub use scopes::ScopeTreeModel;
+pub use scopes::{ScopeTreeModel, TreeNode};
 
 /// A key the list models understand. Frontends translate their own key events.
 #[derive(Clone, Debug, PartialEq, Eq)]

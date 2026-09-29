@@ -10,12 +10,14 @@
 //! Loading is pull based so it fits any executor: the document queues
 //! [`LoadRequest`]s, the frontend performs them wherever it likes (a thread, a
 //! task, the browser's main loop) and hands the [`LoadResult`] back to
-//! [`crate::app::App::deliver`]. Results carry the generation they were requested
-//! under; a newer open or close makes them no-ops.
+//! [`crate::app::App::deliver`]. Results carry their trace and the generation
+//! they were requested under; a newer open, a close, or a change of the
+//! trace's placement makes them no-ops.
 
 use std::sync::Arc;
 
 use crate::data::{Hierarchy, SignalHistory, SignalRef, TraceInfo};
+use crate::trace::{TraceId, Traced};
 
 pub use crate::data::vtr_source::LocalSession;
 
@@ -53,6 +55,12 @@ pub trait Session: Send + Sync {
     /// process-local pool so native and remote table construction use the
     /// same ownership path.
     fn memory_budget(&self) -> Option<crate::remote::memory::MemoryBudget> {
+        None
+    }
+
+    /// The file format it was read from (`VTR`, `FST`), as a trace chip
+    /// names it; `None` when the reader does not say (a remote recording).
+    fn format(&self) -> Option<&'static str> {
         None
     }
 
@@ -149,6 +157,9 @@ impl Session for AccountedSession {
     }
     fn memory_budget(&self) -> Option<crate::remote::memory::MemoryBudget> {
         Some(self.budget.clone())
+    }
+    fn format(&self) -> Option<&'static str> {
+        self.inner.format()
     }
     fn tracks(&self) -> &[crate::data::transactions::Track] {
         self.inner.tracks()
@@ -279,6 +290,15 @@ impl OpenSpec {
         }
     }
 
+    /// Where it comes from, for naming the trace: the path, or the name.
+    pub fn source(&self) -> String {
+        match self {
+            OpenSpec::Remote { name, .. } | OpenSpec::Bytes { name, .. } => name.clone(),
+            #[cfg(not(target_family = "wasm"))]
+            OpenSpec::Path(p) => p.to_string_lossy().into_owned(),
+        }
+    }
+
     /// Open the trace. Blocking; run it where blocking is acceptable.
     pub fn open(self) -> anyhow::Result<Arc<dyn Session>> {
         match self {
@@ -334,18 +354,25 @@ fn is_fst(bytes: &[u8]) -> anyhow::Result<bool> {
 }
 
 /// Work the document wants done. Obtain with [`crate::app::App::take_requests`].
+///
+/// Trace loads name their trace and the generation of its slot; the
+/// document places what they return on the session timeline as it arrives
+/// ([`crate::trace::Placement`]), so executors hand back trace times.
 pub enum LoadRequest {
     Track {
+        trace: TraceId,
         generation: u64,
         request_id: u64,
         session: Arc<dyn Session>,
         track: crate::data::transactions::TrackRef,
     },
     Open {
+        trace: TraceId,
         generation: u64,
         spec: OpenSpec,
     },
     Signals {
+        trace: TraceId,
         generation: u64,
         session: Arc<dyn Session>,
         signals: Vec<SignalRef>,
@@ -353,7 +380,7 @@ pub enum LoadRequest {
     /// Summarize a resident history for analog drawing (client-side work).
     Summary {
         generation: u64,
-        signal: SignalRef,
+        signal: Traced<SignalRef>,
         history: Arc<dyn crate::data::SignalHistory>,
         kind: crate::data::NumericKind,
         budget: crate::remote::memory::MemoryBudget,
@@ -380,15 +407,20 @@ impl LoadRequest {
     /// Complete failed work with its original document and object identities.
     pub fn fail(self, error: anyhow::Error) -> LoadResult {
         match self {
-            Self::Open { generation, .. } => LoadResult::Opened {
+            Self::Open {
+                trace, generation, ..
+            } => LoadResult::Opened {
+                trace,
                 generation,
                 result: Err(error),
             },
             Self::Signals {
+                trace,
                 generation,
                 signals,
                 ..
             } => LoadResult::Signals {
+                trace,
                 generation,
                 results: signals
                     .into_iter()
@@ -396,11 +428,13 @@ impl LoadRequest {
                     .collect(),
             },
             Self::Track {
+                trace,
                 generation,
                 request_id,
                 track,
                 ..
             } => LoadResult::Track {
+                trace,
                 generation,
                 request_id,
                 track,
@@ -435,25 +469,34 @@ impl LoadRequest {
     pub fn perform(self) -> LoadResult {
         match self {
             LoadRequest::Track {
+                trace,
                 generation,
                 request_id,
                 session,
                 track,
             } => LoadResult::Track {
+                trace,
                 generation,
                 request_id,
                 track,
                 result: session.load_track(track),
             },
-            LoadRequest::Open { generation, spec } => LoadResult::Opened {
+            LoadRequest::Open {
+                trace,
+                generation,
+                spec,
+            } => LoadResult::Opened {
+                trace,
                 generation,
                 result: spec.open(),
             },
             LoadRequest::Signals {
+                trace,
                 generation,
                 session,
                 signals,
             } => LoadResult::Signals {
+                trace,
                 generation,
                 results: session.load_signals(&signals),
             },
@@ -492,22 +535,25 @@ impl LoadRequest {
 /// The outcome of a [`LoadRequest`], to hand to [`crate::app::App::deliver`].
 pub enum LoadResult {
     Track {
+        trace: TraceId,
         generation: u64,
         request_id: u64,
         track: crate::data::transactions::TrackRef,
         result: anyhow::Result<crate::data::loaded_tracks::LoadedTrack>,
     },
     Signals {
+        trace: TraceId,
         generation: u64,
         results: SignalLoads,
     },
     Opened {
+        trace: TraceId,
         generation: u64,
         result: anyhow::Result<Arc<dyn Session>>,
     },
     Summary {
         generation: u64,
-        signal: SignalRef,
+        signal: Traced<SignalRef>,
         kind: crate::data::NumericKind,
         /// Identity of the summarized history.
         history: usize,

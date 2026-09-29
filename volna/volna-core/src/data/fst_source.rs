@@ -309,6 +309,9 @@ impl Session for FstSession {
     fn resident_bytes(&self) -> u64 {
         self.source_bytes
     }
+    fn format(&self) -> Option<&'static str> {
+        Some("FST")
+    }
     fn info(&self) -> &TraceInfo {
         &self.info
     }

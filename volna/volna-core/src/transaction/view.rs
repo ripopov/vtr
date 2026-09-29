@@ -16,6 +16,7 @@ use crate::data::transactions::{
 use crate::document::Document;
 use crate::pipeline::model::LABEL_ATTRIBUTE;
 use crate::pipeline::palette::{StagePalette, StageStyle};
+use crate::trace::Traced;
 use crate::wave::timeline::format_time;
 
 /// Bytes one prepared view may materialize. A record whose attributes exceed
@@ -114,7 +115,7 @@ impl<T> Section<T> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identity {
-    pub track: TrackRef,
+    pub track: Traced<TrackRef>,
     /// The owning stream's path; empty when the generator has no stream.
     pub stream: Vec<String>,
     pub generator: String,
@@ -234,7 +235,9 @@ pub struct RefRow {
     pub role: RefRole,
     /// `Parent`, `Children`, or `wakeup · from`.
     pub group: String,
+    /// The related record, in the shown record's trace.
     pub target: TransactionLocation,
+    pub trace: crate::trace::TraceId,
     /// The target's caption, when its generator is loaded.
     pub label: Option<String>,
     /// The target's generator path when it is not this record's.
@@ -243,6 +246,13 @@ pub struct RefRow {
     pub relation_label: Option<String>,
     /// False when the target's generator is not resident; a jump loads it.
     pub loaded: bool,
+}
+
+impl RefRow {
+    /// The related record's generator, where a jump goes.
+    pub fn target_track(&self) -> Traced<TrackRef> {
+        Traced::new(self.trace, self.target.generator)
+    }
 }
 
 /// Everything a Transaction panel draws for one record.
@@ -273,15 +283,15 @@ impl TxView {
 /// resident or holds no such record.
 pub fn view(
     doc: &Document,
-    track: TrackRef,
+    track: Traced<TrackRef>,
     id: TransactionRef,
     prefs: &ViewPrefs,
 ) -> Option<TxView> {
     let generator = doc.resident_generator(track)?;
     let tx = generator.transaction(id)?;
-    let session = doc.session()?;
+    let session = doc.session(track.trace)?;
     let catalog = session.tracks();
-    let declaration = catalog.iter().find(|t| t.id == track)?;
+    let declaration = catalog.iter().find(|t| t.id == track.item)?;
     let stream = match declaration.kind {
         TrackKind::Generator { stream } => catalog
             .iter()
@@ -683,13 +693,13 @@ fn related(
     doc: &Document,
     generator: &LoadedGenerator,
     tx: &Transaction,
-    track: TrackRef,
+    track: Traced<TrackRef>,
     limit: usize,
     budget: &mut Budget,
 ) -> Section<RefRow> {
     let here = TransactionLocation {
         transaction: tx.id,
-        generator: track,
+        generator: track.item,
     };
     let mut entries: Vec<(String, TransactionLocation, RefRole, Option<String>)> = Vec::new();
     if let Some(parent) = generator.parent(tx.id) {
@@ -697,7 +707,7 @@ fn related(
     }
     // A child may be recorded in any loaded generator: VTR links the child to
     // its parent, so the reverse edge is only known where the child lives.
-    for other in doc.resident_generators() {
+    for other in doc.resident_generators(track.trace) {
         for &child in other.children(here) {
             entries.push((
                 "Children".into(),
@@ -715,12 +725,12 @@ fn related(
     let mut edges: Vec<_> = generator.relations_of(tx.id).collect();
     edges.sort_by(|a, b| {
         let outgoing = |e: &&crate::data::loaded_tracks::LoadedRelation| {
-            e.relation.from == tx.id && e.from_generator == track
+            e.relation.from == tx.id && e.from_generator == track.item
         };
         (&a.relation.kind, !outgoing(a)).cmp(&(&b.relation.kind, !outgoing(b)))
     });
     for edge in edges {
-        let outgoing = edge.relation.from == tx.id && edge.from_generator == track;
+        let outgoing = edge.relation.from == tx.id && edge.from_generator == track.item;
         let (target, target_generator) = if outgoing {
             (edge.relation.to, edge.to_generator)
         } else {
@@ -747,20 +757,20 @@ fn related(
         ));
     }
     let total = entries.len();
-    let catalog = doc.session().map(|s| s.tracks()).unwrap_or(&[]);
+    let catalog = doc.session(track.trace).map(|s| s.tracks()).unwrap_or(&[]);
     let mut rows = Vec::new();
     for (group, target, role, relation_label) in entries.into_iter().take(limit) {
         if !budget.open() {
             break;
         }
-        let resident = doc.resident_generator(target.generator);
+        let resident = doc.resident_generator(track.with(target.generator));
         let label = resident
             .as_ref()
             .and_then(|g| g.transaction(target.transaction))
             .map(crate::pipeline::PipelineModel::label)
             .filter(|label| !label.is_empty())
             .map(|label| budget.text(&label));
-        let path = (target.generator != track)
+        let path = (target.generator != track.item)
             .then(|| {
                 catalog
                     .iter()
@@ -772,6 +782,7 @@ fn related(
             role,
             group: budget.text(&group),
             target,
+            trace: track.trace,
             label,
             track: path,
             relation_label: relation_label.map(|label| budget.text(&label)),
@@ -790,7 +801,7 @@ fn related(
 /// The complete record as TSV, refused rather than cut past `limit` bytes.
 pub fn copy_tsv(
     doc: &Document,
-    track: TrackRef,
+    track: Traced<TrackRef>,
     id: TransactionRef,
     limit: usize,
 ) -> anyhow::Result<String> {
@@ -800,11 +811,11 @@ pub fn copy_tsv(
     let tx = generator
         .transaction(id)
         .ok_or_else(|| anyhow::anyhow!("Record is not loaded."))?;
-    let catalog = doc.session().map(|s| s.tracks()).unwrap_or(&[]);
+    let catalog = doc.session(track.trace).map(|s| s.tracks()).unwrap_or(&[]);
     let mut truncated = false;
     let path = catalog
         .iter()
-        .find(|t| t.id == track)
+        .find(|t| t.id == track.item)
         .map(|t| join_path_limited(&t.path, limit, &mut truncated))
         .unwrap_or_default();
     let mut text = String::new();

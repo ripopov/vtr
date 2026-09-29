@@ -8,7 +8,9 @@ pub use tween::{Lerp, Tween};
 
 use web_time::Instant;
 
+use crate::clock::ClockKey;
 use crate::document::Document;
+use crate::trace::{Rescale, Retime};
 use crate::wave::viewport::Viewport;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -61,7 +63,21 @@ pub struct Spot {
 const REVEAL_EDGE: f64 = 0.05;
 
 /// A timed panel's ruler rows and cycle origin, as the undo journal swaps them.
-pub(crate) type ClockChoice = (Option<Vec<String>>, Option<u64>);
+pub(crate) type ClockChoice = (Option<Vec<ClockKey>>, Option<u64>);
+
+/// Every time the panel holds: its own view and cursor, the cycle origin,
+/// and the place a jump returns to.
+impl Retime for NavState {
+    fn retime(&mut self, by: Rescale) {
+        self.local_viewport.retime(by);
+        self.local_cursor.retime(by);
+        self.clocks.origin.retime(by);
+        if let Some(back) = &mut self.back {
+            back.cursor.retime(by);
+            back.viewport.retime(by);
+        }
+    }
+}
 
 impl Default for NavState {
     fn default() -> Self {
@@ -343,8 +359,8 @@ impl NavState {
     }
 
     /// Select the clock clicks snap to and cycle steps follow (navigation).
-    pub fn select_clock(&mut self, path: &str) {
-        self.clocks.selected = Some(path.to_owned());
+    pub fn select_clock(&mut self, key: ClockKey) {
+        self.clocks.selected = Some(key);
     }
 
     /// The panel's clock rulers, snapping clock and cycle origin.
@@ -353,21 +369,31 @@ impl NavState {
     }
 
     /// Show a ruler row (see [`crate::clock::ClockView::show_ruler`]).
-    pub fn show_ruler(&mut self, clocks: &crate::clock::Clocks, path: &str) {
+    pub fn show_ruler(&mut self, clocks: &crate::clock::Clocks, key: &ClockKey) {
         self.note_clocks();
-        self.clocks.show_ruler(clocks, path);
+        self.clocks.show_ruler(clocks, key);
     }
 
     /// Hide a ruler row if it is shown.
-    pub fn hide_ruler(&mut self, clocks: &crate::clock::Clocks, path: &str) {
+    pub fn hide_ruler(&mut self, clocks: &crate::clock::Clocks, key: &ClockKey) {
         self.note_clocks();
-        self.clocks.hide_ruler(clocks, path);
+        self.clocks.hide_ruler(clocks, key);
     }
 
     /// Show or hide a ruler row.
-    pub fn toggle_ruler(&mut self, clocks: &crate::clock::Clocks, path: &str) {
+    pub fn toggle_ruler(&mut self, clocks: &crate::clock::Clocks, key: &ClockKey) {
         self.note_clocks();
-        self.clocks.toggle_ruler(clocks, path);
+        self.clocks.toggle_ruler(clocks, key);
+    }
+
+    /// Hide a closed trace's rulers as an edit, and stop snapping to its
+    /// clock.
+    pub(crate) fn forget_trace(&mut self, trace: crate::trace::TraceId) {
+        let mut clocks = self.clocks.clone();
+        if clocks.forget_trace(trace) {
+            self.note_clocks();
+        }
+        self.clocks = clocks;
     }
 
     fn note_clocks(&mut self) {
@@ -497,13 +523,13 @@ impl NavState {
 /// "Show ruler core_clk", "Hide ruler bus_clk", "Set cycle origin".
 fn clocks_label(
     clocks: &crate::clock::Clocks,
-    rulers: &Option<Vec<String>>,
+    rulers: &Option<Vec<ClockKey>>,
     origin: Option<u64>,
     now: &crate::clock::ClockView,
 ) -> String {
     let before = rulers.as_deref().unwrap_or(&clocks.defaults);
-    let after = now.ruler_paths(clocks);
-    let name = |path: &str| path.rsplit('.').next().unwrap_or(path).to_owned();
+    let after = now.ruler_keys(clocks);
+    let name = |key: &ClockKey| key.item.rsplit('.').next().unwrap_or(&key.item).to_owned();
     if let Some(shown) = after.iter().find(|p| !before.contains(p)) {
         return format!("Show ruler {}", name(shown));
     }

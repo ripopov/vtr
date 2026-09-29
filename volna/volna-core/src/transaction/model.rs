@@ -14,6 +14,7 @@ use crate::document::{Document, TrackLoadState, TxSelection};
 use crate::history::{Before, Edit, History, MergeKey, Prop};
 use crate::pipeline::TrackSource;
 use crate::remote::memory::{MemoryBudget, Reservation};
+use crate::trace::Traced;
 use crate::wave::viewport::Viewport;
 
 /// Bytes a Transaction panel admits: one prepared view.
@@ -56,7 +57,7 @@ pub enum TxPanelState {
 pub enum TransactionCommand {
     /// Show another record, loading its generator when needed.
     Jump {
-        track: TrackRef,
+        track: Traced<TrackRef>,
         id: TransactionRef,
     },
     Back,
@@ -87,7 +88,7 @@ pub struct TransactionModel {
     pin_before: Before<(bool, Option<ShownRecord>)>,
     radix_before: Before<BTreeMap<String, Radix>>,
     /// The track retained for the shown record, released when it changes.
-    retained: Option<TrackRef>,
+    retained: Option<Traced<TrackRef>>,
     attached: bool,
     refused: Option<String>,
     budget: MemoryBudget,
@@ -132,6 +133,22 @@ impl TransactionModel {
 
     pub fn shown(&self) -> Option<&ShownRecord> {
         self.history.get(self.cursor)
+    }
+
+    /// A trace is closing: forget its records, and release its track if
+    /// the shown record was one of them.
+    pub(crate) fn forget_trace(&mut self, doc: &mut Document, trace: crate::trace::TraceId) {
+        let shown = self.shown().cloned();
+        self.history.retain(|r| r.track.trace() != trace);
+        self.cursor = shown
+            .and_then(|s| self.history.iter().position(|r| *r == s))
+            .unwrap_or(self.history.len().saturating_sub(1));
+        let track = self.shown().and_then(|r| r.track.track());
+        if !self.hold(doc, track)
+            && let Some(track) = self.retained.take()
+        {
+            doc.release_track(track);
+        }
     }
 
     /// Whether the panel ignores the document selection.
@@ -292,7 +309,7 @@ impl TransactionModel {
 
     /// Retain `track` in place of the one held, once attached. Returns false
     /// when the document refuses it; the previous hold is then kept.
-    fn hold(&mut self, doc: &mut Document, track: Option<TrackRef>) -> bool {
+    fn hold(&mut self, doc: &mut Document, track: Option<Traced<TrackRef>>) -> bool {
         if !self.attached || self.retained == track {
             return true;
         }
@@ -501,11 +518,11 @@ impl TransactionModel {
     }
 }
 
-/// The catalog path of a track of the open trace.
-fn track_path(doc: &Document, track: TrackRef) -> Option<Vec<String>> {
-    doc.session()?
+/// The catalog path of a track of an open trace.
+fn track_path(doc: &Document, track: Traced<TrackRef>) -> Option<Vec<String>> {
+    doc.session(track.trace)?
         .tracks()
         .iter()
-        .find(|t| t.id == track)
+        .find(|t| t.id == track.item)
         .map(|t| t.path.clone())
 }

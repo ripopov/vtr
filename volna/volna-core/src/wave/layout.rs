@@ -26,6 +26,10 @@ pub const INDENT: f32 = 14.0;
 /// A group's chevron sits before its name in a box this wide.
 pub const CHEVRON_W: f32 = 16.0;
 
+/// While several traces are open, the names column starts with a gutter
+/// this wide holding each row's trace letter.
+pub const TRACE_GUTTER: f32 = 20.0;
+
 /// Where a name at `depth` starts in a names column whose left edge is
 /// `left`; a group's chevron sits there and its name follows the chevron.
 pub fn indent_x(left: f32, depth: u8, zoom: f32) -> f32 {
@@ -39,6 +43,9 @@ pub struct WaveLayout {
     /// Clock ruler rows below the header, across the whole panel (empty without rulers).
     pub rulers: Rect,
     pub names: Rect,
+    /// Where names indent from: the names column's left edge, after the
+    /// trace gutter when there is one.
+    pub name_left: f32,
     pub values: Rect,
     pub waves: Rect,
     /// Visible positions on screen; [`WaveLayout::entry`] maps one to its
@@ -79,6 +86,8 @@ pub struct LayoutInput<'a> {
     pub zoom: f32,
     pub names_width: f32,
     pub values_width: f32,
+    /// Whether rows show their trace letter in a gutter (several traces open).
+    pub trace_gutter: bool,
     /// From [`row_tops`]: one entry per visible row plus the content height.
     pub row_tops: Arc<[u32]>,
     /// Entry index of each visible row (see [`crate::wave::tree::visible`]).
@@ -228,6 +237,12 @@ impl WaveLayout {
             header,
             rulers,
             names,
+            name_left: names.left()
+                + if input.trace_gutter {
+                    z(TRACE_GUTTER)
+                } else {
+                    0.0
+                },
             values,
             waves,
             rows,
@@ -339,6 +354,7 @@ mod tests {
             zoom,
             names_width: 220.0,
             values_width: 120.0,
+            trace_gutter: false,
             row_tops: row_tops(vec![RowHeight::DEFAULT; items]),
             visible: (0..items as u32).collect(),
             scroll_y: 0.0,
@@ -398,6 +414,7 @@ mod tests {
             zoom: 1.0,
             names_width: 220.0,
             values_width: 120.0,
+            trace_gutter: false,
             row_tops: row_tops(heights),
             visible: (0..5).collect(),
             scroll_y,

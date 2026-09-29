@@ -46,6 +46,9 @@ fn run(measure: bool) -> anyhow::Result<()> {
     };
     use volna::app::Workspace;
     use volna::assets::Assets;
+    use volna_core::sidebar::TreeNode;
+    use volna_core::testing::{a, a_all};
+    use volna_core::trace::TraceId;
 
     let out = std::env::var_os("VOLNA_SCREENSHOTS").map(std::path::PathBuf::from);
     if let Some(out) = &out {
@@ -211,7 +214,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update(|cx| {
             workspace.update(cx, |ws, cx| {
                 ws.set_session(volna_core::testing::ProceduralTrace::session(100), cx);
-                ws.dispatch(volna_core::Command::AddVars(vec![0]), None, cx);
+                ws.dispatch(volna_core::Command::AddVars(a_all(vec![0])), None, cx);
                 ws.dispatch(
                     volna_core::Command::Action(volna_core::Action::SplitRight),
                     None,
@@ -324,7 +327,11 @@ fn run(measure: bool) -> anyhow::Result<()> {
             ] {
                 test.update_window(any, |_, w, cx| {
                     workspace.update(cx, |ws, cx| {
-                        ws.dispatch(Command::SelectScope(scope(path)), Some(w), cx);
+                        ws.dispatch(
+                            Command::SelectScope(TreeNode::scope(a(scope(path)))),
+                            Some(w),
+                            cx,
+                        );
                     })
                 })?;
                 shot(&mut test, name)?;
@@ -369,7 +376,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                         let scope = match ws
                             .app
                             .doc
-                            .hierarchy()
+                            .hierarchy(TraceId::A)
                             .unwrap()
                             .find_scope(&["soc", core, "pipeline"])
                         {
@@ -377,7 +384,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
                             other => panic!("showcase stream: {other:?}"),
                         };
                         ws.dispatch(
-                            Command::ActivateMembers(vec![Member::Stream(scope)]),
+                            Command::ActivateMembers(a_all(vec![Member::Stream(scope)])),
                             Some(w),
                             cx,
                         );
@@ -942,7 +949,16 @@ fn run(measure: bool) -> anyhow::Result<()> {
             })
         });
         settle(&mut test, 4);
-        let count = test.update(|cx| workspace.read(cx).app.doc.hierarchy().unwrap().vars.len());
+        let count = test.update(|cx| {
+            workspace
+                .read(cx)
+                .app
+                .doc
+                .hierarchy(TraceId::A)
+                .unwrap()
+                .vars
+                .len()
+        });
         assert!(count > 0);
         // A newly loaded trace owns keyboard focus without requiring a click
         // into its replacement dock panel: ⌘N turns its start panel into a
@@ -975,11 +991,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         });
         test.update(|cx| {
             workspace.update(cx, |ws, cx| {
-                ws.dispatch(
-                    volna_core::app::Command::AddVars((0..count).collect()),
-                    None,
-                    cx,
-                );
+                ws.dispatch(volna_core::app::Command::AddVars(a_all(0..count)), None, cx);
             })
         });
         settle(&mut test, 4);
@@ -1014,8 +1026,8 @@ fn run(measure: bool) -> anyhow::Result<()> {
         test.update(|cx| {
             workspace.update(cx, |ws, cx| {
                 ws.set_session(volna_core::testing::ProceduralTrace::session(n), cx);
-                let count = ws.app.doc.hierarchy().unwrap().vars.len();
-                ws.dispatch(volna_core::Command::AddVars((0..count).collect()), None, cx);
+                let count = ws.app.doc.hierarchy(TraceId::A).unwrap().vars.len();
+                ws.dispatch(volna_core::Command::AddVars(a_all(0..count)), None, cx);
             })
         });
         settle(&mut test, 4);

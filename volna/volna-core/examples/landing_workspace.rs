@@ -117,7 +117,8 @@ fn main() -> anyhow::Result<()> {
             signal("soc.reset_n", "bit"),
         ],
         "selected": [],
-        "clocks": {"rulers": ["soc.clk", "soc.dram.dram_clk"], "selected": "soc.clk"},
+        "clocks": {"rulers": [["A", "soc.clk"], ["A", "soc.dram.dram_clk"]],
+                   "selected": ["A", "soc.clk"]},
     });
     let pipeline_panel = json!({
         "follow": "following", "id": 2, "kind": "pipeline", "version": 1, "title": null,
@@ -137,8 +138,9 @@ fn main() -> anyhow::Result<()> {
     let workspace = json!({
         "format": volna_core::workspace::FORMAT,
         "version": volna_core::workspace::VERSION,
-        "trace": {"path": name, "name": name, "timescale": info.timescale,
-                  "time_range": [first, last], "design_id": info.design_id},
+        "traces": [{"letter": "A", "path": name, "name": name, "timescale": info.timescale,
+                    "time_range": [first, last], "design_id": info.design_id}],
+        "timescale": info.timescale,
         "layout": {"split": "horizontal", "sizes": [0.69, 0.31], "children": [
             {"split": "vertical", "sizes": [0.56, 0.44], "children": [
                 {"tabs": [1], "active": 1}, {"tabs": [2], "active": 2}]},
@@ -156,8 +158,9 @@ fn main() -> anyhow::Result<()> {
             ],
         },
         "sidebar": {"visible": true, "width": 190.0, "scopes_fraction": 0.42,
-                    "selected_scope": ["soc", "cpu0"],
-                    "expanded": [["soc"], ["soc", "cpu0"], ["soc", "l2"], ["soc", "perf"]],
+                    "selected_scope": ["A", ["soc", "cpu0"]],
+                    "expanded": [["A", ["soc"]], ["A", ["soc", "cpu0"]], ["A", ["soc", "l2"]],
+                                 ["A", ["soc", "perf"]]],
                     "filter": ""},
     });
 
@@ -173,7 +176,7 @@ fn main() -> anyhow::Result<()> {
         plan.report().notices
     );
     plan.commit(&mut app)?;
-    let captured = Workspace::capture(&app, name.clone(), None)?;
+    let captured = Workspace::capture(&app, |_| Ok(Some(name.clone())), None)?;
     // Layout fractions are f32: compare with the written file read back the same way.
     let written: Value =
         serde_json::from_slice(&Workspace::parse(&serde_json::to_vec(&workspace)?)?.to_bytes()?)?;

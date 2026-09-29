@@ -5,6 +5,7 @@
 //! workspaces, and setting it is never an undo step.
 
 use std::sync::Arc;
+use volna_core::testing::a_all;
 
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::marker::{MarkerId, Reference};
@@ -18,7 +19,7 @@ use volna_core::{Action, App, Command, Theme};
 fn app() -> App {
     let mut app = App::new();
     app.set_session(Arc::new(ProceduralTrace::new(1000)));
-    app.handle(Command::AddVars(vec![0, 1]));
+    app.handle(Command::AddVars(a_all(vec![0, 1])));
     app.doc.shared.viewport.set(Viewport {
         start: 1000.0,
         end: 2000.0,
@@ -364,9 +365,9 @@ fn workspaces_keep_the_reference_and_reject_one_without_its_marker() {
     let mut app = app();
     mark(&mut app, 1200);
     act(&mut app, Action::SetReference);
-    let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
+    let saved = Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap();
     let mut json = serde_json::to_value(&saved).unwrap();
-    assert_eq!(json["version"], 4);
+    assert_eq!(json["version"], volna_core::workspace::VERSION);
     assert_eq!(
         json["shared"]["reference"],
         serde_json::json!({"marker": 1})

@@ -7,6 +7,13 @@
 //! logs. No VDB presentation data; Volna's layout for it lives in
 //! volna/volna/examples/landing.vtr.volna.json.
 //!
+//! With `--dram-vcd FILE` it also writes the DRAM controller's own dump of
+//! the same run, as a separate simulator would: a picosecond VCD of the
+//! LPDDR command state, address and data strobes, which `vcd2fst` turns into
+//! `landing_dram.fst` for Volna's multiple-trace demo
+//! (docs/multiple-traces.html). Each of its ACT commands starts at the time
+//! and address of a DRAM burst in the VTR.
+//!
 //! cargo run --locked -p vtr --example landing -- volna/volna/examples/landing.vtr
 
 use std::collections::HashMap;
@@ -317,8 +324,14 @@ fn real(w: &mut Writer, parent: NodeId, name: &str) -> vtr::Result<SignalId> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).expect("usage: landing OUTPUT.vtr");
-    let path = Path::new(&path);
+    let usage = "usage: landing OUTPUT.vtr [--dram-vcd DRAM.vcd]";
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (path, dram_vcd) = match args.as_slice() {
+        [path] => (path, None),
+        [path, flag, vcd] if flag == "--dram-vcd" => (path, Some(Path::new(vcd))),
+        _ => return Err(usage.into()),
+    };
+    let path = Path::new(path);
     let run = simulate();
     let insns = &run.insns;
     let last_busy = insns.iter().map(|i| i.end).max().unwrap();
@@ -581,6 +594,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     w.set_time(edge(last_cycle))?;
     w.close()?;
 
+    if let Some(vcd) = dram_vcd {
+        write_dram_vcd(vcd, insns, last_cycle, dram_boost, dram_gate)?;
+    }
+
     // -- verify --------------------------------------------------------------------------
     let size = std::fs::metadata(path)?.len();
     if size >= MAX_BYTES {
@@ -625,5 +642,108 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (name, count) in names {
         println!("  {name}: {count}");
     }
+    Ok(())
+}
+
+/// The LPDDR controller's dump of the run, in picoseconds: its clock (3 ns,
+/// 2 ns from the interrupt, gated for self-refresh), `cke`, the command
+/// state as text, and per refill the address, bank and row from ACT, the
+/// data strobe during the burst and the corrected ECC error of the ninth.
+fn write_dram_vcd(
+    path: &Path,
+    insns: &[Insn],
+    last_cycle: u64,
+    boost: u64,
+    gate: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fmt::Write as _;
+    let ps = |ns: u64| ns * 1000;
+    // (time in ps, variable id, VCD value)
+    let mut ev: Vec<(u64, char, String)> = Vec::new();
+    let end = ps(edge(last_cycle));
+    let (mut t, mut level) = (0, 0u8);
+    while t < end {
+        let ns = t / 1000;
+        let half = if ns < boost { 1500 } else { 1000 };
+        let gated = ns >= gate && ns < gate + 40;
+        if !gated {
+            level ^= 1;
+            ev.push((t, 'k', level.to_string()));
+        } else if level == 1 {
+            level = 0;
+            ev.push((t, 'k', "0".into()));
+        }
+        t += half;
+    }
+    let bus = |v: Option<u64>| v.map_or_else(|| "bx".to_owned(), |v| format!("b{v:b}"));
+    for (id, value) in [('e', "1"), ('s', "IDLE"), ('v', "0"), ('x', "0")] {
+        ev.push((0, id, value.into()));
+    }
+    for id in ['a', 'b', 'r'] {
+        ev.push((0, id, bus(None)));
+    }
+    ev.push((ps(gate), 'e', "0".into()));
+    ev.push((ps(gate), 's', "SREF".into()));
+    ev.push((ps(gate + 40), 'e', "1".into()));
+    ev.push((ps(gate + 40), 's', "IDLE".into()));
+    let refills = insns
+        .iter()
+        .filter_map(|i| i.access.as_ref())
+        .filter(|a| a.level == Level::Dram);
+    for (n, a) in refills.enumerate() {
+        // The VTR's burst: ACT at `b`, CAS from `b + 4`, data from `e - 4`.
+        let (b, e) = (a.begin + 2, a.end - 2);
+        ev.push((ps(edge(b)), 's', "ACT".into()));
+        ev.push((ps(edge(b)), 'a', bus(Some(a.address))));
+        ev.push((ps(edge(b)), 'b', bus(Some((a.address >> 6) & 7))));
+        ev.push((ps(edge(b)), 'r', bus(Some(a.address >> 13))));
+        ev.push((ps(edge(b + 4)), 's', "RD".into()));
+        ev.push((ps(edge(e - 4)), 's', "BURST".into()));
+        ev.push((ps(edge(e - 4)), 'v', "1".into()));
+        if n == 8 {
+            ev.push((ps(edge(e - 1)), 'x', "1".into()));
+            ev.push((ps(edge(e)), 'x', "0".into()));
+        }
+        ev.push((ps(edge(e)), 'v', "0".into()));
+        ev.push((ps(edge(e)), 's', "IDLE".into()));
+        for id in ['a', 'b', 'r'] {
+            ev.push((ps(edge(e)), id, bus(None)));
+        }
+    }
+    ev.sort_by_key(|e| e.0);
+    let mut o = String::from(
+        "$version VTR landing demo: LPDDR controller model $end\n$timescale 1ps $end\n\
+         $scope module lpddr_tb $end\n$scope module ctrl $end\n",
+    );
+    let vars = [
+        ('k', "wire", 1, "ck"),
+        ('e', "wire", 1, "cke"),
+        ('s', "string", 1, "state"),
+        ('a', "wire", 32, "addr"),
+        ('b', "wire", 3, "bank"),
+        ('r', "wire", 19, "row"),
+        ('v', "wire", 1, "dq_valid"),
+        ('x', "wire", 1, "ecc_err"),
+    ];
+    for (id, kind, width, name) in vars {
+        writeln!(o, "$var {kind} {width} {id} {name} $end")?;
+    }
+    o.push_str("$upscope $end\n$upscope $end\n$enddefinitions $end\n");
+    let mut last = None;
+    for (t, id, value) in ev {
+        if last != Some(t) {
+            writeln!(o, "#{t}")?;
+            last = Some(t);
+        }
+        if id == 's' {
+            writeln!(o, "s{value} {id}")?;
+        } else if value.starts_with('b') {
+            writeln!(o, "{value} {id}")?;
+        } else {
+            writeln!(o, "{value}{id}")?;
+        }
+    }
+    writeln!(o, "#{end}")?;
+    std::fs::write(path, o)?;
     Ok(())
 }

@@ -592,7 +592,12 @@ impl crate::Workspace {
             let uri = file_uri(&path)?;
             let target = Target::File { uri: uri.clone() };
             let workspace = volna_core::workspace::Workspace::parse(&bytes)?;
-            let trace_uri = volna_core::workspace::resolve_trace(&workspace.trace.path, &uri)?;
+            let owner = workspace
+                .traces
+                .iter()
+                .find(|t| t.letter == volna_core::trace::TraceId::A)
+                .context("workspace names no trace A")?;
+            let trace_uri = volna_core::workspace::resolve_trace(&owner.path, &uri)?;
             let trace = path_from_uri(&trace_uri)?.canonicalize()?;
             let trace_uri = file_uri(&trace)?;
             if self.app.doc.is_loaded()
@@ -626,7 +631,9 @@ impl crate::Workspace {
 }
 
 pub struct Options {
-    pub file: Option<PathBuf>,
+    /// The first opens; the others join it as traces B, C…
+    /// (`docs/multiple-traces.html`). A workspace file opens alone.
+    pub files: Vec<PathBuf>,
     pub policy: Persistence,
     pub config_dir: Option<PathBuf>,
     pub help: bool,
@@ -639,7 +646,7 @@ impl Options {
         config_env: Option<PathBuf>,
     ) -> Result<Self> {
         let mut options = Self {
-            file: None,
+            files: Vec::new(),
             policy: match workspace_env.as_deref() {
                 None => Persistence::Auto,
                 Some("off") => Persistence::Disabled,
@@ -667,23 +674,26 @@ impl Options {
                 }
                 "-h" | "--help" => options.help = true,
                 "--" => {
-                    if let Some(path) = args.next() {
-                        ensure!(options.file.is_none(), "only one input file is supported");
-                        options.file = Some(path.into());
-                    }
-                    ensure!(args.next().is_none(), "only one input file is supported");
+                    options.files.extend(args.by_ref().map(PathBuf::from));
                     break;
                 }
                 _ => {
                     ensure!(!arg.starts_with('-'), "unknown option: {arg}");
-                    ensure!(options.file.is_none(), "only one input file is supported");
-                    options.file = Some(arg.into());
+                    options.files.push(arg.into());
                 }
             }
         }
         if disabled {
             options.policy = Persistence::Disabled;
         }
+        ensure!(
+            options.files.len() == 1
+                || !options
+                    .files
+                    .iter()
+                    .any(|f| f.to_string_lossy().ends_with(".volna.json")),
+            "a workspace file opens alone; it names its traces"
+        );
         Ok(options)
     }
 }
@@ -706,7 +716,14 @@ mod tests {
         let options = Options::parse(args, Some("env.json".into()), None).unwrap();
         assert_eq!(options.policy, Persistence::Disabled);
         assert_eq!(options.config_dir, Some(PathBuf::from("/tmp/volna-config")));
-        assert_eq!(options.file, Some(PathBuf::from("trace.vtr")));
+        assert_eq!(options.files, [PathBuf::from("trace.vtr")]);
+        // Several traces open together: the first, then the others beside it.
+        let options =
+            Options::parse(["cpu.vtr", "--", "dram.fst"].map(str::to_owned), None, None).unwrap();
+        assert_eq!(
+            options.files,
+            [PathBuf::from("cpu.vtr"), PathBuf::from("dram.fst")]
+        );
         let options = Options::parse(
             ["--workspace", "chosen.json"].map(str::to_owned),
             Some("off".into()),
@@ -718,7 +735,7 @@ mod tests {
             vec!["--workspace"],
             vec!["--config-dir"],
             vec!["--typo"],
-            vec!["a", "b"],
+            vec!["a.vtr", "b.volna.json"],
         ] {
             assert!(Options::parse(args.into_iter().map(str::to_owned), None, None).is_err());
         }

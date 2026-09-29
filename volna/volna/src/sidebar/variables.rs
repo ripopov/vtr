@@ -14,12 +14,26 @@ use volna_core::data::Member;
 use volna_core::sidebar::Key;
 use volna_core::sidebar::icons::{direction_icon, member_icon};
 use volna_core::sidebar::members::{describe, log_site, member_detail};
+use volna_core::trace::Traced;
 
 use crate::app::{Workspace, to_modifiers};
 use crate::theme::{ThemePx, theme};
 use crate::ui::{Icon, IconName, icon_button, panel_header};
 
 impl Workspace {
+    /// The members some wave panel shows, kept until the rows change.
+    fn members_on_waves(&mut self) -> std::rc::Rc<crate::app::OnWaves> {
+        let key = self.app.rows_revision();
+        match &self.on_waves {
+            Some((k, set)) if *k == key => set.clone(),
+            _ => {
+                let set = std::rc::Rc::new(self.app.members_on_waves());
+                self.on_waves = Some((key, set.clone()));
+                set
+            }
+        }
+    }
+
     fn variables_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if ev.keystroke.key == "tab" {
             window.focus(&self.scopes_focus, cx);
@@ -102,21 +116,15 @@ impl Workspace {
         let vars = &self.app.variables;
         let count = vars.rows.len();
         let show_scope = vars.show_scope();
-        let show_direction = self
-            .app
-            .doc
-            .hierarchy()
-            .is_some_and(|h| vars.show_direction(h));
-        let placeholder = vars.placeholder(self.app.doc.hierarchy());
-        let breadcrumb = self
-            .app
-            .doc
-            .hierarchy()
-            .map(|h| vars.breadcrumb(h))
-            .unwrap_or_default();
+        let traces = self.app.doc.traces();
+        let show_direction = vars.show_direction(traces);
+        let placeholder = vars.placeholder(traces);
+        let breadcrumb = vars.breadcrumb(traces);
+        // Results from several traces say which trace each row is from.
+        let letters = traces.is_combined() && show_scope;
         let everywhere = vars.search_everywhere;
         let truncated = vars.truncated;
-        let header = panel_header(vars.title(self.app.doc.hierarchy()), cx).child(
+        let header = panel_header(vars.title(traces), cx).child(
             div()
                 .flex()
                 .items_center()
@@ -130,7 +138,7 @@ impl Workspace {
                 )
                 .child(
                     icon_button("add-all", IconName::Plus, t.panel, t.hover, cx)
-                        .disabled(!vars.rows.iter().any(|m| m.var().is_some()))
+                        .disabled(!vars.rows.iter().any(|m| m.item.var().is_some()))
                         .tooltip("Add all listed variables (⏎)")
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.dispatch(Command::AddAllVars, Some(window), cx)
@@ -143,13 +151,13 @@ impl Workspace {
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
                 let t = *theme(cx);
-                let Some(h) = this.app.doc.hierarchy() else {
-                    return Vec::new();
-                };
+                let on_waves = this.members_on_waves();
                 range
-                    .map(|ix| {
+                    .filter_map(|ix| {
                         let owner = cx.entity().downgrade();
-                        let member = this.app.variables.rows[ix];
+                        let traced = this.app.variables.rows[ix];
+                        let member = traced.item;
+                        let h = this.app.doc.hierarchy(traced.trace)?;
                         let selected = this.app.variables.selected.contains(&ix);
                         let colors = t.row(selected, false);
                         let hover = t.hover;
@@ -162,14 +170,19 @@ impl Workspace {
                         let dir = member
                             .var()
                             .and_then(|id| direction_icon(h.vars[id].direction));
-                        let tooltip = describe(h, member);
+                        let shown = on_waves.contains(&traced);
+                        let tooltip = if shown {
+                            format!("{} · on the waves", describe(h, member))
+                        } else {
+                            describe(h, member)
+                        };
                         let severity = log_site(h, member).map(|s| s.severity);
                         // Variables and non-log generators have a wave row form.
                         let addable = member.var().is_some()
                             || (matches!(member, volna_core::data::Member::Generator(_))
                                 && !h.is_log(member));
                         // A clock's generator is shown as a ruler or as a waveform row.
-                        let clock = this.app.member_clock(member).is_some();
+                        let clock = this.app.member_clock(traced).is_some();
                         let mut row = div()
                             .id(("var", ix))
                             .w_full()
@@ -187,7 +200,7 @@ impl Workspace {
                                 move |this, ev: &gpui_kit::ClickEvent, window, cx| {
                                     window.focus(&this.variables_focus, cx);
                                     let command = if ev.click_count() == 2 {
-                                        Command::ActivateMembers(vec![member])
+                                        Command::ActivateMembers(vec![traced])
                                     } else {
                                         Command::SelectVar {
                                             ix,
@@ -206,7 +219,11 @@ impl Workspace {
                         } else {
                             row = row.hover(move |s| s.bg(hover.bg).text_color(hover.text));
                         }
-                        row.tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+                        let row = row
+                            .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+                            .when(letters, |row| {
+                                row.child(crate::traces::letter_badge(traced.trace, cx))
+                            })
                             .child(
                                 Icon::new(member_icon(h, member))
                                     .size(t.px(14.0))
@@ -236,6 +253,17 @@ impl Workspace {
                                     .text_ellipsis()
                                     .child(name),
                             )
+                            // Already a row on the waves.
+                            .when(shown, |row| {
+                                row.child(
+                                    div()
+                                        .id(("on-waves", ix))
+                                        .flex_none()
+                                        .size(t.px(6.0))
+                                        .rounded_full()
+                                        .bg(t.panel.icon_accent),
+                                )
+                            })
                             .when_some(severity, |row, severity| {
                                 row.child(
                                     div()
@@ -262,7 +290,8 @@ impl Workspace {
                                 let owner = owner.clone();
                                 // The clicked row, or the whole selection when it is part of it.
                                 let add =
-                                    |label: &'static str, command: fn(Vec<Member>) -> Command| {
+                                    |label: &'static str,
+                                     command: fn(Vec<Traced<Member>>) -> Command| {
                                         let owner = owner.clone();
                                         PopupMenuItem::new(label).on_click(move |_, window, cx| {
                                             _ = owner.update(cx, |workspace, cx| {
@@ -273,7 +302,7 @@ impl Workspace {
                                                         .filter_map(|&i| list.rows.get(i).copied())
                                                         .collect()
                                                 } else {
-                                                    vec![member]
+                                                    vec![traced]
                                                 };
                                                 workspace.dispatch(
                                                     command(members),
@@ -306,7 +335,7 @@ impl Workspace {
                                             workspace.dispatch(
                                                 Command::OpenTable {
                                                     selected,
-                                                    clicked: Some(member),
+                                                    clicked: Some(traced),
                                                 },
                                                 Some(window),
                                                 cx,
@@ -314,7 +343,8 @@ impl Workspace {
                                         });
                                     },
                                 ))
-                            })
+                            });
+                        Some(row)
                     })
                     .collect()
             }),

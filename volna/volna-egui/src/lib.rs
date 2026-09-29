@@ -23,6 +23,7 @@ use volna_core::sidebar::Key as ListKey;
 use volna_core::sidebar::icons::member_icon;
 use volna_core::sidebar::icons::scope_icon;
 use volna_core::sidebar::members::{direction_label, member_detail};
+use volna_core::trace::TraceId;
 use volna_core::wave::{MenuEntry, MenuItem, PointerEvent};
 use volna_core::{App, Instant, Scene, Theme};
 
@@ -213,6 +214,8 @@ impl VolnaApp {
                 | Event::SettingsChanged { .. }
                 | Event::FocusSettingsSearch
                 | Event::OpenMarkerNavigator
+                // One trace at a time here: adding another is GPUI's.
+                | Event::AddTraceDialog
                 | Event::TraceOpened { .. }
                 | Event::OpenRecent(_)
                 | Event::RecentChanged
@@ -534,16 +537,20 @@ impl VolnaApp {
             }
             ui.spacing_mut().item_spacing.y = 0.0;
             let visible = self.app.scopes.visible.clone();
-            let Some(h) = self.app.doc.hierarchy() else {
+            // This frontend shows one trace: it never adds another.
+            let Some(h) = self.app.doc.hierarchy(TraceId::A) else {
                 return;
             };
             scroll.show_rows(ui, row_h, count, |ui, range| {
                 for ix in range {
-                    let (id, depth) = visible[ix];
+                    let (node, depth) = visible[ix];
+                    let Some(id) = node.scope.filter(|_| node.trace == TraceId::A) else {
+                        continue;
+                    };
                     let scope = &h.scopes[id];
                     let has_children = !scope.children.is_empty();
-                    let expanded = self.app.scopes.is_expanded(id);
-                    let selected = self.app.scopes.selected == Some(id);
+                    let expanded = self.app.scopes.is_expanded(node);
+                    let selected = self.app.scopes.selected == Some(node);
                     let (rect, resp) = ui.allocate_exact_size(
                         Vec2::new(ui.available_width(), row_h),
                         Sense::click(),
@@ -593,13 +600,13 @@ impl VolnaApp {
                             .interact_pointer_pos()
                             .is_some_and(|p| chevron.contains(p));
                         if on_chevron && has_children {
-                            commands.push(Command::ToggleScope(id));
+                            commands.push(Command::ToggleScope(node));
                         } else {
-                            commands.push(Command::SelectScope(id));
+                            commands.push(Command::SelectScope(node));
                         }
                     }
                     if resp.double_clicked() && has_children {
-                        commands.push(Command::ToggleScope(id));
+                        commands.push(Command::ToggleScope(node));
                     }
                 }
             });
@@ -665,15 +672,15 @@ impl VolnaApp {
         if panel.clicked() {
             ui.memory_mut(|m| m.request_focus(self.ids.variables));
         }
-        let placeholder = self.app.variables.placeholder(self.app.doc.hierarchy());
+        let placeholder = self.app.variables.placeholder(self.app.doc.traces());
         if let Some(text) = placeholder {
             ui.centered_and_justified(|ui| {
                 ui.label(RichText::new(text).small().color(t.panel.text_placeholder));
             });
-        } else if let Some(h) = self.app.doc.hierarchy() {
+        } else if let Some(h) = self.app.doc.hierarchy(TraceId::A) {
             let focused = ui.memory(|m| m.has_focus(self.ids.variables));
             let show_scope = self.app.variables.show_scope();
-            let show_direction = self.app.variables.show_direction(h);
+            let show_direction = self.app.variables.show_direction(self.app.doc.traces());
             let mut scroll = ScrollArea::vertical()
                 .id_salt("variables")
                 .auto_shrink(false);
@@ -687,8 +694,9 @@ impl VolnaApp {
             let small = font_id(volna_core::FontRole::Ui, self.core_theme.ui_size_small);
             scroll.show_rows(ui, row_h, count, |ui, range| {
                 for ix in range {
-                    let member = rows[ix];
-                    let var = member.var();
+                    let traced = rows[ix];
+                    let member = traced.item;
+                    let var = member.var().map(|v| traced.with(v));
                     let selected = self.app.variables.selected.contains(&ix);
                     let (rect, resp) = ui.allocate_exact_size(
                         Vec2::new(ui.available_width(), row_h),
@@ -726,7 +734,7 @@ impl VolnaApp {
                         ui.painter().text(
                             Pos2::new(x, rect.center().y),
                             Align2::LEFT_CENTER,
-                            var.map(|id| direction_label(h.vars[id].direction))
+                            var.map(|id| direction_label(h.vars[id.item].direction))
                                 .unwrap_or(""),
                             small.clone(),
                             colors.text_muted,

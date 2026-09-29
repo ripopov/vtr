@@ -192,6 +192,12 @@ impl App {
                         && s.reopen.is_empty()
                         && s.layout.same_shape(&self.panels.structure().0)
                 }
+                Edit::Traces(crate::document::TraceEdit::Rename(trace, name)) => self
+                    .doc
+                    .traces()
+                    .get(*trace)
+                    .is_some_and(|slot| slot.rename == *name),
+                Edit::Traces(_) => false,
             })
             .collect();
         let mut k = 0;
@@ -327,6 +333,7 @@ impl App {
                 panel,
                 prop: self.swap_prop(panel, prop)?,
             },
+            Edit::Traces(edit) => Edit::Traces(self.apply_trace_edit(edit)?),
             Edit::Layout(structure) => {
                 let mut inverse = self.panels.install(*structure)?;
                 for panel in &mut inverse.reopen {

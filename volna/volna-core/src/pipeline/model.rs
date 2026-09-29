@@ -11,6 +11,7 @@ use super::layout::{LABEL_W_DEFAULT, LABEL_W_MAX, LABEL_W_MIN, LayoutInput, Pipe
 use super::palette::StagePalette;
 use super::rows::{ROW_PX_DEFAULT, ROW_PX_MAX, ROW_PX_MIN, RowView};
 use super::zoom::{self, CYCLE_PX_MAX, ROW_PX_CAP, ZoomBox, ZoomPoint};
+use crate::clock::ClockKey;
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::{
     AttributeValue, TrackRef, Transaction, TransactionRef, TransactionStage, TxStatus,
@@ -21,6 +22,7 @@ use crate::marker::LaneHit;
 use crate::nav::{Link, NavState, Tween};
 use crate::panels::PanelId;
 use crate::theme::Theme;
+use crate::trace::{TraceId, Traced};
 use crate::wave::model::PointerEvent;
 use crate::wave::overlay::SpanClocks;
 use crate::wave::viewport::{FIT_MARGIN_PX, Viewport};
@@ -34,24 +36,38 @@ pub const SCROLL_ROWS: f64 = 3.0;
 /// Row height factor of one Increase/Decrease Row Height step.
 const ROW_HEIGHT_STEP: f64 = std::f64::consts::SQRT_2;
 
-/// A panel is bound to a track of this session or retains a durable path.
+/// A panel or lane is bound to a track of an open trace or retains a
+/// durable path in its trace.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrackSource {
-    Resolved { track: TrackRef, path: Vec<String> },
-    Unresolved { path: Vec<String> },
+    Resolved {
+        track: Traced<TrackRef>,
+        path: Vec<String>,
+    },
+    Unresolved {
+        trace: TraceId,
+        path: Vec<String>,
+    },
 }
 
 impl TrackSource {
     pub fn path(&self) -> &[String] {
         match self {
-            Self::Resolved { path, .. } | Self::Unresolved { path } => path,
+            Self::Resolved { path, .. } | Self::Unresolved { path, .. } => path,
         }
     }
 
-    pub fn track(&self) -> Option<TrackRef> {
+    pub fn track(&self) -> Option<Traced<TrackRef>> {
         match self {
             Self::Resolved { track, .. } => Some(*track),
             Self::Unresolved { .. } => None,
+        }
+    }
+
+    pub fn trace(&self) -> TraceId {
+        match self {
+            Self::Resolved { track, .. } => track.trace,
+            Self::Unresolved { trace, .. } => *trace,
         }
     }
 }
@@ -328,10 +344,13 @@ impl PipelineModel {
     /// The row of the document's selected record, when this panel shows it.
     pub fn selected_row(&self, doc: &Document) -> Option<usize> {
         let selection = doc.selection()?;
+        if selection.track.trace != self.track.trace() {
+            return None;
+        }
         let Rows::Ready(set) = self.rows(doc) else {
             return None;
         };
-        set.row_of(selection.track, selection.id)
+        set.row_of(selection.track.item, selection.id)
     }
 
     /// Make row `row` the document selection. Returns whether it changed.
@@ -344,7 +363,7 @@ impl PipelineModel {
                 return false;
             };
             TxSelection {
-                track: tx.generator,
+                track: Traced::new(self.track.trace(), tx.generator),
                 id: tx.id,
                 origin: panel,
             }
@@ -1153,16 +1172,16 @@ impl PipelineModel {
                 }
             }
             // A press on a clock ruler selects its clock, then works like the header.
-            let rulers: Vec<String> = self
+            let rulers: Vec<ClockKey> = self
                 .nav
                 .clocks()
                 .rulers(&doc.clocks)
                 .iter()
-                .map(|c| c.path.clone())
+                .map(|c| c.key())
                 .collect();
             let ruler = layout.ruler_at(p, rulers.len());
             if let Some(ix) = ruler {
-                self.nav.select_clock(&rulers[ix]);
+                self.nav.select_clock(rulers[ix].clone());
             }
             let strip = layout.header.contains(p) || layout.marker_lane.strip().contains(p);
             if (strip || ruler.is_some()) && p.x >= layout.cells.left() {

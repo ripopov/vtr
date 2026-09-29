@@ -18,9 +18,12 @@ use crate::wave::{
 };
 use crate::{
     App,
+    data::Hierarchy,
     data::source::Lookup,
     data::transactions::TrackKind,
     marker::{Marker, Reference},
+    sidebar::TreeNode,
+    trace::{TraceId, Traced},
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -28,7 +31,7 @@ use serde_json::value::RawValue;
 use std::collections::{BTreeSet, HashSet};
 
 pub const FORMAT: &str = "volna-workspace";
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_ROWS: usize = 100_000;
 
@@ -38,7 +41,13 @@ pub struct Workspace {
     pub version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supersedes: Option<String>,
-    pub trace: Trace,
+    /// The session's traces; A owns the workspace (its sidecar and recent
+    /// entry name it).
+    pub traces: Vec<Trace>,
+    /// The unit every saved time is counted in, `10^timescale` seconds: the
+    /// finest of the traces when it was saved. A restore converts the times
+    /// to the unit of the traces it opens.
+    pub timescale: i8,
     pub layout: Layout,
     pub focused: PanelId,
     pub panels: Vec<Box<RawValue>>,
@@ -46,10 +55,16 @@ pub struct Workspace {
     pub sidebar: Sidebar,
 }
 
+/// One trace of a saved session: where it is, relative to the workspace
+/// when it can be, and what it was when saved.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Trace {
+    pub letter: TraceId,
     pub path: String,
     pub name: String,
+    /// The name the user gave it, when they did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rename: Option<String>,
     pub timescale: i8,
     pub time_range: (u64, u64),
     pub design_id: Option<String>,
@@ -69,8 +84,10 @@ pub struct Sidebar {
     pub visible: bool,
     pub width: f32,
     pub scopes_fraction: f32,
-    pub selected_scope: Option<Vec<String>>,
-    pub expanded: Vec<Vec<String>>,
+    /// The selected scope's path in its trace; an empty path is the
+    /// trace's own row.
+    pub selected_scope: Option<Traced<Vec<String>>>,
+    pub expanded: Vec<Traced<Vec<String>>>,
     pub filter: String,
 }
 
@@ -86,6 +103,8 @@ struct Columns {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Row {
     Signal {
+        #[serde(default, skip_serializing_if = "TraceId::is_a")]
+        trace: TraceId,
         signal: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         nth: Option<usize>,
@@ -96,12 +115,16 @@ enum Row {
         analog: Option<SavedAnalog>,
     },
     Lane {
+        #[serde(default, skip_serializing_if = "TraceId::is_a")]
+        trace: TraceId,
         generator: Vec<String>,
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
     },
     /// A declared clock by its path, drawn from its stretches.
     Clock {
+        #[serde(default, skip_serializing_if = "TraceId::is_a")]
+        trace: TraceId,
         clock: String,
         #[serde(default, skip_serializing_if = "RowHeight::is_default")]
         height: RowHeight,
@@ -223,6 +246,8 @@ struct PipelinePanel {
     kind: String,
     version: u32,
     title: Option<String>,
+    #[serde(default, skip_serializing_if = "TraceId::is_a")]
+    trace: TraceId,
     track: Vec<String>,
     link: Link,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -245,12 +270,20 @@ struct PipelinePanel {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum SavedTableSource {
-    Generator { path: Vec<String> },
-    Signals { signals: Vec<SavedTableSignal> },
+    Generator {
+        #[serde(default, skip_serializing_if = "TraceId::is_a")]
+        trace: TraceId,
+        path: Vec<String>,
+    },
+    Signals {
+        signals: Vec<SavedTableSignal>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
 struct SavedTableSignal {
+    #[serde(default, skip_serializing_if = "TraceId::is_a")]
+    trace: TraceId,
     path: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     nth: Option<usize>,
@@ -270,6 +303,8 @@ struct TablePanel {
 /// A pinned transaction panel remembers exactly which record it froze on.
 #[derive(Serialize, Deserialize)]
 struct SavedRecord {
+    #[serde(default, skip_serializing_if = "TraceId::is_a")]
+    trace: TraceId,
     track: Vec<String>,
     id: u64,
 }
@@ -309,8 +344,36 @@ impl RestoreReport {
     }
 }
 
+/// The open traces a workspace's letters resolved to.
+#[derive(Default)]
+struct Traces<'a> {
+    open: std::collections::HashMap<TraceId, &'a std::sync::Arc<dyn crate::session::Session>>,
+}
+
+impl<'a> Traces<'a> {
+    fn insert(
+        &mut self,
+        letter: TraceId,
+        session: &'a std::sync::Arc<dyn crate::session::Session>,
+    ) {
+        self.open.insert(letter, session);
+    }
+
+    fn hierarchy(&self, letter: TraceId) -> Option<&'a Hierarchy> {
+        self.open.get(&letter).map(|s| s.hierarchy())
+    }
+
+    fn tracks(&self, letter: TraceId) -> &'a [crate::data::transactions::Track] {
+        self.open.get(&letter).map_or(&[], |s| s.tracks())
+    }
+}
+
 pub struct RestorePlan {
     generation: u64,
+    /// How saved times convert to the session unit, when it differs.
+    retime: Option<crate::trace::Rescale>,
+    /// The names the user gave the traces, by letter.
+    renames: Vec<(TraceId, Option<String>)>,
     panels: Panels,
     shared: Shared,
     sidebar: Sidebar,
@@ -367,12 +430,39 @@ impl Workspace {
         Ok(serde_json::to_vec_pretty(self)?)
     }
 
-    /// Capture destinations use a durable URI, or a reference relative to the workspace.
-    /// Histories and transient input/animation state are never serialized.
-    pub fn capture(app: &App, trace_path: String, supersedes: Option<String>) -> Result<Self> {
-        let session = app.doc.session().context("no trace open")?;
-        let h = session.hierarchy();
-        let info = session.info();
+    /// Capture destinations use a durable URI, or a reference relative to the workspace:
+    /// `path_of` says how each trace is referenced, and `None` leaves a
+    /// trace out (its rows then restore unresolved). Histories and
+    /// transient input/animation state are never serialized.
+    pub fn capture(
+        app: &App,
+        path_of: impl Fn(&crate::trace::TraceSlot) -> Result<Option<String>>,
+        supersedes: Option<String>,
+    ) -> Result<Self> {
+        ensure!(app.doc.is_loaded(), "no trace open");
+        let mut traces = Vec::new();
+        for slot in app.doc.traces().iter() {
+            let Some(session) = slot.session() else {
+                continue;
+            };
+            let Some(path) = path_of(slot)? else {
+                continue;
+            };
+            let info = session.info();
+            traces.push(Trace {
+                letter: slot.id,
+                path,
+                name: info.name.clone(),
+                rename: slot.rename.clone(),
+                timescale: info.timescale,
+                time_range: info.time_range,
+                design_id: info.design_id.clone(),
+            });
+        }
+        ensure!(
+            traces.iter().any(|t| t.letter == TraceId::A),
+            "trace A has no durable location"
+        );
         let (layout, focused, saved_panels) = app.panels.saved_view();
         let panels = saved_panels
             .into_iter()
@@ -387,6 +477,7 @@ impl Workspace {
                                 kind: "pipeline".into(),
                                 version: 1,
                                 title: panel.title.get().clone(),
+                                trace: p.track.trace(),
                                 track: p.track.path().to_vec(),
                                 link: p.nav.link,
                                 viewport: (!p.nav.link.viewport)
@@ -404,12 +495,14 @@ impl Workspace {
                         PanelKind::Table(table) => {
                             let source = match &table.source {
                                 TableSource::Generator(track) => SavedTableSource::Generator {
+                                    trace: track.trace(),
                                     path: track.path().to_vec(),
                                 },
                                 TableSource::Signals(signals) => SavedTableSource::Signals {
                                     signals: signals
                                         .iter()
                                         .map(|signal| SavedTableSignal {
+                                            trace: signal.trace,
                                             path: signal.path.clone(),
                                             nth: signal.nth,
                                         })
@@ -457,6 +550,7 @@ impl Workspace {
                                     .pinned()
                                     .then(|| {
                                         shown.map(|record| SavedRecord {
+                                            trace: record.track.trace(),
                                             track: record.track.path().to_vec(),
                                             id: record.id.0,
                                         })
@@ -487,8 +581,9 @@ impl Workspace {
                 };
                 let rows = nest(w.items(), &|row| match row {
                     WaveRow::Signal(item) => {
-                        let (signal, nth) = item.source.locator(h);
+                        let (signal, nth) = item.source.locator(&app.doc);
                         Row::Signal {
+                            trace: item.source.trace(),
                             signal,
                             nth,
                             format: item.format_id(),
@@ -500,11 +595,13 @@ impl Workspace {
                         }
                     }
                     WaveRow::Lane(lane) => Row::Lane {
+                        trace: lane.source.trace(),
                         generator: lane.source.path().to_vec(),
                         height: lane.height,
                     },
                     WaveRow::Clock(clock) => Row::Clock {
-                        clock: clock.path.clone(),
+                        trace: clock.key.trace,
+                        clock: clock.key.item.clone(),
                         height: clock.height,
                     },
                     WaveRow::Group(_) => unreachable!("nest writes groups"),
@@ -530,31 +627,32 @@ impl Workspace {
                 })?)
             })
             .collect::<Result<_>>()?;
-        let path = |id| {
-            h.scope_path(id)
-                .into_iter()
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
+        let path = |scope: Traced<crate::data::ScopeId>| {
+            let h = app.doc.hierarchy(scope.trace)?;
+            let path = h.scope_path(scope.item).into_iter().map(str::to_owned);
+            Some(scope.with(path.collect::<Vec<_>>()))
         };
         let mut expanded = app
             .scopes
             .expanded()
-            .map(path)
+            .filter_map(path)
             .chain(app.scopes.unresolved_expanded.iter().cloned())
             .collect::<Vec<_>>();
         expanded.sort();
         expanded.dedup();
+        let selected_scope = app.scopes.unresolved_selected.clone().or_else(|| {
+            let node = app.scopes.selected?;
+            match node.traced_scope() {
+                Some(scope) => path(scope),
+                None => Some(Traced::new(node.trace, Vec::new())),
+            }
+        });
         Ok(Self {
             format: FORMAT.into(),
             version: VERSION,
             supersedes,
-            trace: Trace {
-                path: trace_path,
-                name: info.name.clone(),
-                timescale: info.timescale,
-                time_range: info.time_range,
-                design_id: info.design_id.clone(),
-            },
+            traces,
+            timescale: app.doc.timescale(),
             layout,
             focused,
             panels,
@@ -568,11 +666,7 @@ impl Workspace {
                 visible: app.sidebar_visible,
                 width: app.sidebar_width,
                 scopes_fraction: app.scopes_fraction,
-                selected_scope: app
-                    .scopes
-                    .unresolved_selected
-                    .clone()
-                    .or_else(|| app.scopes.selected.map(path)),
+                selected_scope,
                 expanded,
                 filter: app.variables.filter.clone(),
             },
@@ -591,28 +685,89 @@ impl Workspace {
             self.format == FORMAT && self.version == VERSION,
             "unsupported workspace format/version"
         );
+        let owner = self
+            .traces
+            .iter()
+            .find(|t| t.letter == TraceId::A)
+            .context("workspace names no trace A")?;
         ensure!(
-            resolve_trace(&self.trace.path, workspace_location)? == expected_trace,
+            resolve_trace(&owner.path, workspace_location)? == expected_trace,
             "workspace references a different trace; open that trace first"
         );
-        let session = app.doc.session().context("no trace open")?;
-        let h = session.hierarchy();
         let mut report = RestoreReport::default();
-        if self.trace.name != session.info().name {
-            report.push("Trace name differs from the saved workspace");
+        let mut letters = HashSet::new();
+        let mut open = Traces::default();
+        for saved in &self.traces {
+            ensure!(
+                letters.insert(saved.letter),
+                "trace {} listed twice",
+                saved.letter
+            );
+            ensure!(
+                saved.time_range.0 <= saved.time_range.1,
+                "invalid trace time range"
+            );
+            // A was checked against the caller's trace above. Rows of the
+            // others resolve against the trace that holds their letter, the
+            // saved one or one the user opened in its place.
+            let uri = resolve_trace(&saved.path, workspace_location)?;
+            let slot = app.doc.traces().get(saved.letter);
+            let Some(session) = slot.and_then(|slot| slot.session()) else {
+                report.push(format!(
+                    "Trace {} is not open: {}",
+                    saved.letter, saved.path
+                ));
+                continue;
+            };
+            if saved.letter != TraceId::A
+                && slot.is_some_and(|slot| slot.uri.as_deref() != Some(uri.as_str()))
+            {
+                report.push(format!(
+                    "Trace {} is another file than the saved {}; its rows resolve by path",
+                    saved.letter, saved.path
+                ));
+            }
+            let info = session.info();
+            let which = |what: &str| match saved.letter {
+                TraceId::A => format!("Trace {what}"),
+                letter => format!("Trace {letter} {what}"),
+            };
+            if saved.name != info.name {
+                report.push(format!(
+                    "{} differs from the saved workspace",
+                    which("name")
+                ));
+            }
+            if saved.timescale != info.timescale {
+                report.push(format!(
+                    "{} differs from the saved workspace",
+                    which("timescale")
+                ));
+            }
+            if let (Some(saved), Some(current)) = (&saved.design_id, &info.design_id)
+                && saved != current
+            {
+                report.push(format!(
+                    "{} differs from the saved workspace",
+                    which("design identity")
+                ));
+            }
+            open.insert(saved.letter, session);
         }
-        if self.trace.timescale != session.info().timescale {
-            report.push("Trace timescale differs; saved times were kept unchanged");
+        let renames = self
+            .traces
+            .iter()
+            .filter(|t| open.hierarchy(t.letter).is_some())
+            .map(|t| (t.letter, t.rename.clone()))
+            .collect();
+        let retime = crate::trace::Rescale::between(self.timescale, app.doc.timescale());
+        if let Some(crate::trace::Rescale::Coarser(_)) = retime {
+            report.push(format!(
+                "Times were saved in {}; they are rounded to {}",
+                crate::wave::timeline::unit_label(self.timescale),
+                crate::wave::timeline::unit_label(app.doc.timescale())
+            ));
         }
-        if let (Some(saved), Some(current)) = (&self.trace.design_id, &session.info().design_id)
-            && saved != current
-        {
-            report.push("Trace design identity differs from the saved workspace");
-        }
-        ensure!(
-            self.trace.time_range.0 <= self.trace.time_range.1,
-            "invalid trace time range"
-        );
         if let Some(hash) = &self.supersedes {
             ensure!(
                 hash.len() == 64
@@ -682,14 +837,18 @@ impl Workspace {
                     saved.link.cursor == saved.cursor.is_none(),
                     "local cursor must exist exactly when unlinked"
                 );
-                let track = match session.tracks().iter().find(|t| t.path == saved.track) {
+                let trace = saved.trace;
+                let track = match open.tracks(trace).iter().find(|t| t.path == saved.track) {
                     Some(t) => TrackSource::Resolved {
-                        track: t.id,
+                        track: Traced::new(trace, t.id),
                         path: saved.track,
                     },
                     None => {
                         report.push(format!("Missing pipeline track: {:?}", saved.track));
-                        TrackSource::Unresolved { path: saved.track }
+                        TrackSource::Unresolved {
+                            trace,
+                            path: saved.track,
+                        }
                     }
                 };
                 let mut p = PipelineModel::new(track, saved.link);
@@ -717,18 +876,22 @@ impl Workspace {
                 let saved: TablePanel =
                     serde_json::from_str(raw.get()).context("invalid table panel")?;
                 let source = match saved.source {
-                    SavedTableSource::Generator { path } => {
+                    SavedTableSource::Generator { trace, path } => {
                         ensure!(!path.is_empty(), "empty table generator path");
-                        match h.find_generator(&path) {
+                        let found = open
+                            .hierarchy(trace)
+                            .map_or(Lookup::Missing, |h| h.find_generator(&path));
+                        match found {
                             Lookup::Found(generator) => {
+                                let h = open.hierarchy(trace).expect("found in it");
                                 TableSource::Generator(TrackSource::Resolved {
-                                    track: h.generators[generator].track,
+                                    track: Traced::new(trace, h.generators[generator].track),
                                     path,
                                 })
                             }
                             other => {
                                 report.push(format!("{other:?} table generator: {path:?}"));
-                                TableSource::Generator(TrackSource::Unresolved { path })
+                                TableSource::Generator(TrackSource::Unresolved { trace, path })
                             }
                         }
                     }
@@ -737,18 +900,24 @@ impl Workspace {
                         let mut restored = Vec::with_capacity(signals.len());
                         for signal in signals {
                             ensure!(!signal.path.is_empty(), "empty table signal path");
-                            let found = h.find_var(&signal.path, signal.nth);
-                            let (var, reference, name) = match found {
-                                Lookup::Found(var) => {
-                                    (Some(var), Some(h.vars[var].signal), h.full_name(var))
-                                }
-                                other => {
+                            let trace = signal.trace;
+                            let h = open.hierarchy(trace);
+                            let found =
+                                h.map_or(Lookup::Missing, |h| h.find_var(&signal.path, signal.nth));
+                            let (var, reference, name) = match (found, h) {
+                                (Lookup::Found(var), Some(h)) => (
+                                    Some(var),
+                                    Some(Traced::new(trace, h.vars[var].signal)),
+                                    h.full_name(var),
+                                ),
+                                (other, _) => {
                                     report
                                         .push(format!("{other:?} table signal: {:?}", signal.path));
                                     (None, None, signal.path.join("."))
                                 }
                             };
                             restored.push(SignalSource {
+                                trace,
                                 path: signal.path,
                                 nth: signal.nth,
                                 var,
@@ -813,15 +982,20 @@ impl Workspace {
                 let record = match saved.pinned {
                     Some(pinned) => {
                         ensure!(!pinned.track.is_empty(), "empty transaction track path");
-                        let track = match session.tracks().iter().find(|t| t.path == pinned.track) {
+                        let trace = pinned.trace;
+                        let found = open.tracks(trace).iter().find(|t| t.path == pinned.track);
+                        let track = match found {
                             Some(t) => TrackSource::Resolved {
-                                track: t.id,
+                                track: Traced::new(trace, t.id),
                                 path: pinned.track,
                             },
                             None => {
                                 report
                                     .push(format!("Missing transaction track: {:?}", pinned.track));
-                                TrackSource::Unresolved { path: pinned.track }
+                                TrackSource::Unresolved {
+                                    trace,
+                                    path: pinned.track,
+                                }
                             }
                         };
                         Some(ShownRecord {
@@ -906,44 +1080,54 @@ impl Workspace {
             w.values_width = saved.columns.values;
             let mut items = Vec::with_capacity(flat.len());
             for (depth, row) in flat {
-                let (signal, nth, format, height, analog) = match row {
+                let (trace, signal, nth, format, height, analog) = match row {
                     Row::Signal {
+                        trace,
                         signal,
                         nth,
                         format,
                         height,
                         analog,
-                    } => (signal, nth, format, height, analog),
-                    Row::Lane { generator, height } => {
+                    } => (trace, signal, nth, format, height, analog),
+                    Row::Lane {
+                        trace,
+                        generator,
+                        height,
+                    } => {
                         ensure!(!generator.is_empty(), "empty lane generator path");
-                        let track = session.tracks().iter().find(|t| {
+                        let track = open.tracks(trace).iter().find(|t| {
                             t.path == generator && matches!(t.kind, TrackKind::Generator { .. })
                         });
                         let lane = match track {
                             Some(track) => TxLane {
                                 height,
                                 auto_height: false,
-                                ..TxLane::new(&app.doc, track.id)
+                                ..TxLane::new(&app.doc, Traced::new(trace, track.id))
                                     .context("lane generator vanished")?
                             },
                             None => {
                                 report.push(format!("Missing lane generator: {generator:?}"));
-                                TxLane::unresolved(generator, height)
+                                TxLane::unresolved(trace, generator, height)
                             }
                         };
                         items.push(Entry::new(depth, WaveRow::Lane(lane)));
                         continue;
                     }
-                    Row::Clock { clock, height } => {
+                    Row::Clock {
+                        trace,
+                        clock,
+                        height,
+                    } => {
                         ensure!(!clock.is_empty(), "empty clock path");
-                        if app.doc.clocks.find(&clock).is_none() {
-                            report.push(format!("Missing clock: {clock}"));
+                        let key = Traced::new(trace, clock);
+                        if app.doc.clocks.find(&key).is_none() {
+                            report.push(format!("Missing clock: {}", key.item));
                         }
                         items.push(Entry::new(
                             depth,
                             WaveRow::Clock(crate::wave::model::ClockRow {
                                 height,
-                                ..crate::wave::model::ClockRow::new(&clock)
+                                ..crate::wave::model::ClockRow::new(key)
                             }),
                         ));
                         continue;
@@ -967,12 +1151,14 @@ impl Workspace {
                 };
                 let row_signal = signal;
                 ensure!(!row_signal.is_empty(), "empty signal path");
-                let found = h.find_var(&row_signal, nth);
-                let (source, name, scope, shape) = match found {
-                    Lookup::Found(var) => {
+                let h = open.hierarchy(trace);
+                let found = h.map_or(Lookup::Missing, |h| h.find_var(&row_signal, nth));
+                let (source, name, scope, shape) = match (found, h) {
+                    (Lookup::Found(var), Some(h)) => {
                         let v = &h.vars[var];
                         (
                             RowSource::Resolved {
+                                trace,
                                 var,
                                 signal: v.signal,
                             },
@@ -981,7 +1167,7 @@ impl Workspace {
                             v.shape,
                         )
                     }
-                    _ => {
+                    (found, _) => {
                         let ambiguous = found == Lookup::Ambiguous;
                         report.push(format!(
                             "{} signal: {:?}",
@@ -992,6 +1178,7 @@ impl Workspace {
                         let scope = row_signal[..row_signal.len() - 1].join(".");
                         (
                             RowSource::Unresolved {
+                                trace,
                                 path: row_signal,
                                 nth,
                                 ambiguous,
@@ -1038,11 +1225,18 @@ impl Workspace {
         }
         let panels = Panels::restore(self.layout, panels, self.focused, &app.panels)?;
         let mut scopes = ScopeTreeModel::default();
+        let find = |path: &Traced<Vec<String>>| {
+            open.hierarchy(path.trace)
+                .map_or(Lookup::Missing, |h| h.find_scope(&path.item))
+        };
         let selected = match &self.sidebar.selected_scope {
-            Some(path) => match h.find_scope(path) {
-                Lookup::Found(id) => Some(id),
+            Some(path) if path.item.is_empty() && open.hierarchy(path.trace).is_some() => {
+                Some(TreeNode::trace(path.trace))
+            }
+            Some(path) => match find(path) {
+                Lookup::Found(id) => Some(TreeNode::scope(path.with(id))),
                 other => {
-                    report.push(format!("{other:?} selected scope: {path:?}"));
+                    report.push(format!("{other:?} selected scope: {:?}", path.item));
                     scopes.unresolved_selected = Some(path.clone());
                     None
                 }
@@ -1051,19 +1245,21 @@ impl Workspace {
         };
         let mut expanded = HashSet::new();
         for path in &self.sidebar.expanded {
-            match h.find_scope(path) {
+            match find(path) {
                 Lookup::Found(id) => {
-                    expanded.insert(id);
+                    expanded.insert(path.with(id));
                 }
                 other => {
-                    report.push(format!("{other:?} expanded scope: {path:?}"));
+                    report.push(format!("{other:?} expanded scope: {:?}", path.item));
                     scopes.unresolved_expanded.push(path.clone());
                 }
             }
         }
-        scopes.restore(h, selected, expanded);
+        scopes.restore(app.doc.traces(), selected, expanded);
         Ok(RestorePlan {
             generation: app.doc.generation(),
+            retime,
+            renames,
             panels,
             shared: self.shared,
             sidebar: self.sidebar,
@@ -1083,14 +1279,25 @@ impl RestorePlan {
             app.doc.generation() == self.generation,
             "trace changed while preparing workspace"
         );
-        let session = app.doc.session().context("no trace open")?.clone();
+        ensure!(app.doc.is_loaded(), "no trace open");
         // Invalidate earlier history results before installing rows.
-        app.doc.set_session(session);
+        app.doc.restart();
+        for (trace, name) in self.renames {
+            app.doc.restore_trace_name(trace, name);
+        }
         app.doc.shared.viewport = Tween::new(self.shared.viewport);
         app.doc.shared.cursor = self.shared.cursor;
         app.doc.restore_markers(self.shared.markers);
         app.doc.set_reference(self.shared.reference);
         app.panels = self.panels;
+        // Saved times follow the unit of the traces open now.
+        if let Some(by) = self.retime {
+            use crate::trace::Retime;
+            app.doc.retime(by);
+            for panel in app.panels.iter_mut() {
+                panel.kind.retime(by);
+            }
+        }
         let mut report = self.report;
         for panel in app.panels.iter_mut() {
             if let Some(p) = panel.kind.pipeline_mut()
@@ -1099,7 +1306,7 @@ impl RestorePlan {
                 report.push(format!("Pipeline {}: {error:#}", p.track.path().join(".")));
             }
         }
-        let resident = std::collections::HashMap::new();
+        let resident = crate::wave::model::Resident::new();
         for panel in app.panels.iter_mut() {
             if let Some(table) = panel.kind.table_mut()
                 && let Err(error) = table.attach(&mut app.doc, &resident)
@@ -1113,7 +1320,7 @@ impl RestorePlan {
         app.scopes_fraction = self.sidebar.scopes_fraction;
         app.variables.filter = self.sidebar.filter;
         app.variables
-            .set_scope(app.doc.hierarchy(), app.scopes.selected);
+            .set_scope(app.doc.traces(), app.scopes.selected_scope());
         for panel in app.panels.iter() {
             if let Some(w) = panel.kind.waves() {
                 for row in w.items() {

@@ -15,6 +15,7 @@ pub use vtr::{ClockTimeline, CycleAt};
 
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::{AttributeValue, Track, TrackKind, TrackRef, TxStatus};
+use crate::trace::{TraceId, Traced};
 use crate::wave::timeline::TimeBase;
 use crate::wave::viewport::Viewport;
 
@@ -33,13 +34,17 @@ pub enum ClockState {
     Failed(String),
 }
 
-/// One declared clock of the open trace.
+/// A clock's identity in panels and workspaces: its trace and its path.
+pub type ClockKey = Traced<String>;
+
+/// One declared clock of an open trace.
 #[derive(Clone, Debug)]
 pub struct Clock {
+    pub trace: TraceId,
     /// Its stream, retained by the document for as long as the trace is open.
     pub track: TrackRef,
     /// The stream's path joined with '.': the clock's identity in `vtr.clock`
-    /// links and in workspaces.
+    /// links and, with its trace, in workspaces.
     pub path: String,
     pub name: String,
     pub state: ClockState,
@@ -52,33 +57,49 @@ impl Clock {
             _ => None,
         }
     }
+
+    pub fn key(&self) -> ClockKey {
+        Traced::new(self.trace, self.path.clone())
+    }
+
+    pub fn is(&self, key: &ClockKey) -> bool {
+        self.trace == key.trace && self.path == key.item
+    }
+
+    /// Its stream, as the document retains it.
+    pub fn stream(&self) -> Traced<TrackRef> {
+        Traced::new(self.trace, self.track)
+    }
 }
 
-/// Every clock of the open trace and which stream counts in which clock.
+/// Every clock of the open traces and which stream counts in which clock.
 #[derive(Clone, Debug, Default)]
 pub struct Clocks {
     clocks: Vec<Clock>,
-    /// Stream or generator track -> index of the clock its stream names.
-    links: HashMap<TrackRef, usize>,
-    /// Paths of the clocks the workspace's pipelines count in: the rulers a
-    /// panel shows until it chooses its own. The app refreshes it each frame.
-    pub defaults: Vec<String>,
+    /// Stream or generator track -> the clock stream its stream names.
+    links: HashMap<Traced<TrackRef>, TrackRef>,
+    /// The clocks the workspace's pipelines count in: the rulers a panel
+    /// shows until it chooses its own. The app refreshes it each frame.
+    pub defaults: Vec<ClockKey>,
 }
 
 impl Clocks {
-    /// The clocks declared in a track catalog, in catalog order.
-    pub fn from_tracks(tracks: &[Track]) -> Self {
-        let clocks: Vec<Clock> = tracks
-            .iter()
-            .filter(|t| matches!(&t.kind, TrackKind::Stream { kind } if kind == STREAM_KIND))
-            .map(|t| Clock {
-                track: t.id,
-                path: t.path.join("."),
-                name: t.path.last().cloned().unwrap_or_default(),
-                state: ClockState::Loading,
-            })
-            .collect();
-        let mut links = HashMap::new();
+    /// Add the clocks declared in a trace's track catalog, in catalog order.
+    pub(crate) fn add_trace(&mut self, trace: TraceId, tracks: &[Track]) {
+        let first = self.clocks.len();
+        self.clocks.extend(
+            tracks
+                .iter()
+                .filter(|t| matches!(&t.kind, TrackKind::Stream { kind } if kind == STREAM_KIND))
+                .map(|t| Clock {
+                    trace,
+                    track: t.id,
+                    path: t.path.join("."),
+                    name: t.path.last().cloned().unwrap_or_default(),
+                    state: ClockState::Loading,
+                }),
+        );
+        let added = &self.clocks[first..];
         let mut stream_clock = HashMap::new();
         for t in tracks {
             if let TrackKind::Stream { .. } = t.kind
@@ -86,24 +107,26 @@ impl Clocks {
                     AttributeValue::Text(p) if k == LINK_ATTRIBUTE => Some(p),
                     _ => None,
                 })
-                && let Some(ix) = clocks.iter().position(|c| &c.path == path)
+                && let Some(clock) = added.iter().find(|c| &c.path == path)
             {
-                links.insert(t.id, ix);
-                stream_clock.insert(t.id, ix);
+                self.links.insert(Traced::new(trace, t.id), clock.track);
+                stream_clock.insert(t.id, clock.track);
             }
         }
         for t in tracks {
             if let TrackKind::Generator { stream } = t.kind
-                && let Some(&ix) = stream_clock.get(&stream)
+                && let Some(&clock) = stream_clock.get(&stream)
             {
-                links.insert(t.id, ix);
+                self.links.insert(Traced::new(trace, t.id), clock);
             }
         }
-        Self {
-            clocks,
-            links,
-            defaults: Vec::new(),
-        }
+    }
+
+    /// Forget a closed trace's clocks.
+    pub(crate) fn remove_trace(&mut self, trace: TraceId) {
+        self.clocks.retain(|c| c.trace != trace);
+        self.links.retain(|track, _| track.trace != trace);
+        self.defaults.retain(|key| key.trace != trace);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -118,36 +141,41 @@ impl Clocks {
         self.clocks.get(ix)
     }
 
-    /// The clock with this path.
-    pub fn find(&self, path: &str) -> Option<&Clock> {
-        self.clocks.iter().find(|c| c.path == path)
+    /// The clock with this trace and path.
+    pub fn find(&self, key: &ClockKey) -> Option<&Clock> {
+        self.clocks.iter().find(|c| c.is(key))
     }
 
-    /// The clock of a clock stream or of its generator.
-    pub fn of_track(&self, track: TrackRef, tracks: &[Track]) -> Option<&Clock> {
-        let stream = match tracks.iter().find(|t| t.id == track)?.kind {
+    fn of_stream(&self, stream: Traced<TrackRef>) -> Option<&Clock> {
+        self.clocks.iter().find(|c| c.stream() == stream)
+    }
+
+    /// The clock of a clock stream or of its generator; `tracks` is that
+    /// trace's catalog.
+    pub fn of_track(&self, track: Traced<TrackRef>, tracks: &[Track]) -> Option<&Clock> {
+        let stream = match tracks.iter().find(|t| t.id == track.item)?.kind {
             TrackKind::Generator { stream } => stream,
-            TrackKind::Stream { .. } => track,
+            TrackKind::Stream { .. } => track.item,
         };
-        self.clocks.iter().find(|c| c.track == stream)
+        self.of_stream(track.with(stream))
     }
 
     /// The clock a stream (or generator of a stream) counts in, by its `vtr.clock`.
-    pub fn linked(&self, track: TrackRef) -> Option<&Clock> {
-        self.links.get(&track).map(|&ix| &self.clocks[ix])
+    pub fn linked(&self, track: Traced<TrackRef>) -> Option<&Clock> {
+        self.of_stream(track.with(*self.links.get(&track)?))
     }
 
-    pub fn is_clock_track(&self, track: TrackRef) -> bool {
-        self.clocks.iter().any(|c| c.track == track)
+    pub fn is_clock_track(&self, track: Traced<TrackRef>) -> bool {
+        self.of_stream(track).is_some()
     }
 
     /// Stretches of `track` arrived or failed.
     pub(crate) fn deliver(
         &mut self,
-        track: TrackRef,
+        track: Traced<TrackRef>,
         result: Result<&[Arc<LoadedGenerator>], &str>,
     ) {
-        let Some(clock) = self.clocks.iter_mut().find(|c| c.track == track) else {
+        let Some(clock) = self.clocks.iter_mut().find(|c| c.stream() == track) else {
             return;
         };
         clock.state = match result
@@ -157,6 +185,13 @@ impl Clocks {
             Ok(t) => ClockState::Ready(Arc::new(t)),
             Err(e) => ClockState::Failed(e),
         };
+    }
+
+    /// The trace's stretches load again (its placement changed).
+    pub(crate) fn reload(&mut self, trace: TraceId) {
+        for clock in self.clocks.iter_mut().filter(|c| c.trace == trace) {
+            clock.state = ClockState::Loading;
+        }
     }
 }
 
@@ -182,17 +217,18 @@ pub fn timeline_of(generators: &[Arc<LoadedGenerator>]) -> anyhow::Result<ClockT
 // -- a panel's clock choices ------------------------------------------------------
 
 /// What a timed panel shows of the clocks. Saved in the workspace, never in
-/// the trace; clocks are named by path so a workspace survives a new run.
+/// the trace; clocks are named by trace letter and path so a workspace
+/// survives a new run.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClockView {
     /// Ruler rows under the time ruler, top to bottom. `None` shows the
     /// clocks the workspace's pipelines count in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rulers: Option<Vec<String>>,
+    pub rulers: Option<Vec<ClockKey>>,
     /// The clock clicks snap to, `[` / `]` step through and go-to counts in;
     /// defaults to the first ruler.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected: Option<String>,
+    pub selected: Option<ClockKey>,
     /// Time whose cycle every clock of the panel numbers 0; `None` numbers
     /// from each clock's first recorded edge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -204,56 +240,69 @@ impl ClockView {
         *self == Self::default()
     }
 
-    /// Paths of the ruler rows, whether or not the clocks exist in this trace.
-    pub fn ruler_paths<'a>(&'a self, clocks: &'a Clocks) -> &'a [String] {
+    /// The ruler rows, whether or not their clocks are open.
+    pub fn ruler_keys<'a>(&'a self, clocks: &'a Clocks) -> &'a [ClockKey] {
         self.rulers.as_deref().unwrap_or(&clocks.defaults)
     }
 
-    /// The ruler rows of clocks this trace declares, top to bottom.
+    /// The ruler rows of open clocks, top to bottom.
     pub fn rulers<'a>(&self, clocks: &'a Clocks) -> Vec<&'a Clock> {
-        self.ruler_paths(clocks)
+        self.ruler_keys(clocks)
             .iter()
-            .filter_map(|p| clocks.find(p))
+            .filter_map(|k| clocks.find(k))
             .collect()
     }
 
     /// The clock clicks snap to and cycle steps follow.
     pub fn selected<'a>(&self, clocks: &'a Clocks) -> Option<&'a Clock> {
         self.selected
-            .as_deref()
-            .and_then(|p| clocks.find(p))
+            .as_ref()
+            .and_then(|k| clocks.find(k))
             .or_else(|| self.rulers(clocks).into_iter().next())
     }
 
     /// Show a ruler row (starting from the default set) unless it is shown.
-    pub fn show_ruler(&mut self, clocks: &Clocks, path: &str) {
-        let mut rulers = self.ruler_paths(clocks).to_vec();
-        if !rulers.iter().any(|p| p == path) {
-            rulers.push(path.to_owned());
+    pub fn show_ruler(&mut self, clocks: &Clocks, key: &ClockKey) {
+        let mut rulers = self.ruler_keys(clocks).to_vec();
+        if !rulers.contains(key) {
+            rulers.push(key.clone());
         }
         self.rulers = Some(rulers);
     }
 
     /// Hide a ruler row (starting from the default set) if it is shown.
-    pub fn hide_ruler(&mut self, clocks: &Clocks, path: &str) {
-        if self.ruler_paths(clocks).iter().any(|p| p == path) {
-            self.toggle_ruler(clocks, path);
+    pub fn hide_ruler(&mut self, clocks: &Clocks, key: &ClockKey) {
+        if self.ruler_keys(clocks).contains(key) {
+            self.toggle_ruler(clocks, key);
         }
     }
 
     /// Show or hide a ruler row, starting from the default set.
-    pub fn toggle_ruler(&mut self, clocks: &Clocks, path: &str) {
-        let mut rulers = self.ruler_paths(clocks).to_vec();
-        match rulers.iter().position(|p| p == path) {
+    pub fn toggle_ruler(&mut self, clocks: &Clocks, key: &ClockKey) {
+        let mut rulers = self.ruler_keys(clocks).to_vec();
+        match rulers.iter().position(|k| k == key) {
             Some(ix) => {
                 rulers.remove(ix);
-                if self.selected.as_deref() == Some(path) {
+                if self.selected.as_ref() == Some(key) {
                     self.selected = None;
                 }
             }
-            None => rulers.push(path.to_owned()),
+            None => rulers.push(key.clone()),
         }
         self.rulers = Some(rulers);
+    }
+
+    /// Drop a closed trace's clocks. Returns whether the rulers changed.
+    pub(crate) fn forget_trace(&mut self, trace: TraceId) -> bool {
+        if self.selected.as_ref().is_some_and(|k| k.trace == trace) {
+            self.selected = None;
+        }
+        let Some(rulers) = &mut self.rulers else {
+            return false;
+        };
+        let before = rulers.len();
+        rulers.retain(|k| k.trace != trace);
+        rulers.len() != before
     }
 
     /// The cycle a clock numbers 0 in this panel.

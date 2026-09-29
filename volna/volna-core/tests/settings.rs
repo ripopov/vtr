@@ -2,6 +2,7 @@
 //! queue, host deliveries, and the projection into the viewer. Headless.
 
 use std::time::Duration;
+use volna_core::testing::a_all;
 
 use volna_core::Instant;
 use volna_core::app::{Action, App, Command, Event, SettingsCommand};
@@ -399,14 +400,14 @@ fn memory_limits_apply_live_so_a_failed_load_succeeds_on_retry() {
     let resident = app.status().memory.unwrap().used;
     let retry = |app: &mut App| {
         app.handle(Command::Action(volna_core::Action::RemoveSelected));
-        app.handle(Command::AddVars(vec![0]));
+        app.handle(Command::AddVars(a_all(vec![0])));
         pump(app);
     };
 
     // Below one history the load fails and says what to raise.
     set(&mut app, "memory.budgetMiB", 1);
     assert_eq!(app.status().memory.unwrap().limit, 1024 * 1024);
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     let error = row_error(&app).expect("over budget");
     assert!(error.contains("memory.budgetMiB"), "{error}");

@@ -8,10 +8,12 @@ use super::signals::SignalTransfer;
 use super::track_transfer::TrackTransfer;
 use super::transport::{Body, Command, MAX_BATCH, Packet};
 use crate::session::{LoadRequest, LoadResult};
+use crate::trace::TraceId;
 use std::collections::VecDeque;
 
 enum Active {
     Open {
+        trace: TraceId,
         generation: u64,
         transfer: OpenTransfer,
     },
@@ -41,9 +43,15 @@ pub struct RemoteClient {
 }
 
 impl RemoteClient {
-    pub fn new(generation: u64, limit: u64, budget: MemoryBudget) -> anyhow::Result<Self> {
+    /// A connection that opens the recording of trace `trace`.
+    pub fn new(
+        trace: TraceId,
+        generation: u64,
+        limit: u64,
+        budget: MemoryBudget,
+    ) -> anyhow::Result<Self> {
         let request = 1;
-        let transfer = OpenTransfer::new(request, generation, limit, budget.clone())?;
+        let transfer = OpenTransfer::new(request, trace, generation, limit, budget.clone())?;
         let opening = Some(transfer.command());
         Ok(Self {
             session: None,
@@ -51,6 +59,7 @@ impl RemoteClient {
             limit,
             budget,
             active: Some(Active::Open {
+                trace,
                 generation,
                 transfer,
             }),
@@ -75,6 +84,7 @@ impl RemoteClient {
         }
         match request {
             LoadRequest::Signals {
+                trace,
                 generation,
                 signals,
                 session,
@@ -86,6 +96,7 @@ impl RemoteClient {
                     .collect();
                 for ids in signals.chunks(MAX_BATCH) {
                     self.queued.push_back(LoadRequest::Signals {
+                        trace,
                         generation,
                         session: session.clone(),
                         signals: ids.to_vec(),
@@ -123,6 +134,7 @@ impl RemoteClient {
             .ok_or_else(|| anyhow::anyhow!("recording is not open"))?;
         let command = match job {
             LoadRequest::Signals {
+                trace,
                 generation,
                 signals,
                 ..
@@ -130,6 +142,7 @@ impl RemoteClient {
                 let transfer = SignalTransfer::new(
                     session,
                     self.request,
+                    *trace,
                     *generation,
                     signals,
                     self.limit,
@@ -143,6 +156,7 @@ impl RemoteClient {
                 command
             }
             LoadRequest::Track {
+                trace,
                 generation,
                 request_id,
                 session,
@@ -150,6 +164,7 @@ impl RemoteClient {
             } => {
                 let transfer = TrackTransfer::new(
                     self.request,
+                    *trace,
                     *generation,
                     *request_id,
                     session.clone(),
@@ -188,18 +203,22 @@ impl RemoteClient {
         let wanted = app.signal_demand();
         self.queued.retain_mut(|job| match job {
             LoadRequest::Signals {
+                trace,
                 generation,
                 signals,
                 ..
-            } => app.doc.retain_queued_signals(*generation, signals, &wanted),
+            } => app
+                .doc
+                .retain_queued_signals(*trace, *generation, signals, &wanted),
             LoadRequest::Track {
+                trace,
                 generation,
                 request_id,
                 track,
                 ..
             } => app
                 .doc
-                .wants_track_request(*generation, *request_id, *track),
+                .wants_track_request(*trace, *generation, *request_id, *track),
             LoadRequest::Open { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. } => {
@@ -280,7 +299,10 @@ impl RemoteClient {
         self.opening = None;
         let mut results = Vec::new();
         match self.active.take() {
-            Some(Active::Open { generation, .. }) => results.push(LoadResult::Opened {
+            Some(Active::Open {
+                trace, generation, ..
+            }) => results.push(LoadResult::Opened {
+                trace,
                 generation,
                 result: Err(anyhow::anyhow!(message.to_owned())),
             }),
@@ -309,6 +331,7 @@ mod tests {
     use crate::remote::objects::Metadata;
     use crate::remote::transport::{DATA_BYTES, ObjectId, acknowledgement};
     use crate::session::OpenSpec;
+    use crate::trace::Traced;
     use std::sync::Arc;
 
     fn response(client: &mut RemoteClient, packet: Packet) -> Option<LoadResult> {
@@ -371,8 +394,13 @@ mod tests {
     #[test]
     fn removed_queued_signals_do_not_send_and_active_results_can_fill_readded_rows() {
         use crate::app::{Action, App, Command as ViewerCommand};
-        let mut client =
-            RemoteClient::new(1, 1024 * 1024, MemoryBudget::new(4 * 1024 * 1024)).unwrap();
+        let mut client = RemoteClient::new(
+            TraceId::A,
+            1,
+            1024 * 1024,
+            MemoryBudget::new(4 * 1024 * 1024),
+        )
+        .unwrap();
         let open = client.take_command().unwrap().unwrap();
         let local = crate::testing::ProceduralTrace::session(100);
         let opened = object(
@@ -392,24 +420,27 @@ mod tests {
                 assert!(client.submit(request).is_ok());
             }
         };
-        app.handle(ViewerCommand::AddVars(vec![0]));
+        app.handle(ViewerCommand::AddVars(vec![Traced::new(TraceId::A, 0)]));
         enqueue(&mut app, &mut client);
         let active = client.take_command().unwrap().unwrap();
-        app.handle(ViewerCommand::AddVars(vec![1]));
+        app.handle(ViewerCommand::AddVars(vec![Traced::new(TraceId::A, 1)]));
         enqueue(&mut app, &mut client);
         app.handle(ViewerCommand::Action(Action::SelectAll));
         app.handle(ViewerCommand::Action(Action::RemoveSelected));
         client.sync_demand(&mut app);
         assert!(client.queued.is_empty());
         assert!(
-            app.doc.is_pending(SignalRef(0)),
+            app.doc.is_pending(Traced::new(TraceId::A, SignalRef(0))),
             "active work still completes"
         );
         assert!(
-            !app.doc.is_pending(SignalRef(1)),
+            !app.doc.is_pending(Traced::new(TraceId::A, SignalRef(1))),
             "removed queued demand is cleared"
         );
-        app.handle(ViewerCommand::AddVars(vec![0, 1]));
+        app.handle(ViewerCommand::AddVars(vec![
+            Traced::new(TraceId::A, 0),
+            Traced::new(TraceId::A, 1),
+        ]));
         enqueue(&mut app, &mut client);
         let completed = object(
             &mut client,
@@ -445,9 +476,14 @@ mod tests {
         writer.add_generator(stream, "generator").unwrap();
         writer.close().unwrap();
         let local = OpenSpec::Path(file.path().into()).open().unwrap();
-        let track = TrackRef(stream.0);
-        let mut client =
-            RemoteClient::new(1, 1024 * 1024, MemoryBudget::new(4 * 1024 * 1024)).unwrap();
+        let track = Traced::new(TraceId::A, TrackRef(stream.0));
+        let mut client = RemoteClient::new(
+            TraceId::A,
+            1,
+            1024 * 1024,
+            MemoryBudget::new(4 * 1024 * 1024),
+        )
+        .unwrap();
         let open = client.take_command().unwrap().unwrap();
         let opened = object(
             &mut client,
@@ -488,8 +524,13 @@ mod tests {
 
     #[test]
     fn command_failure_keeps_work_for_failure_delivery() {
-        let mut client =
-            RemoteClient::new(1, 1024 * 1024, MemoryBudget::new(4 * 1024 * 1024)).unwrap();
+        let mut client = RemoteClient::new(
+            TraceId::A,
+            1,
+            1024 * 1024,
+            MemoryBudget::new(4 * 1024 * 1024),
+        )
+        .unwrap();
         let open = client.take_command().unwrap().unwrap();
         let local = crate::testing::ProceduralTrace::session(100);
         let LoadResult::Opened { result, .. } = object(
@@ -505,6 +546,7 @@ mod tests {
         assert!(
             client
                 .submit(LoadRequest::Signals {
+                    trace: TraceId::A,
                     generation: 7,
                     session,
                     signals: vec![SignalRef(0)]
@@ -516,6 +558,7 @@ mod tests {
         let mut failures = client.disconnect("request identity exhausted");
         assert_eq!(failures.len(), 1);
         let LoadResult::Signals {
+            trace: _,
             generation,
             results,
         } = failures.pop().unwrap()
@@ -531,7 +574,7 @@ mod tests {
     #[test]
     fn queue_serializes_batches_and_disconnect_preserves_completed_histories() {
         let budget = MemoryBudget::new(4 * 1024 * 1024);
-        let mut client = RemoteClient::new(70, 1024 * 1024, budget.clone()).unwrap();
+        let mut client = RemoteClient::new(TraceId::A, 70, 1024 * 1024, budget.clone()).unwrap();
         let open = client.take_command().unwrap().unwrap();
         assert_eq!(open.session, 0);
         assert!(client.take_command().unwrap().is_none());
@@ -544,6 +587,7 @@ mod tests {
             bincode::serialize(&Metadata::from_session(local.as_ref())).unwrap(),
         );
         let LoadResult::Opened {
+            trace: _,
             generation: 70,
             result,
         } = opened
@@ -558,9 +602,11 @@ mod tests {
                 .unwrap(),
         );
         let Err(LoadResult::Signals {
+            trace: _,
             generation,
             results,
         }) = client.submit(LoadRequest::Signals {
+            trace: TraceId::A,
             generation: 71,
             session: wrong_session,
             signals: ids.clone(),
@@ -574,6 +620,7 @@ mod tests {
         assert!(
             client
                 .submit(LoadRequest::Signals {
+                    trace: TraceId::A,
                     generation: 71,
                     session: session.clone(),
                     signals: ids
@@ -601,6 +648,7 @@ mod tests {
             bincode::serialize(&PackedHistory::from_history(&source).unwrap()).unwrap(),
         );
         let LoadResult::Signals {
+            trace: _,
             generation: 71,
             mut results,
         } = completed
@@ -613,6 +661,7 @@ mod tests {
         let mut failed = Vec::new();
         for result in failures {
             let LoadResult::Signals {
+                trace: _,
                 generation: 71,
                 results,
             } = result
@@ -629,6 +678,7 @@ mod tests {
         assert!(
             client
                 .submit(LoadRequest::Signals {
+                    trace: TraceId::A,
                     generation: 71,
                     session: session.clone(),
                     signals: vec![SignalRef(65)]

@@ -6,17 +6,19 @@
    Dark: signal oklch(.80 .12 155), X oklch(.70 .17 25), Z oklch(.84 .12 85), don't-care oklch(.72 .13 330),
    weak oklch(.66 .02 265), coalesced events oklch(.94 .05 155), outgoing relations oklch(.78 .13 55), markers L .78 C .11.
    Light: signal oklch(.54 .13 160), X oklch(.45 .19 25), Z oklch(.56 .12 72), don't-care oklch(.52 .17 330),
-   weak oklch(.55 .02 265), coalesced events oklch(.34 .09 160), outgoing relations oklch(.58 .15 50), markers L .52 C .15. */
+   weak oklch(.55 .02 265), coalesced events oklch(.34 .09 160), outgoing relations oklch(.58 .15 50), markers L .52 C .15.
+   Differences between traces (proposal: docs/multiple-traces.html): dark oklch(.70 .16 285), light oklch(.48 .18 280); the
+   fill tints a differing stretch of a row, and the shape (tint plus a bar on the row's lower edge) carries the meaning. */
 :root,[data-theme="dark"]{
   --viewer-canvas:#1f2228;--viewer-panel:#282c33;--viewer-bar:#1f2228;--viewer-elevated:#2f343e;--viewer-border:#3b414d;--viewer-border-subtle:#2f343e;--viewer-text:#eceef1;--viewer-text-muted:#b9bfc9;--viewer-text-faint:#8f94a4;--viewer-selection:#1f2f45;--viewer-hover:#363c46;--viewer-accent:#74ade8;--viewer-on-accent:#1f2228;
-  --viewer-signal:#7ad59c;--viewer-undef:#f66d67;--viewer-highimp:#eec469;--viewer-dontcare:#d285cb;--viewer-weak:#8c929f;--viewer-event:#d2f6dd;--viewer-relation-out:#f7a062;
+  --viewer-signal:#7ad59c;--viewer-undef:#f66d67;--viewer-highimp:#eec469;--viewer-dontcare:#d285cb;--viewer-weak:#8c929f;--viewer-event:#d2f6dd;--viewer-relation-out:#f7a062;--viewer-diff:#968dfd;--viewer-diff-fill:rgb(150 141 253 / 0.16);
   --viewer-high-fill:rgb(122 213 156 / 0.1);--viewer-undef-fill:rgb(246 109 103 / 0.12);--viewer-dense:rgb(122 213 156 / 0.55);--viewer-grid:rgb(236 238 241 / 0.12);--viewer-row-selected:rgb(116 173 232 / 0.12);--viewer-row-hover:rgb(236 238 241 / 0.04);--viewer-outside:rgb(0 0 0 / 0.25);--viewer-flush:rgb(246 109 103 / 0.1);
   --viewer-marker-1:#bca9f7;--viewer-marker-2:#ea9bc7;--viewer-marker-3:#4eccd3;--viewer-marker-4:#eba66d;--viewer-marker-5:#bbbe67;--viewer-marker-6:#f69a9a;--viewer-marker-text:#1f2228;
   --viewer-stage-text:#16181c;--viewer-stage-hue-from:265;--viewer-stage-hue-to:30;--viewer-stage-l:0.86;--viewer-stage-l-alt:0.68;--viewer-stage-c:0.1;--viewer-stage-edge-dl:-0.2;
 }
 [data-theme="light"]{
   --viewer-canvas:#ffffff;--viewer-panel:#f4f5f7;--viewer-bar:#f4f5f7;--viewer-elevated:#ffffff;--viewer-border:#d4d8df;--viewer-border-subtle:#e2e5ea;--viewer-text:#1f2228;--viewer-text-muted:#555c69;--viewer-text-faint:#646b78;--viewer-selection:#e3edf8;--viewer-hover:#eceef1;--viewer-accent:#2d6cb0;--viewer-on-accent:#ffffff;
-  --viewer-signal:#008455;--viewer-undef:#a30018;--viewer-highimp:#9f6700;--viewer-dontcare:#9c3b96;--viewer-weak:#6c727e;--viewer-event:#00442a;--viewer-relation-out:#be5a0a;
+  --viewer-signal:#008455;--viewer-undef:#a30018;--viewer-highimp:#9f6700;--viewer-dontcare:#9c3b96;--viewer-weak:#6c727e;--viewer-event:#00442a;--viewer-relation-out:#be5a0a;--viewer-diff:#4f48bf;--viewer-diff-fill:rgb(79 72 191 / 0.11);
   --viewer-high-fill:rgb(0 132 85 / 0.1);--viewer-undef-fill:rgb(163 0 24 / 0.1);--viewer-dense:rgb(0 132 85 / 0.55);--viewer-grid:rgb(31 34 40 / 0.13);--viewer-row-selected:rgb(45 108 176 / 0.1);--viewer-row-hover:rgb(31 34 40 / 0.04);--viewer-outside:rgb(0 0 0 / 0.05);--viewer-flush:rgb(163 0 24 / 0.08);
   --viewer-marker-1:#7152b5;--viewer-marker-2:#a23e7c;--viewer-marker-3:#00768a;--viewer-marker-4:#a54b00;--viewer-marker-5:#607200;--viewer-marker-6:#af3b43;--viewer-marker-text:#ffffff;
   --viewer-stage-text:#1f2228;--viewer-stage-hue-from:265;--viewer-stage-hue-to:30;--viewer-stage-l:0.93;--viewer-stage-l-alt:0.79;--viewer-stage-c:0.08;--viewer-stage-edge-dl:-0.32;

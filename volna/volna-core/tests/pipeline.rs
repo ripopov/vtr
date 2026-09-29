@@ -3,6 +3,9 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+use volna_core::sidebar::TreeNode;
+use volna_core::testing::{a, a_all};
+use volna_core::trace::TraceId;
 
 use volna_core::app::{Action, App, Command, Event, PanelLayout};
 use volna_core::data::Member;
@@ -134,13 +137,13 @@ fn opened(n: u64) -> (App, Arc<dyn Session>, PanelId, PanelId) {
     let mut app = App::new();
     app.set_session(session.clone());
     // The first rows turn the start panel into a waveform panel.
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     let waves = app.panels.focused_id();
     assert!(app.panels.waves(waves).is_some());
-    app.handle(Command::SelectScope(scope(
+    app.handle(Command::SelectScope(TreeNode::scope(a(scope(
         session.as_ref(),
         &["cpu", "thread0"],
-    )));
+    )))));
     app.take_events();
     app.handle(Command::ScopesKey(Key::Enter));
     let pipeline = app.panels.focused_id();
@@ -310,7 +313,8 @@ fn activity_state_survives_workspace_and_split() {
             app.panels.pipeline(pipeline).unwrap().clone_view().follow,
             follow
         );
-        let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
+        let saved =
+            Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap();
         let mut restored = App::new();
         restored.set_session(session);
         Workspace::parse(&saved.to_bytes().unwrap())
@@ -349,7 +353,7 @@ fn activity_keeps_long_overlaps_points_and_generator_row_offsets() {
     let track = stream_track(session.as_ref(), &["pipeline"]);
     let mut app = App::new();
     app.set_session(session);
-    app.handle(Command::OpenPipeline { track });
+    app.handle(Command::OpenPipeline { track: a(track) });
     let panel = app.panels.focused_id();
     app.doc.shared.viewport.set(Viewport {
         start: 500.0,
@@ -490,7 +494,7 @@ fn enter_on_a_stream_opens_a_panel_loads_the_track_once_and_paints_cells() {
 
     // The generator of the loaded stream is resident: opening it queues nothing.
     let generator = Member::Generator(0);
-    app.handle(Command::ActivateMembers(vec![generator]));
+    app.handle(Command::ActivateMembers(a_all(vec![generator])));
     assert_eq!(app.panels.len(), 3);
     assert!(app.take_requests().is_empty());
     let second = app.panels.focused_id();
@@ -500,15 +504,14 @@ fn enter_on_a_stream_opens_a_panel_loads_the_track_once_and_paints_cells() {
         Rows::Ready(set) if set.len() == 40
     ));
     // Activating the stream again focuses its panel instead of opening one.
-    app.handle(Command::ActivateMembers(vec![Member::Stream(scope(
-        session.as_ref(),
-        &["cpu", "thread0"],
-    ))]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(
+        scope(session.as_ref(), &["cpu", "thread0"]),
+    )])));
     assert_eq!(app.panels.len(), 3);
     assert_eq!(app.panels.focused_id(), pipeline);
     // An unrecognized stream kind opens all the same, as one stage-less cell.
     let bus = scope(session.as_ref(), &["cpu", "bus"]);
-    app.handle(Command::ActivateMembers(vec![Member::Stream(bus)]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(bus)])));
     pump(&mut app);
     let bus_panel = app.panels.focused_id();
     assert_eq!(app.panels.len(), 4);
@@ -1409,7 +1412,7 @@ fn workspace_round_trip_keeps_pipeline_panels_and_unresolved_tracks_survive() {
         p.label_width = 240.0;
         p.row_cap = 40.0;
     }
-    let saved = Workspace::capture(&app, "trace.vtr".into(), None).unwrap();
+    let saved = Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap();
     let json = serde_json::to_value(&saved).unwrap();
     let panel_json = json["panels"]
         .as_array()
@@ -1496,6 +1499,7 @@ fn workspace_round_trip_keeps_pipeline_panels_and_unresolved_tracks_survive() {
     assert_eq!(
         p.track,
         TrackSource::Unresolved {
+            trace: TraceId::A,
             path: vec!["gone".into(), "stream".into()]
         }
     );
@@ -1508,8 +1512,10 @@ fn workspace_round_trip_keeps_pipeline_panels_and_unresolved_tracks_survive() {
     );
     frame(&mut other, pipeline, &theme);
     assert!(other.scene().texts().any(|t| t == "Not in this trace"));
-    let again = serde_json::to_value(Workspace::capture(&other, "trace.vtr".into(), None).unwrap())
-        .unwrap();
+    let again = serde_json::to_value(
+        Workspace::capture(&other, volna_core::testing::paths("trace.vtr"), None).unwrap(),
+    )
+    .unwrap();
     let kept = again["panels"]
         .as_array()
         .unwrap()
@@ -1551,17 +1557,20 @@ fn closing_the_last_panel_releases_the_track_and_late_delivery_is_ignored() {
     assert!(app.panels.pipeline(split).unwrap().is_attached());
     assert!(app.take_requests().is_empty());
     app.handle(Command::Panels(PanelsCommand::Close(split)));
-    assert!(app.doc.track(track).is_some());
+    assert!(app.doc.track(a(track)).is_some());
     app.handle(Command::Panels(PanelsCommand::Close(pipeline)));
     assert!(
-        app.doc.track(track).is_none(),
+        app.doc.track(a(track)).is_none(),
         "released with its last consumer"
     );
     assert_eq!(app.panels.focused_id(), waves);
     app.deliver(request.perform());
-    assert!(app.doc.track(track).is_none(), "late delivery is a no-op");
+    assert!(
+        app.doc.track(a(track)).is_none(),
+        "late delivery is a no-op"
+    );
     // Close-others from the wave panel releases every pipeline panel.
-    app.handle(Command::ActivateMembers(vec![Member::Generator(0)]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Generator(0)])));
     let generator = app
         .panels
         .pipeline(app.panels.focused_id())
@@ -1575,7 +1584,7 @@ fn closing_the_last_panel_releases_the_track_and_late_delivery_is_ignored() {
     // A failed load shows the error and the retry button reloads.
     let mut failing = App::new();
     failing.set_session(session.clone());
-    failing.handle(Command::OpenPipeline { track });
+    failing.handle(Command::OpenPipeline { track: a(track) });
     let request = failing.take_requests().pop().unwrap();
     let LoadRequest::Track {
         generation,
@@ -1587,6 +1596,7 @@ fn closing_the_last_panel_releases_the_track_and_late_delivery_is_ignored() {
         panic!()
     };
     failing.deliver(volna_core::session::LoadResult::Track {
+        trace: TraceId::A,
         generation,
         request_id,
         track,
@@ -1628,15 +1638,15 @@ fn a_stream_opened_first_replaces_the_start_panel_and_rows_find_a_waveform_tab()
     let start = app.panels.focused_id();
     assert!(app.panels.focused().kind.is_start());
     let track = stream_track(session.as_ref(), &["cpu", "thread0"]);
-    app.handle(Command::OpenPipeline { track });
+    app.handle(Command::OpenPipeline { track: a(track) });
     assert_eq!(app.panels.len(), 1);
     let pipeline = app.panels.focused_id();
     assert_ne!(pipeline, start);
     assert!(app.panels.pipeline(pipeline).unwrap().is_attached());
     pump(&mut app);
-    assert!(app.doc.track(track).is_some());
+    assert!(app.doc.track(a(track)).is_some());
     // Rows added while the pipeline is focused open a waveform tab beside it.
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert_eq!(app.panels.len(), 2);
     let waves = app.panels.focused_id();
     assert_eq!(app.panels.waves(waves).unwrap().items().len(), 1);
@@ -1649,7 +1659,7 @@ fn a_stream_opened_first_replaces_the_start_panel_and_rows_find_a_waveform_tab()
     );
     // More rows with the pipeline focused reuse and focus that panel.
     app.handle(Command::Panels(PanelsCommand::Focus(pipeline)));
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert_eq!(app.panels.len(), 2);
     assert_eq!(app.panels.focused_id(), waves);
     assert_eq!(app.panels.waves(waves).unwrap().items().len(), 2);
@@ -1658,7 +1668,7 @@ fn a_stream_opened_first_replaces_the_start_panel_and_rows_find_a_waveform_tab()
     app.handle(Command::Panels(PanelsCommand::Close(pipeline)));
     assert_eq!(app.panels.len(), 1);
     assert!(app.panels.focused().kind.is_start());
-    assert!(app.doc.track(track).is_none());
+    assert!(app.doc.track(a(track)).is_none());
     app.panels.validate().unwrap();
 }
 
@@ -1674,7 +1684,9 @@ fn the_checked_in_showcase_has_two_pipeline_streams_on_a_cycle_time_base() {
     let mut counts = Vec::new();
     for core in ["cpu0", "cpu1"] {
         let stream = scope(session.as_ref(), &["soc", core, "pipeline"]);
-        app.handle(Command::ActivateMembers(vec![Member::Stream(stream)]));
+        app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(
+            stream,
+        )])));
         pump(&mut app);
         let id = app.panels.focused_id();
         frame(&mut app, id, &theme);
@@ -1720,7 +1732,9 @@ fn the_feature_showcase_cpu_paints_stage_cells_and_stall_bands() {
     app.set_session(session.clone());
     pump(&mut app);
     let stream = scope(session.as_ref(), &["soc", "cpu", "thread0"]);
-    app.handle(Command::ActivateMembers(vec![Member::Stream(stream)]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(
+        stream,
+    )])));
     pump(&mut app);
     let id = app.panels.focused_id();
     let theme = Theme::one_dark();
@@ -1764,7 +1778,9 @@ fn the_verilator_demo_counts_in_its_clock_and_feeds_the_transaction_panel() {
     app.set_session(session.clone());
     pump(&mut app);
     let stream = scope(session.as_ref(), &["TOP", "tb", "core", "pipeline"]);
-    app.handle(Command::ActivateMembers(vec![Member::Stream(stream)]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(
+        stream,
+    )])));
     pump(&mut app);
     let id = app.panels.focused_id();
     app.handle(Command::PipelineActivity(
@@ -1977,7 +1993,9 @@ fn half_million_rows_load_lay_out_and_paint() {
     let stream = scope(session.as_ref(), &parts);
     let opened = t0.elapsed().as_secs_f64();
     let t1 = Clock::now();
-    app.handle(Command::ActivateMembers(vec![Member::Stream(stream)]));
+    app.handle(Command::ActivateMembers(a_all(vec![Member::Stream(
+        stream,
+    )])));
     pump(&mut app);
     let loaded = t1.elapsed().as_secs_f64();
     let id = app.panels.focused_id();

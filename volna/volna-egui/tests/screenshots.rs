@@ -58,9 +58,11 @@ fn fst_opens_and_loads_on_frontend_executor() {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../ext/surfer/examples/fst_types.fst");
     app.app.open_path(fixture);
     wait_loads(&mut h, &mut app);
-    let count = app.app.doc.hierarchy().unwrap().vars.len();
+    let a = volna_core::trace::TraceId::A;
+    let count = app.app.doc.hierarchy(a).unwrap().vars.len();
     assert!(count > 0);
-    app.app.handle(Command::AddVars((0..count).collect()));
+    let vars = (0..count).map(|v| volna_core::trace::Traced::new(a, v));
+    app.app.handle(Command::AddVars(vars.collect()));
     wait_loads(&mut h, &mut app);
     assert_eq!(app.app.panels.focused_waves().unwrap().items().len(), count);
     assert!(

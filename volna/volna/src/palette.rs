@@ -103,15 +103,21 @@ pub(crate) fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Actio
                 clock(ClockCommand::GoToCycle(cycle)),
             ));
         }
-        for (path, ruler) in &choices.clocks {
+        let combined = app.doc.traces().is_combined();
+        for (key, ruler) in &choices.clocks {
             let verb = if *ruler { "Hide" } else { "Show" };
+            let path = if combined {
+                format!("{} · {}", key.trace, key.item)
+            } else {
+                key.item.clone()
+            };
             all.push((
                 format!("{verb} Clock Ruler: {path}"),
-                clock(ClockCommand::ToggleRuler(path.clone())),
+                clock(ClockCommand::ToggleRuler(key.clone())),
             ));
             all.push((
                 format!("Snap and Step to Clock: {path}"),
-                clock(ClockCommand::Select(path.clone())),
+                clock(ClockCommand::Select(key.clone())),
             ));
         }
         all.push((
@@ -134,6 +140,25 @@ pub(crate) fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Actio
     if app::recent_labels(app).is_some_and(|labels| !labels.is_empty()) {
         all.push(("Clear Recent".into(), Box::new(app::ClearRecent)));
     }
+    // Each trace of several: reveal, rename, close.
+    let chips = app.trace_chips();
+    for chip in chips.iter().filter(|_| chips.len() > 1) {
+        let what = format!("{} {}", chip.trace, chip.name);
+        let verb = |verb| {
+            Box::new(app::TraceAction {
+                trace: chip.trace,
+                verb,
+            }) as Box<dyn Action>
+        };
+        all.push((format!("Reveal Trace {what}"), verb(app::TraceVerb::Reveal)));
+        all.push((
+            format!("Rename Trace {what}…"),
+            verb(app::TraceVerb::Rename),
+        ));
+        if chip.closable {
+            all.push((format!("Close Trace {what}"), verb(app::TraceVerb::Close)));
+        }
+    }
     for (path, track) in app::pipeline_streams(app) {
         all.push((
             format!("Open Pipeline: {path}"),
@@ -146,6 +171,7 @@ pub(crate) fn commands(app: &CoreApp, query: &str) -> Vec<(String, Box<dyn Actio
 fn fixed_commands() -> Vec<(&'static str, Box<dyn Action>)> {
     vec![
         ("Open Trace…", Box::new(app::OpenFile)),
+        ("Add Trace…", Box::new(app::AddTrace)),
         ("Close Trace", Box::new(app::CloseTrace)),
         ("Open Workspace…", Box::new(app::OpenWorkspace)),
         ("Save Workspace", Box::new(app::SaveWorkspace)),

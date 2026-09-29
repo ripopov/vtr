@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use volna_core::panels::{PanelId, PanelsCommand};
 use volna_core::testing::ProceduralTrace;
+use volna_core::testing::a_all;
 use volna_core::workspace::{MAX_BYTES, Workspace, resolve_trace};
 use volna_core::{Action, App, Command};
 
@@ -10,7 +11,7 @@ const LOCATION: &str = "vscode-remote://ssh-remote+board/home/user/trace.vtr.vol
 fn app() -> App {
     let mut app = App::new();
     app.set_session(Arc::new(ProceduralTrace::new(100)));
-    app.handle(Command::AddVars(vec![0, 1, 2]));
+    app.handle(Command::AddVars(a_all(vec![0, 1, 2])));
     app
 }
 /// Open [`TRACE`] as the procedural trace [`app`] shows.
@@ -23,7 +24,7 @@ fn open(app: &mut App) {
     volna_core::testing::complete_open(app, ProceduralTrace::session(100));
 }
 fn capture(app: &App) -> Workspace {
-    Workspace::capture(app, "trace.vtr".into(), None).unwrap()
+    Workspace::capture(app, volna_core::testing::paths("trace.vtr"), None).unwrap()
 }
 fn value(app: &App) -> Value {
     serde_json::to_value(capture(app)).unwrap()
@@ -81,8 +82,8 @@ fn missing_rows_scopes_and_unknown_translators_survive_without_guessing() {
     saved["panels"][0]["rows"][0]["nth"] = json!(3);
     saved["panels"][0]["rows"][0]["format"] = json!("future-format");
     saved["panels"][0]["rows"][1]["format"] = json!("future-bus");
-    saved["sidebar"]["selected_scope"] = json!(["missing.scope"]);
-    saved["sidebar"]["expanded"] = json!([["missing.scope"]]);
+    saved["sidebar"]["selected_scope"] = json!(["A", ["missing.scope"]]);
+    saved["sidebar"]["expanded"] = json!([["A", ["missing.scope"]]]);
     let plan = prepare(&saved, &app).unwrap();
     assert_eq!(plan.report().notices.len(), 5);
     plan.commit(&mut app).unwrap();
@@ -152,7 +153,7 @@ fn invalid_restores_are_atomic_and_unlinked_null_cursor_is_required() {
     v["shared"]["markers"] = json!([{"id":0,"time":1,"label":null}]);
     invalid.push(v);
     let mut v = original.clone();
-    v["trace"]["path"] = json!("different.vtr");
+    v["traces"][0]["path"] = json!("different.vtr");
     invalid.push(v);
     for v in invalid {
         assert!(prepare(&v, &app).is_err(), "accepted {v}");
@@ -165,7 +166,7 @@ fn invalid_restores_are_atomic_and_unlinked_null_cursor_is_required() {
 fn stale_plan_cannot_replace_a_new_trace_and_timescale_mismatch_only_warns() {
     let mut app = app();
     let mut v = value(&app);
-    v["trace"]["timescale"] = json!(-3);
+    v["traces"][0]["timescale"] = json!(-3);
     let plan = prepare(&v, &app).unwrap();
     assert_eq!(plan.report().notices.len(), 1);
     app.set_session(Arc::new(ProceduralTrace::new(20)));
@@ -310,7 +311,7 @@ fn fallback_base_survives_permission_changes_and_disappearance_of_the_sidecar() 
     let side_bytes = capture(&app()).to_bytes().unwrap();
     let base = persistence::hash(&side_bytes);
     let mut fallback = capture(&app());
-    fallback.trace.path = TRACE.into();
+    fallback.traces[0].path = TRACE.into();
     fallback.supersedes = Some(base.clone());
     let fallback = Candidate {
         target: Target::Storage { key: TRACE.into() },
@@ -377,7 +378,7 @@ fn app_autosave_tracks_edits_but_not_hover_noops_or_animation_frames() {
     use volna_core::wave::model::PointerEvent;
     let mut app = persistent_app();
     let now = Instant::now();
-    app.handle_at(Command::AddVars(vec![0, 1]), now);
+    app.handle_at(Command::AddVars(a_all(vec![0, 1])), now);
     let revision = app.workspace.scheduler.revision();
     app.handle_at(Command::MenuDismiss(app.panels.focused_id()), now);
     app.handle_at(
@@ -424,7 +425,7 @@ fn automatic_corruption_suspends_saves_but_explicit_failures_leave_policy_and_st
         },
     );
     assert!(app.workspace.scheduler.suspended());
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     app.tick(Instant::now() + IDLE * 2);
     assert!(
         !app.take_events()
@@ -445,7 +446,7 @@ fn automatic_corruption_suspends_saves_but_explicit_failures_leave_policy_and_st
 #[test]
 fn opening_closing_and_explicit_restore_wait_for_successful_flush() {
     let mut app = persistent_app();
-    app.handle(Command::AddVars(vec![0, 1]));
+    app.handle(Command::AddVars(a_all(vec![0, 1])));
     let saved = capture(&app).to_bytes().unwrap();
     app.handle(Command::Action(Action::SplitRight));
     app.open_workspace(file(LOCATION), &saved).unwrap();
@@ -503,7 +504,7 @@ fn a_lone_start_panel_round_trips_and_gives_way_to_a_saved_waveform_panel() {
     plan.commit(&mut app).unwrap();
     assert!(app.panels.focused().kind.is_start());
     assert_eq!(value(&app), before);
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     let after = value(&app);
     assert_eq!(after["panels"].as_array().unwrap().len(), 1);
     assert_eq!(after["panels"][0]["kind"], "waves");
@@ -620,7 +621,7 @@ fn row_height_changes_schedule_an_autosave() {
     use volna_core::wave::{RowHeight, model::MenuAction};
     let mut app = persistent_app();
     let now = Instant::now();
-    app.handle_at(Command::AddVars(vec![0, 1]), now);
+    app.handle_at(Command::AddVars(a_all(vec![0, 1])), now);
     for command in [
         Command::Action(Action::IncreaseRowHeight),
         Command::Action(Action::DecreaseRowHeight),
@@ -706,7 +707,7 @@ fn older_workspace_versions_are_discarded_and_overwritten() {
             app.workspace.notices
         );
         assert_eq!(app.workspace.scheduler.target(), Some(&file(LOCATION)));
-        app.handle(Command::AddVars(vec![0]));
+        app.handle(Command::AddVars(a_all(vec![0])));
         app.tick(Instant::now() + IDLE * 2);
         let (ticket, bytes) = emitted_save(&mut app);
         assert_eq!(ticket.target, file(LOCATION));

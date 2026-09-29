@@ -10,6 +10,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use volna_core::testing::{a, a_all};
+use volna_core::trace::TraceId;
 
 use serde_json::Value;
 use volna_core::app::{Action, App, ClockCommand, Command, EditTarget, Event};
@@ -29,9 +31,12 @@ use volna_core::{Instant, Theme};
 const TRACE: &str = "file:///tmp/landing.vtr";
 const LOCATION: &str = "file:///tmp/landing.vtr.volna.json";
 
+fn landing_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../volna/examples/landing.vtr")
+}
+
 fn landing() -> Arc<dyn Session> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../volna/examples/landing.vtr");
-    OpenSpec::Path(path).open().unwrap()
+    OpenSpec::Path(landing_path()).open().unwrap()
 }
 
 fn pump(app: &mut App) {
@@ -68,7 +73,7 @@ fn opened(session: Arc<dyn Session>) -> App {
 /// scrolling, column widths, selection, folds, the selected clock,
 /// pipeline row zoom, transaction sections) or chrome (the sidebar).
 fn projection(app: &App) -> Value {
-    let bytes = Workspace::capture(app, "trace.vtr".into(), None)
+    let bytes = Workspace::capture(app, volna_core::testing::paths("trace.vtr"), None)
         .unwrap()
         .to_bytes()
         .unwrap();
@@ -243,7 +248,7 @@ struct Catalog {
 
 impl Catalog {
     fn of(app: &App) -> Self {
-        let session = app.doc.session().unwrap();
+        let session = app.doc.session(TraceId::A).unwrap();
         let h = session.hierarchy();
         Self {
             vars: h.vars.len(),
@@ -432,8 +437,57 @@ impl Driver {
         true
     }
 
+    /// A second run of the design as trace B: it joins, closes (with its
+    /// rows and panels), is renamed, and has rows and pipelines of its own.
+    fn trace_input(&mut self) -> (Kind, String) {
+        let b = TraceId::new(1).unwrap();
+        if self.app.doc.traces().get(b).is_none() {
+            return (
+                Kind::Edit,
+                self.run(Command::AddTrace(OpenSpec::Path(landing_path()))),
+            );
+        }
+        fn in_b<T>(item: T) -> volna_core::trace::Traced<T> {
+            volna_core::trace::Traced::new(TraceId::new(1).unwrap(), item)
+        }
+        let command = match self.rng.below(8) {
+            0 => Command::RemoveTrace(b),
+            // Refused while B is open: A holds the workspace.
+            1 => Command::RemoveTrace(TraceId::A),
+            2 => Command::RenameTrace(
+                b,
+                self.rng
+                    .chance(3)
+                    .then(|| format!("run {}", self.rng.below(3))),
+            ),
+            3..=4 => {
+                let vars = (0..2).map(|_| in_b(self.rng.below(self.catalog.vars)));
+                Command::AddVars(vars.collect())
+            }
+            5 => {
+                let g = self.catalog.generators[self.rng.below(self.catalog.generators.len())];
+                Command::AddToWaves(vec![in_b(g)])
+            }
+            6 => {
+                let track = self.catalog.tracks[self.rng.below(self.catalog.tracks.len())];
+                Command::OpenPipeline { track: in_b(track) }
+            }
+            _ => Command::OpenTable {
+                selected: vec![
+                    a(Member::Var(self.rng.below(self.catalog.vars))),
+                    in_b(Member::Var(self.rng.below(self.catalog.vars))),
+                ],
+                clicked: None,
+            },
+        };
+        (Kind::Edit, self.run(command))
+    }
+
     /// One random input; returns its kind and a description.
     fn input(&mut self) -> (Kind, String) {
+        if self.rng.chance(12) {
+            return self.trace_input();
+        }
         let r = self.rng.below(100);
         let id = self.focused();
         let action = |a: Action| (Kind::Edit, Command::Action(a));
@@ -442,17 +496,17 @@ impl Driver {
             18..=24 => return (Kind::Redo, self.run(Command::Redo)),
             25..=28 => {
                 let n = self.rng.below(3) + 1;
-                let vars = (0..n).map(|_| self.rng.below(self.catalog.vars)).collect();
-                (Kind::Edit, Command::AddVars(vars))
+                let vars: Vec<usize> = (0..n).map(|_| self.rng.below(self.catalog.vars)).collect();
+                (Kind::Edit, Command::AddVars(a_all(vars)))
             }
             29..=30 => {
                 let g = self.catalog.generators[self.rng.below(self.catalog.generators.len())];
-                (Kind::Edit, Command::AddToWaves(vec![g]))
+                (Kind::Edit, Command::AddToWaves(a_all(vec![g])))
             }
             31 => (
                 Kind::Edit,
                 Command::AddScopeAsGroup {
-                    scope: self.rng.below(self.catalog.scopes),
+                    scope: a(self.rng.below(self.catalog.scopes)),
                     recursive: self.rng.chance(2),
                 },
             ),
@@ -531,7 +585,10 @@ impl Driver {
             }),
             58..=59 if !self.catalog.clocks.is_empty() => {
                 let path = self.catalog.clocks[self.rng.below(self.catalog.clocks.len())].clone();
-                (Kind::Edit, Command::Clocks(ClockCommand::ToggleRuler(path)))
+                (
+                    Kind::Edit,
+                    Command::Clocks(ClockCommand::ToggleRuler(a(path))),
+                )
             }
             60 => action(Action::ToggleCycleOrigin),
             61 => action(Action::SplitRight),
@@ -543,16 +600,16 @@ impl Driver {
             67..=68 => (Kind::Look, Command::Action(Action::FocusNextPanel)),
             69..=70 => {
                 let track = self.catalog.tracks[self.rng.below(self.catalog.tracks.len())];
-                (Kind::Edit, Command::OpenPipeline { track })
+                (Kind::Edit, Command::OpenPipeline { track: a(track) })
             }
             71 => {
-                let vars = (0..2)
+                let vars: Vec<Member> = (0..2)
                     .map(|_| Member::Var(self.rng.below(self.catalog.vars)))
                     .collect();
                 (
                     Kind::Edit,
                     Command::OpenTable {
-                        selected: vars,
+                        selected: a_all(vars),
                         clicked: None,
                     },
                 )
@@ -562,7 +619,7 @@ impl Driver {
                 (
                     Kind::Edit,
                     Command::OpenTable {
-                        selected: vec![g],
+                        selected: a_all(vec![g]),
                         clicked: None,
                     },
                 )
@@ -655,7 +712,7 @@ impl Driver {
         let Some(generator) = self
             .app
             .doc
-            .resident_generators()
+            .resident_generators(TraceId::A)
             .min_by_key(|g| g.generator().0)
             .cloned()
         else {
@@ -669,7 +726,7 @@ impl Driver {
         let id = self.focused();
         self.send(Command::SelectTransaction {
             panel: id,
-            track: tx.generator,
+            track: a(tx.generator),
             id: tx.id,
             cursor: None,
         });
@@ -700,16 +757,23 @@ impl Driver {
     }
 }
 
-fn model_based(seed: u64, steps: usize, max_bytes: Option<usize>) {
+/// Runs `steps` random inputs; returns the labels of the steps they made.
+fn model_based(
+    seed: u64,
+    steps: usize,
+    max_bytes: Option<usize>,
+) -> std::collections::BTreeSet<String> {
     let mut d = Driver::new(seed);
     if let Some(max) = max_bytes {
         d.app.history.set_max_bytes(max);
     }
     let mut oracle = Oracle::new(&d.app);
+    let mut labels = std::collections::BTreeSet::new();
     for step in 0..steps {
         let (kind, what) = d.input();
         let what = format!("seed {seed} step {step}: {what}");
         oracle.check(&d.app, kind, &what);
+        labels.extend(d.app.undo_label().map(str::to_owned));
     }
     // Everything undoes back to the oldest kept step, and redoes again.
     while d.app.can_undo() {
@@ -720,6 +784,7 @@ fn model_based(seed: u64, steps: usize, max_bytes: Option<usize>) {
         d.send(Command::Redo);
         oracle.check(&d.app, Kind::Redo, &format!("seed {seed}: replaying"));
     }
+    labels
 }
 
 /// `VOLNA_UNDO_SEEDS=n` runs `n` more seeds for exploration.
@@ -729,8 +794,13 @@ fn random_commands_undo_and_redo_to_every_earlier_cockpit() {
         .ok()
         .and_then(|n| n.parse().ok())
         .unwrap_or(0);
+    let mut labels = std::collections::BTreeSet::new();
     for seed in [1, 7, 42, 1234, 99991].into_iter().chain(100..100 + more) {
-        model_based(seed, 400, None);
+        labels.extend(model_based(seed, 400, None));
+    }
+    // The second trace joined, was renamed and closed with what showed it.
+    for step in ["Add trace B", "Rename trace B", "Close trace B"] {
+        assert!(labels.contains(step), "no {step:?} step in {labels:?}");
     }
 }
 
@@ -741,8 +811,8 @@ fn a_small_cap_evicts_the_oldest_steps_and_keeps_the_newest() {
     }
     let mut d = Driver::new(11);
     d.app.history.set_max_bytes(1);
-    d.send(Command::AddVars(vec![0, 1, 2]));
-    d.send(Command::AddVars(vec![3]));
+    d.send(Command::AddVars(a_all(vec![0, 1, 2])));
+    d.send(Command::AddVars(a_all(vec![3])));
     assert_eq!(
         d.app.history.undo_steps().count(),
         1,
@@ -758,7 +828,7 @@ fn a_small_cap_evicts_the_oldest_steps_and_keeps_the_newest() {
 fn four_rows() -> (App, PanelId, Instant) {
     let mut app = opened(landing());
     let now = Instant::now();
-    app.handle_at(Command::AddVars(vec![0, 1, 2, 3]), now);
+    app.handle_at(Command::AddVars(a_all(vec![0, 1, 2, 3])), now);
     pump(&mut app);
     let id = app.panels.focused_id();
     frame(&mut app, id);
@@ -991,7 +1061,7 @@ fn undo_restores_the_selection_focus_and_announces_the_label() {
     app.handle(Command::Redo);
     assert_eq!(notices(&mut app), ["Nothing to redo"]);
     // The next edit clears the status line.
-    app.handle(Command::AddVars(vec![5]));
+    app.handle(Command::AddVars(a_all(vec![5])));
     assert_eq!(app.status().announcement, None);
 }
 
@@ -1075,7 +1145,7 @@ fn removed_rows_come_back_sharing_resident_histories() {
 #[test]
 fn an_add_undone_before_its_load_ignores_the_late_delivery() {
     let mut app = opened(landing());
-    app.handle(Command::AddVars(vec![5, 6]));
+    app.handle(Command::AddVars(a_all(vec![5, 6])));
     let requests = app.take_requests();
     assert!(!requests.is_empty());
     let id = app.panels.focused_id();
@@ -1096,11 +1166,11 @@ fn an_add_undone_before_its_load_ignores_the_late_delivery() {
 fn closing_a_table_returns_its_memory_and_undo_reserves_it_again() {
     let mut app = opened(landing());
     let budget = |app: &App| app.status().memory.unwrap().used;
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     pump(&mut app);
     let base = budget(&app);
     app.handle(Command::OpenTable {
-        selected: vec![Member::Var(0), Member::Var(1)],
+        selected: a_all(vec![Member::Var(0), Member::Var(1)]),
         clicked: None,
     });
     pump(&mut app);
@@ -1161,9 +1231,9 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
     let generator = *catalog
         .generators
         .iter()
-        .find(|&&g| app.member_clock(g).is_none())
+        .find(|&&g| app.member_clock(a(g)).is_none())
         .unwrap();
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     let id = app.panels.focused_id();
     let set_cursor = |app: &mut App, t: u64| {
         let App { panels, doc, .. } = app;
@@ -1210,7 +1280,7 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
 
     let clock = catalog.clocks[0].clone();
     let name = clock.rsplit('.').next().unwrap().to_owned();
-    app.handle(Command::Clocks(ClockCommand::ToggleRuler(clock.clone())));
+    app.handle(Command::Clocks(ClockCommand::ToggleRuler(a(clock.clone()))));
     let shown = app.panels.waves(id).unwrap().nav.clocks().rulers.clone();
     assert!(app.undo_label().unwrap().ends_with(&name));
     set_cursor(&mut app, 500);
@@ -1225,7 +1295,7 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
 
     // A table's columns.
     app.handle(Command::OpenTable {
-        selected: vec![generator],
+        selected: a_all(vec![generator]),
         clicked: None,
     });
     pump(&mut app);
@@ -1255,16 +1325,16 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
     pump(&mut app);
     let track = app
         .doc
-        .hierarchy()
+        .hierarchy(TraceId::A)
         .unwrap()
         .member_track(generator)
         .unwrap();
-    let generator = app.doc.resident_generator(track).unwrap();
+    let generator = app.doc.resident_generator(a(track)).unwrap();
     let [first, second] = [&generator.transactions()[0], &generator.transactions()[1]];
     let select = |app: &mut App, tx: &volna_core::data::transactions::Transaction| {
         app.handle(Command::SelectTransaction {
             panel: table,
-            track: tx.generator,
+            track: a(tx.generator),
             id: tx.id,
             cursor: None,
         })
@@ -1295,17 +1365,17 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
 fn the_history_is_cleared_with_the_trace_and_never_saved() {
     let (mut app, _, _) = four_rows();
     assert!(app.can_undo());
-    let with = Workspace::capture(&app, TRACE.into(), None)
+    let with = Workspace::capture(&app, volna_core::testing::paths(TRACE), None)
         .unwrap()
         .to_bytes()
         .unwrap();
     let revision = app.history.revision();
     let mut plain = App::new();
     plain.set_session(landing());
-    plain.handle(Command::AddVars(vec![0, 1, 2, 3]));
+    plain.handle(Command::AddVars(a_all(vec![0, 1, 2, 3])));
     pump(&mut plain);
     plain.history.clear();
-    let without = Workspace::capture(&plain, TRACE.into(), None)
+    let without = Workspace::capture(&plain, volna_core::testing::paths(TRACE), None)
         .unwrap()
         .to_bytes()
         .unwrap();
@@ -1320,7 +1390,7 @@ fn the_history_is_cleared_with_the_trace_and_never_saved() {
     assert!(!app.can_undo() && !app.can_redo());
     assert_ne!(app.history.revision(), revision);
 
-    app.handle(Command::AddVars(vec![1]));
+    app.handle(Command::AddVars(a_all(vec![1])));
     assert!(app.can_undo());
     app.handle(Command::CloseTrace);
     assert!(!app.can_undo());
@@ -1335,7 +1405,7 @@ fn undo_and_redo_are_named_commands_and_mark_the_workspace_changed() {
     let mut app = opened(landing());
     app.handle(Command::Undo);
     assert_eq!(notices(&mut app), ["Nothing to undo"]);
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert_eq!(app.undo_label(), Some("Add 1 signal"));
     assert!(app.can_undo() && !app.can_redo());
 }

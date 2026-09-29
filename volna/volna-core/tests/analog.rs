@@ -5,6 +5,7 @@
 //! spans, the cursor dot and the hover readout).
 
 use std::sync::Arc;
+use volna_core::testing::a_all;
 
 use web_time::{Duration, Instant};
 
@@ -112,7 +113,7 @@ fn app() -> (tempfile::NamedTempFile, App, PanelId) {
     let (file, session) = trace();
     let mut app = App::new();
     app.set_session(session);
-    app.handle(Command::AddVars(vec![BUS, REAL, BIT]));
+    app.handle(Command::AddVars(a_all(vec![BUS, REAL, BIT])));
     pump(&mut app);
     let id = app.panels.focused_id();
     frame(&mut app, id);
@@ -661,8 +662,10 @@ fn analog_rows_round_trip_through_workspaces() {
         .waves_mut(id)
         .unwrap()
         .set_analog_range(&[BUS], AnalogRange::Window);
-    let saved =
-        serde_json::to_value(Workspace::capture(&app, TRACE.into(), None).unwrap()).unwrap();
+    let saved = serde_json::to_value(
+        Workspace::capture(&app, volna_core::testing::paths(TRACE), None).unwrap(),
+    )
+    .unwrap();
     let panel = &saved["panels"][0];
     assert_eq!(panel["version"], 4);
     assert_eq!(
@@ -690,8 +693,10 @@ fn analog_rows_round_trip_through_workspaces() {
         [Some(AnalogDraw::Step), Some(AnalogDraw::Linear), None]
     );
     assert_eq!(heights(&restored, rid), [3, 3, 1]);
-    let again =
-        serde_json::to_value(Workspace::capture(&restored, TRACE.into(), None).unwrap()).unwrap();
+    let again = serde_json::to_value(
+        Workspace::capture(&restored, volna_core::testing::paths(TRACE), None).unwrap(),
+    )
+    .unwrap();
     assert_eq!(again["panels"], saved["panels"]);
     // Older wave panels are reported, not guessed at.
     let mut old = saved.clone();
@@ -720,7 +725,7 @@ fn long_histories_summarize_on_the_worker_and_release_with_the_plot() {
     let (_file, session) = trace_until(400_000);
     let mut app = App::new();
     app.set_session(session);
-    app.handle(Command::AddVars(vec![BUS]));
+    app.handle(Command::AddVars(a_all(vec![BUS])));
     pump(&mut app);
     let id = app.panels.focused_id();
     let used = |app: &App| app.status().memory.unwrap().used;

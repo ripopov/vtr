@@ -84,11 +84,24 @@ pub(crate) fn tab_title(
     let Some(owner) = ws.upgrade() else {
         return Empty.into_any_element();
     };
-    let panels = &owner.read(cx).app.panels;
+    let app = &owner.read(cx).app;
+    let panels = &app.panels;
     let Some(panel) = panels.get(id) else {
         return Empty.into_any_element();
     };
-    let title = gpui_kit::SharedString::from(panel.title());
+    // While several traces are open, a panel over one trace names it.
+    let letter = panel
+        .kind
+        .trace()
+        .filter(|_| app.doc.traces().is_combined());
+    let title = div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .when_some(letter, |el, trace| {
+            el.child(crate::traces::letter_badge(trace, cx))
+        })
+        .child(gpui_kit::SharedString::from(panel.title()));
     if !panels.can_close(id) {
         return title.into_any_element();
     }
@@ -764,10 +777,10 @@ impl Panel for CanvasPanelView {
                 workspace
                     .app
                     .doc
-                    .session()?
+                    .session(track.trace)?
                     .tracks()
                     .iter()
-                    .find(|declaration| declaration.id == track)
+                    .find(|declaration| declaration.id == track.item)
                     .map(|declaration| {
                         matches!(
                             declaration.kind,

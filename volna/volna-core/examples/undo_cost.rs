@@ -110,7 +110,11 @@ fn main() -> anyhow::Result<()> {
     let mut app = App::new();
     app.settings_loaded(r#"{"memory.budgetMiB": 16384, "memory.objectMiB": 8192}"#);
     app.set_session(OpenSpec::Path(path).open()?);
-    app.handle(Command::AddVars((0..vars).collect()));
+    app.handle(Command::AddVars(
+        (0..vars)
+            .map(|v| volna_core::trace::Traced::new(volna_core::trace::TraceId::A, v))
+            .collect(),
+    ));
     pump(&mut app);
     let id = app.panels.focused_id();
     let items = app.panels.waves(id).unwrap().items().to_vec();
@@ -125,7 +129,7 @@ fn main() -> anyhow::Result<()> {
     let detach_ms = best_ms(|| detached = items.iter().map(Entry::detached).collect::<Vec<_>>());
     let mut bytes = Vec::new();
     let capture_ms = best_ms(|| {
-        bytes = Workspace::capture(&app, "trace.vtr".into(), None)
+        bytes = Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None)
             .unwrap()
             .to_bytes()
             .unwrap()

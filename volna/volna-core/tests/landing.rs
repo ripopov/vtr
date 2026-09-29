@@ -117,7 +117,7 @@ fn the_landing_workspace_restores_every_panel_and_saves_the_same_bytes() {
         .collect();
     assert_eq!(markers, [Some("irq"), Some("refill done")]);
 
-    let again = Workspace::capture(&app, "landing.vtr".into(), None).unwrap();
+    let again = Workspace::capture(&app, volna_core::testing::paths("landing.vtr"), None).unwrap();
     assert_eq!(
         String::from_utf8(again.to_bytes().unwrap()).unwrap(),
         String::from_utf8(saved).unwrap(),

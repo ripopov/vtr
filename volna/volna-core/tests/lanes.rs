@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use volna_core::testing::{a, a_all};
 
 use volna_core::Theme;
 use volna_core::app::{Action, App, Command};
@@ -82,12 +83,9 @@ fn with_lanes(paths: &[&str]) -> (App, Arc<dyn Session>, PanelId, Vec<TrackRef>)
     let mut app = App::new();
     app.set_session(session.clone());
     let tracks: Vec<_> = paths.iter().map(|p| track(session.as_ref(), p)).collect();
-    app.handle(Command::AddToWaves(
-        tracks
-            .iter()
-            .map(|t| generator(session.as_ref(), *t))
-            .collect(),
-    ));
+    app.handle(Command::AddToWaves(a_all(
+        tracks.iter().map(|t| generator(session.as_ref(), *t)),
+    )));
     let waves = app.panels.focused_id();
     pump(&mut app);
     frame(&mut app, waves);
@@ -157,10 +155,12 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
     assert_eq!(lane::folded(16, cpu1.height), 11);
 
     // A Pipeline panel over the same generator shares the one object.
-    app.handle(Command::OpenPipeline { track: tracks[0] });
+    app.handle(Command::OpenPipeline {
+        track: a(tracks[0]),
+    });
     pump(&mut app);
     let pipeline = app.panels.focused_id();
-    let shared = |app: &App| match app.doc.track(tracks[0]) {
+    let shared = |app: &App| match app.doc.track(a(tracks[0])) {
         Some(TrackLoadState::Ready(loaded)) => loaded.generators[0].clone(),
         _ => panic!("not resident"),
     };
@@ -181,14 +181,14 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
     app.handle(Command::Action(Action::RemoveSelected));
     assert!(app.panels.waves(waves).unwrap().items().is_empty());
     assert!(matches!(
-        app.doc.track(tracks[0]),
+        app.doc.track(a(tracks[0])),
         Some(TrackLoadState::Ready(_))
     ));
-    assert!(app.doc.track(tracks[1]).is_none());
+    assert!(app.doc.track(a(tracks[1])).is_none());
     app.handle(Command::Panels(volna_core::panels::PanelsCommand::Close(
         pipeline,
     )));
-    assert!(app.doc.track(tracks[0]).is_none());
+    assert!(app.doc.track(a(tracks[0])).is_none());
 
     // Streams and variables: variables become signal rows, streams have
     // no row form.
@@ -201,10 +201,10 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
     app.handle(Command::Panels(volna_core::panels::PanelsCommand::Focus(
         waves,
     )));
-    app.handle(Command::AddToWaves(vec![
+    app.handle(Command::AddToWaves(a_all(vec![
         Member::Stream(stream),
         Member::Var(0),
-    ]));
+    ])));
     let w = app.panels.waves(waves).unwrap();
     assert_eq!(w.items().len(), 1);
     assert!(w.items()[0].signal().is_some());
@@ -244,7 +244,7 @@ fn clicking_a_bar_selects_the_record_everywhere_and_empty_space_clears_it() {
     let selection = app.doc.selection().expect("selected");
     assert_eq!(
         (selection.track, selection.id, selection.origin),
-        (tracks[0], tx.id, waves)
+        (a(tracks[0]), tx.id, waves)
     );
     assert!(app.panels.waves(waves).unwrap().pressed_record);
     // The cursor lands where the press was, snapped to a boundary nearby.
@@ -326,14 +326,14 @@ fn edge_steps_walk_record_begins_and_ends_on_a_lane() {
 #[test]
 fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
     let (mut app, session, waves, tracks) = with_lanes(&[CPU0]);
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert_eq!(app.panels.waves(waves).unwrap().items().len(), 2);
 
     // Lanes cut and paste with signals, into another wave panel.
     app.panels.waves_mut(waves).unwrap().selected = [0, 1].into();
     app.handle(Command::Action(Action::CutSignals));
     assert!(app.panels.waves(waves).unwrap().items().is_empty());
-    assert!(app.doc.track(tracks[0]).is_none(), "no lane shows it");
+    assert!(app.doc.track(a(tracks[0])).is_none(), "no lane shows it");
     app.handle(Command::Action(Action::SplitRight));
     let other = app.panels.focused_id();
     app.handle(Command::Action(Action::PasteSignals));
@@ -363,8 +363,10 @@ fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
     assert!(scene.texts().any(|t| t == "+4"));
 
     // Workspaces save lanes as typed rows and restore them, heights intact.
-    let saved =
-        serde_json::to_value(Workspace::capture(&app, "trace.vtr".into(), None).unwrap()).unwrap();
+    let saved = serde_json::to_value(
+        Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap(),
+    )
+    .unwrap();
     let rows = saved["panels"]
         .as_array()
         .unwrap()
@@ -393,7 +395,10 @@ fn lanes_cut_paste_resize_and_round_trip_through_the_workspace() {
     assert_eq!(lane.height, RowHeight::DEFAULT);
     assert!(lane.generator(&app.doc).is_some(), "restored lanes load");
     assert_eq!(
-        serde_json::to_value(Workspace::capture(&app, "trace.vtr".into(), None).unwrap()).unwrap(),
+        serde_json::to_value(
+            Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap()
+        )
+        .unwrap(),
         saved
     );
 
@@ -514,7 +519,10 @@ fn a_failed_record_is_red_in_bars_and_values() {
     let mut app = App::new();
     app.set_session(session.clone());
     let read = track(session.as_ref(), "soc.dma.memory_bus.read");
-    app.handle(Command::AddToWaves(vec![generator(session.as_ref(), read)]));
+    app.handle(Command::AddToWaves(a_all(vec![generator(
+        session.as_ref(),
+        read,
+    )])));
     let waves = app.panels.focused_id();
     pump(&mut app);
     let failed = {

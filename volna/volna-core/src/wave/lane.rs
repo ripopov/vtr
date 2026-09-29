@@ -9,6 +9,7 @@ use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::transactions::{TrackRef, Transaction, TxStatus};
 use crate::document::{Document, TrackLoadState};
 use crate::pipeline::{PipelineModel, TrackSource};
+use crate::trace::{TraceId, Traced};
 use crate::wave::model::RowHeight;
 use crate::wave::viewport::Viewport;
 
@@ -44,13 +45,13 @@ pub enum LaneData<'a> {
 }
 
 impl TxLane {
-    /// A lane for `track` of the open session's catalog.
-    pub fn new(doc: &Document, track: TrackRef) -> Option<Self> {
+    /// A lane for `track` of its trace's catalog.
+    pub fn new(doc: &Document, track: Traced<TrackRef>) -> Option<Self> {
         let path = doc
-            .session()?
+            .session(track.trace)?
             .tracks()
             .iter()
-            .find(|t| t.id == track)?
+            .find(|t| t.id == track.item)?
             .path
             .clone();
         let (name, scope) = path.split_last()?;
@@ -68,12 +69,12 @@ impl TxLane {
         Some(lane)
     }
 
-    /// A lane that keeps a saved path the session does not have.
-    pub fn unresolved(path: Vec<String>, height: RowHeight) -> Self {
+    /// A lane that keeps a saved path its trace does not have.
+    pub fn unresolved(trace: TraceId, path: Vec<String>, height: RowHeight) -> Self {
         let name = path.last().cloned().unwrap_or_default();
         let scope = path[..path.len().saturating_sub(1)].join(".");
         Self {
-            source: TrackSource::Unresolved { path },
+            source: TrackSource::Unresolved { trace, path },
             name,
             scope,
             height,
@@ -81,7 +82,7 @@ impl TxLane {
         }
     }
 
-    pub fn track(&self) -> Option<TrackRef> {
+    pub fn track(&self) -> Option<Traced<TrackRef>> {
         self.source.track()
     }
 

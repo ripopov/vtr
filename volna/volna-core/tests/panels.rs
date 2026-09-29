@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use volna_core::testing::a_all;
 
 use volna_core::Document;
 use volna_core::Session;
@@ -14,7 +15,7 @@ use volna_core::{Action, App, Command, Instant};
 fn linked_app() -> App {
     let mut app = App::new();
     app.set_session(Arc::new(ProceduralTrace::new(100)));
-    app.handle(Command::AddVars(vec![0, 1]));
+    app.handle(Command::AddVars(a_all(vec![0, 1])));
     app
 }
 
@@ -140,7 +141,7 @@ fn pending_and_loaded_histories_are_shared_across_all_panels() {
     assert_eq!(requests.len(), 1);
     panel(&mut app, PanelsCommand::NewTab { group_of: a });
     let b = app.panels.focused_id();
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert!(app.take_requests().is_empty());
     for r in requests {
         app.deliver(r.perform());
@@ -159,7 +160,7 @@ fn pending_and_loaded_histories_are_shared_across_all_panels() {
         .unwrap();
     assert!(Arc::ptr_eq(&first, &second));
     panel(&mut app, PanelsCommand::NewTab { group_of: b });
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert!(
         app.take_requests().is_empty(),
         "adding an already loaded signal must not decode again"
@@ -371,9 +372,13 @@ fn split_copies_rows_but_shares_history_and_clears_transient_input() {
     doc.set_session(source.clone());
     let a = p.focused_id();
     let w = p.focused_mut().kind.waves_mut().unwrap();
-    w.add_vars(&mut doc, &[0, 1], Default::default());
+    w.add_vars(
+        &mut doc,
+        &volna_core::testing::a_all([0, 1]),
+        Default::default(),
+    );
     w.finish_signal(
-        source.hierarchy().vars[0].signal,
+        volna_core::testing::a(source.hierarchy().vars[0].signal),
         source.load_signal(source.hierarchy().vars[0].signal),
     );
     w.drag = Some(volna_core::wave::model::Drag::Cursor);
@@ -461,7 +466,7 @@ fn close_others_keeps_any_kind_and_a_lone_settings_tab_gets_a_start_panel() {
     assert!(!app.panels.can_close(start));
     app.panels.validate().unwrap();
     // Rows added now go to a waveform panel in the placeholder's spot.
-    app.handle(Command::AddVars(vec![0]));
+    app.handle(Command::AddVars(a_all(vec![0])));
     assert_eq!(app.panels.len(), 2);
     let waves = app.panels.focused_id();
     assert_eq!(app.panels.waves(waves).unwrap().items().len(), 1);

@@ -21,6 +21,7 @@ use volna_core::data::transactions::TrackRef;
 use volna_core::document::TraceState;
 use volna_core::session::Session;
 use volna_core::settings::ZoomStep;
+use volna_core::trace::{TraceId, Traced};
 use volna_core::wave::MenuEntry;
 use volna_core::workspace::recent::{RecentCommand, RecentKey, RecentKind};
 use volna_core::{App as CoreApp, FontRole, Instant, Scene};
@@ -43,6 +44,7 @@ actions!(
     workspace,
     [
         OpenFile,
+        AddTrace,
         OpenWorkspace,
         SaveWorkspace,
         SaveWorkspaceAs,
@@ -183,6 +185,22 @@ pub struct ClockAction {
     pub command: volna_core::app::ClockCommand,
 }
 
+/// One trace's verbs from the command palette: reveal it in the scope tree,
+/// rename it, or close it.
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(namespace = workspace, no_json)]
+pub struct TraceAction {
+    pub trace: TraceId,
+    pub verb: TraceVerb,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TraceVerb {
+    Reveal,
+    Rename,
+    Close,
+}
+
 /// Show the selected record in a Transaction panel (⏎, or a double-click on
 /// a pipeline row). The core chooses which panel, or opens one.
 #[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
@@ -194,15 +212,12 @@ pub struct ShowTransaction;
 #[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
 #[action(namespace = waves, no_json)]
 pub struct OpenPipelineTrack {
-    pub track: u32,
+    pub track: Traced<TrackRef>,
 }
 
-/// The recognized PIPELINE streams of the open trace: (dotted path, track).
-pub(crate) fn pipeline_streams(app: &CoreApp) -> Vec<(String, u32)> {
+/// The recognized PIPELINE streams of the open traces: (label, track).
+pub(crate) fn pipeline_streams(app: &CoreApp) -> Vec<(String, Traced<TrackRef>)> {
     app.pipeline_streams()
-        .into_iter()
-        .map(|(path, track)| (path, track.0))
-        .collect()
 }
 
 /// Key of the shaped-text cache used by the wave painter.
@@ -214,6 +229,13 @@ pub(crate) struct TextKey {
     pub color: [u32; 4],
 }
 
+/// The document generation, undo history revision, recent-list revision and
+/// trace set revision an application menu was built for.
+type MenuKey = (u64, u64, u64, u64);
+
+pub(crate) type OnWavesKey = (u64, u64);
+pub(crate) type OnWaves = std::collections::HashSet<Traced<volna_core::data::Member>>;
+
 pub struct Workspace {
     pub app: CoreApp,
     #[cfg(target_family = "wasm")]
@@ -222,14 +244,19 @@ pub struct Workspace {
     pub(crate) native_store: Option<crate::native_workspace::Store>,
     pub(crate) dock: Option<crate::dock::DockHost>,
     panel_focus_pending: bool,
-    focus_handle: FocusHandle,
+    pub(crate) focus_handle: FocusHandle,
     pub(crate) waves_focus: FocusHandle,
     pub(crate) scopes_focus: FocusHandle,
     pub(crate) variables_focus: FocusHandle,
     pub(crate) filter: Entity<TextInput>,
     pub(crate) scopes_scroll: UniformListScrollHandle,
     pub(crate) variables_scroll: UniformListScrollHandle,
-    status_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
+    pub(crate) status_menu: Option<(gpui_kit::Point<Pixels>, Entity<PopupMenu>)>,
+    /// The name field of a trace being renamed, in its chip.
+    pub(crate) trace_rename: Option<crate::traces::TraceRename>,
+    /// The members on the waves as of a rows revision (the member list's
+    /// marks), rebuilt only when rows change.
+    pub(crate) on_waves: Option<(OnWavesKey, std::rc::Rc<OnWaves>)>,
     pub(crate) frame_view: crate::frame_stats::FrameView,
     /// Mirrors the focused wave panel's menu.
     wave_menu: Option<HostedWaveMenu>,
@@ -243,9 +270,8 @@ pub struct Workspace {
     pub embedded: bool,
     /// The command line chose the workspace policy; `workspace.autosave` is ignored.
     pub(crate) cli_policy: bool,
-    /// The document generation, undo history revision and recent-list
-    /// revision the application menu was last built for.
-    menu_generation: Option<(u64, u64, u64)>,
+    /// What the application menu was last built for.
+    menu_generation: Option<MenuKey>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) config_watcher: Option<notify::RecommendedWatcher>,
     /// A workspace being opened by path: once its trace opens, the recent
@@ -341,6 +367,8 @@ pub fn init(cx: &mut App) {
         ),
         KeyBinding::new("cmd-o", OpenFile, None),
         KeyBinding::new("ctrl-o", OpenFile, None),
+        KeyBinding::new("cmd-shift-o", AddTrace, Some("Workspace && !Embedded")),
+        KeyBinding::new("ctrl-shift-o", AddTrace, Some("Workspace && !Embedded")),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("ctrl-b", ToggleSidebar, None),
         KeyBinding::new("cmd-w", ClosePanel, Some("Workspace && !Embedded")),
@@ -483,12 +511,15 @@ pub(crate) fn edit_menu_title(verb: &str, label: Option<&str>) -> String {
 /// as shortcuts (any stream or generator can still be opened from the
 /// sidebar).
 pub(crate) fn menus(
-    pipelines: &[(String, u32)],
+    pipelines: &[(String, Traced<TrackRef>)],
     undo: Option<&str>,
     redo: Option<&str>,
     recent: Option<&[String]>,
 ) -> Vec<Menu> {
-    let mut file = vec![MenuItem::action("Open…", OpenFile)];
+    let mut file = vec![
+        MenuItem::action("Open…", OpenFile),
+        MenuItem::action("Add Trace…", AddTrace),
+    ];
     if let Some(recent) = recent {
         let mut items: Vec<MenuItem> = recent
             .iter()
@@ -731,6 +762,8 @@ impl Workspace {
             frame_view: Default::default(),
             wave_menu: None,
             rename: None,
+            trace_rename: None,
+            on_waves: None,
             scene: Scene::default(),
             shaped: HashMap::new(),
             embedded: false,
@@ -847,6 +880,7 @@ impl Workspace {
                         crate::web::announce(&text);
                     }
                     Event::OpenFileDialog => self.open_file_dialog(cx),
+                    Event::AddTraceDialog => self.add_trace_dialog(cx),
                     Event::RevealScopeRow(ix) => self
                         .scopes_scroll
                         .scroll_to_item(ix, gpui_kit::ScrollStrategy::Nearest),
@@ -905,6 +939,7 @@ impl Workspace {
             self.app.doc.generation(),
             self.app.history.revision(),
             self.app.workspace.recent.revision,
+            self.app.doc.traces().revision(),
         );
         if self.embedded || self.menu_generation == Some(key) {
             return;
@@ -1200,6 +1235,10 @@ impl Workspace {
         self.dispatch(Command::RequestOpenDialog, Some(window), cx);
     }
 
+    fn add_trace(&mut self, _: &AddTrace, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch(Command::RequestAddTraceDialog, Some(window), cx);
+    }
+
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, window: &mut Window, cx: &mut Context<Self>) {
         self.dispatch(Command::ToggleSidebar, Some(window), cx);
     }
@@ -1440,7 +1479,13 @@ impl Workspace {
     fn render_titlebar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = *theme(cx);
         let colors = t.bar;
-        let file: Option<SharedString> = self.app.doc.name().map(Into::into);
+        // Several traces show as chips; one is named plainly.
+        let chips = self.render_trace_chips(cx);
+        let file: Option<SharedString> = chips
+            .is_none()
+            .then(|| self.app.doc.name())
+            .flatten()
+            .map(Into::into);
         let fullscreen = window.is_fullscreen();
         let left_controls = render_window_controls(Side::Left, window, cx);
         let right_controls = render_window_controls(Side::Right, window, cx);
@@ -1514,7 +1559,8 @@ impl Workspace {
                     .when_some(file, |el, name| {
                         el.child(div().text_color(colors.text_placeholder).child("—"))
                             .child(div().text_color(colors.text_muted).child(name))
-                    }),
+                    })
+                    .when_some(chips, |el, chips| el.child(chips)),
             )
             .child(
                 icon_button(
@@ -1539,6 +1585,15 @@ impl Workspace {
                         this.dispatch(Command::RequestOpenDialog, Some(w), cx)
                     })),
             )
+            .when(self.app.doc.is_loaded(), |el| {
+                el.child(
+                    icon_button("add-trace", IconName::Plus, t.bar, t.bar_hover, cx)
+                        .tooltip("Add trace beside the open ones (⇧⌘O)")
+                        .on_click(cx.listener(|this, _, w, cx| {
+                            this.dispatch(Command::RequestAddTraceDialog, Some(w), cx)
+                        })),
+                )
+            })
             .child(
                 icon_button("open-settings", IconName::Settings, t.bar, t.bar_hover, cx)
                     .selected(self.app.panels.settings_id().is_some())
@@ -2256,6 +2311,7 @@ impl Render for Workspace {
             .font_family(t.ui_font)
             .text_size(px(t.ui_size))
             .on_action(cx.listener(Self::open_file))
+            .on_action(cx.listener(Self::add_trace))
             .on_action(cx.listener(|this, _: &OpenWorkspace, window, cx| {
                 this.dispatch(Command::RequestOpenWorkspace, Some(window), cx)
             }))
@@ -2296,10 +2352,22 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, action: &ClockAction, window, cx| {
                 this.dispatch(Command::Clocks(action.command.clone()), Some(window), cx)
             }))
+            .on_action(cx.listener(|this, action: &TraceAction, window, cx| {
+                let trace = action.trace;
+                match action.verb {
+                    TraceVerb::Reveal => {
+                        this.dispatch(Command::RevealTrace(trace), Some(window), cx)
+                    }
+                    TraceVerb::Rename => this.start_trace_rename(trace, window, cx),
+                    TraceVerb::Close => {
+                        this.dispatch(Command::RemoveTrace(trace), Some(window), cx)
+                    }
+                }
+            }))
             .on_action(cx.listener(|this, action: &OpenPipelineTrack, window, cx| {
                 this.dispatch(
                     Command::OpenPipeline {
-                        track: TrackRef(action.track),
+                        track: action.track,
                     },
                     Some(window),
                     cx,
@@ -2439,11 +2507,12 @@ impl Render for Workspace {
         );
         #[cfg(not(target_family = "wasm"))]
         {
-            root = root.on_drop(cx.listener(|this, paths: &gpui_kit::ExternalPaths, _, cx| {
-                if let Some(p) = paths.paths().first() {
-                    this.open_path(p.clone(), cx);
-                }
-            }));
+            root = root.on_drop(cx.listener(
+                |this, paths: &gpui_kit::ExternalPaths, window, cx| {
+                    let position = window.mouse_position();
+                    this.drop_paths(paths.paths().to_vec(), position, window, cx);
+                },
+            ));
         }
         if !self.embedded {
             root = root.child(self.render_titlebar(window, cx));

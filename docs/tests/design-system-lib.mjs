@@ -184,7 +184,7 @@ export const CONTRAST = String.raw`(() => {
   TEXT.push(...['viewer-text', 'viewer-text-muted', 'viewer-text-faint'].flatMap(f => ['viewer-canvas', 'viewer-panel', 'viewer-bar'].map(b => [f, b])),
     ['viewer-text', 'viewer-selection'], ['viewer-text', 'viewer-hover'], ['viewer-text', 'viewer-elevated'], ['viewer-on-accent', 'viewer-accent'],
     ...[1, 2, 3, 4, 5, 6].map(i => ['viewer-marker-text', 'viewer-marker-' + i]),
-    ...['viewer-signal', 'viewer-undef', 'viewer-highimp', 'viewer-dontcare', 'viewer-weak', 'viewer-event', 'viewer-accent', 'viewer-relation-out',
+    ...['viewer-signal', 'viewer-undef', 'viewer-highimp', 'viewer-dontcare', 'viewer-weak', 'viewer-event', 'viewer-accent', 'viewer-relation-out', 'viewer-diff',
       ...[1, 2, 3, 4, 5, 6].map(i => 'viewer-marker-' + i)].map(f => [f, 'viewer-canvas']));
   const probe = document.createElement('span');
   document.body.append(probe);

@@ -4,11 +4,13 @@ use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    Context, CursorStyle, IntoElement, KeyDownEvent, SharedString, Window, div, px, uniform_list,
+    AnyElement, Context, CursorStyle, IntoElement, KeyDownEvent, MouseButton, SharedString, Window,
+    div, px, uniform_list,
 };
 use volna_core::app::Command;
-use volna_core::sidebar::Key;
 use volna_core::sidebar::icons::{scope_icon, stream_tag};
+use volna_core::sidebar::{Key, TreeNode};
+use volna_core::trace::Traced;
 
 use crate::app::Workspace;
 use crate::theme::{ThemePx, theme};
@@ -32,6 +34,118 @@ impl Workspace {
         };
         self.dispatch(Command::ScopesKey(key), Some(window), cx);
         cx.stop_propagation();
+    }
+
+    /// A trace's own row, heading its scopes while several traces are
+    /// open: its letter, name and what it holds. Its menu renames or closes
+    /// it.
+    fn trace_row(&self, ix: usize, node: TreeNode, cx: &mut Context<Self>) -> AnyElement {
+        let t = *theme(cx);
+        let trace = node.trace;
+        let chip = self.app.trace_chip(trace);
+        let name: SharedString = chip
+            .as_ref()
+            .map(|c| c.name.clone())
+            .unwrap_or_default()
+            .into();
+        let detail: SharedString = chip
+            .as_ref()
+            .map(|c| c.row_detail())
+            .unwrap_or_default()
+            .into();
+        let tooltip = chip.as_ref().map(|c| c.tooltip()).unwrap_or_default();
+        let expanded = self.app.scopes.is_expanded(node);
+        let selected = self.app.scopes.selected == Some(node);
+        let colors = t.row(selected, false);
+        let hover = t.hover;
+        let mut row = div()
+            .id(("trace-row", ix))
+            .debug_selector(move || format!("trace-row-{trace}"))
+            .w_full()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .h(px(t.row_height))
+            .pl(t.px(8.0))
+            .pr_2()
+            .gap_1()
+            .cursor(CursorStyle::PointingHand)
+            .font_family(t.ui_font)
+            .text_size(px(t.ui_size))
+            .text_color(colors.text)
+            .on_click(
+                cx.listener(move |this, ev: &gpui_kit::ClickEvent, window, cx| {
+                    window.focus(&this.scopes_focus, cx);
+                    this.dispatch(Command::SelectScope(node), Some(window), cx);
+                    if ev.click_count() == 2 {
+                        this.dispatch(Command::ToggleScope(node), Some(window), cx);
+                    }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.open_trace_menu(trace, ev.position, window, cx);
+                }),
+            );
+        if selected {
+            row = row
+                .bg(t.selection.bg)
+                .when(t.appearance.is_high_contrast(), |row| {
+                    row.border_1().border_color(t.border_focused)
+                });
+        } else {
+            row = row.hover(move |s| s.bg(hover.bg).text_color(hover.text));
+        }
+        let chevron = div()
+            .id(("trace-chevron", ix))
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(t.px(16.0))
+            .rounded_sm()
+            .cursor(CursorStyle::PointingHand)
+            .hover(move |s| s.bg(t.badge_hover.bg))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                this.dispatch(Command::ToggleScope(node), Some(window), cx)
+            }))
+            .child(
+                Icon::new(if expanded {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                })
+                .size(t.px(14.0))
+                .inherit_color(),
+            );
+        row.tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+            .child(chevron)
+            .child(crate::traces::letter_badge(trace, cx))
+            // The name keeps its room; what the trace holds gives way first.
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .max_w(gpui_kit::relative(0.7))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                    .child(name),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(t.ui_size_small))
+                    .text_color(colors.text_muted)
+                    .child(detail),
+            )
+            .into_any_element()
     }
 
     pub(crate) fn render_scopes(
@@ -68,16 +182,17 @@ impl Workspace {
             count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
                 let t = *theme(cx);
-                let Some(h) = this.app.doc.hierarchy() else {
-                    return Vec::new();
-                };
                 range
-                    .map(|ix| {
-                        let (id, depth) = this.app.scopes.visible[ix];
+                    .filter_map(|ix| {
+                        let (node, depth) = this.app.scopes.visible[ix];
+                        let Some(id) = node.scope else {
+                            return Some(this.trace_row(ix, node, cx));
+                        };
+                        let h = this.app.doc.hierarchy(node.trace)?;
                         let scope = &h.scopes[id];
                         let has_children = !scope.children.is_empty();
-                        let expanded = this.app.scopes.is_expanded(id);
-                        let selected = this.app.scopes.selected == Some(id);
+                        let expanded = this.app.scopes.is_expanded(node);
+                        let selected = this.app.scopes.selected == Some(node);
                         let colors = t.row(selected, false);
                         let hover = t.hover;
                         let name: SharedString = scope.name.clone().into();
@@ -98,7 +213,7 @@ impl Workspace {
                             .on_click(cx.listener(
                                 move |this, ev: &gpui_kit::ClickEvent, window, cx| {
                                     window.focus(&this.scopes_focus, cx);
-                                    this.dispatch(Command::SelectScope(id), Some(window), cx);
+                                    this.dispatch(Command::SelectScope(node), Some(window), cx);
                                     if ev.click_count() == 2 {
                                         this.dispatch(
                                             Command::ScopesKey(Key::Enter),
@@ -129,7 +244,7 @@ impl Workspace {
                                     .hover(move |s| s.bg(t.badge_hover.bg))
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         cx.stop_propagation();
-                                        this.dispatch(Command::ToggleScope(id), Some(window), cx)
+                                        this.dispatch(Command::ToggleScope(node), Some(window), cx)
                                     }))
                                     .child(
                                         Icon::new(if expanded {
@@ -170,7 +285,7 @@ impl Workspace {
                                     _ = owner.update(cx, |ws, cx| {
                                         ws.dispatch(
                                             Command::AddScopeAsGroup {
-                                                scope: id,
+                                                scope: Traced::new(node.trace, id),
                                                 recursive,
                                             },
                                             Some(window),
@@ -186,7 +301,8 @@ impl Workspace {
                                 menu
                             }
                         };
-                        row.tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
+                        let row = row
+                            .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
                             .child(chevron)
                             .child(Icon::new(icon).size(t.px(14.0)).color(tint.color(&t)))
                             .child(
@@ -214,7 +330,8 @@ impl Workspace {
                                         .child(SharedString::from(tag.to_owned())),
                                 )
                             })
-                            .context_menu(scope_menu)
+                            .context_menu(scope_menu);
+                        Some(row.into_any_element())
                     })
                     .collect()
             }),

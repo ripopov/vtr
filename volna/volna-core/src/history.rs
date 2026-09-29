@@ -227,6 +227,9 @@ pub(crate) enum Edit {
     Prop { panel: PanelId, prop: Prop },
     /// The panel tree, the panels to close, and detached panels to put back.
     Layout(Box<Structure>),
+    /// A trace joining, leaving or being renamed. A trace that left keeps
+    /// its open session here, so putting it back is instant.
+    Traces(crate::document::TraceEdit),
 }
 
 /// A swappable panel property.
@@ -235,7 +238,7 @@ pub(crate) enum Prop {
     /// A timed panel's ruler rows and cycle origin. The selected clock is
     /// navigation.
     Clocks {
-        rulers: Option<Vec<String>>,
+        rulers: Option<Vec<crate::clock::ClockKey>>,
         origin: Option<u64>,
     },
     /// A table's shown columns.
@@ -296,7 +299,7 @@ impl Edit {
                 Edit::Prop { prop, .. } => match prop {
                     Prop::Title(t) => t.as_ref().map_or(0, String::len),
                     Prop::Clocks { rulers, .. } => {
-                        rulers.iter().flatten().map(|p| p.len() + 24).sum()
+                        rulers.iter().flatten().map(|k| k.item.len() + 24).sum()
                     }
                     Prop::Columns(_) | Prop::Pin(..) => 64,
                     Prop::Radix(map) => map.keys().map(|k| k.len() + 32).sum(),
@@ -308,6 +311,9 @@ impl Edit {
                             .map(|p| PANEL_BYTES + p.kind.waves().map_or(0, |w| rows(w.items())))
                             .sum::<usize>()
                 }
+                // The session a closed trace keeps is charged to the memory
+                // budget, not to the journal.
+                Edit::Traces(_) => PANEL_BYTES,
             }
     }
 
@@ -336,7 +342,7 @@ impl Edit {
     fn panel(&self) -> Option<PanelId> {
         match self {
             Edit::Rows { panel, .. } | Edit::Prop { panel, .. } => Some(*panel),
-            Edit::Markers { .. } | Edit::Layout(_) => None,
+            Edit::Markers { .. } | Edit::Layout(_) | Edit::Traces(_) => None,
         }
     }
 }
@@ -346,7 +352,7 @@ fn text_bytes(row: &crate::wave::WaveRow) -> usize {
     match row {
         WaveRow::Signal(s) => s.scope.len() + s.requested_format.as_ref().map_or(0, String::len),
         WaveRow::Lane(l) => l.scope.len() + l.source.path().iter().map(String::len).sum::<usize>(),
-        WaveRow::Clock(c) => c.path.len(),
+        WaveRow::Clock(c) => c.key.item.len(),
         WaveRow::Group(_) => 0,
     }
 }
@@ -630,6 +636,41 @@ impl History {
             step.label = label;
         }
         step.push(edit);
+    }
+
+    /// Name the step being recorded, whatever its first edit called it.
+    pub(crate) fn name_step(&mut self, label: String) {
+        self.open().label = label;
+    }
+
+    /// The session unit changed: rewrite every time the journal keeps, so
+    /// undoing lands where the edit was.
+    pub(crate) fn retime(&mut self, by: crate::trace::Rescale) {
+        use crate::trace::Retime;
+        let steps = self
+            .undo
+            .iter_mut()
+            .chain(self.redo.iter_mut())
+            .chain(self.open.iter_mut());
+        for edit in steps.flat_map(|step| step.edits.iter_mut()) {
+            match edit {
+                Edit::Markers { markers, .. } => {
+                    for m in markers {
+                        m.time.retime(by);
+                    }
+                }
+                Edit::Prop {
+                    prop: Prop::Clocks { origin, .. },
+                    ..
+                } => origin.retime(by),
+                Edit::Layout(structure) => {
+                    for panel in &mut structure.reopen {
+                        panel.kind.retime(by);
+                    }
+                }
+                Edit::Rows { .. } | Edit::Prop { .. } | Edit::Traces(_) => {}
+            }
+        }
     }
 
     /// The selection a wave panel had before the open step first changed it.
