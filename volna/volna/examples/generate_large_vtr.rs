@@ -9,11 +9,11 @@ vtr = { path = "../../../core/vtr" }
 opt-level = 3
 ---
 
-//! Generate the local large.vtr stress trace.
+//! Generate the local large_vtr.vtr stress trace.
 //!
 //! From the repository root:
 //! cargo -Zscript volna/volna/examples/generate_large_vtr.rs \
-//!   volna/volna/examples/large.vtr
+//!   volna/volna/examples/large_vtr.vtr
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -43,7 +43,7 @@ fn output_path() -> PathBuf {
     std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("volna/volna/examples/large.vtr"))
+        .unwrap_or_else(|| PathBuf::from("volna/volna/examples/large_vtr.vtr"))
 }
 
 fn generate(path: &Path) -> Result<(), Box<dyn Error>> {
