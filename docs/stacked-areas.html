@@ -306,7 +306,7 @@
       <p><strong>Upper layers are hard to read.</strong> Only the baseline layer and the total sit on a common scale; every other layer is a length between two curves. The value cells, the hover readout and a deliberate baseline mitigate this, and any member can be drawn as its own analog row.</p>
       <p><strong>Thin layers vanish.</strong> The FPU pipes issue a few dozen instructions in the whole run, below a pixel at any zoom. The readout still lists them, and moving them out of the group clears the plot.</p>
       <p><strong>A column mixes signs.</strong> A signed member whose mean over a column is negative is drawn below zero for that column, even if it was positive for part of it. Zooming in shows the exact steps.</p>
-      <p><strong>Many members are slow until stage 2.</strong> Stage 1's cost follows the visible changes, and its own benchmark sets the threshold for stage 2's summary.</p>
+      <p><strong>Long stacks wait for their summaries.</strong> A frame costs about a third of a millisecond per long layer once its integral summary is built, so a stack of hundreds of long signals is slow to draw; while summaries build, a stack that would walk more than 16,384 changes says <em>Summarizing…</em>, and until its whole-trace walk arrives its scale follows the visible window.</p>
     </div>
   </div>
 </section>
