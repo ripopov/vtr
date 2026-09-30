@@ -558,7 +558,7 @@ impl TableModel {
                 .or_else(|| {
                     histories
                         .first()
-                        .filter(|_| axis.is_none())
+                        .filter(|h| axis.is_none() && index < h.len())
                         .map(|h| h.time(index))
                 }),
             Rows::None => None,
@@ -627,7 +627,7 @@ impl TableModel {
             ordinal,
             self.len(),
             self.layout.body.height(),
-            self.layout.row_height.max(ROW_HEIGHT),
+            self.row_px(),
         );
         self.nav.set_cursor(doc, Some(time));
         self.nav.reveal_cursor(doc, now);
@@ -650,6 +650,16 @@ impl TableModel {
         let changed = self.selected != wanted;
         self.selected = wanted;
         changed
+    }
+
+    /// The laid-out row height, or the unzoomed default before the first
+    /// layout.
+    fn row_px(&self) -> f32 {
+        if self.layout.row_height > 0.0 {
+            self.layout.row_height
+        } else {
+            ROW_HEIGHT
+        }
     }
 
     fn identity_and_time(&self, ordinal: u64) -> Option<(RowIdentity, u64)> {
@@ -676,12 +686,8 @@ impl TableModel {
     ) -> bool {
         match command {
             TableCommand::Scroll(pixels) => {
-                self.viewport.scroll(
-                    pixels,
-                    self.len(),
-                    self.layout.body.height(),
-                    self.layout.row_height.max(ROW_HEIGHT),
-                );
+                self.viewport
+                    .scroll(pixels, self.len(), self.layout.body.height(), self.row_px());
                 self.prepare_visible();
                 true
             }
@@ -699,16 +705,11 @@ impl TableModel {
                 .is_some_and(|r| self.select(doc, panel, r, now)),
             TableCommand::Next => self
                 .selected_ordinal()
-                .unwrap_or(0)
-                .checked_add(1)
+                .map_or(Some(0), |r| r.checked_add(1))
                 .filter(|&r| r < self.len())
                 .is_some_and(|r| self.select(doc, panel, r, now)),
             TableCommand::Page(direction) => {
-                let page = RowViewport::visible_rows(
-                    self.layout.body.height(),
-                    self.layout.row_height.max(ROW_HEIGHT),
-                )
-                .max(1);
+                let page = RowViewport::full_rows(self.layout.body.height(), self.row_px());
                 let current = self.selected_ordinal().unwrap_or(self.viewport.top);
                 let target = if direction < 0 {
                     current.saturating_sub(page)
@@ -913,12 +914,10 @@ impl TableModel {
     fn drag_vertical(&mut self, pointer_y: f32, grab: f32) {
         let track =
             (self.layout.vertical_bar.height() - self.layout.vertical_thumb.height()).max(0.0);
-        let visible = RowViewport::visible_rows(
+        let max_top = self.len().saturating_sub(RowViewport::full_rows(
             self.layout.body.height(),
-            self.layout.row_height.max(ROW_HEIGHT),
-        )
-        .max(1);
-        let max_top = self.len().saturating_sub(visible);
+            self.row_px(),
+        ));
         let offset = (pointer_y - grab - self.layout.vertical_bar.top()).clamp(0.0, track);
         self.viewport.top = normalized_u64(offset, track, max_top);
         self.viewport.subrow_px = 0.0;
@@ -993,7 +992,9 @@ impl TableModel {
         let thumb_h = (vertical_bar.height() * (visible / self.len().max(1) as f32).min(1.0))
             .max(24.0 * zoom)
             .min(vertical_bar.height());
-        let max_top = self.len().saturating_sub(visible.ceil() as u64);
+        let max_top = self
+            .len()
+            .saturating_sub(RowViewport::full_rows(body.height(), row_height));
         let fraction = if max_top == 0 {
             0.0
         } else {
@@ -1153,7 +1154,7 @@ impl TableModel {
                     .or_else(|| {
                         histories
                             .first()
-                            .filter(|_| axis.is_none())
+                            .filter(|h| axis.is_none() && index < h.len())
                             .map(|h| h.time(index))
                     })?;
                 let mut cells = Vec::new();
@@ -1683,6 +1684,17 @@ mod tests {
         viewport.reveal(u64::MAX - 10, u64::MAX, 240.0, 24.0);
         assert_eq!(viewport.top, u64::MAX - 19);
         assert_eq!(viewport.row_at(216.0, u64::MAX, 24.0), Some(u64::MAX - 10));
+    }
+
+    #[test]
+    fn row_viewport_scrolls_until_the_last_row_is_whole() {
+        // 100 px fit four whole 24 px rows and a partial fifth.
+        let mut viewport = RowViewport::default();
+        viewport.scroll(f32::MAX / 2.0, 100, 100.0, 24.0);
+        assert_eq!(viewport.top, 96);
+        viewport.top = 0;
+        viewport.reveal(4, 100, 100.0, 24.0);
+        assert_eq!(viewport.top, 1, "a clipped row is not revealed");
     }
 
     #[test]

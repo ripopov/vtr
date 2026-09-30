@@ -1419,3 +1419,25 @@ fn undo_and_redo_are_named_commands_and_mark_the_workspace_changed() {
     assert_eq!(app.undo_label(), Some("Add 1 signal"));
     assert!(app.can_undo() && !app.can_redo());
 }
+
+#[test]
+fn a_context_menu_edit_is_its_own_step() {
+    let (mut app, id, now) = four_rows();
+    let t = now + Duration::from_secs(10);
+    app.handle_at(Command::AddVars(a_all(vec![4, 5])), t);
+    pump(&mut app);
+    frame(&mut app, id);
+    let six = names(&app, id);
+    select(&mut app, id, &[1, 2]);
+    app.handle_at(Command::OpenSignalMenu(id), t);
+    app.handle_at(
+        Command::MenuSelect(id, volna_core::wave::model::MenuAction::RemoveSignals),
+        t,
+    );
+    assert_eq!(names(&app, id).len(), 4);
+    assert_eq!(app.undo_label().as_deref(), Some("Remove 2 rows"));
+    app.handle(Command::Undo);
+    assert_eq!(names(&app, id), six, "undo brings back only the removal");
+    app.handle(Command::Redo);
+    assert_eq!(names(&app, id).len(), 4);
+}

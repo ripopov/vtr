@@ -257,7 +257,13 @@ impl Store {
         if doc.get(id).is_none() {
             return Ok(Vec::new());
         }
-        let text = jsonc::remove(&self.text, doc, id);
+        // Remove every duplicate: an earlier one would take effect otherwise.
+        let mut text = jsonc::remove(&self.text, doc, id);
+        while let Ok(doc) = jsonc::parse(&text)
+            && doc.get(id).is_some()
+        {
+            text = jsonc::remove(&text, &doc, id);
+        }
         self.commit(text, now)
     }
 

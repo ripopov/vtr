@@ -1825,6 +1825,16 @@ fn sidebar_models_follow_scope_selection_and_keys() {
     assert!(app.take_events().contains(&Event::FocusFilter));
     app.handle(Command::ExpandAllScopes(false));
     assert_eq!(app.scopes.visible.len(), h.roots().len());
+    // The selected child is now hidden; a key moves it to its visible root.
+    assert_eq!(
+        h.scope(app.scopes.selected_scope().unwrap().item).parent,
+        h.roots().first()
+    );
+    app.take_events();
+    app.handle(Command::ScopesKey(Key::Down));
+    assert_eq!(app.scopes.selected, root);
+    assert_eq!(app.variables.scope, app.scopes.selected_scope());
+    assert!(app.take_events().contains(&Event::RevealScopeRow(0)));
 }
 
 #[test]

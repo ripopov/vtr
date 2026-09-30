@@ -183,3 +183,29 @@ fn fixed_signal_set_builds_shared_change_axis_and_workspace_reopens_at_first_row
     assert_eq!(restored.viewport.top, 0);
     assert_eq!(restored.selected, None);
 }
+
+#[test]
+fn single_signal_table_ignores_out_of_range_rows_and_next_starts_at_the_first() {
+    let session = fixture();
+    let mut app = App::new();
+    app.set_session(session.clone());
+    app.handle(Command::OpenTable {
+        selected: a_all(vec![Member::Var(0)]),
+        clicked: None,
+    });
+    let panel = app.panels.focused_id();
+    pump(&mut app);
+    frame(&mut app, panel);
+    let len = app.panels.get(panel).unwrap().kind.table().unwrap().len();
+    assert!(len > 1);
+    let now = Instant::now();
+    app.handle_at(Command::Table(panel, TableCommand::GoTo(len + 3)), now);
+    app.handle_at(Command::Table(panel, TableCommand::Select(len)), now);
+    let table = app.panels.get(panel).unwrap().kind.table().unwrap();
+    assert_eq!(table.selected, None);
+    assert_eq!(table.row_time(len), None);
+
+    app.handle_at(Command::Table(panel, TableCommand::Next), now);
+    let table = app.panels.get(panel).unwrap().kind.table().unwrap();
+    assert_eq!(table.selected_ordinal(), Some(0));
+}

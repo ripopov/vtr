@@ -98,6 +98,19 @@ fn gui_edits_change_the_document_surgically_and_write_after_idle() {
     );
     assert_eq!(changed_keys(&events(&mut app)), vec!["waves.animation"]);
     assert_eq!(app.settings.text(), "{\"waves.snapPixels\": 0}");
+    // Reset removes a duplicated key entirely, not only the effective one.
+    app.settings_external(b"{\"waves.animation\": \"off\", \"waves.animation\": \"reduced\"}");
+    events(&mut app);
+    app.handle_at(
+        Command::Settings(SettingsCommand::Reset {
+            id: "waves.animation".into(),
+        }),
+        t0,
+    );
+    assert!(!app.settings.text().contains("waves.animation"));
+    assert!(!app.settings.is_modified("waves.animation"));
+    app.settings_external(b"{\"waves.snapPixels\": 0}");
+    events(&mut app);
     app.handle_at(
         Command::Settings(SettingsCommand::Set {
             id: "waves.snapPixels".into(),

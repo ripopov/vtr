@@ -12,15 +12,20 @@ pub struct RowViewport {
 }
 
 impl RowViewport {
+    /// Rows that at least partly fit in `height`: the rows to prepare.
     pub fn visible_rows(height: f32, row_height: f32) -> u64 {
         (height.max(0.0) / row_height.max(1.0)).ceil() as u64
+    }
+    /// Rows that fully fit in `height` (at least one): the scroll range and
+    /// the rows that count as revealed.
+    pub fn full_rows(height: f32, row_height: f32) -> u64 {
+        ((height.max(0.0) / row_height.max(1.0)).floor() as u64).max(1)
     }
     pub fn clamp(&mut self, rows: u64, height: f32, row_height: f32) {
         if !self.subrow_px.is_finite() {
             self.subrow_px = 0.0;
         }
-        let visible = Self::visible_rows(height, row_height).max(1);
-        let last_top = rows.saturating_sub(visible);
+        let last_top = rows.saturating_sub(Self::full_rows(height, row_height));
         self.top = self.top.min(last_top);
         self.subrow_px = self.subrow_px.clamp(0.0, row_height.max(1.0));
         if self.top == last_top {
@@ -50,7 +55,7 @@ impl RowViewport {
         self.clamp(rows, height, row_height);
     }
     pub fn reveal(&mut self, row: u64, rows: u64, height: f32, row_height: f32) {
-        let visible = Self::visible_rows(height, row_height).max(1);
+        let visible = Self::full_rows(height, row_height);
         if row < self.top {
             self.top = row;
         } else if row >= self.top.saturating_add(visible) {

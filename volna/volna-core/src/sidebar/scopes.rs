@@ -267,6 +267,19 @@ impl ScopeTreeModel {
             return ScopeKeyOutcome::default();
         };
         let Some(pos) = self.visible.iter().position(|(node, _)| *node == sel) else {
+            // A collapsed ancestor hides the selection: the first key moves
+            // it to the nearest visible ancestor, where navigation resumes.
+            let mut up = Self::parent(traces, sel);
+            while let Some(node) = up {
+                if let Some(pos) = self.visible.iter().position(|(n, _)| *n == node) {
+                    return ScopeKeyOutcome {
+                        changed: self.select(node),
+                        reveal: Some(pos),
+                        ..ScopeKeyOutcome::default()
+                    };
+                }
+                up = Self::parent(traces, node);
+            }
             return ScopeKeyOutcome::default();
         };
         let has_children = Self::has_children(traces, sel);

@@ -1147,6 +1147,29 @@ impl App {
         if matches!(command, Command::Action(_)) && self.marker_edit.take().is_some() {
             self.changed();
         }
+        self.dispatch(command, now);
+        // Pointer input moves rows but never adds or removes them; a press
+        // or release may fold a group.
+        if !pointer {
+            self.sync_lane_tracks();
+            self.sync_analog_summaries();
+        } else if press {
+            self.sync_group_summaries();
+        }
+        if self.doc.selection() != selection {
+            self.sync_selection();
+        }
+        self.end_step(now);
+        if let Some(command) = tracked
+            && before != crate::workspace::Stamp::capture(self, &command)
+        {
+            self.workspace.scheduler.changed(now);
+        }
+    }
+
+    /// Carry out one command. Its arms may return early; `handle_at` still
+    /// syncs derived state and closes the undo step afterwards.
+    fn dispatch(&mut self, command: Command, now: Instant) {
         match command {
             Command::Notice(message) => {
                 self.events.push(Event::Notice(message));
@@ -1426,23 +1449,6 @@ impl App {
             }
             Command::Settings(command) => self.settings_command(command, now),
             Command::Recent(command) => self.recent_command(command),
-        }
-        // Pointer input moves rows but never adds or removes them; a press
-        // or release may fold a group.
-        if !pointer {
-            self.sync_lane_tracks();
-            self.sync_analog_summaries();
-        } else if press {
-            self.sync_group_summaries();
-        }
-        if self.doc.selection() != selection {
-            self.sync_selection();
-        }
-        self.end_step(now);
-        if let Some(command) = tracked
-            && before != crate::workspace::Stamp::capture(self, &command)
-        {
-            self.workspace.scheduler.changed(now);
         }
     }
 
