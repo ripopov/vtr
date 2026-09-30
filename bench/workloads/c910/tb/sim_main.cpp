@@ -6,8 +6,12 @@
 // wall_s covers reset, the whole run and closing the dump; cpu_s is the process
 // CPU time of the same interval (all threads).
 //
-//   Vtop [--dump=<file>] [--no-signals] [--max-cycles=N]
+//   Vtop [--dump=<file>] [--no-signals] [--max-cycles=N] [--crash-at=N]
 //                                  (run in the directory holding inst.pat/data.pat)
+//
+// --crash-at=N dies of SIGSEGV (a null write) after N cycles, when the dump of
+// cycle N is written, and first prints {"crash_ms": <monotonic ms>} on stderr:
+// the measurement of the VTR crash guard (docs/crash-safe-vtr.html, stage 7).
 //
 // --no-signals opens a VTR dump without the design's signals: it then holds the
 // declared clock, the simulation log and, in a PIPELINE=1 model, the pipeline.
@@ -74,6 +78,8 @@ int main(int argc, char** argv, char**) {
     const char* mc = arg_str(argc, argv, "--max-cycles");
     const uint64_t max_cycles = mc ? std::strtoull(mc, nullptr, 0) : 5000000ULL;
     const bool no_signals = arg_flag(argc, argv, "--no-signals");
+    const char* ca = arg_str(argc, argv, "--crash-at");
+    const uint64_t crash_at = ca ? std::strtoull(ca, nullptr, 0) : UINT64_MAX;
 
     const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
     contextp->debug(0);
@@ -129,6 +135,13 @@ int main(int argc, char** argv, char**) {
         step(1);
         step(0);
         ++cycles;
+        if (cycles == crash_at) {
+            const auto now = std::chrono::steady_clock::now().time_since_epoch();
+            std::fprintf(stderr, "{\"crash_ms\": %lld, \"time\": %" PRIu64 "}\n",
+                         static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count()),
+                         contextp->time());
+            *static_cast<volatile int*>(nullptr) = 1;
+        }
     }
     const uint64_t rtl_cycles = top->o_cycles;
     const uint64_t instret = top->o_instret;

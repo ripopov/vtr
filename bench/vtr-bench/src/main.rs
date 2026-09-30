@@ -33,6 +33,8 @@ vtr-bench commands:
   scopes <in.vtr> [--children NAME]                   distinct signals per scope, three ways (JSON)
   gen-gates <in.vtr> <out.vtr> [--copies N]           gate-level hierarchy expanded from an RTL one
   stream <in.vtr>                                     count all changes via for_each_change
+  digest <in.vtr> <t>                                 changes and log records at times <= t, with an
+                                                      order-independent hash of each (JSON)
   replay-info <in.rpl>";
 
 fn flag(args: &[String], name: &str) -> Option<String> {
@@ -205,6 +207,39 @@ fn main() {
             let mut n = 0u64;
             r.for_each_change(0, u64::MAX, |_, _, _| n += 1).unwrap();
             println!("{{\"changes\": {n}, \"wall_s\": {}}}", t.elapsed().as_secs_f64());
+        }
+        "digest" => {
+            // Two recordings of the same run agree up to `t` when their digests do.
+            let r = vtr::Reader::open(&pos[1]).unwrap();
+            let until: u64 = pos[2].parse().unwrap();
+            let mix = |h: u64| {
+                let mut x = h.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                x ^ (x >> 31)
+            };
+            let bytes = |b: &[u8]| b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &c| (h ^ c as u64).wrapping_mul(0x100_0000_01b3));
+            let (mut changes, mut change_hash) = (0u64, 0u64);
+            r.for_each_change(0, until, |t, s, v| {
+                changes += 1;
+                change_hash = change_hash.wrapping_add(mix(t ^ mix(s.0 as u64 ^ mix(bytes(format!("{v:?}").as_bytes())))));
+            })
+            .unwrap();
+            let (mut logs, mut log_hash) = (0u64, 0u64);
+            r.visit_log(&vtr::LogQuery { window: Some((0, until)), ..Default::default() }, |rec| {
+                if r.full_path(rec.site.stream, ".") != vtr::ending::STREAM {
+                    logs += 1;
+                    log_hash = log_hash.wrapping_add(mix(rec.time ^ mix(bytes(rec.format(r.strings()).as_bytes()))));
+                }
+                true
+            })
+            .unwrap();
+            let (end, at) = r.ending().unwrap();
+            println!(
+                "{{\"changes\": {changes}, \"change_hash\": \"{change_hash:016x}\", \"logs\": {logs}, \"log_hash\": \"{log_hash:016x}\", \"recovered\": {}, \"ending\": \"{end}\", \"ending_time\": {}}}",
+                r.recovered().is_some(),
+                at.map_or("null".to_string(), |t| t.to_string())
+            );
         }
         "tx-read" => {
             let r = tx::tx_read(&pos[1], seed);

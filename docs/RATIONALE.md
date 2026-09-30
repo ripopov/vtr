@@ -2660,3 +2660,21 @@ case waited for a block hand-off to compress twice), and write time without a
 crash is unchanged (1.233 s for 60 M changes). Chaining works by restoring
 the replaced disposition before re-raising: AddressSanitizer's SEGV report
 prints after the rescue.
+
+**The Verilator fork.** `--trace-vtr` models install the guard in
+`VerilatedVtr::open` and mark each whole `dump()` busy. The fork reaches the
+guard through the C API alone; worker threads call `vtr_guard_thread_init`
+through a weak reference in `verilated_threads.cpp`, so builds without VTR
+need nothing, and `thread_init` installs the alternate stack before the guard
+exists because Verilator starts its threads before the trace opens. A stop
+request reaches the main loop as `gotFinish`, set from the rescue thread by a
+stop callback (`vtr_guard_add_stop_callback`), the only guard entry point the
+fork needed beyond the plan. Measured on C910 CoreMark with a SIGSEGV forced
+at cycle 200,000: the trace was finished 59 ms after the fault and matched the
+complete run up to that cycle (471,936,108 changes); a run without a crash
+takes the same time with the guard on or off (54.75 and 54.28 s). On RSA256,
+whose 1.2 s run makes 4 M dumps, the whole crash-safety series costs 2 to 3%
+(1.173 to 1.208 s), all of it the busy mark on C calls and dumps, none of it
+the guard. The C910 model's 862 MB `Vtop.cpp` (the embedded VDB document)
+needs about 45 GB to compile; two model builds at once exhausted a 91 GB
+machine, so the measurement built one model, in a memory-capped scope.

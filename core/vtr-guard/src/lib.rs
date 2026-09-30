@@ -100,7 +100,7 @@ impl std::error::Error for Error {}
 mod linux;
 
 #[cfg(target_os = "linux")]
-pub use linux::{ending, install, stop_requested, thread_init, unwatch, watch};
+pub use linux::{add_stop_callback, ending, install, remove_stop_callback, stop_requested, thread_init, unwatch, watch};
 
 #[cfg(not(target_os = "linux"))]
 mod other {
@@ -120,7 +120,11 @@ mod other {
     pub fn ending() -> Ending {
         Ending::Closed
     }
+    pub fn add_stop_callback(_: Box<dyn Fn(i32) + Send + Sync>) -> u64 {
+        0
+    }
+    pub fn remove_stop_callback(_: u64) {}
 }
 
 #[cfg(not(target_os = "linux"))]
-pub use other::{ending, install, stop_requested, thread_init, unwatch, watch};
+pub use other::{add_stop_callback, ending, install, remove_stop_callback, stop_requested, thread_init, unwatch, watch};

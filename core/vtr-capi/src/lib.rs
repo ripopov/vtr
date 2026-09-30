@@ -2737,6 +2737,25 @@ pub extern "C" fn vtr_guard_thread_init() {
     ffi(vtr_guard::thread_init)
 }
 
+/// A C stop callback and its argument, sent to the rescue thread.
+struct StopCallback(unsafe extern "C" fn(*mut std::ffi::c_void, c_int), usize);
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_guard_add_stop_callback(cb: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>, user: *mut std::ffi::c_void) -> u64 {
+    ffi(|| match cb {
+        Some(cb) => {
+            let c = StopCallback(cb, user as usize);
+            vtr_guard::add_stop_callback(Box::new(move |sig| unsafe { (c.0)(c.1 as *mut std::ffi::c_void, sig) }))
+        }
+        None => 0,
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn vtr_guard_remove_stop_callback(id: u64) {
+    ffi(|| vtr_guard::remove_stop_callback(id))
+}
+
 #[no_mangle]
 pub extern "C" fn vtr_guard_stop_requested() -> c_int {
     vtr_guard::stop_requested()

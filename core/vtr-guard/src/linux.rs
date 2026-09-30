@@ -274,11 +274,29 @@ extern "C" {
 /// Gives the calling thread a 64 KiB alternate signal stack with a guard
 /// page, unless it has one, so a stack overflow on it is handled like any
 /// other fault. [`watch`] does it for the owner; call it on other threads
-/// that may crash (simulation worker threads).
+/// that may crash (simulation worker threads), also before [`install`]:
+/// threads are often started before the trace is opened.
 pub fn thread_init() {
-    if ACTIVE.load(Acquire) {
-        let _ = altstack();
-    }
+    let _ = altstack();
+}
+
+type StopCallback = Box<dyn Fn(i32) + Send + Sync>;
+static STOP_CALLBACKS: Mutex<Vec<(u64, StopCallback)>> = Mutex::new(Vec::new());
+static NEXT_CALLBACK: AtomicU64 = AtomicU64::new(1);
+
+/// Registers `f` to run on the rescue thread when the first stop request
+/// arrives, with its signal: a simulator sets its own "finish" flag there so
+/// its main loop ends and closes normally. Returns an id for
+/// [`remove_stop_callback`].
+pub fn add_stop_callback(f: StopCallback) -> u64 {
+    let id = NEXT_CALLBACK.fetch_add(1, Relaxed);
+    STOP_CALLBACKS.lock().unwrap().push((id, f));
+    id
+}
+
+/// Removes a callback [`add_stop_callback`] registered.
+pub fn remove_stop_callback(id: u64) {
+    STOP_CALLBACKS.lock().unwrap().retain(|(i, _)| *i != id);
 }
 
 fn altstack() -> Result<(), Error> {
@@ -364,6 +382,7 @@ pub fn ending() -> Ending {
 
 fn rescue_main() {
     warm_up();
+    let mut told = false;
     loop {
         let stop = STOP_SIG.load(Acquire);
         let timeout = if stop != 0 {
@@ -387,6 +406,12 @@ fn rescue_main() {
             }
         }
         let stop = STOP_SIG.load(Acquire);
+        if stop != 0 && !told {
+            told = true;
+            for (_, f) in STOP_CALLBACKS.lock().unwrap().iter() {
+                f(stop);
+            }
+        }
         if stop != 0 && (STOP_ESCALATE.load(Acquire) || now_ms() >= STOP_AT_MS.load(Acquire) + GRACE_MS.load(Relaxed) || STOP_UNWATCHED.load(Relaxed)) {
             stop_rescue(stop);
         }

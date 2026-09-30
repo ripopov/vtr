@@ -90,6 +90,20 @@ What the VTR branch adds:
   implemented by `VerilatedVtr`: one runtime per simulation context, the
   model name as `$root`, scope nodes from the trace prefixes, replay at open
   of what was declared before, and misuse warnings in the simulation log.
+* `include/verilated_vtr_c.{h,cpp}`, `include/verilated_threads.cpp`: the
+  crash guard ([crash-safe VTR](../../docs/crash-safe-vtr.html)). `open`
+  installs VTR's guard once per process and watches the writer, so a model
+  that segfaults, aborts, overflows its stack, calls `exit()` or is sent
+  SIGTERM keeps its trace, with a record of how the run ended, and still dies
+  with the same status. `VerilatedVtrC::dump` marks the writer busy for the
+  whole time step, so a crash on another thread stops the dumping thread after
+  the step. A stop request (SIGTERM, SIGINT, SIGHUP, SIGXCPU) sets `gotFinish`
+  on the trace's context, so a standard main loop ends and closes normally;
+  after a 10 s grace the guard closes the trace itself. Worker threads get an
+  alternate signal stack through a weak `vtr_guard_thread_init`.
+  `VerilatedVtrC::guard(false)` before `open`, or `VTR_GUARD=0`, turns it
+  off. The guard never takes the trace mutex, which a crash inside `dump`
+  leaves locked.
 * `docs/guide/*.rst`: option documentation.
 
 The benchmark suite (`bench/run.py`) builds this Verilator into
@@ -123,6 +137,19 @@ For VDB integration tests, also build `cargo build -p vtr-vdb`, then run:
 python3 integrations/verilator/vdb/run.py \
   --verilator bench/build/verilator/install/bin/verilator
 ```
+
+The crash guard has its own suite:
+
+```sh
+python3 integrations/verilator/crash/run.py \
+  --verilator bench/build/verilator/install/bin/verilator
+```
+
+It builds a model whose DPI function segfaults, aborts, recurses without bound,
+calls `exit(3)` or sends SIGTERM at a given cycle, plus a `$fatal`, in one and
+two thread modes. Each file must be complete, record the ending, and hold the
+same value changes and log records as a run that finished, up to the crash;
+each process must end with the status it would have had without the guard.
 
 Clocks declared through the `vtr_trace` package (see
 [vtr_clocks.html](../../docs/vtr_clocks.html)) have their own suite:

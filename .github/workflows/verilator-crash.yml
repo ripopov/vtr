@@ -1,0 +1,44 @@
+name: Verilator crash guard
+on:
+  push:
+    paths:
+      - 'core/vtr/**'
+      - 'core/vtr-capi/**'
+      - 'core/vtr-guard/**'
+      - 'ext/verilator'
+      - 'integrations/verilator/build.sh'
+      - 'integrations/verilator/crash/**'
+      - '.github/workflows/verilator-crash.yml'
+  pull_request:
+    paths:
+      - 'core/vtr/**'
+      - 'core/vtr-capi/**'
+      - 'core/vtr-guard/**'
+      - 'ext/verilator'
+      - 'integrations/verilator/build.sh'
+      - 'integrations/verilator/crash/**'
+      - '.github/workflows/verilator-crash.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  # A --trace-vtr model of the pinned Verilator fork that segfaults, aborts,
+  # overflows its stack, calls exit(), is sent SIGTERM or hits $fatal keeps its
+  # trace up to the crash (integrations/verilator/crash/run.py).
+  crash:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the Verilator fork with slang, and elkrs (Cargo reads its manifest)
+        run: git submodule update --init --depth 1 ext/elkrs && git submodule update --init --recursive ext/verilator
+      - name: Install the Verilator build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y autoconf flex bison help2man cmake clang
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Build libvtr and the vtr CLI
+        run: cargo build --locked --release -p vtr-capi -p vtr-cli
+      - name: Build the Verilator fork
+        run: integrations/verilator/build.sh "$PWD/bench/build/verilator/install"
+      - name: Crash, stop and exit endings of a --trace-vtr model
+        run: python3 integrations/verilator/crash/run.py --verilator bench/build/verilator/install/bin/verilator

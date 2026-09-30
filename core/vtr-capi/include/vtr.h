@@ -329,7 +329,7 @@ void     vtr_writer_leave(vtr_writer *w, uint32_t prev);
  * it. VTR_GUARD_DEADLINE_MS and VTR_GUARD_STOP_GRACE_MS override deadline_ms and stop_grace_ms. watch() makes the calling
  * thread the writer's owner and gives it a 64 KiB alternate signal stack, so
  * a stack overflow is handled; call thread_init() on other threads that may
- * crash. Unwatch before closing; watch is a no-op without install. At most 64
+ * crash, also before install(). Unwatch before closing; watch is a no-op without install. At most 64
  * writers are watched. SIGKILL cannot be handled: the file then keeps what
  * was written and is recovered by scanning. Linux only. */
 typedef struct vtr_guard_options {
@@ -346,6 +346,10 @@ int  vtr_guard_watch(vtr_writer *w);
 void vtr_guard_unwatch(vtr_writer *w);
 void vtr_guard_thread_init(void);
 int  vtr_guard_stop_requested(void);             /* the first stop request's signal, or 0 */
+/* cb(user, signal) runs on the rescue thread when the first stop request
+ * arrives (a simulator sets its finish flag there); returns an id to remove it. */
+uint64_t vtr_guard_add_stop_callback(void (*cb)(void *user, int signal), void *user);
+void     vtr_guard_remove_stop_callback(uint64_t id);
 void vtr_guard_ending(vtr_ending *out);          /* STOPPED after a stop request, else CLOSED */
 size_t vtr_ending_format(const vtr_ending *end, char *buf, size_t cap);
 
