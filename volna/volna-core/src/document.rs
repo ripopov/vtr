@@ -779,7 +779,7 @@ impl Document {
                 continue;
             }
             if stack::changes(&layers) <= stack::WALK_MAX {
-                let load = match TotalSummary::build(&layers).account(budget) {
+                let load = match TotalSummary::build(&layers, self.limits()).account(budget) {
                     Ok(summary) => TotalLoad::Ready(Arc::new(summary)),
                     Err(_) => TotalLoad::Failed,
                 };
@@ -790,6 +790,7 @@ impl Document {
             self.requests.push(LoadRequest::StackTotal {
                 generation: self.epoch,
                 layers,
+                range: self.limits(),
                 budget: budget.clone(),
             });
         }

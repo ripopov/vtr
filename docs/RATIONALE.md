@@ -2180,6 +2180,25 @@ ended reads one span), and each column's search starts where the previous
 column's density points, which cut the 10⁷ frame from 4.4 to 3.5 ms; 32-change
 blocks gave 4.1 ms for twice the memory and were not kept.
 
+Zoomed out, a faint band reaches each column's own extremes of the total
+(stage 3, `GroupStyle::Stack { peak }`, on by default, the menu's "Peak of
+total"), because means hide bursts. Per-layer extremes cannot give it (the
+maximum of a sum is not a sum of maxima), so views of up to 16,384 changes
+walk the merged changes in view (`stack::peaks`, exact), and busier views
+read the total's minimum and maximum per block of time, which the
+`TotalSummary` walk now keeps as well (at most 65,536 blocks over the trace
+with coarser levels of 16, 24 bytes each, about 1.7 MB). A column read from blocks takes
+every block it touches, so its band may reach up to one block past it but
+never below its own peak: the summary errs toward showing a burst. The walk
+had one subtle case, a change at a column's first instant: the value it
+replaces must not count, which the brute-force test caught. Measured against
+stage 2 in one session, the band costs nothing measurable zoomed out
+(2.2–2.9 ms against 2.7–2.9 ms at 10⁷ changes per member; frames vary by
+about 0.5 ms between sessions, so the table below is from stage 2's), adds
+0.22 ms at 1/100 of a 10⁵ trace where peaks are walked (0.29 → 0.51 ms), and
+filling the blocks makes the worker walk 10–20% slower. The switch is an
+undoable row rewrite; workspaces store `"peak": false` only when it is off.
+
 Measurements (`stack_cost`; Intel Core Ultra 7 265K pinned to P-cores,
 release, best of 5; core layout and `Scene` painting of a folded stack of
 eight one-bit members, 1,400 px wide; each member changes at random ticks):

@@ -41,6 +41,8 @@ const MIN_SEGMENT_PX: usize = 5;
 const SWATCH_W: f32 = 14.0;
 /// Layers other than the one under the pointer fade to this opacity.
 const STACK_DIM: f32 = 0.35;
+/// Opacity of the peak band over the canvas.
+const PEAK_ALPHA: f32 = 0.13;
 /// A stack's hover readout lists at most this many layers.
 const STACK_READOUT_LAYERS: usize = 16;
 
@@ -319,6 +321,7 @@ pub fn paint(
                     stack_rows.extend(paint_stack_row(
                         layers,
                         colors,
+                        g.shows_peak(),
                         doc,
                         &cells,
                         group.reading,
@@ -2458,6 +2461,8 @@ struct StackRow {
     entries: Vec<usize>,
     colors: Vec<Color>,
     frame: stack::Frame,
+    /// Each column's extremes of the total, when the peak band shows.
+    peaks: Vec<stack::Peak>,
     /// The sum at the cursor, when it is defined.
     at_cursor: Option<f64>,
     /// The pointer and what it reads.
@@ -2496,9 +2501,11 @@ impl Band {
 /// holds both signs, zero and the net sum are lines. The scale is the whole
 /// trace's (the visible window's while it is walked), from two rows up
 /// labelled at the top and bottom.
+#[allow(clippy::too_many_arguments)]
 fn paint_stack_row(
     layers: &[stack::Layer],
     colors: &[Color],
+    peak: bool,
     doc: &Document,
     cells: &LaneCells<'_>,
     reading: Option<Point>,
@@ -2567,9 +2574,20 @@ fn paint_stack_row(
         });
         return None;
     }
-    let (lo, hi) = match doc.stack_total(&stack::key(layers)) {
-        Some(stack::TotalLoad::Ready(s)) => stack::clean_range(s.range()),
-        _ => stack::clean_range(frame.extent()),
+    let total = match doc.stack_total(&stack::key(layers)) {
+        Some(stack::TotalLoad::Ready(s)) => Some(s.as_ref()),
+        _ => None,
+    };
+    let (lo, hi) = stack::clean_range(total.map_or_else(|| frame.extent(), |s| s.range()));
+    // Means hide bursts: zoomed out, the band reaches each column's own
+    // extremes of the total, walked when few changes are in view.
+    let peaks = match (peak && !frame.exact, total) {
+        (false, _) => Vec::new(),
+        _ if stack::visible_changes(layers, vp) <= stack::WALK_MAX => {
+            stack::peaks(layers, vp, width)
+        }
+        (true, Some(total)) => total.peaks(vp, width),
+        (true, None) => Vec::new(),
     };
     let plot = Plot {
         left: wave_row.left(),
@@ -2591,12 +2609,14 @@ fn paint_stack_row(
     let right = plot.left + plot.width;
     let mut bands: Vec<(usize, Band)> = Vec::new();
     let mut undefined: Vec<Band> = Vec::new();
+    let mut bursts: Vec<Band> = Vec::new();
     let mut net: Vec<[Point; 2]> = Vec::new();
     {
         let mut runs: Vec<Option<Band>> = vec![None; n];
         let mut out: Vec<Vec<Band>> = vec![Vec::new(); n];
         let mut drawn = vec![false; n];
         let (mut undef_up, mut undef_down) = (None, None);
+        let (mut burst_up, mut burst_down) = (None, None);
         let mut last_net: Option<(f32, f32)> = None;
         for s in 0..frame.spans.len() {
             let (a, b) = frame.spans[s];
@@ -2632,6 +2652,27 @@ fn paint_stack_row(
                 bottom: from.max(to),
                 up: true,
             };
+            // The band from the means to the column's peak, above and below.
+            match peaks.get(s).copied().flatten().filter(|_| !c.undefined) {
+                Some((low, high)) => {
+                    let (top, bottom) = (plot.y_of(c.top).round(), plot.y_of(c.bottom).round());
+                    let (above, below) = (plot.y_of(high).round(), plot.y_of(low).round());
+                    for (run, from, to, grows) in [
+                        (&mut burst_up, above, top, above < top),
+                        (&mut burst_down, bottom, below, below > bottom),
+                    ] {
+                        if grows {
+                            Band::push(run, rest(from, to), &mut bursts);
+                        } else {
+                            bursts.extend(run.take());
+                        }
+                    }
+                }
+                None => {
+                    bursts.extend(burst_up.take());
+                    bursts.extend(burst_down.take());
+                }
+            }
             if c.undefined {
                 Band::push(
                     &mut undef_up,
@@ -2671,6 +2712,8 @@ fn paint_stack_row(
         }
         undefined.extend(undef_up);
         undefined.extend(undef_down);
+        bursts.extend(burst_up);
+        bursts.extend(burst_down);
     }
     p.scene.clipped(clip, |scene| {
         scene.fill(
@@ -2698,6 +2741,12 @@ fn paint_stack_row(
             let r = Rect::from_xywh(b.x0, b.top, b.x1 - b.x0, b.bottom - b.top);
             scene.fill(r, t.wave_undef_fill);
             marks::hatch(scene, t, r, plot.left);
+        }
+        for b in &bursts {
+            scene.fill(
+                Rect::from_xywh(b.x0, b.top, b.x1 - b.x0, b.bottom - b.top),
+                t.editor.text.with_alpha(PEAK_ALPHA),
+            );
         }
         if plot.lo < 0.0 && plot.hi > 0.0 {
             let zy = snap(plot.y_of(0.0));
@@ -2744,6 +2793,7 @@ fn paint_stack_row(
         entries: layers.iter().map(|l| l.entry).collect(),
         colors: colors.to_vec(),
         frame,
+        peaks,
         at_cursor: at_cursor.flatten(),
         readout,
     })
@@ -2830,7 +2880,16 @@ fn paint_stack_overlays(
                 format_time(at.floor(), doc.time_base())
             } else {
                 let span = vp.time_at(b, w) - vp.time_at(a, w);
-                format!("means over {}", format_time(span, doc.time_base()))
+                let means = format!("means over {}", format_time(span, doc.time_base()));
+                match row.peaks.get(read.span).copied().flatten() {
+                    Some((low, high)) if low < 0.0 => format!(
+                        "{means} · peak {} · low {}",
+                        stack::number(high),
+                        stack::number(low)
+                    ),
+                    Some((_, high)) => format!("{means} · peak {}", stack::number(high)),
+                    None => means,
+                }
             }
         };
         let line_h = z(18.0);

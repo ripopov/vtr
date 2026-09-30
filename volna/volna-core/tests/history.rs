@@ -525,11 +525,23 @@ impl Driver {
                     volna_core::wave::Tint::ALL.get(pick).copied(),
                 ))
             }
-            46 => action(if self.rng.chance(2) {
-                Action::ToggleAnalog
-            } else {
-                Action::ToggleStack
-            }),
+            46 => match self.rng.below(3) {
+                0 => action(Action::ToggleAnalog),
+                1 => action(Action::ToggleStack),
+                // The peak band's check in the group menu.
+                _ => {
+                    use volna_core::wave::model::MenuAction;
+                    self.send(Command::OpenSignalMenu(id));
+                    let flip = self
+                        .app
+                        .panels
+                        .waves(id)
+                        .and_then(|w| w.menu.as_ref())
+                        .and_then(|m| m.items().find(|i| matches!(i.action, MenuAction::Peak(_))))
+                        .map_or(MenuAction::Peak(false), |i| i.action.clone());
+                    (Kind::Edit, Command::MenuSelect(id, flip))
+                }
+            },
             47 => action(Action::IncreaseRowHeight),
             48 => action(Action::DecreaseRowHeight),
             49 => action(Action::ResetRowHeight),
@@ -1448,6 +1460,40 @@ fn a_context_menu_edit_is_its_own_step() {
     assert_eq!(names(&app, id), six, "undo brings back only the removal");
     app.handle(Command::Redo);
     assert_eq!(names(&app, id).len(), 4);
+}
+
+#[test]
+fn stacking_and_the_peak_band_are_steps_that_restore_the_workspace() {
+    let (mut app, id, now) = four_rows();
+    select(&mut app, id, &[1, 2]);
+    app.handle_at(Command::Action(Action::GroupSelection), now);
+    app.handle_at(
+        Command::CommitText(app.text_edit().unwrap().target, Some("bus".into())),
+        now,
+    );
+    let plain = projection(&app);
+    let t = now + Duration::from_secs(10);
+    app.handle_at(Command::Action(Action::ToggleStack), t);
+    assert_eq!(app.undo_label(), Some("Stack bus"));
+    let stacked = projection(&app);
+    app.handle_at(Command::OpenSignalMenu(id), t + Duration::from_secs(10));
+    app.handle_at(
+        Command::MenuSelect(id, volna_core::wave::model::MenuAction::Peak(false)),
+        t + Duration::from_secs(10),
+    );
+    assert_eq!(app.undo_label(), Some("Hide peak of total"));
+    let hidden = projection(&app);
+    assert_ne!(hidden, stacked);
+    app.handle(Command::Undo);
+    assert_eq!(projection(&app), stacked);
+    app.handle(Command::Undo);
+    assert_eq!(projection(&app), plain);
+    app.handle(Command::Redo);
+    app.handle(Command::Redo);
+    assert_eq!(projection(&app), hidden);
+    // Folding the stacked group is navigation, not a step.
+    app.handle(Command::Action(Action::PanLeft));
+    assert_eq!(app.undo_label(), Some("Hide peak of total"));
 }
 
 #[test]

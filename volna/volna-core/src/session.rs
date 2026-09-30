@@ -422,6 +422,7 @@ pub enum LoadRequest {
     StackTotal {
         generation: u64,
         layers: Vec<crate::wave::stack::Layer>,
+        range: (u64, u64),
         budget: crate::remote::memory::MemoryBudget,
     },
 }
@@ -617,9 +618,10 @@ impl LoadRequest {
             LoadRequest::StackTotal {
                 generation,
                 layers,
+                range,
                 budget,
             } => {
-                let summary = crate::wave::stack::TotalSummary::build(&layers);
+                let summary = crate::wave::stack::TotalSummary::build(&layers, range);
                 LoadResult::StackTotal {
                     generation,
                     key: summary.key().clone(),

@@ -350,7 +350,9 @@ The whole-trace walk that sets its scale is a `TotalSummary` held by the
 `LoadRequest::StackTotal` on the load worker for long layers; long layers of
 long stacks also get an `IntegralSummary` (`LoadRequest::Integral`) of block
 integrals, so a zoomed-out frame costs O(layers × width) rather than its
-visible changes. The design is
+visible changes. A faint band reaches each column's own extremes of the
+total, walked for views of few changes and read from the `TotalSummary`'s
+time blocks otherwise. The design is
 [docs/stacked-areas.html](../../docs/stacked-areas.html).
 
 Pointer commands name a panel; keyboard actions and sidebar additions resolve

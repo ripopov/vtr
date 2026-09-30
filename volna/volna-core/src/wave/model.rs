@@ -219,8 +219,9 @@ pub enum GroupStyle {
     #[default]
     Activity,
     /// Folded or open, one stacked area whose layers are its members
-    /// (`docs/stacked-areas.html`).
-    Stack,
+    /// (`docs/stacked-areas.html`); with `peak`, zoomed out, a faint band
+    /// reaches the total's own extremes in each column.
+    Stack { peak: bool },
 }
 
 /// A named group of rows. Folded, it hides its rows; its own row draws
@@ -252,7 +253,12 @@ impl GroupRow {
     }
 
     pub fn is_stacked(&self) -> bool {
-        self.style == GroupStyle::Stack
+        matches!(self.style, GroupStyle::Stack { .. })
+    }
+
+    /// Stacked with the peak band.
+    pub fn shows_peak(&self) -> bool {
+        self.style == GroupStyle::Stack { peak: true }
     }
 }
 
@@ -539,6 +545,8 @@ pub enum MenuAction {
     Tint(Option<Tint>),
     /// Draw the menu's groups as stacked areas (`true`) or as activity.
     Stack(bool),
+    /// Show (`true`) or hide the peak band of the menu's stacked groups.
+    Peak(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1869,7 +1877,7 @@ impl WaveModel {
     /// any group changed.
     pub fn set_stacked(&mut self, rows: &[usize], stacked: bool) -> bool {
         let style = if stacked {
-            GroupStyle::Stack
+            GroupStyle::Stack { peak: true }
         } else {
             GroupStyle::Activity
         };
@@ -1880,7 +1888,7 @@ impl WaveModel {
                 self.items
                     .get(r)
                     .and_then(|e| e.group())
-                    .is_some_and(|g| g.style != style)
+                    .is_some_and(|g| g.is_stacked() != stacked)
             })
             .collect();
         let verb = if stacked { "Stack" } else { "Unstack" };
@@ -1912,6 +1920,25 @@ impl WaveModel {
             self.scroll_y = (self.scroll_y + shift * self.layout.row_h).max(0.0);
         }
         changed
+    }
+
+    /// Show or hide the peak band of the stacked groups among `rows`: one
+    /// step.
+    pub fn set_peak(&mut self, rows: &[usize], peak: bool) -> bool {
+        let label = if peak {
+            "Show peak of total"
+        } else {
+            "Hide peak of total"
+        };
+        self.rewrite_rows(label.into(), None, rows.iter().copied(), |e| {
+            match &mut e.row {
+                WaveRow::Group(g) if g.is_stacked() && g.shows_peak() != peak => {
+                    g.style = GroupStyle::Stack { peak };
+                    true
+                }
+                _ => false,
+            }
+        })
     }
 
     /// `Shift+A`: draw the selected groups as stacked areas, or all of them
@@ -2092,6 +2119,15 @@ impl WaveModel {
                     ..MenuItem::plain(MenuAction::Stack(true), "Stacked area")
                 }),
             ]);
+            // Checked when every stacked one shows it; choosing flips them all.
+            let stacked: Vec<&&GroupRow> = groups.iter().filter(|g| g.is_stacked()).collect();
+            if !stacked.is_empty() {
+                let checked = stacked.iter().all(|g| g.shows_peak());
+                menu.entries.push(MenuEntry::Item(MenuItem {
+                    checked,
+                    ..MenuItem::plain(MenuAction::Peak(!checked), "Peak of total")
+                }));
+            }
         }
         menu.entries.extend([
             MenuEntry::Separator,
@@ -2255,6 +2291,7 @@ impl WaveModel {
             }
             MenuAction::Fold(collapsed) => _ = self.set_folded(menu.row, *collapsed, false),
             MenuAction::Stack(stacked) => _ = self.set_stacked(&rows, *stacked),
+            MenuAction::Peak(peak) => _ = self.set_peak(&rows, *peak),
             MenuAction::FoldAll(collapsed) => _ = self.fold_all(*collapsed),
             _ => {
                 let row = self.signal(menu.row)?;

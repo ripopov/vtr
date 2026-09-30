@@ -165,8 +165,19 @@ enum Row {
         tint: Option<Tint>,
         #[serde(default, skip_serializing_if = "SavedStyle::is_activity")]
         style: SavedStyle,
+        /// A stacked group without its peak band says `false`.
+        #[serde(default = "shows_peak", skip_serializing_if = "is_true")]
+        peak: bool,
         rows: Vec<Row>,
     },
+}
+
+fn shows_peak() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 /// How a group draws: activity, the default and not written, or `"stack"`.
@@ -184,20 +195,19 @@ impl SavedStyle {
     }
 }
 
-impl From<GroupStyle> for SavedStyle {
-    fn from(style: GroupStyle) -> Self {
+impl SavedStyle {
+    /// The stored style and peak switch of `style`.
+    fn of(style: GroupStyle) -> (Self, bool) {
         match style {
-            GroupStyle::Activity => Self::Activity,
-            GroupStyle::Stack => Self::Stack,
+            GroupStyle::Activity => (Self::Activity, true),
+            GroupStyle::Stack { peak } => (Self::Stack, peak),
         }
     }
-}
 
-impl From<SavedStyle> for GroupStyle {
-    fn from(style: SavedStyle) -> Self {
-        match style {
-            SavedStyle::Activity => Self::Activity,
-            SavedStyle::Stack => Self::Stack,
+    fn style(self, peak: bool) -> GroupStyle {
+        match self {
+            Self::Activity => GroupStyle::Activity,
+            Self::Stack => GroupStyle::Stack { peak },
         }
     }
 }
@@ -214,7 +224,8 @@ fn nest(items: &[Entry], row: &dyn Fn(&WaveRow) -> Row) -> Vec<Row> {
                 collapsed: g.collapsed,
                 height: g.height,
                 tint: g.tint,
-                style: g.style.into(),
+                style: SavedStyle::of(g.style).0,
+                peak: SavedStyle::of(g.style).1,
                 rows: nest(&items[i + 1..end], row),
             },
             other => row(other),
@@ -240,6 +251,7 @@ fn flatten(rows: Vec<Row>, depth: u8, out: &mut Vec<(u8, Row)>) -> Result<()> {
                 height,
                 tint,
                 style,
+                peak,
                 rows,
             } => {
                 ensure!(!name.trim().is_empty(), "empty group name");
@@ -251,6 +263,7 @@ fn flatten(rows: Vec<Row>, depth: u8, out: &mut Vec<(u8, Row)>) -> Result<()> {
                         height,
                         tint,
                         style,
+                        peak,
                         rows: Vec::new(),
                     },
                 ));
@@ -273,7 +286,8 @@ struct SavedAnalog {
 /// version 3 analog rows, version 4 groups (rows as a tree; `selected`
 /// counts rows in pre-order, groups included), version 5 row colours
 /// (`tint`, a name; an unknown one reads as Default), version 6 stacked
-/// groups (`"style": "stack"`; activity is not written).
+/// groups (`"style": "stack"`, and `"peak": false` without the peak band;
+/// activity is not written).
 const WAVES_VERSION: u32 = 6;
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
@@ -1216,6 +1230,7 @@ impl Workspace {
                         height,
                         tint,
                         style,
+                        peak,
                         ..
                     } => {
                         items.push(Entry::new(
@@ -1225,7 +1240,7 @@ impl Workspace {
                                 collapsed,
                                 height,
                                 tint,
-                                style: style.into(),
+                                style: style.style(peak),
                                 restore_height: None,
                             }),
                         ));

@@ -131,7 +131,7 @@
     <p class="v-kicker">Design · Waves panel</p>
     <h1 class="v-hero__title">Stack <em>any</em> group of signals.</h1>
     <p class="v-hero__lede">Select a group and press <kbd class="v-kbd">Shift</kbd> <kbd class="v-kbd">A</kbd>. The group's row becomes one area: every signal in it is a layer, and the top edge is their sum at each moment. Eight one-bit issue valids become instructions issued per cycle, split by pipe. Zoomed out, each layer shows its signal's time-weighted mean, so the layers still add up to the mean of the total. Everything comes from the trace: a stack needs no declarations, and Volna refuses no group.</p>
-    <p class="v-hero__fine">Design, revised 29 September 2026 · stages 1 and 2 landed 30 September and 1 October 2026 · builds on signal groups, analog rows, row colours and undo · demo on per-cycle values of eight C910 issue valids from a CoreMark recording</p>
+    <p class="v-hero__fine">Design, revised 29 September 2026 · implemented: all three stages landed by 1 October 2026 · builds on signal groups, analog rows, row colours and undo · demo on per-cycle values of eight C910 issue valids from a CoreMark recording</p>
   </div>
 </section>
 
@@ -183,7 +183,7 @@
       <li><strong>List order is stack order.</strong>The layers read top to bottom as the rows do, so the last member sits on the baseline. To reorder, drag a row. Only the baseline layer and the total can be read against the axis, so put the part that matters most at the bottom. Volna never reorders layers by size, because a layer that changes place as it grows cannot be followed.</li>
       <li><strong>Neighbours always differ.</strong>Layer colours come from the pipeline stage ladder: hue walks in list order and lightness alternates, so two adjacent layers never look alike, whatever the order. A member with its own row colour keeps it. A one-pixel gap of canvas separates layers; they have no borders.</li>
       <li><strong>Zero stays at zero.</strong>Positive parts stack up from zero and negative parts stack down from it, as in a diverging stack. When both signs occur, a line marks the net sum. The scale runs from the whole trace's lowest sum to its highest, rounded to clean numbers, so the plot does not move while you pan.</li>
-      <li><strong>Zoomed out, means add up.</strong>Where a pixel column spans several changes, each layer shows its member's time-weighted mean over the column. Means over one span add up, so the stack's top is the column's mean total. A faint band above it reaches the total's own peak in that column (stage 3). The <a class="v-link" href="#zoom">next section</a> explains why per-layer extremes cannot be stacked.</li>
+      <li><strong>Zoomed out, means add up.</strong>Where a pixel column spans several changes, each layer shows its member's time-weighted mean over the column. Means over one span add up, so the stack's top is the column's mean total. A faint band above it reaches the total's own peak in that column. The <a class="v-link" href="#zoom">next section</a> explains why per-layer extremes cannot be stacked.</li>
       <li><strong>Every value, one hover away.</strong>The group's value cell shows the sum at the cursor, <code>Σ 5</code>, and each member's cell shows its own value. Hovering the plot lists every layer top to bottom with its value and share, then the total; the layer under the pointer is highlighted. Where a column holds changes, the list says its values are means over the column's time span. <kbd class="v-kbd">Shift</kbd> <kbd class="v-kbd">←</kbd> <kbd class="v-kbd">→</kbd> step through the total's changes.</li>
       <li><strong>Unknown stays unknown.</strong>Members change at different times; the stack is built on the union of their change times, never by sample index. Where a member is X or Z, or has no value yet, the layers below it are drawn and the rest of the column takes the undefined colour. The sum reads <code>X</code>. A missing value is never read as zero.</li>
       <li><strong>Stacking is an edit; looking is not.</strong>Stacking and unstacking are undoable steps (<em>Stack issue</em>), and so is the peak band's switch. Moving a layer is the row move that already exists. Hover, cursor, zoom and folding are navigation and never make a step.</li>
@@ -218,6 +218,7 @@
     <h2 class="v-section__title">Three commits, each useful on its own.</h2>
     <div class="s-body-text">
       <p>Every commit builds, passes <code>cargo test -p volna-core</code> and <code>volna/volna/check.sh</code>, and updates the tests and documentation it touches. No commit adds a feature flag or code that only a later commit calls. Where a stage changes the screen, its picture shows that stage and the ones before, painted by this page from the demo's data, and red rings number the new elements as its list does. VTR, its C API and the client–server protocol do not change: a stack is presentation over histories that local and remote sessions already deliver.</p>
+      <p>Every stage has landed. The four stackable scopes of <code>volna/volna/examples/feature_showcase.vtr</code> show the whole feature.</p>
       <p><strong>Why this order.</strong> Stage 1 is the whole feature on traces of ordinary size. Stage 2 is the performance gate for long histories, set by measurement. Stage 3 adds the peak band, which needs a summary of the total that only makes sense once stage 2's summaries exist.</p>
     </div>
     <div class="v-table-wrap s-wide" role="region" aria-label="Stages" tabindex="0">
@@ -271,21 +272,22 @@
       </article>
 
       <article class="s-stagecard" id="stage-3" aria-labelledby="stage-3-h">
-        <p class="s-stage__n">Stage 3</p>
+        <p class="s-stage__n">Stage 3 <span class="v-chip v-chip--accent">Landed</span></p>
         <h3 id="stage-3-h">Peak of the total</h3>
-        <p>Means hide bursts. After this stage a faint band above a zoomed-out stack reaches the busiest moment of each column, so a stack never looks calmer than the design was.</p>
+        <p>Means hide bursts. A faint band above a zoomed-out stack reaches the busiest moment of each column, so a stack never looks calmer than the design was. In the feature showcase, the core's one-nanosecond power glitches rise above the power stack's means as this band.</p>
         <ol class="s-adds">
-          <li><strong>The peak band</strong> above the stack, to the total's maximum in each column; below zero, the total's minimum.</li>
-          <li><strong>The peak in the readout</strong>, after the means of a dense column.</li>
-          <li><strong>Peak of total</strong>, a check in the group's menu, on by default.</li>
+          <li><strong>The peak band</strong> above the stack, to the total's maximum in each column; below the negative parts, the total's minimum.</li>
+          <li><strong>The peak in the readout</strong>, after the means of a column that holds changes: <code>means over 2.09 ns · peak 58.72</code>, and <code>· low</code> when the total goes below zero.</li>
+          <li><strong>Peak of total</strong>, a check in the Draw section of the group's menu, on by default.</li>
         </ol>
         <h4 class="s-committed">Committed</h4>
         <dl class="s-dl">
-          <div><dt>Core</dt><dd><code>GroupStyle::Stack { peak: bool }</code>. Walking computes the total's extremes per column as it merges changes. For busy views, a <code>TotalSummary</code> holds the total's minimum and maximum per block of time, built in one merged pass over the members on the load worker, like <code>GroupSummary</code>. No member summary can give it, because the maximum of a sum is not a sum of maxima.</dd></div>
-          <div><dt>Frontends</dt><dd>GPUI: the menu check and the readout line.</dd></div>
-          <div><dt>Workspace</dt><dd>A stacked group stores <code>"peak": false</code> when the band is off.</dd></div>
+          <div><dt>Core</dt><dd><code>GroupStyle::Stack { peak: bool }</code> and <code>WaveModel::set_peak</code>, reached through <code>MenuAction::Peak</code>. <code>stack::peaks</code> finds each column's extremes of the total exactly, in one merged walk over the changes in view, for views of up to 16,384 changes. For busier views the <code>TotalSummary</code> walk, which already set the scale, also keeps the total's minimum and maximum per block of time (at most 65,536 blocks over the trace, with coarser levels of 16 above, 24 bytes each, about 1.7&nbsp;MB), and <code>TotalSummary::peaks</code> reads the coarsest level whose blocks fit a column. A column there reads every block it touches, so its band may reach up to one block past the column on either side, never below its own peak. No member summary can give either, because the maximum of a sum is not a sum of maxima. The walk and the peaks share one merged cursor over the layers (<code>Merge</code>). The painter draws the band only where it rises above the stack's top or below its bottom, and not over undefined columns.</dd></div>
+          <div><dt>Frontends</dt><dd>The menu check and the readout line come from the core, so GPUI and <code>volna-egui</code> show them with no code of their own; the GPUI test checks the item.</dd></div>
+          <div><dt>Workspace</dt><dd>A stacked group stores <code>"peak": false</code> when the band is off; the waves panel stays at version 6.</dd></div>
           <div><dt>Undo</dt><dd><em>Show peak of total</em> and <em>Hide peak of total</em> are steps.</dd></div>
-          <div><dt>Tests</dt><dd>The band never falls below the stack's top and equals the brute-force maximum of the total per column; the summary agrees with a walk; history and workspace operations for the switch.</dd></div>
+          <div><dt>Bench</dt><dd><code>stack_cost</code>, stage 2 against stage 3 in one session: zoomed out, the band read from blocks costs nothing measurable (2.2 to 2.9&nbsp;ms against 2.7 to 2.9&nbsp;ms at 10⁷ changes per member); walked peaks add 0.22&nbsp;ms at 1/100 of a 10⁵-change trace (0.29 to 0.51&nbsp;ms); filling the blocks makes the worker walk 10 to 20% slower (1.8 to 2.0&nbsp;s at 10⁷).</dd></div>
+          <div><dt>Tests</dt><dd><code>tests/stack.rs</code>: walked peaks equal the brute-force extremes of the total per column, including changes at a column's first instant, and never fall below the stack's top; the summary's peaks equal the walk's where columns hold whole blocks and contain them elsewhere; the band shows over the showcase's power glitches, the readout names the peak, the menu check hides it as one step, and the workspace stores <code>"peak": false</code> only then. <code>tests/history.rs</code> checks that stacking and the switch undo and redo to the exact workspace, and its random driver flips the switch from the menu.</dd></div>
         </dl>
         <figure class="v-frame s-shotfig"><div class="v-frame__bar"><b>Stage 3</b><span>c910_coremark.vtr, list stretch</span></div><div class="v-frame__stage s-shot" id="shot-3"></div></figure>
         <p class="v-frame__caption">The list kernel's 1,024 cycles in a narrow panel: about three cycles per pixel column, so the stack shows means and the band shows each column's busiest cycle.</p>

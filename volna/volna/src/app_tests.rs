@@ -1280,7 +1280,7 @@ fn shift_a_and_the_group_menu_stack_and_unstack_a_group(cx: &mut TestAppContext)
     assert_eq!(style(&mut vcx), (GroupStyle::Activity, 1));
     vcx.simulate_keystrokes("shift-a");
     vcx.run_until_parked();
-    assert_eq!(style(&mut vcx), (GroupStyle::Stack, 3));
+    assert_eq!(style(&mut vcx), (GroupStyle::Stack { peak: true }, 3));
     vcx.update(|window, cx| window.draw(cx).clear(cx));
     window
         .update(&mut vcx, |ws, window, cx| {
@@ -1307,6 +1307,11 @@ fn shift_a_and_the_group_menu_stack_and_unstack_a_group(cx: &mut TestAppContext)
                 menu.entries
                     .iter()
                     .any(|e| matches!(e, MenuEntry::Label(l) if l == "Draw"))
+            );
+            let peak = menu.items().find(|i| i.label == "Peak of total").unwrap();
+            assert_eq!(
+                (&peak.action, peak.checked),
+                (&MenuAction::Peak(false), true)
             );
             // The popup answers a choice with the command it carries.
             let panel = ws.app.panels.focused_id();

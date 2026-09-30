@@ -794,90 +794,281 @@ pub fn changes(layers: &[Layer]) -> usize {
     layers.iter().map(|l| l.history.len()).sum()
 }
 
-/// What one merged walk over a stack's layers gives: the lowest bottom and
-/// highest top it reaches over the whole trace, which set its scale. Built
-/// on the load worker for long layers; the document shares it between the
-/// panels that stack the same signals the same way and charges it to the
-/// memory budget.
-pub struct TotalSummary {
-    key: Key,
-    range: (f64, f64),
-    reservation: Option<crate::remote::memory::Reservation>,
+/// The layers' changes in time order, one instant at a time, with the
+/// values held after each: what the whole-trace walk and the peaks of a
+/// view share. Sums of the defined values are kept incrementally and
+/// recomputed every [`RECOMPOSE_EVERY`] instants, so rounding cannot drift.
+struct Merge<'a> {
+    layers: &'a [Layer],
+    at: Vec<Option<usize>>,
+    values: Vec<Sample>,
+    heap: BinaryHeap<Reverse<(u64, usize)>>,
+    pos: f64,
+    neg: f64,
+    undefined: u32,
+    instants: u32,
 }
 
-impl TotalSummary {
-    /// Walk every change of `layers` in time order, composing the stack at
-    /// each distinct change time: O(changes × log layers).
-    pub fn build(layers: &[Layer]) -> Self {
-        let mut at: Vec<Option<usize>> = vec![None; layers.len()];
-        let mut values: Vec<Sample> = layers.iter().map(|l| l.sample(None)).collect();
-        let mut heap: BinaryHeap<Reverse<(u64, usize)>> = layers
+impl<'a> Merge<'a> {
+    /// The values held at `at`, each layer's last change at or before it
+    /// (`None` before a layer's first).
+    fn new(layers: &'a [Layer], at: Vec<Option<usize>>) -> Self {
+        let values: Vec<Sample> = layers.iter().zip(&at).map(|(l, &i)| l.sample(i)).collect();
+        let heap = layers
             .iter()
+            .zip(&at)
             .enumerate()
-            .filter(|(_, l)| !l.history.is_empty())
-            .map(|(k, l)| Reverse((l.history.time(0), k)))
+            .filter_map(|(k, (l, i))| {
+                let next = i.map_or(0, |i| i + 1);
+                (next < l.history.len()).then(|| Reverse((l.history.time(next), k)))
+            })
             .collect();
-        // Sums of the defined parts, kept incrementally while no layer is
-        // undefined; a stack with an undefined layer is composed in full.
-        let sums = |values: &[Sample]| {
-            values
+        let mut merge = Self {
+            layers,
+            at,
+            values,
+            heap,
+            pos: 0.0,
+            neg: 0.0,
+            undefined: 0,
+            instants: 0,
+        };
+        merge.resum();
+        merge
+    }
+
+    fn resum(&mut self) {
+        (self.pos, self.neg, self.undefined) =
+            self.values
                 .iter()
                 .fold((0.0, 0.0, 0u32), |(p, n, u), v| match *v {
                     Sample::Value(v) if v >= 0.0 => (p + v, n, u),
                     Sample::Value(v) => (p, n + v, u),
                     _ => (p, n, u + 1),
-                })
+                });
+    }
+
+    /// The time of the next change, if any.
+    fn next(&self) -> Option<u64> {
+        self.heap.peek().map(|Reverse((t, _))| *t)
+    }
+
+    /// Apply every change at the next change time and return that time.
+    fn step(&mut self) -> Option<u64> {
+        let t = self.next()?;
+        while let Some(&Reverse((tk, k))) = self.heap.peek() {
+            if tk != t {
+                break;
+            }
+            self.heap.pop();
+            let h = self.layers[k].history.as_ref();
+            let mut i = self.at[k].map_or(0, |i| i + 1);
+            while i + 1 < h.len() && h.time(i + 1) == t {
+                i += 1;
+            }
+            self.at[k] = Some(i);
+            let new = self.layers[k].sample(Some(i));
+            for (v, sign) in [(self.values[k], -1.0), (new, 1.0)] {
+                match v {
+                    Sample::Value(v) if v >= 0.0 => self.pos += sign * v,
+                    Sample::Value(v) => self.neg += sign * v,
+                    _ if sign > 0.0 => self.undefined += 1,
+                    _ => self.undefined -= 1,
+                }
+            }
+            self.values[k] = new;
+            if i + 1 < h.len() {
+                self.heap.push(Reverse((h.time(i + 1), k)));
+            }
+        }
+        self.instants += 1;
+        if self.instants.is_multiple_of(RECOMPOSE_EVERY) {
+            self.resum();
+        }
+        Some(t)
+    }
+
+    /// The sum of the values held, `None` when one is undefined.
+    fn total(&self) -> Option<f64> {
+        (self.undefined == 0).then_some(self.pos + self.neg)
+    }
+
+    /// The top and bottom of the stack held.
+    fn reach(&self) -> (f64, f64) {
+        if self.undefined == 0 {
+            (self.pos, self.neg)
+        } else {
+            let c = compose(&self.values, |_, _, _| {});
+            (c.top, c.bottom)
+        }
+    }
+}
+
+/// The lowest and highest value of a column's total, `None` where it is
+/// undefined throughout.
+pub type Peak = Option<(f64, f64)>;
+
+fn widen(peak: &mut Peak, v: f64) {
+    *peak = Some(match *peak {
+        Some((lo, hi)) => (lo.min(v), hi.max(v)),
+        None => (v, v),
+    });
+}
+
+/// The total's lowest and highest value in each of `width` pixel columns of
+/// `vp`, from a merged walk over the layers' changes in view:
+/// O(visible changes × log layers + width). Exact; the peak band of a view
+/// with few changes.
+pub fn peaks(layers: &[Layer], vp: &Viewport, width: usize) -> Vec<Peak> {
+    let w = width as f64;
+    let t0 = vp.time_at(0.0, w);
+    let at = layers
+        .iter()
+        .map(|l| index_at(l.history.as_ref(), t0))
+        .collect();
+    let mut merge = Merge::new(layers, at);
+    let mut out = vec![None; width];
+    for (c, peak) in out.iter_mut().enumerate() {
+        let (ta, tb) = (vp.time_at(c as f64, w), vp.time_at((c + 1) as f64, w));
+        // A change at the column's first instant replaces what held before.
+        while merge.next().is_some_and(|t| (t as f64) <= ta) {
+            merge.step();
+        }
+        if let Some(v) = merge.total() {
+            widen(peak, v);
+        }
+        while merge.next().is_some_and(|t| (t as f64) < tb) {
+            merge.step();
+            if let Some(v) = merge.total() {
+                widen(peak, v);
+            }
+        }
+    }
+    out
+}
+
+/// Time blocks of a [`TotalSummary`]'s finest level, at most.
+const TOTAL_BLOCKS: u64 = 1 << 16;
+/// Each coarser level of a [`TotalSummary`] merges this many blocks.
+const TOTAL_FANOUT: usize = 16;
+
+/// What one merged walk over a stack's layers gives: the lowest bottom and
+/// highest top it reaches over the whole trace, which set its scale, and
+/// the total's lowest and highest value per block of time, with coarser
+/// levels of 16 blocks above, for the peak band of busy views. No summary
+/// of the members can give those, because the maximum of a sum is not the
+/// sum of the maxima. Built on the load worker for long layers; the
+/// document shares it between the panels that stack the same signals the
+/// same way and charges it to the memory budget.
+pub struct TotalSummary {
+    key: Key,
+    range: (f64, f64),
+    start: u64,
+    shift: u32,
+    /// `levels[0]` has one extent per block of `1 << shift` ticks from
+    /// `start`; each level above merges [`TOTAL_FANOUT`] of the one below.
+    levels: Vec<Vec<Peak>>,
+    reservation: Option<crate::remote::memory::Reservation>,
+}
+
+impl TotalSummary {
+    /// Walk every change of `layers` in time order over the trace's time
+    /// range `span`: O(changes × log layers + blocks).
+    pub fn build(layers: &[Layer], span: (u64, u64)) -> Self {
+        let (start, end) = (span.0, span.1.max(span.0));
+        let shift = (0..64)
+            .find(|&s| ((end - start) >> s) < TOTAL_BLOCKS)
+            .unwrap_or(63);
+        let blocks = ((end - start) >> shift) as usize + 1;
+        let block = |t: u64| ((t.clamp(start, end) - start) >> shift) as usize;
+        let mut level: Vec<Peak> = vec![None; blocks];
+        // The total held from `since` up to (not including) `until`.
+        let hold = |level: &mut [Peak], total: Option<f64>, since: u64, until: u64| {
+            if let Some(v) = total
+                && until > since
+            {
+                for peak in &mut level[block(since)..=block(until - 1)] {
+                    widen(peak, v);
+                }
+            }
         };
-        let (mut pos, mut neg, mut undefined) = sums(&values);
+        let mut merge = Merge::new(layers, vec![None; layers.len()]);
         let mut range = (0.0f64, 0.0f64);
-        let mut account = |values: &[Sample], pos: f64, neg: f64, undefined: u32| {
-            let (top, bottom) = if undefined == 0 {
-                (pos, neg)
-            } else {
-                let c = compose(values, |_, _, _| {});
-                (c.top, c.bottom)
-            };
+        let mut account = |merge: &Merge<'_>| {
+            let (top, bottom) = merge.reach();
             range = (range.0.min(bottom), range.1.max(top));
         };
-        account(&values, pos, neg, undefined);
-        let mut instants = 0u32;
-        while let Some(&Reverse((t, _))) = heap.peek() {
-            while let Some(&Reverse((tk, k))) = heap.peek() {
-                if tk != t {
-                    break;
-                }
-                heap.pop();
-                let h = layers[k].history.as_ref();
-                let mut i = at[k].map_or(0, |i| i + 1);
-                while i + 1 < h.len() && h.time(i + 1) == t {
-                    i += 1;
-                }
-                at[k] = Some(i);
-                let new = layers[k].sample(Some(i));
-                for (v, sign) in [(values[k], -1.0), (new, 1.0)] {
-                    match v {
-                        Sample::Value(v) if v >= 0.0 => pos += sign * v,
-                        Sample::Value(v) => neg += sign * v,
-                        _ if sign > 0.0 => undefined += 1,
-                        _ => undefined -= 1,
-                    }
-                }
-                values[k] = new;
-                if i + 1 < h.len() {
-                    heap.push(Reverse((h.time(i + 1), k)));
-                }
-            }
-            instants += 1;
-            if instants.is_multiple_of(RECOMPOSE_EVERY) {
-                (pos, neg, undefined) = sums(&values);
-            }
-            account(&values, pos, neg, undefined);
+        account(&merge);
+        let mut since = start;
+        while let Some(t) = merge.next() {
+            hold(&mut level, merge.total(), since, t);
+            merge.step();
+            since = since.max(t);
+            account(&merge);
+        }
+        hold(&mut level, merge.total(), since, end + 1);
+        let mut levels = vec![level];
+        while levels.last().is_some_and(|l| l.len() > TOTAL_FANOUT) {
+            let above = levels
+                .last()
+                .unwrap()
+                .chunks(TOTAL_FANOUT)
+                .map(|chunk| {
+                    chunk.iter().flatten().fold(None, |mut peak, &(lo, hi)| {
+                        widen(&mut peak, lo);
+                        widen(&mut peak, hi);
+                        peak
+                    })
+                })
+                .collect();
+            levels.push(above);
         }
         Self {
             key: key(layers),
             range,
+            start,
+            shift,
+            levels,
             reservation: None,
         }
+    }
+
+    fn block_ticks(&self, level: usize) -> f64 {
+        (1u64 << self.shift) as f64 * (TOTAL_FANOUT as f64).powi(level as i32)
+    }
+
+    /// The total's lowest and highest value in each of `width` columns of
+    /// `vp`, from the coarsest level whose blocks fit a column (the finest
+    /// when none does): a column reads the blocks it touches, so its band
+    /// may reach up to one block past it on either side, never below its
+    /// own peak.
+    pub fn peaks(&self, vp: &Viewport, width: usize) -> Vec<Peak> {
+        let mut out = vec![None; width];
+        if width == 0 || vp.width() <= 0.0 {
+            return out;
+        }
+        let per_column = vp.width() / width as f64;
+        let k = (0..self.levels.len())
+            .rev()
+            .find(|&k| self.block_ticks(k) <= per_column)
+            .unwrap_or(0);
+        let (level, ticks) = (&self.levels[k], self.block_ticks(k));
+        let w = width as f64;
+        let block_at = |t: f64| ((t - self.start as f64) / ticks).floor();
+        for (c, peak) in out.iter_mut().enumerate() {
+            let a = block_at(vp.time_at(c as f64, w)).max(0.0);
+            // The block holding the column's last instant.
+            let b = block_at(vp.time_at((c + 1) as f64, w) - 1e-9 * ticks);
+            if b < 0.0 || a >= level.len() as f64 {
+                continue;
+            }
+            let b = (b as usize).min(level.len() - 1);
+            for &(lo, hi) in level[a as usize..=b].iter().flatten() {
+                widen(peak, lo);
+                widen(peak, hi);
+            }
+        }
+        out
     }
 
     /// Charge the summary to a memory budget for as long as it lives.
@@ -887,8 +1078,10 @@ impl TotalSummary {
     }
 
     pub fn resident_bytes(&self) -> u64 {
-        (std::mem::size_of::<Self>() + self.key.len() * std::mem::size_of::<(usize, Reading)>())
-            as u64
+        let blocks: usize = self.levels.iter().map(Vec::len).sum();
+        (std::mem::size_of::<Self>()
+            + self.key.len() * std::mem::size_of::<(usize, Reading)>()
+            + blocks * std::mem::size_of::<Peak>()) as u64
     }
 
     /// The layers it summarizes (see [`key`]).

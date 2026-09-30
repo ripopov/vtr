@@ -251,7 +251,7 @@ fn a_stack_draws_negative_parts_below_zero_and_stops_at_an_undefined_layer() {
 fn the_whole_trace_walk_finds_the_highest_top_and_lowest_bottom() {
     for seed in 1..40u64 {
         let layers = members(0x5bd1_e995 ^ (seed * 31));
-        let summary = TotalSummary::build(&layers);
+        let summary = TotalSummary::build(&layers, (0, 10_000));
         let mut times: Vec<u64> = layers
             .iter()
             .flat_map(|l| {
@@ -550,6 +550,139 @@ fn long_stacks_hold_integral_summaries_until_their_histories_go() {
     );
 }
 
+// -- the peak of the total (stage 3) --------------------------------------------
+
+/// The total's extremes over `[ta, tb)`: at its start and after every change
+/// inside it, where every layer is defined.
+fn brute_peak(layers: &[Layer], ta: f64, tb: f64) -> stack::Peak {
+    let mut instants: Vec<f64> = vec![ta];
+    for l in layers {
+        let h = l.history.as_ref();
+        instants.extend(
+            (0..h.len())
+                .map(|i| h.time(i) as f64)
+                .filter(|&t| t > ta && t < tb),
+        );
+    }
+    let mut peak: stack::Peak = None;
+    for t in instants {
+        let values: Vec<Sample> = layers
+            .iter()
+            .map(|l| {
+                l.sample(if t < 0.0 {
+                    None
+                } else {
+                    l.history.index_at(t.floor() as u64)
+                })
+            })
+            .collect();
+        if let Some(v) = stack::total(&values) {
+            peak = Some(peak.map_or((v, v), |(lo, hi)| (lo.min(v), hi.max(v))));
+        }
+    }
+    peak
+}
+
+/// Members that never go below zero, so the stack's top is the total.
+fn unsigned_members(seed: u64, end: u64) -> Vec<Layer> {
+    let mut rng = Rng(seed);
+    let mut layers = Vec::new();
+    while layers.len() < 3 {
+        let l = member_until(&mut rng, layers.len(), end);
+        if matches!(
+            l.reading,
+            Reading::Bit | Reading::Number(NumericKind::Unsigned)
+        ) {
+            layers.push(l);
+        }
+    }
+    layers
+}
+
+#[test]
+fn the_band_reaches_each_columns_peak_and_never_falls_below_the_stack() {
+    for seed in 1..25u64 {
+        let layers = members(0xa076_1d64 ^ (seed * 17));
+        for (start, end, width) in [(0.0, 10_000.0, 150), (1_234.5, 7_654.25, 90)] {
+            let vp = Viewport { start, end };
+            let peaks = stack::peaks(&layers, &vp, width);
+            for (c, peak) in peaks.iter().enumerate() {
+                let (ta, tb) = (
+                    vp.time_at(c as f64, width as f64),
+                    vp.time_at(c as f64 + 1.0, width as f64),
+                );
+                let brute = brute_peak(&layers, ta, tb);
+                match (peak, brute) {
+                    (Some((lo, hi)), Some((blo, bhi))) => assert!(
+                        (lo - blo).abs() < 1e-9 && (hi - bhi).abs() < 1e-9,
+                        "seed {seed} column {c}: {peak:?} vs {brute:?}"
+                    ),
+                    (None, None) => {}
+                    _ => panic!("seed {seed} column {c}: {peak:?} vs {brute:?}"),
+                }
+            }
+        }
+        let layers = unsigned_members(0x5eed ^ seed, 10_000);
+        let vp = Viewport {
+            start: 0.0,
+            end: 10_000.0,
+        };
+        let frame = stack::columns(&layers, &vp, 120);
+        for (c, peak) in stack::peaks(&layers, &vp, 120).iter().enumerate() {
+            let c_top = stack::compose(frame.values(c), |_, _, _| {});
+            if let (Some((_, hi)), false) = (peak, c_top.undefined) {
+                assert!(
+                    *hi >= c_top.top - 1e-9,
+                    "seed {seed} column {c}: {hi} under {}",
+                    c_top.top
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_summarys_peaks_agree_with_a_walk() {
+    for seed in 1..8u64 {
+        let end = (1u64 << 20) - 1;
+        let layers = members(0xe703_7ed1 ^ (seed * 3));
+        // Stretch the members over a million ticks.
+        let layers: Vec<Layer> = {
+            let mut rng = Rng(seed);
+            (0..layers.len())
+                .map(|k| member_until(&mut rng, k, end))
+                .collect()
+        };
+        let summary = TotalSummary::build(&layers, (0, end));
+        // Columns of 1,024 ticks hold four whole 256-tick blocks: exact.
+        let vp = Viewport {
+            start: 0.0,
+            end: (end + 1) as f64,
+        };
+        let (walked, summed) = (stack::peaks(&layers, &vp, 1024), summary.peaks(&vp, 1024));
+        assert_eq!(walked, summed, "seed {seed}");
+        // Otherwise a column reads the blocks it touches: never narrower.
+        let vp = Viewport {
+            start: 3_333.3,
+            end: 777_777.7,
+        };
+        let (walked, summed) = (stack::peaks(&layers, &vp, 700), summary.peaks(&vp, 700));
+        for (c, (w, s)) in walked.iter().zip(&summed).enumerate() {
+            if let (Some((wl, wh)), Some((sl, sh))) = (w, s) {
+                assert!(
+                    sl <= wl && sh >= wh,
+                    "seed {seed} column {c}: {w:?} in {s:?}"
+                );
+            } else {
+                assert!(
+                    w.is_none() || s.is_some(),
+                    "seed {seed} column {c}: {w:?} vs {s:?}"
+                );
+            }
+        }
+    }
+}
+
 // -- the panel ---------------------------------------------------------------
 
 /// `top` holds, in order: `p` (4-bit count 2), `q` (4-bit count 3), `r`
@@ -709,7 +842,10 @@ fn shift_a_stacks_the_selected_group_as_one_undoable_step() {
     assert_eq!(group(&app, id).style, GroupStyle::Activity);
     app.handle(Command::Action(Action::ToggleStack));
     let g = group(&app, id);
-    assert_eq!((g.style, g.height.multiple()), (GroupStyle::Stack, 3));
+    assert_eq!(
+        (g.style, g.height.multiple()),
+        (GroupStyle::Stack { peak: true }, 3)
+    );
     assert_eq!(app.undo_label(), Some("Stack top"));
     // The layers: every signal with a number, in list order.
     let w = app.panels.waves(id).unwrap();
@@ -723,7 +859,7 @@ fn shift_a_stacks_the_selected_group_as_one_undoable_step() {
     let g = group(&app, id);
     assert_eq!((g.style, g.height.multiple()), (GroupStyle::Activity, 1));
     app.handle(Command::Redo);
-    assert_eq!(group(&app, id).style, GroupStyle::Stack);
+    assert_eq!(group(&app, id).style, GroupStyle::Stack { peak: true });
     // Unstacking gives 1× back, unless the row was resized meanwhile.
     app.handle(Command::Action(Action::ToggleStack));
     assert_eq!(app.undo_label(), Some("Unstack top"));
@@ -768,7 +904,7 @@ fn the_group_menu_draws_it_as_activity_or_a_stacked_area() {
         ("Stacked area", Some("⇧A"), false)
     );
     app.handle(Command::MenuSelect(id, MenuAction::Stack(true)));
-    assert_eq!(group(&app, id).style, GroupStyle::Stack);
+    assert_eq!(group(&app, id).style, GroupStyle::Stack { peak: true });
     assert_eq!(app.undo_label(), Some("Stack top"));
     // A signal row's menu has no such section.
     let w = app.panels.waves_mut(id).unwrap();
@@ -804,7 +940,10 @@ fn stacked_groups_round_trip_through_workspaces_at_version_6() {
         .commit(&mut restored)
         .unwrap();
     let rid = restored.panels.focused_id();
-    assert_eq!(group(&restored, rid).style, GroupStyle::Stack);
+    assert_eq!(
+        group(&restored, rid).style,
+        GroupStyle::Stack { peak: true }
+    );
     let again = serde_json::to_value(
         Workspace::capture(&restored, volna_core::testing::paths(TRACE), None).unwrap(),
     )
@@ -1100,4 +1239,111 @@ fn the_showcase_scopes_stack_bits_counts_and_signed_currents() {
     assert_eq!(sums.len(), 4, "{shown:?}");
     assert_eq!(sums[0], "Σ 3", "instructions in flight at 800 ns");
     assert_eq!(sums[2], "Σ X");
+}
+
+#[test]
+fn the_peak_band_shows_bursts_and_switches_from_the_menu() {
+    let mut app = App::new();
+    app.set_session(showcase());
+    pump(&mut app);
+    stacked(&mut app, &["soc", "power"]);
+    let id = app.panels.focused_id();
+    let g = *app.panels.waves(id).unwrap().selected.first().unwrap();
+    assert!(group_at(&app, id, g).shows_peak(), "on by default");
+    // Folded and zoomed out: about two nanosecond samples per column.
+    app.handle(Command::Action(Action::PanLeft));
+    let App { panels, doc, .. } = &mut app;
+    panels.waves_mut(id).unwrap().nav.jump_to(
+        doc,
+        Viewport {
+            start: 0.0,
+            end: 2048.0,
+        },
+    );
+    let t = Theme::one_dark();
+    let band = |app: &mut App| {
+        frame(app, id);
+        let pos = app
+            .panels
+            .waves(id)
+            .unwrap()
+            .last_layout()
+            .position(g)
+            .unwrap();
+        let row = row_rect(app, id, pos);
+        quads_of(app.scene(), row, t.editor.text.with_alpha(0.13)).len()
+    };
+    assert!(
+        band(&mut app) > 0,
+        "the core's one-nanosecond glitches rise above the means"
+    );
+    // The readout names the peak after the means.
+    let pos = app
+        .panels
+        .waves(id)
+        .unwrap()
+        .last_layout()
+        .position(g)
+        .unwrap();
+    let row = row_rect(&app, id, pos);
+    app.handle(Command::Pointer(
+        id,
+        PointerEvent::Move {
+            position: point(row.left() + 300.0, row.bottom() - 8.0),
+        },
+    ));
+    let shown = texts(frame(&mut app, id));
+    assert!(
+        shown
+            .iter()
+            .any(|s| s.starts_with("means over") && s.contains(" · peak ")),
+        "{shown:?}"
+    );
+    // The menu's check hides it, as one step, and the workspace says so.
+    let w = app.panels.waves_mut(id).unwrap();
+    w.open_signal_menu(&app.doc, g, Point::default());
+    let item = w
+        .menu
+        .as_ref()
+        .unwrap()
+        .items()
+        .find(|i| i.label == "Peak of total")
+        .unwrap()
+        .clone();
+    assert!(item.checked);
+    app.handle(Command::MenuSelect(id, item.action));
+    assert_eq!(app.undo_label(), Some("Hide peak of total"));
+    assert!(!group_at(&app, id, g).shows_peak());
+    assert_eq!(band(&mut app), 0);
+    let saved = serde_json::to_value(
+        Workspace::capture(&app, volna_core::testing::paths(TRACE), None).unwrap(),
+    )
+    .unwrap();
+    let rows = saved["panels"][0]["rows"].as_array().unwrap();
+    let power = rows.iter().find(|r| r["name"] == "power").unwrap();
+    assert_eq!(
+        (&power["style"], &power["peak"]),
+        (&"stack".into(), &false.into())
+    );
+    app.handle(Command::Undo);
+    assert!(group_at(&app, id, g).shows_peak());
+    let saved = serde_json::to_value(
+        Workspace::capture(&app, volna_core::testing::paths(TRACE), None).unwrap(),
+    )
+    .unwrap();
+    let rows = saved["panels"][0]["rows"].as_array().unwrap();
+    assert!(
+        rows.iter()
+            .find(|r| r["name"] == "power")
+            .unwrap()
+            .get("peak")
+            .is_none()
+    );
+}
+
+fn group_at(app: &App, id: PanelId, g: usize) -> volna_core::wave::GroupRow {
+    app.panels.waves(id).unwrap().items()[g]
+        .group()
+        .unwrap()
+        .clone()
 }
