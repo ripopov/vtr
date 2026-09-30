@@ -2599,3 +2599,24 @@ nothing, so ordinary files are unchanged, and `Reader::ending()` reports
 `Closed` for a complete file and `Recovered` for a scanned one without a
 record. The reader looks for the record from the last log block backwards,
 so it decodes one block in the usual case.
+
+**A sealable writer.** A crash can interrupt the owner inside a writer
+method, and closing a half-updated writer from another thread reads state
+that may be inconsistent. So the simulation thread hands the encoder
+everything it needs to finish a block with each chunk (the chunk's slice of
+the time table and the initial values of the groups it dirtied first), and
+the encoder can finish a file alone: `Sealer::seal` queues a seal, and the
+encoder writes the partial block, the pending log blocks and the ending
+record from its own knowledge of the file. The output of an ordinary run is
+byte-identical. Whether the owner is inside the writer is a busy word in a
+`CrashState`. Marking every `Writer` method was built and measured first:
++4.6% (store 1 and 0) to +9% (restore the previous mark, fence, check for a
+panic) on scr1_axi inline, 16 ns per change, because the emit path inlines
+into the replay loop and the stores stop the compiler from keeping the
+writer's fields in registers; wrapping each method body in a closure cost
+another 4% by itself. The mark therefore sits where calls are opaque anyway,
+at every C API writer call (crashlab, 60 M changes: 1.318 s before, 1.314 s
+after), and around the batches a Rust caller marks with `Writer::guarded`,
+such as a time step. Every C function runs under `catch_unwind`; a panic
+poisons its writer, and closing a poisoned writer seals it with the ending
+`Poisoned` instead of reading its buffers.

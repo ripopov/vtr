@@ -54,7 +54,7 @@ use crate::varint;
 use std::fs::File;
 use std::io::{BufWriter, Seek, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
@@ -140,18 +140,16 @@ impl Default for WriterOptions {
 // ---------------------------------------------------------------------------
 
 enum Msg {
+    /// Metadata, strings, blackout.
     Section { kind: SectionKind, payload: Vec<u8>, aux0: u64, aux1: u64 },
+    /// A hierarchy chunk of `count` nodes from `first`, with `signals` declared after it.
+    Hierarchy { payload: Vec<u8>, first: u32, count: u32, signals: u32 },
     Chunk(Box<ChunkInput>),
-    Signal(Box<BlockInput>),
     Tx(Box<TxBlockInput>),
     Log(Box<LogBlockInput>),
     Close,
-}
-
-/// Buffers returned by the sink for reuse.
-enum Recycled {
-    Chunk(Box<ChunkInput>),
-    Block(Box<BlockInput>),
+    /// Finish the file with this ending and report (`Sealer::seal`).
+    Seal(Ending, SyncSender<Result<()>>),
 }
 
 /// Log blocks encoded on helper threads: inputs go out, finished payloads come back.
@@ -212,17 +210,41 @@ struct FileSink {
     compressor: Compressor,
     scratch: EncoderScratch,
     buf: Vec<u8>,
-    recycle: Option<SyncSender<Recycled>>,
+    recycle: Option<SyncSender<Box<ChunkInput>>>,
     chunks: Vec<ChunkEnc>,
     n_chunks: usize,
     chunk_pool: Vec<ChunkEnc>,
+    // The signal block being assembled from its chunks.
+    group_size: u32,
+    run_budget: usize,
+    block: BlockInput,
+    /// Frame parts of the block: (group, arrival, offset, length) into `frame`.
+    frame_parts: Vec<(u32, u32, u32, u32)>,
+    frame: Vec<u8>,
+    /// Per group: the last block in which it was dirty.
+    last_dirty_block: Vec<u32>,
+    block_count: u32,
+    // What the file holds so far, for an ending record written by the sink.
+    meta_written: bool,
+    next_string: u32,
+    next_node: u32,
+    signals: u32,
+    max_id: u64,
+    signal_time: Option<u64>,
+    max_time: u64,
 }
 
 impl FileSink {
     fn write_log_payload(&mut self, payload: &[u8]) -> Result<()> {
         let h = logblock::LogBlockHeader::parse(payload)?;
+        self.saw_ids(h.max_id, h.t_max);
         // Optional: a reader without log support skips the block instead of failing.
         self.write_section_parts(SectionKind::LogBlock, SECTION_FLAG_OPTIONAL, &[payload], h.t_min, h.t_max)
+    }
+
+    fn saw_ids(&mut self, max_id: u64, t_max: u64) {
+        self.max_id = self.max_id.max(max_id);
+        self.max_time = self.max_time.max(t_max);
     }
 
     /// Writes finished log blocks in submission order; with `wait` blocks until
@@ -294,24 +316,86 @@ impl FileSink {
         Ok(())
     }
 
+    /// Writes a STRINGS or HIERARCHY chunk, stored as one compressed blob.
+    fn write_blob_section(&mut self, kind: SectionKind, payload: &[u8], aux0: u64, aux1: u64) -> Result<()> {
+        self.buf.clear();
+        self.compressor.compress_into(self.comp, payload, &mut self.buf)?;
+        let blob = std::mem::take(&mut self.buf);
+        let r = self.write_section(kind, &blob, aux0, aux1);
+        self.buf = blob;
+        r
+    }
+
+    /// Writes the signal block assembled from the chunks received since the last one.
+    fn finish_signal_block(&mut self) -> Result<()> {
+        let b = &mut self.block;
+        let n_sig = b.kinds.len();
+        let g = self.group_size as usize;
+        let n_groups = n_sig.div_ceil(g);
+        // Frame parts in group order; a group's parts in arrival order.
+        self.frame_parts.sort_unstable_by_key(|p| (p.0, p.1));
+        b.frame.clear();
+        b.dirty_groups.clear();
+        for &(grp, _, off, len) in &self.frame_parts {
+            b.frame.extend_from_slice(&self.frame[off as usize..(off + len) as usize]);
+            if b.dirty_groups.last() != Some(&grp) {
+                b.dirty_groups.push(grp);
+            }
+        }
+        self.last_dirty_block.resize(n_groups, NO_BLOCK);
+        b.prev_dirty.clear();
+        b.prev_dirty.extend_from_slice(&self.last_dirty_block);
+        for &grp in &b.dirty_groups {
+            self.last_dirty_block[grp as usize] = self.block_count;
+        }
+        b.block_index = self.block_count;
+        b.n_signals = n_sig as u32;
+        b.group_size = self.group_size;
+        b.run_budget = self.run_budget;
+        if b.times.is_empty() {
+            // Sealed before the first time step.
+            b.times.push(0);
+        }
+        if self.n_chunks == 0 {
+            self.scratch.begin_block();
+        }
+        self.buf.clear();
+        block::finish_block(&self.block, &self.chunks[..self.n_chunks], self.comp, &mut self.compressor, &mut self.scratch, &mut self.buf)?;
+        self.n_chunks = 0;
+        let (a, z) = (self.block.times[0], *self.block.times.last().unwrap());
+        self.signal_time = Some(z);
+        let header = std::mem::take(&mut self.buf);
+        let data = std::mem::take(self.scratch.data_mut());
+        self.write_section_parts(SectionKind::SignalBlock, 0, &[&header, &data], a, z)?;
+        *self.scratch.data_mut() = data;
+        self.buf = header;
+        self.block.times.clear();
+        self.frame.clear();
+        self.frame_parts.clear();
+        self.block_count += 1;
+        Ok(())
+    }
+
     fn handle(&mut self, msg: Msg) -> Result<bool> {
-        if !matches!(msg, Msg::Log(_) | Msg::Close) {
+        if !matches!(msg, Msg::Log(_) | Msg::Close | Msg::Seal(..)) {
             self.drain_logs(false)?;
         }
         match msg {
             Msg::Section { kind, payload, aux0, aux1 } => {
-                if matches!(kind, SectionKind::Strings | SectionKind::Hierarchy) {
-                    // These sections are stored as one compressed blob.
-                    self.buf.clear();
-                    self.compressor.compress_into(self.comp, &payload, &mut self.buf)?;
-                    let blob = std::mem::take(&mut self.buf);
-                    self.write_section(kind, &blob, aux0, aux1)?;
-                    self.buf = blob;
+                if kind == SectionKind::Strings {
+                    self.next_string = (aux0 + aux1) as u32;
+                    self.write_blob_section(kind, &payload, aux0, aux1)?;
                 } else {
+                    self.meta_written |= kind == SectionKind::Meta;
                     self.write_section(kind, &payload, aux0, aux1)?;
                 }
             }
-            Msg::Chunk(input) => {
+            Msg::Hierarchy { payload, first, count, signals } => {
+                self.next_node = first + count;
+                self.signals = signals;
+                self.write_blob_section(SectionKind::Hierarchy, &payload, first as u64, count as u64)?;
+            }
+            Msg::Chunk(mut input) => {
                 if self.n_chunks == 0 {
                     self.scratch.begin_block();
                 }
@@ -324,34 +408,28 @@ impl FileSink {
                     self.chunks.push(enc);
                 }
                 self.n_chunks += 1;
-                if let Some(r) = &self.recycle {
-                    let _ = r.try_send(Recycled::Chunk(input));
+                self.block.times.append(&mut input.times);
+                let mut off = 0usize;
+                for &(grp, len) in &input.frame_parts {
+                    let at = self.frame.len() as u32;
+                    self.frame.extend_from_slice(&input.frame[off..off + len as usize]);
+                    self.frame_parts.push((grp, self.frame_parts.len() as u32, at, len));
+                    off += len as usize;
                 }
-            }
-            Msg::Signal(input) => {
-                if self.n_chunks == 0 {
-                    self.scratch.begin_block();
-                }
-                self.buf.clear();
-                block::finish_block(&input, &self.chunks[..self.n_chunks], self.comp, &mut self.compressor, &mut self.scratch, &mut self.buf)?;
-                self.n_chunks = 0;
-                let (a, b) = match (input.times.first(), input.times.last()) {
-                    (Some(&a), Some(&b)) => (a, b),
-                    _ => (0, 0),
-                };
-                let header = std::mem::take(&mut self.buf);
-                let data = std::mem::take(self.scratch.data_mut());
-                self.write_section_parts(SectionKind::SignalBlock, 0, &[&header, &data], a, b)?;
-                *self.scratch.data_mut() = data;
-                self.buf = header;
+                self.block.kinds = input.kinds.clone();
+                let ends = input.ends_block;
                 if let Some(r) = &self.recycle {
-                    let _ = r.try_send(Recycled::Block(input));
+                    let _ = r.try_send(input);
+                }
+                if ends {
+                    self.finish_signal_block()?;
                 }
             }
             Msg::Tx(input) => {
                 self.buf.clear();
                 txblock::encode_tx_block(&input, self.comp, &mut self.compressor, &mut self.buf)?;
                 let h = txblock::TxBlockHeader::parse(&self.buf)?;
+                self.saw_ids(h.max_id, h.t_max);
                 let payload = std::mem::take(&mut self.buf);
                 self.write_section(SectionKind::TxBlock, &payload, h.t_min, h.t_max)?;
                 self.buf = payload;
@@ -379,26 +457,108 @@ impl FileSink {
                 }
             }
             Msg::Close => {
-                self.drain_logs(true)?;
-                if let Some(pool) = &mut self.log_pool {
-                    pool.tx = None;
-                    for h in pool.handles.drain(..) {
-                        let _ = h.join();
-                    }
-                }
-                let dir = container::encode_directory(&self.entries);
-                let dir_off = self.offset;
-                let header = container::encode_section_header(SectionKind::Directory as u32, 0, dir.len() as u64, 0);
-                self.file.write_all(&header)?;
-                self.file.write_all(&dir)?;
-                self.offset += (container::SECTION_HEADER_LEN + dir.len()) as u64;
-                let file_len = self.offset + container::TRAILER_LEN as u64;
-                self.file.write_all(&container::encode_trailer(dir_off, file_len))?;
-                self.file.flush()?;
+                self.finish()?;
                 return Ok(true);
+            }
+            Msg::Seal(end, reply) => {
+                let r = self.seal(end);
+                let failed = r.is_err();
+                let _ = reply.send(r);
+                return if failed { Err(Error::State("sealing failed")) } else { Ok(true) };
             }
         }
         Ok(false)
+    }
+
+    /// Finishes a file whose owner cannot: the block being assembled, the
+    /// pending log blocks, the ending record, the directory and the trailer.
+    fn seal(&mut self, end: Ending) -> Result<()> {
+        if self.n_chunks > 0 {
+            self.finish_signal_block()?;
+        }
+        self.drain_logs(true)?;
+        self.write_ending(end)?;
+        self.finish()
+    }
+
+    /// Writes the ending record of [`Writer::close_with`] from the sink's own
+    /// knowledge of the file: new strings, the `vtr.run` stream and its site
+    /// after every node written, and a log block with one record.
+    fn write_ending(&mut self, end: Ending) -> Result<()> {
+        let Some((site, args)) = end.record() else { return Ok(()) };
+        let (fmt, names, types) = ending::SITES[site];
+        if !self.meta_written {
+            // Sealed before the first flush: the owner's metadata never arrived.
+            let mut payload = Vec::new();
+            Meta { writer: format!("vtr {}", env!("CARGO_PKG_VERSION")), group_size: self.group_size, ..Meta::default() }.encode(&mut payload);
+            self.write_section(SectionKind::Meta, &payload, 0, 0)?;
+            self.meta_written = true;
+        }
+        let first = self.next_string;
+        // String id 0 is the empty string.
+        let mut strings: Vec<&str> = if first == 0 { vec![""] } else { Vec::new() };
+        let mut intern = |s: &'static str| {
+            let i = strings.iter().position(|&x| x == s).unwrap_or_else(|| {
+                strings.push(s);
+                strings.len() - 1
+            });
+            StrId(first + i as u32)
+        };
+        let stream = NodeId(self.next_node);
+        let stream_node = Node { parent: None, name: intern(ending::STREAM), data: NodeData::Stream { kind: intern(logblock::STREAM_KIND) }, attrs: Vec::new() };
+        let spec = LogSiteSpec { names, ..LogSiteSpec::new(stream, logblock::Severity::Fatal, fmt, types) };
+        let (name, attrs) = logblock::site_attrs(&spec, |s| {
+            // Every string of an ending's site is a constant.
+            let s: &'static str = [ending::STREAM, logblock::STREAM_KIND, fmt, logblock::KEY_SEVERITY, logblock::KEY_ARGS, logblock::KEY_NAMES].into_iter().chain(names.iter().copied()).find(|&c| c == s).expect("constant");
+            intern(s)
+        })?;
+        let site_node = Node { parent: Some(stream), name, data: NodeData::Generator, attrs };
+        let mut payload = Vec::new();
+        varint::put_u64(&mut payload, first as u64);
+        varint::put_u64(&mut payload, strings.len() as u64);
+        for s in &strings {
+            varint::put_blob(&mut payload, s.as_bytes());
+        }
+        self.next_string = first + strings.len() as u32;
+        self.write_blob_section(SectionKind::Strings, &payload, first as u64, strings.len() as u64)?;
+        payload.clear();
+        varint::put_u64(&mut payload, stream.0 as u64);
+        varint::put_u64(&mut payload, 2);
+        stream_node.encode(stream.0, self.signals, &mut payload);
+        site_node.encode(stream.0 + 1, self.signals, &mut payload);
+        self.next_node += 2;
+        self.write_blob_section(SectionKind::Hierarchy, &payload, stream.0 as u64, 2)?;
+        let time = self.signal_time.unwrap_or(self.max_time);
+        let mut rows = Vec::new();
+        logblock::encode_row(&mut rows, 0, time, self.max_id + 1, 0, &args);
+        let input = LogBlockInput { rows, n: 1, sites: Arc::new(vec![LogSiteEnc { node: stream.0 + 1, args: types.to_vec() }]) };
+        self.buf.clear();
+        logblock::encode_log_block(&input, self.comp, &mut self.compressor, &mut self.buf)?;
+        let payload = std::mem::take(&mut self.buf);
+        self.write_log_payload(&payload)?;
+        self.buf = payload;
+        Ok(())
+    }
+
+    /// Writes the last log blocks, the directory and the trailer.
+    fn finish(&mut self) -> Result<()> {
+        self.drain_logs(true)?;
+        if let Some(pool) = &mut self.log_pool {
+            pool.tx = None;
+            for h in pool.handles.drain(..) {
+                let _ = h.join();
+            }
+        }
+        let dir = container::encode_directory(&self.entries);
+        let dir_off = self.offset;
+        let header = container::encode_section_header(SectionKind::Directory as u32, 0, dir.len() as u64, 0);
+        self.file.write_all(&header)?;
+        self.file.write_all(&dir)?;
+        self.offset += (container::SECTION_HEADER_LEN + dir.len()) as u64;
+        let file_len = self.offset + container::TRAILER_LEN as u64;
+        self.file.write_all(&container::encode_trailer(dir_off, file_len))?;
+        self.file.flush()?;
+        Ok(())
     }
 }
 
@@ -406,7 +566,7 @@ enum Sink {
     Inline(Box<FileSink>),
     Threaded {
         tx: Option<SyncSender<Msg>>,
-        recycle: Receiver<Recycled>,
+        recycle: Receiver<Box<ChunkInput>>,
         handle: Option<std::thread::JoinHandle<Result<()>>>,
         failed: Arc<AtomicBool>,
         error: Arc<Mutex<Option<Error>>>,
@@ -434,27 +594,20 @@ impl Sink {
         }
     }
 
-    fn take_recycled(&mut self, chunk_pool: &mut Vec<ChunkInput>, block_pool: &mut Vec<BlockInput>) {
+    fn take_recycled(&mut self, chunk_pool: &mut Vec<ChunkInput>) {
         if let Sink::Threaded { recycle, .. } = self {
-            while let Ok(r) = recycle.try_recv() {
-                match r {
-                    Recycled::Chunk(c) => chunk_pool.push(*c),
-                    Recycled::Block(b) => block_pool.push(*b),
-                }
+            while let Ok(c) = recycle.try_recv() {
+                chunk_pool.push(*c);
             }
         }
     }
 
-    fn close(&mut self) -> Result<()> {
+    /// Waits for the background thread after it finished the file (close or seal).
+    fn join(&mut self) -> Result<()> {
         match self {
-            Sink::Inline(s) => {
-                s.handle(Msg::Close)?;
-                Ok(())
-            }
+            Sink::Inline(_) => Ok(()),
             Sink::Threaded { tx, handle, error, .. } => {
-                if let Some(t) = tx.take() {
-                    let _ = t.send(Msg::Close);
-                }
+                tx.take();
                 if let Some(h) = handle.take() {
                     match h.join() {
                         Ok(r) => r?,
@@ -467,6 +620,134 @@ impl Sink {
                 Ok(())
             }
         }
+    }
+
+    fn close(&mut self) -> Result<()> {
+        match self {
+            Sink::Inline(s) => {
+                s.handle(Msg::Close)?;
+                Ok(())
+            }
+            Sink::Threaded { tx, .. } => {
+                if let Some(t) = tx.take() {
+                    let _ = t.send(Msg::Close);
+                }
+                self.join()
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sealing from another thread
+// ---------------------------------------------------------------------------
+
+/// State a [`Sealer`] shares with its writer.
+struct Shared {
+    state: CrashState,
+    /// The background encoder's queue (`None` for an inline writer).
+    tx: Option<SyncSender<Msg>>,
+}
+
+/// What a crash handler needs to know about a writer: whether its owner is
+/// inside it, and whether a call panicked. The owner marks the calls or
+/// batches of calls that a crash must not interrupt with
+/// [`Writer::guarded`] (or `enter`/`leave` around each call, as the C API
+/// does); a handler reads the mark on the same thread or from another one.
+/// Marking every method inside the writer was measured instead: 4.6 to 9%
+/// on the fastest replay, where the emit path inlines into the caller's loop.
+#[derive(Default)]
+pub struct CrashState {
+    busy: AtomicU32,
+    poisoned: AtomicBool,
+}
+
+impl CrashState {
+    /// Marks the owner as inside the writer; returns the previous mark for
+    /// [`leave`](Self::leave). Relaxed stores fenced against compiler
+    /// reordering: a signal handler on the same thread sees them in program
+    /// order.
+    #[inline(always)]
+    pub fn enter(&self) -> u32 {
+        let prev = self.busy.load(Ordering::Relaxed);
+        self.busy.store(1, Ordering::Relaxed);
+        compiler_fence(Ordering::SeqCst);
+        prev
+    }
+
+    /// Restores the mark [`enter`](Self::enter) returned.
+    #[inline(always)]
+    pub fn leave(&self, prev: u32) {
+        compiler_fence(Ordering::SeqCst);
+        self.busy.store(prev, Ordering::Relaxed);
+    }
+
+    /// Records that a call panicked: the writer's buffers cannot be trusted.
+    /// The busy mark stays set.
+    pub fn poison(&self) {
+        self.poisoned.store(true, Ordering::Relaxed);
+    }
+
+    /// True while the owner is inside a marked call, or after one panicked.
+    pub fn busy(&self) -> bool {
+        self.busy.load(Ordering::Relaxed) != 0 || self.poisoned()
+    }
+
+    /// True after a marked call panicked.
+    pub fn poisoned(&self) -> bool {
+        self.poisoned.load(Ordering::Relaxed)
+    }
+}
+
+/// Leaves a [`Writer::guarded`] batch, or poisons the writer when a panic unwinds out of it.
+struct Guarded {
+    state: *const CrashState,
+    prev: u32,
+}
+
+impl Drop for Guarded {
+    fn drop(&mut self) {
+        // Safety: the state lives in the writer's `shared`, which outlives the batch.
+        let state = unsafe { &*self.state };
+        if std::thread::panicking() {
+            state.poison();
+        } else {
+            state.leave(self.prev);
+        }
+    }
+}
+
+
+/// A handle that finishes a writer's file from another thread, for a crash
+/// guard ([`Writer::sealer`]). It never touches the writer itself.
+#[derive(Clone)]
+pub struct Sealer {
+    shared: Arc<Shared>,
+}
+
+impl Sealer {
+    /// The writer's [`CrashState`]. A crash handler reads it to choose between
+    /// closing the writer normally (at rest) and sealing it (busy).
+    pub fn state(&self) -> &CrashState {
+        &self.shared.state
+    }
+
+    /// Finishes the file with what reached the background encoder: the chunks
+    /// of the current signal block, every transaction and log block handed
+    /// over, then `end` as the ending record, the directory and the trailer.
+    /// What the owner still buffers (the unfinished chunk, transaction and log
+    /// rows, open transactions, running clocks, undeclared nodes) is dropped.
+    ///
+    /// Safe to call from any thread while the owner is stopped (parked by a
+    /// crash guard or dead); the owner must not use the writer afterwards
+    /// except to drop it. Blocks until the file is complete. Fails for an
+    /// inline writer (`background: false`) and for a writer already closed or
+    /// sealed.
+    pub fn seal(&self, end: Ending) -> Result<()> {
+        let tx = self.shared.tx.as_ref().ok_or(Error::State("an inline writer cannot be sealed"))?;
+        let (reply, done) = sync_channel(1);
+        tx.send(Msg::Seal(end, reply)).map_err(|_| Error::State("the writer is already closed"))?;
+        done.recv().map_err(|_| Error::State("the writer is already closed"))?
     }
 }
 
@@ -635,6 +916,7 @@ struct ClockState {
 /// file and compressor. A rejected call changes nothing.
 pub struct Writer {
     opts: WriterOptions,
+    shared: Arc<Shared>,
     sink: Sink,
     meta: Meta,
     meta_written: bool,
@@ -667,18 +949,23 @@ pub struct Writer {
     epoch: u32,
     time: u64,
     cur_tidx: u32,
+    /// Time-table entries of the current block not yet handed to the encoder.
     times: Vec<u64>,
+    /// Time-table entries of the current block already handed to the encoder.
+    times_sent: u32,
     records: Vec<Record>,
     heap: Vec<u8>,
+    /// Groups with a change in the current block, and those whose frame was handed over.
     dirty_bits: Vec<u64>,
-    last_dirty_block: Vec<u32>,
+    sent_bits: Vec<u64>,
+    /// Signals declared when the last frame parts were handed over.
+    frame_sigs: usize,
     block_count: u32,
     /// Records of the current block already handed to the encoder as chunks.
     block_pending: usize,
     /// Records to buffer before the next chunk hand-off (bounded by the block budget).
     chunk_limit: usize,
     chunk_pool: Vec<ChunkInput>,
-    block_pool: Vec<BlockInput>,
     total_records: u64,
     // transactions
     open: OpenTable,
@@ -717,6 +1004,7 @@ impl Writer {
         let offset = file.stream_position()?;
         let comp = opts.compression;
         let (recycle_tx, recycle_rx) = sync_channel(16);
+        let group_size = opts.group_size.max(1).next_power_of_two();
         let mut fsink = FileSink {
             log_pool: None,
             log_encoders: if opts.background { opts.log_encoders } else { 0 },
@@ -732,10 +1020,36 @@ impl Writer {
             chunks: Vec::new(),
             n_chunks: 0,
             chunk_pool: Vec::new(),
+            group_size,
+            run_budget: opts.run_bytes,
+            block: BlockInput {
+                block_index: 0,
+                times: Vec::new(),
+                kinds: Arc::new(Vec::new()),
+                n_signals: 0,
+                group_size,
+                dirty_groups: Vec::new(),
+                frame: Vec::new(),
+                prev_dirty: Vec::new(),
+                run_budget: opts.run_bytes,
+            },
+            frame_parts: Vec::new(),
+            frame: Vec::new(),
+            last_dirty_block: Vec::new(),
+            block_count: 0,
+            meta_written: false,
+            next_string: 0,
+            next_node: 0,
+            signals: 0,
+            max_id: 0,
+            signal_time: None,
+            max_time: 0,
         };
+        let mut seal_tx = None;
         let sink = if opts.background {
             fsink.recycle = Some(recycle_tx);
             let (tx, rx) = sync_channel::<Msg>(4);
+            seal_tx = Some(tx.clone());
             let failed = Arc::new(AtomicBool::new(false));
             let error = Arc::new(Mutex::new(None));
             let (f2, e2) = (failed.clone(), error.clone());
@@ -763,7 +1077,6 @@ impl Writer {
         };
         let mut meta = Meta::default();
         // Group size is a power of two so group lookups are shifts.
-        let group_size = opts.group_size.max(1).next_power_of_two();
         meta.group_size = group_size;
         let mut opts = opts;
         opts.group_size = group_size;
@@ -772,6 +1085,7 @@ impl Writer {
         meta.writer = format!("vtr {}", env!("CARGO_PKG_VERSION"));
         Ok(Writer {
             opts,
+            shared: Arc::new(Shared { state: CrashState::default(), tx: seal_tx }),
             sink,
             meta,
             meta_written: false,
@@ -801,15 +1115,16 @@ impl Writer {
             time: 0,
             cur_tidx: 0,
             times: Vec::new(),
+            times_sent: 0,
             records: Vec::with_capacity(record_cap),
             heap: Vec::new(),
             dirty_bits: Vec::new(),
-            last_dirty_block: Vec::new(),
+            sent_bits: Vec::new(),
+            frame_sigs: 0,
             block_count: 0,
             block_pending: 0,
             chunk_limit,
             chunk_pool: Vec::new(),
-            block_pool: Vec::new(),
             total_records: 0,
             open: OpenTable::new(),
             next_tx_id: 1,
@@ -1055,9 +1370,9 @@ impl Writer {
         self.last.push(lv);
         self.frame_cap.push((0, false));
         let g = (id.0 >> self.group_shift) as usize;
-        if g >= self.last_dirty_block.len() {
-            self.last_dirty_block.resize(g + 1, NO_BLOCK);
+        if g / 64 >= self.dirty_bits.len() {
             self.dirty_bits.resize(g / 64 + 1, 0);
+            self.sent_bits.resize(g / 64 + 1, 0);
         }
         id
     }
@@ -1079,15 +1394,21 @@ impl Writer {
     /// any value and repeating the current time is a no-op. Values emitted
     /// before the first call belong to the first time step.
     pub fn set_time(&mut self, t: u64) -> Result<()> {
-        if t < self.time && !self.times.is_empty() {
+        let started = self.block_started();
+        if t < self.time && started {
             return Err(Error::invalid(format!("time {t} is earlier than current time {}", self.time)));
         }
-        if self.times.is_empty() || t != self.time {
+        if !started || t != self.time {
             self.times.push(t);
-            self.cur_tidx = (self.times.len() - 1) as u32;
+            self.cur_tidx = self.times_sent + self.times.len() as u32 - 1;
         }
         self.time = t;
         Ok(())
+    }
+
+    /// True once the current block has a time-table entry.
+    fn block_started(&self) -> bool {
+        self.times_sent > 0 || !self.times.is_empty()
     }
 
     /// Time of the current time step (0 before the first [`set_time`](Self::set_time)).
@@ -1152,7 +1473,7 @@ impl Writer {
         let tidx = self.cur_tidx | if compact { COMPACT_FLAG } else { 0 };
         self.records.push(Record { sig: s as u32, tidx, payload });
         if self.records.len() >= self.chunk_limit {
-            self.flush_chunk()?;
+            self.flush_chunk(false)?;
         }
         Ok(())
     }
@@ -1200,7 +1521,7 @@ impl Writer {
         self.wide_count[wi] += 1;
         self.wide_entries += 1;
         if self.wide_bytes / 16 + self.records.len() >= self.chunk_limit {
-            self.flush_chunk()?;
+            self.flush_chunk(false)?;
         }
         Ok(())
     }
@@ -1420,7 +1741,7 @@ impl Writer {
         self.records.push(Record { sig: s as u32, tidx, payload: off });
         self.sig_counts[s] += 1;
         if self.records.len() >= self.chunk_limit {
-            self.flush_chunk()?;
+            self.flush_chunk(false)?;
         }
         Ok(())
     }
@@ -1428,14 +1749,27 @@ impl Writer {
     // ----- flushing -----
 
     /// Hands the buffered records to the encoder as a chunk of the current block,
-    /// finishing the block when it reached its size.
-    fn flush_chunk(&mut self) -> Result<()> {
+    /// with the block's new time-table entries and the frame parts of the
+    /// groups it dirtied first, so the encoder holds everything needed to
+    /// write the block from the chunks it has. Ends the block when it reached
+    /// its size or `end_block` is set.
+    fn flush_chunk(&mut self, end_block: bool) -> Result<()> {
         self.flush_meta_and_hierarchy()?;
         if self.kinds_arc.is_none() {
             self.kinds_arc = Some(Arc::new(self.kinds.clone()));
         }
-        self.sink.take_recycled(&mut self.chunk_pool, &mut self.block_pool);
-        let mut chunk = self.chunk_pool.pop().unwrap_or_else(|| ChunkInput { records: Vec::new(), heap: Vec::new(), sig_counts: Vec::new(), kinds: Arc::new(Vec::new()), wide: Vec::new() });
+        self.sink.take_recycled(&mut self.chunk_pool);
+        let mut chunk = self.chunk_pool.pop().unwrap_or_else(|| ChunkInput {
+            records: Vec::new(),
+            heap: Vec::new(),
+            sig_counts: Vec::new(),
+            kinds: Arc::new(Vec::new()),
+            wide: Vec::new(),
+            times: Vec::new(),
+            frame: Vec::new(),
+            frame_parts: Vec::new(),
+            ends_block: false,
+        });
         chunk.records.clear();
         std::mem::swap(&mut chunk.records, &mut self.records);
         chunk.heap.clear();
@@ -1465,13 +1799,125 @@ impl Writer {
         if self.records.capacity() == 0 {
             self.records.reserve(self.opts.chunk_records.min(1 << 24));
         }
+        let ends = end_block || self.block_pending >= self.opts.block_records;
+        if ends && !self.block_started() {
+            // Every block has a time step, even one without changes.
+            self.times.push(self.time);
+        }
+        chunk.times.clear();
+        self.times_sent += self.times.len() as u32;
+        chunk.times.append(&mut self.times);
+        self.frame_parts(&mut chunk);
+        chunk.ends_block = ends;
         self.sink.send(Msg::Chunk(Box::new(chunk)))?;
-        if self.block_pending >= self.opts.block_records {
-            self.flush_signals()?;
+        if ends {
+            self.end_block();
         } else {
             self.chunk_limit = self.chunk_target().min(self.opts.block_records - self.block_pending).max(1);
         }
         Ok(())
+    }
+
+    /// Adds to `chunk` the frame (block-initial values) of every group first
+    /// dirtied since the last chunk, and of signals declared since then into
+    /// a group whose frame was already handed over.
+    fn frame_parts(&mut self, chunk: &mut ChunkInput) {
+        chunk.frame.clear();
+        chunk.frame_parts.clear();
+        let g = self.meta.group_size as usize;
+        let n_sig = self.kinds.len();
+        let a = self.frame_sigs;
+        if n_sig > a && a % g != 0 && self.sent_bits[a / g / 64] & 1 << (a / g % 64) != 0 {
+            let before = chunk.frame.len();
+            for s in a..n_sig.min((a / g + 1) * g) {
+                self.push_frame(s, &mut chunk.frame);
+            }
+            chunk.frame_parts.push(((a / g) as u32, (chunk.frame.len() - before) as u32));
+        }
+        self.frame_sigs = n_sig;
+        for wi in 0..self.dirty_bits.len() {
+            let mut w = self.dirty_bits[wi] & !self.sent_bits[wi];
+            self.sent_bits[wi] |= w;
+            while w != 0 {
+                let grp = wi * 64 + w.trailing_zeros() as usize;
+                w &= w - 1;
+                let before = chunk.frame.len();
+                for s in grp * g..((grp + 1) * g).min(n_sig) {
+                    self.push_frame(s, &mut chunk.frame);
+                }
+                chunk.frame_parts.push((grp as u32, (chunk.frame.len() - before) as u32));
+            }
+        }
+        // Every value captured so far belongs to a group whose frame is now handed over.
+        self.frame_heap.clear();
+    }
+
+    /// Appends the frame entry of signal `s`: its value when the block began.
+    fn push_frame(&self, s: usize, out: &mut Vec<u8>) {
+        let lv = self.last[s];
+        let captured = lv.epoch == self.epoch;
+        match self.kinds[s] {
+            SignalKind::Bits { width, states } => {
+                let decl_len = packed_len(width, states);
+                if decl_len <= 8 {
+                    let (payload, compact) = if captured { self.frame_cap[s] } else { (lv.payload, lv.compact) };
+                    let bytes = payload.to_le_bytes();
+                    if compact && states != 2 {
+                        signal::widen(&bytes, width, 2, states, out);
+                    } else {
+                        out.extend_from_slice(&bytes[..decl_len]);
+                    }
+                } else {
+                    let (data, compact): (&[u8], bool) = if captured {
+                        let (off, c) = self.frame_cap[s];
+                        let l = if c { (width as usize).div_ceil(8) } else { decl_len };
+                        (&self.frame_heap[off as usize..off as usize + l], c)
+                    } else {
+                        let slot = self.wide_off[lv.payload as usize];
+                        let c = self.wide_last[slot] != 0;
+                        let l = if c { (width as usize).div_ceil(8) } else { decl_len };
+                        (&self.wide_last[slot + 1..slot + 1 + l], c)
+                    };
+                    if compact && states != 2 {
+                        signal::widen(data, width, 2, states, out);
+                    } else {
+                        out.extend_from_slice(data);
+                    }
+                }
+            }
+            SignalKind::Real => {
+                let payload = if captured { self.frame_cap[s].0 } else { lv.payload };
+                out.extend_from_slice(&payload.to_le_bytes());
+            }
+            SignalKind::VarLen => {
+                if captured {
+                    let mut r = varint::Reader::new(&self.frame_heap);
+                    r.pos = self.frame_cap[s].0 as usize;
+                    varint::put_blob(out, r.blob().unwrap());
+                } else {
+                    varint::put_blob(out, &self.varlen_last[lv.payload as usize]);
+                }
+            }
+        }
+    }
+
+    /// Starts a new block at the current time after the last chunk of one was handed over.
+    fn end_block(&mut self) {
+        self.block_pending = 0;
+        self.chunk_limit = self.chunk_target().min(self.opts.block_records).max(1);
+        self.dirty_bits.fill(0);
+        self.sent_bits.fill(0);
+        self.epoch = self.epoch.wrapping_add(1);
+        if self.epoch == 0 {
+            self.epoch = 1;
+            for lv in &mut self.last {
+                lv.epoch = 0;
+            }
+        }
+        self.block_count += 1;
+        self.times.push(self.time);
+        self.times_sent = 0;
+        self.cur_tidx = 0;
     }
 
     /// Records per chunk: the configured minimum, raised for designs with many signals.
@@ -1502,9 +1948,9 @@ impl Writer {
                 n.encode(first + i as u32, next_signal, &mut payload);
                 next_signal += n.declares_signal() as u32;
             }
-            let count = self.pending_nodes.len() as u64;
+            let count = self.pending_nodes.len() as u32;
             self.pending_nodes.clear();
-            self.sink.send(Msg::Section { kind: SectionKind::Hierarchy, payload, aux0: first as u64, aux1: count })?;
+            self.sink.send(Msg::Hierarchy { payload, first, count, signals: self.kinds.len() as u32 })?;
         }
         Ok(())
     }
@@ -1529,136 +1975,9 @@ impl Writer {
         self.flush_clocks()
     }
 
+    /// Ends the current block with whatever is buffered.
     fn flush_signals(&mut self) -> Result<()> {
-        self.flush_meta_and_hierarchy()?;
-        if !self.records.is_empty() || self.wide_bytes > 0 {
-            // Send the tail of the block as a last chunk (without re-entering flush_signals).
-            let save = self.opts.block_records;
-            self.opts.block_records = usize::MAX;
-            let r = self.flush_chunk();
-            self.opts.block_records = save;
-            r?;
-        }
-        let g = self.meta.group_size as usize;
-        let n_sig = self.kinds.len();
-        let n_groups = n_sig.div_ceil(g);
-        // Dirty groups and frame.
-        let mut dirty_groups = Vec::new();
-        for (wi, &w) in self.dirty_bits.iter().enumerate() {
-            let mut w = w;
-            while w != 0 {
-                let b = w.trailing_zeros() as usize;
-                dirty_groups.push((wi * 64 + b) as u32);
-                w &= w - 1;
-            }
-        }
-        self.sink.take_recycled(&mut self.chunk_pool, &mut self.block_pool);
-        let recycled = self.block_pool.pop();
-        let mut input = recycled.unwrap_or_else(|| {
-            BlockInput {
-                block_index: 0,
-                times: Vec::new(),
-                kinds: Arc::new(Vec::new()),
-                n_signals: 0,
-                group_size: 0,
-                dirty_groups: Vec::new(),
-                frame: Vec::new(),
-                prev_dirty: Vec::new(),
-                run_budget: 0,
-            }
-        });
-        input.run_budget = self.opts.run_bytes;
-        input.frame.clear();
-        for &grp in &dirty_groups {
-            let first = grp as usize * g;
-            let last = ((grp as usize + 1) * g).min(n_sig);
-            for s in first..last {
-                let kind = self.kinds[s];
-                let lv = self.last[s];
-                let captured = lv.epoch == self.epoch;
-                match kind {
-                    SignalKind::Bits { width, states } => {
-                        let decl_len = packed_len(width, states);
-                        if decl_len <= 8 {
-                            let (payload, compact) = if captured { self.frame_cap[s] } else { (lv.payload, lv.compact) };
-                            let bytes = payload.to_le_bytes();
-                            if compact && states != 2 {
-                                signal::widen(&bytes, width, 2, states, &mut input.frame);
-                            } else {
-                                input.frame.extend_from_slice(&bytes[..decl_len]);
-                            }
-                        } else {
-                            let (data, compact): (&[u8], bool) = if captured {
-                                let (off, c) = self.frame_cap[s];
-                                let l = if c { (width as usize).div_ceil(8) } else { decl_len };
-                                (&self.frame_heap[off as usize..off as usize + l], c)
-                            } else {
-                                let slot = self.wide_off[lv.payload as usize];
-                                let c = self.wide_last[slot] != 0;
-                                let l = if c { (width as usize).div_ceil(8) } else { decl_len };
-                                (&self.wide_last[slot + 1..slot + 1 + l], c)
-                            };
-                            if compact && states != 2 {
-                                signal::widen(data, width, 2, states, &mut input.frame);
-                            } else {
-                                input.frame.extend_from_slice(data);
-                            }
-                        }
-                    }
-                    SignalKind::Real => {
-                        let payload = if captured { self.frame_cap[s].0 } else { lv.payload };
-                        input.frame.extend_from_slice(&payload.to_le_bytes());
-                    }
-                    SignalKind::VarLen => {
-                        if captured {
-                            let off = self.frame_cap[s].0 as usize;
-                            let mut r = varint::Reader::new(&self.frame_heap);
-                            r.pos = off;
-                            let b = r.blob().unwrap();
-                            varint::put_blob(&mut input.frame, b);
-                        } else {
-                            varint::put_blob(&mut input.frame, &self.varlen_last[lv.payload as usize]);
-                        }
-                    }
-                }
-            }
-        }
-        input.prev_dirty.clear();
-        input.prev_dirty.extend_from_slice(&self.last_dirty_block[..n_groups]);
-        for &grp in &dirty_groups {
-            self.last_dirty_block[grp as usize] = self.block_count;
-        }
-        if self.kinds_arc.is_none() {
-            self.kinds_arc = Some(Arc::new(self.kinds.clone()));
-        }
-        input.block_index = self.block_count;
-        input.kinds = self.kinds_arc.clone().unwrap();
-        input.n_signals = n_sig as u32;
-        input.group_size = g as u32;
-        input.dirty_groups = dirty_groups;
-        if self.times.is_empty() {
-            self.times.push(self.time);
-        }
-        input.times.clear();
-        input.times.append(&mut self.times);
-        self.block_pending = 0;
-        self.chunk_limit = self.chunk_target().min(self.opts.block_records).max(1);
-        self.sink.send(Msg::Signal(Box::new(input)))?;
-        // Reset block state.
-        self.frame_heap.clear();
-        self.dirty_bits.fill(0);
-        self.epoch = self.epoch.wrapping_add(1);
-        if self.epoch == 0 {
-            self.epoch = 1;
-            for lv in &mut self.last {
-                lv.epoch = 0;
-            }
-        }
-        self.block_count += 1;
-        // The new block starts at the current time.
-        self.times.push(self.time);
-        self.cur_tidx = 0;
-        Ok(())
+        self.flush_chunk(true)
     }
 
     // ----- transactions -----
@@ -1860,41 +2179,8 @@ impl Writer {
     /// keep the returned handle; `log` then costs a few bytes per call.
     pub fn add_log_site(&mut self, spec: &LogSiteSpec) -> Result<LogSiteId> {
         self.check_parent(NodeKind::Generator, Some(spec.stream))?;
-        let resolved_names: Vec<String> = (0..spec.args.len())
-            .map(|i| spec.names.get(i).map_or_else(|| i.to_string(), |name| (*name).to_owned()))
-            .collect();
-        for (i, name) in resolved_names.iter().enumerate() {
-            if resolved_names[..i].contains(name) {
-                return Err(Error::invalid(format!("duplicate log argument name {name:?}")));
-            }
-        }
-        let name = self.strings.intern(spec.fmt);
-        let mut attrs: Vec<(StrId, Value)> = Vec::with_capacity(6);
-        let k = self.strings.intern(logblock::KEY_SEVERITY);
-        attrs.push((k, Value::U64(spec.severity.code() as u64)));
-        let k = self.strings.intern(logblock::KEY_ARGS);
-        attrs.push((k, Value::List(spec.args.iter().map(|t| Value::U64(*t as u8 as u64)).collect())));
-        let mut names = Vec::with_capacity(spec.args.len());
-        for name in &resolved_names {
-            let id = self.strings.intern(name);
-            names.push(Value::Str(id));
-        }
-        let k = self.strings.intern(logblock::KEY_NAMES);
-        attrs.push((k, Value::List(names)));
-        if !spec.file.is_empty() {
-            let k = self.strings.intern(logblock::KEY_FILE);
-            let v = self.strings.intern(spec.file);
-            attrs.push((k, Value::Str(v)));
-        }
-        if spec.line != 0 {
-            let k = self.strings.intern(logblock::KEY_LINE);
-            attrs.push((k, Value::U64(spec.line as u64)));
-        }
-        if !spec.func.is_empty() {
-            let k = self.strings.intern(logblock::KEY_FUNC);
-            let v = self.strings.intern(spec.func);
-            attrs.push((k, Value::Str(v)));
-        }
+        let strings = &mut self.strings;
+        let (name, attrs) = logblock::site_attrs(spec, |s| strings.intern(s))?;
         let node = self.push_node(Node { parent: Some(spec.stream), name, data: NodeData::Generator, attrs });
         self.log_sites.push(LogSiteEnc { node: node.0, args: spec.args.to_vec() });
         self.log_sites_arc = None;
@@ -2103,9 +2389,24 @@ impl Writer {
     /// but [`Ending::Closed`] is written as a FATAL log record at the current
     /// time in the reserved root log stream [`ending::STREAM`], the last
     /// record of the file (SPEC section 8.5); [`Reader::ending`](crate::Reader::ending) returns it.
+    ///
+    /// A poisoned writer ([`is_poisoned`](Self::is_poisoned)) is sealed instead ([`Sealer::seal`]):
+    /// its buffers cannot be trusted, and the ending becomes
+    /// [`Ending::Poisoned`] (a crash is marked sealed).
     pub fn close_with(&mut self, end: Ending) -> Result<()> {
         if self.closed {
             return Ok(());
+        }
+        if self.shared.state.poisoned() {
+            self.closed = true;
+            let end = match end {
+                Ending::Crashed { signal, code, address, thread, .. } => Ending::Crashed { signal, code, address, thread, sealed: true },
+                Ending::Closed => Ending::Poisoned,
+                e => e,
+            };
+            let r = self.sealer().seal(end);
+            let joined = self.sink.join();
+            return r.and(joined);
         }
         if let Some((site, args)) = end.record() {
             let stream = self.push_stream(None, ending::STREAM, logblock::STREAM_KIND)?;
@@ -2130,7 +2431,7 @@ impl Writer {
             self.end_stretch(ClockId(i as u32), self.time, TxStatus::Open)?;
         }
         self.flush_meta_and_hierarchy()?;
-        if !self.records.is_empty() || self.wide_bytes > 0 || self.block_pending > 0 || self.block_count == 0 && !self.times.is_empty() {
+        if !self.records.is_empty() || self.wide_bytes > 0 || self.block_pending > 0 || self.block_count == 0 && self.block_started() {
             self.flush_signals()?;
         }
         self.flush_tx()?;
@@ -2142,6 +2443,35 @@ impl Writer {
             self.sink.send(Msg::Section { kind: SectionKind::Blackout, payload, aux0: 0, aux1: 0 })?;
         }
         self.sink.close()
+    }
+
+    /// Runs `f` with the writer marked as busy in its [`CrashState`], so a
+    /// crash guard seals the writer instead of closing it if the process dies
+    /// inside. Mark a whole time step rather than each call: the mark costs
+    /// two stores. A panic that unwinds out of `f` poisons the writer.
+    pub fn guarded<R>(&mut self, f: impl FnOnce(&mut Writer) -> R) -> R {
+        let state: *const CrashState = &self.shared.state;
+        // Safety: `shared` is never replaced while the writer lives.
+        let _mark = Guarded { state, prev: unsafe { (*state).enter() } };
+        f(self)
+    }
+
+    /// The writer's [`CrashState`].
+    pub fn state(&self) -> &CrashState {
+        &self.shared.state
+    }
+
+    /// True when a marked call panicked. The writer's buffers cannot be
+    /// trusted any more: call nothing but [`close_with`](Self::close_with),
+    /// which seals it, or drop it.
+    pub fn is_poisoned(&self) -> bool {
+        self.shared.state.poisoned()
+    }
+
+    /// A handle that finishes this writer's file from another thread
+    /// ([`Sealer::seal`]) and tells whether the owner is inside a method.
+    pub fn sealer(&self) -> Sealer {
+        Sealer { shared: self.shared.clone() }
     }
 
     /// Counters; cheap, callable before or after `close`.

@@ -93,6 +93,15 @@ pub struct ChunkInput {
     pub kinds: Arc<Vec<SignalKind>>,
     /// Pre-encoded column fragments of wide signals: (signal, entry count, headers, values), ascending by signal.
     pub wide: Vec<(u32, u32, Vec<u8>, Vec<u8>)>,
+    /// The block's time-table entries added since the previous chunk.
+    pub times: Vec<u64>,
+    /// Frame entries (initial values) of the groups this chunk dirtied first,
+    /// and of signals declared since into groups dirtied before, as
+    /// `(group, bytes)` parts of `frame` in order.
+    pub frame: Vec<u8>,
+    pub frame_parts: Vec<(u32, u32)>,
+    /// The last chunk of its block: the encoder finishes the block after it.
+    pub ends_block: bool,
 }
 
 /// Per-signal column fragments produced from one chunk.

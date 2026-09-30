@@ -29,11 +29,14 @@ pub enum Ending {
     /// The file was recovered by scanning; `dropped` bytes followed the last
     /// verified section.
     Recovered { dropped: u64 },
+    /// A writer method panicked (a VTR bug), and the file was sealed with
+    /// what had reached the encoder.
+    Poisoned,
 }
 
 /// Recorded endings: site format, argument names and types, in the order the
 /// variants of [`Ending`] after `Closed` are declared.
-pub(crate) const SITES: [(&str, &[&str], &[LogArgType]); 4] = [
+pub(crate) const SITES: [(&str, &[&str], &[LogArgType]); 5] = [
     ("run stopped by signal {}", &["signal"], &[LogArgType::I64]),
     ("run exited with status {}", &["status"], &[LogArgType::I64]),
     (
@@ -42,6 +45,7 @@ pub(crate) const SITES: [(&str, &[&str], &[LogArgType]); 4] = [
         &[LogArgType::I64, LogArgType::I64, LogArgType::Pointer, LogArgType::U64, LogArgType::Bool],
     ),
     ("run recovered by scanning, {} bytes dropped", &["dropped"], &[LogArgType::U64]),
+    ("run sealed after a panic in the writer", &[], &[]),
 ];
 
 impl Ending {
@@ -55,6 +59,7 @@ impl Ending {
                 (2, vec![LogArg::I64(signal as i64), LogArg::I64(code as i64), LogArg::Pointer(address), LogArg::U64(thread), LogArg::Bool(sealed)])
             }
             Ending::Recovered { dropped } => (3, vec![LogArg::U64(dropped)]),
+            Ending::Poisoned => (4, vec![]),
         })
     }
 
@@ -74,10 +79,11 @@ impl Ending {
                 }
                 _ => return None,
             },
-            _ => match args {
+            3 => match args {
                 [LogArg::U64(dropped)] => Ending::Recovered { dropped: *dropped },
                 _ => return None,
             },
+            _ => Ending::Poisoned,
         })
     }
 }
@@ -115,6 +121,7 @@ impl fmt::Display for Ending {
                 write!(f, "crashed by {} (address {address:#x}, thread {thread}{})", Sig(signal), if sealed { ", sealed mid-call" } else { "" })
             }
             Ending::Recovered { dropped } => write!(f, "recovered by scanning ({dropped} bytes dropped)"),
+            Ending::Poisoned => f.write_str("sealed after a panic in the writer"),
         }
     }
 }

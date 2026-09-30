@@ -339,6 +339,35 @@ pub const KEY_FUNC: &str = "log.func";
 /// Stream kind of log streams.
 pub const STREAM_KIND: &str = "LOG";
 
+/// The name (format string) and attributes (`log.*`) of the generator
+/// describing `spec`, with its strings interned by `intern`; nothing is
+/// interned when it fails. Argument names default to `"0"`, `"1"`, ... and
+/// must be unique.
+pub(crate) fn site_attrs(spec: &LogSiteSpec, mut intern: impl FnMut(&str) -> StrId) -> Result<(StrId, Vec<(StrId, Value)>)> {
+    let resolved_names: Vec<String> = (0..spec.args.len()).map(|i| spec.names.get(i).map_or_else(|| i.to_string(), |name| (*name).to_owned())).collect();
+    for (i, name) in resolved_names.iter().enumerate() {
+        if resolved_names[..i].contains(name) {
+            return Err(Error::invalid(format!("duplicate log argument name {name:?}")));
+        }
+    }
+    let name = intern(spec.fmt);
+    let mut attrs: Vec<(StrId, Value)> = Vec::with_capacity(6);
+    attrs.push((intern(KEY_SEVERITY), Value::U64(spec.severity.code() as u64)));
+    attrs.push((intern(KEY_ARGS), Value::List(spec.args.iter().map(|t| Value::U64(*t as u8 as u64)).collect())));
+    let names = resolved_names.iter().map(|name| Value::Str(intern(name))).collect();
+    attrs.push((intern(KEY_NAMES), Value::List(names)));
+    if !spec.file.is_empty() {
+        attrs.push((intern(KEY_FILE), Value::Str(intern(spec.file))));
+    }
+    if spec.line != 0 {
+        attrs.push((intern(KEY_LINE), Value::U64(spec.line as u64)));
+    }
+    if !spec.func.is_empty() {
+        attrs.push((intern(KEY_FUNC), Value::Str(intern(spec.func))));
+    }
+    Ok((name, attrs))
+}
+
 // ---------------------------------------------------------------------------
 // Row format (writer scratch and block input)
 // ---------------------------------------------------------------------------

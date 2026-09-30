@@ -28,13 +28,14 @@ fn write(name: &str, end: Option<Ending>, background: bool) -> std::path::PathBu
     path
 }
 
-const ENDINGS: [Ending; 6] = [
+const ENDINGS: [Ending; 7] = [
     Ending::Stopped { signal: 15 },
     Ending::Exited { status: 3 },
     Ending::Crashed { signal: 11, code: 1, address: 0, thread: 41137, sealed: false },
     Ending::Crashed { signal: 6, code: -6, address: 0xdead_beef, thread: 7, sealed: true },
     Ending::Recovered { dropped: 616 },
     Ending::Crashed { signal: 99, code: 0, address: u64::MAX, thread: 0, sealed: false },
+    Ending::Poisoned,
 ];
 
 #[test]
@@ -72,6 +73,7 @@ fn text_of_each_ending() {
             "crashed by SIGABRT (address 0xdeadbeef, thread 7, sealed mid-call)",
             "recovered by scanning (616 bytes dropped)",
             "crashed by signal 99 (address 0xffffffffffffffff, thread 0)",
+            "sealed after a panic in the writer",
         ]
     );
     assert_eq!(Ending::Closed.to_string(), "closed");

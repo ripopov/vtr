@@ -287,6 +287,7 @@ enum {
     VTR_ENDING_EXITED = 2,    /* status: exit() without a close */
     VTR_ENDING_CRASHED = 3,   /* signal, code (si_code), address, thread (kernel tid), sealed */
     VTR_ENDING_RECOVERED = 4, /* dropped: bytes after the last verified section */
+    VTR_ENDING_POISONED = 5,  /* a panic inside libvtr; the writer was sealed */
 };
 typedef struct vtr_ending {
     uint8_t  kind;            /* VTR_ENDING_* */
@@ -297,6 +298,16 @@ typedef struct vtr_ending {
     uint64_t time;            /* the record's time */
 } vtr_ending;
 int    vtr_writer_close_ending(vtr_writer *w, const vtr_ending *end); /* finishes and frees; NULL end = close() */
+
+/* Crash state. Every writer call marks the writer busy while it runs, so a
+ * crash guard seals a writer interrupted mid-call instead of closing it; a
+ * caller marks a batch of calls (a whole dump of a time step) with enter()
+ * and passes its result to leave(). A panic inside libvtr returns
+ * VTR_ERR_STATE (or VTR_NONE / NULL / 0) and poisons the writer: its later
+ * calls fail fast, and close()/close_ending() seal it with what had reached
+ * the encoder (ending POISONED unless another is given). */
+uint32_t vtr_writer_enter(vtr_writer *w);
+void     vtr_writer_leave(vtr_writer *w, uint32_t prev);
 size_t vtr_ending_format(const vtr_ending *end, char *buf, size_t cap);
 
 /* Metadata must be set before the first explicit or automatic flush.

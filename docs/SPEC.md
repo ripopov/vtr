@@ -790,6 +790,7 @@ to it, at its current time, as the last log record of the file:
 | `run exited with status {}` | `status`: i64 | the program called `exit()` without closing |
 | `run crashed by signal {} (code {}, address {}, thread {}, sealed {})` | `signal`, `code`: i64; `address`: pointer; `thread`: u64; `sealed`: bool | a fatal signal with its `si_code`, fault address and kernel thread id; `sealed` when the writer was interrupted mid-call and only what had reached its encoder was kept |
 | `run recovered by scanning, {} bytes dropped` | `dropped`: u64 | the file was recovered (2.3) and rewritten whole |
+| `run sealed after a panic in the writer` | none | the producer's writer failed mid-call and finished only what had reached its encoder |
 
 Signal numbers are those of the producing platform (Linux numbering in the
 reference writer). A reader reports the last record of `vtr.run`; a file
