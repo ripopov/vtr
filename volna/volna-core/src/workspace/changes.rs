@@ -5,10 +5,10 @@ use crate::panels::PanelId;
 use crate::pipeline::RowView;
 use crate::trace::Traced;
 use crate::wave::{
-    model::{Link, PointerEvent, RowHeight, WaveRow},
+    model::{Link, PointerEvent},
     viewport::Viewport,
 };
-use crate::{Action, App, Command};
+use crate::{App, Command};
 use std::collections::BTreeSet;
 
 #[derive(PartialEq)]
@@ -49,12 +49,10 @@ struct WaveStamp {
     columns: (f32, f32),
     rows: usize,
     selected: Option<BTreeSet<usize>>,
-    /// Per-row format, depth, height and colour, compared only for commands that
-    /// set them.
-    styles: Option<Vec<RowStyle>>,
+    /// Bumped by every row edit (format, height, colour, fold, move, undo),
+    /// so no command walks the rows to find out.
+    revision: u64,
 }
-/// A row's format (or identity), depth, height and colour.
-type RowStyle = (String, u8, RowHeight, Option<crate::wave::Tint>);
 
 impl Stamp {
     pub(crate) fn capture(app: &App, command: &Command) -> Option<Self> {
@@ -99,28 +97,6 @@ impl Stamp {
             _ => app.panels.focused_id(),
         };
         let selection = pointer.is_none_or(|(_, event)| matches!(event, PointerEvent::Down { .. }));
-        // Pointer presses and drags can resize rows by their edges.
-        let styles = pointer.is_some()
-            || matches!(
-                command,
-                Command::MenuSelect(..)
-                    | Command::Action(
-                        Action::CycleFormat
-                            | Action::ToggleAnalog
-                            | Action::SetTint(_)
-                            | Action::IncreaseRowHeight
-                            | Action::DecreaseRowHeight
-                            | Action::ResetRowHeight
-                            | Action::PanLeft
-                            | Action::PanRight
-                            | Action::FoldGroupDeep
-                            | Action::UnfoldGroupDeep
-                            | Action::GroupSelection
-                            | Action::Ungroup
-                    )
-                    | Command::CommitText(crate::app::EditTarget::Group { .. }, _)
-                    | Command::AddScopeAsGroup { .. }
-            );
         let scope = matches!(
             command,
             Command::ToggleScope(_) | Command::ExpandAllScopes(_) | Command::ScopesKey(_)
@@ -151,36 +127,7 @@ impl Stamp {
                 columns: (w.names_width, w.values_width),
                 rows: w.items().len(),
                 selected: selection.then(|| w.selected.clone()),
-                styles: styles.then(|| {
-                    w.items()
-                        .iter()
-                        .map(|row| {
-                            let style = match &row.row {
-                                WaveRow::Signal(item) => match &item.analog {
-                                    Some(a) => format!(
-                                        "{}:{}:{}",
-                                        item.format_id(),
-                                        a.draw.label(),
-                                        a.range.label()
-                                    ),
-                                    None => item.format_id(),
-                                },
-                                WaveRow::Lane(lane) => format!(
-                                    "lane:{}:{}",
-                                    lane.source.trace(),
-                                    lane.source.path().join(".")
-                                ),
-                                WaveRow::Clock(clock) => {
-                                    format!("clock:{}:{}", clock.key.trace, clock.key.item)
-                                }
-                                WaveRow::Group(g) => {
-                                    format!("group:{}:{}", g.collapsed, g.name)
-                                }
-                            };
-                            (style, row.depth, row.height(), row.tint())
-                        })
-                        .collect()
-                }),
+                revision: w.revision(),
             }),
             pipeline: app.panels.pipeline(panel).map(|p| PipelineStamp {
                 follow: p.follow,
