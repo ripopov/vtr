@@ -508,11 +508,12 @@ impl NavState {
         true
     }
 
-    /// Scroll the window so the cursor is visible, if it is not.
+    /// Scroll the window so the cursor is visible, if it is not. Builds on
+    /// the animation's target, so an in-flight zoom or pan is kept.
     pub fn reveal_cursor(&mut self, doc: &mut Document, now: Instant) {
         let Some(c) = self.cursor(doc) else { return };
         let c = c as f64;
-        let mut target = self.viewport(doc);
+        let mut target = self.viewport_state(doc).target();
         if c < target.start || c > target.end {
             target.center_on(c, doc.limits());
             self.animate_to(doc, target, now);

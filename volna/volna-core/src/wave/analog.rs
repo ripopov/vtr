@@ -662,16 +662,12 @@ fn exact(
         .chain((first.unwrap_or(0)..=last).map(Some));
     let mut run: Option<Vec<Point>> = None;
     for i in indices {
-        let xa = match i {
-            None => plot.left - 1.0,
-            Some(i) => plot.x_of(vp, h.time(i) as f64).max(plot.left - 1.0),
-        };
+        // Unclipped x of this sample and the next, for Linear's edge points.
+        let raw_a = i.map(|i| plot.x_of(vp, h.time(i) as f64));
+        let xa = raw_a.map_or(plot.left - 1.0, |x| x.max(plot.left - 1.0));
         let next = i.map_or(0, |i| i + 1);
-        let xb = if next < len {
-            plot.x_of(vp, h.time(next) as f64).min(right)
-        } else {
-            right
-        };
+        let raw_b = (next < len).then(|| plot.x_of(vp, h.time(next) as f64));
+        let xb = raw_b.map_or(right, |x| x.min(right));
         match series.sample(i) {
             Sample::Missing => g.runs.extend(run.take()),
             Sample::Undefined => {
@@ -684,15 +680,29 @@ fn exact(
                 match draw {
                     AnalogDraw::Step => points.extend([point(xa, y), point(xb, y)]),
                     AnalogDraw::Linear => {
-                        points.push(point(xa, y));
-                        if mark && i.is_some() {
+                        let to = match (next < len).then(|| series.sample(Some(next))) {
+                            Some(Sample::Value(to)) => Some(to),
+                            _ => None,
+                        };
+                        // The segment to the next sample, cut at the plot's
+                        // edges: the y where it crosses x.
+                        let at = |x: f32| match (raw_a, raw_b, to) {
+                            (Some(a), Some(b), Some(to)) if b > a => {
+                                let f = f64::from((x - a) / (b - a));
+                                plot.y_of(v + (to - v) * f)
+                            }
+                            _ => y,
+                        };
+                        let clipped = raw_a.is_some_and(|a| a < xa);
+                        points.push(point(xa, if clipped { at(xa) } else { y }));
+                        if mark && i.is_some() && !clipped {
                             g.dots.push(point(xa, y));
                         }
-                        // Hold flat before an undefined value and at the end.
-                        let hold =
-                            next >= len || !matches!(series.sample(Some(next)), Sample::Value(_));
-                        if hold {
+                        if to.is_none() {
+                            // Hold flat before an undefined value and at the end.
                             points.push(point(xb, y));
+                        } else if raw_b.is_some_and(|b| b > right) {
+                            points.push(point(right, at(right)));
                         }
                     }
                 }
@@ -948,5 +958,45 @@ mod tests {
             s.resident_bytes(),
             31 * std::mem::size_of::<Extent>() as u64
         );
+    }
+
+    #[test]
+    fn linear_plots_cross_the_edges_on_the_line() {
+        // A ramp: sample i at time 100 i holds 10 i.
+        let h: Arc<dyn SignalHistory> = Arc::new(VecHistory {
+            shape: SignalShape::Vector { width: 16 },
+            times: (0..=10).map(|i| i * 100).collect(),
+            values: (0..=10)
+                .map(|i| WaveValue::Bits(format!("{:016b}", i * 10)))
+                .collect(),
+            initial: WaveValue::Unavailable,
+        });
+        let series = Series::new(&h, NumericKind::Unsigned, None);
+        let plot = Plot {
+            left: 0.0,
+            width: 500.0,
+            top: 0.0,
+            bottom: 100.0,
+            lo: 0.0,
+            hi: 100.0,
+        };
+        let on_line = |x: f32, vp: &Viewport| plot.y_of((vp.time_at(f64::from(x), 500.0)) / 10.0);
+        for vp in [
+            Viewport {
+                start: 250.0,
+                end: 750.0,
+            },
+            Viewport {
+                start: 420.0,
+                end: 580.0,
+            },
+        ] {
+            let g = geometry(&series, AnalogDraw::Linear, &vp, &plot, 1.0);
+            let run = &g.runs[0];
+            let (first, last) = (run[0], run[run.len() - 1]);
+            assert!((first.y - on_line(first.x, &vp)).abs() < 0.01, "{run:?}");
+            assert_eq!(last.x, plot.width + 1.0, "{run:?}");
+            assert!((last.y - on_line(last.x, &vp)).abs() < 0.01, "{run:?}");
+        }
     }
 }

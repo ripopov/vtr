@@ -168,7 +168,11 @@ impl WaveLayout {
         let item_count = tops.len().saturating_sub(1);
         let content_h = row_h * tops.last().copied().unwrap_or(0) as f32;
         let max_scroll = (content_h - rows_h).max(0.0);
-        let scroll_y = input.scroll_y.clamp(0.0, max_scroll);
+        let scroll_y = if input.scroll_y.is_finite() {
+            input.scroll_y.clamp(0.0, max_scroll)
+        } else {
+            0.0
+        };
 
         let (first, last) = if row_h > 0.0 && item_count > 0 {
             let bottom = (scroll_y + rows_h) / row_h;

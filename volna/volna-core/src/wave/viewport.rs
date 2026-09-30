@@ -10,6 +10,14 @@ pub type ViewportState = Tween<Viewport>;
 const EDGE_SPACE: f64 = 0.2;
 /// Narrowest window, in time units.
 const MIN_WIDTH: f64 = 0.25;
+/// Narrowest window relative to its times' magnitude, so late times keep a
+/// window whose ends and pixels stay distinct in f64.
+const MIN_RELATIVE_WIDTH: f64 = 256.0 * f64::EPSILON;
+
+/// The narrowest window around times of magnitude `at`.
+fn min_width(at: f64) -> f64 {
+    MIN_WIDTH.max(at.abs() * MIN_RELATIVE_WIDTH)
+}
 /// Space Zoom Fit leaves on each side of the trace, in design pixels, so
 /// the shade outside it shows that the whole trace is on screen.
 pub const FIT_MARGIN_PX: f64 = 12.0;
@@ -62,7 +70,7 @@ impl Viewport {
     /// Zoom by `factor` (> 1 zooms in) keeping the time under `x_px` fixed.
     pub fn zoom_about(&mut self, x_px: f64, width_px: f64, factor: f64, limits: (u64, u64)) {
         let anchor = self.time_at(x_px, width_px);
-        let new_width = (self.width() / factor).max(MIN_WIDTH);
+        let new_width = (self.width() / factor).max(min_width(anchor));
         let frac = if width_px > 0.0 { x_px / width_px } else { 0.5 };
         self.start = anchor - new_width * frac;
         self.end = self.start + new_width;
@@ -104,7 +112,11 @@ impl Viewport {
         let span = (b - a).max(1.0);
         let lo = a - span * EDGE_SPACE;
         let hi = b + span * EDGE_SPACE;
-        let mut w = self.width().clamp(MIN_WIDTH, hi - lo);
+        if !(self.start.is_finite() && self.end.is_finite()) {
+            (self.start, self.end) = (a, a + span);
+        }
+        let narrowest = min_width(self.start.abs().max(self.end.abs()));
+        let mut w = self.width().max(narrowest).min(hi - lo);
         if !w.is_finite() {
             w = span;
         }
@@ -173,6 +185,27 @@ mod tests {
         };
         v.clamp((0, 1000));
         assert!((v.width() - MIN_WIDTH).abs() < 1e-9);
+    }
+
+    #[test]
+    fn late_times_keep_a_nonzero_width() {
+        let t = (1u64 << 56) as f64;
+        let limits = (0, 1u64 << 57);
+        let mut v = Viewport {
+            start: t,
+            end: t + 1e6,
+        };
+        for _ in 0..200 {
+            v.zoom_about(500.0, 1000.0, 2.0, limits);
+        }
+        assert!(v.width() > 0.0);
+        assert!(v.x_of(t, 1000.0).is_finite());
+        let mut v = Viewport {
+            start: f64::NAN,
+            end: 10.0,
+        };
+        v.clamp((0, 1000));
+        assert!(v.start.is_finite() && v.width() > 0.0);
     }
 
     #[test]

@@ -159,17 +159,21 @@ pub fn ticks<'a>(
         (-step_in_unit.log10().floor()) as usize
     }
     .min(6);
-    let first = (viewport.start / step).ceil() as i64;
-    let last = (viewport.end / step).floor() as i64;
+    let (first, last) = (
+        (viewport.start / step).ceil(),
+        (viewport.end / step).floor(),
+    );
+    if !(step > 0.0 && first.is_finite() && last.is_finite()) {
+        return (Vec::new(), suffix);
+    }
+    let (first, last) = (first as i64, last as i64);
     let mut out = Vec::new();
-    let mut k = first;
-    while k <= last && out.len() < 1000 {
+    for k in first..=last.min(first.saturating_add(999)) {
         let t = k as f64 * step;
         out.push(Tick {
             time: t,
             label: format_in_unit(t, timescale, exp, decimals),
         });
-        k += 1;
     }
     (out, suffix)
 }
@@ -240,5 +244,17 @@ mod tests {
         let (t, unit) = ticks(&v, 1000.0, TimeBase::si(-12), 100.0);
         assert_eq!(unit, "ps");
         assert_eq!(t[1].label, "250");
+    }
+
+    #[test]
+    fn degenerate_windows_have_no_ticks() {
+        let t = (1u64 << 60) as f64;
+        let v = Viewport { start: t, end: t };
+        assert!(ticks(&v, 1000.0, TimeBase::si(-15), 100.0).0.is_empty());
+        let v = Viewport {
+            start: 1e21,
+            end: 1e21 + 1e7,
+        };
+        assert!(ticks(&v, 1000.0, TimeBase::si(-15), 100.0).0.len() <= 1000);
     }
 }

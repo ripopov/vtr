@@ -1435,9 +1435,40 @@ fn a_context_menu_edit_is_its_own_step() {
         t,
     );
     assert_eq!(names(&app, id).len(), 4);
-    assert_eq!(app.undo_label().as_deref(), Some("Remove 2 rows"));
+    assert_eq!(app.undo_label(), Some("Remove 2 rows"));
     app.handle(Command::Undo);
     assert_eq!(names(&app, id), six, "undo brings back only the removal");
     app.handle(Command::Redo);
     assert_eq!(names(&app, id).len(), 4);
+}
+
+#[test]
+fn undoing_a_group_edit_keeps_its_fold() {
+    let (mut app, id, now) = four_rows();
+    select(&mut app, id, &[1, 2]);
+    app.handle_at(Command::Action(Action::GroupSelection), now);
+    app.handle_at(
+        Command::CommitText(app.text_edit().unwrap().target, Some("bus".into())),
+        now,
+    );
+    select(&mut app, id, &[1]);
+    let t = now + Duration::from_secs(10);
+    app.handle_at(Command::OpenSignalMenu(id), t);
+    app.handle_at(
+        Command::MenuSelect(
+            id,
+            volna_core::wave::model::MenuAction::Tint(Some(volna_core::wave::Tint::Blue)),
+        ),
+        t,
+    );
+    let folded = |app: &App| {
+        app.panels.waves(id).unwrap().items()[1]
+            .group()
+            .unwrap()
+            .collapsed
+    };
+    assert!(app.panels.waves_mut(id).unwrap().set_folded(1, true, false));
+    app.handle(Command::Undo);
+    assert!(app.panels.waves(id).unwrap().items()[1].tint().is_none());
+    assert!(folded(&app), "undo restores the colour, not the fold");
 }

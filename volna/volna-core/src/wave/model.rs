@@ -875,7 +875,18 @@ impl WaveModel {
     /// Perform `splices` on the rows and return their inverse (see
     /// [`tree::apply`]); the undo journal applies its edits through here.
     /// Nothing is journaled, and nothing changes when the splices do not fit.
-    pub(crate) fn splice(&mut self, splices: Vec<Splice>) -> Result<Vec<Splice>, String> {
+    pub(crate) fn splice(&mut self, mut splices: Vec<Splice>) -> Result<Vec<Splice>, String> {
+        // Folds are navigation, not journaled: a group rewritten in place
+        // (undo of a rename, colour or format) keeps its current fold.
+        for s in splices.iter_mut().filter(|s| s.in_place()) {
+            for (k, entry) in s.insert.iter_mut().enumerate() {
+                if let (WaveRow::Group(new), Some(WaveRow::Group(old))) =
+                    (&mut entry.row, self.items.get(s.at + k).map(|e| &e.row))
+                {
+                    new.collapsed = old.collapsed;
+                }
+            }
+        }
         let inverse = tree::apply(&mut self.items, splices)?;
         self.edited();
         Ok(inverse)
@@ -1181,6 +1192,12 @@ impl WaveModel {
         self.rename = None;
         self.menu = None;
         self.revision += 1;
+    }
+
+    /// The row under `y`. A layout older than the last edit may name rows
+    /// past the end; those are no row.
+    fn entry_under(&self, layout: &WaveLayout, y: f32) -> Option<usize> {
+        layout.entry_at(y).filter(|&row| row < self.items.len())
     }
 
     /// Changes whenever rows are added, removed, moved or rewritten, so
@@ -2454,7 +2471,7 @@ impl WaveModel {
         if !self.layout.names.contains(p) || self.chevron_at(p).is_some() {
             return None;
         }
-        let i = self.layout.entry_at(p.y)?;
+        let i = self.entry_under(&self.layout, p.y)?;
         self.items.get(i)?.is_group().then_some(i)
     }
 
@@ -2503,7 +2520,7 @@ impl WaveModel {
         if !layout.names.contains(p) {
             return None;
         }
-        let i = layout.entry_at(p.y)?;
+        let i = self.entry_under(layout, p.y)?;
         let e = self.items.get(i).filter(|e| e.is_group())?;
         let (y, _) = layout.entry_span(i)?;
         let x = super::layout::indent_x(layout.name_left, e.depth, layout.zoom);
@@ -2601,7 +2618,7 @@ impl WaveModel {
         self.edge_hover = self.pointer.and_then(|p| self.row_edge_at(p));
         let (hover_row, badge_hover) = match self.pointer {
             Some(p) if self.layout.bounds.contains(p) && p.y >= self.layout.names.top() => {
-                let row = self.layout.entry_at(p.y);
+                let row = self.entry_under(&self.layout, p.y);
                 let badge = self.layout.badge_at(p).map(|(ix, _)| ix);
                 (row, badge)
             }
@@ -2725,8 +2742,8 @@ impl WaveModel {
         let snap_px = doc.navigation.snap_px * f64::from(layout.zoom);
         let viewport = self.viewport(doc);
         let clock = self.nav.selected_clock(doc);
-        let edges = layout
-            .entry_at(p.y)
+        let edges = self
+            .entry_under(layout, p.y)
             .filter(|_| p.y >= layout.waves.top())
             .and_then(|r| self.edge_source(doc, r));
         let t = snapped_time(
@@ -2774,8 +2791,11 @@ impl WaveModel {
                 }
                 if track.contains(p) {
                     let travel = track.height() - thumb.height();
-                    let frac =
-                        ((p.y - track.top() - thumb.height() / 2.0) / travel).clamp(0.0, 1.0);
+                    let frac = if travel > 0.0 {
+                        ((p.y - track.top() - thumb.height() / 2.0) / travel).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
                     self.scroll_y = layout.max_scroll * frac;
                     self.drag = Some(Drag::Scroll {
                         grab: thumb.height() / 2.0,
@@ -2859,7 +2879,7 @@ impl WaveModel {
             }
             return;
         }
-        let row = layout.entry_at(p.y);
+        let row = self.entry_under(&layout, p.y);
         if in_waves_x {
             match button {
                 MouseButton::Left => {
@@ -2967,7 +2987,7 @@ impl WaveModel {
             }
             Some(Drag::Cursor) => {
                 let x = f64::from(p.x - layout.waves.left()).clamp(0.0, wave_wf);
-                let row = layout.entry_at(p.y);
+                let row = self.entry_under(layout, p.y);
                 let clock = self.nav.selected_clock(doc);
                 let t = snapped_time(
                     &self.viewport(doc),
@@ -2986,7 +3006,9 @@ impl WaveModel {
                 let Some(x) = held.target_x(p, layout.zoom) else {
                     return false;
                 };
-                let row = layout.entry_at(p.y).filter(|_| p.y >= layout.waves.top());
+                let row = self
+                    .entry_under(layout, p.y)
+                    .filter(|_| p.y >= layout.waves.top());
                 let clock = self.nav.selected_clock(doc);
                 let t = snapped_time(
                     &self.viewport(doc),
