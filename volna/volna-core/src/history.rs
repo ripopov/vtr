@@ -691,6 +691,13 @@ impl History {
         self.open.take()
     }
 
+    /// Resume recording `step`, taken out with [`History::take_open`] so a
+    /// step of its own could be committed below it.
+    pub(crate) fn resume_open(&mut self, step: Option<Step>) {
+        debug_assert!(self.open.is_none(), "another step is recording");
+        self.open = step;
+    }
+
     /// The step `step` joins instead of standing alone: the last committed
     /// step when `step` repeats its adjustment within [`MERGE_WINDOW`], or
     /// continues it.

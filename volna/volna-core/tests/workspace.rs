@@ -728,3 +728,18 @@ fn older_workspace_versions_are_discarded_and_overwritten() {
         &serde_json::to_vec(&newer).unwrap()
     ));
 }
+
+#[test]
+fn a_save_that_keeps_failing_the_same_way_notices_once() {
+    let mut app = persistent_app();
+    let now = Instant::now();
+    app.handle_at(Command::AddVars(a_all(vec![0])), now);
+    let mut t = now;
+    for _ in 0..3 {
+        t += IDLE * 2;
+        app.tick(t);
+        let (ticket, _) = emitted_save(&mut app);
+        app.workspace_saved(ticket, Some("disk full".into()), t);
+    }
+    assert_eq!(app.workspace.notices, ["Workspace not saved: disk full"]);
+}

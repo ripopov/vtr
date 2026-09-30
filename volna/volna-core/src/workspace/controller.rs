@@ -44,6 +44,8 @@ enum Transition {
         uri: Option<String>,
     },
     Close,
+    /// Open Workspace, once the open workspace is flushed.
+    OpenWorkspace(Box<Waiting>),
     Restore {
         plan: Box<RestorePlan>,
         target: Target,
@@ -63,6 +65,18 @@ fn spec_for(uri: &str) -> Result<OpenSpec> {
         return Ok(OpenSpec::Path(path));
     }
     anyhow::bail!("{uri} is not a local file")
+}
+
+/// The URI of every trace but A that `waiting` names, by letter.
+fn resolve_traces(waiting: &Waiting) -> Result<Vec<(TraceId, String)>> {
+    let location = waiting.origin.location();
+    waiting
+        .workspace
+        .traces
+        .iter()
+        .filter(|saved| saved.letter != TraceId::A)
+        .map(|saved| Ok((saved.letter, super::resolve_trace(&saved.path, location)?)))
+        .collect()
 }
 
 impl App {
@@ -101,6 +115,10 @@ impl App {
     }
 
     fn transition(&mut self, transition: Transition) {
+        // Quit is final: nothing queued after it replaces it.
+        if matches!(self.workspace.pending, Some(Transition::Quit)) {
+            return self.advance_transition();
+        }
         self.workspace.pending = Some(transition);
         self.advance_transition();
     }
@@ -139,6 +157,17 @@ impl App {
                 self.close_now();
                 if let Some(trace_uri) = trace_uri {
                     self.events.push(Event::TraceClosed { trace_uri });
+                }
+            }
+            Transition::OpenWorkspace(waiting) => {
+                // Detach from the flushed workspace first: the traces the
+                // new one opens and closes must never save into the old.
+                if !self.begin_unsaved() {
+                    return;
+                }
+                let target = waiting.target.clone();
+                if let Err(error) = self.restore_when_open(*waiting) {
+                    self.restore_failed(target, error);
                 }
             }
             Transition::Restore {
@@ -266,15 +295,12 @@ impl App {
     /// only opens what it names under free letters: traces the user opened
     /// with A (`volna A B`) stay, and its rows resolve against them.
     fn restore_when_open(&mut self, mut waiting: Waiting) -> Result<()> {
-        let location = waiting.origin.location().to_owned();
-        let mut named = std::collections::BTreeSet::new();
-        for saved in &waiting.workspace.traces {
-            named.insert(saved.letter);
-            if saved.letter == TraceId::A {
-                continue;
-            }
-            let uri = super::resolve_trace(&saved.path, &location)?;
-            let slot = self.doc.traces().get(saved.letter);
+        // Resolve every path before changing any trace.
+        let traces = resolve_traces(&waiting)?;
+        let named: std::collections::BTreeSet<TraceId> =
+            waiting.workspace.traces.iter().map(|t| t.letter).collect();
+        for (letter, uri) in traces {
+            let slot = self.doc.traces().get(letter);
             if slot.is_some_and(|slot| slot.uri.as_deref() == Some(uri.as_str())) {
                 continue;
             }
@@ -282,16 +308,16 @@ impl App {
                 if !waiting.explicit {
                     continue;
                 }
-                self.drop_trace(saved.letter);
+                self.drop_trace(letter);
             }
-            match spec_for(&uri).and_then(|spec| self.doc.add_trace_as(spec, saved.letter)) {
+            match spec_for(&uri).and_then(|spec| self.doc.add_trace_as(spec, letter)) {
                 Ok(trace) => {
                     self.doc.set_uri(trace, Some(uri));
                     waiting.traces.insert(trace);
                 }
                 Err(error) => waiting
                     .notices
-                    .push(format!("Trace {} not opened: {error:#}", saved.letter)),
+                    .push(format!("Trace {letter} not opened: {error:#}")),
             }
         }
         let extra: Vec<TraceId> = self
@@ -405,7 +431,7 @@ impl App {
             "open the referenced trace first"
         );
         let workspace = Workspace::parse(bytes)?;
-        self.restore_when_open(Waiting {
+        let waiting = Waiting {
             workspace: Box::new(workspace),
             origin: target.clone(),
             target,
@@ -413,7 +439,11 @@ impl App {
             notices: Vec::new(),
             explicit: true,
             traces: Default::default(),
-        })
+        };
+        resolve_traces(&waiting)?;
+        // The open workspace is flushed before any of its traces change.
+        self.transition(Transition::OpenWorkspace(Box::new(waiting)));
+        Ok(())
     }
 
     pub fn save_workspace(&mut self, destination: Option<Target>) {
@@ -468,7 +498,14 @@ impl App {
         if let Some(error) = error {
             // A failed flush cancels the transition and keeps all live state.
             self.workspace.pending = None;
-            self.notice(format!("Workspace not saved: {error}"));
+            // A retry failing the same way is not news.
+            let text = format!("Workspace not saved: {error}");
+            if !self.workspace.notices.contains(&text) {
+                self.workspace
+                    .notices
+                    .retain(|s| !s.starts_with("Workspace not saved:"));
+                self.notice(text);
+            }
         } else {
             self.workspace
                 .notices

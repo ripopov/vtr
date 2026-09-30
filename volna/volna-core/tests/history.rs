@@ -1472,3 +1472,53 @@ fn undoing_a_group_edit_keeps_its_fold() {
     assert!(app.panels.waves(id).unwrap().items()[1].tint().is_none());
     assert!(folded(&app), "undo restores the colour, not the fold");
 }
+
+#[test]
+fn a_trace_arriving_during_a_drag_is_a_step_of_its_own() {
+    let (mut app, id, now) = four_rows();
+    let heights = |app: &App| -> Vec<u8> {
+        app.panels
+            .waves(id)
+            .unwrap()
+            .items()
+            .iter()
+            .map(|e| e.height().multiple())
+            .collect()
+    };
+    let flat = heights(&app);
+    let l = app.panels.waves(id).unwrap().last_layout();
+    let e = point(l.names.left() + 60.0, l.row_y(1) + l.row_height(1) - 1.0);
+    app.handle_at(
+        Command::Pointer(
+            id,
+            PointerEvent::Down {
+                position: e,
+                button: MouseButton::Left,
+                modifiers: Modifiers::default(),
+            },
+        ),
+        now,
+    );
+    app.handle_at(
+        Command::Pointer(
+            id,
+            PointerEvent::Move {
+                position: point(e.x, e.y + 60.0),
+            },
+        ),
+        now,
+    );
+    frame(&mut app, id);
+    assert_ne!(heights(&app), flat, "the drag resizes live");
+    // Trace B finishes opening mid-drag.
+    app.add_session(landing()).unwrap();
+    assert_eq!(app.doc.traces().loaded().count(), 2);
+    // Esc rolls back the drag only.
+    app.handle_at(Command::Action(Action::ClearSelection), now);
+    app.handle_at(Command::Pointer(id, PointerEvent::Up), now);
+    assert_eq!(heights(&app), flat);
+    assert_eq!(app.doc.traces().loaded().count(), 2, "Esc keeps trace B");
+    assert_eq!(app.undo_label(), Some("Add trace B"));
+    app.handle(Command::Undo);
+    assert_eq!(app.doc.traces().loaded().count(), 1);
+}

@@ -178,8 +178,18 @@ impl App {
     }
 
     /// Journal a trace edit as a step of its own, or as part of the command
-    /// or gesture being recorded.
+    /// being recorded. A trace arriving during a pointer gesture gets its own
+    /// step below the gesture's, so Esc or undo of the gesture keeps it.
     fn record_trace_step(&mut self, label: String, inverse: TraceEdit, now: Instant) {
+        if self.history.is_recording() && self.gesture_open() {
+            let gesture = self.history.take_open();
+            self.history.begin_command(self.panels.focused_id(), now);
+            self.history
+                .record(crate::history::Edit::Traces(inverse), Some(label));
+            self.commit_step(now);
+            self.history.resume_open(gesture);
+            return;
+        }
         let recording = self.history.is_recording();
         if !recording {
             self.begin_step(now);

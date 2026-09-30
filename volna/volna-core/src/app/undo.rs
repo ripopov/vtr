@@ -29,7 +29,7 @@ impl App {
     }
 
     /// Whether a pointer gesture holds capture in some panel.
-    fn gesture_open(&self) -> bool {
+    pub(super) fn gesture_open(&self) -> bool {
         self.panels.iter().any(Panel::dragging)
     }
 
@@ -119,7 +119,7 @@ impl App {
 
     /// Commit the open step: merge it into the previous one when it repeats
     /// or continues it, drop edits that cancelled out, and keep the rest.
-    fn commit_step(&mut self, now: Instant) {
+    pub(super) fn commit_step(&mut self, now: Instant) {
         let Some(mut step) = self.history.take_open() else {
             return;
         };
