@@ -165,7 +165,7 @@ fn signals_roundtrip_multi_block() {
         assert!(stats.blocks >= 5, "expected several blocks, got {}", stats.blocks);
 
         let rd = Reader::open(&path).unwrap();
-        assert!(!rd.recovered());
+        assert!(rd.recovered().is_none());
         assert_eq!(rd.meta().timescale, -12);
         assert_eq!(rd.meta().comment, "hello");
         assert_eq!(rd.str(rd.meta().attrs[0].0), "tool");
@@ -410,7 +410,7 @@ fn recovery_without_directory() {
     let last_block_off = rd.sections().iter().filter(|e| e.kind == 4).map(|e| e.offset).max().unwrap() as usize;
     let truncated = full[..last_block_off + 30].to_vec();
     let rd = Reader::from_bytes(truncated).unwrap();
-    assert!(rd.recovered());
+    assert!(rd.recovered().is_some());
     let d = rd.load_signal(a).unwrap();
     assert!(d.len() >= 80 && d.len() < 100, "{}", d.len());
     assert_eq!(d.get(50).as_u64(), Some(50));

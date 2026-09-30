@@ -234,7 +234,7 @@ fn late_declarations_survive_recovery() {
     let tail_chunk = sections.iter().filter(|e| e.kind == 3).map(|e| e.offset).max().unwrap();
     let cut_block = sections.iter().filter(|e| e.kind == 4 && e.offset < tail_chunk).map(|e| e.offset).max().unwrap();
     let rd = Reader::from_bytes(full[..cut_block as usize + 30].to_vec()).unwrap();
-    assert!(rd.recovered());
+    assert!(rd.recovered().is_some());
     assert!(rd.find_node(&["tail"]).is_none(), "nodes after the cut are absent");
     let late = rd.find_node(&["late"]).expect("late scope before the cut");
     let b = b.unwrap();

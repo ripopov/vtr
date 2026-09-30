@@ -142,9 +142,13 @@ Trailer (last 24 bytes of the file):
 
 **Recovery.** A file without a valid trailer (the writer crashed) is still
 readable: the reader walks section headers from offset 32, stopping at the
-first header that does not fit in the file, and recomputes `aux0/aux1`
-from the payloads. Everything up to the last complete section is
-recovered. Readers must expose whether a file was recovered.
+first header that does not fit in the file, whose kind is 0, or whose CRC
+(when not 0) does not match its payload, and recomputes `aux0/aux1` from the
+payloads. Everything up to the last complete, verified section is
+recovered; the rest of the file is dropped. Readers must expose whether a
+file was recovered. A producer should pass each finished section to the
+operating system as soon as it is complete, so that a process that dies
+leaves every finished section in the file.
 
 ### 2.4 Section ordering rules
 

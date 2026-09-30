@@ -450,8 +450,9 @@ impl Reader {
     ///
     /// The file is memory-mapped and must not be modified while the reader
     /// exists. A file without a valid trailer (the writer crashed) is
-    /// recovered by scanning its sections: everything completely written is
-    /// readable and [`recovered`](Self::recovered) returns `true`. Unknown
+    /// recovered by scanning its sections: every section up to the first one
+    /// that is cut short or fails its CRC is readable, and
+    /// [`recovered`](Self::recovered) returns the bytes dropped. Unknown
     /// section kinds are skipped when marked optional, otherwise
     /// [`Error::Corrupt`].
     pub fn open(path: impl AsRef<Path>) -> Result<Reader> {
@@ -629,8 +630,11 @@ impl Reader {
         self.container.version
     }
 
-    /// True when the file had no directory (writer crashed) and was recovered by scanning.
-    pub fn recovered(&self) -> bool {
+    /// `Some(dropped)` when the file had no directory (its writer did not
+    /// close it) and was recovered by scanning; `dropped` is the number of
+    /// bytes after the last complete, verified section. `None` for a
+    /// complete file.
+    pub fn recovered(&self) -> Option<u64> {
         self.container.recovered
     }
 

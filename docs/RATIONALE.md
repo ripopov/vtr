@@ -2557,3 +2557,33 @@ The explorer runs on a real Verilator recording of `docs/vdb-fable/soc.sv`
 checks its engine against a brute-force reading of the data. Nothing of the
 design is implemented in Rust yet; stage 1 of the plan is the container and
 the folded structure, measured on C910 against the JSON.
+
+## Crash-safe writing
+
+[Crash-safe VTR](crash-safe-vtr.html) makes a writer's accepted data survive
+every ending a process can observe. The file side already was: sections are
+self-delimiting, carry a length and a CRC-32, and a file without a trailer is
+recovered by scanning. Measured in `bench/crashlab`, what is lost is what the
+process still holds in memory.
+
+**Durable sections.** The sink flushes its 1 MiB `BufWriter` after every
+section, so a finished section reaches the page cache when it is complete
+instead of when the buffer fills; a process crash cannot lose it (only a
+machine failure can, and `fsync` stays off). Sections are 100 KiB to several
+MiB, so this adds a few system calls per second. A/B against the previous
+commit, best of five (three for scr1_x8 and C910): write time within ±0.8% on
+every replay, transaction and log workload (C910 10.38 s both), sizes
+byte-identical, read time unchanged.
+
+**Verified recovery.** A single large `write()` is not atomic when the
+process is killed during it: SIGKILL during one 1 GiB `write()` left 98 to 438
+MiB of it (`bench/crashlab/zstd/kill.c`), and after a machine failure a file
+can end in a payload of zeros. Recovery used to trust a section's length alone
+and check CRCs only with `verify_crc`; zstd does not catch the damage (of 200
+bit flips inside an unfinished frame, 118 and 139 decoded silently to wrong
+data). The scan now checks each section's CRC and stops at the first
+mismatch, and `Reader::recovered()` returns the bytes dropped. The check costs
+recovery 22 ms on the 243 MiB C910 file (27.6 to 50.0 ms for `vtr info`);
+complete files open through the directory and are not affected. Rejected:
+verifying CRCs on every open (the same 22 ms for no gain on a complete file,
+whose sections are checked on demand with `verify_crc`).

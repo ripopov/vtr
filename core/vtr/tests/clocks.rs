@@ -203,7 +203,7 @@ fn stretches_live_in_their_own_blocks_and_survive_recovery() {
     });
     let cut = first_clock_block.expect("a clock block before close") as usize + 10;
     let rd = Reader::from_bytes(full[..cut].to_vec()).unwrap();
-    assert!(rd.recovered());
+    assert!(rd.recovered().is_some());
     let tl = rd.clock(ClockId(0)).unwrap();
     assert_eq!(tl.stretches().iter().map(|s| (s.begin, s.end, s.period)).collect::<Vec<_>>(), vec![(0, 40, 2)]);
     assert!(!tl.is_open());

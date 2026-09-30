@@ -89,7 +89,11 @@ fn cmd_info(args: &[String]) {
     let r = open(path);
     let m = r.meta();
     println!("file:        {path}");
-    println!("version:     {}.{}{}", r.version().0, r.version().1, if r.recovered() { " (recovered, no directory)" } else { "" });
+    let recovered = match r.recovered() {
+        Some(dropped) => format!(" (recovered, no directory; {dropped} bytes dropped)"),
+        None => String::new(),
+    };
+    println!("version:     {}.{}{recovered}", r.version().0, r.version().1);
     println!("writer:      {}", m.writer);
     println!("date:        {}", m.date);
     println!("file type:   {:?}", m.file_type);

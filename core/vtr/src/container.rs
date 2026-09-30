@@ -13,7 +13,9 @@
 //! ```
 //!
 //! A file whose writer crashed has no directory or trailer; the reader then
-//! rebuilds the directory by walking section headers from the start.
+//! rebuilds the directory by walking section headers from the start and
+//! keeps every section up to the first one that is cut short or fails its
+//! CRC.
 
 use crate::error::{Error, Result};
 use std::io::Write;
@@ -143,8 +145,9 @@ fn le_u64(b: &[u8]) -> u64 {
 pub struct Container {
     pub version: (u16, u16),
     pub entries: Vec<DirEntry>,
-    /// True when the directory was rebuilt by scanning (no trailer found).
-    pub recovered: bool,
+    /// `Some(dropped)` when the directory was rebuilt by scanning (no
+    /// trailer found): the bytes after the last verified section.
+    pub recovered: Option<u64>,
 }
 
 impl Container {
@@ -173,12 +176,15 @@ impl Container {
                     {
                         let p = &data[dir_off + SECTION_HEADER_LEN..dir_off + SECTION_HEADER_LEN + len];
                         let entries = Self::decode_directory(p)?;
-                        return Ok(Container { version: (major, minor), entries, recovered: false });
+                        return Ok(Container { version: (major, minor), entries, recovered: None });
                     }
                 }
             }
         }
-        // Recovery: scan sections from the start.
+        // Recovery: scan sections from the start. A write cut short by the
+        // process's death can leave a header whose payload is incomplete or,
+        // after a machine failure, zero-filled; the CRC tells them apart from
+        // a complete section, so decoding never sees a torn payload.
         let mut entries = Vec::new();
         let mut off = FILE_HEADER_LEN;
         while off + SECTION_HEADER_LEN <= data.len() {
@@ -186,20 +192,24 @@ impl Container {
             let kind = le_u32(&h[0..4]);
             let flags = le_u32(&h[4..8]);
             let len = le_u64(&h[8..16]);
+            let crc = le_u32(&h[16..20]);
             let end = off as u64 + SECTION_HEADER_LEN as u64 + len;
             if kind == 0 || end > data.len() as u64 {
                 break; // truncated tail
+            }
+            let payload = &data[off + SECTION_HEADER_LEN..end as usize];
+            if crc != 0 && crc32fast::hash(payload) != crc {
+                break; // torn tail
             }
             if kind == SectionKind::Directory as u32 {
                 off = end as usize;
                 continue;
             }
-            let payload = &data[off + SECTION_HEADER_LEN..end as usize];
             let (aux0, aux1) = crate::sections::recover_aux(kind, payload);
             entries.push(DirEntry { kind, flags, offset: off as u64, len, aux0, aux1 });
             off = end as usize;
         }
-        Ok(Container { version: (major, minor), entries, recovered: true })
+        Ok(Container { version: (major, minor), entries, recovered: Some((data.len() - off) as u64) })
     }
 
     fn decode_directory(p: &[u8]) -> Result<Vec<DirEntry>> {

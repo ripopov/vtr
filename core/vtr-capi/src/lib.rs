@@ -895,6 +895,8 @@ pub struct vtr_meta {
     pub version_major: u16,
     pub version_minor: u16,
     pub recovered: c_int,
+    /// Bytes after the last verified section of a recovered file.
+    pub recovered_dropped: u64,
     pub signal_count: u32,
     pub node_count: u32,
     pub string_count: u32,
@@ -927,7 +929,8 @@ pub unsafe extern "C" fn vtr_reader_meta(r: *const vtr_reader, out: *mut vtr_met
         time_end: tr.map(|x| x.1).unwrap_or(0),
         version_major: r.0.version().0,
         version_minor: r.0.version().1,
-        recovered: r.0.recovered() as c_int,
+        recovered: r.0.recovered().is_some() as c_int,
+        recovered_dropped: r.0.recovered().unwrap_or(0),
         signal_count: r.0.signal_count(),
         node_count: r.0.hierarchy().len() as u32,
         string_count: r.0.strings().len() as u32,

@@ -268,7 +268,9 @@ impl FileSink {
         self.write_section_parts(kind, 0, &[payload], aux0, aux1)
     }
 
-    /// Writes a section whose payload is the concatenation of `parts`.
+    /// Writes a section whose payload is the concatenation of `parts` and
+    /// hands it to the kernel at once: a finished section never waits in the
+    /// file buffer, so a process that dies afterwards keeps it.
     fn write_section_parts(&mut self, kind: SectionKind, flags: u32, parts: &[&[u8]], aux0: u64, aux1: u64) -> Result<()> {
         let len: usize = parts.iter().map(|p| p.len()).sum();
         let crc = if self.checksums {
@@ -285,6 +287,7 @@ impl FileSink {
         for p in parts {
             self.file.write_all(p)?;
         }
+        self.file.flush()?;
         self.entries.push(DirEntry { kind: kind as u32, flags, offset: self.offset, len: len as u64, aux0, aux1 });
         self.offset += (container::SECTION_HEADER_LEN + len) as u64;
         Ok(())

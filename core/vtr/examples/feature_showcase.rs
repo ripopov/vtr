@@ -883,7 +883,7 @@ fn verify(path: &Path) -> vtr::Result<()> {
     let size = std::fs::metadata(path)?.len();
     assert!(size < 500_000, "demo exceeds 500 KB: {size}");
     let r = Reader::open(path)?;
-    assert!(!r.recovered());
+    assert!(r.recovered().is_none());
     assert_eq!(r.time_range(), Some((0, 2048)));
     assert_eq!(r.blackout().len(), 2);
     assert!(r.block_count() >= 2);

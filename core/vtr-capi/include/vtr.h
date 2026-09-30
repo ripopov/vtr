@@ -414,6 +414,7 @@ typedef struct vtr_meta {
     uint64_t time_start, time_end;
     uint16_t version_major, version_minor;
     int      recovered;           /* 1 when the directory was rebuilt (writer crashed) */
+    uint64_t recovered_dropped;   /* bytes after the last complete, verified section */
     uint32_t signal_count, node_count, string_count, signal_block_count, tx_block_count;
     uint64_t tx_count, relation_count;
     uint32_t blackout_count, file_attr_count;

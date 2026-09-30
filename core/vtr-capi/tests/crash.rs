@@ -6,8 +6,9 @@
 //! ends as asked. Each case states what the file must hold afterwards:
 //! `Full` is a complete file with every accepted change and log record;
 //! `Blocks` is a file recovered by scanning that keeps only completed signal
-//! blocks and no log records. `bench/crashlab/run.py` is the full-size
-//! measurement of the same endings.
+//! blocks and no log records; `Written` is `Blocks` with every completed
+//! block present, which the inline encoder makes exact.
+//! `bench/crashlab/run.py` is the full-size measurement of the same endings.
 
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -30,6 +31,8 @@ enum Keeps {
     Full,
     /// Recovered by scanning: completed signal blocks only, no log records.
     Blocks,
+    /// `Blocks`, and every block completed before the end is in the file.
+    Written,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -39,6 +42,7 @@ enum Ends {
 }
 
 struct Case {
+    name: &'static str,
     mode: &'static str,
     args: &'static [&'static str],
     ends: Ends,
@@ -47,17 +51,19 @@ struct Case {
 
 /// Today's outcomes: without a guard, only a normal close keeps everything.
 const CASES: &[Case] = &[
-    Case { mode: "none", args: &[], ends: Ends::Status(0), keeps: Keeps::Full },
-    Case { mode: "segv", args: &[], ends: Ends::Signal(SIGSEGV), keeps: Keeps::Blocks },
-    Case { mode: "abort", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
-    Case { mode: "throw", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
-    Case { mode: "stack", args: &[], ends: Ends::Signal(SIGSEGV), keeps: Keeps::Blocks },
-    Case { mode: "heap", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
-    Case { mode: "heaplock", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
-    Case { mode: "term", args: &[], ends: Ends::Signal(SIGTERM), keeps: Keeps::Blocks },
-    Case { mode: "exit", args: &[], ends: Ends::Status(3), keeps: Keeps::Blocks },
-    Case { mode: "kill", args: &[], ends: Ends::Signal(SIGKILL), keeps: Keeps::Blocks },
-    Case { mode: "thread", args: &[], ends: Ends::Signal(SIGSEGV), keeps: Keeps::Blocks },
+    Case { name: "none", mode: "none", args: &[], ends: Ends::Status(0), keeps: Keeps::Full },
+    Case { name: "segv", mode: "segv", args: &[], ends: Ends::Signal(SIGSEGV), keeps: Keeps::Blocks },
+    Case { name: "abort", mode: "abort", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
+    Case { name: "throw", mode: "throw", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
+    Case { name: "stack", mode: "stack", args: &[], ends: Ends::Signal(SIGSEGV), keeps: Keeps::Blocks },
+    Case { name: "heap", mode: "heap", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
+    Case { name: "heaplock", mode: "heaplock", args: &[], ends: Ends::Signal(SIGABRT), keeps: Keeps::Blocks },
+    Case { name: "term", mode: "term", args: &[], ends: Ends::Signal(SIGTERM), keeps: Keeps::Blocks },
+    Case { name: "exit", mode: "exit", args: &[], ends: Ends::Status(3), keeps: Keeps::Blocks },
+    Case { name: "kill", mode: "kill", args: &[], ends: Ends::Signal(SIGKILL), keeps: Keeps::Blocks },
+    // Small blocks on the simulation thread: each finished section is in the file at once.
+    Case { name: "kill-inline", mode: "kill", args: &["--inline", "--block-records", "65536"], ends: Ends::Signal(SIGKILL), keeps: Keeps::Written },
+    Case { name: "thread", mode: "thread", args: &[], ends: Ends::Signal(SIGSEGV), keeps: Keeps::Blocks },
 ];
 
 /// What the harness reported before it died.
@@ -139,7 +145,7 @@ fn kept(path: &Path) -> Kept {
         true
     })
     .unwrap();
-    Kept { recovered: r.recovered(), changes, logs }
+    Kept { recovered: r.recovered().is_some(), changes, logs }
 }
 
 #[test]
@@ -148,11 +154,11 @@ fn crash_matrix() {
     let exe = build_harness(dir.path());
     let mut failures = Vec::new();
     for case in CASES {
-        let out = dir.path().join(format!("{}.vtr", case.mode));
+        let out = dir.path().join(format!("{}.vtr", case.name));
         let (ends, stderr) = run(&exe, case.mode, &out, case.args);
         let e = emitted(&stderr);
         let k = kept(&out);
-        eprintln!("{:9} {:?} emitted {:?} kept {:?}", case.mode, ends, e, k);
+        eprintln!("{:11} {:?} emitted {:?} kept {:?}", case.name, ends, e, k);
         let mut problems = Vec::new();
         if ends != case.ends {
             problems.push(format!("ended {ends:?}, expected {:?}", case.ends));
@@ -163,16 +169,20 @@ fn crash_matrix() {
                     problems.push(format!("expected every change and log record in a complete file, kept {k:?} of {e:?}"));
                 }
             }
-            Keeps::Blocks => {
+            Keeps::Blocks | Keeps::Written => {
+                let block = case.args.iter().position(|a| *a == "--block-records").map_or(BLOCK_RECORDS, |i| case.args[i + 1].parse().unwrap());
                 // The thread case keeps writing after it reports, so only the file's own shape is checked.
                 let fewer = case.mode == "thread" || k.changes < e.changes;
-                if !k.recovered || !fewer || k.changes % BLOCK_RECORDS != 0 || k.logs != 0 {
+                if !k.recovered || !fewer || k.changes % block != 0 || k.logs != 0 {
                     problems.push(format!("expected a recovered file of completed blocks, kept {k:?} of {e:?}"));
+                }
+                if case.keeps == Keeps::Written && k.changes != e.changes / block * block {
+                    problems.push(format!("expected all {} completed blocks, kept {k:?} of {e:?}", e.changes / block));
                 }
             }
         }
         if !problems.is_empty() {
-            failures.push(format!("{}: {}\n{stderr}", case.mode, problems.join("; ")));
+            failures.push(format!("{}: {}\n{stderr}", case.name, problems.join("; ")));
         }
         std::fs::remove_file(&out).unwrap();
     }
