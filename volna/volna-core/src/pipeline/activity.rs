@@ -61,17 +61,14 @@ impl PipelineModel {
                 .is_some_and(|tx| (tx.begin as f64) > view.end);
             // The inclusive owner query preserves long overlaps and point events.
             generator
-                .visit_window(
+                .visit_window_ordinals(
                     view.start.max(0.0).floor() as u64,
                     view.end.max(0.0).ceil() as u64,
-                    |tx| {
+                    |ordinal, tx| {
                         if (tx.end as f64) < view.start || (tx.begin as f64) > view.end {
                             return true;
                         }
-                        let row = offset
-                            + generator
-                                .transaction_ordinal(tx.id)
-                                .expect("indexed transaction");
+                        let row = offset + ordinal;
                         if row as f64 + 1.0 <= rows.top {
                             result.above += 1;
                             result.nearest_above = Some(row);
@@ -105,7 +102,7 @@ impl PipelineModel {
                     FollowActivity::Following => FollowActivity::Off,
                     _ => FollowActivity::Following,
                 };
-                self.follow_activity(doc);
+                _ = self.follow_activity(doc);
             }
             ActivityCommand::RevealAbove | ActivityCommand::RevealBelow => {
                 let activity = self.activity(doc);
@@ -127,18 +124,24 @@ impl PipelineModel {
         }
     }
 
-    pub(super) fn follow_activity(&mut self, doc: &Document) {
+    /// Keep the most relevant row in the middle band while following.
+    /// Returns the activity it measured when the rows stayed where they
+    /// were, so the layout need not measure it again.
+    pub(super) fn follow_activity(&mut self, doc: &Document) -> Option<Activity> {
         if self.follow != FollowActivity::Following || self.last_layout().cells.height() <= 0.0 {
-            return;
+            return None;
         }
-        if let Some(row) = self.activity(doc).target {
+        let activity = self.activity(doc);
+        if let Some(row) = activity.target {
             let rows = self.rows.target().zoomed(self.last_layout().zoom);
             let visible = f64::from(self.last_layout().cells.height() / rows.row_px);
             let position = row as f64 + 0.5;
             if position < rows.top + visible * 0.2 || position > rows.top + visible * 0.8 {
                 self.reveal_activity_row(doc, row);
+                return None;
             }
         }
+        Some(activity)
     }
 
     fn reveal_activity_row(&mut self, doc: &Document, row: usize) {

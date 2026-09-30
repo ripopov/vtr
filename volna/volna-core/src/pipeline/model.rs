@@ -538,7 +538,8 @@ impl PipelineModel {
             failed,
         };
         self.layout = PipelineLayout::compute(input);
-        self.follow_activity(doc);
+        let followed = self.follow_activity(doc);
+        let rows_before = self.rows.target();
         let layout = if self.rows.value != input.rows {
             PipelineLayout::compute(LayoutInput {
                 rows: self.rows.value,
@@ -552,7 +553,11 @@ impl PipelineModel {
             self.rows.set(layout.rows.unzoomed(layout.zoom));
         }
         self.layout = layout;
-        let activity = self.activity(doc);
+        // The follow pass measured these rows already unless the clamp moved them.
+        let activity = match followed {
+            Some(activity) if self.rows.target() == rows_before => activity,
+            _ => self.activity(doc),
+        };
         self.layout.activity = activity;
         let area = self.layout.cells;
         let z = theme.zoom;

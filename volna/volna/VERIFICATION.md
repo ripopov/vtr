@@ -268,8 +268,11 @@ first-frame and per-frame layout-plus-paint times over the whole trace, a
 Apple M5: at the default 256 MiB object limit the load fails explicitly (the
 generator is 541 MiB, 699 MiB for the 411,339-row C910 capture with its fetch
 stages) and the panel offers its retry; with the limit raised the stream loads
-in 0.36 s (0.39 s for the capture), resident memory grows by 1 to 1.4 GB, and a frame takes 14 ms
-over the whole trace, 0.15 ms over 5,000 cycles and 0.01 ms over 150.
+in 0.36 s (0.39 s for the capture) and resident memory grows by 1 to 1.4 GB.
+On an Intel Core Ultra 7 265K (P-cores, `taskset -c 0-7`, synthetic trace,
+`VOLNA_OBJECT_MIB=1024`) the stream loads in 0.95 s, the first frame takes
+10 ms, and a frame takes 5.0 ms over the whole trace, 0.04 ms over 5,000
+cycles and 0.02 ms over 150.
 
 ## Hierarchy browser checks
 
