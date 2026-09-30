@@ -1,0 +1,12 @@
+[package]
+name = "vtr-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Crash guard for VTR writers: a signal handler hands fatal signals, stop requests and exit() to a rescue thread that finishes the traces."
+
+[dependencies]
+vtr = { path = "../vtr" }
+libc = "0.2"

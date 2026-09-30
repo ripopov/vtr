@@ -13,6 +13,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 vtr = { path = "../vtr" }
+vtr-guard = { path = "../vtr-guard" }
 # VTR's own heap (src/heap.rs): mimalloc without `override`, so the application's malloc is untouched.
 mimalloc = { version = "0.1", default-features = false }
 libc = "0.2"

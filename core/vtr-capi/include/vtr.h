@@ -308,6 +308,45 @@ int    vtr_writer_close_ending(vtr_writer *w, const vtr_ending *end); /* finishe
  * the encoder (ending POISONED unless another is given). */
 uint32_t vtr_writer_enter(vtr_writer *w);
 void     vtr_writer_leave(vtr_writer *w, uint32_t prev);
+
+/* Crash guard: the library's single piece of process-wide state, created
+ * only by vtr_guard_install. It makes every watched writer survive the ways a
+ * process can end: fatal signals (SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT,
+ * SIGTRAP, SIGSYS), stop requests (SIGTERM, SIGINT, SIGHUP, SIGXCPU) and
+ * exit(). A crash is handed to a rescue thread that finishes each watched
+ * writer (closed normally when its owner was at rest, sealed when it was
+ * inside the writer) within deadline_ms; the process then dies of the same
+ * signal, after any handler that was installed before (AddressSanitizer's,
+ * a crash reporter's). A stop request only sets a flag: poll
+ * vtr_guard_stop_requested(), close with the ending vtr_guard_ending()
+ * gives, and exit; the guard then re-raises the signal so the exit status
+ * still says so. A second request or stop_grace_ms escalates to a rescue.
+ * exit() with watched writers closes them (ending EXITED). A stop signal that
+ * already has a handler or is ignored is left alone.
+ *
+ * install() starts the rescue thread and installs the handlers; only the
+ * first call installs. *active_out (nullable) is 0 when VTR_GUARD=0 disabled
+ * it. VTR_GUARD_DEADLINE_MS and VTR_GUARD_STOP_GRACE_MS override deadline_ms and stop_grace_ms. watch() makes the calling
+ * thread the writer's owner and gives it a 64 KiB alternate signal stack, so
+ * a stack overflow is handled; call thread_init() on other threads that may
+ * crash. Unwatch before closing; watch is a no-op without install. At most 64
+ * writers are watched. SIGKILL cannot be handled: the file then keeps what
+ * was written and is recovered by scanning. Linux only. */
+typedef struct vtr_guard_options {
+    uint32_t deadline_ms;    /* default 10000 */
+    int      crashes;        /* handle fatal signals (default 1) */
+    int      stops;          /* handle stop requests (default 1) */
+    uint32_t stop_grace_ms;  /* default 10000 */
+    int      exit;           /* close watched writers on exit() (default 1) */
+    int      park_signal;    /* parks owner threads; 0 = SIGRTMAX - 3 */
+} vtr_guard_options;
+void vtr_guard_options_default(vtr_guard_options *o);
+int  vtr_guard_install(const vtr_guard_options *opts /* nullable */, int *active_out /* nullable */);
+int  vtr_guard_watch(vtr_writer *w);
+void vtr_guard_unwatch(vtr_writer *w);
+void vtr_guard_thread_init(void);
+int  vtr_guard_stop_requested(void);             /* the first stop request's signal, or 0 */
+void vtr_guard_ending(vtr_ending *out);          /* STOPPED after a stop request, else CLOSED */
 size_t vtr_ending_format(const vtr_ending *end, char *buf, size_t cap);
 
 /* Metadata must be set before the first explicit or automatic flush.

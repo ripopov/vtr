@@ -8,6 +8,7 @@ the trace/design boundary defined in the [project README](../README.md#vtrvdb-bo
 |---|---|
 | [vtr](vtr/) | Rust trace reader/writer: waveforms, transactions, runtime hierarchy, relations and logs |
 | [vtr-capi](vtr-capi/) | C ABI with public C/C++ headers in `include/` |
+| [vtr-guard](vtr-guard/) | Crash guard: finishes watched writers when the process dies ([design](../docs/crash-safe-vtr.html)) |
 | [vtr-vdb](vtr-vdb/) | Separate RTL design database, netlist rendering, temporal driver tracing and the existing `vtr-vdb` CLI |
 
 Static design semantics and presentation belong to VDB, never the VTR format.

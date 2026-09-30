@@ -4,6 +4,7 @@ exclude = ["ext/elkrs"]
 members = [
     "core/vtr",
     "core/vtr-capi",
+    "core/vtr-guard",
     "tools/vtr-cli",
     "tools/volna-server",
     "bench/vtr-bench",
@@ -16,6 +17,7 @@ members = [
 default-members = [
     "core/vtr",
     "core/vtr-capi",
+    "core/vtr-guard",
     "tools/vtr-cli",
     "bench/vtr-bench",
     "core/vtr-vdb",

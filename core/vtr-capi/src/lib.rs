@@ -516,14 +516,19 @@ pub unsafe extern "C" fn vtr_writer_close_ending(w: *mut vtr_writer, end: *const
             return VTR_ERR_NULL;
         }
         let mut b = Box::from_raw(w);
-        let end = match end.as_ref().map(from_ending).transpose() {
-            Ok(e) => e.unwrap_or(Ending::Closed),
+        // Closing is inside the writer too: a crash guard must not close it again meanwhile.
+        let sealer = b.0.sealer();
+        let prev = sealer.state().enter();
+        let r = match end.as_ref().map(from_ending).transpose() {
+            Ok(e) => b.0.close_with(e.unwrap_or(Ending::Closed)),
             Err(e) => {
                 let _ = b.0.close();
-                return status(Err(e));
+                Err(e)
             }
         };
-        status(b.0.close_with(end))
+        drop(b);
+        sealer.state().leave(prev);
+        status(r)
     })
 }
 
@@ -2644,6 +2649,104 @@ pub unsafe extern "C" fn vtr_clock_timeline_prev_edge(t: *const vtr_clock_timeli
     ffi(|| {
         time_out(need_ref!(t).0.prev_edge(time), out)
     })
+}
+
+// ---------------------------------------------------------------------------
+// Crash guard (process-wide; see vtr.h)
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+pub struct vtr_guard_options {
+    pub deadline_ms: u32,
+    pub crashes: c_int,
+    pub stops: c_int,
+    pub stop_grace_ms: u32,
+    pub exit: c_int,
+    pub park_signal: c_int,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_guard_options_default(o: *mut vtr_guard_options) {
+    ffi(|| {
+        if let Some(o) = o.as_mut() {
+            let d = vtr_guard::Options::default();
+            *o = vtr_guard_options {
+                deadline_ms: d.deadline.as_millis() as u32,
+                crashes: d.crashes as c_int,
+                stops: d.stops as c_int,
+                stop_grace_ms: d.stop_grace.as_millis() as u32,
+                exit: d.exit as c_int,
+                park_signal: d.park_signal,
+            };
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_guard_install(opts: *const vtr_guard_options, active_out: *mut c_int) -> c_int {
+    ffi(|| {
+        let mut o = vtr_guard::Options::default();
+        if let Some(c) = opts.as_ref() {
+            o.deadline = std::time::Duration::from_millis(c.deadline_ms as u64);
+            o.crashes = c.crashes != 0;
+            o.stops = c.stops != 0;
+            o.stop_grace = std::time::Duration::from_millis(c.stop_grace_ms as u64);
+            o.exit = c.exit != 0;
+            o.park_signal = c.park_signal;
+        }
+        match vtr_guard::install(&o) {
+            Ok(active) => {
+                if let Some(a) = active_out.as_mut() {
+                    *a = active as c_int;
+                }
+                VTR_OK
+            }
+            Err(e) => {
+                set_error(&e.to_string());
+                VTR_ERR_STATE
+            }
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_guard_watch(w: *mut vtr_writer) -> c_int {
+    ffi(|| {
+        let w = need!(w);
+        match vtr_guard::watch(&mut w.0) {
+            Ok(()) => VTR_OK,
+            Err(e) => {
+                set_error(&e.to_string());
+                VTR_ERR_STATE
+            }
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_guard_unwatch(w: *mut vtr_writer) {
+    ffi(|| {
+        if let Some(w) = w.as_mut() {
+            vtr_guard::unwatch(&mut w.0)
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn vtr_guard_thread_init() {
+    ffi(vtr_guard::thread_init)
+}
+
+#[no_mangle]
+pub extern "C" fn vtr_guard_stop_requested() -> c_int {
+    vtr_guard::stop_requested()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_guard_ending(out: *mut vtr_ending) {
+    if let Some(o) = out.as_mut() {
+        *o = to_ending(vtr_guard::ending(), None);
+    }
 }
 
 #[cfg(test)]

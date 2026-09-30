@@ -2640,3 +2640,23 @@ through the C API takes 8.07 s instead of 8.30 s, 440 MiB instead of 378.
 The log encoder threads now start with the writer, because creating a
 thread takes glibc's heap lock. Rust users of the `vtr` crate choose their
 own allocator; the zstd contexts follow it.
+
+**The guard.** `core/vtr-guard` follows the design's twelve rules; what the
+build changed: an owner that is inside the writer when another thread
+crashes is asked to park when its call returns (`CrashState::request_park`,
+one load per C call) instead of being sealed, so the crash matrix's
+second-thread crash keeps everything unsealed. A stop request re-raises its
+signal from an `on_exit` hook after the program closed, and an `exit()` with
+writers still watched records `Exited` with the real status (glibc's
+`on_exit`). A stop request decides whether anything is watched in the
+handler: deciding later raced a program that had already unwatched its
+writer to close it and killed it mid-close. The rescue thread touches
+channels and thread-locals once at start, since the first blocking channel
+operation registers a thread-local destructor through glibc's allocator. A
+crash on VTR's own encoder thread is not rescued, because only that thread
+can finish its writer. Measured with `bench/crashlab/run.py --vtr-guard`:
+the rescue takes 216 to 305 ms (the prototype 214 to 692 ms, whose worst
+case waited for a block hand-off to compress twice), and write time without a
+crash is unchanged (1.233 s for 60 M changes). Chaining works by restoring
+the replaced disposition before re-raising: AddressSanitizer's SEGV report
+prints after the rescue.

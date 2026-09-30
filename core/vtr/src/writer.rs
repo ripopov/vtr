@@ -54,7 +54,7 @@ use crate::varint;
 use std::fs::File;
 use std::io::{BufWriter, Seek, Write};
 use std::path::Path;
-use std::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
@@ -658,6 +658,8 @@ struct Shared {
 pub struct CrashState {
     busy: AtomicU32,
     poisoned: AtomicBool,
+    /// A `fn()` the owner calls when it next leaves the writer (0: none).
+    park: AtomicUsize,
 }
 
 impl CrashState {
@@ -673,11 +675,27 @@ impl CrashState {
         prev
     }
 
-    /// Restores the mark [`enter`](Self::enter) returned.
+    /// Restores the mark [`enter`](Self::enter) returned. Leaving the
+    /// outermost mark runs a pending [`request_park`](Self::request_park).
     #[inline(always)]
     pub fn leave(&self, prev: u32) {
         compiler_fence(Ordering::SeqCst);
         self.busy.store(prev, Ordering::Relaxed);
+        if prev == 0 {
+            let park = self.park.load(Ordering::Relaxed);
+            if park != 0 {
+                // Safety: only `request_park` stores, and it stores a `fn()`.
+                let park: fn() = unsafe { std::mem::transmute::<usize, fn()>(park) };
+                park();
+            }
+        }
+    }
+
+    /// Asks the owner to call `park` as soon as it leaves the writer: a crash
+    /// guard stops an owner that was inside the writer when another thread
+    /// crashed at the point where the writer is consistent again.
+    pub fn request_park(&self, park: fn()) {
+        self.park.store(park as usize, Ordering::Relaxed);
     }
 
     /// Records that a call panicked: the writer's buffers cannot be trusted.

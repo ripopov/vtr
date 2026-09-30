@@ -373,9 +373,9 @@ the openC910 SoC running CoreMark, traces each to FST and VTR, and regenerates
 | `docs/` | Architecture, specifications, APIs, research, and benchmark reports |
 | `ext/` | Pinned external projects and reference implementations |
 
-The nine Rust packages share the root workspace and lockfile: `vtr`,
-`vtr-capi`, `vtr-vdb`, `vtr-cli`, `volna-server`, `vtr-bench`, `volna-core`,
-`volna`, and `volna-egui`. Use `cargo -p <package>` to select one. Standalone
+The ten Rust packages share the root workspace and lockfile: `vtr`,
+`vtr-capi`, `vtr-guard`, `vtr-vdb`, `vtr-cli`, `volna-server`, `vtr-bench`,
+`volna-core`, `volna`, and `volna-egui`. Use `cargo -p <package>` to select one. Standalone
 Python exporters live in `integrations/slang`; the Verilator backend is in the
 pinned `ext/verilator` submodule with tooling in `integrations/verilator`.
 First-party code belongs under its owning component, while shared benchmarks

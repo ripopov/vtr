@@ -8712,6 +8712,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "vtr",
+ "vtr-guard",
 ]
 
 [[package]]
@@ -8724,6 +8725,14 @@ dependencies = [
  "serde_json",
  "vtr",
  "wellen",
+]
+
+[[package]]
+name = "vtr-guard"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "vtr",
 ]
 
 [[package]]

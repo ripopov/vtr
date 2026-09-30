@@ -11,14 +11,18 @@
 //   heap      double free of a small block (glibc's tcache check, SIGABRT)
 //   heaplock  double free of a 64 KiB block (detected under the main arena's lock, SIGABRT)
 //   term      SIGTERM while the simulation runs
+//   deaf      SIGTERM, and the simulation never polls vtr_guard_stop_requested()
 //   exit      exit(3) from deep code
 //   kill      SIGKILL
 //   thread    a second thread faults while the owner keeps writing
 //
-// usage: crash_harness <mode> <out.vtr> [--records N] [--signals S] [--block-records B] [--inline]
+// usage: crash_harness <mode> <out.vtr> [--records N] [--signals S] [--block-records B] [--inline] [--guard]
 //
-// Before it dies the harness prints "emitted changes=N logs=M time=T" on
-// stderr: what the writer accepted up to that point.
+// With --guard the crash guard is installed and watches the writer; a stop
+// request ends the loop and closes the writer with the guard's ending.
+// Before it can die the harness prints "emitted changes=N logs=M time=T" on
+// stderr, what the writer accepted up to that point (the last line counts),
+// and "dying at <monotonic ms>".
 #include "vtr.h"
 
 #include <atomic>
@@ -31,6 +35,7 @@
 #include <stdexcept>
 #include <string>
 #include <sys/resource.h>
+#include <time.h>
 #include <unistd.h>
 
 namespace {
@@ -53,12 +58,21 @@ int recurse(int n) {
 std::atomic<bool> g_crash_thread{false};
 
 void *crasher(void *) {
+    vtr_guard_thread_init();
     while (!g_crash_thread.load()) usleep(100);
     *static_cast<volatile int *>(nullptr) = 1;
     return nullptr;
 }
 
+void emitted(uint64_t records, uint64_t logs, uint64_t t) {
+    fprintf(stderr, "emitted changes=%llu logs=%llu time=%llu\n", static_cast<unsigned long long>(records), static_cast<unsigned long long>(logs),
+            static_cast<unsigned long long>(t));
+}
+
 [[noreturn]] void die(const std::string &mode) {
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    fprintf(stderr, "dying at %lld\n", static_cast<long long>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000);
     // Function pointers through volatile keep the compiler from eliding the heap misuse.
     void *(*volatile m)(size_t) = malloc;
     void (*volatile f)(void *) = free;
@@ -80,7 +94,6 @@ void *crasher(void *) {
     }
     if (mode == "exit") exit(3);
     if (mode == "kill") kill(getpid(), SIGKILL);
-    if (mode == "term") kill(getpid(), SIGTERM);
     for (;;) pause();
 }
 
@@ -96,13 +109,14 @@ int main(int argc, char **argv) {
     const std::string mode = argv[1];
     const char *path = argv[2];
     uint64_t target = 3000000, signals = 2000, block_records = 1 << 20;
-    bool inline_encoder = false;
+    bool inline_encoder = false, guard = false;
     for (int i = 3; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--records") target = strtoull(argv[++i], nullptr, 10);
         else if (a == "--signals") signals = strtoull(argv[++i], nullptr, 10);
         else if (a == "--block-records") block_records = strtoull(argv[++i], nullptr, 10);
         else if (a == "--inline") inline_encoder = true;
+        else if (a == "--guard") guard = true;
     }
     vtr_writer_options o;
     vtr_writer_options_default(&o);
@@ -112,6 +126,10 @@ int main(int argc, char **argv) {
     vtr_writer *w = vtr_writer_create(path, &o);
     if (!w) {
         fprintf(stderr, "create: %s\n", vtr_last_error());
+        return 2;
+    }
+    if (guard && (vtr_guard_install(nullptr, nullptr) != VTR_OK || vtr_guard_watch(w) != VTR_OK)) {
+        fprintf(stderr, "guard: %s\n", vtr_last_error());
         return 2;
     }
     const uint32_t top = vtr_writer_add_scope(w, VTR_NONE, "top", VTR_SCOPE_MODULE, nullptr);
@@ -130,13 +148,19 @@ int main(int argc, char **argv) {
 
     const uint64_t per_step = 97;
     uint64_t records = 0, logs = 0, t = 0;
+    bool sent = false;
     for (;;) {
-        if (records >= target) {
-            if (mode != "thread") break;
-            if (!g_crash_thread.load()) {
-                fprintf(stderr, "emitted changes=%llu logs=%llu time=%llu\n", static_cast<unsigned long long>(records),
-                        static_cast<unsigned long long>(logs), static_cast<unsigned long long>(t));
+        if (guard && mode != "deaf" && vtr_guard_stop_requested()) break;
+        if (records >= target && !sent) {
+            sent = true;
+            if (mode == "thread") {
+                emitted(records, logs, t);
                 g_crash_thread.store(true);  // the owner keeps writing while the other thread dies
+            } else if (mode == "term" || mode == "deaf") {
+                emitted(records, logs, t);
+                kill(getpid(), SIGTERM);  // arrives while the simulation runs
+            } else {
+                break;
             }
         }
         t += 1;
@@ -151,8 +175,13 @@ int main(int argc, char **argv) {
             logs += 1;
         }
     }
-    fprintf(stderr, "emitted changes=%llu logs=%llu time=%llu\n", static_cast<unsigned long long>(records), static_cast<unsigned long long>(logs),
-            static_cast<unsigned long long>(t));
-    if (mode == "none") return vtr_writer_close(w) == VTR_OK ? 0 : 1;
+    emitted(records, logs, t);
+    if (mode == "none" || (guard && vtr_guard_stop_requested())) {
+        // A normal close, recording a stop request; returning lets the guard re-raise it.
+        vtr_ending end;
+        vtr_guard_ending(&end);
+        vtr_guard_unwatch(w);
+        return vtr_writer_close_ending(w, &end) == VTR_OK ? 0 : 1;
+    }
     die(mode);
 }

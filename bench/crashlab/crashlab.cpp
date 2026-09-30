@@ -17,7 +17,10 @@
 //    simulation loop ends and closes normally. A second request is not graceful.
 //  * exit() runs an atexit hook that closes the writer on the calling thread.
 //
-// usage: crashlab <mode> <out.vtr> [--no-guard] [--records N] [--signals S]
+// With --vtr-guard the library's guard (vtr_guard_install, vtr.h) replaces
+// the prototype: the measurement of what landed.
+//
+// usage: crashlab <mode> <out.vtr> [--no-guard] [--vtr-guard] [--records N] [--signals S]
 //                 [--timeout-ms T] [--stall-ms S] [--no-altstack] [--busy-step|--busy-call]
 //   mode: none segv abort stack throw heap heaplock term exit kill
 #include "vtr.h"
@@ -219,11 +222,12 @@ int main(int argc, char **argv) {
     }
     const std::string mode = argv[1];
     const char *path = argv[2];
-    bool guard = true, altstack = true;
+    bool guard = true, altstack = true, lib_guard = false;
     uint64_t target = 30000000, signals = 67144;
     for (int i = 3; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--no-guard") guard = false;
+        else if (a == "--vtr-guard") lib_guard = true;
         else if (a == "--no-altstack") altstack = false;
         else if (a == "--records") target = strtoull(argv[++i], nullptr, 10);
         else if (a == "--signals") signals = strtoull(argv[++i], nullptr, 10);
@@ -249,7 +253,13 @@ int main(int argc, char **argv) {
     g_crash_site = vtr_writer_add_log_site(w, stream, VTR_SEVERITY_FATAL, "{}", nullptr, 0, nullptr, 1, &text, &msg);
     const uint32_t tick = vtr_writer_add_log_site(w, stream, VTR_SEVERITY_INFO, "step {}", nullptr, 0, nullptr, 1, &u64, &step);
     g_writer.store(w);
-    if (guard) guard_install(altstack);
+    if (lib_guard) {
+        guard = false;
+        vtr_guard_install(nullptr, nullptr);
+        vtr_guard_watch(w);
+    } else if (guard) {
+        guard_install(altstack);
+    }
 
     // About 1,183 changes per time step, as in openC910 CoreMark; a log record every 64 steps.
     const uint64_t per_step = 1183;
@@ -314,6 +324,7 @@ int main(int argc, char **argv) {
     }
     if (mode == "none") {
         const uint64_t t0 = now_ns();
+        if (lib_guard) vtr_guard_unwatch(w);
         if (g_writer.exchange(nullptr)) vtr_writer_close(w);
         fprintf(stderr, "crashlab: close_ms=%.1f\n", double(now_ns() - t0) / 1e6);
         return 0;

@@ -21,7 +21,7 @@ jobs:
       - name: Verify the C compiler used by the C smoke test
         run: cc --version
       - name: Test the Rust core, the C API and the C smoke test
-        run: cargo test --locked -p vtr -p vtr-capi -- --skip crash_matrix
+        run: cargo test --locked -p vtr -p vtr-capi -p vtr-guard -- --skip crash_matrix --skip guard_chains_to_address_sanitizer
   crash-matrix:
     # Every way a simulation can end, run in child processes against libvtr.a
     # (core/vtr-capi/tests/crash.rs, docs/crash-safe-vtr.html).
@@ -33,7 +33,7 @@ jobs:
         run: git submodule update --init --depth 1 ext/elkrs
       - name: Install the Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
-      - name: Verify the C++ compiler used by the crash harness
-        run: c++ --version
+      - name: Verify the C++ compiler and AddressSanitizer used by the crash harness
+        run: c++ --version && echo 'int main(){}' | c++ -fsanitize=address -x c++ - -o /tmp/asan-check && /tmp/asan-check
       - name: Run the crash matrix
         run: cargo test --locked -p vtr-capi --test crash -- --nocapture

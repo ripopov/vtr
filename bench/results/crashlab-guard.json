@@ -1,0 +1,59 @@
+{
+ "drain": [
+  {
+   "records": 17000000,
+   "where": "just after a block was handed off",
+   "rescue_ms": 305.0,
+   "runs": [
+    306.0,
+    305.0,
+    306.0
+   ]
+  },
+  {
+   "records": 30000000,
+   "where": "a block 79% full",
+   "rescue_ms": 216.0,
+   "runs": [
+    220.0,
+    216.0,
+    219.0
+   ]
+  },
+  {
+   "records": 33540000,
+   "where": "a block 99.9% full",
+   "rescue_ms": 253.0,
+   "runs": [
+    253.0,
+    254.0,
+    255.0
+   ]
+  }
+ ],
+ "write": [
+  {
+   "mode": "no-guard",
+   "write_s": 1.233,
+   "runs": [
+    1.243,
+    1.234,
+    1.233,
+    1.25,
+    1.237
+   ]
+  },
+  {
+   "mode": "vtr-guard",
+   "write_s": 1.233,
+   "runs": [
+    1.241,
+    1.241,
+    1.239,
+    1.244,
+    1.233
+   ]
+  }
+ ],
+ "failures": []
+}

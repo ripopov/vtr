@@ -9,6 +9,8 @@ bench/results/crashlab.json. Exits nonzero when an outcome differs.
 
   python3 bench/crashlab/run.py            # full matrix, ~2 minutes
   python3 bench/crashlab/run.py --quick    # fewer repetitions
+  python3 bench/crashlab/run.py --vtr-guard  # the library's guard: rescue and write times,
+                                             # bench/results/crashlab-guard.json
 """
 import argparse
 import json
@@ -26,6 +28,7 @@ HERE = os.path.join(ROOT, "bench", "crashlab")
 BUILD = os.path.join(ROOT, "bench", "build", "crashlab")
 INC = os.path.join(ROOT, "core", "vtr-capi", "include")
 OUT = os.path.join(ROOT, "bench", "results", "crashlab.json")
+GUARD_OUT = os.path.join(ROOT, "bench", "results", "crashlab-guard.json")
 
 SIG = {name: int(getattr(signal, name)) for name in ("SIGSEGV", "SIGABRT", "SIGTERM", "SIGKILL")}
 
@@ -81,7 +84,7 @@ def run(bins, tag, mode, *args, cpus="0-7"):
     wall = time.monotonic() - t0
     err = p.stderr
     m = re.findall(r"emitted records=(\d+) logs=(\d+) last_time=(\d+) write_s=([0-9.]+)", err)[-1]
-    rescue = re.search(r"rescue_ms=([0-9.]+)", err)
+    rescue = re.search(r"rescue_ms=([0-9.]+)", err) or re.search(r"trace\(s\) finished in ([0-9]+) ms", err)
     close = re.search(r"(?:close|stop_close)_ms=([0-9.]+)", err)
     chk = subprocess.run([bins[("check", tag)], out], capture_output=True, text=True, timeout=120)
     got = json.loads(chk.stdout)
@@ -135,11 +138,54 @@ def verdict(r, expect, sig_name):
     return problems
 
 
+def build_private():
+    os.makedirs(BUILD, exist_ok=True)
+    sh(["cargo", "build", "--release", "-p", "vtr-capi"], cwd=ROOT)
+    lib = os.path.join(ROOT, "target", "release", "libvtr.a")
+    cxx = os.environ.get("CXX", "clang++" if shutil.which("clang++") else "g++")
+    bins = {}
+    for prog in ("crashlab", "check"):
+        exe = os.path.join(BUILD, f"{prog}-private")
+        sh([cxx, "-O2", "-g", "-std=c++17", f"-I{INC}", os.path.join(HERE, f"{prog}.cpp"), lib, "-lpthread", "-ldl", "-lm", "-o", exe])
+        bins[(prog, "private")] = exe
+    return bins
+
+
+def vtr_guard(reps):
+    """The library's guard (vtr_guard_install): rescue time by where a crash lands, and write time without a crash."""
+    bins = build_private()
+    results = {"drain": [], "write": []}
+    failures = []
+    for records, where in ((17000000, "just after a block was handed off"), (30000000, "a block 79% full"), (33540000, "a block 99.9% full")):
+        runs = []
+        for _ in range(reps):
+            r = run(bins, "private", "segv", "--vtr-guard", "--records", str(records))
+            runs.append(r["rescue_ms"])
+            if r["file"]["recovered"] or r["file"]["changes"] != r["emitted_changes"] or r["signal"] != SIG["SIGSEGV"]:
+                failures.append(f"segv at {records}: {r}")
+        results["drain"].append({"records": records, "where": where, "rescue_ms": min(runs), "runs": runs})
+        print(f"vtr-guard drain {records}: {min(runs)} ms", flush=True)
+    for m in ("--no-guard", "--vtr-guard"):
+        times = [run(bins, "private", "none", m, "--records", "60000000")["write_s"] for _ in range(reps + 2)]
+        results["write"].append({"mode": m[2:], "write_s": min(times), "runs": times})
+        print(f"vtr-guard write {m}: {min(times)} s", flush=True)
+    results["failures"] = failures
+    with open(GUARD_OUT, "w") as f:
+        json.dump(results, f, indent=1)
+    print(f"wrote {GUARD_OUT}")
+    if failures:
+        print("FAILED:\n  " + "\n  ".join(failures))
+        sys.exit(1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--vtr-guard", action="store_true")
     a = ap.parse_args()
     reps = 1 if a.quick else 3
+    if a.vtr_guard:
+        return vtr_guard(reps)
     bins = build_libs()
     results = {"host": {}, "scenarios": [], "drain": [], "busy": []}
     try:
