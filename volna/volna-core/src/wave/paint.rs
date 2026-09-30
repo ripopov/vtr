@@ -287,7 +287,12 @@ pub fn paint(
                     Rect::from_xywh(bounds.left(), snap(y), bounds.width(), 1.0),
                     t.border_variant,
                 );
-                let members = model.group_histories(ix);
+                // Only a folded group draws its members' activity.
+                let members = if g.collapsed {
+                    model.group_histories(ix)
+                } else {
+                    Vec::new()
+                };
                 let group = GroupCells {
                     row: g,
                     count: tree::leaves(model.items(), ix).count(),
@@ -1161,6 +1166,8 @@ pub fn paint_event_row(
             .map_or(0, |last| last + 1)
     };
     let pad = TRACE_PAD * t.zoom;
+    // One primitive per colour, not one per arrow.
+    let (mut plain, mut coalesced) = (Vec::new(), Vec::new());
     while i < h.len() && h.time(i) as f64 <= vp.end {
         let x = vp.x_of(h.time(i) as f64, area.width() as f64).floor();
         let screen_x = area.left() + x as f32;
@@ -1169,7 +1176,19 @@ pub fn paint_event_row(
         // Surfer's event glyph: a full-height stem with a filled upward
         // arrowhead, 5 px wide and one fifth of the trace height.
         let head_height = (bottom - top) * 0.2;
-        let mut segments = vec![[point(screen_x, top), point(screen_x, bottom)]];
+        // Count all occurrences in this pixel, but exclude those beyond the
+        // inclusive viewport end. Binary search keeps dense rows bounded.
+        let next = vp.time_at(x + 1.0, area.width() as f64).ceil();
+        let last_time = ((next as u64).saturating_sub(1)).min(vp.end.floor() as u64);
+        let end = h
+            .index_at(last_time)
+            .map_or(i + 1, |last| (last + 1).max(i + 1));
+        let segments = if end - i > 1 {
+            &mut coalesced
+        } else {
+            &mut plain
+        };
+        segments.push([point(screen_x, top), point(screen_x, bottom)]);
         if head_height > 0.0 {
             for row in 1..=head_height.ceil() as usize {
                 let y = (row as f32).min(head_height);
@@ -1180,19 +1199,6 @@ pub fn paint_event_row(
                 ]);
             }
         }
-        // Count all occurrences in this pixel, but exclude those beyond the
-        // inclusive viewport end. Binary search keeps dense rows bounded.
-        let next = vp.time_at(x + 1.0, area.width() as f64).ceil();
-        let last_time = ((next as u64).saturating_sub(1)).min(vp.end.floor() as u64);
-        let end = h
-            .index_at(last_time)
-            .map_or(i + 1, |last| (last + 1).max(i + 1));
-        let color = if end - i > 1 {
-            t.wave_event_coalesced
-        } else {
-            t.wave_signal
-        };
-        scene.lines(segments, color, 1.0);
         if let Some(last) = counts.last_mut()
             && last.2.is_infinite()
         {
@@ -1207,6 +1213,11 @@ pub fn paint_event_row(
         && last.2.is_infinite()
     {
         last.2 = area.right() - last.0;
+    }
+    for (segments, color) in [(plain, t.wave_signal), (coalesced, t.wave_event_coalesced)] {
+        if !segments.is_empty() {
+            scene.lines(segments, color, 1.0);
+        }
     }
     counts
 }
@@ -1883,17 +1894,21 @@ fn paint_clock_wave(
     let bottom = area.bottom() - TRACE_PAD * t.zoom;
     let col = |time: u64| vp.x_of(time as f64, wf).clamp(0.0, wf);
     let history = crate::clock::ClockHistory::new(timeline.clone());
-    let stretches = timeline.stretches();
-    // Stretches and the gaps between them, in time order.
+    // The stretches in view (they are sorted and disjoint) and the gaps
+    // between them, in time order.
+    let all = timeline.stretches();
+    let lo = all.partition_point(|s| (s.end as f64) < vp.start);
+    let hi = lo + all[lo..].partition_point(|s| (s.begin as f64) <= vp.end);
+    let stretches = &all[lo..hi];
     let mut gaps: Vec<(u64, u64)> = Vec::new();
-    let mut from = first;
-    for s in stretches {
+    let mut from = lo.checked_sub(1).map_or(first, |i| first.max(all[i].end));
+    for s in stretches.iter().chain(all.get(hi)) {
         if s.begin > from {
             gaps.push((from, s.begin));
         }
         from = from.max(s.end);
     }
-    if !timeline.is_open() && last > from {
+    if hi == all.len() && !timeline.is_open() && last > from {
         gaps.push((from, last));
     }
     let mut dashed: Vec<[Point; 2]> = Vec::new();

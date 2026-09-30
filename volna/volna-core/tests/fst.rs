@@ -236,21 +236,26 @@ fn raw_bytes_reals_nine_states_and_time_boundaries() {
         &Theme::one_dark(),
         &mut scene,
     );
-    assert_eq!(scene.prims.len(), 2, "one marker per occurrence");
-    for (marker, x) in scene.prims.iter().zip([25.0, 50.0]) {
-        let volna_core::scene::Prim::Lines {
+    // Arrows of one colour share a primitive: split them at their stems.
+    let [
+        volna_core::scene::Prim::Lines {
             segments, color, ..
-        } = marker
-        else {
-            panic!("event must be an arrow");
-        };
-        assert_eq!(*color, Theme::one_dark().wave_signal);
-        assert_eq!(segments[0][0].x, x);
-        assert_eq!(segments[0][1].x, x);
-        assert!(segments[0][0].y < segments[0][1].y);
+        },
+    ] = scene.prims.as_slice()
+    else {
+        panic!("events are drawn as one set of arrows");
+    };
+    assert_eq!(*color, Theme::one_dark().wave_signal);
+    let stems: Vec<usize> = (0..segments.len())
+        .filter(|&k| segments[k][0].x == segments[k][1].x)
+        .collect();
+    assert_eq!(stems.len(), 2, "one marker per occurrence");
+    for (k, (&stem, x)) in stems.iter().zip([25.0, 50.0]).enumerate() {
+        let head = &segments[stem + 1..stems.get(k + 1).copied().unwrap_or(segments.len())];
+        assert_eq!(segments[stem][0].x, x);
+        assert!(segments[stem][0].y < segments[stem][1].y);
         assert!(
-            segments[1..]
-                .iter()
+            head.iter()
                 .all(|[left, right]| { left.x < x && right.x > x && left.y == right.y })
         );
     }
@@ -381,16 +386,25 @@ fn vtr_events_preserve_repeated_occurrences_and_render_arrows() {
             &theme,
             &mut scene,
         );
-        let actual: Vec<_> = scene
+        // Each arrow's colour, left to right, from its stem.
+        let mut stems: Vec<(f32, volna_core::Color)> = scene
             .prims
             .iter()
-            .map(|prim| {
-                let volna_core::scene::Prim::Lines { color, .. } = prim else {
-                    panic!("expected event arrow");
+            .flat_map(|prim| {
+                let volna_core::scene::Prim::Lines {
+                    segments, color, ..
+                } = prim
+                else {
+                    panic!("expected event arrows");
                 };
-                *color
+                segments
+                    .iter()
+                    .filter(|[a, b]| a.x == b.x)
+                    .map(move |[a, _]| (a.x, *color))
             })
             .collect();
+        stems.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let actual: Vec<_> = stems.into_iter().map(|(_, color)| color).collect();
         assert_eq!(actual, colors, "viewport {start}..{end} width {width}");
     }
 }

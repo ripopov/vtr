@@ -509,7 +509,13 @@ pub fn ruler_marks(
     let ppu = viewport.px_per_unit(width_px);
     let origin = view.origin_cycle(timeline) as i64;
     let (lo, hi) = (viewport.start.max(0.0), viewport.end.max(0.0));
-    for (i, s) in stretches.iter().enumerate() {
+    // Stretches are sorted and disjoint: start at the last one ending before
+    // the view (its stopped gap may reach into it) and stop past the view.
+    let first = stretches
+        .partition_point(|s| (s.end as f64) < lo)
+        .saturating_sub(1);
+    let last = first + stretches[first..].partition_point(|s| (s.begin as f64) <= hi);
+    for (i, s) in stretches.iter().enumerate().take(last).skip(first) {
         let next_begin = stretches.get(i + 1).map(|n| n.begin);
         // Stopped: a long gap to the next stretch, or the end of a clock that stopped for good.
         let gap_end = match next_begin {

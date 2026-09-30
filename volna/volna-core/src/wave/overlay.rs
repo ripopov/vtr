@@ -864,7 +864,10 @@ pub fn cycle_grid(p: &mut TextPainter<'_>, column: &TimeColumn, view: &ClockView
     let ppu = column.viewport.px_per_unit(width);
     let (lo, hi) = (column.viewport.start.max(0.0), column.viewport.end.max(0.0));
     let mut xs: Vec<f32> = Vec::new();
-    for s in timeline.stretches() {
+    // Only the stretches in view: they are sorted and disjoint.
+    let all = timeline.stretches();
+    let first = all.partition_point(|s| (s.end as f64) < lo);
+    for s in all[first..].iter().take_while(|s| (s.begin as f64) <= hi) {
         if s.period == 0
             || (s.end as f64) < lo
             || (s.begin as f64) > hi

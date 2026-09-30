@@ -795,19 +795,12 @@ impl WaveModel {
     /// Fit the visible plots' target ranges to the current viewport.
     fn update_analog_targets(&mut self, doc: &Document) {
         let vp = self.viewport(doc);
-        let entries: Vec<usize> = self
-            .layout
-            .rows
-            .clone()
-            .filter_map(|pos| self.layout.entry(pos))
-            .collect();
-        let items = &mut self.items;
-        for item in items
-            .iter_mut()
-            .enumerate()
-            .filter(|(i, _)| entries.binary_search(i).is_ok())
-            .filter_map(|(_, e)| e.row.signal_mut())
-        {
+        // The rows on screen only, straight from the layout.
+        let Self { layout, items, .. } = self;
+        for i in layout.rows.clone().filter_map(|pos| layout.entry(pos)) {
+            let Some(item) = items.get_mut(i).and_then(|e| e.row.signal_mut()) else {
+                continue;
+            };
             if let (Some(a), Some(h)) = (&mut item.analog, &item.history)
                 && let Some(kind) = item.translator.numeric_kind()
             {
