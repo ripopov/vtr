@@ -116,7 +116,7 @@ button.a-row{cursor:pointer}
     <p class="v-kicker">Design · Hierarchy browser</p>
     <h1 class="v-hero__title">Every scope's activity, <em>exact</em>, on any trace.</h1>
     <p class="v-hero__lede">The <a class="v-link" href="volna-theme.html#hierarchy">theme proposal</a> gives every scope row a meter for the share of its signals that change in the visible time range. That needs a yes or no for every signal in the design on every pan and zoom. Traces range from eight signals to millions, from a few thousand time steps to billions, from picoseconds to cycles, and from busy throughout to idle for most of the run. A signal is quiet in a window only when the window fits inside one of its silences, so the index keeps each signal's <strong>long silences</strong>. How long counts as long is decided by each writer block from its own byte budget, never by a constant in time units. The index therefore costs a bounded share of the file, answers every window at least that threshold wide exactly, and any window it cannot decide touches <strong>at most two blocks</strong>. The index is a <code>.index</code> sidecar, built once for a VTR or FST trace in bounded memory, so neither the simulator nor the trace pays for it.</p>
-    <p class="v-hero__fine">Checked on 11 traces · 8 to 200,001 signals · 0.37 million to 1.95 billion changes · 1.2 MiB to 3.9 GiB · no wrong answer in 3,300 windows · undecided signals read in at most 36 ms</p>
+    <p class="v-hero__fine">Checked on 11 traces · 8 to 200,001 signals · 0.37 million to 1.95 billion changes · 1.2 MiB to 3.9 GiB · no wrong answer in 3,300 windows · undecided signals read in at most 78 ms</p>
   </div>
 </section>
 
@@ -164,7 +164,7 @@ button.a-row{cursor:pointer}
       <li><strong>Four comparisons per signal.</strong>Binary search for the first stretch that ends at or after t0. If there is none, or it starts after t1, the window sits in a silence and the signal is quiet. If the window holds the stretch's first or last change, the signal is active. So it is when the window is at least as wide as the stretch's largest inner gap, or as the threshold where it lies. Otherwise the signal is undecided.</li>
       <li><strong>The trace picks the scale.</strong>The writer cuts the run into blocks of a fixed number of records, so a block is short in time where the design is busy and long where it idles. Each block takes its own threshold Δ: the smallest power of two for which the silences ending in the block fit its budget, 1% of the block's compressed bytes on disk and 4% of them in memory. Δ never exceeds a quarter of the block's time span. Both rules count bytes and records, not time, so they read the same on a picosecond trace and on a cycle trace.</li>
       <li><strong>Silences across blocks.</strong>A silence is kept when it is longer than the smallest threshold of the blocks it touches. A quiet window of at least that many time steps then always lies in a kept silence, so every window at least as wide as its blocks' smallest Δ is exact. A narrower window touches at most two blocks, because every block spans at least four of its thresholds.</li>
-      <li><strong>Undecided signals are read, locally.</strong>For those two blocks at most, the reader decodes only the undecided signals' columns. The writer bounds a block by its record count, so this read has the same ceiling on a 1&nbsp;MiB trace and on a 4&nbsp;GiB one. Across the eleven traces it took at most 36&nbsp;ms on 16 threads. Decoding cost grows with window width, and the index is exact above Δ, so each method is cheap exactly where the other is expensive.</li>
+      <li><strong>Undecided signals are read, locally.</strong>For those two blocks at most, the reader decodes only the undecided signals' columns. The writer bounds a block by its record count, so this read has the same ceiling on a 1&nbsp;MiB trace and on a 4&nbsp;GiB one. Across the eleven traces it took at most 78&nbsp;ms on 16 threads. Decoding cost grows with window width, and the index is exact above Δ, so each method is cheap exactly where the other is expensive.</li>
       <li><strong>Scopes count distinct signals.</strong>A variable often aliases a signal recorded elsewhere, so a scope counts signals, not variables. From each changing signal, walk up from the scopes of its variables and stop at the first scope already stamped with that signal. The walk is linear in the scope–signal pairs: 826,739 steps and 1&nbsp;ms on C910, and 400,001 steps and 1.6&nbsp;ms for 200,001 signals. Hui's colour-set-size method does the same in linear time for deeper trees.</li>
     </ol>
     <figure class="v-frame a-figure">
@@ -227,21 +227,21 @@ button.a-row{cursor:pointer}
     <p class="v-kicker">Measured</p>
     <h2 class="v-section__title">Eleven traces of different shape.</h2>
     <div class="a-body">
-      <p>Each trace was indexed by the library's builder, as <code>vtr index</code> does. Blocks, Δ and sizes are its output: "Disk" is the sidecar's share of the trace, and "Memory" is the loaded index, 20 bytes per stretch and 4 per signal. The design's prototype checked each trace with 300 windows, widths log-uniform from one time unit to the whole run, half placed uniformly in time and half centred on a random change; every answer was compared with every change of every signal, and none was wrong. "Windows exact" is the share it answered with no undecided signal, and "Read" its slowest resolution of the undecided signals on 16 threads; stage 2 measures both again with the library's query. All eleven are VTR files. The FST front end reuses the same rule and query, but its builder does not exist yet, so FST traces have not been measured.</p>
+      <p>Each trace was indexed by the library's builder, as <code>vtr index</code> does. Blocks, Δ and sizes are its output: "Disk" is the sidecar's share of the trace, and "Memory" is the loaded index, 20 bytes per stretch and 4 per signal. Each trace was then checked with 300 windows, widths log-uniform from one time unit to the whole run, half placed uniformly in time and half centred on a change. Every window was answered by <code>classify</code> and <code>resolve</code> and compared with <code>resolve</code> of every signal, which reads the trace and not the index; none was wrong. The core tests compare the same calls with every change of every signal. "Windows exact" is the share answered with no undecided signal, and "Read" the slowest resolution of the undecided signals on 16 threads. All eleven are VTR files. The FST front end reuses the same rule and query, but its builder does not exist yet, so FST traces have not been measured.</p>
     </div>
     <div class="v-table-wrap a-wide" role="region" aria-label="Measured traces" tabindex="0">
       <table class="v-table a-num">
         <thead><tr><th>Trace</th><th>Signals</th><th>Changes</th><th>File</th><th>Blocks</th><th>Δ (time units)</th><th>Disk</th><th>Memory</th><th>Windows exact</th><th>Read</th></tr></thead>
         <tbody>
-                    <tr><td>scr1_axi · small core</td><td>1,445</td><td>21.0 M</td><td>1.2 MiB</td><td>2</td><td>32,768</td><td>0.59%</td><td>3.3%</td><td>28%</td><td>16 ms</td></tr>
-          <tr><td>scr1_x8 · eight cores</td><td>11,560</td><td>167.8 M</td><td>11.9 MiB</td><td>10</td><td>32,768</td><td>0.08%</td><td>2.6%</td><td>30%</td><td>9 ms</td></tr>
-          <tr><td>c910_coremark · large core</td><td>67,144</td><td>596.6 M</td><td>243 MiB</td><td>36</td><td>1,024–4,096</td><td>0.71%</td><td>3.6%</td><td>45%</td><td>23 ms</td></tr>
-          <tr><td>rsa256_long · long run</td><td>113</td><td>16.2 M</td><td>310 MiB</td><td>2</td><td>2</td><td>0.006%</td><td>1.0%</td><td>89%</td><td>36 ms</td></tr>
-          <tr><td>bursty · ps, sleep phases</td><td>16,035</td><td>109.6 M</td><td>291 MiB</td><td>7</td><td>8.4–16.8 M</td><td>0.96%</td><td>2.4%</td><td>49%</td><td>8 ms</td></tr>
-          <tr><td>long_sparse · few changes</td><td>20,001</td><td>4.5 M</td><td>7.9 MiB</td><td>1</td><td>134 M</td><td>2.2%*</td><td>5.9%*</td><td>10%</td><td>16 ms</td></tr>
-          <tr><td>many_active · wide, short</td><td>200,001</td><td>22.0 M</td><td>69.7 MiB</td><td>2</td><td>32,768–65,536</td><td>1.8%*</td><td>11.6%*</td><td>18%</td><td>22 ms</td></tr>
-          <tr><td>wide_bus · 2,048-bit buses</td><td>129</td><td>0.37 M</td><td>13.7 MiB</td><td>1</td><td>8,192</td><td>0.31%</td><td>2.8%</td><td>42%</td><td>5 ms</td></tr>
-          <tr><td>large_vtr · fast samples</td><td>8</td><td>233.3 M</td><td>341 MiB</td><td>14</td><td>128</td><td>&lt;0.001%</td><td>1.7%</td><td>75%</td><td>34 ms</td></tr>
+          <tr><td>scr1_axi · small core</td><td>1,445</td><td>21.0 M</td><td>1.2 MiB</td><td>2</td><td>32,768</td><td>0.59%</td><td>3.3%</td><td>33%</td><td>13 ms</td></tr>
+          <tr><td>scr1_x8 · eight cores</td><td>11,560</td><td>167.8 M</td><td>11.9 MiB</td><td>10</td><td>32,768</td><td>0.08%</td><td>2.6%</td><td>35%</td><td>10 ms</td></tr>
+          <tr><td>c910_coremark · large core</td><td>67,144</td><td>596.6 M</td><td>243 MiB</td><td>36</td><td>1,024–4,096</td><td>0.71%</td><td>3.6%</td><td>41%</td><td>28 ms</td></tr>
+          <tr><td>rsa256_long · long run</td><td>113</td><td>16.2 M</td><td>310 MiB</td><td>2</td><td>2</td><td>0.006%</td><td>1.0%</td><td>96%</td><td>31 ms</td></tr>
+          <tr><td>bursty · ps, sleep phases</td><td>16,035</td><td>109.6 M</td><td>291 MiB</td><td>7</td><td>8.4–16.8 M</td><td>0.96%</td><td>2.4%</td><td>50%</td><td>7 ms</td></tr>
+          <tr><td>long_sparse · few changes</td><td>20,001</td><td>4.5 M</td><td>7.9 MiB</td><td>1</td><td>134 M</td><td>2.2%*</td><td>5.9%*</td><td>16%</td><td>10 ms</td></tr>
+          <tr><td>many_active · wide, short</td><td>200,001</td><td>22.0 M</td><td>69.7 MiB</td><td>2</td><td>32,768–65,536</td><td>1.8%*</td><td>11.6%*</td><td>29%</td><td>78 ms</td></tr>
+          <tr><td>wide_bus · 2,048-bit buses</td><td>129</td><td>0.37 M</td><td>13.7 MiB</td><td>1</td><td>8,192</td><td>0.31%</td><td>2.8%</td><td>41%</td><td>6 ms</td></tr>
+          <tr><td>large_vtr · fast samples</td><td>8</td><td>233.3 M</td><td>341 MiB</td><td>14</td><td>128</td><td>&lt;0.001%</td><td>1.7%</td><td>78%</td><td>36 ms</td></tr>
           <tr><td>large_many_scopes · 128 sines</td><td>128</td><td>1.28 G</td><td>3.9 GiB</td><td>77</td><td>1</td><td>&lt;0.001%</td><td>&lt;0.001%</td><td>100%</td><td>–</td></tr>
           <tr><td>large_analog_signals · 15 channels</td><td>15</td><td>1.95 G</td><td>3.9 GiB</td><td>117</td><td>1</td><td>&lt;0.001%</td><td>&lt;0.001%</td><td>100%</td><td>–</td></tr>
         </tbody>
@@ -249,7 +249,7 @@ button.a-row{cursor:pointer}
     </div>
     <div class="a-body">
       <p>The thresholds span eight orders of magnitude, from 1 time unit to 134 million, and every one was chosen by the same rule. Within one trace they follow its blocks: C910's take 1,024 to 4,096 by their own silences, and on the bursty trace Δ is 0.1% of the longest block's span and 2.0% of the shortest. Traces that change on every sample keep one stretch per signal and are exact everywhere. <em>*</em> Two traces go over budget because their activity is too sparse or too wide for a quarter-block threshold: a signal of long_sparse changes about 225 times over 2.5 billion time units, and many_active has 200,001 signals in 1,000 cycles. There the cap binds by design. Staying within two blocks outranks the budget, and the overshoot is bounded by the signals with a silence longer than a quarter block.</p>
-      <p>The exact share depends on how widths are drawn, and a log-uniform draw weights windows narrower than a clock period as heavily as whole-run ones. The contract does not depend on it: a window is exact when its width reaches its blocks' Δ, and otherwise costs one read of at most two blocks. Decoding a trace's largest block completely on one thread took 38–434&nbsp;ms, which bounds that read. Classification took 1.3–26&nbsp;ns per signal on one thread for traces with over a thousand signals, 22&nbsp;ns on C910. Extrapolated, a design of ten million signals would need about 15&nbsp;ms on 16 threads, which Volna coalesces to one pass per frame off the UI thread.</p>
+      <p>The exact share depends on how widths are drawn, and a log-uniform draw weights windows narrower than a clock period as heavily as whole-run ones. The contract does not depend on it: a window is exact when its width reaches its blocks' Δ, and otherwise costs one read of at most two blocks. On one thread that read took at most 154&nbsp;ms, on many_active, where nearly all of 200,001 signals can be undecided. Classification took 2.8–26&nbsp;ns per signal on one thread for traces with over a thousand signals, 14&nbsp;ns on C910. Extrapolated, a design of ten million signals would need about 10&nbsp;ms on 16 threads, which Volna coalesces to one pass per frame off the UI thread.</p>
     </div>
   </div>
 </section>
@@ -258,7 +258,7 @@ button.a-row{cursor:pointer}
   <div class="v-wrap">
     <p class="v-kicker">Options</p>
     <h2 class="v-section__title">Eleven ways to answer, and why this one.</h2>
-    <p class="v-section__sub">The first two rows were measured on all eleven traces with the same budget and checks as the chosen design. The rest were measured on C910 in the first version of this design and rejected for reasons that hold on any trace.</p>
+    <p class="v-section__sub">The first two rows were measured by the design's prototype on all eleven traces, against its own local-threshold index with the same budget and checks (45% of C910's windows exact; the library, at 20 bytes per loaded stretch, answers 41%). The rest were measured on C910 in the first version of this design and rejected for reasons that hold on any trace.</p>
     <div class="v-table-wrap a-wide" role="region" aria-label="Options" tabindex="0">
       <table class="v-table v-table--text">
         <thead><tr><th>Approach</th><th>What it keeps</th><th>Behaviour</th><th>Verdict</th></tr></thead>
@@ -294,7 +294,7 @@ button.a-row{cursor:pointer}
       <li><strong>Measured speed.</strong>A VTR build takes 0.22&nbsp;s for C910 on 16 threads and 2.2&nbsp;s on one, 0.38&nbsp;ns per change. The 4&nbsp;GiB traces take 0.47&nbsp;s and 1.0&nbsp;s. The <a class="v-link" href="BENCHMARK_RESULTS.md#activity-index-vtr-index">benchmark report</a> gives build time, peak memory and sidecar size for every signal workload. FST builds have not been measured: they depend on the writer's block size and on <code>fst-reader</code>. The suite already carries FST twins of every signal workload (<code>*_fstapi_zlib.fst</code>, <code>*_fstcpp_none.fst</code>).</li>
       <li><strong>Three ways to get one.</strong><code>vtr index run.vtr</code> or <code>vtr index run.fst</code> builds or refreshes the sidecar, for a Makefile step after simulation or a batch of old traces; <code>--check</code> only reports whether a valid one exists. Volna opens a trace without a valid index at once, with counts but no meters, and offers "Build activity index", with the expected time, above the hierarchy. The build runs in the background through the same library function, never by shelling out, and the meters appear when it finishes. Future opens are instant. A setting, <code>hierarchy.activityIndex</code>, is <code>"ask"</code> by default; <code>"always"</code> builds without asking and <code>"never"</code> hides the offer. A remote session asks the server, which builds and caches the sidecar next to its trace and sends it once.</li>
       <li><strong>The query sits behind the session.</strong>"Which signals change in this window" is trace data, so its query belongs in <code>vtr::activity</code>, next to the readers, and not in a viewer. Volna's <code>Session</code> trait gains <code>activity()</code>, which returns the loaded index or <code>None</code>, and <code>resolve_activity(signals, t0, t1)</code>. The VTR and FST sessions implement both, the same way they already implement signal loads, so the hierarchy browser never asks which format it has. The loaded index is an immutable shared value, and the C API projects the VTR side one to one.</li>
-      <li><strong>Two calls, one answer.</strong><code>classify</code> fills an active set and an undecided set from the index. <code>resolve</code> reads only the undecided signals in the one or two blocks the window touches. For VTR, that means their column runs, each decompressed once. For FST, it is one <code>read_signals</code> call filtered to those handles and to the window, which <code>fst-reader</code> answers from the overlapping blocks. A caller that wants a single exact answer calls both. The hierarchy browser shows the first answer at once and the second when it lands.</li>
+      <li><strong>Two calls, one answer.</strong><code>classify</code> fills an active set and an undecided set from the index. <code>resolve</code> reads only the undecided signals in the one or two blocks the window touches. For VTR, that means their column runs, each decompressed once and kept in the reader's cache for the next window; each column is entered through its skip index and left at its first entry in the window. For FST, the front end will read the same blocks for those handles. A caller that wants a single exact answer calls both, as <code>vtr active</code> does. The hierarchy browser will show the first answer at once and the second when it lands.</li>
       <li><strong>Local and remote alike.</strong>The index is raw trace data, not presentation. The remote transport sends the compressed sidecar once, about 1% of the trace, so panning never waits on the network. Meters and scope counts stay client-side in <code>volna-core</code>.</li>
       <li><strong>One pass per frame.</strong>When the wave viewport changes, the hierarchy model classifies once per frame, coalesced, off the UI thread and parallel over signals, then counts all scopes with the per-signal +1/−1 lists of the <a class="v-link" href="hierarchy-scope-sizes.html">scope-sizes design</a>, built once when meters turn on. Only the visible rows are painted.</li>
       <li><strong>Honest while pending.</strong>In a window narrower than its blocks' Δ, the meter draws the decided share solid and the undecided share hatched, as in the demo. A quiet scope is drawn faint only when its upper bound is zero. When <code>resolve</code> returns, the meter snaps to the exact value. A result for a window that has since moved is dropped.</li>
@@ -325,7 +325,7 @@ button.a-row{cursor:pointer}
         <thead><tr><th>#</th><th>Commit</th><th>What the user gets</th><th>Needs</th><th>Files</th></tr></thead>
         <tbody>
           <tr><td>1 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-1">The index, for VTR</a></td><td><code>vtr index run.vtr</code> writes <code>run.vtr.index</code> in bounded memory</td><td>—</td><td>new sidecar, version 1</td></tr>
-          <tr><td>2</td><td><a class="v-link" href="#stage-2">Queries</a></td><td><code>vtr active</code> answers exactly which scopes and signals change in a window</td><td>1</td><td>unchanged</td></tr>
+          <tr><td>2 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-2">Queries</a></td><td><code>vtr active</code> answers exactly which scopes and signals change in a window</td><td>1</td><td>unchanged</td></tr>
           <tr><td>3</td><td><a class="v-link" href="#stage-3">FST traces</a></td><td>Both commands on FST files, with the same answers</td><td>2</td><td>same sidecar</td></tr>
           <tr><td>4</td><td><a class="v-link" href="#stage-4">Meters</a></td><td>A live meter on every scope row of an indexed trace</td><td>3; scope sizes, stage 1</td><td>unchanged</td></tr>
           <tr><td>5</td><td><a class="v-link" href="#stage-5">Build from Volna</a></td><td>The offer, a background build with progress, <code>hierarchy.activityIndex</code></td><td>3, 4</td><td>settings key, user cache</td></tr>
@@ -356,17 +356,28 @@ button.a-row{cursor:pointer}
       </article>
 
       <article class="a-stage" id="stage-2" aria-labelledby="stage-2-h">
-        <p class="a-stage__n">Stage 2</p>
+        <p class="a-stage__n">Stage 2 <span class="v-chip v-chip--accent">Landed</span></p>
         <h3 id="stage-2-h">Queries</h3>
         <p>The two calls of the design, behind a command that answers exactly. Which units wake up in this window? Is the FPU quiet during the boot loop? The answer lists scopes with their changing and total signals, or the changing signals themselves.</p>
         <h4 class="a-committed">Committed</h4>
         <dl class="a-dl">
-          <div><dt>Core</dt><dd><code>Index::classify(t0, t1)</code> fills the active and undecided sets; <code>vtr::activity::resolve(reader, signals, t0, t1)</code> reads the undecided signals from the one or two blocks the window touches. The C API projects both one to one in <code>vtr.h</code>.</dd></div>
-          <div><dt>CLI</dt><dd><code>vtr active &lt;trace&gt; &lt;t0&gt; &lt;t1&gt;</code> with <code>--scope</code>, <code>--depth</code> and <code>--signals</code>. It uses a valid sidecar, or says how to make one and exits with an error, unless <code>--build</code> asks it to build first.</dd></div>
-          <div><dt>Tests</dt><dd><code>classify</code> plus <code>resolve</code> against a brute-force scan over random windows, including windows that end exactly on changes and on block boundaries and traces with very different thresholds per block. A CLI test in <code>tools/vtr-cli/tests</code>.</dd></div>
+          <div><dt>Core</dt><dd><code>Index::classify(t0, t1)</code> returns a <code>Classification</code> of active and undecided signals, and <code>classify_range</code> does the same for a range of signals, so callers can split the work over threads. <code>Index::exact_width(t0, t1)</code> is the width from which a window is decided. <code>vtr::activity::resolve(reader, signals, t0, t1)</code> reads the undecided signals from the blocks the window overlaps: their column runs, each decompressed once and kept in the reader's cache, entered through the skip index and left at the first entry in the window. <code>Hierarchy::scope_sizes_of</code> counts a subset of signals per scope. The C API projects them one to one in <code>vtr.h</code> (<code>vtr_activity_write</code>, <code>_load</code>, <code>_classify</code>, <code>_exact_width</code>, <code>_resolve</code>).</dd></div>
+          <div><dt>CLI</dt><dd><code>vtr active &lt;trace&gt; &lt;t0&gt; &lt;t1&gt;</code> with <code>--scope</code>, <code>--depth</code> and <code>--signals</code>, times in file units or with a unit (<code>25000ns</code>, <code>2.5us</code>). It uses a valid sidecar, or says how to make one and exits with an error, unless <code>--build</code> asks it to build first. The header says whether the index decided every signal or how many were read from the trace.</dd></div>
+          <div><dt>Bench</dt><dd><code>vtr-bench activity --windows N</code> answers random windows with both calls and checks each answer against <code>resolve</code> of every signal, which reads the trace and not the index.</dd></div>
+          <div><dt>Tests</dt><dd><code>classify</code> plus <code>resolve</code> against every change of ten random traces under two budgets, 156 windows each: log-uniform widths placed uniformly, starting or ending exactly on a change or on a block boundary, and windows before, after and around the whole run. Every window at least <code>exact_width</code> wide is decided, and an undecided one touches at most two blocks. A census test counts a subset of signals, <code>tools/vtr-cli/tests/index.rs</code> runs <code>vtr active</code>, and the C smoke test runs the C calls.</dd></div>
         </dl>
-        <figure class="v-code a-shotfig"><div class="v-code__head">Terminal</div><pre id="term-3"></pre></figure>
-        <p class="v-frame__caption" id="term-3-caption"></p>
+        <figure class="v-code a-shotfig"><div class="v-code__head">Terminal</div><pre id="term-3"><span class="tok-p">$ </span>vtr active c910_coremark.vtr 25000ns 25500ns --depth 1 \
+    --scope TOP.top.x_soc.x_cpu_sub_system_axi.x_rv_integration_platform.x_cpu_top.x_ct_top_0.x_ct_core
+<span class="tok-c">25,000.0–25,500.0 ns · 17,977 of 67,144 signals change · exact</span>
+x_ct_core        17,823 / 62,292
+  x_ct_cp0_top       17 /    798
+  x_ct_idu_top    7,414 / 23,720
+  x_ct_ifu_top    2,483 /  6,779
+  x_ct_iu_top     1,385 /  2,485
+  x_ct_lsu_top    2,478 / 12,687
+  x_ct_rtu_top    4,378 / 11,682
+  x_ct_vfpu_top      16 /  5,596</pre></figure>
+        <p class="v-frame__caption" id="term-3-caption">The command's output for C910. The window is 500.0&nbsp;ns wide, wider than the Δ of every block it touches, so <code>classify</code> decides every signal and no block is read; the command answers in 30&nbsp;ms, opening the trace included.</p>
       </article>
 
       <article class="a-stage" id="stage-3" aria-labelledby="stage-3-h">
@@ -486,7 +497,7 @@ button.a-row{cursor:pointer}
 
 <section class="a-end">
   <div class="v-wrap">
-    <p class="v-hero__fine">Built with <code>vtr-bench activity &lt;trace&gt; --threads 16</code> (bench/vtr-bench/src/activity.rs), 1% disk and 4% memory budgets, best of three runs, on a Core Ultra 7 265K pinned to 16 threads · traces from <code>bench/results/latest</code>, the <code>large_*</code> Volna examples and <code>vtr-bench gen-bursty --scale 4</code> · demo data from <code>vtr-bench activity-export c910_coremark.vtr 220000 270000</code></p>
+    <p class="v-hero__fine">Built with <code>vtr-bench activity &lt;trace&gt; --threads 16</code>, build times best of three, and checked with <code>--windows 300</code> (bench/vtr-bench/src/activity.rs), 1% disk and 4% memory budgets, on a Core Ultra 7 265K pinned to 16 threads · traces from <code>bench/results/latest</code>, the <code>large_*</code> Volna examples and <code>vtr-bench gen-bursty --scale 4</code> · demo data from <code>vtr-bench activity-export c910_coremark.vtr 220000 270000</code></p>
   </div>
 </section>
 </main>
@@ -730,15 +741,8 @@ const sizeRows = (limit, head = 'SIGNALS') => `<div class="a-head" aria-hidden="
 
 function buildPlan() {
   const ifu = scopeByName('x_ct_ifu_top');
-  // Stage 2: the command's answer for a window wider than every Δ it touches, so nothing is undecided and nothing is read.
-  { const [t0, t1] = PLAN.window3, r = query(t0, t1), c = coreScope(), path = [];
-    for (let i = c; i >= 0; i = M.parent[i]) path.unshift(M.names[i]);
-    PLAN.exact3 = r.undecided === 0;
-    const lines = coreRows().map(([i, d]) => `${('  '.repeat(d) + M.names[i]).padEnd(24)} ${n(M.lo[i]).padStart(6)} / ${n(M.tot[i]).padStart(6)}`);
-    document.getElementById('term-3').innerHTML = `<span class="tok-p">$ </span>vtr active c910_coremark.vtr ${t0 / 10}ns ${t1 / 10}ns --depth 1 \\\n    --scope ${esc(path.join('.'))}\n` +
-      `<span class="tok-c">${ns(t0)}–${ns(t1)} ns · ${n(r.active)} of ${n(M.N)} signals change · ${PLAN.exact3 ? 'exact' : 'resolved'}</span>\n` + lines.map(esc).join('\n');
-    document.getElementById('term-3-caption').textContent = `Computed by this page from the index. The window is ${ns(t1 - t0)} ns wide, wider than the Δ of every block it touches (${ns(r.dwin)} ns at most), so classify decides every signal and no block is read.`;
-  }
+  // Stage 2: the command's window is wider than every Δ it touches, so the index decides every signal.
+  { const [t0, t1] = PLAN.window3; PLAN.exact3 = query(t0, t1).undecided === 0; }
 
   // Stage 4: a wide view that the index answers exactly, and a view narrower than Δ, where meters are ranges until the read returns.
   { const meterRows = (rows, marks) => `<div class="a-head" aria-hidden="true"><span>SCOPE</span><span class="a-count">CHANGING</span><span>SHARE</span></div><ul class="a-shot__rows">` + rows.map(([i, d]) => {

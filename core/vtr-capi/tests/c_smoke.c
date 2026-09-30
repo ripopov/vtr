@@ -56,7 +56,53 @@ static int ending_smoke(const char *path) {
     return 0;
 }
 
-/* A clock that changes speed, written and read back through the C API. */
+/* Activity index: a clock that stops for a while and a rare counter. */
+static int activity_smoke(const char *path) {
+    vtr_writer *w = vtr_writer_create(path, NULL);
+    ASSERT(w != NULL);
+    uint32_t top = vtr_writer_add_scope(w, VTR_NONE, "top", VTR_SCOPE_MODULE, "top");
+    uint32_t node, clk = VTR_NONE, cnt = VTR_NONE;
+    CHECK(vtr_writer_add_var(w, top, "clk", VTR_VAR_WIRE, VTR_DIR_INPUT, VTR_SIGNAL_BITS, 1, 2, &node, &clk));
+    CHECK(vtr_writer_add_var(w, top, "cnt", VTR_VAR_REG, VTR_DIR_OUTPUT, VTR_SIGNAL_BITS, 8, 2, &node, &cnt));
+    for (uint64_t t = 0; t < 4000; t++) {
+        if (t >= 1000 && t < 3000) continue;          /* the clock stops */
+        CHECK(vtr_writer_set_time(w, t));
+        CHECK(vtr_writer_emit_bit(w, clk, (uint8_t)(t & 1)));
+        if (t % 500 == 0) CHECK(vtr_writer_emit_u64(w, cnt, t / 500));
+    }
+    CHECK(vtr_writer_close(w));
+    vtr_reader *rd = vtr_reader_open(path);
+    ASSERT(rd != NULL);
+    ASSERT(vtr_activity_load(rd, path, NULL) == NULL);  /* not built yet */
+    vtr_activity_summary sum;
+    CHECK(vtr_activity_write(rd, path, NULL, 2, 0, &sum));
+    ASSERT(sum.signals == 2 && sum.blocks >= 1 && sum.bytes > 0 && sum.delta_min >= 1);
+    vtr_activity_index *x = vtr_activity_load(rd, path, NULL);
+    ASSERT(x != NULL);
+    /* While the clock is stopped nothing changes; around t=500 only the clock and the counter do. */
+    size_t na = 9, nu = 9;
+    vtr_activity_classes *c = vtr_activity_classify(x, 1500, 2500);
+    vtr_activity_classes_active(c, &na);
+    vtr_activity_classes_undecided(c, &nu);
+    ASSERT(na == 0 && nu == 0);
+    vtr_activity_classes_free(c);
+    c = vtr_activity_classify(x, 400, 600);
+    const uint32_t *act = vtr_activity_classes_active(c, &na);
+    const uint32_t *und = vtr_activity_classes_undecided(c, &nu);
+    uint32_t got[2]; size_t ng = 0;
+    CHECK(vtr_activity_resolve(rd, und, nu, 400, 600, got, &ng));
+    ASSERT(na + ng == 2 && (na == 0 || act[0] == clk));
+    vtr_activity_classes_free(c);
+    ASSERT(vtr_activity_exact_width(x, 0, 4000) >= 1);
+    uint32_t both[2] = {clk, cnt};
+    CHECK(vtr_activity_resolve(rd, both, 2, 501, 999, got, &ng));
+    ASSERT(ng == 1 && got[0] == clk);
+    vtr_activity_free(x);
+    vtr_reader_close(rd);
+    return 0;
+}
+
+/* A clock that changes speed, written and read back through the C API. *//* A clock that changes speed, written and read back through the C API. */
 static int clock_smoke(const char *path) {
     vtr_writer *w = vtr_writer_create(path, NULL);
     ASSERT(w != NULL);
@@ -350,6 +396,8 @@ int main(int argc, char **argv) {
     if (clock_smoke(clock_path)) return 1;
     snprintf(clock_path, sizeof clock_path, "%s.ending.vtr", path);
     if (ending_smoke(clock_path)) return 1;
+    snprintf(clock_path, sizeof clock_path, "%s.activity.vtr", path);
+    if (activity_smoke(clock_path)) return 1;
     /* error paths */
     ASSERT(vtr_reader_open("/nonexistent/file.vtr") == NULL);
     ASSERT(strlen(vtr_last_error()) > 0);

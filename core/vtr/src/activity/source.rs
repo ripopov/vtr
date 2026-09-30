@@ -4,7 +4,7 @@ use super::{Block, BlockScan, BuildOptions, Builder, Identity, Summary};
 use crate::block::{self, GroupView};
 use crate::codec::{self, Decompressor};
 use crate::error::{Error, Result};
-use crate::hierarchy::SignalKind;
+use crate::hierarchy::{SignalId, SignalKind};
 use crate::reader::Reader;
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -109,6 +109,33 @@ pub fn build(reader: &Reader, out: impl Write, opts: &BuildOptions) -> Result<Su
         return Err(Error::State("an activity scan worker stopped early"));
     }
     builder.finish()
+}
+
+/// The signals among `signals` that change in the window `[t0, t1]`, read
+/// from the trace, in ascending order: the exact answer for the signals
+/// [`Index::classify`](super::Index::classify) leaves undecided. A change
+/// comes after the trace's first time step, as in the index.
+///
+/// Only the blocks the window overlaps are read, at most two for a window
+/// the index could not decide, and in them only the column runs holding these
+/// signals, each decompressed once and kept in the reader's cache for the
+/// next window. Each column is entered through its skip index and left at its
+/// first entry in the window, so a read costs little more than the runs'
+/// decompression.
+pub fn resolve(reader: &Reader, signals: &[SignalId], t0: u64, t1: u64) -> Result<Vec<SignalId>> {
+    let t_min = if reader.block_count() > 0 { reader.block_range(0).0 } else { 0 };
+    let t0 = t0.max(t_min.saturating_add(1));
+    if t0 > t1 || signals.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut sigs = signals.to_vec();
+    sigs.sort_unstable();
+    sigs.dedup();
+    if let Some(s) = sigs.last().filter(|s| s.0 >= reader.signal_count()) {
+        return Err(Error::invalid(format!("unknown signal {}", s.0)));
+    }
+    let hit = reader.changing(&sigs, t0, t1)?;
+    Ok(sigs.into_iter().zip(hit).filter_map(|(s, h)| h.then_some(s)).collect())
 }
 
 /// What scanning block `i` holds at most: its rows and candidates, its

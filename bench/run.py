@@ -354,11 +354,13 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_re
 
 
 def run_activity(vtr_file):
-    """Activity index build (docs/hierarchy-activity.html): best-of-3 build time, the largest
-    peak anonymous memory, sidecar size and thresholds, on 16 threads."""
+    """Activity index (docs/hierarchy-activity.html) on 16 threads: best-of-3 build time, the
+    largest peak anonymous memory, sidecar size and thresholds, then 100 random windows answered
+    by classify and resolve and checked against the trace."""
     runs = [json_out([VTR_BENCH, "activity", vtr_file, "--threads", "16"]) for _ in range(3)]
     best = min(runs, key=lambda r: r["build_s"])
     best["peak_anon_bytes"] = max(r["peak_anon_bytes"] for r in runs)
+    best["queries"] = json_out([VTR_BENCH, "activity", vtr_file, "--threads", "16", "--windows", "100"])["queries"]
     return best
 
 
@@ -726,13 +728,15 @@ def render(results, path):
     act = [r for r in rtl if "activity" in r]
     if act:
         L.append("\n## Activity index: `vtr index`\n")
-        L.append("The sidecar that answers which signals change in a window ([design](hierarchy-activity.html)), built from the VTR file above on 16 threads in one streaming pass: best-of-3 build time, largest peak anonymous memory (the mapped trace excluded), its size on disk and loaded, and the range of block thresholds Δ in time units.\n")
-        L.append("| workload | build | per change | peak memory | sidecar | share of trace | loaded | Δ |")
-        L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        L.append("The sidecar that answers which signals change in a window ([design](hierarchy-activity.html)), built from the VTR file above on 16 threads in one streaming pass: best-of-3 build time, largest peak anonymous memory (the mapped trace excluded), its size on disk and loaded, and the range of block thresholds Δ in time units. Then 100 random windows of log-uniform width are answered by `classify` and `resolve` and checked against the trace: the share answered with no undecided signal, the median undecided share of the others, `classify` time per signal on one thread, and the slowest `resolve` of the undecided signals on 16 threads.\n")
+        L.append("| workload | build | per change | peak memory | sidecar | share of trace | loaded | Δ | windows exact | undecided | classify | slowest read |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for r in act:
             a = r["activity"]
+            q = a.get("queries") or {}
             d = f"{a['delta_min']:,}" if a["delta_min"] == a["delta_max"] else f"{a['delta_min']:,}–{a['delta_max']:,}"
-            L.append(f"| {r['workload']} | {a['build_s']:.2f}s | {a['build_ns_per_change']:.2f} ns | {a['peak_anon_bytes'] / 2**20:.0f} MiB | {fmt_bytes(a['sidecar_bytes'])} | {a['disk_share'] * 100:.2f}% | {fmt_bytes(a['loaded_bytes'])} | {d} |")
+            qs = f"{q['exact_share'] * 100:.0f}% | {q['undecided_median'] * 100:.0f}% | {q['classify_ns_per_signal']:.1f} ns | {q['resolve_ms_max']:.1f} ms" if q else "- | - | - | -"
+            L.append(f"| {r['workload']} | {a['build_s']:.2f}s | {a['build_ns_per_change']:.2f} ns | {a['peak_anon_bytes'] / 2**20:.0f} MiB | {fmt_bytes(a['sidecar_bytes'])} | {a['disk_share'] * 100:.2f}% | {fmt_bytes(a['loaded_bytes'])} | {d} | {qs} |")
     if logs:
         L.extend(render_logs(logs))
     comp = os.path.join(ROOT, "bench", "results", "latest", "compilers.json")

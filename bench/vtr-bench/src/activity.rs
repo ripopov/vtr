@@ -3,7 +3,11 @@
 //! * `activity <trace>` builds the index with the library, as `vtr index`
 //!   does, and reports the build time, the peak anonymous memory while
 //!   building (file pages of the mapped trace excluded), the sidecar's size
-//!   and thresholds, and the load time and size of the loaded index.
+//!   and thresholds, and the load time and size of the loaded index. With
+//!   `--windows N` it then answers N random windows with `classify` and
+//!   `resolve`, checks every answer against `resolve` of every signal (which
+//!   reads the trace, not the index), and reports the share of windows
+//!   answered exactly, the undecided shares and the query times.
 //! * `activity-export` writes the page's demo data from the same index.
 //! * `gen-bursty` writes the synthetic picosecond trace with sleep phases and
 //!   gated units that the page uses for irregular activity.
@@ -68,8 +72,8 @@ fn quantiles(mut v: Vec<f64>) -> (f64, f64, f64) {
 }
 
 /// Builds `path`'s index into a temporary file with the library and measures it.
-pub fn run(path: &str, budget: Budget, threads: usize) -> serde_json::Value {
-    let r = Reader::open(path).unwrap();
+pub fn run(path: &str, budget: Budget, threads: usize, windows: usize, seed: u64) -> serde_json::Value {
+    let mut r = Reader::open(path).unwrap();
     let id = Identity::of(&r).unwrap();
     let file = id.length;
     let out = std::env::temp_dir().join(format!("vtr-bench-activity-{}.index", std::process::id()));
@@ -102,7 +106,9 @@ pub fn run(path: &str, budget: Budget, threads: usize) -> serde_json::Value {
         100.0 * summary.bytes as f64 / file as f64,
         peak as f64 / (1 << 20) as f64
     );
+    let queries = if windows > 0 { check_windows(&mut r, &index, windows, threads, seed) } else { json!(null) };
     json!({
+        "queries": queries,
         "file": path, "file_bytes": file, "signals": summary.signals, "changes": summary.changes, "blocks": summary.blocks,
         "disk": budget.disk, "memory": budget.memory, "threads": threads,
         "build_s": build_s, "build_ns_per_change": build_s * 1e9 / summary.changes.max(1) as f64,
@@ -111,6 +117,79 @@ pub fn run(path: &str, budget: Budget, threads: usize) -> serde_json::Value {
         "stretches": summary.stretches, "delta_min": dmin, "delta_max": dmax,
         "delta_over_block_min": rmin, "delta_over_block_median": rmed, "delta_over_block_max": rmax,
         "load_ms": load_ms, "loaded_bytes": index.memory_bytes(), "memory_share": index.memory_bytes() as f64 / file as f64,
+    })
+}
+
+/// Resolves `signals` on `threads` threads sharing the reader, each a contiguous share.
+fn resolve_on(r: &Reader, signals: &[SignalId], t0: u64, t1: u64, threads: usize) -> Vec<SignalId> {
+    let per = signals.len().div_ceil(threads.max(1)).max(1);
+    std::thread::scope(|sc| {
+        let hs: Vec<_> = signals.chunks(per).map(|c| sc.spawn(move || activity::resolve(r, c, t0, t1).unwrap())).collect();
+        hs.into_iter().flat_map(|h| h.join().unwrap()).collect()
+    })
+}
+
+/// Random windows of log-uniform width, half placed uniformly and half
+/// centred on a change (a stretch's first or last), answered by the index
+/// and checked against the trace.
+fn check_windows(r: &mut Reader, index: &Index, n: usize, threads: usize, seed: u64) -> serde_json::Value {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let (lo, hi) = r.time_range().unwrap();
+    let span = hi - lo + 1;
+    let signals = index.signal_count();
+    let every: Vec<SignalId> = (0..signals).map(SignalId).collect();
+    let prefix: Vec<u64> = every.iter().scan(0u64, |a, &s| { *a += index.stretches(s).len() as u64; Some(*a) }).collect();
+    let stretches = prefix.last().copied().unwrap_or(0);
+    let (mut exact, mut qns, mut und, mut read1, mut read16) = (0usize, Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for k in 0..n {
+        let w = ((rng.gen::<f64>() * (span as f64).ln()).exp() as u64).clamp(1, span) - 1;
+        let t0 = if k % 2 == 0 || stretches == 0 {
+            lo + rng.gen_range(0..=span - 1 - w)
+        } else {
+            let x = rng.gen_range(0..stretches);
+            let s = prefix.partition_point(|&p| p <= x);
+            let st = index.stretches(SignalId(s as u32)).nth((x - if s == 0 { 0 } else { prefix[s - 1] }) as usize).unwrap();
+            let c = if rng.gen_bool(0.5) { st.start } else { st.end };
+            c.saturating_sub(w / 2).clamp(lo, hi - w)
+        };
+        let t1 = t0 + w;
+        let t = Instant::now();
+        let c = index.classify(t0, t1);
+        qns.push(t.elapsed().as_secs_f64() * 1e9 / signals.max(1) as f64);
+        let mut answer = c.active.clone();
+        if c.undecided.is_empty() {
+            exact += 1;
+        } else {
+            und.push(c.undecided.len() as f64 / signals as f64);
+            r.clear_cache();
+            let t = Instant::now();
+            let one = activity::resolve(r, &c.undecided, t0, t1).unwrap();
+            read1.push(t.elapsed().as_secs_f64() * 1e3);
+            r.clear_cache();
+            let t = Instant::now();
+            let many = resolve_on(r, &c.undecided, t0, t1, threads);
+            read16.push(t.elapsed().as_secs_f64() * 1e3);
+            assert_eq!(one, many);
+            answer.extend(one);
+            answer.sort();
+        }
+        let truth = activity::resolve(r, &every, t0, t1).unwrap();
+        assert!(c.active.iter().all(|s| truth.binary_search(s).is_ok()), "{t0}..{t1}: a quiet signal classified active");
+        assert_eq!(answer, truth, "{t0}..{t1}: classify + resolve disagrees with the trace");
+        if (t1 - t0 + 1) >= index.exact_width(t0, t1) {
+            assert!(c.undecided.is_empty(), "{t0}..{t1}: at least Δ wide but undecided");
+        }
+    }
+    let (_, und_med, und_max) = quantiles(und);
+    let (_, q_med, _) = quantiles(qns);
+    let (_, r1_med, r1_max) = quantiles(read1);
+    let (_, rn_med, rn_max) = quantiles(read16);
+    json!({
+        "windows": n, "exact_share": exact as f64 / n as f64,
+        "undecided_median": und_med, "undecided_max": und_max,
+        "classify_ns_per_signal": q_med,
+        "resolve_ms_median_1": r1_med, "resolve_ms_max_1": r1_max,
+        "resolve_ms_median": rn_med, "resolve_ms_max": rn_max, "resolve_threads": threads,
     })
 }
 

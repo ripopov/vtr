@@ -67,10 +67,10 @@ mod sidecar;
 mod source;
 
 pub use builder::Builder;
-pub use index::{Index, IndexBlock, Stretch};
+pub use index::{Classification, Index, IndexBlock, Stretch};
 pub use scan::BlockScan;
 pub use sidecar::{default_cache_dir, Sidecar};
-pub use source::build;
+pub use source::{build, resolve};
 
 use crate::container::Container;
 use crate::error::{Error, Result};

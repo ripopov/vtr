@@ -1060,6 +1060,57 @@ impl Reader {
         Ok(out)
     }
 
+    /// For each of `sigs` (ascending, distinct), whether it has an entry
+    /// with `t0 <= time <= t1`. Visits only the blocks overlapping the window
+    /// and, in them, the runs holding these signals (cached like any piece);
+    /// each column is entered through its skip index and left at its first
+    /// entry at or after `t0`. The query behind [`crate::activity::resolve`].
+    pub(crate) fn changing(&self, sigs: &[SignalId], t0: u64, t1: u64) -> Result<Vec<bool>> {
+        let mut hit = vec![false; sigs.len()];
+        let mut left = sigs.len();
+        let start = self.sig_blocks.partition_point(|b| b.header.end_time < t0);
+        for bi in start..self.sig_blocks.len() {
+            if left == 0 || self.sig_blocks[bi].header.start_time > t1 {
+                break;
+            }
+            let times = self.block_times(bi)?;
+            let (lo, hi) = (times.partition_point(|&t| t < t0) as u32, times.partition_point(|&t| t <= t1) as u32);
+            if lo == hi {
+                continue;
+            }
+            let mut i = 0;
+            while i < sigs.len() {
+                let g = self.group_of(sigs[i]);
+                let j = i + sigs[i..].partition_point(|&s| self.group_of(s) == g);
+                let view = match hit[i..j].contains(&false) {
+                    true => self.group_view(bi, g)?,
+                    false => None,
+                };
+                for k in i..j {
+                    let Some(view) = view.as_ref().filter(|v| !hit[k] && v.holds(sigs[k].0)) else { continue };
+                    let kind = self.signal_kind(sigs[k])?;
+                    let (cp, local) = self.column(bi, g, view, sigs[k].0)?;
+                    let col = cp.col(local, kind)?;
+                    let mut it = ColumnIter::new(col, kind);
+                    if col.len() > 4096 {
+                        it.seek(&cp.column_index(local, kind)?, lo);
+                    }
+                    while let Some(c) = it.next_raw()? {
+                        if c.tidx >= lo {
+                            if c.tidx < hi {
+                                hit[k] = true;
+                                left -= 1;
+                            }
+                            break;
+                        }
+                    }
+                }
+                i = j;
+            }
+        }
+        Ok(hit)
+    }
+
     /// Column runs per value transform: `(runs, compressed bytes)` indexed by the
     /// transform code (0 none, 1 shuffle, 2 delta, 3 delta+shuffle, 4 dictionary).
     /// Reads only the group headers, not the runs.

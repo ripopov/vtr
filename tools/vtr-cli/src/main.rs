@@ -29,8 +29,13 @@ USAGE:
                                               build the activity index <file>.index (in the user cache
                                               when the directory is read-only)
   vtr index <file.vtr> --check                whether a valid activity index exists (exit status 1 if not)
+  vtr active <file.vtr> <t0> <t1> [--scope PATH] [--depth N] [--signals] [--build]
+                                              scopes with the signals that change in [t0, t1] over their
+                                              signals (to depth N below PATH, default 1), or the changing
+                                              signals; exact, from the activity index and the trace
 
-Times are integers in the file's time unit. Paths use '.' as separator.";
+Times are integers in the file's time unit; `vtr active` also takes a unit suffix (25000ns, 2.5us).
+Paths use '.' as separator.";
 
 fn die(msg: impl std::fmt::Display) -> ! {
     eprintln!("error: {msg}");
@@ -54,7 +59,7 @@ fn positional(args: &[String]) -> Vec<String> {
             continue;
         }
         if a.starts_with("--") {
-            skip = !matches!(a.as_str(), "--vars" | "--sizes" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums" | "--sites" | "--check");
+            skip = !matches!(a.as_str(), "--vars" | "--sizes" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums" | "--sites" | "--check" | "--signals" | "--build");
             continue;
         }
         out.push(a.clone());
@@ -175,6 +180,134 @@ fn cmd_index(args: &[String]) {
         100.0 * s.bytes as f64 / s.source_bytes.max(1) as f64,
         fmt_mib(s.source_bytes)
     );
+}
+
+/// A time given as file units (`250000`) or with a unit (`25000ns`, `2.5us`):
+/// the first file time at or after it, or with `up` the last at or before.
+fn parse_time_in(s: &str, timescale: i8, up: bool) -> u64 {
+    const UNITS: [(&str, i32); 6] = [("fs", -15), ("ps", -12), ("ns", -9), ("us", -6), ("ms", -3), ("s", 0)];
+    let Some((num, e)) = UNITS.iter().find_map(|&(u, e)| s.strip_suffix(u).map(|n| (n, e))) else { return parse_time(s) };
+    let v: f64 = num.trim().parse().unwrap_or_else(|_| die(format!("bad time {s:?}")));
+    let units = v * 10f64.powi(e - timescale as i32);
+    // Within a millionth of a unit counts as exact, so 25000ns is 250000 units at 100 ps.
+    let r = units.round();
+    let t = if (units - r).abs() < 1e-6 { r } else if up { units.floor() } else { units.ceil() };
+    if !(0.0..1.8e19).contains(&t) {
+        die(format!("time {s:?} out of range"));
+    }
+    t as u64
+}
+
+/// A window in the file's own resolution: `25,000.0–25,500.0 ns` for 100 ps units.
+fn fmt_window(t0: u64, t1: u64, timescale: i8) -> String {
+    let ts = timescale as i32;
+    let e = if ts >= 0 { 0 } else { -((-ts) / 3) * 3 };
+    let unit = match e { 0 => "s", -3 => "ms", -6 => "us", -9 => "ns", -12 => "ps", _ => "fs" };
+    let decimals = (e - ts).max(0) as u32;
+    let one = |t: u64| {
+        let (int, frac) = (t / 10u64.pow(decimals), t % 10u64.pow(decimals));
+        let int = thousands64(int);
+        if decimals == 0 { int } else { format!("{int}.{frac:0w$}", w = decimals as usize) }
+    };
+    let scale = if ts > 0 { 10u64.pow(ts as u32) } else { 1 };
+    format!("{}–{} {unit}", one(t0.saturating_mul(scale)), one(t1.saturating_mul(scale)))
+}
+
+fn thousands64(n: u64) -> String {
+    let d = n.to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// `vtr active`: which scopes and signals change in a window, exactly. The
+/// activity index classifies every signal; the few it leaves undecided in a
+/// window narrower than its thresholds are read from the trace.
+fn cmd_active(args: &[String]) {
+    use vtr::activity::{self, BuildOptions, Identity, Sidecar};
+    let p = positional(args);
+    if p.len() < 3 {
+        die(USAGE);
+    }
+    let r = open(&p[0]);
+    let ts = r.meta().timescale;
+    let (t0, t1) = (parse_time_in(&p[1], ts, false), parse_time_in(&p[2], ts, true));
+    if t0 > t1 {
+        die(format!("the window {}..{} is empty", p[1], p[2]));
+    }
+    let id = Identity::of(&r).unwrap_or_else(|e| die(format!("{}: {e}", p[0])));
+    let sidecar = Sidecar::new(p[0].as_ref(), &id, activity::default_cache_dir().as_deref());
+    let index = match sidecar.load(&id) {
+        Some((_, index)) => index,
+        None if has(args, "--build") => {
+            let (at, _) = sidecar.write(|w| activity::build(&r, w, &BuildOptions::default())).unwrap_or_else(|e| die(format!("{}: {e}", p[0])));
+            eprintln!("built {}", at.display());
+            sidecar.load(&id).unwrap_or_else(|| die(format!("{}: the index just built does not load", at.display()))).1
+        }
+        None => die(format!("{0}: no valid activity index; build one with `vtr index {0}` or pass --build", p[0])),
+    };
+    let c = index.classify(t0, t1);
+    let mut active = c.active;
+    active.extend(activity::resolve(&r, &c.undecided, t0, t1).unwrap_or_else(|e| die(format!("{}: {e}", p[0]))));
+    let mut changing = vec![false; r.signal_count() as usize];
+    for s in &active {
+        changing[s.0 as usize] = true;
+    }
+    let h = r.hierarchy();
+    let top = flag(args, "--scope").map(|path| {
+        let parts: Vec<&str> = path.split('.').collect();
+        r.find_node(&parts).filter(|&n| h.kind(n) == vtr::NodeKind::Scope).unwrap_or_else(|| die(format!("scope {path} not found")))
+    });
+    let how = match c.undecided.len() {
+        0 => "exact".to_string(),
+        n => format!("{} undecided read from the trace", thousands(n as u32)),
+    };
+    println!("{} · {} of {} signals change · {how}", fmt_window(t0, t1, ts), thousands(active.len() as u32), thousands(r.signal_count()));
+    if has(args, "--signals") {
+        // Each changing signal once, by its first variable in preorder below the scope.
+        let mut shown = vec![false; changing.len()];
+        let mut stack: Vec<NodeId> = match top {
+            Some(n) => vec![n],
+            None => h.roots().collect::<Vec<_>>().into_iter().rev().collect(),
+        };
+        while let Some(n) = stack.pop() {
+            if let Some(s) = h.signal_of(n).filter(|s| changing[s.0 as usize] && !shown[s.0 as usize]) {
+                shown[s.0 as usize] = true;
+                println!("{}", r.full_path(n, "."));
+            }
+            let kids: Vec<NodeId> = h.children(n).collect();
+            stack.extend(kids.into_iter().rev());
+        }
+        return;
+    }
+    let depth: usize = flag(args, "--depth").map_or(1, |d| d.parse().unwrap_or_else(|_| die("--depth takes a number")));
+    let (nodes, all) = h.scope_sizes();
+    let (_, moving) = h.scope_sizes_of(|s| changing[s.0 as usize]);
+    let mut level = vec![0usize; nodes.len()];
+    let mut rows = Vec::new();
+    let from = top.map(|n| nodes.iter().position(|&x| x == n).unwrap());
+    for i in 0..nodes.len() {
+        let parent = all.parent(i as u32).map(|p| p as usize);
+        level[i] = match (from, parent) {
+            (Some(f), _) if f == i => 0,
+            (Some(_), Some(p)) if level[p] != usize::MAX => level[p] + 1,
+            (Some(_), _) => usize::MAX,
+            (None, Some(p)) => level[p] + 1,
+            (None, None) => 0,
+        };
+        if level[i] <= depth {
+            rows.push((format!("{}{}", "  ".repeat(level[i]), r.name(nodes[i])), thousands(moving.signals(i as u32)), thousands(all.signals(i as u32))));
+        }
+    }
+    let w = rows.iter().fold([0; 3], |w, r| [w[0].max(r.0.chars().count()), w[1].max(r.1.len()), w[2].max(r.2.len())]);
+    for (name, a, b) in rows {
+        println!("{name:<0$}  {a:>1$} / {b:>2$}", w[0], w[1], w[2]);
+    }
 }
 
 fn cmd_info(args: &[String]) {
@@ -636,6 +769,7 @@ fn main() {
         "convert" => cmd_convert(rest),
         "recover" => cmd_recover(rest),
         "index" => cmd_index(rest),
+        "active" => cmd_active(rest),
         "--version" | "-V" => println!("vtr {}", env!("CARGO_PKG_VERSION")),
         _ => {
             eprintln!("{USAGE}");

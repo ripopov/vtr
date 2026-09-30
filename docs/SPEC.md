@@ -1019,6 +1019,15 @@ window `[t0, t1]` inside a silence inside a stretch touches only cells that
 the silence's interior touches, so it cannot fit in one when `t1 − t0 + 1`
 reaches the smallest `Δ` of the cells the window touches.
 
+**Query (informative).** For a window `[t0, t1]`, find a signal's first
+stretch that ends at or after `t0`. The signal is quiet when there is none or
+it starts after `t1`. It is active when that stretch starts at or after `t0`,
+ends at or before `t1`, or has a gap of at most `t1 − t0 + 1`, or when
+`t1 − t0 + 1` reaches the smallest `Δ` of the cells the window touches.
+Otherwise it is undecided, and its answer is read from the trace's blocks
+that overlap the window, at most two when every `Δ` is at most a quarter of
+its cell's span.
+
 **Reference thresholds.** For block `k` with `bytes_k` compressed bytes, the
 reference builder takes the smallest `j` for which the silences ending in the
 block that are longer than `2^j`, including the silence from each signal's

@@ -29,7 +29,9 @@ vtr-bench commands:
                                                       synthetic simulator log through Writer::log (JSON);
                                                       --rate paces it to R records/s
   log-encode <n>                                      log block encoder micro-benchmark per codec (JSON)
-  activity <in.vtr> [--disk D] [--memory M] [--threads T]   builds the activity index; time, memory, size (JSON)
+  activity <in.vtr> [--disk D] [--memory M] [--threads T] [--windows N]
+                                                      builds the activity index; time, memory, size, and with
+                                                      --windows the answers of N random windows checked (JSON)
   activity-export <in.vtr> <t0> <t1> <out.bin>        demo data for docs/hierarchy-activity.html
   gen-bursty <out.vtr> [--scale S]                    synthetic ps trace with sleep phases and gated units
   scopes <in.vtr> [--children NAME]                   distinct signals per scope, three ways (JSON)
@@ -193,7 +195,8 @@ fn main() {
                 memory: flag(&args, "--memory").map_or(d.memory, |s| s.parse().unwrap()),
             };
             let threads = flag(&args, "--threads").map_or(16, |s| s.parse().unwrap());
-            println!("{}", serde_json::to_string_pretty(&activity::run(&pos[1], budget, threads)).unwrap());
+            let windows = flag(&args, "--windows").map_or(0, |s| s.parse().unwrap());
+            println!("{}", serde_json::to_string_pretty(&activity::run(&pos[1], budget, threads, windows, seed)).unwrap());
         }
         "activity-export" => activity::export(&pos[1], pos[2].parse().unwrap(), pos[3].parse().unwrap(), &pos[4]),
         "scopes" => scopes::run(&pos[1], flag(&args, "--children").as_deref()),

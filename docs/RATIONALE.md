@@ -2907,3 +2907,20 @@ The resident peak can exceed the limit by what glibc keeps in per-thread
 arenas (564 MiB on large_vtr). The
 [benchmark report](BENCHMARK_RESULTS.md#activity-index-vtr-index) gives
 build time, peak memory and size for every signal workload.
+
+**Queries.** `Index::classify` does one binary search per signal, 14 ns per
+signal on C910, and returns the active and undecided lists; `classify_range`
+lets a caller split the signals over threads rather than the library owning
+a thread pool. `resolve` asks the reader, per undecided signal, for its
+first entry at or after the window's start, through the column's skip index
+and the reader's piece cache. Every run is decompressed once per call and
+stays cached for a narrow pan, and no value is materialised. Brute force
+over every change (`core/vtr/tests/activity.rs`) and `resolve` of every
+signal on 3,300 windows of eleven traces found no wrong answer. With the
+library's thresholds, 41% of C910's windows are exact against the
+prototype's 45%, and 9 of the 11 traces match or beat it. The slowest read
+of the undecided signals on 16 threads is 78 ms, on many_active, where
+nearly all of 200,001 signals can be undecided; C910's is 28 ms.
+`Hierarchy::scope_sizes_of` gives `vtr active` exact per-scope counts by
+running the census over a subset of signals, 1 ms on C910. That is cheap for
+a command; meters need the per-frame lists of the scope-sizes design.

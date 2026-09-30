@@ -576,6 +576,40 @@ size_t           vtr_scope_sizes_len(const vtr_scope_sizes *s);
 int              vtr_scope_sizes_get(const vtr_scope_sizes *s, size_t i, vtr_scope_size *out);
 void             vtr_scope_sizes_free(vtr_scope_sizes *s);
 
+/* Activity index (Rust vtr::activity, docs/hierarchy-activity.html): which
+ * signals change in a window [t0, t1] (both ends included), for every signal
+ * at once, from a sidecar beside the trace (<trace>.index) or in a cache
+ * directory (cache_dir; NULL = the user's cache, ~/.cache/vtr/index).
+ * activity_write() builds it for an open, complete VTR file and writes it
+ * beside trace_path, else in the cache (threads 0 = every core, memory 0 =
+ * 512 MiB for the block scans in flight; out may be NULL). activity_load()
+ * returns the index valid for this trace, or NULL when there is none
+ * (missing, stale or damaged). classify() never errs: its active list holds
+ * signals that change in the window, and its undecided list the signals it
+ * cannot decide in a window narrower than exact_width(). resolve() reads
+ * signals from the trace and writes those that change, ascending, to out
+ * (room for n). A change comes after the trace's first time step. The lists
+ * of a vtr_activity_classes live until classes_free(). */
+typedef struct vtr_activity_index vtr_activity_index;
+typedef struct vtr_activity_classes vtr_activity_classes;
+typedef struct vtr_activity_summary {
+    uint32_t blocks, signals;
+    uint64_t changes, stretches;
+    uint64_t delta_min, delta_max;   /* block thresholds, time units */
+    uint64_t bytes, source_bytes;    /* sidecar and trace */
+} vtr_activity_summary;
+int                   vtr_activity_write(const vtr_reader *r, const char *trace_path, const char *cache_dir,
+                                         uint32_t threads, uint64_t memory, vtr_activity_summary *out);
+vtr_activity_index   *vtr_activity_load(const vtr_reader *r, const char *trace_path, const char *cache_dir);
+void                  vtr_activity_free(vtr_activity_index *x);
+uint64_t              vtr_activity_exact_width(const vtr_activity_index *x, uint64_t t0, uint64_t t1);
+vtr_activity_classes *vtr_activity_classify(const vtr_activity_index *x, uint64_t t0, uint64_t t1);
+const uint32_t       *vtr_activity_classes_active(const vtr_activity_classes *c, size_t *len);
+const uint32_t       *vtr_activity_classes_undecided(const vtr_activity_classes *c, size_t *len);
+void                  vtr_activity_classes_free(vtr_activity_classes *c);
+int                   vtr_activity_resolve(const vtr_reader *r, const uint32_t *signals, size_t n, uint64_t t0, uint64_t t1,
+                                           uint32_t *out, size_t *out_len);
+
 typedef struct vtr_signal_value {
     uint8_t  kind;    /* VTR_SIGNAL_* */
     uint8_t  states;  /* data packing: 2, 4 or 9 states */

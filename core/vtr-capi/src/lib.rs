@@ -2548,6 +2548,178 @@ pub unsafe extern "C" fn vtr_scope_sizes_free(s: *mut vtr_scope_sizes) {
     })
 }
 
+/// A loaded activity index (`vtr::activity::Index`).
+pub struct vtr_activity_index(vtr::activity::Index);
+/// The active and undecided signals of a window.
+pub struct vtr_activity_classes {
+    active: Vec<u32>,
+    undecided: Vec<u32>,
+}
+
+#[repr(C)]
+pub struct vtr_activity_summary {
+    pub blocks: u32,
+    pub signals: u32,
+    pub changes: u64,
+    pub stretches: u64,
+    pub delta_min: u64,
+    pub delta_max: u64,
+    pub bytes: u64,
+    pub source_bytes: u64,
+}
+
+/// `cache_dir`, or the user's cache directory for NULL.
+unsafe fn activity_cache(cache_dir: *const c_char) -> Option<std::path::PathBuf> {
+    match cstr(cache_dir) {
+        Some(d) => Some(d.into()),
+        None => vtr::activity::default_cache_dir(),
+    }
+}
+
+/// Builds the activity index of an open VTR file and writes it beside
+/// `trace_path` or, when that directory refuses it, in `cache_dir`.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_write(r: *const vtr_reader, trace_path: *const c_char, cache_dir: *const c_char, threads: u32, memory: u64, out: *mut vtr_activity_summary) -> c_int {
+    ffi(|| {
+        let r = need_ref!(r);
+        let path = need_str!(trace_path);
+        let cache = activity_cache(cache_dir);
+        let mut opts = vtr::activity::BuildOptions { threads: threads as usize, ..Default::default() };
+        if memory != 0 {
+            opts.memory = memory;
+        }
+        let written = vtr::activity::Identity::of(&r.0).and_then(|id| {
+            vtr::activity::Sidecar::new(path.as_ref(), &id, cache.as_deref()).write(|w| vtr::activity::build(&r.0, w, &opts))
+        });
+        match written {
+            Ok((_, s)) => {
+                if let Some(out) = out.as_mut() {
+                    let (delta_min, delta_max) = s.delta.unwrap_or((0, 0));
+                    *out = vtr_activity_summary { blocks: s.blocks, signals: s.signals, changes: s.changes, stretches: s.stretches, delta_min, delta_max, bytes: s.bytes, source_bytes: s.source_bytes };
+                }
+                VTR_OK
+            }
+            Err(e) => status(Err(e)),
+        }
+    })
+}
+
+/// The activity index valid for the trace, beside it or in the cache; NULL
+/// when there is none (missing, stale or damaged).
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_load(r: *const vtr_reader, trace_path: *const c_char, cache_dir: *const c_char) -> *mut vtr_activity_index {
+    ffi(|| {
+        let (Some(r), Some(path)) = (r.as_ref(), cstr(trace_path)) else {
+            set_error("null handle or path");
+            return ptr::null_mut();
+        };
+        let id = match vtr::activity::Identity::of(&r.0) {
+            Ok(id) => id,
+            Err(e) => {
+                set_error(&e.to_string());
+                return ptr::null_mut();
+            }
+        };
+        let cache = activity_cache(cache_dir);
+        match vtr::activity::Sidecar::new(path.as_ref(), &id, cache.as_deref()).load(&id) {
+            Some((_, index)) => Box::into_raw(Box::new(vtr_activity_index(index))),
+            None => {
+                set_error("no valid activity index for this trace");
+                ptr::null_mut()
+            }
+        }
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_free(x: *mut vtr_activity_index) {
+    ffi(|| {
+        if !x.is_null() {
+            drop(Box::from_raw(x));
+        }
+    })
+}
+
+/// `Index::exact_width`; 0 for a null handle.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_exact_width(x: *const vtr_activity_index, t0: u64, t1: u64) -> u64 {
+    ffi(|| x.as_ref().map_or(0, |x| x.0.exact_width(t0, t1)))
+}
+
+/// `Index::classify`; NULL for a null handle.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_classify(x: *const vtr_activity_index, t0: u64, t1: u64) -> *mut vtr_activity_classes {
+    ffi(|| match x.as_ref() {
+        Some(x) => {
+            let c = x.0.classify(t0, t1);
+            let ids = |v: Vec<vtr::SignalId>| v.into_iter().map(|s| s.0).collect();
+            Box::into_raw(Box::new(vtr_activity_classes { active: ids(c.active), undecided: ids(c.undecided) }))
+        }
+        None => {
+            set_error("null handle");
+            ptr::null_mut()
+        }
+    })
+}
+
+/// The active signals, ascending; `len` receives their number.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_classes_active(c: *const vtr_activity_classes, len: *mut usize) -> *const u32 {
+    ffi(|| {
+        let v = c.as_ref().map_or(&[][..], |c| &c.active[..]);
+        if let Some(len) = len.as_mut() {
+            *len = v.len();
+        }
+        v.as_ptr()
+    })
+}
+
+/// The undecided signals, ascending; `len` receives their number.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_classes_undecided(c: *const vtr_activity_classes, len: *mut usize) -> *const u32 {
+    ffi(|| {
+        let v = c.as_ref().map_or(&[][..], |c| &c.undecided[..]);
+        if let Some(len) = len.as_mut() {
+            *len = v.len();
+        }
+        v.as_ptr()
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_classes_free(c: *mut vtr_activity_classes) {
+    ffi(|| {
+        if !c.is_null() {
+            drop(Box::from_raw(c));
+        }
+    })
+}
+
+/// `vtr::activity::resolve`: writes the signals among `signals` that change
+/// in `[t0, t1]` to `out` (room for `n`), ascending, and their number to `out_len`.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_resolve(r: *const vtr_reader, signals: *const u32, n: usize, t0: u64, t1: u64, out: *mut u32, out_len: *mut usize) -> c_int {
+    ffi(|| {
+        let r = need_ref!(r);
+        let out_len = need!(out_len);
+        if n > 0 && (signals.is_null() || out.is_null()) {
+            set_error("null signal array");
+            return VTR_ERR_NULL;
+        }
+        let sigs: Vec<vtr::SignalId> = if n == 0 { Vec::new() } else { std::slice::from_raw_parts(signals, n).iter().map(|&s| vtr::SignalId(s)).collect() };
+        match vtr::activity::resolve(&r.0, &sigs, t0, t1) {
+            Ok(v) => {
+                for (k, s) in v.iter().enumerate() {
+                    *out.add(k) = s.0;
+                }
+                *out_len = v.len();
+                VTR_OK
+            }
+            Err(e) => status(Err(e)),
+        }
+    })
+}
+
 pub struct vtr_clock_timeline(std::sync::Arc<ClockTimeline>);
 
 #[no_mangle]

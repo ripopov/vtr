@@ -32,10 +32,29 @@ pub struct Stretch {
     pub gap: u64,
 }
 
+/// Signals by what the index says about them in a window, each list ascending.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Classification {
+    /// Signals with a change in the window.
+    pub active: Vec<SignalId>,
+    /// Signals the index cannot decide: the window is narrower than the
+    /// threshold of the blocks it touches and lies inside one of their busy
+    /// stretches. [`resolve`](super::resolve) reads them from the trace.
+    pub undecided: Vec<SignalId>,
+}
+
 /// A loaded activity index. It is immutable; share it (for example in an
 /// `Arc`) between threads.
 ///
 /// Memory is [`STRETCH_BYTES`] per stretch and 4 bytes per signal.
+///
+/// A window `[t0, t1]` includes both ends. [`classify`](Self::classify)
+/// answers every signal with one binary search over its stretches: quiet
+/// when the window lies in a kept silence, active when it holds a stretch's
+/// first or last change or is at least as wide as the stretch's largest gap
+/// or as [`exact_width`](Self::exact_width), and undecided otherwise. It is
+/// never wrong, and a window at least `exact_width` wide leaves nothing
+/// undecided.
 #[derive(Clone, Debug)]
 pub struct Index {
     header: Header,
@@ -212,6 +231,48 @@ impl Index {
     /// Heap bytes held by the loaded index.
     pub fn memory_bytes(&self) -> u64 {
         self.start.len() as u64 * STRETCH_BYTES + self.off.len() as u64 * 4 + (self.blocks.len() * std::mem::size_of::<IndexBlock>()) as u64
+    }
+
+    /// The smallest threshold of the blocks whose cells `[t0, t1]` touches:
+    /// every window at least this wide is decided for every signal.
+    /// `u64::MAX` for an index without blocks.
+    pub fn exact_width(&self, t0: u64, t1: u64) -> u64 {
+        let cell = |t: u64| self.blocks.partition_point(|b| b.end < t).min(self.blocks.len().saturating_sub(1));
+        match self.blocks.is_empty() {
+            true => u64::MAX,
+            false => self.blocks[cell(t0)..=cell(t1.max(t0))].iter().map(|b| b.delta).min().unwrap(),
+        }
+    }
+
+    /// Classifies every signal in the window `[t0, t1]`; an empty window
+    /// (`t0 > t1`) has no active signal.
+    pub fn classify(&self, t0: u64, t1: u64) -> Classification {
+        let mut out = Classification::default();
+        self.classify_range(0..self.header.signals, t0, t1, &mut out);
+        out
+    }
+
+    /// [`classify`](Self::classify) for the signals in `signals`, appended
+    /// to `out`; callers split the signals into ranges to classify them on
+    /// several threads.
+    ///
+    /// # Panics
+    /// When `signals` reaches past [`signal_count`](Self::signal_count).
+    pub fn classify_range(&self, signals: std::ops::Range<u32>, t0: u64, t1: u64, out: &mut Classification) {
+        if t0 > t1 {
+            return;
+        }
+        let width = (t1 - t0).saturating_add(1);
+        let exact = self.exact_width(t0, t1) <= width;
+        for s in signals {
+            let (a, b) = (self.off[s as usize] as usize, self.off[s as usize + 1] as usize);
+            let j = a + self.end[a..b].partition_point(|&e| e < t0);
+            if j == b || self.start[j] > t1 {
+                continue;
+            }
+            let decided = exact || self.start[j] >= t0 || self.end[j] <= t1 || (self.gap[j] != GAP_SATURATED && self.gap[j] as u64 <= width);
+            if decided { &mut out.active } else { &mut out.undecided }.push(SignalId(s));
+        }
     }
 
     /// The busy stretches of `signal` in time order; none for a signal that

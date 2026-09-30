@@ -199,6 +199,102 @@ fn round_trip_matches_every_change() {
     assert!(aliases > 0 && shared > 0, "the traces exercise dynamic aliases ({aliases}) and shared block boundaries ({shared})");
 }
 
+/// Windows of log-uniform width: placed uniformly, starting or ending
+/// exactly on a change, or starting or ending on a block's boundary.
+fn windows(rng: &mut StdRng, r: &Reader, ch: &[Vec<u64>], n: usize) -> Vec<(u64, u64)> {
+    let (lo, hi) = r.time_range().unwrap();
+    let span = hi - lo + 1;
+    let all: Vec<u64> = ch.iter().flatten().copied().collect();
+    let edges: Vec<u64> = (0..r.block_count()).flat_map(|k| [r.block_range(k).0, r.block_range(k).1]).collect();
+    (0..n)
+        .map(|k| {
+            let w = ((rng.gen::<f64>() * (span as f64).ln()).exp() as u64).clamp(1, span) - 1;
+            let at = |rng: &mut StdRng, v: &[u64]| if v.is_empty() { lo } else { v[rng.gen_range(0..v.len())] };
+            let (t0, t1) = match k % 5 {
+                0 => {
+                    let t0 = lo + rng.gen_range(0..=span - 1 - w);
+                    (t0, t0 + w)
+                }
+                1 => {
+                    let t = at(rng, &all);
+                    (t, t + w)
+                }
+                2 => {
+                    let t = at(rng, &all);
+                    (t.saturating_sub(w), t)
+                }
+                3 => {
+                    let t = at(rng, &edges) + rng.gen_range(0..2);
+                    (t, t + w)
+                }
+                _ => {
+                    let t = at(rng, &edges) + rng.gen_range(0..2);
+                    (t.saturating_sub(w), t)
+                }
+            };
+            (t0, t1)
+        })
+        .collect()
+}
+
+fn truth(ch: &[Vec<u64>], t0: u64, t1: u64) -> Vec<SignalId> {
+    (0..ch.len() as u32)
+        .filter(|&s| {
+            let c = &ch[s as usize];
+            let i = c.partition_point(|&t| t < t0);
+            i < c.len() && c[i] <= t1
+        })
+        .map(SignalId)
+        .collect()
+}
+
+/// `classify` is never wrong and decides every window at least `exact_width`
+/// wide; an undecided window touches at most two blocks; `resolve` of the
+/// undecided signals completes the exact answer, and `resolve` of every
+/// signal is the exact answer on its own.
+#[test]
+fn classify_and_resolve_match_every_change() {
+    let dir = tmpdir();
+    let mut rng = StdRng::seed_from_u64(3);
+    let (mut undecided_windows, mut exact_windows) = (0, 0);
+    for seed in 20..30 {
+        let path = dir.path().join(format!("t{seed}.vtr"));
+        random_trace(&path, seed, 2500, [120, 400, 3000][seed as usize % 3]);
+        let r = Reader::open(&path).unwrap();
+        let (_, ch) = changes(&r);
+        let every: Vec<SignalId> = (0..r.signal_count()).map(SignalId).collect();
+        for budget in [Budget::default(), Budget { disk: 0.0, memory: 0.0 }] {
+            let (_, _, index) = index_of(&r, &BuildOptions { threads: 2, budget, ..Default::default() });
+            let mut wins = windows(&mut rng, &r, &ch, 150);
+            let (lo, hi) = r.time_range().unwrap();
+            wins.extend([(0, lo), (lo, lo), (hi, hi + 5), (hi + 1, u64::MAX), (0, u64::MAX), (lo + 3, lo + 2)]);
+            for (t0, t1) in wins {
+                let want = truth(&ch, t0, t1);
+                let c = index.classify(t0, t1);
+                let win = format!("[{t0}, {t1}] seed {seed} {budget:?}");
+                assert!(c.active.iter().all(|s| want.binary_search(s).is_ok()), "{win}: a quiet signal classified active");
+                assert!(want.iter().all(|s| c.active.binary_search(s).is_ok() || c.undecided.binary_search(s).is_ok()), "{win}: an active signal classified quiet");
+                if t0 <= t1 && (t1 - t0).saturating_add(1) >= index.exact_width(t0, t1) {
+                    assert!(c.undecided.is_empty(), "{win}: at least Δ wide but undecided");
+                }
+                if !c.undecided.is_empty() {
+                    undecided_windows += 1;
+                    let blocks = cells(&index, t0, t1).count();
+                    assert!(blocks <= 2, "{win}: an undecided window touches {blocks} blocks");
+                } else {
+                    exact_windows += 1;
+                }
+                let mut exact = c.active.clone();
+                exact.extend(activity::resolve(&r, &c.undecided, t0, t1).unwrap());
+                exact.sort();
+                assert_eq!(exact, want, "{win}: classify + resolve");
+                assert_eq!(activity::resolve(&r, &every, t0, t1).unwrap(), want, "{win}: resolve alone");
+            }
+        }
+    }
+    assert!(undecided_windows > 100 && exact_windows > 100, "both kinds of window are tested ({undecided_windows} undecided, {exact_windows} exact)");
+}
+
 #[test]
 fn rebuild_is_byte_identical_at_any_thread_count() {
     let dir = tmpdir();

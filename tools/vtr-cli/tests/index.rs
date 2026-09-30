@@ -53,3 +53,33 @@ fn index_then_check() {
     assert_eq!(stale.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&stale.stdout).contains("built for another trace"));
 }
+
+/// `vtr active` answers exactly, refuses to guess without an index, and
+/// builds one with `--build`.
+#[test]
+fn active_scopes_and_signals() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.vtr");
+    trace(&path, 500);
+    let p = path.to_str().unwrap();
+
+    let refused = vtr(dir.path(), &["active", p, "0", "1000000"]);
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("vtr index"));
+
+    // clk toggles every 500 ps and cnt every 16 steps (8 ns): a 5 ns window
+    // between two cnt changes holds only clk.
+    let built = vtr(dir.path(), &["active", p, "9ns", "14ns", "--build"]);
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let out = String::from_utf8_lossy(&built.stdout);
+    let mut lines = out.lines();
+    assert!(lines.next().unwrap().starts_with("9,000–14,000 ps · 1 of 2 signals change · "), "{out}");
+    assert_eq!(lines.map(|l| l.split_whitespace().collect::<Vec<_>>().join(" ")).collect::<Vec<_>>(), ["top 1 / 2"]);
+    assert!(dir.path().join("run.vtr.index").exists());
+
+    let signals = vtr(dir.path(), &["active", p, "7000", "9000", "--signals"]);
+    let out = String::from_utf8_lossy(&signals.stdout);
+    assert_eq!(out.lines().skip(1).collect::<Vec<_>>(), ["top.clk", "top.cnt"], "{out}");
+    let quiet = vtr(dir.path(), &["active", p, "3000000", "4000000", "--scope", "top"]);
+    assert!(String::from_utf8_lossy(&quiet.stdout).contains("· 0 of 2 signals change · exact"));
+}
