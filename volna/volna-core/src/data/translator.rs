@@ -82,12 +82,14 @@ impl NumericKind {
             for i in 0..w {
                 acc = acc * 2.0 + bit(i)? as f64;
             }
-            return match self {
-                Self::Unsigned => Some(acc),
-                Self::Signed if bits.bit(0) == b'1' => Some(acc - 2f64.powi(w as i32)),
-                Self::Signed => Some(acc),
-                _ => None,
+            let v = match self {
+                Self::Unsigned => acc,
+                Self::Signed if bits.bit(0) == b'1' => acc - 2f64.powi(w as i32),
+                Self::Signed => acc,
+                _ => return None,
             };
+            // Past 1024 bits the value overflows f64.
+            return v.is_finite().then_some(v);
         }
         let raw = bits.to_u64()?;
         let v = match self {
@@ -113,14 +115,16 @@ impl NumericKind {
             SignalShape::Vector { width } => width,
             _ => return None,
         };
-        match self {
-            Self::Unsigned => Some((0.0, 2f64.powi(width as i32) - 1.0)),
+        let (lo, hi) = match self {
+            Self::Unsigned => (0.0, 2f64.powi(width as i32) - 1.0),
             Self::Signed => {
                 let half = 2f64.powi(width as i32 - 1);
-                Some((-half, half - 1.0))
+                (-half, half - 1.0)
             }
-            Self::Float | Self::Real => None,
-        }
+            Self::Float | Self::Real => return None,
+        };
+        // Past 1024 bits the range overflows f64.
+        (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
     }
 
     /// The value that reads back as `v` (rounded to an integer for integer
@@ -589,6 +593,21 @@ mod tests {
         let four = LogicView::packed_lsb(4, 4, &[0b01_00_01_01]);
         assert_eq!(four.to_u64(), Some(0b1011));
         assert_eq!(LogicView::packed_lsb(4, 4, &[0b10_00_01_01]).to_u64(), None);
+    }
+
+    #[test]
+    fn vectors_past_f64_range_read_as_nothing() {
+        let ones = WaveValue::Bits("1".repeat(1100));
+        let view = ValueView::borrowed(&ones);
+        assert_eq!(NumericKind::Unsigned.read(&view), None);
+        assert_eq!(NumericKind::Signed.read(&view), None);
+        let wide = SignalShape::Vector { width: 1100 };
+        assert_eq!(NumericKind::Unsigned.limits(wide), None);
+        let ok = WaveValue::Bits(format!("1{}", "0".repeat(99)));
+        assert_eq!(
+            NumericKind::Unsigned.read(&ValueView::borrowed(&ok)),
+            Some(2f64.powi(99))
+        );
     }
 
     #[test]

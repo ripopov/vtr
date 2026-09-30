@@ -331,6 +331,8 @@ impl LoadedGenerator {
         }
         // Greedy interval partitioning in begin order over half-open
         // lifetimes: each record takes the lowest sub-row free at its begin.
+        // A zero-length record holds its instant, so records at one time
+        // stack instead of hiding each other.
         let mut sub_rows = Vec::new();
         sub_rows.try_reserve_exact(transactions.len())?;
         let mut open = std::collections::BinaryHeap::new();
@@ -355,7 +357,10 @@ impl LoadedGenerator {
                 }
             };
             sub_rows.push(row);
-            open.push(std::cmp::Reverse((tx.end, row)));
+            open.push(std::cmp::Reverse((
+                tx.end.max(tx.begin.saturating_add(1)),
+                row,
+            )));
         }
         let mut stage_census = StageCensus::default();
         let mut cursors = Vec::new();
@@ -740,6 +745,14 @@ mod tests {
     }
 
     #[test]
+    fn records_at_one_instant_stack() {
+        let records = vec![tx(1, 5, 5), tx(2, 5, 5), tx(3, 5, 9), tx(4, 6, 6)];
+        let loaded = LoadedGenerator::new(TrackRef(1), records, HashMap::new(), vec![]).unwrap();
+        let rows: Vec<u16> = (0..4).map(|i| loaded.sub_row(i)).collect();
+        assert_eq!(rows, [0, 1, 2, 0]);
+    }
+
+    #[test]
     fn stacking_boundaries_and_median_match_a_scan() {
         let mut records = vec![tx(0, 0, 400)];
         for id in 1..300 {
@@ -759,7 +772,9 @@ mod tests {
             deepest = deepest.max(open);
             for (j, b) in txs.iter().enumerate().skip(i + 1) {
                 if loaded.sub_row(i) == loaded.sub_row(j) {
-                    assert!(a.end <= b.begin || b.end <= a.begin, "{a:?} {b:?}");
+                    // A zero-length record holds its instant.
+                    let end = |t: &Transaction| t.end.max(t.begin + 1);
+                    assert!(end(a) <= b.begin || end(b) <= a.begin, "{a:?} {b:?}");
                 }
             }
         }

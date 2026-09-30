@@ -195,6 +195,10 @@ impl super::source::HierarchySource for ReaderHierarchy {
             },
         }
     }
+    fn var_name(&self, id: usize) -> &str {
+        let h = self.reader.hierarchy();
+        self.reader.str(h.name(self.vars.node(id)))
+    }
     fn var(&self, id: usize) -> super::source::VariableView<'_> {
         let node = self.vars.node(id);
         let h = self.reader.hierarchy();

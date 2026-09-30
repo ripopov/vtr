@@ -107,17 +107,10 @@ pub trait SignalHistory: Send + Sync {
 
     /// Time of the last change strictly before `t`, if any.
     fn prev_change_before(&self, t: u64) -> Option<u64> {
-        let mut i = self.index_at(t)?;
-        loop {
-            let ti = self.time(i);
-            if ti < t {
-                return Some(ti);
-            }
-            if i == 0 {
-                return None;
-            }
-            i -= 1;
-        }
+        // The last change at or before `t - 1`: one search, however many
+        // changes share a time.
+        let i = self.index_at(t.checked_sub(1)?)?;
+        Some(self.time(i))
     }
 }
 
@@ -184,7 +177,11 @@ impl SignalHistory for VecHistory {
         })
     }
     fn bit(&self, i: Option<usize>) -> Bit {
-        match self.value(i) {
+        let value = match i {
+            None => &self.initial,
+            Some(i) => &self.values[i],
+        };
+        match value {
             WaveValue::Unavailable => Bit::Unavailable,
             WaveValue::Bits(s) => s.bytes().next().map(Bit::from_ascii).unwrap_or(Bit::Other),
             _ => Bit::Other,
@@ -227,5 +224,10 @@ mod tests {
         assert_eq!(h.prev_change_before(10), Some(5));
         assert_eq!(h.prev_change_before(5), None);
         assert_eq!(h.prev_change_before(7), Some(5));
+        let h = hist(&[5, 5, 10, 20, 20, 20, 31]);
+        for t in 0..40 {
+            let expect = (0..h.len()).rev().map(|i| h.time(i)).find(|&ti| ti < t);
+            assert_eq!(h.prev_change_before(t), expect, "t = {t}");
+        }
     }
 }

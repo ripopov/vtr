@@ -190,6 +190,9 @@ impl HierarchySource for Columns {
             enum_table: (c[5][id] & 4 != 0).then_some(c[7][id]),
         }
     }
+    fn var_name(&self, id: usize) -> &str {
+        self.names.get(self.vars[0][id])
+    }
     fn resident_bytes(&self) -> u64 {
         self.scopes
             .iter()

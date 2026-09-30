@@ -436,6 +436,11 @@ impl HierarchySource for RemoteHierarchy {
             enum_table: (c[5][i] & 4 != 0).then_some(c[7][i]),
         }
     }
+    fn var_name(&self, id: usize) -> &str {
+        let position = self.var_positions[id] as usize;
+        let p = &self.vars[position / PAGE_ENTRIES];
+        p.name(p.columns[0][position % PAGE_ENTRIES])
+    }
     fn resident_bytes(&self) -> u64 {
         let pages = self
             .scopes

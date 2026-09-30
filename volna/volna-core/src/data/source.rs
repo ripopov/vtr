@@ -298,6 +298,10 @@ pub(crate) trait HierarchySource: Send + Sync + std::fmt::Debug {
     fn signal(&self, id: VarId) -> SignalRef {
         self.var(id).signal
     }
+    /// A variable's name without decoding the rest of it.
+    fn var_name(&self, id: VarId) -> &str {
+        self.var(id).name
+    }
 }
 
 /// Immutable hierarchy backed by shared columns or a reader's own storage.
@@ -498,7 +502,7 @@ impl Hierarchy {
             .scope(scope)
             .vars
             .iter()
-            .filter(|&id| self.var(id).name == name.as_ref());
+            .filter(|&id| self.source.var_name(id) == name.as_ref());
         match nth {
             Some(n) => matches.nth(n).map_or(Lookup::Missing, Lookup::Found),
             None => unique(matches),
@@ -515,13 +519,16 @@ impl Hierarchy {
             .map(str::to_owned)
             .collect();
         path.push(v.name.to_owned());
-        let matches: Vec<_> = self
-            .scope(v.scope)
-            .vars
-            .iter()
-            .filter(|&id| self.var(id).name == v.name)
-            .collect();
-        let nth = (matches.len() > 1).then(|| matches.iter().position(|&id| id == var).unwrap());
+        // One pass over the scope, comparing names only.
+        let (mut before, mut total, mut seen) = (0, 0, false);
+        for id in self.scope(v.scope).vars.iter() {
+            seen |= id == var;
+            if self.source.var_name(id) == v.name {
+                total += 1;
+                before += usize::from(!seen);
+            }
+        }
+        let nth = (total > 1).then_some(before);
         (path, nth)
     }
 
