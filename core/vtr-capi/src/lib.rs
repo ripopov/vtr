@@ -13,6 +13,13 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+mod heap;
+
+/// libvtr allocates from a heap of its own ([`heap`]); zstd follows through
+/// `vtr::codec`'s custom allocation functions.
+#[global_allocator]
+static HEAP: heap::VtrHeap = heap::VtrHeap;
+
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::ptr;

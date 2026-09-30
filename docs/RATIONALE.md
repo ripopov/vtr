@@ -2620,3 +2620,23 @@ after), and around the batches a Rust caller marks with `Writer::guarded`,
 such as a time step. Every C function runs under `catch_unwind`; a panic
 poisons its writer, and closing a poisoned writer seals it with the ending
 `Poisoned` instead of reading its buffers.
+
+**VTR on its own heap.** glibc detects some heap corruption, such as a
+double free of a 64 KiB block, while it holds the main arena's lock and
+aborts with the lock held; a rescue that allocates from that arena waits for
+ever (measured in `bench/crashlab`). libvtr's global allocator is therefore
+`VtrHeap` (`core/vtr-capi/src/heap.rs`), and zstd's compression contexts
+allocate through the Rust global allocator (`ZSTD_createCCtx_advanced`).
+Plain mimalloc was tried first: write time unchanged, but peak memory 343 to
+about 600 MiB on the 60-million-change crashlab run, because mimalloc grows
+a large buffer by allocating, copying and freeing, where glibc remaps it;
+v2 (522 MiB), an immediate purge (448 MiB, +6% time) and no transparent huge
+pages (504 MiB, +7%) did not close the gap. `VtrHeap` keeps mimalloc for
+blocks below 1 MiB and maps larger ones itself, growing them with `mremap`:
+370 MiB and 1.249 s against glibc's 343 MiB and 1.267 s; a 256 KiB threshold
+gave 351 to 368 MiB for +0.5% time. On the RSA256 Verilator model (2 M
+cycles, VTR dump) it costs 915 to 960 MiB peak and no time; reading C910
+through the C API takes 8.07 s instead of 8.30 s, 440 MiB instead of 378.
+The log encoder threads now start with the writer, because creating a
+thread takes glibc's heap lock. Rust users of the `vtr` crate choose their
+own allocator; the zstd contexts follow it.

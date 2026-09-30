@@ -56,19 +56,84 @@ impl Default for Compression {
 /// Reusable compressor state (zstd contexts are expensive to create): one context
 /// for the configured level and one at level 1 for probes, trials and fast runs.
 pub struct Compressor {
-    zstd: Option<zstd::bulk::Compressor<'static>>,
+    zstd: Option<ZstdContext>,
     level: i32,
-    fast: Option<zstd::bulk::Compressor<'static>>,
+    fast: Option<ZstdContext>,
     trial_buf: Vec<u8>,
 }
 
-fn new_zstd(level: i32) -> Result<zstd::bulk::Compressor<'static>> {
-    let mut c = zstd::bulk::Compressor::new(level).map_err(|e| Error::Codec(e.to_string()))?;
-    // Content size is known from our own prefix; skip zstd's own
-    // checksum since sections carry CRC32 already.
-    let _ = c.set_parameter(zstd::zstd_safe::CParameter::ChecksumFlag(false));
-    let _ = c.include_contentsize(false);
-    Ok(c)
+/// A zstd compression context whose memory comes from the Rust global
+/// allocator rather than the C library's `malloc`. A program that gives VTR a
+/// heap of its own (`libvtr` uses mimalloc) keeps zstd on it too, so a crash
+/// that leaves the C heap locked cannot block VTR from finishing a file.
+struct ZstdContext(std::ptr::NonNull<zstd_sys::ZSTD_CCtx>);
+
+// Safety: a context is used by one thread at a time (`&mut self`).
+unsafe impl Send for ZstdContext {}
+
+/// Every block starts with a header holding the requested size, so `zstd_free` can rebuild the layout.
+const ZSTD_HEADER: usize = 16;
+
+unsafe extern "C" fn zstd_alloc(_: *mut std::ffi::c_void, size: usize) -> *mut std::ffi::c_void {
+    let Ok(layout) = std::alloc::Layout::from_size_align(size + ZSTD_HEADER, ZSTD_HEADER) else { return std::ptr::null_mut() };
+    let p = std::alloc::alloc(layout);
+    if p.is_null() {
+        return p.cast();
+    }
+    p.cast::<usize>().write(size);
+    p.add(ZSTD_HEADER).cast()
+}
+
+unsafe extern "C" fn zstd_free(_: *mut std::ffi::c_void, p: *mut std::ffi::c_void) {
+    if p.is_null() {
+        return;
+    }
+    let base = p.cast::<u8>().sub(ZSTD_HEADER);
+    let size = base.cast::<usize>().read();
+    std::alloc::dealloc(base, std::alloc::Layout::from_size_align_unchecked(size + ZSTD_HEADER, ZSTD_HEADER));
+}
+
+impl ZstdContext {
+    /// A context at `level`. Content size is known from our own prefix, and
+    /// sections carry a CRC32, so zstd writes neither.
+    fn new(level: i32) -> Result<ZstdContext> {
+        let mem = zstd_sys::ZSTD_customMem { customAlloc: Some(zstd_alloc), customFree: Some(zstd_free), opaque: std::ptr::null_mut() };
+        // Safety: the allocation functions above follow ZSTD_customMem's contract.
+        let ctx = std::ptr::NonNull::new(unsafe { zstd_sys::ZSTD_createCCtx_advanced(mem) }).ok_or_else(|| Error::Codec("cannot create a zstd context".into()))?;
+        let c = ZstdContext(ctx);
+        c.set(zstd_sys::ZSTD_cParameter::ZSTD_c_compressionLevel, level)?;
+        c.set(zstd_sys::ZSTD_cParameter::ZSTD_c_checksumFlag, 0)?;
+        c.set(zstd_sys::ZSTD_cParameter::ZSTD_c_contentSizeFlag, 0)?;
+        Ok(c)
+    }
+
+    fn set(&self, p: zstd_sys::ZSTD_cParameter, v: i32) -> Result<()> {
+        // Safety: the context is valid until drop.
+        Self::check(unsafe { zstd_sys::ZSTD_CCtx_setParameter(self.0.as_ptr(), p, v) })?;
+        Ok(())
+    }
+
+    fn check(code: usize) -> Result<usize> {
+        // Safety: zstd's error functions accept any return code.
+        if unsafe { zstd_sys::ZSTD_isError(code) } != 0 {
+            let name = unsafe { std::ffi::CStr::from_ptr(zstd_sys::ZSTD_getErrorName(code)) };
+            return Err(Error::Codec(name.to_string_lossy().into_owned()));
+        }
+        Ok(code)
+    }
+
+    /// Compresses `src` as one frame into `dst`; returns the frame's length.
+    fn compress_to_buffer(&mut self, src: &[u8], dst: &mut [u8]) -> Result<usize> {
+        // Safety: both buffers are valid for their lengths.
+        Self::check(unsafe { zstd_sys::ZSTD_compress2(self.0.as_ptr(), dst.as_mut_ptr().cast(), dst.len(), src.as_ptr().cast(), src.len()) })
+    }
+}
+
+impl Drop for ZstdContext {
+    fn drop(&mut self) {
+        // Safety: created by ZSTD_createCCtx_advanced and freed once.
+        unsafe { zstd_sys::ZSTD_freeCCtx(self.0.as_ptr()) };
+    }
 }
 
 impl Compressor {
@@ -76,20 +141,20 @@ impl Compressor {
         Compressor { zstd: None, level: 0, fast: None, trial_buf: Vec::new() }
     }
 
-    fn zstd_ctx(&mut self, level: i32) -> Result<&mut zstd::bulk::Compressor<'static>> {
+    fn zstd_ctx(&mut self, level: i32) -> Result<&mut ZstdContext> {
         if level == 1 {
             return self.fast_ctx();
         }
         if self.zstd.is_none() || self.level != level {
-            self.zstd = Some(new_zstd(level)?);
+            self.zstd = Some(ZstdContext::new(level)?);
             self.level = level;
         }
         Ok(self.zstd.as_mut().unwrap())
     }
 
-    fn fast_ctx(&mut self) -> Result<&mut zstd::bulk::Compressor<'static>> {
+    fn fast_ctx(&mut self) -> Result<&mut ZstdContext> {
         if self.fast.is_none() {
-            self.fast = Some(new_zstd(1)?);
+            self.fast = Some(ZstdContext::new(1)?);
         }
         Ok(self.fast.as_mut().unwrap())
     }
@@ -99,7 +164,7 @@ impl Compressor {
     pub fn trial_size(&mut self, input: &[u8]) -> Result<usize> {
         let mut buf = std::mem::take(&mut self.trial_buf);
         buf.resize(zstd::zstd_safe::compress_bound(input.len()), 0);
-        let n = self.fast_ctx()?.compress_to_buffer(input, &mut buf).map_err(|e| Error::Codec(e.to_string()))?;
+        let n = self.fast_ctx()?.compress_to_buffer(input, &mut buf)?;
         self.trial_buf = buf;
         Ok(n)
     }
@@ -156,9 +221,7 @@ impl Compressor {
                 let bound = zstd::zstd_safe::compress_bound(input.len());
                 out.resize(payload_pos + bound, 0);
                 let ctx = self.zstd_ctx(comp.level)?;
-                let n = ctx
-                    .compress_to_buffer(input, &mut out[payload_pos..])
-                    .map_err(|e| Error::Codec(e.to_string()))?;
+                let n = ctx.compress_to_buffer(input, &mut out[payload_pos..])?;
                 out.truncate(payload_pos + n);
             }
         }

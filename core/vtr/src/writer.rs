@@ -199,9 +199,10 @@ impl LogPool {
 }
 
 struct FileSink {
-    /// Created on the first log block (background mode with `log_encoders > 0`).
+    /// Started with the writer (background mode with `log_encoders > 0`), so
+    /// that finishing a file never creates a thread: thread creation takes the
+    /// C library's heap lock, which a crash can leave held.
     log_pool: Option<LogPool>,
-    log_encoders: usize,
     file: BufWriter<File>,
     offset: u64,
     entries: Vec<DirEntry>,
@@ -435,9 +436,6 @@ impl FileSink {
                 self.buf = payload;
             }
             Msg::Log(input) => {
-                if self.log_pool.is_none() && self.log_encoders > 0 {
-                    self.log_pool = Some(LogPool::start(self.log_encoders, self.comp)?);
-                }
                 if let Some(pool) = &mut self.log_pool {
                     if let Some(tx) = &pool.tx {
                         pool.pending += 1;
@@ -1005,9 +1003,9 @@ impl Writer {
         let comp = opts.compression;
         let (recycle_tx, recycle_rx) = sync_channel(16);
         let group_size = opts.group_size.max(1).next_power_of_two();
+        let log_encoders = if opts.background { opts.log_encoders } else { 0 };
         let mut fsink = FileSink {
-            log_pool: None,
-            log_encoders: if opts.background { opts.log_encoders } else { 0 },
+            log_pool: if log_encoders > 0 { Some(LogPool::start(log_encoders, comp)?) } else { None },
             file: BufWriter::with_capacity(1 << 20, file),
             offset,
             entries: Vec::new(),

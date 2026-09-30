@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Crash lab: what reaches a VTR file when the simulation dies, with and without a crash guard.
 
-Builds libvtr twice (the system allocator, and VTR on a private heap via
-private-heap.patch applied to a temporary worktree of HEAD), builds the
+Builds libvtr twice (VTR on its private heap, as it is, and on the system
+allocator via system-heap.patch applied to a temporary worktree of HEAD), builds the
 crashlab prototype and the check reader against each, runs every scenario,
 checks each outcome against what docs/crash-safe-vtr.html claims, and writes
 bench/results/crashlab.json. Exits nonzero when an outcome differs.
@@ -38,7 +38,7 @@ def sh(cmd, **kw):
 def build_libs():
     os.makedirs(BUILD, exist_ok=True)
     sh(["cargo", "build", "--release", "-p", "vtr-capi"], cwd=ROOT)
-    stock = os.path.join(ROOT, "target", "release", "libvtr.a")
+    private = os.path.join(ROOT, "target", "release", "libvtr.a")
     wt = os.path.join(BUILD, "wt")
     if os.path.exists(wt):
         subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=ROOT)
@@ -51,15 +51,15 @@ def build_libs():
             if os.path.isdir(dst) and not os.listdir(dst):
                 os.rmdir(dst)
                 os.symlink(os.path.join(ROOT, "ext", name), dst)
-        sh(["git", "apply", os.path.join(HERE, "private-heap.patch")], cwd=wt)
+        sh(["git", "apply", os.path.join(HERE, "system-heap.patch")], cwd=wt)
         env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(BUILD, "target"))
         sh(["cargo", "build", "--release", "-p", "vtr-capi"], cwd=wt, env=env)
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=ROOT)
-    private = os.path.join(BUILD, "target", "release", "libvtr.a")
+    system = os.path.join(BUILD, "target", "release", "libvtr.a")
     cxx = os.environ.get("CXX", "clang++" if shutil.which("clang++") else "g++")
     bins = {}
-    for tag, lib in (("system", stock), ("private", private)):
+    for tag, lib in (("system", system), ("private", private)):
         for prog in ("crashlab", "check"):
             exe = os.path.join(BUILD, f"{prog}-{tag}")
             sh([cxx, "-O2", "-g", "-std=c++17", f"-I{INC}", os.path.join(HERE, f"{prog}.cpp"), lib, "-lpthread", "-ldl", "-lm", "-o", exe])
