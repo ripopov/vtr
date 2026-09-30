@@ -1155,14 +1155,16 @@ impl Writer {
         } else {
             Sink::Inline(Box::new(fsink))
         };
-        let mut meta = Meta::default();
         // Group size is a power of two so group lookups are shifts.
-        meta.group_size = group_size;
+        let meta = Meta {
+            group_size,
+            writer: format!("vtr {}", env!("CARGO_PKG_VERSION")),
+            ..Meta::default()
+        };
         let mut opts = opts;
         opts.group_size = group_size;
         let record_cap = opts.chunk_records.min(opts.block_records).min(1 << 24);
         let chunk_limit = opts.chunk_records.min(opts.block_records).max(1);
-        meta.writer = format!("vtr {}", env!("CARGO_PKG_VERSION"));
         Ok(Writer {
             opts,
             shared: Arc::new(Shared { state: CrashState::default(), tx: seal_tx }),
