@@ -4,7 +4,9 @@
 //! group, folds it (so only the stacked row paints) and times one waveform
 //! frame zoomed out (one mean per layer and pixel column), at 1/100 of the
 //! trace and zoomed in (every step), best of five. The whole-trace walk that
-//! sets the scale is timed separately, as the load worker would run it.
+//! sets the scale and the layers' integral summaries (built for stacks of
+//! more than 16,384 changes) are timed separately, as the load worker would
+//! run them.
 //!
 //! cargo run --release -p volna-core --example stack_cost -- 1000000
 use std::time::Instant;
@@ -113,14 +115,22 @@ fn main() -> anyhow::Result<()> {
         .map(|h| h.len())
         .sum();
     app.handle(Command::Action(Action::ToggleStack));
-    // The whole-trace walk runs on the load worker; here, synchronously.
-    let build = Instant::now();
-    let requests = app.take_requests();
-    let walks = requests.len();
-    for request in requests {
-        app.deliver(request.perform());
+    // The whole-trace walk and the layers' integral summaries run on the
+    // load worker; here, synchronously, each timed.
+    let (mut walk_ms, mut integral_ms, mut integrals) = (0.0, 0.0, 0);
+    for request in app.take_requests() {
+        let integral = matches!(request, volna_core::session::LoadRequest::Integral { .. });
+        let build = Instant::now();
+        let result = request.perform();
+        let ms = build.elapsed().as_secs_f64() * 1000.0;
+        if integral {
+            integral_ms += ms;
+            integrals += 1;
+        } else {
+            walk_ms += ms;
+        }
+        app.deliver(result);
     }
-    let walk_ms = build.elapsed().as_secs_f64() * 1000.0;
     // Folded, only the stacked row paints.
     app.handle(Command::Action(Action::PanLeft));
     let theme = Theme::one_dark();
@@ -142,8 +152,9 @@ fn main() -> anyhow::Result<()> {
     let mut out = serde_json::Map::new();
     out.insert("changes_per_member".into(), (changes / MEMBERS).into());
     out.insert("load_ms".into(), load_ms.into());
-    out.insert("walks_on_worker".into(), walks.into());
     out.insert("walk_ms".into(), walk_ms.into());
+    out.insert("integral_summaries".into(), integrals.into());
+    out.insert("integral_build_ms".into(), integral_ms.into());
     for (name, a, b) in [
         ("full", 0.0, end),
         ("hundredth", mid, mid + end / 100.0),

@@ -133,9 +133,18 @@ pub struct Document {
     group_summaries: HashMap<Vec<usize>, crate::wave::group::SummaryLoad>,
     /// Whole-trace walks of stacked groups, by their layers' identity.
     stack_totals: HashMap<crate::wave::stack::Key, crate::wave::stack::TotalLoad>,
+    /// Integral summaries of long stacked layers, by history identity and
+    /// reading; the weak handle keeps the identity from being reused.
+    integrals: HashMap<(usize, crate::wave::stack::Reading), Integral>,
     /// Every open trace's declared clocks; their stretches load when the
     /// trace opens.
     pub clocks: crate::clock::Clocks,
+}
+
+/// A long stacked layer's integral summary and the history it summarizes.
+struct Integral {
+    history: std::sync::Weak<dyn crate::data::SignalHistory>,
+    load: crate::wave::stack::IntegralLoad,
 }
 
 /// The state of one analog summary; `history` is the identity of the
@@ -202,6 +211,7 @@ impl Document {
             summaries: HashMap::new(),
             group_summaries: HashMap::new(),
             stack_totals: HashMap::new(),
+            integrals: HashMap::new(),
             clocks: crate::clock::Clocks::default(),
         }
     }
@@ -448,6 +458,7 @@ impl Document {
         self.summaries.clear();
         self.group_summaries.clear();
         self.stack_totals.clear();
+        self.integrals.clear();
         self.clocks = crate::clock::Clocks::default();
     }
 
@@ -526,6 +537,7 @@ impl Document {
         self.summaries.clear();
         self.group_summaries.clear();
         self.stack_totals.clear();
+        self.integrals.clear();
         self.retime(Rescale::Finer(factor));
         factor
     }
@@ -593,7 +605,9 @@ impl Document {
             | LoadRequest::Signals { trace: t, .. }
             | LoadRequest::Track { trace: t, .. } => *t != trace,
             LoadRequest::Summary { signal, .. } => signal.trace != trace,
-            LoadRequest::GroupSummary { .. } | LoadRequest::StackTotal { .. } => true,
+            LoadRequest::GroupSummary { .. }
+            | LoadRequest::Integral { .. }
+            | LoadRequest::StackTotal { .. } => true,
         });
         self.summaries.retain(|(s, _), _| s.trace != trace);
         if self.selection.is_some_and(|s| s.track.trace == trace) {
@@ -776,6 +790,63 @@ impl Document {
             self.requests.push(LoadRequest::StackTotal {
                 generation: self.epoch,
                 layers,
+                budget: budget.clone(),
+            });
+        }
+    }
+
+    /// The integral summary of `history` read as `reading`, or whether one
+    /// is building.
+    pub fn integral(
+        &self,
+        history: &Arc<dyn crate::data::SignalHistory>,
+        reading: crate::wave::stack::Reading,
+    ) -> Option<&crate::wave::stack::IntegralLoad> {
+        let key = (crate::wave::analog::history_identity(history), reading);
+        self.integrals.get(&key).map(|i| &i.load)
+    }
+
+    /// Give `layers` the integral summaries the document holds for them.
+    pub fn summarize_layers(&self, layers: &mut [crate::wave::stack::Layer]) {
+        use crate::wave::stack::IntegralLoad;
+        for layer in layers {
+            match self.integral(&layer.history, layer.reading) {
+                Some(IntegralLoad::Ready(s)) => {
+                    layer.summary =
+                        Some(s.clone()).filter(|s| s.matches(&layer.history, layer.reading));
+                }
+                Some(IntegralLoad::Building { .. }) => layer.building = true,
+                _ => {}
+            }
+        }
+    }
+
+    /// Hold integral summaries for exactly the `wanted` histories: queue
+    /// builds for new ones and release the others, and those whose history
+    /// is gone, with their memory.
+    pub(crate) fn sync_integrals(
+        &mut self,
+        wanted: HashMap<(usize, crate::wave::stack::Reading), Arc<dyn crate::data::SignalHistory>>,
+        budget: &crate::remote::memory::MemoryBudget,
+    ) {
+        use crate::wave::stack::IntegralLoad;
+        self.integrals
+            .retain(|key, i| wanted.contains_key(key) && i.history.strong_count() > 0);
+        for ((identity, reading), history) in wanted {
+            if self.integrals.contains_key(&(identity, reading)) {
+                continue;
+            }
+            self.integrals.insert(
+                (identity, reading),
+                Integral {
+                    history: Arc::downgrade(&history),
+                    load: IntegralLoad::Building { history: identity },
+                },
+            );
+            self.requests.push(LoadRequest::Integral {
+                generation: self.epoch,
+                history,
+                reading,
                 budget: budget.clone(),
             });
         }
@@ -1141,6 +1212,25 @@ impl Document {
                 *load = match result {
                     Ok(summary) => SummaryLoad::Ready(summary),
                     Err(_) => SummaryLoad::Failed { history },
+                };
+                Some(Delivered::Summary)
+            }
+            LoadResult::Integral {
+                generation,
+                history,
+                reading,
+                result,
+            } => {
+                use crate::wave::stack::IntegralLoad;
+                let entry = self.integrals.get_mut(&(history, reading))?;
+                if generation != self.epoch
+                    || !matches!(entry.load, IntegralLoad::Building { history: h } if h == history)
+                {
+                    return None;
+                }
+                entry.load = match result {
+                    Ok(summary) => IntegralLoad::Ready(summary),
+                    Err(_) => IntegralLoad::Failed { history },
                 };
                 Some(Delivered::Summary)
             }

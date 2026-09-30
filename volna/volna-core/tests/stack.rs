@@ -21,7 +21,7 @@ use volna_core::testing::a;
 use volna_core::trace::TraceId;
 use volna_core::wave::analog::Sample;
 use volna_core::wave::model::{MenuAction, MenuEntry};
-use volna_core::wave::stack::{self, Layer, Reading, TotalSummary};
+use volna_core::wave::stack::{self, IntegralSummary, Layer, Reading, TotalSummary};
 use volna_core::wave::viewport::Viewport;
 use volna_core::wave::{GroupStyle, PointerEvent};
 use volna_core::workspace::Workspace;
@@ -46,6 +46,10 @@ impl Rng {
 /// signed, or a real of either sign; changes at unaligned times, stretches
 /// of X, and sometimes no value before a late first change.
 fn member(rng: &mut Rng, k: usize) -> Layer {
+    member_until(rng, k, 10_000)
+}
+
+fn member_until(rng: &mut Rng, k: usize, end: u64) -> Layer {
     let kind = rng.below(4);
     let (shape, reading) = match kind {
         0 => (SignalShape::Bit, Reading::Bit),
@@ -62,7 +66,7 @@ fn member(rng: &mut Rng, k: usize) -> Layer {
     let late = rng.below(3) == 0;
     let mut t = if late { 200 + rng.below(800) } else { 0 };
     let (mut times, mut values) = (Vec::new(), Vec::new());
-    while t < 10_000 {
+    while t < end {
         let x = rng.below(12) == 0;
         values.push(match (kind, x) {
             (0, true) => WaveValue::Bits("x".into()),
@@ -86,11 +90,7 @@ fn member(rng: &mut Rng, k: usize) -> Layer {
         values,
         initial: WaveValue::Unavailable,
     });
-    Layer {
-        entry: k,
-        history,
-        reading,
-    }
+    Layer::new(k, history, reading)
 }
 
 fn members(seed: u64) -> Vec<Layer> {
@@ -285,19 +285,16 @@ fn the_whole_trace_walk_finds_the_highest_top_and_lowest_bottom() {
 }
 
 fn bits(times: &[(u64, &str)]) -> Layer {
-    Layer {
-        entry: 0,
-        history: Arc::new(VecHistory {
-            shape: SignalShape::Bit,
-            times: times.iter().map(|(t, _)| *t).collect(),
-            values: times
-                .iter()
-                .map(|(_, v)| WaveValue::Bits((*v).into()))
-                .collect(),
-            initial: WaveValue::Unavailable,
-        }),
-        reading: Reading::Bit,
-    }
+    let history = Arc::new(VecHistory {
+        shape: SignalShape::Bit,
+        times: times.iter().map(|(t, _)| *t).collect(),
+        values: times
+            .iter()
+            .map(|(_, v)| WaveValue::Bits((*v).into()))
+            .collect(),
+        initial: WaveValue::Unavailable,
+    });
+    Layer::new(0, history, Reading::Bit)
 }
 
 #[test]
@@ -317,6 +314,240 @@ fn stepping_through_the_sum_skips_changes_that_cancel_out() {
     assert_eq!(weak.at(0), Sample::Value(1.0));
     assert_eq!(weak.at(5), Sample::Value(0.0));
     assert_eq!(weak.at(6), Sample::Undefined);
+}
+
+// -- integral summaries (stage 2) ----------------------------------------------
+
+#[test]
+fn integral_prefixes_equal_a_direct_walk_at_every_block_boundary() {
+    for seed in 1..20u64 {
+        let mut rng = Rng(0x7f4a_7c15 ^ (seed * 131));
+        let layer = member_until(&mut rng, 0, 20_000);
+        let h = layer.history.as_ref();
+        let summary = IntegralSummary::build(&layer.history, layer.reading);
+        let direct = |k: usize| {
+            (0..k).fold((0.0, 0u32), |(sum, count), j| {
+                let dur = (h.time(j + 1) - h.time(j)) as f64;
+                match layer.sample(Some(j)) {
+                    Sample::Value(v) => (sum + v * dur, count),
+                    _ if dur > 0.0 => (sum, count + 1),
+                    _ => (sum, count),
+                }
+            })
+        };
+        let len = h.len();
+        let b = stack::INTEGRAL_BLOCK;
+        for k in [
+            0,
+            1,
+            b - 1,
+            b,
+            b + 1,
+            b + b / 2,
+            b + b / 2 + 1,
+            2 * b - 1,
+            2 * b,
+            len / 2,
+            len - 2,
+            len - 1,
+        ] {
+            let ((s, u), (ds, du)) = (summary.prefix(h, k), direct(k));
+            assert!(
+                (s - ds).abs() <= 1e-9 * ds.abs().max(1.0),
+                "seed {seed} k {k}: {s} vs {ds}"
+            );
+            assert_eq!(u, du, "seed {seed} k {k}");
+        }
+        // One f64 and one u32 per block of 64 changes.
+        let blocks = (len - 2) / b + 1;
+        assert_eq!(summary.resident_bytes(), blocks as u64 * 12);
+    }
+    // The last change's prefix, also where it starts a block.
+    for len in [2usize, 64, 65, 66, 129] {
+        let h: Arc<dyn SignalHistory> = Arc::new(VecHistory {
+            shape: SignalShape::Bit,
+            times: (0..len as u64).map(|t| 3 * t).collect(),
+            values: (0..len)
+                .map(|i| WaveValue::Bits(format!("{}", i % 2)))
+                .collect(),
+            initial: WaveValue::Unavailable,
+        });
+        let summary = IntegralSummary::build(&h, Reading::Bit);
+        let ones = (len - 1) / 2;
+        assert_eq!(
+            summary.prefix(h.as_ref(), len - 1),
+            (3.0 * ones as f64, 0),
+            "{len}"
+        );
+    }
+}
+
+#[test]
+fn column_means_from_summaries_equal_the_walked_ones() {
+    for seed in 1..20u64 {
+        let mut rng = Rng(0x94d0_49bb ^ (seed * 7));
+        let walked: Vec<Layer> = (0..3).map(|k| member_until(&mut rng, k, 100_000)).collect();
+        let summarized: Vec<Layer> = walked
+            .iter()
+            .map(|l| {
+                let s = Arc::new(IntegralSummary::build(&l.history, l.reading));
+                l.clone().with_summary(Some(s))
+            })
+            .collect();
+        assert!(summarized.iter().all(|l| l.summary.is_some()));
+        for (start, end, width) in [
+            (0.0, 100_000.0, 97),
+            (-500.5, 60_000.25, 64),
+            (20_000.0, 90_000.0, 40),
+        ] {
+            let vp = Viewport { start, end };
+            let a = stack::columns(&walked, &vp, width);
+            let b = stack::columns(&summarized, &vp, width);
+            for c in 0..width {
+                assert_eq!(a.changes(c), b.changes(c), "seed {seed} column {c}");
+                for (k, (x, y)) in a.values(c).iter().zip(b.values(c)).enumerate() {
+                    match (x, y) {
+                        (Sample::Value(x), Sample::Value(y)) => assert!(
+                            (x - y).abs() <= 1e-9 * x.abs().max(1.0),
+                            "seed {seed} {start}..{end} column {c} layer {k}: {x} vs {y}"
+                        ),
+                        (Sample::Undefined, Sample::Undefined) => {}
+                        _ => panic!("seed {seed} column {c} layer {k}: {x:?} vs {y:?}"),
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_long_layer_waits_for_its_summary_rather_than_walk() {
+    let mut rng = Rng(99);
+    let mut layers: Vec<Layer> = (0..2)
+        .map(|k| member_until(&mut rng, k, 1_000_000))
+        .collect();
+    let vp = Viewport {
+        start: 0.0,
+        end: 1_000_000.0,
+    };
+    layers[0].building = true;
+    assert!(stack::frame(&layers, &vp, 800).waiting());
+    let s = Arc::new(IntegralSummary::build(
+        &layers[0].history,
+        layers[0].reading,
+    ));
+    layers[0] = layers[0].clone().with_summary(Some(s));
+    assert!(!stack::frame(&layers, &vp, 800).waiting());
+    // A summary of another reading is not used.
+    let other = Arc::new(IntegralSummary::build(
+        &layers[1].history,
+        Reading::Number(NumericKind::Float),
+    ));
+    assert!(
+        layers[1]
+            .clone()
+            .with_summary(Some(other))
+            .summary
+            .is_none()
+    );
+}
+
+/// Two one-bit valids changing 30,000 and 20,000 times: long enough for
+/// summaries.
+fn long_trace() -> (tempfile::NamedTempFile, Arc<dyn Session>) {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let mut w = vtr::Writer::create(file.path()).unwrap();
+    w.set_timescale(-9).unwrap();
+    let top = w
+        .add_scope(None, "top", vtr::ScopeType::Module, "top")
+        .unwrap();
+    let ids: Vec<_> = ["a", "b"]
+        .iter()
+        .map(|n| {
+            w.add_var(
+                Some(top),
+                n,
+                vtr::VarType::Wire,
+                vtr::Direction::Output,
+                vtr::SignalKind::Bits {
+                    width: 1,
+                    states: 2,
+                },
+            )
+            .unwrap()
+            .1
+        })
+        .collect();
+    for t in 0..30_000u64 {
+        w.set_time(t).unwrap();
+        w.emit_bit(ids[0], (t & 1) as u8).unwrap();
+        w.emit_bit(ids[1], u8::from(t % 3 == 0)).unwrap();
+    }
+    w.close().unwrap();
+    let session = OpenSpec::Path(file.path().into()).open().unwrap();
+    (file, session)
+}
+
+#[test]
+fn long_stacks_hold_integral_summaries_until_their_histories_go() {
+    let (_f, session) = long_trace();
+    let mut app = App::new();
+    app.set_session(session);
+    pump(&mut app);
+    let top = scope(&app, &["top"]);
+    app.handle(Command::AddScopeAsGroup {
+        scope: a(top),
+        recursive: false,
+    });
+    pump(&mut app);
+    let id = app.panels.focused_id();
+    let layers = app.panels.waves(id).unwrap().stack_layers(0);
+    assert!(
+        layers
+            .iter()
+            .all(|l| app.doc.integral(&l.history, l.reading).is_none()),
+        "not stacked yet"
+    );
+    app.handle(Command::Action(Action::ToggleStack));
+    // Queued for the worker: until they arrive the frame waits.
+    assert!(layers.iter().all(|l| matches!(
+        app.doc.integral(&l.history, l.reading),
+        Some(stack::IntegralLoad::Building { .. })
+    )));
+    let App { panels, doc, .. } = &mut app;
+    panels.waves_mut(id).unwrap().nav.jump_to(
+        doc,
+        Viewport {
+            start: 0.0,
+            end: 30_000.0,
+        },
+    );
+    let shown = texts(frame(&mut app, id));
+    assert!(shown.iter().any(|s| s == "Summarizing…"), "{shown:?}");
+    pump(&mut app);
+    for l in &layers {
+        let Some(stack::IntegralLoad::Ready(s)) = app.doc.integral(&l.history, l.reading) else {
+            panic!("no summary");
+        };
+        assert!(s.matches(&l.history, l.reading));
+    }
+    let shown = texts(frame(&mut app, id));
+    assert!(!shown.iter().any(|s| s == "Summarizing…"), "{shown:?}");
+    // Unstacked, the summaries go; removed, so do the histories.
+    app.handle(Command::Action(Action::ToggleStack));
+    assert!(
+        layers
+            .iter()
+            .all(|l| app.doc.integral(&l.history, l.reading).is_none())
+    );
+    let weak: Vec<_> = layers.iter().map(|l| Arc::downgrade(&l.history)).collect();
+    drop(layers);
+    app.handle(Command::Action(Action::RemoveSelected));
+    app.history.clear();
+    assert!(
+        weak.iter().all(|w| w.strong_count() == 0),
+        "the histories are released with their rows"
+    );
 }
 
 // -- the panel ---------------------------------------------------------------

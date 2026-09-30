@@ -2158,20 +2158,45 @@ stays navigation and a folded stacked group keeps its area. The waves
 workspace panel moved to version 6 with `"style": "stack"` on groups;
 activity is not written, and version 5 panels are refused.
 
+Long layers read their column means from an `IntegralSummary` (stage 2):
+per block of 64 changes the integral since the first change, summed with
+Kahan's compensation, and the count of undefined spans, 12 bytes per block
+(about 0.19 bytes per change; the plan estimated 0.125 without the count). A
+column's mean is the difference of two prefixes, each a block entry and at
+most half a block of spans read from the history. The prefix difference
+loses precision only relative to the whole history's integral, about 10⁻¹³ of
+a zoomed-out column for a bit over 10¹⁰ ticks; the tests hold it to 10⁻⁹
+against a walk. Block integrals were chosen over the analog summary's tree
+of extents because a mean needs only two prefix lookups, and over a tree of
+per-block sums because it halves the memory. Summaries are built by
+`LoadRequest::Integral` for layers of at least 16,384 changes in stacks of
+more than 16,384 changes in all, and held by `Document` keyed by history
+identity and reading with a `Weak` handle, which keeps the identity from
+being reused while the entry lives. The plan named `LoadRequest::Summary`;
+that request is keyed by signal and numeric kind, and bits have no numeric
+kind, so the summary got its own request. Two measured refinements: a prefix
+just after the previous one continues it (a column starting where the last
+ended reads one span), and each column's search starts where the previous
+column's density points, which cut the 10⁷ frame from 4.4 to 3.5 ms; 32-change
+blocks gave 4.1 ms for twice the memory and were not kept.
+
 Measurements (`stack_cost`; Intel Core Ultra 7 265K pinned to P-cores,
 release, best of 5; core layout and `Scene` painting of a folded stack of
 eight one-bit members, 1,400 px wide; each member changes at random ticks):
 
-| Changes per member | Zoomed out, ms | 1/100 of the trace, ms | 200 ticks, ms | Whole-trace walk (worker), ms |
-|---:|---:|---:|---:|---:|
-| 10⁴ | 0.74 | 0.16 | 0.15 | 1.9 |
-| 10⁵ | 4.4 | 0.28 | 0.15 | 19 |
-| 10⁶ | 41 | 0.69 | 0.15 | 175 |
-| 10⁷ | 409 | 4.3 | 0.15 | 1,773 |
+| Changes per member | Zoomed out, walked (stage 1), ms | Zoomed out, with summaries, ms | 1/100 of the trace, ms | 200 ticks, ms | Whole-trace walk (worker), ms | Eight summaries (worker), ms |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10⁴ | 0.74 | 0.84 (walked) | 0.16 | 0.15 | 1.9 | – |
+| 10⁵ | 4.4 | 1.4 | 0.29 | 0.16 | 18 | 4.3 |
+| 10⁶ | 41 | 1.8 | 0.74 | 0.15 | 179 | 43 |
+| 10⁷ | 409 | 3.5 | 1.4 | 0.15 | 1,850 | 436 |
 
-A zoomed-out frame walks every visible change, about 5 ns per change, and
-passes the 4 ms budget the analog painter was held to at about 10⁵ changes
-per member: the long-history summary of stage 2 is needed.
+Walking costs about 5 ns per visible change and passes the 4 ms budget the
+analog painter was held to at about 10⁵ changes per member; with the
+summaries a zoomed-out frame stays within it at 10⁷ (8 × 10⁷ changes), about
+0.44 ms per layer against 1.1 ms for one analog row at 10⁷. The whole-trace
+walk stays on the worker; until it arrives the scale follows the visible
+frame.
 
 ## Volna themes
 

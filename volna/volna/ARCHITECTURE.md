@@ -347,7 +347,10 @@ name and a hover readout of every layer. Zoomed in it draws the layers'
 merged steps, zoomed out each layer's time-weighted mean per pixel column.
 The whole-trace walk that sets its scale is a `TotalSummary` held by the
 `Document` for the visible stacked groups and built by
-`LoadRequest::StackTotal` on the load worker for long layers. The design is
+`LoadRequest::StackTotal` on the load worker for long layers; long layers of
+long stacks also get an `IntegralSummary` (`LoadRequest::Integral`) of block
+integrals, so a zoomed-out frame costs O(layers × width) rather than its
+visible changes. The design is
 [docs/stacked-areas.html](../../docs/stacked-areas.html).
 
 Pointer commands name a panel; keyboard actions and sidebar additions resolve

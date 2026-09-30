@@ -14,7 +14,9 @@
 //! every step of that union exactly; busier views draw one pixel column
 //! each, with every layer's time-weighted mean over the column ([`frame`]).
 //! Means over one span add up, so the stack's top is the column's mean
-//! total. The whole-trace scale comes from one merged walk over the layers
+//! total. Long layers read those means from an [`IntegralSummary`], so a
+//! frame costs O(layers × width) instead of its visible changes. The
+//! whole-trace scale comes from one merged walk over the layers
 //! ([`TotalSummary`]), on the load worker when they are long.
 
 use std::cmp::Reverse;
@@ -33,6 +35,15 @@ pub const WALK_MAX: usize = super::group::WALK_MAX;
 /// The merged walk sums changes incrementally and recomposes every this
 /// many instants, so rounding cannot drift.
 const RECOMPOSE_EVERY: u32 = 256;
+/// Changes per block of an [`IntegralSummary`].
+pub const INTEGRAL_BLOCK: usize = 64;
+/// A stack whose layers change more often than [`WALK_MAX`] in all gets an
+/// [`IntegralSummary`] for each layer with at least this many changes;
+/// shorter layers are cheap to walk.
+pub const INTEGRAL_MIN_CHANGES: usize = analog::SUMMARY_MIN_CHANGES;
+/// A layer with more visible changes than this many per pixel column reads
+/// its column means from its summary instead of walking them.
+const SUMMARY_PER_COLUMN: usize = 16;
 
 /// How a member counts in a stack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -92,9 +103,30 @@ pub struct Layer {
     pub entry: usize,
     pub history: Arc<dyn SignalHistory>,
     pub reading: Reading,
+    /// Its integral summary, when one matching the history and reading is
+    /// resident.
+    pub summary: Option<Arc<IntegralSummary>>,
+    /// A summary for this long history is still building.
+    pub building: bool,
 }
 
 impl Layer {
+    pub fn new(entry: usize, history: Arc<dyn SignalHistory>, reading: Reading) -> Self {
+        Self {
+            entry,
+            history,
+            reading,
+            summary: None,
+            building: false,
+        }
+    }
+
+    /// With `summary` when it summarizes this history read this way.
+    pub fn with_summary(mut self, summary: Option<Arc<IntegralSummary>>) -> Self {
+        self.summary = summary.filter(|s| s.matches(&self.history, self.reading));
+        self
+    }
+
     pub fn sample(&self, i: Option<usize>) -> Sample {
         self.reading.sample(self.history.as_ref(), i)
     }
@@ -196,6 +228,7 @@ pub struct Frame {
     /// Per column, the layers' changes inside it after its first instant:
     /// its values are means only where there are some. Empty when exact.
     changes: Vec<u32>,
+    waiting: bool,
 }
 
 impl Frame {
@@ -214,6 +247,11 @@ impl Frame {
     pub fn span_at(&self, x: f64) -> Option<usize> {
         let i = self.spans.partition_point(|s| s.1 <= x);
         (i < self.spans.len() && self.spans[i].0 <= x).then_some(i)
+    }
+
+    /// Too many changes to walk before the layers' summaries are ready.
+    pub fn waiting(&self) -> bool {
+        self.waiting
     }
 
     /// The lowest and highest point the frame draws, with the baseline.
@@ -236,11 +274,24 @@ pub fn frame(layers: &[Layer], vp: &Viewport, width: usize) -> Frame {
             ..Frame::default()
         };
     }
-    if visible_changes(layers, vp) as f64 <= width as f64 * EXACT_RATIO {
-        steps(layers, vp, width)
-    } else {
-        columns(layers, vp, width)
+    let visible = visible_changes(layers, vp);
+    if visible as f64 <= width as f64 * EXACT_RATIO {
+        return steps(layers, vp, width);
     }
+    // A long layer whose summary builds waits rather than walk on the UI thread.
+    let waiting = layers.iter().any(|l| {
+        l.building
+            && l.summary.is_none()
+            && analog::visible_changes(l.history.as_ref(), vp) >= INTEGRAL_MIN_CHANGES
+    });
+    if waiting && visible > WALK_MAX {
+        return Frame {
+            waiting: true,
+            layers: layers.len(),
+            ..Frame::default()
+        };
+    }
+    columns(layers, vp, width)
 }
 
 /// Every step of the layers' merged changes inside `vp`.
@@ -288,10 +339,12 @@ pub fn steps(layers: &[Layer], vp: &Viewport, width: usize) -> Frame {
     frame
 }
 
-/// Each layer's time-weighted mean over each pixel column of `vp`, walking
-/// its changes inside the view once: O(visible changes + layers × width).
-/// A layer undefined for any part of a column is undefined there, so a
-/// short X survives any zoom.
+/// Each layer's time-weighted mean over each pixel column of `vp`: from
+/// its [`IntegralSummary`] when it has one and changes more than 16 times
+/// per column in view, O(width × (log n + block)), else by walking its
+/// changes inside the view once, O(visible changes + width). A layer
+/// undefined for any part of a column is undefined there, so a short X
+/// survives any zoom.
 pub fn columns(layers: &[Layer], vp: &Viewport, width: usize) -> Frame {
     let n = layers.len();
     let w = width as f64;
@@ -299,6 +352,30 @@ pub fn columns(layers: &[Layer], vp: &Viewport, width: usize) -> Frame {
     let mut changes = vec![0u32; width];
     for (k, l) in layers.iter().enumerate() {
         let h = l.history.as_ref();
+        if let Some(summary) = &l.summary
+            && analog::visible_changes(h, vp) > SUMMARY_PER_COLUMN * width
+        {
+            let mut prefixes = Prefixes::new(summary, h);
+            let mut ia = index_at(h, vp.time_at(0.0, w));
+            let mut density = 0;
+            for c in 0..width {
+                let (ta, tb) = (vp.time_at(c as f64, w), vp.time_at((c + 1) as f64, w));
+                // Columns change about as often as their neighbours: start
+                // the search where the last column's density says.
+                let guess = ia.map(|i| i + density);
+                let ib = index_before(h, tb, guess).max(ia);
+                density = changes_between(ia, ib);
+                values[c * n + k] = prefixes.mean(ia, ib, ta, tb);
+                changes[c] += (changes_between(ia, ib)) as u32;
+                // The next column starts where this one ends.
+                ia = match ib {
+                    Some(ib) if tb >= 0.0 => h.index_at_hint(tb.floor() as u64, ib),
+                    _ => index_at(h, tb),
+                }
+                .max(ib);
+            }
+            continue;
+        }
         let next_time = |i: Option<usize>| {
             let next = i.map_or(0, |i| i + 1);
             if next < h.len() {
@@ -345,6 +422,269 @@ pub fn columns(layers: &[Layer], vp: &Viewport, width: usize) -> Frame {
         values,
         layers: n,
         changes,
+        waiting: false,
+    }
+}
+
+/// The last change strictly before `t`, searching from `hint`.
+fn index_before(h: &dyn SignalHistory, t: f64, hint: Option<usize>) -> Option<usize> {
+    if t <= 0.0 {
+        return None;
+    }
+    let t = (t.ceil() as u64).saturating_sub(1);
+    match hint {
+        Some(hint) => h.index_at_hint(t, hint),
+        None => h.index_at(t),
+    }
+}
+
+fn changes_between(a: Option<usize>, b: Option<usize>) -> usize {
+    match (a, b) {
+        (_, None) => 0,
+        (None, Some(b)) => b + 1,
+        (Some(a), Some(b)) => b.saturating_sub(a),
+    }
+}
+
+/// A sum kept with Kahan's compensation, so long prefix sums stay exact to
+/// the last bits.
+#[derive(Clone, Copy, Default)]
+struct Kahan {
+    sum: f64,
+    carry: f64,
+}
+
+impl Kahan {
+    fn add(&mut self, v: f64) {
+        let y = v - self.carry;
+        let t = self.sum + y;
+        self.carry = (t - self.sum) - y;
+        self.sum = t;
+    }
+}
+
+/// Per block of [`INTEGRAL_BLOCK`] changes of one history read one way, the
+/// integral of its values over their spans since its first change, and how
+/// many of those spans are undefined for a while: about 0.19 bytes per
+/// change. A column's mean is then the difference of two prefixes, each a
+/// block entry and at most half a block read from the history. Built on the
+/// load worker for the long layers of a stack; the document shares it
+/// between panels and releases it (and its memory reservation) with the
+/// history. One-bit members get one too, since they have no analog summary.
+pub struct IntegralSummary {
+    reading: Reading,
+    history: usize,
+    len: usize,
+    /// `integral[m]`: the sum of every span of changes `0..64 m`.
+    integral: Vec<f64>,
+    /// `undefined[m]`: how many of those spans are undefined and last.
+    undefined: Vec<u32>,
+    reservation: Option<crate::remote::memory::Reservation>,
+}
+
+impl std::fmt::Debug for IntegralSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IntegralSummary")
+            .field("reading", &self.reading)
+            .field("len", &self.len)
+            .field("bytes", &self.resident_bytes())
+            .finish()
+    }
+}
+
+impl IntegralSummary {
+    /// One pass over `h` read as `reading`. The span of change `j` is its
+    /// value from its time to the next change's; the last change's span is
+    /// open and never summed.
+    pub fn build(h: &Arc<dyn SignalHistory>, reading: Reading) -> Self {
+        let len = h.len();
+        let blocks = len.saturating_sub(1) / INTEGRAL_BLOCK + 1;
+        let mut integral = Vec::with_capacity(blocks);
+        let mut undefined = Vec::with_capacity(blocks);
+        let (mut sum, mut count) = (Kahan::default(), 0u32);
+        for j in 0..len.saturating_sub(1) {
+            if j % INTEGRAL_BLOCK == 0 {
+                integral.push(sum.sum);
+                undefined.push(count);
+            }
+            let dur = (h.time(j + 1) - h.time(j)) as f64;
+            match reading.sample(h.as_ref(), Some(j)) {
+                Sample::Value(v) => sum.add(v * dur),
+                _ if dur > 0.0 => count += 1,
+                _ => {}
+            }
+        }
+        if integral.is_empty() {
+            integral.push(0.0);
+            undefined.push(0);
+        }
+        Self {
+            reading,
+            history: analog::history_identity(h),
+            len,
+            integral,
+            undefined,
+            reservation: None,
+        }
+    }
+
+    /// Charge the summary to a memory budget for as long as it lives.
+    pub fn account(mut self, budget: &crate::remote::memory::MemoryBudget) -> anyhow::Result<Self> {
+        self.reservation =
+            Some(budget.reserve_object("the integral summary", self.resident_bytes())?);
+        Ok(self)
+    }
+
+    pub fn resident_bytes(&self) -> u64 {
+        (self.integral.len() * std::mem::size_of::<f64>()
+            + self.undefined.len() * std::mem::size_of::<u32>()) as u64
+    }
+
+    pub fn reading(&self) -> Reading {
+        self.reading
+    }
+
+    /// Identity of the summarized history.
+    pub fn identity(&self) -> usize {
+        self.history
+    }
+
+    /// Whether this summarizes `h` read as `reading`.
+    pub fn matches(&self, h: &Arc<dyn SignalHistory>, reading: Reading) -> bool {
+        self.reading == reading
+            && self.history == analog::history_identity(h)
+            && self.len == h.len()
+    }
+
+    /// The sum of the spans of changes `0..k` (`k < len`) and how many of
+    /// them are undefined: the nearer block entry, corrected by at most half
+    /// a block of spans read from `h`.
+    pub fn prefix(&self, h: &dyn SignalHistory, k: usize) -> (f64, u32) {
+        let span = |j: usize| {
+            let dur = (h.time(j + 1) - h.time(j)) as f64;
+            match self.reading.sample(h, Some(j)) {
+                Sample::Value(v) => (v * dur, 0),
+                _ if dur > 0.0 => (0.0, 1),
+                _ => (0.0, 0),
+            }
+        };
+        let m = (k / INTEGRAL_BLOCK).min(self.integral.len() - 1);
+        let up = m + 1;
+        if k % INTEGRAL_BLOCK > INTEGRAL_BLOCK / 2 && up < self.integral.len() {
+            // Nearer the next block: subtract the spans up to it.
+            let (mut sum, mut count) = (self.integral[up], self.undefined[up]);
+            for j in k..up * INTEGRAL_BLOCK {
+                let (v, u) = span(j);
+                sum -= v;
+                count -= u;
+            }
+            return (sum, count);
+        }
+        let (mut sum, mut count) = (self.integral[m], self.undefined[m]);
+        for j in m * INTEGRAL_BLOCK..k {
+            let (v, u) = span(j);
+            sum += v;
+            count += u;
+        }
+        (sum, count)
+    }
+
+    /// The mean over `[ta, tb)` of `h`, where `ia` holds at `ta` and `ib` is
+    /// the last change before `tb`; undefined when any part of it is.
+    pub fn mean(
+        &self,
+        h: &dyn SignalHistory,
+        ia: Option<usize>,
+        ib: Option<usize>,
+        ta: f64,
+        tb: f64,
+    ) -> Sample {
+        Prefixes::new(self, h).mean(ia, ib, ta, tb)
+    }
+}
+
+/// Prefixes of one summarized history read left to right: a prefix just
+/// after the last one continues it instead of reading a block entry, so a
+/// column that starts where the previous one ended reads almost nothing.
+struct Prefixes<'a> {
+    summary: &'a IntegralSummary,
+    h: &'a dyn SignalHistory,
+    last: Option<(usize, f64, u32)>,
+}
+
+impl<'a> Prefixes<'a> {
+    fn new(summary: &'a IntegralSummary, h: &'a dyn SignalHistory) -> Self {
+        Self {
+            summary,
+            h,
+            last: None,
+        }
+    }
+
+    fn at(&mut self, k: usize) -> (f64, u32) {
+        let block = k % INTEGRAL_BLOCK;
+        let to_block = block.min(INTEGRAL_BLOCK - block);
+        let (sum, count) = match self.last {
+            Some((last, sum, count)) if k >= last && k - last <= to_block => {
+                let (mut sum, mut count) = (sum, count);
+                for j in last..k {
+                    let dur = (self.h.time(j + 1) - self.h.time(j)) as f64;
+                    match self.summary.reading.sample(self.h, Some(j)) {
+                        Sample::Value(v) => sum += v * dur,
+                        _ if dur > 0.0 => count += 1,
+                        _ => {}
+                    }
+                }
+                (sum, count)
+            }
+            _ => self.summary.prefix(self.h, k),
+        };
+        self.last = Some((k, sum, count));
+        (sum, count)
+    }
+
+    fn mean(&mut self, ia: Option<usize>, ib: Option<usize>, ta: f64, tb: f64) -> Sample {
+        let h = self.h;
+        let value = |i: Option<usize>| self.summary.reading.sample(h, i);
+        let Some(ib) = ib.filter(|&ib| Some(ib) != ia) else {
+            return match value(ia) {
+                Sample::Value(v) => Sample::Value(v),
+                _ => Sample::Undefined,
+            };
+        };
+        let first = ia.map_or(0, |i| i + 1);
+        let (Sample::Value(va), Sample::Value(vb)) = (value(ia), value(Some(ib))) else {
+            return Sample::Undefined;
+        };
+        let (from, from_undefined) = self.at(first);
+        let (to, to_undefined) = self.at(ib);
+        if to_undefined > from_undefined {
+            return Sample::Undefined;
+        }
+        let head = va * (h.time(first) as f64 - ta);
+        let tail = vb * (tb - h.time(ib) as f64);
+        Sample::Value((head + (to - from) + tail) / (tb - ta))
+    }
+}
+
+/// A layer's integral summary, as the document holds it.
+pub enum IntegralLoad {
+    Building {
+        history: usize,
+    },
+    Ready(Arc<IntegralSummary>),
+    /// Refused (the memory budget); the painter walks the changes instead.
+    Failed {
+        history: usize,
+    },
+}
+
+impl IntegralLoad {
+    pub fn history(&self) -> usize {
+        match self {
+            Self::Building { history } | Self::Failed { history } => *history,
+            Self::Ready(s) => s.identity(),
+        }
     }
 }
 

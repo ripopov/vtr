@@ -2013,16 +2013,26 @@ impl App {
     }
 
     /// Hold the whole-trace walk of every visible stacked group's layers
-    /// (`docs/stacked-areas.html`), which sets its scale, and release the
-    /// others.
+    /// (`docs/stacked-areas.html`), which sets its scale, and the integral
+    /// summaries of the long layers of long stacks; release the others.
     pub(crate) fn sync_stack_totals(&mut self) {
         let mut wanted = std::collections::HashMap::new();
+        let mut integrals = std::collections::HashMap::new();
         for waves in self.panels.iter().filter_map(|panel| panel.kind.waves()) {
             for &i in waves.visible().iter() {
                 if !waves.is_stacked(i as usize) {
                     continue;
                 }
                 let layers = waves.stack_layers(i as usize);
+                // Long stacks read their long layers' column means from summaries.
+                if crate::wave::stack::changes(&layers) > crate::wave::stack::WALK_MAX {
+                    for l in &layers {
+                        if l.history.len() >= crate::wave::stack::INTEGRAL_MIN_CHANGES {
+                            let identity = crate::wave::analog::history_identity(&l.history);
+                            integrals.insert((identity, l.reading), l.history.clone());
+                        }
+                    }
+                }
                 if !layers.is_empty() {
                     wanted.insert(crate::wave::stack::key(&layers), layers);
                 }
@@ -2030,6 +2040,7 @@ impl App {
         }
         let budget = self.table_memory_budget();
         self.doc.sync_stack_totals(wanted, &budget);
+        self.doc.sync_integrals(integrals, &budget);
     }
 
     pub(crate) fn sync_lane_tracks(&mut self) {

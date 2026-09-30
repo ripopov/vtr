@@ -131,7 +131,7 @@
     <p class="v-kicker">Design · Waves panel</p>
     <h1 class="v-hero__title">Stack <em>any</em> group of signals.</h1>
     <p class="v-hero__lede">Select a group and press <kbd class="v-kbd">Shift</kbd> <kbd class="v-kbd">A</kbd>. The group's row becomes one area: every signal in it is a layer, and the top edge is their sum at each moment. Eight one-bit issue valids become instructions issued per cycle, split by pipe. Zoomed out, each layer shows its signal's time-weighted mean, so the layers still add up to the mean of the total. Everything comes from the trace: a stack needs no declarations, and Volna refuses no group.</p>
-    <p class="v-hero__fine">Design, revised 29 September 2026 · stage 1 landed 30 September 2026 · builds on signal groups, analog rows, row colours and undo · demo on per-cycle values of eight C910 issue valids from a CoreMark recording</p>
+    <p class="v-hero__fine">Design, revised 29 September 2026 · stages 1 and 2 landed 30 September and 1 October 2026 · builds on signal groups, analog rows, row colours and undo · demo on per-cycle values of eight C910 issue valids from a CoreMark recording</p>
   </div>
 </section>
 
@@ -207,7 +207,7 @@
     <div class="s-body-text">
       <p><strong>Means are exact.</strong> Over one column's time span, the time-weighted mean of the total equals the sum of the members' means. The stack's area is the number of events, its top is the column's average total, and each layer is its member's average: for a one-bit valid, the share of cycles it was high. A member's mean is its integral at the column's right edge minus the integral at its left edge, over the column's duration.</p>
       <p><strong>Means hide bursts, so the peak is drawn apart.</strong> The band above the stack reaches the total's own maximum in the column, never a sum of per-layer maxima. When a column holds one step or less, the peak equals the top of the stack and the band vanishes.</p>
-      <p><strong>Two paths, as for analog rows.</strong> When the members have fewer visible changes than a quarter of the plot width, every step is drawn exactly at its time, from a merge of their changes. Otherwise the painter draws one column per pixel. Walking the visible changes costs time in proportion to them; stage 2 adds block integrals so a zoomed-out frame costs about members × width × log(changes) instead.</p>
+      <p><strong>Two paths, as for analog rows.</strong> When the members have fewer visible changes than a quarter of the plot width, every step is drawn exactly at its time, from a merge of their changes. Otherwise the painter draws one column per pixel. Walking the visible changes costs time in proportion to them, so long layers read block integrals instead (stage 2), and a zoomed-out frame costs about members × width × log(changes).</p>
     </div>
   </div>
 </section>
@@ -258,15 +258,15 @@
       </article>
 
       <article class="s-stagecard" id="stage-2" aria-labelledby="stage-2-h">
-        <p class="s-stage__n">Stage 2</p>
+        <p class="s-stage__n">Stage 2 <span class="v-chip v-chip--accent">Landed</span></p>
         <h3 id="stage-2-h">Busy views stay fast</h3>
-        <p>Stage 1 walks every visible change. A folded 1,000-signal group cost 261&nbsp;ms per frame that way before groups got their summary, so a stack over long histories will need one too. This stage adds it where <code>stack_cost</code> shows a frame over budget, and nothing changes on screen.</p>
+        <p>Stage 1 walks every visible change: <code>stack_cost</code> measured 41&nbsp;ms per zoomed-out frame at 10⁶ changes per member and 409&nbsp;ms at 10⁷. This stage gives long layers a summary of their integrals, and a zoomed-out frame now takes 3.5&nbsp;ms at 10⁷. Nothing changes on screen.</p>
         <h4 class="s-committed">Committed</h4>
         <dl class="s-dl">
-          <div><dt>Core</dt><dd><code>IntegralSummary</code>: per block of 64 changes, the member's integral since the history's start, with the same block layout as <code>AnalogSummary</code>, about 0.125 B per change. A column's mean is then two lookups and a partial block walk at each edge. Built by <code>LoadRequest::Summary</code> on the load worker once a stacked group's visible changes pass <code>group::WALK_MAX</code>, shared by the panels that show the member, and charged to the memory budget. One-bit members get it too, since they have no analog summary.</dd></div>
+          <div><dt>Core</dt><dd><code>IntegralSummary</code> in <code>wave/stack.rs</code>: per block of 64 changes, the member's integral since its first change (an <code>f64</code>, summed with Kahan's compensation) and how many of those spans are undefined for a while (a <code>u32</code>), 12 bytes per block or about 0.19 bytes per change; the plan's 0.125 left out the undefined count. A column's mean is the difference of two prefixes, each a block entry and at most half a block read from the history; a prefix just after the previous one continues it, and each column's search starts where the last column's density points. A layer reads its summary when it has more than 16 visible changes per column, and walks otherwise. Built by <code>LoadRequest::Integral</code> on the load worker for every layer of at least 16,384 changes in a stack of more than 16,384 changes in all, held by the <code>Document</code> by history and reading with a weak handle to the history, shared by the panels that stack it, charged to the memory budget and released when no visible stack wants it or its history goes. One-bit members get it too, since they have no analog summary. While one builds, a frame that would walk more than 16,384 changes shows <em>Summarizing…</em> rather than walk on the UI thread.</dd></div>
           <div><dt>Undo</dt><dd>None: summaries are derived data.</dd></div>
-          <div><dt>Bench</dt><dd><code>stack_cost</code> again, with the summary, and its build time on the worker, recorded in <code>docs/RATIONALE.md</code> next to stage 1's numbers.</dd></div>
-          <div><dt>Tests</dt><dd>Summary integrals equal a direct walk at every block boundary; column means from the summary equal the walked ones on random histories; the summary is dropped with its history.</dd></div>
+          <div><dt>Bench</dt><dd><code>stack_cost</code> with the summaries: a zoomed-out frame of eight members takes 0.84, 1.4, 1.8 and 3.5&nbsp;ms at 10⁴, 10⁵, 10⁶ and 10⁷ changes per member (10⁴ is walked, below the summaries' threshold); 1/100 of the trace 0.16 to 1.4&nbsp;ms. The eight summaries build in 4.3, 43 and 436&nbsp;ms on the worker from 10⁵ to 10⁷. Recorded in <code>docs/RATIONALE.md</code> next to stage 1's numbers.</dd></div>
+          <div><dt>Tests</dt><dd><code>tests/stack.rs</code>: prefixes equal a direct walk at and around every block boundary and at the last change; column means from summaries equal the walked ones on random histories within 10⁻⁹, with the same undefined columns and change counts; a long layer's frame waits while its summary builds; a summary of another reading is not used; a long stack's summaries build on the worker, go when it is unstacked, and its histories are released with its rows.</dd></div>
         </dl>
       </article>
 

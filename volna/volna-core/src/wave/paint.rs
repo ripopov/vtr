@@ -201,7 +201,7 @@ pub fn paint(
     // their full height.
     let row_h = layout.row_h;
     let mut inks = crate::wave::tint::InkWalk::default();
-    let stacks = Stacks::of(model, &layout.visible, theme);
+    let stacks = Stacks::of(model, doc, &layout.visible, theme);
     let mut stack_rows: Vec<StackRow> = Vec::new();
     for pos in layout.rows.clone() {
         let Some(ix) = layout.entry(pos) else {
@@ -2413,7 +2413,7 @@ struct Stacks {
 }
 
 impl Stacks {
-    fn of(model: &WaveModel, visible: &[u32], t: &Theme) -> Self {
+    fn of(model: &WaveModel, doc: &Document, visible: &[u32], t: &Theme) -> Self {
         let mut stacks = Self::default();
         let items = model.items();
         // Pre-order: an inner stack comes after the outer one and wins.
@@ -2421,7 +2421,8 @@ impl Stacks {
             if !model.is_stacked(i) {
                 continue;
             }
-            let layers = model.stack_layers(i);
+            let mut layers = model.stack_layers(i);
+            doc.summarize_layers(&mut layers);
             let n = layers.len();
             // A member with its own colour keeps it; the rest walk the ladder.
             let colors: Vec<Color> = layers
@@ -2552,6 +2553,20 @@ fn paint_stack_row(
     }
     let vp = &cells.viewport;
     let frame = stack::frame(layers, vp, width);
+    // Long layers wait for their summaries rather than walk on the UI thread.
+    if frame.waiting() {
+        p.scene.clipped(clip, |scene| {
+            scene.text(
+                point(wave_row.left() + z(8.0), wave_row.top()),
+                wave_row.height(),
+                "Summarizing…",
+                FontRole::Ui,
+                t.ui_size_small,
+                t.editor.text_placeholder,
+            );
+        });
+        return None;
+    }
     let (lo, hi) = match doc.stack_total(&stack::key(layers)) {
         Some(stack::TotalLoad::Ready(s)) => stack::clean_range(s.range()),
         _ => stack::clean_range(frame.extent()),

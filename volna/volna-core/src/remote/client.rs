@@ -108,6 +108,7 @@ impl RemoteClient {
             | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. }
+            | LoadRequest::Integral { .. }
             | LoadRequest::StackTotal { .. } => {
                 unreachable!("open requests have no remote identity")
             }
@@ -185,6 +186,7 @@ impl RemoteClient {
             | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. }
+            | LoadRequest::Integral { .. }
             | LoadRequest::StackTotal { .. } => {
                 unreachable!("only object loads are queued")
             }
@@ -227,6 +229,7 @@ impl RemoteClient {
             | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. }
+            | LoadRequest::Integral { .. }
             | LoadRequest::StackTotal { .. } => {
                 unreachable!("only object loads are queued")
             }
@@ -281,6 +284,7 @@ impl RemoteClient {
                 | LoadResult::Sizes { .. }
                 | LoadResult::Summary { .. }
                 | LoadResult::GroupSummary { .. }
+                | LoadResult::Integral { .. }
                 | LoadResult::StackTotal { .. } => {}
             }
         }

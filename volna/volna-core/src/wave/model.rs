@@ -1842,11 +1842,11 @@ impl WaveModel {
         tree::leaves(&self.items, group)
             .filter_map(|entry| {
                 let s = self.items[entry].signal()?;
-                Some(stack::Layer {
+                Some(stack::Layer::new(
                     entry,
-                    reading: stack::Reading::of(s.shape, s.translator.as_ref())?,
-                    history: s.history.clone()?,
-                })
+                    s.history.clone()?,
+                    stack::Reading::of(s.shape, s.translator.as_ref())?,
+                ))
             })
             .collect()
     }

@@ -409,6 +409,14 @@ pub enum LoadRequest {
         range: (u64, u64),
         budget: crate::remote::memory::MemoryBudget,
     },
+    /// Summarize a long layer of a stacked group for column means
+    /// (client-side work).
+    Integral {
+        generation: u64,
+        history: Arc<dyn crate::data::SignalHistory>,
+        reading: crate::wave::stack::Reading,
+        budget: crate::remote::memory::MemoryBudget,
+    },
     /// Walk a stacked group's layers once for its whole-trace scale
     /// (client-side work).
     StackTotal {
@@ -428,6 +436,7 @@ impl LoadRequest {
             | Self::Sizes { .. }
             | Self::Summary { .. }
             | Self::GroupSummary { .. }
+            | Self::Integral { .. }
             | Self::StackTotal { .. } => None,
         }
     }
@@ -495,6 +504,17 @@ impl LoadRequest {
             } => LoadResult::GroupSummary {
                 generation,
                 key: crate::wave::group::key(&members),
+                result: Err(error),
+            },
+            Self::Integral {
+                generation,
+                history,
+                reading,
+                ..
+            } => LoadResult::Integral {
+                generation,
+                history: crate::wave::analog::history_identity(&history),
+                reading,
                 result: Err(error),
             },
             Self::StackTotal {
@@ -581,6 +601,19 @@ impl LoadRequest {
                     result: summary.account(&budget).map(Arc::new),
                 }
             }
+            LoadRequest::Integral {
+                generation,
+                history,
+                reading,
+                budget,
+            } => LoadResult::Integral {
+                generation,
+                history: crate::wave::analog::history_identity(&history),
+                reading,
+                result: crate::wave::stack::IntegralSummary::build(&history, reading)
+                    .account(&budget)
+                    .map(Arc::new),
+            },
             LoadRequest::StackTotal {
                 generation,
                 layers,
@@ -634,6 +667,13 @@ pub enum LoadResult {
         /// Identity of the summarized signals ([`crate::wave::group::key`]).
         key: Vec<usize>,
         result: anyhow::Result<Arc<crate::wave::group::GroupSummary>>,
+    },
+    Integral {
+        generation: u64,
+        /// Identity of the summarized history.
+        history: usize,
+        reading: crate::wave::stack::Reading,
+        result: anyhow::Result<Arc<crate::wave::stack::IntegralSummary>>,
     },
     StackTotal {
         generation: u64,
