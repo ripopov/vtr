@@ -29,6 +29,11 @@ last FATAL message.
 Pin to P-cores with `taskset -c 0-7`, which `run.py` does when available.
 Core dumps are disabled for the children.
 
+The same endings run on every push at a small size as the crash matrix,
+`cargo test -p vtr-capi --test crash` (`core/vtr-capi/tests/crash.rs`), which
+asserts what the file keeps for the library as it is. This directory stays
+the full-size measurement of the prototype.
+
 ## zstd experiments
 
 `zstd/` holds the programs behind the page's zstd section. They link against
