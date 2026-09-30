@@ -188,9 +188,9 @@ python3 integrations/verilator/pipeline/run.py \
 ## Feature showcase
 
 `feature_showcase.vtr` is a deterministic, synthetic debugging lab: 2,048 ns of
-CPU execution, DMA traffic, an injected fault and recovery. It is **12,210 bytes**,
-well below the 500,000-byte limit enforced by its generator. It contains 83
-variable declarations sharing 80 signals, 18,567 changes, 214 transactions
+CPU execution, DMA traffic, an injected fault and recovery. It is **26,306 bytes**,
+well below the 500,000-byte limit enforced by its generator. It contains 102
+variable declarations sharing 99 signals, 27,388 changes, 214 transactions
 (including 20 log records and 4 clock stretches), 99 relations and two
 declared clocks.
 
@@ -225,6 +225,35 @@ DMA clock (`vtr.clock`), so opening either as a pipeline shows its clock as a
 ruler with a cursor chip in cycles; add `soc.dma.dma_clk` to the waves for a clock row, and
 try `[`/`]`, the palette's rulers and "Go to Cycle N". `vtr clocks` lists both.
 
+Four scopes hold signals that add up, for
+[stacked areas](../../../docs/stacked-areas.html): add a scope to the waves as
+a group (the scope's menu in the sidebar), select the group and press
+Shift+A.
+
+- `soc.cpu.occupancy` has one bit per pipeline stage (`fetch` … `writeback`),
+  high while the stage holds an instruction, committed or squashed. Stacked,
+  the bits count the instructions in flight, up to five; the generator checks
+  the sum against the `thread0` records every cycle. The access caught by the
+  fault holds `memory` from 768 to 896 ns.
+- `soc.power` splits the chip's power in milliwatts (reals), sampled every
+  nanosecond: `io_mw`, `sram_mw`, `dma_mw`, `core_mw` and `leakage_mw`, on
+  the baseline. Core power follows the instructions in flight, with an inrush
+  spike when reset releases and one-nanosecond glitches that only the peak
+  band keeps when zoomed out; DMA and SRAM power rise with every DMA
+  transfer; the core's clock is gated once the program halts. The text
+  `mode` (`reset`, `run`, `fault`, `recover`, `halted`) has no number, so a
+  stack leaves it out.
+- `soc.dma.queue` holds each DMA channel's pending descriptors (`ch0`–`ch3`,
+  4-bit counts) on the DMA clock. They rise in bursts with the transfers and
+  drain between them; `ch2` is `xxxx` while the engine is stopped for the
+  fault (768–904 ns), so the stack above it takes the undefined colour.
+- `soc.pmic` measures currents into the battery in milliamperes, once a core
+  cycle: `solar_ma` and, from 1,300 ns, `usb_ma` are sources (positive);
+  `radio_ma`, which bursts every 512 ns, and `core_ma` are loads (negative).
+  Stacked, sources grow up from zero and loads down, and the net line shows
+  the battery draining during radio bursts and charging once USB is plugged
+  in.
+
 Stream kinds describe their domain: `PIPELINE` for instruction execution,
 `MEMORY_BUS` for bus requests, `LOG` for messages, and `otel.scope` for software
 spans. Both `soc.dma.memory_bus` and the empty `soc.dma.standby_bus` use
@@ -232,7 +261,7 @@ spans. Both `soc.dma.memory_bus` and the empty `soc.dma.standby_bus` use
 
 | Area | Contents |
 | --- | --- |
-| Waveforms | 2-, 4- and 9-state logic; scalar and 32-/128-bit buses; every IEEE 1164 state; reals; UTF-8 text and arbitrary bytes; enum table references; constants; events with repeated occurrences at one timestamp; three aliases |
+| Waveforms | 2-, 4- and 9-state logic; scalar and 32-/128-bit buses; every IEEE 1164 state; reals, some sampled every nanosecond; UTF-8 text and arbitrary bytes; enum table references; constants; events with repeated occurrences at one timestamp; three aliases; four scopes of additive signals (bits, counts with an X stretch, positive and signed reals) |
 | Hierarchy | Modules, CPU core, SystemC module, resource, streams and generators; every named scope type in `soc.type_gallery.scopes` and variable type in `soc.type_gallery.declarations`; every direction; unknown scope/variable codes; literal dots and brackets in names; empty stream and empty generator |
 | Transactions | Overlapping instructions, speculative squashes, read/write transfers, software spans; every status and span kind; begin/record/end attributes; timestamped events; stages on `main`, `stall` and `memory` lanes; unfinished operation at capture end |
 | Links | Cross-stream request relations, operand dependencies between instructions, structural span/transfer parents and logs parented to transfers; attributes on relations, events and stages |

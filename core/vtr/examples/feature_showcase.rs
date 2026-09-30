@@ -350,6 +350,48 @@ fn simulate() -> Vec<Insn> {
     }
 }
 
+/// Which stages hold an instruction in each core cycle: stage `s` from the
+/// cycle an instruction enters it until it enters the next or leaves.
+fn stage_occupancy(run: &[Insn]) -> Vec<[bool; 5]> {
+    let cycles = run.iter().map(|insn| insn.end).max().unwrap_or(0) as usize + 1;
+    let mut busy = vec![[false; 5]; cycles];
+    for insn in run {
+        for s in 0..STAGES.len() {
+            let Some(enter) = insn.enter[s] else { break };
+            let leave = insn.enter.get(s + 1).copied().flatten().unwrap_or(insn.end);
+            for cycle in enter..leave {
+                busy[cycle as usize][s] = true;
+            }
+        }
+    }
+    busy
+}
+
+/// A deterministic value in `[-1, 1)` for noise.
+fn noise(seed: u64) -> f64 {
+    (mix(seed) % 2048) as f64 / 1024.0 - 1.0
+}
+
+/// Rounded to 1/64, as a monitor's fixed-point readout would be.
+fn quantized(v: f64) -> f64 {
+    (v * 64.0).round() / 64.0
+}
+
+/// Rising edges of the declared DMA clock (see `write`), which runs at
+/// 12 ns, stops for the fault window, runs at 6 ns, then at 16 ns.
+fn dma_edges() -> Vec<u64> {
+    let mut edges = Vec::new();
+    for (begin, stop, period) in [(8, 768, 12), (904, 1400, 6), (1406, 2048, 16)] {
+        edges.extend((begin..stop).step_by(period));
+    }
+    edges
+}
+
+/// Whether a DMA transfer (one every 128 ns from 64 ns) is accessing memory.
+fn dma_active(t: u64) -> bool {
+    t >= 80 && t < 1536 && (t - 80) % 128 < 40
+}
+
 fn write(path: &Path) -> vtr::Result<()> {
     let mut w = Writer::create_with(
         path,
@@ -581,6 +623,37 @@ fn write(path: &Path) -> vtr::Result<()> {
         w.node_attr(soc, &key, value.clone())?;
     }
 
+    // Groups whose members add up, for stacked areas (docs/stacked-areas.html).
+    // `soc.cpu.occupancy` has one bit per pipeline stage, high while the stage
+    // holds an instruction: stacked, they count instructions in flight.
+    let occupancy = w.add_scope(Some(cpu), "occupancy", ScopeType::Generic, "")?;
+    let stage_busy = STAGES
+        .iter()
+        .map(|stage| bits(&mut w, occupancy, stage, 1, 2, Direction::Output))
+        .collect::<vtr::Result<Vec<_>>>()?;
+    // `soc.power` splits the chip's power in milliwatts, sampled every
+    // nanosecond, beside a text `mode` that has no number to stack.
+    let power = w.add_scope(Some(soc), "power", ScopeType::Module, "power_monitor")?;
+    let (_, power_mode) = w.add_var(Some(power), "mode", VarType::String, Direction::Implicit, SignalKind::VarLen)?;
+    let rails = ["io_mw", "sram_mw", "dma_mw", "core_mw", "leakage_mw"]
+        .map(|name| w.add_var(Some(power), name, VarType::Real, Direction::Implicit, SignalKind::Real).map(|(_, id)| id));
+    let [io_mw, sram_mw, dma_mw, core_mw, leakage_mw] = rails;
+    let (io_mw, sram_mw, dma_mw, core_mw, leakage_mw) = (io_mw?, sram_mw?, dma_mw?, core_mw?, leakage_mw?);
+    // `soc.dma.queue` holds each channel's pending descriptors on the DMA
+    // clock; channel 2's count is unknown while the engine is stopped.
+    let queue = w.add_scope(Some(dma), "queue", ScopeType::Module, "dma_queues")?;
+    let channels = ["ch0", "ch1", "ch2", "ch3"].map(|name| bits(&mut w, queue, name, 4, 4, Direction::Output));
+    let [ch0, ch1, ch2, ch3] = channels;
+    let channels = [ch0?, ch1?, ch2?, ch3?];
+    // `soc.pmic` measures currents into the battery in milliamperes, once a
+    // core cycle: sources are positive and loads negative, so the net
+    // current charges the battery above zero and drains it below.
+    let pmic = w.add_scope(Some(soc), "pmic", ScopeType::Module, "pmic")?;
+    let currents = ["solar_ma", "usb_ma", "radio_ma", "core_ma"]
+        .map(|name| w.add_var(Some(pmic), name, VarType::Real, Direction::Implicit, SignalKind::Real).map(|(_, id)| id));
+    let [solar_ma, usb_ma, radio_ma, core_ma_draw] = currents;
+    let (solar_ma, usb_ma, radio_ma, core_ma_draw) = (solar_ma?, usb_ma?, radio_ma?, core_ma_draw?);
+
     let resource = w.add_scope(None, "firmware", ScopeType::Resource, "")?;
     let service = w.intern("dma-demo");
     w.node_attr(resource, "service.name", Value::Str(service))?;
@@ -588,9 +661,22 @@ fn write(path: &Path) -> vtr::Result<()> {
     let spans = w.add_generator(otel, "submit_transfer")?;
 
     // 256 cycles, 8 ns per cycle. The blackout is deliberately not populated:
-    // dump_off/on are markers; producers decide which values to omit.
+    // dump_off/on are markers; producers decide which values to omit. Most
+    // signals change every 4 ns; the power monitor samples every nanosecond.
+    let cpu_run = simulate();
+    let busy = stage_occupancy(&cpu_run);
+    let halt = cycle_time(busy.len() as u64);
+    let stages_at = |t: u64| -> [bool; 5] {
+        t.checked_sub(4)
+            .and_then(|t| busy.get((t / 8) as usize).copied())
+            .unwrap_or_default()
+    };
+    let in_flight = |t: u64| stages_at(t).iter().filter(|&&b| b).count() as f64;
+    let edges = dma_edges();
+    let mut next_edge = 0;
+    let (mut depth, mut serve) = ([0u64; 4], 0);
     let mut reading = None;
-    for t in (0..=2048u64).step_by(4) {
+    for t in 0..=2048u64 {
         w.set_time(t)?;
         if t == 960 {
             w.dump_off();
@@ -598,7 +684,97 @@ fn write(path: &Path) -> vtr::Result<()> {
         if t == 992 {
             w.dump_on();
         }
+        // The queues advance on every DMA clock edge, recorded or not: a
+        // channel takes a descriptor now and then, more often while a
+        // transfer runs, and one is served per edge, round robin.
+        let edge = edges.get(next_edge) == Some(&t);
+        if edge {
+            next_edge += 1;
+            for (ch, d) in depth.iter_mut().enumerate() {
+                let rate = [6, 3, 8, 2][ch] + if dma_active(t) { 55 } else { 0 };
+                if mix(t * 8 + ch as u64) % 100 < rate {
+                    *d = (*d + 1).min(15);
+                }
+            }
+            if let Some(k) = (0..4).map(|k| (serve + k) % 4).find(|&k| depth[k] > 0) {
+                depth[k] -= 1;
+                serve = (k + 1) % 4;
+            }
+        }
         if (960..992).contains(&t) {
+            continue;
+        }
+        let fault_window = (768..896).contains(&t);
+        let stages = stages_at(t);
+        let n = in_flight(t);
+        // An inrush spike when reset releases, one-nanosecond glitches now
+        // and then, and a gated clock once the program halts.
+        let core = if t < 32 {
+            4.0
+        } else if t < 40 {
+            64.0 - 6.0 * (t - 32) as f64
+        } else if t >= halt {
+            6.0 + 0.3 * noise(t)
+        } else {
+            16.0 + 7.0 * n + 2.5 * noise(t) + if mix(t ^ 0x5eed) % 173 == 0 { 25.0 } else { 0.0 }
+        };
+        let dma_power = if fault_window {
+            0.5
+        } else if dma_active(t) {
+            21.0 + 3.0 * noise(t + 1)
+        } else {
+            2.0 + 0.3 * noise(t + 1)
+        };
+        let sram = 5.0
+            + if stages[3] { 9.0 } else { 0.0 }
+            + if dma_active(t) && !fault_window { 6.0 } else { 0.0 }
+            + 0.6 * noise(t + 2);
+        let io = 1.5 + if t % 128 < 12 { 4.0 } else { 0.0 } + 0.2 * noise(t + 3);
+        let temperature_now = 35.0 + (((t / 8) % 64) as f64 - 32.0).abs() / 8.0;
+        let leakage = 3.0 + 0.1 * (temperature_now - 35.0);
+        for (id, mw) in [(io_mw, io), (sram_mw, sram), (dma_mw, dma_power), (core_mw, core), (leakage_mw, leakage)] {
+            w.emit_real(id, quantized(mw))?;
+        }
+        let mode = if t < 32 {
+            "reset"
+        } else if fault_window {
+            "fault"
+        } else if t >= halt {
+            "halted"
+        } else if t >= 896 && t < 1024 {
+            "recover"
+        } else {
+            "run"
+        };
+        w.emit_varlen(power_mode, mode.as_bytes())?;
+        if t == 0 || edge {
+            for (id, d) in channels.iter().zip(depth) {
+                w.emit_u64(*id, d)?;
+            }
+        }
+        if t == 768 {
+            w.emit_logic_str(channels[2], b"xxxx")?;
+        }
+        if t % 8 == 4 || t == 0 {
+            for (id, on) in stage_busy.iter().zip(stages) {
+                w.emit_bit(*id, u8::from(on))?;
+            }
+        }
+        if t % 8 == 0 {
+            let angle = std::f64::consts::TAU * t as f64 / 2048.0;
+            let solar = 32.0 + 12.0 * angle.sin() + 1.5 * noise(t + 4);
+            let usb = match t {
+                0..1300 => 0.0,
+                1300..1400 => 1.4 * (t - 1300) as f64,
+                _ => 140.0 + 3.0 * noise(t + 5),
+            };
+            let radio = -1.5 - if t % 512 >= 200 && t % 512 < 264 { 58.0 } else { 0.0 };
+            let draw = if t >= halt { -2.0 } else { -6.0 - 5.0 * n };
+            for (id, ma) in [(solar_ma, solar), (usb_ma, usb), (radio_ma, radio), (core_ma_draw, draw)] {
+                w.emit_real(id, quantized(ma))?;
+            }
+        }
+        if t % 4 != 0 {
             continue;
         }
         let cycle = t / 8;
@@ -707,7 +883,6 @@ fn write(path: &Path) -> vtr::Result<()> {
     let label_key = w.intern("vtr.label");
     let pc_key = w.intern("pc");
     let fault = w.intern("fault_injected");
-    let cpu_run = simulate();
     let mut insn_tx = Vec::with_capacity(cpu_run.len());
     for insn in &cpu_run {
         let begin = cycle_time(insn.enter[0].unwrap());
@@ -970,6 +1145,34 @@ fn verify(path: &Path) -> vtr::Result<()> {
     let in_flight = |t: u64| insns.iter().filter(|i| i.begin <= t && t < i.end).count();
     assert_eq!((0..2048).map(in_flight).max(), Some(5));
     assert!(transactions.iter().filter(|t| t.generator == speculative).all(|t| t.status == TxStatus::Aborted));
+    // Stacked-area material. A signal's value at `t` is its last change at or before it.
+    let load = |path: &str| r.load_signal(r.find_signal(path, '.').unwrap());
+    fn at(s: &vtr::SignalData, t: u64) -> Option<vtr::signal::SignalValue<'_>> {
+        let i = s.times().partition_point(|&x| x <= t).checked_sub(1);
+        Some(i.map_or_else(|| s.initial(), |i| s.get(i)))
+    }
+    // The occupancy bits add up to the instructions in flight, committed or
+    // not, in every recorded cycle.
+    let stage_bits = STAGES.iter().map(|s| load(&format!("soc.cpu.occupancy.{s}"))).collect::<vtr::Result<Vec<_>>>()?;
+    let fetched: Vec<_> = transactions.iter().filter(|t| t.generator == instructions || t.generator == speculative).collect();
+    for t in (8..2048).step_by(8).filter(|t| !(952..1000).contains(t)) {
+        let stacked: u64 = stage_bits.iter().map(|s| at(s, t).and_then(|v| v.as_u64()).unwrap()).sum();
+        let flying = fetched.iter().filter(|i| i.begin <= t && t < i.end).count() as u64;
+        assert_eq!(stacked, flying, "stage occupancy at {t} ns");
+    }
+    // Every power rail and current is sampled; the DMA channel 2 count is
+    // unknown while the engine is stopped; the battery both charges and drains.
+    for rail in ["io_mw", "sram_mw", "dma_mw", "core_mw"] {
+        assert!(load(&format!("soc.power.{rail}"))?.len() > 1500, "{rail} changes most nanoseconds");
+    }
+    let ch2 = load("soc.dma.queue.ch2")?;
+    assert!(at(&ch2, 800).unwrap().as_u64().is_none());
+    assert!(at(&ch2, 1000).unwrap().as_u64().is_some());
+    let pmic = ["solar_ma", "usb_ma", "radio_ma", "core_ma"].map(|name| load(&format!("soc.pmic.{name}")));
+    let pmic = pmic.into_iter().collect::<vtr::Result<Vec<_>>>()?;
+    let net = |t: u64| -> f64 { pmic.iter().map(|s| match at(s, t) { Some(vtr::signal::SignalValue::Real(v)) => v, _ => panic!("no current at {t} ns") }).sum() };
+    let nets: Vec<f64> = (0..2048).step_by(8).map(net).collect();
+    assert!(nets.iter().any(|&n| n < 0.0) && nets.iter().any(|&n| n > 0.0));
     let vars = r
         .hierarchy()
         .ids()
