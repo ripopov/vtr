@@ -1,0 +1,34 @@
+name: Crash-safe VTR design page
+on:
+  push:
+    paths:
+      - 'docs/crash-safe-vtr.html'
+      - 'docs/tests/crash-safe-vtr.test.mjs'
+      - 'bench/results/crashlab.json'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/crash-safe-vtr.yml'
+  pull_request:
+    paths:
+      - 'docs/crash-safe-vtr.html'
+      - 'docs/tests/crash-safe-vtr.test.mjs'
+      - 'bench/results/crashlab.json'
+      - 'volna/volna/tools/browser-test.mjs'
+      - '.github/workflows/crash-safe-vtr.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  demo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VOLNA_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify headless browser prerequisite
+        run: google-chrome --version
+      - name: Test the design page
+        run: node --test --test-concurrency=1 docs/tests/crash-safe-vtr.test.mjs

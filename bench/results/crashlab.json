@@ -1,0 +1,824 @@
+{
+ "host": {
+  "cpu": "Intel(R) Core(TM) Ultra 7 265K",
+  "glibc": "glibc 2.43"
+ },
+ "scenarios": [
+  {
+   "id": "segv",
+   "label": "SIGSEGV in model code",
+   "results": {
+    "none": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.539,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.65,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.537,
+     "rescue_ms": 224.2,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.85,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 11 (Segmentation fault) in thread 3182367"
+     },
+     "expect": "full",
+     "ok": true
+    },
+    "private": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.567,
+     "rescue_ms": 229.9,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.89,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 11 (Segmentation fault) in thread 3182392"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "abort",
+   "label": "abort() from an assertion",
+   "results": {
+    "none": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.54,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.64,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.542,
+     "rescue_ms": 215.5,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.85,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 6 (Aborted) in thread 3182430"
+     },
+     "expect": "full",
+     "ok": true
+    },
+    "private": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.551,
+     "rescue_ms": 220.9,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.86,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 6 (Aborted) in thread 3182447"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "throw",
+   "label": "Uncaught C++ exception",
+   "results": {
+    "none": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.542,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.65,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.543,
+     "rescue_ms": 222.1,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.85,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 6 (Aborted) in thread 3182693"
+     },
+     "expect": "full",
+     "ok": true
+    },
+    "private": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.58,
+     "rescue_ms": 219.8,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.89,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 6 (Aborted) in thread 3182937"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "stack",
+   "label": "Stack overflow",
+   "results": {
+    "none": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.542,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.65,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.543,
+     "rescue_ms": 216.6,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.85,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 11 (Segmentation fault) in thread 3183203"
+     },
+     "expect": "full",
+     "ok": true
+    },
+    "private": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.518,
+     "rescue_ms": 224.8,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.83,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 11 (Segmentation fault) in thread 3183431"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "heap",
+   "label": "Double free, tcache",
+   "results": {
+    "none": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.549,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.65,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.539,
+     "rescue_ms": 218.5,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.85,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 6 (Aborted) in thread 3183700"
+     },
+     "expect": "full",
+     "ok": true
+    },
+    "private": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.516,
+     "rescue_ms": 225.1,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.83,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 6 (Aborted) in thread 3183716"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "heaplock",
+   "label": "Double free, arena lock held",
+   "results": {
+    "none": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.549,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.65,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.542,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": true,
+     "wall_s": 4.65,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "private": {
+     "status": -6,
+     "signal": 6,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.514,
+     "rescue_ms": 220.3,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.82,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation crashed: signal 6 (Aborted) in thread 3183821"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "term",
+   "label": "SIGTERM from a job scheduler",
+   "results": {
+    "none": {
+     "status": -15,
+     "signal": 15,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.55,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 0.58,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -15,
+     "signal": 15,
+     "emitted_changes": 30002063,
+     "emitted_logs": 396,
+     "write_s": 0.534,
+     "rescue_ms": null,
+     "close_ms": 216.3,
+     "timed_out": false,
+     "wall_s": 0.77,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30002063,
+      "logs": 397,
+      "last_time": 25361,
+      "blocks": 2,
+      "fatal": "simulation stopped: signal 15 (Terminated)"
+     },
+     "expect": "full",
+     "ok": true
+    },
+    "private": {
+     "status": -15,
+     "signal": 15,
+     "emitted_changes": 30002063,
+     "emitted_logs": 396,
+     "write_s": 0.543,
+     "rescue_ms": null,
+     "close_ms": 218.0,
+     "timed_out": false,
+     "wall_s": 0.78,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30002063,
+      "logs": 397,
+      "last_time": 25361,
+      "blocks": 2,
+      "fatal": "simulation stopped: signal 15 (Terminated)"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "exit",
+   "label": "exit(3) from C code",
+   "results": {
+    "none": {
+     "status": 3,
+     "signal": 0,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.549,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 0.58,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": 3,
+     "signal": 0,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.534,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 0.77,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation called exit()"
+     },
+     "expect": "full",
+     "ok": true
+    },
+    "private": {
+     "status": 3,
+     "signal": 0,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.527,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 0.79,
+     "file": {
+      "open": true,
+      "recovered": 0,
+      "changes": 30000880,
+      "logs": 397,
+      "last_time": 25360,
+      "blocks": 2,
+      "fatal": "simulation called exit()"
+     },
+     "expect": "full",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "kill",
+   "label": "SIGKILL or the OOM killer",
+   "results": {
+    "none": {
+     "status": -9,
+     "signal": 9,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.54,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 0.57,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "system": {
+     "status": -9,
+     "signal": 9,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.541,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 0.57,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "private": {
+     "status": -9,
+     "signal": 9,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 1.455,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.48,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "stall",
+   "label": "Rescue stuck past the deadline",
+   "results": {
+    "system": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.534,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": true,
+     "wall_s": 2.63,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "private": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 1.91,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": true,
+     "wall_s": 4.02,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    }
+   }
+  },
+  {
+   "id": "noalt",
+   "label": "Stack overflow, no alternate stack",
+   "results": {
+    "system": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 0.609,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 1.71,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    },
+    "private": {
+     "status": -11,
+     "signal": 11,
+     "emitted_changes": 30000880,
+     "emitted_logs": 396,
+     "write_s": 1.145,
+     "rescue_ms": null,
+     "close_ms": null,
+     "timed_out": false,
+     "wall_s": 2.32,
+     "file": {
+      "open": true,
+      "recovered": 1,
+      "changes": 16777216,
+      "logs": 0,
+      "last_time": 14182,
+      "blocks": 1,
+      "fatal": ""
+     },
+     "expect": "blocks",
+     "ok": true
+    }
+   }
+  }
+ ],
+ "drain": [
+  {
+   "records": 17000000,
+   "where": "just after a block was handed off",
+   "rescue_ms": 482.9,
+   "runs": [
+    692.0,
+    516.1,
+    482.9
+   ]
+  },
+  {
+   "records": 30000000,
+   "where": "a block 79% full",
+   "rescue_ms": 213.5,
+   "runs": [
+    214.9,
+    216.7,
+    213.5
+   ]
+  },
+  {
+   "records": 33540000,
+   "where": "a block 99.9% full",
+   "rescue_ms": 250.3,
+   "runs": [
+    257.0,
+    250.3,
+    258.0
+   ]
+  }
+ ],
+ "busy": [
+  {
+   "mode": "off",
+   "write_s": 1.181,
+   "runs": [
+    1.184,
+    1.208,
+    1.211,
+    1.183,
+    1.181
+   ]
+  },
+  {
+   "mode": "--busy-step",
+   "write_s": 1.183,
+   "runs": [
+    1.183,
+    1.186,
+    1.207,
+    1.211,
+    1.192
+   ]
+  },
+  {
+   "mode": "--busy-call",
+   "write_s": 1.192,
+   "runs": [
+    1.198,
+    1.218,
+    1.199,
+    1.192,
+    1.209
+   ]
+  }
+ ],
+ "failures": []
+}

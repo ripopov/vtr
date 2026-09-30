@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crash-safe VTR</title>
+<meta name="description" content="Design: when a simulation dies of SIGSEGV, SIGABRT, a stack overflow, a stop request or exit(), everything the VTR writer accepted lands on disk as a complete, decodable file. Theory for readers without a systems background, a survey of Quill, g3log, glog, abseil, reckless, Crashpad, Perfetto and others, the zstd facts, a measured prototype and an eight-stage plan for the writer and the Verilator fork.">
+<link rel="icon" href="../volna/volna/assets/app-icon/volna.svg">
+<link rel="stylesheet" href="design-system/styles.css">
+<script>(function(){try{var m=localStorage.getItem('volna-theme')||'dark',d=m==='dark'||(m==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}})()</script>
+<style>
+/* Page layout only; every colour, font and component comes from the design system. */
+.a-body{margin-top:var(--space-6);max-width:var(--measure);color:var(--text-2)}
+.a-body p+p,.a-body p+ul,.a-body ul+p,.a-body p+ol,.a-body ol+p,.a-body figure+p,.a-body p+figure{margin-top:var(--space-3)}
+.a-body strong{color:var(--text-1)}
+.a-body ul,.a-body ol{margin:0;padding-left:1.2em;display:grid;gap:var(--space-2)}
+.a-body h3{margin:var(--space-12) 0 var(--space-3);color:var(--text-1);font:var(--display-weight) var(--text-h4)/var(--leading-snug) var(--font-display)}
+.a-body h3:first-child{margin-top:0}
+.a-body h3 small{display:block;margin-bottom:var(--space-1);font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);text-transform:uppercase}
+.a-wide{margin-top:var(--space-10)}
+.a-num td:not(:first-child),.a-num th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.a-rules{margin-top:var(--space-10);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:var(--space-8) var(--space-10);counter-reset:rule;padding:0;list-style:none}
+.a-rules li{counter-increment:rule;color:var(--text-2);max-width:var(--measure)}
+.a-rules li::before{content:counter(rule,decimal-leading-zero);display:block;font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);margin-bottom:var(--space-2)}
+.a-rules strong{display:block;color:var(--text-1);font:var(--display-weight) var(--text-h4)/var(--leading-snug) var(--font-display);margin-bottom:var(--space-2)}
+.a-end{padding-block:var(--space-20) var(--space-16)}
+.a-stages{margin-top:var(--space-12);display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-16)}
+.a-stage__n{display:flex;align-items:center;gap:var(--space-2);font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--accent-text);text-transform:uppercase}
+.a-stagecard h3{margin:var(--space-2) 0 var(--space-3);color:var(--text-1);font:var(--display-weight) var(--text-h3)/var(--leading-snug) var(--font-display)}
+.a-stagecard>p{max-width:var(--measure);color:var(--text-2)}
+.a-dl{margin:var(--space-4) 0 0;display:grid;gap:var(--space-3);max-width:var(--measure)}
+.a-dl div{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:var(--space-4)}
+.a-dl dt{font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-kicker);color:var(--text-3);text-transform:uppercase;padding-top:3px}
+.a-dl dd{margin:0;color:var(--text-2);font-size:var(--text-sm)}
+@media (max-width:560px){.a-dl div{grid-template-columns:minmax(0,1fr);gap:var(--space-1)}}
+.a-refs{margin:var(--space-8) 0 0;padding-left:2.2em;display:grid;gap:var(--space-2);max-width:var(--measure);font-size:var(--text-sm);color:var(--text-2)}
+.a-refs a{overflow-wrap:anywhere}
+/* Figures in the basics chapter: boxes joined by arrows, and lanes of events. */
+.a-fig{margin:var(--space-6) 0 0;max-width:var(--measure)}
+.a-fig figcaption{margin-top:var(--space-2);font-size:var(--text-sm);color:var(--text-2)}
+.a-flow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:var(--space-2);align-items:stretch}
+.a-flow>b{display:grid;align-content:start;gap:var(--space-1);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-card);font:var(--weight-semibold) var(--text-sm)/1.3 var(--font-sans);color:var(--text-1)}
+.a-flow>b small{font:400 var(--text-xs)/1.4 var(--font-sans);color:var(--text-2)}
+.a-flow>i{align-self:center;font:var(--text-2xs) var(--font-mono);font-style:normal;color:var(--text-3);text-align:center}
+@media (max-width:640px){.a-flow{grid-template-columns:minmax(0,1fr)}.a-flow>i{text-align:left;padding-left:var(--space-3)}}
+.a-lose{margin-top:var(--space-3);display:grid;gap:var(--space-1);font-size:var(--text-sm)}
+.a-lose div{display:grid;grid-template-columns:minmax(0,14rem) repeat(3,minmax(0,1fr));gap:var(--space-2);align-items:center}
+.a-lose span{padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);font:var(--text-2xs) var(--font-mono);text-align:center}
+.a-lose span:first-child{padding-left:0;text-align:left;font:var(--text-xs) var(--font-sans);color:var(--text-2)}
+.a-lose .a-lose__h{color:var(--text-2)}
+.a-lose .is-kept{background:var(--accent-soft);color:var(--accent-text)}
+.a-lose .is-lost{background:var(--danger-soft);color:var(--danger)}
+@media (max-width:640px){.a-lose div{grid-template-columns:minmax(0,1fr) repeat(3,minmax(0,4.5rem))}}
+.a-stack{display:grid;gap:2px;max-width:24rem}
+.a-stack>span{display:flex;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-card);font:var(--text-xs) var(--font-mono);color:var(--text-2)}
+.a-stack>span small{font-size:var(--text-2xs);color:var(--text-3)}
+.a-stack .is-full{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.a-stack .is-guard{border-style:dashed;color:var(--text-3);background:var(--bg-sunken)}
+.a-stack .is-full small,.a-stack .is-alt small{color:inherit}
+.a-stack .is-alt{margin-top:var(--space-3);border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-text)}
+/* Lanes: one column per thread, one row per event, in time order. */
+.a-lanes{display:grid;grid-template-columns:2rem repeat(4,minmax(0,1fr));gap:var(--space-1) var(--space-2);font-size:var(--text-xs);line-height:1.45}
+.a-lanes--2{grid-template-columns:2rem repeat(2,minmax(0,1fr))}
+.a-lanes>.a-lane-h{font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-3);padding-bottom:var(--space-1);border-bottom:1px solid var(--border-subtle)}
+.a-lanes>.a-n{font:var(--text-2xs) var(--font-mono);color:var(--text-3);padding-top:var(--space-2)}
+.a-lanes>.a-ev{padding:var(--space-2);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-card);color:var(--text-1)}
+.a-lanes>.a-ev.is-bad{border-color:var(--danger);background:var(--danger-soft)}
+.a-lanes>.a-ev.is-good{border-color:var(--accent-line);background:var(--accent-soft)}
+.a-lanes>.a-ev .a-ev__lane{display:none}
+@media (max-width:760px){
+  .a-lanes{grid-template-columns:2rem minmax(0,1fr)}
+  .a-lanes>.a-lane-h,.a-lanes>.a-gap{display:none}
+  .a-lanes>.a-ev{grid-column:2!important}
+  .a-lanes>.a-ev .a-ev__lane{display:block;font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-3)}
+}
+/* Demo */
+.d-controls{display:grid;gap:var(--space-3);margin:var(--space-10) 0 var(--space-4)}
+.d-controls>div{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font:var(--text-2xs) var(--font-mono);color:var(--text-3)}
+.d-controls>div>span:first-child{min-width:7.5rem}
+.d-controls .v-seg{flex-wrap:wrap}
+.d-controls .v-seg button[disabled]{opacity:.45;cursor:not-allowed}
+.d-stage{aspect-ratio:auto;padding:var(--space-4);display:grid;gap:var(--space-5);background:var(--bg-raised)}
+.d-readout{margin:0;font:var(--text-xs)/1.55 var(--font-mono);color:var(--text-2)}
+.d-readout b{font-weight:400;color:var(--text-1)}
+.d-file{display:grid;gap:var(--space-2)}
+.d-file__h{font:var(--text-2xs) var(--font-mono);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-3)}
+.d-file__bar{display:flex;min-height:44px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;background:var(--bg-sunken)}
+.d-seg{display:grid;align-content:center;min-width:0;padding:0 var(--space-2);font:var(--text-2xs)/1.3 var(--font-mono);border-right:1px solid var(--border);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.d-seg:last-child{border-right:0}
+.d-seg small{font-size:var(--text-2xs);opacity:.85;overflow:hidden;text-overflow:ellipsis}
+.d-seg.is-kept{background:var(--accent-soft);color:var(--accent-text)}
+.d-seg.is-lost{background:var(--danger-soft);color:var(--danger)}
+.d-legend{margin:0;display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-4);font:var(--text-2xs) var(--font-mono);color:var(--text-3)}
+.d-legend b{font-weight:400}
+.d-key{padding:0 var(--space-2);border-radius:var(--radius-xs)}
+.d-key.is-kept{background:var(--accent-soft);color:var(--accent-text)}
+.d-key.is-lost{background:var(--danger-soft);color:var(--danger)}
+</style>
+</head>
+<body>
+<a class="v-skip" href="#demo">Skip to the demo</a>
+
+<header class="v-nav">
+  <div class="v-wrap v-nav__bar">
+    <a class="v-brand" href="#top"><img src="../volna/volna/assets/app-icon/volna.svg" alt="">Volna</a>
+    <nav class="v-nav__links" aria-label="Sections"><a href="#demo">Demo</a><a href="#basics">Basics</a><a href="#today">Today</a><a href="#survey">Survey</a><a href="#zstd">zstd</a><a href="#measured">Measured</a><a href="#design">Design</a><a href="#plan">Plan</a><a href="#limits">Limits</a><a href="#research">Research</a></nav>
+    <div class="v-nav__end">
+      <span class="v-seg" role="group" aria-label="Page theme" id="page-theme"><button type="button" data-mode="light" aria-pressed="false">Light</button><button type="button" data-mode="dark" aria-pressed="true">Dark</button><button type="button" data-mode="system" aria-pressed="false">Auto</button></span>
+      <details class="v-nav__menu">
+        <summary class="v-btn v-btn--ghost v-btn--sm v-btn--icon" aria-label="Sections"><span class="v-icon" aria-hidden="true" style="--icon:url(../volna/volna-core/assets/icons/panel-left.svg)"></span></summary>
+        <nav class="v-nav__sheet" aria-label="Sections"><a href="#demo">Demo</a><a href="#basics">Basics</a><a href="#today">Today</a><a href="#survey">Survey</a><a href="#zstd">zstd</a><a href="#measured">Measured</a><a href="#design">Design</a><a href="#plan">Plan</a><a href="#limits">Limits</a><a href="#research">Research</a></nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<section class="v-hero v-hero--left">
+  <div class="v-wrap">
+    <p class="v-kicker">Design · VTR writer · Verilator fork</p>
+    <h1 class="v-hero__title">A crash should cost the process, <em>not</em> the trace.</h1>
+    <p class="v-hero__lede">Simulations die: a DPI model dereferences a null pointer, an assertion calls <code>abort()</code>, a job scheduler sends SIGTERM. Today a VTR file then keeps only its completed blocks. When SIGSEGV cut a 30-million-change run short, the file kept 56% of the value changes and none of the 396 log records, though the log is what explains a crash. This design makes the writer's accepted data survive every ending a process can observe. A tiny signal handler hands the work to a <strong>rescue thread</strong> that closes the file through the ordinary close path, within a hard deadline. It then ends the process with the original signal, so the exit status and core dump are unchanged. A prototype against today's <code>libvtr.a</code> kept 100% of the data in every catchable case, stack overflow included, in 0.21–0.69&nbsp;s. Heap corruption was saved only once VTR allocated from its own heap.</p>
+    <p class="v-hero__fine">Proposal · measured with <code>bench/crashlab</code> on a Core Ultra 7 265K, glibc 2.43 · nothing here has landed</p>
+  </div>
+</section>
+
+<section class="v-section" id="demo" style="padding-top:var(--space-10)">
+  <div class="v-wrap">
+    <p class="v-kicker">Demo</p>
+    <h2 class="v-section__title">Eleven ways to die, three writers.</h2>
+    <p class="v-section__sub">Each combination below was run for real by <code>bench/crashlab/run.py</code>. A simulated openC910-rate run writes 30,000,880 value changes over 67,144 signals and a log record every 64 time steps, then ends as chosen. The lanes show what each thread does, in order. The bar shows what the file holds afterwards, read back by the VTR reader.</p>
+    <div class="d-controls">
+      <div><span>What ends the run</span><span class="v-seg" role="group" aria-label="What ends the run" id="scenario"></span></div>
+      <div><span>Writer</span><span class="v-seg" role="group" aria-label="Writer" id="config"><button type="button" data-config="none" aria-pressed="false">No guard (today)</button><button type="button" data-config="system" aria-pressed="true">Guard</button><button type="button" data-config="private" aria-pressed="false">Guard, VTR on its own heap</button></span></div>
+    </div>
+    <figure class="v-frame" id="demo-frame">
+      <div class="v-frame__bar"><b>Crash lab</b><span id="demo-title">crashlab segv</span></div>
+      <div class="v-frame__stage d-stage">
+        <p class="d-readout" id="readout" aria-live="polite"></p>
+        <div class="d-file">
+          <span class="d-file__h">sim.vtr after the process ended</span>
+          <div class="d-file__bar" id="filebar"></div>
+          <p class="d-legend"><span class="d-key is-kept">on disk</span><span class="d-key is-lost">lost</span><span>Widths follow the change counts; log records and the directory are drawn wider than their size.</span></p>
+        </div>
+        <div class="a-lanes" id="lanes" aria-label="What each thread does"></div>
+      </div>
+    </figure>
+    <p class="v-frame__caption"><span>Measured outcomes, not a model. The deadline is 10&nbsp;s except where a scenario sets it lower to make the run short.</span><code>bench/results/crashlab.json</code></p>
+  </div>
+</section>
+
+<section class="v-section" id="basics">
+  <div class="v-wrap">
+    <p class="v-kicker">Basics</p>
+    <h2 class="v-section__title">How programs end, for people who never had to care.</h2>
+    <p class="v-section__sub">The rest of this page leans on a dozen ideas from operating systems. None is hard, but they are rarely taught together. This chapter explains each with the example that matters here: a simulator that records a trace on one thread and compresses it on another.</p>
+    <div class="a-body">
+      <h3><small>1</small>A process and its threads</h3>
+      <p>A running program is a <strong>process</strong>. It owns an address space, the memory only it can see. Inside it run one or more <strong>threads</strong>, each a sequence of instructions with its own position in the code and its own <strong>stack</strong>, a small region where function calls keep their local variables. All threads share everything else. That includes the <strong>heap</strong>, where long-lived objects such as buffers are allocated with <code>malloc</code>, <code>new</code> or Rust's <code>Vec</code>.</p>
+      <p>A Verilator simulation that records VTR has at least two threads. The <strong>simulation thread</strong> evaluates the model, and after every time step it hands the changed signal values to the VTR writer, which appends them to a buffer in memory. The writer's <strong>encoder thread</strong> takes full buffers, sorts them into columns, compresses them with zstd and writes finished <em>sections</em> to the file. With log records there are two more helper threads that encode log blocks. The design keeps compression off the simulation thread, so the simulator hardly waits. It also means that at any moment a lot of the trace exists only in memory.</p>
+      <p>When a process ends, for any reason, the kernel takes back all of its memory at once. Nothing in the heap, on any stack or in any thread survives. So whatever should outlive the process must be <strong>outside</strong> it before the end.</p>
+
+      <h3><small>2</small>Where the bytes are when the process dies</h3>
+      <p>Data travels in three hops. The program collects bytes in its own buffers. The <code>write()</code> system call copies them into the kernel's <strong>page cache</strong>, a pool of memory the kernel uses for file contents. Other programs see them from that moment, even if they are not on the disk yet. Later the kernel writes them to the disk by itself, typically within 30 seconds, or at once when the program calls <code>fsync()</code>.</p>
+      <figure class="a-fig">
+        <div class="a-flow" aria-label="The path of a byte from a program to the disk">
+          <b>Process memory<small>writer buffers, the channel, the encoder's block, a 1&nbsp;MiB file buffer</small></b><i>write() →</i>
+          <b>Page cache<small>kernel memory; the file already contains the bytes</small></b><i>writeback, fsync() →</i>
+          <b>Disk<small>survives power loss</small></b>
+        </div>
+        <div class="a-lose" role="table" aria-label="What each failure loses">
+          <div role="row"><span role="columnheader">When</span><span class="a-lose__h" role="columnheader">Process memory</span><span class="a-lose__h" role="columnheader">Page cache</span><span class="a-lose__h" role="columnheader">Disk</span></div>
+          <div role="row"><span role="rowheader">The process crashes or is killed</span><span class="is-lost" role="cell">lost</span><span class="is-kept" role="cell">kept</span><span class="is-kept" role="cell">kept</span></div>
+          <div role="row"><span role="rowheader">The kernel panics or power fails</span><span class="is-lost" role="cell">lost</span><span class="is-lost" role="cell">lost</span><span class="is-kept" role="cell">kept</span></div>
+        </div>
+        <figcaption>A process crash never loses what <code>write()</code> has returned. Only a machine failure needs <code>fsync()</code>. This design is about process crashes, so it needs no <code>fsync()</code> and costs no disk waits.</figcaption>
+      </figure>
+      <p>One consequence runs through the whole design: a <code>write()</code> of a finished section is the <strong>commit point</strong>. Before it the section is at the mercy of the process; after it only the machine can lose it. One more detail matters. A single large <code>write()</code> is not atomic if the process is killed during it. The kernel stops copying at the kill, so the file can end in the middle of a section. On this machine SIGKILL during one 1&nbsp;GiB <code>write()</code> left 98 to 438&nbsp;MiB of it. A reader must therefore find the last complete section by itself, and VTR's sections carry a length and a CRC for exactly that.</p>
+
+      <h3><small>3</small>How a program ends</h3>
+      <p>There are only a few ways out, and they differ in what code still runs.</p>
+      <ul>
+        <li><strong>Returning from <code>main</code>, or calling <code>exit(n)</code>.</strong> The C library runs the functions registered with <code>atexit</code> and the destructors of static objects, flushes <code>stdio</code> buffers, then asks the kernel to end the process. Other threads are <em>not</em> stopped first. They keep running while destructors tear down objects they may still be using, which is the classic "logger destroyed while threads log" bug. Destructors of objects on the stack of <code>main</code> do not run when <code>exit</code> is called from deeper code, such as a DPI function.</li>
+        <li><strong><code>_exit(n)</code> and <code>quick_exit(n)</code>.</strong> These end the process immediately, without destructors. <code>quick_exit</code> runs only its own short list of handlers.</li>
+        <li><strong><code>abort()</code>.</strong> This is what failed assertions, <code>std::terminate</code> (an exception nobody caught), a Rust panic across a C boundary and glibc's heap checks all call. It sends the signal SIGABRT to the calling thread. No <code>atexit</code> functions and no destructors run.</li>
+        <li><strong>Death by a signal</strong>, described next. The exit status then encodes the signal: a shell prints 139 for SIGSEGV (128 + 11), 134 for SIGABRT and 143 for SIGTERM. CI systems, <code>make</code> and job schedulers read these numbers.</li>
+      </ul>
+      <p>Verilator adds its own layer. <code>$finish</code> only sets a flag that the main loop checks. <code>$fatal</code> and internal errors call <code>vl_fatal</code>, which runs the registered exit callbacks, and the VTR trace closes in one of them. That path already works; the rest of this list does not close the trace today.</p>
+
+      <h3><small>4</small>Signals</h3>
+      <p>A <strong>signal</strong> is the kernel interrupting a process to say that something happened. Each has a number and a default action, usually "end the process", often with a core dump, a snapshot of memory for the debugger. There are two kinds, and the difference matters.</p>
+      <ul>
+        <li><strong>Synchronous signals</strong> are caused by the instruction a thread just executed, and they are delivered to that very thread. SIGSEGV is an access to memory that is not mapped, such as a null pointer or a stack that ran out. SIGBUS is a bad access to a mapped file, SIGFPE an integer division by zero, SIGILL an illegal instruction. SIGABRT from <code>abort()</code> behaves the same way, because the thread sends it to itself.</li>
+        <li><strong>Asynchronous signals</strong> come from outside, at an arbitrary moment, and are delivered to whichever thread does not block them. SIGINT is Ctrl-C. SIGTERM is the polite "please stop" from <code>kill</code>, <code>timeout</code> or a job scheduler. SLURM, for example, sends SIGTERM and then SIGKILL 30&nbsp;s later by default. SIGXCPU means a CPU-time limit was reached.</li>
+      </ul>
+      <p>A program may install a <strong>handler</strong>, a function the kernel runs instead of the default action, with <code>sigaction()</code>. Two signals can never be handled: <strong>SIGKILL</strong> and SIGSTOP. The Linux OOM killer, <code>kill -9</code> and container runtimes use SIGKILL. Against it only data that is already outside the process helps.</p>
+
+      <h3><small>5</small>Why a signal handler may do almost nothing</h3>
+      <p>A handler does not run in a fresh, orderly context. The kernel <strong>interrupts the thread wherever it is</strong>, between any two instructions, and runs the handler on top of it. The interrupted code may have been halfway through updating a data structure, or holding a lock.</p>
+      <figure class="a-fig">
+        <div class="a-lanes a-lanes--2" aria-label="A handler deadlocks on a lock its own thread holds">
+          <span></span><span class="a-lane-h">Simulation thread</span><span class="a-lane-h">Handler, on the same thread</span>
+          <span class="a-n">1</span><span class="a-ev"><span class="a-ev__lane">Simulation thread</span><code>free()</code> takes the heap's lock</span><span class="a-gap"></span>
+          <span class="a-n">2</span><span class="a-ev is-bad"><span class="a-ev__lane">Simulation thread</span>The heap is corrupt: glibc calls <code>abort()</code>, lock still held</span><span class="a-gap"></span>
+          <span class="a-n">3</span><span class="a-gap"></span><span class="a-ev"><span class="a-ev__lane">Handler</span>SIGABRT: the handler starts and calls <code>fprintf</code> or <code>new</code></span>
+          <span class="a-n">4</span><span class="a-gap"></span><span class="a-ev is-bad"><span class="a-ev__lane">Handler</span>Which needs the heap's lock. It waits for itself, for ever.</span>
+        </div>
+        <figcaption>The handler cannot wait for the interrupted code to finish, because the interrupted code is underneath it on the same thread.</figcaption>
+      </figure>
+      <p>So POSIX lists the functions that are safe to call from a handler, the <strong>async-signal-safe</strong> ones (<a class="v-link" href="https://man7.org/linux/man-pages/man7/signal-safety.7.html">signal-safety(7)</a>). They are essentially plain system calls: <code>write</code>, <code>read</code>, <code>poll</code>, <code>clock_gettime</code>, <code>sigaction</code>, <code>raise</code>, <code>pthread_kill</code>, <code>sem_post</code>, <code>_exit</code>. Missing from the list: <code>malloc</code> and <code>free</code>, <code>printf</code> and all of <code>stdio</code>, mutexes, C++ streams, and anything that might use them, which includes zstd with a normal context and nearly all of the VTR writer. Operations on lock-free atomic variables are also allowed. Because a handler shares its thread with the interrupted code, it must also save and restore <code>errno</code>.</p>
+      <p>Most logging libraries break this rule on purpose and call it best effort (Quill says so in its header). Most of the time nothing is locked and it works. The failure mode, a hang instead of a crash, is worse than losing the log, which is why the good ones add a timeout.</p>
+
+      <h3><small>6</small>Handing work to another thread</h3>
+      <p>The way out is to do nothing in the handler except <strong>ask another thread</strong> to do the work, then wait. The other thread is not interrupted. It runs ordinary code, may allocate, lock and compress, and can close the VTR file with the same code as a normal close. This design calls it the <strong>rescue thread</strong>. It is created when the guard is installed and sleeps until needed, because creating a thread during a crash would itself allocate.</p>
+      <p>Threads talk through memory, and two subtleties apply. First, processors and compilers reorder memory operations for speed. One thread's writes can reach another thread in a different order unless the code says otherwise with <strong>atomic</strong> variables and <strong>release/acquire ordering</strong>: everything written before a release store is visible to a thread that reads the stored value with an acquire load. The handler records the signal, then publishes "crash claimed" with such a store. Second, the waiting thread should sleep rather than spin, so the rescue thread blocks in <code>read()</code> on an <code>eventfd</code>, a kernel counter. The handler wakes it with one <code>write()</code>, which is async-signal-safe.</p>
+      <p>The rescue thread <strong>blocks every signal</strong>, which is how Quill protects its backend thread. An asynchronous signal is therefore never delivered to it, and it never runs a handler in the middle of a rescue. If it faults itself, the kernel cannot deliver a blocked synchronous signal and ends the process at once with the default action. That is the right outcome for a rescue that crashes.</p>
+      <p>Two threads can crash at nearly the same time. The handler therefore <strong>claims</strong> the crash with an atomic compare-and-swap: the first thread that changes the state from "idle" to "rescuing" proceeds, and the others wait for the first to end the process.</p>
+
+      <h3><small>7</small>Waiting with a deadline</h3>
+      <p>The rescue can hang. A lock may be held by the dead thread, a disk may be full, the encoder may be stuck. A crash handler that never returns turns a crashed job into a hung job, which is worse: CI jobs time out after hours instead of failing in seconds, and cluster nodes stay occupied. So the handler waits with a <strong>hard deadline</strong>. It reads the clock with <code>clock_gettime</code>, sleeps a millisecond at a time with <code>poll()</code>, and stops waiting when the rescue reports done or the deadline passes, whichever comes first. (<code>nanosleep</code> is not on the async-signal-safe list; <code>poll</code> with no descriptors is.) After the deadline, whatever the encoder had already written stays in the file, and the reader recovers the rest of the file by scanning.</p>
+
+      <h3><small>8</small>Stack overflow and the alternate stack</h3>
+      <p>Each thread's stack has a fixed size, 8&nbsp;MiB for the main thread by default and often less for others. Below it lies a <strong>guard page</strong> that is not mapped, so running off the end faults instead of silently overwriting the heap. Deep or unbounded recursion, common in DPI code and in some generated models, ends there with SIGSEGV. The handler, however, normally runs on the <em>same</em> stack, which is full. The kernel cannot even start it and kills the process.</p>
+      <figure class="a-fig">
+        <div class="a-stack" aria-label="A full stack, its guard page and an alternate signal stack">
+          <span>main() <small>top of the stack</small></span>
+          <span>eval() → dpi_walk() <small>…</small></span>
+          <span class="is-full">dpi_walk() × 2,048 <small>stack full</small></span>
+          <span class="is-guard">guard page <small>unmapped: fault here</small></span>
+          <span class="is-alt">alternate signal stack, 64 KiB <small>the handler runs here</small></span>
+        </div>
+        <figcaption>With <code>sigaltstack()</code> and the <code>SA_ONSTACK</code> flag, the kernel switches to a separate stack before it runs the handler.</figcaption>
+      </figure>
+      <p><code>sigaltstack()</code> sets up that separate stack, but only for the <strong>thread that calls it</strong>; each thread needs its own. The handler here is shallow, so 64&nbsp;KiB with a guard page of its own is ample. Glibc's <code>SIGSTKSZ</code> constant is too small for processors with large vector registers, which the kernel saves on the signal stack. Measured: with an alternate stack a stack overflow was fully rescued; without one the process died before the handler ran.</p>
+
+      <h3><small>9</small>Ending the process the way it would have ended</h3>
+      <p>After the rescue, the process must still die, and die of the <strong>same signal</strong>. The exit status then says SIGSEGV, the core dump is written, and a debugger or the crash reporter of the job system sees the real cause. The handler restores the action that was installed before it (the default, or a sanitizer's handler), and then does one of two things. For a hardware fault it simply <strong>returns</strong>: the faulting instruction runs again, faults again, and this time the default action ends the process, with the core dump pointing at the real culprit. For a signal that was sent (SIGABRT, SIGTERM) it sends the signal again to its own thread with <code>tgkill</code>. The signal is blocked while the handler runs, so it stays pending and ends the process the moment the handler returns. Quill, abseil, LLVM and Breakpad all end this way. g3log re-raises from its worker thread, so its core dump shows the wrong thread.</p>
+
+      <h3><small>10</small>Heaps and their locks</h3>
+      <p><code>malloc</code> in glibc keeps several <strong>arenas</strong>, pools of memory each protected by a lock, plus a small lock-free cache per thread (the <em>tcache</em>) for blocks up to about 1&nbsp;KiB. The main thread allocates from the main arena. Memory corruption in the program under test, such as a buffer overrun or a double <code>free</code>, is often detected by glibc's own checks, which call <code>abort()</code>. Some checks run while the arena's lock is held, so the process can die with the main heap locked. Any other thread that then touches memory from that arena waits for ever, including a rescue thread closing a writer whose buffers were allocated there. The prototype hit exactly this. The remedy is for VTR to allocate from <strong>its own heap</strong>, so that the application's heap can be broken without VTR noticing.</p>
+
+      <h3><small>11</small>Compressed files that stop in the middle</h3>
+      <p>zstd, like most compressors, turns a byte stream into <strong>frames</strong>, and each frame into <strong>blocks</strong> of up to 128&nbsp;KiB. A decoder can emit a block as soon as it has all of it. A frame ends with an optional checksum, and a new frame starts with no memory of the previous one. The streaming API offers three verbs. <code>ZSTD_e_continue</code> lets the compressor buffer freely. <code>ZSTD_e_flush</code> emits everything so far as complete blocks, but the frame goes on and later data may refer back to earlier data. <code>ZSTD_e_end</code> also closes the frame. A file cut after a flush decodes up to the flush but carries no checksum yet. A file cut after an end decodes and verifies every closed frame. Section <a class="v-link" href="#zstd">zstd</a> measures what each choice costs and shows that VTR already sits on the safe side: every compressed piece of a VTR file is a closed, independent frame inside a section with its own CRC.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="today">
+  <div class="v-wrap">
+    <p class="v-kicker">Today</p>
+    <h2 class="v-section__title">The format survives a crash; the data in memory does not.</h2>
+    <div class="a-body">
+      <p><strong>The file side is sound.</strong> A VTR file is a header followed by self-delimiting sections, each with its length and a CRC-32 of its payload. The directory and trailer come last. A file without a trailer is still readable: the reader walks section headers from the start, stops at the first one that does not fit in the file, and rebuilds the directory (SPEC.md section 2.3). Nothing is ever patched in place. Strings and hierarchy always precede the sections that use them, so every complete section is decodable. FST cannot say the same: it writes its header, geometry and hierarchy only at close, and keeps the hierarchy in a <code>.hier</code> side file until then.</p>
+      <p><strong>The memory side is large.</strong> The writer batches aggressively because that is what makes it small and fast. When the process dies, the following exists only in memory:</p>
+      <ul>
+        <li>On the simulation thread: the current chunk of up to 1.07&nbsp;million changes on C910 (16 per declared signal), the block's time table and initial values, open transactions with their attributes, stages and events, up to 4&nbsp;MiB of finished transaction and log rows (about 150,000 messages), running clock stretches, pending strings and hierarchy nodes, and blackout marks.</li>
+        <li>In the channel to the encoder: up to four more messages, each a chunk or a block.</li>
+        <li>On the encoder thread: the column fragments of every chunk of the current block. A block, 16,777,216 changes, is compressed and written only when it is complete. This is the largest item.</li>
+        <li>On the two log helper threads: log blocks being encoded.</li>
+        <li>In the file buffer: up to 1&nbsp;MiB of finished sections that were not yet passed to <code>write()</code>. <code>Writer::flush()</code> only queues work and never empties this buffer.</li>
+      </ul>
+      <p>On openC910 CoreMark, 596,626,011 changes in about 36 blocks, a block is about 1.5&nbsp;s of simulation time on the clock and 7,100 cycles, so a crash loses up to that much waveform and every log record since the last 4&nbsp;MiB log block. Nothing in the repository catches a signal: Verilator installs no handler, and the VTR crates and C API have none. <code>vl_fatal</code> closes the trace through Verilator's exit callbacks, and <code>$finish</code> ends with the user's <code>trace-&gt;close()</code>. Every other ending leaves a recovered file with its tail missing. A Rust panic inside the C API aborts the process, because the C API has no <code>catch_unwind</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="survey">
+  <div class="v-wrap">
+    <p class="v-kicker">Survey</p>
+    <h2 class="v-section__title">Seven approaches, from logging libraries to crash reporters.</h2>
+    <p class="v-section__sub">Read in their sources: Quill, g3log, glog, abseil's failure signal handler, spdlog, NanoLog, reckless, Tracy, LLVM's Signals, Rust's standard library, Breakpad, Crashpad, Perfetto, LTTng, Chromium's persistent histograms and OpenJDK's JFR. They fall into seven approaches.</p>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Approaches" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>Approach</th><th>Who does it</th><th>What it survives</th><th>Where it fails</th><th>For VTR</th></tr></thead>
+        <tbody>
+          <tr><td>Close in destructors, <code>atexit</code> or exit callbacks</td><td>VTR today, spdlog, NanoLog, Verilator's <code>vl_fatal</code></td><td>Clean exits, <code>$fatal</code></td><td>Every signal; <code>exit()</code> from deep code; threads still running during <code>exit()</code></td><td>Kept as one path of several (an <code>atexit</code> hook)</td></tr>
+          <tr><td>Flush often</td><td>spdlog <code>flush_every</code>/<code>flush_on</code>, glog <code>logbufsecs</code>, Quill's 200&nbsp;ms sink flush</td><td>Everything, up to the interval, SIGKILL included</td><td>Costs compression; 1M-change VTR blocks made SCR1 58% larger</td><td>Only as a wall-clock commit interval for slow runs</td></tr>
+          <tr><td>Do the work in the handler</td><td>Quill, g3log, Tracy, glog after its "transition" comment</td><td>Most crashes, most of the time</td><td>Deadlocks when the dead thread held a lock; Quill, g3log, glog and Tracy install no alternate stack, so stack overflow is lost</td><td>Rejected; its claim-once and re-raise borrowed</td></tr>
+          <tr><td>Hand off from a minimal handler, with a deadline</td><td>reckless (raw futex), Crashpad (futex, 5&nbsp;s), abseil (alarm, 3&nbsp;s), LLVM (lock-free lists)</td><td>Every catchable signal; stack overflow with an alternate stack</td><td>Locks the dead thread held in shared state such as the heap</td><td><strong>Chosen</strong>, with VTR on its own heap</td></tr>
+          <tr><td>Compress in the handler with preallocated state</td><td>glog's safe writer (no compression); zstd static contexts measured here</td><td>Crashes on any thread, no second thread needed</td><td>The writer's state may be half-updated; duplicates the encoder</td><td>Rejected; the rescue thread is fast enough</td></tr>
+          <tr><td>Buffers outside the process</td><td>Perfetto's shared memory, LTTng <code>--shm-path</code>, Chromium's <code>.pma</code> files, JFR's repository</td><td>SIGKILL and the OOM killer</td><td>Pays for raw data on every write; VTR's in-flight state is not raw records</td><td>Deferred; the numbers are under Limits</td></tr>
+          <tr><td>A separate process takes over</td><td>Breakpad (clone + ptrace), Crashpad (handler process)</td><td>Everything but the machine</td><td>Produces a memory dump, not a trace; needs a helper binary</td><td>Not for trace data; coexists by chaining</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <p><strong>Quill</strong> (<code>include/quill/backend/SignalHandler.h</code>) is the reference most people know. <code>SignalHandlerOptions</code> has four fields: <code>catchable_signals</code> (SIGTERM, SIGINT, SIGABRT, SIGFPE, SIGILL, SIGSEGV; SIGBUS is not included), <code>timeout_seconds</code> (20), and a logger name with exclusions. The backend thread starts with every signal blocked, so asynchronous signals never land on it. The handler lets the first thread through with an atomic counter, parks the rest in <code>pause()</code>, and arms <code>alarm(timeout)</code>. It then logs "Received signal" through an ordinary log call and waits in <code>flush_log()</code>, spinning on an atomic flag the backend sets once everything queued earlier has been written. If the alarm fires, the handler restores the default action for the original signal and raises it. Otherwise it re-raises the signal itself: SIGINT and SIGTERM exit with status 0, and fatal signals end with their default action. Quill installs with <code>std::signal</code>, uses no alternate stack, and documents its logging path as "not strictly async-signal-safe", intentionally.</p>
+      <p><strong>g3log</strong> (<code>src/crashhandler_unix.cpp</code>) goes further in the wrong direction. The handler collects a backtrace with <code>backtrace_symbols</code>, formats it with <code>ostringstream</code> and pushes a fatal message through a mutex-protected queue to the worker. The worker flushes by destroying its sinks and then re-raises from the worker thread. There is no alternate stack and no timeout, so a crash with a lock held hangs for ever. <strong>glog</strong> separates the two halves explicitly. Its handler writes a minimal report with <code>write(2)</code> from a stack buffer, and a comment then marks the "transition" after which it flushes log files without taking their mutex. <strong>abseil</strong>'s failure handler is the most careful of the in-process ones: an alternate stack of at least 64&nbsp;KiB (on the installing thread only), <code>SA_NODEFER</code>, a 3&nbsp;s <code>alarm()</code> watchdog, a compare-and-swap on the failing thread id, and re-raising to the previous or default handler.</p>
+      <p><strong>reckless</strong> is the closest to this design. Its handler pushes a "panic" marker into the lock-free ring the writer thread drains, then waits on a raw futex until the writer has written everything before the marker. It uses no locks, but also no deadline and no alternate stack. <strong>Crashpad</strong> and <strong>Breakpad</strong> are the industrial crash reporters. They install per-thread alternate stacks, keep the handler to a socket message or a <code>clone</code>, wait on futexes with timeouts, and re-raise with <code>tgkill</code> for sent signals or return for hardware faults. <strong>LLVM</strong> runs up to eight registered callbacks claimed by compare-and-swap and removes temp files listed in a lock-free list. <strong>Rust</strong>'s runtime gives every thread it starts an alternate stack sized from <code>AT_MINSIGSTKSZ</code>, to print "has overflowed its stack". A static library such as <code>libvtr.a</code> never runs that setup.</p>
+      <p><strong>Outside the process.</strong> Perfetto's producers write into shared memory owned jointly with the tracing service, which scrapes a dead producer's buffers when that is enabled. LTTng keeps ring buffers in shared memory files, and <code>lttng-crash</code> reads them back after a crash. Chromium keeps histograms in a memory-mapped file, whose dirty pages the kernel writes back after the process is gone, and marks a clean exit in its header. JFR writes chunks to a disk repository as it goes and copies them next to the error report on a fatal error. These survive SIGKILL, and the cost is that every byte takes the slow path all the time. <strong>MCAP</strong> shows the file-format half of the same idea. Its chunks carry CRCs and it keeps a summary at the end, and <code>mcap recover</code> rebuilds a truncated file into a complete one.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="zstd">
+  <div class="v-wrap">
+    <p class="v-kicker">zstd</p>
+    <h2 class="v-section__title">Independent frames cost size; VTR already paid for them.</h2>
+    <div class="a-body">
+      <p><strong>Flush versus end, measured.</strong> 64&nbsp;MiB of three inputs was compressed with libzstd 1.5.7 as one frame, with <code>ZSTD_e_flush</code> every N bytes, and as a new frame every N bytes. A flush only ends a block early: 3 bytes of header and fresh entropy tables. A new frame also throws away the match history, and at level 3 the window is 2&nbsp;MiB or more, so that is the expensive part.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Flush and frame costs" tabindex="0">
+      <table class="v-table a-num">
+        <thead><tr><th>Input, level (one frame)</th><th>Flush 16&nbsp;KiB</th><th>Flush 64&nbsp;KiB</th><th>Flush ≥256&nbsp;KiB</th><th>Frame 256&nbsp;KiB</th><th>Frame 1&nbsp;MiB</th><th>Frame 4&nbsp;MiB</th></tr></thead>
+        <tbody>
+          <tr><td>C910 replay stream, L3 (16.5&nbsp;MB)</td><td>+1.9%</td><td>+0.27%</td><td>0</td><td>+50%</td><td>+25.8%</td><td>+6.6%</td></tr>
+          <tr><td>C910 replay stream, L1 (29.1&nbsp;MB)</td><td>+0.54%</td><td>+0.09%</td><td>0</td><td>+2.5%</td><td>+1.0%</td><td>+0.24%</td></tr>
+          <tr><td>gem5 debug trace, L3 (2.0&nbsp;MB)</td><td>+3.9%</td><td>+0.78%</td><td>0</td><td>+13.0%</td><td>+8.0%</td><td>+5.4%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <p><strong>A flushed frame is decodable but unverified.</strong> A streaming decoder given a file cut exactly at a flush returned the whole prefix, byte for byte. Cut 1,000 bytes into the next block, it returned the prefix up to that block and asked for more input, without an error. The frame checksum sits only at the frame's end, so nothing in a flushed-but-open frame is checked. Of 200 single-bit flips inside such a frame, 118 (Kanata text) and 139 (C910) decoded silently to wrong data. The same flips in a closed frame with a checksum were all detected. <code>zstd -d</code> writes every decodable byte and then fails with "premature end"; before issue #3602 it lost buffered output there.</p>
+      <p><strong>Compressing in a handler is possible.</strong> A context made with <code>ZSTD_initStaticCCtx</code> in a preallocated buffer (1.3&nbsp;MB for level 3) compressed a 1&nbsp;MiB buffer inside a SIGSEGV handler with zero allocator calls, and the result passed <code>zstd -t</code>. Multi-threaded compression is refused on a static context. Even without a compressor, a valid zstd frame of raw blocks is a header and a copy.</p>
+      <p><strong>What this means for VTR.</strong> VTR does not stream one long frame. Every compressed blob, a column run of at most 64&nbsp;KiB, a string or hierarchy chunk, a transaction or log block, is its own closed zstd frame inside a section that carries a length and a CRC-32 over the stored bytes. This is the independent-frames design at a fine grain. Its size cost was accepted for random access long ago and is recovered by the per-run transforms. So the crash design needs <strong>no zstd change</strong>. Sealing a partial block is ordinary compression of a smaller block, and a torn tail is one section that fails its length or CRC check. Two rules follow. The section CRC must be checked while recovering: today recovery trusts the length alone and checks CRCs only on request, and the flip experiment shows zstd will not catch the damage. And compression stays out of the handler: the rescue thread does it with the normal code, so the static-context trick is not needed. The same facts explain the other formats. MCAP, SQLite's WAL and Perfetto's packets all frame their records with lengths and checksums and treat the last valid commit as the end, and FST alone depends on a header written at close.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="measured">
+  <div class="v-wrap">
+    <p class="v-kicker">Measured</p>
+    <h2 class="v-section__title">A prototype against today's library.</h2>
+    <div class="a-body">
+      <p><code>bench/crashlab/crashlab.cpp</code> is the design reduced to its core, about 150 lines of guard. It has the handler of rules 2 and 9 on a 64&nbsp;KiB alternate stack, a rescue thread that appends a FATAL log record and calls the unchanged <code>vtr_writer_close</code>, a deadline, stop requests handled as a flag, and an <code>atexit</code> hook. It runs against <code>libvtr.a</code> as it is, and against a build whose Rust global allocator is mimalloc (<code>private-heap.patch</code>). <code>run.py</code> runs every case, checks each outcome and exits nonzero if one differs. All 31 matched.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Crash lab results" tabindex="0">
+      <table class="v-table a-num" id="results">
+        <thead><tr><th>Ending</th><th>Exit</th><th>No guard</th><th>Guard</th><th>Guard, own heap</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="a-body">
+      <p>Each cell shows the value changes kept and the log records kept, plus the crash record where there is one. The run emitted 30,000,880 changes and 396 records. "Complete" means the file has its directory and trailer and was not recovered by scanning.</p>
+      <p><strong>Every catchable ending was saved in full</strong> except two. On the system heap, a double free detected under the main arena's lock hung the rescue until the 3&nbsp;s deadline, as Basics 10 predicts. With VTR's allocations on mimalloc it was rescued in 220&nbsp;ms, three runs out of three. The other is the stack overflow without an alternate stack. SIGKILL and a rescue stalled past its deadline lost the same as no guard, and in both cases the exit status was still the original one. Write time with mimalloc was unchanged (0.54&nbsp;s for 30M changes, both allocators).</p>
+      <p><strong>How long a rescue takes</strong> depends on where in a block the crash lands. Best of three: 214&nbsp;ms at 79% of a block, 250&nbsp;ms at 99.9%, and 483–692&nbsp;ms just after a block was handed off, when the previous block is still compressing. On C910 the encoder writes a block in about 0.25&nbsp;s (36 blocks in the 9.0&nbsp;s replay write), so the same range applies there. A 10&nbsp;s deadline leaves a margin of fourteen times the worst case measured.</p>
+      <p><strong>Knowing whether the owner is inside the writer is cheap.</strong> A relaxed atomic store plus a compiler fence at entry and exit cost +0.2% per time step, the granularity of a Verilator dump, and +0.9% around every emit call: 1.181&nbsp;s, 1.183&nbsp;s and 1.192&nbsp;s for 60 million changes, best of five.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="design">
+  <div class="v-wrap">
+    <p class="v-kicker">Design</p>
+    <h2 class="v-section__title">Twelve rules for a guard that cannot make things worse.</h2>
+    <p class="v-section__sub">The guard is a small crate, <code>vtr-guard</code>, beside the writer. Signal dispositions are global to a process, so this is the one piece of VTR with process-wide state. It is installed only by an explicit call and documented as such. The <code>vtr</code> crate keeps no global state; it gains the queries and the sealing path the guard needs.</p>
+    <ol class="a-rules">
+      <li><strong>Two kinds of ending.</strong>Crashes (SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP, SIGSYS) are rescued at once. Stop requests (SIGTERM, SIGINT, SIGHUP, SIGXCPU) are not crashes. The handler only sets a flag, the simulation finishes its time step and closes normally, and then the guard re-raises so the exit status still says SIGTERM. A second request, or a grace deadline, escalates to a rescue.</li>
+      <li><strong>The handler hands off and waits.</strong>It saves <code>errno</code>, claims the crash with a compare-and-swap (later crashers park in <code>pause()</code>), copies the signal number, code, fault address and thread id into static storage, and writes one word to the rescue thread's <code>eventfd</code>. It then waits with <code>clock_gettime</code> and <code>poll</code> until the rescue is done or the deadline passes. It calls nothing else.</li>
+      <li><strong>A rescue thread does the work.</strong>It is started at install with every signal blocked and sleeps in <code>read()</code>. On a crash it records the crash in each watched writer and closes it through the ordinary close path. The encoder threads keep running and finish the current block, the logs, the directory and the trailer. If the rescue itself faults, the kernel ends the process, and the file falls back to recovery by scanning.</li>
+      <li><strong>Only a writer at rest is closed.</strong>Each writer keeps a busy word, set on entry to every public call and cleared on exit (+0.9% measured). A writer at rest, which is the usual case because the fault is in model code, is closed in full. A writer interrupted mid-call, by a bug in VTR or an allocation failure inside it, is <em>sealed</em> instead (rule 5). Its half-updated state is never read.</li>
+      <li><strong>What reached the encoder can always be sealed.</strong>Today the simulation thread builds a block's time table and initial values only when the block ends. Instead it sends them with each chunk, so the encoder holds everything needed to write a block from the chunks it has. Sealing drops only the chunk still being filled, at most 16 changes per signal (about 0.1&nbsp;s of C910), and only when the writer was busy.</li>
+      <li><strong>VTR allocates from its own heap.</strong>The C library's heap can die locked, and the rescue must never need it. <code>libvtr</code> sets mimalloc as its Rust global allocator and routes zstd's allocations there too. Measured: the lock-held double free became a full rescue, and write time did not change.</li>
+      <li><strong>Every writing thread gets an alternate stack.</strong>Registering a writer installs a 64&nbsp;KiB alternate stack with a guard page on the calling thread, unless it has one. The Verilator fork does the same for its worker threads. Handlers use <code>SA_ONSTACK</code>, so a stack overflow is rescued like any other fault.</li>
+      <li><strong>A hard deadline, 10&nbsp;s by default.</strong>That is fourteen times the slowest rescue measured, and below SLURM's 30&nbsp;s kill wait. Afterwards the handler gives up on the rescue. Everything already written stays, and the reader recovers the rest. The value is an install option and the environment variable <code>VTR_GUARD_DEADLINE_MS</code>.</li>
+      <li><strong>Die of the same signal.</strong>The handler restores the disposition saved at install: the default, a sanitizer's or the program's. For a hardware fault (<code>si_code &gt; 0</code>) it returns, so the instruction faults again and the core dump shows the real crash. For a sent signal it calls <code>tgkill</code> on its own thread. Exit statuses 134, 139 and 143 were preserved in every run.</li>
+      <li><strong>Every other way out closes too.</strong>An <code>atexit</code> hook closes watched writers when <code>exit()</code> is called from DPI or C code. The C API wraps every call in <code>catch_unwind</code>, so a Rust panic becomes an error code and a poisoned writer instead of an abort across the C boundary. <code>vl_fatal</code> keeps closing through Verilator's exit callbacks.</li>
+      <li><strong>Bound what nothing can save.</strong>SIGKILL runs no code. Each finished section is passed to <code>write()</code> at once instead of waiting in a 1&nbsp;MiB buffer. A wall-clock commit interval (10&nbsp;s by default) forces a block boundary in slow runs, whose blocks would otherwise stay in memory for minutes. SIGKILL then loses at most one block or one interval, whichever is shorter.</li>
+      <li><strong>The file says how the run ended.</strong>A rescue appends a FATAL record to a reserved <code>vtr.run</code> log stream: the signal, its code, the fault address, the thread and the simulation time, or "stopped by SIGTERM", or "exit(3)". <code>vtr info</code> prints it. A recovered file verifies section CRCs and drops a torn tail, and <code>vtr recover</code> rewrites it with a directory and trailer, as <code>mcap recover</code> does.</li>
+    </ol>
+    <div class="a-body a-wide">
+      <h3>The guarantee</h3>
+      <ul>
+        <li><strong>Crash on any thread, writer at rest:</strong> every change, transaction, clock stretch and log record the writer accepted, plus the crash record, in a complete file. Open transactions end with status Open at the crash time.</li>
+        <li><strong>Crash while the writer is mid-call:</strong> everything handed to the encoder. At most the unfinished chunk is lost. The file is complete, and its crash record says it was sealed.</li>
+        <li><strong>A stop request, or <code>exit()</code>:</strong> everything, through the normal close.</li>
+        <li><strong>Crash of an encoder thread (a VTR bug), a rescue past its deadline, or a fault inside the rescue:</strong> every section written before, recovered by scanning.</li>
+        <li><strong>SIGKILL or the OOM killer:</strong> all but the last block or commit interval. <strong>Power loss:</strong> what the kernel had written back; <code>fsync</code> stays optional and off.</li>
+      </ul>
+      <p><strong>When a thread other than the writer's owner crashes,</strong> the owner must not keep writing while the rescue closes its writer. The rescue sends the owner a park signal, a real-time signal chosen at install, as Tracy freezes threads with SIGPWR. At rest, the owner parks at once. Mid-call, it parks when the call returns, at the busy word's exit. The deadline covers an owner that never returns.</p>
+      <p><strong>Coexistence.</strong> The guard saves and restores previous handlers rather than overwriting them, and never installs over a handler it did not expect without chaining to it. It runs its rescue first and then the previous handler, so an AddressSanitizer report still appears. <code>VTR_GUARD=0</code> turns it off. Debuggers stop at the signal before any handler runs, so interactive debugging is unchanged.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="plan">
+  <div class="v-wrap">
+    <p class="v-kicker">Plan</p>
+    <h2 class="v-section__title">Eight commits, each useful on its own.</h2>
+    <div class="a-body">
+      <p>Every commit builds, passes <code>cargo test</code> for the crates it touches and <code>bench/crashlab/run.py</code>, and updates its tests and documentation. Writer changes are A/B measured against the previous commit on the benchmark suite, reporting size, write time and read time together (AGENTS.md). The crash matrix moves into CI in stage 1 and tightens with every stage after it: each stage flips some expected outcomes from "blocks" to "full".</p>
+      <p><strong>Why this order.</strong> The test harness comes first, so each later stage proves its effect. Durable sections and the termination record change the file, so they come before anything writes a crash into one. The sealable pipeline and the private heap make the rescue safe. The guard can then be simple, and the Verilator fork is a thin caller of it. <code>vtr recover</code> and the commit interval come last because they only bound what the guard cannot save.</p>
+    </div>
+    <div class="v-table-wrap a-wide" role="region" aria-label="Stages" tabindex="0">
+      <table class="v-table v-table--text">
+        <thead><tr><th>#</th><th>Commit</th><th>What the user gets</th><th>Needs</th><th>Format</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><a class="v-link" href="#stage-1">The crash matrix in CI</a></td><td>Every ending tested headlessly on every push</td><td>—</td><td>unchanged</td></tr>
+          <tr><td>2</td><td><a class="v-link" href="#stage-2">Durable sections, verified recovery</a></td><td>Finished sections reach the kernel at once; torn tails are detected by CRC</td><td>1</td><td>SPEC recovery text</td></tr>
+          <tr><td>3</td><td><a class="v-link" href="#stage-3">How the run ended</a></td><td><code>vtr info</code> says crashed, stopped, exited, closed or recovered</td><td>1</td><td>reserved <code>vtr.run</code> stream</td></tr>
+          <tr><td>4</td><td><a class="v-link" href="#stage-4">A sealable writer</a></td><td>A writer interrupted mid-call can still be finished; panics become errors</td><td>1, 3</td><td>unchanged</td></tr>
+          <tr><td>5</td><td><a class="v-link" href="#stage-5">VTR on its own heap</a></td><td>Heap corruption in the model no longer blocks VTR</td><td>1</td><td>unchanged</td></tr>
+          <tr><td>6</td><td><a class="v-link" href="#stage-6">The guard</a></td><td><code>vtr_guard_install</code>: every catchable ending keeps the whole trace</td><td>2–5</td><td>unchanged</td></tr>
+          <tr><td>7</td><td><a class="v-link" href="#stage-7">The Verilator fork</a></td><td><code>--trace-vtr</code> models are guarded by default</td><td>6</td><td>unchanged</td></tr>
+          <tr><td>8</td><td><a class="v-link" href="#stage-8">Bounded loss and <code>vtr recover</code></a></td><td>SIGKILL loses at most one block or interval; recovered files are made whole</td><td>2, 3</td><td>unchanged</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="a-stages">
+      <article class="a-stagecard" id="stage-1" aria-labelledby="stage-1-h">
+        <p class="a-stage__n">Stage 1</p>
+        <h3 id="stage-1-h">The crash matrix in CI</h3>
+        <p>Before anything changes, the eleven endings of the demo become a test that runs on every push. It asserts today's outcomes, so every later stage shows its effect as a diff of expectations.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>None.</dd></div>
+          <div><dt>Tests</dt><dd><code>core/vtr-capi/tests/crash.rs</code> builds a C++ harness with the <code>cc</code> dev-dependency (the crashlab program without its guard, plus mode switches), runs each ending in a child process with core dumps off and a timeout, and checks the exit status and the file with the reader: recovered or not, changes, log records, the last FATAL text. It is small (2,000 signals, 3&nbsp;million changes), so it takes seconds. <code>bench/crashlab/run.py</code> stays the full-size measurement.</dd></div>
+          <div><dt>CI</dt><dd>A job in <code>core-tests.yml</code> on ubuntu-24.04.</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-2" aria-labelledby="stage-2-h">
+        <p class="a-stage__n">Stage 2</p>
+        <h3 id="stage-2-h">Durable sections, verified recovery</h3>
+        <p>A finished section is passed to <code>write()</code> as soon as it is complete, so the file buffer never holds finished work. Sections are 100&nbsp;KiB to several MiB, so this adds a few system calls per second. A recovering reader checks every section's CRC and stops at the first mismatch, so a torn or zero-filled tail is dropped instead of being decoded into wrong values.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>FileSink::write_section_parts</code> flushes its <code>BufWriter</code> after each section. <code>Container::parse</code> verifies CRCs in recovery mode. <code>Reader::recovered()</code> gains the byte count dropped.</dd></div>
+          <div><dt>Spec</dt><dd>SPEC.md 2.3 Recovery: "stopping at the first header that does not fit or whose CRC does not match". A RATIONALE.md entry records the torn-write measurement.</dd></div>
+          <div><dt>Tests</dt><dd>Round trips in <code>core/vtr/tests/</code> with files cut at every section boundary, inside a payload, and with a zero-filled tail. The crash matrix now expects the file buffer to be empty after SIGKILL.</dd></div>
+          <div><dt>Measure</dt><dd>Write time A/B on the suite; CRC check time on the C910 file (about 25&nbsp;ms for 248&nbsp;MiB expected).</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-3" aria-labelledby="stage-3-h">
+        <p class="a-stage__n">Stage 3</p>
+        <h3 id="stage-3-h">How the run ended</h3>
+        <p>A file says whether its run closed normally, and if not, why. The record uses structures VTR already has: a log stream <code>vtr.run</code> under the root, with one FATAL site per kind of ending, whose typed arguments a tool can filter.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>Writer::close_with(Ending)</code>, where <code>Ending</code> is <code>Closed</code>, <code>Stopped { signal }</code>, <code>Exited { status }</code> or <code>Crashed { signal, code, address, thread, sealed }</code>, at the writer's current time. <code>Reader::ending()</code> returns the record, or <code>Recovered</code> for a scanned file without one.</dd></div>
+          <div><dt>C API</dt><dd><code>vtr_writer_close_ending</code>, <code>vtr_reader_ending</code>.</dd></div>
+          <div><dt>CLI</dt><dd><code>vtr info</code> prints "Ended: crashed by SIGSEGV (address 0x0, thread 41137) at t=25360".</dd></div>
+          <div><dt>Spec</dt><dd>The reserved stream name and site formats in SPEC.md, as a convention with no version change. RATIONALE.md: why a log record and not a new section, which is that every reader already shows it.</dd></div>
+          <div><dt>Tests</dt><dd>A round trip for each ending, and the record absent from a file closed the old way.</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-4" aria-labelledby="stage-4-h">
+        <p class="a-stage__n">Stage 4</p>
+        <h3 id="stage-4-h">A sealable writer</h3>
+        <p>Whatever reached the encoder can be finished without the simulation thread, and the guard can tell whether the simulation thread was inside the writer.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd>Each chunk carries the time-table slice and the initial values of the groups it dirtied first, so <code>Msg::Signal</code> only marks the end of a block. A busy word, an <code>AtomicU32</code> set and cleared with relaxed stores and compiler fences, sits in every public <code>Writer</code> method. <code>Writer::seal(Ending)</code> is safe to call from another thread while the owner is stopped: it ignores simulation-thread buffers and tells the encoder to finish what it has, then write the ending, the directory and the trailer.</dd></div>
+          <div><dt>C API</dt><dd>Every <code>extern "C"</code> body is wrapped in <code>catch_unwind</code>. A panic returns <code>VTR_ERR_STATE</code> and poisons the writer, whose later calls fail fast and whose close seals it.</dd></div>
+          <div><dt>Tests</dt><dd><code>seal</code> after random numbers of calls equals a close that dropped the unfinished chunk, for signals, transactions, logs and clocks. A panic injected in a C call returns an error.</dd></div>
+          <div><dt>Measure</dt><dd>The full suite A/B: write time with the busy word and per-chunk frames (the prototype measured +0.9%), size unchanged, read time unchanged.</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-5" aria-labelledby="stage-5-h">
+        <p class="a-stage__n">Stage 5</p>
+        <h3 id="stage-5-h">VTR on its own heap</h3>
+        <p>Heap corruption in the model can leave glibc's heap locked for ever. VTR's memory moves out of that heap, so the rescue never waits on it.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>vtr-capi</code> declares mimalloc as its <code>#[global_allocator]</code> (without its <code>override</code> feature, so the application's <code>malloc</code> is untouched). zstd contexts are created with custom allocation functions that call the same heap. Rust users of the <code>vtr</code> crate choose their own allocator, as Rust programs do.</dd></div>
+          <div><dt>Tests</dt><dd>The crash matrix's lock-held double free flips from "blocks" to "full" once stage 6 lands.</dd></div>
+          <div><dt>Measure</dt><dd>The full suite A/B for write and read time and peak memory. The prototype measured no write-time change.</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-6" aria-labelledby="stage-6-h">
+        <p class="a-stage__n">Stage 6</p>
+        <h3 id="stage-6-h">The guard</h3>
+        <p>The rules of the design as a small crate, and its C projection.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>core/vtr-guard</code>: <code>install(Options)</code> (deadline, signal sets, park signal, chaining), <code>watch(&amp;Writer)</code> and <code>unwatch</code>, which register a writer in a fixed table of 64 atomic slots and install the calling thread's alternate stack, <code>thread_init()</code> for other threads, and <code>stop_requested()</code>. The handlers use only <code>libc</code> calls from the async-signal-safe list. The rescue thread, park signal, <code>atexit</code> hook and re-raise follow rules 1–10.</dd></div>
+          <div><dt>C API</dt><dd><code>vtr_guard_install(const vtr_guard_options*)</code>, <code>vtr_guard_watch</code>, <code>vtr_guard_unwatch</code>, <code>vtr_guard_thread_init</code>, <code>vtr_guard_stop_requested</code>, documented in <code>vtr.h</code> as the library's single piece of process-wide state.</dd></div>
+          <div><dt>Tests</dt><dd>The crash matrix runs with the guard. Expected "full": SIGSEGV, SIGABRT, uncaught exception, stack overflow, both double frees, SIGTERM, <code>exit()</code>, and a crash on a second thread while the owner writes. Expected "blocks": SIGKILL, a stalled rescue (deadline within ±20%), a fault inside the rescue. Every case keeps its exit status. An AddressSanitizer build checks that ASan's report still prints.</dd></div>
+          <div><dt>Measure</dt><dd>Rescue time at three points of a block; no change to write time when no crash happens.</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-7" aria-labelledby="stage-7-h">
+        <p class="a-stage__n">Stage 7</p>
+        <h3 id="stage-7-h">The Verilator fork</h3>
+        <p>A <code>--trace-vtr</code> model is guarded without any change to the user's <code>main</code>.</p>
+        <dl class="a-dl">
+          <div><dt>Fork</dt><dd><code>VerilatedVtr::open</code> installs the guard once per process and watches its writer. It is on by default; <code>VerilatedVtrC::guard(false)</code> before <code>open</code>, or <code>VTR_GUARD=0</code>, turns it off. <code>close</code> unwatches first. The rescue works on the <code>vtr_writer*</code> alone and never takes <code>m_mutex</code>, which a crash inside <code>dump()</code> leaves locked. The busy word covers <code>dump()</code> as a whole. Worker threads call <code>vtr_guard_thread_init</code> when they start. A stop request sets <code>gotFinish</code> on the trace's context from the rescue thread, so a standard main loop ends and closes normally; after the grace period the guard escalates. The <code>vtr_trace</code> package's clocks and trackers end with the writer.</dd></div>
+          <div><dt>Tests</dt><dd><code>integrations/verilator/crash/</code>: a model whose DPI function segfaults, aborts, recurses without bound or calls <code>exit</code> at a given cycle, plus <code>$fatal</code> and SIGTERM from the runner. Each file is compared with a run that finished: the same changes up to the crash cycle, the same log records, and the ending. It runs in the Verilator integration CI job.</dd></div>
+          <div><dt>Measure</dt><dd>C910 CoreMark with a forced SIGSEGV at cycle 200,000: rescue time and a check that the rescued file matches the complete run up to that cycle. No change to Verilator+VTR run time without a crash.</dd></div>
+        </dl>
+      </article>
+
+      <article class="a-stagecard" id="stage-8" aria-labelledby="stage-8-h">
+        <p class="a-stage__n">Stage 8</p>
+        <h3 id="stage-8-h">Bounded loss and <code>vtr recover</code></h3>
+        <p>What no handler can save is bounded, and a recovered file can be made whole.</p>
+        <dl class="a-dl">
+          <div><dt>Core</dt><dd><code>WriterOptions::commit_interval</code> (10&nbsp;s by default; 0 turns it off). <code>set_time</code> and <code>log</code> check a coarse monotonic clock every 1,024 calls and flush when the interval has passed. Fast runs fill blocks sooner and never see it.</dd></div>
+          <div><dt>CLI</dt><dd><code>vtr recover in.vtr out.vtr</code> copies every verified section and appends a <code>Recovered</code> ending, a directory and a trailer. It exits 3 when data was dropped, as <code>mcap recover</code> does.</dd></div>
+          <div><dt>Tests</dt><dd>SIGKILL at random points of a slow run loses at most the interval; <code>recover</code> of every cut file of stage 2 round-trips.</dd></div>
+          <div><dt>Measure</dt><dd>Suite A/B with the default interval: fast workloads unchanged; file size of a slow log-only run over ten minutes.</dd></div>
+        </dl>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="limits">
+  <div class="v-wrap">
+    <p class="v-kicker">Limits</p>
+    <h2 class="v-section__title">What the guard cannot promise.</h2>
+    <div class="a-body">
+      <p><strong>SIGKILL runs no code.</strong> The OOM killer, <code>kill -9</code> and a scheduler's final kill leave what was written, bounded by stage 8. Surviving them in full needs the trace outside the process as it is produced, which is the Perfetto and LTTng approach. VTR's in-flight state is not a stream of raw records: initial values and time tables live on the simulation thread. Its raw record stream is 16 bytes per change, about 9.5&nbsp;GB for one C910 CoreMark iteration against a 248&nbsp;MiB file. A shared-memory ring could bound the resident part, but every change would still pass through it. That is deferred until a real workload needs it.</p>
+      <p><strong>Memory corruption can reach VTR itself.</strong> A private heap stops a corrupt application heap from blocking the rescue. It does not stop a wild write from landing in VTR's buffers. Section CRCs protect what is written from damage after writing, not from damage before it.</p>
+      <p><strong>A crash on an encoder thread is a VTR bug</strong>, and its writer cannot be rescued, because the thread that finishes blocks is the one that died. The guard records it on stderr, the handler re-raises, and recovery keeps the written sections.</p>
+      <p><strong>Linux first.</strong> The design uses <code>sigaltstack</code>, <code>eventfd</code> and <code>tgkill</code>. macOS needs a pipe instead of <code>eventfd</code> and has the same signal model. Windows would use a vectored exception handler and <code>SetConsoleCtrlHandler</code>, as Quill does, and is out of scope.</p>
+      <p><strong>The numbers are from a prototype.</strong> The crash lab measured the rescue with today's close path and a synthetic workload at C910's change rate. Stages 6 and 7 re-measure with the real guard and the real C910 model.</p>
+    </div>
+  </div>
+</section>
+
+<section class="v-section" id="research">
+  <div class="v-wrap">
+    <p class="v-kicker">Research</p>
+    <h2 class="v-section__title">Sources.</h2>
+    <ol class="a-refs">
+      <li>Quill, <a class="v-link" href="https://github.com/odygrd/quill/blob/master/include/quill/backend/SignalHandler.h">SignalHandler.h</a>, <code>Backend.h</code>, <code>Logger.h</code> (<code>flush_log</code>), docs/faq.rst.</li>
+      <li>g3log, <a class="v-link" href="https://github.com/KjellKod/g3log/blob/master/src/crashhandler_unix.cpp">crashhandler_unix.cpp</a>, <code>logworker.cpp</code>, docs/API.md.</li>
+      <li>glog, <a class="v-link" href="https://github.com/google/glog/blob/master/src/signalhandler.cc">signalhandler.cc</a>.</li>
+      <li>abseil, <a class="v-link" href="https://github.com/abseil/abseil-cpp/blob/master/absl/debugging/failure_signal_handler.cc">failure_signal_handler.cc</a>.</li>
+      <li>reckless, <a class="v-link" href="https://github.com/mattiasflodin/reckless">crash_handler_unix.cpp, basic_log.cpp</a>; spdlog, <a class="v-link" href="https://github.com/gabime/spdlog">async logger and periodic flush</a>; NanoLog, <a class="v-link" href="https://github.com/PlatformLab/NanoLog">RuntimeLogger</a>; Tracy, <a class="v-link" href="https://github.com/wolfpld/tracy">TracyProfiler.cpp</a>.</li>
+      <li>LLVM, <a class="v-link" href="https://github.com/llvm/llvm-project/blob/main/llvm/lib/Support/Unix/Signals.inc">Signals.inc</a>; Rust, <a class="v-link" href="https://github.com/rust-lang/rust/tree/master/library/std/src/sys/pal/unix">std stack overflow handler</a>.</li>
+      <li>Breakpad, <a class="v-link" href="https://chromium.googlesource.com/breakpad/breakpad/+/refs/heads/main/src/client/linux/handler/exception_handler.cc">exception_handler.cc</a>; Crashpad, <a class="v-link" href="https://chromium.googlesource.com/crashpad/crashpad/+/refs/heads/main/client/crashpad_client_linux.cc">crashpad_client_linux.cc</a>.</li>
+      <li>Perfetto, <a class="v-link" href="https://perfetto.dev/docs/concepts/buffers">buffers and shared memory</a>; LTTng, <a class="v-link" href="https://lttng.org/man/1/lttng-crash/">lttng-crash(1)</a>; Chromium, <a class="v-link" href="https://chromium.googlesource.com/chromium/src/+/main/base/metrics/persistent_memory_allocator.h">persistent_memory_allocator.h</a>; OpenJDK, <a class="v-link" href="https://github.com/openjdk/jdk/blob/master/src/hotspot/share/jfr/recorder/repository/jfrEmergencyDump.cpp">jfrEmergencyDump.cpp</a>.</li>
+      <li>zstd, <a class="v-link" href="https://github.com/facebook/zstd/blob/dev/lib/zstd.h">zstd.h</a> (<code>ZSTD_EndDirective</code>, <code>ZSTD_initStaticCCtx</code>), <a class="v-link" href="https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md">format specification</a>, <a class="v-link" href="https://github.com/facebook/zstd/tree/dev/contrib/seekable_format">seekable format</a>, <a class="v-link" href="https://github.com/facebook/zstd/issues/3602">issue #3602</a>.</li>
+      <li>MCAP, <a class="v-link" href="https://mcap.dev/spec">specification</a> and <a class="v-link" href="https://github.com/foxglove/mcap">mcap recover</a>; SQLite, <a class="v-link" href="https://www.sqlite.org/fileformat2.html">WAL format</a>; FST, <code>fstapi.c</code> in <code>ext/verilator</code>.</li>
+      <li>POSIX and Linux, <a class="v-link" href="https://man7.org/linux/man-pages/man7/signal-safety.7.html">signal-safety(7)</a>, <a class="v-link" href="https://man7.org/linux/man-pages/man2/sigaltstack.2.html">sigaltstack(2)</a>, <a class="v-link" href="https://man7.org/linux/man-pages/man2/sigaction.2.html">sigaction(2)</a>, <a class="v-link" href="https://man7.org/linux/man-pages/man3/abort.3.html">abort(3)</a>; glibc, <a class="v-link" href="https://sourceware.org/glibc/wiki/MallocInternals">malloc internals</a>; mimalloc, <a class="v-link" href="https://github.com/microsoft/mimalloc">microsoft/mimalloc</a>.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="a-end">
+  <div class="v-wrap">
+    <p class="v-hero__fine">Measured with <code>python3 bench/crashlab/run.py</code> (results in <code>bench/results/crashlab.json</code>) and the programs in <code>bench/crashlab/zstd/</code>, on an Intel Core Ultra 7 265K pinned to P-cores, glibc 2.43, libzstd 1.5.7 · C910 figures from docs/BENCHMARK_RESULTS.md</p>
+  </div>
+</section>
+</main>
+
+<script>
+/* Measured by bench/crashlab/run.py; the test compares this with bench/results/crashlab.json.
+ * Per scenario and writer: [status (negative = killed by that signal), changes emitted, changes kept,
+ * log records emitted, log records kept, recovered by scanning, rescue ms, stop-close ms]. */
+const DATA = {"segv":{"none":[-11,30000880,16777216,396,0,1,null,null],"system":[-11,30000880,30000880,396,397,0,224.2,null],"private":[-11,30000880,30000880,396,397,0,229.9,null]},"abort":{"none":[-6,30000880,16777216,396,0,1,null,null],"system":[-6,30000880,30000880,396,397,0,215.5,null],"private":[-6,30000880,30000880,396,397,0,220.9,null]},"throw":{"none":[-6,30000880,16777216,396,0,1,null,null],"system":[-6,30000880,30000880,396,397,0,222.1,null],"private":[-6,30000880,30000880,396,397,0,219.8,null]},"stack":{"none":[-11,30000880,16777216,396,0,1,null,null],"system":[-11,30000880,30000880,396,397,0,216.6,null],"private":[-11,30000880,30000880,396,397,0,224.8,null]},"heap":{"none":[-6,30000880,16777216,396,0,1,null,null],"system":[-6,30000880,30000880,396,397,0,218.5,null],"private":[-6,30000880,30000880,396,397,0,225.1,null]},"heaplock":{"none":[-6,30000880,16777216,396,0,1,null,null],"system":[-6,30000880,16777216,396,0,1,null,null],"private":[-6,30000880,30000880,396,397,0,220.3,null]},"term":{"none":[-15,30000880,16777216,396,0,1,null,null],"system":[-15,30002063,30002063,396,397,0,null,216.3],"private":[-15,30002063,30002063,396,397,0,null,218.0]},"exit":{"none":[3,30000880,16777216,396,0,1,null,null],"system":[3,30000880,30000880,396,397,0,null,null],"private":[3,30000880,30000880,396,397,0,null,null]},"kill":{"none":[-9,30000880,16777216,396,0,1,null,null],"system":[-9,30000880,16777216,396,0,1,null,null],"private":[-9,30000880,16777216,396,0,1,null,null]},"stall":{"system":[-11,30000880,16777216,396,0,1,null,null],"private":[-11,30000880,16777216,396,0,1,null,null]},"noalt":{"system":[-11,30000880,16777216,396,0,1,null,null],"private":[-11,30000880,16777216,396,0,1,null,null]}};
+
+const SCENARIOS = [
+  ['segv', 'SIGSEGV'], ['abort', 'abort()'], ['throw', 'Uncaught exception'], ['stack', 'Stack overflow'],
+  ['heap', 'Double free'], ['heaplock', 'Double free, heap locked'], ['term', 'SIGTERM'], ['exit', 'exit(3)'],
+  ['kill', 'SIGKILL'], ['stall', 'Rescue stuck'], ['noalt', 'Overflow, no alt stack'],
+];
+const LABEL = {segv: 'SIGSEGV in model code', abort: 'abort() from an assertion', throw: 'Uncaught C++ exception', stack: 'Stack overflow',
+  heap: 'Double free (tcache)', heaplock: 'Double free, heap lock held', term: 'SIGTERM from a job scheduler', exit: 'exit(3) from C code',
+  kill: 'SIGKILL or the OOM killer', stall: 'Rescue stuck past the deadline', noalt: 'Stack overflow, no alternate stack'};
+const SIGNAME = {6: 'SIGABRT', 9: 'SIGKILL', 11: 'SIGSEGV', 15: 'SIGTERM'};
+const LANES = [['sim', 'Simulation thread'], ['kernel', 'Kernel'], ['rescue', 'Rescue thread'], ['enc', 'Encoder thread']];
+const BLOCK = 16777216;
+const n = x => x.toLocaleString('en-US');
+const D = {scenario: 'segv', config: 'system'};
+
+function status(s) { return s < 0 ? `killed by ${SIGNAME[-s]} (shell status ${128 - s})` : `exit status ${s}`; }
+function full(r) { return r[5] === 0; }
+
+/** The ordered events of one run: [lane, text, tone]. Written from what the prototype does. */
+function events(sc, cfg) {
+  const r = DATA[sc][cfg], ev = [];
+  const e = (lane, text, tone = '') => ev.push([lane, text, tone]);
+  e('enc', `Block 1 (${n(BLOCK)} changes) is on disk. The next ${n(r[1] - BLOCK)} changes and all ${r[3]} log records exist only in memory.`);
+  const fault = {segv: 1, stack: 1, stall: 1, noalt: 1}[sc] === 1;
+  switch (sc) {
+    case 'segv': case 'stall': e('sim', 'Model code writes through a null pointer.', 'bad'); e('kernel', 'The fault becomes SIGSEGV, delivered to this thread.'); break;
+    case 'abort': e('sim', 'An assertion fails and calls abort(), which raises SIGABRT on this thread.', 'bad'); break;
+    case 'throw': e('sim', 'An exception escapes; std::terminate() calls abort(): SIGABRT.', 'bad'); break;
+    case 'stack': case 'noalt': e('sim', 'A recursive function runs into the guard page below its stack.', 'bad'); e('kernel', 'SIGSEGV to this thread, whose stack has no room left.'); break;
+    case 'heap': e('sim', 'free() runs twice on a 64-byte block. glibc\'s tcache check calls abort().', 'bad'); break;
+    case 'heaplock': e('sim', 'free() runs twice on a 64 KiB block. glibc notices while holding the main heap\'s lock and calls abort() with the lock still held.', 'bad'); break;
+    case 'term': e('kernel', 'A job scheduler sends SIGTERM to the process.'); break;
+    case 'exit': e('sim', 'C code calls exit(3).'); break;
+    case 'kill': e('kernel', 'The OOM killer sends SIGKILL.', 'bad'); break;
+  }
+  if (cfg === 'none' || sc === 'kill') {
+    if (sc === 'exit') e('sim', 'exit() runs atexit functions and static destructors. None closes the writer; the encoder thread is discarded mid-block.', 'bad');
+    else if (sc === 'kill') e('kernel', 'SIGKILL cannot be caught. Every thread stops where it is.', 'bad');
+    else e('kernel', `No handler: the default action ends the process at once, with a core dump. Every thread stops where it is.`, 'bad');
+  } else if (sc === 'noalt') {
+    e('kernel', 'The handler needs stack to run on, and this thread has none left and no alternate stack. The kernel ends the process; the handler never runs.', 'bad');
+  } else if (sc === 'term') {
+    e('sim', 'The handler only sets the stop flag and returns.');
+    e('sim', `The loop finishes its time step, sees the flag, appends a "stopped" record and calls close() normally.`);
+    e('enc', `Compresses the last block and the log block, then writes the directory and trailer. Close took ${r[7]} ms.`, 'good');
+    e('sim', 'The guard restores the default action and raises SIGTERM again.');
+    e('kernel', 'The process ends by SIGTERM, status 143, as the scheduler expects.');
+  } else if (sc === 'exit') {
+    e('sim', 'The guard\'s atexit hook appends an "exit()" record and closes the writer on this thread.');
+    e('enc', 'Compresses the last block and the log block, then writes the directory and trailer.', 'good');
+    e('sim', 'exit() finishes; the status is still 3.');
+  } else {
+    const alt = sc === 'stack' ? ' on its 64 KiB alternate stack' : '';
+    const deadline = sc === 'stall' ? '1 s' : sc === 'heaplock' ? '3 s' : '10 s';
+    e('sim', `The handler runs${alt}. It claims the crash, writes one word to the rescue thread's eventfd and waits, with a ${deadline} deadline.`);
+    if (sc === 'heaplock' && cfg === 'system') {
+      e('rescue', 'The rescue thread appends the crash record. The log buffer must grow, and realloc() needs the main heap\'s lock, which the dead thread holds. It waits for ever.', 'bad');
+      e('sim', 'The 3 s deadline passes. The handler gives up, restores the default action and raises SIGABRT again.');
+    } else if (sc === 'stall') {
+      e('rescue', 'The rescue thread is held for 5 s, a test hook standing in for any hang.', 'bad');
+      e('sim', 'The 1 s deadline passes. The handler gives up, restores the default action and returns.');
+    } else {
+      e('rescue', sc === 'heaplock' ? 'The rescue thread appends the crash record and calls close(). VTR\'s buffers live on its own heap, so the locked glibc heap is never touched.' : 'The rescue thread wakes, appends the crash record and calls close().');
+      e('enc', `Compresses the last block and the log block, then writes the directory and trailer. The rescue took ${r[6]} ms.`, 'good');
+      e('sim', fault ? 'The handler sees the rescue done, restores the default action and returns. The faulting instruction runs again.' : 'The handler sees the rescue done, restores the default action and raises SIGABRT again.');
+    }
+    e('kernel', `The process ends by ${SIGNAME[-r[0]]}, status ${128 - r[0]}, with the usual core dump.`);
+  }
+  return ev;
+}
+
+function renderControls() {
+  const box = document.getElementById('scenario');
+  box.innerHTML = SCENARIOS.map(([id, label]) => `<button type="button" data-scenario="${id}" aria-pressed="${id === D.scenario}">${label}</button>`).join('');
+  for (const b of document.querySelectorAll('#config button')) {
+    const off = !DATA[D.scenario][b.dataset.config];
+    b.disabled = off;
+    b.setAttribute('aria-pressed', String(b.dataset.config === D.config));
+  }
+}
+
+function render() {
+  if (!DATA[D.scenario][D.config]) D.config = 'system';
+  renderControls();
+  const r = DATA[D.scenario][D.config];
+  const cfgName = {none: 'no guard', system: 'guard', private: 'guard, VTR on its own heap'}[D.config];
+  document.getElementById('demo-title').textContent = `crashlab ${D.scenario} · ${cfgName}`;
+  const kept = r[2], logsKept = r[4];
+  document.getElementById('readout').innerHTML =
+    `<b>${LABEL[D.scenario]}</b>, ${cfgName}: ${full(r) ? '<b>complete file</b>' : '<b>recovered by scanning</b>'} · ` +
+    `changes <b>${n(kept)}</b> of ${n(r[1])} (${(100 * kept / r[1]).toFixed(1)}%) · log records <b>${logsKept}</b> of ${r[3]}${logsKept > r[3] ? ' + crash record' : ''} · ` +
+    `${status(r[0])}${r[6] ? ` · rescue ${r[6]} ms` : ''}${r[7] ? ` · close ${r[7]} ms` : ''}`;
+  const b2 = r[1] - BLOCK, ok = full(r);
+  const seg = (label, sub, grow, on) => `<span class="d-seg ${on ? 'is-kept' : 'is-lost'}" style="flex:${grow} 1 0" data-kept="${on}">${label}<small>${sub}</small></span>`;
+  document.getElementById('filebar').innerHTML =
+    seg('Block 1', n(BLOCK), BLOCK, true) + seg('Block 2', n(b2), b2, ok) +
+    seg('Logs', `${ok ? r[4] : r[3] + (D.config === 'none' || D.scenario === 'kill' ? 0 : 1)}`, 4e6, ok) + seg('Dir', 'trailer', 2.5e6, ok);
+  const ev = events(D.scenario, D.config);
+  const lanes = document.getElementById('lanes');
+  let html = '<span></span>' + LANES.map(([, l]) => `<span class="a-lane-h">${l}</span>`).join('');
+  ev.forEach(([lane, text, tone], i) => {
+    const col = LANES.findIndex(([id]) => id === lane) + 2;
+    html += `<span class="a-n" style="grid-row:${i + 2}">${i + 1}</span>` +
+      `<span class="a-ev${tone ? ' is-' + tone : ''}" style="grid-row:${i + 2};grid-column:${col}" data-lane="${lane}"><span class="a-ev__lane">${LANES[col - 2][1]}</span>${text}</span>`;
+  });
+  lanes.innerHTML = html;
+}
+
+function renderResults() {
+  const cell = r => {
+    if (!r) return '–';
+    const pct = (100 * r[2] / r[1]).toFixed(1);
+    return `${pct}% · ${r[4]}/${r[3]}${full(r) ? ' · complete' : ''}`;
+  };
+  document.querySelector('#results tbody').innerHTML = SCENARIOS.map(([id]) => {
+    const row = DATA[id], any = row.system;
+    return `<tr data-scenario="${id}"><td>${LABEL[id]}</td><td>${any[0] < 0 ? SIGNAME[-any[0]] : 'exit ' + any[0]}</td><td>${cell(row.none)}</td><td>${cell(row.system)}</td><td>${cell(row.private)}</td></tr>`;
+  }).join('');
+}
+
+document.getElementById('scenario').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { D.scenario = b.dataset.scenario; render(); } });
+document.getElementById('config').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !b.disabled) { D.config = b.dataset.config; render(); } });
+
+function press(group, button) { for (const b of group.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button)); }
+function setPageTheme(mode) {
+  const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  try { localStorage.setItem('volna-theme', mode); } catch (e) {}
+  press(document.getElementById('page-theme'), document.querySelector(`#page-theme [data-mode="${mode}"]`));
+}
+document.getElementById('page-theme').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPageTheme(b.dataset.mode); });
+{ let mode = 'dark'; try { mode = localStorage.getItem('volna-theme') || 'dark'; } catch (e) {}
+  press(document.getElementById('page-theme'), document.querySelector(`#page-theme [data-mode="${mode}"]`)); }
+
+/** Test hooks. */
+window.CRASH = {
+  data: DATA,
+  events,
+  select: (scenario, config) => { D.scenario = scenario; D.config = config; render(); },
+  state: () => ({scenario: D.scenario, config: D.config, readout: document.getElementById('readout').textContent,
+    kept: [...document.querySelectorAll('#filebar .d-seg')].map(s => s.dataset.kept === 'true'),
+    events: [...document.querySelectorAll('#lanes .a-ev')].map(s => s.dataset.lane),
+    disabled: [...document.querySelectorAll('#config button')].filter(b => b.disabled).map(b => b.dataset.config)}),
+};
+renderResults();
+render();
+document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => { window.ready = true; })));
+</script>
+</body>
+</html>
