@@ -25,6 +25,10 @@ USAGE:
   vtr vcd-compare <a.vcd> <b.vcd>             compare value-change counts, total and per signal (JSON)
   vtr recover <in.vtr> <out.vtr>              rewrite a file whose writer never closed it as a complete
                                               one (exit status 3 when bytes were dropped)
+  vtr index <file.vtr> [--threads N] [--memory MiB]
+                                              build the activity index <file>.index (in the user cache
+                                              when the directory is read-only)
+  vtr index <file.vtr> --check                whether a valid activity index exists (exit status 1 if not)
 
 Times are integers in the file's time unit. Paths use '.' as separator.";
 
@@ -50,7 +54,7 @@ fn positional(args: &[String]) -> Vec<String> {
             continue;
         }
         if a.starts_with("--") {
-            skip = !matches!(a.as_str(), "--vars" | "--sizes" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums" | "--sites");
+            skip = !matches!(a.as_str(), "--vars" | "--sizes" | "--no-background" | "--no-dedup" | "--progress" | "--no-checksums" | "--sites" | "--check");
             continue;
         }
         out.push(a.clone());
@@ -104,6 +108,73 @@ fn cmd_recover(args: &[String]) {
         }
         Err(e) => die(format!("{input}: {e}")),
     }
+}
+
+/// Times in file units as a readable duration or range sharing one unit:
+/// `102.4 ns`, `102.4–409.6 ns`, `8 ps–16.8 us`.
+fn fmt_durations(a: u64, b: u64, timescale: i8) -> String {
+    const UNITS: [(i32, &str); 6] = [(0, "s"), (-3, "ms"), (-6, "us"), (-9, "ns"), (-12, "ps"), (-15, "fs")];
+    let secs = |u: u64| u as f64 * 10f64.powi(timescale as i32);
+    let unit = |x: f64| UNITS.iter().copied().find(|&(e, _)| x >= 10f64.powi(e)).unwrap_or((-15, "fs"));
+    let num = |x: f64, e: i32| {
+        let s = format!("{:.3}", x / 10f64.powi(e));
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    let (ua, ub) = (unit(secs(a)), unit(secs(b)));
+    match (a == b, ua == ub) {
+        (true, _) => format!("{} {}", num(secs(a), ua.0), ua.1),
+        (false, true) => format!("{}–{} {}", num(secs(a), ua.0), num(secs(b), ua.0), ua.1),
+        (false, false) => format!("{} {}–{} {}", num(secs(a), ua.0), ua.1, num(secs(b), ub.0), ub.1),
+    }
+}
+
+fn fmt_mib(bytes: u64) -> String {
+    let m = bytes as f64 / (1u64 << 20) as f64;
+    if m >= 100.0 { format!("{m:.0} MiB") } else if m >= 0.1 { format!("{m:.1} MiB") } else { format!("{:.1} KiB", bytes as f64 / 1024.0) }
+}
+
+/// `vtr index`: builds or checks the activity index (docs/hierarchy-activity.html).
+fn cmd_index(args: &[String]) {
+    use vtr::activity::{self, BuildOptions, Identity, Index, Sidecar};
+    let p = positional(args);
+    let path = p.first().unwrap_or_else(|| die(USAGE));
+    let r = open(path);
+    let id = Identity::of(&r).unwrap_or_else(|e| die(format!("{path}: {e}")));
+    let sidecar = Sidecar::new(path.as_ref(), &id, activity::default_cache_dir().as_deref());
+    if has(args, "--check") {
+        for at in sidecar.paths() {
+            match Index::open(at, &id) {
+                Ok(_) => {
+                    println!("{}: valid for this trace", at.display());
+                    return;
+                }
+                Err(vtr::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => println!("{}: not valid for this trace ({e})", at.display()),
+            }
+        }
+        println!("{path}: no valid activity index; build one with `vtr index {path}`");
+        exit(1);
+    }
+    let mut opts = BuildOptions::default();
+    if let Some(t) = flag(args, "--threads") {
+        opts.threads = t.parse().unwrap_or_else(|_| die("--threads takes a number"));
+    }
+    if let Some(m) = flag(args, "--memory") {
+        opts.memory = m.parse::<u64>().unwrap_or_else(|_| die("--memory takes MiB")) << 20;
+    }
+    let (at, s) = sidecar.write(|w| activity::build(&r, w, &opts)).unwrap_or_else(|e| die(format!("{path}: {e}")));
+    let delta = match s.delta {
+        Some((a, b)) => format!("Δ {}", fmt_durations(a, b, r.meta().timescale)),
+        None => "no signal blocks".into(),
+    };
+    println!(
+        "{}: {} blocks, {delta}, {} ({:.2}% of {})",
+        at.display(),
+        s.blocks,
+        fmt_mib(s.bytes),
+        100.0 * s.bytes as f64 / s.source_bytes.max(1) as f64,
+        fmt_mib(s.source_bytes)
+    );
 }
 
 fn cmd_info(args: &[String]) {
@@ -564,6 +635,7 @@ fn main() {
         "clocks" => cmd_clocks(rest),
         "convert" => cmd_convert(rest),
         "recover" => cmd_recover(rest),
+        "index" => cmd_index(rest),
         "--version" | "-V" => println!("vtr {}", env!("CARGO_PKG_VERSION")),
         _ => {
             eprintln!("{USAGE}");

@@ -356,6 +356,30 @@
      }
     },
     "identical": true
+   },
+   "activity": {
+    "blocks": 2,
+    "build_ns_per_change": 2.2625715664537283,
+    "build_s": 0.047460794,
+    "changes": 20976483,
+    "delta_max": 32768,
+    "delta_min": 32768,
+    "delta_over_block_max": 0.0950899593731863,
+    "delta_over_block_median": 0.0950899593731863,
+    "delta_over_block_min": 0.02133914046921623,
+    "disk": 0.01,
+    "disk_share": 0.005855347452895742,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/scr1_axi.vtr",
+    "file_bytes": 1244845,
+    "load_ms": 0.130146,
+    "loaded_bytes": 41288,
+    "memory": 0.04,
+    "memory_share": 0.03316718145632589,
+    "peak_anon_bytes": 5386240,
+    "sidecar_bytes": 7289,
+    "signals": 1445,
+    "stretches": 1772,
+    "threads": 16
    }
   },
   {
@@ -807,6 +831,30 @@
      }
     },
     "identical": true
+   },
+   "activity": {
+    "blocks": 1,
+    "build_ns_per_change": 11.498677606022813,
+    "build_s": 0.018642829,
+    "changes": 1621302,
+    "delta_max": 2,
+    "delta_min": 2,
+    "delta_over_block_max": 4.999750012499375e-06,
+    "delta_over_block_median": 4.999750012499375e-06,
+    "delta_over_block_min": 4.999750012499375e-06,
+    "disk": 0.01,
+    "disk_share": 9.888066958924237e-05,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/rsa256.vtr",
+    "file_bytes": 32493712,
+    "load_ms": 0.148101,
+    "loaded_bytes": 329168,
+    "memory": 0.04,
+    "memory_share": 0.01013020611495541,
+    "peak_anon_bytes": 15572992,
+    "sidecar_bytes": 3213,
+    "signals": 113,
+    "stretches": 16434,
+    "threads": 16
    }
   },
   {
@@ -1258,6 +1306,30 @@
      }
     },
     "identical": true
+   },
+   "activity": {
+    "blocks": 2,
+    "build_ns_per_change": 5.774708502686823,
+    "build_s": 0.093618991,
+    "changes": 16211899,
+    "delta_max": 2,
+    "delta_min": 2,
+    "delta_over_block_max": 1.0789983226971073e-06,
+    "delta_over_block_median": 1.0789983226971073e-06,
+    "delta_over_block_min": 9.317714979484721e-07,
+    "disk": 0.01,
+    "disk_share": 6.277147753444566e-05,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/rsa256_long.vtr",
+    "file_bytes": 325338845,
+    "load_ms": 1.449552,
+    "loaded_bytes": 3254360,
+    "memory": 0.04,
+    "memory_share": 0.010002986271129105,
+    "peak_anon_bytes": 154267648,
+    "sidecar_bytes": 20422,
+    "signals": 113,
+    "stretches": 162692,
+    "threads": 16
    }
   },
   {
@@ -1713,6 +1785,30 @@
      }
     },
     "identical": true
+   },
+   "activity": {
+    "blocks": 36,
+    "build_ns_per_change": 0.37670044220464166,
+    "build_s": 0.224723989,
+    "changes": 596558867,
+    "delta_max": 4096,
+    "delta_min": 1024,
+    "delta_over_block_max": 0.23039712003599955,
+    "delta_over_block_median": 0.13977613977613979,
+    "delta_over_block_min": 0.0782994341642453,
+    "disk": 0.01,
+    "disk_share": 0.007129975462245247,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/c910_coremark.vtr",
+    "file_bytes": 254937343,
+    "load_ms": 17.193975000000002,
+    "loaded_bytes": 9250192,
+    "memory": 0.04,
+    "memory_share": 0.03628417826571606,
+    "peak_anon_bytes": 72175616,
+    "sidecar_bytes": 1817697,
+    "signals": 67144,
+    "stretches": 449023,
+    "threads": 16
    }
   },
   {
@@ -1984,6 +2080,30 @@
      "stream_all_s": 1.708648,
      "changes": 167823424
     }
+   },
+   "activity": {
+    "blocks": 10,
+    "build_ns_per_change": 0.3291932744397619,
+    "build_s": 0.055242537,
+    "changes": 167811864,
+    "delta_max": 32768,
+    "delta_min": 32768,
+    "delta_over_block_max": 0.2080772161544323,
+    "delta_over_block_median": 0.1725903297166333,
+    "delta_over_block_min": 0.16493682991896108,
+    "disk": 0.01,
+    "disk_share": 0.0008265900040551061,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/scr1_x8.vtr",
+    "file_bytes": 12460833,
+    "load_ms": 0.408321,
+    "loaded_bytes": 330084,
+    "memory": 0.04,
+    "memory_share": 0.026489721834808314,
+    "peak_anon_bytes": 10031104,
+    "sidecar_bytes": 10300,
+    "signals": 11560,
+    "stretches": 14176,
+    "threads": 16
    }
   },
   {
@@ -2255,6 +2375,30 @@
      "stream_all_s": 0.108982,
      "changes": 5500000
     }
+   },
+   "activity": {
+    "blocks": 1,
+    "build_ns_per_change": 8.339197420748791,
+    "build_s": 0.037561855,
+    "changes": 4504253,
+    "delta_max": 134217728,
+    "delta_min": 134217728,
+    "delta_over_block_max": 0.05368719855292223,
+    "delta_over_block_median": 0.05368719855292223,
+    "delta_over_block_min": 0.05368719855292223,
+    "disk": 0.01,
+    "disk_share": 0.021701925830078444,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/long_sparse.vtr",
+    "file_bytes": 8235306,
+    "load_ms": 1.104815,
+    "loaded_bytes": 484280,
+    "memory": 0.04,
+    "memory_share": 0.05880534372371834,
+    "peak_anon_bytes": 7491584,
+    "sidecar_bytes": 178722,
+    "signals": 20001,
+    "stretches": 20212,
+    "threads": 16
    }
   },
   {
@@ -2526,6 +2670,30 @@
      "stream_all_s": 1.226708,
      "changes": 29993396
     }
+   },
+   "activity": {
+    "blocks": 2,
+    "build_ns_per_change": 5.8160003273720555,
+    "build_s": 0.128055311,
+    "changes": 22017762,
+    "delta_max": 65536,
+    "delta_min": 32768,
+    "delta_over_block_max": 0.13320325203252031,
+    "delta_over_block_median": 0.13320325203252031,
+    "delta_over_block_min": 0.08703308494942238,
+    "disk": 0.01,
+    "disk_share": 0.01776946210716057,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/many_active.vtr",
+    "file_bytes": 73052971,
+    "load_ms": 14.410449,
+    "loaded_bytes": 8499892,
+    "memory": 0.04,
+    "memory_share": 0.11635244786964243,
+    "peak_anon_bytes": 44376064,
+    "sidecar_bytes": 1298112,
+    "signals": 200001,
+    "stretches": 384991,
+    "threads": 16
    }
   },
   {
@@ -2797,6 +2965,30 @@
      "stream_all_s": 0.088227,
      "changes": 569969
     }
+   },
+   "activity": {
+    "blocks": 1,
+    "build_ns_per_change": 80.14872023568205,
+    "build_s": 0.029654225,
+    "changes": 369990,
+    "delta_max": 8192,
+    "delta_min": 8192,
+    "delta_over_block_max": 0.000819281846256441,
+    "delta_over_block_median": 0.000819281846256441,
+    "delta_over_block_min": 0.000819281846256441,
+    "disk": 0.01,
+    "disk_share": 0.003078451723848559,
+    "file": "/home/ripopov/work/vtr/bench/results/latest/wide_bus.vtr",
+    "file_bytes": 14335453,
+    "load_ms": 0.557899,
+    "loaded_bytes": 405972,
+    "memory": 0.04,
+    "memory_share": 0.028319439922826296,
+    "peak_anon_bytes": 2912256,
+    "sidecar_bytes": 44131,
+    "signals": 129,
+    "stretches": 20271,
+    "threads": 16
    }
   }
  ],

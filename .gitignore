@@ -38,3 +38,6 @@ __pycache__/
 
 # macOS Finder folder metadata.
 .DS_Store
+# Activity index sidecars (`vtr index`) are derived data.
+*.vtr.index
+*.fst.index

@@ -1536,6 +1536,47 @@ impl<'a> ColumnIter<'a> {
     }
 }
 
+/// Calls `f(time index)` for every entry of a column without touching its
+/// values. The column may still carry its run's value transform: transforms
+/// rewrite only the value stream (6.5), never the entry headers.
+pub fn for_each_tidx(col: &[u8], kind: SignalKind, mut f: impl FnMut(u32)) -> Result<()> {
+    if col.is_empty() {
+        return Ok(());
+    }
+    // 1-bit entries carry dt above a one-bit (toggle) or five-bit (explicit code)
+    // tag; vector headers above a compact bit; reals and strings carry dt alone.
+    let (hdr, one_bit, shift) = match kind {
+        SignalKind::Bits { width: 1, .. } => (col, true, 0),
+        _ => {
+            let mut r = Reader::new(col);
+            let hlen = (r.u64()? >> 2) as usize;
+            if r.pos + hlen > col.len() {
+                return Err(Error::Corrupt("column header stream exceeds column"));
+            }
+            (&col[r.pos..r.pos + hlen], false, if matches!(kind, SignalKind::Bits { .. }) { 1 } else { 0 })
+        }
+    };
+    let (mut pos, mut tidx) = (0usize, 0u32);
+    while pos < hdr.len() {
+        let x = match hdr[pos] {
+            b if b < 0x80 => {
+                pos += 1;
+                b as u64
+            }
+            _ => {
+                let mut r = Reader { buf: hdr, pos };
+                let x = r.u64()?;
+                pos = r.pos;
+                x
+            }
+        };
+        let dt = if one_bit { if x & 1 == 0 { x >> 1 } else { x >> 5 } } else { x >> shift };
+        tidx = tidx.wrapping_add(dt as u32);
+        f(tidx);
+    }
+    Ok(())
+}
+
 /// Frame value of a signal as a `SignalValue`.
 pub fn frame_value(kind: SignalKind, frame: &[u8]) -> SignalValue<'_> {
     match kind {

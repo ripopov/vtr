@@ -102,6 +102,7 @@
 //! # }
 //! ```
 
+pub mod activity;
 pub mod block;
 pub mod census;
 pub mod clock;

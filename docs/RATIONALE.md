@@ -2827,3 +2827,83 @@ large as before the series (RSA256 1.1659 and 1.1657 s best of seven, peak
 plain correctness: finished sections written at once, CRC-verified recovery,
 ending records when a caller asks for them, `vtr recover`, and panics
 returned as errors at the C boundary.
+
+## Activity index
+
+The [hierarchy activity design](hierarchy-activity.html) needs, on every pan
+and zoom, whether each signal of the design changes in the viewport. A signal
+is quiet in a window exactly when the window fits inside one of its silences,
+so the index keeps each signal's long silences as boundaries between busy
+stretches (first change, last change, largest inner gap). A silence of length
+`L` can hold only windows narrower than `L − 1`; keeping every silence longer
+than Δ makes every window at least Δ wide exact. Sliding a window along a
+signal shows that no exact index for windows of width `w` can keep fewer
+endpoints than the silences longer than `w + 1`, so the count of long
+silences is the price of exactness and a property of the trace. Narrow
+windows are answered from the trace itself, where reading is cheap.
+
+**One threshold per block, chosen by bytes.** Each block takes the smallest
+power of two for which its silences fit a share of its own compressed bytes:
+1% on disk and 4% loaded, at 20 bytes per stretch. Writers cut blocks by
+record count, so blocks are short in time where the design is busy, and the
+rule reads bytes and records, never a time constant. Δ never exceeds a
+quarter of the block's cell, so a window that is still undecided touches at
+most two blocks. On eleven traces the thresholds span 1 to 134 million time
+units under one rule. Rejected, with the design's prototype measurements:
+
+- One Δ for the whole run within the same budget: 40% of windows exact on
+  C910 against 45%, and 29% against 49% on a bursty picosecond trace, since one
+  Δ must suit sleeps and bursts at once.
+- Stretches cut at every block boundary: a floor of one entry per signal and
+  block already costs 1.07% of C910's file.
+- A section written by the VTR writer: work on the encoder threads during
+  simulation, a format change, and nothing for traces already recorded. The
+  sidecar is built once after recording and bound to the trace's identity
+  (length and CRC-32 of its directory).
+- The file's dirty groups (91% of signals marked in a 100 ns window where 26%
+  change), one bit per signal and block as in FST's position table, time-bucket
+  OR-mipmaps as in PulseView, sparse tables of bitsets, range filters
+  (Memento, Grafite, Rosetta: about 30 bits per change, the large set),
+  sampling, and per-scope counts per bucket (distinct counts do not add).
+
+**Cells and interiors.** Block `k`'s cell is `(end_{k−1}, end_k]`, and a
+silence is judged by the cells its *interior* touches. A silence inside
+block `k` then touches only cell `k`, and one that crosses into `k` touches
+only cells up to `k`, so the stitch never needs a later block's Δ. A time
+step recorded at the end of one block and the start of the next belongs to
+the earlier cell. The invariant a reader relies on is that every dropped
+silence is at most the smallest Δ of the cells its interior touches; the
+reference builder keeps a crossing silence when it exceeds the smallest Δ
+from the cell of its first interior step through its own block, a superset
+that keeps slightly more.
+
+**Budgets as built.** The memory rule counts silences per power-of-two
+bucket, exactly. The disk rule compresses the block's section and raises Δ
+until it fits, so the sidecar's share is measured, not estimated from an
+assumed size per stretch: 0.71% of C910 against the prototype's 0.65%. The
+design assumed 12 bytes per loaded stretch with 32-bit block offsets; the
+index stores 64-bit start and end and a 32-bit gap (saturated, which only
+makes an answer undecided), 20 bytes, rather than keep a block id per
+stretch. At the same 4% the thresholds rise slightly (C910 1,024–4,096 time
+units against 1,024–2,048). Traces whose cap binds exceed the budget by
+design: many_active's loaded index is 11.6% of its 70 MiB file.
+
+**Scans and stitch.** Workers scan blocks in parallel into `BlockScan`s,
+which keep a silence histogram, 40 bytes per signal changing in the block,
+and the silences longer than a running lower bound on the block's Δ; the
+bound only rises, and the candidates are compacted at twice the memory
+budget. One thread stitches scans in block order with 24 bytes of state per
+signal, so the output is byte-identical at any thread count. Alternatives:
+decoding each block twice (a histogram pass, then a split) doubles decode
+time; feeding every change through one sequential builder takes 2.2 s on
+C910 where the parallel scans take 0.22 s on 16 threads. The VTR front end
+reads only entry headers, which value transforms never touch. Its memory
+limit counts each block's time table, largest column run and rows from
+headers before scanning: a column run is 64 KiB unless one long column forms
+its own, as on traces sampled every step, where one scan holds 132 MB. With
+the default 512 MiB, C910 peaks at 69 MiB resident on 16 threads, and a
+counting-allocator test finds an eight-times-longer run peaking 3% higher.
+The resident peak can exceed the limit by what glibc keeps in per-thread
+arenas (564 MiB on large_vtr). The
+[benchmark report](BENCHMARK_RESULTS.md#activity-index-vtr-index) gives
+build time, peak memory and size for every signal workload.

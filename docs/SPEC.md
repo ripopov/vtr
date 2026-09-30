@@ -989,3 +989,102 @@ validation succeeds. Failure drops the partial assembly and its reservations.
 Completed hierarchies and sizes share the admitted owner through immutable
 handles. An object-cap or budget failure names the setting and requires reopening
 with the changed limit. Histories and tracks retain their complete-object schema.
+
+## Activity index sidecar, version 1
+
+An activity index answers which signals change in a time window, for every
+signal at once ([design](hierarchy-activity.html)). It is derived data in a
+file of its own: `<trace>.index` beside the trace (`run.vtr.index`), or, when
+that directory is read-only, `<format>-<length>-<crc>.index` in a user cache
+directory (`$XDG_CACHE_HOME/vtr/index`, `~/.cache/vtr/index`). The trace
+format and its writer are unchanged. A reader uses a sidecar only when the
+identity it records matches the trace; any other sidecar is ignored and
+rebuilt. The reference implementation is `vtr::activity`.
+
+**Definitions.** A *change* of a signal is a time step after the trace's
+first time step `t_min` at which a value of the signal is recorded; several
+values in one time step are one change. A *silence* `(a, b)` is the time
+between two consecutive changes; its length is `b − a` and its *interior* is
+`[a + 1, b − 1]`. The trace's blocks, in time order, have first and last time
+steps `start_k` and `end_k`. Block `k`'s *cell* is `(end_{k−1}, end_k]`; the
+first cell extends down and the last cell up without bound, so the cells
+partition time. Each block has a threshold `Δ_k = 2^j_k`. A signal's
+changes form *stretches*, maximal runs of changes separated by *kept*
+silences; a stretch records its first change, its last change and its
+largest *gap*, the longest silence inside it (0 for a single change).
+
+**Invariant.** Every silence inside a stretch is at most the smallest `Δ`
+of the cells its interior touches. A consumer relies on nothing else: a
+window `[t0, t1]` inside a silence inside a stretch touches only cells that
+the silence's interior touches, so it cannot fit in one when `t1 − t0 + 1`
+reaches the smallest `Δ` of the cells the window touches.
+
+**Reference thresholds.** For block `k` with `bytes_k` compressed bytes, the
+reference builder takes the smallest `j` for which the silences ending in the
+block that are longer than `2^j`, including the silence from each signal's
+change before the block, number at most `floor(memory × bytes_k / 20)`, then
+raises `j` while the block's compressed section body exceeds
+`disk × bytes_k`. `j` never exceeds `floor(log2(max(1, span_k / 4)))`, where
+`span_k = end_k − end_{k−1}` and `span_0 = end_0 − start_0 + 1`. It keeps a
+silence `(a, b)` that ends in block `k` when `b − a` exceeds the smallest `Δ`
+of the blocks from the cell holding `a + 1` through `k`.
+
+**Container.** The file uses the VTR container (section 2) with its own
+magic `89 56 54 49 0D 0A 1A 0A` (`\x89VTI\r\n\x1a\n`), major version 1 and
+minor version 0; a reader rejects any other major version. Every section
+carries its CRC-32. The directory and trailer are required: a sidecar is
+written under a temporary name and renamed into place when complete, and is
+never recovered by scanning. The sections are one HEADER (kind 1), one BLOCK
+(kind 2) per trace block in time order, one TAIL (kind 3), the DIRECTORY
+(kind 7) and the trailer. A BLOCK's directory `aux0/aux1` are its `start` and
+`end`; the other sections store 0.
+
+HEADER payload (40 bytes):
+
+| offset | size | field |
+|---:|---:|---|
+| 0 | 8 | `u64` trace length in bytes |
+| 8 | 4 | `u32` CRC-32 of the trace's table of contents: the DIRECTORY payload of a VTR file |
+| 12 | 1 | `u8` source format: 1 VTR, 2 FST |
+| 13 | 3 | reserved, 0 |
+| 16 | 4 | `u32` signal count |
+| 20 | 4 | `u32` disk budget, parts per million of each block's bytes |
+| 24 | 4 | `u32` memory budget, parts per million |
+| 28 | 4 | reserved, 0 |
+| 32 | 8 | `u64` `t_min` |
+
+BLOCK payload:
+
+| offset | size | field |
+|---:|---:|---|
+| 0 | 8 | `u64` `start` |
+| 8 | 8 | `u64` `end` |
+| 16 | 8 | `u64` compressed bytes of the trace block |
+| 24 | 4 | `u32` rows |
+| 28 | 4 | `u32` stretches closed |
+| 32 | 1 | `u8` `j` (`Δ = 2^j`) |
+| 33 | 7 | reserved, 0 |
+| 40 | | compressed blob (3.1): six columns |
+
+The blob holds `varint` byte lengths of its six columns, then the columns, all
+of `varint`s. A *row* is a signal with an entry in the block, rows ascending
+by signal:
+
+1. signal: the row's signal minus the previous row's signal (the first row
+   stores its signal);
+2. head: `closed << 1 | first` per row;
+3. first: for each row with `first` set, the signal's first change minus
+   `start`;
+4. length, 5. silence, 6. gap: for each stretch a row closes, in row order and
+   time order: the stretch's last change minus its first change, the length
+   of the kept silence that follows it, and its gap.
+
+The first stretch a row closes starts at the signal's first change or where
+the silence that closed its previous stretch ends; each later one starts
+where the previous silence ends. `first` is set once per signal, in the
+block holding its first change. TAIL payload: `u32` rows, 4 reserved bytes,
+then a compressed blob of three columns with one row per signal that changes,
+ascending: the signal delta as above, the length of the signal's final
+stretch and its gap. A signal's stretches are the ones its BLOCK rows close,
+in block order, followed by its final stretch; a signal that never changes
+has none. Signals are VTR signal ids.

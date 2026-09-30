@@ -248,6 +248,21 @@ For the Kanata workloads FTR represents each pipeline stage as a child transacti
 | ooo_1m | 70.42 ms | 0.516 s (1,000,000) | 53.6 ms | 84.9 ms (1974 found) | 3.74 ms (10101 tx) |
 | kanata_sample2 | 0.90 ms | 0.003 s (4,041) | 1.0 ms | 0.0 ms (0 found) | 0.01 ms (10 tx) |
 
+## Activity index: `vtr index`
+
+The sidecar that answers which signals change in a window ([design](hierarchy-activity.html)), built from the VTR file above on 16 threads in one streaming pass: best-of-3 build time, largest peak anonymous memory (the mapped trace excluded), its size on disk and loaded, and the range of block thresholds Δ in time units.
+
+| workload | build | per change | peak memory | sidecar | share of trace | loaded | Δ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| scr1_axi | 0.05s | 2.26 ns | 5 MiB | 7.1 KiB | 0.59% | 40.3 KiB | 32,768 |
+| rsa256 | 0.02s | 11.50 ns | 15 MiB | 3.1 KiB | 0.01% | 321.5 KiB | 2 |
+| rsa256_long | 0.09s | 5.77 ns | 147 MiB | 19.9 KiB | 0.01% | 3.10 MiB | 2 |
+| c910_coremark | 0.22s | 0.38 ns | 69 MiB | 1.73 MiB | 0.71% | 8.82 MiB | 1,024–4,096 |
+| scr1_x8 | 0.06s | 0.33 ns | 10 MiB | 10.1 KiB | 0.08% | 322.3 KiB | 32,768 |
+| long_sparse | 0.04s | 8.34 ns | 7 MiB | 174.5 KiB | 2.17% | 472.9 KiB | 134,217,728 |
+| many_active | 0.13s | 5.82 ns | 42 MiB | 1.24 MiB | 1.78% | 8.11 MiB | 32,768–65,536 |
+| wide_bus | 0.03s | 80.15 ns | 3 MiB | 43.1 KiB | 0.31% | 396.5 KiB | 8,192 |
+
 ## Log workloads: VTR versus NanoLog, binlog, Quill and CLP
 
 Every logger receives the same messages (see `docs/BENCHMARKS.md`, *Log workloads*): one producer thread, simulation-time stamps, 13 call sites with integer, hex, float and string arguments. `hot path` is the message loop alone (asynchronous loggers queue and return); `total` includes the flush/close that puts everything on disk; `cpu` is user+system time of the whole process, background threads included. `+zstd` is the size after compressing the output with zstd level 3 in 4 MiB frames, for the loggers that write uncompressed output (VTR, NanoLog and the CLP IR stream are already compressed). `read back` renders every record to text again (VTR: `vtr_log_rec_format`; CLP: IR decoder; NanoLog: its `decompressor`; binlog: `bread`; Quill and the text baseline already are text).

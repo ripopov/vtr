@@ -332,6 +332,7 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_re
         res["readers"]["vs_sim"] = json_out([VTR_BENCH, "read", sim_fst, sim_vtr], env=READ_ENV)
     if not reads_only or (os.path.exists(files["fstcpp-none"]) and os.path.exists(files["vtr-none"])):
         res["readers"]["uncompressed"] = json_out([VTR_BENCH, "read", files["fstcpp-none"], files["vtr-none"]], env=READ_ENV)
+    res["activity"] = run_activity(vtr_file)
     plan = os.path.join(out_dir, f"{name}_plan.txt")
     with open(plan, "w") as f:
         f.write(sh([VTR_BENCH, "plan", vtr_file], capture=True).stdout)
@@ -350,6 +351,15 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_re
             except OSError:
                 pass
     return res
+
+
+def run_activity(vtr_file):
+    """Activity index build (docs/hierarchy-activity.html): best-of-3 build time, the largest
+    peak anonymous memory, sidecar size and thresholds, on 16 threads."""
+    runs = [json_out([VTR_BENCH, "activity", vtr_file, "--threads", "16"]) for _ in range(3)]
+    best = min(runs, key=lambda r: r["build_s"])
+    best["peak_anon_bytes"] = max(r["peak_anon_bytes"] for r in runs)
+    return best
 
 
 def run_tx(name, info, repeat, out_dir):
@@ -713,6 +723,16 @@ def render(results, path):
         for r in tx:
             d = r["readers"]["vtr"]
             L.append(f"| {r['workload']} | {d['open_s'] * 1000:.2f} ms | {d['scan_all_s']:.3f} s ({d['scanned']:,}) | {d['lookup_1000_s'] * 1000:.1f} ms | {d['relations_1000_s'] * 1000:.1f} ms ({d['relations_found']} found) | {d['window_1pct_s'] * 1000:.2f} ms ({d['window_tx']} tx) |")
+    act = [r for r in rtl if "activity" in r]
+    if act:
+        L.append("\n## Activity index: `vtr index`\n")
+        L.append("The sidecar that answers which signals change in a window ([design](hierarchy-activity.html)), built from the VTR file above on 16 threads in one streaming pass: best-of-3 build time, largest peak anonymous memory (the mapped trace excluded), its size on disk and loaded, and the range of block thresholds Δ in time units.\n")
+        L.append("| workload | build | per change | peak memory | sidecar | share of trace | loaded | Δ |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        for r in act:
+            a = r["activity"]
+            d = f"{a['delta_min']:,}" if a["delta_min"] == a["delta_max"] else f"{a['delta_min']:,}–{a['delta_max']:,}"
+            L.append(f"| {r['workload']} | {a['build_s']:.2f}s | {a['build_ns_per_change']:.2f} ns | {a['peak_anon_bytes'] / 2**20:.0f} MiB | {fmt_bytes(a['sidecar_bytes'])} | {a['disk_share'] * 100:.2f}% | {fmt_bytes(a['loaded_bytes'])} | {d} |")
     if logs:
         L.extend(render_logs(logs))
     comp = os.path.join(ROOT, "bench", "results", "latest", "compilers.json")
@@ -857,7 +877,7 @@ def render_compilers(c):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=["all", "prepare", "run", "report", "compilers", "log"])
+    ap.add_argument("what", choices=["all", "prepare", "run", "report", "compilers", "log", "activity"])
     ap.add_argument("--scale", choices=["small", "full"], default="full")
     ap.add_argument("--out", default=os.path.join(ROOT, "bench", "results", "latest"))
     ap.add_argument("--workloads", default=None)
@@ -887,7 +907,7 @@ def main():
         sh(["cargo", "build", "--release"])
         build_log()
     results = {"machine": machine_info(), "rtl": [], "tx": [], "log": []}
-    if os.path.exists(res_path) and a.what in ("report", "run", "log"):
+    if os.path.exists(res_path) and a.what in ("report", "run", "log", "activity"):
         results = json.load(open(res_path))
         results["machine"] = machine_info() if a.what == "run" else results["machine"]
     if a.what in ("all", "prepare"):
@@ -911,6 +931,14 @@ def main():
             done_tx[n] = run_tx(n, info[n], a.repeat, a.out)
             results["tx"] = [done_tx[k] for k in TX_WORKLOADS if k in done_tx]
             json.dump(results, open(res_path, "w"), indent=1)
+    if a.what == "activity":
+        # Refreshes only the activity index entries, from the VTR files the last run kept.
+        sh(["cargo", "build", "--release", "-p", "vtr-bench"])
+        for r in results["rtl"]:
+            if r["workload"] in rtl_names:
+                r["activity"] = run_activity(os.path.join(a.out, f"{r['workload']}.vtr"))
+                print(f"{r['workload']}: activity index built in {r['activity']['build_s']:.2f}s", flush=True)
+        json.dump(results, open(res_path, "w"), indent=1)
     if a.what in ("all", "run", "log"):
         done_log = {r["workload"]: r for r in results.get("log", [])}
         for n in log_names:
@@ -919,7 +947,7 @@ def main():
             done_log[n] = run_log(n, LOG_WORKLOADS[n][0], a.repeat, a.out)
             results["log"] = [done_log[k] for k in LOG_WORKLOADS if k in done_log]
             json.dump(results, open(res_path, "w"), indent=1)
-    if a.what in ("all", "run", "report", "log"):
+    if a.what in ("all", "run", "report", "log", "activity"):
         render(results, os.path.join(ROOT, "docs", "BENCHMARK_RESULTS.md"))
         print("report written to docs/BENCHMARK_RESULTS.md")
 

@@ -242,6 +242,14 @@ impl Default for Compressor {
     }
 }
 
+/// Uncompressed length of a blob written by [`Compressor::compress_into`],
+/// read from its header without decompressing.
+pub fn raw_len(blob: &[u8]) -> Result<usize> {
+    let mut r = crate::varint::Reader::new(blob);
+    Codec::from_u8(r.u8()?)?;
+    r.usize()
+}
+
 /// Reusable decompressor state.
 pub struct Decompressor {
     zstd: Option<zstd::bulk::Decompressor<'static>>,

@@ -29,8 +29,8 @@ vtr-bench commands:
                                                       synthetic simulator log through Writer::log (JSON);
                                                       --rate paces it to R records/s
   log-encode <n>                                      log block encoder micro-benchmark per codec (JSON)
-  activity <in.vtr> [--eps E] [--mem M] [--windows N] [--threads T]   range-activity index measurements (JSON)
-  activity-export <in.vtr> <t0> <t1> <out.bin> [--eps E] [--mem M]   demo data for docs/hierarchy-activity.html
+  activity <in.vtr> [--disk D] [--memory M] [--threads T]   builds the activity index; time, memory, size (JSON)
+  activity-export <in.vtr> <t0> <t1> <out.bin>        demo data for docs/hierarchy-activity.html
   gen-bursty <out.vtr> [--scale S]                    synthetic ps trace with sleep phases and gated units
   scopes <in.vtr> [--children NAME]                   distinct signals per scope, three ways (JSON)
   gen-gates <in.vtr> <out.vtr> [--copies N]           gate-level hierarchy expanded from an RTL one
@@ -187,17 +187,15 @@ fn main() {
             println!("{}", p.1.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" "));
         }
         "activity" => {
-            let eps = flag(&args, "--eps").map(|s| s.parse().unwrap()).unwrap_or(0.01);
-            let mem = flag(&args, "--mem").map(|s| s.parse().unwrap()).unwrap_or(0.04);
-            let windows = flag(&args, "--windows").map(|s| s.parse().unwrap()).unwrap_or(400);
-            let threads = flag(&args, "--threads").map(|s| s.parse().unwrap()).unwrap_or(16);
-            println!("{}", serde_json::to_string_pretty(&activity::run(&pos[1], eps, mem, windows, threads, seed)).unwrap());
+            let d = vtr::activity::Budget::default();
+            let budget = vtr::activity::Budget {
+                disk: flag(&args, "--disk").map_or(d.disk, |s| s.parse().unwrap()),
+                memory: flag(&args, "--memory").map_or(d.memory, |s| s.parse().unwrap()),
+            };
+            let threads = flag(&args, "--threads").map_or(16, |s| s.parse().unwrap());
+            println!("{}", serde_json::to_string_pretty(&activity::run(&pos[1], budget, threads)).unwrap());
         }
-        "activity-export" => {
-            let eps = flag(&args, "--eps").map(|s| s.parse().unwrap()).unwrap_or(0.01);
-            let mem = flag(&args, "--mem").map(|s| s.parse().unwrap()).unwrap_or(0.04);
-            activity::export(&pos[1], pos[2].parse().unwrap(), pos[3].parse().unwrap(), eps, mem, &pos[4]);
-        }
+        "activity-export" => activity::export(&pos[1], pos[2].parse().unwrap(), pos[3].parse().unwrap(), &pos[4]),
         "scopes" => scopes::run(&pos[1], flag(&args, "--children").as_deref()),
         "gen-gates" => {
             let copies = flag(&args, "--copies").map(|s| s.parse().unwrap()).unwrap_or(1);

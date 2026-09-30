@@ -811,6 +811,18 @@ impl Reader {
         Container::payload(self.bytes(), &b.entry, false)
     }
 
+    /// Payload, header and the kinds of the signals known to signal block `i`,
+    /// for callers that walk a block's columns themselves (the activity index).
+    pub(crate) fn signal_block(&self, i: usize) -> Result<(&[u8], BlockHeader, &[SignalKind])> {
+        let b = &self.sig_blocks[i];
+        Ok((self.block_payload(b)?, b.header, self.block_kinds(b)))
+    }
+
+    /// Compressed payload bytes of signal block `i`.
+    pub(crate) fn signal_block_bytes(&self, i: usize) -> u64 {
+        self.sig_blocks[i].entry.len
+    }
+
     /// Time table of block `i`, decoded once and cached. Consecutive blocks
     /// may share their boundary time step.
     pub fn block_times(&self, i: usize) -> Result<Arc<Vec<u64>>> {
@@ -858,7 +870,7 @@ impl Reader {
         s.0 / self.meta.group_size.max(1)
     }
 
-    fn group_first(&self, g: u32) -> u32 {
+    pub(crate) fn group_first(&self, g: u32) -> u32 {
         g * self.meta.group_size.max(1)
     }
 

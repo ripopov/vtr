@@ -95,11 +95,17 @@ impl DirEntry {
 }
 
 pub fn write_file_header(w: &mut impl Write) -> std::io::Result<()> {
+    w.write_all(&encode_file_header(&FILE_MAGIC, VERSION_MAJOR, VERSION_MINOR))
+}
+
+/// A file header with its own magic and version, for companion files that
+/// reuse this container.
+pub fn encode_file_header(magic: &[u8; 8], major: u16, minor: u16) -> [u8; FILE_HEADER_LEN] {
     let mut h = [0u8; FILE_HEADER_LEN];
-    h[..8].copy_from_slice(&FILE_MAGIC);
-    h[8..10].copy_from_slice(&VERSION_MAJOR.to_le_bytes());
-    h[10..12].copy_from_slice(&VERSION_MINOR.to_le_bytes());
-    w.write_all(&h)
+    h[..8].copy_from_slice(magic);
+    h[8..10].copy_from_slice(&major.to_le_bytes());
+    h[10..12].copy_from_slice(&minor.to_le_bytes());
+    h
 }
 
 pub fn encode_section_header(kind: u32, flags: u32, len: u64, crc: u32) -> [u8; SECTION_HEADER_LEN] {
@@ -161,25 +167,8 @@ impl Container {
         if major > VERSION_MAJOR {
             return Err(Error::UnsupportedVersion { major, minor, supported: VERSION_MAJOR });
         }
-        // Try the trailer first.
-        if data.len() >= FILE_HEADER_LEN + TRAILER_LEN {
-            let t = &data[data.len() - TRAILER_LEN..];
-            if t[16..24] == END_MAGIC {
-                let dir_off = le_u64(&t[0..8]) as usize;
-                let file_len = le_u64(&t[8..16]) as usize;
-                if file_len == data.len() && dir_off + SECTION_HEADER_LEN <= data.len() {
-                    let h = &data[dir_off..dir_off + SECTION_HEADER_LEN];
-                    let kind = le_u32(&h[0..4]);
-                    let len = le_u64(&h[8..16]) as usize;
-                    if kind == SectionKind::Directory as u32
-                        && dir_off + SECTION_HEADER_LEN + len == data.len() - TRAILER_LEN
-                    {
-                        let p = &data[dir_off + SECTION_HEADER_LEN..dir_off + SECTION_HEADER_LEN + len];
-                        let entries = Self::decode_directory(p)?;
-                        return Ok(Container { version: (major, minor), entries, recovered: None });
-                    }
-                }
-            }
+        if let Some(entries) = Self::trailer_directory(data) {
+            return Ok(Container { version: (major, minor), entries: entries?, recovered: None });
         }
         // Recovery: scan sections from the start. A write cut short by the
         // process's death can leave a header whose payload is incomplete or,
@@ -210,6 +199,52 @@ impl Container {
             off = end as usize;
         }
         Ok(Container { version: (major, minor), entries, recovered: Some((data.len() - off) as u64) })
+    }
+
+    /// The DIRECTORY payload named by a valid trailer; `None` when the file
+    /// has no trailer or the trailer does not describe this file.
+    pub fn directory_payload(data: &[u8]) -> Option<&[u8]> {
+        if data.len() < FILE_HEADER_LEN + TRAILER_LEN {
+            return None;
+        }
+        let t = &data[data.len() - TRAILER_LEN..];
+        if t[16..24] != END_MAGIC {
+            return None;
+        }
+        let dir_off = le_u64(&t[0..8]) as usize;
+        let file_len = le_u64(&t[8..16]) as usize;
+        if file_len != data.len() || dir_off.checked_add(SECTION_HEADER_LEN)? > data.len() {
+            return None;
+        }
+        let h = &data[dir_off..dir_off + SECTION_HEADER_LEN];
+        let len = usize::try_from(le_u64(&h[8..16])).ok()?;
+        let end = (dir_off + SECTION_HEADER_LEN).checked_add(len)?;
+        if le_u32(&h[0..4]) != SectionKind::Directory as u32 || end != data.len() - TRAILER_LEN {
+            return None;
+        }
+        Some(&data[dir_off + SECTION_HEADER_LEN..end])
+    }
+
+    fn trailer_directory(data: &[u8]) -> Option<Result<Vec<DirEntry>>> {
+        Self::directory_payload(data).map(Self::decode_directory)
+    }
+
+    /// Version and directory of a closed file whose header starts with
+    /// `magic`: the strict parse of companion files that reuse this container
+    /// (the [activity index](crate::activity)). A file without a valid
+    /// trailer is [`Error::Corrupt`]; it is never recovered by scanning.
+    pub fn parse_closed(data: &[u8], magic: &[u8; 8]) -> Result<((u16, u16), Vec<DirEntry>)> {
+        if data.len() < FILE_HEADER_LEN || data[..8] != magic[..] {
+            return Err(Error::Corrupt("bad magic"));
+        }
+        let version = (u16::from_le_bytes([data[8], data[9]]), u16::from_le_bytes([data[10], data[11]]));
+        let entries = Self::trailer_directory(data).ok_or(Error::Corrupt("no valid trailer"))??;
+        for e in &entries {
+            if e.offset.checked_add(SECTION_HEADER_LEN as u64 + e.len).map_or(true, |end| end > data.len() as u64) {
+                return Err(Error::Corrupt("section extends past end of file"));
+            }
+        }
+        Ok((version, entries))
     }
 
     fn decode_directory(p: &[u8]) -> Result<Vec<DirEntry>> {
