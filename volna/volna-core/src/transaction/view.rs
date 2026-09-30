@@ -3,6 +3,7 @@
 //! Nothing here touches a reader, a transport or a panel; the frontends only
 //! render what this produces, and the headless tests assert on it directly.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::data::loaded_tracks::{LoadedGenerator, TransactionLocation};
@@ -701,65 +702,67 @@ fn related(
         transaction: tx.id,
         generator: track.item,
     };
-    let mut entries: Vec<(String, TransactionLocation, RefRole, Option<String>)> = Vec::new();
-    if let Some(parent) = generator.parent(tx.id) {
-        entries.push(("Parent".into(), parent, RefRole::Parent, None));
-    }
-    // A child may be recorded in any loaded generator: VTR links the child to
-    // its parent, so the reverse edge is only known where the child lives.
-    for other in doc.resident_generators(track.trace) {
-        for &child in other.children(here) {
-            entries.push((
-                "Children".into(),
-                TransactionLocation {
+    // Count every related record, but build only the rows shown: a parent
+    // may have a great many children or relations.
+    let parent = generator.parent(tx.id);
+    let children = || {
+        doc.resident_generators(track.trace).flat_map(move |other| {
+            other
+                .children(here)
+                .iter()
+                .map(move |&child| TransactionLocation {
                     transaction: child,
                     generator: other.generator(),
-                },
-                RefRole::Child,
-                None,
-            ));
-        }
-    }
+                })
+        })
+    };
     // Relations are grouped by kind, then outgoing before incoming; within a
     // group they keep recording order.
+    let outgoing = |e: &crate::data::loaded_tracks::LoadedRelation| {
+        e.relation.from == tx.id && e.from_generator == track.item
+    };
     let mut edges: Vec<_> = generator.relations_of(tx.id).collect();
-    edges.sort_by(|a, b| {
-        let outgoing = |e: &&crate::data::loaded_tracks::LoadedRelation| {
-            e.relation.from == tx.id && e.from_generator == track.item
-        };
-        (&a.relation.kind, !outgoing(a)).cmp(&(&b.relation.kind, !outgoing(b)))
-    });
-    for edge in edges {
-        let outgoing = edge.relation.from == tx.id && edge.from_generator == track.item;
-        let (target, target_generator) = if outgoing {
-            (edge.relation.to, edge.to_generator)
-        } else {
-            (edge.relation.from, edge.from_generator)
-        };
-        let label = edge
-            .relation
-            .attributes
-            .iter()
-            .find(|(key, _)| key == LABEL_ATTRIBUTE)
-            .map(|(_, value)| format_attribute(value, PREVIEW_BYTES));
-        entries.push((
-            format!(
-                "{} · {}",
-                edge.relation.kind,
-                if outgoing { "to" } else { "from" }
-            ),
-            TransactionLocation {
-                transaction: target,
-                generator: target_generator,
-            },
-            RefRole::Relation { outgoing },
-            label,
-        ));
-    }
-    let total = entries.len();
+    edges.sort_by(|a, b| (&a.relation.kind, !outgoing(a)).cmp(&(&b.relation.kind, !outgoing(b))));
+    let total = usize::from(parent.is_some())
+        + doc
+            .resident_generators(track.trace)
+            .map(|other| other.children(here).len())
+            .sum::<usize>()
+        + edges.len();
+    let entries = parent
+        .map(|parent| (Cow::Borrowed("Parent"), parent, RefRole::Parent, None))
+        .into_iter()
+        .chain(children().map(|child| (Cow::Borrowed("Children"), child, RefRole::Child, None)))
+        .chain(edges.iter().map(|edge| {
+            let outgoing = outgoing(edge);
+            let (target, target_generator) = if outgoing {
+                (edge.relation.to, edge.to_generator)
+            } else {
+                (edge.relation.from, edge.from_generator)
+            };
+            let label = edge
+                .relation
+                .attributes
+                .iter()
+                .find(|(key, _)| key == LABEL_ATTRIBUTE)
+                .map(|(_, value)| format_attribute(value, PREVIEW_BYTES));
+            (
+                Cow::Owned(format!(
+                    "{} · {}",
+                    edge.relation.kind,
+                    if outgoing { "to" } else { "from" }
+                )),
+                TransactionLocation {
+                    transaction: target,
+                    generator: target_generator,
+                },
+                RefRole::Relation { outgoing },
+                label,
+            )
+        }));
     let catalog = doc.session(track.trace).map(|s| s.tracks()).unwrap_or(&[]);
     let mut rows = Vec::new();
-    for (group, target, role, relation_label) in entries.into_iter().take(limit) {
+    for (group, target, role, relation_label) in entries.take(limit) {
         if !budget.open() {
             break;
         }

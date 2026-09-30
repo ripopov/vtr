@@ -90,8 +90,13 @@ pub fn serve(
         if !open_object(&mut writer, ObjectId::Metadata, &header, max_object_bytes)? {
             return Ok(());
         }
-        for (page, buffer) in super::hierarchy::scope_pages(session.hierarchy(), &sizes).enumerate()
-        {
+        // The client waits for exactly the pages the header's counts imply;
+        // sending fewer would leave both sides waiting.
+        let hierarchy = session.hierarchy();
+        let pages = |n: usize| n.div_ceil(super::hierarchy::PAGE_ENTRIES);
+        let mut sent = 0;
+        for (page, buffer) in super::hierarchy::scope_pages(hierarchy, &sizes).enumerate() {
+            sent += 1;
             if !open_object(
                 &mut writer,
                 ObjectId::Scopes(page as u32),
@@ -101,7 +106,13 @@ pub fn serve(
                 return Ok(());
             }
         }
-        for (page, buffer) in super::hierarchy::var_pages(session.hierarchy()).enumerate() {
+        anyhow::ensure!(
+            sent == pages(hierarchy.scope_count()),
+            "scope pages do not match the header"
+        );
+        let mut sent = 0;
+        for (page, buffer) in super::hierarchy::var_pages(hierarchy).enumerate() {
+            sent += 1;
             if !open_object(
                 &mut writer,
                 ObjectId::Variables(page as u32),
@@ -111,6 +122,10 @@ pub fn serve(
                 return Ok(());
             }
         }
+        anyhow::ensure!(
+            sent == pages(hierarchy.var_count()),
+            "variable pages do not match the header"
+        );
         session
     };
     let mut last_request = first.request;
