@@ -13,10 +13,12 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+#[cfg(feature = "private-heap")]
 mod heap;
 
-/// libvtr allocates from a heap of its own ([`heap`]); zstd follows through
-/// `vtr::codec`'s custom allocation functions.
+/// With the `private-heap` feature libvtr allocates from a heap of its own
+/// ([`heap`]); zstd follows through `vtr::codec`'s custom allocation functions.
+#[cfg(feature = "private-heap")]
 #[global_allocator]
 static HEAP: heap::VtrHeap = heap::VtrHeap;
 
@@ -123,10 +125,10 @@ fn ffi<R: PanicDefault>(f: impl FnOnce() -> R) -> R {
     }
 }
 
-/// [`ffi`] for a writer function. The call is marked in the writer's
-/// `CrashState`, so a crash guard knows the owner is inside the writer; a
-/// panic poisons the writer, whose later calls fail fast. Only
-/// `vtr_writer_close*` (which seal a poisoned writer) skip this.
+/// [`ffi`] for a writer function. A panic poisons the writer, whose later
+/// calls fail fast. When a crash guard watches the writer, the call is also
+/// marked in its `CrashState`, so the guard knows the owner is inside the
+/// writer. Only `vtr_writer_close*` (which seal a poisoned writer) skip this.
 #[inline(always)]
 unsafe fn ffi_w<R: PanicDefault>(w: *const vtr_writer, f: impl FnOnce() -> R) -> R {
     let Some(state) = w.as_ref().map(|w| w.0.state() as *const vtr::CrashState) else { return ffi(f) };
@@ -134,6 +136,18 @@ unsafe fn ffi_w<R: PanicDefault>(w: *const vtr_writer, f: impl FnOnce() -> R) ->
     if state.poisoned() {
         set_error("the writer is poisoned by an earlier panic; close it");
         return R::panic_default();
+    }
+    if !state.watched() {
+        // No crash guard: nothing needs the busy mark, but a panic still poisons.
+        return match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+            Ok(r) => r,
+            Err(p) => {
+                state.poison();
+                let msg = p.downcast_ref::<&str>().copied().or_else(|| p.downcast_ref::<String>().map(|s| s.as_str())).unwrap_or("unknown panic");
+                set_error(&format!("internal error in libvtr: {msg}"));
+                R::panic_default()
+            }
+        };
     }
     let prev = state.enter();
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {

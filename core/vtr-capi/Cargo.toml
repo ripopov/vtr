@@ -11,11 +11,17 @@ description = "Stable C ABI for the VTR trace library (libvtr)"
 name = "vtr"
 crate-type = ["cdylib", "staticlib"]
 
+[features]
+# libvtr allocates from a heap of its own (src/heap.rs), so a crash that leaves the C
+# library's heap locked cannot block the crash guard's rescue. Opt-in, with the guard:
+# it costs 5 to 16% peak memory (docs/crash-safe-vtr.html, stage 5).
+private-heap = ["dep:mimalloc"]
+
 [dependencies]
 vtr = { path = "../vtr" }
 vtr-guard = { path = "../vtr-guard" }
-# VTR's own heap (src/heap.rs): mimalloc without `override`, so the application's malloc is untouched.
-mimalloc = { version = "0.1", default-features = false }
+# mimalloc without `override`, so the application's malloc is untouched.
+mimalloc = { version = "0.1", default-features = false, optional = true }
 libc = "0.2"
 
 [dev-dependencies]

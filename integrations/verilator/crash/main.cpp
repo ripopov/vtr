@@ -2,6 +2,7 @@
 // with a VTR trace, which dies at +crash=<cycle> as +mode=<how> says:
 // segv, abort, stack (unbounded recursion), exit (exit(3)) or term (SIGTERM to
 // itself while it runs; the loop ends on gotFinish, which the crash guard sets).
+// The trace opts into the crash guard unless +noguard is given.
 #include "Vtop.h"
 #include "verilated.h"
 #include "verilated_vtr_c.h"
@@ -49,6 +50,7 @@ int main(int argc, char** argv) {
     if (arg[0]) cycles = std::strtoull(arg + std::strlen("+cycles="), nullptr, 10);
     Vtop model{&context};
     VerilatedVtrC trace;
+    trace.guard(!context.commandArgsPlusMatch("noguard")[0]);
     model.trace(&trace, 99);
     trace.open("crash.vtr");
     for (uint64_t t = 0; t < 2 * cycles && !context.gotFinish(); ++t) {

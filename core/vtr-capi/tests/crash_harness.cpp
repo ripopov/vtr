@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
     const char *path = argv[2];
     uint64_t target = 3000000, signals = 2000, block_records = 1 << 20;
     bool inline_encoder = false, guard = false;
-    uint64_t commit_ms = 10000, pace_us = 0, kill_ms = 0;
+    uint64_t commit_ms = UINT64_MAX, pace_us = 0, kill_ms = 0;  // commit: the library default unless given
     for (int i = 3; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--records") target = strtoull(argv[++i], nullptr, 10);
@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
     o.dedup = 0;  // as in the Verilator fork: every emit is a change
     o.block_records = block_records;
     o.background = inline_encoder ? 0 : 1;
-    o.commit_interval_ms = static_cast<uint32_t>(commit_ms);
+    if (commit_ms != UINT64_MAX) o.commit_interval_ms = static_cast<uint32_t>(commit_ms);
     vtr_writer *w = vtr_writer_create(path, &o);
     if (!w) {
         fprintf(stderr, "create: %s\n", vtr_last_error());

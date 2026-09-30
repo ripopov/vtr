@@ -11,9 +11,9 @@ python3 bench/crashlab/run.py          # ~3 minutes; writes bench/results/crashl
 python3 bench/crashlab/run.py --quick  # one repetition for the timings
 ```
 
-`run.py` builds `libvtr.a` twice: as it is, with VTR on its private heap
-(mimalloc as the Rust global allocator of `vtr-capi`), and on the system
-allocator (`system-heap.patch`, applied to a temporary worktree of `HEAD`). It links `crashlab.cpp` and
+`run.py` builds `libvtr.a` twice: as it is, on the system allocator, and with
+VTR on its own heap (`cargo build -p vtr-capi --features private-heap`, mimalloc
+and direct mappings as the Rust global allocator). It links `crashlab.cpp` and
 `check.cpp` against each, runs every scenario, and exits nonzero when an
 outcome differs from the one the design page states.
 

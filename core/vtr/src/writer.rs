@@ -121,7 +121,8 @@ pub struct WriterOptions {
     /// [`log`](Writer::log) and [`end_tx`](Writer::end_tx), and ends a signal
     /// block, or writes the pending transactions or log records, that has
     /// waited this long. Fast runs fill their blocks sooner and never see it.
-    /// Zero turns it off. Default 10 s.
+    /// Zero turns it off. Default off: crash safety is opt-in
+    /// (docs/crash-safe-vtr.html), and a guarded Verilator trace sets 10 s.
     pub commit_interval: Duration,
 }
 
@@ -141,7 +142,7 @@ impl Default for WriterOptions {
             log_encoders: 2,
             dedup: true,
             checksums: true,
-            commit_interval: Duration::from_secs(10),
+            commit_interval: Duration::ZERO,
         }
     }
 }
@@ -734,10 +735,14 @@ struct Shared {
 /// does); a handler reads the mark on the same thread or from another one.
 /// Marking every method inside the writer was measured instead: 4.6 to 9%
 /// on the fastest replay, where the emit path inlines into the caller's loop.
+/// Callers mark only a writer a crash guard [watches](Self::watched), so a
+/// writer without one pays nothing.
 #[derive(Default)]
 pub struct CrashState {
     busy: AtomicU32,
     poisoned: AtomicBool,
+    /// A crash guard watches the writer.
+    watched: AtomicBool,
     /// A `fn()` the owner calls when it next leaves the writer (0: none).
     park: AtomicUsize,
 }
@@ -792,6 +797,18 @@ impl CrashState {
     /// True after a marked call panicked.
     pub fn poisoned(&self) -> bool {
         self.poisoned.load(Ordering::Relaxed)
+    }
+
+    /// True while a crash guard watches the writer: only then do callers need
+    /// to mark their calls.
+    #[inline(always)]
+    pub fn watched(&self) -> bool {
+        self.watched.load(Ordering::Relaxed)
+    }
+
+    /// Set by a crash guard when it starts and stops watching the writer.
+    pub fn set_watched(&self, watched: bool) {
+        self.watched.store(watched, Ordering::Relaxed);
     }
 }
 

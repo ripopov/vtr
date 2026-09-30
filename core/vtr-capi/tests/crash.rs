@@ -129,7 +129,8 @@ fn build_harness(dir: &Path, name: &str, extra: &[&str]) -> PathBuf {
         .arg("-I")
         .arg(root.join("include"))
         .arg(root.join("tests/crash_harness.cpp"))
-        .arg(support::static_library())
+        // The whole of crash safety: the guard (installed by the harness) and VTR's own heap.
+        .arg(support::static_library_with(&["private-heap"]))
         .args(["-lpthread", "-ldl", "-lm"])
         .arg("-o")
         .arg(&exe)

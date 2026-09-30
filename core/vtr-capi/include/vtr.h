@@ -265,7 +265,7 @@ typedef struct vtr_writer_options {
     int      checksums;      /* store per-section CRC32 (default 1); C open does not verify it */
     uint32_t log_encoders;   /* helper threads encoding log blocks in background mode (default 2; 0 = sink thread) */
     uint32_t commit_interval_ms; /* longest time buffered data waits before it is written, bounding what
-                                  * SIGKILL loses in a slow run (default 10000; 0 = off) */
+                                  * SIGKILL loses in a slow run (default 0 = off) */
 } vtr_writer_options;
 
 /* Initialize all fields before overriding individual options. NULL is ignored.
@@ -301,8 +301,9 @@ typedef struct vtr_ending {
 } vtr_ending;
 int    vtr_writer_close_ending(vtr_writer *w, const vtr_ending *end); /* finishes and frees; NULL end = close() */
 
-/* Crash state. Every writer call marks the writer busy while it runs, so a
- * crash guard seals a writer interrupted mid-call instead of closing it; a
+/* Crash state. While a crash guard watches a writer, every call marks it busy
+ * while it runs, so the guard seals a writer interrupted mid-call instead of
+ * closing it (an unwatched writer skips the mark); a
  * caller marks a batch of calls (a whole dump of a time step) with enter()
  * and passes its result to leave(). A panic inside libvtr returns
  * VTR_ERR_STATE (or VTR_NONE / NULL / 0) and poisons the writer: its later
@@ -312,7 +313,10 @@ uint32_t vtr_writer_enter(vtr_writer *w);
 void     vtr_writer_leave(vtr_writer *w, uint32_t prev);
 
 /* Crash guard: the library's single piece of process-wide state, created
- * only by vtr_guard_install. It makes every watched writer survive the ways a
+ * only by vtr_guard_install; crash safety is opt-in. Build libvtr with the
+ * vtr-capi feature private-heap (cargo build -p vtr-capi --features
+ * private-heap) for heap corruption that leaves the C library's heap locked;
+ * it costs 5 to 16% peak memory. It makes every watched writer survive the ways a
  * process can end: fatal signals (SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT,
  * SIGTRAP, SIGSYS), stop requests (SIGTERM, SIGINT, SIGHUP, SIGXCPU) and
  * exit(). A crash is handed to a rescue thread that finishes each watched

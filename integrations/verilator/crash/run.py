@@ -88,6 +88,12 @@ def main():
         want_changes = vcd_changes(vcd, ref, out / "ref.vcd", until)
         want_logs = log_records(cli, ref, until)
         assert len(want_logs) > 50 and len(want_changes) > 10000, (len(want_logs), len(want_changes))
+        # Crash safety is opt-in: without the guard the file keeps only what the encoder wrote.
+        r, trace = sim("noguard", "+mode=segv", f"+crash={CRASH}", "+noguard")
+        got_end, recovered = ending(cli, trace)
+        if r.returncode != -11 or not recovered:
+            failures.append(f"unguarded segv, {threads} thread(s): status {r.returncode}, ended {got_end!r}, recovered {recovered}")
+        print(f"unguarded segv, {threads} thread(s): status {r.returncode}, ended {got_end!r}", flush=True)
         cases = [(m, (f"+mode={m}", f"+crash={CRASH}")) for m in ENDINGS] + [("fatal", (f"+fatal={CRASH}",))]
         for mode, plusargs in cases:
             r, trace = sim(mode, *plusargs)

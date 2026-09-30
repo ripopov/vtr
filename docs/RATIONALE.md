@@ -2695,3 +2695,18 @@ string id, so an ending record written by the encoder, with its own copy of
 already said readers must not assume unique strings; the reader now accepts
 every id of a key, and the encoder reuses the ids of the strings the file
 already holds.
+
+**Crash safety is opt-in.** The guard costs a guarded Verilator model about
+2% (RSA256: 1.1906 against 1.1657 s) through the busy mark on every C call and
+dump, VTR's own heap costs 5 to 16% peak memory, and the commit interval makes
+slow runs' files larger; a signal handler on by default also changes how
+SIGTERM and SIGINT end a simulation. So none of it is on by default: the fork
+guards a trace on `VerilatedVtrC::guard(true)` or `VTR_GUARD=1` (and then sets
+a 10 s commit interval), `WriterOptions::commit_interval` defaults to off, the
+private heap is the `vtr-capi` feature `private-heap`, and only a writer the
+guard watches marks its calls. Unguarded, a Verilator trace is as fast and as
+large as before the series (RSA256 1.1659 and 1.1657 s best of seven, peak
+951 and 938 MB, identical data). What stays on costs nothing measurable or is
+plain correctness: finished sections written at once, CRC-verified recovery,
+ending records when a caller asks for them, `vtr recover`, and panics
+returned as errors at the C boundary.

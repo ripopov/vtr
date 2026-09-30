@@ -91,7 +91,8 @@ What the VTR branch adds:
   model name as `$root`, scope nodes from the trace prefixes, replay at open
   of what was declared before, and misuse warnings in the simulation log.
 * `include/verilated_vtr_c.{h,cpp}`, `include/verilated_threads.cpp`: the
-  crash guard ([crash-safe VTR](../../docs/crash-safe-vtr.html)). `open`
+  crash guard ([crash-safe VTR](../../docs/crash-safe-vtr.html)), opt-in:
+  with `VerilatedVtrC::guard(true)` before `open`, or `VTR_GUARD=1`, `open`
   installs VTR's guard once per process and watches the writer, so a model
   that segfaults, aborts, overflows its stack, calls `exit()` or is sent
   SIGTERM keeps its trace, with a record of how the run ended, and still dies
@@ -100,10 +101,12 @@ What the VTR branch adds:
   the step. A stop request (SIGTERM, SIGINT, SIGHUP, SIGXCPU) sets `gotFinish`
   on the trace's context, so a standard main loop ends and closes normally;
   after a 10 s grace the guard closes the trace itself. Worker threads get an
-  alternate signal stack through a weak `vtr_guard_thread_init`.
-  `VerilatedVtrC::guard(false)` before `open`, or `VTR_GUARD=0`, turns it
-  off. The guard never takes the trace mutex, which a crash inside `dump`
-  leaves locked.
+  alternate signal stack through a weak `vtr_guard_thread_init`. A guarded
+  trace also writes whatever waited 10 s, bounding what SIGKILL loses.
+  `VTR_GUARD=0` keeps the guard off. Without it the trace costs what it did
+  before the guard existed. Build `libvtr` with `--features private-heap` to
+  also survive heap corruption that leaves glibc's heap locked. The guard
+  never takes the trace mutex, which a crash inside `dump` leaves locked.
 * `docs/guide/*.rst`: option documentation.
 
 The benchmark suite (`bench/run.py`) builds this Verilator into

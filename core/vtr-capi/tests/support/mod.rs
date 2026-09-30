@@ -3,6 +3,13 @@ use std::process::Command;
 
 /// Ask Cargo for the static library artifact instead of guessing its cache layout.
 pub fn static_library() -> PathBuf {
+    static_library_with(&[])
+}
+
+/// The static library built with `features`, in a target directory of its own
+/// so that test binaries running in parallel never overwrite each other's library.
+#[allow(dead_code)]
+pub fn static_library_with(features: &[&str]) -> PathBuf {
     let mut build = Command::new(env!("CARGO"));
     build.current_dir(env!("CARGO_MANIFEST_DIR")).args([
         "build",
@@ -12,6 +19,10 @@ pub fn static_library() -> PathBuf {
         "--lib",
         "--message-format=json",
     ]);
+    if !features.is_empty() {
+        build.arg("--features").arg(features.join(","));
+        build.arg("--target-dir").arg(Path::new(env!("CARGO_TARGET_TMPDIR")).join(features.join("-")));
+    }
     if !cfg!(debug_assertions) {
         build.arg("--release");
     }

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Crash lab: what reaches a VTR file when the simulation dies, with and without a crash guard.
 
-Builds libvtr twice (VTR on its private heap, as it is, and on the system
-allocator via system-heap.patch applied to a temporary worktree of HEAD), builds the
+Builds libvtr twice (on the system allocator, the default, and on VTR's own
+heap with the vtr-capi `private-heap` feature), builds the
 crashlab prototype and the check reader against each, runs every scenario,
 checks each outcome against what docs/crash-safe-vtr.html claims, and writes
 bench/results/crashlab.json. Exits nonzero when an outcome differs.
@@ -38,28 +38,18 @@ def sh(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
 
 
+def private_lib():
+    """libvtr with VTR's own heap (the vtr-capi `private-heap` feature), in a target dir of its own."""
+    env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(BUILD, "target"))
+    sh(["cargo", "build", "--release", "-p", "vtr-capi", "--features", "private-heap"], cwd=ROOT, env=env)
+    return os.path.join(BUILD, "target", "release", "libvtr.a")
+
+
 def build_libs():
     os.makedirs(BUILD, exist_ok=True)
     sh(["cargo", "build", "--release", "-p", "vtr-capi"], cwd=ROOT)
-    private = os.path.join(ROOT, "target", "release", "libvtr.a")
-    wt = os.path.join(BUILD, "wt")
-    if os.path.exists(wt):
-        subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=ROOT)
-        shutil.rmtree(wt, ignore_errors=True)
-    sh(["git", "worktree", "add", "--detach", wt, "HEAD"], cwd=ROOT)
-    try:
-        # Path dependencies into submodules resolve through the main checkout.
-        for name in os.listdir(os.path.join(ROOT, "ext")):
-            dst = os.path.join(wt, "ext", name)
-            if os.path.isdir(dst) and not os.listdir(dst):
-                os.rmdir(dst)
-                os.symlink(os.path.join(ROOT, "ext", name), dst)
-        sh(["git", "apply", os.path.join(HERE, "system-heap.patch")], cwd=wt)
-        env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(BUILD, "target"))
-        sh(["cargo", "build", "--release", "-p", "vtr-capi"], cwd=wt, env=env)
-    finally:
-        subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=ROOT)
-    system = os.path.join(BUILD, "target", "release", "libvtr.a")
+    system = os.path.join(ROOT, "target", "release", "libvtr.a")
+    private = private_lib()
     cxx = os.environ.get("CXX", "clang++" if shutil.which("clang++") else "g++")
     bins = {}
     for tag, lib in (("system", system), ("private", private)):
@@ -140,8 +130,7 @@ def verdict(r, expect, sig_name):
 
 def build_private():
     os.makedirs(BUILD, exist_ok=True)
-    sh(["cargo", "build", "--release", "-p", "vtr-capi"], cwd=ROOT)
-    lib = os.path.join(ROOT, "target", "release", "libvtr.a")
+    lib = private_lib()
     cxx = os.environ.get("CXX", "clang++" if shutil.which("clang++") else "g++")
     bins = {}
     for prog in ("crashlab", "check"):

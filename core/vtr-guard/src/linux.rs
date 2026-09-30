@@ -334,6 +334,7 @@ pub unsafe fn watch(writer: *mut Writer) -> Result<(), Error> {
     }
     altstack()?;
     let sealer = (*writer).sealer();
+    sealer.state().set_watched(true);
     for i in 0..SLOTS {
         if WATCHED[i].compare_exchange(null_mut(), RESERVED, AcqRel, Relaxed).is_ok() {
             OWNER[i].store(gettid(), Relaxed);
@@ -359,7 +360,8 @@ pub fn unwatch(writer: *mut Writer) {
             STATES[i].store(null_mut(), Release);
             OWNER[i].store(0, Relaxed);
             // Safety: taken out of the table above, so no one else owns it.
-            drop(unsafe { Box::from_raw(p) });
+            let slot = unsafe { Box::from_raw(p) };
+            slot.sealer.state().set_watched(false);
         }
     }
 }
