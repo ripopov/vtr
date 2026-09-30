@@ -170,31 +170,38 @@ impl FstSession {
         &self,
         signals: &[SignalRef],
     ) -> anyhow::Result<BTreeMap<SignalRef, Arc<dyn SignalHistory>>> {
-        let mut histories = BTreeMap::new();
-        for signal in signals {
-            let Some(&shape) = self.shapes.get(signal) else {
-                continue;
-            };
-            histories.entry(*signal).or_insert_with(|| {
-                CompactBuilder::new(shape).map_or_else(
-                    || {
-                        Loading::Vec(VecHistory {
-                            shape,
-                            times: Vec::new(),
-                            values: Vec::new(),
-                            initial: WaveValue::Unavailable,
-                        })
-                    },
-                    Loading::Compact,
-                )
-            });
-        }
-        if histories.is_empty() {
+        // Requested signals in handle order, each with its history being
+        // loaded; `slot` maps a handle to its place in O(1) per change.
+        let mut requested: Vec<SignalRef> = signals
+            .iter()
+            .copied()
+            .filter(|s| self.shapes.contains_key(s))
+            .collect();
+        requested.sort_unstable();
+        requested.dedup();
+        let Some(last) = requested.last() else {
             return Ok(BTreeMap::new());
+        };
+        let mut slot = vec![u32::MAX; last.0 as usize + 1];
+        let mut histories: Vec<Loading> = Vec::with_capacity(requested.len());
+        for (i, signal) in requested.iter().enumerate() {
+            slot[signal.0 as usize] = i as u32;
+            let shape = self.shapes[signal];
+            histories.push(CompactBuilder::new(shape).map_or_else(
+                || {
+                    Loading::Vec(VecHistory {
+                        shape,
+                        times: Vec::new(),
+                        values: Vec::new(),
+                        initial: WaveValue::Unavailable,
+                    })
+                },
+                Loading::Compact,
+            ));
         }
         let filter = FstFilter::filter_signals(
-            histories
-                .keys()
+            requested
+                .iter()
                 .map(|s| FstSignalHandle::from_index(s.0 as usize))
                 .collect(),
         );
@@ -204,9 +211,9 @@ impl FstSession {
             .map_err(|_| anyhow!("FST reader lock poisoned"))?;
         reader
             .read_signals(&filter, |time, handle, value| -> anyhow::Result<()> {
-                let signal = SignalRef(handle.get_index() as u32);
-                let history = histories
-                    .get_mut(&signal)
+                let history = slot
+                    .get(handle.get_index())
+                    .and_then(|&i| histories.get_mut(i as usize))
                     .ok_or_else(|| anyhow!("FST returned an unrequested signal"))?;
                 match (history, value) {
                     (Loading::Compact(b), FstSignalValue::Real(v)) => b.push_real(time, v),
@@ -236,8 +243,9 @@ impl FstSession {
                 }
             })
             .map_err(|error| anyhow!("read FST signals: {error:?}"))?;
-        Ok(histories
+        Ok(requested
             .into_iter()
+            .zip(histories)
             .map(|(s, h)| {
                 let h: Arc<dyn SignalHistory> = match h {
                     Loading::Compact(b) => Arc::new(b.finish()),
