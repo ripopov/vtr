@@ -107,6 +107,45 @@ impl<'a> LogicView<'a> {
         }
     }
 
+    /// Append the value as logic codes of [`vtr::signal::CODE_ASCII`] in
+    /// nibbles, most significant bit first and in the low nibble of each
+    /// byte: the remote wire layout. Fails on a character outside the table.
+    pub(crate) fn write_nibbles_msb(&self, out: &mut Vec<u8>) -> Option<()> {
+        let w = self.width;
+        out.reserve(w.div_ceil(2));
+        match &self.storage {
+            LogicStorage::Ascii(data) => {
+                let code = |byte: u8| {
+                    let byte = byte.to_ascii_lowercase();
+                    vtr::signal::CODE_ASCII.iter().position(|&c| c == byte)
+                };
+                for pair in data.chunks(2) {
+                    let low = code(pair[0])? as u8;
+                    let high = match pair.get(1) {
+                        Some(&b) => code(b)? as u8,
+                        None => 0,
+                    };
+                    out.push(low | (high << 4));
+                }
+            }
+            LogicStorage::PackedLsb { states, data } => {
+                let code = |i: usize| vtr::signal::get_code(data, *states, w - 1 - i);
+                for i in (0..w).step_by(2) {
+                    let high = if i + 1 < w { code(i + 1) } else { 0 };
+                    out.push(code(i) | (high << 4));
+                }
+            }
+            LogicStorage::NibblesMsb(data) => {
+                let bytes = &data[..w.div_ceil(2)];
+                out.extend_from_slice(bytes);
+                if w % 2 == 1 {
+                    *out.last_mut().expect("a nibble") &= 0x0f;
+                }
+            }
+        }
+        Some(())
+    }
+
     /// MSB-first ASCII logic code. Storage was validated by its owner.
     pub fn bit(&self, index: usize) -> u8 {
         assert!(index < self.width);
@@ -191,5 +230,56 @@ mod tests {
             }
         }
         assert_eq!(LogicView::ascii(b"0x".as_slice()).kind(), ValueKind::Undef);
+    }
+
+    #[test]
+    fn every_storage_writes_the_same_wire_nibbles() {
+        for text in [
+            "0",
+            "1",
+            "01",
+            "10110",
+            "0101x",
+            "z0h-",
+            "uwl01",
+            "1111000011",
+        ] {
+            let expected = {
+                let mut out = Vec::new();
+                LogicView::ascii(text.as_bytes())
+                    .write_nibbles_msb(&mut out)
+                    .unwrap();
+                out
+            };
+            for states in [2u8, 4, 9] {
+                let fits = match states {
+                    2 => text.bytes().all(|c| b"01".contains(&c)),
+                    4 => text.bytes().all(|c| b"01xz".contains(&c)),
+                    _ => true,
+                };
+                if !fits {
+                    continue;
+                }
+                let mut data = vec![0u8; text.len()];
+                for (i, c) in text.bytes().rev().enumerate() {
+                    vtr::signal::set_code(&mut data, states, i, vtr::signal::code_from_ascii(c));
+                }
+                let mut out = Vec::new();
+                LogicView::packed_lsb(text.len() as u32, states, &data)
+                    .write_nibbles_msb(&mut out)
+                    .unwrap();
+                assert_eq!(out, expected, "{text} in {states} states");
+            }
+            let mut out = Vec::new();
+            LogicView::nibbles_msb(text.len(), &expected)
+                .write_nibbles_msb(&mut out)
+                .unwrap();
+            assert_eq!(out, expected, "{text} as nibbles");
+        }
+        assert!(
+            LogicView::ascii(b"0q".as_slice())
+                .write_nibbles_msb(&mut Vec::new())
+                .is_none()
+        );
     }
 }

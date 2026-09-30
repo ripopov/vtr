@@ -1,6 +1,7 @@
 //! Immutable packed signal payload shared by the remote receiver and renderer.
 //! Offsets include the initial value followed by every recorded change.
 
+use crate::data::value_view::ValueView;
 use crate::data::{Bit, SignalHistory, SignalShape, WaveValue};
 use serde::{Deserialize, Serialize};
 
@@ -107,10 +108,10 @@ impl PackedHistory {
             }),
             data: vec![],
         };
-        result.push_value(history.value(None), data_limit)?;
+        result.push_value(history.value_view(None), data_limit)?;
         for i in 0..history.len() {
             result.times.push(history.time(i));
-            result.push_value(history.value(Some(i)), data_limit)?;
+            result.push_value(history.value_view(Some(i)), data_limit)?;
         }
         if result.shape == SignalShape::Text {
             result.offsets.push(result.data.len() as u64);
@@ -119,10 +120,11 @@ impl PackedHistory {
         Ok(result)
     }
 
-    fn push_value(&mut self, value: WaveValue, limit: u64) -> anyhow::Result<()> {
+    /// Append one value, read in place from the history's own storage.
+    fn push_value(&mut self, value: ValueView<'_>, limit: u64) -> anyhow::Result<()> {
         let length = stride(self.shape).unwrap_or_else(|| match &value {
-            WaveValue::Text(value) => value.len().saturating_add(1),
-            WaveValue::Bytes(value) => value.len().saturating_add(1),
+            ValueView::Text(value) => value.len().saturating_add(1),
+            ValueView::Bytes(value) => value.len().saturating_add(1),
             _ => 1,
         });
         anyhow::ensure!(
@@ -136,37 +138,27 @@ impl PackedHistory {
             self.offsets.push(start as u64);
         }
         match value {
-            WaveValue::Unavailable => self.data.push(0),
-            WaveValue::Bits(bits) => {
+            ValueView::Unavailable => self.data.push(0),
+            ValueView::Logic(bits) => {
                 anyhow::ensure!(
-                    bits.len() as u64 == self.shape.width().max(1) as u64,
+                    bits.width as u64 == self.shape.width().max(1) as u64,
                     "logic width mismatch"
                 );
                 self.data.push(1);
-                for pair in bits.as_bytes().chunks(2) {
-                    let code = |byte: u8| {
-                        LOGIC
-                            .iter()
-                            .position(|&b| b == byte.to_ascii_lowercase())
-                            .map(|n| n as u8)
-                            .ok_or_else(|| anyhow::anyhow!("invalid logic character"))
-                    };
-                    let low = code(pair[0])?;
-                    let high = if pair.len() == 2 { code(pair[1])? } else { 0 };
-                    self.data.push(low | (high << 4));
-                }
+                bits.write_nibbles_msb(&mut self.data)
+                    .ok_or_else(|| anyhow::anyhow!("invalid logic character"))?;
             }
-            WaveValue::Real(value) => {
+            ValueView::Real(value) => {
                 self.data.push(2);
                 self.data.extend_from_slice(&value.to_bits().to_le_bytes());
             }
-            WaveValue::Text(value) => {
+            ValueView::Text(value) => {
                 self.data.push(3);
                 self.data.extend_from_slice(value.as_bytes());
             }
-            WaveValue::Bytes(value) => {
+            ValueView::Bytes(value) => {
                 self.data.push(4);
-                self.data.extend(value);
+                self.data.extend_from_slice(&value);
             }
         }
         if let Some(stride) = stride(self.shape) {
