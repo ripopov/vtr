@@ -958,3 +958,65 @@ fn the_navigator_counts_distances_in_the_selected_clock() {
             .ends_with(" · 0 core_clk")
     );
 }
+
+/// A clock gated into bursts far narrower than a pixel still shows where
+/// it runs when zoomed out: the bursts merge into a band.
+#[test]
+fn sub_pixel_bursts_of_a_gated_clock_draw_a_band() {
+    let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
+    let mut w = vtr::Writer::create(file.path()).unwrap();
+    w.set_timescale(-12).unwrap();
+    let top = w
+        .add_scope(None, "top", vtr::ScopeType::Module, "top")
+        .unwrap();
+    let clock = w.add_clock(Some(top), "gclk").unwrap();
+    // 2000 bursts of three edges, 20 ps long, one every 1000 ps.
+    for k in 0..2000u64 {
+        w.clock_run(clock, k * 1000, 10).unwrap();
+        w.clock_stop(clock, k * 1000 + 25).unwrap();
+    }
+    w.set_time(2_000_000).unwrap();
+    w.close().unwrap();
+    let session = OpenSpec::Path(file.path().into()).open().unwrap();
+    let h = session.hierarchy();
+    let stream = scope(session.as_ref(), &["top", "gclk"]);
+    let generator = h
+        .generators()
+        .iter()
+        .position(|g| g.stream == stream)
+        .unwrap();
+    let mut app = App::new();
+    app.set_session(session.clone());
+    pump(&mut app);
+    app.handle(Command::AddToWaves(a_all(vec![Member::Generator(
+        generator,
+    )])));
+    pump(&mut app);
+    let panel = app.panels.focused_id();
+    let theme = Theme::one_dark();
+    frame(&mut app, panel, &theme);
+    let w = app.panels.waves(panel).unwrap();
+    assert!(matches!(&w.items()[0].row, WaveRow::Clock(_)));
+    let layout = w.last_layout();
+    let (y, height) = layout.entry_span(0).unwrap();
+    let row = Rect::from_xywh(layout.waves.left(), y, layout.waves.width(), height);
+    let shade = theme.wave_signal.with_alpha(0.16);
+    let band: f32 = app
+        .scene()
+        .prims
+        .iter()
+        .filter_map(|p| match p {
+            volna_core::scene::Prim::Quad { rect, fill, .. }
+                if *fill == shade && row.contains(rect.origin) =>
+            {
+                Some(rect.width())
+            }
+            _ => None,
+        })
+        .sum();
+    assert!(
+        band > layout.waves.width() * 0.9,
+        "the bursts shade the row: {band} of {} px",
+        layout.waves.width()
+    );
+}

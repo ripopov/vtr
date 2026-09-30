@@ -1914,27 +1914,51 @@ fn paint_clock_wave(
     let mut dashed: Vec<[Point; 2]> = Vec::new();
     // Each label with the span it must fit in: a band's inside it, "gated" in its gap.
     let mut labels: Vec<(f32, f32, String, Color)> = Vec::new();
+    // A running clock too fast to draw edge by edge: a shaded band.
+    let band = |scene: &mut Scene, xa: f32, xb: f32| {
+        scene.fill(
+            Rect::from_xywh(xa, top, xb - xa, bottom - top),
+            t.wave_signal.with_alpha(0.16),
+        );
+        scene.fill(Rect::from_xywh(xa, top, xb - xa, 1.0), t.wave_signal);
+        scene.fill(
+            Rect::from_xywh(xa, bottom - 1.0, xb - xa, 1.0),
+            t.wave_signal,
+        );
+    };
+    let x = |a: f64| area.left() + a as f32;
     p.scene.clipped(clip, |scene| {
+        // Bursts narrower than half a pixel, merged while less than a pixel
+        // apart, so a gated clock zoomed out still shows where it runs.
+        let mut narrow: Option<(f64, f64)> = None;
+        let flush = |scene: &mut Scene, run: &mut Option<(f64, f64)>| {
+            if let Some((a, b)) = run.take() {
+                band(scene, x(a), x(b.max(a + 1.0)));
+            }
+        };
         for s in stretches {
             let (a, b) = (col(s.begin), col(s.end));
-            if b <= 0.0 || a >= wf || (b - a) < 0.5 {
+            if b <= 0.0 || a >= wf {
                 continue;
             }
+            if b - a < 0.5 {
+                match &mut narrow {
+                    Some((_, end)) if a <= *end + 1.0 => *end = end.max(b),
+                    _ => {
+                        flush(scene, &mut narrow);
+                        narrow = Some((a, b));
+                    }
+                }
+                continue;
+            }
+            flush(scene, &mut narrow);
             if s.period as f64 / 2.0 * ppu >= CLOCK_BAND_HALF_PX {
                 let columns = a.floor() as usize..(b.ceil() as usize).min(w_px);
                 paint_bits(&history, vp, area, t, scene, false, columns);
                 continue;
             }
-            let (xa, xb) = (area.left() + a as f32, area.left() + b as f32);
-            scene.fill(
-                Rect::from_xywh(xa, top, xb - xa, bottom - top),
-                t.wave_signal.with_alpha(0.16),
-            );
-            scene.fill(Rect::from_xywh(xa, top, xb - xa, 1.0), t.wave_signal);
-            scene.fill(
-                Rect::from_xywh(xa, bottom - 1.0, xb - xa, 1.0),
-                t.wave_signal,
-            );
+            let (xa, xb) = (x(a), x(b));
+            band(scene, xa, xb);
             let period = format_time(s.period as f64, base);
             let label = match crate::clock::frequency(s.period as f64, base) {
                 Some(f) => format!("{f} · {period}"),
@@ -1942,6 +1966,7 @@ fn paint_clock_wave(
             };
             labels.push((xa, xb, label, t.wave_bus_text));
         }
+        flush(scene, &mut narrow);
         for &(ga, gb) in &gaps {
             let (a, b) = (col(ga), col(gb));
             if b - a < 1.0 {
